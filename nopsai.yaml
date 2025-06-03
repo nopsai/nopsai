@@ -1,0 +1,34 @@
+# pipeline.yaml (Example for testing dependencies)
+name: My Sample Pipeline with Dependencies
+description: A sample pipeline demonstrating step dependencies and parallel execution.
+steps:
+  - name: List files in root
+    prompt: "list all files in the /root directory with details"
+    dependencies:
+      - Create Dummy File 
+
+  - name: Create Dummy File
+    prompt: "create a dummy file named output.txt with content 'initial content'"
+    ignore_failure: false
+
+  - name: Prepare the env
+    prompt: check if the go is installed
+    dependencies:
+      - List files in root
+    ignore_failure: false
+
+  - name: Show Go version (using output from Prepare the env)
+    prompt: "show current go version"
+    dependencies:
+      - Prepare the env
+    ignore_failure: false
+
+  - name: Read Dummy File
+    prompt: "read the content of the file output.txt created by 'Create Dummy File' step"
+    dependencies:
+      - Create Dummy File
+    ignore_failure: false
+
+  - name: Echo something
+    prompt: "echo 'Hello from Nopsai step! This step runs independently.'"
+    ignore_failure: false
