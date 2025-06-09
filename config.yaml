@@ -1,4 +1,5 @@
 gemini_api_key: "AIzaSyCdyZBcvjWrroxGem8l0ER62WNPlg8s7xU"
-llm_model_name: "gemini-2.5-flash-preview-04-17"
+llm_model_name: "gemini-2.5-flash-preview-05-20"
 default_execution_dir: ""
+# llm_model_name: "gemini-2.5-preview-04-17"
 verbose: true
