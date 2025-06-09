@@ -1,34 +1,40 @@
-# pipeline.yaml (Example for testing dependencies)
 name: My Sample Pipeline with Dependencies
 description: A sample pipeline demonstrating step dependencies and parallel execution.
+container_image: "nopsai-agent"
+workspace_mount: "."
+environment:
+  DOCKER_HOST: "tcp://192.168.1.16:2375"
 steps:
-  - name: List files in root
-    prompt: "list all files in the /root directory with details"
+  - name: prepare environment
+    prompt: "exposrt DOCKER_HOST=192.168.1.16:2375"
+
+  - name: clone repository
+    prompt: "clone repository https://github.com/hosein-yousefii/test-app.git, remove dir if already exist"
+    ignore_failure: false
+
+  - name: git branch
+    prompt: "checkout to branch main and calculate version based on the number of commits since the last tag. version X.X.X"
     dependencies:
-      - Create Dummy File 
+      - clone repository
 
-  - name: Create Dummy File
-    prompt: "create a dummy file named output.txt with content 'initial content'"
+  - name: docker
+    prompt: "build docker image with the name of the repository and the calculated version from the git branch step"
     ignore_failure: false
-
-  - name: Prepare the env
-    prompt: check if the go is installed
     dependencies:
-      - List files in root
-    ignore_failure: false
+      - git branch
 
-  - name: Show Go version (using output from Prepare the env)
-    prompt: "show current go version"
+  # - name: local registry
+  #   prompt: "Create local docker registry container on port 5000 on local docker machine named registry, remove the container if it's already exist"
+  #   ignore_failure: false
+
+  - name: push docker image
+    prompt: "push docker image to 192.168.1.16:5000 registry with 3 tags (latest, calculated version, commit hash), remove the image if it's already exist"
+    ignore_failure: false
     dependencies:
-      - Prepare the env
+      - docker
+    
+  - name: deploy
+    prompt: "run the created docker image on local docker machine, remove the container if it's already exist"
     ignore_failure: false
-
-  - name: Read Dummy File
-    prompt: "read the content of the file output.txt created by 'Create Dummy File' step"
     dependencies:
-      - Create Dummy File
-    ignore_failure: false
-
-  - name: Echo something
-    prompt: "echo 'Hello from Nopsai step! This step runs independently.'"
-    ignore_failure: false
+      - push docker image
