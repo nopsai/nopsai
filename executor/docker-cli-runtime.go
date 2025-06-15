@@ -8,14 +8,12 @@ import (
 	"strings"
 )
 
-// DockerCLIRuntime is a concrete implementation for the Docker CLI.
 type DockerCLIRuntime struct{}
 
 func NewDockerCLIRuntime() *DockerCLIRuntime {
 	return &DockerCLIRuntime{}
 }
 
-// ImageExists checks if an image is present locally using 'docker image inspect'.
 func (d *DockerCLIRuntime) ImageExists(ctx context.Context, imageName string) (bool, error) {
 	cmd := exec.CommandContext(ctx, "docker", "image", "inspect", imageName)
 	cmd.Stdout = io.Discard
@@ -23,13 +21,10 @@ func (d *DockerCLIRuntime) ImageExists(ctx context.Context, imageName string) (b
 
 	if err := cmd.Run(); err != nil {
 		if _, ok := err.(*exec.ExitError); ok {
-			// Command ran and exited with an error code, which means the image does not exist.
 			return false, nil
 		}
-		// A different kind of error occurred (e.g., docker daemon not running). Propagate it.
 		return false, fmt.Errorf("failed to run 'docker image inspect' for '%s': %w", imageName, err)
 	}
-	// Command succeeded, so the image exists.
 	return true, nil
 }
 
@@ -46,23 +41,16 @@ func (d *DockerCLIRuntime) CreateAndStartContainer(ctx context.Context, config C
 	args := []string{
 		"run", "-d",
 		"--name", config.Name,
-		// Mount the project workspace
 		"-v", fmt.Sprintf("%s:%s", config.WorkspaceMount.HostPath, config.WorkspaceMount.ContainerPath),
-		// Mount the agent/scripts directory
 		"-v", fmt.Sprintf("%s:%s", config.AgentScriptMount.HostPath, config.AgentScriptMount.ContainerPath),
-		// Set the working directory
 		"-w", config.WorkingDir,
 	}
 
-	// Add environment variables passed from the pipeline config
 	if config.Environment != nil {
 		for key, value := range config.Environment {
 			args = append(args, "--env", fmt.Sprintf("%s=%s", key, value))
 		}
 	}
-
-	// The logic for conditionally mounting the Docker socket has been removed.
-	// The container will rely on the DOCKER_HOST environment variable if set.
 
 	args = append(args, config.Image)
 	args = append(args, config.EntrypointCmd...)
@@ -85,7 +73,6 @@ func (d *DockerCLIRuntime) CopyToContainer(ctx context.Context, containerID, hos
 }
 
 func (d *DockerCLIRuntime) StartAgentExec(ctx context.Context, containerID string, agentPath string) (AgentIO, error) {
-	// Execute the agent binary directly
 	cmd := exec.CommandContext(ctx, "docker", "exec", "-i", containerID, agentPath)
 
 	stdin, err := cmd.StdinPipe()

@@ -1,4 +1,3 @@
-// executor/command.go
 package executor
 
 import (
@@ -50,7 +49,7 @@ func ExecuteCommand(workingDir string, command string, verbose bool, args ...str
 	return stdout, nil
 }
 
-func ExecuteDirectAction(actionName string, details string) (string, error) {
-	fmt.Printf("  Simulating direct action: %s, Details: %s\n", actionName, details)
-	return fmt.Sprintf("Successfully simulated direct action: %s", actionName), nil
+func ExecuteDirectStep(stepName string, details string) (string, error) {
+	fmt.Printf("  Simulating direct step: %s, Details: %s\n", stepName, details)
+	return fmt.Sprintf("Successfully simulated direct step: %s", stepName), nil
 }

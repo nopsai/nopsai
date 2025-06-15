@@ -14,7 +14,6 @@ import (
 	"time"
 )
 
-// DockerExecutor runs pipeline actions inside Docker containers using an agent.
 type DockerExecutor struct {
 	runtime            ContainerRuntime
 	containerID        string
@@ -25,7 +24,6 @@ type DockerExecutor struct {
 	verbose            bool
 }
 
-// NewDockerExecutor creates a new Docker executor with a specific runtime.
 func NewDockerExecutor(runtime ContainerRuntime) *DockerExecutor {
 	return &DockerExecutor{
 		runtime:            runtime,
@@ -88,7 +86,7 @@ func (de *DockerExecutor) PrepareEnvironment(ctx PipelineContext, verbose bool) 
 		AgentScriptMount: HostMount{HostPath: de.hostAgentDir, ContainerPath: "/nopsai_agent"},
 		WorkingDir:       containerWorkspace,
 		EntrypointCmd:    []string{"tail", "-f", "/dev/null"},
-		Environment:      ctx.Environment, // Pass the environment map
+		Environment:      ctx.Environment,
 	}
 
 	if verbose {
@@ -140,14 +138,14 @@ func (de *DockerExecutor) PrepareEnvironment(ctx PipelineContext, verbose bool) 
 	return nil
 }
 
-func (de *DockerExecutor) ExecuteAction(ctx ActionContext, verbose bool) ExecutionResult {
+func (de *DockerExecutor) ExecuteStep(ctx StepContext, verbose bool) ExecutionResult {
 	if de.containerID == "" {
 		return ExecutionResult{Error: fmt.Errorf("docker executor: environment not prepared")}
 	}
 
 	agentCmd := sharedtypes.AgentCommand{
-		ActionName: ctx.ActionName,
-		Script:     ctx.ActionScriptContent,
+		StepName: ctx.Name,
+		Script:   ctx.StepScriptContent,
 	}
 
 	cmdBytes, err := json.Marshal(agentCmd)
