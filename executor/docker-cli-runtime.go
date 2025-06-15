@@ -8,13 +8,13 @@ import (
 	"strings"
 )
 
-type DockerCLIRuntime struct{}
+type DockerCLIRuntimeT struct{}
 
-func NewDockerCLIRuntime() *DockerCLIRuntime {
-	return &DockerCLIRuntime{}
+func DockerCLIRuntime() *DockerCLIRuntimeT {
+	return &DockerCLIRuntimeT{}
 }
 
-func (d *DockerCLIRuntime) ImageExists(ctx context.Context, imageName string) (bool, error) {
+func (d *DockerCLIRuntimeT) ImageExists(ctx context.Context, imageName string) (bool, error) {
 	cmd := exec.CommandContext(ctx, "docker", "image", "inspect", imageName)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
@@ -28,7 +28,7 @@ func (d *DockerCLIRuntime) ImageExists(ctx context.Context, imageName string) (b
 	return true, nil
 }
 
-func (d *DockerCLIRuntime) PullImage(ctx context.Context, imageName string) error {
+func (d *DockerCLIRuntimeT) PullImage(ctx context.Context, imageName string) error {
 	cmd := exec.CommandContext(ctx, "docker", "pull", imageName)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -37,7 +37,7 @@ func (d *DockerCLIRuntime) PullImage(ctx context.Context, imageName string) erro
 	return nil
 }
 
-func (d *DockerCLIRuntime) CreateAndStartContainer(ctx context.Context, config ContainerConfig) (string, error) {
+func (d *DockerCLIRuntimeT) CreateAndStartContainer(ctx context.Context, config ContainerConfig) (string, error) {
 	args := []string{
 		"run", "-d",
 		"--name", config.Name,
@@ -63,7 +63,7 @@ func (d *DockerCLIRuntime) CreateAndStartContainer(ctx context.Context, config C
 	return strings.TrimSpace(string(output)), nil
 }
 
-func (d *DockerCLIRuntime) CopyToContainer(ctx context.Context, containerID, hostPath, containerPath string) error {
+func (d *DockerCLIRuntimeT) CopyToContainer(ctx context.Context, containerID, hostPath, containerPath string) error {
 	cmd := exec.CommandContext(ctx, "docker", "cp", hostPath, fmt.Sprintf("%s:%s", containerID, containerPath))
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -72,7 +72,7 @@ func (d *DockerCLIRuntime) CopyToContainer(ctx context.Context, containerID, hos
 	return nil
 }
 
-func (d *DockerCLIRuntime) StartAgentExec(ctx context.Context, containerID string, agentPath string) (AgentIO, error) {
+func (d *DockerCLIRuntimeT) StartAgentExec(ctx context.Context, containerID string, agentPath string) (AgentIO, error) {
 	cmd := exec.CommandContext(ctx, "docker", "exec", "-i", containerID, agentPath)
 
 	stdin, err := cmd.StdinPipe()
@@ -99,7 +99,7 @@ func (d *DockerCLIRuntime) StartAgentExec(ctx context.Context, containerID strin
 	}, nil
 }
 
-func (d *DockerCLIRuntime) StopAndRemoveContainer(ctx context.Context, containerID string) error {
+func (d *DockerCLIRuntimeT) StopAndRemoveContainer(ctx context.Context, containerID string) error {
 	stopCmd := exec.CommandContext(ctx, "docker", "stop", containerID)
 	if err := stopCmd.Run(); err != nil {
 		fmt.Printf("warning: failed to stop container %s: %v\n", containerID, err)

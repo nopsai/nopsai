@@ -44,8 +44,10 @@ type Property struct {
 }
 
 type Client struct {
-	apiKey    string
-	modelName string
+	apiKey          string
+	modelName       string
+	maxOutputTokens int
+	temperature     float64
 }
 
 type GeminiPart struct {
@@ -79,16 +81,21 @@ type GeminiResponse struct {
 	} `json:"candidates"`
 }
 
-func NewClient(apiKey string, modelName string) (*Client, error) {
+func NewClient(apiKey string, modelName string, maxTokens int, temperature float64) (*Client, error) {
 	if apiKey == "" {
 		return nil, fmt.Errorf("gemini API key is not configured")
 	}
 	if modelName == "" {
 		return nil, fmt.Errorf("gemini Model Name is not configured")
 	}
+	if maxTokens <= 0 {
+		return nil, fmt.Errorf("maxOutputTokens must be positive, got %d", maxTokens)
+	}
 	return &Client{
-		apiKey:    apiKey,
-		modelName: modelName,
+		apiKey:          apiKey,
+		modelName:       modelName,
+		maxOutputTokens: maxTokens,
+		temperature:     temperature,
 	}, nil
 }
 
@@ -139,8 +146,8 @@ The user's pipeline definition is:
 				},
 				Required: []string{"planned_steps"},
 			},
-			MaxOutputTokens: 8192,
-			Temperature:     0.3,
+			MaxOutputTokens: c.maxOutputTokens,
+			Temperature:     c.temperature,
 		},
 	}
 
@@ -229,8 +236,8 @@ Example: If the precise step prompt is "Create a file named data.txt with the co
 	geminiPayload := GeminiRequest{
 		Contents: []GeminiContent{{Role: "user", Parts: []GeminiPart{{Text: fullPromptForGemini}}}},
 		GenerationConfig: GenerationConfig{
-			MaxOutputTokens: 8192,
-			Temperature:     0.3,
+			MaxOutputTokens: c.maxOutputTokens,
+			Temperature:     c.temperature,
 		},
 	}
 	payloadBytes, err := json.Marshal(geminiPayload)

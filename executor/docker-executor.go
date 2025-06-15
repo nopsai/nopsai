@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-type DockerExecutor struct {
+type DockerExecutorT struct {
 	runtime            ContainerRuntime
 	containerID        string
 	hostAgentDir       string
@@ -24,18 +24,18 @@ type DockerExecutor struct {
 	verbose            bool
 }
 
-func NewDockerExecutor(runtime ContainerRuntime) *DockerExecutor {
-	return &DockerExecutor{
+func DockerExecutor(runtime ContainerRuntime) *DockerExecutorT {
+	return &DockerExecutorT{
 		runtime:            runtime,
 		containerAgentPath: "/nopsai_agent/nopsai-agent",
 	}
 }
 
-func (de *DockerExecutor) GetType() string {
+func (de *DockerExecutorT) GetType() string {
 	return "docker"
 }
 
-func (de *DockerExecutor) PrepareEnvironment(ctx PipelineContext, verbose bool) error {
+func (de *DockerExecutorT) PrepareEnvironment(ctx PipelineContext, verbose bool) error {
 	de.verbose = verbose
 	if ctx.ImageName == "" {
 		return fmt.Errorf("docker executor: image name is required")
@@ -138,7 +138,7 @@ func (de *DockerExecutor) PrepareEnvironment(ctx PipelineContext, verbose bool) 
 	return nil
 }
 
-func (de *DockerExecutor) ExecuteStep(ctx StepContext, verbose bool) ExecutionResult {
+func (de *DockerExecutorT) ExecuteStep(ctx StepContext, verbose bool) ExecutionResult {
 	if de.containerID == "" {
 		return ExecutionResult{Error: fmt.Errorf("docker executor: environment not prepared")}
 	}
@@ -179,7 +179,7 @@ func (de *DockerExecutor) ExecuteStep(ctx StepContext, verbose bool) ExecutionRe
 	return ExecutionResult{Error: fmt.Errorf("did not receive result from agent; agent may have terminated unexpectedly")}
 }
 
-func (de *DockerExecutor) CleanupEnvironment(verbose bool) error {
+func (de *DockerExecutorT) CleanupEnvironment(verbose bool) error {
 	if de.agentIO.Stdin != nil {
 		de.agentIO.Stdin.Close()
 	}
