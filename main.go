@@ -1,7 +1,7 @@
-// main.go
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"nopsai/config"
@@ -35,22 +35,32 @@ type PlannedExecutionStep struct {
 	Error         error
 }
 
+var (
+	configPath   string
+	pipelinePath string
+)
+
 func main() {
-	cfg, err := config.LoadConfig(".")
+	flag.StringVar(&configPath, "c", "./config.yaml", "Path to the configuration YAML file.")
+	flag.StringVar(&pipelinePath, "p", "", "Path to the pipeline YAML file. (Required)")
+	flag.Parse()
+
+	if pipelinePath == "" {
+		log.Println("Error: Pipeline file path must be provided via the -p flag.")
+		flag.Usage()
+		os.Exit(1)
+	}
+
+	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Error loading configuration from %s: %v", configPath, err)
 	}
 
 	if cfg.Verbose {
 		log.Println("verbose mode enabled")
 	}
 
-	if len(os.Args) < 2 {
-		log.Fatal("usage: nopsai <pipeline_yaml_file>")
-	}
-	pipelineFilePath := os.Args[1]
-
-	userPipeline, err := pipeline.LoadPipeline(pipelineFilePath)
+	userPipeline, err := pipeline.LoadPipeline(pipelinePath)
 	if err != nil {
 		log.Fatalf("error loading user pipeline: %v", err)
 	}
@@ -59,7 +69,10 @@ func main() {
 		log.Printf("successfully loaded pipeline: %s, with %d steps\n", userPipeline.Name, len(userPipeline.Steps))
 	}
 
-	llmClient, _ := llm.NewClient(cfg.GeminiAPIKey, cfg.LLMModelName)
+	llmClient, err := llm.NewClient(cfg.GeminiAPIKey, cfg.LLMModelName, cfg.LLMMaxOutputTokens, cfg.LLMTemperature)
+	if err != nil {
+		log.Fatalf("Error creating LLM client: %v", err)
+	}
 
 	var planningContext strings.Builder
 	for i, step := range userPipeline.Steps {
@@ -83,9 +96,19 @@ func main() {
 		}
 	}
 
-	currentExecutor := executor.NewDockerExecutor(executor.NewDockerCLIRuntime())
+	var currentExecutor executor.Executor
+	switch strings.ToLower(cfg.ExecutorRuntime) {
+	case "docker":
+		currentExecutor = executor.DockerExecutor(executor.DockerCLIRuntime())
+	case "local":
+		currentExecutor = executor.LocalExecutor()
+	default:
+		log.Fatalf("Unsupported executor_runtime '%s' in configuration. Supported values are 'docker' or 'local'.", cfg.ExecutorRuntime)
+	}
+
 	if cfg.Verbose {
-		log.Printf("\n--- Preparing Execution Environment (Executor: %s) ---", currentExecutor.GetType())
+		log.Printf("\n--- Preparing Execution Environment (Executor: %s, Configured: %s) ---",
+			currentExecutor.GetType(), cfg.ExecutorRuntime)
 	}
 
 	hostWorkspace := userPipeline.WorkspaceMount

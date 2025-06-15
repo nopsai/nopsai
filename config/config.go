@@ -8,23 +8,33 @@ import (
 )
 
 type Config struct {
-	LLMProvider         string `mapstructure:"llm_provider"`
-	GeminiAPIKey        string `mapstructure:"gemini_api_key"`
-	DefaultTimeout      int    `mapstructure:"default_timeout_seconds"`
-	LLMModelName        string `mapstructure:"llm_model_name"`
-	DefaultExecutionDir string `mapstructure:"default_execution_dir"`
-	Verbose             bool   `mapstructure:"verbose"`
+	LLMProvider         string  `mapstructure:"llm_provider"`
+	GeminiAPIKey        string  `mapstructure:"gemini_api_key"`
+	DefaultTimeout      int     `mapstructure:"default_timeout_seconds"`
+	LLMModelName        string  `mapstructure:"llm_model_name"`
+	DefaultExecutionDir string  `mapstructure:"default_execution_dir"`
+	LLMMaxOutputTokens  int     `mapstructure:"llm_max_output_tokens"`
+	LLMTemperature      float64 `mapstructure:"llm_temperature"`
+	Verbose             bool    `mapstructure:"verbose"`
+	ExecutorRuntime     string  `mapstructure:"executor_runtime"`
 }
 
 func LoadConfig(path string) (*Config, error) {
-	viper.AddConfigPath(path)
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
+	if path != "" {
+		viper.SetConfigFile(path)
+	} else {
+		viper.AddConfigPath(".")
+		viper.SetConfigName("config")
+		viper.SetConfigType("yaml")
+	}
 	viper.AutomaticEnv()
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.SetDefault("llm_model_name", "gemini-1.5-flash")
 	viper.SetDefault("default_execution_dir", "")
+	viper.SetDefault("llm_max_output_tokens", 1024)
+	viper.SetDefault("llm_temperature", 0.3)
 	viper.SetDefault("verbose", false)
+	viper.SetDefault("executor_runtime", "docker")
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
 		} else {

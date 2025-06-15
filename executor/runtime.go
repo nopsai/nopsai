@@ -31,6 +31,14 @@ type AgentIO struct {
 	Stderr io.ReadCloser
 }
 
+// Executor defines the interface for different pipeline execution strategies.
+type Executor interface {
+	GetType() string
+	PrepareEnvironment(ctx PipelineContext, verbose bool) error
+	ExecuteStep(ctx StepContext, verbose bool) ExecutionResult
+	CleanupEnvironment(verbose bool) error
+}
+
 type ContainerRuntime interface {
 	ImageExists(ctx context.Context, imageName string) (bool, error)
 	PullImage(ctx context.Context, imageName string) error
