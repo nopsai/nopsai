@@ -1,4 +1,3 @@
-// pipeline/parser.go
 package pipeline
 
 import (
@@ -18,9 +17,9 @@ type Step struct {
 type Pipeline struct {
 	Name           string            `yaml:"name"`
 	Description    string            `yaml:"description,omitempty"`
-	ContainerImage string            `yaml:"container_image"`           // Docker image for execution
-	WorkspaceMount string            `yaml:"workspace_mount,omitempty"` // Host path to mount as workspace
-	Environment    map[string]string `yaml:"environment,omitempty"`     // Environment variables for the container
+	ContainerImage string            `yaml:"container_image"`
+	WorkspaceMount string            `yaml:"workspace_mount,omitempty"`
+	Environment    map[string]string `yaml:"environment,omitempty"`
 	Steps          []Step            `yaml:"steps"`
 }
 

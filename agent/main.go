@@ -4,14 +4,13 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"nopsai/sharedtypes" // Import the new shared package
+	"nopsai/sharedtypes"
 	"os"
 	"os/exec"
 	"strings"
 )
 
 func main() {
-	// The agent runs in a simple loop: read a command, execute it, print result, repeat.
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -19,8 +18,8 @@ func main() {
 			continue
 		}
 
-		var cmd sharedtypes.AgentCommand       // Use type from shared package
-		var result sharedtypes.AgentExecResult // Use type from shared package
+		var cmd sharedtypes.AgentCommand
+		var result sharedtypes.AgentExecResult
 
 		if err := json.Unmarshal([]byte(line), &cmd); err != nil {
 			result.Error = fmt.Sprintf("agent failed to unmarshal command: %v", err)
@@ -28,7 +27,7 @@ func main() {
 			continue
 		}
 
-		result.ActionName = cmd.ActionName
+		result.StepName = cmd.StepName
 
 		bashCmd := exec.Command("/bin/bash", "-c", cmd.Script)
 
@@ -56,12 +55,10 @@ func main() {
 	}
 }
 
-// printResult marshals the result to JSON and prints it to stdout
-// for the Nopsai host to consume.
 func printResult(result sharedtypes.AgentExecResult) {
 	resultBytes, err := json.Marshal(result)
 	if err != nil {
-		fmt.Printf(`{"action_name": "%s", "error": "agent failed to marshal result: %v"}`+"\n", result.ActionName, err)
+		fmt.Printf(`{"step_name": "%s", "error": "agent failed to marshal result: %v"}`+"\n", result.StepName, err)
 		return
 	}
 	fmt.Println(string(resultBytes))
