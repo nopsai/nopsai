@@ -107,16 +107,18 @@ func (c *Client) GenerateExecutionPlan(userPipelineDefinition string, verbose bo
 
 	systemInstruction := `You are an AI pipeline planning assistant for a DevOps automation tool called Nopsai.
 Your task is to analyze a user's entire pipeline definition (list of steps, their prompts, dependencies, and ignore_failure flags) and create a structured execution plan.
-The plan should consist of a list of "PlannedSteps". Each PlannedStep represents a concrete, executable unit.
+The plan should consist of a list of "PlannedSteps". Each PlannedStep represents a concrete, executable unit of the step.
 For each PlannedStep, you must define:
 1.  'name': The 'name' of the user's step this action helps fulfill.
-3.  'prompt': A VERY PRECISE and self-contained natural language prompt that will be given to another LLM instance in a subsequent phase to generate ONLY the shell script/command for The specific action. This prompt should include all necessary details for that action. If this action needs to operate within a specific directory context established by a previous action, include that instruction in this prompt"
-4.  'dependencies': A list of 'name's of other PlannedSteps that this action depends on. Ensure these dependencies are logical.
-5.  'ignore_failure': A boolean, typically carried over from the original user step's 'ignore_failure' flag. If a user step is broken into multiple planned actions, all those planned actions should inherit the 'ignore_failure' status of the original user step.
+3.  'prompt': A VERY PRECISE and self-contained natural language prompt that will be given to another LLM instance in a subsequent phase to generate ONLY the shell script/command for The specific action. This prompt should include all necessary details for that action like a specific directory established by a previous action, any required input or output for other steps and any mapping between steps. Ensure the script/commands are logical."
+4.  'dependencies': A list of 'name's of other steps that this step depends on. Ensure these dependencies are logical.
+5.  'ignore_failure': A boolean, typically carried over from the original user step's 'ignore_failure' flag.
 6.  'description': A brief human-readable description of what this planned action does.
-Outputs of steps which are required by other steps should be stored in result.txt file as key=value. (e.g. SOME_KEY=some-value), and other steps should be aware of that. print the outputs of each step. Use native linux tools to edit file.
-IMPORTANT: Ensure that any action requiring a specific working directory has its 'prompt' clearly state that the operation should occur in that directory, or include commands like 'cd <directory_name>' as the first part of the prompt if appropriate for the code generation phase.
+
+Outputs of steps which are required by other steps should be stored in result.txt file as key=value. (e.g. SOME_KEY=some-value), and other steps should be able to get what they need from this file. print the outputs of each step. Use native linux tools to edit file.
+IMPORTANT: Ensure that any step requiring a specific working directory has its 'prompt' clearly state that the operation should occur in that directory, or include commands like 'cd <directory_name>' as the first part of the prompt if appropriate for the code generation phase.
 Output your response as a single JSON.
+
 The user's pipeline definition is:
 `
 	fullPromptForGemini := systemInstruction + userPipelineDefinition
@@ -222,7 +224,7 @@ func (c *Client) GenerateCodeForStep(context PromptContextForCode, verbose bool)
 	}
 
 	systemInstructionPrefix := `Your task is to generate a shell script or command to perform the requested task.
-The user will provide a very precise prompt for a specific, well-defined action, which may include context from previous steps.
+The user will provide a very precise prompt for a specific, well-defined step, which may include context from previous steps.
 Based on this input, provide ONLY the shell script or command to execute.
 ALWAYS start any multi-command bash script with 'set -e' to ensure it exits immediately if a command fails UNLESS the prompt explicitly indicates a command might fail and its failure should be ignored or handled.
 make specific command fault-tolerant within the script, for example by using 'git fetch --tags || true' or by checking its exit code if 'set -e' is active for the rest of the script. The script should still proceed with its logic if such an informational command "fails" gracefully.

@@ -2,7 +2,7 @@ gemini_api_key: "AIzaSyCdyZBcvjWrroxGem8l0ER62WNPlg8s7xU"
 llm_model_name: "gemini-2.5-flash-preview-05-20"
 default_execution_dir: "/tmp/Nopsai-pipeline"
 # llm_model_name: "gemini-2.5-preview-04-17"
-verbose: false
+verbose: true
 llm_max_output_tokens: 8192
 llm_temperature: 0.7
-executor_runtime: "local" # Can be "docker" or "local"
+executor_runtime: "docker" # Can be "docker" or "local"
