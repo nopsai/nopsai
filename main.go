@@ -220,6 +220,19 @@ func main() {
 			continue
 		}
 
+		if strings.TrimSpace(generatedCode) == "" {
+			psi.Error = fmt.Errorf("LLM generated an empty script for step '%s'", Name)
+			psi.State = StateFailed
+			log.Printf("'%s': %s - %v\n", Name, psi.State, psi.Error)
+			if !psi.IgnoreFailure {
+				log.Printf("'%s': Failed (empty script). Stopping pipeline.", Name)
+				pipelineFailed = true
+			} else {
+				log.Printf("'%s': Failed (empty script) but IgnoreFailure is true. Continuing pipeline.", Name)
+			}
+			continue
+		}
+
 		stepCtx := executor.StepContext{
 			Name:              psi.Name,
 			StepScriptContent: generatedCode,
@@ -279,6 +292,7 @@ func main() {
 		log.Println("--- User Step Summary ---")
 		for _, userStep := range userPipeline.Steps {
 			if _, processed := userStepsProcessed[userStep.Name]; processed {
+				log.Printf("User Step: %s - Status: Processed (corresponded to one or more planned steps that were executed, failed, or skipped).", userStep.Name)
 			} else {
 				fmt.Printf("User Step: %s, Status: SKIPPED (no planned steps executed or pipeline halted early)\n", userStep.Name)
 			}
