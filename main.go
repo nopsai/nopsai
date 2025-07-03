@@ -88,13 +88,13 @@ func main() {
 		log.Fatal("LLM returned an empty or invalid execution plan.")
 	}
 
-	if cfg.Verbose {
-		log.Println("LLM Execution Plan Received:")
-		for i, step := range llmExecutionPlan.PlannedSteps {
-			log.Printf("  Planned step %d: Name='%s', Description='%s'",
-				i+1, step.Name, step.Description)
-		}
-	}
+	// if cfg.Verbose {
+	// 	log.Println("LLM Execution Plan Received:")
+	// 	for i, step := range llmExecutionPlan.PlannedSteps {
+	// 		log.Printf("  Planned step %d: Name='%s', Description='%s'",
+	// 			i+1, step.Name, step.Description)
+	// 	}
+	// }
 
 	var currentExecutor executor.Executor
 	switch strings.ToLower(cfg.ExecutorRuntime) {
@@ -198,9 +198,9 @@ func main() {
 		})
 		outputsMutex.Unlock()
 
-		if cfg.Verbose {
-			log.Printf("  Resolved Step Prompt (for LLM code gen): %s\n", resolvedPrompt)
-		}
+		// if cfg.Verbose {
+		// 	log.Printf("  Resolved Step Prompt (for LLM code gen): %s\n", resolvedPrompt)
+		// }
 
 		llmCodeContext := llm.PromptContextForCode{
 			PreciseStepPrompt: resolvedPrompt,
@@ -289,14 +289,14 @@ func main() {
 			}
 		}
 
-		log.Println("--- User Step Summary ---")
-		for _, userStep := range userPipeline.Steps {
-			if _, processed := userStepsProcessed[userStep.Name]; processed {
-				log.Printf("User Step: %s - Status: Processed (corresponded to one or more planned steps that were executed, failed, or skipped).", userStep.Name)
-			} else {
-				fmt.Printf("User Step: %s, Status: SKIPPED (no planned steps executed or pipeline halted early)\n", userStep.Name)
-			}
-		}
+		// log.Println("--- User Step Summary ---")
+		// for _, userStep := range userPipeline.Steps {
+		// 	if _, processed := userStepsProcessed[userStep.Name]; processed {
+		// 		log.Printf("User Step: %s - Status: Processed (corresponded to one or more planned steps that were executed, failed, or skipped).", userStep.Name)
+		// 	} else {
+		// 		fmt.Printf("User Step: %s, Status: SKIPPED (no planned steps executed or pipeline halted early)\n", userStep.Name)
+		// 	}
+		// }
 	}
 
 	fmt.Println("\nPipeline processing finished.")

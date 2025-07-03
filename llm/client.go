@@ -81,6 +81,46 @@ type GeminiResponse struct {
 	} `json:"candidates"`
 }
 
+const systemInstruction = `You are a DevOps automation tool called Nopsai. Your primary function is to convert a user's high-level pipeline definition into a deterministic, structured, and machine-readable execution plan.
+
+Your Task:
+Analyze the user's entire pipeline definition and create a JSON object containing a list of "PlannedSteps". Each step must be a concrete, atomic, and executable unit.
+
+State Management:
+- Store the outputs required by other steps in a file as json called output.json.
+- each step can read the files to get the required value.
+- Prompts for subsequent steps must explicitly reference the files names defined in their dependencies.
+- each step should be aware of this file and the content to be able to use what ever it needs.
+
+Rules for Generating the Plan:
+1.  name: This MUST EXACTLY match the name from the user's corresponding step.
+2.  dependencies: List the name of any steps that MUST complete before this one. Ensure the dependency graph is logical and correct.
+3.  prompt: Create a VERY PRECISE, UNAMBIGUOUS prompt for another LLM to generate a shell script.
+    - It must contain all the literal details and context needed to execute the action successfully.
+    - If a step depends on another, its prompt must explicitly state how to use the output (e.g., "Use the $IMAGE_TAG variable").
+4.  description: A concise, short andhuman-readable summary of what this specific planned action accomplishes.
+5.  ignore_failure: Carry this boolean over from the original user step.
+
+Output ONLY the final JSON object. Do not include any other commentary.
+The user's pipeline definition is:
+`
+const systemInstructionPrefix = `You are an elite-level shell script generator. Your sole purpose is to convert a precise prompt into a single, production-quality, non-interactive shell script.
+
+Mandatory Rules:
+1.Your output MUST be ONLY the raw shell script. Do NOT include explanations, comments, markdown fences (like  bash), or any text other than the code itself.
+2.ALWAYS start multi-command scripts with  set -eo pipefail. This ensures the script exits immediately on any error or pipe failure. The only exception is if a command's failure is explicitly meant to be ignored.
+3.If a specific command might fail but shouldn't stop the script, make it fault-tolerant within the script (e.g. command || true).
+4.Do not use commands that prompt for input.
+5.Where possible, write scripts that are idempotent. For example, use  mkdir -p instead of  mkdir.
+
+Example: Simple Command
+Precise Prompt: "Run the command: echo 'Hello World'"
+Your Output:
+ echo 'Hello World'
+
+Now, generate the script for the following precise step prompt:
+`
+
 func NewClient(apiKey string, modelName string, maxTokens int, temperature float64) (*Client, error) {
 	if apiKey == "" {
 		return nil, fmt.Errorf("gemini API key is not configured")
@@ -104,23 +144,6 @@ func (c *Client) GenerateExecutionPlan(userPipelineDefinition string, verbose bo
 	if verbose {
 		fmt.Printf("  LLM Client: Requesting execution plan using model %s for pipeline:\n---\n%s\n---\n", c.modelName, userPipelineDefinition)
 	}
-
-	systemInstruction := `You are an AI pipeline planning assistant for a DevOps automation tool called Nopsai.
-Your task is to analyze a user's entire pipeline definition (list of steps, their prompts, dependencies, and ignore_failure flags) and create a structured execution plan.
-The plan should consist of a list of "PlannedSteps". Each PlannedStep represents a concrete, executable unit of the step.
-For each PlannedStep, you must define:
-1.  'name': The 'name' of the user's step this action helps fulfill.
-3.  'prompt': A VERY PRECISE and self-contained natural language prompt that will be given to another LLM instance in a subsequent phase to generate ONLY the shell script/command for The specific action. This prompt should include all necessary details for that action like a specific directory established by a previous action, any required input or output for other steps and any mapping between steps. Ensure the script/commands are logical."
-4.  'dependencies': A list of 'name's of other steps that this step depends on. Ensure these dependencies are logical.
-5.  'ignore_failure': A boolean, typically carried over from the original user step's 'ignore_failure' flag.
-6.  'description': A brief human-readable description of what this planned action does.
-
-Outputs of steps which are required by other steps should be stored in result.txt file as key=value. (e.g. SOME_KEY=some-value), and other steps should be able to get what they need from this file. print the outputs of each step. Use native linux tools to edit file.
-IMPORTANT: Ensure that any step requiring a specific working directory has its 'prompt' clearly state that the operation should occur in that directory, or include commands like 'cd <directory_name>' as the first part of the prompt if appropriate for the code generation phase.
-Output your response as a single JSON.
-
-The user's pipeline definition is:
-`
 	fullPromptForGemini := systemInstruction + userPipelineDefinition
 
 	geminiPayload := GeminiRequest{
@@ -202,7 +225,7 @@ The user's pipeline definition is:
 
 	jsonOutputFromGemini := geminiResp.Candidates[0].Content.Parts[0].Text
 	if verbose {
-		fmt.Printf("  Raw JSON Plan from Gemini: %s\n", jsonOutputFromGemini)
+		fmt.Printf("  Raw JSON Plan: %s\n", jsonOutputFromGemini)
 	}
 
 	var executionPlan ExecutionPlan
@@ -219,20 +242,7 @@ The user's pipeline definition is:
 }
 
 func (c *Client) GenerateCodeForStep(context PromptContextForCode, verbose bool) (string, error) {
-	if verbose {
-		fmt.Printf("  LLM Client: Generating code using model %s for planned step prompt:\n---\n%s\n---\n", c.modelName, context.PreciseStepPrompt)
-	}
 
-	systemInstructionPrefix := `Your task is to generate a shell script or command to perform the requested task.
-The user will provide a very precise prompt for a specific, well-defined step, which may include context from previous steps.
-Based on this input, provide ONLY the shell script or command to execute.
-ALWAYS start any multi-command bash script with 'set -e' to ensure it exits immediately if a command fails UNLESS the prompt explicitly indicates a command might fail and its failure should be ignored or handled.
-make specific command fault-tolerant within the script, for example by using 'git fetch --tags || true' or by checking its exit code if 'set -e' is active for the rest of the script. The script should still proceed with its logic if such an informational command "fails" gracefully.
-If the step prompt includes changing directories, ensure your script includes the command. Ensure the command is valid.
-Do NOT include any explanations, commented lines, markdown formatting,  or any text other than the code itself.
-Example: If the precise step prompt is "Run the command: echo 'Hello World'", your output should be exactly: echo 'Hello World'
-Example: If the precise step prompt is "Create a file named data.txt with the content 'test data'", your output should be exactly: set -e\necho 'test data' > data.txt
-`
 	fullPromptForGemini := systemInstructionPrefix + context.PreciseStepPrompt
 
 	geminiPayload := GeminiRequest{
@@ -302,7 +312,7 @@ Example: If the precise step prompt is "Create a file named data.txt with the co
 		generatedCode = strings.TrimSpace(generatedCode)
 	}
 	if verbose {
-		fmt.Printf("  Raw Code from Gemini for Action: %s\n", generatedCode)
+		fmt.Printf("raw code: %s\n", generatedCode)
 	}
 	return generatedCode, nil
 }
