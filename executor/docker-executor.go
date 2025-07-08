@@ -64,7 +64,7 @@ func (de *DockerExecutorT) PrepareEnvironment(ctx PipelineContext, verbose bool)
 	}
 	de.hostAgentDir = hostAgentDir
 
-	hostWorkspace, err := filepath.Abs(ctx.HostWorkspacePath)
+	hostWorkspace, err := filepath.Abs(ctx.WorkspacePath)
 	if err != nil {
 		return fmt.Errorf("failed to resolve host workspace path: %w", err)
 	}
@@ -74,19 +74,17 @@ func (de *DockerExecutorT) PrepareEnvironment(ctx PipelineContext, verbose bool)
 		}
 	}
 
-	containerWorkspace := ctx.ContainerWorkspacePath
-	if containerWorkspace == "" {
-		containerWorkspace = "/workspace"
-	}
-
 	containerCfg := ContainerConfig{
 		Name:             fmt.Sprintf("nopsai_exec_%s_%d", strings.ReplaceAll(ctx.PipelineName, " ", "_"), time.Now().UnixNano()),
 		Image:            ctx.ImageName,
-		WorkspaceMount:   HostMount{HostPath: hostWorkspace, ContainerPath: containerWorkspace},
 		AgentScriptMount: HostMount{HostPath: de.hostAgentDir, ContainerPath: "/nopsai_agent"},
-		WorkingDir:       containerWorkspace,
+		WorkingDir:       "/workspace",
 		EntrypointCmd:    []string{"tail", "-f", "/dev/null"},
 		Environment:      ctx.Environment,
+	}
+
+	if ctx.WorkspacePath != "" {
+		containerCfg.WorkspaceMount = HostMount{HostPath: hostWorkspace, ContainerPath: "/workspace"}
 	}
 
 	if verbose {
@@ -143,9 +141,19 @@ func (de *DockerExecutorT) ExecuteStep(ctx StepContext, verbose bool) ExecutionR
 		return ExecutionResult{Error: fmt.Errorf("docker executor: environment not prepared")}
 	}
 
+	// The WORKSPACE env var is set by the container's WorkingDir.
+	wrapperScript := fmt.Sprintf(`#!/bin/bash
+set -eo pipefail
+
+export WORKSPACE="%s"
+source "%s" || true
+
+%s
+`, "/workspace", "/workspace/nopsai_outputs.env", ctx.StepScriptContent)
+
 	agentCmd := sharedtypes.AgentCommand{
 		StepName: ctx.Name,
-		Script:   ctx.StepScriptContent,
+		Script:   wrapperScript,
 	}
 
 	cmdBytes, err := json.Marshal(agentCmd)
