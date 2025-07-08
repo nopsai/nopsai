@@ -9,9 +9,7 @@ import (
 	"nopsai/llm"
 	"nopsai/pipeline"
 	"os"
-	"regexp"
 	"strings"
-	"sync"
 )
 
 type StepState string
@@ -76,8 +74,8 @@ func main() {
 
 	var planningContext strings.Builder
 	for i, step := range userPipeline.Steps {
-		planningContext.WriteString(fmt.Sprintf("Step %d - Name: '%s', Prompt: \"%s\", Dependencies: %v, IgnoreFailure: %t\n",
-			i+1, step.Name, step.Prompt, step.Dependencies, step.IgnoreFailure))
+		planningContext.WriteString(fmt.Sprintf("Step %d - Name: '%s', Prompt: \"%s\", Outputs: %v, Dependencies: %v, IgnoreFailure: %t\n",
+			i+1, step.Name, step.Prompt, step.Outputs, step.Dependencies, step.IgnoreFailure))
 	}
 
 	llmExecutionPlan, err := llmClient.GenerateExecutionPlan(planningContext.String(), cfg.Verbose)
@@ -87,14 +85,6 @@ func main() {
 	if llmExecutionPlan == nil || len(llmExecutionPlan.PlannedSteps) == 0 {
 		log.Fatal("LLM returned an empty or invalid execution plan.")
 	}
-
-	// if cfg.Verbose {
-	// 	log.Println("LLM Execution Plan Received:")
-	// 	for i, step := range llmExecutionPlan.PlannedSteps {
-	// 		log.Printf("  Planned step %d: Name='%s', Description='%s'",
-	// 			i+1, step.Name, step.Description)
-	// 	}
-	// }
 
 	var currentExecutor executor.Executor
 	switch strings.ToLower(cfg.ExecutorRuntime) {
@@ -111,19 +101,11 @@ func main() {
 			currentExecutor.GetType(), cfg.ExecutorRuntime)
 	}
 
-	hostWorkspace := userPipeline.WorkspaceMount
-	if hostWorkspace == "" {
-		hostWorkspace = "."
-		if cfg.Verbose {
-			log.Printf("pipeline.yaml does not specify 'workspace_mount', defaulting host workspace to current directory '.'")
-		}
-	}
-
 	pipelineCtx := executor.PipelineContext{
-		PipelineName:      userPipeline.Name,
-		ImageName:         userPipeline.ContainerImage,
-		HostWorkspacePath: hostWorkspace,
-		Environment:       userPipeline.Environment,
+		PipelineName:  userPipeline.Name,
+		ImageName:     userPipeline.ContainerImage,
+		WorkspacePath: userPipeline.WorkspaceMount,
+		Environment:   userPipeline.Environment,
 	}
 
 	if err := currentExecutor.PrepareEnvironment(pipelineCtx, cfg.Verbose); err != nil {
@@ -139,8 +121,6 @@ func main() {
 		log.Println("\n--- Executing LLM's Planned steps ---")
 	}
 	plannedStepInfos := make(map[string]*PlannedExecutionStep)
-	stepOutputs := make(map[string]string)
-	var outputsMutex sync.Mutex
 
 	for i := range llmExecutionPlan.PlannedSteps {
 		step := llmExecutionPlan.PlannedSteps[i]
@@ -176,34 +156,9 @@ func main() {
 		}
 
 		psi.State = StateRunning
-		resolvedPrompt := psi.Prompt
-		outputsMutex.Lock()
-		placeholderRegex := regexp.MustCompile(`{outputs\.([a-zA-Z0-9_]+)}`)
-		resolvedPrompt = placeholderRegex.ReplaceAllStringFunc(resolvedPrompt, func(match string) string {
-			parts := placeholderRegex.FindStringSubmatch(match)
-			if len(parts) == 2 {
-				depName := parts[1]
-				if output, ok := stepOutputs[depName]; ok {
-					if cfg.Verbose {
-						log.Printf("  Substituting placeholder '%s' with output from '%s'", match, depName)
-					}
-					return strings.TrimSpace(output)
-				}
-				if cfg.Verbose {
-					log.Printf("  Warning: Output for placeholder '%s' (step '%s') not found.", match, depName)
-				}
-				return match
-			}
-			return match
-		})
-		outputsMutex.Unlock()
-
-		// if cfg.Verbose {
-		// 	log.Printf("  Resolved Step Prompt (for LLM code gen): %s\n", resolvedPrompt)
-		// }
 
 		llmCodeContext := llm.PromptContextForCode{
-			PreciseStepPrompt: resolvedPrompt,
+			PreciseStepPrompt: psi.Prompt,
 		}
 
 		generatedCode, err := llmClient.GenerateCodeForStep(llmCodeContext, cfg.Verbose)
@@ -240,10 +195,7 @@ func main() {
 
 		execResult := currentExecutor.ExecuteStep(stepCtx, cfg.Verbose)
 
-		outputsMutex.Lock()
-		stepOutputs[Name] = execResult.Stdout
 		psi.Output = execResult.Stdout
-		outputsMutex.Unlock()
 
 		if execResult.Error != nil {
 			psi.Error = execResult.Error
@@ -288,15 +240,6 @@ func main() {
 				userStepsProcessed[psi.Name] = true
 			}
 		}
-
-		// log.Println("--- User Step Summary ---")
-		// for _, userStep := range userPipeline.Steps {
-		// 	if _, processed := userStepsProcessed[userStep.Name]; processed {
-		// 		log.Printf("User Step: %s - Status: Processed (corresponded to one or more planned steps that were executed, failed, or skipped).", userStep.Name)
-		// 	} else {
-		// 		fmt.Printf("User Step: %s, Status: SKIPPED (no planned steps executed or pipeline halted early)\n", userStep.Name)
-		// 	}
-		// }
 	}
 
 	fmt.Println("\nPipeline processing finished.")

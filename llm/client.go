@@ -84,22 +84,20 @@ type GeminiResponse struct {
 const systemInstruction = `You are a DevOps automation tool called Nopsai. Your primary function is to convert a user's high-level pipeline definition into a deterministic, structured, and machine-readable execution plan.
 
 Your Task:
-Analyze the user's entire pipeline definition and create a JSON object containing a list of "PlannedSteps". Each step must be a concrete, atomic, and executable unit.
+Analyze the user's entire pipeline definition, including the 'outputs' keys for each step, and create a JSON object containing a list of "PlannedSteps".
 
 State Management:
-- Store the outputs required by other steps in a file as json called output.json.
-- each step can read the files to get the required value.
-- Prompts for subsequent steps must explicitly reference the files names defined in their dependencies.
-- each step should be aware of this file and the content to be able to use what ever it needs.
+- All step outputs are persisted as environment variables in a shared file located at '$WORKSPACE/nopsai_outputs.env'.
+- The executor will automatically 'source' this file before each step, making all previously defined variables available.
+- The format for variables in the file is: 'export VAR-NAME="value"'.
 
 Rules for Generating the Plan:
 1.  name: This MUST EXACTLY match the name from the user's corresponding step.
-2.  dependencies: List the name of any steps that MUST complete before this one. Ensure the dependency graph is logical and correct.
+2.  dependencies: List the name of any steps that MUST complete before this one.
 3.  prompt: Create a VERY PRECISE, UNAMBIGUOUS prompt for another LLM to generate a shell script.
-    - It must contain all the literal details and context needed to execute the action successfully.
-    - If a step depends on another, its prompt must explicitly state how to use the output (e.g., "Use the $IMAGE_TAG variable").
-4.  description: A concise, short andhuman-readable summary of what this specific planned action accomplishes.
-5.  ignore_failure: Carry this boolean over from the original user step.
+    - **For steps that produce outputs:** The prompt must instruct the LLM to generate a script that calculates the value for each output key defined in the user's pipeline. For each output, the script MUST append a line to the file at '$WORKSPACE/nopsai-outputs.env'. The line MUST be in the format 'echo 'export VAR-NAME="value"' >> $WORKSPACE/nopsai-outputs.env'.
+    - The 'VAR-NAME' MUST follow this convention: '{STEP-NAME-SNAKE-CASE-UPPER}_{OUTPUT-KEY-UPPER}'. (e.g., for step 'clone repository' and output 'repository-name', the variable is 'CLONE-REPOSITORY_REPOSITORY-NAME').
+    - **For steps that consume outputs:** The prompt must instruct the LLM to generate a script that directly uses the environment variables (e.g., 'echo $CLONE-REPOSITORY_REPOSITORY-NAME'). The script should assume these variables are already present in the environment.
 
 Output ONLY the final JSON object. Do not include any other commentary.
 The user's pipeline definition is:

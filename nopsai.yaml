@@ -1,7 +1,7 @@
 name: My Sample Pipeline with Dependencies
 description: A sample pipeline demonstrating step dependencies and parallel execution.
 container_image: "nopsai-agent"
-# workspace_mount: "/tmp/nopsai-workspace"
+workspace_mount: "/tmp/nopsai-workspace"
 environment:
   DOCKER_HOST: "tcp://192.168.1.16:2375"
 steps:
@@ -10,10 +10,15 @@ steps:
 
   - name: clone repository
     prompt: "clone repository https://github.com/hosein-yousefii/test-app.git"
+    outputs:
+      - repository-name
     ignore_failure: false
 
   - name: git branch
     prompt: "checkout to main, get the last tag and calculate version based on the number of commits in format of X.X.X"
+    outputs:
+      - version
+    ignore_failure: false
     dependencies:
       - clone repository
 
@@ -25,12 +30,16 @@ steps:
 
   - name: debug phase
     prompt: "read the output file"
+    outputs:
+      - output
     ignore_failure: false
     dependencies:
       - git branch
 
   - name: push docker image
     prompt: "push docker image to 192.168.1.16:5000 registry with 3 tags (latest, calculated version, commit hash), remove the image if it's already exist"
+    outputs:
+      - docker-image-name
     ignore_failure: false
     dependencies:
       - docker build

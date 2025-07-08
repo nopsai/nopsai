@@ -8,7 +8,7 @@ import (
 type PipelineContext struct {
 	PipelineName           string
 	ImageName              string
-	HostWorkspacePath      string
+	WorkspacePath          string
 	ContainerWorkspacePath string
 	Environment            map[string]string
 }

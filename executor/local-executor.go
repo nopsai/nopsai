@@ -11,9 +11,9 @@ import (
 )
 
 type LocalExecutorT struct {
-	hostWorkspacePath string
-	environment       map[string]string
-	verbose           bool
+	WorkspacePath string
+	environment   map[string]string
+	verbose       bool
 }
 
 func LocalExecutor() *LocalExecutorT {
@@ -28,53 +28,69 @@ func (le *LocalExecutorT) PrepareEnvironment(ctx PipelineContext, verbose bool) 
 	le.verbose = verbose
 	le.environment = ctx.Environment
 
-	if ctx.HostWorkspacePath == "" {
+	if ctx.WorkspacePath == "" {
 		cwd, err := os.Getwd()
 		if err != nil {
-			return fmt.Errorf("local executor: HostWorkspacePath is empty and failed to get current working directory: %w", err)
+			return fmt.Errorf("local executor: WorkspacePath is empty and failed to get current working directory: %w", err)
 		}
-		le.hostWorkspacePath = cwd
+		le.WorkspacePath = cwd
 		if le.verbose {
-			log.Printf("LocalExecutor: HostWorkspacePath not set, using current directory: %s", le.hostWorkspacePath)
+			log.Printf("LocalExecutor: WorkspacePath not set, using current directory: %s", le.WorkspacePath)
 		}
 	} else {
-		absPath, err := filepath.Abs(ctx.HostWorkspacePath)
+		absPath, err := filepath.Abs(ctx.WorkspacePath)
 		if err != nil {
-			return fmt.Errorf("local executor: failed to get absolute path for HostWorkspacePath '%s': %w", ctx.HostWorkspacePath, err)
+			return fmt.Errorf("local executor: failed to get absolute path for WorkspacePath '%s': %w", ctx.WorkspacePath, err)
 		}
-		le.hostWorkspacePath = absPath
+		le.WorkspacePath = absPath
 	}
 
 	if le.verbose {
-		log.Printf("LocalExecutor: Ensuring workspace directory exists: %s", le.hostWorkspacePath)
+		log.Printf("LocalExecutor: Ensuring workspace directory exists: %s", le.WorkspacePath)
 	}
-	if err := os.MkdirAll(le.hostWorkspacePath, 0755); err != nil {
-		return fmt.Errorf("local executor: failed to create workspace directory '%s': %w", le.hostWorkspacePath, err)
+	if err := os.MkdirAll(le.WorkspacePath, 0755); err != nil {
+		return fmt.Errorf("local executor: failed to create workspace directory '%s': %w", le.WorkspacePath, err)
 	}
+
+	// Ensure the outputs file exists
+	outputsFile := filepath.Join(le.WorkspacePath, "nopsai_outputs.env")
+	if _, err := os.Stat(outputsFile); os.IsNotExist(err) {
+		if err := os.WriteFile(outputsFile, []byte{}, 0644); err != nil {
+			return fmt.Errorf("local executor: failed to create outputs file '%s': %w", outputsFile, err)
+		}
+	}
+
 	if le.verbose {
-		log.Printf("LocalExecutor: Environment prepared. Workspace: %s", le.hostWorkspacePath)
+		log.Printf("LocalExecutor: Environment prepared. Workspace: %s", le.WorkspacePath)
 	}
 	return nil
 }
 
 func (le *LocalExecutorT) ExecuteStep(ctx StepContext, verbose bool) ExecutionResult {
-	if le.hostWorkspacePath == "" {
+	if le.WorkspacePath == "" {
 		return ExecutionResult{Error: fmt.Errorf("local executor: host workspace path not set, PrepareEnvironment may not have been called")}
 	}
 
 	scriptFileNamePattern := fmt.Sprintf("nopsai_step_%s_*.sh", strings.ReplaceAll(ctx.Name, " ", "_"))
-	tempScriptFile, err := os.CreateTemp(le.hostWorkspacePath, scriptFileNamePattern)
+	tempScriptFile, err := os.CreateTemp(le.WorkspacePath, scriptFileNamePattern)
 	if err != nil {
-		return ExecutionResult{Error: fmt.Errorf("local executor: failed to create temporary script file in '%s': %w", le.hostWorkspacePath, err)}
+		return ExecutionResult{Error: fmt.Errorf("local executor: failed to create temporary script file in '%s': %w", le.WorkspacePath, err)}
 	}
 	defer os.Remove(tempScriptFile.Name())
 
-	scriptContent := ctx.StepScriptContent
-	if !strings.HasPrefix(scriptContent, "#!") {
-		scriptContent = fmt.Sprintf("#!/bin/bash\nset -e\n%s", scriptContent)
-	}
+	outputsFile := filepath.Join(le.WorkspacePath, "nopsai_outputs.env")
 
-	if _, err := tempScriptFile.WriteString(scriptContent); err != nil {
+	// Create the wrapper script content
+	wrapperScript := fmt.Sprintf(`#!/bin/bash
+set -eo pipefail
+
+export WORKSPACE="%s"
+source "%s"
+
+%s
+`, le.WorkspacePath, outputsFile, ctx.StepScriptContent)
+
+	if _, err := tempScriptFile.WriteString(wrapperScript); err != nil {
 		tempScriptFile.Close()
 		return ExecutionResult{Error: fmt.Errorf("local executor: failed to write to temporary script file '%s': %w", tempScriptFile.Name(), err)}
 	}
@@ -87,12 +103,12 @@ func (le *LocalExecutorT) ExecuteStep(ctx StepContext, verbose bool) ExecutionRe
 	}
 
 	if le.verbose {
-		log.Printf("LocalExecutor: Executing script for step '%s': %s in dir '%s'", ctx.Name, tempScriptFile.Name(), le.hostWorkspacePath)
-		log.Printf("LocalExecutor: Final script content for step '%s':\n---\n%s\n---", ctx.Name, scriptContent)
+		log.Printf("LocalExecutor: Executing script for step '%s': %s in dir '%s'", ctx.Name, tempScriptFile.Name(), le.WorkspacePath)
+		log.Printf("LocalExecutor: Final script content for step '%s':\n---\n%s\n---", ctx.Name, wrapperScript)
 	}
 
 	cmd := exec.Command(tempScriptFile.Name())
-	cmd.Dir = le.hostWorkspacePath
+	cmd.Dir = le.WorkspacePath
 
 	cmdEnv := os.Environ()
 	if le.environment != nil {
@@ -137,7 +153,7 @@ func (le *LocalExecutorT) ExecuteStep(ctx StepContext, verbose bool) ExecutionRe
 
 func (le *LocalExecutorT) CleanupEnvironment(verbose bool) error {
 	if le.verbose {
-		log.Printf("LocalExecutor: Cleaning up environment. Workspace was: %s", le.hostWorkspacePath)
+		log.Printf("LocalExecutor: Cleaning up environment. Workspace was: %s", le.WorkspacePath)
 	}
 	return nil
 }

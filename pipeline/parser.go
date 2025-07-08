@@ -10,6 +10,7 @@ import (
 type Step struct {
 	Name          string   `yaml:"name"`
 	Prompt        string   `yaml:"prompt"`
+	Outputs       []string `yaml:"outputs,omitempty"`
 	Dependencies  []string `yaml:"dependencies,omitempty"`
 	IgnoreFailure bool     `yaml:"ignore_failure,omitempty"`
 }
