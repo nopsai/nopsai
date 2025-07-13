@@ -24,6 +24,7 @@ type ExecutionPlan struct {
 
 type PromptContextForCode struct {
 	PreciseStepPrompt string
+	DependencyScripts map[string]string
 }
 
 type Schema struct {
@@ -84,10 +85,10 @@ type GeminiResponse struct {
 const systemInstruction = `You are a DevOps automation tool called Nopsai. Your primary function is to convert a user's high-level pipeline definition into a deterministic, structured, and machine-readable execution plan.
 
 Your Task:
-Analyze the user's entire pipeline definition, including the 'outputs' keys for each step, and create a JSON object containing a list of "PlannedSteps".
+Analyze the user's entire pipeline definition and create a JSON object containing a list of "PlannedSteps".
 
 State Management:
-- All step outputs are persisted as environment variables in a shared file located at '$WORKSPACE/nopsai_outputs.env'.
+- To pass data between steps, scripts should write environment variables to a shared file at '$WORKSPACE/nopsai_outputs.env'.
 - The executor will automatically 'source' this file before each step, making all previously defined variables available.
 - The format for variables in the file is: 'export VAR-NAME="value"'.
 
@@ -95,9 +96,8 @@ Rules for Generating the Plan:
 1.  name: This MUST EXACTLY match the name from the user's corresponding step.
 2.  dependencies: List the name of any steps that MUST complete before this one.
 3.  prompt: Create a VERY PRECISE, UNAMBIGUOUS prompt for another LLM to generate a shell script.
-    - **For steps that produce outputs:** The prompt must instruct the LLM to generate a script that calculates the value for each output key defined in the user's pipeline. For each output, the script MUST append a line to the file at '$WORKSPACE/nopsai-outputs.env'. The line MUST be in the format 'echo 'export VAR-NAME="value"' >> $WORKSPACE/nopsai-outputs.env'.
-    - The 'VAR-NAME' MUST follow this convention: '{STEP-NAME-SNAKE-CASE-UPPER}_{OUTPUT-KEY-UPPER}'. (e.g., for step 'clone repository' and output 'repository-name', the variable is 'CLONE-REPOSITORY_REPOSITORY-NAME').
-    - **For steps that consume outputs:** The prompt must instruct the LLM to generate a script that directly uses the environment variables (e.g., 'echo $CLONE-REPOSITORY_REPOSITORY-NAME'). The script should assume these variables are already present in the environment.
+    - **For steps that produce data:** The prompt must instruct the LLM to generate a script that writes its results to the '$WORKSPACE/nopsai_outputs.env' file.
+    - **For steps that consume data:** The prompt must instruct the LLM to generate a script that directly uses the environment variables it expects to find. It should assume these variables are already present in the environment.
 
 Output ONLY the final JSON object. Do not include any other commentary.
 The user's pipeline definition is:
@@ -241,7 +241,21 @@ func (c *Client) GenerateExecutionPlan(userPipelineDefinition string, verbose bo
 
 func (c *Client) GenerateCodeForStep(context PromptContextForCode, verbose bool) (string, error) {
 
-	fullPromptForGemini := systemInstructionPrefix + context.PreciseStepPrompt
+	var contextBuilder strings.Builder
+	contextBuilder.WriteString(systemInstructionPrefix)
+
+	if len(context.DependencyScripts) > 0 {
+		contextBuilder.WriteString("\nFor context, here are the scripts generated for the steps that this step depends on:\n")
+		for depName, depScript := range context.DependencyScripts {
+			contextBuilder.WriteString(fmt.Sprintf("\n--- Script for step '%s' ---\n", depName))
+			contextBuilder.WriteString(depScript)
+			contextBuilder.WriteString("\n--- End of script ---\n")
+		}
+		contextBuilder.WriteString("\nNow, generate the script for the following precise step prompt, making sure to use the output variables from the dependency scripts correctly:\n")
+	}
+
+	contextBuilder.WriteString(context.PreciseStepPrompt)
+	fullPromptForGemini := contextBuilder.String()
 
 	geminiPayload := GeminiRequest{
 		Contents: []GeminiContent{{Role: "user", Parts: []GeminiPart{{Text: fullPromptForGemini}}}},
