@@ -43,7 +43,10 @@ func (d *DockerCLIRuntimeT) CreateAndStartContainer(ctx context.Context, config 
 		"--name", config.Name,
 	}
 
-	args = append(args, "-v", fmt.Sprintf("%s:%s", config.AgentScriptMount.HostPath, config.AgentScriptMount.ContainerPath))
+	if config.WorkspaceMount.HostPath != "" && config.WorkspaceMount.ContainerPath != "" {
+		args = append(args, "-v", fmt.Sprintf("%s:%s", config.WorkspaceMount.HostPath, config.WorkspaceMount.ContainerPath))
+	}
+	args = append(args, "-w", config.WorkingDir)
 	args = append(args, "-w", config.WorkingDir)
 
 	if config.Environment != nil {
