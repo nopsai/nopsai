@@ -1,7 +1,7 @@
 name: My Sample Pipeline with Dependencies
 description: A sample pipeline demonstrating step dependencies and parallel execution.
 container_image: "nopsai-agent"
-workspace_mount: "/tmp/nopsai-workspace"
+# workspace_mount: "/tmp/nopsai-workspace"
 environment:
   DOCKER_HOST: "tcp://192.168.1.16:2375"
 steps:

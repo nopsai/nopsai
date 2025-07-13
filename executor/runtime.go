@@ -49,13 +49,12 @@ type ContainerRuntime interface {
 }
 
 type ContainerConfig struct {
-	Name             string
-	Image            string
-	WorkspaceMount   HostMount
-	AgentScriptMount HostMount
-	EntrypointCmd    []string
-	WorkingDir       string
-	Environment      map[string]string
+	Name           string
+	Image          string
+	WorkspaceMount HostMount
+	EntrypointCmd  []string
+	WorkingDir     string
+	Environment    map[string]string
 }
 
 type HostMount struct {

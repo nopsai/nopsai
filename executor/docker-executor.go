@@ -75,12 +75,11 @@ func (de *DockerExecutorT) PrepareEnvironment(ctx PipelineContext, verbose bool)
 	}
 
 	containerCfg := ContainerConfig{
-		Name:           fmt.Sprintf("nopsai_exec_%s_%d", strings.ReplaceAll(ctx.PipelineName, " ", "_"), time.Now().UnixNano()),
-		Image:          ctx.ImageName,
-		WorkingDir:     "/workspace",
-		WorkspaceMount: HostMount{HostPath: hostWorkspace, ContainerPath: "/workspace"},
-		EntrypointCmd:  []string{"tail", "-f", "/dev/null"},
-		Environment:    ctx.Environment,
+		Name:          fmt.Sprintf("nopsai_exec_%s_%d", strings.ReplaceAll(ctx.PipelineName, " ", "_"), time.Now().UnixNano()),
+		Image:         ctx.ImageName,
+		WorkingDir:    "/workspace",
+		EntrypointCmd: []string{"tail", "-f", "/dev/null"},
+		Environment:   ctx.Environment,
 	}
 
 	if ctx.WorkspacePath != "" {
