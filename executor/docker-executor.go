@@ -27,7 +27,7 @@ type DockerExecutorT struct {
 func DockerExecutor(runtime ContainerRuntime) *DockerExecutorT {
 	return &DockerExecutorT{
 		runtime:            runtime,
-		containerAgentPath: "/nopsai_agent/nopsai-agent",
+		containerAgentPath: "/agent/nopsai-agent",
 	}
 }
 
@@ -75,12 +75,12 @@ func (de *DockerExecutorT) PrepareEnvironment(ctx PipelineContext, verbose bool)
 	}
 
 	containerCfg := ContainerConfig{
-		Name:             fmt.Sprintf("nopsai_exec_%s_%d", strings.ReplaceAll(ctx.PipelineName, " ", "_"), time.Now().UnixNano()),
-		Image:            ctx.ImageName,
-		AgentScriptMount: HostMount{HostPath: de.hostAgentDir, ContainerPath: "/nopsai_agent"},
-		WorkingDir:       "/workspace",
-		EntrypointCmd:    []string{"tail", "-f", "/dev/null"},
-		Environment:      ctx.Environment,
+		Name:           fmt.Sprintf("nopsai_exec_%s_%d", strings.ReplaceAll(ctx.PipelineName, " ", "_"), time.Now().UnixNano()),
+		Image:          ctx.ImageName,
+		WorkingDir:     "/workspace",
+		WorkspaceMount: HostMount{HostPath: hostWorkspace, ContainerPath: "/workspace"},
+		EntrypointCmd:  []string{"tail", "-f", "/dev/null"},
+		Environment:    ctx.Environment,
 	}
 
 	if ctx.WorkspacePath != "" {
@@ -89,6 +89,8 @@ func (de *DockerExecutorT) PrepareEnvironment(ctx PipelineContext, verbose bool)
 
 	if verbose {
 		log.Println("creating and starting container...")
+		log.Printf("container name: %s", containerCfg)
+
 	}
 	containerID, err := de.runtime.CreateAndStartContainer(context.Background(), containerCfg)
 	if err != nil {

@@ -24,13 +24,14 @@ const (
 )
 
 type PlannedExecutionStep struct {
-	Name          string
-	Prompt        string
-	Dependencies  []string
-	IgnoreFailure bool
-	State         StepState
-	Output        string
-	Error         error
+	Name            string
+	Prompt          string
+	Dependencies    []string
+	IgnoreFailure   bool
+	State           StepState
+	Output          string
+	Error           error
+	GeneratedScript string
 }
 
 var (
@@ -74,8 +75,8 @@ func main() {
 
 	var planningContext strings.Builder
 	for i, step := range userPipeline.Steps {
-		planningContext.WriteString(fmt.Sprintf("Step %d - Name: '%s', Prompt: \"%s\", Outputs: %v, Dependencies: %v, IgnoreFailure: %t\n",
-			i+1, step.Name, step.Prompt, step.Outputs, step.Dependencies, step.IgnoreFailure))
+		planningContext.WriteString(fmt.Sprintf("Step %d - Name: '%s', Prompt: \"%s\", Dependencies: %v, IgnoreFailure: %t\n",
+			i+1, step.Name, step.Prompt, step.Dependencies, step.IgnoreFailure))
 	}
 
 	llmExecutionPlan, err := llmClient.GenerateExecutionPlan(planningContext.String(), cfg.Verbose)
@@ -157,8 +158,18 @@ func main() {
 
 		psi.State = StateRunning
 
+		dependencyScripts := make(map[string]string)
+		for _, depName := range psi.Dependencies {
+			if depPsi, ok := plannedStepInfos[depName]; ok {
+				if depPsi.GeneratedScript != "" {
+					dependencyScripts[depName] = depPsi.GeneratedScript
+				}
+			}
+		}
+
 		llmCodeContext := llm.PromptContextForCode{
 			PreciseStepPrompt: psi.Prompt,
+			DependencyScripts: dependencyScripts,
 		}
 
 		generatedCode, err := llmClient.GenerateCodeForStep(llmCodeContext, cfg.Verbose)
@@ -188,9 +199,11 @@ func main() {
 			continue
 		}
 
+		psi.GeneratedScript = generatedCode
+
 		stepCtx := executor.StepContext{
 			Name:              psi.Name,
-			StepScriptContent: generatedCode,
+			StepScriptContent: psi.GeneratedScript,
 		}
 
 		execResult := currentExecutor.ExecuteStep(stepCtx, cfg.Verbose)
