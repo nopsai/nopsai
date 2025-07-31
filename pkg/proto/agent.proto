@@ -1,0 +1,72 @@
+// -----------------------------------------------------------------------------
+// File: pkg/proto/agent.proto
+// -----------------------------------------------------------------------------
+// Purpose: Defines the gRPC service contract for communication between the
+// Agent and the LLM Agent. This is the API definition.
+//
+// HOW TO COMPILE:
+// 1. Install protoc and the Go gRPC plugins:
+//    - `go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28`
+//    - `go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.2`
+// 2. Run from the project root directory:
+//    - `protoc --go_out=. --go-grpc_out=. pkg/proto/agent.proto`
+// This will generate `agent.pb.go` and `agent_grpc.pb.go` in the proto directory.
+
+syntax = "proto3";
+
+package proto;
+
+option go_package = "nopsai/pkg/proto";
+
+// The core service that the LLM Agent provides and the Agent consumes.
+service AgentService {
+  // The main communication loop is a bidirectional stream.
+  // This allows for continuous, stateful conversation between the agent and the llm-agent.
+  rpc ExecutionStream(stream ExecutionRequest) returns (stream Action);
+}
+
+// Agent -> LLM Agent: The agent sends requests for actions or reports results.
+message ExecutionRequest {
+  string run_id = 1;
+
+  oneof event {
+    GetNextActionRequest get_next_action = 2;
+    ReportActionResult report_action_result = 3;
+  }
+}
+
+// A request from the agent to get the next action for a step.
+message GetNextActionRequest {}
+
+// A report from the agent containing the result of a completed action.
+message ReportActionResult {
+  string stdout = 1;
+  string stderr = 2;
+  int32  exit_code = 3;
+  // We can add file changes here later if needed.
+}
+
+
+// LLM Agent -> Agent: The llm-agent sends actions to be executed.
+message Action {
+  string type = 1; // e.g., "EXECUTE_COMMAND", "REPLACE_FILE"
+
+  oneof payload {
+    CommandAction command_action = 2;
+    FileAction file_action = 3;
+    AnswerAction answer_action = 4;
+  }
+}
+
+message CommandAction {
+  string command = 1;
+}
+
+message FileAction {
+  string path = 1;
+  string content = 2;
+}
+
+message AnswerAction {
+  string answer = 1;
+}

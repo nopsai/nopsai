@@ -1,0 +1,81 @@
+version: '3.8'
+
+networks:
+  nopsai-net:
+    driver: bridge
+    name: nopsai-net
+
+services:
+  db:
+    container_name: nopsai-db
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_DB: nopsai_db
+      POSTGRES_USER: nopsai_user
+      POSTGRES_PASSWORD: yoursecurepassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nopsai_user -d nopsai_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - nopsai-net
+
+  llm-agent:
+    container_name: nopsai-llm-agent
+    build:
+      context: .
+      dockerfile: container/Dockerfile.llm-agent
+    restart: always
+    ports:
+      - "50051:50051"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - CONFIG_PATH=/app/config.yml
+    networks:
+      - nopsai-net
+
+  nopsai:
+    container_name: nopsai
+    build:
+      context: .
+      dockerfile: container/Dockerfile.nopsai
+    restart: always
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      executor:
+        condition: service_started
+    environment:
+      - CONFIG_PATH=/app/config.yml
+    networks:
+      - nopsai-net
+
+  executor:
+    container_name: nopsai-executor
+    build:
+      context: .
+      dockerfile: container/Dockerfile.executor
+    restart: always
+    ports:
+      - "8081:8081"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - llm-agent
+    networks:
+      - nopsai-net
+
+  agent:
+    build:
+      context: .
+      dockerfile: container/Dockerfile.agent
