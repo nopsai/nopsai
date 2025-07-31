@@ -1,7 +1,0 @@
-// go.work
-go 1.23 // Or your Go version
-
-use (
-	. // The dot means use the module in the current directory (your main nopsai app)
-	./agent // This tells Go to also include the 'agent' directory as a main program in the workspace
-)

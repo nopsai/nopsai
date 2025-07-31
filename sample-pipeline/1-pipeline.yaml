@@ -1,0 +1,14 @@
+name: My First Real Pipeline
+description: A sample pipeline that will be stored in the database.
+container_image: "nopsai-agent:latest"
+environment:
+  API_VERSION: "v1"
+steps:
+  - name: Say Hello
+    goal: "Print the phrase 'Hello from a real pipeline!' to the console."
+  - name: Create File
+    goal: "Create a file named 'pipeline_output.txt' with the content 'Success!'"
+  - name: Verify File
+    goal: "Read the contents of the file 'pipeline_output.txt' and print them."
+  - name: Javab test
+    goal: "what did you write into previous file?"

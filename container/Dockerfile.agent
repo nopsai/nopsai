@@ -1,0 +1,7 @@
+FROM nopsai:latest AS base
+FROM alpine:latest
+
+RUN apk --no-cache add git bash
+COPY --from=base /nopsai-agent /usr/local/bin/nopsai-agent
+
+ENTRYPOINT ["nopsai-agent"]

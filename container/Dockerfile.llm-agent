@@ -1,0 +1,8 @@
+FROM nopsai:latest AS base
+FROM alpine:latest
+
+WORKDIR /app
+COPY --from=base /nopsai-llm-agent /usr/local/bin/nopsai-llm-agent
+COPY ./config.yml .
+
+ENTRYPOINT ["nopsai-llm-agent"]

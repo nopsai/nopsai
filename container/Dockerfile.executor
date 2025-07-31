@@ -1,0 +1,7 @@
+FROM nopsai:latest AS base
+FROM alpine:latest
+
+WORKDIR /app
+COPY --from=base /nopsai-executor /usr/local/bin/nopsai-executor
+
+ENTRYPOINT ["nopsai-executor"]
