@@ -25,8 +25,9 @@ type App struct {
 }
 
 type ExecutionRequest struct {
-	RunID          string `json:"run_id"`
-	ContainerImage string `json:"container_image"`
+	RunID            string `json:"run_id"`
+	ContainerImage   string `json:"container_image"`
+	WorkingDirectory string `json:"working_directory"`
 }
 
 func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
@@ -88,8 +89,9 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Successfully created run with ID: %s. Forwarding to executor...", runID.String())
 
 	execReq := ExecutionRequest{
-		RunID:          runID.String(),
-		ContainerImage: pipeline.ContainerImage,
+		RunID:            runID.String(),
+		ContainerImage:   pipeline.ContainerImage,
+		WorkingDirectory: pipeline.WorkingDirectory,
 	}
 	reqBytes, err := json.Marshal(execReq)
 	if err != nil {

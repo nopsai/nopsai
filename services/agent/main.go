@@ -33,8 +33,18 @@ func executeAction(action *proto.Action) (stdout, stderr string, exitCode int) {
 		cmd.Stderr = &errb
 
 		err := cmd.Run()
-		stdout = outb.String()
-		stderr = errb.String()
+		stdout = strings.TrimSpace(outb.String())
+		stderr = strings.TrimSpace(errb.String())
+
+		// --- ADDED LOGGING ---
+		// Print stdout and stderr to the agent's logs if they are not empty.
+		if stdout != "" {
+			log.Printf("Command STDOUT:\n---\n%s\n---", stdout)
+		}
+		if stderr != "" {
+			log.Printf("Command STDERR:\n---\n%s\n---", stderr)
+		}
+		// --- END OF CHANGE ---
 
 		if err != nil {
 			if exitErr, ok := err.(*exec.ExitError); ok {
@@ -80,7 +90,7 @@ func main() {
 	}
 	llmAgentAddress := os.Getenv("LLM_AGENT_ADDRESS")
 	if llmAgentAddress == "" {
-		llmAgentAddress = "localhost:50051"
+		llmAgentAddress = "localhost:50051" // Default for local testing
 	}
 
 	log.Printf("Agent starting for Run ID: %s, connecting to %s", runID, llmAgentAddress)

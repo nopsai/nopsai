@@ -1,6 +1,7 @@
 name: My First Real Pipeline
 description: A sample pipeline that will be stored in the database.
 container_image: "nopsai-agent:latest"
+working_directory: "/tmp/test"
 environment:
   API_VERSION: "v1"
 steps:
@@ -12,3 +13,5 @@ steps:
     goal: "Read the contents of the file 'pipeline_output.txt' and print them."
   - name: Javab test
     goal: "what did you write into previous file?"
+  - name: working directory
+    goal: what is the working directory
