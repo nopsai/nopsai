@@ -1,5 +1,15 @@
-database:
-  url: "postgres://nopsai_user:yoursecurepassword@nopsai-db:5432/nopsai_db"
+database_url: "postgres://nopsai_user:yoursecurepassword@nopsai-db:5432/nopsai_db"
 
-llm:
-  gemini_api_key: "AIzaSyCdyZBcvjWrroxGem8l0ER62WNPlg8s7xU"
+# --- LLM Configuration ---
+gemini_api_key: "AIzaSyCdyZBcvjWrroxGem8l0ER62WNPlg8s7xU"
+gemini_model: "gemini-1.5-flash" # Model is now configurable
+
+# --- Service Addresses ---
+nopsai_listen_address: "0.0.0.0:8080"
+executor_listen_address: "0.0.0.0:8081"
+llm_agent_listen_address: "0.0.0.0:50051"
+agent_llm_agent_address: "nopsai-llm-agent:50051"
+executor_address: "http://nopsai-executor:8081"
+
+# --- Docker Configuration ---
+docker_network_name: "nopsai-net"

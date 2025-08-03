@@ -7,18 +7,25 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+
+	"nopsai/config"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 )
 
+type ExecutorApp struct {
+	cfg *config.Config
+}
+
 type ExecutionRequest struct {
 	RunID          string `json:"run_id"`
 	ContainerImage string `json:"container_image"`
 }
 
-func handleExecute(w http.ResponseWriter, r *http.Request) {
+func (app *ExecutorApp) handleExecute(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
 		return
@@ -47,11 +54,8 @@ func handleExecute(w http.ResponseWriter, r *http.Request) {
 	}
 	defer cli.Close()
 
-	llmAgentAddress := "nopsai-llm-agent:50051"
-	// Docker Compose v2 uses projectname-networkname as the default network name.
-	// Assuming the project directory is named 'nopsai' or similar.
-	// You may need to adjust this if your project directory name is different.
-	networkName := "nopsai-net"
+	llmAgentAddress := app.cfg.AgentLlmAgentAddress
+	networkName := app.cfg.DockerNetworkName
 
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image: req.ContainerImage,
@@ -62,7 +66,6 @@ func handleExecute(w http.ResponseWriter, r *http.Request) {
 		Tty: false,
 	}, &container.HostConfig{}, &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
-			// Explicitly connect the new container to our shared network.
 			networkName: {},
 		},
 	}, nil, "")
@@ -84,9 +87,20 @@ func handleExecute(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	http.HandleFunc("/execute", handleExecute)
-	log.Println("Executor service listening on :8081")
-	if err := http.ListenAndServe(":8081", nil); err != nil {
+	configPath := os.Getenv("CONFIG_PATH")
+	if configPath == "" {
+		configPath = "config.yml"
+	}
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		log.Fatalf("Failed to load config from %s: %v", configPath, err)
+	}
+
+	app := &ExecutorApp{cfg: cfg}
+
+	http.HandleFunc("/execute", app.handleExecute)
+	log.Printf("Executor service listening on %s", cfg.ExecutorListenAddress)
+	if err := http.ListenAndServe(cfg.ExecutorListenAddress, nil); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }

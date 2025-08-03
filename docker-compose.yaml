@@ -28,6 +28,7 @@ services:
 
   llm-agent:
     container_name: nopsai-llm-agent
+    image: nopsai-llm-agent
     build:
       context: .
       dockerfile: container/Dockerfile.llm-agent
@@ -37,6 +38,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      base:
+        condition: service_completed_successfully
     environment:
       - CONFIG_PATH=/app/config.yml
     networks:
@@ -44,6 +47,7 @@ services:
 
   nopsai:
     container_name: nopsai
+    image: nopsai
     build:
       context: .
       dockerfile: container/Dockerfile.nopsai
@@ -55,6 +59,8 @@ services:
         condition: service_healthy
       executor:
         condition: service_started
+      base:
+        condition: service_completed_successfully
     environment:
       - CONFIG_PATH=/app/config.yml
     networks:
@@ -62,6 +68,7 @@ services:
 
   executor:
     container_name: nopsai-executor
+    image: nopsai-executor
     build:
       context: .
       dockerfile: container/Dockerfile.executor
@@ -72,10 +79,25 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - llm-agent
+      - base
     networks:
       - nopsai-net
 
   agent:
+    container_name: nopsai-agent
+    image: nopsai-agent
     build:
       context: .
       dockerfile: container/Dockerfile.agent
+    depends_on:
+      - base
+    entrypoint: 'true'
+
+  base:
+    container_name: nopsai-base
+    image: nopsai-base
+    build:
+      context: .
+      dockerfile: Dockerfile
+    entrypoint: 'true'
+
