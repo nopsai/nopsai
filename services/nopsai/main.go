@@ -24,6 +24,7 @@ type App struct {
 	executorAddress string
 }
 
+// This request now only contains information for the whole run.
 type ExecutionRequest struct {
 	RunID            string `json:"run_id"`
 	ContainerImage   string `json:"container_image"`
@@ -62,17 +63,20 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 
 	_, err = tx.Exec(context.Background(),
 		"INSERT INTO runs (run_id, pipeline_definition, status) VALUES ($1, $2, $3)",
-		runID, string(body), "pending",
+		runID, string(body), "running",
 	)
 	if err != nil {
 		http.Error(w, "Failed to create run record", http.StatusInternalServerError)
 		return
 	}
 
+	stepNameToID := make(map[string]uuid.UUID)
 	for i, step := range pipeline.Steps {
+		stepID := uuid.New()
+		stepNameToID[step.Name] = stepID
 		_, err := tx.Exec(context.Background(),
 			"INSERT INTO steps (step_id, run_id, step_index, name, goal, status) VALUES ($1, $2, $3, $4, $5, $6)",
-			uuid.New(), runID, i, step.Name, step.Goal, "pending",
+			stepID, runID, i, step.Name, step.Goal, "pending",
 		)
 		if err != nil {
 			log.Printf("Failed to insert step %d: %v", i, err)
@@ -81,41 +85,63 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	for _, step := range pipeline.Steps {
+		stepID := stepNameToID[step.Name]
+		for _, depName := range step.DependsOn {
+			depID, ok := stepNameToID[depName]
+			if !ok {
+				log.Printf("Error: dependency '%s' for step '%s' not found", depName, step.Name)
+				http.Error(w, fmt.Sprintf("Dependency '%s' not found", depName), http.StatusBadRequest)
+				return
+			}
+			_, err := tx.Exec(context.Background(),
+				"INSERT INTO step_dependencies (step_id, depends_on_step_id) VALUES ($1, $2)",
+				stepID, depID,
+			)
+			if err != nil {
+				log.Printf("Failed to insert dependency for step %s: %v", step.Name, err)
+				http.Error(w, "Failed to create dependency records", http.StatusInternalServerError)
+				return
+			}
+		}
+	}
+
 	if err := tx.Commit(context.Background()); err != nil {
 		http.Error(w, "Failed to commit transaction", http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("Successfully created run with ID: %s. Forwarding to executor...", runID.String())
+	// Nopsai no longer dispatches steps. It just tells the executor to start one container for the run.
+	log.Printf("Successfully created run with ID: %s. Requesting container from executor...", runID.String())
+	a.callExecutor(runID.String(), pipeline)
 
+	w.WriteHeader(http.StatusCreated)
+	fmt.Fprintf(w, "Pipeline run created successfully with ID: %s\n", runID.String())
+}
+
+func (a *App) callExecutor(runID string, pipeline models.Pipeline) {
 	execReq := ExecutionRequest{
-		RunID:            runID.String(),
+		RunID:            runID,
 		ContainerImage:   pipeline.ContainerImage,
 		WorkingDirectory: pipeline.WorkingDirectory,
 	}
 	reqBytes, err := json.Marshal(execReq)
 	if err != nil {
-		http.Error(w, "Failed to create executor request", http.StatusInternalServerError)
+		log.Printf("Executor call failed for run %s: could not marshal request: %v", runID, err)
 		return
 	}
 
 	resp, err := http.Post(a.executorAddress+"/execute", "application/json", bytes.NewBuffer(reqBytes))
 	if err != nil {
-		log.Printf("Failed to call executor service: %v", err)
-		http.Error(w, "Failed to call executor service", http.StatusInternalServerError)
+		log.Printf("Executor call failed for run %s: %v", runID, err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		log.Printf("Executor service returned error: %s", string(body))
-		http.Error(w, "Executor service failed", http.StatusInternalServerError)
-		return
+		log.Printf("Executor service returned error for run %s: %s", runID, string(body))
 	}
-
-	w.WriteHeader(http.StatusCreated)
-	fmt.Fprintf(w, "Pipeline run created and execution started with ID: %s\n", runID.String())
 }
 
 func main() {

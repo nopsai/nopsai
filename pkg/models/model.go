@@ -1,5 +1,6 @@
 package models
 
+// Pipeline represents the structure of a .nopsai.yml file.
 type Pipeline struct {
 	Name             string            `yaml:"name"`
 	Description      string            `yaml:"description"`
@@ -9,24 +10,30 @@ type Pipeline struct {
 	Steps            []PipelineStep    `yaml:"steps"`
 }
 
+// PipelineStep is a single step within a pipeline definition.
 type PipelineStep struct {
-	Name string `yaml:"name"`
-	Goal string `yaml:"goal"`
+	Name      string   `yaml:"name"`
+	Goal      string   `yaml:"goal"`
+	DependsOn []string `yaml:"depends_on,omitempty"` // Added for step dependencies
 }
 
+// CommandAction defines a command to be executed in the shell.
 type CommandAction struct {
 	Command string `json:"command"`
 }
 
+// FileAction defines a file to be created or replaced.
 type FileAction struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
 }
 
+// AnswerAction defines a simple text response from the LLM.
 type AnswerAction struct {
 	Answer string `json:"answer"`
 }
 
+// Action is the structured command returned by the LLM Agent to the Agent.
 type Action struct {
 	Type          string         `json:"type"`
 	CommandAction *CommandAction `json:"command_action,omitempty"`
@@ -40,12 +47,14 @@ const (
 	ActionTypeReturnAnswer   string = "RETURN_ANSWER"
 )
 
+// ActionResult is sent from the Agent back to the LLM Agent after an action is performed.
 type ActionResult struct {
 	Stdout   string `json:"stdout"`
 	Stderr   string `json:"stderr"`
 	ExitCode int    `json:"exit_code"`
 }
 
+// Gemini API specific structures
 type GeminiRequest struct {
 	Contents []Content `json:"contents"`
 }

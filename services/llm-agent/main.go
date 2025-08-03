@@ -12,12 +12,14 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"nopsai/config"
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
 )
@@ -26,27 +28,9 @@ type llmAgentServer struct {
 	proto.UnimplementedAgentServiceServer
 	db  *pgxpool.Pool
 	cfg *config.Config
+	mu  sync.Mutex
 }
 
-// Gemini API specific structures
-type GeminiRequest struct {
-	Contents []Content `json:"contents"`
-}
-type Content struct {
-	Parts []Part `json:"parts"`
-}
-type Part struct {
-	Text string `json:"text"`
-}
-type GeminiResponse struct {
-	Candidates []struct {
-		Content struct {
-			Parts []Part `json:"parts"`
-		} `json:"content"`
-	} `json:"candidates"`
-}
-
-// callRealGemini makes a real API call to the Gemini API.
 func (s *llmAgentServer) callRealGemini(prompt string) (*models.Action, error) {
 	log.Println("Calling real Gemini API...")
 
@@ -97,10 +81,16 @@ func (s *llmAgentServer) callRealGemini(prompt string) (*models.Action, error) {
 	return &actionWrapper.Action, nil
 }
 
-func (s *llmAgentServer) buildPrompt(ctx context.Context, runID string) (prompt string, stepID string, err error) {
-	rows, err := s.db.Query(ctx, "SELECT goal, action_taken, execution_log, exit_code FROM steps WHERE run_id = $1 AND status = 'completed' ORDER BY step_index ASC", runID)
+func (s *llmAgentServer) buildPrompt(ctx context.Context, stepID string) (string, error) {
+	historyQuery := `
+		SELECT s.goal, s.action_taken, s.execution_log, s.exit_code
+		FROM steps s
+		JOIN step_dependencies sd ON s.step_id = sd.depends_on_step_id
+		WHERE sd.step_id = $1 AND s.status = 'completed'`
+
+	rows, err := s.db.Query(ctx, historyQuery, stepID)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to query history: %w", err)
+		return "", fmt.Errorf("failed to query history for step %s: %w", stepID, err)
 	}
 	defer rows.Close()
 
@@ -108,13 +98,12 @@ func (s *llmAgentServer) buildPrompt(ctx context.Context, runID string) (prompt 
 	historyBuilder.WriteString("**Execution History (Previous Steps):**\n")
 	historyCount := 0
 	for rows.Next() {
-		// Use sql.NullString to gracefully handle NULL values from the database.
 		var goal string
 		var actionTaken, executionLog sql.NullString
 		var exitCode sql.NullInt32
 
 		if err := rows.Scan(&goal, &actionTaken, &executionLog, &exitCode); err != nil {
-			return "", "", fmt.Errorf("failed to scan history row: %w", err)
+			return "", fmt.Errorf("failed to scan history row: %w", err)
 		}
 		historyBuilder.WriteString(fmt.Sprintf("- Goal: %s\n  Action: %s\n  Result (Exit Code %d): %s\n", goal, actionTaken.String, exitCode.Int32, executionLog.String))
 		historyCount++
@@ -123,14 +112,10 @@ func (s *llmAgentServer) buildPrompt(ctx context.Context, runID string) (prompt 
 		historyBuilder.WriteString("No previous steps.\n")
 	}
 
-	var currentGoal, currentStepID string
-	err = s.db.QueryRow(ctx, "SELECT step_id, goal FROM steps WHERE run_id = $1 AND status = 'pending' ORDER BY step_index ASC LIMIT 1", runID).Scan(&currentStepID, &currentGoal)
+	var currentGoal string
+	err = s.db.QueryRow(ctx, "SELECT goal FROM steps WHERE step_id = $1", stepID).Scan(&currentGoal)
 	if err != nil {
-		// If no pending rows are found, it's not an error, it just means the pipeline is done.
-		if err.Error() == "no rows in result set" {
-			return "", "", nil // Return empty prompt and nil error
-		}
-		return "", "", fmt.Errorf("failed to get next pending step: %w", err)
+		return "", fmt.Errorf("failed to get goal for current step %s: %w", stepID, err)
 	}
 
 	promptTemplate := `You are an expert CI/CD automation bot. Your task is to achieve a user's goal by choosing the correct action from a toolkit.
@@ -141,7 +126,6 @@ Here are the available actions:
 2. **REPLACE_FILE**: {"action": {"type": "REPLACE_FILE", "file_action": {"path": "./path/to/file.txt", "content": "The full new content of the file."}}}
 3. **RETURN_ANSWER**: {"action": {"type": "RETURN_ANSWER", "answer_action": {"answer": "The answer to the user's question."}}}
 ---
-**Previous Steps:**
 %s
 ---
 **Current Goal:**
@@ -150,100 +134,140 @@ Here are the available actions:
 Now, choose the single best action from your toolkit and provide the response in the required JSON format.`
 
 	fullPrompt := fmt.Sprintf(promptTemplate, historyBuilder.String(), currentGoal)
-	return fullPrompt, currentStepID, nil
+	return fullPrompt, nil
 }
 
-// ExecutionStream is the bidirectional streaming RPC handler.
 func (s *llmAgentServer) ExecutionStream(stream proto.AgentService_ExecutionStreamServer) error {
-	log.Println("Agent connected to ExecutionStream.")
-	var currentStepID string
-	var lastActionSentJSON string // Variable to hold the JSON of the last action sent
+	req, err := stream.Recv()
+	if err != nil {
+		return err
+	}
+	subReq := req.GetSubscribe()
+	if subReq == nil {
+		return fmt.Errorf("expected first message to be a SubscribeRequest")
+	}
+	runID := req.GetRunId()
+	log.Printf("Agent for RunID %s subscribed.", runID)
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	go func() {
+		for {
+			req, err := stream.Recv()
+			if err != nil {
+				return
+			}
+			if result := req.GetResult(); result != nil {
+				s.handleStepResult(result)
+			}
+		}
+	}()
 
 	for {
-		req, err := stream.Recv()
-		if err == io.EOF {
-			log.Println("Agent closed the stream.")
-			return nil
-		}
-		if err != nil {
-			log.Printf("Error receiving from agent: %v", err)
-			return err
-		}
-
-		runID := req.GetRunId()
-
-		switch event := req.Event.(type) {
-		case *proto.ExecutionRequest_GetNextAction:
-			log.Printf("Received request for next action from Run ID: %s", runID)
-
-			prompt, stepID, err := s.buildPrompt(stream.Context(), runID)
+		select {
+		case <-stream.Context().Done():
+			log.Printf("Agent for RunID %s disconnected.", runID)
+			return stream.Context().Err()
+		case <-ticker.C:
+			steps, err := s.getAndPrepareRunnableSteps(stream.Context(), runID)
 			if err != nil {
-				log.Printf("Error building prompt for run %s: %v", runID, err)
+				log.Printf("Error getting runnable steps for %s: %v", runID, err)
 				continue
 			}
-			if stepID == "" {
-				log.Printf("No more pending steps for run %s. Closing stream.", runID)
-				return nil // End of pipeline
+			for _, step := range steps {
+				log.Printf("Sending step %s to agent for run %s", step.GetStepId(), runID)
+				resp := &proto.StreamResponse{
+					Event: &proto.StreamResponse_Step{Step: step},
+				}
+				if err := stream.Send(resp); err != nil {
+					log.Printf("Error sending step to agent for run %s: %v", runID, err)
+					return err
+				}
 			}
-			currentStepID = stepID
+		}
+	}
+}
+
+func (s *llmAgentServer) handleStepResult(result *proto.StepResult) {
+	log.Printf("Received action result for step %s", result.StepId)
+	_, err := s.db.Exec(context.Background(),
+		"UPDATE steps SET status = $1, execution_log = $2, exit_code = $3, action_taken = $4, finished_at = NOW() WHERE step_id = $5",
+		"completed", result.Stdout+"\n"+result.Stderr, result.ExitCode, result.ActionTaken, result.StepId,
+	)
+	if err != nil {
+		log.Printf("Failed to update step %s: %v", result.StepId, err)
+	}
+	log.Printf("Successfully updated step %s in database.", result.StepId)
+}
+
+func (s *llmAgentServer) getAndPrepareRunnableSteps(ctx context.Context, runID string) ([]*proto.RunnableStep, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	query := `
+		SELECT s.step_id FROM steps s
+		WHERE s.run_id = $1 AND s.status = 'pending'
+		AND NOT EXISTS (
+			SELECT 1 FROM step_dependencies sd
+			JOIN steps dep_s ON sd.depends_on_step_id = dep_s.step_id
+			WHERE sd.step_id = s.step_id AND dep_s.status IN ('pending', 'running')
+		)`
+
+	rows, err := s.db.Query(ctx, query, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var stepIDs []uuid.UUID
+	for rows.Next() {
+		var stepID uuid.UUID
+		if err := rows.Scan(&stepID); err != nil {
+			return nil, err
+		}
+		stepIDs = append(stepIDs, stepID)
+	}
+
+	var runnableSteps []*proto.RunnableStep
+	if len(stepIDs) > 0 {
+		for _, id := range stepIDs {
+			_, err := s.db.Exec(ctx, "UPDATE steps SET status = 'running', started_at = NOW() WHERE step_id = $1 AND status = 'pending'", id)
+			if err != nil {
+				log.Printf("Failed to mark step %s as running: %v", id, err)
+				continue
+			}
+
+			prompt, err := s.buildPrompt(ctx, id.String())
+			if err != nil {
+				log.Printf("Error building prompt for step %s: %v", id, err)
+				continue
+			}
 
 			actionModel, err := s.callRealGemini(prompt)
 			if err != nil {
-				log.Printf("Error calling Gemini: %v", err)
+				log.Printf("Error calling Gemini for step %s: %v", id, err)
 				continue
 			}
-
-			// Store the JSON of the action we are about to send.
-			actionBytes, err := json.Marshal(actionModel)
-			if err != nil {
-				log.Printf("Error marshalling action model: %v", err)
-				continue
-			}
-			lastActionSentJSON = string(actionBytes)
 
 			protoAction := &proto.Action{Type: string(actionModel.Type)}
 			switch actionModel.Type {
 			case models.ActionTypeExecuteCommand:
-				if actionModel.CommandAction == nil {
-					log.Printf("Error: Gemini returned EXECUTE_COMMAND without a command_action payload.")
-					continue
-				}
 				protoAction.Payload = &proto.Action_CommandAction{CommandAction: &proto.CommandAction{Command: actionModel.CommandAction.Command}}
 			case models.ActionTypeReplaceFile:
-				if actionModel.FileAction == nil {
-					log.Printf("Error: Gemini returned REPLACE_FILE without a file_action payload.")
-					continue
-				}
 				protoAction.Payload = &proto.Action_FileAction{FileAction: &proto.FileAction{Path: actionModel.FileAction.Path, Content: actionModel.FileAction.Content}}
 			case models.ActionTypeReturnAnswer:
-				if actionModel.AnswerAction == nil {
-					log.Printf("Error: Gemini returned RETURN_ANSWER without an answer_action payload.")
-					continue
-				}
 				protoAction.Payload = &proto.Action_AnswerAction{AnswerAction: &proto.AnswerAction{Answer: actionModel.AnswerAction.Answer}}
 			}
 
-			log.Printf("Sending action type '%s' to agent.", protoAction.Type)
-			if err := stream.Send(protoAction); err != nil {
-				log.Printf("Error sending action to agent: %v", err)
-				return err
-			}
-
-		case *proto.ExecutionRequest_ReportActionResult:
-			result := event.ReportActionResult
-			log.Printf("Received action result for step %s", currentStepID)
-
-			// Update the step in the database, now including the action_taken.
-			_, err := s.db.Exec(stream.Context(),
-				"UPDATE steps SET status = $1, execution_log = $2, exit_code = $3, action_taken = $4, finished_at = NOW() WHERE step_id = $5",
-				"completed", result.Stdout+"\n"+result.Stderr, result.ExitCode, lastActionSentJSON, currentStepID,
-			)
-			if err != nil {
-				log.Printf("Failed to update step %s: %v", currentStepID, err)
-			}
-			log.Printf("Successfully updated step %s in database.", currentStepID)
+			runnableSteps = append(runnableSteps, &proto.RunnableStep{
+				StepId: id.String(),
+				Action: protoAction,
+			})
 		}
 	}
+
+	return runnableSteps, nil
 }
 
 func main() {

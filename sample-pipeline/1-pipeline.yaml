@@ -13,5 +13,9 @@ steps:
     goal: "Read the contents of the file 'pipeline_output.txt' and print them."
   - name: Javab test
     goal: "what did you write into previous file?"
+    depends_on:
+    - Create File
   - name: working directory
     goal: what is the working directory
+    depends_on:
+    - Javab test

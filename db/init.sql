@@ -17,6 +17,14 @@ CREATE TABLE steps (
     execution_log TEXT,
     exit_code INT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    started_at TIMESTAMPTZ,
     finished_at TIMESTAMPTZ,
-    UNIQUE(run_id, step_index)
+    UNIQUE(run_id, name) -- Step names must be unique within a run
+);
+
+-- New table to manage the dependency graph
+CREATE TABLE step_dependencies (
+    step_id UUID NOT NULL REFERENCES steps(step_id) ON DELETE CASCADE,
+    depends_on_step_id UUID NOT NULL REFERENCES steps(step_id) ON DELETE CASCADE,
+    PRIMARY KEY (step_id, depends_on_step_id)
 );

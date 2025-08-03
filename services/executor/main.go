@@ -44,7 +44,7 @@ func (app *ExecutorApp) handleExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Received execution request for Run ID: %s with image: %s", req.RunID, req.ContainerImage)
+	log.Printf("Received execution request for Run ID: %s, with image: %s", req.RunID, req.ContainerImage)
 
 	ctx := context.Background()
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
