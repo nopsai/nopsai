@@ -80,7 +80,7 @@ func main() {
 	}
 	llmAgentAddress := os.Getenv("LLM_AGENT_ADDRESS")
 	if llmAgentAddress == "" {
-		llmAgentAddress = "localhost:50051" // Default for local testing
+		llmAgentAddress = "localhost:50051"
 	}
 
 	log.Printf("Agent starting for Run ID: %s, connecting to %s", runID, llmAgentAddress)

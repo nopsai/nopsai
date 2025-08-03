@@ -20,7 +20,8 @@ import (
 )
 
 type App struct {
-	db *pgxpool.Pool
+	db              *pgxpool.Pool
+	executorAddress string
 }
 
 type ExecutionRequest struct {
@@ -96,7 +97,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := http.Post("http://nopsai-executor:8081/execute", "application/json", bytes.NewBuffer(reqBytes))
+	resp, err := http.Post(a.executorAddress+"/execute", "application/json", bytes.NewBuffer(reqBytes))
 	if err != nil {
 		log.Printf("Failed to call executor service: %v", err)
 		http.Error(w, "Failed to call executor service", http.StatusInternalServerError)
@@ -127,7 +128,7 @@ func main() {
 
 	var dbpool *pgxpool.Pool
 	for i := 0; i < 5; i++ {
-		dbpool, err = pgxpool.New(context.Background(), cfg.Database.URL)
+		dbpool, err = pgxpool.New(context.Background(), cfg.DatabaseURL)
 		if err == nil {
 			if err = dbpool.Ping(context.Background()); err == nil {
 				log.Println("Successfully connected to the database.")
@@ -142,11 +143,14 @@ func main() {
 	}
 	defer dbpool.Close()
 
-	app := &App{db: dbpool}
+	app := &App{
+		db:              dbpool,
+		executorAddress: cfg.ExecutorAddress,
+	}
 
 	http.HandleFunc("/v1/run", app.handleRunPipeline)
-	log.Println("Nopsai orchestrator listening on :8080")
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	log.Printf("Nopsai orchestrator listening on %s", cfg.NopsaiListenAddress)
+	if err := http.ListenAndServe(cfg.NopsaiListenAddress, nil); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }

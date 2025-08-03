@@ -3,14 +3,16 @@ package main
 import (
 	"bytes"
 	"context"
-	"database/sql" // Import the standard sql package for NullString
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strings"
+	"time"
 
 	"nopsai/config"
 	"nopsai/pkg/models"
@@ -48,11 +50,11 @@ type GeminiResponse struct {
 func (s *llmAgentServer) callRealGemini(prompt string) (*models.Action, error) {
 	log.Println("Calling real Gemini API...")
 
-	geminiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=%s", s.cfg.LLM.GeminiAPIKey)
+	geminiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", s.cfg.GeminiModel, s.cfg.GeminiAPIKey)
 
-	reqPayload := GeminiRequest{
-		Contents: []Content{
-			{Parts: []Part{{Text: prompt}}},
+	reqPayload := models.GeminiRequest{
+		Contents: []models.Content{
+			{Parts: []models.Part{{Text: prompt}}},
 		},
 	}
 
@@ -72,7 +74,7 @@ func (s *llmAgentServer) callRealGemini(prompt string) (*models.Action, error) {
 		return nil, fmt.Errorf("gemini api returned non-200 status: %s, body: %s", resp.Status, string(body))
 	}
 
-	var geminiResp GeminiResponse
+	var geminiResp models.GeminiResponse
 	if err := json.Unmarshal(body, &geminiResp); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal gemini response: %w", err)
 	}
@@ -139,6 +141,7 @@ Here are the available actions:
 2. **REPLACE_FILE**: {"action": {"type": "REPLACE_FILE", "file_action": {"path": "./path/to/file.txt", "content": "The full new content of the file."}}}
 3. **RETURN_ANSWER**: {"action": {"type": "RETURN_ANSWER", "answer_action": {"answer": "The answer to the user's question."}}}
 ---
+**Previous Steps:**
 %s
 ---
 **Current Goal:**
@@ -244,18 +247,33 @@ func (s *llmAgentServer) ExecutionStream(stream proto.AgentService_ExecutionStre
 }
 
 func main() {
-	cfg, err := config.LoadConfig("config.yml")
+	configPath := os.Getenv("CONFIG_PATH")
+	if configPath == "" {
+		configPath = "config.yml"
+	}
+	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		log.Fatalf("Failed to load config from %s: %v", configPath, err)
 	}
 
-	dbpool, err := pgxpool.New(context.Background(), cfg.Database.URL)
+	var dbpool *pgxpool.Pool
+	for i := 0; i < 5; i++ {
+		dbpool, err = pgxpool.New(context.Background(), cfg.DatabaseURL)
+		if err == nil {
+			if err = dbpool.Ping(context.Background()); err == nil {
+				log.Println("Successfully connected to the database.")
+				break
+			}
+		}
+		log.Printf("Unable to connect to database: %v. Retrying in 3 seconds...", err)
+		time.Sleep(3 * time.Second)
+	}
 	if err != nil {
-		log.Fatalf("Unable to connect to database: %v\n", err)
+		log.Fatalf("Failed to connect to database after multiple retries: %v", err)
 	}
 	defer dbpool.Close()
 
-	lis, err := net.Listen("tcp", ":50051")
+	lis, err := net.Listen("tcp", cfg.LlmAgentListenAddress)
 	if err != nil {
 		log.Fatalf("Failed to listen: %v", err)
 	}
@@ -263,7 +281,7 @@ func main() {
 	s := grpc.NewServer()
 	proto.RegisterAgentServiceServer(s, &llmAgentServer{db: dbpool, cfg: cfg})
 
-	log.Println("LLM Agent server listening at :50051")
+	log.Printf("LLM Agent server listening at %s", cfg.LlmAgentListenAddress)
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("Failed to serve: %v", err)
 	}

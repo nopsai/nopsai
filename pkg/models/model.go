@@ -44,3 +44,20 @@ type ActionResult struct {
 	Stderr   string `json:"stderr"`
 	ExitCode int    `json:"exit_code"`
 }
+
+type GeminiRequest struct {
+	Contents []Content `json:"contents"`
+}
+type Content struct {
+	Parts []Part `json:"parts"`
+}
+type Part struct {
+	Text string `json:"text"`
+}
+type GeminiResponse struct {
+	Candidates []struct {
+		Content struct {
+			Parts []Part `json:"parts"`
+		} `json:"content"`
+	} `json:"candidates"`
+}
