@@ -1,11 +1,12 @@
 package models
 
 type Pipeline struct {
-	Name           string            `yaml:"name"`
-	Description    string            `yaml:"description"`
-	ContainerImage string            `yaml:"container_image"`
-	Environment    map[string]string `yaml:"environment"`
-	Steps          []PipelineStep    `yaml:"steps"`
+	Name             string            `yaml:"name"`
+	Description      string            `yaml:"description"`
+	ContainerImage   string            `yaml:"container_image"`
+	WorkingDirectory string            `yaml:"working_directory,omitempty"`
+	Environment      map[string]string `yaml:"environment"`
+	Steps            []PipelineStep    `yaml:"steps"`
 }
 
 type PipelineStep struct {

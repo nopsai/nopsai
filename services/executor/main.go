@@ -21,8 +21,9 @@ type ExecutorApp struct {
 }
 
 type ExecutionRequest struct {
-	RunID          string `json:"run_id"`
-	ContainerImage string `json:"container_image"`
+	RunID            string `json:"run_id"`
+	ContainerImage   string `json:"container_image"`
+	WorkingDirectory string `json:"working_directory"`
 }
 
 func (app *ExecutorApp) handleExecute(w http.ResponseWriter, r *http.Request) {
@@ -58,7 +59,8 @@ func (app *ExecutorApp) handleExecute(w http.ResponseWriter, r *http.Request) {
 	networkName := app.cfg.DockerNetworkName
 
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
-		Image: req.ContainerImage,
+		Image:      req.ContainerImage,
+		WorkingDir: req.WorkingDirectory,
 		Env: []string{
 			fmt.Sprintf("RUN_ID=%s", req.RunID),
 			fmt.Sprintf("LLM_AGENT_ADDRESS=%s", llmAgentAddress),
