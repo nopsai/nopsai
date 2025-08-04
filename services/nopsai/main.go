@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"time"
@@ -16,6 +14,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
 )
 
@@ -33,29 +33,31 @@ type ExecutionRequest struct {
 
 func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		log.Error().Msgf("Invalid request method: %s", r.Method)
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
 		return
 	}
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		log.Error().Err(err).Msg("Error reading request body")
 		http.Error(w, "Error reading request body", http.StatusInternalServerError)
 		return
 	}
 
 	var pipeline models.Pipeline
 	if err := yaml.Unmarshal(body, &pipeline); err != nil {
+		log.Error().Err(err).Msg("Error parsing YAML pipeline")
 		http.Error(w, "Error parsing YAML pipeline", http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("Received pipeline: %s", pipeline.Name)
-
+	log.Info().Msgf("Received pipeline: %s", pipeline.Name)
 	runID := uuid.New()
 
 	tx, err := a.db.Begin(context.Background())
 	if err != nil {
-		log.Printf("Failed to start database transaction: %v", err)
+		log.Error().Err(err).Msg("Failed to start database transaction")
 		http.Error(w, "Failed to start database transaction", http.StatusInternalServerError)
 		return
 	}
@@ -66,6 +68,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		runID, string(body), "running",
 	)
 	if err != nil {
+		log.Error().Err(err).Msg("Failed to insert run record")
 		http.Error(w, "Failed to create run record", http.StatusInternalServerError)
 		return
 	}
@@ -79,7 +82,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 			stepID, runID, i, step.Name, step.Goal, "pending",
 		)
 		if err != nil {
-			log.Printf("Failed to insert step %d: %v", i, err)
+			log.Error().Err(err).Msgf("Failed to insert step %d", i)
 			http.Error(w, "Failed to create step records", http.StatusInternalServerError)
 			return
 		}
@@ -90,8 +93,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		for _, depName := range step.DependsOn {
 			depID, ok := stepNameToID[depName]
 			if !ok {
-				log.Printf("Error: dependency '%s' for step '%s' not found", depName, step.Name)
-				http.Error(w, fmt.Sprintf("Dependency '%s' not found", depName), http.StatusBadRequest)
+				log.Fatal().Msgf("Error: dependency '%s' for step '%s' not found", depName, step.Name)
 				return
 			}
 			_, err := tx.Exec(context.Background(),
@@ -99,24 +101,24 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 				stepID, depID,
 			)
 			if err != nil {
-				log.Printf("Failed to insert dependency for step %s: %v", step.Name, err)
-				http.Error(w, "Failed to create dependency records", http.StatusInternalServerError)
+				log.Fatal().Err(err).Msgf("Failed to insert dependency for step %s", step.Name)
 				return
 			}
 		}
 	}
 
 	if err := tx.Commit(context.Background()); err != nil {
+		log.Error().Err(err).Msg("Failed to commit transaction")
 		http.Error(w, "Failed to commit transaction", http.StatusInternalServerError)
 		return
 	}
 
-	// Nopsai no longer dispatches steps. It just tells the executor to start one container for the run.
-	log.Printf("Successfully created run with ID: %s. Requesting container from executor...", runID.String())
+	log.Info().Str("run_id", runID.String()).Msg("Successfully created run. Requesting container from executor...")
 	a.callExecutor(runID.String(), pipeline)
 
 	w.WriteHeader(http.StatusCreated)
-	fmt.Fprintf(w, "Pipeline run created successfully with ID: %s\n", runID.String())
+	w.Write([]byte("Pipeline run created successfully with ID: " + runID.String()))
+	log.Info().Str("run_id", runID.String()).Msg("Pipeline run creation response sent.")
 }
 
 func (a *App) callExecutor(runID string, pipeline models.Pipeline) {
@@ -127,47 +129,58 @@ func (a *App) callExecutor(runID string, pipeline models.Pipeline) {
 	}
 	reqBytes, err := json.Marshal(execReq)
 	if err != nil {
-		log.Printf("Executor call failed for run %s: could not marshal request: %v", runID, err)
+		log.Fatal().Err(err).Msgf("Executor call failed for run %s: could not marshal request", runID)
 		return
 	}
 
 	resp, err := http.Post(a.executorAddress+"/execute", "application/json", bytes.NewBuffer(reqBytes))
 	if err != nil {
-		log.Printf("Executor call failed for run %s: %v", runID, err)
+		log.Fatal().Err(err).Msgf("Executor call failed for run %s", runID)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		log.Printf("Executor service returned error for run %s: %s", runID, string(body))
+		log.Fatal().Msgf("Executor service returned error for run %s: %s", runID, string(body))
 	}
 }
 
 func main() {
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen})
+
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
 		configPath = "config.yml"
 	}
+
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		log.Fatalf("Failed to load config from %s: %v", configPath, err)
+		log.Fatal().Err(err).Msgf("Failed to load config from %s", configPath)
 	}
+
+	logLevel, err := zerolog.ParseLevel(cfg.LogLevel)
+	if err != nil {
+		log.Warn().Msgf("Invalid log level '%s', defaulting to 'info'", cfg.LogLevel)
+		logLevel = zerolog.InfoLevel
+	}
+	zerolog.SetGlobalLevel(logLevel)
 
 	var dbpool *pgxpool.Pool
 	for i := 0; i < 5; i++ {
 		dbpool, err = pgxpool.New(context.Background(), cfg.DatabaseURL)
 		if err == nil {
 			if err = dbpool.Ping(context.Background()); err == nil {
-				log.Println("Successfully connected to the database.")
+				log.Info().Msg("Successfully connected to the database.")
 				break
 			}
 		}
-		log.Printf("Unable to connect to database: %v. Retrying in 3 seconds...", err)
+		log.Warn().Err(err).Msgf("Unable to connect to database. Retrying in 3 seconds...")
 		time.Sleep(3 * time.Second)
 	}
 	if err != nil {
-		log.Fatalf("Failed to connect to database after multiple retries: %v", err)
+		log.Fatal().Err(err).Msg("Failed to connect to database after multiple retries")
 	}
 	defer dbpool.Close()
 
@@ -177,8 +190,8 @@ func main() {
 	}
 
 	http.HandleFunc("/v1/run", app.handleRunPipeline)
-	log.Printf("Nopsai orchestrator listening on %s", cfg.NopsaiListenAddress)
+	log.Info().Msgf("Nopsai orchestrator listening on %s", cfg.NopsaiListenAddress)
 	if err := http.ListenAndServe(cfg.NopsaiListenAddress, nil); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+		log.Fatal().Err(err).Msg("Failed to start server")
 	}
 }

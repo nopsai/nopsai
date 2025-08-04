@@ -9,6 +9,7 @@ import (
 // Config holds all configuration for the application.
 type Config struct {
 	DatabaseURL string `yaml:"database_url"`
+	LogLevel    string `yaml:"log_level"`
 
 	GeminiAPIKey string `yaml:"gemini_api_key"`
 	GeminiModel  string `yaml:"gemini_model"`

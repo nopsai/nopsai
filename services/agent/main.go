@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -15,11 +14,14 @@ import (
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
 
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-func executeAction(action *proto.Action) (stdout, stderr string, exitCode int) {
+// executeAction now accepts a logger to prefix messages.
+func executeAction(action *proto.Action, logger zerolog.Logger) (stdout, stderr string, exitCode int) {
 	switch action.Type {
 	case "EXECUTE_COMMAND":
 		cmdAction := action.GetCommandAction()
@@ -27,7 +29,7 @@ func executeAction(action *proto.Action) (stdout, stderr string, exitCode int) {
 			return "", "Invalid command action payload", 1
 		}
 
-		log.Printf("Executing command: `%s`", cmdAction.Command)
+		logger.Info().Msgf("Executing command: `%s`", cmdAction.Command)
 		cmd := exec.Command("sh", "-c", cmdAction.Command)
 
 		var outb, errb strings.Builder
@@ -39,10 +41,10 @@ func executeAction(action *proto.Action) (stdout, stderr string, exitCode int) {
 		stderr = strings.TrimSpace(errb.String())
 
 		if stdout != "" {
-			log.Printf("Command STDOUT:\n---\n%s\n---", stdout)
+			logger.Debug().Msgf("Command STDOUT:\n---\n%s\n---", stdout)
 		}
 		if stderr != "" {
-			log.Printf("Command STDERR:\n---\n%s\n---", stderr)
+			logger.Debug().Msgf("Command STDERR:\n---\n%s\n---", stderr)
 		}
 
 		if err != nil {
@@ -62,7 +64,7 @@ func executeAction(action *proto.Action) (stdout, stderr string, exitCode int) {
 			return "", "Invalid file action payload", 1
 		}
 
-		log.Printf("Replacing file: `%s`", fileAction.Path)
+		logger.Info().Msgf("Replacing file: `%s`", fileAction.Path)
 		err := os.WriteFile(fileAction.Path, []byte(fileAction.Content), 0644)
 		if err != nil {
 			return "", fmt.Sprintf("Failed to write file: %v", err), 1
@@ -74,7 +76,7 @@ func executeAction(action *proto.Action) (stdout, stderr string, exitCode int) {
 		if ansAction == nil {
 			return "", "Invalid answer action payload", 1
 		}
-		log.Printf("Received answer: %s", ansAction.Answer)
+		logger.Info().Msgf("Received answer: %s", ansAction.Answer)
 		return ansAction.Answer, "", 0
 
 	default:
@@ -83,16 +85,21 @@ func executeAction(action *proto.Action) (stdout, stderr string, exitCode int) {
 }
 
 func main() {
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+	// Use ConsoleWriter for more human-readable logs
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen})
+	zerolog.SetGlobalLevel(zerolog.DebugLevel) // Agent logs are verbose by default
+
 	runID := os.Getenv("RUN_ID")
 	if runID == "" {
-		log.Fatal("RUN_ID environment variable must be set.")
+		log.Fatal().Msg("RUN_ID environment variable not set.")
 	}
 	llmAgentAddress := os.Getenv("LLM_AGENT_ADDRESS")
 	if llmAgentAddress == "" {
 		llmAgentAddress = "localhost:50051"
 	}
 
-	log.Printf("Agent starting for Run ID: %s, connecting to %s", runID, llmAgentAddress)
+	log.Info().Str("run_id", runID).Msgf("Agent starting, connecting to %s", llmAgentAddress)
 
 	var conn *grpc.ClientConn
 	var err error
@@ -101,11 +108,11 @@ func main() {
 		if err == nil {
 			break
 		}
-		log.Printf("Did not connect: %v. Retrying in 2 seconds...", err)
+		log.Warn().Err(err).Msgf("Did not connect. Retrying in 2 seconds...")
 		time.Sleep(2 * time.Second)
 	}
 	if err != nil {
-		log.Fatalf("Failed to connect after multiple retries: %v", err)
+		log.Fatal().Err(err).Msg("Failed to connect after multiple retries")
 	}
 	defer conn.Close()
 
@@ -115,10 +122,10 @@ func main() {
 
 	stream, err := client.ExecutionStream(ctx)
 	if err != nil {
-		log.Fatalf("Could not open stream: %v", err)
+		log.Fatal().Err(err).Msg("Could not open stream")
 	}
 
-	log.Println("Subscribing to execution stream...")
+	log.Info().Msg("Subscribing to execution stream...")
 	subReq := &proto.StreamRequest{
 		RunId: runID,
 		Event: &proto.StreamRequest_Subscribe{
@@ -126,7 +133,7 @@ func main() {
 		},
 	}
 	if err := stream.Send(subReq); err != nil {
-		log.Fatalf("Failed to subscribe: %v", err)
+		log.Fatal().Err(err).Msg("Failed to subscribe")
 	}
 
 	var wg sync.WaitGroup
@@ -134,11 +141,11 @@ func main() {
 	for {
 		resp, err := stream.Recv()
 		if err == io.EOF {
-			log.Println("Server closed the stream. All steps are likely dispatched.")
+			log.Info().Msg("Server closed the stream. All steps are likely dispatched.")
 			break
 		}
 		if err != nil {
-			log.Fatalf("Failed to receive message: %v", err)
+			log.Fatal().Err(err).Msg("Failed to receive message")
 		}
 
 		if step := resp.GetStep(); step != nil {
@@ -147,9 +154,12 @@ func main() {
 				defer wg.Done()
 				stepID := runnableStep.GetStepId()
 				action := runnableStep.GetAction()
-				log.Printf("Starting execution for step %s", stepID)
 
-				stdout, stderr, exitCode := executeAction(action)
+				// Create a sub-logger with context for this specific step
+				stepLogger := log.With().Str("step_id", stepID[:8]).Logger()
+				stepLogger.Info().Msgf("Starting execution. Action Type: %s", action.Type)
+
+				stdout, stderr, exitCode := executeAction(action, stepLogger)
 
 				modelsAction := &models.Action{Type: action.Type}
 				switch action.Type {
@@ -173,14 +183,16 @@ func main() {
 					RunId: runID,
 					Event: &proto.StreamRequest_Result{Result: result},
 				}
+
+				stepLogger.Info().Int("exit_code", exitCode).Msg("Reporting result...")
 				if err := stream.Send(resultReq); err != nil {
-					log.Printf("Step %s: failed to send result: %v", stepID, err)
+					stepLogger.Error().Err(err).Msg("Failed to send result")
 				}
-				log.Printf("Finished execution for step %s", stepID)
+				stepLogger.Info().Msg("Finished execution.")
 			}(step)
 		}
 	}
 
 	wg.Wait()
-	log.Println("All dispatched steps have completed.")
+	log.Info().Msg("All dispatched steps have completed.")
 }

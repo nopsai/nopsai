@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -21,6 +20,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 )
 
@@ -32,7 +33,7 @@ type llmAgentServer struct {
 }
 
 func (s *llmAgentServer) callRealGemini(prompt string) (*models.Action, error) {
-	log.Println("Calling real Gemini API...")
+	log.Debug().Msg("Calling real Gemini API...")
 
 	geminiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", s.cfg.GeminiModel, s.cfg.GeminiAPIKey)
 
@@ -140,6 +141,7 @@ Now, choose the single best action from your toolkit and provide the response in
 func (s *llmAgentServer) ExecutionStream(stream proto.AgentService_ExecutionStreamServer) error {
 	req, err := stream.Recv()
 	if err != nil {
+		log.Error().Err(err).Msg("Failed to receive initial message from agent")
 		return err
 	}
 	subReq := req.GetSubscribe()
@@ -147,15 +149,17 @@ func (s *llmAgentServer) ExecutionStream(stream proto.AgentService_ExecutionStre
 		return fmt.Errorf("expected first message to be a SubscribeRequest")
 	}
 	runID := req.GetRunId()
-	log.Printf("Agent for RunID %s subscribed.", runID)
+	log.Info().Str("run_id", runID).Msg("Agent subscribed to execution stream")
 
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
+	// Goroutine to handle receiving results from the agent
 	go func() {
 		for {
 			req, err := stream.Recv()
 			if err != nil {
+				// Stream is likely closed, so we just exit the goroutine
 				return
 			}
 			if result := req.GetResult(); result != nil {
@@ -164,24 +168,25 @@ func (s *llmAgentServer) ExecutionStream(stream proto.AgentService_ExecutionStre
 		}
 	}()
 
+	// Main loop: periodically check for and send runnable steps
 	for {
 		select {
 		case <-stream.Context().Done():
-			log.Printf("Agent for RunID %s disconnected.", runID)
+			log.Info().Str("run_id", runID).Msg("Agent disconnected")
 			return stream.Context().Err()
 		case <-ticker.C:
 			steps, err := s.getAndPrepareRunnableSteps(stream.Context(), runID)
 			if err != nil {
-				log.Printf("Error getting runnable steps for %s: %v", runID, err)
+				log.Error().Err(err).Str("run_id", runID).Msg("Error getting runnable steps")
 				continue
 			}
 			for _, step := range steps {
-				log.Printf("Sending step %s to agent for run %s", step.GetStepId(), runID)
+				log.Info().Str("step_id", step.GetStepId()).Str("run_id", runID).Msg("Sending step to agent")
 				resp := &proto.StreamResponse{
 					Event: &proto.StreamResponse_Step{Step: step},
 				}
 				if err := stream.Send(resp); err != nil {
-					log.Printf("Error sending step to agent for run %s: %v", runID, err)
+					log.Error().Err(err).Str("run_id", runID).Msg("Error sending step to agent")
 					return err
 				}
 			}
@@ -190,15 +195,15 @@ func (s *llmAgentServer) ExecutionStream(stream proto.AgentService_ExecutionStre
 }
 
 func (s *llmAgentServer) handleStepResult(result *proto.StepResult) {
-	log.Printf("Received action result for step %s", result.StepId)
+	log.Info().Str("step_id", result.StepId).Msg("Received action result")
 	_, err := s.db.Exec(context.Background(),
 		"UPDATE steps SET status = $1, execution_log = $2, exit_code = $3, action_taken = $4, finished_at = NOW() WHERE step_id = $5",
 		"completed", result.Stdout+"\n"+result.Stderr, result.ExitCode, result.ActionTaken, result.StepId,
 	)
 	if err != nil {
-		log.Printf("Failed to update step %s: %v", result.StepId, err)
+		log.Error().Err(err).Str("step_id", result.StepId).Msg("Failed to update step")
 	}
-	log.Printf("Successfully updated step %s in database.", result.StepId)
+	log.Info().Str("step_id", result.StepId).Msg("Successfully updated step in database")
 }
 
 func (s *llmAgentServer) getAndPrepareRunnableSteps(ctx context.Context, runID string) ([]*proto.RunnableStep, error) {
@@ -234,19 +239,19 @@ func (s *llmAgentServer) getAndPrepareRunnableSteps(ctx context.Context, runID s
 		for _, id := range stepIDs {
 			_, err := s.db.Exec(ctx, "UPDATE steps SET status = 'running', started_at = NOW() WHERE step_id = $1 AND status = 'pending'", id)
 			if err != nil {
-				log.Printf("Failed to mark step %s as running: %v", id, err)
+				log.Error().Err(err).Str("step_id", id.String()).Msg("Failed to mark step as running")
 				continue
 			}
 
 			prompt, err := s.buildPrompt(ctx, id.String())
 			if err != nil {
-				log.Printf("Error building prompt for step %s: %v", id, err)
+				log.Error().Err(err).Str("step_id", id.String()).Msg("Error building prompt")
 				continue
 			}
 
 			actionModel, err := s.callRealGemini(prompt)
 			if err != nil {
-				log.Printf("Error calling Gemini for step %s: %v", id, err)
+				log.Error().Err(err).Str("step_id", id.String()).Msg("Error calling Gemini")
 				continue
 			}
 
@@ -271,42 +276,52 @@ func (s *llmAgentServer) getAndPrepareRunnableSteps(ctx context.Context, runID s
 }
 
 func main() {
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen})
+
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
 		configPath = "config.yml"
 	}
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		log.Fatalf("Failed to load config from %s: %v", configPath, err)
+		log.Fatal().Err(err).Msgf("Failed to load config from %s", configPath)
 	}
+
+	logLevel, err := zerolog.ParseLevel(cfg.LogLevel)
+	if err != nil {
+		log.Warn().Msgf("Invalid log level '%s', defaulting to 'info'", cfg.LogLevel)
+		logLevel = zerolog.InfoLevel
+	}
+	zerolog.SetGlobalLevel(logLevel)
 
 	var dbpool *pgxpool.Pool
 	for i := 0; i < 5; i++ {
 		dbpool, err = pgxpool.New(context.Background(), cfg.DatabaseURL)
 		if err == nil {
 			if err = dbpool.Ping(context.Background()); err == nil {
-				log.Println("Successfully connected to the database.")
+				log.Info().Msg("Successfully connected to the database.")
 				break
 			}
 		}
-		log.Printf("Unable to connect to database: %v. Retrying in 3 seconds...", err)
+		log.Warn().Err(err).Msgf("Unable to connect to database. Retrying in 3 seconds...")
 		time.Sleep(3 * time.Second)
 	}
 	if err != nil {
-		log.Fatalf("Failed to connect to database after multiple retries: %v", err)
+		log.Fatal().Err(err).Msg("Failed to connect to database after multiple retries")
 	}
 	defer dbpool.Close()
 
 	lis, err := net.Listen("tcp", cfg.LlmAgentListenAddress)
 	if err != nil {
-		log.Fatalf("Failed to listen: %v", err)
+		log.Fatal().Err(err).Msgf("Failed to listen on %s", cfg.LlmAgentListenAddress)
 	}
 
 	s := grpc.NewServer()
 	proto.RegisterAgentServiceServer(s, &llmAgentServer{db: dbpool, cfg: cfg})
 
-	log.Printf("LLM Agent server listening at %s", cfg.LlmAgentListenAddress)
+	log.Info().Msgf("LLM Agent server listening at %s", cfg.LlmAgentListenAddress)
 	if err := s.Serve(lis); err != nil {
-		log.Fatalf("Failed to serve: %v", err)
+		log.Fatal().Err(err).Msg("Failed to serve gRPC")
 	}
 }
