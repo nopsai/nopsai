@@ -1,4 +1,4 @@
-name: My First Real Pipeline
+name: First Test Pipeline
 description: A sample pipeline that will be stored in the database.
 container_image: "nopsai-agent:latest"
 working_directory: "/tmp/test"

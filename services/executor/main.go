@@ -5,15 +5,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"nopsai/config"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 type ExecutorApp struct {
@@ -28,28 +30,31 @@ type ExecutionRequest struct {
 
 func (app *ExecutorApp) handleExecute(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		log.Error().Msgf("Invalid request method: %s", r.Method)
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
 		return
 	}
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		log.Error().Err(err).Msg("Error reading request body")
 		http.Error(w, "Error reading request body", http.StatusInternalServerError)
 		return
 	}
 
 	var req ExecutionRequest
 	if err := json.Unmarshal(body, &req); err != nil {
+		log.Error().Err(err).Msg("Error parsing request JSON")
 		http.Error(w, "Error parsing request JSON", http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("Received execution request for Run ID: %s, with image: %s", req.RunID, req.ContainerImage)
+	log.Info().Str("run_id", req.RunID).Msgf("Received execution request with image: %s", req.ContainerImage)
 
 	ctx := context.Background()
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
-		log.Printf("Error creating Docker client: %v", err)
+		log.Error().Err(err).Msg("Error creating Docker client")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
@@ -72,37 +77,47 @@ func (app *ExecutorApp) handleExecute(w http.ResponseWriter, r *http.Request) {
 		},
 	}, nil, "")
 	if err != nil {
-		log.Printf("Error creating container: %v", err)
+		log.Error().Err(err).Str("run_id", req.RunID).Msg("Failed to create container")
 		http.Error(w, "Failed to create container", http.StatusInternalServerError)
 		return
 	}
 
 	if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
-		log.Printf("Error starting container: %v", err)
+		log.Error().Err(err).Str("container_id", resp.ID).Msg("Failed to start container")
 		http.Error(w, "Failed to start container", http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("Successfully started container %s for Run ID %s", resp.ID[:12], req.RunID)
+	log.Info().Str("run_id", req.RunID).Str("container_id", resp.ID[:12]).Msg("Successfully started container")
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "Container started successfully: %s", resp.ID)
 }
 
 func main() {
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen})
+
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
 		configPath = "config.yml"
 	}
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		log.Fatalf("Failed to load config from %s: %v", configPath, err)
+		log.Fatal().Err(err).Msgf("Failed to load config from %s", configPath)
 	}
+
+	logLevel, err := zerolog.ParseLevel(cfg.LogLevel)
+	if err != nil {
+		log.Warn().Msgf("Invalid log level '%s', defaulting to 'info'", cfg.LogLevel)
+		logLevel = zerolog.InfoLevel
+	}
+	zerolog.SetGlobalLevel(logLevel)
 
 	app := &ExecutorApp{cfg: cfg}
 
 	http.HandleFunc("/execute", app.handleExecute)
-	log.Printf("Executor service listening on %s", cfg.ExecutorListenAddress)
+	log.Info().Msgf("Executor service listening on %s", cfg.ExecutorListenAddress)
 	if err := http.ListenAndServe(cfg.ExecutorListenAddress, nil); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+		log.Fatal().Err(err).Msg("Failed to start server")
 	}
 }
