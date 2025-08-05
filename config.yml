@@ -4,7 +4,7 @@ database_url: "postgres://nopsai_user:yoursecurepassword@nopsai-db:5432/nopsai_d
 
 # --- LLM Configuration ---
 gemini_api_key: "AIzaSyCdyZBcvjWrroxGem8l0ER62WNPlg8s7xU"
-gemini_model: "gemini-1.5-flash"
+gemini_model: "gemini-2.5-flash"
 
 # --- Service Addresses ---
 nopsai_listen_address: "0.0.0.0:8080"
