@@ -1,7 +1,7 @@
 FROM nopsai-base:latest AS base
 FROM alpine:latest
 
-RUN apk --no-cache add git bash docker yq jq 
+RUN apk --no-cache add git bash docker-cli yq jq 
 COPY --from=base /nopsai-agent /usr/local/bin/nopsai-agent
 
 ENTRYPOINT ["nopsai-agent"]
