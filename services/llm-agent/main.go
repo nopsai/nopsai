@@ -83,6 +83,24 @@ func (s *llmAgentServer) callRealGemini(prompt string) (*models.Action, error) {
 }
 
 func (s *llmAgentServer) buildPrompt(ctx context.Context, stepID string) (string, error) {
+	var runID string
+	var envJSON sql.NullString
+	err := s.db.QueryRow(ctx, "SELECT run_id, environment FROM runs WHERE run_id = (SELECT run_id FROM steps WHERE step_id = $1)", stepID).Scan(&runID, &envJSON)
+	if err != nil {
+		return "", fmt.Errorf("failed to get run info for step %s: %w", stepID, err)
+	}
+
+	var envBuilder strings.Builder
+	envBuilder.WriteString("**Environment Variables:**\n")
+	if envJSON.Valid && envJSON.String != "" {
+		var env map[string]string
+		if err := json.Unmarshal([]byte(envJSON.String), &env); err == nil {
+			for key, value := range env {
+				envBuilder.WriteString(fmt.Sprintf("- %s: %s\n", key, value))
+			}
+		}
+	}
+
 	historyQuery := `
 		SELECT s.goal, s.action_taken, s.execution_log, s.exit_code
 		FROM steps s
@@ -129,12 +147,14 @@ Here are the available actions:
 ---
 %s
 ---
+%s
+---
 **Current Goal:**
 "%s"
 ---
 Now, choose the single best action from your toolkit and provide the response in the required JSON format.`
 
-	fullPrompt := fmt.Sprintf(promptTemplate, historyBuilder.String(), currentGoal)
+	fullPrompt := fmt.Sprintf(promptTemplate, envBuilder.String(), historyBuilder.String(), currentGoal)
 	return fullPrompt, nil
 }
 

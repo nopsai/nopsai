@@ -23,9 +23,10 @@ type ExecutorApp struct {
 }
 
 type ExecutionRequest struct {
-	RunID            string `json:"run_id"`
-	ContainerImage   string `json:"container_image"`
-	WorkingDirectory string `json:"working_directory"`
+	RunID            string            `json:"run_id"`
+	ContainerImage   string            `json:"container_image"`
+	WorkingDirectory string            `json:"working_directory"`
+	Environment      map[string]string `json:"environment"`
 }
 
 func (app *ExecutorApp) handleExecute(w http.ResponseWriter, r *http.Request) {
@@ -63,14 +64,18 @@ func (app *ExecutorApp) handleExecute(w http.ResponseWriter, r *http.Request) {
 	llmAgentAddress := app.cfg.AgentLlmAgentAddress
 	networkName := app.cfg.DockerNetworkName
 
+	envVars := []string{
+		fmt.Sprintf("RUN_ID=%s", req.RunID),
+		fmt.Sprintf("LLM_AGENT_ADDRESS=%s", llmAgentAddress),
+	}
+	for key, value := range req.Environment {
+		envVars = append(envVars, fmt.Sprintf("%s=%s", key, value))
+	}
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image:      req.ContainerImage,
 		WorkingDir: req.WorkingDirectory,
-		Env: []string{
-			fmt.Sprintf("RUN_ID=%s", req.RunID),
-			fmt.Sprintf("LLM_AGENT_ADDRESS=%s", llmAgentAddress),
-		},
-		Tty: false,
+		Env:        envVars,
+		Tty:        false,
 	}, &container.HostConfig{}, &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
 			networkName: {},
