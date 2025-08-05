@@ -17,6 +17,7 @@ CREATE TABLE steps (
     action_taken TEXT,
     execution_log TEXT,
     exit_code INT,
+    directory_listing TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     started_at TIMESTAMPTZ,
     finished_at TIMESTAMPTZ,

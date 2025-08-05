@@ -19,6 +19,7 @@ import (
 	"nopsai/pkg/proto"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -101,6 +102,38 @@ func (s *llmAgentServer) buildPrompt(ctx context.Context, stepID string) (string
 		}
 	}
 
+	var directoryListingJSON sql.NullString
+	directoryListingQuery := `
+		SELECT s.directory_listing
+		FROM steps s
+		JOIN step_dependencies sd ON s.step_id = sd.depends_on_step_id
+		WHERE sd.step_id = $1 AND s.status = 'completed'
+		ORDER BY s.finished_at DESC NULLS LAST
+		LIMIT 1`
+	err = s.db.QueryRow(ctx, directoryListingQuery, stepID).Scan(&directoryListingJSON)
+	if err != nil && err != pgx.ErrNoRows {
+		return "", fmt.Errorf("failed to query directory listing for step %s: %w", stepID, err)
+	}
+
+	var directoryListingBuilder strings.Builder
+	directoryListingBuilder.WriteString("**Working Directory Contents:**\n")
+	if directoryListingJSON.Valid && directoryListingJSON.String != "" {
+		var directoryListing map[string]string
+		if err := json.Unmarshal([]byte(directoryListingJSON.String), &directoryListing); err == nil {
+			if len(directoryListing) == 0 {
+				directoryListingBuilder.WriteString("Directory is empty.\n")
+			} else {
+				for name, content := range directoryListing {
+					directoryListingBuilder.WriteString(fmt.Sprintf("--- File: %s ---\n%s\n", name, content))
+				}
+			}
+		} else {
+			directoryListingBuilder.WriteString("Could not parse directory listing.\n")
+		}
+	} else {
+		directoryListingBuilder.WriteString("No files in directory yet.\n")
+	}
+
 	historyQuery := `
 		SELECT s.goal, s.action_taken, s.execution_log, s.exit_code
 		FROM steps s
@@ -149,12 +182,14 @@ Here are the available actions:
 ---
 %s
 ---
+%s
+---
 **Current Goal:**
 "%s"
 ---
 Now, choose the single best action from your toolkit and provide the response in the required JSON format.`
 
-	fullPrompt := fmt.Sprintf(promptTemplate, envBuilder.String(), historyBuilder.String(), currentGoal)
+	fullPrompt := fmt.Sprintf(promptTemplate, envBuilder.String(), directoryListingBuilder.String(), historyBuilder.String(), currentGoal)
 	return fullPrompt, nil
 }
 
@@ -216,9 +251,15 @@ func (s *llmAgentServer) ExecutionStream(stream proto.AgentService_ExecutionStre
 
 func (s *llmAgentServer) handleStepResult(result *proto.StepResult) {
 	log.Info().Str("step_id", result.StepId).Msg("Received action result")
-	_, err := s.db.Exec(context.Background(),
-		"UPDATE steps SET status = $1, execution_log = $2, exit_code = $3, action_taken = $4, finished_at = NOW() WHERE step_id = $5",
-		"completed", result.Stdout+"\n"+result.Stderr, result.ExitCode, result.ActionTaken, result.StepId,
+	directoryListingBytes, err := json.Marshal(result.DirectoryListing)
+	if err != nil {
+		log.Error().Err(err).Str("step_id", result.StepId).Msg("Failed to marshal directory listing")
+		directoryListingBytes = []byte("{}")
+	}
+
+	_, err = s.db.Exec(context.Background(),
+		"UPDATE steps SET status = $1, execution_log = $2, exit_code = $3, action_taken = $4, finished_at = NOW(), directory_listing = $6 WHERE step_id = $5",
+		"completed", result.Stdout+"\n"+result.Stderr, result.ExitCode, result.ActionTaken, result.StepId, string(directoryListingBytes),
 	)
 	if err != nil {
 		log.Error().Err(err).Str("step_id", result.StepId).Msg("Failed to update step")

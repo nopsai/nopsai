@@ -29,6 +29,7 @@ message StepResult {
   string stderr = 3;
   int32 exit_code = 4;
   string action_taken = 5;
+  map<string, string> directory_listing = 6;
 }
 
 // Message from LLM Agent to Agent
