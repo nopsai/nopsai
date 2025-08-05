@@ -1,0 +1,36 @@
+name: Second Test Pipeline
+description: A sample pipeline.
+container_image: "nopsai-agent:latest"
+working_directory: "/tmp/test"
+environment:
+  API_VERSION: "v1"
+  DOCKER_HOST: "tcp://192.168.1.16:2375"
+steps:
+  - name: git clone
+    goal: "clone this repository: https://github.com/hosein-yousefii/test-app.git"
+
+  - name: branch versioning
+    goal: "Change branch to nopsai-test and get the latest tag"
+    depends_on:
+    - git clone
+
+  - name: dockerfile modification
+    goal: "if there is a docker-compose then check the dockerfile and copy the docker-compose file inside dockerfile. if not do nothing and go for next step"
+    depends_on:
+    - branch versioning
+
+  - name: commit hash
+    goal: "what is the commit hash?"
+    depends_on:
+    - branch versioning
+
+  - name: build docker
+    goal: build docker image with repo name and tag based on the latest calculated tag and commit hash 
+    depends_on:
+    - commit hash
+    - dockerfile modification
+
+  - name: report
+    goal: "provide a report of the docker image and all tags"
+    depends_on:
+    - build docker
