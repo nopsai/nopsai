@@ -26,9 +26,10 @@ type App struct {
 
 // This request now only contains information for the whole run.
 type ExecutionRequest struct {
-	RunID            string `json:"run_id"`
-	ContainerImage   string `json:"container_image"`
-	WorkingDirectory string `json:"working_directory"`
+	RunID            string            `json:"run_id"`
+	ContainerImage   string            `json:"container_image"`
+	WorkingDirectory string            `json:"working_directory"`
+	Environment      map[string]string `json:"environment"`
 }
 
 func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
@@ -63,9 +64,15 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(context.Background())
 
+	envBytes, err := json.Marshal(pipeline.Environment)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to marshal environment variables")
+		http.Error(w, "Failed to marshal environment variables", http.StatusInternalServerError)
+		return
+	}
 	_, err = tx.Exec(context.Background(),
-		"INSERT INTO runs (run_id, pipeline_definition, status) VALUES ($1, $2, $3)",
-		runID, string(body), "running",
+		"INSERT INTO runs (run_id, pipeline_definition, status, environment) VALUES ($1, $2, $3, $4)",
+		runID, string(body), "running", string(envBytes),
 	)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to insert run record")
@@ -126,6 +133,7 @@ func (a *App) callExecutor(runID string, pipeline models.Pipeline) {
 		RunID:            runID,
 		ContainerImage:   pipeline.ContainerImage,
 		WorkingDirectory: pipeline.WorkingDirectory,
+		Environment:      pipeline.Environment,
 	}
 	reqBytes, err := json.Marshal(execReq)
 	if err != nil {
