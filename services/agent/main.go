@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"strings"
@@ -21,12 +22,12 @@ import (
 )
 
 // executeAction now accepts a logger to prefix messages.
-func executeAction(action *proto.Action, logger zerolog.Logger) (stdout, stderr string, exitCode int) {
+func executeAction(action *proto.Action, logger zerolog.Logger) (stdout, stderr string, exitCode int, directoryListing map[string]string) {
 	switch action.Type {
 	case "EXECUTE_COMMAND":
 		cmdAction := action.GetCommandAction()
 		if cmdAction == nil {
-			return "", "Invalid command action payload", 1
+			return "", "Invalid command action payload", 1, nil
 		}
 
 		logger.Info().Msgf("Executing command: `%s`", cmdAction.Command)
@@ -56,32 +57,52 @@ func executeAction(action *proto.Action, logger zerolog.Logger) (stdout, stderr 
 		} else {
 			exitCode = 0
 		}
-		return stdout, stderr, exitCode
 
 	case "REPLACE_FILE":
 		fileAction := action.GetFileAction()
 		if fileAction == nil {
-			return "", "Invalid file action payload", 1
+			return "", "Invalid file action payload", 1, nil
 		}
 
 		logger.Info().Msgf("Replacing file: `%s`", fileAction.Path)
 		err := os.WriteFile(fileAction.Path, []byte(fileAction.Content), 0644)
 		if err != nil {
-			return "", fmt.Sprintf("Failed to write file: %v", err), 1
+			return "", fmt.Sprintf("Failed to write file: %v", err), 1, nil
 		}
-		return fmt.Sprintf("Successfully wrote to %s", fileAction.Path), "", 0
+		stdout = fmt.Sprintf("Successfully wrote to %s", fileAction.Path)
+		exitCode = 0
 
 	case "RETURN_ANSWER":
 		ansAction := action.GetAnswerAction()
 		if ansAction == nil {
-			return "", "Invalid answer action payload", 1
+			return "", "Invalid answer action payload", 1, nil
 		}
 		logger.Info().Msgf("Received answer: %s", ansAction.Answer)
-		return ansAction.Answer, "", 0
+		stdout = ansAction.Answer
+		exitCode = 0
 
 	default:
-		return "", fmt.Sprintf("Unknown action type: %s", action.Type), 1
+		stderr = fmt.Sprintf("Unknown action type: %s", action.Type)
+		exitCode = 1
 	}
+
+	directoryListing = make(map[string]string)
+	files, err := ioutil.ReadDir(".")
+	if err != nil {
+		logger.Error().Err(err).Msg("Failed to read working directory")
+	} else {
+		for _, file := range files {
+			if !file.IsDir() {
+				content, err := ioutil.ReadFile(file.Name())
+				if err != nil {
+					logger.Error().Err(err).Str("file", file.Name()).Msg("Failed to read file")
+				} else {
+					directoryListing[file.Name()] = string(content)
+				}
+			}
+		}
+	}
+	return
 }
 
 func main() {
@@ -159,7 +180,7 @@ func main() {
 				stepLogger := log.With().Str("step_id", stepID[:8]).Logger()
 				stepLogger.Info().Msgf("Starting execution. Action Type: %s", action.Type)
 
-				stdout, stderr, exitCode := executeAction(action, stepLogger)
+				stdout, stderr, exitCode, directoryListing := executeAction(action, stepLogger)
 
 				modelsAction := &models.Action{Type: action.Type}
 				switch action.Type {
@@ -173,11 +194,12 @@ func main() {
 				actionTakenBytes, _ := json.Marshal(modelsAction)
 
 				result := &proto.StepResult{
-					StepId:      stepID,
-					Stdout:      stdout,
-					Stderr:      stderr,
-					ExitCode:    int32(exitCode),
-					ActionTaken: string(actionTakenBytes),
+					StepId:           stepID,
+					Stdout:           stdout,
+					Stderr:           stderr,
+					ExitCode:         int32(exitCode),
+					ActionTaken:      string(actionTakenBytes),
+					DirectoryListing: directoryListing,
 				}
 				resultReq := &proto.StreamRequest{
 					RunId: runID,

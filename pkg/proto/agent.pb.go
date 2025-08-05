@@ -151,14 +151,15 @@ func (*SubscribeRequest) Descriptor() ([]byte, []int) {
 
 // Agent's message to report the result of a step.
 type StepResult struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	StepId        string                 `protobuf:"bytes,1,opt,name=step_id,json=stepId,proto3" json:"step_id,omitempty"`
-	Stdout        string                 `protobuf:"bytes,2,opt,name=stdout,proto3" json:"stdout,omitempty"`
-	Stderr        string                 `protobuf:"bytes,3,opt,name=stderr,proto3" json:"stderr,omitempty"`
-	ExitCode      int32                  `protobuf:"varint,4,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
-	ActionTaken   string                 `protobuf:"bytes,5,opt,name=action_taken,json=actionTaken,proto3" json:"action_taken,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	StepId           string                 `protobuf:"bytes,1,opt,name=step_id,json=stepId,proto3" json:"step_id,omitempty"`
+	Stdout           string                 `protobuf:"bytes,2,opt,name=stdout,proto3" json:"stdout,omitempty"`
+	Stderr           string                 `protobuf:"bytes,3,opt,name=stderr,proto3" json:"stderr,omitempty"`
+	ExitCode         int32                  `protobuf:"varint,4,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
+	ActionTaken      string                 `protobuf:"bytes,5,opt,name=action_taken,json=actionTaken,proto3" json:"action_taken,omitempty"`
+	DirectoryListing map[string]string      `protobuf:"bytes,6,rep,name=directory_listing,json=directoryListing,proto3" json:"directory_listing,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *StepResult) Reset() {
@@ -224,6 +225,13 @@ func (x *StepResult) GetActionTaken() string {
 		return x.ActionTaken
 	}
 	return ""
+}
+
+func (x *StepResult) GetDirectoryListing() map[string]string {
+	if x != nil {
+		return x.DirectoryListing
+	}
+	return nil
 }
 
 // Message from LLM Agent to Agent
@@ -604,14 +612,18 @@ const file_pkg_proto_agent_proto_rawDesc = "" +
 	"\tsubscribe\x18\x02 \x01(\v2\x17.proto.SubscribeRequestH\x00R\tsubscribe\x12+\n" +
 	"\x06result\x18\x03 \x01(\v2\x11.proto.StepResultH\x00R\x06resultB\a\n" +
 	"\x05event\"\x12\n" +
-	"\x10SubscribeRequest\"\x95\x01\n" +
+	"\x10SubscribeRequest\"\xb0\x02\n" +
 	"\n" +
 	"StepResult\x12\x17\n" +
 	"\astep_id\x18\x01 \x01(\tR\x06stepId\x12\x16\n" +
 	"\x06stdout\x18\x02 \x01(\tR\x06stdout\x12\x16\n" +
 	"\x06stderr\x18\x03 \x01(\tR\x06stderr\x12\x1b\n" +
 	"\texit_code\x18\x04 \x01(\x05R\bexitCode\x12!\n" +
-	"\faction_taken\x18\x05 \x01(\tR\vactionTaken\"D\n" +
+	"\faction_taken\x18\x05 \x01(\tR\vactionTaken\x12T\n" +
+	"\x11directory_listing\x18\x06 \x03(\v2'.proto.StepResult.DirectoryListingEntryR\x10directoryListing\x1aC\n" +
+	"\x15DirectoryListingEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"D\n" +
 	"\x0eStreamResponse\x12)\n" +
 	"\x04step\x18\x01 \x01(\v2\x13.proto.RunnableStepH\x00R\x04stepB\a\n" +
 	"\x05event\"N\n" +
@@ -648,7 +660,7 @@ func file_pkg_proto_agent_proto_rawDescGZIP() []byte {
 	return file_pkg_proto_agent_proto_rawDescData
 }
 
-var file_pkg_proto_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_pkg_proto_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_pkg_proto_agent_proto_goTypes = []any{
 	(*StreamRequest)(nil),    // 0: proto.StreamRequest
 	(*SubscribeRequest)(nil), // 1: proto.SubscribeRequest
@@ -659,22 +671,24 @@ var file_pkg_proto_agent_proto_goTypes = []any{
 	(*CommandAction)(nil),    // 6: proto.CommandAction
 	(*FileAction)(nil),       // 7: proto.FileAction
 	(*AnswerAction)(nil),     // 8: proto.AnswerAction
+	nil,                      // 9: proto.StepResult.DirectoryListingEntry
 }
 var file_pkg_proto_agent_proto_depIdxs = []int32{
 	1, // 0: proto.StreamRequest.subscribe:type_name -> proto.SubscribeRequest
 	2, // 1: proto.StreamRequest.result:type_name -> proto.StepResult
-	4, // 2: proto.StreamResponse.step:type_name -> proto.RunnableStep
-	5, // 3: proto.RunnableStep.action:type_name -> proto.Action
-	6, // 4: proto.Action.command_action:type_name -> proto.CommandAction
-	7, // 5: proto.Action.file_action:type_name -> proto.FileAction
-	8, // 6: proto.Action.answer_action:type_name -> proto.AnswerAction
-	0, // 7: proto.AgentService.ExecutionStream:input_type -> proto.StreamRequest
-	3, // 8: proto.AgentService.ExecutionStream:output_type -> proto.StreamResponse
-	8, // [8:9] is the sub-list for method output_type
-	7, // [7:8] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	9, // 2: proto.StepResult.directory_listing:type_name -> proto.StepResult.DirectoryListingEntry
+	4, // 3: proto.StreamResponse.step:type_name -> proto.RunnableStep
+	5, // 4: proto.RunnableStep.action:type_name -> proto.Action
+	6, // 5: proto.Action.command_action:type_name -> proto.CommandAction
+	7, // 6: proto.Action.file_action:type_name -> proto.FileAction
+	8, // 7: proto.Action.answer_action:type_name -> proto.AnswerAction
+	0, // 8: proto.AgentService.ExecutionStream:input_type -> proto.StreamRequest
+	3, // 9: proto.AgentService.ExecutionStream:output_type -> proto.StreamResponse
+	9, // [9:10] is the sub-list for method output_type
+	8, // [8:9] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_pkg_proto_agent_proto_init() }
@@ -700,7 +714,7 @@ func file_pkg_proto_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pkg_proto_agent_proto_rawDesc), len(file_pkg_proto_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
