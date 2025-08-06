@@ -15,9 +15,14 @@ steps:
     - git clone
 
   - name: dockerfile modification
-    goal: "if there is a docker-compose in repository, add copy statement to dockerfile, to copy the docker-compose file. if not do nothing and go for next step"
+    goal: "Modify Dockerfile and add copy statement to add docker-compose"
     depends_on:
     - branch versioning
+
+  - name: dockerfile content
+    goal: "show dockerfile content"
+    depends_on:
+    - dockerfile modification
 
   - name: commit hash
     goal: "what is the commit hash?"

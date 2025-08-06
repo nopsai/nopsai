@@ -44,6 +44,8 @@ message StreamResponse {
 message RunnableStep {
   string step_id = 1;
   Action action = 2;
+  string pipeline_name = 3;
+  string step_name = 4;
 }
 
 // Action defines the operation for the agent to perform.

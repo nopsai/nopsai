@@ -71,8 +71,8 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err = tx.Exec(context.Background(),
-		"INSERT INTO runs (run_id, pipeline_definition, status, environment) VALUES ($1, $2, $3, $4)",
-		runID, string(body), "running", string(envBytes),
+		"INSERT INTO runs (run_id, pipeline_name, pipeline_definition, status, environment) VALUES ($1, $2, $3, $4, $5)",
+		runID, pipeline.Name, string(body), "running", string(envBytes),
 	)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to insert run record")
@@ -155,9 +155,6 @@ func (a *App) callExecutor(runID string, pipeline models.Pipeline) {
 }
 
 func main() {
-	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen})
-
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
 		configPath = "config.yml"
@@ -172,6 +169,9 @@ func main() {
 	if err != nil {
 		log.Warn().Msgf("Invalid log level '%s', defaulting to 'info'", cfg.LogLevel)
 		logLevel = zerolog.InfoLevel
+	}
+	if cfg.LogFormat == "console" {
+		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen})
 	}
 	zerolog.SetGlobalLevel(logLevel)
 

@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
+	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -21,8 +22,42 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// executeAction now accepts a logger to prefix messages.
+func getDirectoryListing(logger zerolog.Logger, root string) map[string]string {
+	directoryListing := make(map[string]string)
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() && info.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		if !info.IsDir() {
+			content, readErr := os.ReadFile(path)
+			if readErr != nil {
+				logger.Error().Err(readErr).Str("file", path).Msg("Failed to read file")
+				return nil
+			}
+			relPath, relErr := filepath.Rel(root, path)
+			if relErr != nil {
+				return relErr
+			}
+			contentType := http.DetectContentType(content)
+			if strings.HasPrefix(contentType, "text/") {
+				directoryListing[relPath] = string(content)
+			} else {
+				directoryListing[relPath] = fmt.Sprintf("[non-text file: %s]", contentType)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		logger.Error().Err(err).Msg("Failed to walk directory")
+	}
+	return directoryListing
+}
+
 func executeAction(action *proto.Action, logger zerolog.Logger) (stdout, stderr string, exitCode int, directoryListing map[string]string) {
+	// The core execution logic remains the same...
 	switch action.Type {
 	case "EXECUTE_COMMAND":
 		cmdAction := action.GetCommandAction()
@@ -30,7 +65,7 @@ func executeAction(action *proto.Action, logger zerolog.Logger) (stdout, stderr 
 			return "", "Invalid command action payload", 1, nil
 		}
 
-		logger.Info().Msgf("Executing command: `%s`", cmdAction.Command)
+		logger.Debug().Msgf("Executing command: `%s`", cmdAction.Command)
 		cmd := exec.Command("sh", "-c", cmdAction.Command)
 
 		var outb, errb strings.Builder
@@ -40,13 +75,6 @@ func executeAction(action *proto.Action, logger zerolog.Logger) (stdout, stderr 
 		err := cmd.Run()
 		stdout = strings.TrimSpace(outb.String())
 		stderr = strings.TrimSpace(errb.String())
-
-		if stdout != "" {
-			logger.Debug().Msgf("Command STDOUT:\n---\n%s\n---", stdout)
-		}
-		if stderr != "" {
-			logger.Debug().Msgf("Command STDERR:\n---\n%s\n---", stderr)
-		}
 
 		if err != nil {
 			if exitErr, ok := err.(*exec.ExitError); ok {
@@ -64,7 +92,7 @@ func executeAction(action *proto.Action, logger zerolog.Logger) (stdout, stderr 
 			return "", "Invalid file action payload", 1, nil
 		}
 
-		logger.Info().Msgf("Replacing file: `%s`", fileAction.Path)
+		logger.Debug().Msgf("Replacing file: `%s`", fileAction.Path)
 		err := os.WriteFile(fileAction.Path, []byte(fileAction.Content), 0644)
 		if err != nil {
 			return "", fmt.Sprintf("Failed to write file: %v", err), 1, nil
@@ -77,7 +105,7 @@ func executeAction(action *proto.Action, logger zerolog.Logger) (stdout, stderr 
 		if ansAction == nil {
 			return "", "Invalid answer action payload", 1, nil
 		}
-		logger.Info().Msgf("Received answer: %s", ansAction.Answer)
+		logger.Debug().Msgf("Received answer: %s", ansAction.Answer)
 		stdout = ansAction.Answer
 		exitCode = 0
 
@@ -86,30 +114,38 @@ func executeAction(action *proto.Action, logger zerolog.Logger) (stdout, stderr 
 		exitCode = 1
 	}
 
-	directoryListing = make(map[string]string)
-	files, err := ioutil.ReadDir(".")
-	if err != nil {
-		logger.Error().Err(err).Msg("Failed to read working directory")
-	} else {
-		for _, file := range files {
-			if !file.IsDir() {
-				content, err := ioutil.ReadFile(file.Name())
-				if err != nil {
-					logger.Error().Err(err).Str("file", file.Name()).Msg("Failed to read file")
-				} else {
-					directoryListing[file.Name()] = string(content)
-				}
-			}
-		}
-	}
+	directoryListing = getDirectoryListing(logger, ".")
 	return
 }
 
 func main() {
-	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	// Use ConsoleWriter for more human-readable logs
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen})
-	zerolog.SetGlobalLevel(zerolog.DebugLevel) // Agent logs are verbose by default
+	logLevelStr := os.Getenv("LOG_LEVEL")
+	if logLevelStr == "" {
+		logLevelStr = "info"
+	}
+	logLevel, err := zerolog.ParseLevel(logLevelStr)
+	if err != nil {
+		logLevel = zerolog.InfoLevel
+	}
+
+	logFormat := os.Getenv("LOG_FORMAT")
+	if logFormat == "console" {
+		// Use a custom console writer to control the output format
+		cw := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen, NoColor: true}
+		cw.FormatMessage = func(i interface{}) string {
+			return "" // We format the message manually in the event
+		}
+		cw.FormatFieldName = func(i interface{}) string {
+			return fmt.Sprintf("%s=", i)
+		}
+		cw.FormatFieldValue = func(i interface{}) string {
+			return fmt.Sprintf("%s", i)
+		}
+		log.Logger = log.Output(cw)
+	} else {
+		zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+	}
+	zerolog.SetGlobalLevel(logLevel)
 
 	runID := os.Getenv("RUN_ID")
 	if runID == "" {
@@ -123,7 +159,6 @@ func main() {
 	log.Info().Str("run_id", runID).Msgf("Agent starting, connecting to %s", llmAgentAddress)
 
 	var conn *grpc.ClientConn
-	var err error
 	for i := 0; i < 5; i++ {
 		conn, err = grpc.NewClient(llmAgentAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err == nil {
@@ -173,14 +208,43 @@ func main() {
 			wg.Add(1)
 			go func(runnableStep *proto.RunnableStep) {
 				defer wg.Done()
-				stepID := runnableStep.GetStepId()
+
 				action := runnableStep.GetAction()
+				var actionStr string
+				if cmd := action.GetCommandAction(); cmd != nil {
+					actionStr = cmd.Command
+				} else if file := action.GetFileAction(); file != nil {
+					actionStr = fmt.Sprintf("Write to %s", file.Path)
+				} else if ans := action.GetAnswerAction(); ans != nil {
+					actionStr = ans.Answer
+				}
 
-				// Create a sub-logger with context for this specific step
-				stepLogger := log.With().Str("step_id", stepID[:8]).Logger()
-				stepLogger.Info().Msgf("Starting execution. Action Type: %s", action.Type)
+				debugLogger := log.With().
+					Str("pipeline_name", runnableStep.GetPipelineName()).
+					Str("run_id", runID).
+					Str("step_name", runnableStep.GetStepName()).
+					Str("step_id", runnableStep.GetStepId()).
+					Str("action_type", action.Type).
+					Logger()
 
-				stdout, stderr, exitCode, directoryListing := executeAction(action, stepLogger)
+				stdout, stderr, exitCode, directoryListing := executeAction(action, debugLogger)
+
+				status := "Succeeded"
+				output := stdout
+				if exitCode != 0 {
+					status = "Failed"
+					output = stderr
+				}
+
+				if zerolog.GlobalLevel() <= zerolog.InfoLevel {
+					log.Info().
+						Str("pipeline", runnableStep.GetPipelineName()).
+						Str("step", runnableStep.GetStepName()).
+						Str("status", status).
+						Str("action", actionStr).
+						Str("output", output).
+						Msg("")
+				}
 
 				modelsAction := &models.Action{Type: action.Type}
 				switch action.Type {
@@ -194,7 +258,7 @@ func main() {
 				actionTakenBytes, _ := json.Marshal(modelsAction)
 
 				result := &proto.StepResult{
-					StepId:           stepID,
+					StepId:           runnableStep.GetStepId(),
 					Stdout:           stdout,
 					Stderr:           stderr,
 					ExitCode:         int32(exitCode),
@@ -206,11 +270,9 @@ func main() {
 					Event: &proto.StreamRequest_Result{Result: result},
 				}
 
-				stepLogger.Info().Int("exit_code", exitCode).Msg("Reporting result...")
 				if err := stream.Send(resultReq); err != nil {
-					stepLogger.Error().Err(err).Msg("Failed to send result")
+					debugLogger.Error().Err(err).Msg("Failed to send result")
 				}
-				stepLogger.Info().Msg("Finished execution.")
 			}(step)
 		}
 	}

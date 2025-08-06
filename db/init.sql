@@ -1,5 +1,6 @@
 CREATE TABLE runs (
     run_id UUID PRIMARY KEY,
+    pipeline_name VARCHAR(255),
     pipeline_definition TEXT NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
     environment TEXT,

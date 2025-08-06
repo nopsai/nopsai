@@ -67,6 +67,8 @@ func (app *ExecutorApp) handleExecute(w http.ResponseWriter, r *http.Request) {
 	envVars := []string{
 		fmt.Sprintf("RUN_ID=%s", req.RunID),
 		fmt.Sprintf("LLM_AGENT_ADDRESS=%s", llmAgentAddress),
+		fmt.Sprintf("LOG_LEVEL=%s", app.cfg.LogLevel),
+		fmt.Sprintf("LOG_FORMAT=%s", app.cfg.LogFormat),
 	}
 	for key, value := range req.Environment {
 		envVars = append(envVars, fmt.Sprintf("%s=%s", key, value))
