@@ -10,6 +10,7 @@ import (
 type Config struct {
 	DatabaseURL string `yaml:"database_url"`
 	LogLevel    string `yaml:"log_level"`
+	LogFormat   string `yaml:"log_format"` // "console" or "json"
 
 	GeminiAPIKey string `yaml:"gemini_api_key"`
 	GeminiModel  string `yaml:"gemini_model"`

@@ -190,9 +190,9 @@ Here are the available actions:
 Now, choose the single best action from your toolkit and provide the response in the required JSON format.`
 
 	fullPrompt := fmt.Sprintf(promptTemplate, envBuilder.String(), directoryListingBuilder.String(), historyBuilder.String(), currentGoal)
+	log.Debug().Msgf("Full prompt:\n%s", fullPrompt)
 	return fullPrompt, nil
 }
-
 func (s *llmAgentServer) ExecutionStream(stream proto.AgentService_ExecutionStreamServer) error {
 	req, err := stream.Recv()
 	if err != nil {
@@ -214,7 +214,6 @@ func (s *llmAgentServer) ExecutionStream(stream proto.AgentService_ExecutionStre
 		for {
 			req, err := stream.Recv()
 			if err != nil {
-				// Stream is likely closed, so we just exit the goroutine
 				return
 			}
 			if result := req.GetResult(); result != nil {
@@ -236,12 +235,18 @@ func (s *llmAgentServer) ExecutionStream(stream proto.AgentService_ExecutionStre
 				continue
 			}
 			for _, step := range steps {
-				log.Info().Str("step_id", step.GetStepId()).Str("run_id", runID).Msg("Sending step to agent")
+				l := log.With().
+					Str("pipeline_name", step.GetPipelineName()).
+					Str("run_id", runID).
+					Str("step_name", step.GetStepName()).
+					Str("step_id", step.GetStepId()).
+					Logger()
+				l.Info().Msg("Sending step to agent")
 				resp := &proto.StreamResponse{
 					Event: &proto.StreamResponse_Step{Step: step},
 				}
 				if err := stream.Send(resp); err != nil {
-					log.Error().Err(err).Str("run_id", runID).Msg("Error sending step to agent")
+					l.Error().Err(err).Msg("Error sending step to agent")
 					return err
 				}
 			}
@@ -250,21 +255,39 @@ func (s *llmAgentServer) ExecutionStream(stream proto.AgentService_ExecutionStre
 }
 
 func (s *llmAgentServer) handleStepResult(result *proto.StepResult) {
-	log.Info().Str("step_id", result.StepId).Msg("Received action result")
+	var stepName, pipelineName, runID string
+	err := s.db.QueryRow(context.Background(), `
+		SELECT s.name, r.pipeline_name, s.run_id
+		FROM steps s JOIN runs r ON s.run_id = r.run_id
+		WHERE s.step_id = $1`, result.StepId).Scan(&stepName, &pipelineName, &runID)
+	if err != nil {
+		log.Error().Err(err).Str("step_id", result.StepId).Msg("Failed to query step context for logging")
+		return
+	}
+
+	l := log.With().
+		Str("pipeline_name", pipelineName).
+		Str("run_id", runID).
+		Str("step_name", stepName).
+		Str("step_id", result.StepId).
+		Logger()
+
+	l.Info().Msg("Received action result")
+
 	directoryListingBytes, err := json.Marshal(result.DirectoryListing)
 	if err != nil {
-		log.Error().Err(err).Str("step_id", result.StepId).Msg("Failed to marshal directory listing")
+		l.Error().Err(err).Msg("Failed to marshal directory listing")
 		directoryListingBytes = []byte("{}")
 	}
 
 	_, err = s.db.Exec(context.Background(),
-		"UPDATE steps SET status = $1, execution_log = $2, exit_code = $3, action_taken = $4, finished_at = NOW(), directory_listing = $6 WHERE step_id = $5",
-		"completed", result.Stdout+"\n"+result.Stderr, result.ExitCode, result.ActionTaken, result.StepId, string(directoryListingBytes),
+		"UPDATE steps SET status = $1, execution_log = $2, exit_code = $3, action_taken = $4, finished_at = NOW(), directory_listing = $5 WHERE step_id = $6",
+		"completed", result.Stdout+"\n"+result.Stderr, result.ExitCode, result.ActionTaken, string(directoryListingBytes), result.StepId,
 	)
 	if err != nil {
-		log.Error().Err(err).Str("step_id", result.StepId).Msg("Failed to update step")
+		l.Error().Err(err).Msg("Failed to update step")
 	}
-	log.Info().Str("step_id", result.StepId).Msg("Successfully updated step in database")
+	l.Info().Msg("Successfully updated step in database")
 }
 
 func (s *llmAgentServer) getAndPrepareRunnableSteps(ctx context.Context, runID string) ([]*proto.RunnableStep, error) {
@@ -298,21 +321,39 @@ func (s *llmAgentServer) getAndPrepareRunnableSteps(ctx context.Context, runID s
 	var runnableSteps []*proto.RunnableStep
 	if len(stepIDs) > 0 {
 		for _, id := range stepIDs {
-			_, err := s.db.Exec(ctx, "UPDATE steps SET status = 'running', started_at = NOW() WHERE step_id = $1 AND status = 'pending'", id)
+			var stepName, pipelineName string
+			var runUUID uuid.UUID
+			err := s.db.QueryRow(ctx, `
+                SELECT s.name, r.pipeline_name, s.run_id
+                FROM steps s JOIN runs r ON s.run_id = r.run_id
+                WHERE s.step_id = $1`, id).Scan(&stepName, &pipelineName, &runUUID)
 			if err != nil {
-				log.Error().Err(err).Str("step_id", id.String()).Msg("Failed to mark step as running")
+				log.Error().Err(err).Str("step_id", id.String()).Msg("Failed to query step context")
+				continue
+			}
+
+			l := log.With().
+				Str("pipeline_name", pipelineName).
+				Str("run_id", runUUID.String()).
+				Str("step_name", stepName).
+				Str("step_id", id.String()).
+				Logger()
+
+			_, err = s.db.Exec(ctx, "UPDATE steps SET status = 'running', started_at = NOW() WHERE step_id = $1 AND status = 'pending'", id)
+			if err != nil {
+				l.Error().Err(err).Msg("Failed to mark step as running")
 				continue
 			}
 
 			prompt, err := s.buildPrompt(ctx, id.String())
 			if err != nil {
-				log.Error().Err(err).Str("step_id", id.String()).Msg("Error building prompt")
+				l.Error().Err(err).Msg("Error building prompt")
 				continue
 			}
 
 			actionModel, err := s.callRealGemini(prompt)
 			if err != nil {
-				log.Error().Err(err).Str("step_id", id.String()).Msg("Error calling Gemini")
+				l.Error().Err(err).Msg("Error calling Gemini")
 				continue
 			}
 
@@ -327,8 +368,10 @@ func (s *llmAgentServer) getAndPrepareRunnableSteps(ctx context.Context, runID s
 			}
 
 			runnableSteps = append(runnableSteps, &proto.RunnableStep{
-				StepId: id.String(),
-				Action: protoAction,
+				StepId:       id.String(),
+				Action:       protoAction,
+				PipelineName: pipelineName,
+				StepName:     stepName,
 			})
 		}
 	}
@@ -337,9 +380,6 @@ func (s *llmAgentServer) getAndPrepareRunnableSteps(ctx context.Context, runID s
 }
 
 func main() {
-	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen})
-
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
 		configPath = "config.yml"
@@ -353,6 +393,9 @@ func main() {
 	if err != nil {
 		log.Warn().Msgf("Invalid log level '%s', defaulting to 'info'", cfg.LogLevel)
 		logLevel = zerolog.InfoLevel
+	}
+	if cfg.LogFormat == "console" {
+		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen})
 	}
 	zerolog.SetGlobalLevel(logLevel)
 

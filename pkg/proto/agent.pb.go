@@ -307,6 +307,8 @@ type RunnableStep struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	StepId        string                 `protobuf:"bytes,1,opt,name=step_id,json=stepId,proto3" json:"step_id,omitempty"`
 	Action        *Action                `protobuf:"bytes,2,opt,name=action,proto3" json:"action,omitempty"`
+	PipelineName  string                 `protobuf:"bytes,3,opt,name=pipeline_name,json=pipelineName,proto3" json:"pipeline_name,omitempty"`
+	StepName      string                 `protobuf:"bytes,4,opt,name=step_name,json=stepName,proto3" json:"step_name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -353,6 +355,20 @@ func (x *RunnableStep) GetAction() *Action {
 		return x.Action
 	}
 	return nil
+}
+
+func (x *RunnableStep) GetPipelineName() string {
+	if x != nil {
+		return x.PipelineName
+	}
+	return ""
+}
+
+func (x *RunnableStep) GetStepName() string {
+	if x != nil {
+		return x.StepName
+	}
+	return ""
 }
 
 // Action defines the operation for the agent to perform.
@@ -626,10 +642,12 @@ const file_pkg_proto_agent_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"D\n" +
 	"\x0eStreamResponse\x12)\n" +
 	"\x04step\x18\x01 \x01(\v2\x13.proto.RunnableStepH\x00R\x04stepB\a\n" +
-	"\x05event\"N\n" +
+	"\x05event\"\x90\x01\n" +
 	"\fRunnableStep\x12\x17\n" +
 	"\astep_id\x18\x01 \x01(\tR\x06stepId\x12%\n" +
-	"\x06action\x18\x02 \x01(\v2\r.proto.ActionR\x06action\"\xd8\x01\n" +
+	"\x06action\x18\x02 \x01(\v2\r.proto.ActionR\x06action\x12#\n" +
+	"\rpipeline_name\x18\x03 \x01(\tR\fpipelineName\x12\x1b\n" +
+	"\tstep_name\x18\x04 \x01(\tR\bstepName\"\xd8\x01\n" +
 	"\x06Action\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12=\n" +
 	"\x0ecommand_action\x18\x02 \x01(\v2\x14.proto.CommandActionH\x00R\rcommandAction\x124\n" +
