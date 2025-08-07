@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"nopsai/config"
@@ -34,7 +35,9 @@ type ExecutionRequest struct {
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
 
 func sanitizeContainerName(name string) string {
-	return nonAlphanumericRegex.ReplaceAllString(name, "")
+	// Docker container names are limited in character set. This sanitizes the pipeline name.
+	sanitized := strings.ReplaceAll(name, " ", "-")
+	return nonAlphanumericRegex.ReplaceAllString(sanitized, "")
 }
 
 func (app *ExecutorApp) handleExecute(w http.ResponseWriter, r *http.Request) {
@@ -69,12 +72,12 @@ func (app *ExecutorApp) handleExecute(w http.ResponseWriter, r *http.Request) {
 	}
 	defer cli.Close()
 
-	llmAgentAddress := app.cfg.AgentLlmAgentAddress
+	controllerAddress := app.cfg.AgentControllerAddress
 	networkName := app.cfg.DockerNetworkName
 
 	envVars := []string{
 		fmt.Sprintf("RUN_ID=%s", req.RunID),
-		fmt.Sprintf("LLM_AGENT_ADDRESS=%s", llmAgentAddress),
+		fmt.Sprintf("CONTROLLER_ADDRESS=%s", controllerAddress),
 		fmt.Sprintf("LOG_LEVEL=%s", app.cfg.LogLevel),
 		fmt.Sprintf("LOG_FORMAT=%s", app.cfg.LogFormat),
 	}

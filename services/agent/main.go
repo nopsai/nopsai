@@ -140,16 +140,16 @@ func main() {
 	if runID == "" {
 		log.Fatal().Msg("RUN_ID environment variable not set.")
 	}
-	llmAgentAddress := os.Getenv("LLM_AGENT_ADDRESS")
-	if llmAgentAddress == "" {
-		llmAgentAddress = "localhost:50051"
+	controllerAddress := os.Getenv("CONTROLLER_ADDRESS")
+	if controllerAddress == "" {
+		controllerAddress = "localhost:50052"
 	}
 
-	log.Info().Str("run_id", runID).Msgf("Agent starting, connecting to %s", llmAgentAddress)
+	log.Info().Str("run_id", runID).Msgf("Agent starting, connecting to %s", controllerAddress)
 
 	var conn *grpc.ClientConn
 	for i := 0; i < 5; i++ {
-		conn, err = grpc.NewClient(llmAgentAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn, err = grpc.NewClient(controllerAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err == nil {
 			break
 		}

@@ -45,6 +45,27 @@ services:
     networks:
       - nopsai-net
 
+  controller:
+    container_name: nopsai-controller
+    image: nopsai-controller
+    build:
+      context: .
+      dockerfile: container/Dockerfile.controller
+    restart: always
+    ports:
+      - "50052:50052"
+    depends_on:
+      db:
+        condition: service_healthy
+      llm-agent:
+        condition: service_started
+      base:
+        condition: service_completed_successfully
+    environment:
+      - CONFIG_PATH=/app/config.yml
+    networks:
+      - nopsai-net
+      
   nopsai:
     container_name: nopsai
     image: nopsai
