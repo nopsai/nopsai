@@ -37,6 +37,7 @@ message StreamResponse {
   oneof event {
     // The LLM Agent sends the full action for a step to be executed.
     RunnableStep step = 1;
+    ShutdownRequest shutdown = 2;
   }
 }
 
@@ -46,6 +47,11 @@ message RunnableStep {
   Action action = 2;
   string pipeline_name = 3;
   string step_name = 4;
+}
+
+// A message telling the agent to shut down.
+message ShutdownRequest {
+  int32 exit_code = 1;
 }
 
 // Action defines the operation for the agent to perform.

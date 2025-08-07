@@ -240,6 +240,7 @@ type StreamResponse struct {
 	// Types that are valid to be assigned to Event:
 	//
 	//	*StreamResponse_Step
+	//	*StreamResponse_Shutdown
 	Event         isStreamResponse_Event `protobuf_oneof:"event"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -291,6 +292,15 @@ func (x *StreamResponse) GetStep() *RunnableStep {
 	return nil
 }
 
+func (x *StreamResponse) GetShutdown() *ShutdownRequest {
+	if x != nil {
+		if x, ok := x.Event.(*StreamResponse_Shutdown); ok {
+			return x.Shutdown
+		}
+	}
+	return nil
+}
+
 type isStreamResponse_Event interface {
 	isStreamResponse_Event()
 }
@@ -300,7 +310,13 @@ type StreamResponse_Step struct {
 	Step *RunnableStep `protobuf:"bytes,1,opt,name=step,proto3,oneof"`
 }
 
+type StreamResponse_Shutdown struct {
+	Shutdown *ShutdownRequest `protobuf:"bytes,2,opt,name=shutdown,proto3,oneof"`
+}
+
 func (*StreamResponse_Step) isStreamResponse_Event() {}
+
+func (*StreamResponse_Shutdown) isStreamResponse_Event() {}
 
 // A message telling the agent to execute a specific step with its action.
 type RunnableStep struct {
@@ -371,6 +387,51 @@ func (x *RunnableStep) GetStepName() string {
 	return ""
 }
 
+// A message telling the agent to shut down.
+type ShutdownRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ExitCode      int32                  `protobuf:"varint,1,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ShutdownRequest) Reset() {
+	*x = ShutdownRequest{}
+	mi := &file_pkg_proto_agent_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShutdownRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShutdownRequest) ProtoMessage() {}
+
+func (x *ShutdownRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_pkg_proto_agent_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShutdownRequest.ProtoReflect.Descriptor instead.
+func (*ShutdownRequest) Descriptor() ([]byte, []int) {
+	return file_pkg_proto_agent_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *ShutdownRequest) GetExitCode() int32 {
+	if x != nil {
+		return x.ExitCode
+	}
+	return 0
+}
+
 // Action defines the operation for the agent to perform.
 type Action struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -387,7 +448,7 @@ type Action struct {
 
 func (x *Action) Reset() {
 	*x = Action{}
-	mi := &file_pkg_proto_agent_proto_msgTypes[5]
+	mi := &file_pkg_proto_agent_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -399,7 +460,7 @@ func (x *Action) String() string {
 func (*Action) ProtoMessage() {}
 
 func (x *Action) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_agent_proto_msgTypes[5]
+	mi := &file_pkg_proto_agent_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -412,7 +473,7 @@ func (x *Action) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Action.ProtoReflect.Descriptor instead.
 func (*Action) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_agent_proto_rawDescGZIP(), []int{5}
+	return file_pkg_proto_agent_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Action) GetType() string {
@@ -487,7 +548,7 @@ type CommandAction struct {
 
 func (x *CommandAction) Reset() {
 	*x = CommandAction{}
-	mi := &file_pkg_proto_agent_proto_msgTypes[6]
+	mi := &file_pkg_proto_agent_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -499,7 +560,7 @@ func (x *CommandAction) String() string {
 func (*CommandAction) ProtoMessage() {}
 
 func (x *CommandAction) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_agent_proto_msgTypes[6]
+	mi := &file_pkg_proto_agent_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -512,7 +573,7 @@ func (x *CommandAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandAction.ProtoReflect.Descriptor instead.
 func (*CommandAction) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_agent_proto_rawDescGZIP(), []int{6}
+	return file_pkg_proto_agent_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *CommandAction) GetCommand() string {
@@ -532,7 +593,7 @@ type FileAction struct {
 
 func (x *FileAction) Reset() {
 	*x = FileAction{}
-	mi := &file_pkg_proto_agent_proto_msgTypes[7]
+	mi := &file_pkg_proto_agent_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -544,7 +605,7 @@ func (x *FileAction) String() string {
 func (*FileAction) ProtoMessage() {}
 
 func (x *FileAction) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_agent_proto_msgTypes[7]
+	mi := &file_pkg_proto_agent_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -557,7 +618,7 @@ func (x *FileAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileAction.ProtoReflect.Descriptor instead.
 func (*FileAction) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_agent_proto_rawDescGZIP(), []int{7}
+	return file_pkg_proto_agent_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *FileAction) GetPath() string {
@@ -583,7 +644,7 @@ type AnswerAction struct {
 
 func (x *AnswerAction) Reset() {
 	*x = AnswerAction{}
-	mi := &file_pkg_proto_agent_proto_msgTypes[8]
+	mi := &file_pkg_proto_agent_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -595,7 +656,7 @@ func (x *AnswerAction) String() string {
 func (*AnswerAction) ProtoMessage() {}
 
 func (x *AnswerAction) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_agent_proto_msgTypes[8]
+	mi := &file_pkg_proto_agent_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -608,7 +669,7 @@ func (x *AnswerAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AnswerAction.ProtoReflect.Descriptor instead.
 func (*AnswerAction) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_agent_proto_rawDescGZIP(), []int{8}
+	return file_pkg_proto_agent_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *AnswerAction) GetAnswer() string {
@@ -639,15 +700,18 @@ const file_pkg_proto_agent_proto_rawDesc = "" +
 	"\x11directory_listing\x18\x06 \x03(\v2'.proto.StepResult.DirectoryListingEntryR\x10directoryListing\x1aC\n" +
 	"\x15DirectoryListingEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"D\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"z\n" +
 	"\x0eStreamResponse\x12)\n" +
-	"\x04step\x18\x01 \x01(\v2\x13.proto.RunnableStepH\x00R\x04stepB\a\n" +
+	"\x04step\x18\x01 \x01(\v2\x13.proto.RunnableStepH\x00R\x04step\x124\n" +
+	"\bshutdown\x18\x02 \x01(\v2\x16.proto.ShutdownRequestH\x00R\bshutdownB\a\n" +
 	"\x05event\"\x90\x01\n" +
 	"\fRunnableStep\x12\x17\n" +
 	"\astep_id\x18\x01 \x01(\tR\x06stepId\x12%\n" +
 	"\x06action\x18\x02 \x01(\v2\r.proto.ActionR\x06action\x12#\n" +
 	"\rpipeline_name\x18\x03 \x01(\tR\fpipelineName\x12\x1b\n" +
-	"\tstep_name\x18\x04 \x01(\tR\bstepName\"\xd8\x01\n" +
+	"\tstep_name\x18\x04 \x01(\tR\bstepName\".\n" +
+	"\x0fShutdownRequest\x12\x1b\n" +
+	"\texit_code\x18\x01 \x01(\x05R\bexitCode\"\xd8\x01\n" +
 	"\x06Action\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12=\n" +
 	"\x0ecommand_action\x18\x02 \x01(\v2\x14.proto.CommandActionH\x00R\rcommandAction\x124\n" +
@@ -678,35 +742,37 @@ func file_pkg_proto_agent_proto_rawDescGZIP() []byte {
 	return file_pkg_proto_agent_proto_rawDescData
 }
 
-var file_pkg_proto_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_pkg_proto_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_pkg_proto_agent_proto_goTypes = []any{
 	(*StreamRequest)(nil),    // 0: proto.StreamRequest
 	(*SubscribeRequest)(nil), // 1: proto.SubscribeRequest
 	(*StepResult)(nil),       // 2: proto.StepResult
 	(*StreamResponse)(nil),   // 3: proto.StreamResponse
 	(*RunnableStep)(nil),     // 4: proto.RunnableStep
-	(*Action)(nil),           // 5: proto.Action
-	(*CommandAction)(nil),    // 6: proto.CommandAction
-	(*FileAction)(nil),       // 7: proto.FileAction
-	(*AnswerAction)(nil),     // 8: proto.AnswerAction
-	nil,                      // 9: proto.StepResult.DirectoryListingEntry
+	(*ShutdownRequest)(nil),  // 5: proto.ShutdownRequest
+	(*Action)(nil),           // 6: proto.Action
+	(*CommandAction)(nil),    // 7: proto.CommandAction
+	(*FileAction)(nil),       // 8: proto.FileAction
+	(*AnswerAction)(nil),     // 9: proto.AnswerAction
+	nil,                      // 10: proto.StepResult.DirectoryListingEntry
 }
 var file_pkg_proto_agent_proto_depIdxs = []int32{
-	1, // 0: proto.StreamRequest.subscribe:type_name -> proto.SubscribeRequest
-	2, // 1: proto.StreamRequest.result:type_name -> proto.StepResult
-	9, // 2: proto.StepResult.directory_listing:type_name -> proto.StepResult.DirectoryListingEntry
-	4, // 3: proto.StreamResponse.step:type_name -> proto.RunnableStep
-	5, // 4: proto.RunnableStep.action:type_name -> proto.Action
-	6, // 5: proto.Action.command_action:type_name -> proto.CommandAction
-	7, // 6: proto.Action.file_action:type_name -> proto.FileAction
-	8, // 7: proto.Action.answer_action:type_name -> proto.AnswerAction
-	0, // 8: proto.AgentService.ExecutionStream:input_type -> proto.StreamRequest
-	3, // 9: proto.AgentService.ExecutionStream:output_type -> proto.StreamResponse
-	9, // [9:10] is the sub-list for method output_type
-	8, // [8:9] is the sub-list for method input_type
-	8, // [8:8] is the sub-list for extension type_name
-	8, // [8:8] is the sub-list for extension extendee
-	0, // [0:8] is the sub-list for field type_name
+	1,  // 0: proto.StreamRequest.subscribe:type_name -> proto.SubscribeRequest
+	2,  // 1: proto.StreamRequest.result:type_name -> proto.StepResult
+	10, // 2: proto.StepResult.directory_listing:type_name -> proto.StepResult.DirectoryListingEntry
+	4,  // 3: proto.StreamResponse.step:type_name -> proto.RunnableStep
+	5,  // 4: proto.StreamResponse.shutdown:type_name -> proto.ShutdownRequest
+	6,  // 5: proto.RunnableStep.action:type_name -> proto.Action
+	7,  // 6: proto.Action.command_action:type_name -> proto.CommandAction
+	8,  // 7: proto.Action.file_action:type_name -> proto.FileAction
+	9,  // 8: proto.Action.answer_action:type_name -> proto.AnswerAction
+	0,  // 9: proto.AgentService.ExecutionStream:input_type -> proto.StreamRequest
+	3,  // 10: proto.AgentService.ExecutionStream:output_type -> proto.StreamResponse
+	10, // [10:11] is the sub-list for method output_type
+	9,  // [9:10] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_pkg_proto_agent_proto_init() }
@@ -720,8 +786,9 @@ func file_pkg_proto_agent_proto_init() {
 	}
 	file_pkg_proto_agent_proto_msgTypes[3].OneofWrappers = []any{
 		(*StreamResponse_Step)(nil),
+		(*StreamResponse_Shutdown)(nil),
 	}
-	file_pkg_proto_agent_proto_msgTypes[5].OneofWrappers = []any{
+	file_pkg_proto_agent_proto_msgTypes[6].OneofWrappers = []any{
 		(*Action_CommandAction)(nil),
 		(*Action_FileAction)(nil),
 		(*Action_AnswerAction)(nil),
@@ -732,7 +799,7 @@ func file_pkg_proto_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pkg_proto_agent_proto_rawDesc), len(file_pkg_proto_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

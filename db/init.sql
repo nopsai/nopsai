@@ -19,6 +19,7 @@ CREATE TABLE steps (
     execution_log TEXT,
     exit_code INT,
     directory_listing TEXT,
+    ignore_failure BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     started_at TIMESTAMPTZ,
     finished_at TIMESTAMPTZ,

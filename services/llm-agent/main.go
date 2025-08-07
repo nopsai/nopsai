@@ -193,6 +193,7 @@ Now, choose the single best action from your toolkit and provide the response in
 	log.Debug().Msgf("Full prompt:\n%s", fullPrompt)
 	return fullPrompt, nil
 }
+
 func (s *llmAgentServer) ExecutionStream(stream proto.AgentService_ExecutionStreamServer) error {
 	req, err := stream.Recv()
 	if err != nil {
@@ -229,6 +230,52 @@ func (s *llmAgentServer) ExecutionStream(stream proto.AgentService_ExecutionStre
 			log.Info().Str("run_id", runID).Msg("Agent disconnected")
 			return stream.Context().Err()
 		case <-ticker.C:
+			var runStatus string
+			err := s.db.QueryRow(stream.Context(), "SELECT status FROM runs WHERE run_id = $1", runID).Scan(&runStatus)
+			if err != nil {
+				log.Error().Err(err).Str("run_id", runID).Msg("Error getting run status for stream check")
+				continue
+			}
+
+			if runStatus == "failed" {
+				log.Info().Str("run_id", runID).Msg("Run failed, sending shutdown signal to agent.")
+				shutdownResp := &proto.StreamResponse{
+					Event: &proto.StreamResponse_Shutdown{
+						Shutdown: &proto.ShutdownRequest{ExitCode: 1},
+					},
+				}
+				if err := stream.Send(shutdownResp); err != nil {
+					log.Error().Err(err).Str("run_id", runID).Msg("Error sending shutdown signal")
+				}
+				return nil // Close the stream from server side
+			}
+
+			var totalSteps, finishedSteps int
+			query := `
+                SELECT
+                    COUNT(*),
+                    COUNT(*) FILTER (WHERE status IN ('completed', 'failed'))
+                FROM steps
+                WHERE run_id = $1`
+			err = s.db.QueryRow(stream.Context(), query, runID).Scan(&totalSteps, &finishedSteps)
+			if err != nil {
+				log.Error().Err(err).Str("run_id", runID).Msg("Error getting step counts for completion check")
+				continue
+			}
+
+			if totalSteps > 0 && totalSteps == finishedSteps {
+				log.Info().Str("run_id", runID).Msg("All steps have finished, sending shutdown signal to agent.")
+				shutdownResp := &proto.StreamResponse{
+					Event: &proto.StreamResponse_Shutdown{
+						Shutdown: &proto.ShutdownRequest{ExitCode: 0},
+					},
+				}
+				if err := stream.Send(shutdownResp); err != nil {
+					log.Error().Err(err).Str("run_id", runID).Msg("Error sending successful shutdown signal")
+				}
+				return nil // Close the stream from server side
+			}
+
 			steps, err := s.getAndPrepareRunnableSteps(stream.Context(), runID)
 			if err != nil {
 				log.Error().Err(err).Str("run_id", runID).Msg("Error getting runnable steps")
@@ -274,6 +321,26 @@ func (s *llmAgentServer) handleStepResult(result *proto.StepResult) {
 
 	l.Info().Msg("Received action result")
 
+	stepStatus := "completed"
+	if result.ExitCode != 0 {
+		var ignoreFailure bool
+		err := s.db.QueryRow(context.Background(), "SELECT ignore_failure FROM steps WHERE step_id = $1", result.StepId).Scan(&ignoreFailure)
+		if err != nil {
+			l.Error().Err(err).Msg("Failed to query ignore_failure flag")
+		}
+
+		stepStatus = "failed"
+		if !ignoreFailure {
+			l.Error().Msg("Critical step failed. Marking run as failed.")
+			_, err := s.db.Exec(context.Background(), "UPDATE runs SET status = 'failed', finished_at = NOW() WHERE run_id = (SELECT run_id FROM steps WHERE step_id = $1)", result.StepId)
+			if err != nil {
+				l.Error().Err(err).Msg("Failed to update run status to failed")
+			}
+		} else {
+			l.Warn().Msg("Step failed, but failure is ignored.")
+		}
+	}
+
 	directoryListingBytes, err := json.Marshal(result.DirectoryListing)
 	if err != nil {
 		l.Error().Err(err).Msg("Failed to marshal directory listing")
@@ -282,7 +349,7 @@ func (s *llmAgentServer) handleStepResult(result *proto.StepResult) {
 
 	_, err = s.db.Exec(context.Background(),
 		"UPDATE steps SET status = $1, execution_log = $2, exit_code = $3, action_taken = $4, finished_at = NOW(), directory_listing = $5 WHERE step_id = $6",
-		"completed", result.Stdout+"\n"+result.Stderr, result.ExitCode, result.ActionTaken, string(directoryListingBytes), result.StepId,
+		stepStatus, result.Stdout+"\n"+result.Stderr, result.ExitCode, result.ActionTaken, string(directoryListingBytes), result.StepId,
 	)
 	if err != nil {
 		l.Error().Err(err).Msg("Failed to update step")
@@ -294,13 +361,25 @@ func (s *llmAgentServer) getAndPrepareRunnableSteps(ctx context.Context, runID s
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	var runStatus string
+	err := s.db.QueryRow(ctx, "SELECT status FROM runs WHERE run_id = $1", runID).Scan(&runStatus)
+	if err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to get run status")
+		return nil, err
+	}
+
+	if runStatus == "failed" {
+		log.Warn().Str("run_id", runID).Msg("Run has failed. No more steps will be scheduled.")
+		return nil, nil
+	}
+
 	query := `
 		SELECT s.step_id FROM steps s
 		WHERE s.run_id = $1 AND s.status = 'pending'
 		AND NOT EXISTS (
 			SELECT 1 FROM step_dependencies sd
 			JOIN steps dep_s ON sd.depends_on_step_id = dep_s.step_id
-			WHERE sd.step_id = s.step_id AND dep_s.status IN ('pending', 'running')
+			WHERE sd.step_id = s.step_id AND dep_s.status IN ('pending', 'running', 'failed')
 		)`
 
 	rows, err := s.db.Query(ctx, query, runID)

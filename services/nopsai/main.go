@@ -86,8 +86,8 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		stepID := uuid.New()
 		stepNameToID[step.Name] = stepID
 		_, err := tx.Exec(context.Background(),
-			"INSERT INTO steps (step_id, run_id, step_index, name, goal, status) VALUES ($1, $2, $3, $4, $5, $6)",
-			stepID, runID, i, step.Name, step.Goal, "pending",
+			"INSERT INTO steps (step_id, run_id, step_index, name, goal, status, ignore_failure) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+			stepID, runID, i, step.Name, step.Goal, "pending", step.IgnoreFailure,
 		)
 		if err != nil {
 			log.Error().Err(err).Msgf("Failed to insert step %d", i)

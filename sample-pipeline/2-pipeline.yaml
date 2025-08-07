@@ -29,6 +29,10 @@ steps:
     depends_on:
     - branch versioning
 
+  - name: failure
+    goal: "fail the step"
+    ignore_failure: true
+
   - name: build docker
     goal: build docker image with repo name and tag based on the latest calculated tag and commit hash 
     depends_on:
