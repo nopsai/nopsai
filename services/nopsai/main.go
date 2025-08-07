@@ -27,6 +27,7 @@ type App struct {
 // This request now only contains information for the whole run.
 type ExecutionRequest struct {
 	RunID            string            `json:"run_id"`
+	PipelineName     string            `json:"pipeline_name"`
 	ContainerImage   string            `json:"container_image"`
 	WorkingDirectory string            `json:"working_directory"`
 	Environment      map[string]string `json:"environment"`
@@ -131,6 +132,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 func (a *App) callExecutor(runID string, pipeline models.Pipeline) {
 	execReq := ExecutionRequest{
 		RunID:            runID,
+		PipelineName:     pipeline.Name,
 		ContainerImage:   pipeline.ContainerImage,
 		WorkingDirectory: pipeline.WorkingDirectory,
 		Environment:      pipeline.Environment,

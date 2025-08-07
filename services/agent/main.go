@@ -227,14 +227,15 @@ func main() {
 
 				if zerolog.GlobalLevel() <= zerolog.InfoLevel {
 					// Manually format the string to guarantee order
-					logMsg := fmt.Sprintf(`status=%s pipeline="%s" step="%s" action="%s" output="%s"`,
+					logMsg := fmt.Sprintf(`status=%s step="%s" action="%s" output="%s"`,
 						status,
-						runnableStep.GetPipelineName(),
 						runnableStep.GetStepName(),
 						actionStr,
 						output,
 					)
-					log.Info().Msg(logMsg)
+					log.Info().
+						Str("pipeline", runnableStep.GetPipelineName()).
+						Msg(logMsg)
 				}
 
 				modelsAction := &models.Action{Type: action.Type}
