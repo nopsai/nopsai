@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"time"
 
 	"nopsai/config"
@@ -24,9 +25,16 @@ type ExecutorApp struct {
 
 type ExecutionRequest struct {
 	RunID            string            `json:"run_id"`
+	PipelineName     string            `json:"pipeline_name"`
 	ContainerImage   string            `json:"container_image"`
 	WorkingDirectory string            `json:"working_directory"`
 	Environment      map[string]string `json:"environment"`
+}
+
+var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
+
+func sanitizeContainerName(name string) string {
+	return nonAlphanumericRegex.ReplaceAllString(name, "")
 }
 
 func (app *ExecutorApp) handleExecute(w http.ResponseWriter, r *http.Request) {
@@ -73,6 +81,10 @@ func (app *ExecutorApp) handleExecute(w http.ResponseWriter, r *http.Request) {
 	for key, value := range req.Environment {
 		envVars = append(envVars, fmt.Sprintf("%s=%s", key, value))
 	}
+
+	sanitizedPipelineName := sanitizeContainerName(req.PipelineName)
+	containerName := fmt.Sprintf("%s-%s", sanitizedPipelineName, req.RunID)
+
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image:      req.ContainerImage,
 		WorkingDir: req.WorkingDirectory,
@@ -82,7 +94,7 @@ func (app *ExecutorApp) handleExecute(w http.ResponseWriter, r *http.Request) {
 		EndpointsConfig: map[string]*network.EndpointSettings{
 			networkName: {},
 		},
-	}, nil, "")
+	}, nil, containerName)
 	if err != nil {
 		log.Error().Err(err).Str("run_id", req.RunID).Msg("Failed to create container")
 		http.Error(w, "Failed to create container", http.StatusInternalServerError)
@@ -101,9 +113,6 @@ func (app *ExecutorApp) handleExecute(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen})
-
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
 		configPath = "config.yml"
@@ -117,6 +126,9 @@ func main() {
 	if err != nil {
 		log.Warn().Msgf("Invalid log level '%s', defaulting to 'info'", cfg.LogLevel)
 		logLevel = zerolog.InfoLevel
+	}
+	if cfg.LogFormat == "console" {
+		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen})
 	}
 	zerolog.SetGlobalLevel(logLevel)
 
