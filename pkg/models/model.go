@@ -12,9 +12,10 @@ type Pipeline struct {
 
 // PipelineStep is a single step within a pipeline definition.
 type PipelineStep struct {
-	Name      string   `yaml:"name"`
-	Goal      string   `yaml:"goal"`
-	DependsOn []string `yaml:"depends_on,omitempty"` // Added for step dependencies
+	Name          string   `yaml:"name"`
+	Goal          string   `yaml:"goal"`
+	DependsOn     []string `yaml:"depends_on,omitempty"` // Added for step dependencies
+	IgnoreFailure bool     `yaml:"ignore_failure,omitempty"`
 }
 
 // CommandAction defines a command to be executed in the shell.

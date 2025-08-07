@@ -193,6 +193,11 @@ func main() {
 			log.Fatal().Err(err).Msg("Failed to receive message")
 		}
 
+		if shutdown := resp.GetShutdown(); shutdown != nil {
+			log.Error().Msgf("Received shutdown signal from server. Exiting with code %d.", shutdown.ExitCode)
+			os.Exit(int(shutdown.ExitCode))
+		}
+
 		if step := resp.GetStep(); step != nil {
 			wg.Add(1)
 			go func(runnableStep *proto.RunnableStep) {
