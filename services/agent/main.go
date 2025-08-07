@@ -130,18 +130,7 @@ func main() {
 
 	logFormat := os.Getenv("LOG_FORMAT")
 	if logFormat == "console" {
-		// Use a custom console writer to control the output format
-		cw := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen, NoColor: true}
-		cw.FormatMessage = func(i interface{}) string {
-			return "" // We format the message manually in the event
-		}
-		cw.FormatFieldName = func(i interface{}) string {
-			return fmt.Sprintf("%s=", i)
-		}
-		cw.FormatFieldValue = func(i interface{}) string {
-			return fmt.Sprintf("%s", i)
-		}
-		log.Logger = log.Output(cw)
+		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen})
 	} else {
 		zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	}
@@ -237,13 +226,15 @@ func main() {
 				}
 
 				if zerolog.GlobalLevel() <= zerolog.InfoLevel {
-					log.Info().
-						Str("pipeline", runnableStep.GetPipelineName()).
-						Str("step", runnableStep.GetStepName()).
-						Str("status", status).
-						Str("action", actionStr).
-						Str("output", output).
-						Msg("")
+					// Manually format the string to guarantee order
+					logMsg := fmt.Sprintf(`pipeline="%s" step="%s" status=%s action="%s" output="%s"`,
+						runnableStep.GetPipelineName(),
+						runnableStep.GetStepName(),
+						status,
+						actionStr,
+						output,
+					)
+					log.Info().Msg(logMsg)
 				}
 
 				modelsAction := &models.Action{Type: action.Type}
