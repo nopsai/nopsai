@@ -10,6 +10,15 @@ service AgentService {
   rpc ExecutionStream(stream StreamRequest) returns (stream StreamResponse);
 }
 
+// Service for the LLM Agent
+service LLMService {
+    rpc GetAction(GetActionRequest) returns (Action);
+}
+
+message GetActionRequest {
+    string step_id = 1;
+}
+
 // Message from Agent to LLM Agent
 message StreamRequest {
   string run_id = 1;

@@ -11,14 +11,12 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"nopsai/config"
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
@@ -27,15 +25,39 @@ import (
 )
 
 type llmAgentServer struct {
-	proto.UnimplementedAgentServiceServer
+	proto.UnimplementedLLMServiceServer
 	db  *pgxpool.Pool
 	cfg *config.Config
-	mu  sync.Mutex
+}
+
+func (s *llmAgentServer) GetAction(ctx context.Context, req *proto.GetActionRequest) (*proto.Action, error) {
+	prompt, err := s.buildPrompt(ctx, req.GetStepId())
+	if err != nil {
+		log.Error().Err(err).Str("step_id", req.GetStepId()).Msg("Error building prompt")
+		return nil, err
+	}
+
+	actionModel, err := s.callRealGemini(prompt)
+	if err != nil {
+		log.Error().Err(err).Str("step_id", req.GetStepId()).Msg("Error calling Gemini")
+		return nil, err
+	}
+
+	protoAction := &proto.Action{Type: string(actionModel.Type)}
+	switch actionModel.Type {
+	case models.ActionTypeExecuteCommand:
+		protoAction.Payload = &proto.Action_CommandAction{CommandAction: &proto.CommandAction{Command: actionModel.CommandAction.Command}}
+	case models.ActionTypeReplaceFile:
+		protoAction.Payload = &proto.Action_FileAction{FileAction: &proto.FileAction{Path: actionModel.FileAction.Path, Content: actionModel.FileAction.Content}}
+	case models.ActionTypeReturnAnswer:
+		protoAction.Payload = &proto.Action_AnswerAction{AnswerAction: &proto.AnswerAction{Answer: actionModel.AnswerAction.Answer}}
+	}
+
+	return protoAction, nil
 }
 
 func (s *llmAgentServer) callRealGemini(prompt string) (*models.Action, error) {
 	log.Debug().Msg("Calling real Gemini API...")
-
 	geminiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", s.cfg.GeminiModel, s.cfg.GeminiAPIKey)
 
 	reqPayload := models.GeminiRequest{
@@ -194,270 +216,6 @@ Now, choose the single best action from your toolkit and provide the response in
 	return fullPrompt, nil
 }
 
-func (s *llmAgentServer) ExecutionStream(stream proto.AgentService_ExecutionStreamServer) error {
-	req, err := stream.Recv()
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to receive initial message from agent")
-		return err
-	}
-	subReq := req.GetSubscribe()
-	if subReq == nil {
-		return fmt.Errorf("expected first message to be a SubscribeRequest")
-	}
-	runID := req.GetRunId()
-	log.Info().Str("run_id", runID).Msg("Agent subscribed to execution stream")
-
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	// Goroutine to handle receiving results from the agent
-	go func() {
-		for {
-			req, err := stream.Recv()
-			if err != nil {
-				return
-			}
-			if result := req.GetResult(); result != nil {
-				s.handleStepResult(result)
-			}
-		}
-	}()
-
-	// Main loop: periodically check for and send runnable steps
-	for {
-		select {
-		case <-stream.Context().Done():
-			log.Info().Str("run_id", runID).Msg("Agent disconnected")
-			return stream.Context().Err()
-		case <-ticker.C:
-			var runStatus string
-			err := s.db.QueryRow(stream.Context(), "SELECT status FROM runs WHERE run_id = $1", runID).Scan(&runStatus)
-			if err != nil {
-				log.Error().Err(err).Str("run_id", runID).Msg("Error getting run status for stream check")
-				continue
-			}
-
-			if runStatus == "failed" {
-				log.Info().Str("run_id", runID).Msg("Run failed, sending shutdown signal to agent.")
-				shutdownResp := &proto.StreamResponse{
-					Event: &proto.StreamResponse_Shutdown{
-						Shutdown: &proto.ShutdownRequest{ExitCode: 1},
-					},
-				}
-				if err := stream.Send(shutdownResp); err != nil {
-					log.Error().Err(err).Str("run_id", runID).Msg("Error sending shutdown signal")
-				}
-				return nil // Close the stream from server side
-			}
-
-			var totalSteps, finishedSteps int
-			query := `
-                SELECT
-                    COUNT(*),
-                    COUNT(*) FILTER (WHERE status IN ('completed', 'failed'))
-                FROM steps
-                WHERE run_id = $1`
-			err = s.db.QueryRow(stream.Context(), query, runID).Scan(&totalSteps, &finishedSteps)
-			if err != nil {
-				log.Error().Err(err).Str("run_id", runID).Msg("Error getting step counts for completion check")
-				continue
-			}
-
-			if totalSteps > 0 && totalSteps == finishedSteps {
-				log.Info().Str("run_id", runID).Msg("All steps have finished, sending shutdown signal to agent.")
-				shutdownResp := &proto.StreamResponse{
-					Event: &proto.StreamResponse_Shutdown{
-						Shutdown: &proto.ShutdownRequest{ExitCode: 0},
-					},
-				}
-				if err := stream.Send(shutdownResp); err != nil {
-					log.Error().Err(err).Str("run_id", runID).Msg("Error sending successful shutdown signal")
-				}
-				return nil // Close the stream from server side
-			}
-
-			steps, err := s.getAndPrepareRunnableSteps(stream.Context(), runID)
-			if err != nil {
-				log.Error().Err(err).Str("run_id", runID).Msg("Error getting runnable steps")
-				continue
-			}
-			for _, step := range steps {
-				l := log.With().
-					Str("pipeline_name", step.GetPipelineName()).
-					Str("run_id", runID).
-					Str("step_name", step.GetStepName()).
-					Str("step_id", step.GetStepId()).
-					Logger()
-				l.Info().Msg("Sending step to agent")
-				resp := &proto.StreamResponse{
-					Event: &proto.StreamResponse_Step{Step: step},
-				}
-				if err := stream.Send(resp); err != nil {
-					l.Error().Err(err).Msg("Error sending step to agent")
-					return err
-				}
-			}
-		}
-	}
-}
-
-func (s *llmAgentServer) handleStepResult(result *proto.StepResult) {
-	var stepName, pipelineName, runID string
-	err := s.db.QueryRow(context.Background(), `
-		SELECT s.name, r.pipeline_name, s.run_id
-		FROM steps s JOIN runs r ON s.run_id = r.run_id
-		WHERE s.step_id = $1`, result.StepId).Scan(&stepName, &pipelineName, &runID)
-	if err != nil {
-		log.Error().Err(err).Str("step_id", result.StepId).Msg("Failed to query step context for logging")
-		return
-	}
-
-	l := log.With().
-		Str("pipeline_name", pipelineName).
-		Str("run_id", runID).
-		Str("step_name", stepName).
-		Str("step_id", result.StepId).
-		Logger()
-
-	l.Info().Msg("Received action result")
-
-	stepStatus := "completed"
-	if result.ExitCode != 0 {
-		var ignoreFailure bool
-		err := s.db.QueryRow(context.Background(), "SELECT ignore_failure FROM steps WHERE step_id = $1", result.StepId).Scan(&ignoreFailure)
-		if err != nil {
-			l.Error().Err(err).Msg("Failed to query ignore_failure flag")
-		}
-
-		stepStatus = "failed"
-		if !ignoreFailure {
-			l.Error().Msg("Critical step failed. Marking run as failed.")
-			_, err := s.db.Exec(context.Background(), "UPDATE runs SET status = 'failed', finished_at = NOW() WHERE run_id = (SELECT run_id FROM steps WHERE step_id = $1)", result.StepId)
-			if err != nil {
-				l.Error().Err(err).Msg("Failed to update run status to failed")
-			}
-		} else {
-			l.Warn().Msg("Step failed, but failure is ignored.")
-		}
-	}
-
-	directoryListingBytes, err := json.Marshal(result.DirectoryListing)
-	if err != nil {
-		l.Error().Err(err).Msg("Failed to marshal directory listing")
-		directoryListingBytes = []byte("{}")
-	}
-
-	_, err = s.db.Exec(context.Background(),
-		"UPDATE steps SET status = $1, execution_log = $2, exit_code = $3, action_taken = $4, finished_at = NOW(), directory_listing = $5 WHERE step_id = $6",
-		stepStatus, result.Stdout+"\n"+result.Stderr, result.ExitCode, result.ActionTaken, string(directoryListingBytes), result.StepId,
-	)
-	if err != nil {
-		l.Error().Err(err).Msg("Failed to update step")
-	}
-	l.Info().Msg("Successfully updated step in database")
-}
-
-func (s *llmAgentServer) getAndPrepareRunnableSteps(ctx context.Context, runID string) ([]*proto.RunnableStep, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	var runStatus string
-	err := s.db.QueryRow(ctx, "SELECT status FROM runs WHERE run_id = $1", runID).Scan(&runStatus)
-	if err != nil {
-		log.Error().Err(err).Str("run_id", runID).Msg("Failed to get run status")
-		return nil, err
-	}
-
-	if runStatus == "failed" {
-		log.Warn().Str("run_id", runID).Msg("Run has failed. No more steps will be scheduled.")
-		return nil, nil
-	}
-
-	query := `
-		SELECT s.step_id FROM steps s
-		WHERE s.run_id = $1 AND s.status = 'pending'
-		AND NOT EXISTS (
-			SELECT 1 FROM step_dependencies sd
-			JOIN steps dep_s ON sd.depends_on_step_id = dep_s.step_id
-			WHERE sd.step_id = s.step_id AND dep_s.status IN ('pending', 'running', 'failed')
-		)`
-
-	rows, err := s.db.Query(ctx, query, runID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var stepIDs []uuid.UUID
-	for rows.Next() {
-		var stepID uuid.UUID
-		if err := rows.Scan(&stepID); err != nil {
-			return nil, err
-		}
-		stepIDs = append(stepIDs, stepID)
-	}
-
-	var runnableSteps []*proto.RunnableStep
-	if len(stepIDs) > 0 {
-		for _, id := range stepIDs {
-			var stepName, pipelineName string
-			var runUUID uuid.UUID
-			err := s.db.QueryRow(ctx, `
-                SELECT s.name, r.pipeline_name, s.run_id
-                FROM steps s JOIN runs r ON s.run_id = r.run_id
-                WHERE s.step_id = $1`, id).Scan(&stepName, &pipelineName, &runUUID)
-			if err != nil {
-				log.Error().Err(err).Str("step_id", id.String()).Msg("Failed to query step context")
-				continue
-			}
-
-			l := log.With().
-				Str("pipeline_name", pipelineName).
-				Str("run_id", runUUID.String()).
-				Str("step_name", stepName).
-				Str("step_id", id.String()).
-				Logger()
-
-			_, err = s.db.Exec(ctx, "UPDATE steps SET status = 'running', started_at = NOW() WHERE step_id = $1 AND status = 'pending'", id)
-			if err != nil {
-				l.Error().Err(err).Msg("Failed to mark step as running")
-				continue
-			}
-
-			prompt, err := s.buildPrompt(ctx, id.String())
-			if err != nil {
-				l.Error().Err(err).Msg("Error building prompt")
-				continue
-			}
-
-			actionModel, err := s.callRealGemini(prompt)
-			if err != nil {
-				l.Error().Err(err).Msg("Error calling Gemini")
-				continue
-			}
-
-			protoAction := &proto.Action{Type: string(actionModel.Type)}
-			switch actionModel.Type {
-			case models.ActionTypeExecuteCommand:
-				protoAction.Payload = &proto.Action_CommandAction{CommandAction: &proto.CommandAction{Command: actionModel.CommandAction.Command}}
-			case models.ActionTypeReplaceFile:
-				protoAction.Payload = &proto.Action_FileAction{FileAction: &proto.FileAction{Path: actionModel.FileAction.Path, Content: actionModel.FileAction.Content}}
-			case models.ActionTypeReturnAnswer:
-				protoAction.Payload = &proto.Action_AnswerAction{AnswerAction: &proto.AnswerAction{Answer: actionModel.AnswerAction.Answer}}
-			}
-
-			runnableSteps = append(runnableSteps, &proto.RunnableStep{
-				StepId:       id.String(),
-				Action:       protoAction,
-				PipelineName: pipelineName,
-				StepName:     stepName,
-			})
-		}
-	}
-
-	return runnableSteps, nil
-}
-
 func main() {
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
@@ -501,7 +259,7 @@ func main() {
 	}
 
 	s := grpc.NewServer()
-	proto.RegisterAgentServiceServer(s, &llmAgentServer{db: dbpool, cfg: cfg})
+	proto.RegisterLLMServiceServer(s, &llmAgentServer{db: dbpool, cfg: cfg})
 
 	log.Info().Msgf("LLM Agent server listening at %s", cfg.LlmAgentListenAddress)
 	if err := s.Serve(lis); err != nil {

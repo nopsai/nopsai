@@ -5,7 +5,8 @@ CREATE TABLE runs (
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
     environment TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    finished_at TIMESTAMPTZ
+    finished_at TIMESTAMPTZ,
+    timeout_at TIMESTAMPTZ
 );
 
 CREATE TABLE steps (
