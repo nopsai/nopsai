@@ -4,63 +4,17 @@ package proto;
 
 option go_package = "nopsai/pkg/proto";
 
-// The core service that the LLM Agent provides and the Agent consumes.
-service AgentService {
-  // A bidirectional stream where the agent subscribes for work and reports back results.
-  rpc ExecutionStream(stream StreamRequest) returns (stream StreamResponse);
-}
-
-// Service for the LLM Agent
+// Service for the LLM Agent, called by the Agent
 service LLMService {
     rpc GetAction(GetActionRequest) returns (Action);
 }
 
+// The entire context needed by the LLM to decide on the next action.
 message GetActionRequest {
-    string step_id = 1;
-}
-
-// Message from Agent to LLM Agent
-message StreamRequest {
-  string run_id = 1;
-  oneof event {
-    SubscribeRequest subscribe = 2;
-    StepResult result = 3;
-  }
-}
-
-// Agent's initial message to subscribe to work for a run.
-message SubscribeRequest {}
-
-// Agent's message to report the result of a step.
-message StepResult {
-  string step_id = 1;
-  string stdout = 2;
-  string stderr = 3;
-  int32 exit_code = 4;
-  string action_taken = 5;
-  map<string, string> directory_listing = 6;
-}
-
-// Message from LLM Agent to Agent
-message StreamResponse {
-  oneof event {
-    // The LLM Agent sends the full action for a step to be executed.
-    RunnableStep step = 1;
-    ShutdownRequest shutdown = 2;
-  }
-}
-
-// A message telling the agent to execute a specific step with its action.
-message RunnableStep {
-  string step_id = 1;
-  Action action = 2;
-  string pipeline_name = 3;
-  string step_name = 4;
-}
-
-// A message telling the agent to shut down.
-message ShutdownRequest {
-  int32 exit_code = 1;
+    string goal = 1;
+    string history = 2;
+    map<string, string> directory_listing = 3;
+    map<string, string> environment = 4;
 }
 
 // Action defines the operation for the agent to perform.

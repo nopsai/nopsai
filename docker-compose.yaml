@@ -45,27 +45,6 @@ services:
     networks:
       - nopsai-net
 
-  controller:
-    container_name: nopsai-controller
-    image: nopsai-controller
-    build:
-      context: .
-      dockerfile: container/Dockerfile.controller
-    restart: always
-    ports:
-      - "50052:50052"
-    depends_on:
-      db:
-        condition: service_healthy
-      llm-agent:
-        condition: service_started
-      base:
-        condition: service_completed_successfully
-    environment:
-      - CONFIG_PATH=/app/config.yml
-    networks:
-      - nopsai-net
-      
   nopsai:
     container_name: nopsai
     image: nopsai
@@ -78,32 +57,15 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      executor:
-        condition: service_started
       base:
         condition: service_completed_successfully
     environment:
       - CONFIG_PATH=/app/config.yml
     networks:
       - nopsai-net
-
-  executor:
-    container_name: nopsai-executor
-    image: nopsai-executor
-    build:
-      context: .
-      dockerfile: container/Dockerfile.executor
-    restart: always
-    ports:
-      - "8081:8081"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    depends_on:
-      - llm-agent
-      - base
-    networks:
-      - nopsai-net
-
+      
   agent:
     container_name: nopsai-agent
     image: nopsai-agent

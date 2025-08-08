@@ -1,8 +1,0 @@
-FROM nopsai-base:latest AS base
-FROM alpine:latest
-
-WORKDIR /app
-COPY --from=base /nopsai-executor /usr/local/bin/nopsai-executor
-COPY --from=base /app/config.yml .
-
-ENTRYPOINT ["nopsai-executor"]

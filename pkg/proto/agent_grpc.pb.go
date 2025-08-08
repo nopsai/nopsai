@@ -19,108 +19,6 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AgentService_ExecutionStream_FullMethodName = "/proto.AgentService/ExecutionStream"
-)
-
-// AgentServiceClient is the client API for AgentService service.
-//
-// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-//
-// The core service that the LLM Agent provides and the Agent consumes.
-type AgentServiceClient interface {
-	// A bidirectional stream where the agent subscribes for work and reports back results.
-	ExecutionStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[StreamRequest, StreamResponse], error)
-}
-
-type agentServiceClient struct {
-	cc grpc.ClientConnInterface
-}
-
-func NewAgentServiceClient(cc grpc.ClientConnInterface) AgentServiceClient {
-	return &agentServiceClient{cc}
-}
-
-func (c *agentServiceClient) ExecutionStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[StreamRequest, StreamResponse], error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &AgentService_ServiceDesc.Streams[0], AgentService_ExecutionStream_FullMethodName, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &grpc.GenericClientStream[StreamRequest, StreamResponse]{ClientStream: stream}
-	return x, nil
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type AgentService_ExecutionStreamClient = grpc.BidiStreamingClient[StreamRequest, StreamResponse]
-
-// AgentServiceServer is the server API for AgentService service.
-// All implementations must embed UnimplementedAgentServiceServer
-// for forward compatibility.
-//
-// The core service that the LLM Agent provides and the Agent consumes.
-type AgentServiceServer interface {
-	// A bidirectional stream where the agent subscribes for work and reports back results.
-	ExecutionStream(grpc.BidiStreamingServer[StreamRequest, StreamResponse]) error
-	mustEmbedUnimplementedAgentServiceServer()
-}
-
-// UnimplementedAgentServiceServer must be embedded to have
-// forward compatible implementations.
-//
-// NOTE: this should be embedded by value instead of pointer to avoid a nil
-// pointer dereference when methods are called.
-type UnimplementedAgentServiceServer struct{}
-
-func (UnimplementedAgentServiceServer) ExecutionStream(grpc.BidiStreamingServer[StreamRequest, StreamResponse]) error {
-	return status.Errorf(codes.Unimplemented, "method ExecutionStream not implemented")
-}
-func (UnimplementedAgentServiceServer) mustEmbedUnimplementedAgentServiceServer() {}
-func (UnimplementedAgentServiceServer) testEmbeddedByValue()                      {}
-
-// UnsafeAgentServiceServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to AgentServiceServer will
-// result in compilation errors.
-type UnsafeAgentServiceServer interface {
-	mustEmbedUnimplementedAgentServiceServer()
-}
-
-func RegisterAgentServiceServer(s grpc.ServiceRegistrar, srv AgentServiceServer) {
-	// If the following call pancis, it indicates UnimplementedAgentServiceServer was
-	// embedded by pointer and is nil.  This will cause panics if an
-	// unimplemented method is ever invoked, so we test this at initialization
-	// time to prevent it from happening at runtime later due to I/O.
-	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
-		t.testEmbeddedByValue()
-	}
-	s.RegisterService(&AgentService_ServiceDesc, srv)
-}
-
-func _AgentService_ExecutionStream_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(AgentServiceServer).ExecutionStream(&grpc.GenericServerStream[StreamRequest, StreamResponse]{ServerStream: stream})
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type AgentService_ExecutionStreamServer = grpc.BidiStreamingServer[StreamRequest, StreamResponse]
-
-// AgentService_ServiceDesc is the grpc.ServiceDesc for AgentService service.
-// It's only intended for direct use with grpc.RegisterService,
-// and not to be introspected or modified (even as a copy)
-var AgentService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "proto.AgentService",
-	HandlerType: (*AgentServiceServer)(nil),
-	Methods:     []grpc.MethodDesc{},
-	Streams: []grpc.StreamDesc{
-		{
-			StreamName:    "ExecutionStream",
-			Handler:       _AgentService_ExecutionStream_Handler,
-			ServerStreams: true,
-			ClientStreams: true,
-		},
-	},
-	Metadata: "pkg/proto/agent.proto",
-}
-
-const (
 	LLMService_GetAction_FullMethodName = "/proto.LLMService/GetAction"
 )
 
@@ -128,7 +26,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// Service for the LLM Agent
+// Service for the LLM Agent, called by the Agent
 type LLMServiceClient interface {
 	GetAction(ctx context.Context, in *GetActionRequest, opts ...grpc.CallOption) (*Action, error)
 }
@@ -155,7 +53,7 @@ func (c *lLMServiceClient) GetAction(ctx context.Context, in *GetActionRequest, 
 // All implementations must embed UnimplementedLLMServiceServer
 // for forward compatibility.
 //
-// Service for the LLM Agent
+// Service for the LLM Agent, called by the Agent
 type LLMServiceServer interface {
 	GetAction(context.Context, *GetActionRequest) (*Action, error)
 	mustEmbedUnimplementedLLMServiceServer()
