@@ -1,6 +1,6 @@
 name: Second Test Pipeline
 description: A sample pipeline.
-container_image: "nopsai-agent:latest"
+container_image: "ubuntu:latest"
 working_directory: "/tmp/test"
 environment:
   API_VERSION: "v1"

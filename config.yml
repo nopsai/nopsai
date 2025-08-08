@@ -9,12 +9,10 @@ gemini_model: "gemini-1.5-flash"
 
 # --- Service Addresses ---
 nopsai_listen_address: "0.0.0.0:8080"
-executor_listen_address: "0.0.0.0:8081"
 llm_agent_listen_address: "0.0.0.0:50051"
-controller_listen_address: "0.0.0.0:50052"
-controller_llm_agent_address: "nopsai-llm-agent:50051" # Address for controller to connect to LLM agent
-agent_controller_address: "nopsai-controller:50052" # Address for agent to connect to controller
-executor_address: "http://nopsai-executor:8081"
+agent_llm_agent_address: "nopsai-llm-agent:50051"
+agent_nopsai_api_url: "http://nopsai:8080"
 
 # --- Docker Configuration ---
 docker_network_name: "nopsai-net"
+remove_agent_container: false # Set to false to keep the agent container for debugging

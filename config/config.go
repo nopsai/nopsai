@@ -15,15 +15,16 @@ type Config struct {
 	GeminiAPIKey string `yaml:"gemini_api_key"`
 	GeminiModel  string `yaml:"gemini_model"`
 
-	NopsaiListenAddress       string `yaml:"nopsai_listen_address"`
-	ExecutorListenAddress     string `yaml:"executor_listen_address"`
-	LlmAgentListenAddress     string `yaml:"llm_agent_listen_address"`
-	ControllerListenAddress   string `yaml:"controller_listen_address"`
-	ControllerLlmAgentAddress string `yaml:"controller_llm_agent_address"`
-	AgentControllerAddress    string `yaml:"agent_controller_address"`
-	ExecutorAddress           string `yaml:"executor_address"`
+	// Addresses for services to listen on
+	NopsaiListenAddress   string `yaml:"nopsai_listen_address"`
+	LlmAgentListenAddress string `yaml:"llm_agent_listen_address"`
 
-	DockerNetworkName string `yaml:"docker_network_name"`
+	// Addresses for services to connect to each other (used by nopsai to inject into agents)
+	AgentLlmAgentAddress string `yaml:"agent_llm_agent_address"`
+	AgentNopsaiAPIURL    string `yaml:"agent_nopsai_api_url"`
+
+	DockerNetworkName    string `yaml:"docker_network_name"`
+	RemoveAgentContainer bool   `yaml:"remove_agent_container"`
 }
 
 func LoadConfig(path string) (*Config, error) {

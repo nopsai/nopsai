@@ -21,11 +21,15 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// The entire context needed by the LLM to decide on the next action.
 type GetActionRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	StepId        string                 `protobuf:"bytes,1,opt,name=step_id,json=stepId,proto3" json:"step_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Goal             string                 `protobuf:"bytes,1,opt,name=goal,proto3" json:"goal,omitempty"`
+	History          string                 `protobuf:"bytes,2,opt,name=history,proto3" json:"history,omitempty"`
+	DirectoryListing map[string]string      `protobuf:"bytes,3,rep,name=directory_listing,json=directoryListing,proto3" json:"directory_listing,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Environment      map[string]string      `protobuf:"bytes,4,rep,name=environment,proto3" json:"environment,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *GetActionRequest) Reset() {
@@ -58,422 +62,32 @@ func (*GetActionRequest) Descriptor() ([]byte, []int) {
 	return file_pkg_proto_agent_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *GetActionRequest) GetStepId() string {
+func (x *GetActionRequest) GetGoal() string {
 	if x != nil {
-		return x.StepId
+		return x.Goal
 	}
 	return ""
 }
 
-// Message from Agent to LLM Agent
-type StreamRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	RunId string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
-	// Types that are valid to be assigned to Event:
-	//
-	//	*StreamRequest_Subscribe
-	//	*StreamRequest_Result
-	Event         isStreamRequest_Event `protobuf_oneof:"event"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *StreamRequest) Reset() {
-	*x = StreamRequest{}
-	mi := &file_pkg_proto_agent_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StreamRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StreamRequest) ProtoMessage() {}
-
-func (x *StreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_agent_proto_msgTypes[1]
+func (x *GetActionRequest) GetHistory() string {
 	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StreamRequest.ProtoReflect.Descriptor instead.
-func (*StreamRequest) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_agent_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *StreamRequest) GetRunId() string {
-	if x != nil {
-		return x.RunId
+		return x.History
 	}
 	return ""
 }
 
-func (x *StreamRequest) GetEvent() isStreamRequest_Event {
-	if x != nil {
-		return x.Event
-	}
-	return nil
-}
-
-func (x *StreamRequest) GetSubscribe() *SubscribeRequest {
-	if x != nil {
-		if x, ok := x.Event.(*StreamRequest_Subscribe); ok {
-			return x.Subscribe
-		}
-	}
-	return nil
-}
-
-func (x *StreamRequest) GetResult() *StepResult {
-	if x != nil {
-		if x, ok := x.Event.(*StreamRequest_Result); ok {
-			return x.Result
-		}
-	}
-	return nil
-}
-
-type isStreamRequest_Event interface {
-	isStreamRequest_Event()
-}
-
-type StreamRequest_Subscribe struct {
-	Subscribe *SubscribeRequest `protobuf:"bytes,2,opt,name=subscribe,proto3,oneof"`
-}
-
-type StreamRequest_Result struct {
-	Result *StepResult `protobuf:"bytes,3,opt,name=result,proto3,oneof"`
-}
-
-func (*StreamRequest_Subscribe) isStreamRequest_Event() {}
-
-func (*StreamRequest_Result) isStreamRequest_Event() {}
-
-// Agent's initial message to subscribe to work for a run.
-type SubscribeRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *SubscribeRequest) Reset() {
-	*x = SubscribeRequest{}
-	mi := &file_pkg_proto_agent_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SubscribeRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SubscribeRequest) ProtoMessage() {}
-
-func (x *SubscribeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_agent_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SubscribeRequest.ProtoReflect.Descriptor instead.
-func (*SubscribeRequest) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_agent_proto_rawDescGZIP(), []int{2}
-}
-
-// Agent's message to report the result of a step.
-type StepResult struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	StepId           string                 `protobuf:"bytes,1,opt,name=step_id,json=stepId,proto3" json:"step_id,omitempty"`
-	Stdout           string                 `protobuf:"bytes,2,opt,name=stdout,proto3" json:"stdout,omitempty"`
-	Stderr           string                 `protobuf:"bytes,3,opt,name=stderr,proto3" json:"stderr,omitempty"`
-	ExitCode         int32                  `protobuf:"varint,4,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
-	ActionTaken      string                 `protobuf:"bytes,5,opt,name=action_taken,json=actionTaken,proto3" json:"action_taken,omitempty"`
-	DirectoryListing map[string]string      `protobuf:"bytes,6,rep,name=directory_listing,json=directoryListing,proto3" json:"directory_listing,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
-}
-
-func (x *StepResult) Reset() {
-	*x = StepResult{}
-	mi := &file_pkg_proto_agent_proto_msgTypes[3]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StepResult) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StepResult) ProtoMessage() {}
-
-func (x *StepResult) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_agent_proto_msgTypes[3]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StepResult.ProtoReflect.Descriptor instead.
-func (*StepResult) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_agent_proto_rawDescGZIP(), []int{3}
-}
-
-func (x *StepResult) GetStepId() string {
-	if x != nil {
-		return x.StepId
-	}
-	return ""
-}
-
-func (x *StepResult) GetStdout() string {
-	if x != nil {
-		return x.Stdout
-	}
-	return ""
-}
-
-func (x *StepResult) GetStderr() string {
-	if x != nil {
-		return x.Stderr
-	}
-	return ""
-}
-
-func (x *StepResult) GetExitCode() int32 {
-	if x != nil {
-		return x.ExitCode
-	}
-	return 0
-}
-
-func (x *StepResult) GetActionTaken() string {
-	if x != nil {
-		return x.ActionTaken
-	}
-	return ""
-}
-
-func (x *StepResult) GetDirectoryListing() map[string]string {
+func (x *GetActionRequest) GetDirectoryListing() map[string]string {
 	if x != nil {
 		return x.DirectoryListing
 	}
 	return nil
 }
 
-// Message from LLM Agent to Agent
-type StreamResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Types that are valid to be assigned to Event:
-	//
-	//	*StreamResponse_Step
-	//	*StreamResponse_Shutdown
-	Event         isStreamResponse_Event `protobuf_oneof:"event"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *StreamResponse) Reset() {
-	*x = StreamResponse{}
-	mi := &file_pkg_proto_agent_proto_msgTypes[4]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StreamResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StreamResponse) ProtoMessage() {}
-
-func (x *StreamResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_agent_proto_msgTypes[4]
+func (x *GetActionRequest) GetEnvironment() map[string]string {
 	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StreamResponse.ProtoReflect.Descriptor instead.
-func (*StreamResponse) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_agent_proto_rawDescGZIP(), []int{4}
-}
-
-func (x *StreamResponse) GetEvent() isStreamResponse_Event {
-	if x != nil {
-		return x.Event
+		return x.Environment
 	}
 	return nil
-}
-
-func (x *StreamResponse) GetStep() *RunnableStep {
-	if x != nil {
-		if x, ok := x.Event.(*StreamResponse_Step); ok {
-			return x.Step
-		}
-	}
-	return nil
-}
-
-func (x *StreamResponse) GetShutdown() *ShutdownRequest {
-	if x != nil {
-		if x, ok := x.Event.(*StreamResponse_Shutdown); ok {
-			return x.Shutdown
-		}
-	}
-	return nil
-}
-
-type isStreamResponse_Event interface {
-	isStreamResponse_Event()
-}
-
-type StreamResponse_Step struct {
-	// The LLM Agent sends the full action for a step to be executed.
-	Step *RunnableStep `protobuf:"bytes,1,opt,name=step,proto3,oneof"`
-}
-
-type StreamResponse_Shutdown struct {
-	Shutdown *ShutdownRequest `protobuf:"bytes,2,opt,name=shutdown,proto3,oneof"`
-}
-
-func (*StreamResponse_Step) isStreamResponse_Event() {}
-
-func (*StreamResponse_Shutdown) isStreamResponse_Event() {}
-
-// A message telling the agent to execute a specific step with its action.
-type RunnableStep struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	StepId        string                 `protobuf:"bytes,1,opt,name=step_id,json=stepId,proto3" json:"step_id,omitempty"`
-	Action        *Action                `protobuf:"bytes,2,opt,name=action,proto3" json:"action,omitempty"`
-	PipelineName  string                 `protobuf:"bytes,3,opt,name=pipeline_name,json=pipelineName,proto3" json:"pipeline_name,omitempty"`
-	StepName      string                 `protobuf:"bytes,4,opt,name=step_name,json=stepName,proto3" json:"step_name,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *RunnableStep) Reset() {
-	*x = RunnableStep{}
-	mi := &file_pkg_proto_agent_proto_msgTypes[5]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *RunnableStep) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*RunnableStep) ProtoMessage() {}
-
-func (x *RunnableStep) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_agent_proto_msgTypes[5]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use RunnableStep.ProtoReflect.Descriptor instead.
-func (*RunnableStep) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_agent_proto_rawDescGZIP(), []int{5}
-}
-
-func (x *RunnableStep) GetStepId() string {
-	if x != nil {
-		return x.StepId
-	}
-	return ""
-}
-
-func (x *RunnableStep) GetAction() *Action {
-	if x != nil {
-		return x.Action
-	}
-	return nil
-}
-
-func (x *RunnableStep) GetPipelineName() string {
-	if x != nil {
-		return x.PipelineName
-	}
-	return ""
-}
-
-func (x *RunnableStep) GetStepName() string {
-	if x != nil {
-		return x.StepName
-	}
-	return ""
-}
-
-// A message telling the agent to shut down.
-type ShutdownRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ExitCode      int32                  `protobuf:"varint,1,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ShutdownRequest) Reset() {
-	*x = ShutdownRequest{}
-	mi := &file_pkg_proto_agent_proto_msgTypes[6]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ShutdownRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ShutdownRequest) ProtoMessage() {}
-
-func (x *ShutdownRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_agent_proto_msgTypes[6]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ShutdownRequest.ProtoReflect.Descriptor instead.
-func (*ShutdownRequest) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_agent_proto_rawDescGZIP(), []int{6}
-}
-
-func (x *ShutdownRequest) GetExitCode() int32 {
-	if x != nil {
-		return x.ExitCode
-	}
-	return 0
 }
 
 // Action defines the operation for the agent to perform.
@@ -492,7 +106,7 @@ type Action struct {
 
 func (x *Action) Reset() {
 	*x = Action{}
-	mi := &file_pkg_proto_agent_proto_msgTypes[7]
+	mi := &file_pkg_proto_agent_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -504,7 +118,7 @@ func (x *Action) String() string {
 func (*Action) ProtoMessage() {}
 
 func (x *Action) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_agent_proto_msgTypes[7]
+	mi := &file_pkg_proto_agent_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -517,7 +131,7 @@ func (x *Action) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Action.ProtoReflect.Descriptor instead.
 func (*Action) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_agent_proto_rawDescGZIP(), []int{7}
+	return file_pkg_proto_agent_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *Action) GetType() string {
@@ -592,7 +206,7 @@ type CommandAction struct {
 
 func (x *CommandAction) Reset() {
 	*x = CommandAction{}
-	mi := &file_pkg_proto_agent_proto_msgTypes[8]
+	mi := &file_pkg_proto_agent_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -604,7 +218,7 @@ func (x *CommandAction) String() string {
 func (*CommandAction) ProtoMessage() {}
 
 func (x *CommandAction) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_agent_proto_msgTypes[8]
+	mi := &file_pkg_proto_agent_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -617,7 +231,7 @@ func (x *CommandAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandAction.ProtoReflect.Descriptor instead.
 func (*CommandAction) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_agent_proto_rawDescGZIP(), []int{8}
+	return file_pkg_proto_agent_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *CommandAction) GetCommand() string {
@@ -637,7 +251,7 @@ type FileAction struct {
 
 func (x *FileAction) Reset() {
 	*x = FileAction{}
-	mi := &file_pkg_proto_agent_proto_msgTypes[9]
+	mi := &file_pkg_proto_agent_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -649,7 +263,7 @@ func (x *FileAction) String() string {
 func (*FileAction) ProtoMessage() {}
 
 func (x *FileAction) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_agent_proto_msgTypes[9]
+	mi := &file_pkg_proto_agent_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -662,7 +276,7 @@ func (x *FileAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileAction.ProtoReflect.Descriptor instead.
 func (*FileAction) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_agent_proto_rawDescGZIP(), []int{9}
+	return file_pkg_proto_agent_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *FileAction) GetPath() string {
@@ -688,7 +302,7 @@ type AnswerAction struct {
 
 func (x *AnswerAction) Reset() {
 	*x = AnswerAction{}
-	mi := &file_pkg_proto_agent_proto_msgTypes[10]
+	mi := &file_pkg_proto_agent_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -700,7 +314,7 @@ func (x *AnswerAction) String() string {
 func (*AnswerAction) ProtoMessage() {}
 
 func (x *AnswerAction) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_agent_proto_msgTypes[10]
+	mi := &file_pkg_proto_agent_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -713,7 +327,7 @@ func (x *AnswerAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AnswerAction.ProtoReflect.Descriptor instead.
 func (*AnswerAction) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_agent_proto_rawDescGZIP(), []int{10}
+	return file_pkg_proto_agent_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *AnswerAction) GetAnswer() string {
@@ -727,37 +341,18 @@ var File_pkg_proto_agent_proto protoreflect.FileDescriptor
 
 const file_pkg_proto_agent_proto_rawDesc = "" +
 	"\n" +
-	"\x15pkg/proto/agent.proto\x12\x05proto\"+\n" +
-	"\x10GetActionRequest\x12\x17\n" +
-	"\astep_id\x18\x01 \x01(\tR\x06stepId\"\x95\x01\n" +
-	"\rStreamRequest\x12\x15\n" +
-	"\x06run_id\x18\x01 \x01(\tR\x05runId\x127\n" +
-	"\tsubscribe\x18\x02 \x01(\v2\x17.proto.SubscribeRequestH\x00R\tsubscribe\x12+\n" +
-	"\x06result\x18\x03 \x01(\v2\x11.proto.StepResultH\x00R\x06resultB\a\n" +
-	"\x05event\"\x12\n" +
-	"\x10SubscribeRequest\"\xb0\x02\n" +
-	"\n" +
-	"StepResult\x12\x17\n" +
-	"\astep_id\x18\x01 \x01(\tR\x06stepId\x12\x16\n" +
-	"\x06stdout\x18\x02 \x01(\tR\x06stdout\x12\x16\n" +
-	"\x06stderr\x18\x03 \x01(\tR\x06stderr\x12\x1b\n" +
-	"\texit_code\x18\x04 \x01(\x05R\bexitCode\x12!\n" +
-	"\faction_taken\x18\x05 \x01(\tR\vactionTaken\x12T\n" +
-	"\x11directory_listing\x18\x06 \x03(\v2'.proto.StepResult.DirectoryListingEntryR\x10directoryListing\x1aC\n" +
+	"\x15pkg/proto/agent.proto\x12\x05proto\"\xed\x02\n" +
+	"\x10GetActionRequest\x12\x12\n" +
+	"\x04goal\x18\x01 \x01(\tR\x04goal\x12\x18\n" +
+	"\ahistory\x18\x02 \x01(\tR\ahistory\x12Z\n" +
+	"\x11directory_listing\x18\x03 \x03(\v2-.proto.GetActionRequest.DirectoryListingEntryR\x10directoryListing\x12J\n" +
+	"\venvironment\x18\x04 \x03(\v2(.proto.GetActionRequest.EnvironmentEntryR\venvironment\x1aC\n" +
 	"\x15DirectoryListingEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"z\n" +
-	"\x0eStreamResponse\x12)\n" +
-	"\x04step\x18\x01 \x01(\v2\x13.proto.RunnableStepH\x00R\x04step\x124\n" +
-	"\bshutdown\x18\x02 \x01(\v2\x16.proto.ShutdownRequestH\x00R\bshutdownB\a\n" +
-	"\x05event\"\x90\x01\n" +
-	"\fRunnableStep\x12\x17\n" +
-	"\astep_id\x18\x01 \x01(\tR\x06stepId\x12%\n" +
-	"\x06action\x18\x02 \x01(\v2\r.proto.ActionR\x06action\x12#\n" +
-	"\rpipeline_name\x18\x03 \x01(\tR\fpipelineName\x12\x1b\n" +
-	"\tstep_name\x18\x04 \x01(\tR\bstepName\".\n" +
-	"\x0fShutdownRequest\x12\x1b\n" +
-	"\texit_code\x18\x01 \x01(\x05R\bexitCode\"\xd8\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a>\n" +
+	"\x10EnvironmentEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd8\x01\n" +
 	"\x06Action\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12=\n" +
 	"\x0ecommand_action\x18\x02 \x01(\v2\x14.proto.CommandActionH\x00R\rcommandAction\x124\n" +
@@ -772,9 +367,7 @@ const file_pkg_proto_agent_proto_rawDesc = "" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\"&\n" +
 	"\fAnswerAction\x12\x16\n" +
-	"\x06answer\x18\x01 \x01(\tR\x06answer2R\n" +
-	"\fAgentService\x12B\n" +
-	"\x0fExecutionStream\x12\x14.proto.StreamRequest\x1a\x15.proto.StreamResponse(\x010\x012A\n" +
+	"\x06answer\x18\x01 \x01(\tR\x06answer2A\n" +
 	"\n" +
 	"LLMService\x123\n" +
 	"\tGetAction\x12\x17.proto.GetActionRequest\x1a\r.proto.ActionB\x12Z\x10nopsai/pkg/protob\x06proto3"
@@ -791,40 +384,29 @@ func file_pkg_proto_agent_proto_rawDescGZIP() []byte {
 	return file_pkg_proto_agent_proto_rawDescData
 }
 
-var file_pkg_proto_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_pkg_proto_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_pkg_proto_agent_proto_goTypes = []any{
 	(*GetActionRequest)(nil), // 0: proto.GetActionRequest
-	(*StreamRequest)(nil),    // 1: proto.StreamRequest
-	(*SubscribeRequest)(nil), // 2: proto.SubscribeRequest
-	(*StepResult)(nil),       // 3: proto.StepResult
-	(*StreamResponse)(nil),   // 4: proto.StreamResponse
-	(*RunnableStep)(nil),     // 5: proto.RunnableStep
-	(*ShutdownRequest)(nil),  // 6: proto.ShutdownRequest
-	(*Action)(nil),           // 7: proto.Action
-	(*CommandAction)(nil),    // 8: proto.CommandAction
-	(*FileAction)(nil),       // 9: proto.FileAction
-	(*AnswerAction)(nil),     // 10: proto.AnswerAction
-	nil,                      // 11: proto.StepResult.DirectoryListingEntry
+	(*Action)(nil),           // 1: proto.Action
+	(*CommandAction)(nil),    // 2: proto.CommandAction
+	(*FileAction)(nil),       // 3: proto.FileAction
+	(*AnswerAction)(nil),     // 4: proto.AnswerAction
+	nil,                      // 5: proto.GetActionRequest.DirectoryListingEntry
+	nil,                      // 6: proto.GetActionRequest.EnvironmentEntry
 }
 var file_pkg_proto_agent_proto_depIdxs = []int32{
-	2,  // 0: proto.StreamRequest.subscribe:type_name -> proto.SubscribeRequest
-	3,  // 1: proto.StreamRequest.result:type_name -> proto.StepResult
-	11, // 2: proto.StepResult.directory_listing:type_name -> proto.StepResult.DirectoryListingEntry
-	5,  // 3: proto.StreamResponse.step:type_name -> proto.RunnableStep
-	6,  // 4: proto.StreamResponse.shutdown:type_name -> proto.ShutdownRequest
-	7,  // 5: proto.RunnableStep.action:type_name -> proto.Action
-	8,  // 6: proto.Action.command_action:type_name -> proto.CommandAction
-	9,  // 7: proto.Action.file_action:type_name -> proto.FileAction
-	10, // 8: proto.Action.answer_action:type_name -> proto.AnswerAction
-	1,  // 9: proto.AgentService.ExecutionStream:input_type -> proto.StreamRequest
-	0,  // 10: proto.LLMService.GetAction:input_type -> proto.GetActionRequest
-	4,  // 11: proto.AgentService.ExecutionStream:output_type -> proto.StreamResponse
-	7,  // 12: proto.LLMService.GetAction:output_type -> proto.Action
-	11, // [11:13] is the sub-list for method output_type
-	9,  // [9:11] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	5, // 0: proto.GetActionRequest.directory_listing:type_name -> proto.GetActionRequest.DirectoryListingEntry
+	6, // 1: proto.GetActionRequest.environment:type_name -> proto.GetActionRequest.EnvironmentEntry
+	2, // 2: proto.Action.command_action:type_name -> proto.CommandAction
+	3, // 3: proto.Action.file_action:type_name -> proto.FileAction
+	4, // 4: proto.Action.answer_action:type_name -> proto.AnswerAction
+	0, // 5: proto.LLMService.GetAction:input_type -> proto.GetActionRequest
+	1, // 6: proto.LLMService.GetAction:output_type -> proto.Action
+	6, // [6:7] is the sub-list for method output_type
+	5, // [5:6] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_pkg_proto_agent_proto_init() }
@@ -833,14 +415,6 @@ func file_pkg_proto_agent_proto_init() {
 		return
 	}
 	file_pkg_proto_agent_proto_msgTypes[1].OneofWrappers = []any{
-		(*StreamRequest_Subscribe)(nil),
-		(*StreamRequest_Result)(nil),
-	}
-	file_pkg_proto_agent_proto_msgTypes[4].OneofWrappers = []any{
-		(*StreamResponse_Step)(nil),
-		(*StreamResponse_Shutdown)(nil),
-	}
-	file_pkg_proto_agent_proto_msgTypes[7].OneofWrappers = []any{
 		(*Action_CommandAction)(nil),
 		(*Action_FileAction)(nil),
 		(*Action_AnswerAction)(nil),
@@ -851,9 +425,9 @@ func file_pkg_proto_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pkg_proto_agent_proto_rawDesc), len(file_pkg_proto_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   12,
+			NumMessages:   7,
 			NumExtensions: 0,
-			NumServices:   2,
+			NumServices:   1,
 		},
 		GoTypes:           file_pkg_proto_agent_proto_goTypes,
 		DependencyIndexes: file_pkg_proto_agent_proto_depIdxs,
