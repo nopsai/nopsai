@@ -1,9 +1,11 @@
 CREATE TABLE runs (
     run_id UUID PRIMARY KEY,
     pipeline_name VARCHAR(255),
+    pipeline_definition TEXT,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    finished_at TIMESTAMPTZ
+    finished_at TIMESTAMPTZ,
+    timeout_at TIMESTAMPTZ
 );
 
 CREATE TABLE steps (
