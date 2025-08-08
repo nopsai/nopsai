@@ -23,8 +23,9 @@ type Config struct {
 	AgentLlmAgentAddress string `yaml:"agent_llm_agent_address"`
 	AgentNopsaiAPIURL    string `yaml:"agent_nopsai_api_url"`
 
-	DockerNetworkName    string `yaml:"docker_network_name"`
-	RemoveAgentContainer bool   `yaml:"remove_agent_container"`
+	DockerNetworkName         string `yaml:"docker_network_name"`
+	AutoRemovalAgentContainer bool   `yaml:"auto_removal_agent_container"`
+	DefaultPipelineTimeout    string `yaml:"default_pipeline_timeout"`
 }
 
 func LoadConfig(path string) (*Config, error) {

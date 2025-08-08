@@ -8,6 +8,7 @@ type Pipeline struct {
 	WorkingDirectory string            `yaml:"working_directory,omitempty"`
 	Environment      map[string]string `yaml:"environment"`
 	Steps            []PipelineStep    `yaml:"steps"`
+	Timeout          string            `yaml:"timeout,omitempty"`
 }
 
 // PipelineStep is a single step within a pipeline definition.

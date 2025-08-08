@@ -2,12 +2,19 @@ name: Second Test Pipeline
 description: A sample pipeline.
 container_image: "ubuntu:latest"
 working_directory: "/tmp/test"
+timeout: "2s"
 environment:
   API_VERSION: "v1"
   DOCKER_HOST: "tcp://192.168.1.16:2375"
 steps:
   - name: git clone
     goal: "clone repository: https://github.com/hosein-yousefii/test-app.git"
+    ignore_failure: true
+
+  - name: waiting time
+    goal: wait for 150 seconds
+    depends_on:
+    - git clone
 
   - name: branch versioning
     goal: "Change branch to nopsai-test and get the latest tag"

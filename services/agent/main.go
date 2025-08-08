@@ -26,13 +26,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// getDirectoryListing recursively walks the specified root directory.
+// getDirectoryListing recursively walks the specified root directory. It skips the .git
+// directory and reads the content of all text-based files.
 func getDirectoryListing(logger zerolog.Logger, root string) map[string]string {
 	directoryListing := make(map[string]string)
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			logger.Error().Err(err).Str("path", path).Msg("Error accessing path")
-			return nil
+			return nil // Continue walking even if one path fails
 		}
 		if info.IsDir() && info.Name() == ".git" {
 			return filepath.SkipDir
@@ -73,7 +74,8 @@ func executeAction(cli *client.Client, containerID string, action *proto.Action)
 		content := action.GetFileAction().Content
 		encodedContent := base64.StdEncoding.EncodeToString([]byte(content))
 		filePath := filepath.Join("/workspace", action.GetFileAction().Path)
-		cmdStr = fmt.Sprintf("echo %s | base64 -d > %s", encodedContent, filePath)
+		// Use a heredoc for safety with special characters.
+		cmdStr = fmt.Sprintf("base64 -d <<'EOF'\n%s\nEOF\n > %s", encodedContent, filePath)
 	case "RETURN_ANSWER":
 		ansAction := action.GetAnswerAction()
 		if ansAction == nil {
@@ -103,6 +105,7 @@ func executeAction(cli *client.Client, containerID string, action *proto.Action)
 	defer resp.Close()
 
 	var stdout, stderr bytes.Buffer
+	// Docker multiplexes stdout and stderr, so we read it all into one buffer.
 	_, err = io.Copy(&stdout, resp.Reader)
 	if err != nil {
 		return "", fmt.Sprintf("failed to read output: %v", err), 1
@@ -113,10 +116,15 @@ func executeAction(cli *client.Client, containerID string, action *proto.Action)
 		return stdout.String(), fmt.Sprintf("failed to inspect exec: %v", err), 1
 	}
 
+	// In the shell, stderr is often redirected to stdout, so we check the exit code.
+	if inspect.ExitCode != 0 {
+		return "", stdout.String(), inspect.ExitCode
+	}
+
 	return strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()), inspect.ExitCode
 }
 
-// getNextRunnableStep finds the next step to execute.
+// getNextRunnableStep finds the next step to execute based on dependencies.
 func getNextRunnableStep(pipeline *models.Pipeline, completedSteps map[string]bool) *models.PipelineStep {
 	for _, step := range pipeline.Steps {
 		if _, done := completedSteps[step.Name]; done {
@@ -165,10 +173,17 @@ func updateStepStatus(runID, stepName, status string, exitCode int) {
 
 // cleanup stops and removes the pipeline container.
 func cleanup(cli *client.Client, containerID string) {
+	if containerID == "" {
+		return
+	}
 	log.Info().Msgf("Cleaning up pipeline container: %s", containerID)
-	// Use a new context for cleanup in case the main context is cancelled.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+
+	if err := cli.ContainerStop(ctx, containerID, container.StopOptions{}); err != nil {
+		log.Error().Err(err).Msg("Failed to stop pipeline container")
+	}
+
 	if err := cli.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true}); err != nil {
 		log.Error().Err(err).Msg("Failed to remove pipeline container")
 	}
@@ -197,6 +212,7 @@ func main() {
 	llmAgentAddress := os.Getenv("LLM_AGENT_ADDRESS")
 	pipelineDefBase64 := os.Getenv("PIPELINE_DEFINITION")
 	sharedVolumeName := os.Getenv("SHARED_VOLUME_NAME")
+	pipelineTimeoutStr := os.Getenv("PIPELINE_TIMEOUT")
 
 	if runID == "" || llmAgentAddress == "" || pipelineDefBase64 == "" || pipelineName == "" || sharedVolumeName == "" {
 		log.Fatal().Msg("Missing one or more required environment variables.")
@@ -256,6 +272,22 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to create pipeline container")
 	}
 
+	// --- Timeout and Cleanup Management ---
+	if pipelineTimeoutStr != "" {
+		timeout, err := time.ParseDuration(pipelineTimeoutStr)
+		if err != nil {
+			log.Error().Err(err).Msg("Invalid pipeline timeout duration")
+		} else {
+			log.Info().Msgf("Pipeline timeout is set to: %s", timeout)
+			time.AfterFunc(timeout, func() {
+				log.Error().Msg("Pipeline execution timed out. Cleaning up and exiting.")
+				cleanup(cli, cont.ID)
+				updateStepStatus(runID, "Pipeline Timeout", "failed", 1)
+				os.Exit(1)
+			})
+		}
+	}
+
 	if err := cli.ContainerStart(context.Background(), cont.ID, container.StartOptions{}); err != nil {
 		log.Fatal().Err(err).Msg("Failed to start pipeline container")
 	}
@@ -311,10 +343,9 @@ func main() {
 		stdout, stderr, exitCode := executeAction(cli, cont.ID, action)
 
 		status := "Succeeded"
-		output := stdout
+		output := strings.TrimSpace(stdout + "\n" + stderr)
 		if exitCode != 0 {
 			status = "Failed"
-			output = stderr
 		}
 
 		if zerolog.GlobalLevel() <= zerolog.InfoLevel {

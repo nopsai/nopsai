@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -33,6 +34,7 @@ type App struct {
 	cfg *config.Config
 }
 
+// StepStatusUpdate is the structure agents use to report the status of a step.
 type StepStatusUpdate struct {
 	Status   string `json:"status"`
 	ExitCode int    `json:"exit_code"`
@@ -40,11 +42,14 @@ type StepStatusUpdate struct {
 
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
 
+// sanitizeContainerName ensures the pipeline name is a valid string for a container name.
 func sanitizeContainerName(name string) string {
 	sanitized := strings.ReplaceAll(name, " ", "-")
 	return nonAlphanumericRegex.ReplaceAllString(sanitized, "")
 }
 
+// handleRunPipeline is the main public endpoint. It receives a pipeline YAML,
+// creates the initial database records, and launches an agent container to run it.
 func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
@@ -66,6 +71,24 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	runID := uuid.New()
 	log.Info().Str("run_id", runID.String()).Msgf("Received pipeline: %s", pipeline.Name)
 
+	// Determine the timeout duration, prioritizing the pipeline-specific setting.
+	timeoutStr := pipeline.Timeout
+	if timeoutStr == "" {
+		timeoutStr = a.cfg.DefaultPipelineTimeout
+	}
+
+	var timeoutAt sql.NullTime
+	if timeoutStr != "" {
+		duration, err := time.ParseDuration(timeoutStr)
+		if err != nil {
+			log.Error().Err(err).Msgf("Invalid timeout duration format: %s", timeoutStr)
+			http.Error(w, "Invalid timeout duration format", http.StatusBadRequest)
+			return
+		}
+		timeoutAt.Time = time.Now().Add(duration)
+		timeoutAt.Valid = true
+	}
+
 	tx, err := a.db.Begin(context.Background())
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to start database transaction")
@@ -75,8 +98,8 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(context.Background())
 
 	_, err = tx.Exec(context.Background(),
-		"INSERT INTO runs (run_id, pipeline_name, status) VALUES ($1, $2, $3)",
-		runID, pipeline.Name, "pending",
+		"INSERT INTO runs (run_id, pipeline_name, status, timeout_at, pipeline_definition) VALUES ($1, $2, $3, $4, $5)",
+		runID, pipeline.Name, "pending", timeoutAt, string(body),
 	)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to insert run record")
@@ -102,12 +125,14 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go a.launchAgent(runID.String(), pipeline, body)
+	// Launch the agent in a goroutine so the HTTP request can return immediately.
+	go a.launchAgent(runID.String(), pipeline, body, timeoutStr)
 
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte("Pipeline run created successfully with ID: " + runID.String()))
 }
 
+// handleStepUpdate is an internal endpoint for agents to report back their status.
 func (a *App) handleStepUpdate(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("runID")
 	stepName := r.PathValue("stepName")
@@ -132,7 +157,8 @@ func (a *App) handleStepUpdate(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []byte) {
+// launchAgent handles the interaction with the Docker API to start a new agent container.
+func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []byte, timeout string) {
 	ctx := context.Background()
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -141,6 +167,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	}
 	defer cli.Close()
 
+	// Ensure the agent image exists locally before trying to run it.
 	imageName := "nopsai-agent:latest"
 	imageFilters := filters.NewArgs(filters.Arg("reference", imageName))
 	images, err := cli.ImageList(ctx, image.ListOptions{Filters: imageFilters})
@@ -148,7 +175,6 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		log.Error().Err(err).Str("run_id", runID).Msgf("Failed to list images to check for %s", imageName)
 		return
 	}
-
 	if len(images) == 0 {
 		log.Info().Msgf("Image %s not found locally, pulling...", imageName)
 		out, err := cli.ImagePull(ctx, imageName, image.PullOptions{})
@@ -162,21 +188,23 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		log.Info().Msgf("Image %s found locally.", imageName)
 	}
 
+	// Create a dedicated volume for this run.
 	sharedVolumeName := fmt.Sprintf("vol-%s", runID)
 	_, err = cli.VolumeCreate(context.Background(), volume.CreateOptions{Name: sharedVolumeName})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create shared volume")
 		return
 	}
-	// The volume should always be cleaned up after the agent is done.
 	defer cli.VolumeRemove(context.Background(), sharedVolumeName, true)
 
 	sanitizedPipelineName := sanitizeContainerName(pipeline.Name)
 	agentContainerName := fmt.Sprintf("agent-%s-%s", sanitizedPipelineName, runID)
 
+	// Inject all necessary configuration for the agent to operate independently.
 	envVars := []string{
 		fmt.Sprintf("RUN_ID=%s", runID),
 		fmt.Sprintf("PIPELINE_NAME=%s", pipeline.Name),
+		fmt.Sprintf("PIPELINE_TIMEOUT=%s", timeout),
 		fmt.Sprintf("LLM_AGENT_ADDRESS=%s", a.cfg.AgentLlmAgentAddress),
 		fmt.Sprintf("NOPSAI_API_URL=%s", a.cfg.AgentNopsaiAPIURL),
 		fmt.Sprintf("LOG_LEVEL=%s", a.cfg.LogLevel),
@@ -190,8 +218,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 			"/var/run/docker.sock:/var/run/docker.sock",
 			fmt.Sprintf("%s:/workspace", sharedVolumeName),
 		},
-		// This is the corrected, idiomatic way to handle cleanup.
-		AutoRemove: a.cfg.RemoveAgentContainer,
+		AutoRemove: a.cfg.AutoRemovalAgentContainer,
 	}
 
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
@@ -215,6 +242,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 
 	log.Info().Str("run_id", runID).Str("container_name", agentContainerName).Msg("Successfully started agent container")
 
+	// Wait for the agent container to finish its execution.
 	statusCh, errCh := cli.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
 	select {
 	case err := <-errCh:
@@ -223,6 +251,11 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		}
 	case status := <-statusCh:
 		log.Info().Str("run_id", runID).Int64("status_code", status.StatusCode).Msg("Agent container finished.")
+		finalStatus := "succeeded"
+		if status.StatusCode != 0 {
+			finalStatus = "failed"
+		}
+		a.db.Exec(context.Background(), "UPDATE runs SET status = $1, finished_at = NOW() WHERE run_id = $2", finalStatus, runID)
 	}
 }
 
