@@ -1,11 +1,11 @@
-log_level: "info" # Options: "debug", "info", "warn", "error"
+log_level: "debug" # Options: "debug", "info", "warn", "error"
 log_format: "console" # Options: "console", "json"
 
 database_url: "postgres://nopsai_user:yoursecurepassword@nopsai-db:5432/nopsai_db"
 
 # --- LLM Configuration ---
 gemini_api_key: "AIzaSyCdyZBcvjWrroxGem8l0ER62WNPlg8s7xU"
-gemini_model: "gemini-1.5-flash"
+gemini_model: "gemini-2.5-flash"
 
 # --- Service Addresses ---
 nopsai_listen_address: "0.0.0.0:8080"

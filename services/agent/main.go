@@ -17,8 +17,10 @@ import (
 	"nopsai/pkg/proto"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
@@ -26,14 +28,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// getDirectoryListing recursively walks the specified root directory. It skips the .git
-// directory and reads the content of all text-based files.
+// getDirectoryListing recursively walks the specified root directory.
 func getDirectoryListing(logger zerolog.Logger, root string) map[string]string {
 	directoryListing := make(map[string]string)
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			logger.Error().Err(err).Str("path", path).Msg("Error accessing path")
-			return nil // Continue walking even if one path fails
+			return nil
 		}
 		if info.IsDir() && info.Name() == ".git" {
 			return filepath.SkipDir
@@ -74,8 +75,7 @@ func executeAction(cli *client.Client, containerID string, action *proto.Action)
 		content := action.GetFileAction().Content
 		encodedContent := base64.StdEncoding.EncodeToString([]byte(content))
 		filePath := filepath.Join("/workspace", action.GetFileAction().Path)
-		// Use a heredoc for safety with special characters.
-		cmdStr = fmt.Sprintf("base64 -d <<'EOF'\n%s\nEOF\n > %s", encodedContent, filePath)
+		cmdStr = fmt.Sprintf("echo %s | base64 -d > %s", encodedContent, filePath)
 	case "RETURN_ANSWER":
 		ansAction := action.GetAnswerAction()
 		if ansAction == nil {
@@ -104,9 +104,9 @@ func executeAction(cli *client.Client, containerID string, action *proto.Action)
 	}
 	defer resp.Close()
 
+	// This is the fix: Use StdCopy to demultiplex the stream.
 	var stdout, stderr bytes.Buffer
-	// Docker multiplexes stdout and stderr, so we read it all into one buffer.
-	_, err = io.Copy(&stdout, resp.Reader)
+	_, err = stdcopy.StdCopy(&stdout, &stderr, resp.Reader)
 	if err != nil {
 		return "", fmt.Sprintf("failed to read output: %v", err), 1
 	}
@@ -116,15 +116,10 @@ func executeAction(cli *client.Client, containerID string, action *proto.Action)
 		return stdout.String(), fmt.Sprintf("failed to inspect exec: %v", err), 1
 	}
 
-	// In the shell, stderr is often redirected to stdout, so we check the exit code.
-	if inspect.ExitCode != 0 {
-		return "", stdout.String(), inspect.ExitCode
-	}
-
 	return strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()), inspect.ExitCode
 }
 
-// getNextRunnableStep finds the next step to execute based on dependencies.
+// getNextRunnableStep finds the next step to execute.
 func getNextRunnableStep(pipeline *models.Pipeline, completedSteps map[string]bool) *models.PipelineStep {
 	for _, step := range pipeline.Steps {
 		if _, done := completedSteps[step.Name]; done {
@@ -213,6 +208,7 @@ func main() {
 	pipelineDefBase64 := os.Getenv("PIPELINE_DEFINITION")
 	sharedVolumeName := os.Getenv("SHARED_VOLUME_NAME")
 	pipelineTimeoutStr := os.Getenv("PIPELINE_TIMEOUT")
+	dockerNetworkName := os.Getenv("DOCKER_NETWORK_NAME")
 
 	if runID == "" || llmAgentAddress == "" || pipelineDefBase64 == "" || pipelineName == "" || sharedVolumeName == "" {
 		log.Fatal().Msg("Missing one or more required environment variables.")
@@ -252,21 +248,39 @@ func main() {
 	defer cli.Close()
 
 	// --- Resource Provisioning ---
-	log.Info().Msgf("Pulling pipeline image: %s", pipeline.ContainerImage)
-	out, err := cli.ImagePull(context.Background(), pipeline.ContainerImage, image.PullOptions{})
+	imageName := pipeline.ContainerImage
+	imageFilters := filters.NewArgs(filters.Arg("reference", imageName))
+	images, err := cli.ImageList(context.Background(), image.ListOptions{Filters: imageFilters})
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to pull pipeline container image")
+		log.Fatal().Err(err).Msgf("Failed to list images to check for %s", imageName)
 	}
-	io.ReadAll(out)
-	out.Close()
+	if len(images) == 0 {
+		log.Info().Msgf("Image %s not found locally, pulling...", imageName)
+		out, err := cli.ImagePull(context.Background(), imageName, image.PullOptions{})
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to pull pipeline container image")
+		}
+		io.ReadAll(out)
+		out.Close()
+	} else {
+		log.Info().Msgf("Image %s found locally.", imageName)
+	}
+
+	pipelineEnvVars := []string{}
+	for key, value := range pipeline.Environment {
+		pipelineEnvVars = append(pipelineEnvVars, fmt.Sprintf("%s=%s", key, value))
+	}
 
 	pipelineContainerName := fmt.Sprintf("pipeline-%s", runID)
 	cont, err := cli.ContainerCreate(context.Background(), &container.Config{
-		Image:      pipeline.ContainerImage,
+		Image:      imageName,
 		WorkingDir: "/workspace",
-		Tty:        true,
+		Entrypoint: []string{"tail", "-f", "/dev/null"},
+		Env:        pipelineEnvVars,
+		Tty:        false,
 	}, &container.HostConfig{
-		Binds: []string{fmt.Sprintf("%s:/workspace", sharedVolumeName)},
+		Binds:       []string{fmt.Sprintf("%s:/workspace", sharedVolumeName)},
+		NetworkMode: container.NetworkMode(dockerNetworkName),
 	}, nil, nil, pipelineContainerName)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create pipeline container")
@@ -343,9 +357,10 @@ func main() {
 		stdout, stderr, exitCode := executeAction(cli, cont.ID, action)
 
 		status := "Succeeded"
-		output := strings.TrimSpace(stdout + "\n" + stderr)
+		output := stdout
 		if exitCode != 0 {
 			status = "Failed"
+			output = stderr + stdout
 		}
 
 		if zerolog.GlobalLevel() <= zerolog.InfoLevel {
