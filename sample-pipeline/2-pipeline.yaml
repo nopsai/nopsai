@@ -16,6 +16,11 @@ steps:
     depends_on:
     - git clone
 
+  - name: List envs
+    goal: list envs
+    depends_on:
+    - git clone
+
   - name: branch versioning
     goal: "Change branch to nopsai-test and get the latest tag"
     depends_on:
@@ -41,7 +46,7 @@ steps:
     ignore_failure: true
 
   - name: build docker
-    goal: build docker image with repo name and tag based on the latest calculated tag and commit hash 
+    goal: build docker image with repo name and 3 taga, latest,latest git tag and commit hash 
     depends_on:
     - commit hash
     - dockerfile modification

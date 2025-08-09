@@ -1,4 +1,4 @@
-log_level: "debug" # Options: "debug", "info", "warn", "error"
+log_level: "info" # Options: "debug", "info", "warn", "error"
 log_format: "console" # Options: "console", "json"
 
 database_url: "postgres://nopsai_user:yoursecurepassword@nopsai-db:5432/nopsai_db"
