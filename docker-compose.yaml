@@ -65,6 +65,27 @@ services:
       - nopsai-net
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+
+  git-bot:
+    container_name: nopsai-git-bot
+    image: nopsai-git-bot
+    build:
+      context: .
+      dockerfile: container/Dockerfile.git-bot
+    restart: always
+    ports:
+      - "8081:8081"
+    depends_on:
+      - db
+      - nopsai
+    environment:
+      - CONFIG_PATH=/app/config.yml
+    networks:
+      - nopsai-net
+    volumes:
+      - ./private-key.pem:/app/private-key.pem
+
+
       
   agent:
     container_name: nopsai-agent

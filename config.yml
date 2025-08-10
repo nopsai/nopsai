@@ -10,12 +10,21 @@ gemini_model: "gemini-2.5-flash"
 # --- Service Addresses ---
 nopsai_listen_address: "0.0.0.0:8080"
 llm_agent_listen_address: "0.0.0.0:50051"
+git_bot_listen_address: "0.0.0.0:8081"
 
 # Connection addresses use Docker's service discovery
 agent_llm_agent_address: "nopsai-llm-agent:50051"
 agent_nopsai_api_url: "http://nopsai:8080"
+git_bot_nopsai_api_url: "http://nopsai:8080"
+nopsai_git_bot_api_url: "http://nopsai-git-bot:8081"
 
 # --- Docker Configuration ---
 docker_network_name: "nopsai-net"
 auto_removal_agent_container: false
 default_pipeline_timeout: "30m" # A global default timeout for all pipelines
+
+# --- GitHub App Configuration for Git Bot ---
+github_webhook_secret: "vsfdverguhuyi3287467324ujfbsaihufb"
+github_app_id: "1754146"
+github_installation_id: "80056360"
+github_private_key_path: "/app/private-key.pem"
