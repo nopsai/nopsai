@@ -24,9 +24,10 @@ import (
 )
 
 type GitBotApp struct {
-	cfg           *config.Config
-	ghClient      *github.Client
-	webhookSecret string
+	cfg               *config.Config
+	ghClient          *github.Client
+	webhookSecret     string
+	checkRunSummaries map[int64]string
 }
 
 // StepStatusUpdate is the structure nopsai uses to report per-step progress.
@@ -87,7 +88,6 @@ func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineName string) int64 
 	_, _, err = a.ghClient.Checks.UpdateCheckRun(context.Background(), owner, repo, *checkRun.ID, inProgressOpts)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to update check run to in_progress")
-		// Continue anyway, as the run is still created
 	}
 	return *checkRun.ID
 }
@@ -142,7 +142,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		fileContent, _, _, err := a.ghClient.Repositories.GetContents(context.Background(), owner, repo, ".nopsai.yaml", &github.RepositoryContentGetOptions{Ref: commitSHA})
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to fetch .nopsai.yaml from repository")
-			a.concludeCheckRun(owner, repo, checkRunID, "failure", "Could not find .nopsai.yaml in repository.")
+			a.concludeCheckRun(owner, repo, checkRunID, "failure", "Setup Failed", "Could not find .nopsai.yaml in repository.")
 			http.Error(w, "Could not fetch pipeline file", http.StatusNotFound)
 			return
 		}
@@ -171,7 +171,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 			statusCode = resp.StatusCode
 		}
 		log.Error().Err(err).Int("status_code", statusCode).Msg("Failed to trigger nopsai pipeline")
-		a.concludeCheckRun(owner, repo, checkRunID, "failure", "Failed to trigger Nopsai pipeline.")
+		a.concludeCheckRun(owner, repo, checkRunID, "failure", "Trigger Failed", "Failed to trigger Nopsai pipeline.")
 		http.Error(w, "Failed to trigger pipeline", http.StatusInternalServerError)
 		return
 	}
@@ -180,7 +180,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Pipeline triggered."))
 }
 
-// handleStepStatusUpdate is the internal endpoint for nopsai to report per-step progress.
+// handleStepStatusUpdate now updates the title with progress and improves the summary.
 func (a *GitBotApp) handleStepStatusUpdate(w http.ResponseWriter, r *http.Request) {
 	var update StepStatusUpdate
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
@@ -189,13 +189,24 @@ func (a *GitBotApp) handleStepStatusUpdate(w http.ResponseWriter, r *http.Reques
 	}
 	log.Info().Int64("check_run_id", update.CheckRunID).Str("step", update.StepName).Msg("Received step status update")
 
-	summary := fmt.Sprintf("Step %d/%d: '%s' %s.", update.StepIndex, update.TotalSteps, update.StepName, update.StepStatus)
+	// Create a more readable summary line with an emoji
+	summaryLine := ""
+	if strings.Contains(strings.ToLower(update.StepStatus), "fail") {
+		summaryLine = fmt.Sprintf("❌ Step %d: '%s' - %s\n", update.StepIndex, update.StepName, update.StepStatus)
+	} else {
+		summaryLine = fmt.Sprintf("✅ Step %d: '%s' - %s\n", update.StepIndex, update.StepName, update.StepStatus)
+	}
+	a.checkRunSummaries[update.CheckRunID] += summaryLine
+
+	// Dynamically update the title with the step progress
+	newTitle := fmt.Sprintf("In progress... (%d/%d steps)", update.StepIndex, update.TotalSteps)
+
 	opts := github.UpdateCheckRunOptions{
 		Name:   "Nopsai CI",
 		Status: github.String("in_progress"),
 		Output: &github.CheckRunOutput{
-			Title:   github.String("Pipeline in progress..."),
-			Summary: github.String(summary),
+			Title:   github.String(newTitle),
+			Summary: github.String(a.checkRunSummaries[update.CheckRunID]),
 		},
 	}
 	_, _, err := a.ghClient.Checks.UpdateCheckRun(context.Background(), update.RepoOwner, update.RepoName, update.CheckRunID, opts)
@@ -206,7 +217,7 @@ func (a *GitBotApp) handleStepStatusUpdate(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleRunStatusUpdate is the internal endpoint for nopsai to report the final pipeline status.
+// handleRunStatusUpdate now sets a final, conclusive title.
 func (a *GitBotApp) handleRunStatusUpdate(w http.ResponseWriter, r *http.Request) {
 	var update RunStatusUpdate
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
@@ -216,23 +227,31 @@ func (a *GitBotApp) handleRunStatusUpdate(w http.ResponseWriter, r *http.Request
 
 	log.Info().Int64("check_run_id", update.CheckRunID).Str("status", update.Status).Msg("Received final pipeline status")
 
-	description := "Pipeline completed successfully."
+	finalTitle := "Pipeline completed successfully ✅"
+	conclusion := "success"
 	if update.Status == "failure" {
-		description = "Pipeline failed."
+		finalTitle = "Pipeline failed ❌"
+		conclusion = "failure"
 	}
 
-	a.concludeCheckRun(update.RepoOwner, update.RepoName, update.CheckRunID, update.Status, description)
+	finalSummary := a.checkRunSummaries[update.CheckRunID]
+
+	a.concludeCheckRun(update.RepoOwner, update.RepoName, update.CheckRunID, conclusion, finalTitle, finalSummary)
+
+	// Clean up the cache for this run
+	delete(a.checkRunSummaries, update.CheckRunID)
 	w.WriteHeader(http.StatusOK)
 }
 
-func (a *GitBotApp) concludeCheckRun(owner, repo string, checkRunID int64, conclusion, summary string) {
+// concludeCheckRun now accepts a title parameter for more descriptive final states.
+func (a *GitBotApp) concludeCheckRun(owner, repo string, checkRunID int64, conclusion, title, summary string) {
 	opts := github.UpdateCheckRunOptions{
 		Name:        "Nopsai CI",
 		Status:      github.String("completed"),
 		Conclusion:  github.String(conclusion),
 		CompletedAt: &github.Timestamp{Time: time.Now()},
 		Output: &github.CheckRunOutput{
-			Title:   github.String("Pipeline Finished"),
+			Title:   github.String(title),
 			Summary: github.String(summary),
 		},
 	}
@@ -285,9 +304,10 @@ func main() {
 	ghClient := github.NewClient(&http.Client{Transport: installationTransport})
 
 	app := &GitBotApp{
-		cfg:           cfg,
-		ghClient:      ghClient,
-		webhookSecret: cfg.GitHubWebhookSecret,
+		cfg:               cfg,
+		ghClient:          ghClient,
+		webhookSecret:     cfg.GitHubWebhookSecret,
+		checkRunSummaries: make(map[int64]string),
 	}
 
 	mux := http.NewServeMux()
