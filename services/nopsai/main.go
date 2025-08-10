@@ -36,7 +36,6 @@ type App struct {
 	cfg *config.Config
 }
 
-// StepStatusUpdate is the structure agents use to report the status of a step.
 type StepStatusUpdate struct {
 	Status   string `json:"status"`
 	ExitCode int    `json:"exit_code"`
@@ -44,14 +43,11 @@ type StepStatusUpdate struct {
 
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
 
-// sanitizeContainerName ensures the pipeline name is a valid string for a container name.
 func sanitizeContainerName(name string) string {
 	sanitized := strings.ReplaceAll(name, " ", "-")
 	return nonAlphanumericRegex.ReplaceAllString(sanitized, "")
 }
 
-// handleRunPipeline is the main public endpoint. It receives a pipeline YAML,
-// creates the initial database records, and launches an agent container to run it.
 func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
@@ -79,7 +75,6 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	checkRunIDStr := r.Header.Get("X-Git-Check-Run-ID")
 	checkRunID, _ := strconv.ParseInt(checkRunIDStr, 10, 64)
 
-	// Determine the timeout duration, prioritizing the pipeline-specific setting.
 	timeoutStr := pipeline.Timeout
 	if timeoutStr == "" {
 		timeoutStr = a.cfg.DefaultPipelineTimeout
@@ -135,14 +130,12 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Launch the agent in a goroutine so the HTTP request can return immediately.
 	go a.launchAgent(runID.String(), pipeline, body, timeoutDuration, repoOwner, repoName, commitSHA, checkRunID)
 
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte("Pipeline run created successfully with ID: " + runID.String()))
 }
 
-// handleStepUpdate is an internal endpoint for agents to report back their status.
 func (a *App) handleStepUpdate(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("runID")
 	stepName := r.PathValue("stepName")
@@ -170,7 +163,6 @@ func (a *App) handleStepUpdate(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleOverrideCheck is the internal endpoint for the git-bot to check for pipeline overrides.
 func (a *App) handleOverrideCheck(w http.ResponseWriter, r *http.Request) {
 	repoOwner := r.PathValue("repoOwner")
 	repoName := r.PathValue("repoName")
@@ -188,10 +180,8 @@ func (a *App) handleOverrideCheck(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(pipelineDef))
 }
 
-// launchAgent handles the interaction with the Docker API to start a new agent container.
 func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []byte, timeout time.Duration, repoOwner, repoName, commitSHA string, checkRunID int64) {
 	ctx := context.Background()
-
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Error creating Docker client")
@@ -286,18 +276,19 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		}
 		a.db.Exec(context.Background(), "UPDATE runs SET status = $1, finished_at = NOW() WHERE run_id = $2", finalStatus, runID)
 		if repoOwner != "" && repoName != "" && commitSHA != "" {
-			a.notifyGitBotOfFinalStatus(finalStatus, checkRunID, repoOwner, repoName)
+			a.notifyGitBotOfFinalStatus(finalStatus, checkRunID, repoOwner, repoName, commitSHA)
 		}
 	}
 }
 
-func (a *App) notifyGitBotOfFinalStatus(status string, checkRunID int64, repoOwner, repoName string) {
+func (a *App) notifyGitBotOfFinalStatus(status string, checkRunID int64, repoOwner, repoName, commitSHA string) {
 	gitBotURL := fmt.Sprintf("%s/v1/run/status", a.cfg.NopsaiGitBotAPIURL)
 	payload := map[string]interface{}{
 		"status":       status,
 		"check_run_id": checkRunID,
 		"repo_owner":   repoOwner,
 		"repo_name":    repoName,
+		"commit_sha":   commitSHA,
 	}
 	body, _ := json.Marshal(payload)
 

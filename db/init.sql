@@ -8,8 +8,8 @@ CREATE TABLE runs (
     timeout_at TIMESTAMPTZ,
     git_repo_owner VARCHAR(255),
     git_repo_name VARCHAR(255),
-    git_commit_sha VARCHAR(255),
-    git_check_run_id BIGINT
+    git_check_run_id BIGINT,
+    git_commit_sha VARCHAR(255)
 );
 
 CREATE TABLE steps (
@@ -20,6 +20,7 @@ CREATE TABLE steps (
     exit_code INT,
     finished_at TIMESTAMPTZ,
     step_index INT NOT NULL,
+    git_check_run_id BIGINT,
     UNIQUE(run_id, name)
 );
 
