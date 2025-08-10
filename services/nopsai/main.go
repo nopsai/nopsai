@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/base64"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -71,6 +73,12 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	runID := uuid.New()
 	log.Info().Str("run_id", runID.String()).Msgf("Received pipeline: %s", pipeline.Name)
 
+	repoOwner := r.Header.Get("X-Git-Repo-Owner")
+	repoName := r.Header.Get("X-Git-Repo-Name")
+	commitSHA := r.Header.Get("X-Git-Commit-SHA")
+	checkRunIDStr := r.Header.Get("X-Git-Check-Run-ID")
+	checkRunID, _ := strconv.ParseInt(checkRunIDStr, 10, 64)
+
 	// Determine the timeout duration, prioritizing the pipeline-specific setting.
 	timeoutStr := pipeline.Timeout
 	if timeoutStr == "" {
@@ -78,6 +86,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var timeoutAt sql.NullTime
+	var timeoutDuration time.Duration
 	if timeoutStr != "" {
 		duration, err := time.ParseDuration(timeoutStr)
 		if err != nil {
@@ -87,6 +96,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		}
 		timeoutAt.Time = time.Now().Add(duration)
 		timeoutAt.Valid = true
+		timeoutDuration = duration
 	}
 
 	tx, err := a.db.Begin(context.Background())
@@ -98,8 +108,8 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(context.Background())
 
 	_, err = tx.Exec(context.Background(),
-		"INSERT INTO runs (run_id, pipeline_name, status, timeout_at, pipeline_definition) VALUES ($1, $2, $3, $4, $5)",
-		runID, pipeline.Name, "pending", timeoutAt, string(body),
+		"INSERT INTO runs (run_id, pipeline_name, status, timeout_at, pipeline_definition, git_repo_owner, git_repo_name, git_commit_sha, git_check_run_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+		runID, pipeline.Name, "pending", timeoutAt, string(body), repoOwner, repoName, commitSHA, checkRunID,
 	)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to insert run record")
@@ -107,10 +117,10 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for _, step := range pipeline.Steps {
+	for i, step := range pipeline.Steps {
 		_, err := tx.Exec(context.Background(),
-			"INSERT INTO steps (step_id, run_id, name, status) VALUES (gen_random_uuid(), $1, $2, 'pending')",
-			runID, step.Name,
+			"INSERT INTO steps (step_id, run_id, name, status, step_index) VALUES (gen_random_uuid(), $1, $2, 'pending', $3)",
+			runID, step.Name, i+1,
 		)
 		if err != nil {
 			log.Error().Err(err).Msgf("Failed to insert step %s", step.Name)
@@ -126,7 +136,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Launch the agent in a goroutine so the HTTP request can return immediately.
-	go a.launchAgent(runID.String(), pipeline, body, timeoutStr)
+	go a.launchAgent(runID.String(), pipeline, body, timeoutDuration, repoOwner, repoName, commitSHA, checkRunID)
 
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte("Pipeline run created successfully with ID: " + runID.String()))
@@ -154,12 +164,34 @@ func (a *App) handleStepUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Info().Str("run_id", runID).Str("step", stepName).Str("status", update.Status).Msg("Updated step status")
+
+	go a.notifyGitBotOfStepStatus(runID, stepName, update.Status)
+
 	w.WriteHeader(http.StatusOK)
 }
 
+// handleOverrideCheck is the internal endpoint for the git-bot to check for pipeline overrides.
+func (a *App) handleOverrideCheck(w http.ResponseWriter, r *http.Request) {
+	repoOwner := r.PathValue("repoOwner")
+	repoName := r.PathValue("repoName")
+	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
+
+	var pipelineDef string
+	err := a.db.QueryRow(context.Background(), "SELECT pipeline_definition FROM pipeline_overrides WHERE repository_name = $1", fullName).Scan(&pipelineDef)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/x-yaml")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(pipelineDef))
+}
+
 // launchAgent handles the interaction with the Docker API to start a new agent container.
-func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []byte, timeout string) {
+func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []byte, timeout time.Duration, repoOwner, repoName, commitSHA string, checkRunID int64) {
 	ctx := context.Background()
+
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Error creating Docker client")
@@ -167,7 +199,6 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	}
 	defer cli.Close()
 
-	// Ensure the agent image exists locally before trying to run it.
 	imageName := "nopsai-agent:latest"
 	imageFilters := filters.NewArgs(filters.Arg("reference", imageName))
 	images, err := cli.ImageList(ctx, image.ListOptions{Filters: imageFilters})
@@ -188,7 +219,6 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		log.Info().Msgf("Image %s found locally.", imageName)
 	}
 
-	// Create a dedicated volume for this run.
 	sharedVolumeName := fmt.Sprintf("vol-%s", runID)
 	_, err = cli.VolumeCreate(context.Background(), volume.CreateOptions{Name: sharedVolumeName})
 	if err != nil {
@@ -200,17 +230,17 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	sanitizedPipelineName := sanitizeContainerName(pipeline.Name)
 	agentContainerName := fmt.Sprintf("agent-%s-%s", sanitizedPipelineName, runID)
 
-	// Inject all necessary configuration for the agent to operate independently.
 	envVars := []string{
 		fmt.Sprintf("RUN_ID=%s", runID),
 		fmt.Sprintf("PIPELINE_NAME=%s", pipeline.Name),
-		fmt.Sprintf("PIPELINE_TIMEOUT=%s", timeout),
+		fmt.Sprintf("PIPELINE_TIMEOUT=%s", timeout.String()),
 		fmt.Sprintf("LLM_AGENT_ADDRESS=%s", a.cfg.AgentLlmAgentAddress),
 		fmt.Sprintf("NOPSAI_API_URL=%s", a.cfg.AgentNopsaiAPIURL),
 		fmt.Sprintf("LOG_LEVEL=%s", a.cfg.LogLevel),
 		fmt.Sprintf("LOG_FORMAT=%s", a.cfg.LogFormat),
 		fmt.Sprintf("PIPELINE_DEFINITION=%s", base64.StdEncoding.EncodeToString(pipelineDef)),
 		fmt.Sprintf("SHARED_VOLUME_NAME=%s", sharedVolumeName),
+		fmt.Sprintf("DOCKER_NETWORK_NAME=%s", a.cfg.DockerNetworkName),
 	}
 
 	hostConfig := &container.HostConfig{
@@ -242,7 +272,6 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 
 	log.Info().Str("run_id", runID).Str("container_name", agentContainerName).Msg("Successfully started agent container")
 
-	// Wait for the agent container to finish its execution.
 	statusCh, errCh := cli.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
 	select {
 	case err := <-errCh:
@@ -251,11 +280,81 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		}
 	case status := <-statusCh:
 		log.Info().Str("run_id", runID).Int64("status_code", status.StatusCode).Msg("Agent container finished.")
-		finalStatus := "succeeded"
+		finalStatus := "success"
 		if status.StatusCode != 0 {
-			finalStatus = "failed"
+			finalStatus = "failure"
 		}
 		a.db.Exec(context.Background(), "UPDATE runs SET status = $1, finished_at = NOW() WHERE run_id = $2", finalStatus, runID)
+		if repoOwner != "" && repoName != "" && commitSHA != "" {
+			a.notifyGitBotOfFinalStatus(finalStatus, checkRunID, repoOwner, repoName)
+		}
+	}
+}
+
+func (a *App) notifyGitBotOfFinalStatus(status string, checkRunID int64, repoOwner, repoName string) {
+	gitBotURL := fmt.Sprintf("%s/v1/run/status", a.cfg.NopsaiGitBotAPIURL)
+	payload := map[string]interface{}{
+		"status":       status,
+		"check_run_id": checkRunID,
+		"repo_owner":   repoOwner,
+		"repo_name":    repoName,
+	}
+	body, _ := json.Marshal(payload)
+
+	resp, err := http.Post(gitBotURL, "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to notify git-bot of final status")
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Error().Int("status_code", resp.StatusCode).Msg("Received non-OK status from git-bot")
+	} else {
+		log.Info().Msg("Successfully notified git-bot of final pipeline status.")
+	}
+}
+
+func (a *App) notifyGitBotOfStepStatus(runID, stepName, stepStatus string) {
+	var repoOwner, repoName, commitSHA sql.NullString
+	var checkRunID sql.NullInt64
+	var stepIndex, totalSteps int
+
+	query := `
+		SELECT
+			r.git_repo_owner, r.git_repo_name, r.git_commit_sha, r.git_check_run_id,
+			s.step_index, (SELECT COUNT(*) FROM steps WHERE run_id = r.run_id)
+		FROM runs r JOIN steps s ON r.run_id = s.run_id
+		WHERE r.run_id = $1 AND s.name = $2`
+
+	err := a.db.QueryRow(context.Background(), query, runID, stepName).Scan(&repoOwner, &repoName, &commitSHA, &checkRunID, &stepIndex, &totalSteps)
+	if err != nil || !repoOwner.Valid || !checkRunID.Valid {
+		log.Warn().Str("run_id", runID).Msg("Not a Git-triggered run with a check ID, skipping step status update.")
+		return
+	}
+
+	gitBotURL := fmt.Sprintf("%s/v1/step/status", a.cfg.NopsaiGitBotAPIURL)
+	payload := map[string]interface{}{
+		"repo_owner":   repoOwner.String,
+		"repo_name":    repoName.String,
+		"check_run_id": checkRunID.Int64,
+		"commit_sha":   commitSHA.String,
+		"step_name":    stepName,
+		"step_status":  stepStatus,
+		"step_index":   stepIndex,
+		"total_steps":  totalSteps,
+	}
+	body, _ := json.Marshal(payload)
+
+	resp, err := http.Post(gitBotURL, "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to notify git-bot of step status")
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Error().Int("status_code", resp.StatusCode).Msg("Received non-OK status from git-bot for step update")
 	}
 }
 
@@ -301,6 +400,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/run", app.handleRunPipeline)
 	mux.HandleFunc("POST /v1/runs/{runID}/steps/{stepName}", app.handleStepUpdate)
+	mux.HandleFunc("GET /v1/overrides/{repoOwner}/{repoName}", app.handleOverrideCheck)
 
 	log.Info().Msgf("Nopsai API server listening on %s", cfg.NopsaiListenAddress)
 	if err := http.ListenAndServe(cfg.NopsaiListenAddress, mux); err != nil {

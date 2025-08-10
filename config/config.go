@@ -18,10 +18,19 @@ type Config struct {
 	// Addresses for services to listen on
 	NopsaiListenAddress   string `yaml:"nopsai_listen_address"`
 	LlmAgentListenAddress string `yaml:"llm_agent_listen_address"`
+	GitBotListenAddress   string `yaml:"git_bot_listen_address"`
 
-	// Addresses for services to connect to each other (used by nopsai to inject into agents)
+	// Addresses for services to connect to each other
 	AgentLlmAgentAddress string `yaml:"agent_llm_agent_address"`
 	AgentNopsaiAPIURL    string `yaml:"agent_nopsai_api_url"`
+	GitBotNopsaiAPIURL   string `yaml:"git_bot_nopsai_api_url"`
+
+	// Git Bot specific configuration
+	GitHubWebhookSecret  string `yaml:"github_webhook_secret"`
+	GitHubAppID          string `yaml:"github_app_id"`           // Read as string
+	GitHubInstallID      string `yaml:"github_installation_id"`  // Read as string
+	GitHubPrivateKeyPath string `yaml:"github_private_key_path"` // Use a path instead of the raw key
+	NopsaiGitBotAPIURL   string `yaml:"nopsai_git_bot_api_url"`  // New key
 
 	DockerNetworkName         string `yaml:"docker_network_name"`
 	AutoRemovalAgentContainer bool   `yaml:"auto_removal_agent_container"`

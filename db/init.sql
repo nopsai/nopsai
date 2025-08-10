@@ -5,7 +5,11 @@ CREATE TABLE runs (
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     finished_at TIMESTAMPTZ,
-    timeout_at TIMESTAMPTZ
+    timeout_at TIMESTAMPTZ,
+    git_repo_owner VARCHAR(255),
+    git_repo_name VARCHAR(255),
+    git_commit_sha VARCHAR(255),
+    git_check_run_id BIGINT
 );
 
 CREATE TABLE steps (
@@ -15,5 +19,13 @@ CREATE TABLE steps (
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
     exit_code INT,
     finished_at TIMESTAMPTZ,
+    step_index INT NOT NULL,
     UNIQUE(run_id, name)
+);
+
+CREATE TABLE pipeline_overrides (
+    id SERIAL PRIMARY KEY,
+    repository_name VARCHAR(255) UNIQUE NOT NULL,
+    pipeline_definition TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
