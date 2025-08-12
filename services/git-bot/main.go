@@ -173,8 +173,8 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// --- Common logic for all trigger events ---
-
 	checkRunID := a.createCheckRun(owner, repo, commitSHA, repo)
+	delete(a.checkRunSummaries, checkRunID)
 	if checkRunID == 0 {
 		http.Error(w, "Failed to create check run", http.StatusInternalServerError)
 		return
@@ -330,17 +330,30 @@ func (a *GitBotApp) concludeCheckRun(owner string, repo string, checkRunID int64
 		return
 	}
 
+	// Create a final title based on the conclusion
+	finalTitle := "Nopsai CI - " + strings.ToUpper(string(conclusion[0])) + conclusion[1:]
+
+	// Get the summary from the map
+	finalSummary := a.checkRunSummaries[checkRunID]
+
 	opts := github.UpdateCheckRunOptions{
 		Name:        "Nopsai CI",
 		Status:      github.String("completed"),
 		Conclusion:  github.String(conclusion),
 		CompletedAt: &github.Timestamp{Time: time.Now()},
+		Output: &github.CheckRunOutput{
+			Title:   github.String(finalTitle),
+			Summary: github.String(finalSummary),
+		},
 	}
 
 	_, _, err := a.ghClient.Checks.UpdateCheckRun(context.Background(), owner, repo, checkRunID, opts)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to conclude check run")
 	}
+
+	// Clean up the summary for this check run
+	delete(a.checkRunSummaries, checkRunID)
 }
 
 func main() {
