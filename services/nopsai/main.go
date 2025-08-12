@@ -159,6 +159,158 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Pipeline run created successfully with ID: " + runID.String()))
 }
 
+func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	originalRunID := r.PathValue("runID")
+
+	// 1. Fetch the original run's data from the database.
+	var pipelineDef, pipelineName sql.NullString
+	var gitContext = make(map[string]string)
+	var timeoutAt sql.NullTime
+
+	query := `SELECT 
+				pipeline_definition, pipeline_name, timeout_at,
+				git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref, 
+				git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name, 
+				git_commit_author_email, git_commit_author_username, git_pusher_name, 
+				git_pusher_email, git_check_run_id
+			  FROM runs WHERE run_id = $1`
+
+	var repoOwner, repoName, cloneURL, sshURL, ref, commitSHA, commitURL, commitMessage,
+		commitAuthorName, commitAuthorEmail, commitAuthorUsername, pusherName, pusherEmail sql.NullString
+	var checkRunID sql.NullInt64
+
+	err := a.db.QueryRow(context.Background(), query, originalRunID).Scan(
+		&pipelineDef, &pipelineName, &timeoutAt,
+		&repoOwner, &repoName, &cloneURL, &sshURL, &ref, &commitSHA, &commitURL, &commitMessage,
+		&commitAuthorName, &commitAuthorEmail, &commitAuthorUsername, &pusherName, &pusherEmail, &checkRunID,
+	)
+
+	if err != nil {
+		log.Error().Err(err).Str("original_run_id", originalRunID).Msg("Failed to find original run to rerun")
+		http.Error(w, "Original pipeline run not found", http.StatusNotFound)
+		return
+	}
+
+	if !pipelineDef.Valid {
+		http.Error(w, "Original pipeline definition is missing, cannot rerun", http.StatusInternalServerError)
+		return
+	}
+
+	// 2. Assemble the gitContext map, matching the launchAgent signature.
+	if repoOwner.Valid {
+		gitContext["repo_owner"] = repoOwner.String
+	}
+	if repoName.Valid {
+		gitContext["repo_name"] = repoName.String
+	}
+	if cloneURL.Valid {
+		gitContext["clone_url"] = cloneURL.String
+	}
+	if sshURL.Valid {
+		gitContext["ssh_url"] = sshURL.String
+	}
+	if ref.Valid {
+		gitContext["ref"] = ref.String
+	}
+	if commitSHA.Valid {
+		gitContext["commit_sha"] = commitSHA.String
+	}
+	if commitURL.Valid {
+		gitContext["commit_url"] = commitURL.String
+	}
+	if commitMessage.Valid {
+		gitContext["commit_message"] = commitMessage.String
+	}
+	if commitAuthorName.Valid {
+		gitContext["commit_author_name"] = commitAuthorName.String
+	}
+	if commitAuthorEmail.Valid {
+		gitContext["commit_author_email"] = commitAuthorEmail.String
+	}
+	if commitAuthorUsername.Valid {
+		gitContext["commit_author_username"] = commitAuthorUsername.String
+	}
+	if pusherName.Valid {
+		gitContext["pusher_name"] = pusherName.String
+	}
+	if pusherEmail.Valid {
+		gitContext["pusher_email"] = pusherEmail.String
+	}
+	if checkRunID.Valid {
+		gitContext["check_run_id"] = strconv.FormatInt(checkRunID.Int64, 10)
+	}
+
+	// 3. Create a new run using the old run's data.
+	var pipeline models.Pipeline
+	if err := yaml.Unmarshal([]byte(pipelineDef.String), &pipeline); err != nil {
+		http.Error(w, "Could not parse original pipeline definition", http.StatusInternalServerError)
+		return
+	}
+
+	newRunID := uuid.New()
+	log.Info().Str("new_run_id", newRunID.String()).Str("original_run_id", originalRunID).Msg("Rerunning pipeline")
+
+	var timeoutDuration time.Duration
+	if timeoutAt.Valid {
+		var originalCreatedAt time.Time
+		a.db.QueryRow(context.Background(), "SELECT created_at FROM runs WHERE run_id = $1", originalRunID).Scan(&originalCreatedAt)
+		originalDuration := timeoutAt.Time.Sub(originalCreatedAt)
+		timeoutAt.Time = time.Now().Add(originalDuration)
+		timeoutDuration = originalDuration
+	}
+
+	// 4. Insert the new run and steps into the database.
+	tx, err := a.db.Begin(context.Background())
+	if err != nil {
+		http.Error(w, "Failed to start database transaction", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(context.Background())
+
+	_, err = tx.Exec(context.Background(),
+		`INSERT INTO runs (run_id, pipeline_name, status, timeout_at, pipeline_definition, 
+			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref, 
+			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name, 
+			git_commit_author_email, git_commit_author_username, git_pusher_name, 
+			git_pusher_email, git_check_run_id) 
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+		newRunID, pipelineName, "pending", timeoutAt, pipelineDef,
+		repoOwner, repoName, cloneURL, sshURL, ref, commitSHA, commitURL, commitMessage,
+		commitAuthorName, commitAuthorEmail, commitAuthorUsername, pusherName, pusherEmail, checkRunID,
+	)
+	if err != nil {
+		http.Error(w, "Failed to create new run record for rerun", http.StatusInternalServerError)
+		return
+	}
+
+	for i, step := range pipeline.Steps {
+		_, err := tx.Exec(context.Background(),
+			"INSERT INTO steps (step_id, run_id, name, status, step_index) VALUES (gen_random_uuid(), $1, $2, 'pending', $3)",
+			newRunID, step.Name, i+1,
+		)
+		if err != nil {
+			http.Error(w, "Failed to create step records for rerun", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if err := tx.Commit(context.Background()); err != nil {
+		http.Error(w, "Failed to commit transaction for rerun", http.StatusInternalServerError)
+		return
+	}
+
+	// 5. Launch a new agent for the new run with the correct signature.
+	go a.launchAgent(newRunID.String(), pipeline, []byte(pipelineDef.String), timeoutDuration, gitContext)
+
+	w.WriteHeader(http.StatusAccepted)
+	w.Write([]byte("Pipeline rerun initiated with new ID: " + newRunID.String()))
+}
+
 func (a *App) handleStepUpdate(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("runID")
 	stepName := r.PathValue("stepName")
@@ -420,6 +572,7 @@ func main() {
 	mux.HandleFunc("POST /v1/run", app.handleRunPipeline)
 	mux.HandleFunc("POST /v1/runs/{runID}/steps/{stepName}", app.handleStepUpdate)
 	mux.HandleFunc("GET /v1/overrides/{repoOwner}/{repoName}", app.handleOverrideCheck)
+	mux.HandleFunc("POST /v1/runs/{runID}/rerun", app.handleRerunPipeline)
 
 	log.Info().Msgf("Nopsai API server listening on %s", cfg.NopsaiListenAddress)
 	if err := http.ListenAndServe(cfg.NopsaiListenAddress, mux); err != nil {
