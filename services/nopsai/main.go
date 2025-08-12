@@ -69,11 +69,23 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	runID := uuid.New()
 	log.Info().Str("run_id", runID.String()).Msgf("Received pipeline: %s", pipeline.Name)
 
-	repoOwner := r.Header.Get("X-Git-Repo-Owner")
-	repoName := r.Header.Get("X-Git-Repo-Name")
-	commitSHA := r.Header.Get("X-Git-Commit-SHA")
-	checkRunIDStr := r.Header.Get("X-Git-Check-Run-ID")
-	checkRunID, _ := strconv.ParseInt(checkRunIDStr, 10, 64)
+	gitContext := map[string]string{
+		"repo_owner":             r.Header.Get("X-Git-Repo-Owner"),
+		"repo_name":              r.Header.Get("X-Git-Repo-Name"),
+		"clone_url":              r.Header.Get("X-Git-Clone-URL"),
+		"ssh_url":                r.Header.Get("X-Git-SSH-URL"),
+		"ref":                    r.Header.Get("X-Git-Ref"),
+		"commit_sha":             r.Header.Get("X-Git-Commit-SHA"),
+		"commit_url":             r.Header.Get("X-Git-Commit-URL"),
+		"commit_message":         r.Header.Get("X-Git-Commit-Message"),
+		"commit_author_name":     r.Header.Get("X-Git-Commit-Author-Name"),
+		"commit_author_email":    r.Header.Get("X-Git-Commit-Author-Email"),
+		"commit_author_username": r.Header.Get("X-Git-Commit-Author-Username"),
+		"pusher_name":            r.Header.Get("X-Git-Pusher-Name"),
+		"pusher_email":           r.Header.Get("X-Git-Pusher-Email"),
+		"check_run_id":           r.Header.Get("X-Git-Check-Run-ID"),
+	}
+	checkRunID, _ := strconv.ParseInt(gitContext["check_run_id"], 10, 64)
 
 	timeoutStr := pipeline.Timeout
 	if timeoutStr == "" {
@@ -102,9 +114,19 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(context.Background())
 
+	// This is the corrected INSERT statement.
 	_, err = tx.Exec(context.Background(),
-		"INSERT INTO runs (run_id, pipeline_name, status, timeout_at, pipeline_definition, git_repo_owner, git_repo_name, git_commit_sha, git_check_run_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-		runID, pipeline.Name, "pending", timeoutAt, string(body), repoOwner, repoName, commitSHA, checkRunID,
+		`INSERT INTO runs (run_id, pipeline_name, status, timeout_at, pipeline_definition, 
+			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref, 
+			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name, 
+			git_commit_author_email, git_commit_author_username, git_pusher_name, 
+			git_pusher_email, git_check_run_id) 
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+		runID, pipeline.Name, "pending", timeoutAt, string(body),
+		gitContext["repo_owner"], gitContext["repo_name"], gitContext["clone_url"], gitContext["ssh_url"], gitContext["ref"],
+		gitContext["commit_sha"], gitContext["commit_url"], gitContext["commit_message"], gitContext["commit_author_name"],
+		gitContext["commit_author_email"], gitContext["commit_author_username"], gitContext["pusher_name"],
+		gitContext["pusher_email"], checkRunID,
 	)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to insert run record")
@@ -130,7 +152,8 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go a.launchAgent(runID.String(), pipeline, body, timeoutDuration, repoOwner, repoName, commitSHA, checkRunID)
+	// This is the corrected call, passing the gitContext map.
+	go a.launchAgent(runID.String(), pipeline, body, timeoutDuration, gitContext)
 
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte("Pipeline run created successfully with ID: " + runID.String()))
@@ -180,7 +203,7 @@ func (a *App) handleOverrideCheck(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(pipelineDef))
 }
 
-func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []byte, timeout time.Duration, repoOwner, repoName, commitSHA string, checkRunID int64) {
+func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []byte, timeout time.Duration, gitContext map[string]string) {
 	ctx := context.Background()
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -232,6 +255,10 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		fmt.Sprintf("SHARED_VOLUME_NAME=%s", sharedVolumeName),
 		fmt.Sprintf("DOCKER_NETWORK_NAME=%s", a.cfg.DockerNetworkName),
 	}
+	for key, value := range gitContext {
+		envKey := fmt.Sprintf("GIT_%s", strings.ToUpper(key))
+		envVars = append(envVars, fmt.Sprintf("%s=%s", envKey, value))
+	}
 
 	hostConfig := &container.HostConfig{
 		Binds: []string{
@@ -275,20 +302,21 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 			finalStatus = "failure"
 		}
 		a.db.Exec(context.Background(), "UPDATE runs SET status = $1, finished_at = NOW() WHERE run_id = $2", finalStatus, runID)
-		if repoOwner != "" && repoName != "" && commitSHA != "" {
-			a.notifyGitBotOfFinalStatus(finalStatus, checkRunID, repoOwner, repoName, commitSHA)
+		if gitContext["repo_owner"] != "" {
+			a.notifyGitBotOfFinalStatus(finalStatus, gitContext)
 		}
 	}
 }
 
-func (a *App) notifyGitBotOfFinalStatus(status string, checkRunID int64, repoOwner, repoName, commitSHA string) {
+func (a *App) notifyGitBotOfFinalStatus(status string, gitContext map[string]string) {
+	checkRunID, _ := strconv.ParseInt(gitContext["check_run_id"], 10, 64)
 	gitBotURL := fmt.Sprintf("%s/v1/run/status", a.cfg.NopsaiGitBotAPIURL)
 	payload := map[string]interface{}{
 		"status":       status,
 		"check_run_id": checkRunID,
-		"repo_owner":   repoOwner,
-		"repo_name":    repoName,
-		"commit_sha":   commitSHA,
+		"repo_owner":   gitContext["repo_owner"],
+		"repo_name":    gitContext["repo_name"],
+		"commit_sha":   gitContext["commit_sha"],
 	}
 	body, _ := json.Marshal(payload)
 
