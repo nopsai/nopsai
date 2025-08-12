@@ -100,34 +100,81 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	event, err := github.ParseWebHook(github.WebHookType(r), body)
+	eventType := github.WebHookType(r)
+	payload, err := github.ParseWebHook(eventType, body)
 	if err != nil {
 		http.Error(w, "Could not parse webhook", http.StatusBadRequest)
 		return
 	}
 
-	pushEvent, ok := event.(*github.PushEvent)
-	if !ok {
-		log.Info().Msg("Received non-push event, ignoring.")
+	var repoName, commitSHA, owner, repo string
+	var headCommit *github.HeadCommit
+	var pusher *github.User
+
+	// Handle different event types
+	switch event := payload.(type) {
+	case *github.PushEvent:
+		if event.Repo == nil || event.Repo.Owner == nil || event.Repo.Owner.Login == nil ||
+			event.Repo.Name == nil || event.Repo.FullName == nil || event.After == nil {
+			log.Warn().Msg("Received push event with missing essential repository, owner, or commit SHA. Ignoring.")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		repoName = *event.Repo.FullName
+		commitSHA = *event.After
+		owner = *event.Repo.Owner.Login
+		repo = *event.Repo.Name
+		headCommit = event.HeadCommit
+		pusher = event.Pusher
+		log.Info().Str("repo", repoName).Str("commit", commitSHA).Msg("Processing push event")
+
+	case *github.CheckRunEvent:
+		if event.GetAction() == "rerequested" {
+			if event.Repo == nil || event.Repo.Owner == nil || event.Repo.Owner.Login == nil ||
+				event.Repo.Name == nil || event.Repo.FullName == nil || event.CheckRun == nil || event.CheckRun.HeadSHA == nil {
+				log.Warn().Msg("Received rerequested check_run event with missing essential data. Ignoring.")
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			repoName = *event.Repo.FullName
+			commitSHA = *event.CheckRun.HeadSHA
+			owner = *event.Repo.Owner.Login
+			repo = *event.Repo.Name
+			log.Info().Str("repo", repoName).Str("commit", commitSHA).Msg("Processing rerun request from check_run event")
+		} else {
+			log.Info().Msgf("Received check_run event with action '%s', ignoring.", event.GetAction())
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+	case *github.CheckSuiteEvent:
+		if event.GetAction() == "rerequested" {
+			if event.Repo == nil || event.Repo.Owner == nil || event.Repo.Owner.Login == nil ||
+				event.Repo.Name == nil || event.Repo.FullName == nil || event.CheckSuite == nil || event.CheckSuite.HeadSHA == nil {
+				log.Warn().Msg("Received rerequested check_suite event with missing essential data. Ignoring.")
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			repoName = *event.Repo.FullName
+			commitSHA = *event.CheckSuite.HeadSHA
+			owner = *event.Repo.Owner.Login
+			repo = *event.Repo.Name
+			log.Info().Str("repo", repoName).Str("commit", commitSHA).Msg("Processing rerun request from check_suite event")
+		} else {
+			log.Info().Msgf("Received check_suite event with action '%s', ignoring.", event.GetAction())
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+	default:
+		log.Info().Msgf("Received unhandled event type '%s', ignoring.", eventType)
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 
-	// This is the fix: Add robust nil checks for all required fields.
-	if pushEvent.Repo == nil || pushEvent.Repo.Owner == nil || pushEvent.Repo.Owner.Login == nil ||
-		pushEvent.Repo.Name == nil || pushEvent.Repo.FullName == nil || pushEvent.After == nil {
-		log.Warn().Msg("Received push event with missing essential repository, owner, or commit SHA. Ignoring.")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
+	// --- Common logic for all trigger events ---
 
-	repoName := *pushEvent.Repo.FullName
-	commitSHA := *pushEvent.After
-	owner := *pushEvent.Repo.Owner.Login
-	repo := *pushEvent.Repo.Name
-
-	log.Info().Str("repo", repoName).Str("commit", commitSHA).Msg("Processing push event")
-	checkRunID := a.createCheckRun(owner, repo, commitSHA, *pushEvent.Repo.Name)
+	checkRunID := a.createCheckRun(owner, repo, commitSHA, repo)
 	if checkRunID == 0 {
 		http.Error(w, "Failed to create check run", http.StatusInternalServerError)
 		return
@@ -145,13 +192,14 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		fileContent, _, _, err := a.ghClient.Repositories.GetContents(context.Background(), owner, repo, ".nopsai.yaml", &github.RepositoryContentGetOptions{Ref: commitSHA})
 		if err != nil || fileContent == nil {
 			log.Error().Err(err).Msg("Failed to fetch .nopsai.yaml from repository")
-			a.concludeCheckRun(owner, repo, checkRunID, "failure: Could not find .nopsai.yaml in repository.")
+			a.concludeCheckRun(owner, repo, checkRunID, "failure Could not find .nopsai.yaml in repository.")
 			http.Error(w, "Could not fetch pipeline file", http.StatusNotFound)
 			return
 		}
 		content, err := fileContent.GetContent()
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to decode file content")
+			a.concludeCheckRun(owner, repo, checkRunID, "failure Could not decode file content.")
 			http.Error(w, "Could not decode file content", http.StatusInternalServerError)
 			return
 		}
@@ -161,46 +209,53 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	runURL := fmt.Sprintf("%s/v1/run", a.cfg.GitBotNopsaiAPIURL)
 	req, _ := http.NewRequest("POST", runURL, bytes.NewBuffer(pipelineYAML))
 	req.Header.Set("Content-Type", "application/x-yaml")
+
+	// Add common headers
 	req.Header.Set("X-Git-Repo-Owner", owner)
 	req.Header.Set("X-Git-Repo-Name", repo)
 	req.Header.Set("X-Git-Commit-SHA", commitSHA)
 	req.Header.Set("X-Git-Check-Run-ID", strconv.FormatInt(checkRunID, 10))
-	if pushEvent.Repo.CloneURL != nil {
-		req.Header.Set("X-Git-Clone-URL", *pushEvent.Repo.CloneURL)
-	}
-	if pushEvent.Repo.SSHURL != nil {
-		req.Header.Set("X-Git-SSH-URL", *pushEvent.Repo.SSHURL)
-	}
-	if pushEvent.Ref != nil {
-		req.Header.Set("X-Git-Ref", *pushEvent.Ref)
-	}
-	if pushEvent.HeadCommit != nil {
-		if pushEvent.HeadCommit.URL != nil {
-			req.Header.Set("X-Git-Commit-URL", *pushEvent.HeadCommit.URL)
+
+	// Add push-event-specific headers only if they exist
+	if pushEvent, ok := payload.(*github.PushEvent); ok {
+		if pushEvent.Repo.CloneURL != nil {
+			req.Header.Set("X-Git-Clone-URL", *pushEvent.Repo.CloneURL)
 		}
-		if pushEvent.HeadCommit.Message != nil {
-			req.Header.Set("X-Git-Commit-Message", *pushEvent.HeadCommit.Message)
+		if pushEvent.Repo.SSHURL != nil {
+			req.Header.Set("X-Git-SSH-URL", *pushEvent.Repo.SSHURL)
 		}
-		if pushEvent.HeadCommit.Author != nil {
-			if pushEvent.HeadCommit.Author.Name != nil {
-				req.Header.Set("X-Git-Commit-Author-Name", *pushEvent.HeadCommit.Author.Name)
+		if pushEvent.Ref != nil {
+			req.Header.Set("X-Git-Ref", *pushEvent.Ref)
+		}
+		if headCommit != nil {
+			if headCommit.URL != nil {
+				req.Header.Set("X-Git-Commit-URL", *headCommit.URL)
 			}
-			if pushEvent.HeadCommit.Author.Email != nil {
-				req.Header.Set("X-Git-Commit-Author-Email", *pushEvent.HeadCommit.Author.Email)
+			if headCommit.Message != nil {
+				req.Header.Set("X-Git-Commit-Message", *headCommit.Message)
 			}
-			if pushEvent.HeadCommit.Author.Login != nil {
-				req.Header.Set("X-Git-Commit-Author-Username", *pushEvent.HeadCommit.Author.Login)
+			if headCommit.Author != nil {
+				if headCommit.Author.Name != nil {
+					req.Header.Set("X-Git-Commit-Author-Name", *headCommit.Author.Name)
+				}
+				if headCommit.Author.Email != nil {
+					req.Header.Set("X-Git-Commit-Author-Email", *headCommit.Author.Email)
+				}
+				if headCommit.Author.Login != nil {
+					req.Header.Set("X-Git-Commit-Author-Username", *headCommit.Author.Login)
+				}
+			}
+		}
+		if pusher != nil {
+			if pusher.Name != nil {
+				req.Header.Set("X-Git-Pusher-Name", *pusher.Name)
+			}
+			if pusher.Email != nil {
+				req.Header.Set("X-Git-Pusher-Email", *pusher.Email)
 			}
 		}
 	}
-	if pushEvent.Pusher != nil {
-		if pushEvent.Pusher.Name != nil {
-			req.Header.Set("X-Git-Pusher-Name", *pushEvent.Pusher.Name)
-		}
-		if pushEvent.Pusher.Email != nil {
-			req.Header.Set("X-Git-Pusher-Email", *pushEvent.Pusher.Email)
-		}
-	}
+
 	client := &http.Client{}
 	resp, err = client.Do(req)
 	if err != nil || resp.StatusCode != http.StatusCreated {
