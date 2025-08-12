@@ -270,13 +270,17 @@ func main() {
 	for key, value := range pipeline.Environment {
 		pipelineEnvVars = append(pipelineEnvVars, fmt.Sprintf("%s=%s", key, value))
 	}
-
+	for _, e := range os.Environ() {
+		if strings.HasPrefix(e, "GIT_") {
+			pipelineEnvVars = append(pipelineEnvVars, e)
+		}
+	}
 	pipelineContainerName := fmt.Sprintf("pipeline-%s", runID)
 	cont, err := cli.ContainerCreate(context.Background(), &container.Config{
-		Image:      imageName,
+		Image:      pipeline.ContainerImage,
 		WorkingDir: "/workspace",
 		Entrypoint: []string{"tail", "-f", "/dev/null"},
-		Env:        pipelineEnvVars,
+		Env:        pipelineEnvVars, // Pass the combined environment variables here
 		Tty:        false,
 	}, &container.HostConfig{
 		Binds:       []string{fmt.Sprintf("%s:/workspace", sharedVolumeName)},

@@ -4,6 +4,8 @@ networks:
   nopsai-net:
     driver: bridge
     name: nopsai-net
+    external: true
+
 
 services:
   db:
