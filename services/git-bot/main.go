@@ -49,7 +49,6 @@ type RunStatusUpdate struct {
 	RepoName   string `json:"repo_name"`
 }
 
-// verifySignature checks the GitHub webhook signature to ensure the request is legitimate.
 func (a *GitBotApp) verifySignature(r *http.Request, body []byte) bool {
 	signature := r.Header.Get("X-Hub-Signature-256")
 	if !strings.HasPrefix(signature, "sha256=") {
@@ -64,7 +63,6 @@ func (a *GitBotApp) verifySignature(r *http.Request, body []byte) bool {
 	return hmac.Equal([]byte(actualSignature), []byte(expectedMAC))
 }
 
-// createCheckRun creates a new check run on GitHub and immediately updates it to "in_progress".
 func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineName string) int64 {
 	opts := github.CreateCheckRunOptions{
 		Name:    "Nopsai CI",
@@ -85,10 +83,7 @@ func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineName string) int64 
 			Summary: github.String("Pipeline is starting..."),
 		},
 	}
-	_, _, err = a.ghClient.Checks.UpdateCheckRun(context.Background(), owner, repo, *checkRun.ID, inProgressOpts)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to update check run to in_progress")
-	}
+	a.ghClient.Checks.UpdateCheckRun(context.Background(), owner, repo, *checkRun.ID, inProgressOpts)
 	return *checkRun.ID
 }
 
@@ -112,8 +107,16 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pushEvent, ok := event.(*github.PushEvent)
-	if !ok || pushEvent.GetRef() == "" {
-		log.Info().Msg("Received non-push event or push with no ref, ignoring.")
+	if !ok {
+		log.Info().Msg("Received non-push event, ignoring.")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// This is the fix: Add robust nil checks for all required fields.
+	if pushEvent.Repo == nil || pushEvent.Repo.Owner == nil || pushEvent.Repo.Owner.Login == nil ||
+		pushEvent.Repo.Name == nil || pushEvent.Repo.FullName == nil || pushEvent.After == nil {
+		log.Warn().Msg("Received push event with missing essential repository, owner, or commit SHA. Ignoring.")
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -140,9 +143,9 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	} else {
 		log.Info().Str("repo", repoName).Msg("No override found, fetching .nopsai.yaml from repository.")
 		fileContent, _, _, err := a.ghClient.Repositories.GetContents(context.Background(), owner, repo, ".nopsai.yaml", &github.RepositoryContentGetOptions{Ref: commitSHA})
-		if err != nil {
+		if err != nil || fileContent == nil {
 			log.Error().Err(err).Msg("Failed to fetch .nopsai.yaml from repository")
-			a.concludeCheckRun(owner, repo, checkRunID, "failure", "Setup Failed", "Could not find .nopsai.yaml in repository.")
+			a.concludeCheckRun(owner, repo, checkRunID, "failure: Could not find .nopsai.yaml in repository.")
 			http.Error(w, "Could not fetch pipeline file", http.StatusNotFound)
 			return
 		}
@@ -162,7 +165,42 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	req.Header.Set("X-Git-Repo-Name", repo)
 	req.Header.Set("X-Git-Commit-SHA", commitSHA)
 	req.Header.Set("X-Git-Check-Run-ID", strconv.FormatInt(checkRunID, 10))
-
+	if pushEvent.Repo.CloneURL != nil {
+		req.Header.Set("X-Git-Clone-URL", *pushEvent.Repo.CloneURL)
+	}
+	if pushEvent.Repo.SSHURL != nil {
+		req.Header.Set("X-Git-SSH-URL", *pushEvent.Repo.SSHURL)
+	}
+	if pushEvent.Ref != nil {
+		req.Header.Set("X-Git-Ref", *pushEvent.Ref)
+	}
+	if pushEvent.HeadCommit != nil {
+		if pushEvent.HeadCommit.URL != nil {
+			req.Header.Set("X-Git-Commit-URL", *pushEvent.HeadCommit.URL)
+		}
+		if pushEvent.HeadCommit.Message != nil {
+			req.Header.Set("X-Git-Commit-Message", *pushEvent.HeadCommit.Message)
+		}
+		if pushEvent.HeadCommit.Author != nil {
+			if pushEvent.HeadCommit.Author.Name != nil {
+				req.Header.Set("X-Git-Commit-Author-Name", *pushEvent.HeadCommit.Author.Name)
+			}
+			if pushEvent.HeadCommit.Author.Email != nil {
+				req.Header.Set("X-Git-Commit-Author-Email", *pushEvent.HeadCommit.Author.Email)
+			}
+			if pushEvent.HeadCommit.Author.Login != nil {
+				req.Header.Set("X-Git-Commit-Author-Username", *pushEvent.HeadCommit.Author.Login)
+			}
+		}
+	}
+	if pushEvent.Pusher != nil {
+		if pushEvent.Pusher.Name != nil {
+			req.Header.Set("X-Git-Pusher-Name", *pushEvent.Pusher.Name)
+		}
+		if pushEvent.Pusher.Email != nil {
+			req.Header.Set("X-Git-Pusher-Email", *pushEvent.Pusher.Email)
+		}
+	}
 	client := &http.Client{}
 	resp, err = client.Do(req)
 	if err != nil || resp.StatusCode != http.StatusCreated {
@@ -171,7 +209,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 			statusCode = resp.StatusCode
 		}
 		log.Error().Err(err).Int("status_code", statusCode).Msg("Failed to trigger nopsai pipeline")
-		a.concludeCheckRun(owner, repo, checkRunID, "failure", "Trigger Failed", "Failed to trigger Nopsai pipeline.")
+		a.concludeCheckRun(owner, repo, checkRunID, "Failed to trigger Nopsai pipeline.")
 		http.Error(w, "Failed to trigger pipeline", http.StatusInternalServerError)
 		return
 	}
@@ -217,7 +255,6 @@ func (a *GitBotApp) handleStepStatusUpdate(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleRunStatusUpdate now sets a final, conclusive title.
 func (a *GitBotApp) handleRunStatusUpdate(w http.ResponseWriter, r *http.Request) {
 	var update RunStatusUpdate
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
@@ -227,34 +264,24 @@ func (a *GitBotApp) handleRunStatusUpdate(w http.ResponseWriter, r *http.Request
 
 	log.Info().Int64("check_run_id", update.CheckRunID).Str("status", update.Status).Msg("Received final pipeline status")
 
-	finalTitle := "Pipeline completed successfully ✅"
-	conclusion := "success"
-	if update.Status == "failure" {
-		finalTitle = "Pipeline failed ❌"
-		conclusion = "failure"
-	}
-
-	finalSummary := a.checkRunSummaries[update.CheckRunID]
-
-	a.concludeCheckRun(update.RepoOwner, update.RepoName, update.CheckRunID, conclusion, finalTitle, finalSummary)
-
-	// Clean up the cache for this run
-	delete(a.checkRunSummaries, update.CheckRunID)
+	// The call to concludeCheckRun is now simpler.
+	a.concludeCheckRun(update.RepoOwner, update.RepoName, update.CheckRunID, update.Status)
 	w.WriteHeader(http.StatusOK)
 }
 
-// concludeCheckRun now accepts a title parameter for more descriptive final states.
-func (a *GitBotApp) concludeCheckRun(owner, repo string, checkRunID int64, conclusion, title, summary string) {
+func (a *GitBotApp) concludeCheckRun(owner string, repo string, checkRunID int64, conclusion string) {
+	if checkRunID == 0 {
+		log.Warn().Msg("Invalid checkRunID (0), skipping conclusion.")
+		return
+	}
+
 	opts := github.UpdateCheckRunOptions{
 		Name:        "Nopsai CI",
 		Status:      github.String("completed"),
 		Conclusion:  github.String(conclusion),
 		CompletedAt: &github.Timestamp{Time: time.Now()},
-		Output: &github.CheckRunOutput{
-			Title:   github.String(title),
-			Summary: github.String(summary),
-		},
 	}
+
 	_, _, err := a.ghClient.Checks.UpdateCheckRun(context.Background(), owner, repo, checkRunID, opts)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to conclude check run")
