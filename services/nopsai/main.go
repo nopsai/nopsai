@@ -33,7 +33,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// App now holds the shared Docker client
 type App struct {
 	db  *pgxpool.Pool
 	cfg *config.Config
@@ -47,7 +46,7 @@ type StepStatusUpdate struct {
 
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
 
-func sanitizeContainerName(name string) string {
+func sanitizeInput(name string) string {
 	sanitized := strings.ReplaceAll(name, " ", "-")
 	return nonAlphanumericRegex.ReplaceAllString(sanitized, "")
 }
@@ -70,6 +69,8 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	pipeline.Name = sanitizeInput(pipeline.Name)
+
 	if pipeline.Name == "" {
 		http.Error(w, "Pipeline validation failed: 'name' is a required field.", http.StatusBadRequest)
 		return
@@ -83,12 +84,16 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for i, step := range pipeline.Steps {
-		if step.Name == "" {
+		pipeline.Steps[i].Name = sanitizeInput(step.Name)
+		if pipeline.Steps[i].Name == "" {
 			http.Error(w, fmt.Sprintf("Pipeline validation failed: 'name' is a required field for step %d.", i+1), http.StatusBadRequest)
 			return
 		}
-		if step.Goal == "" {
-			http.Error(w, fmt.Sprintf("Pipeline validation failed: 'goal' is a required field for step '%s'.", step.Name), http.StatusBadRequest)
+		// =================================================================
+		// == FIXED: Validation now checks for EITHER a goal OR a script. ==
+		// =================================================================
+		if step.Goal == "" && step.Script == "" {
+			http.Error(w, fmt.Sprintf("Pipeline validation failed: a 'goal' or 'script' is required for step '%s'.", step.Name), http.StatusBadRequest)
 			return
 		}
 	}
@@ -141,7 +146,6 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(context.Background())
 
-	// This is the corrected INSERT statement.
 	_, err = tx.Exec(context.Background(),
 		`INSERT INTO runs (run_id, pipeline_name, status, timeout_at, pipeline_definition, 
 			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref, 
@@ -179,13 +183,13 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// This is the corrected call, passing the gitContext map.
 	go a.launchAgent(runID.String(), pipeline, body, timeoutDuration, gitContext)
 
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte("Pipeline run created successfully with ID: " + runID.String()))
 }
 
+// ... (rest of the file is unchanged)
 func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
@@ -194,7 +198,6 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 
 	originalRunID := r.PathValue("runID")
 
-	// 1. Fetch the original run's data from the database.
 	var pipelineDef, pipelineName sql.NullString
 	var gitContext = make(map[string]string)
 	var timeoutAt sql.NullTime
@@ -228,7 +231,6 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Assemble the gitContext map, matching the launchAgent signature.
 	if repoOwner.Valid {
 		gitContext["repo_owner"] = repoOwner.String
 	}
@@ -272,7 +274,6 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 		gitContext["check_run_id"] = strconv.FormatInt(checkRunID.Int64, 10)
 	}
 
-	// 3. Create a new run using the old run's data.
 	var pipeline models.Pipeline
 	if err := yaml.Unmarshal([]byte(pipelineDef.String), &pipeline); err != nil {
 		http.Error(w, "Could not parse original pipeline definition", http.StatusInternalServerError)
@@ -285,7 +286,6 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	var timeoutDuration time.Duration
 	if timeoutAt.Valid {
 		var originalCreatedAt time.Time
-		// This is the corrected block
 		err := a.db.QueryRow(context.Background(), "SELECT created_at FROM runs WHERE run_id = $1", originalRunID).Scan(&originalCreatedAt)
 		if err != nil {
 			log.Error().Err(err).Str("original_run_id", originalRunID).Msg("Failed to get original run creation time for timeout calculation")
@@ -297,7 +297,6 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 		timeoutDuration = originalDuration
 	}
 
-	// 4. Insert the new run and steps into the database.
 	tx, err := a.db.Begin(context.Background())
 	if err != nil {
 		http.Error(w, "Failed to start database transaction", http.StatusInternalServerError)
@@ -337,7 +336,6 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 5. Launch a new agent for the new run with the correct signature.
 	go a.launchAgent(newRunID.String(), pipeline, []byte(pipelineDef.String), timeoutDuration, gitContext)
 
 	w.WriteHeader(http.StatusAccepted)
@@ -383,35 +381,39 @@ func (a *App) handleOverrideCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/x-yaml") // Add this line
+	w.Header().Set("Content-Type", "application/x-yaml")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(pipelineDef))
 }
 
-// launchAgent now uses the shared Docker client from a.cli
 func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []byte, timeout time.Duration, gitContext map[string]string) {
 	ctx := context.Background()
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Error creating Docker client")
+		return
+	}
+	defer cli.Close()
 
 	agentImageName := a.cfg.AgentImage
 	if agentImageName == "" {
 		agentImageName = "nopsai-agent:latest"
 	}
 
-	if err := ensureImageExists(ctx, a.cli, agentImageName); err != nil {
+	if err := ensureImageExists(ctx, cli, agentImageName); err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to ensure agent image exists")
 		return
 	}
 
 	sharedVolumeName := fmt.Sprintf("vol-%s", runID)
-	_, err := a.cli.VolumeCreate(context.Background(), volume.CreateOptions{Name: sharedVolumeName})
+	_, err = cli.VolumeCreate(context.Background(), volume.CreateOptions{Name: sharedVolumeName})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create shared volume")
 		return
 	}
-	defer a.cli.VolumeRemove(context.Background(), sharedVolumeName, true)
+	defer cli.VolumeRemove(context.Background(), sharedVolumeName, true)
 
-	sanitizedPipelineName := sanitizeContainerName(pipeline.Name)
-	agentContainerName := fmt.Sprintf("agent-%s-%s", sanitizedPipelineName, runID)
+	agentContainerName := fmt.Sprintf("agent-%s-%s", sanitizeInput(pipeline.Name), runID)
 
 	envVars := []string{
 		fmt.Sprintf("RUN_ID=%s", runID),
@@ -438,7 +440,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		AutoRemove: a.cfg.AutoRemovalAgentContainer,
 	}
 
-	resp, err := a.cli.ContainerCreate(ctx, &container.Config{
+	resp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image: agentImageName,
 		Env:   envVars,
 	}, hostConfig, &network.NetworkingConfig{
@@ -452,14 +454,14 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		return
 	}
 
-	if err := a.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+	if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		log.Error().Err(err).Str("container_id", resp.ID).Msg("Failed to start agent container")
 		return
 	}
 
 	log.Info().Str("run_id", runID).Str("container_name", agentContainerName).Msg("Successfully started agent container")
 
-	statusCh, errCh := a.cli.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
+	statusCh, errCh := cli.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
 	select {
 	case err := <-errCh:
 		if err != nil {
@@ -477,7 +479,6 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		}
 	}
 }
-
 func (a *App) notifyGitBotOfFinalStatus(status string, gitContext map[string]string) {
 	checkRunID, _ := strconv.ParseInt(gitContext["check_run_id"], 10, 64)
 	gitBotURL := fmt.Sprintf("%s/v1/run/status", a.cfg.NopsaiGitBotAPIURL)
@@ -560,7 +561,6 @@ func ensureImageExists(ctx context.Context, cli *client.Client, imageName string
 			return fmt.Errorf("failed to pull image %s: %w", imageName, err)
 		}
 		defer out.Close()
-		// Read the output to ensure the pull is complete
 		io.Copy(io.Discard, out)
 	} else {
 		log.Info().Msgf("Image %s found locally.", imageName)
@@ -603,15 +603,14 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to connect to database after multiple retries")
 	}
+	defer dbpool.Close()
 
-	// Create the Docker client ONCE here
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create Docker client")
 	}
 	defer cli.Close()
 
-	// Pass the shared client to the App instance
 	app := &App{db: dbpool, cfg: cfg, cli: cli}
 
 	mux := http.NewServeMux()
@@ -625,7 +624,6 @@ func main() {
 		Handler: mux,
 	}
 
-	// Graceful shutdown
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 

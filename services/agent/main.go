@@ -354,36 +354,57 @@ func main() {
 		nextStep := getNextRunnableStep(&pipeline, completedSteps)
 		if nextStep == nil {
 			log.Info().Str("pipeline", pipeline.Name).Msg("All steps completed successfully.")
-			updateRunStatus(runID, "success") // Report final success
 			cleanup(cli, cont.ID)
 			os.Exit(0)
 		}
 
-		directoryListing := getDirectoryListing(log.Logger, "/workspace")
-		req := &proto.GetActionRequest{
-			Goal:             nextStep.Goal,
-			History:          history.String(),
-			DirectoryListing: directoryListing,
-			Environment:      pipeline.Environment,
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		action, err := llmClient.GetAction(ctx, req)
-		cancel()
-		if err != nil {
-			log.Error().Err(err).Str("step", nextStep.Name).Msg("Failed to get action from LLM agent. Shutting down.")
-			updateRunStatus(runID, "failed") // Report LLM failure
-			cleanup(cli, cont.ID)
-			os.Exit(1)
-		}
-
+		var action *proto.Action
 		var actionStr string
-		if cmd := action.GetCommandAction(); cmd != nil {
-			actionStr = cmd.Command
-		} else if file := action.GetFileAction(); file != nil {
-			actionStr = fmt.Sprintf("Write to %s", file.Path)
-		} else if ans := action.GetAnswerAction(); ans != nil {
-			actionStr = ans.Answer
+		var err error
+
+		// =================================================================
+		// == NEW: Check for a direct script before calling the LLM       ==
+		// =================================================================
+		if nextStep.Script != "" {
+			log.Info().Str("step", nextStep.Name).Msg("Executing direct script.")
+			// If a script exists, create an EXECUTE_COMMAND action directly.
+			action = &proto.Action{
+				Type: "EXECUTE_COMMAND",
+				Payload: &proto.Action_CommandAction{
+					CommandAction: &proto.CommandAction{
+						Command: nextStep.Script,
+					},
+				},
+			}
+			actionStr = nextStep.Script // For logging purposes
+		} else {
+			// If no script, fall back to the existing goal-based LLM logic.
+			log.Info().Str("step", nextStep.Name).Msg("Resolving goal with LLM.")
+			directoryListing := getDirectoryListing(log.Logger, "/workspace")
+			req := &proto.GetActionRequest{
+				Goal:             nextStep.Goal,
+				History:          history.String(),
+				DirectoryListing: directoryListing,
+				Environment:      pipeline.Environment,
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			action, err = llmClient.GetAction(ctx, req)
+			cancel()
+			if err != nil {
+				log.Error().Err(err).Str("step", nextStep.Name).Msg("Failed to get action from LLM agent. Shutting down.")
+				cleanup(cli, cont.ID)
+				os.Exit(1)
+			}
+
+			// Determine the action string for logging
+			if cmd := action.GetCommandAction(); cmd != nil {
+				actionStr = cmd.Command
+			} else if file := action.GetFileAction(); file != nil {
+				actionStr = fmt.Sprintf("Write to %s", file.Path)
+			} else if ans := action.GetAnswerAction(); ans != nil {
+				actionStr = ans.Answer
+			}
 		}
 
 		debugLogger := log.With().
@@ -409,7 +430,12 @@ func main() {
 			log.Info().Str("pipeline", pipelineName).Msg(logMsg)
 		}
 
-		history.WriteString(fmt.Sprintf("- Goal: %s\n  Action: %s\n  Result (Exit Code %d): %s\n", nextStep.Goal, actionStr, exitCode, output))
+		// Use the goal for history if it exists, otherwise use the step name.
+		historyGoal := nextStep.Goal
+		if historyGoal == "" {
+			historyGoal = fmt.Sprintf("Execute script for step: %s", nextStep.Name)
+		}
+		history.WriteString(fmt.Sprintf("- Goal: %s\n  Action: %s\n  Result (Exit Code %d): %s\n", historyGoal, actionStr, exitCode, output))
 
 		if exitCode == 0 {
 			completedSteps[nextStep.Name] = true
@@ -418,7 +444,6 @@ func main() {
 			updateStepStatus(runID, nextStep.Name, "failed", exitCode)
 			if !nextStep.IgnoreFailure {
 				log.Error().Str("pipeline", pipelineName).Str("step", nextStep.Name).Msg("Critical step failed. Shutting down.")
-				updateRunStatus(runID, "failed") // Report critical step failure
 				cleanup(cli, cont.ID)
 				os.Exit(1)
 			} else {
