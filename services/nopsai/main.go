@@ -10,9 +10,11 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/signal"
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"nopsai/config"
@@ -34,6 +36,7 @@ import (
 type App struct {
 	db  *pgxpool.Pool
 	cfg *config.Config
+	cli *client.Client
 }
 
 type StepStatusUpdate struct {
@@ -139,11 +142,11 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 
 	// This is the corrected INSERT statement.
 	_, err = tx.Exec(context.Background(),
-		`INSERT INTO runs (run_id, pipeline_name, status, timeout_at, pipeline_definition, 
-			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref, 
-			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name, 
-			git_commit_author_email, git_commit_author_username, git_pusher_name, 
-			git_pusher_email, git_check_run_id) 
+		`INSERT INTO runs (run_id, pipeline_name, status, timeout_at, pipeline_definition,
+			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref,
+			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
+			git_commit_author_email, git_commit_author_username, git_pusher_name,
+			git_pusher_email, git_check_run_id)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
 		runID, pipeline.Name, "pending", timeoutAt, string(body),
 		gitContext["repo_owner"], gitContext["repo_name"], gitContext["clone_url"], gitContext["ssh_url"], gitContext["ref"],
@@ -195,11 +198,11 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	var gitContext = make(map[string]string)
 	var timeoutAt sql.NullTime
 
-	query := `SELECT 
+	query := `SELECT
 				pipeline_definition, pipeline_name, timeout_at,
-				git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref, 
-				git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name, 
-				git_commit_author_email, git_commit_author_username, git_pusher_name, 
+				git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref,
+				git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
+				git_commit_author_email, git_commit_author_username, git_pusher_name,
 				git_pusher_email, git_check_run_id
 			  FROM runs WHERE run_id = $1`
 
@@ -302,11 +305,11 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(context.Background())
 
 	_, err = tx.Exec(context.Background(),
-		`INSERT INTO runs (run_id, pipeline_name, status, timeout_at, pipeline_definition, 
-			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref, 
-			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name, 
-			git_commit_author_email, git_commit_author_username, git_pusher_name, 
-			git_pusher_email, git_check_run_id) 
+		`INSERT INTO runs (run_id, pipeline_name, status, timeout_at, pipeline_definition,
+			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref,
+			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
+			git_commit_author_email, git_commit_author_username, git_pusher_name,
+			git_pusher_email, git_check_run_id)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
 		newRunID, pipelineName, "pending", timeoutAt, pipelineDef,
 		repoOwner, repoName, cloneURL, sshURL, ref, commitSHA, commitURL, commitMessage,
@@ -386,31 +389,24 @@ func (a *App) handleOverrideCheck(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []byte, timeout time.Duration, gitContext map[string]string) {
 	ctx := context.Background()
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		log.Error().Err(err).Str("run_id", runID).Msg("Error creating Docker client")
-		return
-	}
-	defer cli.Close()
 
 	agentImageName := a.cfg.AgentImage
 	if agentImageName == "" {
 		agentImageName = "nopsai-agent:latest"
 	}
 
-	// Use the new helper function
-	if err := ensureImageExists(ctx, cli, agentImageName); err != nil {
+	if err := ensureImageExists(ctx, a.cli, agentImageName); err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to ensure agent image exists")
 		return
 	}
 
 	sharedVolumeName := fmt.Sprintf("vol-%s", runID)
-	_, err = cli.VolumeCreate(context.Background(), volume.CreateOptions{Name: sharedVolumeName})
+	_, err := a.cli.VolumeCreate(context.Background(), volume.CreateOptions{Name: sharedVolumeName})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create shared volume")
 		return
 	}
-	defer cli.VolumeRemove(context.Background(), sharedVolumeName, true)
+	defer a.cli.VolumeRemove(context.Background(), sharedVolumeName, true)
 
 	sanitizedPipelineName := sanitizeContainerName(pipeline.Name)
 	agentContainerName := fmt.Sprintf("agent-%s-%s", sanitizedPipelineName, runID)
@@ -440,7 +436,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		AutoRemove: a.cfg.AutoRemovalAgentContainer,
 	}
 
-	resp, err := cli.ContainerCreate(ctx, &container.Config{
+	resp, err := a.cli.ContainerCreate(ctx, &container.Config{
 		Image: agentImageName,
 		Env:   envVars,
 	}, hostConfig, &network.NetworkingConfig{
@@ -454,14 +450,14 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		return
 	}
 
-	if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+	if err := a.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		log.Error().Err(err).Str("container_id", resp.ID).Msg("Failed to start agent container")
 		return
 	}
 
 	log.Info().Str("run_id", runID).Str("container_name", agentContainerName).Msg("Successfully started agent container")
 
-	statusCh, errCh := cli.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
+	statusCh, errCh := a.cli.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
 	select {
 	case err := <-errCh:
 		if err != nil {
@@ -479,7 +475,6 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		}
 	}
 }
-
 func (a *App) notifyGitBotOfFinalStatus(status string, gitContext map[string]string) {
 	checkRunID, _ := strconv.ParseInt(gitContext["check_run_id"], 10, 64)
 	gitBotURL := fmt.Sprintf("%s/v1/run/status", a.cfg.NopsaiGitBotAPIURL)
@@ -606,9 +601,14 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to connect to database after multiple retries")
 	}
-	defer dbpool.Close()
 
-	app := &App{db: dbpool, cfg: cfg}
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to create Docker client")
+	}
+	defer cli.Close()
+
+	app := &App{db: dbpool, cfg: cfg, cli: cli}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/run", app.handleRunPipeline)
@@ -616,8 +616,33 @@ func main() {
 	mux.HandleFunc("GET /v1/overrides/{repoOwner}/{repoName}", app.handleOverrideCheck)
 	mux.HandleFunc("POST /v1/runs/{runID}/rerun", app.handleRerunPipeline)
 
-	log.Info().Msgf("Nopsai API server listening on %s", cfg.NopsaiListenAddress)
-	if err := http.ListenAndServe(cfg.NopsaiListenAddress, mux); err != nil {
-		log.Fatal().Err(err).Msg("Failed to start server")
+	server := &http.Server{
+		Addr:    cfg.NopsaiListenAddress,
+		Handler: mux,
 	}
+
+	// Graceful shutdown
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		log.Info().Msgf("Nopsai API server listening on %s", cfg.NopsaiListenAddress)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal().Err(err).Msg("Failed to start server")
+		}
+	}()
+
+	<-stop
+
+	log.Info().Msg("Shutting down the server...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		log.Fatal().Err(err).Msg("Server forced to shutdown")
+	}
+
+	app.db.Close()
+	log.Info().Msg("Server exiting")
 }
