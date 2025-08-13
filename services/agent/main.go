@@ -166,6 +166,30 @@ func updateStepStatus(runID, stepName, status string, exitCode int) {
 	}
 }
 
+// updateRunStatus reports the final status of the entire run. NEW FUNCTION!
+func updateRunStatus(runID, status string) {
+	nopsaiURL := os.Getenv("NOPSAI_API_URL")
+	if nopsaiURL == "" {
+		log.Error().Msg("NOPSAI_API_URL environment variable not set. Cannot report final run status.")
+		return
+	}
+	url := fmt.Sprintf("%s/v1/runs/%s/status", nopsaiURL, runID)
+
+	payload := map[string]string{"status": status}
+	body, _ := json.Marshal(payload)
+
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to send final run status update to nopsai API")
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Error().Int("status_code", resp.StatusCode).Msg("Received non-OK status from nopsai API for final run status")
+	}
+}
+
 // cleanup stops and removes the pipeline container.
 func cleanup(cli *client.Client, containerID string) {
 	if containerID == "" {
@@ -193,6 +217,7 @@ func cleanup(cli *client.Client, containerID string) {
 		log.Error().Err(err).Msg("Failed to remove pipeline container")
 	}
 }
+
 func main() {
 	// --- Initialization ---
 	logLevelStr := os.Getenv("LOG_LEVEL")
@@ -250,6 +275,7 @@ func main() {
 	defer conn.Close()
 	llmClient := proto.NewLLMServiceClient(conn)
 
+	// Create a single, shared Docker client
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create Docker client")
@@ -308,8 +334,8 @@ func main() {
 			log.Info().Msgf("Pipeline timeout is set to: %s", timeout)
 			time.AfterFunc(timeout, func() {
 				log.Error().Msg("Pipeline execution timed out. Cleaning up and exiting.")
+				updateRunStatus(runID, "failed") // Report timeout failure
 				cleanup(cli, cont.ID)
-				updateStepStatus(runID, "Pipeline Timeout", "failed", 1)
 				os.Exit(1)
 			})
 		}
@@ -328,6 +354,7 @@ func main() {
 		nextStep := getNextRunnableStep(&pipeline, completedSteps)
 		if nextStep == nil {
 			log.Info().Str("pipeline", pipeline.Name).Msg("All steps completed successfully.")
+			updateRunStatus(runID, "success") // Report final success
 			cleanup(cli, cont.ID)
 			os.Exit(0)
 		}
@@ -345,6 +372,7 @@ func main() {
 		cancel()
 		if err != nil {
 			log.Error().Err(err).Str("step", nextStep.Name).Msg("Failed to get action from LLM agent. Shutting down.")
+			updateRunStatus(runID, "failed") // Report LLM failure
 			cleanup(cli, cont.ID)
 			os.Exit(1)
 		}
@@ -390,6 +418,7 @@ func main() {
 			updateStepStatus(runID, nextStep.Name, "failed", exitCode)
 			if !nextStep.IgnoreFailure {
 				log.Error().Str("pipeline", pipelineName).Str("step", nextStep.Name).Msg("Critical step failed. Shutting down.")
+				updateRunStatus(runID, "failed") // Report critical step failure
 				cleanup(cli, cont.ID)
 				os.Exit(1)
 			} else {

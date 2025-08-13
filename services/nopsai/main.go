@@ -33,6 +33,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// App now holds the shared Docker client
 type App struct {
 	db  *pgxpool.Pool
 	cfg *config.Config
@@ -142,11 +143,11 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 
 	// This is the corrected INSERT statement.
 	_, err = tx.Exec(context.Background(),
-		`INSERT INTO runs (run_id, pipeline_name, status, timeout_at, pipeline_definition,
-			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref,
-			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
-			git_commit_author_email, git_commit_author_username, git_pusher_name,
-			git_pusher_email, git_check_run_id)
+		`INSERT INTO runs (run_id, pipeline_name, status, timeout_at, pipeline_definition, 
+			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref, 
+			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name, 
+			git_commit_author_email, git_commit_author_username, git_pusher_name, 
+			git_pusher_email, git_check_run_id) 
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
 		runID, pipeline.Name, "pending", timeoutAt, string(body),
 		gitContext["repo_owner"], gitContext["repo_name"], gitContext["clone_url"], gitContext["ssh_url"], gitContext["ref"],
@@ -198,11 +199,11 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	var gitContext = make(map[string]string)
 	var timeoutAt sql.NullTime
 
-	query := `SELECT
+	query := `SELECT 
 				pipeline_definition, pipeline_name, timeout_at,
-				git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref,
-				git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
-				git_commit_author_email, git_commit_author_username, git_pusher_name,
+				git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref, 
+				git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name, 
+				git_commit_author_email, git_commit_author_username, git_pusher_name, 
 				git_pusher_email, git_check_run_id
 			  FROM runs WHERE run_id = $1`
 
@@ -305,11 +306,11 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(context.Background())
 
 	_, err = tx.Exec(context.Background(),
-		`INSERT INTO runs (run_id, pipeline_name, status, timeout_at, pipeline_definition,
-			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref,
-			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
-			git_commit_author_email, git_commit_author_username, git_pusher_name,
-			git_pusher_email, git_check_run_id)
+		`INSERT INTO runs (run_id, pipeline_name, status, timeout_at, pipeline_definition, 
+			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref, 
+			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name, 
+			git_commit_author_email, git_commit_author_username, git_pusher_name, 
+			git_pusher_email, git_check_run_id) 
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
 		newRunID, pipelineName, "pending", timeoutAt, pipelineDef,
 		repoOwner, repoName, cloneURL, sshURL, ref, commitSHA, commitURL, commitMessage,
@@ -387,6 +388,7 @@ func (a *App) handleOverrideCheck(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(pipelineDef))
 }
 
+// launchAgent now uses the shared Docker client from a.cli
 func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []byte, timeout time.Duration, gitContext map[string]string) {
 	ctx := context.Background()
 
@@ -475,6 +477,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		}
 	}
 }
+
 func (a *App) notifyGitBotOfFinalStatus(status string, gitContext map[string]string) {
 	checkRunID, _ := strconv.ParseInt(gitContext["check_run_id"], 10, 64)
 	gitBotURL := fmt.Sprintf("%s/v1/run/status", a.cfg.NopsaiGitBotAPIURL)
@@ -500,7 +503,6 @@ func (a *App) notifyGitBotOfFinalStatus(status string, gitContext map[string]str
 		log.Info().Msg("Successfully notified git-bot of final pipeline status.")
 	}
 }
-
 func (a *App) notifyGitBotOfStepStatus(runID, stepName, stepStatus string) {
 	var repoOwner, repoName, commitSHA sql.NullString
 	var checkRunID sql.NullInt64
@@ -602,12 +604,14 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to connect to database after multiple retries")
 	}
 
+	// Create the Docker client ONCE here
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create Docker client")
 	}
 	defer cli.Close()
 
+	// Pass the shared client to the App instance
 	app := &App{db: dbpool, cfg: cfg, cli: cli}
 
 	mux := http.NewServeMux()
