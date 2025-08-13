@@ -29,10 +29,9 @@ type GitBotApp struct {
 	ghClient          *github.Client
 	webhookSecret     string
 	checkRunSummaries map[int64]string
-	summaryLock       sync.Mutex // Added mutex
+	summaryLock       sync.Mutex
 }
 
-// StepStatusUpdate is the structure nopsai uses to report per-step progress.
 type StepStatusUpdate struct {
 	RepoOwner  string `json:"repo_owner"`
 	RepoName   string `json:"repo_name"`
@@ -43,7 +42,6 @@ type StepStatusUpdate struct {
 	TotalSteps int    `json:"total_steps"`
 }
 
-// RunStatusUpdate is the structure nopsai uses to report the final status of a run.
 type RunStatusUpdate struct {
 	Status     string `json:"status"`
 	CheckRunID int64  `json:"check_run_id"`
@@ -89,7 +87,6 @@ func (a *GitBotApp) createCheckRun(owner, repo, ref string) int64 {
 	return *checkRun.ID
 }
 
-// handleWebhook is the main entry point for incoming webhooks from GitHub.
 func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -113,7 +110,6 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	var headCommit *github.HeadCommit
 	var pusher *github.User
 
-	// Handle different event types
 	switch event := payload.(type) {
 	case *github.PushEvent:
 		if event.Repo == nil || event.Repo.Owner == nil || event.Repo.Owner.Login == nil ||
@@ -174,7 +170,6 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// --- Common logic for all trigger events ---
 	checkRunID := a.createCheckRun(owner, repo, commitSHA)
 	delete(a.checkRunSummaries, checkRunID)
 	if checkRunID == 0 {
@@ -186,7 +181,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	overrideURL := fmt.Sprintf("%s/v1/overrides/%s/%s", a.cfg.GitBotNopsaiAPIURL, owner, repo)
 	resp, err := http.Get(overrideURL)
 	if err == nil && resp.StatusCode == http.StatusOK {
-		defer resp.Body.Close() // This ensures the body is closed
+		defer resp.Body.Close()
 		pipelineYAML, _ = io.ReadAll(resp.Body)
 		log.Info().Str("repo", repoName).Msg("Found and using pipeline override from nopsai service.")
 	} else {
@@ -194,14 +189,16 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		fileContent, _, _, err := a.ghClient.Repositories.GetContents(context.Background(), owner, repo, ".nopsai.yaml", &github.RepositoryContentGetOptions{Ref: commitSHA})
 		if err != nil || fileContent == nil {
 			log.Error().Err(err).Msg("Failed to fetch .nopsai.yaml from repository")
-			a.concludeCheckRun(owner, repo, checkRunID, "failure Could not find .nopsai.yaml in repository.")
+			// Corrected call with a valid conclusion and a summary message
+			a.concludeCheckRun(owner, repo, checkRunID, "failure", "Could not find .nopsai.yaml in the repository.")
 			http.Error(w, "Could not fetch pipeline file", http.StatusNotFound)
 			return
 		}
 		content, err := fileContent.GetContent()
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to decode file content")
-			a.concludeCheckRun(owner, repo, checkRunID, "failure Could not decode file content.")
+			// Corrected call
+			a.concludeCheckRun(owner, repo, checkRunID, "failure", "Could not decode the .nopsai.yaml file content.")
 			http.Error(w, "Could not decode file content", http.StatusInternalServerError)
 			return
 		}
@@ -212,13 +209,11 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	req, _ := http.NewRequest("POST", runURL, bytes.NewBuffer(pipelineYAML))
 	req.Header.Set("Content-Type", "application/x-yaml")
 
-	// Add common headers
 	req.Header.Set("X-Git-Repo-Owner", owner)
 	req.Header.Set("X-Git-Repo-Name", repo)
 	req.Header.Set("X-Git-Commit-SHA", commitSHA)
 	req.Header.Set("X-Git-Check-Run-ID", strconv.FormatInt(checkRunID, 10))
 
-	// Add event-specific headers
 	if pushEvent, ok := payload.(*github.PushEvent); ok {
 		if pushEvent.Repo.CloneURL != nil {
 			req.Header.Set("X-Git-Clone-URL", *pushEvent.Repo.CloneURL)
@@ -286,7 +281,10 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 			statusCode = resp.StatusCode
 		}
 		log.Error().Err(err).Int("status_code", statusCode).Msg("Failed to trigger nopsai pipeline")
-		a.concludeCheckRun(owner, repo, checkRunID, "Failed to trigger Nopsai pipeline.")
+		// Corrected call with a valid conclusion and a summary message
+		errorBody, _ := io.ReadAll(resp.Body)
+		summary := fmt.Sprintf("Failed to trigger Nopsai pipeline. The nopsai service responded with status %d.\n\nError: %s", statusCode, string(errorBody))
+		a.concludeCheckRun(owner, repo, checkRunID, "failure", summary)
 		http.Error(w, "Failed to trigger pipeline", http.StatusInternalServerError)
 		return
 	}
@@ -295,7 +293,6 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Pipeline triggered."))
 }
 
-// handleStepStatusUpdate now updates the title with progress and improves the summary.
 func (a *GitBotApp) handleStepStatusUpdate(w http.ResponseWriter, r *http.Request) {
 	var update StepStatusUpdate
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
@@ -304,10 +301,9 @@ func (a *GitBotApp) handleStepStatusUpdate(w http.ResponseWriter, r *http.Reques
 	}
 	log.Info().Int64("check_run_id", update.CheckRunID).Str("step", update.StepName).Msg("Received step status update")
 
-	a.summaryLock.Lock()         // Lock the mutex
-	defer a.summaryLock.Unlock() // Ensure the mutex is unlocked at the end
+	a.summaryLock.Lock()
+	defer a.summaryLock.Unlock()
 
-	// Create a more readable summary line with an emoji
 	summaryLine := ""
 	if strings.Contains(strings.ToLower(update.StepStatus), "fail") {
 		summaryLine = fmt.Sprintf("❌ Step %d: '%s' - %s\n", update.StepIndex, update.StepName, update.StepStatus)
@@ -316,7 +312,6 @@ func (a *GitBotApp) handleStepStatusUpdate(w http.ResponseWriter, r *http.Reques
 	}
 	a.checkRunSummaries[update.CheckRunID] += summaryLine
 
-	// Dynamically update the title with the step progress
 	newTitle := fmt.Sprintf("In progress... (%d/%d steps)", update.StepIndex, update.TotalSteps)
 
 	opts := github.UpdateCheckRunOptions{
@@ -344,25 +339,32 @@ func (a *GitBotApp) handleRunStatusUpdate(w http.ResponseWriter, r *http.Request
 
 	log.Info().Int64("check_run_id", update.CheckRunID).Str("status", update.Status).Msg("Received final pipeline status")
 
-	// The call to concludeCheckRun is now simpler.
-	a.concludeCheckRun(update.RepoOwner, update.RepoName, update.CheckRunID, update.Status)
+	// Get the accumulated summary before concluding
+	a.summaryLock.Lock()
+	summary := a.checkRunSummaries[update.CheckRunID]
+	a.summaryLock.Unlock()
+
+	a.concludeCheckRun(update.RepoOwner, update.RepoName, update.CheckRunID, update.Status, summary)
 	w.WriteHeader(http.StatusOK)
 }
 
-func (a *GitBotApp) concludeCheckRun(owner string, repo string, checkRunID int64, conclusion string) {
+// Updated function signature to accept a separate summary
+func (a *GitBotApp) concludeCheckRun(owner, repo string, checkRunID int64, conclusion, summary string) {
 	if checkRunID == 0 {
 		log.Warn().Msg("Invalid checkRunID (0), skipping conclusion.")
 		return
 	}
 
-	a.summaryLock.Lock()         // Lock the mutex
-	defer a.summaryLock.Unlock() // Ensure the mutex is unlocked at the end
+	a.summaryLock.Lock()
+	defer a.summaryLock.Unlock()
 
-	// Create a final title based on the conclusion
 	finalTitle := "Nopsai CI - " + strings.ToUpper(string(conclusion[0])) + conclusion[1:]
 
-	// Get the summary from the map
-	finalSummary := a.checkRunSummaries[checkRunID]
+	// Use the provided summary. If it's empty, use the one from the map.
+	finalSummary := summary
+	if finalSummary == "" {
+		finalSummary = a.checkRunSummaries[checkRunID]
+	}
 
 	opts := github.UpdateCheckRunOptions{
 		Name:        "Nopsai CI",
@@ -380,7 +382,6 @@ func (a *GitBotApp) concludeCheckRun(owner string, repo string, checkRunID int64
 		log.Error().Err(err).Msg("Failed to conclude check run")
 	}
 
-	// Clean up the summary for this check run
 	delete(a.checkRunSummaries, checkRunID)
 }
 

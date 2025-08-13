@@ -15,6 +15,7 @@ type Pipeline struct {
 type PipelineStep struct {
 	Name          string   `yaml:"name"`
 	Goal          string   `yaml:"goal"`
+	Script        string   `yaml:"script,omitempty"`
 	DependsOn     []string `yaml:"depends_on,omitempty"` // Added for step dependencies
 	IgnoreFailure bool     `yaml:"ignore_failure,omitempty"`
 }
