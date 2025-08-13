@@ -360,11 +360,9 @@ func main() {
 
 		var action *proto.Action
 		var actionStr string
+		var historyGoal string
 		var err error
 
-		// =================================================================
-		// == NEW: Check for a direct script before calling the LLM       ==
-		// =================================================================
 		if nextStep.Script != "" {
 			log.Info().Str("step", nextStep.Name).Msg("Executing direct script.")
 			// If a script exists, create an EXECUTE_COMMAND action directly.
@@ -380,7 +378,20 @@ func main() {
 		} else {
 			// If no script, fall back to the existing goal-based LLM logic.
 			log.Info().Str("step", nextStep.Name).Msg("Resolving goal with LLM.")
-			directoryListing := getDirectoryListing(log.Logger, "/workspace")
+			shareContent := true
+			if pipeline.LlmContentSharing != nil {
+				shareContent = *pipeline.LlmContentSharing
+			}
+
+			var directoryListing map[string]string
+			if shareContent {
+				log.Debug().Msg("Content sharing is ENABLED for this pipeline. Scanning directory.")
+				directoryListing = getDirectoryListing(log.Logger, "/workspace")
+			} else {
+				log.Debug().Msg("Content sharing is DISABLED for this pipeline. Skipping directory scan.")
+				directoryListing = make(map[string]string)
+			}
+
 			req := &proto.GetActionRequest{
 				Goal:             nextStep.Goal,
 				History:          history.String(),
@@ -430,11 +441,25 @@ func main() {
 			log.Info().Str("pipeline", pipelineName).Msg(logMsg)
 		}
 
+		shareOutput := true
+		if pipeline.LlmOutputSharing != nil {
+			shareOutput = *pipeline.LlmOutputSharing
+		}
+		if nextStep.LlmOutputSharing != nil {
+			shareOutput = *nextStep.LlmOutputSharing
+		}
+
 		// Use the goal for history if it exists, otherwise use the step name.
-		historyGoal := nextStep.Goal
+		historyGoal = nextStep.Goal
 		if historyGoal == "" {
 			historyGoal = fmt.Sprintf("Execute script for step: %s", nextStep.Name)
 		}
+
+		if !shareOutput {
+			log.Debug().Msg("Output sharing is DISABLED for this step. Hiding output from history.")
+			output = "[Output was hidden by pipeline configuration]"
+		}
+
 		history.WriteString(fmt.Sprintf("- Goal: %s\n  Action: %s\n  Result (Exit Code %d): %s\n", historyGoal, actionStr, exitCode, output))
 
 		if exitCode == 0 {

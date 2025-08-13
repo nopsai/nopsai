@@ -2,22 +2,25 @@ package models
 
 // Pipeline represents the structure of a .nopsai.yml file.
 type Pipeline struct {
-	Name             string            `yaml:"name"`
-	Description      string            `yaml:"description"`
-	ContainerImage   string            `yaml:"container_image"`
-	WorkingDirectory string            `yaml:"working_directory,omitempty"`
-	Environment      map[string]string `yaml:"environment"`
-	Steps            []PipelineStep    `yaml:"steps"`
-	Timeout          string            `yaml:"timeout,omitempty"`
+	Name              string            `yaml:"name"`
+	Description       string            `yaml:"description"`
+	ContainerImage    string            `yaml:"container_image"`
+	WorkingDirectory  string            `yaml:"working_directory,omitempty"`
+	Environment       map[string]string `yaml:"environment"`
+	Steps             []PipelineStep    `yaml:"steps"`
+	Timeout           string            `yaml:"timeout,omitempty"`
+	LlmContentSharing *bool             `yaml:"llm_content_sharing,omitempty"`
+	LlmOutputSharing  *bool             `yaml:"llm_output_sharing,omitempty"`
 }
 
 // PipelineStep is a single step within a pipeline definition.
 type PipelineStep struct {
-	Name          string   `yaml:"name"`
-	Goal          string   `yaml:"goal"`
-	Script        string   `yaml:"script,omitempty"`
-	DependsOn     []string `yaml:"depends_on,omitempty"` // Added for step dependencies
-	IgnoreFailure bool     `yaml:"ignore_failure,omitempty"`
+	Name             string   `yaml:"name"`
+	Goal             string   `yaml:"goal"`
+	Script           string   `yaml:"script,omitempty"`
+	DependsOn        []string `yaml:"depends_on,omitempty"` // Added for step dependencies
+	IgnoreFailure    bool     `yaml:"ignore_failure,omitempty"`
+	LlmOutputSharing *bool    `yaml:"llm_output_sharing,omitempty"`
 }
 
 // CommandAction defines a command to be executed in the shell.
