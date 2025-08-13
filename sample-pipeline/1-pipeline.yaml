@@ -5,17 +5,17 @@ working_directory: "/tmp/test"
 environment:
   API_VERSION: "v1"
 steps:
-  - name: Say Hello
+  - name: Say-Hello
     goal: "Print the phrase 'Hello from a real pipeline!' to the console."
-  - name: Create File
+  - name: Create-File
     goal: "Create a file named 'pipeline_output.txt' with the content 'Success!'"
-  - name: Verify File
+  - name: Verify-File
     goal: "Read the contents of the file 'pipeline_output.txt' and print them."
-  - name: Javab test
+  - name: Javab-test
     goal: "what did you write into previous file?"
     depends_on:
     - Create File
-  - name: working directory
+  - name: working-directory
     goal: what is the working directory
     depends_on:
     - Javab test
