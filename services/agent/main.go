@@ -113,7 +113,7 @@ func executeAction(cli *client.Client, containerID string, action *proto.Action)
 
 	inspect, err := cli.ContainerExecInspect(context.Background(), execID.ID)
 	if err != nil {
-		return stdout.String(), fmt.Sprintf("failed to inspect exec: %v", err), 1
+		return "", fmt.Sprintf("failed to inspect exec: %v", err), 1
 	}
 
 	return strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()), inspect.ExitCode
@@ -179,11 +179,20 @@ func cleanup(cli *client.Client, containerID string) {
 		log.Error().Err(err).Msg("Failed to stop pipeline container")
 	}
 
+	// Wait for the container to stop
+	statusCh, errCh := cli.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)
+	select {
+	case err := <-errCh:
+		if err != nil {
+			log.Error().Err(err).Msg("Error waiting for container to stop")
+		}
+	case <-statusCh:
+	}
+
 	if err := cli.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true}); err != nil {
 		log.Error().Err(err).Msg("Failed to remove pipeline container")
 	}
 }
-
 func main() {
 	// --- Initialization ---
 	logLevelStr := os.Getenv("LOG_LEVEL")

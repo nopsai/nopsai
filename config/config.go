@@ -35,6 +35,7 @@ type Config struct {
 	DockerNetworkName         string `yaml:"docker_network_name"`
 	AutoRemovalAgentContainer bool   `yaml:"auto_removal_agent_container"`
 	DefaultPipelineTimeout    string `yaml:"default_pipeline_timeout"`
+	AgentImage                string `yaml:"agent_image"`
 }
 
 func LoadConfig(path string) (*Config, error) {
