@@ -1,5 +1,7 @@
 name: Second Test Pipeline
 description: A sample pipeline.
+llm_content_sharing: true   # by default it's true
+llm_output_sharing: true    # by default it's true
 container_image: "pipeline-image:latest"
 working_directory: "/tmp/test"
 timeout: "20m"
@@ -15,6 +17,7 @@ steps:
 
   - name: waiting-time
     goal: wait for 2 seconds
+    llm_output_sharing: false
     depends_on:
     - git-clone
 
@@ -37,6 +40,7 @@ steps:
 
   - name: dockerfile-content
     goal: "show dockerfile content"
+    llm_output_sharing: false
     depends_on:
     - dockerfile-modification
 
