@@ -13,6 +13,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"nopsai/config"
@@ -28,6 +29,7 @@ type GitBotApp struct {
 	ghClient          *github.Client
 	webhookSecret     string
 	checkRunSummaries map[int64]string
+	summaryLock       sync.Mutex // Added mutex
 }
 
 // StepStatusUpdate is the structure nopsai uses to report per-step progress.
@@ -63,7 +65,7 @@ func (a *GitBotApp) verifySignature(r *http.Request, body []byte) bool {
 	return hmac.Equal([]byte(actualSignature), []byte(expectedMAC))
 }
 
-func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineName string) int64 {
+func (a *GitBotApp) createCheckRun(owner, repo, ref string) int64 {
 	opts := github.CreateCheckRunOptions{
 		Name:    "Nopsai CI",
 		HeadSHA: ref,
@@ -79,7 +81,7 @@ func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineName string) int64 
 		Name:   "Nopsai CI",
 		Status: github.String("in_progress"),
 		Output: &github.CheckRunOutput{
-			Title:   github.String(pipelineName),
+			Title:   github.String(repo),
 			Summary: github.String("Pipeline is starting..."),
 		},
 	}
@@ -173,7 +175,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// --- Common logic for all trigger events ---
-	checkRunID := a.createCheckRun(owner, repo, commitSHA, repo)
+	checkRunID := a.createCheckRun(owner, repo, commitSHA)
 	delete(a.checkRunSummaries, checkRunID)
 	if checkRunID == 0 {
 		http.Error(w, "Failed to create check run", http.StatusInternalServerError)
@@ -184,9 +186,9 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	overrideURL := fmt.Sprintf("%s/v1/overrides/%s/%s", a.cfg.GitBotNopsaiAPIURL, owner, repo)
 	resp, err := http.Get(overrideURL)
 	if err == nil && resp.StatusCode == http.StatusOK {
+		defer resp.Body.Close() // This ensures the body is closed
 		pipelineYAML, _ = io.ReadAll(resp.Body)
 		log.Info().Str("repo", repoName).Msg("Found and using pipeline override from nopsai service.")
-		resp.Body.Close()
 	} else {
 		log.Info().Str("repo", repoName).Msg("No override found, fetching .nopsai.yaml from repository.")
 		fileContent, _, _, err := a.ghClient.Repositories.GetContents(context.Background(), owner, repo, ".nopsai.yaml", &github.RepositoryContentGetOptions{Ref: commitSHA})
@@ -216,7 +218,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	req.Header.Set("X-Git-Commit-SHA", commitSHA)
 	req.Header.Set("X-Git-Check-Run-ID", strconv.FormatInt(checkRunID, 10))
 
-	// Add push-event-specific headers only if they exist
+	// Add event-specific headers
 	if pushEvent, ok := payload.(*github.PushEvent); ok {
 		if pushEvent.Repo.CloneURL != nil {
 			req.Header.Set("X-Git-Clone-URL", *pushEvent.Repo.CloneURL)
@@ -254,6 +256,26 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 				req.Header.Set("X-Git-Pusher-Email", *pusher.Email)
 			}
 		}
+	} else if checkRunEvent, ok := payload.(*github.CheckRunEvent); ok {
+		if checkRunEvent.Repo.CloneURL != nil {
+			req.Header.Set("X-Git-Clone-URL", *checkRunEvent.Repo.CloneURL)
+		}
+		if checkRunEvent.Repo.SSHURL != nil {
+			req.Header.Set("X-Git-SSH-URL", *checkRunEvent.Repo.SSHURL)
+		}
+		if checkRunEvent.CheckRun.HeadSHA != nil {
+			req.Header.Set("X-Git-Ref", *checkRunEvent.CheckRun.HeadSHA)
+		}
+	} else if checkSuiteEvent, ok := payload.(*github.CheckSuiteEvent); ok {
+		if checkSuiteEvent.Repo.CloneURL != nil {
+			req.Header.Set("X-Git-Clone-URL", *checkSuiteEvent.Repo.CloneURL)
+		}
+		if checkSuiteEvent.Repo.SSHURL != nil {
+			req.Header.Set("X-Git-SSH-URL", *checkSuiteEvent.Repo.SSHURL)
+		}
+		if checkSuiteEvent.CheckSuite.HeadSHA != nil {
+			req.Header.Set("X-Git-Ref", *checkSuiteEvent.CheckSuite.HeadSHA)
+		}
 	}
 
 	client := &http.Client{}
@@ -281,6 +303,9 @@ func (a *GitBotApp) handleStepStatusUpdate(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	log.Info().Int64("check_run_id", update.CheckRunID).Str("step", update.StepName).Msg("Received step status update")
+
+	a.summaryLock.Lock()         // Lock the mutex
+	defer a.summaryLock.Unlock() // Ensure the mutex is unlocked at the end
 
 	// Create a more readable summary line with an emoji
 	summaryLine := ""
@@ -329,6 +354,9 @@ func (a *GitBotApp) concludeCheckRun(owner string, repo string, checkRunID int64
 		log.Warn().Msg("Invalid checkRunID (0), skipping conclusion.")
 		return
 	}
+
+	a.summaryLock.Lock()         // Lock the mutex
+	defer a.summaryLock.Unlock() // Ensure the mutex is unlocked at the end
 
 	// Create a final title based on the conclusion
 	finalTitle := "Nopsai CI - " + strings.ToUpper(string(conclusion[0])) + conclusion[1:]

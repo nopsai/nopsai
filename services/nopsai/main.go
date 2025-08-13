@@ -66,6 +66,29 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if pipeline.Name == "" {
+		http.Error(w, "Pipeline validation failed: 'name' is a required field.", http.StatusBadRequest)
+		return
+	}
+	if pipeline.ContainerImage == "" {
+		http.Error(w, "Pipeline validation failed: 'container_image' is a required field.", http.StatusBadRequest)
+		return
+	}
+	if len(pipeline.Steps) == 0 {
+		http.Error(w, "Pipeline validation failed: at least one step is required.", http.StatusBadRequest)
+		return
+	}
+	for i, step := range pipeline.Steps {
+		if step.Name == "" {
+			http.Error(w, fmt.Sprintf("Pipeline validation failed: 'name' is a required field for step %d.", i+1), http.StatusBadRequest)
+			return
+		}
+		if step.Goal == "" {
+			http.Error(w, fmt.Sprintf("Pipeline validation failed: 'goal' is a required field for step '%s'.", step.Name), http.StatusBadRequest)
+			return
+		}
+	}
+
 	runID := uuid.New()
 	log.Info().Str("run_id", runID.String()).Msgf("Received pipeline: %s", pipeline.Name)
 
@@ -258,7 +281,13 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	var timeoutDuration time.Duration
 	if timeoutAt.Valid {
 		var originalCreatedAt time.Time
-		a.db.QueryRow(context.Background(), "SELECT created_at FROM runs WHERE run_id = $1", originalRunID).Scan(&originalCreatedAt)
+		// This is the corrected block
+		err := a.db.QueryRow(context.Background(), "SELECT created_at FROM runs WHERE run_id = $1", originalRunID).Scan(&originalCreatedAt)
+		if err != nil {
+			log.Error().Err(err).Str("original_run_id", originalRunID).Msg("Failed to get original run creation time for timeout calculation")
+			http.Error(w, "Could not calculate rerun timeout", http.StatusInternalServerError)
+			return
+		}
 		originalDuration := timeoutAt.Time.Sub(originalCreatedAt)
 		timeoutAt.Time = time.Now().Add(originalDuration)
 		timeoutDuration = originalDuration
@@ -350,7 +379,7 @@ func (a *App) handleOverrideCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/x-yaml")
+	w.Header().Set("Content-Type", "application/x-yaml") // Add this line
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(pipelineDef))
 }
@@ -364,24 +393,15 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	}
 	defer cli.Close()
 
-	imageName := "nopsai-agent:latest"
-	imageFilters := filters.NewArgs(filters.Arg("reference", imageName))
-	images, err := cli.ImageList(ctx, image.ListOptions{Filters: imageFilters})
-	if err != nil {
-		log.Error().Err(err).Str("run_id", runID).Msgf("Failed to list images to check for %s", imageName)
-		return
+	agentImageName := a.cfg.AgentImage
+	if agentImageName == "" {
+		agentImageName = "nopsai-agent:latest"
 	}
-	if len(images) == 0 {
-		log.Info().Msgf("Image %s not found locally, pulling...", imageName)
-		out, err := cli.ImagePull(ctx, imageName, image.PullOptions{})
-		if err != nil {
-			log.Error().Err(err).Str("run_id", runID).Msgf("Failed to pull image %s", imageName)
-			return
-		}
-		io.ReadAll(out)
-		out.Close()
-	} else {
-		log.Info().Msgf("Image %s found locally.", imageName)
+
+	// Use the new helper function
+	if err := ensureImageExists(ctx, cli, agentImageName); err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to ensure agent image exists")
+		return
 	}
 
 	sharedVolumeName := fmt.Sprintf("vol-%s", runID)
@@ -421,7 +441,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	}
 
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
-		Image: imageName,
+		Image: agentImageName,
 		Env:   envVars,
 	}, hostConfig, &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
@@ -527,6 +547,28 @@ func (a *App) notifyGitBotOfStepStatus(runID, stepName, stepStatus string) {
 	if resp.StatusCode != http.StatusOK {
 		log.Error().Int("status_code", resp.StatusCode).Msg("Received non-OK status from git-bot for step update")
 	}
+}
+
+func ensureImageExists(ctx context.Context, cli *client.Client, imageName string) error {
+	imageFilters := filters.NewArgs(filters.Arg("reference", imageName))
+	images, err := cli.ImageList(ctx, image.ListOptions{Filters: imageFilters})
+	if err != nil {
+		return fmt.Errorf("failed to list images to check for %s: %w", imageName, err)
+	}
+
+	if len(images) == 0 {
+		log.Info().Msgf("Image %s not found locally, pulling...", imageName)
+		out, err := cli.ImagePull(ctx, imageName, image.PullOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to pull image %s: %w", imageName, err)
+		}
+		defer out.Close()
+		// Read the output to ensure the pull is complete
+		io.Copy(io.Discard, out)
+	} else {
+		log.Info().Msgf("Image %s found locally.", imageName)
+	}
+	return nil
 }
 
 func main() {
