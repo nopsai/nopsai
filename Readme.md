@@ -11,129 +11,63 @@ curl -X POST -H "Content-Type: application/x-yaml" --data-binary "@sample-pipeli
 
 
 
-Nopsai: An LLM-Powered CI/CD System
-Nopsai is a modern, microservice-based CI/CD system that leverages the power of Large Language Models (LLMs) to orchestrate and execute complex pipelines. Instead of relying on rigid, pre-defined scripts, Nopsai uses high-level, natural language "goals" which are translated into executable commands by an AI agent at runtime. This approach provides a flexible and powerful automation platform.
+Nopsai: The LLM-Powered CI/CD System
+Nopsai is a modern, microservice-based CI/CD system that leverages the power of Large Language Models (LLMs) to orchestrate and execute complex pipelines. Instead of relying on rigid, pre-defined scripts, Nopsai uses high-level, natural language "goals" which are translated into executable commands by an AI agent at runtime. This approach provides a flexible, intelligent, and powerful automation platform.
 
-🏛️ Architecture: Agent as a Service
-The core of Nopsai is a powerful "Agent as a Service" model. For each pipeline run, a dedicated, ephemeral agent service is launched to act as the self-contained orchestrator for that specific job. This design makes the system highly scalable, resilient, and decoupled.
+Key Features
+Natural Language Pipelines: Define your pipeline steps using simple, human-readable goals (e.g., "build the docker image and push it to the registry").
 
-Architectural Flow
-Initiation: A user submits a pipeline YAML to the nopsai service's API endpoint (POST /v1/run).
+Per-Step Container Images: Each step can run in its own dedicated container image, allowing you to use the perfect environment and toolset for every task.
 
-Launch: The nopsai service creates the initial run and step records in the PostgreSQL database. It then uses the Docker API to launch a new, dedicated agent container for that specific run, injecting all necessary configuration via environment variables.
+Parallel Step Execution: Independent steps in your pipeline are automatically executed in parallel, dramatically reducing your build times.
 
-Provisioning: The agent starts, connects to the Docker Host, and provisions the necessary resources for the pipeline, including a shared Docker volume and the pipeline's execution container.
+Persistent & Hybrid Execution: A main pipeline container is kept running for speed, while custom-image steps are executed in their own dedicated containers, giving you the best of both worlds.
 
-Orchestration Loop:
+Configurable GitHub UI: Choose between a clean, flat list or a detailed dependency tree view for your pipeline status right in the GitHub interface.
 
-The agent holds the pipeline state in memory and determines the next step based on dependencies.
+Extensible & Microservice-Based: The system is built on a decoupled, microservice architecture, making it resilient, scalable, and easy to extend.
 
-It sends a gRPC request with the full context (goal, history, files, environment variables) to the llm-agent.
+Architecture
+The core of Nopsai is a powerful "Agent as a Service" model. For each pipeline run, a dedicated, ephemeral agent service is launched to act as the self-contained orchestrator for that specific job. This design makes the system highly scalable and resilient.
 
-The llm-agent returns a specific, structured Action (e.g., EXECUTE_COMMAND, REPLACE_FILE).
+Service Roles
+The system is composed of four core microservices, each with a distinct and focused responsibility:
 
-The agent executes this Action inside the pipeline container using docker exec.
+Service	Description
+nopsai	The main API gateway and database service. It receives pipeline definitions, manages the lifecycle of agent containers, and records pipeline status.
+agent	An ephemeral service that manages a single pipeline run. It communicates with the llm-agent to get instructions and executes them in the appropriate container.
+llm-agent	An AI-powered service that translates the high-level goals from the agent into specific, executable actions using the Gemini LLM.
+git-bot	Integrates with GitHub to listen for webhooks, trigger pipeline runs, and update the status of check runs with a professional tree or flat view.
 
-Status Reporting: After each step, the agent sends a stateless status update via an HTTP POST request to the nopsai service, which records the result in the database.
+Export to Sheets
+Getting Started
+Prerequisites
+Docker and Docker Compose
 
-Cleanup: When the pipeline finishes (succeeds, fails, or times out), the agent is responsible for stopping and removing the pipeline container before it terminates itself. The nopsai service then cleans up the agent's volume and, if configured, the agent container itself.
+A Gemini API Key
 
-🛠️ Service Roles & Integrations
-The system is composed of four core microservices, each with a distinct and focused responsibility.
+A GitHub App set up for the git-bot integration
 
-nopsai (API Gateway & Database Service)
-The nopsai service is the single, authoritative entry point to the system and the sole guardian of the database.
+Installation
+Clone the repository:
 
-Role: API Gateway & Database Proxy
+Bash
 
-Key Responsibilities:
+git clone https://github.com/hosein-yousefii/pre-nopsai.git
+cd pre-nopsai
+Configure your environment:
 
-Receives pipeline definitions via an HTTP endpoint (POST /v1/run).
+Copy the .env.example file to .env and fill in the required values, including your GEMINI_API_KEY, database credentials, and GitHub App details.
 
-Initializes run and step records in the PostgreSQL database.
+Run the application:
 
-Launches and manages the lifecycle of agent containers using the Docker Host API.
+Bash
 
-Receives step status updates from agents to record in the database.
+docker-compose up --build
+This will build the container images and start all the necessary services.
 
-Integrations:
-
-Receives requests from the User or the git-bot.
-
-Connects to the PostgreSQL Database to manage state.
-
-Interacts with the Docker Host to manage container lifecycles.
-
-agent (The Run Orchestrator)
-The agent is an ephemeral, single-purpose service that manages one pipeline run from start to finish. It is the "brain" of a live run.
-
-Role: Stateful Orchestrator for a Single Run
-
-Key Responsibilities:
-
-On startup, it provisions all necessary resources: a shared Docker volume and the pipeline container.
-
-Holds the execution history and a live view of the file system in its memory.
-
-Manages the step-by-step execution loop by calling the llm-agent for instructions.
-
-Uses docker exec to run commands inside its sibling pipeline container.
-
-Enforces the pipeline's configured timeout.
-
-Integrations:
-
-Is launched by the nopsai service.
-
-Sends gRPC requests to the llm-agent to get actions.
-
-Sends HTTP status updates back to the nopsai service's API.
-
-Interacts with the Docker Host to manage its specific pipeline container.
-
-llm-agent (AI Specialist)
-The llm-agent is a pure, stateless function that translates a high-level goal into a concrete, executable action.
-
-Role: AI-Powered Action Generator
-
-Key Responsibilities:
-
-Receives a self-contained context bundle from an agent via gRPC.
-
-Builds a detailed prompt and queries the configured Gemini LLM.
-
-Returns a single, structured Action (e.g., EXECUTE_COMMAND) back to the agent.
-
-Integrations:
-
-Only receives gRPC requests from agent containers. It has no knowledge of the wider system and does not connect to the database or Docker.
-
-git-bot (Git Integration Service)
-The git-bot service acts as a bridge between GitHub events and the Nopsai system.
-
-Role: GitHub Webhook Processor and Status Reporter
-
-Key Responsibilities:
-
-Listens for incoming webhooks from GitHub (e.g., push, check_run, check_suite).
-
-Validates webhook signatures for security.
-
-Fetches the .nopsai.yaml pipeline file from the repository.
-
-Initiates a pipeline run by making an API call to the nopsai service.
-
-Receives status updates from the nopsai service and updates the corresponding GitHub Check Run in the GitHub UI.
-
-Integrations:
-
-Receives webhooks from GitHub.
-
-Makes API calls to the nopsai service to trigger runs.
-
-Makes API calls to the GitHub API to create and update Check Runs.
-
-🚀 How to Run a Pipeline
+How to Use
+Triggering a Pipeline via API
 To start a pipeline, submit the YAML definition to the nopsai service's /v1/run endpoint.
 
 Bash
@@ -142,7 +76,48 @@ curl -X POST \
   -H "Content-Type: application/x-yaml" \
   --data-binary "@path/to/your/pipeline.yaml" \
   http://localhost:8080/v1/run
+Triggering a Pipeline via GitHub
+You can also trigger a pipeline by pushing to a configured GitHub repository. The git-bot service listens for incoming webhooks and will automatically start a pipeline run. For more details on setting up the webhook, see doc/triggering.md.
 
+Pipeline Configuration
+Pipelines are defined in a .nopsai.yaml file in the root of your repository. Here is a full example:
+
+YAML
+
+name: My-Awesome-Pipeline
+description: An example pipeline with all features.
+container_image: "pipeline-image:latest" # Default image for all steps
+display_options:
+  github_view: "tree" # Options: "tree" or "flat"
+
+steps:
+  - name: build
+    script: echo "Building the application..."
+
+  - name: test
+    image: "golang:1.21" # Custom image for this step
+    script: echo "Running tests in a Go environment..."
+    depends_on:
+      - build
+
+  - name: security-scan
+    goal: "run a security scan on the source code"
+    depends_on:
+      - build
+
+  - name: deploy
+    goal: "deploy the application to production"
+    depends_on:
+      - test
+      - security-scan
+Future Plans
+The most impactful change to elevate the architecture is to move from a synchronous, API-call-based system to an asynchronous, event-driven architecture. This will be achieved by introducing a message bus (like RabbitMQ, NATS, or Kafka) as the central nervous system for all services. This will improve resilience, scalability, and further decouple the microservices.
+
+Contributing
+Contributions are welcome! Please feel free to submit a pull request or open an issue to discuss your ideas.
+
+License
+This project is licensed under the MIT License. See the LICENSE file for details.
 
 
 
