@@ -243,6 +243,14 @@ func main() {
 	sharedVolumeName := os.Getenv("SHARED_VOLUME_NAME")
 	pipelineTimeoutStr := os.Getenv("PIPELINE_TIMEOUT")
 	dockerNetworkName := os.Getenv("DOCKER_NETWORK_NAME")
+	llmAgentTimeoutStr := os.Getenv("LLM_AGENT_TIMEOUT")
+	if llmAgentTimeoutStr == "" {
+		llmAgentTimeoutStr = "2m" // Default to 2 minutes
+	}
+	llmAgentTimeout, err := time.ParseDuration(llmAgentTimeoutStr)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Invalid LLM agent timeout duration")
+	}
 
 	if runID == "" || llmAgentAddress == "" || pipelineDefBase64 == "" || pipelineName == "" || sharedVolumeName == "" {
 		log.Fatal().Msg("Missing one or more required environment variables.")
@@ -399,7 +407,7 @@ func main() {
 				Environment:      pipeline.Environment,
 			}
 
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			ctx, cancel := context.WithTimeout(context.Background(), llmAgentTimeout)
 			action, err = llmClient.GetAction(ctx, req)
 			cancel()
 			if err != nil {

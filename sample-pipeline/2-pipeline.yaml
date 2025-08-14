@@ -14,32 +14,32 @@ steps:
   - name: waiting-time
     goal: wait for 2 seconds
     depends_on:
-    - git clone
+    - git-clone
 
   - name: List-envs
     goal: list envs
     depends_on:
-    - git clone
+    - git-clone
 
   - name: branch-versioning
     goal: "Change branch to nopsai-test and get the latest tag"
     depends_on:
-    - git clone
+    - git-clone
 
   - name: dockerfile-modification
     goal: "Modify Dockerfile and add copy statement to add docker-compose"
     depends_on:
-    - branch versioning
+    - branch-versioning
 
   - name: dockerfile-content
     goal: "show dockerfile content"
     depends_on:
-    - dockerfile modification
+    - dockerfile-modification
 
   - name: commit-hash
     goal: "what is the commit hash?"
     depends_on:
-    - branch versioning
+    - branch-versioning
 
   - name: failure
     goal: "fail the step"
@@ -48,10 +48,10 @@ steps:
   - name: build-docker
     goal: build docker image with repo name and 3 taga, latest,latest git tag and commit hash 
     depends_on:
-    - commit hash
-    - dockerfile modification
+    - commit-hash
+    - dockerfile-modification
 
   - name: report
     goal: "provide a report of the docker image and all tags"
     depends_on:
-    - build docker
+    - build-docker

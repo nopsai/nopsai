@@ -39,6 +39,7 @@ type Config struct {
 	AutoRemovalAgentContainer bool   `yaml:"auto_removal_agent_container" env:"AUTO_REMOVAL_AGENT_CONTAINER"`
 	DefaultPipelineTimeout    string `yaml:"default_pipeline_timeout" env:"DEFAULT_PIPELINE_TIMEOUT"`
 	AgentImage                string `yaml:"agent_image" env:"AGENT_IMAGE"`
+	LLMAgentTimeout           string `yaml:"llm_agent_timeout" env:"LLM_AGENT_TIMEOUT"`
 }
 
 func LoadConfig(path string) (*Config, error) {
