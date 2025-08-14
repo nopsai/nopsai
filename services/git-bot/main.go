@@ -239,16 +239,6 @@ func (a *GitBotApp) findPipelineForEvent(manifest models.Manifest, eventType, re
 		if eventType == "pull_request" {
 			return trigger.Path
 		}
-
-		// Handle create events (branches or tags)
-		if eventType == "create" {
-			// This logic assumes the ref from the event payload is sufficient
-			// to determine if it's a branch or tag being created.
-			// The `ref_type` field in the `create` event is key here.
-			// This is a simplified example; real implementation might need more context
-			// from the event payload to differentiate.
-			return trigger.Path
-		}
 	}
 	return ""
 }
@@ -277,6 +267,11 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 
 	switch event := payload.(type) {
 	case *github.PushEvent:
+		if event.GetAfter() == "0000000000000000000000000000000000000000" {
+			log.Info().Msg("Ignoring push event for branch deletion.")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		if event.Repo == nil || event.Repo.Owner == nil || event.Repo.Owner.Login == nil ||
 			event.Repo.Name == nil || event.Repo.FullName == nil || event.After == nil {
 			log.Warn().Msg("Received push event with missing essential repository, owner, or commit SHA. Ignoring.")
@@ -312,19 +307,9 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		ref = *event.PullRequest.Head.Ref
 		log.Info().Str("repo", repoName).Str("commit", commitSHA).Msg("Processing pull_request event")
 	case *github.CreateEvent:
-		eventType = "create" // Normalize event type
-		if event.Repo == nil || event.Repo.Owner == nil || event.Repo.Owner.Login == nil ||
-			event.Repo.Name == nil || event.Repo.FullName == nil || event.Ref == nil {
-			log.Warn().Msg("Received create event with missing essential data. Ignoring.")
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		repoName = *event.Repo.FullName
-		owner = *event.Repo.Owner.Login
-		repo = *event.Repo.Name
-		ref = *event.Ref
-		commitSHA = ""
-		log.Info().Str("repo", repoName).Str("ref", ref).Msg("Processing create event")
+		log.Info().Msg("Ignoring 'create' event as per configuration.")
+		w.WriteHeader(http.StatusOK)
+		return
 	case *github.CheckRunEvent:
 		if event.GetAction() == "rerequested" {
 			if event.Repo == nil || event.Repo.Owner == nil || event.Repo.Owner.Login == nil ||
