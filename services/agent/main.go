@@ -243,7 +243,8 @@ func ensureImageExists(ctx context.Context, cli *client.Client, imageName string
 	return nil
 }
 
-func main() {
+// run executes the main agent logic and returns an exit code.
+func run() int {
 	// --- Initialization ---
 	logLevelStr := os.Getenv("LOG_LEVEL")
 	if logLevelStr == "" {
@@ -274,20 +275,24 @@ func main() {
 	}
 	llmAgentTimeout, err := time.ParseDuration(llmAgentTimeoutStr)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Invalid LLM agent timeout duration")
+		log.Error().Err(err).Msg("Invalid LLM agent timeout duration")
+		return 1
 	}
 
 	if runID == "" || llmAgentAddress == "" || pipelineDefBase64 == "" || pipelineName == "" || sharedVolumeName == "" {
-		log.Fatal().Msg("Missing one or more required environment variables.")
+		log.Error().Msg("Missing one or more required environment variables.")
+		return 1
 	}
 
 	pipelineDefBytes, err := base64.StdEncoding.DecodeString(pipelineDefBase64)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to decode pipeline definition")
+		log.Error().Err(err).Msg("Failed to decode pipeline definition")
+		return 1
 	}
 	var pipeline models.Pipeline
 	if err := yaml.Unmarshal(pipelineDefBytes, &pipeline); err != nil {
-		log.Fatal().Err(err).Msg("Failed to unmarshal pipeline definition")
+		log.Error().Err(err).Msg("Failed to unmarshal pipeline definition")
+		return 1
 	}
 
 	log.Info().Str("run_id", runID).Str("pipeline", pipeline.Name).Msgf("Agent starting, connecting to LLM Agent at %s", llmAgentAddress)
@@ -302,35 +307,45 @@ func main() {
 		time.Sleep(2 * time.Second)
 	}
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to connect to LLM agent after multiple retries")
+		log.Error().Err(err).Msg("Failed to connect to LLM agent after multiple retries")
+		return 1
 	}
 	defer conn.Close()
 	llmClient := proto.NewLLMServiceClient(conn)
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create Docker client")
+		log.Error().Err(err).Msg("Failed to create Docker client")
+		return 1
 	}
 	defer cli.Close()
 
+	var timeoutCancel context.CancelFunc
 	if pipelineTimeoutStr != "" {
 		timeout, err := time.ParseDuration(pipelineTimeoutStr)
 		if err != nil {
 			log.Error().Err(err).Msg("Invalid pipeline timeout duration")
 		} else {
-			log.Info().Msgf("Pipeline timeout is set to: %s", timeout)
-			time.AfterFunc(timeout, func() {
-				log.Error().Msg("Pipeline execution timed out. Cleaning up and exiting.")
-				updateRunStatus(runID, "failed")
-				os.Exit(1)
-			})
+			var ctx context.Context
+			ctx, timeoutCancel = context.WithTimeout(context.Background(), timeout)
+			defer timeoutCancel()
+
+			go func() {
+				<-ctx.Done()
+				if ctx.Err() == context.DeadlineExceeded {
+					log.Error().Msg("Pipeline execution timed out. Cleaning up and exiting.")
+					updateRunStatus(runID, "failed")
+					// We can't call os.Exit here, so we rely on the main function to do so
+				}
+			}()
 		}
 	}
 
 	// Create and start the main pipeline container
 	mainImageName := pipeline.ContainerImage
 	if err := ensureImageExists(context.Background(), cli, mainImageName); err != nil {
-		log.Fatal().Err(err).Msg("Failed to ensure main pipeline image exists")
+		log.Error().Err(err).Msg("Failed to ensure main pipeline image exists")
+		return 1
 	}
 
 	pipelineEnvVars := []string{}
@@ -355,21 +370,26 @@ func main() {
 		NetworkMode: container.NetworkMode(dockerNetworkName),
 	}, nil, nil, mainContainerName)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create main pipeline container")
-	}
-
-	if err := cli.ContainerStart(context.Background(), mainCont.ID, container.StartOptions{}); err != nil {
-		log.Fatal().Err(err).Msg("Failed to start main pipeline container")
+		log.Error().Err(err).Msg("Failed to create main pipeline container")
+		return 1
 	}
 	defer cleanup(cli, mainCont.ID)
 
+	if err := cli.ContainerStart(context.Background(), mainCont.ID, container.StartOptions{}); err != nil {
+		log.Error().Err(err).Msg("Failed to start main pipeline container")
+		return 1
+	}
+
 	history := new(strings.Builder)
 	completedSteps := make(map[string]bool)
+	pipelineFailed := false
 
 	for len(completedSteps) < len(pipeline.Steps) {
 		runnableSteps := getNextRunnableSteps(&pipeline, completedSteps)
 		if len(runnableSteps) == 0 {
-			log.Info().Str("pipeline", pipeline.Name).Msg("All steps completed successfully.")
+			if !pipelineFailed {
+				log.Info().Str("pipeline", pipeline.Name).Msg("All steps completed successfully.")
+			}
 			break
 		}
 
@@ -411,11 +431,15 @@ func main() {
 						NetworkMode: container.NetworkMode(dockerNetworkName),
 					}, nil, nil, stepContainerName)
 					if err != nil {
-						log.Fatal().Err(err).Msg("Failed to create pipeline step container")
+						log.Error().Err(err).Msg("Failed to create pipeline step container")
+						results <- StepResult{Name: step.Name, Success: false}
+						return
 					}
 
 					if err := cli.ContainerStart(context.Background(), cont.ID, container.StartOptions{}); err != nil {
-						log.Fatal().Err(err).Msg("Failed to start pipeline step container")
+						log.Error().Err(err).Msg("Failed to start pipeline step container")
+						results <- StepResult{Name: step.Name, Success: false}
+						return
 					}
 					stepContainerID = cont.ID
 					tempContainer = true
@@ -542,18 +566,27 @@ func main() {
 		wg.Wait()
 		close(results)
 
-		anyFailed := false
 		for result := range results {
 			if result.Success {
 				completedSteps[result.Name] = true
 			} else {
-				anyFailed = true
+				pipelineFailed = true
 			}
 		}
 
-		if anyFailed {
+		if pipelineFailed {
 			log.Error().Str("pipeline", pipelineName).Msg("One or more critical steps failed. Shutting down.")
-			os.Exit(1)
+			break // Exit the loop
 		}
 	}
+
+	if pipelineFailed {
+		return 1
+	}
+
+	return 0
+}
+
+func main() {
+	os.Exit(run())
 }
