@@ -14,8 +14,8 @@ steps:
   - name: Javab-test
     goal: "what did you write into previous file?"
     depends_on:
-    - Create File
+    - Create-File
   - name: working-directory
     goal: what is the working directory
     depends_on:
-    - Javab test
+    - Javab-test

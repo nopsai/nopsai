@@ -64,6 +64,9 @@ func (a *GitBotApp) verifySignature(r *http.Request, body []byte) bool {
 }
 
 func (a *GitBotApp) createCheckRun(owner, repo, ref string) int64 {
+	a.summaryLock.Lock()
+	defer a.summaryLock.Unlock()
+
 	opts := github.CreateCheckRunOptions{
 		Name:    "Nopsai CI",
 		HeadSHA: ref,
