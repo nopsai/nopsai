@@ -51,6 +51,73 @@ func sanitizeInput(name string) string {
 	return nonAlphanumericRegex.ReplaceAllString(sanitized, "")
 }
 
+func (a *App) launchAndRunPipeline(
+	w http.ResponseWriter,
+	pipeline models.Pipeline,
+	pipelineDef []byte,
+	gitContext map[string]string,
+	timeoutDuration time.Duration,
+) {
+	runID := uuid.New()
+	log.Info().Str("run_id", runID.String()).Msgf("Received pipeline: %s", pipeline.Name)
+
+	var timeoutAt sql.NullTime
+	if timeoutDuration > 0 {
+		timeoutAt.Time = time.Now().Add(timeoutDuration)
+		timeoutAt.Valid = true
+	}
+
+	tx, err := a.db.Begin(context.Background())
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to start database transaction")
+		http.Error(w, "Failed to start database transaction", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(context.Background())
+
+	_, err = tx.Exec(context.Background(),
+		`INSERT INTO runs (run_id, pipeline_name, status, timeout_at, pipeline_definition,
+			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref,
+			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
+			git_commit_author_email, git_commit_author_username, git_pusher_name,
+			git_pusher_email, git_check_run_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+		runID, pipeline.Name, "pending", timeoutAt, string(pipelineDef),
+		gitContext["repo_owner"], gitContext["repo_name"], gitContext["clone_url"], gitContext["ssh_url"], gitContext["ref"],
+		gitContext["commit_sha"], gitContext["commit_url"], gitContext["commit_message"], gitContext["commit_author_name"],
+		gitContext["commit_author_email"], gitContext["commit_author_username"], gitContext["pusher_name"],
+		gitContext["pusher_email"], gitContext["check_run_id"],
+	)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to insert run record")
+		http.Error(w, "Failed to create run record", http.StatusInternalServerError)
+		return
+	}
+
+	for i, step := range pipeline.Steps {
+		_, err := tx.Exec(context.Background(),
+			"INSERT INTO steps (step_id, run_id, name, status, step_index) VALUES (gen_random_uuid(), $1, $2, 'pending', $3)",
+			runID, step.Name, i+1,
+		)
+		if err != nil {
+			log.Error().Err(err).Msgf("Failed to insert step %s", step.Name)
+			http.Error(w, "Failed to create step records", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if err := tx.Commit(context.Background()); err != nil {
+		log.Error().Err(err).Msg("Failed to commit transaction")
+		http.Error(w, "Failed to commit transaction", http.StatusInternalServerError)
+		return
+	}
+
+	go a.launchAgent(runID.String(), pipeline, pipelineDef, timeoutDuration, gitContext)
+
+	w.WriteHeader(http.StatusCreated)
+	w.Write([]byte("Pipeline run created successfully with ID: " + runID.String()))
+}
+
 func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
@@ -89,17 +156,11 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("Pipeline validation failed: 'name' is a required field for step %d.", i+1), http.StatusBadRequest)
 			return
 		}
-		// =================================================================
-		// == FIXED: Validation now checks for EITHER a goal OR a script. ==
-		// =================================================================
 		if step.Goal == "" && step.Script == "" {
 			http.Error(w, fmt.Sprintf("Pipeline validation failed: a 'goal' or 'script' is required for step '%s'.", step.Name), http.StatusBadRequest)
 			return
 		}
 	}
-
-	runID := uuid.New()
-	log.Info().Str("run_id", runID.String()).Msgf("Received pipeline: %s", pipeline.Name)
 
 	gitContext := map[string]string{
 		"repo_owner":             r.Header.Get("X-Git-Repo-Owner"),
@@ -117,14 +178,12 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		"pusher_email":           r.Header.Get("X-Git-Pusher-Email"),
 		"check_run_id":           r.Header.Get("X-Git-Check-Run-ID"),
 	}
-	checkRunID, _ := strconv.ParseInt(gitContext["check_run_id"], 10, 64)
 
 	timeoutStr := pipeline.Timeout
 	if timeoutStr == "" {
 		timeoutStr = a.cfg.DefaultPipelineTimeout
 	}
 
-	var timeoutAt sql.NullTime
 	var timeoutDuration time.Duration
 	if timeoutStr != "" {
 		duration, err := time.ParseDuration(timeoutStr)
@@ -133,63 +192,12 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid timeout duration format", http.StatusBadRequest)
 			return
 		}
-		timeoutAt.Time = time.Now().Add(duration)
-		timeoutAt.Valid = true
 		timeoutDuration = duration
 	}
 
-	tx, err := a.db.Begin(context.Background())
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to start database transaction")
-		http.Error(w, "Failed to start database transaction", http.StatusInternalServerError)
-		return
-	}
-	defer tx.Rollback(context.Background())
-
-	_, err = tx.Exec(context.Background(),
-		`INSERT INTO runs (run_id, pipeline_name, status, timeout_at, pipeline_definition, 
-			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref, 
-			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name, 
-			git_commit_author_email, git_commit_author_username, git_pusher_name, 
-			git_pusher_email, git_check_run_id) 
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
-		runID, pipeline.Name, "pending", timeoutAt, string(body),
-		gitContext["repo_owner"], gitContext["repo_name"], gitContext["clone_url"], gitContext["ssh_url"], gitContext["ref"],
-		gitContext["commit_sha"], gitContext["commit_url"], gitContext["commit_message"], gitContext["commit_author_name"],
-		gitContext["commit_author_email"], gitContext["commit_author_username"], gitContext["pusher_name"],
-		gitContext["pusher_email"], checkRunID,
-	)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to insert run record")
-		http.Error(w, "Failed to create run record", http.StatusInternalServerError)
-		return
-	}
-
-	for i, step := range pipeline.Steps {
-		_, err := tx.Exec(context.Background(),
-			"INSERT INTO steps (step_id, run_id, name, status, step_index) VALUES (gen_random_uuid(), $1, $2, 'pending', $3)",
-			runID, step.Name, i+1,
-		)
-		if err != nil {
-			log.Error().Err(err).Msgf("Failed to insert step %s", step.Name)
-			http.Error(w, "Failed to create step records", http.StatusInternalServerError)
-			return
-		}
-	}
-
-	if err := tx.Commit(context.Background()); err != nil {
-		log.Error().Err(err).Msg("Failed to commit transaction")
-		http.Error(w, "Failed to commit transaction", http.StatusInternalServerError)
-		return
-	}
-
-	go a.launchAgent(runID.String(), pipeline, body, timeoutDuration, gitContext)
-
-	w.WriteHeader(http.StatusCreated)
-	w.Write([]byte("Pipeline run created successfully with ID: " + runID.String()))
+	a.launchAndRunPipeline(w, pipeline, body, gitContext, timeoutDuration)
 }
 
-// ... (rest of the file is unchanged)
 func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
@@ -202,11 +210,11 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	var gitContext = make(map[string]string)
 	var timeoutAt sql.NullTime
 
-	query := `SELECT 
+	query := `SELECT
 				pipeline_definition, pipeline_name, timeout_at,
-				git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref, 
-				git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name, 
-				git_commit_author_email, git_commit_author_username, git_pusher_name, 
+				git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref,
+				git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
+				git_commit_author_email, git_commit_author_username, git_pusher_name,
 				git_pusher_email, git_check_run_id
 			  FROM runs WHERE run_id = $1`
 
@@ -280,9 +288,6 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newRunID := uuid.New()
-	log.Info().Str("new_run_id", newRunID.String()).Str("original_run_id", originalRunID).Msg("Rerunning pipeline")
-
 	var timeoutDuration time.Duration
 	if timeoutAt.Valid {
 		var originalCreatedAt time.Time
@@ -293,55 +298,11 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		originalDuration := timeoutAt.Time.Sub(originalCreatedAt)
-		timeoutAt.Time = time.Now().Add(originalDuration)
 		timeoutDuration = originalDuration
 	}
 
-	tx, err := a.db.Begin(context.Background())
-	if err != nil {
-		http.Error(w, "Failed to start database transaction", http.StatusInternalServerError)
-		return
-	}
-	defer tx.Rollback(context.Background())
-
-	_, err = tx.Exec(context.Background(),
-		`INSERT INTO runs (run_id, pipeline_name, status, timeout_at, pipeline_definition, 
-			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref, 
-			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name, 
-			git_commit_author_email, git_commit_author_username, git_pusher_name, 
-			git_pusher_email, git_check_run_id) 
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
-		newRunID, pipelineName, "pending", timeoutAt, pipelineDef,
-		repoOwner, repoName, cloneURL, sshURL, ref, commitSHA, commitURL, commitMessage,
-		commitAuthorName, commitAuthorEmail, commitAuthorUsername, pusherName, pusherEmail, checkRunID,
-	)
-	if err != nil {
-		http.Error(w, "Failed to create new run record for rerun", http.StatusInternalServerError)
-		return
-	}
-
-	for i, step := range pipeline.Steps {
-		_, err := tx.Exec(context.Background(),
-			"INSERT INTO steps (step_id, run_id, name, status, step_index) VALUES (gen_random_uuid(), $1, $2, 'pending', $3)",
-			newRunID, step.Name, i+1,
-		)
-		if err != nil {
-			http.Error(w, "Failed to create step records for rerun", http.StatusInternalServerError)
-			return
-		}
-	}
-
-	if err := tx.Commit(context.Background()); err != nil {
-		http.Error(w, "Failed to commit transaction for rerun", http.StatusInternalServerError)
-		return
-	}
-
-	go a.launchAgent(newRunID.String(), pipeline, []byte(pipelineDef.String), timeoutDuration, gitContext)
-
-	w.WriteHeader(http.StatusAccepted)
-	w.Write([]byte("Pipeline rerun initiated with new ID: " + newRunID.String()))
+	a.launchAndRunPipeline(w, pipeline, []byte(pipelineDef.String), gitContext, timeoutDuration)
 }
-
 func (a *App) handleStepUpdate(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("runID")
 	stepName := r.PathValue("stepName")
