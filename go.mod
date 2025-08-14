@@ -6,7 +6,7 @@ toolchain go1.23.1
 
 require (
 	github.com/bradleyfalzon/ghinstallation/v2 v2.16.0
-	github.com/docker/docker v27.1.1+incompatible
+	github.com/docker/docker v28.0.0+incompatible
 	github.com/google/go-github/v53 v53.2.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.6.0
