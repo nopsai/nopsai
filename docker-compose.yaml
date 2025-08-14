@@ -42,8 +42,8 @@ services:
         condition: service_healthy
       base:
         condition: service_completed_successfully
-    environment:
-      - CONFIG_PATH=/app/config.yml
+    env_file:
+      - .env
     networks:
       - nopsai-net
 
@@ -61,8 +61,8 @@ services:
         condition: service_healthy
       base:
         condition: service_completed_successfully
-    environment:
-      - CONFIG_PATH=/app/config.yml
+    env_file:
+      - .env
     networks:
       - nopsai-net
     volumes:
@@ -80,12 +80,10 @@ services:
     depends_on:
       - db
       - nopsai
-    environment:
-      - CONFIG_PATH=/app/config.yml
+    env_file:
+      - .env
     networks:
       - nopsai-net
-    volumes:
-      - ./private-key.pem:/app/private-key.pem
 
 
       
@@ -107,3 +105,12 @@ services:
       dockerfile: Dockerfile
     entrypoint: 'true'
 
+  pipeline:
+    container_name: pipeline-image
+    image: pipeline-image
+    build:
+      context: .
+      dockerfile: container/Dockerfile.pipeline
+    depends_on:
+      - base
+    entrypoint: 'true'

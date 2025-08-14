@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"reflect"
+	"strconv"
 
 	"gopkg.in/yaml.v3"
 )
@@ -11,7 +12,7 @@ import (
 type Config struct {
 	DatabaseURL string `yaml:"database_url" env:"DATABASE_URL"`
 	LogLevel    string `yaml:"log_level" env:"LOG_LEVEL"`
-	LogFormat   string `yaml:"log_format" env:"LOG_FORMAT"` // "console" or "json"
+	LogFormat   string `yaml:"log_format" env:"LOG_FORMAT"`
 
 	GeminiAPIKey string `yaml:"gemini_api_key" env:"GEMINI_API_KEY"`
 	GeminiModel  string `yaml:"gemini_model" env:"GEMINI_MODEL"`
@@ -31,7 +32,8 @@ type Config struct {
 	GitHubAppID          string `yaml:"github_app_id" env:"GITHUB_APP_ID"`
 	GitHubInstallID      string `yaml:"github_installation_id" env:"GITHUB_INSTALLATION_ID"`
 	GitHubPrivateKeyPath string `yaml:"github_private_key_path" env:"GITHUB_PRIVATE_KEY_PATH"`
-	NopsaiGitBotAPIURL   string `yaml:"nopsai_git_bot_api_url" env:"NOPSAI_GIT_BOT_API_URL"` // New key
+	NopsaiGitBotAPIURL   string `yaml:"nopsai_git_bot_api_url" env:"NOPSAI_GIT_BOT_API_URL"`
+	GitHubPrivateKey     string `yaml:"github_private_key" env:"GITHUB_PRIVATE_KEY"`
 
 	DockerNetworkName         string `yaml:"docker_network_name" env:"DOCKER_NETWORK_NAME"`
 	AutoRemovalAgentContainer bool   `yaml:"auto_removal_agent_container" env:"AUTO_REMOVAL_AGENT_CONTAINER"`
@@ -60,9 +62,19 @@ func LoadConfig(path string) (*Config, error) {
 		if envTag == "" {
 			continue
 		}
+
 		envValue := os.Getenv(envTag)
 		if envValue != "" {
-			val.Field(i).SetString(envValue)
+			switch field.Type.Kind() {
+			case reflect.String:
+				val.Field(i).SetString(envValue)
+			case reflect.Bool:
+				// Parse the string to a boolean
+				boolVal, err := strconv.ParseBool(envValue)
+				if err == nil {
+					val.Field(i).SetBool(boolVal)
+				}
+			}
 		}
 	}
 

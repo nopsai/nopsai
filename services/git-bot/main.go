@@ -395,6 +395,15 @@ func main() {
 		log.Fatal().Err(err).Msgf("Failed to load config from %s", configPath)
 	}
 
+	if cfg.GitHubPrivateKey != "" {
+		correctedKey := strings.ReplaceAll(cfg.GitHubPrivateKey, "\n", "\n")
+
+		log.Info().Msgf("Writing GITHUB_PRIVATE_KEY to file: %s", cfg.GitHubPrivateKeyPath)
+		err := os.WriteFile(cfg.GitHubPrivateKeyPath, []byte(correctedKey), 0600)
+		if err != nil {
+			log.Fatal().Err(err).Msgf("Failed to write private key to file: %s", cfg.GitHubPrivateKeyPath)
+		}
+	}
 	logLevel, err := zerolog.ParseLevel(cfg.LogLevel)
 	if err != nil {
 		log.Warn().Msgf("Invalid log level '%s', defaulting to 'info'", cfg.LogLevel)
@@ -414,6 +423,11 @@ func main() {
 		log.Fatal().Err(err).Msg("Invalid GitHub Installation ID in configuration")
 	}
 
+	if cfg.GitHubPrivateKeyPath == "" {
+		log.Fatal().Msg("github_private_key_path must be set in the configuration.")
+	}
+
+	log.Info().Msgf("Loading GitHub private key from file path: %s", cfg.GitHubPrivateKeyPath)
 	privateKeyBytes, err := os.ReadFile(cfg.GitHubPrivateKeyPath)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("Failed to read private key from path: %s", cfg.GitHubPrivateKeyPath)
