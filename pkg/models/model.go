@@ -5,6 +5,7 @@ type Pipeline struct {
 	Name              string            `yaml:"name"`
 	Description       string            `yaml:"description"`
 	ContainerImage    string            `yaml:"container_image"`
+	DisplayOptions    DisplayOptions    `yaml:"display_options"`
 	WorkingDirectory  string            `yaml:"working_directory,omitempty"`
 	Environment       map[string]string `yaml:"environment"`
 	Steps             []PipelineStep    `yaml:"steps"`
@@ -13,9 +14,15 @@ type Pipeline struct {
 	LlmOutputSharing  *bool             `yaml:"llm_output_sharing,omitempty"`
 }
 
+// DisplayOptions defines how the pipeline progress is displayed in integrations like GitHub.
+type DisplayOptions struct {
+	GitHubView string `yaml:"github_view,omitempty"` // "tree" or "flat"
+}
+
 // PipelineStep is a single step within a pipeline definition.
 type PipelineStep struct {
 	Name             string   `yaml:"name"`
+	Image            string   `yaml:"image,omitempty"` // New field for per-step image
 	Goal             string   `yaml:"goal"`
 	Script           string   `yaml:"script,omitempty"`
 	DependsOn        []string `yaml:"depends_on,omitempty"` // Added for step dependencies
