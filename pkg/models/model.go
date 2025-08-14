@@ -22,10 +22,10 @@ type DisplayOptions struct {
 // PipelineStep is a single step within a pipeline definition.
 type PipelineStep struct {
 	Name             string   `yaml:"name"`
-	Image            string   `yaml:"image,omitempty"` // New field for per-step image
+	Image            string   `yaml:"image,omitempty"`
 	Goal             string   `yaml:"goal"`
 	Script           string   `yaml:"script,omitempty"`
-	DependsOn        []string `yaml:"depends_on,omitempty"` // Added for step dependencies
+	DependsOn        []string `yaml:"depends_on,omitempty"`
 	IgnoreFailure    bool     `yaml:"ignore_failure,omitempty"`
 	LlmOutputSharing *bool    `yaml:"llm_output_sharing,omitempty"`
 }
