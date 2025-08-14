@@ -17,11 +17,13 @@ steps:
 
   - name: waiting-time
     goal: wait for 2 seconds
+    image: ubuntu:latest
     llm_output_sharing: false
     depends_on:
     - git-clone
 
   - name: list-envs
+    image: alpine:latest
     script: |
       #!/bin/bash
       env
@@ -60,6 +62,7 @@ steps:
     - dockerfile-modification
 
   - name: report
-    goal: "provide a report of the docker image and all tags"
+    goal: "provide a report of all steps"
+    image: alpine:latest
     depends_on:
     - build-docker

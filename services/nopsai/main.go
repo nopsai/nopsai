@@ -466,21 +466,34 @@ func (a *App) notifyGitBotOfFinalStatus(status string, gitContext map[string]str
 	}
 }
 func (a *App) notifyGitBotOfStepStatus(runID, stepName, stepStatus string) {
-	var repoOwner, repoName, commitSHA sql.NullString
+	var repoOwner, repoName, commitSHA, pipelineDef sql.NullString
 	var checkRunID sql.NullInt64
 	var stepIndex, totalSteps int
 
 	query := `
 		SELECT
-			r.git_repo_owner, r.git_repo_name, r.git_commit_sha, r.git_check_run_id,
+			r.git_repo_owner, r.git_repo_name, r.git_commit_sha, r.git_check_run_id, r.pipeline_definition,
 			s.step_index, (SELECT COUNT(*) FROM steps WHERE run_id = r.run_id)
 		FROM runs r JOIN steps s ON r.run_id = s.run_id
 		WHERE r.run_id = $1 AND s.name = $2`
 
-	err := a.db.QueryRow(context.Background(), query, runID, stepName).Scan(&repoOwner, &repoName, &commitSHA, &checkRunID, &stepIndex, &totalSteps)
+	err := a.db.QueryRow(context.Background(), query, runID, stepName).Scan(&repoOwner, &repoName, &commitSHA, &checkRunID, &pipelineDef, &stepIndex, &totalSteps)
 	if err != nil || !repoOwner.Valid || !checkRunID.Valid {
 		log.Warn().Str("run_id", runID).Msg("Not a Git-triggered run with a check ID, skipping step status update.")
 		return
+	}
+
+	var pipeline models.Pipeline
+	var dependsOn []string
+	if pipelineDef.Valid {
+		if err := yaml.Unmarshal([]byte(pipelineDef.String), &pipeline); err == nil {
+			for _, step := range pipeline.Steps {
+				if step.Name == stepName {
+					dependsOn = step.DependsOn
+					break
+				}
+			}
+		}
 	}
 
 	gitBotURL := fmt.Sprintf("%s/v1/step/status", a.cfg.NopsaiGitBotAPIURL)
@@ -493,6 +506,7 @@ func (a *App) notifyGitBotOfStepStatus(runID, stepName, stepStatus string) {
 		"step_status":  stepStatus,
 		"step_index":   stepIndex,
 		"total_steps":  totalSteps,
+		"depends_on":   dependsOn,
 	}
 	body, _ := json.Marshal(payload)
 

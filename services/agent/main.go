@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"nopsai/pkg/models"
@@ -27,6 +28,11 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"gopkg.in/yaml.v3"
 )
+
+type StepResult struct {
+	Name    string
+	Success bool
+}
 
 // getDirectoryListing recursively walks the specified root directory.
 func getDirectoryListing(logger zerolog.Logger, root string) map[string]string {
@@ -104,7 +110,6 @@ func executeAction(cli *client.Client, containerID string, action *proto.Action)
 	}
 	defer resp.Close()
 
-	// This is the fix: Use StdCopy to demultiplex the stream.
 	var stdout, stderr bytes.Buffer
 	_, err = stdcopy.StdCopy(&stdout, &stderr, resp.Reader)
 	if err != nil {
@@ -119,9 +124,10 @@ func executeAction(cli *client.Client, containerID string, action *proto.Action)
 	return strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()), inspect.ExitCode
 }
 
-// getNextRunnableStep finds the next step to execute.
-func getNextRunnableStep(pipeline *models.Pipeline, completedSteps map[string]bool) *models.PipelineStep {
-	for _, step := range pipeline.Steps {
+func getNextRunnableSteps(pipeline *models.Pipeline, completedSteps map[string]bool) []*models.PipelineStep {
+	var runnableSteps []*models.PipelineStep
+	for i := range pipeline.Steps {
+		step := &pipeline.Steps[i]
 		if _, done := completedSteps[step.Name]; done {
 			continue
 		}
@@ -133,10 +139,10 @@ func getNextRunnableStep(pipeline *models.Pipeline, completedSteps map[string]bo
 			}
 		}
 		if dependenciesMet {
-			return &step
+			runnableSteps = append(runnableSteps, step)
 		}
 	}
-	return nil
+	return runnableSteps
 }
 
 // updateStepStatus reports the final status of a step back to the nopsai API.
@@ -166,7 +172,7 @@ func updateStepStatus(runID, stepName, status string, exitCode int) {
 	}
 }
 
-// updateRunStatus reports the final status of the entire run. NEW FUNCTION!
+// updateRunStatus reports the final status of the entire run.
 func updateRunStatus(runID, status string) {
 	nopsaiURL := os.Getenv("NOPSAI_API_URL")
 	if nopsaiURL == "" {
@@ -203,7 +209,6 @@ func cleanup(cli *client.Client, containerID string) {
 		log.Error().Err(err).Msg("Failed to stop pipeline container")
 	}
 
-	// Wait for the container to stop
 	statusCh, errCh := cli.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)
 	select {
 	case err := <-errCh:
@@ -216,6 +221,26 @@ func cleanup(cli *client.Client, containerID string) {
 	if err := cli.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true}); err != nil {
 		log.Error().Err(err).Msg("Failed to remove pipeline container")
 	}
+}
+func ensureImageExists(ctx context.Context, cli *client.Client, imageName string) error {
+	imageFilters := filters.NewArgs(filters.Arg("reference", imageName))
+	images, err := cli.ImageList(ctx, image.ListOptions{Filters: imageFilters})
+	if err != nil {
+		return fmt.Errorf("failed to list images to check for %s: %w", imageName, err)
+	}
+
+	if len(images) == 0 {
+		log.Info().Msgf("Image %s not found locally, pulling...", imageName)
+		out, err := cli.ImagePull(ctx, imageName, image.PullOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to pull image %s: %w", imageName, err)
+		}
+		defer out.Close()
+		io.Copy(io.Discard, out)
+	} else {
+		log.Info().Msgf("Image %s found locally.", imageName)
+	}
+	return nil
 }
 
 func main() {
@@ -267,7 +292,6 @@ func main() {
 
 	log.Info().Str("run_id", runID).Str("pipeline", pipeline.Name).Msgf("Agent starting, connecting to LLM Agent at %s", llmAgentAddress)
 
-	// --- gRPC and Docker Client Setup ---
 	var conn *grpc.ClientConn
 	for i := 0; i < 5; i++ {
 		conn, err = grpc.NewClient(llmAgentAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -283,30 +307,30 @@ func main() {
 	defer conn.Close()
 	llmClient := proto.NewLLMServiceClient(conn)
 
-	// Create a single, shared Docker client
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create Docker client")
 	}
 	defer cli.Close()
 
-	// --- Resource Provisioning ---
-	imageName := pipeline.ContainerImage
-	imageFilters := filters.NewArgs(filters.Arg("reference", imageName))
-	images, err := cli.ImageList(context.Background(), image.ListOptions{Filters: imageFilters})
-	if err != nil {
-		log.Fatal().Err(err).Msgf("Failed to list images to check for %s", imageName)
-	}
-	if len(images) == 0 {
-		log.Info().Msgf("Image %s not found locally, pulling...", imageName)
-		out, err := cli.ImagePull(context.Background(), imageName, image.PullOptions{})
+	if pipelineTimeoutStr != "" {
+		timeout, err := time.ParseDuration(pipelineTimeoutStr)
 		if err != nil {
-			log.Fatal().Err(err).Msg("Failed to pull pipeline container image")
+			log.Error().Err(err).Msg("Invalid pipeline timeout duration")
+		} else {
+			log.Info().Msgf("Pipeline timeout is set to: %s", timeout)
+			time.AfterFunc(timeout, func() {
+				log.Error().Msg("Pipeline execution timed out. Cleaning up and exiting.")
+				updateRunStatus(runID, "failed")
+				os.Exit(1)
+			})
 		}
-		io.ReadAll(out)
-		out.Close()
-	} else {
-		log.Info().Msgf("Image %s found locally.", imageName)
+	}
+
+	// Create and start the main pipeline container
+	mainImageName := pipeline.ContainerImage
+	if err := ensureImageExists(context.Background(), cli, mainImageName); err != nil {
+		log.Fatal().Err(err).Msg("Failed to ensure main pipeline image exists")
 	}
 
 	pipelineEnvVars := []string{}
@@ -318,171 +342,218 @@ func main() {
 			pipelineEnvVars = append(pipelineEnvVars, e)
 		}
 	}
-	pipelineContainerName := fmt.Sprintf("pipeline-%s", runID)
-	cont, err := cli.ContainerCreate(context.Background(), &container.Config{
-		Image:      pipeline.ContainerImage,
+
+	mainContainerName := fmt.Sprintf("pipeline-%s-main", runID)
+	mainCont, err := cli.ContainerCreate(context.Background(), &container.Config{
+		Image:      mainImageName,
 		WorkingDir: "/workspace",
 		Entrypoint: []string{"tail", "-f", "/dev/null"},
-		Env:        pipelineEnvVars, // Pass the combined environment variables here
+		Env:        pipelineEnvVars,
 		Tty:        false,
 	}, &container.HostConfig{
 		Binds:       []string{fmt.Sprintf("%s:/workspace", sharedVolumeName)},
 		NetworkMode: container.NetworkMode(dockerNetworkName),
-	}, nil, nil, pipelineContainerName)
+	}, nil, nil, mainContainerName)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create pipeline container")
+		log.Fatal().Err(err).Msg("Failed to create main pipeline container")
 	}
 
-	// --- Timeout and Cleanup Management ---
-	if pipelineTimeoutStr != "" {
-		timeout, err := time.ParseDuration(pipelineTimeoutStr)
-		if err != nil {
-			log.Error().Err(err).Msg("Invalid pipeline timeout duration")
-		} else {
-			log.Info().Msgf("Pipeline timeout is set to: %s", timeout)
-			time.AfterFunc(timeout, func() {
-				log.Error().Msg("Pipeline execution timed out. Cleaning up and exiting.")
-				updateRunStatus(runID, "failed") // Report timeout failure
-				cleanup(cli, cont.ID)
-				os.Exit(1)
-			})
-		}
+	if err := cli.ContainerStart(context.Background(), mainCont.ID, container.StartOptions{}); err != nil {
+		log.Fatal().Err(err).Msg("Failed to start main pipeline container")
 	}
+	defer cleanup(cli, mainCont.ID)
 
-	if err := cli.ContainerStart(context.Background(), cont.ID, container.StartOptions{}); err != nil {
-		log.Fatal().Err(err).Msg("Failed to start pipeline container")
-	}
-	log.Info().Msgf("Successfully started pipeline container: %s", pipelineContainerName)
-
-	// --- Main Execution Loop ---
 	history := new(strings.Builder)
 	completedSteps := make(map[string]bool)
 
-	for {
-		nextStep := getNextRunnableStep(&pipeline, completedSteps)
-		if nextStep == nil {
+	for len(completedSteps) < len(pipeline.Steps) {
+		runnableSteps := getNextRunnableSteps(&pipeline, completedSteps)
+		if len(runnableSteps) == 0 {
 			log.Info().Str("pipeline", pipeline.Name).Msg("All steps completed successfully.")
-			cleanup(cli, cont.ID)
-			os.Exit(0)
+			break
 		}
 
-		var action *proto.Action
-		var actionStr string
-		var historyGoal string
-		var err error
+		var wg sync.WaitGroup
+		results := make(chan StepResult, len(runnableSteps))
+		historyMutex := &sync.Mutex{}
 
-		if nextStep.Script != "" {
-			log.Info().Str("step", nextStep.Name).Msg("Executing direct script.")
-			// If a script exists, create an EXECUTE_COMMAND action directly.
-			action = &proto.Action{
-				Type: "EXECUTE_COMMAND",
-				Payload: &proto.Action_CommandAction{
-					CommandAction: &proto.CommandAction{
-						Command: nextStep.Script,
-					},
-				},
-			}
-			actionStr = nextStep.Script // For logging purposes
-		} else {
-			// If no script, fall back to the existing goal-based LLM logic.
-			log.Info().Str("step", nextStep.Name).Msg("Resolving goal with LLM.")
-			shareContent := true
-			if pipeline.LlmContentSharing != nil {
-				shareContent = *pipeline.LlmContentSharing
-			}
+		for _, step := range runnableSteps {
+			wg.Add(1)
+			go func(step *models.PipelineStep) {
+				defer wg.Done()
 
-			var directoryListing map[string]string
-			if shareContent {
-				log.Debug().Msg("Content sharing is ENABLED for this pipeline. Scanning directory.")
-				directoryListing = getDirectoryListing(log.Logger, "/workspace")
+				var stepContainerID string
+				var tempContainer bool
+
+				imageName := step.Image
+				if imageName == "" || imageName == mainImageName {
+					log.Info().Str("step", step.Name).Msg("Executing in main pipeline container.")
+					stepContainerID = mainCont.ID
+					tempContainer = false
+				} else {
+					log.Info().Str("step", step.Name).Str("image", imageName).Msg("Preparing to run step in dedicated container")
+					if err := ensureImageExists(context.Background(), cli, imageName); err != nil {
+						log.Error().Err(err).Msg("Failed to ensure step image exists. Shutting down.")
+						updateStepStatus(runID, step.Name, "failed", 1)
+						results <- StepResult{Name: step.Name, Success: false}
+						return
+					}
+
+					stepContainerName := fmt.Sprintf("pipeline-%s-step-%s", runID, step.Name)
+					cont, err := cli.ContainerCreate(context.Background(), &container.Config{
+						Image:      imageName,
+						WorkingDir: "/workspace",
+						Entrypoint: []string{"tail", "-f", "/dev/null"},
+						Env:        pipelineEnvVars,
+						Tty:        false,
+					}, &container.HostConfig{
+						Binds:       []string{fmt.Sprintf("%s:/workspace", sharedVolumeName)},
+						NetworkMode: container.NetworkMode(dockerNetworkName),
+					}, nil, nil, stepContainerName)
+					if err != nil {
+						log.Fatal().Err(err).Msg("Failed to create pipeline step container")
+					}
+
+					if err := cli.ContainerStart(context.Background(), cont.ID, container.StartOptions{}); err != nil {
+						log.Fatal().Err(err).Msg("Failed to start pipeline step container")
+					}
+					stepContainerID = cont.ID
+					tempContainer = true
+				}
+				if tempContainer {
+					defer cleanup(cli, stepContainerID)
+				}
+
+				var action *proto.Action
+				var actionStr string
+				var historyGoal string
+
+				if step.Script != "" {
+					log.Info().Str("step", step.Name).Msg("Executing direct script.")
+					action = &proto.Action{
+						Type:    "EXECUTE_COMMAND",
+						Payload: &proto.Action_CommandAction{CommandAction: &proto.CommandAction{Command: step.Script}},
+					}
+					actionStr = step.Script
+				} else {
+					log.Info().Str("step", step.Name).Msg("Resolving goal with LLM.")
+					shareContent := true
+					if pipeline.LlmContentSharing != nil {
+						shareContent = *pipeline.LlmContentSharing
+					}
+
+					var directoryListing map[string]string
+					if shareContent {
+						log.Debug().Msg("Content sharing is ENABLED for this pipeline. Scanning directory.")
+						directoryListing = getDirectoryListing(log.Logger, "/workspace")
+					} else {
+						log.Debug().Msg("Content sharing is DISABLED for this pipeline. Skipping directory scan.")
+						directoryListing = make(map[string]string)
+					}
+					historyMutex.Lock()
+					historySnapshot := history.String()
+					historyMutex.Unlock()
+					req := &proto.GetActionRequest{
+						Goal:             step.Goal,
+						History:          historySnapshot,
+						DirectoryListing: directoryListing,
+						Environment:      pipeline.Environment,
+					}
+
+					ctx, cancel := context.WithTimeout(context.Background(), llmAgentTimeout)
+					action, err = llmClient.GetAction(ctx, req)
+					cancel()
+					if err != nil {
+						log.Error().Err(err).Str("step", step.Name).Msg("Failed to get action from LLM agent. Shutting down.")
+						results <- StepResult{Name: step.Name, Success: false}
+						return
+					}
+
+					if cmd := action.GetCommandAction(); cmd != nil {
+						actionStr = cmd.Command
+					} else if file := action.GetFileAction(); file != nil {
+						actionStr = fmt.Sprintf("Write to %s", file.Path)
+					} else if ans := action.GetAnswerAction(); ans != nil {
+						actionStr = ans.Answer
+					}
+				}
+
+				debugLogger := log.With().
+					Str("pipeline_name", pipelineName).
+					Str("run_id", runID).
+					Str("step_name", step.Name).
+					Str("action_type", action.Type).
+					Logger()
+
+				debugLogger.Debug().Msgf("Executing action: %s", actionStr)
+
+				stdout, stderr, exitCode := executeAction(cli, stepContainerID, action)
+
+				status := "Succeeded"
+				output := stdout
+				if exitCode != 0 {
+					status = "Failed"
+					output = stderr + stdout
+				}
+
+				if zerolog.GlobalLevel() <= zerolog.InfoLevel {
+					logMsg := fmt.Sprintf(`status=%s step="%s" action="%s" output="%s"`, status, step.Name, actionStr, output)
+					log.Info().Str("pipeline", pipelineName).Msg(logMsg)
+				}
+
+				shareOutput := true
+				if pipeline.LlmOutputSharing != nil {
+					shareOutput = *pipeline.LlmOutputSharing
+				}
+				if step.LlmOutputSharing != nil {
+					shareOutput = *step.LlmOutputSharing
+				}
+
+				historyGoal = step.Goal
+				if historyGoal == "" {
+					historyGoal = fmt.Sprintf("Execute script for step: %s", step.Name)
+				}
+
+				if !shareOutput {
+					log.Debug().Msg("Output sharing is DISABLED for this step. Hiding output from history.")
+					output = "[Output was hidden by pipeline configuration]"
+				}
+
+				historyMutex.Lock()
+				history.WriteString(fmt.Sprintf("- Goal: %s\n  Action: %s\n  Result (Exit Code %d): %s\n", historyGoal, actionStr, exitCode, output))
+				historyMutex.Unlock()
+
+				if exitCode == 0 {
+					updateStepStatus(runID, step.Name, "completed", exitCode)
+					results <- StepResult{Name: step.Name, Success: true}
+				} else {
+					updateStepStatus(runID, step.Name, "failed", exitCode)
+					if step.IgnoreFailure {
+						log.Warn().Str("pipeline", pipelineName).Str("step", step.Name).Msg("Step failed, but failure is ignored.")
+						results <- StepResult{Name: step.Name, Success: true}
+					} else {
+						log.Error().Str("pipeline", pipelineName).Str("step", step.Name).Msg("Critical step failed.")
+						results <- StepResult{Name: step.Name, Success: false}
+					}
+				}
+			}(step)
+		}
+
+		wg.Wait()
+		close(results)
+
+		anyFailed := false
+		for result := range results {
+			if result.Success {
+				completedSteps[result.Name] = true
 			} else {
-				log.Debug().Msg("Content sharing is DISABLED for this pipeline. Skipping directory scan.")
-				directoryListing = make(map[string]string)
-			}
-
-			req := &proto.GetActionRequest{
-				Goal:             nextStep.Goal,
-				History:          history.String(),
-				DirectoryListing: directoryListing,
-				Environment:      pipeline.Environment,
-			}
-
-			ctx, cancel := context.WithTimeout(context.Background(), llmAgentTimeout)
-			action, err = llmClient.GetAction(ctx, req)
-			cancel()
-			if err != nil {
-				log.Error().Err(err).Str("step", nextStep.Name).Msg("Failed to get action from LLM agent. Shutting down.")
-				cleanup(cli, cont.ID)
-				os.Exit(1)
-			}
-
-			// Determine the action string for logging
-			if cmd := action.GetCommandAction(); cmd != nil {
-				actionStr = cmd.Command
-			} else if file := action.GetFileAction(); file != nil {
-				actionStr = fmt.Sprintf("Write to %s", file.Path)
-			} else if ans := action.GetAnswerAction(); ans != nil {
-				actionStr = ans.Answer
+				anyFailed = true
 			}
 		}
 
-		debugLogger := log.With().
-			Str("pipeline_name", pipelineName).
-			Str("run_id", runID).
-			Str("step_name", nextStep.Name).
-			Str("action_type", action.Type).
-			Logger()
-
-		debugLogger.Debug().Msgf("Executing action: %s", actionStr)
-
-		stdout, stderr, exitCode := executeAction(cli, cont.ID, action)
-
-		status := "Succeeded"
-		output := stdout
-		if exitCode != 0 {
-			status = "Failed"
-			output = stderr + stdout
-		}
-
-		if zerolog.GlobalLevel() <= zerolog.InfoLevel {
-			logMsg := fmt.Sprintf(`status=%s step="%s" action="%s" output="%s"`, status, nextStep.Name, actionStr, output)
-			log.Info().Str("pipeline", pipelineName).Msg(logMsg)
-		}
-
-		shareOutput := true
-		if pipeline.LlmOutputSharing != nil {
-			shareOutput = *pipeline.LlmOutputSharing
-		}
-		if nextStep.LlmOutputSharing != nil {
-			shareOutput = *nextStep.LlmOutputSharing
-		}
-
-		// Use the goal for history if it exists, otherwise use the step name.
-		historyGoal = nextStep.Goal
-		if historyGoal == "" {
-			historyGoal = fmt.Sprintf("Execute script for step: %s", nextStep.Name)
-		}
-
-		if !shareOutput {
-			log.Debug().Msg("Output sharing is DISABLED for this step. Hiding output from history.")
-			output = "[Output was hidden by pipeline configuration]"
-		}
-
-		history.WriteString(fmt.Sprintf("- Goal: %s\n  Action: %s\n  Result (Exit Code %d): %s\n", historyGoal, actionStr, exitCode, output))
-
-		if exitCode == 0 {
-			completedSteps[nextStep.Name] = true
-			updateStepStatus(runID, nextStep.Name, "completed", exitCode)
-		} else {
-			updateStepStatus(runID, nextStep.Name, "failed", exitCode)
-			if !nextStep.IgnoreFailure {
-				log.Error().Str("pipeline", pipelineName).Str("step", nextStep.Name).Msg("Critical step failed. Shutting down.")
-				cleanup(cli, cont.ID)
-				os.Exit(1)
-			} else {
-				log.Warn().Str("pipeline", pipelineName).Str("step", nextStep.Name).Msg("Step failed, but failure is ignored.")
-				completedSteps[nextStep.Name] = true
-			}
+		if anyFailed {
+			log.Error().Str("pipeline", pipelineName).Msg("One or more critical steps failed. Shutting down.")
+			os.Exit(1)
 		}
 	}
 }
