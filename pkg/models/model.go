@@ -1,6 +1,19 @@
 package models
 
-// Pipeline represents the structure of a .nopsai.yml file.
+// Manifest represents the structure of the .nopsai.yaml manifest file.
+type Manifest struct {
+	Triggers []Trigger `yaml:"triggers"`
+}
+
+// Trigger defines a rule for when a pipeline should be run.
+type Trigger struct {
+	On       string   `yaml:"on"`
+	Branches []string `yaml:"branches,omitempty"`
+	Tags     []string `yaml:"tags,omitempty"`
+	Path     string   `yaml:"path"`
+}
+
+// Pipeline represents the structure of a pipeline definition file.
 type Pipeline struct {
 	Name              string            `yaml:"name"`
 	Description       string            `yaml:"description"`

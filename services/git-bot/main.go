@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -209,7 +210,48 @@ func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineDef string) int64 {
 
 	return *checkRun.ID
 }
+func (a *GitBotApp) findPipelineForEvent(manifest models.Manifest, eventType, ref string) string {
+	for _, trigger := range manifest.Triggers {
+		if trigger.On != eventType {
+			continue
+		}
 
+		// Handle push events (branches and tags)
+		if eventType == "push" {
+			if strings.HasPrefix(ref, "refs/heads/") { // It's a branch
+				branchName := strings.TrimPrefix(ref, "refs/heads/")
+				for _, pattern := range trigger.Branches {
+					if matched, _ := filepath.Match(pattern, branchName); matched {
+						return trigger.Path
+					}
+				}
+			} else if strings.HasPrefix(ref, "refs/tags/") { // It's a tag
+				tagName := strings.TrimPrefix(ref, "refs/tags/")
+				for _, pattern := range trigger.Tags {
+					if matched, _ := filepath.Match(pattern, tagName); matched {
+						return trigger.Path
+					}
+				}
+			}
+		}
+
+		// Handle pull_request events
+		if eventType == "pull_request" {
+			return trigger.Path
+		}
+
+		// Handle create events (branches or tags)
+		if eventType == "create" {
+			// This logic assumes the ref from the event payload is sufficient
+			// to determine if it's a branch or tag being created.
+			// The `ref_type` field in the `create` event is key here.
+			// This is a simplified example; real implementation might need more context
+			// from the event payload to differentiate.
+			return trigger.Path
+		}
+	}
+	return ""
+}
 func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -229,7 +271,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var repoName, commitSHA, owner, repo string
+	var repoName, commitSHA, owner, repo, ref string
 	var headCommit *github.HeadCommit
 	var pusher *github.User
 
@@ -245,10 +287,44 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		commitSHA = *event.After
 		owner = *event.Repo.Owner.Login
 		repo = *event.Repo.Name
+		ref = *event.Ref
 		headCommit = event.HeadCommit
 		pusher = event.Pusher
 		log.Info().Str("repo", repoName).Str("commit", commitSHA).Msg("Processing push event")
 
+	case *github.PullRequestEvent:
+		if event.GetAction() == "closed" {
+			log.Info().Msg("Ignoring pull_request event with 'closed' action to prevent duplicate runs on merge.")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		eventType = "pull_request" // Normalize event type
+		if event.Repo == nil || event.Repo.Owner == nil || event.Repo.Owner.Login == nil ||
+			event.Repo.Name == nil || event.Repo.FullName == nil || event.PullRequest == nil || event.PullRequest.Head == nil || event.PullRequest.Head.SHA == nil {
+			log.Warn().Msg("Received pull_request event with missing essential data. Ignoring.")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		repoName = *event.Repo.FullName
+		commitSHA = *event.PullRequest.Head.SHA
+		owner = *event.Repo.Owner.Login
+		repo = *event.Repo.Name
+		ref = *event.PullRequest.Head.Ref
+		log.Info().Str("repo", repoName).Str("commit", commitSHA).Msg("Processing pull_request event")
+	case *github.CreateEvent:
+		eventType = "create" // Normalize event type
+		if event.Repo == nil || event.Repo.Owner == nil || event.Repo.Owner.Login == nil ||
+			event.Repo.Name == nil || event.Repo.FullName == nil || event.Ref == nil {
+			log.Warn().Msg("Received create event with missing essential data. Ignoring.")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		repoName = *event.Repo.FullName
+		owner = *event.Repo.Owner.Login
+		repo = *event.Repo.Name
+		ref = *event.Ref
+		commitSHA = ""
+		log.Info().Str("repo", repoName).Str("ref", ref).Msg("Processing create event")
 	case *github.CheckRunEvent:
 		if event.GetAction() == "rerequested" {
 			if event.Repo == nil || event.Repo.Owner == nil || event.Repo.Owner.Login == nil ||
@@ -261,7 +337,20 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 			commitSHA = *event.CheckRun.HeadSHA
 			owner = *event.Repo.Owner.Login
 			repo = *event.Repo.Name
-			log.Info().Str("repo", repoName).Str("commit", commitSHA).Msg("Processing rerun request from check_run event")
+
+			// Logic to determine if it's a PR or push rerun
+			if len(event.CheckRun.PullRequests) > 0 {
+				eventType = "pull_request"
+				ref = *event.CheckRun.PullRequests[0].Head.Ref
+			} else {
+				eventType = "push"
+				if event.CheckRun.CheckSuite != nil && event.CheckRun.CheckSuite.HeadBranch != nil {
+					ref = "refs/heads/" + *event.CheckRun.CheckSuite.HeadBranch
+				} else {
+					ref = commitSHA // Fallback
+				}
+			}
+			log.Info().Str("repo", repoName).Str("commit", commitSHA).Str("event_type", eventType).Msg("Processing rerun request from check_run event")
 		} else {
 			log.Info().Msgf("Received check_run event with action '%s', ignoring.", event.GetAction())
 			w.WriteHeader(http.StatusOK)
@@ -280,7 +369,20 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 			commitSHA = *event.CheckSuite.HeadSHA
 			owner = *event.Repo.Owner.Login
 			repo = *event.Repo.Name
-			log.Info().Str("repo", repoName).Str("commit", commitSHA).Msg("Processing rerun request from check_suite event")
+
+			// Logic to determine if it's a PR or push rerun
+			if len(event.CheckSuite.PullRequests) > 0 {
+				eventType = "pull_request"
+				ref = *event.CheckSuite.PullRequests[0].Head.Ref
+			} else {
+				eventType = "push"
+				if event.CheckSuite.HeadBranch != nil {
+					ref = "refs/heads/" + *event.CheckSuite.HeadBranch
+				} else {
+					ref = commitSHA // Fallback
+				}
+			}
+			log.Info().Str("repo", repoName).Str("commit", commitSHA).Str("event_type", eventType).Msg("Processing rerun request from check_suite event")
 		} else {
 			log.Info().Msgf("Received check_suite event with action '%s', ignoring.", event.GetAction())
 			w.WriteHeader(http.StatusOK)
@@ -294,6 +396,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var pipelineYAML []byte
+
 	overrideURL := fmt.Sprintf("%s/v1/overrides/%s/%s", a.cfg.GitBotNopsaiAPIURL, owner, repo)
 	resp, err := http.Get(overrideURL)
 	if err == nil && resp.StatusCode == http.StatusOK {
@@ -318,7 +421,41 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Could not decode file content", http.StatusInternalServerError)
 			return
 		}
-		pipelineYAML = []byte(content)
+		var manifest models.Manifest
+		if err := yaml.Unmarshal([]byte(content), &manifest); err != nil {
+			log.Error().Err(err).Msg("Failed to parse .nopsai.yaml manifest")
+			checkRunID := a.createCheckRun(owner, repo, commitSHA, "")
+			a.concludeCheckRun(owner, repo, checkRunID, "failure", "Could not parse the .nopsai.yaml manifest file.")
+			http.Error(w, "Could not parse manifest file", http.StatusBadRequest)
+			return
+		}
+
+		pipelinePath := a.findPipelineForEvent(manifest, eventType, ref)
+		if pipelinePath == "" {
+			log.Info().Msgf("No pipeline found for event '%s' and ref '%s'.", eventType, ref)
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("No pipeline found for this event."))
+			return
+		}
+
+		log.Info().Msgf("Found pipeline '%s' for event '%s' and ref '%s'.", pipelinePath, eventType, ref)
+		pipelineFileContent, _, _, err := a.ghClient.Repositories.GetContents(context.Background(), owner, repo, pipelinePath, &github.RepositoryContentGetOptions{Ref: commitSHA})
+		if err != nil || pipelineFileContent == nil {
+			log.Error().Err(err).Msgf("Failed to fetch pipeline file '%s' from repository", pipelinePath)
+			checkRunID := a.createCheckRun(owner, repo, commitSHA, "")
+			a.concludeCheckRun(owner, repo, checkRunID, "failure", fmt.Sprintf("Could not find pipeline file '%s' in the repository.", pipelinePath))
+			http.Error(w, "Could not fetch pipeline file", http.StatusNotFound)
+			return
+		}
+		pipelineContent, err := pipelineFileContent.GetContent()
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to decode pipeline file content")
+			checkRunID := a.createCheckRun(owner, repo, commitSHA, "")
+			a.concludeCheckRun(owner, repo, checkRunID, "failure", "Could not decode the pipeline file content.")
+			http.Error(w, "Could not decode pipeline file content", http.StatusInternalServerError)
+			return
+		}
+		pipelineYAML = []byte(pipelineContent)
 	}
 
 	checkRunID := a.createCheckRun(owner, repo, commitSHA, string(pipelineYAML))
@@ -351,7 +488,9 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 				req.Header.Set("X-Git-Commit-URL", *headCommit.URL)
 			}
 			if headCommit.Message != nil {
-				req.Header.Set("X-Git-Commit-Message", *headCommit.Message)
+				// Sanitize the commit message for the header
+				firstLine := strings.Split(*headCommit.Message, "\n")[0]
+				req.Header.Set("X-Git-Commit-Message", firstLine)
 			}
 			if headCommit.Author != nil {
 				if headCommit.Author.Name != nil {
@@ -397,13 +536,18 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 
 	client := &http.Client{}
 	resp, err = client.Do(req)
-	if err != nil || resp.StatusCode != http.StatusCreated {
-		statusCode := 0
-		if resp != nil {
-			statusCode = resp.StatusCode
-		}
-		log.Error().Err(err).Int("status_code", statusCode).Msg("Failed to trigger nopsai pipeline")
+	if err != nil {
+		log.Error().Err(err).Int("status_code", 0).Msg("Failed to trigger nopsai pipeline")
+		summary := fmt.Sprintf("Failed to trigger Nopsai pipeline.\n\nError: %s", err.Error())
+		a.concludeCheckRun(owner, repo, checkRunID, "failure", summary)
+		http.Error(w, "Failed to trigger pipeline", http.StatusInternalServerError)
+		return
+	}
+
+	if resp.StatusCode != http.StatusCreated {
+		statusCode := resp.StatusCode
 		errorBody, _ := io.ReadAll(resp.Body)
+		log.Error().Int("status_code", statusCode).Msg("Nopsai service returned non-OK status")
 		summary := fmt.Sprintf("Failed to trigger Nopsai pipeline. The nopsai service responded with status %d.\n\nError: %s", statusCode, string(errorBody))
 		a.concludeCheckRun(owner, repo, checkRunID, "failure", summary)
 		http.Error(w, "Failed to trigger pipeline", http.StatusInternalServerError)
