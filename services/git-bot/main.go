@@ -11,35 +11,45 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"nopsai/config"
+	"nopsai/pkg/models"
 
 	"github.com/bradleyfalzon/ghinstallation/v2"
 	"github.com/google/go-github/v53/github"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"gopkg.in/yaml.v3"
 )
 
 type GitBotApp struct {
-	cfg               *config.Config
-	ghClient          *github.Client
-	webhookSecret     string
-	checkRunSummaries map[int64]string
-	summaryLock       sync.Mutex
+	cfg            *config.Config
+	ghClient       *github.Client
+	webhookSecret  string
+	checkRunStates map[int64]*CheckRunState
+	stateLock      sync.Mutex
 }
 
 type StepStatusUpdate struct {
-	RepoOwner  string `json:"repo_owner"`
-	RepoName   string `json:"repo_name"`
-	CheckRunID int64  `json:"check_run_id"`
-	StepName   string `json:"step_name"`
-	StepStatus string `json:"step_status"`
-	StepIndex  int    `json:"step_index"`
-	TotalSteps int    `json:"total_steps"`
+	RepoOwner  string   `json:"repo_owner"`
+	RepoName   string   `json:"repo_name"`
+	CheckRunID int64    `json:"check_run_id"`
+	StepName   string   `json:"step_name"`
+	StepStatus string   `json:"step_status"`
+	StepIndex  int      `json:"step_index"`
+	TotalSteps int      `json:"total_steps"`
+	DependsOn  []string `json:"depends_on"`
+	GitHubView string   `json:"github_view"`
+}
+
+type CheckRunState struct {
+	Steps      map[string]StepStatusUpdate
+	GitHubView string
 }
 
 type RunStatusUpdate struct {
@@ -47,6 +57,104 @@ type RunStatusUpdate struct {
 	CheckRunID int64  `json:"check_run_id"`
 	RepoOwner  string `json:"repo_owner"`
 	RepoName   string `json:"repo_name"`
+}
+
+func (a *GitBotApp) renderMarkdownTree(state *CheckRunState) string {
+	var builder strings.Builder
+	childrenMap := make(map[string][]string)
+	allSteps := make([]StepStatusUpdate, 0, len(state.Steps))
+
+	for _, step := range state.Steps {
+		allSteps = append(allSteps, step)
+		if len(step.DependsOn) == 0 {
+			childrenMap[""] = append(childrenMap[""], step.StepName)
+		} else {
+			for _, parent := range step.DependsOn {
+				childrenMap[parent] = append(childrenMap[parent], step.StepName)
+			}
+		}
+	}
+
+	sort.SliceStable(allSteps, func(i, j int) bool {
+		return allSteps[i].StepIndex < allSteps[j].StepIndex
+	})
+
+	var buildTree func(parent string, depth int)
+	visited := make(map[string]bool)
+	buildTree = func(parent string, depth int) {
+		children, ok := childrenMap[parent]
+		if !ok {
+			return
+		}
+
+		// Sort children based on their original step index to maintain order
+		sort.SliceStable(children, func(i, j int) bool {
+			return state.Steps[children[i]].StepIndex < state.Steps[children[j]].StepIndex
+		})
+
+		for _, childName := range children {
+			if visited[childName] {
+				continue
+			}
+			visited[childName] = true
+			step := state.Steps[childName]
+			icon := "⏳"
+			if step.StepStatus == "completed" {
+				icon = "✅"
+			} else if strings.Contains(strings.ToLower(step.StepStatus), "fail") {
+				icon = "❌"
+			}
+
+			builder.WriteString(strings.Repeat("  ", depth))
+			builder.WriteString(fmt.Sprintf("- %s `%s` - %s\n", icon, step.StepName, step.StepStatus))
+			buildTree(childName, depth+1)
+		}
+	}
+
+	// This ensures we start with all root nodes (those with no dependencies)
+	rootNodes := childrenMap[""]
+	sort.SliceStable(rootNodes, func(i, j int) bool {
+		return state.Steps[rootNodes[i]].StepIndex < state.Steps[rootNodes[j]].StepIndex
+	})
+	for _, rootNode := range rootNodes {
+		if !visited[rootNode] {
+			step := state.Steps[rootNode]
+			icon := "⏳"
+			if step.StepStatus == "completed" {
+				icon = "✅"
+			} else if strings.Contains(strings.ToLower(step.StepStatus), "fail") {
+				icon = "❌"
+			}
+
+			builder.WriteString(fmt.Sprintf("- %s `%s` - %s\n", icon, step.StepName, step.StepStatus))
+			visited[rootNode] = true
+			buildTree(rootNode, 1)
+		}
+	}
+	return builder.String()
+}
+func (a *GitBotApp) renderMarkdownFlatList(state *CheckRunState) string {
+	var builder strings.Builder
+	steps := make([]StepStatusUpdate, 0, len(state.Steps))
+	for _, step := range state.Steps {
+		steps = append(steps, step)
+	}
+
+	// Sort steps by their index for a consistent, ordered list
+	sort.SliceStable(steps, func(i, j int) bool {
+		return steps[i].StepIndex < steps[j].StepIndex
+	})
+
+	for _, step := range steps {
+		icon := "⏳"
+		if step.StepStatus == "completed" {
+			icon = "✅"
+		} else if strings.Contains(strings.ToLower(step.StepStatus), "fail") {
+			icon = "❌"
+		}
+		builder.WriteString(fmt.Sprintf("- %s Step %d: `%s` - %s\n", icon, step.StepIndex, step.StepName, step.StepStatus))
+	}
+	return builder.String()
 }
 
 func (a *GitBotApp) verifySignature(r *http.Request, body []byte) bool {
@@ -63,10 +171,7 @@ func (a *GitBotApp) verifySignature(r *http.Request, body []byte) bool {
 	return hmac.Equal([]byte(actualSignature), []byte(expectedMAC))
 }
 
-func (a *GitBotApp) createCheckRun(owner, repo, ref string) int64 {
-	a.summaryLock.Lock()
-	defer a.summaryLock.Unlock()
-
+func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineDef string) int64 {
 	opts := github.CreateCheckRunOptions{
 		Name:    "Nopsai CI",
 		HeadSHA: ref,
@@ -87,6 +192,21 @@ func (a *GitBotApp) createCheckRun(owner, repo, ref string) int64 {
 		},
 	}
 	a.ghClient.Checks.UpdateCheckRun(context.Background(), owner, repo, *checkRun.ID, inProgressOpts)
+
+	var pipeline models.Pipeline
+	_ = yaml.Unmarshal([]byte(pipelineDef), &pipeline)
+	view := "flat"
+	if pipeline.DisplayOptions.GitHubView == "tree" {
+		view = "tree"
+	}
+
+	a.stateLock.Lock()
+	defer a.stateLock.Unlock()
+	a.checkRunStates[*checkRun.ID] = &CheckRunState{
+		Steps:      make(map[string]StepStatusUpdate),
+		GitHubView: view,
+	}
+
 	return *checkRun.ID
 }
 
@@ -173,13 +293,6 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	checkRunID := a.createCheckRun(owner, repo, commitSHA)
-	delete(a.checkRunSummaries, checkRunID)
-	if checkRunID == 0 {
-		http.Error(w, "Failed to create check run", http.StatusInternalServerError)
-		return
-	}
-
 	var pipelineYAML []byte
 	overrideURL := fmt.Sprintf("%s/v1/overrides/%s/%s", a.cfg.GitBotNopsaiAPIURL, owner, repo)
 	resp, err := http.Get(overrideURL)
@@ -192,7 +305,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		fileContent, _, _, err := a.ghClient.Repositories.GetContents(context.Background(), owner, repo, ".nopsai.yaml", &github.RepositoryContentGetOptions{Ref: commitSHA})
 		if err != nil || fileContent == nil {
 			log.Error().Err(err).Msg("Failed to fetch .nopsai.yaml from repository")
-			// Corrected call with a valid conclusion and a summary message
+			checkRunID := a.createCheckRun(owner, repo, commitSHA, "")
 			a.concludeCheckRun(owner, repo, checkRunID, "failure", "Could not find .nopsai.yaml in the repository.")
 			http.Error(w, "Could not fetch pipeline file", http.StatusNotFound)
 			return
@@ -200,12 +313,18 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		content, err := fileContent.GetContent()
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to decode file content")
-			// Corrected call
+			checkRunID := a.createCheckRun(owner, repo, commitSHA, "")
 			a.concludeCheckRun(owner, repo, checkRunID, "failure", "Could not decode the .nopsai.yaml file content.")
 			http.Error(w, "Could not decode file content", http.StatusInternalServerError)
 			return
 		}
 		pipelineYAML = []byte(content)
+	}
+
+	checkRunID := a.createCheckRun(owner, repo, commitSHA, string(pipelineYAML))
+	if checkRunID == 0 {
+		http.Error(w, "Failed to create check run", http.StatusInternalServerError)
+		return
 	}
 
 	runURL := fmt.Sprintf("%s/v1/run", a.cfg.GitBotNopsaiAPIURL)
@@ -284,7 +403,6 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 			statusCode = resp.StatusCode
 		}
 		log.Error().Err(err).Int("status_code", statusCode).Msg("Failed to trigger nopsai pipeline")
-		// Corrected call with a valid conclusion and a summary message
 		errorBody, _ := io.ReadAll(resp.Body)
 		summary := fmt.Sprintf("Failed to trigger Nopsai pipeline. The nopsai service responded with status %d.\n\nError: %s", statusCode, string(errorBody))
 		a.concludeCheckRun(owner, repo, checkRunID, "failure", summary)
@@ -304,25 +422,33 @@ func (a *GitBotApp) handleStepStatusUpdate(w http.ResponseWriter, r *http.Reques
 	}
 	log.Info().Int64("check_run_id", update.CheckRunID).Str("step", update.StepName).Msg("Received step status update")
 
-	a.summaryLock.Lock()
-	defer a.summaryLock.Unlock()
+	a.stateLock.Lock()
+	defer a.stateLock.Unlock()
 
-	summaryLine := ""
-	if strings.Contains(strings.ToLower(update.StepStatus), "fail") {
-		summaryLine = fmt.Sprintf("❌ Step %d: '%s' - %s\n", update.StepIndex, update.StepName, update.StepStatus)
-	} else {
-		summaryLine = fmt.Sprintf("✅ Step %d: '%s' - %s\n", update.StepIndex, update.StepName, update.StepStatus)
+	state, ok := a.checkRunStates[update.CheckRunID]
+	if !ok {
+		log.Error().Int64("check_run_id", update.CheckRunID).Msg("Received step update for unknown check run")
+		return
 	}
-	a.checkRunSummaries[update.CheckRunID] += summaryLine
+	state.Steps[update.StepName] = update
+	if update.GitHubView != "" {
+		state.GitHubView = update.GitHubView
+	}
 
-	newTitle := fmt.Sprintf("In progress... (%d/%d steps)", update.StepIndex, update.TotalSteps)
+	var summary string
+	if state.GitHubView == "tree" {
+		summary = a.renderMarkdownTree(state)
+	} else {
+		summary = a.renderMarkdownFlatList(state)
+	}
+	newTitle := fmt.Sprintf("In progress... (%d/%d steps)", len(state.Steps), update.TotalSteps)
 
 	opts := github.UpdateCheckRunOptions{
 		Name:   "Nopsai CI",
 		Status: github.String("in_progress"),
 		Output: &github.CheckRunOutput{
 			Title:   github.String(newTitle),
-			Summary: github.String(a.checkRunSummaries[update.CheckRunID]),
+			Summary: github.String(summary),
 		},
 	}
 	_, _, err := a.ghClient.Checks.UpdateCheckRun(context.Background(), update.RepoOwner, update.RepoName, update.CheckRunID, opts)
@@ -342,32 +468,29 @@ func (a *GitBotApp) handleRunStatusUpdate(w http.ResponseWriter, r *http.Request
 
 	log.Info().Int64("check_run_id", update.CheckRunID).Str("status", update.Status).Msg("Received final pipeline status")
 
-	// Get the accumulated summary before concluding
-	a.summaryLock.Lock()
-	summary := a.checkRunSummaries[update.CheckRunID]
-	a.summaryLock.Unlock()
+	a.stateLock.Lock()
+	state, ok := a.checkRunStates[update.CheckRunID]
+	summary := ""
+	if ok {
+		if state.GitHubView == "tree" {
+			summary = a.renderMarkdownTree(state)
+		} else {
+			summary = a.renderMarkdownFlatList(state)
+		}
+	}
+	a.stateLock.Unlock()
 
 	a.concludeCheckRun(update.RepoOwner, update.RepoName, update.CheckRunID, update.Status, summary)
 	w.WriteHeader(http.StatusOK)
 }
 
-// Updated function signature to accept a separate summary
 func (a *GitBotApp) concludeCheckRun(owner, repo string, checkRunID int64, conclusion, summary string) {
 	if checkRunID == 0 {
 		log.Warn().Msg("Invalid checkRunID (0), skipping conclusion.")
 		return
 	}
 
-	a.summaryLock.Lock()
-	defer a.summaryLock.Unlock()
-
 	finalTitle := "Nopsai CI - " + strings.ToUpper(string(conclusion[0])) + conclusion[1:]
-
-	// Use the provided summary. If it's empty, use the one from the map.
-	finalSummary := summary
-	if finalSummary == "" {
-		finalSummary = a.checkRunSummaries[checkRunID]
-	}
 
 	opts := github.UpdateCheckRunOptions{
 		Name:        "Nopsai CI",
@@ -376,7 +499,7 @@ func (a *GitBotApp) concludeCheckRun(owner, repo string, checkRunID int64, concl
 		CompletedAt: &github.Timestamp{Time: time.Now()},
 		Output: &github.CheckRunOutput{
 			Title:   github.String(finalTitle),
-			Summary: github.String(finalSummary),
+			Summary: github.String(summary),
 		},
 	}
 
@@ -385,7 +508,9 @@ func (a *GitBotApp) concludeCheckRun(owner, repo string, checkRunID int64, concl
 		log.Error().Err(err).Msg("Failed to conclude check run")
 	}
 
-	delete(a.checkRunSummaries, checkRunID)
+	a.stateLock.Lock()
+	defer a.stateLock.Unlock()
+	delete(a.checkRunStates, checkRunID)
 }
 
 func main() {
@@ -445,10 +570,10 @@ func main() {
 	ghClient := github.NewClient(&http.Client{Transport: installationTransport})
 
 	app := &GitBotApp{
-		cfg:               cfg,
-		ghClient:          ghClient,
-		webhookSecret:     cfg.GitHubWebhookSecret,
-		checkRunSummaries: make(map[int64]string),
+		cfg:            cfg,
+		ghClient:       ghClient,
+		webhookSecret:  cfg.GitHubWebhookSecret,
+		checkRunStates: make(map[int64]*CheckRunState),
 	}
 
 	mux := http.NewServeMux()
