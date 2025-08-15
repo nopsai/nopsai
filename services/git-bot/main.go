@@ -49,8 +49,9 @@ type StepStatusUpdate struct {
 }
 
 type CheckRunState struct {
-	Steps      map[string]StepStatusUpdate
-	GitHubView string
+	Steps        map[string]StepStatusUpdate
+	GitHubView   string
+	PipelineName string
 }
 
 type RunStatusUpdate struct {
@@ -61,24 +62,19 @@ type RunStatusUpdate struct {
 	RepoName   string `json:"repo_name"`
 }
 
-// in services/git-bot/main.go
-
 func (a *GitBotApp) renderMarkdownTree(state *CheckRunState) string {
 	var builder strings.Builder
 	childrenMap := make(map[string][]string)
 
-	// Create a map of all steps by name for easy lookup
 	stepsByName := make(map[string]StepStatusUpdate)
 	for _, step := range state.Steps {
 		stepsByName[step.StepName] = step
 	}
 
-	// Build the dependency tree (childrenMap) from a sorted list of all steps
 	allStepNames := make([]string, 0, len(stepsByName))
 	for name := range stepsByName {
 		allStepNames = append(allStepNames, name)
 	}
-	// Sort all steps by their original index for consistent processing
 	sort.SliceStable(allStepNames, func(i, j int) bool {
 		return stepsByName[allStepNames[i]].StepIndex < stepsByName[allStepNames[j]].StepIndex
 	})
@@ -86,7 +82,6 @@ func (a *GitBotApp) renderMarkdownTree(state *CheckRunState) string {
 	for _, stepName := range allStepNames {
 		step := stepsByName[stepName]
 		if len(step.DependsOn) == 0 {
-			// This is a root node
 			childrenMap[""] = append(childrenMap[""], step.StepName)
 		} else {
 			for _, parent := range step.DependsOn {
@@ -95,7 +90,6 @@ func (a *GitBotApp) renderMarkdownTree(state *CheckRunState) string {
 		}
 	}
 
-	// This map tracks which steps have been fully rendered (with their children)
 	visited := make(map[string]bool)
 
 	var buildTree func(parent string, depth int)
@@ -105,7 +99,6 @@ func (a *GitBotApp) renderMarkdownTree(state *CheckRunState) string {
 			return
 		}
 
-		// Sort children to maintain a consistent order
 		sort.SliceStable(children, func(i, j int) bool {
 			return stepsByName[children[i]].StepIndex < stepsByName[children[j]].StepIndex
 		})
@@ -121,32 +114,27 @@ func (a *GitBotApp) renderMarkdownTree(state *CheckRunState) string {
 				icon = "❌"
 			}
 
-			// If we've already rendered this step fully, just show a reference and stop.
 			if visited[childName] {
 				builder.WriteString(strings.Repeat("  ", depth))
 				builder.WriteString(fmt.Sprintf("- %s `%s` (dependency already shown)\n", icon, step.StepName))
-				continue // Do not recurse further down this branch
+				continue
 			}
 
-			// Mark the step as visited before rendering it
 			visited[childName] = true
 
 			builder.WriteString(strings.Repeat("  ", depth))
 			builder.WriteString(fmt.Sprintf("- %s `%s` - %s\n", icon, step.StepName, step.StepStatus))
 
-			// Recursively build the tree for the children of this step
 			buildTree(childName, depth+1)
 		}
 	}
 
-	// Start building the tree from the root nodes
 	rootNodes := childrenMap[""]
 	sort.SliceStable(rootNodes, func(i, j int) bool {
 		return stepsByName[rootNodes[i]].StepIndex < stepsByName[rootNodes[j]].StepIndex
 	})
 
 	for _, rootNodeName := range rootNodes {
-		// A root node could theoretically be a dependency of another root, so check if visited.
 		if visited[rootNodeName] {
 			continue
 		}
@@ -169,13 +157,11 @@ func (a *GitBotApp) renderMarkdownTree(state *CheckRunState) string {
 	return builder.String()
 }
 
-// renderMermaidGraph automatically groups steps into visual stages and adds status icons.
 func (a *GitBotApp) renderMermaidGraph(state *CheckRunState) string {
 	var builder strings.Builder
 	builder.WriteString("```mermaid\n")
 	builder.WriteString("graph LR\n")
 
-	// --- 1. Setup ---
 	stepsByName := make(map[string]StepStatusUpdate)
 	for _, step := range state.Steps {
 		stepsByName[step.StepName] = step
@@ -189,7 +175,6 @@ func (a *GitBotApp) renderMermaidGraph(state *CheckRunState) string {
 		return stepsByName[allStepNames[i]].StepIndex < stepsByName[allStepNames[j]].StepIndex
 	})
 
-	// --- 2. Style Class Definitions ---
 	builder.WriteString("\n    %% Style Definitions\n")
 	builder.WriteString("    classDef success fill:#d4edda,stroke:#c3e6cb,color:#155724\n")
 	builder.WriteString("    classDef failure fill:#f8d7da,stroke:#f5c6cb,color:#721c24\n")
@@ -197,7 +182,6 @@ func (a *GitBotApp) renderMermaidGraph(state *CheckRunState) string {
 	builder.WriteString("    classDef pending fill:#e2e3e5,stroke:#d6d8db,color:#383d41\n")
 	builder.WriteString("    classDef skipped fill:#f8f9fa,stroke:#ced4da,color:#6c757d\n")
 
-	// --- 3. Calculate Stages ---
 	stages := make([][]string, 0)
 	processedSteps := make(map[string]bool)
 	for len(processedSteps) < len(stepsByName) {
@@ -227,9 +211,7 @@ func (a *GitBotApp) renderMermaidGraph(state *CheckRunState) string {
 		stages = append(stages, currentStage)
 	}
 
-	// --- 4. Define Nodes within Dynamically Named Subgraphs ---
 	for i, stage := range stages {
-		// **This is the key change: Dynamically create the stage name.**
 		stageName := fmt.Sprintf("Dependency Layer - %d", i+1)
 
 		builder.WriteString(fmt.Sprintf("\n    subgraph \"%s\"\n", stageName))
@@ -254,7 +236,6 @@ func (a *GitBotApp) renderMermaidGraph(state *CheckRunState) string {
 		builder.WriteString("    end\n")
 	}
 
-	// --- 5. Define Links Between Nodes ---
 	builder.WriteString("\n    %% Link Definitions\n")
 	for _, stepName := range allStepNames {
 		step := stepsByName[stepName]
@@ -274,7 +255,6 @@ func (a *GitBotApp) renderMarkdownFlatList(state *CheckRunState) string {
 		steps = append(steps, step)
 	}
 
-	// Sort steps by their index for a consistent, ordered list
 	sort.SliceStable(steps, func(i, j int) bool {
 		return steps[i].StepIndex < steps[j].StepIndex
 	})
@@ -308,8 +288,16 @@ func (a *GitBotApp) verifySignature(r *http.Request, body []byte) bool {
 }
 
 func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineDef string) int64 {
+	var pipeline models.Pipeline
+	_ = yaml.Unmarshal([]byte(pipelineDef), &pipeline)
+
+	checkName := pipeline.Name
+	if checkName == "" {
+		checkName = "Nopsai"
+	}
+
 	opts := github.CreateCheckRunOptions{
-		Name:    "Nopsai", // Use "Nopsai" instead of "Nopsai CI"
+		Name:    checkName,
 		HeadSHA: ref,
 		Status:  github.String("queued"),
 	}
@@ -320,7 +308,7 @@ func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineDef string) int64 {
 	}
 
 	inProgressOpts := github.UpdateCheckRunOptions{
-		Name:   "Nopsai", // Use "Nopsai" here as well
+		Name:   checkName,
 		Status: github.String("in_progress"),
 		Output: &github.CheckRunOutput{
 			Title:   github.String(repo),
@@ -329,11 +317,9 @@ func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineDef string) int64 {
 	}
 	a.ghClient.Checks.UpdateCheckRun(context.Background(), owner, repo, *checkRun.ID, inProgressOpts)
 
-	var pipeline models.Pipeline
-	_ = yaml.Unmarshal([]byte(pipelineDef), &pipeline)
-	view := "mermaid"
-	if pipeline.DisplayOptions.GitHubView == "flat" {
-		view = "flat"
+	view := "flat"
+	if pipeline.DisplayOptions.GitHubView == "mermaid" {
+		view = "mermaid"
 	} else if pipeline.DisplayOptions.GitHubView == "tree" {
 		view = "tree"
 	}
@@ -354,14 +340,15 @@ func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineDef string) int64 {
 		}
 	}
 
-	// **FIX**: Use the correct struct name `CheckRunState`.
 	a.checkRunStates[*checkRun.ID] = &CheckRunState{
-		Steps:      initialSteps,
-		GitHubView: view,
+		Steps:        initialSteps,
+		GitHubView:   view,
+		PipelineName: checkName,
 	}
 
 	return *checkRun.ID
 }
+
 func (a *GitBotApp) findPipelineForEvent(manifest models.Manifest, eventType, ref string) string {
 	for _, trigger := range manifest.Triggers {
 		if trigger.On != eventType {
@@ -475,7 +462,6 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 			owner = *event.Repo.Owner.Login
 			repo = *event.Repo.Name
 
-			// Logic to determine if it's a PR or push rerun
 			if len(event.CheckRun.PullRequests) > 0 {
 				eventType = "pull_request"
 				ref = *event.CheckRun.PullRequests[0].Head.Ref
@@ -484,7 +470,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 				if event.CheckRun.CheckSuite != nil && event.CheckRun.CheckSuite.HeadBranch != nil {
 					ref = "refs/heads/" + *event.CheckRun.CheckSuite.HeadBranch
 				} else {
-					ref = commitSHA // Fallback
+					ref = commitSHA
 				}
 			}
 			log.Info().Str("repo", repoName).Str("commit", commitSHA).Str("event_type", eventType).Msg("Processing rerun request from check_run event")
@@ -507,7 +493,6 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 			owner = *event.Repo.Owner.Login
 			repo = *event.Repo.Name
 
-			// Logic to determine if it's a PR or push rerun
 			if len(event.CheckSuite.PullRequests) > 0 {
 				eventType = "pull_request"
 				ref = *event.CheckSuite.PullRequests[0].Head.Ref
@@ -516,7 +501,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 				if event.CheckSuite.HeadBranch != nil {
 					ref = "refs/heads/" + *event.CheckSuite.HeadBranch
 				} else {
-					ref = commitSHA // Fallback
+					ref = commitSHA
 				}
 			}
 			log.Info().Str("repo", repoName).Str("commit", commitSHA).Str("event_type", eventType).Msg("Processing rerun request from check_suite event")
@@ -721,17 +706,24 @@ func (a *GitBotApp) handleStepStatusUpdate(w http.ResponseWriter, r *http.Reques
 	}
 
 	var summary string
-	if state.GitHubView == "flat" {
-		summary = a.renderMarkdownFlatList(state)
+	if state.GitHubView == "mermaid" {
+		summary = a.renderMermaidGraph(state)
 	} else if state.GitHubView == "tree" {
 		summary = a.renderMarkdownTree(state)
 	} else {
-		summary = a.renderMermaidGraph(state)
+		summary = a.renderMarkdownFlatList(state)
 	}
-	newTitle := fmt.Sprintf("In progress... (%d/%d steps)", len(state.Steps), update.TotalSteps)
+
+	completedSteps := 0
+	for _, step := range state.Steps {
+		if step.StepStatus != "pending" && step.StepStatus != "skipped" {
+			completedSteps++
+		}
+	}
+	newTitle := fmt.Sprintf("In progress... (%d/%d steps)", completedSteps, len(state.Steps))
 
 	opts := github.UpdateCheckRunOptions{
-		Name:   "Nopsai",
+		Name:   state.PipelineName,
 		Status: github.String("in_progress"),
 		Output: &github.CheckRunOutput{
 			Title:   github.String(newTitle),
@@ -802,16 +794,26 @@ func (a *GitBotApp) handleRunStatusUpdate(w http.ResponseWriter, r *http.Request
 	a.concludeCheckRun(update.RepoOwner, update.RepoName, update.CheckRunID, update.Status, summary)
 	w.WriteHeader(http.StatusOK)
 }
+
 func (a *GitBotApp) concludeCheckRun(owner, repo string, checkRunID int64, conclusion, summary string) {
 	if checkRunID == 0 {
 		log.Warn().Msg("Invalid checkRunID (0), skipping conclusion.")
 		return
 	}
 
-	finalTitle := "Nopsai - " + strings.ToUpper(string(conclusion[0])) + conclusion[1:]
+	a.stateLock.Lock()
+	defer a.stateLock.Unlock()
+
+	state, ok := a.checkRunStates[checkRunID]
+	checkName := "Nopsai"
+	if ok {
+		checkName = state.PipelineName
+	}
+
+	finalTitle := checkName + " - " + strings.ToUpper(string(conclusion[0])) + conclusion[1:]
 
 	opts := github.UpdateCheckRunOptions{
-		Name:        "Nopsai",
+		Name:        checkName,
 		Status:      github.String("completed"),
 		Conclusion:  github.String(conclusion),
 		CompletedAt: &github.Timestamp{Time: time.Now()},
@@ -826,8 +828,6 @@ func (a *GitBotApp) concludeCheckRun(owner, repo string, checkRunID int64, concl
 		log.Error().Err(err).Msg("Failed to conclude check run")
 	}
 
-	a.stateLock.Lock()
-	defer a.stateLock.Unlock()
 	delete(a.checkRunStates, checkRunID)
 }
 
