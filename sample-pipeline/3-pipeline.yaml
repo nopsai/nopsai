@@ -1,7 +1,7 @@
-name: Second Test Pipeline
+name: Second-Test-Pipeline
 description: A sample pipeline.
-llm_content_sharing: true   # by default it's true
-llm_output_sharing: true    # by default it's true
+llm_content_sharing: true
+llm_output_sharing: true
 display_options:
   github_view: "mermaid" # mermaid, tree or flat
 container_image: "pipeline-image:latest"
