@@ -431,20 +431,26 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	case status := <-statusCh:
 		log.Info().Str("run_id", runID).Int64("status_code", status.StatusCode).Msg("Agent container finished.")
 		finalStatus := "success"
+		var failedStep string
 		if status.StatusCode != 0 {
 			finalStatus = "failure"
+			err := a.db.QueryRow(context.Background(), "SELECT name FROM steps WHERE run_id = $1 AND status = 'failed' ORDER BY finished_at ASC LIMIT 1", runID).Scan(&failedStep)
+			if err != nil {
+				log.Warn().Err(err).Str("run_id", runID).Msg("Could not determine the exact failed step.")
+			}
 		}
 		a.db.Exec(context.Background(), "UPDATE runs SET status = $1, finished_at = NOW() WHERE run_id = $2", finalStatus, runID)
 		if gitContext["repo_owner"] != "" {
-			a.notifyGitBotOfFinalStatus(finalStatus, gitContext)
+			a.notifyGitBotOfFinalStatus(finalStatus, failedStep, gitContext)
 		}
 	}
 }
-func (a *App) notifyGitBotOfFinalStatus(status string, gitContext map[string]string) {
+func (a *App) notifyGitBotOfFinalStatus(status string, failedStep string, gitContext map[string]string) {
 	checkRunID, _ := strconv.ParseInt(gitContext["check_run_id"], 10, 64)
 	gitBotURL := fmt.Sprintf("%s/v1/run/status", a.cfg.NopsaiGitBotAPIURL)
 	payload := map[string]interface{}{
 		"status":       status,
+		"failed_step":  failedStep,
 		"check_run_id": checkRunID,
 		"repo_owner":   gitContext["repo_owner"],
 		"repo_name":    gitContext["repo_name"],
