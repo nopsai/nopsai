@@ -541,12 +541,13 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		pipelineYAML, _ = io.ReadAll(resp.Body)
 		log.Info().Str("repo", repoName).Msg("Found and using pipeline override from nopsai service.")
 	} else {
-		log.Info().Str("repo", repoName).Msg("No override found, fetching .nopsai.yaml from repository.")
-		fileContent, _, _, err := a.ghClient.Repositories.GetContents(context.Background(), owner, repo, ".nopsai.yaml", &github.RepositoryContentGetOptions{Ref: commitSHA})
+		log.Info().Str("repo", repoName).Msg("No override found, fetching .nopsai/triggers.yaml from repository.")
+		manifestPath := ".nopsai/triggers.yaml"
+		fileContent, _, _, err := a.ghClient.Repositories.GetContents(context.Background(), owner, repo, manifestPath, &github.RepositoryContentGetOptions{Ref: commitSHA})
 		if err != nil || fileContent == nil {
-			log.Error().Err(err).Msg("Failed to fetch .nopsai.yaml from repository")
+			log.Error().Err(err).Msg("Failed to fetch .nopsai/triggers.yaml from repository")
 			checkRunID := a.createCheckRun(owner, repo, commitSHA, "")
-			a.concludeCheckRun(owner, repo, checkRunID, "failure", "Could not find .nopsai.yaml in the repository.")
+			a.concludeCheckRun(owner, repo, checkRunID, "failure", "Could not find .nopsai/triggers.yaml in the repository.")
 			http.Error(w, "Could not fetch pipeline file", http.StatusNotFound)
 			return
 		}
@@ -554,15 +555,15 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to decode file content")
 			checkRunID := a.createCheckRun(owner, repo, commitSHA, "")
-			a.concludeCheckRun(owner, repo, checkRunID, "failure", "Could not decode the .nopsai.yaml file content.")
+			a.concludeCheckRun(owner, repo, checkRunID, "failure", "Could not decode the .nopsai/triggers.yaml file content.")
 			http.Error(w, "Could not decode file content", http.StatusInternalServerError)
 			return
 		}
 		var manifest models.Manifest
 		if err := yaml.Unmarshal([]byte(content), &manifest); err != nil {
-			log.Error().Err(err).Msg("Failed to parse .nopsai.yaml manifest")
+			log.Error().Err(err).Msg("Failed to parse .nopsai/triggers.yaml manifest")
 			checkRunID := a.createCheckRun(owner, repo, commitSHA, "")
-			a.concludeCheckRun(owner, repo, checkRunID, "failure", "Could not parse the .nopsai.yaml manifest file.")
+			a.concludeCheckRun(owner, repo, checkRunID, "failure", "Could not parse the .nopsai/triggers.yaml manifest file.")
 			http.Error(w, "Could not parse manifest file", http.StatusBadRequest)
 			return
 		}
@@ -575,12 +576,15 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		log.Info().Msgf("Found pipeline '%s' for event '%s' and ref '%s'.", pipelinePath, eventType, ref)
-		pipelineFileContent, _, _, err := a.ghClient.Repositories.GetContents(context.Background(), owner, repo, pipelinePath, &github.RepositoryContentGetOptions{Ref: commitSHA})
+		fullPipelinePath := filepath.Join(".nopsai", pipelinePath)
+
+		log.Info().Msgf("Found pipeline '%s' for event '%s' and ref '%s'.", fullPipelinePath, eventType, ref)
+		pipelineFileContent, _, _, err := a.ghClient.Repositories.GetContents(context.Background(), owner, repo, fullPipelinePath, &github.RepositoryContentGetOptions{Ref: commitSHA})
+
 		if err != nil || pipelineFileContent == nil {
-			log.Error().Err(err).Msgf("Failed to fetch pipeline file '%s' from repository", pipelinePath)
+			log.Error().Err(err).Msgf("Failed to fetch pipeline file '%s' from repository", fullPipelinePath)
 			checkRunID := a.createCheckRun(owner, repo, commitSHA, "")
-			a.concludeCheckRun(owner, repo, checkRunID, "failure", fmt.Sprintf("Could not find pipeline file '%s' in the repository.", pipelinePath))
+			a.concludeCheckRun(owner, repo, checkRunID, "failure", fmt.Sprintf("Could not find pipeline file '%s' in the repository.", fullPipelinePath))
 			http.Error(w, "Could not fetch pipeline file", http.StatusNotFound)
 			return
 		}
