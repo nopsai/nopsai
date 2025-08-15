@@ -2,6 +2,8 @@ name: Second Test Pipeline
 description: A sample pipeline.
 llm_content_sharing: true   # by default it's true
 llm_output_sharing: true    # by default it's true
+display_options:
+  github_view: "mermaid" # mermaid, tree or flat
 container_image: "pipeline-image:latest"
 working_directory: "/tmp/test"
 timeout: "20m"

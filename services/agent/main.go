@@ -551,11 +551,12 @@ func run() int {
 					updateStepStatus(runID, step.Name, "completed", exitCode)
 					results <- StepResult{Name: step.Name, Success: true}
 				} else {
-					updateStepStatus(runID, step.Name, "failed", exitCode)
 					if step.IgnoreFailure {
+						updateStepStatus(runID, step.Name, "failed (ignored)", exitCode)
 						log.Warn().Str("pipeline", pipelineName).Str("step", step.Name).Msg("Step failed, but failure is ignored.")
 						results <- StepResult{Name: step.Name, Success: true}
 					} else {
+						updateStepStatus(runID, step.Name, "failed", exitCode)
 						log.Error().Str("pipeline", pipelineName).Str("step", step.Name).Msg("Critical step failed.")
 						results <- StepResult{Name: step.Name, Success: false}
 					}
