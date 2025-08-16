@@ -14,6 +14,8 @@ type Config struct {
 	LogLevel    string `yaml:"log_level" env:"LOG_LEVEL"`
 	LogFormat   string `yaml:"log_format" env:"LOG_FORMAT"`
 
+	MasterKey string `yaml:"master_key" env:"NOPSAI_MASTER_KEY"`
+
 	GeminiAPIKey string `yaml:"gemini_api_key" env:"GEMINI_API_KEY"`
 	GeminiModel  string `yaml:"gemini_model" env:"GEMINI_MODEL"`
 

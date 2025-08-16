@@ -71,7 +71,7 @@ func getDirectoryListing(logger zerolog.Logger, root string) map[string]string {
 }
 
 // executeAction runs the given action inside the pipeline container.
-func executeAction(cli *client.Client, containerID string, action *proto.Action) (string, string, int) {
+func executeAction(cli *client.Client, containerID string, action *proto.Action, env []string) (string, string, int) {
 	var cmdStr string
 
 	switch action.Type {
@@ -94,6 +94,7 @@ func executeAction(cli *client.Client, containerID string, action *proto.Action)
 
 	execConfig := container.ExecOptions{
 		Cmd:          []string{"sh", "-c", cmdStr},
+		Env:          env,
 		AttachStdout: true,
 		AttachStderr: true,
 		Tty:          false,
@@ -244,6 +245,8 @@ func ensureImageExists(ctx context.Context, cli *client.Client, imageName string
 }
 
 // run executes the main agent logic and returns an exit code.
+// in services/agent/main.go
+
 func run() int {
 	// --- Initialization ---
 	logLevelStr := os.Getenv("LOG_LEVEL")
@@ -270,6 +273,20 @@ func run() int {
 	pipelineTimeoutStr := os.Getenv("PIPELINE_TIMEOUT")
 	dockerNetworkName := os.Getenv("DOCKER_NETWORK_NAME")
 	llmAgentTimeoutStr := os.Getenv("LLM_AGENT_TIMEOUT")
+	secretsBase64 := os.Getenv("NOPSAI_SECRETS")
+
+	var secrets map[string]string
+	if secretsBase64 != "" {
+		secretsJSON, err := base64.StdEncoding.DecodeString(secretsBase64)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to decode secrets payload")
+		} else {
+			if err := json.Unmarshal(secretsJSON, &secrets); err != nil {
+				log.Error().Err(err).Msg("Failed to unmarshal secrets payload")
+			}
+		}
+	}
+
 	if llmAgentTimeoutStr == "" {
 		llmAgentTimeoutStr = "2m" // Default to 2 minutes
 	}
@@ -403,14 +420,29 @@ func run() int {
 				defer wg.Done()
 
 				var stepContainerID string
-				var tempContainer bool
+				var stepEnvVars []string // This will hold the environment for the step
+
+				// Prepare base environment for the step (from pipeline and git)
+				stepEnvVars = make([]string, len(pipelineEnvVars))
+				copy(stepEnvVars, pipelineEnvVars)
+
+				// Inject the secrets this specific step needs
+				if len(step.Secrets) > 0 && len(secrets) > 0 {
+					for _, secretName := range step.Secrets {
+						if secretValue, ok := secrets[secretName]; ok {
+							stepEnvVars = append(stepEnvVars, fmt.Sprintf("%s=%s", secretName, secretValue))
+						} else {
+							log.Warn().Str("step", step.Name).Str("secret", secretName).Msg("Secret was requested by step but not provided.")
+						}
+					}
+				}
 
 				imageName := step.Image
 				if imageName == "" || imageName == mainImageName {
 					log.Info().Str("step", step.Name).Msg("Executing in main pipeline container.")
 					stepContainerID = mainCont.ID
-					tempContainer = false
 				} else {
+					// This logic for creating a dedicated container is now only for running on a different image
 					log.Info().Str("step", step.Name).Str("image", imageName).Msg("Preparing to run step in dedicated container")
 					if err := ensureImageExists(context.Background(), cli, imageName); err != nil {
 						log.Error().Err(err).Msg("Failed to ensure step image exists. Shutting down.")
@@ -424,7 +456,7 @@ func run() int {
 						Image:      imageName,
 						WorkingDir: "/workspace",
 						Entrypoint: []string{"tail", "-f", "/dev/null"},
-						Env:        pipelineEnvVars,
+						Env:        stepEnvVars, // Pass the full env here
 						Tty:        false,
 					}, &container.HostConfig{
 						Binds:       []string{fmt.Sprintf("%s:/workspace", sharedVolumeName)},
@@ -442,9 +474,6 @@ func run() int {
 						return
 					}
 					stepContainerID = cont.ID
-					tempContainer = true
-				}
-				if tempContainer {
 					defer cleanup(cli, stepContainerID)
 				}
 
@@ -511,7 +540,7 @@ func run() int {
 
 				debugLogger.Debug().Msgf("Executing action: %s", actionStr)
 
-				stdout, stderr, exitCode := executeAction(cli, stepContainerID, action)
+				stdout, stderr, exitCode := executeAction(cli, stepContainerID, action, stepEnvVars)
 
 				status := "Succeeded"
 				output := stdout
@@ -520,8 +549,10 @@ func run() int {
 					output = stderr + stdout
 				}
 
+				maskedOutput := maskSecrets(output, secrets)
+
 				if zerolog.GlobalLevel() <= zerolog.InfoLevel {
-					logMsg := fmt.Sprintf(`status=%s step="%s" action="%s" output="%s"`, status, step.Name, actionStr, output)
+					logMsg := fmt.Sprintf(`status=%s step="%s" action="%s" output="%s"`, status, step.Name, actionStr, maskedOutput)
 					log.Info().Str("pipeline", pipelineName).Msg(logMsg)
 				}
 
@@ -586,6 +617,21 @@ func run() int {
 	}
 
 	return 0
+}
+
+func maskSecrets(output string, secrets map[string]string) string {
+	if len(secrets) == 0 || output == "" {
+		return output
+	}
+	// It's important to iterate over the values of the secrets map
+	for _, secretValue := range secrets {
+		// Avoid masking empty strings or very short, common strings
+		if len(secretValue) < 4 {
+			continue
+		}
+		output = strings.ReplaceAll(output, secretValue, "[REDACTED]")
+	}
+	return output
 }
 
 func main() {

@@ -3,8 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -34,9 +39,10 @@ import (
 )
 
 type App struct {
-	db  *pgxpool.Pool
-	cfg *config.Config
-	cli *client.Client
+	db     *pgxpool.Pool
+	cfg    *config.Config
+	cli    *client.Client
+	encKey []byte
 }
 
 type StepStatusUpdate struct {
@@ -44,7 +50,92 @@ type StepStatusUpdate struct {
 	ExitCode int    `json:"exit_code"`
 }
 
+type SecretRequest struct {
+	Value string `json:"value"`
+}
+
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
+
+func (a *App) encrypt(text string) (string, error) {
+	block, err := aes.NewCipher(a.encKey)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
+	ciphertext := gcm.Seal(nonce, nonce, []byte(text), nil)
+	return hex.EncodeToString(ciphertext), nil
+}
+
+func (a *App) decrypt(text string) (string, error) {
+	ciphertext, err := hex.DecodeString(text)
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(a.encKey)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonceSize := gcm.NonceSize()
+	if len(ciphertext) < nonceSize {
+		return "", fmt.Errorf("ciphertext too short")
+	}
+	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return "", err
+	}
+	return string(plaintext), nil
+}
+
+func (a *App) handleCreateOrUpdateSecret(w http.ResponseWriter, r *http.Request) {
+	secretName := r.PathValue("secretName")
+	var req SecretRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	encryptedValue, err := a.encrypt(req.Value)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to encrypt secret")
+		http.Error(w, "Failed to encrypt secret", http.StatusInternalServerError)
+		return
+	}
+
+	query := `INSERT INTO secrets (name, value, updated_at) VALUES ($1, $2, NOW())
+			  ON CONFLICT (name) DO UPDATE SET value = $2, updated_at = NOW()`
+	_, err = a.db.Exec(context.Background(), query, secretName, encryptedValue)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to save secret to database")
+		http.Error(w, "Failed to save secret", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (a *App) handleDeleteSecret(w http.ResponseWriter, r *http.Request) {
+	secretName := r.PathValue("secretName")
+	_, err := a.db.Exec(context.Background(), "DELETE FROM secrets WHERE name = $1", secretName)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to delete secret from database")
+		http.Error(w, "Failed to delete secret", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
 
 func sanitizeInput(name string) string {
 	sanitized := strings.ReplaceAll(name, " ", "-")
@@ -376,6 +467,21 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 
 	agentContainerName := fmt.Sprintf("agent-%s-%s", sanitizeInput(pipeline.Name), runID)
 
+	// Fetch and decrypt secrets for the agent
+	secrets, err := a.prepareSecretsForPipeline(pipeline)
+	if err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to prepare secrets for pipeline")
+		// Update run status to failed
+		return
+	}
+
+	secretsJSON, err := json.Marshal(secrets)
+	if err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to marshal secrets")
+		// Update run status to failed
+		return
+	}
+
 	envVars := []string{
 		fmt.Sprintf("RUN_ID=%s", runID),
 		fmt.Sprintf("PIPELINE_NAME=%s", pipeline.Name),
@@ -387,6 +493,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		fmt.Sprintf("PIPELINE_DEFINITION=%s", base64.StdEncoding.EncodeToString(pipelineDef)),
 		fmt.Sprintf("SHARED_VOLUME_NAME=%s", sharedVolumeName),
 		fmt.Sprintf("DOCKER_NETWORK_NAME=%s", a.cfg.DockerNetworkName),
+		fmt.Sprintf("NOPSAI_SECRETS=%s", base64.StdEncoding.EncodeToString(secretsJSON)),
 	}
 	for key, value := range gitContext {
 		envKey := fmt.Sprintf("GIT_%s", strings.ToUpper(key))
@@ -445,6 +552,39 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		}
 	}
 }
+
+func (a *App) prepareSecretsForPipeline(pipeline models.Pipeline) (map[string]string, error) {
+	requiredSecrets := make(map[string]struct{})
+	for _, step := range pipeline.Steps {
+		for _, secretName := range step.Secrets {
+			requiredSecrets[secretName] = struct{}{}
+		}
+	}
+
+	if len(requiredSecrets) == 0 {
+		return nil, nil
+	}
+
+	decryptedSecrets := make(map[string]string)
+	for secretName := range requiredSecrets {
+		var encryptedValue string
+		err := a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1", secretName).Scan(&encryptedValue)
+		if err != nil {
+			log.Warn().Str("secret_name", secretName).Msg("Secret not found in database, will be ignored")
+			continue
+		}
+
+		decryptedValue, err := a.decrypt(encryptedValue)
+		if err != nil {
+			log.Error().Err(err).Str("secret_name", secretName).Msg("Failed to decrypt secret, will be ignored")
+			continue
+		}
+		decryptedSecrets[secretName] = decryptedValue
+	}
+
+	return decryptedSecrets, nil
+}
+
 func (a *App) notifyGitBotOfFinalStatus(status string, failedStep string, gitContext map[string]string) {
 	checkRunID, _ := strconv.ParseInt(gitContext["check_run_id"], 10, 64)
 	gitBotURL := fmt.Sprintf("%s/v1/run/status", a.cfg.NopsaiGitBotAPIURL)
@@ -471,6 +611,7 @@ func (a *App) notifyGitBotOfFinalStatus(status string, failedStep string, gitCon
 		log.Info().Msg("Successfully notified git-bot of final pipeline status.")
 	}
 }
+
 func (a *App) notifyGitBotOfStepStatus(runID, stepName, stepStatus string) {
 	var repoOwner, repoName, commitSHA, pipelineDef sql.NullString
 	var checkRunID sql.NullInt64
@@ -559,6 +700,11 @@ func main() {
 		log.Fatal().Err(err).Msgf("Failed to load config from %s", configPath)
 	}
 
+	if cfg.MasterKey == "" {
+		log.Fatal().Msg("NOPSAI_MASTER_KEY environment variable is not set. This is required for secret encryption.")
+	}
+	key := sha256.Sum256([]byte(cfg.MasterKey))
+
 	logLevel, err := zerolog.ParseLevel(cfg.LogLevel)
 	if err != nil {
 		log.Warn().Msgf("Invalid log level '%s', defaulting to 'info'", cfg.LogLevel)
@@ -592,13 +738,15 @@ func main() {
 	}
 	defer cli.Close()
 
-	app := &App{db: dbpool, cfg: cfg, cli: cli}
+	app := &App{db: dbpool, cfg: cfg, cli: cli, encKey: key[:]}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/run", app.handleRunPipeline)
 	mux.HandleFunc("POST /v1/runs/{runID}/steps/{stepName}", app.handleStepUpdate)
 	mux.HandleFunc("GET /v1/overrides/{repoOwner}/{repoName}", app.handleOverrideCheck)
 	mux.HandleFunc("POST /v1/runs/{runID}/rerun", app.handleRerunPipeline)
+	mux.HandleFunc("PUT /v1/secrets/{secretName}", app.handleCreateOrUpdateSecret)
+	mux.HandleFunc("DELETE /v1/secrets/{secretName}", app.handleDeleteSecret)
 
 	server := &http.Server{
 		Addr:    cfg.NopsaiListenAddress,
