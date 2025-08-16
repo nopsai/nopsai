@@ -38,6 +38,7 @@ type PipelineStep struct {
 	Image            string   `yaml:"image,omitempty"`
 	Goal             string   `yaml:"goal"`
 	Script           string   `yaml:"script,omitempty"`
+	Secrets          []string `yaml:"secrets,omitempty"` // <-- THIS LINE IS NOW CORRECTLY ADDED
 	DependsOn        []string `yaml:"depends_on,omitempty"`
 	IgnoreFailure    bool     `yaml:"ignore_failure,omitempty"`
 	LlmOutputSharing *bool    `yaml:"llm_output_sharing,omitempty"`
