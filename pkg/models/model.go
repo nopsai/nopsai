@@ -7,10 +7,11 @@ type Manifest struct {
 
 // Trigger defines a rule for when a pipeline should be run.
 type Trigger struct {
-	On       string   `yaml:"on"`
-	Branches []string `yaml:"branches,omitempty"`
-	Tags     []string `yaml:"tags,omitempty"`
-	Path     string   `yaml:"path"`
+	On          string   `yaml:"on"`
+	Branches    []string `yaml:"branches,omitempty"`
+	Tags        []string `yaml:"tags,omitempty"`
+	Path        string   `yaml:"path"`
+	Environment string   `yaml:"environment,omitempty"` // <-- THIS LINE IS NOW CORRECTLY ADDED
 }
 
 // Pipeline represents the structure of a pipeline definition file.
@@ -38,7 +39,7 @@ type PipelineStep struct {
 	Image            string   `yaml:"image,omitempty"`
 	Goal             string   `yaml:"goal"`
 	Script           string   `yaml:"script,omitempty"`
-	Secrets          []string `yaml:"secrets,omitempty"` // <-- THIS LINE IS NOW CORRECTLY ADDED
+	Secrets          []string `yaml:"secrets,omitempty"`
 	DependsOn        []string `yaml:"depends_on,omitempty"`
 	IgnoreFailure    bool     `yaml:"ignore_failure,omitempty"`
 	LlmOutputSharing *bool    `yaml:"llm_output_sharing,omitempty"`
