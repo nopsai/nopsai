@@ -244,9 +244,6 @@ func ensureImageExists(ctx context.Context, cli *client.Client, imageName string
 	return nil
 }
 
-// run executes the main agent logic and returns an exit code.
-// in services/agent/main.go
-
 func run() int {
 	// --- Initialization ---
 	logLevelStr := os.Getenv("LOG_LEVEL")
@@ -288,7 +285,7 @@ func run() int {
 	}
 
 	if llmAgentTimeoutStr == "" {
-		llmAgentTimeoutStr = "2m" // Default to 2 minutes
+		llmAgentTimeoutStr = "2m"
 	}
 	llmAgentTimeout, err := time.ParseDuration(llmAgentTimeoutStr)
 	if err != nil {
@@ -352,7 +349,6 @@ func run() int {
 				if ctx.Err() == context.DeadlineExceeded {
 					log.Error().Msg("Pipeline execution timed out. Cleaning up and exiting.")
 					updateRunStatus(runID, "failed")
-					// We can't call os.Exit here, so we rely on the main function to do so
 				}
 			}()
 		}
@@ -420,9 +416,8 @@ func run() int {
 				defer wg.Done()
 
 				var stepContainerID string
-				var stepEnvVars []string // This will hold the environment for the step
+				var stepEnvVars []string
 
-				// Prepare base environment for the step (from pipeline and git)
 				stepEnvVars = make([]string, len(pipelineEnvVars))
 				copy(stepEnvVars, pipelineEnvVars)
 
@@ -608,7 +603,7 @@ func run() int {
 
 		if pipelineFailed {
 			log.Error().Str("pipeline", pipelineName).Msg("One or more critical steps failed. Shutting down.")
-			break // Exit the loop
+			break
 		}
 	}
 
@@ -623,13 +618,11 @@ func maskSecrets(output string, secrets map[string]string) string {
 	if len(secrets) == 0 || output == "" {
 		return output
 	}
-	// It's important to iterate over the values of the secrets map
 	for _, secretValue := range secrets {
-		// Avoid masking empty strings or very short, common strings
 		if len(secretValue) < 4 {
 			continue
 		}
-		output = strings.ReplaceAll(output, secretValue, "[REDACTED]")
+		output = strings.ReplaceAll(output, secretValue, "*****")
 	}
 	return output
 }

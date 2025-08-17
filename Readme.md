@@ -6,8 +6,18 @@ https://github.com/settings/apps/nopsai
 
 docker-compose up --build -d
 
+curl http://localhost:8080/v1/secrets
 
-curl -X POST -H "Content-Type: application/x-yaml" --data-binary "@sample-pipeline/2-pipeline.yaml" http://localhost:8080/v1/run
+curl -X PUT -H "Content-Type: application/x-yaml" --data-binary "@.nopsai/main-pipeline.yaml" http://localhost:8080/v1/pipelines/main-pipeline.yaml
+
+curl http://localhost:8080/v1/pipelines/main-production.yaml
+
+curl http://localhost:8080/v1/overrides/hosein-yousefii/test-app
+
+curl -X PUT \
+  -H "Content-Type: application/x-yaml" \
+  --data-binary "@.nopsai/triggers.yaml" \
+  http://localhost:8080/v1/overrides/hosein-yousefii/test-app
 
 
 

@@ -33,11 +33,19 @@ CREATE TABLE steps (
     UNIQUE(run_id, name)
 );
 
-CREATE TABLE pipeline_overrides (
+CREATE TABLE trigger_overrides (
     id SERIAL PRIMARY KEY,
     repository_name VARCHAR(255) UNIQUE NOT NULL,
-    pipeline_definition TEXT NOT NULL,
+    trigger_definition TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE pipelines (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) UNIQUE NOT NULL,
+    definition TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE secrets (
