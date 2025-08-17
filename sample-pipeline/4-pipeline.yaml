@@ -67,7 +67,7 @@ steps:
       #!/bin/bash
       cat sample.txt
     depends_on:
-    - list-envs
+    - list-envs-main
 
   - name: build-docker
     goal: build docker image with repo name and 3 taga, latest,latest git tag and commit hash 

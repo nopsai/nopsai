@@ -38,12 +38,12 @@ curl http://localhost:8080/v1/pipelines
 
 curl http://localhost:8080/v1/pipelines/main-pipeline.yaml
 
-curl -X DELETE http://localhost:8080/v1/pipelines/deploy-production.yaml
+curl -X DELETE http://localhost:8080/v1/pipelines/main-pipeline.yaml
 
 curl -X PUT \
   -H "Content-Type: application/x-yaml" \
-  --data-binary "@.nopsai/triggers.yaml" \
-  http://localhost:8080/v1/overrides/hosein-yousefii/test-app
+  --data-binary "@.nopsai/main-pipeline.yaml" \
+  http://localhost:8080/v1/pipelines/main-pipeline.yaml
 
 
 
@@ -57,7 +57,7 @@ curl -X DELETE http://localhost:8080/v1/overrides/hosein-yousefii/test-app
 
 curl -X PUT \
   -H "Content-Type: application/x-yaml" \
-  --data-binary "@trigger-override.yaml" \
+  --data-binary "@.nopsai/triggers.yaml" \
   http://localhost:8080/v1/overrides/hosein-yousefii/test-app
 
 
