@@ -106,37 +106,10 @@ func (a *App) decrypt(text string) (string, error) {
 	return string(plaintext), nil
 }
 
-func (a *App) handleCreateOrUpdateSecret(w http.ResponseWriter, r *http.Request) {
-	secretName := r.PathValue("secretName")
-	var req SecretRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	encryptedValue, err := a.encrypt(req.Value)
+func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.db.Query(context.Background(), "SELECT name FROM secrets WHERE repository_name IS NULL ORDER BY name ASC")
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to encrypt secret")
-		http.Error(w, "Failed to encrypt secret", http.StatusInternalServerError)
-		return
-	}
-
-	query := `INSERT INTO secrets (name, value, updated_at) VALUES ($1, $2, NOW())
-			  ON CONFLICT (name) DO UPDATE SET value = $2, updated_at = NOW()`
-	_, err = a.db.Exec(context.Background(), query, secretName, encryptedValue)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to save secret to database")
-		http.Error(w, "Failed to save secret", http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusCreated)
-}
-
-func (a *App) handleListSecrets(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(context.Background(), "SELECT name FROM secrets ORDER BY name ASC")
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to query secrets from database")
+		log.Error().Err(err).Msg("Failed to query general secrets from database")
 		http.Error(w, "Failed to retrieve secrets", http.StatusInternalServerError)
 		return
 	}
@@ -158,16 +131,163 @@ func (a *App) handleListSecrets(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(secretNames)
 }
 
-func (a *App) handleDeleteSecret(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleCreateOrUpdateGeneralSecret(w http.ResponseWriter, r *http.Request) {
 	secretName := r.PathValue("secretName")
-	_, err := a.db.Exec(context.Background(), "DELETE FROM secrets WHERE name = $1", secretName)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to delete secret from database")
-		http.Error(w, "Failed to delete secret", http.StatusInternalServerError)
+	var req SecretRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
+	encryptedValue, err := a.encrypt(req.Value)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to encrypt secret")
+		http.Error(w, "Failed to encrypt secret", http.StatusInternalServerError)
+		return
+	}
+
+	query := `INSERT INTO secrets (name, value, repository_name, updated_at) VALUES ($1, $2, NULL, NOW())
+			  ON CONFLICT (name, repository_name) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
+	_, err = a.db.Exec(context.Background(), query, secretName, encryptedValue)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to save general secret to database")
+		http.Error(w, "Failed to save secret", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (a *App) handleDeleteGeneralSecret(w http.ResponseWriter, r *http.Request) {
+	secretName := r.PathValue("secretName")
+	_, err := a.db.Exec(context.Background(), "DELETE FROM secrets WHERE name = $1 AND repository_name IS NULL", secretName)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to delete general secret from database")
+		http.Error(w, "Failed to delete secret", http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleListRepoSecrets(w http.ResponseWriter, r *http.Request) {
+	repoOwner := r.PathValue("repoOwner")
+	repoName := r.PathValue("repoName")
+	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
+	rows, err := a.db.Query(context.Background(), "SELECT name FROM secrets WHERE repository_name = $1 ORDER BY name ASC", fullName)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to query repo secrets from database")
+		http.Error(w, "Failed to retrieve secrets", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var secretNames []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			log.Error().Err(err).Msg("Failed to scan secret name")
+			http.Error(w, "Failed to process secrets", http.StatusInternalServerError)
+			return
+		}
+		secretNames = append(secretNames, name)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(secretNames)
+}
+
+func (a *App) handleCreateOrUpdateRepoSecret(w http.ResponseWriter, r *http.Request) {
+	repoOwner := r.PathValue("repoOwner")
+	repoName := r.PathValue("repoName")
+	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
+	secretName := r.PathValue("secretName")
+	var req SecretRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	encryptedValue, err := a.encrypt(req.Value)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to encrypt secret")
+		http.Error(w, "Failed to encrypt secret", http.StatusInternalServerError)
+		return
+	}
+
+	query := `INSERT INTO secrets (name, value, repository_name, updated_at) VALUES ($1, $2, $3, NOW())
+			  ON CONFLICT (name, repository_name) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
+	_, err = a.db.Exec(context.Background(), query, secretName, encryptedValue, fullName)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to save repo secret to database")
+		http.Error(w, "Failed to save secret", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (a *App) handleDeleteRepoSecret(w http.ResponseWriter, r *http.Request) {
+	repoOwner := r.PathValue("repoOwner")
+	repoName := r.PathValue("repoName")
+	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
+	secretName := r.PathValue("secretName")
+	_, err := a.db.Exec(context.Background(), "DELETE FROM secrets WHERE name = $1 AND repository_name = $2", secretName, fullName)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to delete repo secret from database")
+		http.Error(w, "Failed to delete secret", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleListPipelines(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.db.Query(context.Background(), "SELECT name FROM pipelines ORDER BY name ASC")
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to query pipelines from database")
+		http.Error(w, "Failed to retrieve pipelines", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var pipelineNames []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			log.Error().Err(err).Msg("Failed to scan pipeline name")
+			http.Error(w, "Failed to process pipelines", http.StatusInternalServerError)
+			return
+		}
+		pipelineNames = append(pipelineNames, name)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(pipelineNames)
+}
+
+// handleListTriggerOverrides retrieves the names of all repositories with active trigger overrides.
+func (a *App) handleListTriggerOverrides(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.db.Query(context.Background(), "SELECT repository_name FROM trigger_overrides ORDER BY repository_name ASC")
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to query trigger overrides from database")
+		http.Error(w, "Failed to retrieve trigger overrides", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var repoNames []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			log.Error().Err(err).Msg("Failed to scan repository name")
+			http.Error(w, "Failed to process trigger overrides", http.StatusInternalServerError)
+			return
+		}
+		repoNames = append(repoNames, name)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(repoNames)
 }
 
 func (a *App) handleGetPipeline(w http.ResponseWriter, r *http.Request) {
@@ -623,7 +743,7 @@ func (a *App) handleStepUpdate(w http.ResponseWriter, r *http.Request) {
 func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []byte, timeout time.Duration, gitContext map[string]string) {
 	ctx := context.Background()
 
-	secrets, err := a.prepareSecretsForPipeline(pipeline)
+	secrets, err := a.prepareSecretsForPipeline(pipeline, gitContext)
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to prepare secrets for pipeline")
 		a.db.Exec(context.Background(), "UPDATE runs SET status = $1, finished_at = NOW() WHERE run_id = $2", "failed", runID)
@@ -738,7 +858,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	}
 }
 
-func (a *App) prepareSecretsForPipeline(pipeline models.Pipeline) (map[string]string, error) {
+func (a *App) prepareSecretsForPipeline(pipeline models.Pipeline, gitContext map[string]string) (map[string]string, error) {
 	requiredSecrets := make(map[string]struct{})
 	for _, step := range pipeline.Steps {
 		for _, secretName := range step.Secrets {
@@ -750,25 +870,49 @@ func (a *App) prepareSecretsForPipeline(pipeline models.Pipeline) (map[string]st
 		return nil, nil
 	}
 
-	decryptedSecrets := make(map[string]string)
+	finalSecrets := make(map[string]string)
+
+	// 1. Fetch General Secrets First
 	for secretName := range requiredSecrets {
 		var encryptedValue string
-		err := a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1", secretName).Scan(&encryptedValue)
-		if err != nil {
-			if err == sql.ErrNoRows {
-				return nil, fmt.Errorf("pipeline aborted: required secret '%s' not found", secretName)
+		err := a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL", secretName).Scan(&encryptedValue)
+		if err == nil {
+			decryptedValue, err := a.decrypt(encryptedValue)
+			if err == nil {
+				finalSecrets[secretName] = decryptedValue
+			} else {
+				log.Error().Err(err).Str("secret_name", secretName).Msg("Failed to decrypt general secret, it will be ignored")
 			}
-			return nil, fmt.Errorf("database error while fetching secret '%s': %w", secretName, err)
 		}
-
-		decryptedValue, err := a.decrypt(encryptedValue)
-		if err != nil {
-			return nil, fmt.Errorf("pipeline aborted: failed to decrypt secret '%s'", secretName)
-		}
-		decryptedSecrets[secretName] = decryptedValue
 	}
 
-	return decryptedSecrets, nil
+	// 2. Fetch Repository-level Secrets and Override if context exists
+	if repoOwner, ok := gitContext["repo_owner"]; ok {
+		if repoName, ok := gitContext["repo_name"]; ok {
+			repoFullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
+			for secretName := range requiredSecrets {
+				var encryptedValue string
+				err := a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name = $2", secretName, repoFullName).Scan(&encryptedValue)
+				if err == nil {
+					decryptedValue, err := a.decrypt(encryptedValue)
+					if err == nil {
+						finalSecrets[secretName] = decryptedValue // This overwrites the general secret
+					} else {
+						log.Error().Err(err).Str("secret_name", secretName).Str("repo", repoFullName).Msg("Failed to decrypt repo secret, it will be ignored")
+					}
+				}
+			}
+		}
+	}
+
+	// 3. Final Check: Ensure all required secrets were found
+	for secretName := range requiredSecrets {
+		if _, ok := finalSecrets[secretName]; !ok {
+			return nil, fmt.Errorf("pipeline aborted: required secret '%s' not found in general or repository scope", secretName)
+		}
+	}
+
+	return finalSecrets, nil
 }
 
 func (a *App) notifyGitBotOfFinalStatus(status, failedStep, summary string, gitContext map[string]string) {
@@ -928,19 +1072,30 @@ func main() {
 	app := &App{db: dbpool, cfg: cfg, cli: cli, encKey: key[:]}
 
 	mux := http.NewServeMux()
+
+	// Pipeline Management
+	mux.HandleFunc("GET /v1/pipelines", app.handleListPipelines)
 	mux.HandleFunc("GET /v1/pipelines/{pipelineName}", app.handleGetPipeline)
 	mux.HandleFunc("PUT /v1/pipelines/{pipelineName}", app.handleCreateOrUpdatePipeline)
 	mux.HandleFunc("DELETE /v1/pipelines/{pipelineName}", app.handleDeletePipeline)
 
+	// Trigger Override Management
+	mux.HandleFunc("GET /v1/overrides", app.handleListTriggerOverrides)
 	mux.HandleFunc("GET /v1/overrides/{repoOwner}/{repoName}", app.handleGetTriggerOverride)
 	mux.HandleFunc("PUT /v1/overrides/{repoOwner}/{repoName}", app.handleCreateOrUpdateTriggerOverride)
 	mux.HandleFunc("DELETE /v1/overrides/{repoOwner}/{repoName}", app.handleDeleteTriggerOverride)
 
-	// Secret Management
-	mux.HandleFunc("GET /v1/secrets", app.handleListSecrets)
-	mux.HandleFunc("PUT /v1/secrets/{secretName}", app.handleCreateOrUpdateSecret)
-	mux.HandleFunc("DELETE /v1/secrets/{secretName}", app.handleDeleteSecret)
+	// General Secret Management
+	mux.HandleFunc("GET /v1/secrets", app.handleListGeneralSecrets)
+	mux.HandleFunc("PUT /v1/secrets/{secretName}", app.handleCreateOrUpdateGeneralSecret)
+	mux.HandleFunc("DELETE /v1/secrets/{secretName}", app.handleDeleteGeneralSecret)
 
+	// Repository-level Secret Management
+	mux.HandleFunc("GET /v1/repositories/{repoOwner}/{repoName}/secrets", app.handleListRepoSecrets)
+	mux.HandleFunc("PUT /v1/repositories/{repoOwner}/{repoName}/secrets/{secretName}", app.handleCreateOrUpdateRepoSecret)
+	mux.HandleFunc("DELETE /v1/repositories/{repoOwner}/{repoName}/secrets/{secretName}", app.handleDeleteRepoSecret)
+
+	// Pipeline Execution
 	mux.HandleFunc("POST /v1/run", app.handleRunPipeline)
 	mux.HandleFunc("POST /v1/run/{pipelineName}", app.handleRunPipelineByName)
 	mux.HandleFunc("POST /v1/runs/{runID}/rerun", app.handleRerunPipeline)

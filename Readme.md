@@ -4,15 +4,41 @@ mv nopsai/pkg/proto/* pkg/proto/ && rm -rf nopsai/
 
 https://github.com/settings/apps/nopsai
 
-docker-compose up --build -d
+docker-compose down -v && docker container prune -f && docker volume prune -f
 
+# Secrets
+
+// General
 curl http://localhost:8080/v1/secrets
 
-curl -X PUT -H "Content-Type: application/x-yaml" --data-binary "@.nopsai/main-pipeline.yaml" http://localhost:8080/v1/pipelines/main-pipeline.yaml
+curl -X DELETE http://localhost:8080/v1/secrets/TEST_SECRET
 
-curl http://localhost:8080/v1/pipelines/main-production.yaml
+curl -X PUT \
+  -H "Content-Type: application/json" \
+  -d '{"value": "General level secret"}' \
+  http://localhost:8080/v1/secrets/TEST_SECRET
 
-curl http://localhost:8080/v1/overrides/hosein-yousefii/test-app
+
+// Repositories
+curl http://localhost:8080/v1/repositories/hosein-yousefii/test-app/secrets
+
+curl -X DELETE http://localhost:8080/v1/repositories/hosein-yousefii/test-app/secrets/TEST_SECRET
+
+curl -X PUT \
+  -H "Content-Type: application/json" \
+  -d '{"value": "repo level secret"}' \
+  http://localhost:8080/v1/repositories/hosein-yousefii/test-app/secrets/TEST_SECRET
+
+
+
+
+# Pipelines  
+
+curl http://localhost:8080/v1/pipelines
+
+curl http://localhost:8080/v1/pipelines/main-pipeline.yaml
+
+curl -X DELETE http://localhost:8080/v1/pipelines/deploy-production.yaml
 
 curl -X PUT \
   -H "Content-Type: application/x-yaml" \
@@ -21,6 +47,24 @@ curl -X PUT \
 
 
 
+# Trigger
+
+curl http://localhost:8080/v1/overrides
+
+curl http://localhost:8080/v1/overrides/hosein-yousefii/test-app
+
+curl -X DELETE http://localhost:8080/v1/overrides/hosein-yousefii/test-app
+
+curl -X PUT \
+  -H "Content-Type: application/x-yaml" \
+  --data-binary "@trigger-override.yaml" \
+  http://localhost:8080/v1/overrides/hosein-yousefii/test-app
+
+
+
+
+
+# NopsAI
 Nopsai: The LLM-Powered CI/CD System
 Nopsai is a modern, microservice-based CI/CD system that leverages the power of Large Language Models (LLMs) to orchestrate and execute complex pipelines. Instead of relying on rigid, pre-defined scripts, Nopsai uses high-level, natural language "goals" which are translated into executable commands by an AI agent at runtime. This approach provides a flexible, intelligent, and powerful automation platform.
 

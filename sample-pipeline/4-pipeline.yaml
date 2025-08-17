@@ -18,8 +18,8 @@ steps:
       echo $TEST_SECRET
     ignore_failure: false
     
-  - name: show-secret
-    goal: show me the value of TEST_SECRET
+  - name: list-envs-main
+    goal: write the value of TEST_SECRET to sample.txt
     secrets:
       - TEST_SECRET
       
@@ -30,7 +30,7 @@ steps:
     depends_on:
     - git-clone
 
-  - name: list-envs
+  - name: list-envs-containers
     image: alpine:latest
     secrets:
       - TEST_SECRET
@@ -65,7 +65,7 @@ steps:
   - name: test-secret
     script: |
       #!/bin/bash
-      echo $TEST_SECRET
+      cat sample.txt
     depends_on:
     - list-envs
 
