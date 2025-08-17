@@ -54,6 +54,14 @@ type SecretRequest struct {
 	Value string `json:"value"`
 }
 
+type PipelineRequest struct {
+	Definition string `json:"definition"`
+}
+
+type RunByNameRequest struct {
+	CheckRunID int64 `json:"check_run_id"`
+}
+
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
 
 func (a *App) encrypt(text string) (string, error) {
@@ -125,6 +133,31 @@ func (a *App) handleCreateOrUpdateSecret(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusCreated)
 }
 
+func (a *App) handleListSecrets(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.db.Query(context.Background(), "SELECT name FROM secrets ORDER BY name ASC")
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to query secrets from database")
+		http.Error(w, "Failed to retrieve secrets", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var secretNames []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			log.Error().Err(err).Msg("Failed to scan secret name")
+			http.Error(w, "Failed to process secrets", http.StatusInternalServerError)
+			return
+		}
+		secretNames = append(secretNames, name)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(secretNames)
+}
+
 func (a *App) handleDeleteSecret(w http.ResponseWriter, r *http.Request) {
 	secretName := r.PathValue("secretName")
 	_, err := a.db.Exec(context.Background(), "DELETE FROM secrets WHERE name = $1", secretName)
@@ -135,6 +168,172 @@ func (a *App) handleDeleteSecret(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleGetPipeline(w http.ResponseWriter, r *http.Request) {
+	pipelineName := r.PathValue("pipelineName")
+
+	var pipelineDef string
+	err := a.db.QueryRow(context.Background(), "SELECT definition FROM pipelines WHERE name = $1", pipelineName).Scan(&pipelineDef)
+	if err != nil {
+		log.Error().Err(err).Str("pipeline_name", pipelineName).Msg("Pipeline not found in database")
+		http.Error(w, "Pipeline not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/x-yaml")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(pipelineDef))
+}
+
+func (a *App) handleGetTriggerOverride(w http.ResponseWriter, r *http.Request) {
+	repoOwner := r.PathValue("repoOwner")
+	repoName := r.PathValue("repoName")
+	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
+
+	var triggerDef string
+	err := a.db.QueryRow(context.Background(), "SELECT trigger_definition FROM trigger_overrides WHERE repository_name = $1", fullName).Scan(&triggerDef)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/x-yaml")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(triggerDef))
+}
+
+func (a *App) handleCreateOrUpdateTriggerOverride(w http.ResponseWriter, r *http.Request) {
+	repoOwner := r.PathValue("repoOwner")
+	repoName := r.PathValue("repoName")
+	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
+
+	// Read the raw YAML trigger definition directly from the request body
+	triggerDef, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Error reading request body", http.StatusInternalServerError)
+		return
+	}
+
+	// You can add validation here for the trigger definition if needed
+	var manifest models.Manifest
+	if err := yaml.Unmarshal(triggerDef, &manifest); err != nil {
+		errorMsg := fmt.Sprintf("Trigger validation failed: %v", err)
+		http.Error(w, errorMsg, http.StatusBadRequest)
+		return
+	}
+
+	query := `INSERT INTO trigger_overrides (repository_name, trigger_definition) VALUES ($1, $2)
+			  ON CONFLICT (repository_name) DO UPDATE SET trigger_definition = $2`
+	_, err = a.db.Exec(context.Background(), query, fullName, string(triggerDef))
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to save trigger override")
+		http.Error(w, "Failed to save trigger override", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (a *App) handleDeleteTriggerOverride(w http.ResponseWriter, r *http.Request) {
+	repoOwner := r.PathValue("repoOwner")
+	repoName := r.PathValue("repoName")
+	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
+
+	_, err := a.db.Exec(context.Background(), "DELETE FROM trigger_overrides WHERE repository_name = $1", fullName)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to delete trigger override from database")
+		http.Error(w, "Failed to delete trigger override", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleCreateOrUpdatePipeline(w http.ResponseWriter, r *http.Request) {
+	pipelineName := r.PathValue("pipelineName")
+
+	pipelineDef, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Error reading request body", http.StatusInternalServerError)
+		return
+	}
+
+	// --- YAML Validation Logic ---
+	var pipeline models.Pipeline
+	if err := yaml.Unmarshal(pipelineDef, &pipeline); err != nil {
+		errorMsg := fmt.Sprintf("Pipeline validation failed: %v", err)
+		http.Error(w, errorMsg, http.StatusBadRequest)
+		return
+	}
+	if pipeline.Name == "" {
+		http.Error(w, "Pipeline validation failed: 'name' is a required field.", http.StatusBadRequest)
+		return
+	}
+	if pipeline.ContainerImage == "" {
+		http.Error(w, "Pipeline validation failed: 'container_image' is a required field.", http.StatusBadRequest)
+		return
+	}
+	if len(pipeline.Steps) == 0 {
+		http.Error(w, "Pipeline validation failed: at least one step is required.", http.StatusBadRequest)
+		return
+	}
+
+	query := `INSERT INTO pipelines (name, definition, updated_at) VALUES ($1, $2, NOW())
+			  ON CONFLICT (name) DO UPDATE SET definition = $2, updated_at = NOW()`
+	_, err = a.db.Exec(context.Background(), query, pipelineName, string(pipelineDef))
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to save pipeline to database")
+		http.Error(w, "Failed to save pipeline", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (a *App) handleDeletePipeline(w http.ResponseWriter, r *http.Request) {
+	pipelineName := r.PathValue("pipelineName")
+	_, err := a.db.Exec(context.Background(), "DELETE FROM pipelines WHERE name = $1", pipelineName)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to delete pipeline from database")
+		http.Error(w, "Failed to delete pipeline", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleRunPipelineByName(w http.ResponseWriter, r *http.Request) {
+	pipelineNameFromPath := r.PathValue("pipelineName")
+
+	var pipelineDef string
+	err := a.db.QueryRow(context.Background(), "SELECT definition FROM pipelines WHERE name = $1", pipelineNameFromPath).Scan(&pipelineDef)
+	if err != nil {
+		log.Error().Err(err).Str("pipeline_name", pipelineNameFromPath).Msg("Pipeline not found in database")
+		http.Error(w, "Pipeline not found", http.StatusNotFound)
+		return
+	}
+
+	var pipeline models.Pipeline
+	if err := yaml.Unmarshal([]byte(pipelineDef), &pipeline); err != nil {
+		http.Error(w, "Error parsing stored YAML pipeline", http.StatusInternalServerError)
+		return
+	}
+
+	pipeline.Name = fmt.Sprintf("%s-overridden", pipeline.Name)
+	gitContext := map[string]string{
+		"repo_owner":   r.Header.Get("X-Git-Repo-Owner"),
+		"repo_name":    r.Header.Get("X-Git-Repo-Name"),
+		"commit_sha":   r.Header.Get("X-Git-Commit-SHA"),
+		"check_run_id": r.Header.Get("X-Git-Check-Run-ID"),
+	}
+
+	var timeoutDuration time.Duration
+	if pipeline.Timeout != "" {
+		duration, err := time.ParseDuration(pipeline.Timeout)
+		if err == nil {
+			timeoutDuration = duration
+		}
+	}
+
+	a.launchAndRunPipeline(w, pipeline, []byte(pipelineDef), gitContext, timeoutDuration)
 }
 
 func sanitizeInput(name string) string {
@@ -421,25 +620,19 @@ func (a *App) handleStepUpdate(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func (a *App) handleOverrideCheck(w http.ResponseWriter, r *http.Request) {
-	repoOwner := r.PathValue("repoOwner")
-	repoName := r.PathValue("repoName")
-	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
+func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []byte, timeout time.Duration, gitContext map[string]string) {
+	ctx := context.Background()
 
-	var pipelineDef string
-	err := a.db.QueryRow(context.Background(), "SELECT pipeline_definition FROM pipeline_overrides WHERE repository_name = $1", fullName).Scan(&pipelineDef)
+	secrets, err := a.prepareSecretsForPipeline(pipeline)
 	if err != nil {
-		http.NotFound(w, r)
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to prepare secrets for pipeline")
+		a.db.Exec(context.Background(), "UPDATE runs SET status = $1, finished_at = NOW() WHERE run_id = $2", "failed", runID)
+		if gitContext["repo_owner"] != "" {
+			a.notifyGitBotOfFinalStatus("failure", "secret_preparation", err.Error(), gitContext)
+		}
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/x-yaml")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(pipelineDef))
-}
-
-func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []byte, timeout time.Duration, gitContext map[string]string) {
-	ctx := context.Background()
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Error creating Docker client")
@@ -467,18 +660,10 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 
 	agentContainerName := fmt.Sprintf("agent-%s-%s", sanitizeInput(pipeline.Name), runID)
 
-	// Fetch and decrypt secrets for the agent
-	secrets, err := a.prepareSecretsForPipeline(pipeline)
-	if err != nil {
-		log.Error().Err(err).Str("run_id", runID).Msg("Failed to prepare secrets for pipeline")
-		// Update run status to failed
-		return
-	}
-
 	secretsJSON, err := json.Marshal(secrets)
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to marshal secrets")
-		// Update run status to failed
+		a.db.Exec(context.Background(), "UPDATE runs SET status = $1, finished_at = NOW() WHERE run_id = $2", "failed", runID)
 		return
 	}
 
@@ -548,7 +733,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		}
 		a.db.Exec(context.Background(), "UPDATE runs SET status = $1, finished_at = NOW() WHERE run_id = $2", finalStatus, runID)
 		if gitContext["repo_owner"] != "" {
-			a.notifyGitBotOfFinalStatus(finalStatus, failedStep, gitContext)
+			a.notifyGitBotOfFinalStatus(finalStatus, failedStep, "", gitContext)
 		}
 	}
 }
@@ -570,14 +755,15 @@ func (a *App) prepareSecretsForPipeline(pipeline models.Pipeline) (map[string]st
 		var encryptedValue string
 		err := a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1", secretName).Scan(&encryptedValue)
 		if err != nil {
-			log.Warn().Str("secret_name", secretName).Msg("Secret not found in database, will be ignored")
-			continue
+			if err == sql.ErrNoRows {
+				return nil, fmt.Errorf("pipeline aborted: required secret '%s' not found", secretName)
+			}
+			return nil, fmt.Errorf("database error while fetching secret '%s': %w", secretName, err)
 		}
 
 		decryptedValue, err := a.decrypt(encryptedValue)
 		if err != nil {
-			log.Error().Err(err).Str("secret_name", secretName).Msg("Failed to decrypt secret, will be ignored")
-			continue
+			return nil, fmt.Errorf("pipeline aborted: failed to decrypt secret '%s'", secretName)
 		}
 		decryptedSecrets[secretName] = decryptedValue
 	}
@@ -585,7 +771,7 @@ func (a *App) prepareSecretsForPipeline(pipeline models.Pipeline) (map[string]st
 	return decryptedSecrets, nil
 }
 
-func (a *App) notifyGitBotOfFinalStatus(status string, failedStep string, gitContext map[string]string) {
+func (a *App) notifyGitBotOfFinalStatus(status, failedStep, summary string, gitContext map[string]string) {
 	checkRunID, _ := strconv.ParseInt(gitContext["check_run_id"], 10, 64)
 	gitBotURL := fmt.Sprintf("%s/v1/run/status", a.cfg.NopsaiGitBotAPIURL)
 	payload := map[string]interface{}{
@@ -595,6 +781,7 @@ func (a *App) notifyGitBotOfFinalStatus(status string, failedStep string, gitCon
 		"repo_owner":   gitContext["repo_owner"],
 		"repo_name":    gitContext["repo_name"],
 		"commit_sha":   gitContext["commit_sha"],
+		"summary":      summary,
 	}
 	body, _ := json.Marshal(payload)
 
@@ -741,12 +928,23 @@ func main() {
 	app := &App{db: dbpool, cfg: cfg, cli: cli, encKey: key[:]}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/run", app.handleRunPipeline)
-	mux.HandleFunc("POST /v1/runs/{runID}/steps/{stepName}", app.handleStepUpdate)
-	mux.HandleFunc("GET /v1/overrides/{repoOwner}/{repoName}", app.handleOverrideCheck)
-	mux.HandleFunc("POST /v1/runs/{runID}/rerun", app.handleRerunPipeline)
+	mux.HandleFunc("GET /v1/pipelines/{pipelineName}", app.handleGetPipeline)
+	mux.HandleFunc("PUT /v1/pipelines/{pipelineName}", app.handleCreateOrUpdatePipeline)
+	mux.HandleFunc("DELETE /v1/pipelines/{pipelineName}", app.handleDeletePipeline)
+
+	mux.HandleFunc("GET /v1/overrides/{repoOwner}/{repoName}", app.handleGetTriggerOverride)
+	mux.HandleFunc("PUT /v1/overrides/{repoOwner}/{repoName}", app.handleCreateOrUpdateTriggerOverride)
+	mux.HandleFunc("DELETE /v1/overrides/{repoOwner}/{repoName}", app.handleDeleteTriggerOverride)
+
+	// Secret Management
+	mux.HandleFunc("GET /v1/secrets", app.handleListSecrets)
 	mux.HandleFunc("PUT /v1/secrets/{secretName}", app.handleCreateOrUpdateSecret)
 	mux.HandleFunc("DELETE /v1/secrets/{secretName}", app.handleDeleteSecret)
+
+	mux.HandleFunc("POST /v1/run", app.handleRunPipeline)
+	mux.HandleFunc("POST /v1/run/{pipelineName}", app.handleRunPipelineByName)
+	mux.HandleFunc("POST /v1/runs/{runID}/rerun", app.handleRerunPipeline)
+	mux.HandleFunc("POST /v1/runs/{runID}/steps/{stepName}", app.handleStepUpdate)
 
 	server := &http.Server{
 		Addr:    cfg.NopsaiListenAddress,
