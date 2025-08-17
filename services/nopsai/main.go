@@ -58,11 +58,41 @@ type PipelineRequest struct {
 	Definition string `json:"definition"`
 }
 
-type RunByNameRequest struct {
-	CheckRunID int64 `json:"check_run_id"`
+type TriggerOverrideRequest struct {
+	TriggerDefinition string `json:"trigger_definition"`
 }
 
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
+
+func validatePipeline(pipeline *models.Pipeline) error {
+	if pipeline.Name == "" {
+		return fmt.Errorf("'name' is a required field")
+	}
+	if pipeline.ContainerImage == "" {
+		return fmt.Errorf("'container_image' is a required field")
+	}
+	if len(pipeline.Steps) == 0 {
+		return fmt.Errorf("at least one step is required")
+	}
+
+	stepNames := make(map[string]struct{})
+	for _, step := range pipeline.Steps {
+		if step.Name == "" {
+			return fmt.Errorf("a step is missing its required 'name' field")
+		}
+		stepNames[step.Name] = struct{}{}
+	}
+
+	for _, step := range pipeline.Steps {
+		for _, depName := range step.DependsOn {
+			if _, exists := stepNames[depName]; !exists {
+				return fmt.Errorf("step '%s' has an undefined dependency: '%s'", step.Name, depName)
+			}
+		}
+	}
+
+	return nil
+}
 
 func (a *App) encrypt(text string) (string, error) {
 	block, err := aes.NewCipher(a.encKey)
@@ -328,14 +358,23 @@ func (a *App) handleCreateOrUpdateTriggerOverride(w http.ResponseWriter, r *http
 	repoName := r.PathValue("repoName")
 	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
 
-	// Read the raw YAML trigger definition directly from the request body
 	triggerDef, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Error reading request body", http.StatusInternalServerError)
 		return
 	}
 
-	// You can add validation here for the trigger definition if needed
+	var genericYAML map[string]interface{}
+	if err := yaml.Unmarshal(triggerDef, &genericYAML); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid YAML format: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if _, hasStepsKey := genericYAML["steps"]; hasStepsKey {
+		http.Error(w, "Validation failed: The provided file appears to be a pipeline, not a trigger manifest. A trigger must contain 'triggers', not 'steps'.", http.StatusBadRequest)
+		return
+	}
+
 	var manifest models.Manifest
 	if err := yaml.Unmarshal(triggerDef, &manifest); err != nil {
 		errorMsg := fmt.Sprintf("Trigger validation failed: %v", err)
@@ -378,23 +417,25 @@ func (a *App) handleCreateOrUpdatePipeline(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// --- YAML Validation Logic ---
+	var genericYAML map[string]interface{}
+	if err := yaml.Unmarshal(pipelineDef, &genericYAML); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid YAML format: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if _, hasTriggersKey := genericYAML["triggers"]; hasTriggersKey {
+		http.Error(w, "Validation failed: The provided file appears to be a trigger manifest, not a pipeline. A pipeline must contain 'steps', not 'triggers'.", http.StatusBadRequest)
+		return
+	}
+
 	var pipeline models.Pipeline
 	if err := yaml.Unmarshal(pipelineDef, &pipeline); err != nil {
-		errorMsg := fmt.Sprintf("Pipeline validation failed: %v", err)
-		http.Error(w, errorMsg, http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("Pipeline YAML is malformed: %v", err), http.StatusBadRequest)
 		return
 	}
-	if pipeline.Name == "" {
-		http.Error(w, "Pipeline validation failed: 'name' is a required field.", http.StatusBadRequest)
-		return
-	}
-	if pipeline.ContainerImage == "" {
-		http.Error(w, "Pipeline validation failed: 'container_image' is a required field.", http.StatusBadRequest)
-		return
-	}
-	if len(pipeline.Steps) == 0 {
-		http.Error(w, "Pipeline validation failed: at least one step is required.", http.StatusBadRequest)
+
+	if err := validatePipeline(&pipeline); err != nil {
+		http.Error(w, fmt.Sprintf("Pipeline validation failed: %v", err), http.StatusBadRequest)
 		return
 	}
 
@@ -418,42 +459,6 @@ func (a *App) handleDeletePipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func (a *App) handleRunPipelineByName(w http.ResponseWriter, r *http.Request) {
-	pipelineNameFromPath := r.PathValue("pipelineName")
-
-	var pipelineDef string
-	err := a.db.QueryRow(context.Background(), "SELECT definition FROM pipelines WHERE name = $1", pipelineNameFromPath).Scan(&pipelineDef)
-	if err != nil {
-		log.Error().Err(err).Str("pipeline_name", pipelineNameFromPath).Msg("Pipeline not found in database")
-		http.Error(w, "Pipeline not found", http.StatusNotFound)
-		return
-	}
-
-	var pipeline models.Pipeline
-	if err := yaml.Unmarshal([]byte(pipelineDef), &pipeline); err != nil {
-		http.Error(w, "Error parsing stored YAML pipeline", http.StatusInternalServerError)
-		return
-	}
-
-	pipeline.Name = fmt.Sprintf("%s-overridden", pipeline.Name)
-	gitContext := map[string]string{
-		"repo_owner":   r.Header.Get("X-Git-Repo-Owner"),
-		"repo_name":    r.Header.Get("X-Git-Repo-Name"),
-		"commit_sha":   r.Header.Get("X-Git-Commit-SHA"),
-		"check_run_id": r.Header.Get("X-Git-Check-Run-ID"),
-	}
-
-	var timeoutDuration time.Duration
-	if pipeline.Timeout != "" {
-		duration, err := time.ParseDuration(pipeline.Timeout)
-		if err == nil {
-			timeoutDuration = duration
-		}
-	}
-
-	a.launchAndRunPipeline(w, pipeline, []byte(pipelineDef), gitContext, timeoutDuration)
 }
 
 func sanitizeInput(name string) string {
@@ -529,47 +534,48 @@ func (a *App) launchAndRunPipeline(
 }
 
 func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
-		return
-	}
-
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "Error reading request body", http.StatusInternalServerError)
-		return
-	}
-
 	var pipeline models.Pipeline
-	if err := yaml.Unmarshal(body, &pipeline); err != nil {
-		http.Error(w, "Error parsing YAML pipeline", http.StatusBadRequest)
-		return
-	}
+	var pipelineDef []byte
+	var err error
 
-	pipeline.Name = sanitizeInput(pipeline.Name)
+	pipelineNameFromPath := r.PathValue("pipelineName")
 
-	if pipeline.Name == "" {
-		http.Error(w, "Pipeline validation failed: 'name' is a required field.", http.StatusBadRequest)
-		return
-	}
-	if pipeline.ContainerImage == "" {
-		http.Error(w, "Pipeline validation failed: 'container_image' is a required field.", http.StatusBadRequest)
-		return
-	}
-	if len(pipeline.Steps) == 0 {
-		http.Error(w, "Pipeline validation failed: at least one step is required.", http.StatusBadRequest)
-		return
-	}
-	for i, step := range pipeline.Steps {
-		pipeline.Steps[i].Name = sanitizeInput(step.Name)
-		if pipeline.Steps[i].Name == "" {
-			http.Error(w, fmt.Sprintf("Pipeline validation failed: 'name' is a required field for step %d.", i+1), http.StatusBadRequest)
+	if pipelineNameFromPath != "" {
+		// --- Path 1: Run by name (Override) ---
+		var pipelineDefStr string
+		err = a.db.QueryRow(context.Background(), "SELECT definition FROM pipelines WHERE name = $1", pipelineNameFromPath).Scan(&pipelineDefStr)
+		if err != nil {
+			log.Error().Err(err).Str("pipeline_name", pipelineNameFromPath).Msg("Pipeline not found in database")
+			http.Error(w, "Pipeline not found", http.StatusNotFound)
 			return
 		}
-		if step.Goal == "" && step.Script == "" {
-			http.Error(w, fmt.Sprintf("Pipeline validation failed: a 'goal' or 'script' is required for step '%s'.", step.Name), http.StatusBadRequest)
+		pipelineDef = []byte(pipelineDefStr)
+
+		if err = yaml.Unmarshal(pipelineDef, &pipeline); err != nil {
+			http.Error(w, "Error parsing stored YAML pipeline", http.StatusInternalServerError)
 			return
 		}
+		// Improve the name for clarity in logs
+		pipeline.Name = fmt.Sprintf("%s-overridden", pipeline.Name)
+
+	} else {
+		// --- Path 2: Run from request body (Repository) ---
+		pipelineDef, err = io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Error reading request body", http.StatusInternalServerError)
+			return
+		}
+		if err = yaml.Unmarshal(pipelineDef, &pipeline); err != nil {
+			http.Error(w, fmt.Sprintf("Pipeline YAML is malformed: %v", err), http.StatusBadRequest)
+			return
+		}
+		pipeline.Name = sanitizeInput(pipeline.Name)
+	}
+
+	// --- Common Logic for both paths ---
+	if err := validatePipeline(&pipeline); err != nil {
+		http.Error(w, fmt.Sprintf("Pipeline validation failed: %v", err), http.StatusBadRequest)
+		return
 	}
 
 	gitContext := map[string]string{
@@ -598,14 +604,13 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	if timeoutStr != "" {
 		duration, err := time.ParseDuration(timeoutStr)
 		if err != nil {
-			log.Error().Err(err).Msgf("Invalid timeout duration format: %s", timeoutStr)
 			http.Error(w, "Invalid timeout duration format", http.StatusBadRequest)
 			return
 		}
 		timeoutDuration = duration
 	}
 
-	a.launchAndRunPipeline(w, pipeline, body, gitContext, timeoutDuration)
+	a.launchAndRunPipeline(w, pipeline, pipelineDef, gitContext, timeoutDuration)
 }
 
 func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
@@ -1097,7 +1102,7 @@ func main() {
 
 	// Pipeline Execution
 	mux.HandleFunc("POST /v1/run", app.handleRunPipeline)
-	mux.HandleFunc("POST /v1/run/{pipelineName}", app.handleRunPipelineByName)
+	mux.HandleFunc("POST /v1/run/{pipelineName}", app.handleRunPipeline)
 	mux.HandleFunc("POST /v1/runs/{runID}/rerun", app.handleRerunPipeline)
 	mux.HandleFunc("POST /v1/runs/{runID}/steps/{stepName}", app.handleStepUpdate)
 

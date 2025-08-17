@@ -288,13 +288,17 @@ func (a *GitBotApp) verifySignature(r *http.Request, body []byte) bool {
 	return hmac.Equal([]byte(actualSignature), []byte(expectedMAC))
 }
 
-func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineDef string) int64 {
+func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineDef, pipelineSource string) int64 {
 	var pipeline models.Pipeline
 	_ = yaml.Unmarshal([]byte(pipelineDef), &pipeline)
 
 	checkName := pipeline.Name
 	if checkName == "" {
 		checkName = "Nopsai"
+	}
+
+	if pipelineSource == "database override" {
+		checkName = fmt.Sprintf("%s-overridden", checkName)
 	}
 
 	opts := github.CreateCheckRunOptions{
@@ -350,7 +354,7 @@ func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineDef string) int64 {
 	return *checkRun.ID
 }
 
-func (a *GitBotApp) findPipelineForEvent(manifest models.Manifest, eventType, ref string) string {
+func (a *GitBotApp) findPipelineForEvent(manifest models.Manifest, eventType, ref string) (string, string) {
 	for _, trigger := range manifest.Triggers {
 		if trigger.On != eventType {
 			continue
@@ -362,14 +366,14 @@ func (a *GitBotApp) findPipelineForEvent(manifest models.Manifest, eventType, re
 				branchName := strings.TrimPrefix(ref, "refs/heads/")
 				for _, pattern := range trigger.Branches {
 					if matched, _ := filepath.Match(pattern, branchName); matched {
-						return trigger.Path
+						return trigger.Path, trigger.Environment
 					}
 				}
 			} else if strings.HasPrefix(ref, "refs/tags/") { // It's a tag
 				tagName := strings.TrimPrefix(ref, "refs/tags/")
 				for _, pattern := range trigger.Tags {
 					if matched, _ := filepath.Match(pattern, tagName); matched {
-						return trigger.Path
+						return trigger.Path, trigger.Environment
 					}
 				}
 			}
@@ -377,10 +381,10 @@ func (a *GitBotApp) findPipelineForEvent(manifest models.Manifest, eventType, re
 
 		// Handle pull_request events
 		if eventType == "pull_request" {
-			return trigger.Path
+			return trigger.Path, trigger.Environment
 		}
 	}
-	return ""
+	return "", ""
 }
 
 func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
@@ -406,6 +410,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	var headCommit *github.HeadCommit
 	var pusher *github.User
 
+	// This entire switch statement for parsing the event remains unchanged.
 	switch event := payload.(type) {
 	case *github.PushEvent:
 		if event.GetAfter() == "0000000000000000000000000000000000000000" {
@@ -521,7 +526,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 
 	var manifest models.Manifest
 	var pipelineYAML []byte
-	var pipelineSource string // To log whether we're using repo or override
+	var pipelineSource string
 
 	overrideURL := fmt.Sprintf("%s/v1/overrides/%s/%s", a.cfg.GitBotNopsaiAPIURL, owner, repo)
 	resp, err := http.Get(overrideURL)
@@ -531,8 +536,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		overrideBody, _ := io.ReadAll(resp.Body)
 		if err := yaml.Unmarshal(overrideBody, &manifest); err != nil {
 			log.Error().Err(err).Msg("Failed to parse trigger override manifest")
-			// Create a failed check run to give user feedback
-			checkRunID := a.createCheckRun(owner, repo, commitSHA, "")
+			checkRunID := a.createCheckRun(owner, repo, commitSHA, "", pipelineSource)
 			a.concludeCheckRun(owner, repo, checkRunID, "failure", "Could not parse the trigger override manifest from the database.")
 			http.Error(w, "Could not parse trigger override manifest", http.StatusInternalServerError)
 			return
@@ -545,7 +549,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		fileContent, _, _, err := a.ghClient.Repositories.GetContents(context.Background(), owner, repo, manifestPath, &github.RepositoryContentGetOptions{Ref: commitSHA})
 		if err != nil || fileContent == nil {
 			log.Error().Err(err).Msg("Failed to fetch .nopsai/triggers.yaml from repository")
-			checkRunID := a.createCheckRun(owner, repo, commitSHA, "")
+			checkRunID := a.createCheckRun(owner, repo, commitSHA, "", pipelineSource)
 			a.concludeCheckRun(owner, repo, checkRunID, "failure", "Could not find .nopsai/triggers.yaml in the repository.")
 			http.Error(w, "Could not fetch pipeline file", http.StatusNotFound)
 			return
@@ -553,21 +557,21 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		content, err := fileContent.GetContent()
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to decode file content")
-			checkRunID := a.createCheckRun(owner, repo, commitSHA, "")
+			checkRunID := a.createCheckRun(owner, repo, commitSHA, "", pipelineSource)
 			a.concludeCheckRun(owner, repo, checkRunID, "failure", "Could not decode the .nopsai/triggers.yaml file content.")
 			http.Error(w, "Could not decode file content", http.StatusInternalServerError)
 			return
 		}
 		if err := yaml.Unmarshal([]byte(content), &manifest); err != nil {
 			log.Error().Err(err).Msg("Failed to parse .nopsai/triggers.yaml manifest")
-			checkRunID := a.createCheckRun(owner, repo, commitSHA, "")
+			checkRunID := a.createCheckRun(owner, repo, commitSHA, "", pipelineSource)
 			a.concludeCheckRun(owner, repo, checkRunID, "failure", "Could not parse the .nopsai/triggers.yaml manifest file.")
 			http.Error(w, "Could not parse manifest file", http.StatusBadRequest)
 			return
 		}
 	}
 
-	pipelinePath := a.findPipelineForEvent(manifest, eventType, ref)
+	pipelinePath, environment := a.findPipelineForEvent(manifest, eventType, ref)
 	if pipelinePath == "" {
 		log.Info().Msgf("No pipeline found for event '%s' and ref '%s'.", eventType, ref)
 		w.WriteHeader(http.StatusOK)
@@ -581,7 +585,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		pipelineFileContent, _, _, err := a.ghClient.Repositories.GetContents(context.Background(), owner, repo, fullPipelinePath, &github.RepositoryContentGetOptions{Ref: commitSHA})
 		if err != nil || pipelineFileContent == nil {
 			log.Error().Err(err).Msgf("Failed to fetch pipeline file '%s' from repository", fullPipelinePath)
-			checkRunID := a.createCheckRun(owner, repo, commitSHA, "")
+			checkRunID := a.createCheckRun(owner, repo, commitSHA, "", pipelineSource)
 			a.concludeCheckRun(owner, repo, checkRunID, "failure", fmt.Sprintf("Could not find pipeline file '%s' in the repository.", fullPipelinePath))
 			http.Error(w, "Could not fetch pipeline file", http.StatusNotFound)
 			return
@@ -589,15 +593,28 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		pipelineContent, err := pipelineFileContent.GetContent()
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to decode pipeline file content")
-			checkRunID := a.createCheckRun(owner, repo, commitSHA, "")
+			checkRunID := a.createCheckRun(owner, repo, commitSHA, "", pipelineSource)
 			a.concludeCheckRun(owner, repo, checkRunID, "failure", "Could not decode the pipeline file content.")
 			http.Error(w, "Could not decode pipeline file content", http.StatusInternalServerError)
 			return
 		}
 		pipelineYAML = []byte(pipelineContent)
+	} else {
+		log.Info().Str("pipeline_name", pipelinePath).Msg("Fetching central pipeline definition for override")
+		pipelineURL := fmt.Sprintf("%s/v1/pipelines/%s", a.cfg.GitBotNopsaiAPIURL, pipelinePath)
+		resp, err := http.Get(pipelineURL)
+		if err != nil || resp.StatusCode != http.StatusOK {
+			log.Error().Err(err).Msg("Failed to fetch central pipeline definition")
+			checkRunID := a.createCheckRun(owner, repo, commitSHA, "", pipelineSource)
+			a.concludeCheckRun(owner, repo, checkRunID, "failure", fmt.Sprintf("Could not fetch the central pipeline named '%s'.", pipelinePath))
+			http.Error(w, "Could not fetch central pipeline", http.StatusInternalServerError)
+			return
+		}
+		pipelineYAML, _ = io.ReadAll(resp.Body)
+		resp.Body.Close()
 	}
 
-	checkRunID := a.createCheckRun(owner, repo, commitSHA, string(pipelineYAML))
+	checkRunID := a.createCheckRun(owner, repo, commitSHA, string(pipelineYAML), pipelineSource)
 	if checkRunID == 0 {
 		http.Error(w, "Failed to create check run", http.StatusInternalServerError)
 		return
@@ -610,7 +627,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		runURL = fmt.Sprintf("%s/v1/run", a.cfg.GitBotNopsaiAPIURL)
 		req, _ = http.NewRequest("POST", runURL, bytes.NewBuffer(pipelineYAML))
 		req.Header.Set("Content-Type", "application/x-yaml")
-	} else { // It's an override, run by name
+	} else {
 		runURL = fmt.Sprintf("%s/v1/run/%s", a.cfg.GitBotNopsaiAPIURL, pipelinePath)
 		req, _ = http.NewRequest("POST", runURL, nil)
 	}
@@ -619,6 +636,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	req.Header.Set("X-Git-Repo-Name", repo)
 	req.Header.Set("X-Git-Commit-SHA", commitSHA)
 	req.Header.Set("X-Git-Check-Run-ID", strconv.FormatInt(checkRunID, 10))
+	req.Header.Set("X-Nopsai-Environment", environment)
 
 	if pushEvent, ok := payload.(*github.PushEvent); ok {
 		if pushEvent.Repo.CloneURL != nil {
