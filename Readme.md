@@ -65,113 +65,66 @@ curl -X PUT \
 
 
 # NopsAI
-Nopsai: The LLM-Powered CI/CD System
-Nopsai is a modern, microservice-based CI/CD system that leverages the power of Large Language Models (LLMs) to orchestrate and execute complex pipelines. Instead of relying on rigid, pre-defined scripts, Nopsai uses high-level, natural language "goals" which are translated into executable commands by an AI agent at runtime. This approach provides a flexible, intelligent, and powerful automation platform.
 
-Key Features
-Natural Language Pipelines: Define your pipeline steps using simple, human-readable goals (e.g., "build the docker image and push it to the registry").
+### Core Philosophy & Architecture
 
-Per-Step Container Images: Each step can run in its own dedicated container image, allowing you to use the perfect environment and toolset for every task.
+* **LLM-Powered Pipelines**: Instead of rigid scripts, Nopsai uses high-level, natural language "goals" (e.g., "build the docker image") which are translated into executable commands by an AI agent at runtime.
+* **Microservice-Based**: The system is built on a decoupled, microservice architecture, making it resilient, scalable, and easy to extend. The core services are:
+    * **`nopsai`**: The main API gateway that manages pipeline runs, agent lifecycles, and the central database.
+    * **`agent`**: An ephemeral, per-run service that orchestrates a single pipeline, communicating with the LLM to execute steps.
+    * **`llm-agent`**: An AI service that uses the Gemini LLM to translate goals into executable shell commands.
+    * **`git-bot`**: Integrates with GitHub to handle webhooks, trigger pipelines, and update check run statuses.
+* **Agent as a Service Model**: For each pipeline run, a dedicated, ephemeral agent is launched to act as a self-contained orchestrator, making the system highly scalable and resilient.
 
-Parallel Step Execution: Independent steps in your pipeline are automatically executed in parallel, dramatically reducing your build times.
+---
+### Pipeline & Step Configuration
 
-Persistent & Hybrid Execution: A main pipeline container is kept running for speed, while custom-image steps are executed in their own dedicated containers, giving you the best of both worlds.
+* **Natural Language or Scripts**: Steps can be defined using a simple `goal` in natural language or a traditional `script` for direct command execution.
+* **Per-Step Container Images**: Each step can run in its own dedicated container image, allowing you to use the perfect environment and toolset for every task. A default image can be set for the entire pipeline.
+* **Dependency Management**: Steps can define dependencies on other steps using `depends_on`, ensuring they run in the correct order.
+* **Parallel Execution**: Independent steps in the pipeline are automatically executed in parallel to reduce build times.
+* **Failure Tolerance**: You can configure individual steps to not halt the entire pipeline on failure by setting `ignore_failure: true`.
+* **Timeouts**: Pipelines can have a global `timeout` to prevent them from running indefinitely.
+* **Custom Environment Variables**: Define custom environment variables at the pipeline level that are available to all steps.
+* **LLM Content Control**: Fine-grained control over whether the LLM can access file contents (`llm_content_sharing`) or see the output of previous steps (`llm_output_sharing`) at both the pipeline and per-step level.
 
-Configurable GitHub UI: Choose between a clean, flat list or a detailed dependency tree view for your pipeline status right in the GitHub interface.
+---
+### Secret Management
 
-Extensible & Microservice-Based: The system is built on a decoupled, microservice architecture, making it resilient, scalable, and easy to extend.
+* **Self-Hosted & Secure**: Nopsai includes a built-in, self-hosted secret management system that stores secrets encrypted (using AES-256-GCM) in its database.
+* **Hierarchical Scopes**: Secrets can be defined at two levels:
+    * **General**: Available to all pipelines.
+    * **Repository-level**: Specific to a single repository and will override a general secret of the same name.
+* **Scoped Injection**: A step must explicitly declare which secrets it needs via a `secrets` block. The agent will only inject the requested secrets into that specific step's environment.
+* **Fail-Fast Design**: The pipeline will fail immediately before starting if a step requests a secret that is not defined, preventing unexpected failures during a run.
+* **Log Masking**: The agent automatically redacts secret values from all logs, preventing accidental exposure.
 
-Architecture
-The core of Nopsai is a powerful "Agent as a Service" model. For each pipeline run, a dedicated, ephemeral agent service is launched to act as the self-contained orchestrator for that specific job. This design makes the system highly scalable and resilient.
+---
+### GitHub Integration & Overrides
 
-Service Roles
-The system is composed of four core microservices, each with a distinct and focused responsibility:
+* **Git-Based Triggers**: Pipelines are triggered by standard Git events like `push` and `pull_request` based on rules defined in a `.nopsai/triggers.yaml` file in the repository.
+* **Configurable UI Views**: You can choose how pipeline status is displayed in the GitHub UI using `display_options`:
+    * **`flat`**: A clean, simple list of steps.
+    * **`tree`**: A detailed view showing the dependency hierarchy.
+    * **`mermaid`**: A rendered MermaidJS graph of the pipeline's dependency flow.
+* **Centralized Overrides**: A powerful feature for administrators to enforce specific workflows. You can store both trigger rules and entire pipeline definitions in the Nopsai database.
+    * A **Trigger Override** for a repository will ignore the in-repo `.nopsai/triggers.yaml` and use the centrally defined rules.
+    * These central triggers point to centrally stored **Pipelines**, allowing you to manage and reuse standard pipelines across many repositories.
+    * When an override is used, the pipeline name is automatically appended with `-overridden` in the GitHub UI for clarity.
 
-Service	Description
-nopsai	The main API gateway and database service. It receives pipeline definitions, manages the lifecycle of agent containers, and records pipeline status.
-agent	An ephemeral service that manages a single pipeline run. It communicates with the llm-agent to get instructions and executes them in the appropriate container.
-llm-agent	An AI-powered service that translates the high-level goals from the agent into specific, executable actions using the Gemini LLM.
-git-bot	Integrates with GitHub to listen for webhooks, trigger pipeline runs, and update the status of check runs with a professional tree or flat view.
+---
+### Future Plans
 
-Export to Sheets
-Getting Started
-Prerequisites
-Docker and Docker Compose
+* **Event-Driven Architecture**: The readme outlines a future vision to move from a synchronous, API-driven system to an asynchronous, event-driven architecture using a message bus (like RabbitMQ or NATS) for even greater resilience and scalability.
 
-A Gemini API Key
 
-A GitHub App set up for the git-bot integration
 
-Installation
-Clone the repository:
 
-Bash
 
-git clone https://github.com/hosein-yousefii/pre-nopsai.git
-cd pre-nopsai
-Configure your environment:
 
-Copy the .env.example file to .env and fill in the required values, including your GEMINI_API_KEY, database credentials, and GitHub App details.
 
-Run the application:
 
-Bash
 
-docker-compose up --build
-This will build the container images and start all the necessary services.
-
-How to Use
-Triggering a Pipeline via API
-To start a pipeline, submit the YAML definition to the nopsai service's /v1/run endpoint.
-
-Bash
-
-curl -X POST \
-  -H "Content-Type: application/x-yaml" \
-  --data-binary "@path/to/your/pipeline.yaml" \
-  http://localhost:8080/v1/run
-Triggering a Pipeline via GitHub
-You can also trigger a pipeline by pushing to a configured GitHub repository. The git-bot service listens for incoming webhooks and will automatically start a pipeline run. For more details on setting up the webhook, see doc/triggering.md.
-
-Pipeline Configuration
-Pipelines are defined in a .nopsai.yaml file in the root of your repository. Here is a full example:
-
-YAML
-
-name: My-Awesome-Pipeline
-description: An example pipeline with all features.
-container_image: "pipeline-image:latest" # Default image for all steps
-display_options:
-  github_view: "tree" # Options: "tree" or "flat"
-
-steps:
-  - name: build
-    script: echo "Building the application..."
-
-  - name: test
-    image: "golang:1.21" # Custom image for this step
-    script: echo "Running tests in a Go environment..."
-    depends_on:
-      - build
-
-  - name: security-scan
-    goal: "run a security scan on the source code"
-    depends_on:
-      - build
-
-  - name: deploy
-    goal: "deploy the application to production"
-    depends_on:
-      - test
-      - security-scan
-Future Plans
-The most impactful change to elevate the architecture is to move from a synchronous, API-call-based system to an asynchronous, event-driven architecture. This will be achieved by introducing a message bus (like RabbitMQ, NATS, or Kafka) as the central nervous system for all services. This will improve resilience, scalability, and further decouple the microservices.
-
-Contributing
-Contributions are welcome! Please feel free to submit a pull request or open an issue to discuss your ideas.
-
-License
-This project is licensed under the MIT License. See the LICENSE file for details.
 
 
 
