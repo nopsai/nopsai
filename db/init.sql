@@ -4,6 +4,7 @@ CREATE TABLE runs (
     pipeline_definition TEXT,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    started_at TIMESTAMPTZ,
     finished_at TIMESTAMPTZ,
     timeout_at TIMESTAMPTZ,
     git_repo_owner VARCHAR(255),
@@ -28,6 +29,7 @@ CREATE TABLE steps (
     name VARCHAR(255) NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
     exit_code INT,
+    started_at TIMESTAMPTZ,
     finished_at TIMESTAMPTZ,
     step_index INT NOT NULL,
     UNIQUE(run_id, name)

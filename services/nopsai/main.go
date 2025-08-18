@@ -494,12 +494,12 @@ func (a *App) launchAndRunPipeline(
 	defer tx.Rollback(context.Background())
 
 	_, err = tx.Exec(context.Background(),
-		`INSERT INTO runs (run_id, pipeline_name, status, timeout_at, pipeline_definition,
+		`INSERT INTO runs (run_id, pipeline_name, status, started_at, timeout_at, pipeline_definition,
 			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref,
 			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
 			git_commit_author_email, git_commit_author_username, git_pusher_name,
 			git_pusher_email, git_check_run_id)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+			VALUES ($1, $2, $3, NOW(), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
 		runID, pipeline.Name, "pending", timeoutAt, string(pipelineDef),
 		gitContext["repo_owner"], gitContext["repo_name"], gitContext["clone_url"], gitContext["ssh_url"], gitContext["ref"],
 		gitContext["commit_sha"], gitContext["commit_url"], gitContext["commit_message"], gitContext["commit_author_name"],
@@ -731,10 +731,20 @@ func (a *App) handleStepUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := a.db.Exec(context.Background(),
-		"UPDATE steps SET status = $1, exit_code = $2, finished_at = NOW() WHERE run_id = $3 AND name = $4",
-		update.Status, update.ExitCode, runID, stepName,
-	)
+	var query string
+	if update.Status == "started" {
+		query = "UPDATE steps SET status = $1, started_at = NOW() WHERE run_id = $2 AND name = $3"
+	} else {
+		query = "UPDATE steps SET status = $1, exit_code = $2, finished_at = NOW() WHERE run_id = $3 AND name = $4"
+	}
+
+	var err error
+	if update.Status == "started" {
+		_, err = a.db.Exec(context.Background(), query, update.Status, runID, stepName)
+	} else {
+		_, err = a.db.Exec(context.Background(), query, update.Status, update.ExitCode, runID, stepName)
+	}
+
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Str("step", stepName).Msg("Failed to update step status")
 		http.Error(w, "Failed to update step status", http.StatusInternalServerError)
