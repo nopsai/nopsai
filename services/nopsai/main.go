@@ -721,6 +721,7 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 
 	a.launchAndRunPipeline(w, pipeline, []byte(pipelineDef.String), gitContext, timeoutDuration)
 }
+
 func (a *App) handleStepUpdate(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("runID")
 	stepName := r.PathValue("stepName")
@@ -733,22 +734,21 @@ func (a *App) handleStepUpdate(w http.ResponseWriter, r *http.Request) {
 
 	var query string
 	if update.Status == "started" {
-		query = "UPDATE steps SET status = $1, started_at = NOW() WHERE run_id = $2 AND name = $3"
+		query = "UPDATE steps SET status = 'started', started_at = NOW() WHERE run_id = $1 AND name = $2"
+		_, err := a.db.Exec(context.Background(), query, runID, stepName)
+		if err != nil {
+			log.Error().Err(err).Str("run_id", runID).Str("step", stepName).Msg("Failed to update step start time")
+			http.Error(w, "Failed to update step status", http.StatusInternalServerError)
+			return
+		}
 	} else {
 		query = "UPDATE steps SET status = $1, exit_code = $2, finished_at = NOW() WHERE run_id = $3 AND name = $4"
-	}
-
-	var err error
-	if update.Status == "started" {
-		_, err = a.db.Exec(context.Background(), query, update.Status, runID, stepName)
-	} else {
-		_, err = a.db.Exec(context.Background(), query, update.Status, update.ExitCode, runID, stepName)
-	}
-
-	if err != nil {
-		log.Error().Err(err).Str("run_id", runID).Str("step", stepName).Msg("Failed to update step status")
-		http.Error(w, "Failed to update step status", http.StatusInternalServerError)
-		return
+		_, err := a.db.Exec(context.Background(), query, update.Status, update.ExitCode, runID, stepName)
+		if err != nil {
+			log.Error().Err(err).Str("run_id", runID).Str("step", stepName).Msg("Failed to update step finish status")
+			http.Error(w, "Failed to update step status", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	log.Info().Str("run_id", runID).Str("step", stepName).Str("status", update.Status).Msg("Updated step status")
@@ -965,15 +965,17 @@ func (a *App) notifyGitBotOfStepStatus(runID, stepName, stepStatus string) {
 	var repoOwner, repoName, commitSHA, pipelineDef sql.NullString
 	var checkRunID sql.NullInt64
 	var stepIndex, totalSteps int
+	var startedAt, finishedAt sql.NullTime
 
 	query := `
 		SELECT
 			r.git_repo_owner, r.git_repo_name, r.git_commit_sha, r.git_check_run_id, r.pipeline_definition,
-			s.step_index, (SELECT COUNT(*) FROM steps WHERE run_id = r.run_id)
+			s.step_index, (SELECT COUNT(*) FROM steps WHERE run_id = r.run_id),
+			s.started_at, s.finished_at
 		FROM runs r JOIN steps s ON r.run_id = s.run_id
 		WHERE r.run_id = $1 AND s.name = $2`
 
-	err := a.db.QueryRow(context.Background(), query, runID, stepName).Scan(&repoOwner, &repoName, &commitSHA, &checkRunID, &pipelineDef, &stepIndex, &totalSteps)
+	err := a.db.QueryRow(context.Background(), query, runID, stepName).Scan(&repoOwner, &repoName, &commitSHA, &checkRunID, &pipelineDef, &stepIndex, &totalSteps, &startedAt, &finishedAt)
 	if err != nil || !repoOwner.Valid || !checkRunID.Valid {
 		log.Warn().Str("run_id", runID).Msg("Not a Git-triggered run with a check ID, skipping step status update.")
 		return
@@ -1003,6 +1005,8 @@ func (a *App) notifyGitBotOfStepStatus(runID, stepName, stepStatus string) {
 		"step_index":   stepIndex,
 		"total_steps":  totalSteps,
 		"depends_on":   dependsOn,
+		"started_at":   startedAt.Time,
+		"finished_at":  finishedAt.Time,
 	}
 	body, _ := json.Marshal(payload)
 
