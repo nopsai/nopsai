@@ -147,7 +147,7 @@ func getNextRunnableSteps(pipeline *models.Pipeline, completedSteps map[string]b
 }
 
 // updateStepStatus reports the final status of a step back to the nopsai API.
-func updateStepStatus(runID, stepName, status string, exitCode int) {
+func updateStepStatus(runID, stepName, status string, exitCode int, llmDurationMs int64) {
 	nopsaiURL := os.Getenv("NOPSAI_API_URL")
 	if nopsaiURL == "" {
 		log.Error().Msg("NOPSAI_API_URL environment variable not set. Cannot report status.")
@@ -156,8 +156,9 @@ func updateStepStatus(runID, stepName, status string, exitCode int) {
 	url := fmt.Sprintf("%s/v1/runs/%s/steps/%s", nopsaiURL, runID, stepName)
 
 	payload := map[string]interface{}{
-		"status":    status,
-		"exit_code": exitCode,
+		"status":          status,
+		"exit_code":       exitCode,
+		"llm_duration_ms": llmDurationMs,
 	}
 	body, _ := json.Marshal(payload)
 
@@ -334,6 +335,16 @@ func run() int {
 	}
 	defer cli.Close()
 
+	sessionContainers := make(map[string]string)
+	sessionMutex := &sync.Mutex{}
+
+	defer func() {
+		for sessionName, containerID := range sessionContainers {
+			log.Info().Str("session", sessionName).Msg("Cleaning up session container")
+			cleanup(cli, containerID)
+		}
+	}()
+
 	var timeoutCancel context.CancelFunc
 	if pipelineTimeoutStr != "" {
 		timeout, err := time.ParseDuration(pipelineTimeoutStr)
@@ -352,45 +363,6 @@ func run() int {
 				}
 			}()
 		}
-	}
-
-	// Create and start the main pipeline container
-	mainImageName := pipeline.ContainerImage
-	if err := ensureImageExists(context.Background(), cli, mainImageName); err != nil {
-		log.Error().Err(err).Msg("Failed to ensure main pipeline image exists")
-		return 1
-	}
-
-	pipelineEnvVars := []string{}
-	for key, value := range pipeline.Environment {
-		pipelineEnvVars = append(pipelineEnvVars, fmt.Sprintf("%s=%s", key, value))
-	}
-	for _, e := range os.Environ() {
-		if strings.HasPrefix(e, "GIT_") {
-			pipelineEnvVars = append(pipelineEnvVars, e)
-		}
-	}
-
-	mainContainerName := fmt.Sprintf("pipeline-%s-main", runID)
-	mainCont, err := cli.ContainerCreate(context.Background(), &container.Config{
-		Image:      mainImageName,
-		WorkingDir: "/workspace",
-		Entrypoint: []string{"tail", "-f", "/dev/null"},
-		Env:        pipelineEnvVars,
-		Tty:        false,
-	}, &container.HostConfig{
-		Binds:       []string{fmt.Sprintf("%s:/workspace", sharedVolumeName)},
-		NetworkMode: container.NetworkMode(dockerNetworkName),
-	}, nil, nil, mainContainerName)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to create main pipeline container")
-		return 1
-	}
-	defer cleanup(cli, mainCont.ID)
-
-	if err := cli.ContainerStart(context.Background(), mainCont.ID, container.StartOptions{}); err != nil {
-		log.Error().Err(err).Msg("Failed to start main pipeline container")
-		return 1
 	}
 
 	history := new(strings.Builder)
@@ -416,10 +388,20 @@ func run() int {
 				defer wg.Done()
 
 				// Immediately report that the step has started.
-				updateStepStatus(runID, step.Name, "started", 0)
+				updateStepStatus(runID, step.Name, "started", 0, 0)
 
 				var stepContainerID string
 				var stepEnvVars []string
+
+				pipelineEnvVars := []string{}
+				for key, value := range pipeline.Environment {
+					pipelineEnvVars = append(pipelineEnvVars, fmt.Sprintf("%s=%s", key, value))
+				}
+				for _, e := range os.Environ() {
+					if strings.HasPrefix(e, "GIT_") {
+						pipelineEnvVars = append(pipelineEnvVars, e)
+					}
+				}
 
 				stepEnvVars = make([]string, len(pipelineEnvVars))
 				copy(stepEnvVars, pipelineEnvVars)
@@ -436,15 +418,49 @@ func run() int {
 				}
 
 				imageName := step.Image
-				if imageName == "" || imageName == mainImageName {
-					log.Info().Str("step", step.Name).Msg("Executing in main pipeline container.")
-					stepContainerID = mainCont.ID
+				if imageName == "" {
+					imageName = pipeline.ContainerImage
+				}
+
+				if step.Session != "" {
+					sessionMutex.Lock()
+					containerID, ok := sessionContainers[step.Session]
+					if !ok {
+						log.Info().Str("session", step.Session).Str("image", imageName).Msg("Creating new container for session")
+						cont, err := cli.ContainerCreate(context.Background(), &container.Config{
+							Image:      imageName,
+							WorkingDir: "/workspace",
+							Entrypoint: []string{"tail", "-f", "/dev/null"},
+							Env:        stepEnvVars,
+							Tty:        false,
+						}, &container.HostConfig{
+							Binds:       []string{fmt.Sprintf("%s:/workspace", sharedVolumeName)},
+							NetworkMode: container.NetworkMode(dockerNetworkName),
+						}, nil, nil, fmt.Sprintf("pipeline-%s-session-%s", runID, step.Session))
+						if err != nil {
+							log.Error().Err(err).Msg("Failed to create session container")
+							sessionMutex.Unlock()
+							results <- StepResult{Name: step.Name, Success: false}
+							return
+						}
+						if err := cli.ContainerStart(context.Background(), cont.ID, container.StartOptions{}); err != nil {
+							log.Error().Err(err).Msg("Failed to start session container")
+							sessionMutex.Unlock()
+							results <- StepResult{Name: step.Name, Success: false}
+							return
+						}
+						sessionContainers[step.Session] = cont.ID
+						stepContainerID = cont.ID
+					} else {
+						log.Info().Str("session", step.Session).Msg("Reusing existing session container")
+						stepContainerID = containerID
+					}
+					sessionMutex.Unlock()
 				} else {
-					// This logic for creating a dedicated container is now only for running on a different image
-					log.Info().Str("step", step.Name).Str("image", imageName).Msg("Preparing to run step in dedicated container")
+					log.Info().Str("step", step.Name).Str("image", imageName).Msg("Preparing to run step in one-off container")
 					if err := ensureImageExists(context.Background(), cli, imageName); err != nil {
 						log.Error().Err(err).Msg("Failed to ensure step image exists. Shutting down.")
-						updateStepStatus(runID, step.Name, "failed", 1)
+						updateStepStatus(runID, step.Name, "failed", 1, 0)
 						results <- StepResult{Name: step.Name, Success: false}
 						return
 					}
@@ -454,7 +470,7 @@ func run() int {
 						Image:      imageName,
 						WorkingDir: "/workspace",
 						Entrypoint: []string{"tail", "-f", "/dev/null"},
-						Env:        stepEnvVars, // Pass the full env here
+						Env:        stepEnvVars,
 						Tty:        false,
 					}, &container.HostConfig{
 						Binds:       []string{fmt.Sprintf("%s:/workspace", sharedVolumeName)},
@@ -478,6 +494,7 @@ func run() int {
 				var action *proto.Action
 				var actionStr string
 				var historyGoal string
+				var llmDurationMs int64
 
 				if step.Script != "" {
 					log.Info().Str("step", step.Name).Msg("Executing direct script.")
@@ -577,15 +594,15 @@ func run() int {
 				historyMutex.Unlock()
 
 				if exitCode == 0 {
-					updateStepStatus(runID, step.Name, "completed", exitCode)
+					updateStepStatus(runID, step.Name, "completed", exitCode, llmDurationMs)
 					results <- StepResult{Name: step.Name, Success: true}
 				} else {
 					if step.IgnoreFailure {
-						updateStepStatus(runID, step.Name, "failed (ignored)", exitCode)
+						updateStepStatus(runID, step.Name, "failed (ignored)", exitCode, llmDurationMs)
 						log.Warn().Str("pipeline", pipelineName).Str("step", step.Name).Msg("Step failed, but failure is ignored.")
 						results <- StepResult{Name: step.Name, Success: true}
 					} else {
-						updateStepStatus(runID, step.Name, "failed", exitCode)
+						updateStepStatus(runID, step.Name, "failed", exitCode, llmDurationMs)
 						log.Error().Str("pipeline", pipelineName).Str("step", step.Name).Msg("Critical step failed.")
 						results <- StepResult{Name: step.Name, Success: false}
 					}

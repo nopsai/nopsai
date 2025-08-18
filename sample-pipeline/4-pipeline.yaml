@@ -16,22 +16,25 @@ steps:
       #!/bin/bash
       git clone https://github.com/hosein-yousefii/test-app.git
       echo $TEST_SECRET
+    session: pipeline-image
     ignore_failure: false
     
-  - name: list-envs-main
-    goal: write the value of TEST_SECRET to sample.txt
+  - name: write-secret
+    goal: write the value of TEST_SECRET env to sample.txt
+    image: ubuntu:latest
+    session: ubuntu-latest-usage
     secrets:
       - TEST_SECRET
       
   - name: waiting-time
     goal: wait for 2 seconds
-    image: ubuntu:latest
+    session: pipeline-image
     llm_output_sharing: false
     depends_on:
     - git-clone
 
   - name: list-envs-containers
-    image: alpine:latest
+    session: pipeline-image
     secrets:
       - TEST_SECRET
     script: |
@@ -43,22 +46,26 @@ steps:
 
   - name: branch-versioning
     goal: "Change branch to nopsai-test and get the latest tag"
+    session: pipeline-image
     depends_on:
     - git-clone
 
   - name: dockerfile-modification
     goal: "Modify Dockerfile and add copy statement to add docker-compose"
+    session: pipeline-image-docker
     depends_on:
     - branch-versioning
 
   - name: dockerfile-content
     goal: "show dockerfile content"
+    session: pipeline-image-docker
     llm_output_sharing: false
     depends_on:
     - dockerfile-modification
 
   - name: commit-hash
     goal: "what is the commit hash?"
+    session: pipeline-image
     depends_on:
     - branch-versioning
 
@@ -66,17 +73,19 @@ steps:
     script: |
       #!/bin/bash
       cat sample.txt
+    image: ubuntu:latest
+    session: ubuntu-latest-usage
     depends_on:
-    - list-envs-main
+    - write-secret
 
   - name: build-docker
     goal: build docker image with repo name and 3 taga, latest,latest git tag and commit hash 
+    session: pipeline-image-docker
     depends_on:
     - commit-hash
     - dockerfile-modification
 
   - name: report
     goal: "provide a report of all steps"
-    image: alpine:latest
     depends_on:
     - build-docker
