@@ -68,6 +68,9 @@ func validatePipeline(pipeline *models.Pipeline) error {
 	if pipeline.Name == "" {
 		return fmt.Errorf("'name' is a required field")
 	}
+	if !regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`).MatchString(pipeline.Name) {
+		return fmt.Errorf("pipeline name can only contain alphanumeric characters, underscores, dots, and hyphens")
+	}
 	if pipeline.ContainerImage == "" {
 		return fmt.Errorf("'container_image' is a required field")
 	}
