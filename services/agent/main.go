@@ -415,6 +415,9 @@ func run() int {
 			go func(step *models.PipelineStep) {
 				defer wg.Done()
 
+				// Immediately report that the step has started.
+				updateStepStatus(runID, step.Name, "started", 0)
+
 				var stepContainerID string
 				var stepEnvVars []string
 

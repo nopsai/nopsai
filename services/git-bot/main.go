@@ -37,15 +37,17 @@ type GitBotApp struct {
 }
 
 type StepStatusUpdate struct {
-	RepoOwner  string   `json:"repo_owner"`
-	RepoName   string   `json:"repo_name"`
-	CheckRunID int64    `json:"check_run_id"`
-	StepName   string   `json:"step_name"`
-	StepStatus string   `json:"step_status"`
-	StepIndex  int      `json:"step_index"`
-	TotalSteps int      `json:"total_steps"`
-	DependsOn  []string `json:"depends_on"`
-	GitHubView string   `json:"github_view"`
+	RepoOwner  string    `json:"repo_owner"`
+	RepoName   string    `json:"repo_name"`
+	CheckRunID int64     `json:"check_run_id"`
+	StepName   string    `json:"step_name"`
+	StepStatus string    `json:"step_status"`
+	StepIndex  int       `json:"step_index"`
+	TotalSteps int       `json:"total_steps"`
+	DependsOn  []string  `json:"depends_on"`
+	GitHubView string    `json:"github_view"`
+	StartedAt  time.Time `json:"started_at"`
+	FinishedAt time.Time `json:"finished_at"`
 }
 
 type CheckRunState struct {
@@ -107,6 +109,12 @@ func (a *GitBotApp) renderMarkdownTree(state *CheckRunState) string {
 		for _, childName := range children {
 			step := stepsByName[childName]
 			icon := "⏳"
+			duration := ""
+
+			if !step.StartedAt.IsZero() && !step.FinishedAt.IsZero() {
+				duration = fmt.Sprintf(" (took %s)", step.FinishedAt.Sub(step.StartedAt).Round(time.Second))
+			}
+
 			if step.StepStatus == "completed" {
 				icon = "✅"
 			} else if strings.Contains(strings.ToLower(step.StepStatus), "failed (ignored)") {
@@ -124,7 +132,7 @@ func (a *GitBotApp) renderMarkdownTree(state *CheckRunState) string {
 			visited[childName] = true
 
 			builder.WriteString(strings.Repeat("  ", depth))
-			builder.WriteString(fmt.Sprintf("- %s `%s` - %s\n", icon, step.StepName, step.StepStatus))
+			builder.WriteString(fmt.Sprintf("- %s `%s` - %s%s\n", icon, step.StepName, step.StepStatus, duration))
 
 			buildTree(childName, depth+1)
 		}
@@ -143,6 +151,12 @@ func (a *GitBotApp) renderMarkdownTree(state *CheckRunState) string {
 
 		step := stepsByName[rootNodeName]
 		icon := "⏳"
+		duration := ""
+
+		if !step.StartedAt.IsZero() && !step.FinishedAt.IsZero() {
+			duration = fmt.Sprintf(" (took %s)", step.FinishedAt.Sub(step.StartedAt).Round(time.Second))
+		}
+
 		if step.StepStatus == "completed" {
 			icon = "✅"
 		} else if strings.Contains(strings.ToLower(step.StepStatus), "failed (ignored)") {
@@ -151,7 +165,7 @@ func (a *GitBotApp) renderMarkdownTree(state *CheckRunState) string {
 			icon = "❌"
 		}
 
-		builder.WriteString(fmt.Sprintf("- %s `%s` - %s\n", icon, step.StepName, step.StepStatus))
+		builder.WriteString(fmt.Sprintf("- %s `%s` - %s%s\n", icon, step.StepName, step.StepStatus, duration))
 		buildTree(rootNodeName, 1)
 	}
 
@@ -219,6 +233,12 @@ func (a *GitBotApp) renderMermaidGraph(state *CheckRunState) string {
 		for _, stepName := range stage {
 			step := stepsByName[stepName]
 			var statusIcon, styleClass string
+			duration := ""
+
+			if !step.StartedAt.IsZero() && !step.FinishedAt.IsZero() {
+				duration = fmt.Sprintf("<br/>%s", step.FinishedAt.Sub(step.StartedAt).Round(time.Second))
+			}
+
 			switch {
 			case step.StepStatus == "completed":
 				statusIcon, styleClass = "✅", "success"
@@ -231,7 +251,7 @@ func (a *GitBotApp) renderMermaidGraph(state *CheckRunState) string {
 			default:
 				statusIcon, styleClass = "⏳", "pending"
 			}
-			nodeText := fmt.Sprintf("%s %s", statusIcon, step.StepName)
+			nodeText := fmt.Sprintf("%s %s%s", statusIcon, step.StepName, duration)
 			builder.WriteString(fmt.Sprintf("        %s(\"`%s`\"):::%s\n", stepName, nodeText, styleClass))
 		}
 		builder.WriteString("    end\n")
@@ -262,6 +282,10 @@ func (a *GitBotApp) renderMarkdownFlatList(state *CheckRunState) string {
 
 	for _, step := range steps {
 		icon := "⏳"
+		duration := ""
+		if !step.StartedAt.IsZero() && !step.FinishedAt.IsZero() {
+			duration = fmt.Sprintf(" (took %s)", step.FinishedAt.Sub(step.StartedAt).Round(time.Second))
+		}
 		if step.StepStatus == "completed" {
 			icon = "✅"
 		} else if strings.Contains(strings.ToLower(step.StepStatus), "failed (ignored)") {
@@ -269,7 +293,7 @@ func (a *GitBotApp) renderMarkdownFlatList(state *CheckRunState) string {
 		} else if strings.Contains(strings.ToLower(step.StepStatus), "fail") {
 			icon = "❌"
 		}
-		builder.WriteString(fmt.Sprintf("- %s Step %d: `%s` - %s\n", icon, step.StepIndex, step.StepName, step.StepStatus))
+		builder.WriteString(fmt.Sprintf("- %s Step %d: `%s` - %s%s\n", icon, step.StepIndex, step.StepName, step.StepStatus, duration))
 	}
 	return builder.String()
 }
