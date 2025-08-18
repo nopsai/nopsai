@@ -86,10 +86,26 @@ func validatePipeline(pipeline *models.Pipeline) error {
 		stepNames[step.Name] = struct{}{}
 	}
 
+	sessionImages := make(map[string]string)
 	for _, step := range pipeline.Steps {
 		for _, depName := range step.DependsOn {
 			if _, exists := stepNames[depName]; !exists {
 				return fmt.Errorf("step '%s' has an undefined dependency: '%s'", step.Name, depName)
+			}
+		}
+
+		if step.Session != "" {
+			image := step.Image
+			if image == "" {
+				image = pipeline.ContainerImage
+			}
+
+			if knownImage, ok := sessionImages[step.Session]; ok {
+				if image != knownImage {
+					return fmt.Errorf("session '%s' has conflicting images: found '%s' and '%s'", step.Session, knownImage, image)
+				}
+			} else {
+				sessionImages[step.Session] = image
 			}
 		}
 	}
@@ -977,7 +993,7 @@ func (a *App) notifyGitBotOfStepStatus(runID, stepName, stepStatus string) {
 
 	err := a.db.QueryRow(context.Background(), query, runID, stepName).Scan(&repoOwner, &repoName, &commitSHA, &checkRunID, &pipelineDef, &stepIndex, &totalSteps, &startedAt, &finishedAt)
 	if err != nil || !repoOwner.Valid || !checkRunID.Valid {
-		log.Warn().Str("run_id", runID).Msg("Not a Git-triggered run with a check ID, skipping step status update.")
+		log.Warn().Str("run_id", runID).Err(err).Msg("Not a Git-triggered run with a check ID, skipping step status update.")
 		return
 	}
 

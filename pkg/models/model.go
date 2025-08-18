@@ -11,7 +11,7 @@ type Trigger struct {
 	Branches    []string `yaml:"branches,omitempty"`
 	Tags        []string `yaml:"tags,omitempty"`
 	Path        string   `yaml:"path"`
-	Environment string   `yaml:"environment,omitempty"` // <-- THIS LINE IS NOW CORRECTLY ADDED
+	Environment string   `yaml:"environment,omitempty"`
 }
 
 // Pipeline represents the structure of a pipeline definition file.
@@ -30,7 +30,7 @@ type Pipeline struct {
 
 // DisplayOptions defines how the pipeline progress is displayed in integrations like GitHub.
 type DisplayOptions struct {
-	GitHubView string `yaml:"github_view,omitempty"` // "tree" or "flat"
+	GitHubView string `yaml:"github_view,omitempty"` // "mermaid", "tree" or "flat"
 }
 
 // PipelineStep is a single step within a pipeline definition.
@@ -40,6 +40,7 @@ type PipelineStep struct {
 	Goal             string   `yaml:"goal"`
 	Script           string   `yaml:"script,omitempty"`
 	Secrets          []string `yaml:"secrets,omitempty"`
+	Session          string   `yaml:"session,omitempty"`
 	DependsOn        []string `yaml:"depends_on,omitempty"`
 	IgnoreFailure    bool     `yaml:"ignore_failure,omitempty"`
 	LlmOutputSharing *bool    `yaml:"llm_output_sharing,omitempty"`
