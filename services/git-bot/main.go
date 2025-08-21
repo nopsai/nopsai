@@ -70,6 +70,15 @@ type RunStatusUpdate struct {
 	Summary    string `json:"summary,omitempty"`
 }
 
+type CreateChildCheckRunRequest struct {
+	Owner              string `json:"owner"`
+	Repo               string `json:"repo"`
+	Ref                string `json:"ref"`
+	ParentName         string `json:"parent_name"`
+	IncludeName        string `json:"include_name"`
+	PipelineDefinition string `json:"pipeline_definition"`
+}
+
 // Renders a nested tree view of steps and their tasks.
 func (a *GitBotApp) renderMarkdownTree(state *CheckRunState) string {
 	var builder strings.Builder
@@ -323,9 +332,8 @@ func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineDef, pipelineSource
 
 	checkName := pipeline.Name
 	if checkName == "" {
-		checkName = "Nopsai"
+		checkName = "Nopsai Pipeline"
 	}
-
 	if pipelineSource == "database override" {
 		checkName = fmt.Sprintf("%s-overridden", checkName)
 	}
@@ -341,15 +349,71 @@ func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineDef, pipelineSource
 		return 0
 	}
 
+	// Use the centralized helper to initialize the state
+	if err := a.initializeCheckRunState(*checkRun.ID, owner, repo, pipelineDef, checkName); err != nil {
+		log.Error().Err(err).Msg("Failed to initialize check run state")
+		// Conclude the check run as a failure since we can't track it
+		a.concludeCheckRun(owner, repo, *checkRun.ID, "failure", "Failed to initialize internal tracking state for this pipeline.")
+		return 0
+	}
+
 	inProgressOpts := github.UpdateCheckRunOptions{
 		Name:   checkName,
 		Status: github.String("in_progress"),
 		Output: &github.CheckRunOutput{
-			Title:   github.String(repo),
+			Title:   github.String(checkName),
 			Summary: github.String("Pipeline is starting..."),
 		},
 	}
 	a.ghClient.Checks.UpdateCheckRun(context.Background(), owner, repo, *checkRun.ID, inProgressOpts)
+
+	return *checkRun.ID
+}
+
+func (a *GitBotApp) handleCreateChildCheckRun(w http.ResponseWriter, r *http.Request) {
+	var req CreateChildCheckRunRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	checkName := fmt.Sprintf("%s / Included: %s", req.ParentName, req.IncludeName)
+
+	opts := github.CreateCheckRunOptions{
+		Name:    checkName,
+		HeadSHA: req.Ref,
+		Status:  github.String("queued"),
+	}
+	checkRun, _, err := a.ghClient.Checks.CreateCheckRun(context.Background(), req.Owner, req.Repo, opts)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to create child check run")
+		http.Error(w, "Failed to create child check run", http.StatusInternalServerError)
+		return
+	}
+
+	// Use the centralized helper to initialize the state
+	if err := a.initializeCheckRunState(*checkRun.ID, req.Owner, req.Repo, req.PipelineDefinition, checkName); err != nil {
+		log.Error().Err(err).Msg("Failed to initialize state for child check run")
+		a.concludeCheckRun(req.Owner, req.Repo, *checkRun.ID, "failure", "Failed to initialize internal tracking state for this included pipeline.")
+		http.Error(w, "Failed to initialize internal state", http.StatusInternalServerError)
+		return
+	}
+
+	inProgressOpts := github.UpdateCheckRunOptions{
+		Name:   checkName,
+		Status: github.String("in_progress"),
+	}
+	a.ghClient.Checks.UpdateCheckRun(context.Background(), req.Owner, req.Repo, *checkRun.ID, inProgressOpts)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]int64{"check_run_id": *checkRun.ID})
+}
+
+func (a *GitBotApp) initializeCheckRunState(checkRunID int64, owner, repo, pipelineDef, checkName string) error {
+	var pipeline models.Pipeline
+	if err := yaml.Unmarshal([]byte(pipelineDef), &pipeline); err != nil {
+		return fmt.Errorf("invalid pipeline definition: %w", err)
+	}
 
 	view := "flat"
 	if pipeline.DisplayOptions.GitHubView == "mermaid" {
@@ -370,7 +434,9 @@ func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineDef, pipelineSource
 
 	totalTasks := 0
 	for _, step := range pipeline.Steps {
-		if len(step.Tasks) > 0 {
+		if step.Include != "" { // An include step is treated as a single task
+			totalTasks++
+		} else if len(step.Tasks) > 0 {
 			totalTasks += len(step.Tasks)
 		} else {
 			totalTasks++
@@ -381,6 +447,23 @@ func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineDef, pipelineSource
 	for _, step := range pipeline.Steps {
 		initialState.StepOrder = append(initialState.StepOrder, step.Name)
 		initialState.Steps[step.Name] = make(map[string]TaskStatusUpdate)
+
+		// Handle 'include' steps as a single task for state tracking
+		if step.Include != "" {
+			initialState.Steps[step.Name][step.Name] = TaskStatusUpdate{
+				StepName:   step.Name,
+				TaskName:   step.Name,
+				TaskStatus: "pending",
+				TaskIndex:  taskIndex,
+				TotalTasks: totalTasks,
+				DependsOn:  step.DependsOn,
+				RepoOwner:  owner,
+				RepoName:   repo,
+			}
+			taskIndex++
+			continue
+		}
+
 		if len(step.Tasks) > 0 {
 			for _, task := range step.Tasks {
 				initialState.Steps[step.Name][task.Name] = TaskStatusUpdate{
@@ -395,8 +478,7 @@ func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineDef, pipelineSource
 				}
 				taskIndex++
 			}
-		} else {
-			// Handle legacy step as a single task
+		} else { // Legacy step
 			initialState.Steps[step.Name][step.Name] = TaskStatusUpdate{
 				StepName:   step.Name,
 				TaskName:   step.Name,
@@ -411,9 +493,9 @@ func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineDef, pipelineSource
 		}
 	}
 
-	a.checkRunStates[*checkRun.ID] = initialState
-
-	return *checkRun.ID
+	a.checkRunStates[checkRunID] = initialState
+	log.Info().Int64("check_run_id", checkRunID).Int("steps", len(initialState.Steps)).Msg("Successfully initialized check run state.")
+	return nil
 }
 
 func (a *GitBotApp) findPipelineForEvent(manifest models.Manifest, eventType, ref string) (string, string) {
@@ -472,7 +554,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	var headCommit *github.HeadCommit
 	var pusher *github.User
 
-	// This entire switch statement for parsing the event remains unchanged.
+	// ... (The entire switch statement for parsing the event remains unchanged) ...
 	switch event := payload.(type) {
 	case *github.PushEvent:
 		if event.GetAfter() == "0000000000000000000000000000000000000000" {
@@ -501,7 +583,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		eventType = "pull_request" // Normalize event type
+		eventType = "pull_request"
 		if event.Repo == nil || event.Repo.Owner == nil || event.Repo.Owner.Login == nil ||
 			event.Repo.Name == nil || event.Repo.FullName == nil || event.PullRequest == nil || event.PullRequest.Head == nil || event.PullRequest.Head.SHA == nil {
 			log.Warn().Msg("Received pull_request event with missing essential data. Ignoring.")
@@ -590,6 +672,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	var pipelineYAML []byte
 	var pipelineSource string
 
+	// ... (Logic for fetching the trigger manifest from DB or repo is unchanged) ...
 	overrideURL := fmt.Sprintf("%s/v1/overrides/%s/%s", a.cfg.GitBotNopsaiAPIURL, owner, repo)
 	resp, err := http.Get(overrideURL)
 	if err == nil && resp.StatusCode == http.StatusOK {
@@ -641,6 +724,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ... (Logic for fetching the top-level pipeline YAML from DB or repo is unchanged) ...
 	if pipelineSource == "repository" {
 		fullPipelinePath := filepath.Join(".nopsai", pipelinePath)
 		log.Info().Msgf("Found pipeline '%s' for event '%s' and ref '%s'.", fullPipelinePath, eventType, ref)
@@ -676,6 +760,8 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		resp.Body.Close()
 	}
 
+	// ** SIMPLIFIED LOGIC **: We no longer resolve includes here.
+	// We pass the raw, top-level pipeline definition directly to the nopsai service.
 	checkRunID := a.createCheckRun(owner, repo, commitSHA, string(pipelineYAML), pipelineSource)
 	if checkRunID == 0 {
 		http.Error(w, "Failed to create check run", http.StatusInternalServerError)
@@ -694,6 +780,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		req, _ = http.NewRequest("POST", runURL, nil)
 	}
 
+	// ... (The rest of the function for setting headers and triggering the run is unchanged) ...
 	req.Header.Set("X-Git-Repo-Owner", owner)
 	req.Header.Set("X-Git-Repo-Name", repo)
 	req.Header.Set("X-Git-Commit-SHA", commitSHA)
@@ -1025,6 +1112,7 @@ func main() {
 	mux.HandleFunc("/webhook", app.handleWebhook)
 	mux.HandleFunc("/v1/run/status", app.handleRunStatusUpdate)
 	mux.HandleFunc("/v1/task/status", app.handleTaskStatusUpdate)
+	mux.HandleFunc("/v1/checks/create-child", app.handleCreateChildCheckRun)
 
 	log.Info().Msgf("Nopsai Git Bot server listening on %s", cfg.GitBotListenAddress)
 	if err := http.ListenAndServe(cfg.GitBotListenAddress, mux); err != nil {

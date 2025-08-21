@@ -1,4 +1,4 @@
-name: Second-Test-Pipeline
+name: Test-Pipeline
 description: A sample pipeline.
 llm_content_sharing: true
 llm_output_sharing: true
@@ -90,6 +90,12 @@ steps:
         depends_on:
         - commit-hash
         - dockerfile-modification
+
+  - name: image-scanning
+    include: "pipeline:reference-pipeline.yaml"
+    sync: true
+    depends_on:
+    - build-docker
 
   - name: Check-steps
     goal: "Give me lines from history which are important"
