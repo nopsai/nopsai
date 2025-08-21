@@ -20,6 +20,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/rs/zerolog"
@@ -197,6 +198,31 @@ func getNextRunnableTasks(pipeline *models.Pipeline, completedTasks map[string]b
 	return runnableTasks
 }
 
+func notifyFinalStatus(runID, status string) {
+	nopsaiURL := os.Getenv("NOPSAI_API_URL")
+	if nopsaiURL == "" {
+		log.Error().Msg("NOPSAI_API_URL environment variable not set. Cannot report final status.")
+		return
+	}
+	url := fmt.Sprintf("%s/v1/runs/%s/finalize", nopsaiURL, runID)
+
+	payload := map[string]string{"status": status}
+	body, _ := json.Marshal(payload)
+
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to send final status to nopsai API")
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Error().Int("status_code", resp.StatusCode).Msg("Received non-OK status from nopsai API for final status")
+	} else {
+		log.Info().Str("run_id", runID).Str("status", status).Msg("Successfully notified nopsai of final pipeline status.")
+	}
+}
+
 // updateTaskStatus reports the final status of a task back to the nopsai API.
 func updateTaskStatus(runID, stepName, taskName, status string, exitCode int, llmDurationMs int64) {
 	nopsaiURL := os.Getenv("NOPSAI_API_URL")
@@ -222,30 +248,6 @@ func updateTaskStatus(runID, stepName, taskName, status string, exitCode int, ll
 
 	if resp.StatusCode != http.StatusOK {
 		log.Error().Int("status_code", resp.StatusCode).Msg("Received non-OK status from nopsai API")
-	}
-}
-
-// updateRunStatus reports the final status of the entire run.
-func updateRunStatus(runID, status string) {
-	nopsaiURL := os.Getenv("NOPSAI_API_URL")
-	if nopsaiURL == "" {
-		log.Error().Msg("NOPSAI_API_URL environment variable not set. Cannot report final run status.")
-		return
-	}
-	url := fmt.Sprintf("%s/v1/runs/%s/status", nopsaiURL, runID)
-
-	payload := map[string]string{"status": status}
-	body, _ := json.Marshal(payload)
-
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to send final run status update to nopsai API")
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		log.Error().Int("status_code", resp.StatusCode).Msg("Received non-OK status from nopsai API for final run status")
 	}
 }
 
@@ -410,7 +412,7 @@ func run() int {
 				<-ctx.Done()
 				if ctx.Err() == context.DeadlineExceeded {
 					log.Error().Msg("Pipeline execution timed out. Cleaning up and exiting.")
-					updateRunStatus(runID, "failed")
+					notifyFinalStatus(runID, "failed")
 				}
 			}()
 		}
@@ -500,6 +502,34 @@ func run() int {
 						return
 					}
 
+					binds := []string{fmt.Sprintf("%s:/workspace", sharedVolumeName)}
+					if len(step.Volumes) > 0 {
+						for _, vol := range step.Volumes {
+							parts := strings.Split(vol, ":")
+							if len(parts) != 2 {
+								log.Error().Str("volume", vol).Msg("Invalid volume format. Must be 'volume-name:mount-path'. Skipping.")
+								continue
+							}
+							volumeName := parts[0]
+
+							_, err := cli.VolumeInspect(context.Background(), volumeName)
+							if err != nil {
+								if client.IsErrNotFound(err) {
+									log.Info().Str("volume", volumeName).Msg("Volume not found, creating it now.")
+									_, createErr := cli.VolumeCreate(context.Background(), volume.CreateOptions{Name: volumeName})
+									if createErr != nil {
+										log.Error().Err(createErr).Str("volume", volumeName).Msg("Failed to create volume.")
+										continue
+									}
+								} else {
+									log.Error().Err(err).Str("volume", volumeName).Msg("Failed to inspect volume.")
+									continue
+								}
+							}
+							binds = append(binds, vol)
+						}
+					}
+
 					cont, err := cli.ContainerCreate(context.Background(), &container.Config{
 						Image:      imageName,
 						WorkingDir: "/workspace",
@@ -507,7 +537,7 @@ func run() int {
 						Env:        stepEnvVars,
 						Tty:        false,
 					}, &container.HostConfig{
-						Binds:       []string{fmt.Sprintf("%s:/workspace", sharedVolumeName)},
+						Binds:       binds,
 						NetworkMode: container.NetworkMode(dockerNetworkName),
 					}, nil, nil, fmt.Sprintf("pipeline-%s-step-%s", runID, step.Name))
 					if err != nil {
@@ -662,10 +692,20 @@ func run() int {
 		}
 
 		if pipelineFailed {
-			log.Error().Str("pipeline", pipelineName).Msg("One or more critical tasks failed. Shutting down.")
 			break
 		}
 	}
+
+	finalStatus := "success"
+	if pipelineFailed {
+		finalStatus = "failure"
+		log.Error().Str("pipeline", pipelineName).Msg("Pipeline finished with failed tasks.")
+	} else {
+		log.Info().Str("pipeline", pipelineName).Msg("Pipeline finished successfully.")
+	}
+
+	// Notify nopsai of the final status *before* the deferred cleanup runs.
+	notifyFinalStatus(runID, finalStatus)
 
 	if pipelineFailed {
 		return 1
