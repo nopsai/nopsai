@@ -15,6 +15,9 @@ steps:
     image: pipeline-image:latest
     secrets:
       - TEST_SECRET
+    volumes:
+      - "sample-exisitng:/tmp/sample-exisitng"
+      - "sample-new:/tmp/sample-new"
     tasks:
       - name: git-clone
         ignore_failure: false
@@ -63,6 +66,8 @@ steps:
         - write-secret
 
   - name: docker-builder
+    volumes:
+      - "sample-exisitng:/tmp/sample-exisitng"
     tasks:
       - name: dockerfile-modification
         goal: "Modify Dockerfile and add copy statement to add docker-compose"

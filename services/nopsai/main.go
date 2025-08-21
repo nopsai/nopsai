@@ -62,9 +62,12 @@ type TriggerOverrideRequest struct {
 	TriggerDefinition string `json:"trigger_definition"`
 }
 
+type FinalizeRequest struct {
+	Status string `json:"status"`
+}
+
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
 
-// ** FIXED ** Validation now ensures tasks only depend on other tasks.
 func validatePipeline(pipeline *models.Pipeline) error {
 	if pipeline.Name == "" {
 		return fmt.Errorf("'name' is a required field")
@@ -810,6 +813,61 @@ func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// handleFinalizeRun receives the final status directly from the agent.
+func (a *App) handleFinalizeRun(w http.ResponseWriter, r *http.Request) {
+	runID := r.PathValue("runID")
+	var req FinalizeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	log.Info().Str("run_id", runID).Str("status", req.Status).Msg("Received final status from agent")
+
+	finalStatus := req.Status
+	var failedStep, failedTask string
+	if finalStatus != "success" {
+		finalStatus = "failure" // Normalize status
+		err := a.db.QueryRow(context.Background(), "SELECT step_name, task_name FROM tasks WHERE run_id = $1 AND status = 'failed' ORDER BY finished_at ASC LIMIT 1", runID).Scan(&failedStep, &failedTask)
+		if err != nil {
+			log.Warn().Err(err).Str("run_id", runID).Msg("Could not determine the exact failed task for final status notification.")
+		}
+	}
+
+	var gitContext = make(map[string]string)
+	var repoOwner, repoName, commitSHA sql.NullString
+	var checkRunID sql.NullInt64
+	query := `SELECT git_repo_owner, git_repo_name, git_commit_sha, git_check_run_id FROM runs WHERE run_id = $1`
+	err := a.db.QueryRow(context.Background(), query, runID).Scan(&repoOwner, &repoName, &commitSHA, &checkRunID)
+	if err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to retrieve git context for final notification")
+	} else {
+		if repoOwner.Valid {
+			gitContext["repo_owner"] = repoOwner.String
+		}
+		if repoName.Valid {
+			gitContext["repo_name"] = repoName.String
+		}
+		if commitSHA.Valid {
+			gitContext["commit_sha"] = commitSHA.String
+		}
+		if checkRunID.Valid {
+			gitContext["check_run_id"] = strconv.FormatInt(checkRunID.Int64, 10)
+		}
+	}
+
+	_, err = a.db.Exec(context.Background(), "UPDATE runs SET status = $1, finished_at = NOW() WHERE run_id = $2 AND finished_at IS NULL", finalStatus, runID)
+	if err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to update final run status in DB from agent notification")
+	}
+
+	if gitContext["repo_owner"] != "" {
+		a.notifyGitBotOfFinalStatus(finalStatus, failedStep, failedTask, "", gitContext)
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
 func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []byte, timeout time.Duration, gitContext map[string]string) {
 	ctx := context.Background()
 
@@ -909,22 +967,15 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	case err := <-errCh:
 		if err != nil {
 			log.Error().Err(err).Str("run_id", runID).Msg("Error waiting for agent container")
+			a.db.Exec(context.Background(), "UPDATE runs SET status = 'failed', finished_at = NOW() WHERE run_id = $1 AND finished_at IS NULL", runID)
 		}
 	case status := <-statusCh:
 		log.Info().Str("run_id", runID).Int64("status_code", status.StatusCode).Msg("Agent container finished.")
 		finalStatus := "success"
-		var failedStep, failedTask string
 		if status.StatusCode != 0 {
 			finalStatus = "failure"
-			err := a.db.QueryRow(context.Background(), "SELECT step_name, task_name FROM tasks WHERE run_id = $1 AND status = 'failed' ORDER BY finished_at ASC LIMIT 1", runID).Scan(&failedStep, &failedTask)
-			if err != nil {
-				log.Warn().Err(err).Str("run_id", runID).Msg("Could not determine the exact failed task.")
-			}
 		}
-		a.db.Exec(context.Background(), "UPDATE runs SET status = $1, finished_at = NOW() WHERE run_id = $2", finalStatus, runID)
-		if gitContext["repo_owner"] != "" {
-			a.notifyGitBotOfFinalStatus(finalStatus, failedStep, failedTask, "", gitContext)
-		}
+		a.db.Exec(context.Background(), "UPDATE runs SET status = $1, finished_at = NOW() WHERE run_id = $2 AND finished_at IS NULL", finalStatus, runID)
 	}
 }
 
@@ -1180,6 +1231,7 @@ func main() {
 	mux.HandleFunc("POST /v1/run", app.handleRunPipeline)
 	mux.HandleFunc("POST /v1/run/{pipelineName}", app.handleRunPipeline)
 	mux.HandleFunc("POST /v1/runs/{runID}/rerun", app.handleRerunPipeline)
+	mux.HandleFunc("POST /v1/runs/{runID}/finalize", app.handleFinalizeRun)
 	mux.HandleFunc("POST /v1/runs/{runID}/steps/{stepName}/tasks/{taskName}", app.handleTaskUpdate)
 
 	server := &http.Server{
