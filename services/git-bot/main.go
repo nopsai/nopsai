@@ -36,22 +36,26 @@ type GitBotApp struct {
 	stateLock      sync.Mutex
 }
 
-type StepStatusUpdate struct {
+// TaskStatusUpdate reflects the new granular status updates.
+type TaskStatusUpdate struct {
 	RepoOwner  string    `json:"repo_owner"`
 	RepoName   string    `json:"repo_name"`
 	CheckRunID int64     `json:"check_run_id"`
 	StepName   string    `json:"step_name"`
-	StepStatus string    `json:"step_status"`
-	StepIndex  int       `json:"step_index"`
-	TotalSteps int       `json:"total_steps"`
+	TaskName   string    `json:"task_name"`
+	TaskStatus string    `json:"task_status"`
+	TaskIndex  int       `json:"task_index"`
+	TotalTasks int       `json:"total_tasks"`
 	DependsOn  []string  `json:"depends_on"`
 	GitHubView string    `json:"github_view"`
 	StartedAt  time.Time `json:"started_at"`
 	FinishedAt time.Time `json:"finished_at"`
 }
 
+// CheckRunState now stores tasks nested within steps.
 type CheckRunState struct {
-	Steps        map[string]StepStatusUpdate
+	Steps        map[string]map[string]TaskStatusUpdate
+	StepOrder    []string
 	GitHubView   string
 	PipelineName string
 }
@@ -59,136 +63,84 @@ type CheckRunState struct {
 type RunStatusUpdate struct {
 	Status     string `json:"status"`
 	FailedStep string `json:"failed_step"`
+	FailedTask string `json:"failed_task"`
 	CheckRunID int64  `json:"check_run_id"`
 	RepoOwner  string `json:"repo_owner"`
 	RepoName   string `json:"repo_name"`
 	Summary    string `json:"summary,omitempty"`
 }
 
+// Renders a nested tree view of steps and their tasks.
 func (a *GitBotApp) renderMarkdownTree(state *CheckRunState) string {
 	var builder strings.Builder
-	childrenMap := make(map[string][]string)
 
-	stepsByName := make(map[string]StepStatusUpdate)
-	for _, step := range state.Steps {
-		stepsByName[step.StepName] = step
-	}
-
-	allStepNames := make([]string, 0, len(stepsByName))
-	for name := range stepsByName {
-		allStepNames = append(allStepNames, name)
-	}
-	sort.SliceStable(allStepNames, func(i, j int) bool {
-		return stepsByName[allStepNames[i]].StepIndex < stepsByName[allStepNames[j]].StepIndex
-	})
-
-	for _, stepName := range allStepNames {
-		step := stepsByName[stepName]
-		if len(step.DependsOn) == 0 {
-			childrenMap[""] = append(childrenMap[""], step.StepName)
-		} else {
-			for _, parent := range step.DependsOn {
-				childrenMap[parent] = append(childrenMap[parent], step.StepName)
-			}
-		}
-	}
-
-	visited := make(map[string]bool)
-
-	var buildTree func(parent string, depth int)
-	buildTree = func(parent string, depth int) {
-		children, ok := childrenMap[parent]
-		if !ok {
-			return
-		}
-
-		sort.SliceStable(children, func(i, j int) bool {
-			return stepsByName[children[i]].StepIndex < stepsByName[children[j]].StepIndex
-		})
-
-		for _, childName := range children {
-			step := stepsByName[childName]
-			icon := "⏳"
-			duration := ""
-
-			if !step.StartedAt.IsZero() && !step.FinishedAt.IsZero() {
-				duration = fmt.Sprintf(" (took %s)", step.FinishedAt.Sub(step.StartedAt).Round(time.Second))
-			}
-
-			if step.StepStatus == "completed" {
-				icon = "✅"
-			} else if strings.Contains(strings.ToLower(step.StepStatus), "failed (ignored)") {
-				icon = "⚠️"
-			} else if strings.Contains(strings.ToLower(step.StepStatus), "fail") {
-				icon = "❌"
-			}
-
-			if visited[childName] {
-				builder.WriteString(strings.Repeat("  ", depth))
-				builder.WriteString(fmt.Sprintf("- %s `%s` (dependency already shown)\n", icon, step.StepName))
-				continue
-			}
-
-			visited[childName] = true
-
-			builder.WriteString(strings.Repeat("  ", depth))
-			builder.WriteString(fmt.Sprintf("- %s `%s` - %s%s\n", icon, step.StepName, step.StepStatus, duration))
-
-			buildTree(childName, depth+1)
-		}
-	}
-
-	rootNodes := childrenMap[""]
-	sort.SliceStable(rootNodes, func(i, j int) bool {
-		return stepsByName[rootNodes[i]].StepIndex < stepsByName[rootNodes[j]].StepIndex
-	})
-
-	for _, rootNodeName := range rootNodes {
-		if visited[rootNodeName] {
+	for _, stepName := range state.StepOrder {
+		tasks := state.Steps[stepName]
+		if len(tasks) == 0 {
 			continue
 		}
-		visited[rootNodeName] = true
 
-		step := stepsByName[rootNodeName]
-		icon := "⏳"
-		duration := ""
+		// Sort tasks by index
+		sortedTasks := make([]TaskStatusUpdate, 0, len(tasks))
+		for _, task := range tasks {
+			sortedTasks = append(sortedTasks, task)
+		}
+		sort.SliceStable(sortedTasks, func(i, j int) bool {
+			return sortedTasks[i].TaskIndex < sortedTasks[j].TaskIndex
+		})
 
-		if !step.StartedAt.IsZero() && !step.FinishedAt.IsZero() {
-			duration = fmt.Sprintf(" (took %s)", step.FinishedAt.Sub(step.StartedAt).Round(time.Second))
+		// Determine step status based on its tasks
+		stepCompleted := true
+		stepFailed := false
+		for _, task := range sortedTasks {
+			if strings.Contains(strings.ToLower(task.TaskStatus), "fail") {
+				stepFailed = true
+				stepCompleted = false
+				break
+			}
+			if task.TaskStatus != "completed" && !strings.Contains(task.TaskStatus, "ignored") {
+				stepCompleted = false
+			}
 		}
 
-		if step.StepStatus == "completed" {
-			icon = "✅"
-		} else if strings.Contains(strings.ToLower(step.StepStatus), "failed (ignored)") {
-			icon = "⚠️"
-		} else if strings.Contains(strings.ToLower(step.StepStatus), "fail") {
-			icon = "❌"
+		stepIcon := "⏳"
+		if stepFailed {
+			stepIcon = "❌"
+		} else if stepCompleted {
+			stepIcon = "✅"
 		}
 
-		builder.WriteString(fmt.Sprintf("- %s `%s` - %s%s\n", icon, step.StepName, step.StepStatus, duration))
-		buildTree(rootNodeName, 1)
+		builder.WriteString(fmt.Sprintf("- %s **`%s`**\n", stepIcon, stepName))
+
+		for _, task := range sortedTasks {
+			icon := "⏳"
+			duration := ""
+			if !task.StartedAt.IsZero() && !task.FinishedAt.IsZero() {
+				duration = fmt.Sprintf(" (took %s)", task.FinishedAt.Sub(task.StartedAt).Round(time.Second))
+			}
+
+			if task.TaskStatus == "completed" {
+				icon = "✅"
+			} else if strings.Contains(strings.ToLower(task.TaskStatus), "failed (ignored)") {
+				icon = "⚠️"
+			} else if strings.Contains(strings.ToLower(task.TaskStatus), "fail") {
+				icon = "❌"
+			} else if task.TaskStatus == "skipped" {
+				icon = "⚪️"
+			}
+
+			builder.WriteString(fmt.Sprintf("  - %s `%s` - %s%s\n", icon, task.TaskName, task.TaskStatus, duration))
+		}
 	}
 
 	return builder.String()
 }
 
+// Renders a clear, flow-based Mermaid graph with subgraphs.
 func (a *GitBotApp) renderMermaidGraph(state *CheckRunState) string {
 	var builder strings.Builder
 	builder.WriteString("```mermaid\n")
-	builder.WriteString("graph LR\n")
-
-	stepsByName := make(map[string]StepStatusUpdate)
-	for _, step := range state.Steps {
-		stepsByName[step.StepName] = step
-	}
-
-	allStepNames := make([]string, 0, len(stepsByName))
-	for name := range stepsByName {
-		allStepNames = append(allStepNames, name)
-	}
-	sort.SliceStable(allStepNames, func(i, j int) bool {
-		return stepsByName[allStepNames[i]].StepIndex < stepsByName[allStepNames[j]].StepIndex
-	})
+	builder.WriteString("graph TD\n")
 
 	builder.WriteString("\n    %% Style Definitions\n")
 	builder.WriteString("    classDef success fill:#d4edda,stroke:#c3e6cb,color:#155724\n")
@@ -196,72 +148,89 @@ func (a *GitBotApp) renderMermaidGraph(state *CheckRunState) string {
 	builder.WriteString("    classDef ignored fill:#fff3cd,stroke:#ffeeba,color:#856404\n")
 	builder.WriteString("    classDef pending fill:#e2e3e5,stroke:#d6d8db,color:#383d41\n")
 	builder.WriteString("    classDef skipped fill:#f8f9fa,stroke:#ced4da,color:#6c757d\n")
+	builder.WriteString("    classDef root fill:#d1e7dd,stroke:#a3cfbb,color:#0a3622,font-weight:bold\n")
 
-	stages := make([][]string, 0)
-	processedSteps := make(map[string]bool)
-	for len(processedSteps) < len(stepsByName) {
-		currentStage := make([]string, 0)
-		for _, name := range allStepNames {
-			if _, ok := processedSteps[name]; ok {
-				continue
-			}
-			step := stepsByName[name]
-			dependenciesMet := true
-			for _, dep := range step.DependsOn {
-				if _, ok := processedSteps[dep]; !ok {
-					dependenciesMet = false
-					break
-				}
-			}
-			if dependenciesMet {
-				currentStage = append(currentStage, name)
+	taskToNodeID := make(map[string]string)
+	allTasks := make(map[string]TaskStatusUpdate)
+	var repoName string
+
+	// Get repo name from the first available task
+	for _, tasks := range state.Steps {
+		for _, task := range tasks {
+			if task.RepoOwner != "" && task.RepoName != "" {
+				repoName = fmt.Sprintf("%s/%s", task.RepoOwner, task.RepoName)
+				break
 			}
 		}
-		if len(currentStage) == 0 {
+		if repoName != "" {
 			break
 		}
-		for _, name := range currentStage {
-			processedSteps[name] = true
-		}
-		stages = append(stages, currentStage)
 	}
 
-	for i, stage := range stages {
-		stageName := fmt.Sprintf("Dependency Layer - %d", i+1)
+	// Define the root repository node
+	if repoName != "" {
+		builder.WriteString(fmt.Sprintf("\n    root(\"%s\"):::root\n", repoName))
+	}
 
-		builder.WriteString(fmt.Sprintf("\n    subgraph \"%s\"\n", stageName))
-		for _, stepName := range stage {
-			step := stepsByName[stepName]
+	// Define all nodes within their step subgraphs first
+	nodeCounter := 0
+	for _, stepName := range state.StepOrder {
+		tasks := state.Steps[stepName]
+		builder.WriteString(fmt.Sprintf("\n    subgraph \"%s\"\n", stepName))
+
+		sortedTasks := make([]TaskStatusUpdate, 0, len(tasks))
+		for _, task := range tasks {
+			sortedTasks = append(sortedTasks, task)
+		}
+		sort.SliceStable(sortedTasks, func(i, j int) bool {
+			return sortedTasks[i].TaskIndex < sortedTasks[j].TaskIndex
+		})
+
+		for _, task := range sortedTasks {
+			nodeID := fmt.Sprintf("T%d", nodeCounter)
+			taskToNodeID[task.TaskName] = nodeID
+			allTasks[task.TaskName] = task
+			nodeCounter++
+
 			var statusIcon, styleClass string
 			duration := ""
 
-			if !step.StartedAt.IsZero() && !step.FinishedAt.IsZero() {
-				duration = fmt.Sprintf("<br/>%s", step.FinishedAt.Sub(step.StartedAt).Round(time.Second))
+			if !task.StartedAt.IsZero() && !task.FinishedAt.IsZero() {
+				duration = fmt.Sprintf("<br/>%s", task.FinishedAt.Sub(task.StartedAt).Round(time.Second))
 			}
 
 			switch {
-			case step.StepStatus == "completed":
+			case task.TaskStatus == "completed":
 				statusIcon, styleClass = "✅", "success"
-			case strings.Contains(step.StepStatus, "failed (ignored)"):
+			case strings.Contains(task.TaskStatus, "failed (ignored)"):
 				statusIcon, styleClass = "⚠️", "ignored"
-			case strings.Contains(step.StepStatus, "fail"):
+			case strings.Contains(task.TaskStatus, "fail"):
 				statusIcon, styleClass = "❌", "failure"
-			case step.StepStatus == "skipped":
-				statusIcon, styleClass = "⚪", "skipped"
+			case task.TaskStatus == "skipped":
+				statusIcon, styleClass = "⚪️", "skipped"
 			default:
 				statusIcon, styleClass = "⏳", "pending"
 			}
-			nodeText := fmt.Sprintf("%s %s%s", statusIcon, step.StepName, duration)
-			builder.WriteString(fmt.Sprintf("        %s(\"`%s`\"):::%s\n", stepName, nodeText, styleClass))
+			nodeText := fmt.Sprintf("%s %s%s", statusIcon, task.TaskName, duration)
+			builder.WriteString(fmt.Sprintf("        %s(\"`%s`\"):::%s\n", nodeID, nodeText, styleClass))
 		}
 		builder.WriteString("    end\n")
 	}
 
+	// Define links between tasks after all nodes are declared
 	builder.WriteString("\n    %% Link Definitions\n")
-	for _, stepName := range allStepNames {
-		step := stepsByName[stepName]
-		for _, parent := range step.DependsOn {
-			builder.WriteString(fmt.Sprintf("    %s --> %s\n", parent, stepName))
+	for taskName, task := range allTasks {
+		toNodeID := taskToNodeID[taskName]
+		if len(task.DependsOn) == 0 {
+			if repoName != "" {
+				builder.WriteString(fmt.Sprintf("    root --> %s\n", toNodeID))
+			}
+		} else {
+			for _, depName := range task.DependsOn {
+				if fromNodeID, ok := taskToNodeID[depName]; ok {
+					builder.WriteString(fmt.Sprintf("    %s --> %s\n", fromNodeID, toNodeID))
+				}
+			}
 		}
 	}
 
@@ -269,31 +238,39 @@ func (a *GitBotApp) renderMermaidGraph(state *CheckRunState) string {
 	return builder.String()
 }
 
+// Renders a flat list of tasks, prefixed with their step name.
 func (a *GitBotApp) renderMarkdownFlatList(state *CheckRunState) string {
 	var builder strings.Builder
-	steps := make([]StepStatusUpdate, 0, len(state.Steps))
-	for _, step := range state.Steps {
-		steps = append(steps, step)
+	allTasks := []TaskStatusUpdate{}
+
+	for _, stepName := range state.StepOrder {
+		tasks := state.Steps[stepName]
+		for _, task := range tasks {
+			allTasks = append(allTasks, task)
+		}
 	}
 
-	sort.SliceStable(steps, func(i, j int) bool {
-		return steps[i].StepIndex < steps[j].StepIndex
+	// Sort all tasks globally by their index
+	sort.SliceStable(allTasks, func(i, j int) bool {
+		return allTasks[i].TaskIndex < allTasks[j].TaskIndex
 	})
 
-	for _, step := range steps {
+	for _, task := range allTasks {
 		icon := "⏳"
 		duration := ""
-		if !step.StartedAt.IsZero() && !step.FinishedAt.IsZero() {
-			duration = fmt.Sprintf(" (took %s)", step.FinishedAt.Sub(step.StartedAt).Round(time.Second))
+		if !task.StartedAt.IsZero() && !task.FinishedAt.IsZero() {
+			duration = fmt.Sprintf(" (took %s)", task.FinishedAt.Sub(task.StartedAt).Round(time.Second))
 		}
-		if step.StepStatus == "completed" {
+		if task.TaskStatus == "completed" {
 			icon = "✅"
-		} else if strings.Contains(strings.ToLower(step.StepStatus), "failed (ignored)") {
+		} else if strings.Contains(strings.ToLower(task.TaskStatus), "failed (ignored)") {
 			icon = "⚠️"
-		} else if strings.Contains(strings.ToLower(step.StepStatus), "fail") {
+		} else if strings.Contains(strings.ToLower(task.TaskStatus), "fail") {
 			icon = "❌"
+		} else if task.TaskStatus == "skipped" {
+			icon = "⚪️"
 		}
-		builder.WriteString(fmt.Sprintf("- %s Step %d: `%s` - %s%s\n", icon, step.StepIndex, step.StepName, step.StepStatus, duration))
+		builder.WriteString(fmt.Sprintf("- %s **%s**: `%s` - %s%s\n", icon, task.StepName, task.TaskName, task.TaskStatus, duration))
 	}
 	return builder.String()
 }
@@ -356,24 +333,57 @@ func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineDef, pipelineSource
 	a.stateLock.Lock()
 	defer a.stateLock.Unlock()
 
-	initialSteps := make(map[string]StepStatusUpdate)
-	for i, step := range pipeline.Steps {
-		initialSteps[step.Name] = StepStatusUpdate{
-			StepName:   step.Name,
-			StepStatus: "pending",
-			StepIndex:  i + 1,
-			TotalSteps: len(pipeline.Steps),
-			DependsOn:  step.DependsOn,
-			RepoOwner:  owner,
-			RepoName:   repo,
-		}
-	}
-
-	a.checkRunStates[*checkRun.ID] = &CheckRunState{
-		Steps:        initialSteps,
+	initialState := &CheckRunState{
+		Steps:        make(map[string]map[string]TaskStatusUpdate),
+		StepOrder:    []string{},
 		GitHubView:   view,
 		PipelineName: checkName,
 	}
+
+	totalTasks := 0
+	for _, step := range pipeline.Steps {
+		if len(step.Tasks) > 0 {
+			totalTasks += len(step.Tasks)
+		} else {
+			totalTasks++
+		}
+	}
+
+	taskIndex := 1
+	for _, step := range pipeline.Steps {
+		initialState.StepOrder = append(initialState.StepOrder, step.Name)
+		initialState.Steps[step.Name] = make(map[string]TaskStatusUpdate)
+		if len(step.Tasks) > 0 {
+			for _, task := range step.Tasks {
+				initialState.Steps[step.Name][task.Name] = TaskStatusUpdate{
+					StepName:   step.Name,
+					TaskName:   task.Name,
+					TaskStatus: "pending",
+					TaskIndex:  taskIndex,
+					TotalTasks: totalTasks,
+					DependsOn:  task.DependsOn,
+					RepoOwner:  owner,
+					RepoName:   repo,
+				}
+				taskIndex++
+			}
+		} else {
+			// Handle legacy step as a single task
+			initialState.Steps[step.Name][step.Name] = TaskStatusUpdate{
+				StepName:   step.Name,
+				TaskName:   step.Name,
+				TaskStatus: "pending",
+				TaskIndex:  taskIndex,
+				TotalTasks: totalTasks,
+				DependsOn:  step.DependsOn,
+				RepoOwner:  owner,
+				RepoName:   repo,
+			}
+			taskIndex++
+		}
+	}
+
+	a.checkRunStates[*checkRun.ID] = initialState
 
 	return *checkRun.ID
 }
@@ -746,43 +756,53 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Pipeline triggered."))
 }
 
-func (a *GitBotApp) handleStepStatusUpdate(w http.ResponseWriter, r *http.Request) {
-	var update StepStatusUpdate
+// handleTaskStatusUpdate processes updates for individual tasks.
+func (a *GitBotApp) handleTaskStatusUpdate(w http.ResponseWriter, r *http.Request) {
+	var update TaskStatusUpdate
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	log.Info().Int64("check_run_id", update.CheckRunID).Str("step", update.StepName).Msg("Received step status update")
+	log.Info().Int64("check_run_id", update.CheckRunID).Str("step", update.StepName).Str("task", update.TaskName).Msg("Received task status update")
 
 	a.stateLock.Lock()
 	defer a.stateLock.Unlock()
 
 	state, ok := a.checkRunStates[update.CheckRunID]
 	if !ok {
-		log.Error().Int64("check_run_id", update.CheckRunID).Msg("Received step update for unknown check run")
+		log.Error().Int64("check_run_id", update.CheckRunID).Msg("Received task update for unknown check run")
 		return
 	}
-	state.Steps[update.StepName] = update
+	// Ensure the step map exists
+	if _, ok := state.Steps[update.StepName]; !ok {
+		state.Steps[update.StepName] = make(map[string]TaskStatusUpdate)
+	}
+	state.Steps[update.StepName][update.TaskName] = update
 	if update.GitHubView != "" {
 		state.GitHubView = update.GitHubView
 	}
 
 	var summary string
-	if state.GitHubView == "mermaid" {
+	switch state.GitHubView {
+	case "mermaid":
 		summary = a.renderMermaidGraph(state)
-	} else if state.GitHubView == "tree" {
+	case "tree":
 		summary = a.renderMarkdownTree(state)
-	} else {
+	default:
 		summary = a.renderMarkdownFlatList(state)
 	}
 
-	completedSteps := 0
-	for _, step := range state.Steps {
-		if step.StepStatus != "pending" && step.StepStatus != "skipped" {
-			completedSteps++
+	completedTasks := 0
+	totalTasks := 0
+	for _, tasks := range state.Steps {
+		for _, task := range tasks {
+			totalTasks++
+			if task.TaskStatus != "pending" && task.TaskStatus != "skipped" {
+				completedTasks++
+			}
 		}
 	}
-	newTitle := fmt.Sprintf("In progress... (%d/%d steps)", completedSteps, len(state.Steps))
+	newTitle := fmt.Sprintf("In progress... (%d/%d tasks)", completedTasks, totalTasks)
 
 	opts := github.UpdateCheckRunOptions{
 		Name:   state.PipelineName,
@@ -800,6 +820,7 @@ func (a *GitBotApp) handleStepStatusUpdate(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusOK)
 }
 
+// handleRunStatusUpdate now handles skipping dependent tasks.
 func (a *GitBotApp) handleRunStatusUpdate(w http.ResponseWriter, r *http.Request) {
 	var update RunStatusUpdate
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
@@ -812,30 +833,19 @@ func (a *GitBotApp) handleRunStatusUpdate(w http.ResponseWriter, r *http.Request
 	a.stateLock.Lock()
 	state, ok := a.checkRunStates[update.CheckRunID]
 
-	if ok && update.Status == "failure" && update.FailedStep != "" {
-		dependents := make(map[string][]string)
-		for _, step := range state.Steps {
-			for _, dep := range step.DependsOn {
-				dependents[dep] = append(dependents[dep], step.StepName)
+	if ok && update.Status == "failure" && update.FailedTask != "" {
+		// Basic logic to skip subsequent tasks in the same step
+		failedStepFound := false
+		for _, stepName := range state.StepOrder {
+			if stepName == update.FailedStep {
+				failedStepFound = true
 			}
-		}
-
-		queue := []string{update.FailedStep}
-		processedForSkip := make(map[string]bool)
-		processedForSkip[update.FailedStep] = true
-
-		for len(queue) > 0 {
-			current := queue[0]
-			queue = queue[1:]
-
-			for _, dependentName := range dependents[current] {
-				if !processedForSkip[dependentName] {
-					processedForSkip[dependentName] = true
-					if step, stepOk := state.Steps[dependentName]; stepOk && step.StepStatus == "pending" {
-						step.StepStatus = "skipped"
-						state.Steps[dependentName] = step
+			if failedStepFound {
+				for taskName, task := range state.Steps[stepName] {
+					if task.TaskStatus == "pending" {
+						task.TaskStatus = "skipped"
+						state.Steps[stepName][taskName] = task
 					}
-					queue = append(queue, dependentName)
 				}
 			}
 		}
@@ -843,12 +853,13 @@ func (a *GitBotApp) handleRunStatusUpdate(w http.ResponseWriter, r *http.Request
 
 	summary := ""
 	if ok {
-		if state.GitHubView == "flat" {
-			summary = a.renderMarkdownFlatList(state)
-		} else if state.GitHubView == "tree" {
-			summary = a.renderMarkdownTree(state)
-		} else {
+		switch state.GitHubView {
+		case "mermaid":
 			summary = a.renderMermaidGraph(state)
+		case "tree":
+			summary = a.renderMarkdownTree(state)
+		default:
+			summary = a.renderMarkdownFlatList(state)
 		}
 	}
 	if update.Status == "failure" && update.Summary != "" {
@@ -909,6 +920,11 @@ func main() {
 	if cfg.GitHubPrivateKey != "" {
 		correctedKey := strings.ReplaceAll(cfg.GitHubPrivateKey, "\n", "\n")
 
+		// ** FIXED **: Ensure parent directory exists before writing the file.
+		if err := os.MkdirAll(filepath.Dir(cfg.GitHubPrivateKeyPath), 0700); err != nil {
+			log.Fatal().Err(err).Msgf("Failed to create directory for private key: %s", cfg.GitHubPrivateKeyPath)
+		}
+
 		log.Info().Msgf("Writing GITHUB_PRIVATE_KEY to file: %s", cfg.GitHubPrivateKeyPath)
 		err := os.WriteFile(cfg.GitHubPrivateKeyPath, []byte(correctedKey), 0600)
 		if err != nil {
@@ -962,7 +978,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/webhook", app.handleWebhook)
 	mux.HandleFunc("/v1/run/status", app.handleRunStatusUpdate)
-	mux.HandleFunc("/v1/step/status", app.handleStepStatusUpdate)
+	mux.HandleFunc("/v1/task/status", app.handleTaskStatusUpdate)
 
 	log.Info().Msgf("Nopsai Git Bot server listening on %s", cfg.GitBotListenAddress)
 	if err := http.ListenAndServe(cfg.GitBotListenAddress, mux); err != nil {
