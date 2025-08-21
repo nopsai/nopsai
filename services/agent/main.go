@@ -298,6 +298,110 @@ func ensureImageExists(ctx context.Context, cli *client.Client, imageName string
 	return nil
 }
 
+func triggerPipeline(parentRunID, parentPipelineName string, pipelineDef []byte) (string, error) {
+	nopsaiURL := os.Getenv("NOPSAI_API_URL")
+	url := fmt.Sprintf("%s/v1/run", nopsaiURL)
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(pipelineDef))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/x-yaml")
+	req.Header.Set("X-Nopsai-Parent-Run-ID", parentRunID)
+	req.Header.Set("X-Nopsai-Parent-Pipeline-Name", parentPipelineName)
+
+	// Inherit Git context from the parent agent's environment
+	for _, e := range os.Environ() {
+		if strings.HasPrefix(e, "GIT_") {
+			parts := strings.SplitN(e, "=", 2)
+			if len(parts) == 2 {
+				headerKey := "X-" + strings.ReplaceAll(strings.Title(strings.ToLower(strings.ReplaceAll(parts[0], "_", " "))), " ", "-")
+				req.Header.Set(headerKey, parts[1])
+			}
+		}
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to trigger child pipeline: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusCreated {
+		return "", fmt.Errorf("nopsai api returned non-201 status %d for trigger: %s", resp.StatusCode, string(body))
+	}
+
+	prefix := "Pipeline run created successfully with ID: "
+	if !strings.HasPrefix(string(body), prefix) {
+		return "", fmt.Errorf("unexpected response body from trigger: %s", string(body))
+	}
+	runID := strings.TrimSpace(strings.TrimPrefix(string(body), prefix))
+	return runID, nil
+}
+
+func monitorPipeline(runID string) (string, error) {
+	nopsaiURL := os.Getenv("NOPSAI_API_URL")
+	url := fmt.Sprintf("%s/v1/runs/%s/status", nopsaiURL, runID)
+	ticker := time.NewTicker(10 * time.Second) // Poll every 10 seconds
+	defer ticker.Stop()
+
+	// Timeout for monitoring to prevent infinite waits
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
+	defer cancel()
+
+	log.Info().Str("child_run_id", runID).Msg("Starting to monitor child pipeline.")
+	for {
+		select {
+		case <-ticker.C:
+			resp, err := http.Get(url)
+			if err != nil {
+				log.Error().Err(err).Str("child_run_id", runID).Msg("Failed to poll child pipeline status")
+				continue
+			}
+
+			var statusResp map[string]string
+			if err := json.NewDecoder(resp.Body).Decode(&statusResp); err != nil {
+				resp.Body.Close()
+				log.Error().Err(err).Str("child_run_id", runID).Msg("Failed to decode child pipeline status")
+				continue
+			}
+			resp.Body.Close()
+
+			status := statusResp["status"]
+			log.Info().Str("child_run_id", runID).Str("status", status).Msg("Polling child pipeline status")
+			if status == "success" || status == "failure" {
+				return status, nil
+			}
+		case <-ctx.Done():
+			return "failure", fmt.Errorf("timed out waiting for child pipeline %s to complete", runID)
+		}
+	}
+}
+
+func getPipelineDef(pipelineName string) ([]byte, error) {
+	nopsaiURL := os.Getenv("NOPSAI_API_URL")
+	if nopsaiURL == "" {
+		return nil, fmt.Errorf("NOPSAI_API_URL not set")
+	}
+	// Note: We assume for now the agent doesn't have access to the repo to fetch files.
+	// It must fetch named pipelines from the nopsai service.
+	url := fmt.Sprintf("%s/v1/pipelines/%s", nopsaiURL, pipelineName)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call nopsai api: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("nopsai api returned non-200 status %d: %s", resp.StatusCode, string(body))
+	}
+	return io.ReadAll(resp.Body)
+}
+
 func run() int {
 	// --- Initialization ---
 	logLevelStr := os.Getenv("LOG_LEVEL")
@@ -454,13 +558,64 @@ func run() int {
 
 				step := runnable.Step
 				task := runnable.Task
-				var stepContainerID string
+				stepName := step.Name
 
-				// Immediately report that the task has started.
-				updateTaskStatus(runID, step.Name, task.Name, "started", 0, 0)
+				// Orchestration logic for 'include' steps
+				if step.Include != "" {
+					updateTaskStatus(runID, stepName, stepName, "started", 0, 0)
+
+					parts := strings.SplitN(step.Include, ":", 2)
+					if len(parts) != 2 || parts[0] != "pipeline" {
+						log.Error().Str("include", step.Include).Msg("Invalid include format")
+						updateTaskStatus(runID, stepName, stepName, "failed", 1, 0)
+						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+						return
+					}
+					childPipelineName := parts[1]
+
+					childDef, err := getPipelineDef(childPipelineName)
+					if err != nil {
+						log.Error().Err(err).Msg("Failed to get child pipeline definition")
+						updateTaskStatus(runID, stepName, stepName, "failed", 1, 0)
+						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+						return
+					}
+
+					childRunID, err := triggerPipeline(runID, pipelineName, childDef)
+					if err != nil {
+						log.Error().Err(err).Msg("Failed to trigger child pipeline")
+						updateTaskStatus(runID, stepName, stepName, "failed", 1, 0)
+						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+						return
+					}
+
+					if step.Sync {
+						finalStatus, err := monitorPipeline(childRunID)
+						if err != nil {
+							log.Error().Err(err).Msg("Failed to monitor child pipeline")
+							updateTaskStatus(runID, stepName, stepName, "failed", 1, 0)
+							results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+							return
+						}
+						if finalStatus == "failure" {
+							log.Error().Str("child_run_id", childRunID).Msg("Synchronous child pipeline failed.")
+							updateTaskStatus(runID, stepName, stepName, "failed", 1, 0)
+							results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+							return
+						}
+					}
+
+					log.Info().Str("child_run_id", childRunID).Msg("Include step finished successfully.")
+					updateTaskStatus(runID, stepName, stepName, "completed", 0, 0)
+					results <- TaskResult{Name: runnable.GlobalKey, Success: true}
+					return
+				}
+
+				// --- This is the original logic for regular goal/script tasks ---
+				var stepContainerID string
+				updateTaskStatus(runID, stepName, task.Name, "started", 0, 0)
 
 				var stepEnvVars []string
-
 				pipelineEnvVars := []string{}
 				for key, value := range pipeline.Environment {
 					pipelineEnvVars = append(pipelineEnvVars, fmt.Sprintf("%s=%s", key, value))
@@ -470,17 +625,15 @@ func run() int {
 						pipelineEnvVars = append(pipelineEnvVars, e)
 					}
 				}
-
 				stepEnvVars = make([]string, len(pipelineEnvVars))
 				copy(stepEnvVars, pipelineEnvVars)
 
-				// Inject the secrets this specific step needs
 				if len(step.Secrets) > 0 && len(secrets) > 0 {
 					for _, secretName := range step.Secrets {
 						if secretValue, ok := secrets[secretName]; ok {
 							stepEnvVars = append(stepEnvVars, fmt.Sprintf("%s=%s", secretName, secretValue))
 						} else {
-							log.Warn().Str("step", step.Name).Str("secret", secretName).Msg("Secret was requested by step but not provided.")
+							log.Warn().Str("step", stepName).Str("secret", secretName).Msg("Secret was requested by step but not provided.")
 						}
 					}
 				}
@@ -491,12 +644,12 @@ func run() int {
 				}
 
 				sessionMutex.Lock()
-				containerID, ok := sessionContainers[step.Name]
+				containerID, ok := sessionContainers[stepName]
 				if !ok {
-					log.Info().Str("step", step.Name).Str("image", imageName).Msg("Creating new container for step")
+					log.Info().Str("step", stepName).Str("image", imageName).Msg("Creating new container for step")
 					if err := ensureImageExists(context.Background(), cli, imageName); err != nil {
 						log.Error().Err(err).Msg("Failed to ensure step image exists. Shutting down.")
-						updateTaskStatus(runID, step.Name, task.Name, "failed", 1, 0)
+						updateTaskStatus(runID, stepName, task.Name, "failed", 1, 0)
 						sessionMutex.Unlock()
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
@@ -511,7 +664,6 @@ func run() int {
 								continue
 							}
 							volumeName := parts[0]
-
 							_, err := cli.VolumeInspect(context.Background(), volumeName)
 							if err != nil {
 								if client.IsErrNotFound(err) {
@@ -539,7 +691,7 @@ func run() int {
 					}, &container.HostConfig{
 						Binds:       binds,
 						NetworkMode: container.NetworkMode(dockerNetworkName),
-					}, nil, nil, fmt.Sprintf("pipeline-%s-step-%s", runID, step.Name))
+					}, nil, nil, fmt.Sprintf("pipeline-%s-step-%s", runID, stepName))
 					if err != nil {
 						log.Error().Err(err).Msg("Failed to create step container")
 						sessionMutex.Unlock()
@@ -552,10 +704,10 @@ func run() int {
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
 					}
-					sessionContainers[step.Name] = cont.ID
+					sessionContainers[stepName] = cont.ID
 					stepContainerID = cont.ID
 				} else {
-					log.Info().Str("step", step.Name).Msg("Reusing existing step container")
+					log.Info().Str("step", stepName).Msg("Reusing existing step container")
 					stepContainerID = containerID
 				}
 				sessionMutex.Unlock()
@@ -618,26 +770,22 @@ func run() int {
 				debugLogger := log.With().
 					Str("pipeline_name", pipelineName).
 					Str("run_id", runID).
-					Str("step_name", step.Name).
+					Str("step_name", stepName).
 					Str("task_name", task.Name).
 					Str("action_type", action.Type).
 					Logger()
-
 				debugLogger.Debug().Msgf("Executing action: %s", actionStr)
 
 				stdout, stderr, exitCode := executeAction(cli, stepContainerID, action, stepEnvVars)
-
 				status := "Succeeded"
 				output := stdout
 				if exitCode != 0 {
 					status = "Failed"
 					output = stderr + stdout
 				}
-
 				maskedOutput := maskSecrets(output, secrets)
-
 				if zerolog.GlobalLevel() <= zerolog.InfoLevel {
-					logMsg := fmt.Sprintf(`status=%s step="%s" task="%s" action="%s" output="%s"`, status, step.Name, task.Name, actionStr, maskedOutput)
+					logMsg := fmt.Sprintf(`status=%s step="%s" task="%s" action="%s" output="%s"`, status, stepName, task.Name, actionStr, maskedOutput)
 					log.Info().Str("pipeline", pipelineName).Msg(logMsg)
 				}
 
@@ -648,12 +796,10 @@ func run() int {
 				if task.LlmOutputSharing != nil {
 					shareOutput = *task.LlmOutputSharing
 				}
-
 				historyGoal = task.Goal
 				if historyGoal == "" {
 					historyGoal = fmt.Sprintf("Execute script for task: %s", task.Name)
 				}
-
 				if !shareOutput {
 					log.Debug().Msg("Output sharing is DISABLED for this task. Hiding output from history.")
 					output = "[Output was hidden by pipeline configuration]"
@@ -664,15 +810,15 @@ func run() int {
 				historyMutex.Unlock()
 
 				if exitCode == 0 {
-					updateTaskStatus(runID, step.Name, task.Name, "completed", exitCode, llmDurationMs)
+					updateTaskStatus(runID, stepName, task.Name, "completed", exitCode, llmDurationMs)
 					results <- TaskResult{Name: runnable.GlobalKey, Success: true}
 				} else {
 					if task.IgnoreFailure {
-						updateTaskStatus(runID, step.Name, task.Name, "failed (ignored)", exitCode, llmDurationMs)
+						updateTaskStatus(runID, stepName, task.Name, "failed (ignored)", exitCode, llmDurationMs)
 						log.Warn().Str("pipeline", pipelineName).Str("task", task.Name).Msg("Task failed, but failure is ignored.")
 						results <- TaskResult{Name: runnable.GlobalKey, Success: true}
 					} else {
-						updateTaskStatus(runID, step.Name, task.Name, "failed", exitCode, llmDurationMs)
+						updateTaskStatus(runID, stepName, task.Name, "failed", exitCode, llmDurationMs)
 						log.Error().Str("pipeline", pipelineName).Str("task", task.Name).Msg("Critical task failed.")
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 					}
@@ -704,13 +850,10 @@ func run() int {
 		log.Info().Str("pipeline", pipelineName).Msg("Pipeline finished successfully.")
 	}
 
-	// Notify nopsai of the final status *before* the deferred cleanup runs.
 	notifyFinalStatus(runID, finalStatus)
-
 	if pipelineFailed {
 		return 1
 	}
-
 	return 0
 }
 

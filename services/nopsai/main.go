@@ -88,9 +88,21 @@ func validatePipeline(pipeline *models.Pipeline) error {
 		if step.Name == "" {
 			return fmt.Errorf("a step is missing its required 'name' field")
 		}
-		if len(step.Tasks) > 0 {
-			if step.Goal != "" || step.Script != "" || len(step.DependsOn) > 0 {
-				return fmt.Errorf("step '%s' has tasks and should not contain 'goal', 'script', or 'depends_on'", step.Name)
+
+		isIncludeStep := step.Include != ""
+		isTaskStep := len(step.Tasks) > 0
+		isLegacyStep := step.Goal != "" || step.Script != ""
+
+		if isIncludeStep {
+			if isTaskStep || isLegacyStep {
+				return fmt.Errorf("step '%s' is an 'include' step and cannot also contain 'tasks', 'goal', or 'script'", step.Name)
+			}
+			// Validation for 'include' step itself is minimal here, as it's resolved before reaching the agent.
+			// We treat the include 'name' as a placeholder for the resolved tasks.
+			allTaskNames[step.Name] = true
+		} else if isTaskStep {
+			if isLegacyStep {
+				return fmt.Errorf("step '%s' has tasks and should not also contain 'goal' or 'script'", step.Name)
 			}
 			for _, task := range step.Tasks {
 				if task.Name == "" {
@@ -101,34 +113,37 @@ func validatePipeline(pipeline *models.Pipeline) error {
 				}
 				allTaskNames[task.Name] = true
 			}
-		} else { // Legacy step-as-task
-			if step.Goal == "" && step.Script == "" {
-				return fmt.Errorf("step '%s' has no tasks and must contain a 'goal' or 'script'", step.Name)
-			}
+		} else if isLegacyStep {
 			if allTaskNames[step.Name] {
 				return fmt.Errorf("duplicate task name '%s' (from legacy step). Task names must be unique", step.Name)
 			}
 			allTaskNames[step.Name] = true
+		} else {
+			return fmt.Errorf("step '%s' must contain 'include', 'tasks', 'goal', or 'script'", step.Name)
 		}
 	}
 
 	// Now validate dependencies
 	for _, step := range pipeline.Steps {
-		var tasksToCheck []models.Task
+		// Dependencies are validated against the final flattened list of tasks,
+		// so for an 'include' step, other steps can depend on its 'name'.
+		dependencies := step.DependsOn
 		if len(step.Tasks) > 0 {
-			tasksToCheck = step.Tasks
-		} else {
-			tasksToCheck = []models.Task{{
-				Name:      step.Name,
-				DependsOn: step.DependsOn,
-			}}
+			// For modern steps, we check task dependencies
+			for _, task := range step.Tasks {
+				for _, depName := range task.DependsOn {
+					if !allTaskNames[depName] {
+						return fmt.Errorf("task '%s' has an undefined dependency: '%s'", task.Name, depName)
+					}
+				}
+			}
+			continue // Skip step-level dependency check for modern steps
 		}
 
-		for _, task := range tasksToCheck {
-			for _, depName := range task.DependsOn {
-				if !allTaskNames[depName] {
-					return fmt.Errorf("task '%s' in step '%s' has an undefined task dependency: '%s'", task.Name, step.Name, depName)
-				}
+		// For legacy and include steps, check the step-level dependencies
+		for _, depName := range dependencies {
+			if !allTaskNames[depName] {
+				return fmt.Errorf("step '%s' has an undefined dependency: '%s'", step.Name, depName)
 			}
 		}
 	}
@@ -514,9 +529,10 @@ func (a *App) launchAndRunPipeline(
 	pipelineDef []byte,
 	gitContext map[string]string,
 	timeoutDuration time.Duration,
+	parentRunID string,
 ) {
 	runID := uuid.New()
-	log.Info().Str("run_id", runID.String()).Msgf("Received pipeline: %s", pipeline.Name)
+	log.Info().Str("run_id", runID.String()).Str("parent_run_id", parentRunID).Msgf("Launching pipeline: %s", pipeline.Name)
 
 	var timeoutAt sql.NullTime
 	if timeoutDuration > 0 {
@@ -532,14 +548,21 @@ func (a *App) launchAndRunPipeline(
 	}
 	defer tx.Rollback(context.Background())
 
+	var parentRunIDSQL sql.NullString
+	if parentRunID != "" {
+		parentRunIDSQL.String = parentRunID
+		parentRunIDSQL.Valid = true
+	}
+
+	// This INSERT statement is now slightly different due to the added parent_run_id column
 	_, err = tx.Exec(context.Background(),
-		`INSERT INTO runs (run_id, pipeline_name, status, started_at, timeout_at, pipeline_definition,
+		`INSERT INTO runs (run_id, parent_run_id, pipeline_name, status, started_at, timeout_at, pipeline_definition,
 			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref,
 			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
 			git_commit_author_email, git_commit_author_username, git_pusher_name,
 			git_pusher_email, git_check_run_id)
-			VALUES ($1, $2, $3, NOW(), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
-		runID, pipeline.Name, "pending", timeoutAt, string(pipelineDef),
+			VALUES ($1, $2, $3, 'pending', NOW(), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+		runID, parentRunIDSQL, pipeline.Name, timeoutAt, string(pipelineDef),
 		gitContext["repo_owner"], gitContext["repo_name"], gitContext["clone_url"], gitContext["ssh_url"], gitContext["ref"],
 		gitContext["commit_sha"], gitContext["commit_url"], gitContext["commit_message"], gitContext["commit_author_name"],
 		gitContext["commit_author_email"], gitContext["commit_author_username"], gitContext["pusher_name"],
@@ -552,7 +575,18 @@ func (a *App) launchAndRunPipeline(
 	}
 
 	for _, step := range pipeline.Steps {
-		if len(step.Tasks) > 0 {
+		// ** THE FIX **: We now create a task record for 'include' steps so their status can be tracked.
+		if step.Include != "" {
+			_, err := tx.Exec(context.Background(),
+				"INSERT INTO tasks (task_id, run_id, step_name, task_name, status, task_index) VALUES (gen_random_uuid(), $1, $2, $3, 'pending', $4)",
+				runID, step.Name, step.Name, 1, // Treating it like a legacy step
+			)
+			if err != nil {
+				log.Error().Err(err).Msgf("Failed to insert 'include' step %s as a task", step.Name)
+				http.Error(w, "Failed to create task records", http.StatusInternalServerError)
+				return
+			}
+		} else if len(step.Tasks) > 0 {
 			for i, task := range step.Tasks {
 				_, err := tx.Exec(context.Background(),
 					"INSERT INTO tasks (task_id, run_id, step_name, task_name, status, task_index) VALUES (gen_random_uuid(), $1, $2, $3, 'pending', $4)",
@@ -564,8 +598,7 @@ func (a *App) launchAndRunPipeline(
 					return
 				}
 			}
-		} else {
-			// Handle legacy step as a single task
+		} else { // Legacy step (goal or script)
 			_, err := tx.Exec(context.Background(),
 				"INSERT INTO tasks (task_id, run_id, step_name, task_name, status, task_index) VALUES (gen_random_uuid(), $1, $2, $3, 'pending', $4)",
 				runID, step.Name, step.Name, 1,
@@ -595,10 +628,10 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	var pipelineDef []byte
 	var err error
 
+	parentRunID := r.Header.Get("X-Nopsai-Parent-Run-ID")
 	pipelineNameFromPath := r.PathValue("pipelineName")
 
 	if pipelineNameFromPath != "" {
-		// --- Path 1: Run by name (Override) ---
 		var pipelineDefStr string
 		err = a.db.QueryRow(context.Background(), "SELECT definition FROM pipelines WHERE name = $1", pipelineNameFromPath).Scan(&pipelineDefStr)
 		if err != nil {
@@ -612,11 +645,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Error parsing stored YAML pipeline", http.StatusInternalServerError)
 			return
 		}
-		// Improve the name for clarity in logs
-		pipeline.Name = fmt.Sprintf("%s-overridden", pipeline.Name)
-
 	} else {
-		// --- Path 2: Run from request body (Repository) ---
 		pipelineDef, err = io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, "Error reading request body", http.StatusInternalServerError)
@@ -626,10 +655,10 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("Pipeline YAML is malformed: %v", err), http.StatusBadRequest)
 			return
 		}
-		pipeline.Name = sanitizeInput(pipeline.Name)
 	}
 
-	// --- Common Logic for both paths ---
+	pipeline.Name = sanitizeInput(pipeline.Name)
+
 	if err := validatePipeline(&pipeline); err != nil {
 		http.Error(w, fmt.Sprintf("Pipeline validation failed: %v", err), http.StatusBadRequest)
 		return
@@ -652,6 +681,39 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		"check_run_id":           r.Header.Get("X-Git-Check-Run-ID"),
 	}
 
+	if parentRunID != "" {
+		parentPipelineName := r.Header.Get("X-Nopsai-Parent-Pipeline-Name")
+		gitbotURL := fmt.Sprintf("%s/v1/checks/create-child", a.cfg.NopsaiGitBotAPIURL)
+
+		// ** THE FIX **: Send the pipeline definition along with the other context.
+		payload := map[string]string{
+			"owner":               gitContext["repo_owner"],
+			"repo":                gitContext["repo_name"],
+			"ref":                 gitContext["commit_sha"],
+			"parent_name":         parentPipelineName,
+			"include_name":        pipeline.Name,
+			"pipeline_definition": string(pipelineDef),
+		}
+		body, _ := json.Marshal(payload)
+
+		resp, err := http.Post(gitbotURL, "application/json", bytes.NewBuffer(body))
+		if err != nil || resp.StatusCode != http.StatusOK {
+			log.Error().Err(err).Msg("Failed to request new check run from git-bot")
+			http.Error(w, "Failed to create GitHub check for included pipeline", http.StatusInternalServerError)
+			return
+		}
+
+		var respData map[string]int64
+		if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil {
+			log.Error().Err(err).Msg("Failed to decode git-bot response for new check run")
+			http.Error(w, "Failed to decode git-bot response", http.StatusInternalServerError)
+			return
+		}
+		resp.Body.Close()
+
+		gitContext["check_run_id"] = strconv.FormatInt(respData["check_run_id"], 10)
+	}
+
 	timeoutStr := pipeline.Timeout
 	if timeoutStr == "" {
 		timeoutStr = a.cfg.DefaultPipelineTimeout
@@ -667,7 +729,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		timeoutDuration = duration
 	}
 
-	a.launchAndRunPipeline(w, pipeline, pipelineDef, gitContext, timeoutDuration)
+	a.launchAndRunPipeline(w, pipeline, pipelineDef, gitContext, timeoutDuration, parentRunID)
 }
 
 func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
@@ -773,7 +835,7 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 		timeoutDuration = originalDuration
 	}
 
-	a.launchAndRunPipeline(w, pipeline, []byte(pipelineDef.String), gitContext, timeoutDuration)
+	a.launchAndRunPipeline(w, pipeline, []byte(pipelineDef.String), gitContext, timeoutDuration, "")
 }
 
 func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
@@ -866,6 +928,18 @@ func (a *App) handleFinalizeRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func (a *App) handleGetRunStatus(w http.ResponseWriter, r *http.Request) {
+	runID := r.PathValue("runID")
+	var status string
+	err := a.db.QueryRow(context.Background(), "SELECT status FROM runs WHERE run_id = $1", runID).Scan(&status)
+	if err != nil {
+		http.Error(w, "Run not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": status})
 }
 
 func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []byte, timeout time.Duration, gitContext map[string]string) {
@@ -1208,6 +1282,7 @@ func main() {
 	// Pipeline Management
 	mux.HandleFunc("GET /v1/pipelines", app.handleListPipelines)
 	mux.HandleFunc("GET /v1/pipelines/{pipelineName}", app.handleGetPipeline)
+	mux.HandleFunc("GET /v1/runs/{runID}/status", app.handleGetRunStatus)
 	mux.HandleFunc("PUT /v1/pipelines/{pipelineName}", app.handleCreateOrUpdatePipeline)
 	mux.HandleFunc("DELETE /v1/pipelines/{pipelineName}", app.handleDeletePipeline)
 
