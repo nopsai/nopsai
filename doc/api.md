@@ -1,4 +1,4 @@
-docker-compose down -v && docker container prune -f && docker volume prune -f
+docker-compose down -v && docker container prune -f && docker volume prune -f && docker image prune -f
 
 # Secrets
 

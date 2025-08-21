@@ -29,9 +29,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type StepResult struct {
+type TaskResult struct {
 	Name    string
 	Success bool
+}
+
+// Helper struct to manage task execution
+type RunnableTask struct {
+	Step      *models.PipelineStep
+	Task      *models.Task
+	GlobalKey string // "stepName/taskName"
 }
 
 // getDirectoryListing recursively walks the specified root directory.
@@ -125,35 +132,79 @@ func executeAction(cli *client.Client, containerID string, action *proto.Action,
 	return strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()), inspect.ExitCode
 }
 
-func getNextRunnableSteps(pipeline *models.Pipeline, completedSteps map[string]bool) []*models.PipelineStep {
-	var runnableSteps []*models.PipelineStep
+// ** FIXED ** getNextRunnableTasks now only checks for task-to-task dependencies.
+func getNextRunnableTasks(pipeline *models.Pipeline, completedTasks map[string]bool) []*RunnableTask {
+	var runnableTasks []*RunnableTask
+	taskToStepMap := make(map[string]string)
+
+	// Map all tasks to their parent step
 	for i := range pipeline.Steps {
 		step := &pipeline.Steps[i]
-		if _, done := completedSteps[step.Name]; done {
-			continue
-		}
-		dependenciesMet := true
-		for _, depName := range step.DependsOn {
-			if _, done := completedSteps[depName]; !done {
-				dependenciesMet = false
-				break
+		if len(step.Tasks) > 0 {
+			for j := range step.Tasks {
+				task := &step.Tasks[j]
+				taskToStepMap[task.Name] = step.Name
 			}
-		}
-		if dependenciesMet {
-			runnableSteps = append(runnableSteps, step)
+		} else { // Legacy step-as-task
+			taskToStepMap[step.Name] = step.Name
 		}
 	}
-	return runnableSteps
+
+	for i := range pipeline.Steps {
+		step := &pipeline.Steps[i]
+		tasksToCheck := []*models.Task{}
+		if len(step.Tasks) > 0 {
+			for j := range step.Tasks {
+				tasksToCheck = append(tasksToCheck, &step.Tasks[j])
+			}
+		} else {
+			tasksToCheck = append(tasksToCheck, &models.Task{
+				Name:             step.Name,
+				Goal:             step.Goal,
+				Script:           step.Script,
+				DependsOn:        step.DependsOn,
+				IgnoreFailure:    step.IgnoreFailure,
+				LlmOutputSharing: step.LlmOutputSharing,
+			})
+		}
+
+		for _, task := range tasksToCheck {
+			globalKey := fmt.Sprintf("%s/%s", step.Name, task.Name)
+			if _, done := completedTasks[globalKey]; done {
+				continue
+			}
+
+			dependenciesMet := true
+			for _, depName := range task.DependsOn {
+				depStepName := taskToStepMap[depName]
+				depGlobalKey := fmt.Sprintf("%s/%s", depStepName, depName)
+				if _, done := completedTasks[depGlobalKey]; !done {
+					dependenciesMet = false
+					break
+				}
+			}
+
+			if dependenciesMet {
+				runnableTasks = append(runnableTasks, &RunnableTask{
+					Step:      step,
+					Task:      task,
+					GlobalKey: globalKey,
+				})
+			}
+		}
+	}
+
+	return runnableTasks
 }
 
-// updateStepStatus reports the final status of a step back to the nopsai API.
-func updateStepStatus(runID, stepName, status string, exitCode int, llmDurationMs int64) {
+// updateTaskStatus reports the final status of a task back to the nopsai API.
+func updateTaskStatus(runID, stepName, taskName, status string, exitCode int, llmDurationMs int64) {
 	nopsaiURL := os.Getenv("NOPSAI_API_URL")
 	if nopsaiURL == "" {
 		log.Error().Msg("NOPSAI_API_URL environment variable not set. Cannot report status.")
 		return
 	}
-	url := fmt.Sprintf("%s/v1/runs/%s/steps/%s", nopsaiURL, runID, stepName)
+	url := fmt.Sprintf("%s/v1/runs/%s/steps/%s/tasks/%s", nopsaiURL, runID, stepName, taskName)
 
 	payload := map[string]interface{}{
 		"status":          status,
@@ -366,31 +417,46 @@ func run() int {
 	}
 
 	history := new(strings.Builder)
-	completedSteps := make(map[string]bool)
+	completedTasks := make(map[string]bool)
 	pipelineFailed := false
 
-	for len(completedSteps) < len(pipeline.Steps) {
-		runnableSteps := getNextRunnableSteps(&pipeline, completedSteps)
-		if len(runnableSteps) == 0 {
-			if !pipelineFailed {
-				log.Info().Str("pipeline", pipeline.Name).Msg("All steps completed successfully.")
+	totalTasks := 0
+	for _, step := range pipeline.Steps {
+		if len(step.Tasks) > 0 {
+			totalTasks += len(step.Tasks)
+		} else {
+			totalTasks++
+		}
+	}
+
+	for len(completedTasks) < totalTasks {
+		runnableTasks := getNextRunnableTasks(&pipeline, completedTasks)
+		if len(runnableTasks) == 0 {
+			if !pipelineFailed && len(completedTasks) == totalTasks {
+				log.Info().Str("pipeline", pipeline.Name).Msg("All tasks completed successfully.")
+			} else if !pipelineFailed {
+				log.Error().Str("pipeline", pipeline.Name).Msg("Stall detected: No runnable tasks found, but not all tasks are complete.")
+				pipelineFailed = true
 			}
 			break
 		}
 
 		var wg sync.WaitGroup
-		results := make(chan StepResult, len(runnableSteps))
+		results := make(chan TaskResult, len(runnableTasks))
 		historyMutex := &sync.Mutex{}
 
-		for _, step := range runnableSteps {
+		for _, runnable := range runnableTasks {
 			wg.Add(1)
-			go func(step *models.PipelineStep) {
+			go func(runnable *RunnableTask) {
 				defer wg.Done()
 
-				// Immediately report that the step has started.
-				updateStepStatus(runID, step.Name, "started", 0, 0)
-
+				step := runnable.Step
+				task := runnable.Task
 				var stepContainerID string
+
+				// Immediately report that the task has started.
+				updateTaskStatus(runID, step.Name, task.Name, "started", 0, 0)
+
 				var stepEnvVars []string
 
 				pipelineEnvVars := []string{}
@@ -422,50 +488,18 @@ func run() int {
 					imageName = pipeline.ContainerImage
 				}
 
-				if step.Session != "" {
-					sessionMutex.Lock()
-					containerID, ok := sessionContainers[step.Session]
-					if !ok {
-						log.Info().Str("session", step.Session).Str("image", imageName).Msg("Creating new container for session")
-						cont, err := cli.ContainerCreate(context.Background(), &container.Config{
-							Image:      imageName,
-							WorkingDir: "/workspace",
-							Entrypoint: []string{"tail", "-f", "/dev/null"},
-							Env:        stepEnvVars,
-							Tty:        false,
-						}, &container.HostConfig{
-							Binds:       []string{fmt.Sprintf("%s:/workspace", sharedVolumeName)},
-							NetworkMode: container.NetworkMode(dockerNetworkName),
-						}, nil, nil, fmt.Sprintf("pipeline-%s-session-%s", runID, step.Session))
-						if err != nil {
-							log.Error().Err(err).Msg("Failed to create session container")
-							sessionMutex.Unlock()
-							results <- StepResult{Name: step.Name, Success: false}
-							return
-						}
-						if err := cli.ContainerStart(context.Background(), cont.ID, container.StartOptions{}); err != nil {
-							log.Error().Err(err).Msg("Failed to start session container")
-							sessionMutex.Unlock()
-							results <- StepResult{Name: step.Name, Success: false}
-							return
-						}
-						sessionContainers[step.Session] = cont.ID
-						stepContainerID = cont.ID
-					} else {
-						log.Info().Str("session", step.Session).Msg("Reusing existing session container")
-						stepContainerID = containerID
-					}
-					sessionMutex.Unlock()
-				} else {
-					log.Info().Str("step", step.Name).Str("image", imageName).Msg("Preparing to run step in one-off container")
+				sessionMutex.Lock()
+				containerID, ok := sessionContainers[step.Name]
+				if !ok {
+					log.Info().Str("step", step.Name).Str("image", imageName).Msg("Creating new container for step")
 					if err := ensureImageExists(context.Background(), cli, imageName); err != nil {
 						log.Error().Err(err).Msg("Failed to ensure step image exists. Shutting down.")
-						updateStepStatus(runID, step.Name, "failed", 1, 0)
-						results <- StepResult{Name: step.Name, Success: false}
+						updateTaskStatus(runID, step.Name, task.Name, "failed", 1, 0)
+						sessionMutex.Unlock()
+						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
 					}
 
-					stepContainerName := fmt.Sprintf("pipeline-%s-step-%s", runID, step.Name)
 					cont, err := cli.ContainerCreate(context.Background(), &container.Config{
 						Image:      imageName,
 						WorkingDir: "/workspace",
@@ -475,36 +509,41 @@ func run() int {
 					}, &container.HostConfig{
 						Binds:       []string{fmt.Sprintf("%s:/workspace", sharedVolumeName)},
 						NetworkMode: container.NetworkMode(dockerNetworkName),
-					}, nil, nil, stepContainerName)
+					}, nil, nil, fmt.Sprintf("pipeline-%s-step-%s", runID, step.Name))
 					if err != nil {
-						log.Error().Err(err).Msg("Failed to create pipeline step container")
-						results <- StepResult{Name: step.Name, Success: false}
+						log.Error().Err(err).Msg("Failed to create step container")
+						sessionMutex.Unlock()
+						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
 					}
-
 					if err := cli.ContainerStart(context.Background(), cont.ID, container.StartOptions{}); err != nil {
-						log.Error().Err(err).Msg("Failed to start pipeline step container")
-						results <- StepResult{Name: step.Name, Success: false}
+						log.Error().Err(err).Msg("Failed to start step container")
+						sessionMutex.Unlock()
+						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
 					}
+					sessionContainers[step.Name] = cont.ID
 					stepContainerID = cont.ID
-					defer cleanup(cli, stepContainerID)
+				} else {
+					log.Info().Str("step", step.Name).Msg("Reusing existing step container")
+					stepContainerID = containerID
 				}
+				sessionMutex.Unlock()
 
 				var action *proto.Action
 				var actionStr string
 				var historyGoal string
 				var llmDurationMs int64
 
-				if step.Script != "" {
-					log.Info().Str("step", step.Name).Msg("Executing direct script.")
+				if task.Script != "" {
+					log.Info().Str("task", task.Name).Msg("Executing direct script.")
 					action = &proto.Action{
 						Type:    "EXECUTE_COMMAND",
-						Payload: &proto.Action_CommandAction{CommandAction: &proto.CommandAction{Command: step.Script}},
+						Payload: &proto.Action_CommandAction{CommandAction: &proto.CommandAction{Command: task.Script}},
 					}
-					actionStr = step.Script
+					actionStr = task.Script
 				} else {
-					log.Info().Str("step", step.Name).Msg("Resolving goal with LLM.")
+					log.Info().Str("task", task.Name).Msg("Resolving goal with LLM.")
 					shareContent := true
 					if pipeline.LlmContentSharing != nil {
 						shareContent = *pipeline.LlmContentSharing
@@ -522,7 +561,7 @@ func run() int {
 					historySnapshot := history.String()
 					historyMutex.Unlock()
 					req := &proto.GetActionRequest{
-						Goal:             step.Goal,
+						Goal:             task.Goal,
 						History:          historySnapshot,
 						DirectoryListing: directoryListing,
 						Environment:      pipeline.Environment,
@@ -532,8 +571,8 @@ func run() int {
 					action, err = llmClient.GetAction(ctx, req)
 					cancel()
 					if err != nil {
-						log.Error().Err(err).Str("step", step.Name).Msg("Failed to get action from LLM agent. Shutting down.")
-						results <- StepResult{Name: step.Name, Success: false}
+						log.Error().Err(err).Str("task", task.Name).Msg("Failed to get action from LLM agent. Shutting down.")
+						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
 					}
 
@@ -542,7 +581,7 @@ func run() int {
 					} else if file := action.GetFileAction(); file != nil {
 						actionStr = fmt.Sprintf("Write to %s", file.Path)
 					} else if ans := action.GetAnswerAction(); ans != nil {
-						actionStr = ans.Answer
+						actionStr = task.Goal
 					}
 				}
 
@@ -550,6 +589,7 @@ func run() int {
 					Str("pipeline_name", pipelineName).
 					Str("run_id", runID).
 					Str("step_name", step.Name).
+					Str("task_name", task.Name).
 					Str("action_type", action.Type).
 					Logger()
 
@@ -567,7 +607,7 @@ func run() int {
 				maskedOutput := maskSecrets(output, secrets)
 
 				if zerolog.GlobalLevel() <= zerolog.InfoLevel {
-					logMsg := fmt.Sprintf(`status=%s step="%s" action="%s" output="%s"`, status, step.Name, actionStr, maskedOutput)
+					logMsg := fmt.Sprintf(`status=%s step="%s" task="%s" action="%s" output="%s"`, status, step.Name, task.Name, actionStr, maskedOutput)
 					log.Info().Str("pipeline", pipelineName).Msg(logMsg)
 				}
 
@@ -575,17 +615,17 @@ func run() int {
 				if pipeline.LlmOutputSharing != nil {
 					shareOutput = *pipeline.LlmOutputSharing
 				}
-				if step.LlmOutputSharing != nil {
-					shareOutput = *step.LlmOutputSharing
+				if task.LlmOutputSharing != nil {
+					shareOutput = *task.LlmOutputSharing
 				}
 
-				historyGoal = step.Goal
+				historyGoal = task.Goal
 				if historyGoal == "" {
-					historyGoal = fmt.Sprintf("Execute script for step: %s", step.Name)
+					historyGoal = fmt.Sprintf("Execute script for task: %s", task.Name)
 				}
 
 				if !shareOutput {
-					log.Debug().Msg("Output sharing is DISABLED for this step. Hiding output from history.")
+					log.Debug().Msg("Output sharing is DISABLED for this task. Hiding output from history.")
 					output = "[Output was hidden by pipeline configuration]"
 				}
 
@@ -594,20 +634,20 @@ func run() int {
 				historyMutex.Unlock()
 
 				if exitCode == 0 {
-					updateStepStatus(runID, step.Name, "completed", exitCode, llmDurationMs)
-					results <- StepResult{Name: step.Name, Success: true}
+					updateTaskStatus(runID, step.Name, task.Name, "completed", exitCode, llmDurationMs)
+					results <- TaskResult{Name: runnable.GlobalKey, Success: true}
 				} else {
-					if step.IgnoreFailure {
-						updateStepStatus(runID, step.Name, "failed (ignored)", exitCode, llmDurationMs)
-						log.Warn().Str("pipeline", pipelineName).Str("step", step.Name).Msg("Step failed, but failure is ignored.")
-						results <- StepResult{Name: step.Name, Success: true}
+					if task.IgnoreFailure {
+						updateTaskStatus(runID, step.Name, task.Name, "failed (ignored)", exitCode, llmDurationMs)
+						log.Warn().Str("pipeline", pipelineName).Str("task", task.Name).Msg("Task failed, but failure is ignored.")
+						results <- TaskResult{Name: runnable.GlobalKey, Success: true}
 					} else {
-						updateStepStatus(runID, step.Name, "failed", exitCode, llmDurationMs)
-						log.Error().Str("pipeline", pipelineName).Str("step", step.Name).Msg("Critical step failed.")
-						results <- StepResult{Name: step.Name, Success: false}
+						updateTaskStatus(runID, step.Name, task.Name, "failed", exitCode, llmDurationMs)
+						log.Error().Str("pipeline", pipelineName).Str("task", task.Name).Msg("Critical task failed.")
+						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 					}
 				}
-			}(step)
+			}(runnable)
 		}
 
 		wg.Wait()
@@ -615,14 +655,14 @@ func run() int {
 
 		for result := range results {
 			if result.Success {
-				completedSteps[result.Name] = true
+				completedTasks[result.Name] = true
 			} else {
 				pipelineFailed = true
 			}
 		}
 
 		if pipelineFailed {
-			log.Error().Str("pipeline", pipelineName).Msg("One or more critical steps failed. Shutting down.")
+			log.Error().Str("pipeline", pipelineName).Msg("One or more critical tasks failed. Shutting down.")
 			break
 		}
 	}

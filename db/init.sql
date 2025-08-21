@@ -23,6 +23,19 @@ CREATE TABLE runs (
     git_check_run_id BIGINT
 );
 
+CREATE TABLE tasks (
+    task_id UUID PRIMARY KEY,
+    run_id UUID NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+    step_name VARCHAR(255) NOT NULL,
+    task_name VARCHAR(255) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    exit_code INT,
+    started_at TIMESTAMPTZ,
+    finished_at TIMESTAMPTZ,
+    task_index INT NOT NULL,
+    UNIQUE(run_id, step_name, task_name)
+);
+
 CREATE TABLE steps (
     step_id UUID PRIMARY KEY,
     run_id UUID NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
