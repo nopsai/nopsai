@@ -79,6 +79,11 @@ steps:
         llm_output_sharing: false
         depends_on:
         - dockerfile-modification
+      
+      - name: show-volumes
+        script: |
+          #!/bin/bash
+          df -h
 
       - name: build-docker
         goal: build docker image with repo name and 3 tag, latest,latest git tag and commit hash 
@@ -95,5 +100,7 @@ steps:
 
   - name: report
     goal: "provide a report of all steps"
+    volumes:
+      - "sample-exisitng:/tmp/sample-exisitng"
     depends_on:
     - build-docker
