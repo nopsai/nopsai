@@ -33,14 +33,26 @@ type DisplayOptions struct {
 	GitHubView string `yaml:"github_view,omitempty"` // "mermaid", "tree" or "flat"
 }
 
-// PipelineStep is a single step within a pipeline definition.
-type PipelineStep struct {
+// Task is an individual command or goal within a PipelineStep.
+type Task struct {
 	Name             string   `yaml:"name"`
-	Image            string   `yaml:"image,omitempty"`
 	Goal             string   `yaml:"goal"`
 	Script           string   `yaml:"script,omitempty"`
-	Secrets          []string `yaml:"secrets,omitempty"`
-	Session          string   `yaml:"session,omitempty"`
+	DependsOn        []string `yaml:"depends_on,omitempty"`
+	IgnoreFailure    bool     `yaml:"ignore_failure,omitempty"`
+	LlmOutputSharing *bool    `yaml:"llm_output_sharing,omitempty"`
+}
+
+// PipelineStep is a single logical step within a pipeline definition.
+// It defines the container and secrets for a group of tasks.
+type PipelineStep struct {
+	Name    string   `yaml:"name"`
+	Image   string   `yaml:"image,omitempty"`
+	Secrets []string `yaml:"secrets,omitempty"`
+	Tasks   []Task   `yaml:"tasks"`
+	// The fields below are for steps that do not have tasks (legacy format)
+	Goal             string   `yaml:"goal,omitempty"`
+	Script           string   `yaml:"script,omitempty"`
 	DependsOn        []string `yaml:"depends_on,omitempty"`
 	IgnoreFailure    bool     `yaml:"ignore_failure,omitempty"`
 	LlmOutputSharing *bool    `yaml:"llm_output_sharing,omitempty"`

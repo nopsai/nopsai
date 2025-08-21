@@ -64,6 +64,7 @@ type TriggerOverrideRequest struct {
 
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
 
+// ** FIXED ** Validation now ensures tasks only depend on other tasks.
 func validatePipeline(pipeline *models.Pipeline) error {
 	if pipeline.Name == "" {
 		return fmt.Errorf("'name' is a required field")
@@ -71,41 +72,60 @@ func validatePipeline(pipeline *models.Pipeline) error {
 	if !regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`).MatchString(pipeline.Name) {
 		return fmt.Errorf("pipeline name can only contain alphanumeric characters, underscores, dots, and hyphens")
 	}
-	if pipeline.ContainerImage == "" {
-		return fmt.Errorf("'container_image' is a required field")
+	if pipeline.ContainerImage == "" && len(pipeline.Steps) > 0 && pipeline.Steps[0].Image == "" {
+		return fmt.Errorf("'container_image' is a required field if steps don't have their own image")
 	}
 	if len(pipeline.Steps) == 0 {
 		return fmt.Errorf("at least one step is required")
 	}
 
-	stepNames := make(map[string]struct{})
+	allTaskNames := make(map[string]bool)
+
 	for _, step := range pipeline.Steps {
 		if step.Name == "" {
 			return fmt.Errorf("a step is missing its required 'name' field")
 		}
-		stepNames[step.Name] = struct{}{}
+		if len(step.Tasks) > 0 {
+			if step.Goal != "" || step.Script != "" || len(step.DependsOn) > 0 {
+				return fmt.Errorf("step '%s' has tasks and should not contain 'goal', 'script', or 'depends_on'", step.Name)
+			}
+			for _, task := range step.Tasks {
+				if task.Name == "" {
+					return fmt.Errorf("a task in step '%s' is missing its required 'name' field", step.Name)
+				}
+				if allTaskNames[task.Name] {
+					return fmt.Errorf("duplicate task name '%s' found. Task names must be unique across all steps", task.Name)
+				}
+				allTaskNames[task.Name] = true
+			}
+		} else { // Legacy step-as-task
+			if step.Goal == "" && step.Script == "" {
+				return fmt.Errorf("step '%s' has no tasks and must contain a 'goal' or 'script'", step.Name)
+			}
+			if allTaskNames[step.Name] {
+				return fmt.Errorf("duplicate task name '%s' (from legacy step). Task names must be unique", step.Name)
+			}
+			allTaskNames[step.Name] = true
+		}
 	}
 
-	sessionImages := make(map[string]string)
+	// Now validate dependencies
 	for _, step := range pipeline.Steps {
-		for _, depName := range step.DependsOn {
-			if _, exists := stepNames[depName]; !exists {
-				return fmt.Errorf("step '%s' has an undefined dependency: '%s'", step.Name, depName)
-			}
+		var tasksToCheck []models.Task
+		if len(step.Tasks) > 0 {
+			tasksToCheck = step.Tasks
+		} else {
+			tasksToCheck = []models.Task{{
+				Name:      step.Name,
+				DependsOn: step.DependsOn,
+			}}
 		}
 
-		if step.Session != "" {
-			image := step.Image
-			if image == "" {
-				image = pipeline.ContainerImage
-			}
-
-			if knownImage, ok := sessionImages[step.Session]; ok {
-				if image != knownImage {
-					return fmt.Errorf("session '%s' has conflicting images: found '%s' and '%s'", step.Session, knownImage, image)
+		for _, task := range tasksToCheck {
+			for _, depName := range task.DependsOn {
+				if !allTaskNames[depName] {
+					return fmt.Errorf("task '%s' in step '%s' has an undefined task dependency: '%s'", task.Name, step.Name, depName)
 				}
-			} else {
-				sessionImages[step.Session] = image
 			}
 		}
 	}
@@ -528,15 +548,30 @@ func (a *App) launchAndRunPipeline(
 		return
 	}
 
-	for i, step := range pipeline.Steps {
-		_, err := tx.Exec(context.Background(),
-			"INSERT INTO steps (step_id, run_id, name, status, step_index) VALUES (gen_random_uuid(), $1, $2, 'pending', $3)",
-			runID, step.Name, i+1,
-		)
-		if err != nil {
-			log.Error().Err(err).Msgf("Failed to insert step %s", step.Name)
-			http.Error(w, "Failed to create step records", http.StatusInternalServerError)
-			return
+	for _, step := range pipeline.Steps {
+		if len(step.Tasks) > 0 {
+			for i, task := range step.Tasks {
+				_, err := tx.Exec(context.Background(),
+					"INSERT INTO tasks (task_id, run_id, step_name, task_name, status, task_index) VALUES (gen_random_uuid(), $1, $2, $3, 'pending', $4)",
+					runID, step.Name, task.Name, i+1,
+				)
+				if err != nil {
+					log.Error().Err(err).Msgf("Failed to insert task %s for step %s", task.Name, step.Name)
+					http.Error(w, "Failed to create task records", http.StatusInternalServerError)
+					return
+				}
+			}
+		} else {
+			// Handle legacy step as a single task
+			_, err := tx.Exec(context.Background(),
+				"INSERT INTO tasks (task_id, run_id, step_name, task_name, status, task_index) VALUES (gen_random_uuid(), $1, $2, $3, 'pending', $4)",
+				runID, step.Name, step.Name, 1,
+			)
+			if err != nil {
+				log.Error().Err(err).Msgf("Failed to insert step %s as a task", step.Name)
+				http.Error(w, "Failed to create task records", http.StatusInternalServerError)
+				return
+			}
 		}
 	}
 
@@ -738,9 +773,10 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	a.launchAndRunPipeline(w, pipeline, []byte(pipelineDef.String), gitContext, timeoutDuration)
 }
 
-func (a *App) handleStepUpdate(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("runID")
 	stepName := r.PathValue("stepName")
+	taskName := r.PathValue("taskName")
 
 	var update StepStatusUpdate
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
@@ -750,26 +786,26 @@ func (a *App) handleStepUpdate(w http.ResponseWriter, r *http.Request) {
 
 	var query string
 	if update.Status == "started" {
-		query = "UPDATE steps SET status = 'started', started_at = NOW() WHERE run_id = $1 AND name = $2"
-		_, err := a.db.Exec(context.Background(), query, runID, stepName)
+		query = "UPDATE tasks SET status = 'started', started_at = NOW() WHERE run_id = $1 AND step_name = $2 AND task_name = $3"
+		_, err := a.db.Exec(context.Background(), query, runID, stepName, taskName)
 		if err != nil {
-			log.Error().Err(err).Str("run_id", runID).Str("step", stepName).Msg("Failed to update step start time")
-			http.Error(w, "Failed to update step status", http.StatusInternalServerError)
+			log.Error().Err(err).Str("run_id", runID).Str("step", stepName).Str("task", taskName).Msg("Failed to update task start time")
+			http.Error(w, "Failed to update task status", http.StatusInternalServerError)
 			return
 		}
 	} else {
-		query = "UPDATE steps SET status = $1, exit_code = $2, finished_at = NOW() WHERE run_id = $3 AND name = $4"
-		_, err := a.db.Exec(context.Background(), query, update.Status, update.ExitCode, runID, stepName)
+		query = "UPDATE tasks SET status = $1, exit_code = $2, finished_at = NOW() WHERE run_id = $3 AND step_name = $4 AND task_name = $5"
+		_, err := a.db.Exec(context.Background(), query, update.Status, update.ExitCode, runID, stepName, taskName)
 		if err != nil {
-			log.Error().Err(err).Str("run_id", runID).Str("step", stepName).Msg("Failed to update step finish status")
-			http.Error(w, "Failed to update step status", http.StatusInternalServerError)
+			log.Error().Err(err).Str("run_id", runID).Str("step", stepName).Str("task", taskName).Msg("Failed to update task finish status")
+			http.Error(w, "Failed to update task status", http.StatusInternalServerError)
 			return
 		}
 	}
 
-	log.Info().Str("run_id", runID).Str("step", stepName).Str("status", update.Status).Msg("Updated step status")
+	log.Info().Str("run_id", runID).Str("step", stepName).Str("task", taskName).Str("status", update.Status).Msg("Updated task status")
 
-	go a.notifyGitBotOfStepStatus(runID, stepName, update.Status)
+	go a.notifyGitBotOfTaskStatus(runID, stepName, taskName, update.Status)
 
 	w.WriteHeader(http.StatusOK)
 }
@@ -782,7 +818,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to prepare secrets for pipeline")
 		a.db.Exec(context.Background(), "UPDATE runs SET status = $1, finished_at = NOW() WHERE run_id = $2", "failed", runID)
 		if gitContext["repo_owner"] != "" {
-			a.notifyGitBotOfFinalStatus("failure", "secret_preparation", err.Error(), gitContext)
+			a.notifyGitBotOfFinalStatus("failure", "", "", err.Error(), gitContext)
 		}
 		return
 	}
@@ -877,17 +913,17 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	case status := <-statusCh:
 		log.Info().Str("run_id", runID).Int64("status_code", status.StatusCode).Msg("Agent container finished.")
 		finalStatus := "success"
-		var failedStep string
+		var failedStep, failedTask string
 		if status.StatusCode != 0 {
 			finalStatus = "failure"
-			err := a.db.QueryRow(context.Background(), "SELECT name FROM steps WHERE run_id = $1 AND status = 'failed' ORDER BY finished_at ASC LIMIT 1", runID).Scan(&failedStep)
+			err := a.db.QueryRow(context.Background(), "SELECT step_name, task_name FROM tasks WHERE run_id = $1 AND status = 'failed' ORDER BY finished_at ASC LIMIT 1", runID).Scan(&failedStep, &failedTask)
 			if err != nil {
-				log.Warn().Err(err).Str("run_id", runID).Msg("Could not determine the exact failed step.")
+				log.Warn().Err(err).Str("run_id", runID).Msg("Could not determine the exact failed task.")
 			}
 		}
 		a.db.Exec(context.Background(), "UPDATE runs SET status = $1, finished_at = NOW() WHERE run_id = $2", finalStatus, runID)
 		if gitContext["repo_owner"] != "" {
-			a.notifyGitBotOfFinalStatus(finalStatus, failedStep, "", gitContext)
+			a.notifyGitBotOfFinalStatus(finalStatus, failedStep, failedTask, "", gitContext)
 		}
 	}
 }
@@ -949,12 +985,13 @@ func (a *App) prepareSecretsForPipeline(pipeline models.Pipeline, gitContext map
 	return finalSecrets, nil
 }
 
-func (a *App) notifyGitBotOfFinalStatus(status, failedStep, summary string, gitContext map[string]string) {
+func (a *App) notifyGitBotOfFinalStatus(status, failedStep, failedTask, summary string, gitContext map[string]string) {
 	checkRunID, _ := strconv.ParseInt(gitContext["check_run_id"], 10, 64)
 	gitBotURL := fmt.Sprintf("%s/v1/run/status", a.cfg.NopsaiGitBotAPIURL)
 	payload := map[string]interface{}{
 		"status":       status,
 		"failed_step":  failedStep,
+		"failed_task":  failedTask,
 		"check_run_id": checkRunID,
 		"repo_owner":   gitContext["repo_owner"],
 		"repo_name":    gitContext["repo_name"],
@@ -977,23 +1014,23 @@ func (a *App) notifyGitBotOfFinalStatus(status, failedStep, summary string, gitC
 	}
 }
 
-func (a *App) notifyGitBotOfStepStatus(runID, stepName, stepStatus string) {
+func (a *App) notifyGitBotOfTaskStatus(runID, stepName, taskName, taskStatus string) {
 	var repoOwner, repoName, commitSHA, pipelineDef sql.NullString
 	var checkRunID sql.NullInt64
-	var stepIndex, totalSteps int
+	var taskIndex, totalTasks int
 	var startedAt, finishedAt sql.NullTime
 
 	query := `
 		SELECT
 			r.git_repo_owner, r.git_repo_name, r.git_commit_sha, r.git_check_run_id, r.pipeline_definition,
-			s.step_index, (SELECT COUNT(*) FROM steps WHERE run_id = r.run_id),
-			s.started_at, s.finished_at
-		FROM runs r JOIN steps s ON r.run_id = s.run_id
-		WHERE r.run_id = $1 AND s.name = $2`
+			t.task_index, (SELECT COUNT(*) FROM tasks WHERE run_id = r.run_id),
+			t.started_at, t.finished_at
+		FROM runs r JOIN tasks t ON r.run_id = t.run_id
+		WHERE r.run_id = $1 AND t.step_name = $2 AND t.task_name = $3`
 
-	err := a.db.QueryRow(context.Background(), query, runID, stepName).Scan(&repoOwner, &repoName, &commitSHA, &checkRunID, &pipelineDef, &stepIndex, &totalSteps, &startedAt, &finishedAt)
+	err := a.db.QueryRow(context.Background(), query, runID, stepName, taskName).Scan(&repoOwner, &repoName, &commitSHA, &checkRunID, &pipelineDef, &taskIndex, &totalTasks, &startedAt, &finishedAt)
 	if err != nil || !repoOwner.Valid || !checkRunID.Valid {
-		log.Warn().Str("run_id", runID).Err(err).Msg("Not a Git-triggered run with a check ID, skipping step status update.")
+		log.Warn().Str("run_id", runID).Err(err).Msg("Not a Git-triggered run with a check ID, skipping task status update.")
 		return
 	}
 
@@ -1003,23 +1040,29 @@ func (a *App) notifyGitBotOfStepStatus(runID, stepName, stepStatus string) {
 		if err := yaml.Unmarshal([]byte(pipelineDef.String), &pipeline); err == nil {
 			for _, step := range pipeline.Steps {
 				if step.Name == stepName {
-					dependsOn = step.DependsOn
+					for _, task := range step.Tasks {
+						if task.Name == taskName {
+							dependsOn = task.DependsOn
+							break
+						}
+					}
 					break
 				}
 			}
 		}
 	}
 
-	gitBotURL := fmt.Sprintf("%s/v1/step/status", a.cfg.NopsaiGitBotAPIURL)
+	gitBotURL := fmt.Sprintf("%s/v1/task/status", a.cfg.NopsaiGitBotAPIURL)
 	payload := map[string]interface{}{
 		"repo_owner":   repoOwner.String,
 		"repo_name":    repoName.String,
 		"check_run_id": checkRunID.Int64,
 		"commit_sha":   commitSHA.String,
 		"step_name":    stepName,
-		"step_status":  stepStatus,
-		"step_index":   stepIndex,
-		"total_steps":  totalSteps,
+		"task_name":    taskName,
+		"task_status":  taskStatus,
+		"task_index":   taskIndex,
+		"total_tasks":  totalTasks,
 		"depends_on":   dependsOn,
 		"started_at":   startedAt.Time,
 		"finished_at":  finishedAt.Time,
@@ -1028,13 +1071,13 @@ func (a *App) notifyGitBotOfStepStatus(runID, stepName, stepStatus string) {
 
 	resp, err := http.Post(gitBotURL, "application/json", bytes.NewBuffer(body))
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to notify git-bot of step status")
+		log.Error().Err(err).Msg("Failed to notify git-bot of task status")
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Error().Int("status_code", resp.StatusCode).Msg("Received non-OK status from git-bot for step update")
+		log.Error().Int("status_code", resp.StatusCode).Msg("Received non-OK status from git-bot for task update")
 	}
 }
 
@@ -1137,7 +1180,7 @@ func main() {
 	mux.HandleFunc("POST /v1/run", app.handleRunPipeline)
 	mux.HandleFunc("POST /v1/run/{pipelineName}", app.handleRunPipeline)
 	mux.HandleFunc("POST /v1/runs/{runID}/rerun", app.handleRerunPipeline)
-	mux.HandleFunc("POST /v1/runs/{runID}/steps/{stepName}", app.handleStepUpdate)
+	mux.HandleFunc("POST /v1/runs/{runID}/steps/{stepName}/tasks/{taskName}", app.handleTaskUpdate)
 
 	server := &http.Server{
 		Addr:    cfg.NopsaiListenAddress,
