@@ -1,5 +1,6 @@
 CREATE TABLE runs (
     run_id UUID PRIMARY KEY,
+    parent_run_id UUID NULL REFERENCES runs(run_id) ON DELETE SET NULL,
     pipeline_name VARCHAR(255),
     pipeline_definition TEXT,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
