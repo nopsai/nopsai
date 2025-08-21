@@ -44,11 +44,11 @@ type Task struct {
 }
 
 // PipelineStep is a single logical step within a pipeline definition.
-// It defines the container and secrets for a group of tasks.
 type PipelineStep struct {
 	Name    string   `yaml:"name"`
 	Image   string   `yaml:"image,omitempty"`
 	Secrets []string `yaml:"secrets,omitempty"`
+	Volumes []string `yaml:"volumes,omitempty"`
 	Tasks   []Task   `yaml:"tasks"`
 	// The fields below are for steps that do not have tasks (legacy format)
 	Goal             string   `yaml:"goal,omitempty"`
