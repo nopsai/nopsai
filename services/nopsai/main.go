@@ -1250,7 +1250,8 @@ func (a *App) handleFinalizeRun(w http.ResponseWriter, r *http.Request) {
 	var failedStep, failedTask string
 	if finalStatus != "success" {
 		finalStatus = "failure" // Normalize status
-		err := a.db.QueryRow(context.Background(), "SELECT step_name, task_name FROM tasks WHERE run_id = $1 AND status = 'failed' ORDER BY finished_at ASC LIMIT 1", runID).Scan(&failedStep, &failedTask)
+		// This query now finds the first task that is not in a successful or pending state.
+		err := a.db.QueryRow(context.Background(), "SELECT step_name, task_name FROM tasks WHERE run_id = $1 AND status NOT IN ('completed', 'pending', 'skipped', 'failed (ignored)', 'started') ORDER BY finished_at ASC, started_at ASC LIMIT 1", runID).Scan(&failedStep, &failedTask)
 		if err != nil {
 			log.Warn().Err(err).Str("run_id", runID).Msg("Could not determine the exact failed task for final status notification.")
 		}
@@ -1517,6 +1518,7 @@ func (a *App) notifyGitBotOfTaskStatus(runID, stepName, taskName, taskStatus str
 
 	gitBotURL := fmt.Sprintf("%s/v1/task/status", a.cfg.NopsaiGitBotAPIURL)
 	payload := map[string]interface{}{
+		"run_id":       runID,
 		"repo_owner":   repoOwner.String,
 		"repo_name":    repoName.String,
 		"check_run_id": checkRunID.Int64,

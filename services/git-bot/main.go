@@ -38,6 +38,7 @@ type GitBotApp struct {
 
 // TaskStatusUpdate reflects the new granular status updates.
 type TaskStatusUpdate struct {
+	RunID      string    `json:"run_id"`
 	RepoOwner  string    `json:"repo_owner"`
 	RepoName   string    `json:"repo_name"`
 	CheckRunID int64     `json:"check_run_id"`
@@ -54,10 +55,12 @@ type TaskStatusUpdate struct {
 
 // CheckRunState now stores tasks nested within steps.
 type CheckRunState struct {
+	RunID        string
 	Steps        map[string]map[string]TaskStatusUpdate
 	StepOrder    []string
 	GitHubView   string
 	PipelineName string
+	NameUpdated  bool
 }
 
 type RunStatusUpdate struct {
@@ -79,7 +82,6 @@ type CreateChildCheckRunRequest struct {
 	PipelineDefinition string `json:"pipeline_definition"`
 }
 
-// Renders a nested tree view of steps and their tasks.
 func (a *GitBotApp) renderMarkdownTree(state *CheckRunState) string {
 	var builder strings.Builder
 	allTasks := make(map[string]TaskStatusUpdate)
@@ -139,6 +141,8 @@ func (a *GitBotApp) renderMarkdownTree(state *CheckRunState) string {
 			icon = "❌"
 		case task.TaskStatus == "skipped":
 			icon = "⚪️"
+		case task.TaskStatus == "not found":
+			icon = "❓"
 		}
 
 		indentation := strings.Repeat("  ", level)
@@ -240,6 +244,8 @@ func (a *GitBotApp) renderMermaidGraph(state *CheckRunState) string {
 				statusIcon, styleClass = "❌", "failure"
 			case task.TaskStatus == "skipped":
 				statusIcon, styleClass = "⚪️", "skipped"
+			case task.TaskStatus == "not found":
+				statusIcon, styleClass = "❓", "skipped"
 			default:
 				statusIcon, styleClass = "⏳", "pending"
 			}
@@ -306,6 +312,8 @@ func (a *GitBotApp) renderMarkdownFlatList(state *CheckRunState) string {
 			icon = "❌"
 		} else if task.TaskStatus == "skipped" {
 			icon = "⚪️"
+		} else if task.TaskStatus == "not found" {
+			icon = "❓"
 		}
 		builder.WriteString(fmt.Sprintf("- %s **%s**: `%s` - %s%s\n", icon, task.StepName, task.TaskName, task.TaskStatus, duration))
 	}
@@ -429,12 +437,12 @@ func (a *GitBotApp) initializeCheckRunState(checkRunID int64, owner, repo, pipel
 		Steps:        make(map[string]map[string]TaskStatusUpdate),
 		StepOrder:    []string{},
 		GitHubView:   view,
-		PipelineName: checkName,
+		PipelineName: checkName, // The name is now clean, without the run ID
 	}
 
 	totalTasks := 0
 	for _, step := range pipeline.Steps {
-		if step.Include != "" { // An include step is treated as a single task
+		if step.Include != "" {
 			totalTasks++
 		} else if len(step.Tasks) > 0 {
 			totalTasks += len(step.Tasks)
@@ -448,7 +456,6 @@ func (a *GitBotApp) initializeCheckRunState(checkRunID int64, owner, repo, pipel
 		initialState.StepOrder = append(initialState.StepOrder, step.Name)
 		initialState.Steps[step.Name] = make(map[string]TaskStatusUpdate)
 
-		// Handle 'include' steps as a single task for state tracking
 		if step.Include != "" {
 			initialState.Steps[step.Name][step.Name] = TaskStatusUpdate{
 				StepName:   step.Name,
@@ -478,7 +485,7 @@ func (a *GitBotApp) initializeCheckRunState(checkRunID int64, owner, repo, pipel
 				}
 				taskIndex++
 			}
-		} else { // Legacy step
+		} else {
 			initialState.Steps[step.Name][step.Name] = TaskStatusUpdate{
 				StepName:   step.Name,
 				TaskName:   step.Name,
@@ -554,7 +561,6 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	var headCommit *github.HeadCommit
 	var pusher *github.User
 
-	// ... (The entire switch statement for parsing the event remains unchanged) ...
 	switch event := payload.(type) {
 	case *github.PushEvent:
 		if event.GetAfter() == "0000000000000000000000000000000000000000" {
@@ -576,6 +582,39 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		headCommit = event.HeadCommit
 		pusher = event.Pusher
 		log.Info().Str("repo", repoName).Str("commit", commitSHA).Msg("Processing push event")
+
+		beforeSHA := event.GetBefore()
+		if beforeSHA != "" && beforeSHA != "0000000000000000000000000000000000000000" {
+			log.Info().Str("repo", repoName).Str("before_commit", beforeSHA).Msg("Checking for stale check runs on previous commit")
+			appID, _ := strconv.ParseInt(a.cfg.GitHubAppID, 10, 64)
+			opts := &github.ListCheckRunsOptions{}
+			checkRuns, _, listErr := a.ghClient.Checks.ListCheckRunsForRef(context.Background(), owner, repo, beforeSHA, opts)
+			if listErr != nil {
+				log.Error().Err(listErr).Msg("Failed to list check runs for previous commit")
+			} else {
+				for _, cr := range checkRuns.CheckRuns {
+					isOurApp := cr.GetApp() != nil && cr.GetApp().GetID() == appID
+					isStillRunning := cr.GetStatus() == "queued" || cr.GetStatus() == "in_progress"
+					if isOurApp && isStillRunning {
+						log.Info().Int64("check_run_id", cr.GetID()).Msg("Cancelling stale check run")
+						updateOpts := github.UpdateCheckRunOptions{
+							Name:        cr.GetName(),
+							Status:      github.String("completed"),
+							Conclusion:  github.String("cancelled"),
+							CompletedAt: &github.Timestamp{Time: time.Now()},
+							Output: &github.CheckRunOutput{
+								Title:   github.String(cr.GetName() + " - Cancelled"),
+								Summary: github.String("This run was cancelled because a new commit was pushed to the branch."),
+							},
+						}
+						_, _, updateErr := a.ghClient.Checks.UpdateCheckRun(context.Background(), owner, repo, cr.GetID(), updateOpts)
+						if updateErr != nil {
+							log.Error().Err(updateErr).Int64("check_run_id", cr.GetID()).Msg("Failed to cancel stale check run")
+						}
+					}
+				}
+			}
+		}
 
 	case *github.PullRequestEvent:
 		if event.GetAction() == "closed" {
@@ -612,6 +651,27 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 			commitSHA = *event.CheckRun.HeadSHA
 			owner = *event.Repo.Owner.Login
 			repo = *event.Repo.Name
+
+			// --- NEW: Clean up the specific check run that was re-requested ---
+			originalCheckRun := event.GetCheckRun()
+			if originalCheckRun != nil && originalCheckRun.GetStatus() == "completed" {
+				log.Info().Int64("check_run_id", originalCheckRun.GetID()).Msg("Cleaning up original completed check run after rerun request")
+				updateOpts := github.UpdateCheckRunOptions{
+					Name:        originalCheckRun.GetName(),
+					Status:      github.String("completed"),
+					Conclusion:  github.String("cancelled"),
+					CompletedAt: &github.Timestamp{Time: time.Now()},
+					Output: &github.CheckRunOutput{
+						Title:   github.String(originalCheckRun.GetName() + " - Rerun"),
+						Summary: github.String("This check run was superseded by a manual rerun."),
+					},
+				}
+				_, _, updateErr := a.ghClient.Checks.UpdateCheckRun(context.Background(), owner, repo, originalCheckRun.GetID(), updateOpts)
+				if updateErr != nil {
+					log.Error().Err(updateErr).Int64("check_run_id", originalCheckRun.GetID()).Msg("Failed to clean up original check run")
+				}
+			}
+			// --- End of new logic ---
 
 			if len(event.CheckRun.PullRequests) > 0 {
 				eventType = "pull_request"
@@ -672,7 +732,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	var pipelineYAML []byte
 	var pipelineSource string
 
-	// ... (Logic for fetching the trigger manifest from DB or repo is unchanged) ...
+	// ... (Rest of the function is unchanged)
 	overrideURL := fmt.Sprintf("%s/v1/overrides/%s/%s", a.cfg.GitBotNopsaiAPIURL, owner, repo)
 	resp, err := http.Get(overrideURL)
 	if err == nil && resp.StatusCode == http.StatusOK {
@@ -724,7 +784,6 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ... (Logic for fetching the top-level pipeline YAML from DB or repo is unchanged) ...
 	if pipelineSource == "repository" {
 		fullPipelinePath := filepath.Join(".nopsai", pipelinePath)
 		log.Info().Msgf("Found pipeline '%s' for event '%s' and ref '%s'.", fullPipelinePath, eventType, ref)
@@ -760,8 +819,6 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		resp.Body.Close()
 	}
 
-	// ** SIMPLIFIED LOGIC **: We no longer resolve includes here.
-	// We pass the raw, top-level pipeline definition directly to the nopsai service.
 	checkRunID := a.createCheckRun(owner, repo, commitSHA, string(pipelineYAML), pipelineSource)
 	if checkRunID == 0 {
 		http.Error(w, "Failed to create check run", http.StatusInternalServerError)
@@ -780,7 +837,6 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		req, _ = http.NewRequest("POST", runURL, nil)
 	}
 
-	// ... (The rest of the function for setting headers and triggering the run is unchanged) ...
 	req.Header.Set("X-Git-Repo-Owner", owner)
 	req.Header.Set("X-Git-Repo-Name", repo)
 	req.Header.Set("X-Git-Commit-SHA", commitSHA)
@@ -889,8 +945,11 @@ func (a *GitBotApp) handleTaskStatusUpdate(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// ** FIXED **: Safely merge the update instead of overwriting the state.
-	// This preserves the original DependsOn array from being erased.
+	// Store the RunID from the first task update that contains it
+	if state.RunID == "" && update.RunID != "" {
+		state.RunID = update.RunID
+	}
+
 	if existingTask, ok := state.Steps[update.StepName][update.TaskName]; ok {
 		existingTask.TaskStatus = update.TaskStatus
 		if !update.StartedAt.IsZero() {
@@ -899,7 +958,6 @@ func (a *GitBotApp) handleTaskStatusUpdate(w http.ResponseWriter, r *http.Reques
 		if !update.FinishedAt.IsZero() {
 			existingTask.FinishedAt = update.FinishedAt
 		}
-		// Only update dependencies if the incoming update actually provides them.
 		if len(update.DependsOn) > 0 {
 			existingTask.DependsOn = update.DependsOn
 		}
@@ -927,21 +985,27 @@ func (a *GitBotApp) handleTaskStatusUpdate(w http.ResponseWriter, r *http.Reques
 
 	completedTasks := 0
 	totalTasks := 0
-	for _, tasks := range state.Steps {
-		for _, task := range tasks {
+	for _, stepTasks := range state.Steps {
+		for _, task := range stepTasks {
 			totalTasks++
-			if task.TaskStatus != "pending" && task.TaskStatus != "skipped" {
+			if task.TaskStatus != "pending" && task.TaskStatus != "started" && task.TaskStatus != "skipped" {
 				completedTasks++
 			}
 		}
 	}
+
+	// Construct the new title in the desired format
 	newTitle := fmt.Sprintf("In progress... (%d/%d tasks)", completedTasks, totalTasks)
+	if state.RunID != "" {
+		shortRunID := state.RunID[:8]
+		newTitle = fmt.Sprintf("In progress...(%s) (%d/%d tasks)", shortRunID, completedTasks, totalTasks)
+	}
 
 	opts := github.UpdateCheckRunOptions{
-		Name:   state.PipelineName,
+		Name:   state.PipelineName, // Keep the base name clean
 		Status: github.String("in_progress"),
 		Output: &github.CheckRunOutput{
-			Title:   github.String(newTitle),
+			Title:   github.String(newTitle), // Set the detailed title here
 			Summary: github.String(summary),
 		},
 	}
@@ -1014,15 +1078,37 @@ func (a *GitBotApp) concludeCheckRun(owner, repo string, checkRunID int64, concl
 	defer a.stateLock.Unlock()
 
 	state, ok := a.checkRunStates[checkRunID]
-	checkName := "Nopsai"
-	if ok {
-		checkName = state.PipelineName
+	if !ok {
+		log.Warn().Int64("check_run_id", checkRunID).Msg("State not found for check run, cannot conclude with final name.")
+		opts := github.UpdateCheckRunOptions{
+			Name:        "Nopsai Pipeline",
+			Status:      github.String("completed"),
+			Conclusion:  github.String(conclusion),
+			CompletedAt: &github.Timestamp{Time: time.Now()},
+			Output: &github.CheckRunOutput{
+				Title:   github.String("Nopsai Pipeline - " + strings.Title(conclusion)),
+				Summary: github.String(summary),
+			},
+		}
+		_, _, err := a.ghClient.Checks.UpdateCheckRun(context.Background(), owner, repo, checkRunID, opts)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to conclude check run with fallback name")
+		}
+		return
 	}
 
-	finalTitle := checkName + " - " + strings.ToUpper(string(conclusion[0])) + conclusion[1:]
+	// The check run name remains clean and unchanged.
+	finalName := state.PipelineName
+
+	// Construct the final title with the ID and conclusion.
+	finalTitle := fmt.Sprintf("%s - %s", state.PipelineName, strings.Title(conclusion))
+	if state.RunID != "" {
+		shortRunID := state.RunID[:8]
+		finalTitle = fmt.Sprintf("%s (%s) - %s", state.PipelineName, shortRunID, strings.Title(conclusion))
+	}
 
 	opts := github.UpdateCheckRunOptions{
-		Name:        checkName,
+		Name:        finalName,
 		Status:      github.String("completed"),
 		Conclusion:  github.String(conclusion),
 		CompletedAt: &github.Timestamp{Time: time.Now()},

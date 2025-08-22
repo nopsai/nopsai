@@ -601,6 +601,13 @@ func run() int {
 
 					childDef, err := getPipelineDef(childPipelineName)
 					if err != nil {
+						if strings.Contains(err.Error(), "nopsai api returned non-200 status 404") {
+							log.Warn().Str("child_pipeline", childPipelineName).Msg("Child pipeline not found, marking as not found.")
+							updateTaskStatus(runID, stepName, stepName, "not found", 0, 0)
+							results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+							return
+						}
+
 						log.Error().Err(err).Msg("Failed to get child pipeline definition")
 						updateTaskStatus(runID, stepName, stepName, "failed", 1, 0)
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
