@@ -87,12 +87,19 @@ func validatePipeline(pipeline *models.Pipeline) error {
 		return fmt.Errorf("at least one step is required")
 	}
 
-	allTaskNames := make(map[string]bool)
+	allStepNames := make(map[string]bool)
+	stepToTaskNames := make(map[string]map[string]bool)
 
+	// First pass: Collect all step and task names
 	for _, step := range pipeline.Steps {
 		if step.Name == "" {
 			return fmt.Errorf("a step is missing its required 'name' field")
 		}
+		if allStepNames[step.Name] {
+			return fmt.Errorf("duplicate step name '%s' found. Step names must be unique", step.Name)
+		}
+		allStepNames[step.Name] = true
+		stepToTaskNames[step.Name] = make(map[string]bool)
 
 		isIncludeStep := step.Include != ""
 		isTaskStep := len(step.Tasks) > 0
@@ -102,9 +109,6 @@ func validatePipeline(pipeline *models.Pipeline) error {
 			if isTaskStep || isLegacyStep {
 				return fmt.Errorf("step '%s' is an 'include' step and cannot also contain 'tasks', 'goal', or 'script'", step.Name)
 			}
-			// Validation for 'include' step itself is minimal here, as it's resolved before reaching the agent.
-			// We treat the include 'name' as a placeholder for the resolved tasks.
-			allTaskNames[step.Name] = true
 		} else if isTaskStep {
 			if isLegacyStep {
 				return fmt.Errorf("step '%s' has tasks and should not also contain 'goal' or 'script'", step.Name)
@@ -113,42 +117,33 @@ func validatePipeline(pipeline *models.Pipeline) error {
 				if task.Name == "" {
 					return fmt.Errorf("a task in step '%s' is missing its required 'name' field", step.Name)
 				}
-				if allTaskNames[task.Name] {
-					return fmt.Errorf("duplicate task name '%s' found. Task names must be unique across all steps", task.Name)
+				if stepToTaskNames[step.Name][task.Name] {
+					return fmt.Errorf("duplicate task name '%s' found within step '%s'. Task names must be unique within a step", task.Name, step.Name)
 				}
-				allTaskNames[task.Name] = true
+				stepToTaskNames[step.Name][task.Name] = true
 			}
-		} else if isLegacyStep {
-			if allTaskNames[step.Name] {
-				return fmt.Errorf("duplicate task name '%s' (from legacy step). Task names must be unique", step.Name)
-			}
-			allTaskNames[step.Name] = true
-		} else {
+		} else if !isLegacyStep {
 			return fmt.Errorf("step '%s' must contain 'include', 'tasks', 'goal', or 'script'", step.Name)
 		}
 	}
 
-	// Now validate dependencies
+	// Second pass: Validate dependencies based on the corrected rules
 	for _, step := range pipeline.Steps {
-		// Dependencies are validated against the final flattened list of tasks,
-		// so for an 'include' step, other steps can depend on its 'name'.
-		dependencies := step.DependsOn
-		if len(step.Tasks) > 0 {
-			// For modern steps, we check task dependencies
-			for _, task := range step.Tasks {
-				for _, depName := range task.DependsOn {
-					if !allTaskNames[depName] {
-						return fmt.Errorf("task '%s' has an undefined dependency: '%s'", task.Name, depName)
-					}
-				}
+		// Rule: A step can only depend on other steps.
+		for _, depName := range step.DependsOn {
+			if !allStepNames[depName] {
+				return fmt.Errorf("step '%s' has an undefined dependency: '%s'", step.Name, depName)
 			}
-			continue // Skip step-level dependency check for modern steps
 		}
 
-		// For legacy and include steps, check the step-level dependencies
-		for _, depName := range dependencies {
-			if !allTaskNames[depName] {
-				return fmt.Errorf("step '%s' has an undefined dependency: '%s'", step.Name, depName)
+		// Rule: If a step has tasks, those tasks can only depend on other tasks within the SAME step.
+		if len(step.Tasks) > 0 {
+			for _, task := range step.Tasks {
+				for _, depName := range task.DependsOn {
+					if !stepToTaskNames[step.Name][depName] {
+						return fmt.Errorf("task '%s' in step '%s' has an invalid dependency: '%s'. Tasks can only depend on other tasks within the same step", task.Name, step.Name, depName)
+					}
+				}
 			}
 		}
 	}
@@ -989,7 +984,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 
 	parentRunID := r.Header.Get("X-Nopsai-Parent-Run-ID")
 	parentHistory := r.Header.Get("X-Nopsai-Parent-History")
-	environment := r.Header.Get("X-Nopsai-Environment") // Read the environment from the header
+	environment := r.Header.Get("X-Nopsai-Environment")
 	pipelineNameFromPath := r.PathValue("pipelineName")
 
 	if pipelineNameFromPath != "" {
@@ -1020,8 +1015,22 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 
 	pipeline.Name = sanitizeInput(pipeline.Name)
 
-	if err := validatePipeline(&pipeline); err != nil {
+	// Resolve step includes before validation and launch
+	resolvedPipeline, err := a.resolveStepIncludes(&pipeline)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to resolve step includes: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if err := validatePipeline(resolvedPipeline); err != nil {
 		http.Error(w, fmt.Sprintf("Pipeline validation failed: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Marshal the resolved pipeline to pass to the agent
+	resolvedPipelineDef, err := yaml.Marshal(resolvedPipeline)
+	if err != nil {
+		http.Error(w, "Failed to marshal resolved pipeline", http.StatusInternalServerError)
 		return
 	}
 
@@ -1052,7 +1061,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 			"ref":                 gitContext["commit_sha"],
 			"parent_name":         parentPipelineName,
 			"include_name":        pipeline.Name,
-			"pipeline_definition": string(pipelineDef),
+			"pipeline_definition": string(resolvedPipelineDef),
 		}
 		body, _ := json.Marshal(payload)
 
@@ -1074,7 +1083,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		gitContext["check_run_id"] = strconv.FormatInt(respData["check_run_id"], 10)
 	}
 
-	timeoutStr := pipeline.Timeout
+	timeoutStr := resolvedPipeline.Timeout
 	if timeoutStr == "" {
 		timeoutStr = a.cfg.DefaultPipelineTimeout
 	}
@@ -1089,7 +1098,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		timeoutDuration = duration
 	}
 
-	a.launchAndRunPipeline(w, pipeline, pipelineDef, gitContext, timeoutDuration, parentRunID, parentHistory, environment)
+	a.launchAndRunPipeline(w, *resolvedPipeline, resolvedPipelineDef, gitContext, timeoutDuration, parentRunID, parentHistory, environment)
 }
 
 func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
@@ -1233,6 +1242,143 @@ func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 	go a.notifyGitBotOfTaskStatus(runID, stepName, taskName, update.Status)
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func (a *App) resolveStepIncludes(pipeline *models.Pipeline) (*models.Pipeline, error) {
+	var finalSteps []models.PipelineStep
+	for _, step := range pipeline.Steps {
+		if !strings.HasPrefix(step.Include, "step:") {
+			finalSteps = append(finalSteps, step)
+			continue
+		}
+
+		// Handle step include
+		includeName := strings.TrimPrefix(step.Include, "step:")
+		var stepDefStr string
+		err := a.db.QueryRow(context.Background(), "SELECT definition FROM reusable_steps WHERE name = $1", includeName).Scan(&stepDefStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch included step '%s': %w", includeName, err)
+		}
+
+		var includedStep models.PipelineStep
+		if err := yaml.Unmarshal([]byte(stepDefStr), &includedStep); err != nil {
+			return nil, fmt.Errorf("failed to parse included step '%s': %w", includeName, err)
+		}
+
+		// 1. Overwrite the name (for UI consistency)
+		includedStep.Name = step.Name
+
+		// 2. Transfer metadata from the placeholder
+		includedStep.DependsOn = step.DependsOn
+		includedStep.IgnoreFailure = step.IgnoreFailure
+		if step.LlmOutputSharing != nil {
+			includedStep.LlmOutputSharing = step.LlmOutputSharing
+		}
+
+		// 3. Overwrite specific fields if they are defined in the pipeline
+		if len(step.Volumes) > 0 {
+			includedStep.Volumes = step.Volumes
+		}
+		if len(step.Secrets) > 0 {
+			includedStep.Secrets = step.Secrets
+		}
+		if len(step.Environment) > 0 {
+			includedStep.Environment = step.Environment
+		}
+
+		finalSteps = append(finalSteps, includedStep)
+	}
+
+	pipeline.Steps = finalSteps
+	return pipeline, nil
+}
+
+func (a *App) handleListReusableSteps(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.db.Query(context.Background(), "SELECT name FROM reusable_steps ORDER BY name ASC")
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to query reusable steps from database")
+		http.Error(w, "Failed to retrieve reusable steps", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var stepNames []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			log.Error().Err(err).Msg("Failed to scan reusable step name")
+			http.Error(w, "Failed to process reusable steps", http.StatusInternalServerError)
+			return
+		}
+		stepNames = append(stepNames, name)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(stepNames)
+}
+
+func (a *App) handleGetReusableStep(w http.ResponseWriter, r *http.Request) {
+	stepName := r.PathValue("stepName")
+
+	var stepDef string
+	err := a.db.QueryRow(context.Background(), "SELECT definition FROM reusable_steps WHERE name = $1", stepName).Scan(&stepDef)
+	if err != nil {
+		log.Error().Err(err).Str("step_name", stepName).Msg("Reusable step not found in database")
+		http.Error(w, "Reusable step not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/x-yaml")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(stepDef))
+}
+
+func (a *App) handleCreateOrUpdateReusableStep(w http.ResponseWriter, r *http.Request) {
+	stepName := r.PathValue("stepName")
+
+	stepDef, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Error reading request body", http.StatusInternalServerError)
+		return
+	}
+
+	var step models.PipelineStep
+	if err := yaml.Unmarshal(stepDef, &step); err != nil {
+		http.Error(w, fmt.Sprintf("Reusable step YAML is malformed: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Basic validation for a reusable step
+	if step.Name == "" {
+		http.Error(w, "Validation failed: a reusable step must have a 'name' field in its definition.", http.StatusBadRequest)
+		return
+	}
+	if step.Name != stepName {
+		http.Error(w, fmt.Sprintf("Validation failed: the step name in the URL ('%s') must match the 'name' field in the YAML ('%s').", stepName, step.Name), http.StatusBadRequest)
+		return
+	}
+
+	query := `INSERT INTO reusable_steps (name, definition, updated_at) VALUES ($1, $2, NOW())
+			  ON CONFLICT (name) DO UPDATE SET definition = $2, updated_at = NOW()`
+	_, err = a.db.Exec(context.Background(), query, stepName, string(stepDef))
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to save reusable step to database")
+		http.Error(w, "Failed to save reusable step", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (a *App) handleDeleteReusableStep(w http.ResponseWriter, r *http.Request) {
+	stepName := r.PathValue("stepName")
+	_, err := a.db.Exec(context.Background(), "DELETE FROM reusable_steps WHERE name = $1", stepName)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to delete reusable step from database")
+		http.Error(w, "Failed to delete reusable step", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleFinalizeRun receives the final status directly from the agent.
@@ -1625,6 +1771,12 @@ func main() {
 	mux.HandleFunc("GET /v1/runs/{runID}/status", app.handleGetRunStatus)
 	mux.HandleFunc("PUT /v1/pipelines/{pipelineName}", app.handleCreateOrUpdatePipeline)
 	mux.HandleFunc("DELETE /v1/pipelines/{pipelineName}", app.handleDeletePipeline)
+
+	// Reusable Step Management
+	mux.HandleFunc("GET /v1/steps", app.handleListReusableSteps)
+	mux.HandleFunc("GET /v1/steps/{stepName}", app.handleGetReusableStep)
+	mux.HandleFunc("PUT /v1/steps/{stepName}", app.handleCreateOrUpdateReusableStep)
+	mux.HandleFunc("DELETE /v1/steps/{stepName}", app.handleDeleteReusableStep)
 
 	// Trigger Override Management
 	mux.HandleFunc("GET /v1/overrides", app.handleListTriggerOverrides)
