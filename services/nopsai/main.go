@@ -530,6 +530,7 @@ func (a *App) launchAndRunPipeline(
 	gitContext map[string]string,
 	timeoutDuration time.Duration,
 	parentRunID string,
+	parentHistory string,
 ) {
 	runID := uuid.New()
 	log.Info().Str("run_id", runID.String()).Str("parent_run_id", parentRunID).Msgf("Launching pipeline: %s", pipeline.Name)
@@ -617,7 +618,7 @@ func (a *App) launchAndRunPipeline(
 		return
 	}
 
-	go a.launchAgent(runID.String(), pipeline, pipelineDef, timeoutDuration, gitContext)
+	go a.launchAgent(runID.String(), pipeline, pipelineDef, timeoutDuration, gitContext, parentHistory)
 
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte("Pipeline run created successfully with ID: " + runID.String()))
@@ -629,6 +630,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	var err error
 
 	parentRunID := r.Header.Get("X-Nopsai-Parent-Run-ID")
+	parentHistory := r.Header.Get("X-Nopsai-Parent-History")
 	pipelineNameFromPath := r.PathValue("pipelineName")
 
 	if pipelineNameFromPath != "" {
@@ -729,7 +731,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		timeoutDuration = duration
 	}
 
-	a.launchAndRunPipeline(w, pipeline, pipelineDef, gitContext, timeoutDuration, parentRunID)
+	a.launchAndRunPipeline(w, pipeline, pipelineDef, gitContext, timeoutDuration, parentRunID, parentHistory)
 }
 
 func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
@@ -835,7 +837,7 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 		timeoutDuration = originalDuration
 	}
 
-	a.launchAndRunPipeline(w, pipeline, []byte(pipelineDef.String), gitContext, timeoutDuration, "")
+	a.launchAndRunPipeline(w, pipeline, []byte(pipelineDef.String), gitContext, timeoutDuration, "", "")
 }
 
 func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
@@ -942,7 +944,7 @@ func (a *App) handleGetRunStatus(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": status})
 }
 
-func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []byte, timeout time.Duration, gitContext map[string]string) {
+func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []byte, timeout time.Duration, gitContext map[string]string, parentHistory string) {
 	ctx := context.Background()
 
 	secrets, err := a.prepareSecretsForPipeline(pipeline, gitContext)
@@ -1001,6 +1003,9 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		fmt.Sprintf("SHARED_VOLUME_NAME=%s", sharedVolumeName),
 		fmt.Sprintf("DOCKER_NETWORK_NAME=%s", a.cfg.DockerNetworkName),
 		fmt.Sprintf("NOPSAI_SECRETS=%s", base64.StdEncoding.EncodeToString(secretsJSON)),
+	}
+	if parentHistory != "" {
+		envVars = append(envVars, fmt.Sprintf("PARENT_EXECUTION_HISTORY=%s", parentHistory))
 	}
 	for key, value := range gitContext {
 		envKey := fmt.Sprintf("GIT_%s", strings.ToUpper(key))
