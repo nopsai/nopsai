@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -40,6 +41,13 @@ type RunnableTask struct {
 	Step      *models.PipelineStep
 	Task      *models.Task
 	GlobalKey string // "stepName/taskName"
+}
+
+var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
+
+func sanitizeInput(name string) string {
+	sanitized := strings.ReplaceAll(name, " ", "-")
+	return nonAlphanumericRegex.ReplaceAllString(sanitized, "")
 }
 
 // getDirectoryListing recursively walks the specified root directory.
@@ -700,6 +708,22 @@ func run() int {
 						}
 					}
 
+					// --- MODIFICATION START ---
+					// Construct the new, more descriptive container name for the step.
+					repoName := os.Getenv("GIT_REPO_NAME")
+					sanitizedPipelineName := sanitizeInput(pipelineName)
+					sanitizedStepName := sanitizeInput(stepName)
+					shortRunID := runID[:8]
+
+					var stepContainerName string
+					if repoName != "" {
+						sanitizedRepoName := sanitizeInput(repoName)
+						stepContainerName = fmt.Sprintf("%s-%s-%s-%s", sanitizedRepoName, sanitizedPipelineName, sanitizedStepName, shortRunID)
+					} else {
+						stepContainerName = fmt.Sprintf("%s-%s-%s", sanitizedPipelineName, sanitizedStepName, shortRunID)
+					}
+					// --- MODIFICATION END ---
+
 					cont, err := cli.ContainerCreate(context.Background(), &container.Config{
 						Image:      imageName,
 						WorkingDir: "/workspace",
@@ -709,7 +733,7 @@ func run() int {
 					}, &container.HostConfig{
 						Binds:       binds,
 						NetworkMode: container.NetworkMode(dockerNetworkName),
-					}, nil, nil, fmt.Sprintf("pipeline-%s-step-%s", runID, stepName))
+					}, nil, nil, stepContainerName) // Use the new name here
 					if err != nil {
 						log.Error().Err(err).Msg("Failed to create step container")
 						sessionMutex.Unlock()

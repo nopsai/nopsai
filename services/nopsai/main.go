@@ -982,7 +982,20 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	}
 	defer cli.VolumeRemove(context.Background(), sharedVolumeName, true)
 
-	agentContainerName := fmt.Sprintf("agent-%s-%s", sanitizeInput(pipeline.Name), runID)
+	// --- MODIFICATION START ---
+	// Construct the new, more descriptive container name.
+	repoName := gitContext["repo_name"]
+	sanitizedPipelineName := sanitizeInput(pipeline.Name)
+	shortRunID := runID[:8]
+
+	var agentContainerName string
+	if repoName != "" {
+		sanitizedRepoName := sanitizeInput(repoName)
+		agentContainerName = fmt.Sprintf("agent-%s-%s-%s", sanitizedRepoName, sanitizedPipelineName, shortRunID)
+	} else {
+		agentContainerName = fmt.Sprintf("agent-%s-%s", sanitizedPipelineName, shortRunID)
+	}
+	// --- MODIFICATION END ---
 
 	secretsJSON, err := json.Marshal(secrets)
 	if err != nil {
