@@ -68,8 +68,20 @@ CREATE TABLE secrets (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     value TEXT NOT NULL,
+    environment VARCHAR(255),
     repository_name VARCHAR(255),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(name, repository_name)
+    UNIQUE(name, repository_name, environment)
+);
+
+CREATE TABLE environments (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    value TEXT NOT NULL,
+    repository_name VARCHAR(255),
+    environment VARCHAR(255),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(name, repository_name, environment)
 );

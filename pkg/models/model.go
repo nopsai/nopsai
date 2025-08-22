@@ -16,16 +16,16 @@ type Trigger struct {
 
 // Pipeline represents the structure of a pipeline definition file.
 type Pipeline struct {
-	Name              string            `yaml:"name"`
-	Description       string            `yaml:"description"`
-	ContainerImage    string            `yaml:"container_image"`
-	DisplayOptions    DisplayOptions    `yaml:"display_options"`
-	WorkingDirectory  string            `yaml:"working_directory,omitempty"`
-	Environment       map[string]string `yaml:"environment"`
-	Steps             []PipelineStep    `yaml:"steps"`
-	Timeout           string            `yaml:"timeout,omitempty"`
-	LlmContentSharing *bool             `yaml:"llm_content_sharing,omitempty"`
-	LlmOutputSharing  *bool             `yaml:"llm_output_sharing,omitempty"`
+	Name              string         `yaml:"name"`
+	Description       string         `yaml:"description"`
+	ContainerImage    string         `yaml:"container_image"`
+	DisplayOptions    DisplayOptions `yaml:"display_options"`
+	WorkingDirectory  string         `yaml:"working_directory,omitempty"`
+	Environment       []string       `yaml:"environment"`
+	Steps             []PipelineStep `yaml:"steps"`
+	Timeout           string         `yaml:"timeout,omitempty"`
+	LlmContentSharing *bool          `yaml:"llm_content_sharing,omitempty"`
+	LlmOutputSharing  *bool          `yaml:"llm_output_sharing,omitempty"`
 }
 
 // DisplayOptions defines how the pipeline progress is displayed in integrations like GitHub.
