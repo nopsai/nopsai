@@ -123,3 +123,18 @@ curl -X PUT \
   -H "Content-Type: application/x-yaml" \
   --data-binary "@.nopsai/triggers.yaml" \
   http://localhost:8080/v1/overrides/hosein-yousefii/test-app
+
+_______________________________________-
+
+# Steps
+
+curl http://localhost:8080/v1/steps
+
+curl http://localhost:8080/v1/steps/{step-name}
+
+curl -X DELETE http://localhost:8080/v1/steps/{step-name}
+
+curl -X PUT \
+  -H "Content-Type: application/x-yaml" \
+  --data-binary "@.nopsai/simple-step.yaml" \
+  http://localhost:8080/v1/steps/simple-step
