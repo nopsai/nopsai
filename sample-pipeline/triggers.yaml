@@ -1,0 +1,21 @@
+# This is the pipeline manifest file.
+# It routes GitHub events to the correct pipeline YAML.
+triggers:
+  # Trigger for pushes to the main branch
+  - on: push
+    branches:
+      - main
+    path: main-pipeline.yaml
+    environment: prod
+
+  # Trigger for pushes to any feature branch
+  - on: push
+    branches:
+      - 'test-**'
+    path: branch-pipeline.yaml
+    environment: dev
+
+  # Trigger for new pull requests
+  - on: pull_request
+    path: main-pipeline.yaml
+    environment: prod

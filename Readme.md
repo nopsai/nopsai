@@ -1,3 +1,4 @@
+
 # NopsAI
 
 ### Core Philosophy & Architecture
@@ -14,6 +15,7 @@
 ---
 ### Pipeline & Step Configuration
 
+* **Declarative Environment**: A pipeline's YAML file declares a list of required environment variables under the `environment` key. It does not define the values, creating a clean separation between the pipeline's logic and its configuration.
 * **Natural Language or Scripts**: Steps can be defined using a simple `goal` in natural language or a traditional `script` for direct command execution.
 * **Per-Step Container Images**: Each step can run in its own dedicated container image, allowing you to use the perfect environment and toolset for every task. A default image can be set for the entire pipeline.
 * **Persistent Volume Mounting**: Steps can define `volumes` to be mounted, allowing for data persistence and sharing across runs. The agent automatically creates any specified volumes that do not already exist.
@@ -21,24 +23,28 @@
 * **Parallel Execution**: Independent steps in the pipeline are automatically executed in parallel to reduce build times.
 * **Failure Tolerance**: You can configure individual steps to not halt the entire pipeline on failure by setting `ignore_failure: true`.
 * **Timeouts**: Pipelines can have a global `timeout` to prevent them from running indefinitely.
-* **Custom Environment Variables**: Define custom environment variables at the pipeline level that are available to all steps.
-* **LLM Content Control**: Fine-grained control over whether the LLM can access file contents (`llm_content_sharing`) or see the output of previous steps (`llm_output_sharing`) at both the pipeline and per-step level.
+* **LLM Context Control**: Fine-grained control over whether the LLM can access file contents (`llm_content_sharing`) or see the output of previous steps (`llm_output_sharing`) at both the pipeline and per-step level.
+* **Informative Container Naming**: Agent and step containers are now given descriptive names for easier debugging and monitoring, using the format `agent-<repo>-<pipeline>-<run_id>` and `<repo>-<pipeline>-<step>-<run_id>` respectively.
 
 ---
-### Secret Management
+### Environment & Secret Management
 
-* **Self-Hosted & Secure**: Nopsai includes a built-in, self-hosted secret management system that stores secrets encrypted (using AES-256-GCM) in its database.
-* **Hierarchical Scopes**: Secrets can be defined at two levels:
-    * **General**: Available to all pipelines.
-    * **Repository-level**: Specific to a single repository and will override a general secret of the same name.
+Nopsai features a powerful, hierarchical system for managing both secrets and plaintext environment variables across different environments (`dev`, `prod`, etc.).
+
+* **Self-Hosted & Secure**: Nopsai includes a built-in, self-hosted management system. Secrets are stored encrypted (using AES-256-GCM) in its database, while environment variables are stored in plaintext.
+* **Four-Layer Hierarchy**: The system uses a strict, four-layer hierarchy to resolve the value of any required variable, ensuring that specific contexts always override general ones. The layers are:
+    1.  Repository-specific, for a specific environment (e.g., `prod` secret for `my-org/my-repo`).
+    2.  General, for a specific environment (e.g., a global `prod` secret).
+    3.  Repository-specific, with no environment.
+    4.  General, with no environment.
+* **Strict Environmental Scoping**: Environments are treated as isolated scopes. A trigger for a specific environment (e.g., `prod`) will **only** resolve variables tagged for that environment. It will **never** fall back to a non-environmental variable, preventing accidental configuration leaks. If a required variable is not found for the specified environment, the pipeline will fail immediately.
 * **Scoped Injection**: A step must explicitly declare which secrets it needs via a `secrets` block. The agent will only inject the requested secrets into that specific step's environment.
-* **Fail-Fast Design**: The pipeline will fail immediately before starting if a step requests a secret that is not defined, preventing unexpected failures during a run.
 * **Log Masking**: The agent automatically redacts secret values from all logs, preventing accidental exposure.
 
 ---
 ### GitHub Integration & Overrides
 
-* **Git-Based Triggers**: Pipelines are triggered by standard Git events like `push` and `pull_request` based on rules defined in a `.nopsai/triggers.yaml` file in the repository.
+* **Git-Based Triggers**: Pipelines are triggered by standard Git events like `push` and `pull_request` based on rules defined in a `.nopsai/triggers.yaml` file. This file is also where you specify the `environment` for a given trigger.
 * **Configurable UI Views**: You can choose how pipeline status is displayed in the GitHub UI with accurately rendered dependency graphs using `display_options`:
     * **`flat`**: A clean, simple list of steps.
     * **`tree`**: A detailed, correctly ordered dependency tree showing the execution hierarchy.
@@ -47,6 +53,7 @@
     * A **Trigger Override** for a repository will ignore the in-repo `.nopsai/triggers.yaml` and use the centrally defined rules.
     * These central triggers point to centrally stored **Pipelines**, allowing you to manage and reuse standard pipelines across many repositories.
     * When an override is used, the pipeline name is automatically appended with `-overridden` in the GitHub UI for clarity.
+* **Pipeline-in-Pipeline Context Sharing**: When an `include` step is used to run a child pipeline, the parent agent now securely passes a snapshot of its execution history. This gives the child pipeline's LLM full context of what has already occurred, allowing for more intelligent, context-aware actions.
 
 ---
 ### Future Plans
