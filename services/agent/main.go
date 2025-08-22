@@ -40,7 +40,7 @@ type TaskResult struct {
 type RunnableTask struct {
 	Step      *models.PipelineStep
 	Task      *models.Task
-	GlobalKey string // "stepName/taskName"
+	GlobalKey string
 }
 
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
@@ -141,7 +141,6 @@ func executeAction(cli *client.Client, containerID string, action *proto.Action,
 	return strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()), inspect.ExitCode
 }
 
-// ** FIXED ** getNextRunnableTasks now only checks for task-to-task dependencies.
 func getNextRunnableTasks(pipeline *models.Pipeline, completedTasks map[string]bool) []*RunnableTask {
 	var runnableTasks []*RunnableTask
 	taskToStepMap := make(map[string]string)
@@ -285,6 +284,7 @@ func cleanup(cli *client.Client, containerID string) {
 		log.Error().Err(err).Msg("Failed to remove pipeline container")
 	}
 }
+
 func ensureImageExists(ctx context.Context, cli *client.Client, imageName string) error {
 	imageFilters := filters.NewArgs(filters.Arg("reference", imageName))
 	images, err := cli.ImageList(ctx, image.ListOptions{Filters: imageFilters})
@@ -323,7 +323,11 @@ func triggerPipeline(parentRunID, parentPipelineName string, pipelineDef []byte,
 		req.Header.Set("X-Nopsai-Parent-History", encodedHistory)
 	}
 
-	// Inherit Git context from the parent agent's environment
+	environment := os.Getenv("ENVIRONMENT")
+	if environment != "" {
+		req.Header.Set("X-Nopsai-Environment", environment)
+	}
+
 	for _, e := range os.Environ() {
 		if strings.HasPrefix(e, "GIT_") {
 			parts := strings.SplitN(e, "=", 2)
@@ -583,7 +587,6 @@ func run() int {
 				task := runnable.Task
 				stepName := step.Name
 
-				// Orchestration logic for 'include' steps
 				if step.Include != "" {
 					updateTaskStatus(runID, stepName, stepName, "started", 0, 0)
 
@@ -637,22 +640,36 @@ func run() int {
 					return
 				}
 
-				// --- This is the original logic for regular goal/script tasks ---
 				var stepContainerID string
 				updateTaskStatus(runID, stepName, task.Name, "started", 0, 0)
 
+				// --- MODIFICATION START ---
+				// This slice will hold the final, resolved environment variables for the step.
 				var stepEnvVars []string
-				pipelineEnvVars := []string{}
-				for key, value := range pipeline.Environment {
-					pipelineEnvVars = append(pipelineEnvVars, fmt.Sprintf("%s=%s", key, value))
+
+				// Create a set of required environment variable keys for efficient lookup.
+				requiredEnvKeys := make(map[string]struct{})
+				for _, key := range pipeline.Environment {
+					requiredEnvKeys[key] = struct{}{}
 				}
+
+				// Iterate over the agent's environment to find the resolved values.
 				for _, e := range os.Environ() {
-					if strings.HasPrefix(e, "GIT_") {
-						pipelineEnvVars = append(pipelineEnvVars, e)
+					parts := strings.SplitN(e, "=", 2)
+					if len(parts) == 2 {
+						key := parts[0]
+						// Check if this variable is one of the ones required by the pipeline.
+						if _, ok := requiredEnvKeys[key]; ok {
+							stepEnvVars = append(stepEnvVars, e)
+						}
+					}
+
+					// Always forward GIT_* context and the current ENVIRONMENT.
+					if strings.HasPrefix(e, "GIT_") || strings.HasPrefix(e, "ENVIRONMENT=") {
+						stepEnvVars = append(stepEnvVars, e)
 					}
 				}
-				stepEnvVars = make([]string, len(pipelineEnvVars))
-				copy(stepEnvVars, pipelineEnvVars)
+				// --- MODIFICATION END ---
 
 				if len(step.Secrets) > 0 && len(secrets) > 0 {
 					for _, secretName := range step.Secrets {
@@ -708,8 +725,6 @@ func run() int {
 						}
 					}
 
-					// --- MODIFICATION START ---
-					// Construct the new, more descriptive container name for the step.
 					repoName := os.Getenv("GIT_REPO_NAME")
 					sanitizedPipelineName := sanitizeInput(pipelineName)
 					sanitizedStepName := sanitizeInput(stepName)
@@ -722,7 +737,6 @@ func run() int {
 					} else {
 						stepContainerName = fmt.Sprintf("%s-%s-%s", sanitizedPipelineName, sanitizedStepName, shortRunID)
 					}
-					// --- MODIFICATION END ---
 
 					cont, err := cli.ContainerCreate(context.Background(), &container.Config{
 						Image:      imageName,
@@ -733,7 +747,7 @@ func run() int {
 					}, &container.HostConfig{
 						Binds:       binds,
 						NetworkMode: container.NetworkMode(dockerNetworkName),
-					}, nil, nil, stepContainerName) // Use the new name here
+					}, nil, nil, stepContainerName)
 					if err != nil {
 						log.Error().Err(err).Msg("Failed to create step container")
 						sessionMutex.Unlock()
@@ -784,11 +798,20 @@ func run() int {
 					historyMutex.Lock()
 					historySnapshot := history.String()
 					historyMutex.Unlock()
+
+					envMap := make(map[string]string)
+					for _, e := range stepEnvVars {
+						parts := strings.SplitN(e, "=", 2)
+						if len(parts) == 2 {
+							envMap[parts[0]] = parts[1]
+						}
+					}
+
 					req := &proto.GetActionRequest{
 						Goal:             task.Goal,
 						History:          historySnapshot,
 						DirectoryListing: directoryListing,
-						Environment:      pipeline.Environment,
+						Environment:      envMap,
 					}
 
 					ctx, cancel := context.WithTimeout(context.Background(), llmAgentTimeout)
