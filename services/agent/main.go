@@ -298,7 +298,7 @@ func ensureImageExists(ctx context.Context, cli *client.Client, imageName string
 	return nil
 }
 
-func triggerPipeline(parentRunID, parentPipelineName string, pipelineDef []byte) (string, error) {
+func triggerPipeline(parentRunID, parentPipelineName string, pipelineDef []byte, history string) (string, error) {
 	nopsaiURL := os.Getenv("NOPSAI_API_URL")
 	url := fmt.Sprintf("%s/v1/run", nopsaiURL)
 
@@ -309,6 +309,11 @@ func triggerPipeline(parentRunID, parentPipelineName string, pipelineDef []byte)
 	req.Header.Set("Content-Type", "application/x-yaml")
 	req.Header.Set("X-Nopsai-Parent-Run-ID", parentRunID)
 	req.Header.Set("X-Nopsai-Parent-Pipeline-Name", parentPipelineName)
+
+	if history != "" {
+		encodedHistory := base64.StdEncoding.EncodeToString([]byte(history))
+		req.Header.Set("X-Nopsai-Parent-History", encodedHistory)
+	}
 
 	// Inherit Git context from the parent agent's environment
 	for _, e := range os.Environ() {
@@ -424,6 +429,7 @@ func run() int {
 	pipelineName := os.Getenv("PIPELINE_NAME")
 	llmAgentAddress := os.Getenv("LLM_AGENT_ADDRESS")
 	pipelineDefBase64 := os.Getenv("PIPELINE_DEFINITION")
+	parentHistoryBase64 := os.Getenv("PARENT_EXECUTION_HISTORY")
 	sharedVolumeName := os.Getenv("SHARED_VOLUME_NAME")
 	pipelineTimeoutStr := os.Getenv("PIPELINE_TIMEOUT")
 	dockerNetworkName := os.Getenv("DOCKER_NETWORK_NAME")
@@ -523,6 +529,15 @@ func run() int {
 	}
 
 	history := new(strings.Builder)
+	if parentHistoryBase64 != "" {
+		decodedHistory, err := base64.StdEncoding.DecodeString(parentHistoryBase64)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to decode parent execution history")
+		} else {
+			history.Write(decodedHistory)
+			history.WriteString("\n--- Inherited History Above ---\n\n")
+		}
+	}
 	completedTasks := make(map[string]bool)
 	pipelineFailed := false
 
@@ -581,7 +596,10 @@ func run() int {
 						return
 					}
 
-					childRunID, err := triggerPipeline(runID, pipelineName, childDef)
+					historyMutex.Lock()
+					historySnapshot := history.String()
+					historyMutex.Unlock()
+					childRunID, err := triggerPipeline(runID, pipelineName, childDef, historySnapshot)
 					if err != nil {
 						log.Error().Err(err).Msg("Failed to trigger child pipeline")
 						updateTaskStatus(runID, stepName, stepName, "failed", 1, 0)
