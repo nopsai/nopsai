@@ -143,36 +143,60 @@ func executeAction(cli *client.Client, containerID string, action *proto.Action,
 
 func getNextRunnableTasks(pipeline *models.Pipeline, completedTasks map[string]bool) []*RunnableTask {
 	var runnableTasks []*RunnableTask
-	taskToStepMap := make(map[string]string)
 
-	// Map all tasks to their parent step
-	for i := range pipeline.Steps {
-		step := &pipeline.Steps[i]
+	// 1. Build a map of completed steps by checking if all their tasks are done
+	completedSteps := make(map[string]bool)
+	stepTaskCounts := make(map[string]int)
+	completedStepTaskCounts := make(map[string]int)
+
+	for _, step := range pipeline.Steps {
 		if len(step.Tasks) > 0 {
-			for j := range step.Tasks {
-				task := &step.Tasks[j]
-				taskToStepMap[task.Name] = step.Name
-			}
-		} else { // Legacy step-as-task
-			taskToStepMap[step.Name] = step.Name
+			stepTaskCounts[step.Name] = len(step.Tasks)
+		} else { // Legacy or include step is treated as a single task
+			stepTaskCounts[step.Name] = 1
 		}
 	}
 
+	for taskKey := range completedTasks {
+		parts := strings.Split(taskKey, "/")
+		stepName := parts[0]
+		completedStepTaskCounts[stepName]++
+	}
+
+	for stepName, totalTasks := range stepTaskCounts {
+		if completedStepTaskCounts[stepName] == totalTasks {
+			completedSteps[stepName] = true
+		}
+	}
+
+	// 2. Find runnable tasks
 	for i := range pipeline.Steps {
 		step := &pipeline.Steps[i]
+
+		// 2a. First, check if the step's own dependencies are met
+		stepDependenciesMet := true
+		for _, depStepName := range step.DependsOn {
+			if !completedSteps[depStepName] {
+				stepDependenciesMet = false
+				break
+			}
+		}
+		if !stepDependenciesMet {
+			continue // Skip all tasks in this step if its dependencies are not met
+		}
+
+		// 2b. If step dependencies are met, check the tasks within the step
 		tasksToCheck := []*models.Task{}
 		if len(step.Tasks) > 0 {
 			for j := range step.Tasks {
 				tasksToCheck = append(tasksToCheck, &step.Tasks[j])
 			}
-		} else {
+		} else { // Legacy or include step
 			tasksToCheck = append(tasksToCheck, &models.Task{
-				Name:             step.Name,
-				Goal:             step.Goal,
-				Script:           step.Script,
-				DependsOn:        step.DependsOn,
-				IgnoreFailure:    step.IgnoreFailure,
-				LlmOutputSharing: step.LlmOutputSharing,
+				Name:      step.Name,
+				Goal:      step.Goal,
+				Script:    step.Script,
+				DependsOn: []string{}, // Legacy step dependencies are handled at the step level
 			})
 		}
 
@@ -182,17 +206,17 @@ func getNextRunnableTasks(pipeline *models.Pipeline, completedTasks map[string]b
 				continue
 			}
 
-			dependenciesMet := true
-			for _, depName := range task.DependsOn {
-				depStepName := taskToStepMap[depName]
-				depGlobalKey := fmt.Sprintf("%s/%s", depStepName, depName)
-				if _, done := completedTasks[depGlobalKey]; !done {
-					dependenciesMet = false
+			// 2c. Check the task's internal dependencies (which are other tasks in the same step)
+			taskDependenciesMet := true
+			for _, depTaskName := range task.DependsOn {
+				depGlobalKey := fmt.Sprintf("%s/%s", step.Name, depTaskName)
+				if !completedTasks[depGlobalKey] {
+					taskDependenciesMet = false
 					break
 				}
 			}
 
-			if dependenciesMet {
+			if taskDependenciesMet {
 				runnableTasks = append(runnableTasks, &RunnableTask{
 					Step:      step,
 					Task:      task,

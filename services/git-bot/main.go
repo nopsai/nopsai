@@ -55,12 +55,12 @@ type TaskStatusUpdate struct {
 
 // CheckRunState now stores tasks nested within steps.
 type CheckRunState struct {
-	RunID        string
-	Steps        map[string]map[string]TaskStatusUpdate
-	StepOrder    []string
-	GitHubView   string
-	PipelineName string
-	NameUpdated  bool
+	RunID              string
+	Steps              map[string]map[string]TaskStatusUpdate
+	StepOrder          []string
+	GitHubView         string
+	PipelineName       string
+	PipelineDefinition string
 }
 
 type RunStatusUpdate struct {
@@ -185,48 +185,40 @@ func (a *GitBotApp) renderMermaidGraph(state *CheckRunState) string {
 	builder.WriteString("```mermaid\n")
 	builder.WriteString("graph TD\n")
 
-	builder.WriteString("\n    %% Style Definitions\n")
-	builder.WriteString("    classDef success fill:#d4edda,stroke:#c3e6cb,color:#155724\n")
-	builder.WriteString("    classDef failure fill:#f8d7da,stroke:#f5c6cb,color:#721c24\n")
-	builder.WriteString("    classDef ignored fill:#fff3cd,stroke:#ffeeba,color:#856404\n")
-	builder.WriteString("    classDef pending fill:#e2e3e5,stroke:#d6d8db,color:#383d41\n")
-	builder.WriteString("    classDef skipped fill:#f8f9fa,stroke:#ced4da,color:#6c757d\n")
-	builder.WriteString("    classDef root fill:#d1e7dd,stroke:#a3cfbb,color:#0a3622,font-weight:bold\n")
+	// Style Definitions
+	builder.WriteString("\n    %% --- Style Definitions ---\n")
+	builder.WriteString("    classDef success fill:#1a3021,stroke:#3fb950,color:#c9d1d9\n")
+	builder.WriteString("    classDef failure fill:#38191c,stroke:#f85149,color:#c9d1d9\n")
+	builder.WriteString("    classDef ignored fill:#34291a,stroke:#d29922,color:#c9d1d9\n")
+	builder.WriteString("    classDef pending fill:#242930,stroke:#6e7681,color:#c9d1d9\n")
+	builder.WriteString("    classDef skipped fill:#242930,stroke:#6e7681,color:#c9d1d9\n")
+	builder.WriteString("    linkStyle default stroke:#6e7681,stroke-width:1px\n")
+
+	var pipeline models.Pipeline
+	if err := yaml.Unmarshal([]byte(state.PipelineDefinition), &pipeline); err != nil {
+		log.Error().Err(err).Msg("Failed to unmarshal pipeline definition for Mermaid graph")
+		return "Error: Could not render dependency graph."
+	}
 
 	taskToNodeID := make(map[string]string)
-	allTasks := make(map[string]TaskStatusUpdate)
-	var repoName string
+	stepStartNodes := make(map[string]string)
+	stepEndNodes := make(map[string]string)
 
-	// Consolidate all tasks into a single map and get repo name
-	for _, tasks := range state.Steps {
-		for taskName, task := range tasks {
-			allTasks[taskName] = task
-			if repoName == "" && task.RepoOwner != "" && task.RepoName != "" {
-				repoName = fmt.Sprintf("%s/%s", task.RepoOwner, task.RepoName)
-			}
-		}
-	}
-
-	// Define the root repository node
-	if repoName != "" {
-		builder.WriteString(fmt.Sprintf("\n    root(\"%s\"):::root\n", repoName))
-	}
-
-	// Use the original step order to define nodes for consistent layout
+	// 1. Define all task nodes and invisible step boundary nodes
+	builder.WriteString("\n    %% --- Node Definitions ---\n")
 	nodeCounter := 0
-	for _, stepName := range state.StepOrder {
-		// Create a temporary sorted list of tasks within the step for deterministic node ID assignment
-		tasksInStep := []TaskStatusUpdate{}
-		for _, task := range state.Steps[stepName] {
-			tasksInStep = append(tasksInStep, task)
-		}
-		sort.SliceStable(tasksInStep, func(i, j int) bool {
-			return tasksInStep[i].TaskIndex < tasksInStep[j].TaskIndex
-		})
+	for _, step := range pipeline.Steps {
+		tasksInStep := state.Steps[step.Name]
 
-		for _, task := range tasksInStep {
+		// Create invisible start and end nodes for each step to act as hubs
+		stepStartNodes[step.Name] = fmt.Sprintf("S%d_start", nodeCounter)
+		stepEndNodes[step.Name] = fmt.Sprintf("S%d_end", nodeCounter)
+		builder.WriteString(fmt.Sprintf("    %s(( )); style %s fill:none,stroke:none,width:0,height:0\n", stepStartNodes[step.Name], stepStartNodes[step.Name]))
+		builder.WriteString(fmt.Sprintf("    %s(( )); style %s fill:none,stroke:none,width:0,height:0\n", stepEndNodes[step.Name], stepEndNodes[step.Name]))
+
+		for taskName, task := range tasksInStep {
 			nodeID := fmt.Sprintf("T%d", nodeCounter)
-			taskToNodeID[task.TaskName] = nodeID
+			taskToNodeID[taskName] = nodeID
 			nodeCounter++
 
 			var statusIcon, styleClass string
@@ -242,37 +234,59 @@ func (a *GitBotApp) renderMermaidGraph(state *CheckRunState) string {
 				statusIcon, styleClass = "⚠️", "ignored"
 			case strings.Contains(task.TaskStatus, "fail"):
 				statusIcon, styleClass = "❌", "failure"
-			case task.TaskStatus == "skipped":
+			case task.TaskStatus == "skipped", task.TaskStatus == "not found":
 				statusIcon, styleClass = "⚪️", "skipped"
-			case task.TaskStatus == "not found":
-				statusIcon, styleClass = "❓", "skipped"
 			default:
 				statusIcon, styleClass = "⏳", "pending"
 			}
 
-			// ** FIXED **: Applying the new user-requested format
 			nodeText := fmt.Sprintf("%s %s:<br/>%s%s", statusIcon, task.StepName, task.TaskName, duration)
 			builder.WriteString(fmt.Sprintf("    %s(\"`%s`\"):::%s\n", nodeID, nodeText, styleClass))
 		}
 	}
 
-	// Define links between tasks after all nodes are declared
-	builder.WriteString("\n    %% Link Definitions\n")
-	for taskName, task := range allTasks {
-		toNodeID := taskToNodeID[taskName]
+	// 2. Define all dependency links
+	builder.WriteString("\n    %% --- Link Definitions ---\n")
+	for _, step := range pipeline.Steps {
+		tasksInStep := state.Steps[step.Name]
+		internalDependencies := make(map[string]bool)
 
-		// ** FIXED **: Corrected dependency logic
-		if len(task.DependsOn) == 0 {
-			// Only link to the root if the task has NO dependencies
-			if repoName != "" {
-				builder.WriteString(fmt.Sprintf("    root --> %s\n", toNodeID))
-			}
-		} else {
-			// Link from each dependency to this task
-			for _, depName := range task.DependsOn {
-				if fromNodeID, ok := taskToNodeID[depName]; ok {
-					builder.WriteString(fmt.Sprintf("    %s --> %s\n", fromNodeID, toNodeID))
+		// 2a. Link internal tasks (tasks that depend on other tasks in the same step)
+		for taskName, task := range tasksInStep {
+			toNode := taskToNodeID[taskName]
+			if len(task.DependsOn) > 0 {
+				for _, depName := range task.DependsOn {
+					fromNode := taskToNodeID[depName]
+					builder.WriteString(fmt.Sprintf("    %s --> %s\n", fromNode, toNode))
+					internalDependencies[taskName] = true
 				}
+			}
+		}
+
+		// 2b. Link the step's invisible start node to all of its initial tasks
+		for taskName := range tasksInStep {
+			if !internalDependencies[taskName] {
+				builder.WriteString(fmt.Sprintf("    %s --> %s\n", stepStartNodes[step.Name], taskToNodeID[taskName]))
+			}
+		}
+
+		// 2c. Link all of the step's terminal tasks to its invisible end node
+		allTaskDeps := make(map[string]bool)
+		for _, task := range tasksInStep {
+			for _, dep := range task.DependsOn {
+				allTaskDeps[dep] = true
+			}
+		}
+		for taskName := range tasksInStep {
+			if !allTaskDeps[taskName] {
+				builder.WriteString(fmt.Sprintf("    %s --> %s\n", taskToNodeID[taskName], stepEndNodes[step.Name]))
+			}
+		}
+
+		// 2d. Link the invisible end node of dependency steps to the invisible start node of this step
+		if len(step.DependsOn) > 0 {
+			for _, depStepName := range step.DependsOn {
+				builder.WriteString(fmt.Sprintf("    %s --> %s\n", stepEndNodes[depStepName], stepStartNodes[step.Name]))
 			}
 		}
 	}
@@ -434,10 +448,11 @@ func (a *GitBotApp) initializeCheckRunState(checkRunID int64, owner, repo, pipel
 	defer a.stateLock.Unlock()
 
 	initialState := &CheckRunState{
-		Steps:        make(map[string]map[string]TaskStatusUpdate),
-		StepOrder:    []string{},
-		GitHubView:   view,
-		PipelineName: checkName, // The name is now clean, without the run ID
+		Steps:              make(map[string]map[string]TaskStatusUpdate),
+		StepOrder:          []string{},
+		GitHubView:         view,
+		PipelineName:       checkName,
+		PipelineDefinition: pipelineDef, // Store the pipeline definition
 	}
 
 	totalTasks := 0
@@ -950,6 +965,19 @@ func (a *GitBotApp) handleTaskStatusUpdate(w http.ResponseWriter, r *http.Reques
 		state.RunID = update.RunID
 	}
 
+	// --- NEW: Clean up placeholder tasks for included steps ---
+	// If this update is for a task within a step (e.g., "overwrite/write-secret-2")
+	// and a placeholder for the step itself exists (e.g., "overwrite/overwrite"), remove the placeholder.
+	if update.StepName != update.TaskName {
+		if stepTasks, ok := state.Steps[update.StepName]; ok {
+			if _, placeholderExists := stepTasks[update.StepName]; placeholderExists {
+				log.Info().Str("step", update.StepName).Msg("Removing placeholder task for included step")
+				delete(state.Steps[update.StepName], update.StepName)
+			}
+		}
+	}
+	// --- End of new logic ---
+
 	if existingTask, ok := state.Steps[update.StepName][update.TaskName]; ok {
 		existingTask.TaskStatus = update.TaskStatus
 		if !update.StartedAt.IsZero() {
@@ -994,7 +1022,6 @@ func (a *GitBotApp) handleTaskStatusUpdate(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	// Construct the new title in the desired format
 	newTitle := fmt.Sprintf("In progress... (%d/%d tasks)", completedTasks, totalTasks)
 	if state.RunID != "" {
 		shortRunID := state.RunID[:8]
@@ -1002,10 +1029,10 @@ func (a *GitBotApp) handleTaskStatusUpdate(w http.ResponseWriter, r *http.Reques
 	}
 
 	opts := github.UpdateCheckRunOptions{
-		Name:   state.PipelineName, // Keep the base name clean
+		Name:   state.PipelineName,
 		Status: github.String("in_progress"),
 		Output: &github.CheckRunOutput{
-			Title:   github.String(newTitle), // Set the detailed title here
+			Title:   github.String(newTitle),
 			Summary: github.String(summary),
 		},
 	}

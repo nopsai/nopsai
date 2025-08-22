@@ -3,13 +3,14 @@ description: A sample pipeline.
 llm_content_sharing: true
 llm_output_sharing: true
 display_options:
-  github_view: "mermaid" # mermaid, tree or flat
+  github_view: "flat" # mermaid, tree or flat
 container_image: "pipeline-image:latest"
 working_directory: "/tmp/test"
 timeout: "20m"
 environment:
-  - API_VERSION
   - DOCKER_HOST
+  - API_VERSION
+  - TEST_ENV
 steps:
   - name: preparation
     image: pipeline-image:latest
@@ -36,7 +37,7 @@ steps:
         script: |
           #!/bin/bash
           env
-          echo $TEST_SECRET
+          echo $TEST_SECRET|awk '{print $2,$1,$3,$4,$5,$6}'
         depends_on:
         - git-clone
 
@@ -54,6 +55,8 @@ steps:
     image: ubuntu:latest
     secrets:
       - TEST_SECRET
+    depends_on:
+    - preparation
     tasks:
       - name: write-secret
         goal: write the value of TEST_SECRET env to sample.txt
@@ -68,11 +71,11 @@ steps:
   - name: docker-builder
     volumes:
       - "sample-exisitng:/tmp/sample-exisitng"
+    depends_on:
+    - preparation
     tasks:
       - name: dockerfile-modification
         goal: "Modify Dockerfile and add copy statement to add docker-compose"
-        depends_on:
-        - branch-versioning
 
       - name: dockerfile-content
         goal: "show dockerfile content"
@@ -88,25 +91,39 @@ steps:
       - name: build-docker
         goal: build docker image with repo name and 3 tag, latest,latest git tag and commit hash 
         depends_on:
-        - commit-hash
         - dockerfile-modification
 
   - name: image-scanning
     include: "pipeline:reference-pipeline.yaml"
-    sync: true
+    sync: false
+    secrets:
+      - TEST_SECRET
+    volumes:
+      - "sample-exisitng:/tmp/sample-exisitng"
     depends_on:
-    - build-docker
+    - docker-builder
 
+  - name: overwrite
+    include: "step:simple-step"
+    ignore_failure: false
+    llm_output_sharing: true
+    secrets:
+      - TEST_SECRET
+    volumes:
+      - "sample-exisitng:/tmp/sample-exisitng"
+    depends_on:
+    - secret-validation
+    
   - name: Check-steps
     goal: "Give me lines from history which are important"
     image: alpine:latest
     llm_output_sharing: false
     depends_on:
-    - build-docker
+    - docker-builder
 
   - name: report
     goal: "provide a report of all steps"
     volumes:
       - "sample-exisitng:/tmp/sample-exisitng"
     depends_on:
-    - build-docker
+    - Check-steps
