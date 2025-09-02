@@ -4,8 +4,6 @@ networks:
   nopsai-net:
     driver: bridge
     name: nopsai-net
-    external: true
-
 
 services:
   db:
@@ -85,8 +83,18 @@ services:
     networks:
       - nopsai-net
 
-
-      
+  nopsai-ui:
+    image: nginx:alpine
+    container_name: nopsai-ui
+    ports:
+      - "5173:80"
+    volumes:
+      - ./services/ui/index.html:/usr/share/nginx/html/index.html:ro
+    networks:
+      - nopsai-net
+    depends_on:
+      - nopsai
+  
   agent:
     container_name: nopsai-agent
     image: nopsai-agent

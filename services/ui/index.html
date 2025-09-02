@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NopsAI - CI/CD Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .sidebar-scrollbar::-webkit-scrollbar { width: 4px; }
+        .sidebar-scrollbar::-webkit-scrollbar-thumb { background-color: #4a5568; border-radius: 10px; }
+        .sidebar-scrollbar::-webkit-scrollbar-track { background-color: #2d3748; }
+        .graph-node { cursor: pointer; transition: all 0.2s ease-in-out; }
+        .graph-node:hover .node-rect { stroke-width: 2; }
+        .graph-node:hover .node-text { font-weight: 600; }
+        .log-viewer { font-family: 'Courier New', Courier, monospace; white-space: pre-wrap; word-break: break-all; }
+        .log-viewer::-webkit-scrollbar { width: 6px; height: 6px; }
+        .log-viewer::-webkit-scrollbar-thumb { background-color: #4a5568; border-radius: 10px; }
+        .log-viewer::-webkit-scrollbar-track { background-color: #1a202c; }
+        [data-page] { display: none; }
+        [data-page].active { display: block; }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100">
+
+    <div id="app" class="flex h-screen overflow-hidden">
+        <!-- Sidebar -->
+        <aside id="sidebar" class="bg-gray-800 w-64 lg:w-72 flex-shrink-0 flex flex-col transition-transform duration-300 ease-in-out -translate-x-full sm:translate-x-0 fixed sm:static h-full z-20">
+            <div class="flex items-center justify-between px-6 h-16 border-b border-gray-700">
+                <div class="flex items-center">
+                     <svg class="h-8 w-8 text-indigo-400"  width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">  <path stroke="none" d="M0 0h24v24H0z"/>  <path d="M12.5 21H6a1 1 0 0 1 -1 -1V4a1 1 0 0 1 1 -1h12a1 1 0 0 1 1 1v5" />  <path d="M18 22v-6" />  <path d="M21 19l-3 -3l-3 3" />  <path d="M3 13h8" />  <path d="M5 10v6" /></svg>
+                    <span class="ml-3 text-xl font-semibold">NopsAI</span>
+                </div>
+                <button id="close-sidebar-btn" class="sm:hidden text-gray-400 hover:text-white">
+                    <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+             <nav class="flex-1 px-4 py-4 overflow-y-auto sidebar-scrollbar" id="sidebar-nav">
+                <!-- Nav items will be injected here -->
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 flex flex-col overflow-hidden">
+             <header class="flex items-center justify-between px-6 h-16 bg-gray-800/50 backdrop-blur-sm border-b border-gray-700 z-10">
+                <button id="open-sidebar-btn" class="sm:hidden text-gray-400 hover:text-white">
+                    <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7" /></svg>
+                </button>
+                <div class="flex-1"><h1 id="main-header" class="text-xl font-semibold">Dashboard</h1></div>
+            </header>
+            <div id="page-content-wrapper" class="flex-1 overflow-auto">
+                <!-- Page: Pipeline Runs -->
+                <div data-page="runs" class="active h-full">
+                    <div id="main-content-runs" class="p-6 h-full">
+                         <div id="placeholder" class="h-full flex flex-col items-center justify-center text-center text-gray-500">
+                             <svg class="h-12 w-12 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                            <h3 class="text-lg font-semibold">Select a pipeline run</h3>
+                            <p>Choose a run from the sidebar to view its progress.</p>
+                        </div>
+                        <div id="graph-container" class="hidden w-full h-full"></div>
+                    </div>
+                </div>
+
+                <!-- Page: Pipelines -->
+                <div data-page="pipelines" class="h-full">
+                    <div class="p-6">
+                        <h1 class="text-2xl font-bold mb-4">Manage Pipelines</h1>
+                        <p class="text-gray-400">UI for creating, editing, and deleting central pipelines coming soon.</p>
+                    </div>
+                </div>
+
+                <!-- Page: Secrets -->
+                <div data-page="secrets" class="h-full">
+                    <div class="p-6">
+                        <h1 class="text-2xl font-bold mb-4">Manage Secrets</h1>
+                        <p class="text-gray-400">UI for managing global and repository-specific secrets coming soon.</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Step Details Modal -->
+    <div id="step-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
+        <div id="modal-content" class="bg-gray-800 rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col transform scale-95 transition-transform duration-300">
+            <div class="flex items-center justify-between p-4 border-b border-gray-700">
+                <h2 id="modal-title" class="text-xl font-semibold">Step Details</h2>
+                <button id="close-modal-btn" class="text-gray-400 hover:text-white">
+                    <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <div class="p-6 flex-1 overflow-y-auto">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                    <div><h4 class="text-sm text-gray-400">Status</h4><p id="modal-status" class="text-lg font-medium"></p></div>
+                    <div><h4 class="text-sm text-gray-400">Duration</h4><p id="modal-duration" class="text-lg font-medium"></p></div>
+                    <div><h4 class="text-sm text-gray-400">Tasks</h4><p id="modal-task-count" class="text-lg font-medium"></p></div>
+                </div>
+                <div>
+                    <h4 class="text-sm text-gray-400 mb-2">Tasks in this Step</h4>
+                    <div id="modal-tasks" class="bg-gray-900 rounded-md p-4 text-sm text-gray-300 max-h-96 overflow-y-auto log-viewer"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const API_BASE_URL = 'http://localhost:8080';
+
+        // --- DOM Elements ---
+        const sidebarNav = document.getElementById('sidebar-nav');
+        const mainHeader = document.getElementById('main-header');
+        const pages = document.querySelectorAll('[data-page]');
+        const pageContentWrapper = document.getElementById('page-content-wrapper');
+        
+        // Page-specific elements
+        const placeholder = document.getElementById('placeholder');
+        const graphContainer = document.getElementById('graph-container');
+
+        const openSidebarBtn = document.getElementById('open-sidebar-btn');
+        const closeSidebarBtn = document.getElementById('close-sidebar-btn');
+        const sidebar = document.getElementById('sidebar');
+        const modal = document.getElementById('step-modal');
+        const modalContent = document.getElementById('modal-content');
+        const closeModalBtn = document.getElementById('close-modal-btn');
+        
+        // --- State ---
+        let activeRunId = null;
+        let pollingInterval = null;
+        let currentRunData = null;
+
+        // --- UI Configuration ---
+        const statusConfig = {
+            success: { icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-green-400', rectClass: 'stroke-green-500 fill-green-500/10' },
+            failure: { icon: 'M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-red-400', rectClass: 'stroke-red-500 fill-red-500/10' },
+            running: { icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-blue-400', rectClass: 'stroke-blue-500 fill-blue-500/10 animate-pulse' },
+            pending: { icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-gray-400', rectClass: 'stroke-gray-500 fill-gray-500/10' },
+            skipped: { icon: 'M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-yellow-400', rectClass: 'stroke-yellow-500 fill-yellow-500/10' },
+            'failed (ignored)': { icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z', color: 'text-yellow-400', rectClass: 'stroke-yellow-500 fill-yellow-500/10' },
+            completed: { icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-green-400', rectClass: 'stroke-green-500 fill-green-500/10' },
+            started: { icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-blue-400', rectClass: 'stroke-blue-500 fill-blue-500/10 animate-pulse' },
+        };
+
+        // --- API Functions ---
+        async function fetchData(url) {
+            try {
+                const response = await fetch(API_BASE_URL + url);
+                if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+                return await response.json();
+            } catch (error) {
+                console.error(`Fetch error for ${url}:`, error);
+                return null;
+            }
+        }
+
+        async function fetchAndRenderAllRuns() {
+             const runs = await fetchData('/v1/runs');
+             if (runs) {
+                renderPipelineRunsList(runs);
+                const hasActiveRuns = runs.some(run => !run.is_complete);
+                
+                if (!hasActiveRuns && pollingInterval) {
+                    stopPolling();
+                } else if (hasActiveRuns && !pollingInterval) {
+                    startPolling(fetchAndRenderAllRuns);
+                }
+
+                if ((!activeRunId && runs.length > 0) || (activeRunId && !runs.find(r => r.run_id === activeRunId))) {
+                    if (runs.length > 0) setActiveRun(runs[0].run_id);
+                }
+             } else {
+                 const listEl = document.getElementById('pipeline-runs-list');
+                 if(listEl) listEl.innerHTML = `<li class="p-2 text-sm text-gray-500">Could not fetch runs. Is the backend running?</li>`;
+             }
+
+             if (activeRunId) {
+                await fetchAndRenderActiveRun();
+             }
+        }
+
+        async function fetchAndRenderActiveRun() {
+            if (!activeRunId) return;
+            const runDetails = await fetchData(`/v1/runs/${activeRunId}`);
+            if (runDetails) {
+                currentRunData = runDetails;
+                renderPipelineGraph(runDetails);
+
+                const openModalStepName = document.getElementById('modal-title').textContent.replace('Step Details: ', '');
+                if (!modal.classList.contains('hidden')) {
+                    showStepDetails(openModalStepName);
+                }
+            }
+        }
+        
+        // --- Rendering Functions ---
+        function renderSidebar(activeRoute) {
+             const navConfig = [
+                { route: 'runs', title: 'Pipeline Runs', icon: 'M4 6h16M4 12h16M4 18h7' },
+                { route: 'pipelines', title: 'Pipelines', icon: 'M9 17V7h2v10H9zm4-12h2v12h-2V5zm4 4h2v8h-2V9zM3 3h18v2H3V3z' },
+                { route: 'secrets', title: 'Secrets', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
+            ];
+
+            let navHtml = '';
+            navConfig.forEach(item => {
+                const isActive = item.route === activeRoute;
+                navHtml += `
+                    <a href="#/${item.route}" class="flex items-center p-2 text-gray-300 rounded-md hover:bg-gray-700 transition-colors duration-200 group ${isActive ? 'bg-gray-700 text-white' : ''}" data-navigo>
+                        <svg class="h-5 w-5 mr-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${item.icon}"/></svg>
+                        <span>${item.title}</span>
+                    </a>
+                `;
+            });
+            
+            sidebarNav.innerHTML = `<div class="space-y-1">${navHtml}</div>`;
+
+            if (activeRoute === 'runs') {
+                 sidebarNav.innerHTML += `
+                    <h2 class="px-2 mt-6 mb-2 text-xs font-semibold tracking-wider text-gray-400 uppercase">Recent Runs</h2>
+                    <ul id="pipeline-runs-list" class="space-y-1"></ul>
+                 `;
+            }
+        }
+
+        function renderPipelineRunsList(runs) {
+            const listEl = document.getElementById('pipeline-runs-list');
+            if (!listEl) return;
+            listEl.innerHTML = '';
+            runs.forEach(run => {
+                const li = document.createElement('li');
+                const status = run.is_complete ? run.status : 'running';
+                const config = statusConfig[status.toLowerCase()] || statusConfig.pending;
+                
+                li.innerHTML = `
+                    <a href="#/runs" class="flex items-center p-2 text-gray-300 rounded-md hover:bg-gray-700 transition-colors duration-200 group ${run.run_id === activeRunId ? 'bg-gray-700 text-white' : ''}" data-run-id="${run.run_id}">
+                        <svg class="h-5 w-5 mr-3 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
+                        <div>
+                            <span class="font-medium">${run.pipeline_name}</span>
+                            <p class="text-xs text-gray-400">${run.git_repo_name || ''} #${(run.git_commit_sha || '...').slice(0, 7)}</p>
+                        </div>
+                    </a>`;
+                listEl.appendChild(li);
+            });
+        }
+
+        function renderPipelineGraph(runDetails) {
+            if (!runDetails || !runDetails.steps) {
+                placeholder.classList.remove('hidden');
+                graphContainer.classList.add('hidden');
+                return;
+            }
+            mainHeader.textContent = `${runDetails.run_info.pipeline_name} (#${runDetails.run_info.run_id.slice(0, 8)})`;
+            placeholder.classList.add('hidden');
+            graphContainer.classList.remove('hidden');
+
+            const { nodes, edges, width, height } = calculateGraphLayout(runDetails.steps);
+            
+            let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="8" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#6b7280" /></marker></defs>`;
+            edges.forEach(edge => svgContent += `<line x1="${edge.x1}" y1="${edge.y1}" x2="${edge.x2}" y2="${edge.y2}" stroke="#4b5563" stroke-width="1.5" marker-end="url(#arrowhead)"></line>`);
+            nodes.forEach(node => {
+                const config = statusConfig[node.status.toLowerCase()] || statusConfig.pending;
+                svgContent += `
+                    <g class="graph-node" data-step-name="${node.name}" transform="translate(${node.x}, ${node.y})">
+                        <rect class="node-rect ${config.rectClass}" x="0" y="0" width="${node.width}" height="${node.height}" rx="8"></rect>
+                        <foreignObject x="0" y="0" width="${node.width}" height="${node.height}">
+                            <div xmlns="http://www.w3.org/1999/xhtml" class="w-full h-full flex items-center p-3">
+                                <svg class="h-5 w-5 mr-2 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
+                                <div><p class="node-text text-sm font-medium text-gray-200 truncate">${node.name}</p><p class="text-xs text-gray-400 capitalize">${node.status.replace(/_/g, ' ')}</p></div>
+                            </div>
+                        </foreignObject>
+                    </g>`;
+            });
+            graphContainer.innerHTML = `<div class="absolute inset-0 flex items-center justify-center">${svgContent}</div>`;
+        }
+        
+        function calculateGraphLayout(steps) {
+            if (!steps || steps.length === 0) return { nodes: [], edges: [], width: 0, height: 0 };
+            const nodeWidth = 180, nodeHeight = 50, hGap = 80, vGap = 50;
+            
+            const nodes = {};
+            const adj = {};
+            steps.forEach(step => {
+                nodes[step.name] = { ...step, children: [], parents: 0, level: -1, x: 0, y: 0, width: nodeWidth, height: nodeHeight };
+                adj[step.name] = [];
+            });
+
+            steps.forEach(step => {
+                (step.depends_on || []).forEach(dep => {
+                    if (adj[dep] && nodes[step.name]) {
+                        adj[dep].push(step.name);
+                        nodes[step.name].parents++;
+                    }
+                });
+            });
+
+            const levels = [];
+            let queue = Object.values(nodes).filter(node => node.parents === 0);
+            let level = 0;
+
+            while (queue.length > 0) {
+                levels[level] = queue.map(n => n.name);
+                const nextQueue = [];
+                for (const node of queue) {
+                    for (const neighborName of adj[node.name]) {
+                        const neighbor = nodes[neighborName];
+                        if (neighbor) {
+                            neighbor.parents--;
+                            if (neighbor.parents === 0) {
+                                nextQueue.push(neighbor);
+                            }
+                        }
+                    }
+                }
+                queue = nextQueue;
+                level++;
+            }
+
+            let maxNodesInLevel = 0;
+            const containerHeight = pageContentWrapper.clientHeight; // FIX: Get height from visible parent
+
+            levels.forEach((levelNodes, i) => {
+                const levelHeight = levelNodes.length * (nodeHeight + vGap) - vGap;
+                const yOffset = (containerHeight - levelHeight) / 2;
+                levelNodes.forEach((nodeName, j) => {
+                    const node = nodes[nodeName];
+                    if(node) {
+                        node.x = i * (nodeWidth + hGap);
+                        node.y = j * (nodeHeight + vGap) + yOffset;
+                    }
+                });
+                maxNodesInLevel = Math.max(maxNodesInLevel, levelNodes.length);
+            });
+            
+            const graphWidth = levels.length * nodeWidth + (levels.length - 1) * hGap;
+            const graphHeight = maxNodesInLevel * nodeHeight + (maxNodesInLevel - 1) * vGap;
+
+            const edges = [];
+            steps.forEach(step => {
+                (step.depends_on || []).forEach(dep => {
+                    const fromNode = nodes[dep];
+                    const toNode = nodes[step.name];
+                    if (fromNode && toNode) {
+                        edges.push({
+                            x1: fromNode.x + nodeWidth,
+                            y1: fromNode.y + nodeHeight / 2,
+                            x2: toNode.x,
+                            y2: toNode.y + nodeHeight / 2
+                        });
+                    }
+                });
+            });
+
+            return { nodes: Object.values(nodes), edges, width: graphWidth + 20, height: containerHeight };
+        }
+
+        function showStepDetails(stepName) {
+            if (!currentRunData || !currentRunData.steps) return;
+            const step = currentRunData.steps.find(s => s.name === stepName);
+            if (!step) return;
+
+            const config = statusConfig[step.status.toLowerCase()] || statusConfig.pending;
+
+            document.getElementById('modal-title').textContent = `Step Details: ${stepName}`;
+            document.getElementById('modal-status').innerHTML = `<span class="font-bold capitalize ${config.color}">${step.status}</span>`;
+            document.getElementById('modal-task-count').textContent = `${step.tasks.length} task(s)`;
+            
+            const startTimes = step.tasks.map(t => new Date(t.started_at)).filter(d => !isNaN(d));
+            const endTimes = step.tasks.map(t => new Date(t.finished_at)).filter(d => !isNaN(d));
+            
+            let duration = "Not started";
+            if(startTimes.length > 0) {
+                 const firstStart = new Date(Math.min.apply(null, startTimes));
+                 if(endTimes.length === step.tasks.length && endTimes.every(t => t.getFullYear() > 1970)) {
+                    const lastEnd = new Date(Math.max.apply(null, endTimes));
+                    duration = `${((lastEnd - firstStart) / 1000).toFixed(2)}s`;
+                 } else {
+                    duration = "Running...";
+                 }
+            }
+            document.getElementById('modal-duration').textContent = duration;
+
+            const tasksHtml = step.tasks.map(task => {
+                const taskConfig = statusConfig[task.status.toLowerCase()] || statusConfig.pending;
+                return `<div class="flex items-center py-1">
+                    <svg class="h-4 w-4 mr-2 flex-shrink-0 ${taskConfig.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${taskConfig.icon}"/></svg>
+                    <span class="font-mono text-xs mr-4">${task.task_name}</span>
+                    <span class="ml-auto text-xs capitalize">${task.status}</span>
+                </div>`
+            }).join('');
+            document.getElementById('modal-tasks').innerHTML = tasksHtml;
+
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.classList.add('opacity-100');
+                modalContent.classList.remove('scale-95');
+            }, 10);
+        }
+
+        // --- Router ---
+        function router() {
+            const path = window.location.hash.slice(2) || 'runs';
+            pages.forEach(p => p.classList.toggle('active', p.dataset.page === path));
+            renderSidebar(path);
+
+            mainHeader.textContent = path.charAt(0).toUpperCase() + path.slice(1);
+
+            stopPolling();
+            if (path === 'runs') {
+                const listEl = document.getElementById('pipeline-runs-list');
+                if (listEl) listEl.innerHTML = `<li class="p-2 text-sm text-gray-500 animate-pulse">Loading runs...</li>`;
+                fetchAndRenderAllRuns().then(() => startPolling(fetchAndRenderAllRuns));
+            }
+        }
+        
+        // --- Event Handlers & Control Flow ---
+        function closeModal() {
+            modal.classList.remove('opacity-100');
+            modalContent.classList.add('scale-95');
+            setTimeout(() => modal.classList.add('hidden'), 300);
+        }
+
+        function setActiveRun(runId) {
+            if (activeRunId === runId) return;
+            activeRunId = runId;
+            fetchAndRenderActiveRun(); 
+             document.querySelectorAll('#pipeline-runs-list a').forEach(a => {
+                a.classList.toggle('bg-gray-700', a.dataset.runId === runId);
+                a.classList.toggle('text-white', a.dataset.runId === runId);
+            });
+        }
+
+        function startPolling(pollingFunc) {
+            if (pollingInterval) return;
+            pollingInterval = setInterval(pollingFunc, 3000);
+        }
+
+        function stopPolling() {
+            clearInterval(pollingInterval);
+            pollingInterval = null;
+        }
+
+        sidebar.addEventListener('click', e => {
+            const runLink = e.target.closest('a[data-run-id]');
+            const navLink = e.target.closest('a[data-navigo]');
+
+            if (runLink) {
+                e.preventDefault();
+                setActiveRun(runLink.dataset.runId);
+                if (window.innerWidth < 640) sidebar.classList.add('-translate-x-full');
+            } else if (navLink) {
+                // Let the hashchange event handle it
+                 if (window.innerWidth < 640) sidebar.classList.add('-translate-x-full');
+            }
+        });
+        
+        graphContainer.addEventListener('click', e => {
+            const node = e.target.closest('.graph-node');
+            if (node) showStepDetails(node.dataset.stepName);
+        });
+
+        closeModalBtn.addEventListener('click', closeModal);
+        modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+        openSidebarBtn.addEventListener('click', () => sidebar.classList.remove('-translate-x-full'));
+        closeSidebarBtn.addEventListener('click', () => sidebar.classList.add('-translate-x-full'));
+        
+        // --- Initial Load ---
+        window.addEventListener('hashchange', router);
+        router(); // Initial call
+    });
+    </script>
+</body>
+</html>
+
