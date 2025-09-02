@@ -88,10 +88,6 @@
                     <h4 class="text-sm text-gray-400 mb-2">Task Dependencies</h4>
                     <div id="task-graph" class="bg-gray-900/50 rounded-md p-4 flex items-center justify-center min-h-[100px]"></div>
                 </div>
-                <div id="task-list-container" class="mt-6">
-                    <h4 class="text-sm text-gray-400 mb-2">Task Status</h4>
-                    <div id="task-list" class="space-y-2"></div>
-                </div>
             </div>
         </div>
     </div>
@@ -121,14 +117,12 @@
         };
 
         const statusConfig = {
-            completed: { icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-green-400', rectClass: 'stroke-green-500 fill-green-500/10' },
-            failed: { icon: 'M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-red-400', rectClass: 'stroke-red-500 fill-red-500/10' },
-            started: { icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-blue-400', rectClass: 'stroke-blue-500 fill-blue-500/10 animate-pulse' },
-            running: { icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-blue-400', rectClass: 'stroke-blue-500 fill-blue-500/10 animate-pulse' }, // For aggregate step status
+            success: { icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-green-400', rectClass: 'stroke-green-500 fill-green-500/10' },
+            failure: { icon: 'M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-red-400', rectClass: 'stroke-red-500 fill-red-500/10' },
+            running: { icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-blue-400', rectClass: 'stroke-blue-500 fill-blue-500/10 animate-pulse' },
             pending: { icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-gray-400', rectClass: 'stroke-gray-500 fill-gray-500/10' },
             skipped: { icon: 'M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-yellow-400', rectClass: 'stroke-yellow-500 fill-yellow-500/10' },
-            'failed (ignored)': { icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z', color: 'text-yellow-400', rectClass: 'stroke-yellow-500 fill-yellow-500/10' },
-            success: { icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-green-400', rectClass: 'stroke-green-500 fill-green-500/10' }, // For aggregate step status
+            'failure (ignored)': { icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z', color: 'text-yellow-400', rectClass: 'stroke-yellow-500 fill-yellow-500/10' },
         };
         
         function timeAgo(dateString) {
@@ -386,26 +380,6 @@
             taskGraphEl.innerHTML = svgContent + `</svg>`;
         }
 
-        function renderTaskList(tasks) {
-            const taskListEl = document.getElementById('task-list');
-            if (!tasks || tasks.length === 0) {
-                taskListEl.innerHTML = '';
-                return;
-            }
-            
-            taskListEl.innerHTML = tasks.map(task => {
-                const status = (task.status || 'pending').toLowerCase();
-                const config = statusConfig[status] || statusConfig.pending;
-                const duration = formatDuration(task.started_at, task.finished_at);
-                return `<div class="flex items-center bg-gray-900/50 p-2 rounded-md">
-                            <svg class="h-5 w-5 mr-3 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
-                            <span class="font-medium text-sm truncate">${task.task_name}</span>
-                            <span class="ml-auto text-sm capitalize font-semibold ${config.color}">${status.replace(/_/g, ' ')}</span>
-                            <span class="text-sm text-gray-400 w-20 text-right">${duration}</span>
-                        </div>`;
-            }).join('');
-        }
-
         function showStepDetails(stepName) {
             if (!state.currentRunData || !state.currentRunData.steps) return;
             const step = state.currentRunData.steps.find(s => s.name === stepName);
@@ -419,7 +393,6 @@
             document.getElementById('modal-task-count').textContent = `${step.tasks.length} task(s)`;
             
             renderTaskGraph(step.name, step.tasks);
-            renderTaskList(step.tasks);
 
             DOM.modal.classList.remove('hidden');
             setTimeout(() => {

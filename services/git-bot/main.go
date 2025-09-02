@@ -133,15 +133,15 @@ func (a *GitBotApp) renderMarkdownTree(state *CheckRunState) string {
 			duration = fmt.Sprintf(" (took %s)", task.FinishedAt.Sub(task.StartedAt).Round(time.Second))
 		}
 		switch {
-		case task.TaskStatus == "completed":
+		case task.TaskStatus == "success":
 			icon = "✅"
-		case strings.Contains(strings.ToLower(task.TaskStatus), "failed (ignored)"):
+		case strings.Contains(strings.ToLower(task.TaskStatus), "failure (ignored)"):
 			icon = "⚠️"
 		case strings.Contains(strings.ToLower(task.TaskStatus), "fail"):
 			icon = "❌"
 		case task.TaskStatus == "skipped":
 			icon = "⚪️"
-		case task.TaskStatus == "not found":
+		case task.TaskStatus == "not_found":
 			icon = "❓"
 		}
 
@@ -228,13 +228,13 @@ func (a *GitBotApp) renderMermaidGraph(state *CheckRunState) string {
 			}
 
 			switch {
-			case task.TaskStatus == "completed":
+			case task.TaskStatus == "success":
 				statusIcon, styleClass = "✅", "success"
-			case strings.Contains(task.TaskStatus, "failed (ignored)"):
+			case strings.Contains(task.TaskStatus, "failure (ignored)"):
 				statusIcon, styleClass = "⚠️", "ignored"
 			case strings.Contains(task.TaskStatus, "fail"):
 				statusIcon, styleClass = "❌", "failure"
-			case task.TaskStatus == "skipped", task.TaskStatus == "not found":
+			case task.TaskStatus == "skipped", task.TaskStatus == "not_found":
 				statusIcon, styleClass = "⚪️", "skipped"
 			default:
 				statusIcon, styleClass = "⏳", "pending"
@@ -318,15 +318,15 @@ func (a *GitBotApp) renderMarkdownFlatList(state *CheckRunState) string {
 		if !task.StartedAt.IsZero() && !task.FinishedAt.IsZero() {
 			duration = fmt.Sprintf(" (took %s)", task.FinishedAt.Sub(task.StartedAt).Round(time.Second))
 		}
-		if task.TaskStatus == "completed" {
+		if task.TaskStatus == "success" {
 			icon = "✅"
-		} else if strings.Contains(strings.ToLower(task.TaskStatus), "failed (ignored)") {
+		} else if strings.Contains(strings.ToLower(task.TaskStatus), "failure (ignored)") {
 			icon = "⚠️"
 		} else if strings.Contains(strings.ToLower(task.TaskStatus), "fail") {
 			icon = "❌"
 		} else if task.TaskStatus == "skipped" {
 			icon = "⚪️"
-		} else if task.TaskStatus == "not found" {
+		} else if task.TaskStatus == "not_found" {
 			icon = "❓"
 		}
 		builder.WriteString(fmt.Sprintf("- %s **%s**: `%s` - %s%s\n", icon, task.StepName, task.TaskName, task.TaskStatus, duration))
@@ -1016,16 +1016,16 @@ func (a *GitBotApp) handleTaskStatusUpdate(w http.ResponseWriter, r *http.Reques
 	for _, stepTasks := range state.Steps {
 		for _, task := range stepTasks {
 			totalTasks++
-			if task.TaskStatus != "pending" && task.TaskStatus != "started" && task.TaskStatus != "skipped" {
+			if task.TaskStatus != "pending" && task.TaskStatus != "running" && task.TaskStatus != "skipped" {
 				completedTasks++
 			}
 		}
 	}
 
-	newTitle := fmt.Sprintf("In progress... (%d/%d tasks)", completedTasks, totalTasks)
+	newTitle := fmt.Sprintf("Running... (%d/%d tasks)", completedTasks, totalTasks)
 	if state.RunID != "" {
 		shortRunID := state.RunID[:8]
-		newTitle = fmt.Sprintf("In progress...(%s) (%d/%d tasks)", shortRunID, completedTasks, totalTasks)
+		newTitle = fmt.Sprintf("Running...(%s) (%d/%d tasks)", shortRunID, completedTasks, totalTasks)
 	}
 
 	opts := github.UpdateCheckRunOptions{

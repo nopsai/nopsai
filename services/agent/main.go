@@ -558,7 +558,7 @@ func run() int {
 				<-ctx.Done()
 				if ctx.Err() == context.DeadlineExceeded {
 					log.Error().Msg("Pipeline execution timed out. Cleaning up and exiting.")
-					notifyFinalStatus(runID, "failed")
+					notifyFinalStatus(runID, "failure")
 				}
 			}()
 		}
@@ -612,12 +612,12 @@ func run() int {
 				stepName := step.Name
 
 				if step.Include != "" {
-					updateTaskStatus(runID, stepName, stepName, "started", 0, 0)
+					updateTaskStatus(runID, stepName, stepName, "running", 0, 0)
 
 					parts := strings.SplitN(step.Include, ":", 2)
 					if len(parts) != 2 || parts[0] != "pipeline" {
 						log.Error().Str("include", step.Include).Msg("Invalid include format")
-						updateTaskStatus(runID, stepName, stepName, "failed", 1, 0)
+						updateTaskStatus(runID, stepName, stepName, "failure", 1, 0)
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
 					}
@@ -627,13 +627,13 @@ func run() int {
 					if err != nil {
 						if strings.Contains(err.Error(), "nopsai api returned non-200 status 404") {
 							log.Warn().Str("child_pipeline", childPipelineName).Msg("Child pipeline not found, marking as not found.")
-							updateTaskStatus(runID, stepName, stepName, "not found", 0, 0)
+							updateTaskStatus(runID, stepName, stepName, "not_found", 0, 0)
 							results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 							return
 						}
 
 						log.Error().Err(err).Msg("Failed to get child pipeline definition")
-						updateTaskStatus(runID, stepName, stepName, "failed", 1, 0)
+						updateTaskStatus(runID, stepName, stepName, "failure", 1, 0)
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
 					}
@@ -644,7 +644,7 @@ func run() int {
 					childRunID, err := triggerPipeline(runID, pipelineName, childDef, historySnapshot)
 					if err != nil {
 						log.Error().Err(err).Msg("Failed to trigger child pipeline")
-						updateTaskStatus(runID, stepName, stepName, "failed", 1, 0)
+						updateTaskStatus(runID, stepName, stepName, "failure", 1, 0)
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
 					}
@@ -653,26 +653,26 @@ func run() int {
 						finalStatus, err := monitorPipeline(childRunID)
 						if err != nil {
 							log.Error().Err(err).Msg("Failed to monitor child pipeline")
-							updateTaskStatus(runID, stepName, stepName, "failed", 1, 0)
+							updateTaskStatus(runID, stepName, stepName, "failure", 1, 0)
 							results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 							return
 						}
 						if finalStatus == "failure" {
 							log.Error().Str("child_run_id", childRunID).Msg("Synchronous child pipeline failed.")
-							updateTaskStatus(runID, stepName, stepName, "failed", 1, 0)
+							updateTaskStatus(runID, stepName, stepName, "failure", 1, 0)
 							results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 							return
 						}
 					}
 
 					log.Info().Str("child_run_id", childRunID).Msg("Include step finished successfully.")
-					updateTaskStatus(runID, stepName, stepName, "completed", 0, 0)
+					updateTaskStatus(runID, stepName, stepName, "success", 0, 0)
 					results <- TaskResult{Name: runnable.GlobalKey, Success: true}
 					return
 				}
 
 				var stepContainerID string
-				updateTaskStatus(runID, stepName, task.Name, "started", 0, 0)
+				updateTaskStatus(runID, stepName, task.Name, "running", 0, 0)
 
 				// --- MODIFICATION START ---
 				// This slice will hold the final, resolved environment variables for the step.
@@ -723,7 +723,7 @@ func run() int {
 					log.Info().Str("step", stepName).Str("image", imageName).Msg("Creating new container for step")
 					if err := ensureImageExists(context.Background(), cli, imageName); err != nil {
 						log.Error().Err(err).Msg("Failed to ensure step image exists. Shutting down.")
-						updateTaskStatus(runID, stepName, task.Name, "failed", 1, 0)
+						updateTaskStatus(runID, stepName, task.Name, "failure", 1, 0)
 						sessionMutex.Unlock()
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
@@ -873,10 +873,10 @@ func run() int {
 				debugLogger.Debug().Msgf("Executing action: %s", actionStr)
 
 				stdout, stderr, exitCode := executeAction(cli, stepContainerID, action, stepEnvVars)
-				status := "Succeeded"
+				status := "success"
 				output := stdout
 				if exitCode != 0 {
-					status = "Failed"
+					status = "failure"
 					output = stderr + stdout
 				}
 				maskedOutput := maskSecrets(output, secrets)
@@ -906,15 +906,15 @@ func run() int {
 				historyMutex.Unlock()
 
 				if exitCode == 0 {
-					updateTaskStatus(runID, stepName, task.Name, "completed", exitCode, llmDurationMs)
+					updateTaskStatus(runID, stepName, task.Name, "success", exitCode, llmDurationMs)
 					results <- TaskResult{Name: runnable.GlobalKey, Success: true}
 				} else {
 					if task.IgnoreFailure {
-						updateTaskStatus(runID, stepName, task.Name, "failed (ignored)", exitCode, llmDurationMs)
+						updateTaskStatus(runID, stepName, task.Name, "failure (ignored)", exitCode, llmDurationMs)
 						log.Warn().Str("pipeline", pipelineName).Str("task", task.Name).Msg("Task failed, but failure is ignored.")
 						results <- TaskResult{Name: runnable.GlobalKey, Success: true}
 					} else {
-						updateTaskStatus(runID, stepName, task.Name, "failed", exitCode, llmDurationMs)
+						updateTaskStatus(runID, stepName, task.Name, "failure", exitCode, llmDurationMs)
 						log.Error().Str("pipeline", pipelineName).Str("task", task.Name).Msg("Critical task failed.")
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 					}
