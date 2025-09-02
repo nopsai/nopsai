@@ -16,18 +16,21 @@
         .graph-node { cursor: pointer; transition: all 0.2s ease-in-out; }
         .graph-node:hover .node-rect { stroke-width: 2; }
         .graph-node:hover .node-text { font-weight: 600; }
-        .log-viewer { font-family: 'Courier New', Courier, monospace; white-space: pre-wrap; word-break: break-all; }
-        .log-viewer::-webkit-scrollbar { width: 6px; height: 6px; }
-        .log-viewer::-webkit-scrollbar-thumb { background-color: #4a5568; border-radius: 10px; }
-        .log-viewer::-webkit-scrollbar-track { background-color: #1a202c; }
         [data-page] { display: none; }
         [data-page].active { display: block; }
+        #graph-wrapper {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-gray-100">
 
     <div id="app" class="flex h-screen overflow-hidden">
-        <!-- Sidebar -->
         <aside id="sidebar" class="bg-gray-800 w-64 lg:w-72 flex-shrink-0 flex flex-col transition-transform duration-300 ease-in-out -translate-x-full sm:translate-x-0 fixed sm:static h-full z-20">
             <div class="flex items-center justify-between px-6 h-16 border-b border-gray-700">
                 <div class="flex items-center">
@@ -39,20 +42,17 @@
                 </button>
             </div>
              <nav class="flex-1 px-4 py-4 overflow-y-auto sidebar-scrollbar" id="sidebar-nav">
-                <!-- Nav items will be injected here -->
-            </nav>
+                </nav>
         </aside>
 
-        <!-- Main Content -->
         <main class="flex-1 flex flex-col overflow-hidden">
              <header class="flex items-center justify-between px-6 h-16 bg-gray-800/50 backdrop-blur-sm border-b border-gray-700 z-10">
                 <button id="open-sidebar-btn" class="sm:hidden text-gray-400 hover:text-white">
                     <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7" /></svg>
                 </button>
-                <div class="flex-1"><h1 id="main-header" class="text-xl font-semibold">Dashboard</h1></div>
+                <div id="main-header" class="flex-1 text-xl font-semibold">Dashboard</div>
             </header>
             <div id="page-content-wrapper" class="flex-1 overflow-auto">
-                <!-- Page: Pipeline Runs -->
                 <div data-page="runs" class="active h-full">
                     <div id="main-content-runs" class="p-6 h-full">
                          <div id="placeholder" class="h-full flex flex-col items-center justify-center text-center text-gray-500">
@@ -60,37 +60,23 @@
                             <h3 class="text-lg font-semibold">Select a pipeline run</h3>
                             <p>Choose a run from the sidebar to view its progress.</p>
                         </div>
-                        <div id="graph-container" class="hidden w-full h-full"></div>
+                        <div id="graph-container" class="hidden w-full h-full">
+                             <div id="graph-wrapper"></div>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Page: Pipelines -->
-                <div data-page="pipelines" class="h-full">
-                    <div class="p-6">
-                        <h1 class="text-2xl font-bold mb-4">Manage Pipelines</h1>
-                        <p class="text-gray-400">UI for creating, editing, and deleting central pipelines coming soon.</p>
-                    </div>
-                </div>
-
-                <!-- Page: Secrets -->
-                <div data-page="secrets" class="h-full">
-                    <div class="p-6">
-                        <h1 class="text-2xl font-bold mb-4">Manage Secrets</h1>
-                        <p class="text-gray-400">UI for managing global and repository-specific secrets coming soon.</p>
-                    </div>
-                </div>
+                <div data-page="pipelines" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Pipelines</h1><p class="text-gray-400">UI for managing central pipelines is coming soon.</p></div></div>
+                <div data-page="secrets" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Secrets</h1><p class="text-gray-400">UI for managing secrets is coming soon.</p></div></div>
             </div>
         </main>
     </div>
 
-    <!-- Step Details Modal -->
     <div id="step-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
         <div id="modal-content" class="bg-gray-800 rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col transform scale-95 transition-transform duration-300">
             <div class="flex items-center justify-between p-4 border-b border-gray-700">
                 <h2 id="modal-title" class="text-xl font-semibold">Step Details</h2>
-                <button id="close-modal-btn" class="text-gray-400 hover:text-white">
-                    <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                </button>
+                <button id="close-modal-btn" class="text-gray-400 hover:text-white"><svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
             </div>
             <div class="p-6 flex-1 overflow-y-auto">
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
@@ -98,9 +84,13 @@
                     <div><h4 class="text-sm text-gray-400">Duration</h4><p id="modal-duration" class="text-lg font-medium"></p></div>
                     <div><h4 class="text-sm text-gray-400">Tasks</h4><p id="modal-task-count" class="text-lg font-medium"></p></div>
                 </div>
-                <div>
-                    <h4 class="text-sm text-gray-400 mb-2">Tasks in this Step</h4>
-                    <div id="modal-tasks" class="bg-gray-900 rounded-md p-4 text-sm text-gray-300 max-h-96 overflow-y-auto log-viewer"></div>
+                <div id="task-graph-container" class="mt-4">
+                    <h4 class="text-sm text-gray-400 mb-2">Task Dependencies</h4>
+                    <div id="task-graph" class="bg-gray-900/50 rounded-md p-4 flex items-center justify-center min-h-[100px]"></div>
+                </div>
+                <div id="task-list-container" class="mt-6">
+                    <h4 class="text-sm text-gray-400 mb-2">Task Status</h4>
+                    <div id="task-list" class="space-y-2"></div>
                 </div>
             </div>
         </div>
@@ -109,42 +99,57 @@
     <script>
     document.addEventListener('DOMContentLoaded', () => {
         const API_BASE_URL = 'http://localhost:8080';
-
-        // --- DOM Elements ---
-        const sidebarNav = document.getElementById('sidebar-nav');
-        const mainHeader = document.getElementById('main-header');
-        const pages = document.querySelectorAll('[data-page]');
-        const pageContentWrapper = document.getElementById('page-content-wrapper');
+        const DOM = {
+            sidebarNav: document.getElementById('sidebar-nav'),
+            mainHeader: document.getElementById('main-header'),
+            pages: document.querySelectorAll('[data-page]'),
+            pageContentWrapper: document.getElementById('page-content-wrapper'),
+            placeholder: document.getElementById('placeholder'),
+            graphContainer: document.getElementById('graph-container'),
+            graphWrapper: document.getElementById('graph-wrapper'),
+            openSidebarBtn: document.getElementById('open-sidebar-btn'),
+            closeSidebarBtn: document.getElementById('close-sidebar-btn'),
+            sidebar: document.getElementById('sidebar'),
+            modal: document.getElementById('step-modal'),
+            modalContent: document.getElementById('modal-content'),
+            closeModalBtn: document.getElementById('close-modal-btn'),
+        };
         
-        // Page-specific elements
-        const placeholder = document.getElementById('placeholder');
-        const graphContainer = document.getElementById('graph-container');
+        let state = {
+            pollingInterval: null,
+            currentRunData: null,
+        };
 
-        const openSidebarBtn = document.getElementById('open-sidebar-btn');
-        const closeSidebarBtn = document.getElementById('close-sidebar-btn');
-        const sidebar = document.getElementById('sidebar');
-        const modal = document.getElementById('step-modal');
-        const modalContent = document.getElementById('modal-content');
-        const closeModalBtn = document.getElementById('close-modal-btn');
-        
-        // --- State ---
-        let activeRunId = null;
-        let pollingInterval = null;
-        let currentRunData = null;
-
-        // --- UI Configuration ---
         const statusConfig = {
-            success: { icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-green-400', rectClass: 'stroke-green-500 fill-green-500/10' },
-            failure: { icon: 'M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-red-400', rectClass: 'stroke-red-500 fill-red-500/10' },
-            running: { icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-blue-400', rectClass: 'stroke-blue-500 fill-blue-500/10 animate-pulse' },
+            completed: { icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-green-400', rectClass: 'stroke-green-500 fill-green-500/10' },
+            failed: { icon: 'M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-red-400', rectClass: 'stroke-red-500 fill-red-500/10' },
+            started: { icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-blue-400', rectClass: 'stroke-blue-500 fill-blue-500/10 animate-pulse' },
+            running: { icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-blue-400', rectClass: 'stroke-blue-500 fill-blue-500/10 animate-pulse' }, // For aggregate step status
             pending: { icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-gray-400', rectClass: 'stroke-gray-500 fill-gray-500/10' },
             skipped: { icon: 'M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-yellow-400', rectClass: 'stroke-yellow-500 fill-yellow-500/10' },
             'failed (ignored)': { icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z', color: 'text-yellow-400', rectClass: 'stroke-yellow-500 fill-yellow-500/10' },
-            completed: { icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-green-400', rectClass: 'stroke-green-500 fill-green-500/10' },
-            started: { icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-blue-400', rectClass: 'stroke-blue-500 fill-blue-500/10 animate-pulse' },
+            success: { icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-green-400', rectClass: 'stroke-green-500 fill-green-500/10' }, // For aggregate step status
         };
+        
+        function timeAgo(dateString) {
+            if (!dateString || new Date(dateString).getFullYear() < 2000) return '';
+            const seconds = Math.round((new Date() - new Date(dateString)) / 1000);
+            const minutes = Math.round(seconds / 60);
+            const hours = Math.round(minutes / 60);
+            const days = Math.round(hours / 24);
+            if (seconds < 60) return `${seconds}s ago`;
+            if (minutes < 60) return `${minutes}m ago`;
+            if (hours < 24) return `${hours}h ago`;
+            return `${days}d ago`;
+        }
 
-        // --- API Functions ---
+        function formatDuration(startStr, endStr) {
+            if (!startStr || new Date(startStr).getFullYear() < 2000) return 'N/A';
+            const start = new Date(startStr);
+            const end = (endStr && new Date(endStr).getFullYear() > 2000) ? new Date(endStr) : new Date();
+            return `${((end - start) / 1000).toFixed(2)}s`;
+        }
+        
         async function fetchData(url) {
             try {
                 const response = await fetch(API_BASE_URL + url);
@@ -156,106 +161,81 @@
             }
         }
 
-        async function fetchAndRenderAllRuns() {
-             const runs = await fetchData('/v1/runs');
-             if (runs) {
-                renderPipelineRunsList(runs);
-                const hasActiveRuns = runs.some(run => !run.is_complete);
-                
-                if (!hasActiveRuns && pollingInterval) {
-                    stopPolling();
-                } else if (hasActiveRuns && !pollingInterval) {
-                    startPolling(fetchAndRenderAllRuns);
-                }
-
-                if ((!activeRunId && runs.length > 0) || (activeRunId && !runs.find(r => r.run_id === activeRunId))) {
-                    if (runs.length > 0) setActiveRun(runs[0].run_id);
-                }
-             } else {
-                 const listEl = document.getElementById('pipeline-runs-list');
-                 if(listEl) listEl.innerHTML = `<li class="p-2 text-sm text-gray-500">Could not fetch runs. Is the backend running?</li>`;
-             }
-
-             if (activeRunId) {
-                await fetchAndRenderActiveRun();
-             }
+        async function fetchAllRuns() {
+            const runs = await fetchData('/v1/runs');
+            if (runs) renderPipelineRunsList(runs);
         }
 
-        async function fetchAndRenderActiveRun() {
-            if (!activeRunId) return;
-            const runDetails = await fetchData(`/v1/runs/${activeRunId}`);
+        async function fetchActiveRun(runId) {
+            if (!runId) return;
+            const runDetails = await fetchData(`/v1/runs/${runId}`);
             if (runDetails) {
-                currentRunData = runDetails;
+                state.currentRunData = runDetails;
                 renderPipelineGraph(runDetails);
-
-                const openModalStepName = document.getElementById('modal-title').textContent.replace('Step Details: ', '');
-                if (!modal.classList.contains('hidden')) {
-                    showStepDetails(openModalStepName);
+                const stepName = window.location.hash.split('/steps/')[1];
+                if (stepName) {
+                    showStepDetails(stepName);
                 }
             }
         }
         
-        // --- Rendering Functions ---
         function renderSidebar(activeRoute) {
-             const navConfig = [
+            const navConfig = [
                 { route: 'runs', title: 'Pipeline Runs', icon: 'M4 6h16M4 12h16M4 18h7' },
                 { route: 'pipelines', title: 'Pipelines', icon: 'M9 17V7h2v10H9zm4-12h2v12h-2V5zm4 4h2v8h-2V9zM3 3h18v2H3V3z' },
                 { route: 'secrets', title: 'Secrets', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
             ];
-
-            let navHtml = '';
-            navConfig.forEach(item => {
-                const isActive = item.route === activeRoute;
-                navHtml += `
-                    <a href="#/${item.route}" class="flex items-center p-2 text-gray-300 rounded-md hover:bg-gray-700 transition-colors duration-200 group ${isActive ? 'bg-gray-700 text-white' : ''}" data-navigo>
-                        <svg class="h-5 w-5 mr-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${item.icon}"/></svg>
-                        <span>${item.title}</span>
-                    </a>
-                `;
-            });
+            let navHtml = navConfig.map(item => {
+                const isActive = activeRoute === item.route;
+                return `<a href="#/${item.route}" class="flex items-center p-2 text-gray-300 rounded-md hover:bg-gray-700 transition-colors duration-200 group ${isActive ? 'bg-gray-700 text-white' : ''}" data-navigo>
+                            <svg class="h-5 w-5 mr-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${item.icon}"/></svg>
+                            <span>${item.title}</span>
+                        </a>`;
+            }).join('');
             
-            sidebarNav.innerHTML = `<div class="space-y-1">${navHtml}</div>`;
-
+            DOM.sidebarNav.innerHTML = `<div class="space-y-1">${navHtml}</div>`;
             if (activeRoute === 'runs') {
-                 sidebarNav.innerHTML += `
-                    <h2 class="px-2 mt-6 mb-2 text-xs font-semibold tracking-wider text-gray-400 uppercase">Recent Runs</h2>
-                    <ul id="pipeline-runs-list" class="space-y-1"></ul>
-                 `;
+                 DOM.sidebarNav.innerHTML += `<h2 class="px-2 mt-6 mb-2 text-xs font-semibold tracking-wider text-gray-400 uppercase">Recent Runs</h2>
+                                            <ul id="pipeline-runs-list" class="space-y-1"></ul>`;
             }
         }
 
         function renderPipelineRunsList(runs) {
             const listEl = document.getElementById('pipeline-runs-list');
             if (!listEl) return;
-            listEl.innerHTML = '';
-            runs.forEach(run => {
-                const li = document.createElement('li');
+            const activeRunId = window.location.hash.split('/')[2];
+            listEl.innerHTML = runs.map(run => {
                 const status = run.is_complete ? run.status : 'running';
                 const config = statusConfig[status.toLowerCase()] || statusConfig.pending;
-                
-                li.innerHTML = `
-                    <a href="#/runs" class="flex items-center p-2 text-gray-300 rounded-md hover:bg-gray-700 transition-colors duration-200 group ${run.run_id === activeRunId ? 'bg-gray-700 text-white' : ''}" data-run-id="${run.run_id}">
-                        <svg class="h-5 w-5 mr-3 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
-                        <div>
-                            <span class="font-medium">${run.pipeline_name}</span>
-                            <p class="text-xs text-gray-400">${run.git_repo_name || ''} #${(run.git_commit_sha || '...').slice(0, 7)}</p>
-                        </div>
-                    </a>`;
-                listEl.appendChild(li);
-            });
+                const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
+                const isActive = run.run_id === activeRunId;
+                return `<li>
+                        <a href="#/runs/${run.run_id}" class="flex items-center p-2 text-gray-300 rounded-md hover:bg-gray-700 ${isActive ? 'bg-gray-700 text-white' : ''}">
+                            <svg class="h-5 w-5 mr-3 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
+                            <div class="flex-1 overflow-hidden">
+                                <div class="flex justify-between items-center">
+                                    <span class="font-medium truncate">${run.pipeline_name}</span>
+                                    <span class="text-xs text-gray-500 flex-shrink-0 ml-2">${timeAgo(timeToDisplay)}</span>
+                                </div>
+                                <p class="text-xs text-gray-400 truncate">
+                                    <span class="font-semibold">${run.git_repo_name || 'System'}</span> on #${(run.git_commit_sha || '...').slice(0, 7)}
+                                </p>
+                            </div>
+                        </a>
+                    </li>`;
+            }).join('');
         }
 
         function renderPipelineGraph(runDetails) {
-            if (!runDetails || !runDetails.steps) {
-                placeholder.classList.remove('hidden');
-                graphContainer.classList.add('hidden');
-                return;
-            }
-            mainHeader.textContent = `${runDetails.run_info.pipeline_name} (#${runDetails.run_info.run_id.slice(0, 8)})`;
-            placeholder.classList.add('hidden');
-            graphContainer.classList.remove('hidden');
+            const runInfo = runDetails.run_info;
+            DOM.mainHeader.innerHTML = `<div class="flex-1 text-xl font-semibold">
+                                        ${runInfo.pipeline_name} (#${runInfo.run_id.slice(0, 8)})
+                                        <span class="text-sm font-normal text-gray-400 ml-2">(${runInfo.duration || '0s'})</span>
+                                      </div>`;
+            DOM.placeholder.classList.add('hidden');
+            DOM.graphContainer.classList.remove('hidden');
 
-            const { nodes, edges, width, height } = calculateGraphLayout(runDetails.steps);
+            const { nodes, edges, width, height } = calculateGraphLayout(runDetails.steps, DOM.pageContentWrapper, 180, 50, 80, 50);
             
             let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="8" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#6b7280" /></marker></defs>`;
             edges.forEach(edge => svgContent += `<line x1="${edge.x1}" y1="${edge.y1}" x2="${edge.x2}" y2="${edge.y2}" stroke="#4b5563" stroke-width="1.5" marker-end="url(#arrowhead)"></line>`);
@@ -267,209 +247,257 @@
                         <foreignObject x="0" y="0" width="${node.width}" height="${node.height}">
                             <div xmlns="http://www.w3.org/1999/xhtml" class="w-full h-full flex items-center p-3">
                                 <svg class="h-5 w-5 mr-2 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
-                                <div><p class="node-text text-sm font-medium text-gray-200 truncate">${node.name}</p><p class="text-xs text-gray-400 capitalize">${node.status.replace(/_/g, ' ')}</p></div>
+                                <div><p class="node-text text-sm font-medium text-gray-200 truncate">${node.name}</p><p class="text-xs text-gray-400 capitalize">${node.status}</p></div>
                             </div>
                         </foreignObject>
                     </g>`;
             });
-            graphContainer.innerHTML = `<div class="absolute inset-0 flex items-center justify-center">${svgContent}</div>`;
+            DOM.graphWrapper.innerHTML = svgContent;
         }
         
-        function calculateGraphLayout(steps) {
-            if (!steps || steps.length === 0) return { nodes: [], edges: [], width: 0, height: 0 };
-            const nodeWidth = 180, nodeHeight = 50, hGap = 80, vGap = 50;
+        function calculateGraphLayout(items, container, nodeWidth, nodeHeight, hGap, vGap) {
+            if (!items || items.length === 0) return { nodes: [], edges: [], width: 0, height: 0 };
             
             const nodes = {};
             const adj = {};
-            steps.forEach(step => {
-                nodes[step.name] = { ...step, children: [], parents: 0, level: -1, x: 0, y: 0, width: nodeWidth, height: nodeHeight };
-                adj[step.name] = [];
+            const itemNameKey = 'task_name' in items[0] ? 'task_name' : 'name';
+
+            items.forEach(item => {
+                const name = item[itemNameKey];
+                nodes[name] = { ...item, parents: 0, children: [], x: 0, y: 0, width: nodeWidth, height: nodeHeight };
+                adj[name] = [];
             });
 
-            steps.forEach(step => {
-                (step.depends_on || []).forEach(dep => {
-                    if (adj[dep] && nodes[step.name]) {
-                        adj[dep].push(step.name);
-                        nodes[step.name].parents++;
+            items.forEach(item => {
+                const name = item[itemNameKey];
+                (item.depends_on || []).forEach(dep => {
+                    if (adj[dep] && nodes[name]) {
+                        adj[dep].push(name);
+                        nodes[name].parents++;
                     }
                 });
             });
 
             const levels = [];
             let queue = Object.values(nodes).filter(node => node.parents === 0);
-            let level = 0;
-
-            while (queue.length > 0) {
-                levels[level] = queue.map(n => n.name);
+            let processedNodes = 0;
+            while (queue.length > 0 && processedNodes < items.length) {
+                processedNodes += queue.length;
+                const currentLevelNames = queue.map(n => n[itemNameKey]);
+                levels.push(currentLevelNames);
+                
                 const nextQueue = [];
-                for (const node of queue) {
-                    for (const neighborName of adj[node.name]) {
+                queue.forEach(node => {
+                    (adj[node[itemNameKey]] || []).forEach(neighborName => {
                         const neighbor = nodes[neighborName];
                         if (neighbor) {
                             neighbor.parents--;
-                            if (neighbor.parents === 0) {
-                                nextQueue.push(neighbor);
-                            }
+                            if (neighbor.parents === 0) nextQueue.push(neighbor);
                         }
-                    }
-                }
+                    });
+                });
                 queue = nextQueue;
-                level++;
             }
 
+            if (processedNodes < items.length) {
+                console.warn("A dependency cycle was detected. Some items may not be rendered.", items);
+                Object.keys(nodes).forEach(nodeName => {
+                    if (nodes[nodeName].parents > 0) delete nodes[nodeName];
+                });
+            }
+            
             let maxNodesInLevel = 0;
-            const containerHeight = pageContentWrapper.clientHeight; // FIX: Get height from visible parent
+            levels.forEach(levelItems => maxNodesInLevel = Math.max(maxNodesInLevel, levelItems.length));
 
-            levels.forEach((levelNodes, i) => {
-                const levelHeight = levelNodes.length * (nodeHeight + vGap) - vGap;
-                const yOffset = (containerHeight - levelHeight) / 2;
-                levelNodes.forEach((nodeName, j) => {
-                    const node = nodes[nodeName];
+            const graphWidth = levels.length * nodeWidth + (levels.length - 1) * hGap;
+            const graphHeight = maxNodesInLevel * nodeHeight + (maxNodesInLevel - 1) * vGap;
+            
+            levels.forEach((levelItems, i) => {
+                const levelHeight = levelItems.length * (nodeHeight + vGap) - vGap;
+                const yOffset = (container.clientHeight > levelHeight ? (container.clientHeight - levelHeight) / 2 : vGap);
+                levelItems.forEach((itemName, j) => {
+                    const node = nodes[itemName];
                     if(node) {
                         node.x = i * (nodeWidth + hGap);
                         node.y = j * (nodeHeight + vGap) + yOffset;
                     }
                 });
-                maxNodesInLevel = Math.max(maxNodesInLevel, levelNodes.length);
             });
-            
-            const graphWidth = levels.length * nodeWidth + (levels.length - 1) * hGap;
-            const graphHeight = maxNodesInLevel * nodeHeight + (maxNodesInLevel - 1) * vGap;
 
             const edges = [];
-            steps.forEach(step => {
-                (step.depends_on || []).forEach(dep => {
+            Object.values(nodes).forEach(item => {
+                (item.depends_on || []).forEach(dep => {
                     const fromNode = nodes[dep];
-                    const toNode = nodes[step.name];
+                    const toNode = nodes[item[itemNameKey]];
                     if (fromNode && toNode) {
                         edges.push({
-                            x1: fromNode.x + nodeWidth,
-                            y1: fromNode.y + nodeHeight / 2,
-                            x2: toNode.x,
-                            y2: toNode.y + nodeHeight / 2
+                            x1: fromNode.x + nodeWidth, y1: fromNode.y + nodeHeight / 2,
+                            x2: toNode.x, y2: toNode.y + nodeHeight / 2
                         });
                     }
                 });
             });
+            return { nodes: Object.values(nodes), edges, width: Math.max(container.clientWidth, graphWidth + 20), height: Math.max(container.clientHeight, graphHeight + 20) };
+        }
 
-            return { nodes: Object.values(nodes), edges, width: graphWidth + 20, height: containerHeight };
+        function renderTaskGraph(stepName, tasks) {
+            const taskGraphEl = document.getElementById('task-graph');
+            if (!state.currentRunData || !state.currentRunData.pipeline_definition || !state.currentRunData.pipeline_definition.steps) {
+                 taskGraphEl.innerHTML = '<p class="text-gray-500 text-sm">Waiting for pipeline data...</p>';
+                 return;
+            }
+            if (!tasks || tasks.length === 0) {
+                taskGraphEl.innerHTML = '<p class="text-gray-500 text-sm">This step has no tasks defined.</p>';
+                return;
+            }
+            if (tasks.length === 1) {
+                taskGraphEl.innerHTML = '<p class="text-gray-500 text-sm">This step has a single task with no internal dependencies.</p>';
+                return;
+            }
+
+            const stepDef = state.currentRunData.pipeline_definition.steps.find(s => s.name === stepName);
+            const tasksWithDeps = tasks.map(task => {
+                const taskDef = stepDef && stepDef.tasks ? stepDef.tasks.find(t => t.name === task.task_name) : null;
+                return { ...task, depends_on: taskDef ? taskDef.depends_on : [] };
+            });
+
+            const { nodes, edges, width, height } = calculateGraphLayout(tasksWithDeps, taskGraphEl, 160, 40, 60, 40);
+
+            let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><defs><marker id="task_arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#6b7280" /></marker></defs>`;
+            edges.forEach(edge => svgContent += `<line x1="${edge.x1}" y1="${edge.y1}" x2="${edge.x2}" y2="${edge.y2}" stroke="#4b5563" stroke-width="1" marker-end="url(#task_arrow)"></line>`);
+            nodes.forEach(node => {
+                const status = (node.status || 'pending').toLowerCase();
+                const config = statusConfig[status] || statusConfig.pending;
+                const duration = formatDuration(node.started_at, node.finished_at);
+                svgContent += `
+                    <g transform="translate(${node.x}, ${node.y})">
+                        <rect class="${config.rectClass}" x="0" y="0" width="${node.width}" height="${node.height}" rx="6" stroke-width="1.5"></rect>
+                        <foreignObject x="0" y="0" width="${node.width}" height="${node.height}">
+                            <div xmlns="http://www.w3.org/1999/xhtml" class="w-full h-full flex items-center p-2 text-xs">
+                                <svg class="h-4 w-4 mr-2 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
+                                <div class="flex-1 overflow-hidden">
+                                    <p class="font-medium text-gray-200 truncate">${node.task_name}</p>
+                                    <p class="text-gray-400">${duration}</p>
+                                </div>
+                            </div>
+                        </foreignObject>
+                    </g>`;
+            });
+            taskGraphEl.innerHTML = svgContent + `</svg>`;
+        }
+
+        function renderTaskList(tasks) {
+            const taskListEl = document.getElementById('task-list');
+            if (!tasks || tasks.length === 0) {
+                taskListEl.innerHTML = '';
+                return;
+            }
+            
+            taskListEl.innerHTML = tasks.map(task => {
+                const status = (task.status || 'pending').toLowerCase();
+                const config = statusConfig[status] || statusConfig.pending;
+                const duration = formatDuration(task.started_at, task.finished_at);
+                return `<div class="flex items-center bg-gray-900/50 p-2 rounded-md">
+                            <svg class="h-5 w-5 mr-3 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
+                            <span class="font-medium text-sm truncate">${task.task_name}</span>
+                            <span class="ml-auto text-sm capitalize font-semibold ${config.color}">${status.replace(/_/g, ' ')}</span>
+                            <span class="text-sm text-gray-400 w-20 text-right">${duration}</span>
+                        </div>`;
+            }).join('');
         }
 
         function showStepDetails(stepName) {
-            if (!currentRunData || !currentRunData.steps) return;
-            const step = currentRunData.steps.find(s => s.name === stepName);
+            if (!state.currentRunData || !state.currentRunData.steps) return;
+            const step = state.currentRunData.steps.find(s => s.name === stepName);
             if (!step) return;
 
             const config = statusConfig[step.status.toLowerCase()] || statusConfig.pending;
 
             document.getElementById('modal-title').textContent = `Step Details: ${stepName}`;
             document.getElementById('modal-status').innerHTML = `<span class="font-bold capitalize ${config.color}">${step.status}</span>`;
+            document.getElementById('modal-duration').textContent = step.duration || '0s';
             document.getElementById('modal-task-count').textContent = `${step.tasks.length} task(s)`;
             
-            const startTimes = step.tasks.map(t => new Date(t.started_at)).filter(d => !isNaN(d));
-            const endTimes = step.tasks.map(t => new Date(t.finished_at)).filter(d => !isNaN(d));
-            
-            let duration = "Not started";
-            if(startTimes.length > 0) {
-                 const firstStart = new Date(Math.min.apply(null, startTimes));
-                 if(endTimes.length === step.tasks.length && endTimes.every(t => t.getFullYear() > 1970)) {
-                    const lastEnd = new Date(Math.max.apply(null, endTimes));
-                    duration = `${((lastEnd - firstStart) / 1000).toFixed(2)}s`;
-                 } else {
-                    duration = "Running...";
-                 }
-            }
-            document.getElementById('modal-duration').textContent = duration;
+            renderTaskGraph(step.name, step.tasks);
+            renderTaskList(step.tasks);
 
-            const tasksHtml = step.tasks.map(task => {
-                const taskConfig = statusConfig[task.status.toLowerCase()] || statusConfig.pending;
-                return `<div class="flex items-center py-1">
-                    <svg class="h-4 w-4 mr-2 flex-shrink-0 ${taskConfig.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${taskConfig.icon}"/></svg>
-                    <span class="font-mono text-xs mr-4">${task.task_name}</span>
-                    <span class="ml-auto text-xs capitalize">${task.status}</span>
-                </div>`
-            }).join('');
-            document.getElementById('modal-tasks').innerHTML = tasksHtml;
-
-            modal.classList.remove('hidden');
+            DOM.modal.classList.remove('hidden');
             setTimeout(() => {
-                modal.classList.add('opacity-100');
-                modalContent.classList.remove('scale-95');
+                DOM.modal.classList.add('opacity-100');
+                DOM.modalContent.classList.remove('scale-95');
             }, 10);
         }
 
-        // --- Router ---
-        function router() {
-            const path = window.location.hash.slice(2) || 'runs';
-            pages.forEach(p => p.classList.toggle('active', p.dataset.page === path));
-            renderSidebar(path);
-
-            mainHeader.textContent = path.charAt(0).toUpperCase() + path.slice(1);
-
+        async function router() {
             stopPolling();
+            const hash = window.location.hash || '#/runs';
+            const [path, runId, , stepName] = hash.slice(2).split('/');
+            
+            DOM.pages.forEach(p => p.classList.toggle('active', p.dataset.page === path));
+            renderSidebar(path);
+            
             if (path === 'runs') {
-                const listEl = document.getElementById('pipeline-runs-list');
-                if (listEl) listEl.innerHTML = `<li class="p-2 text-sm text-gray-500 animate-pulse">Loading runs...</li>`;
-                fetchAndRenderAllRuns().then(() => startPolling(fetchAndRenderAllRuns));
+                startPolling(fetchAllRuns, 3000);
+                if (runId) {
+                    await fetchActiveRun(runId);
+                    if (stepName) {
+                        showStepDetails(stepName);
+                    }
+                } else {
+                    DOM.placeholder.classList.remove('hidden');
+                    DOM.graphContainer.classList.add('hidden');
+                    DOM.mainHeader.textContent = 'Dashboard';
+                }
+            } else {
+                DOM.mainHeader.textContent = path.charAt(0).toUpperCase() + path.slice(1);
             }
         }
         
-        // --- Event Handlers & Control Flow ---
         function closeModal() {
-            modal.classList.remove('opacity-100');
-            modalContent.classList.add('scale-95');
-            setTimeout(() => modal.classList.add('hidden'), 300);
+            const hash = window.location.hash;
+            const newHash = hash.split('/steps/')[0];
+            if (hash !== newHash) window.location.hash = newHash;
+
+            DOM.modal.classList.remove('opacity-100');
+            DOM.modalContent.classList.add('scale-95');
+            setTimeout(() => DOM.modal.classList.add('hidden'), 300);
         }
 
-        function setActiveRun(runId) {
-            if (activeRunId === runId) return;
-            activeRunId = runId;
-            fetchAndRenderActiveRun(); 
-             document.querySelectorAll('#pipeline-runs-list a').forEach(a => {
-                a.classList.toggle('bg-gray-700', a.dataset.runId === runId);
-                a.classList.toggle('text-white', a.dataset.runId === runId);
-            });
-        }
-
-        function startPolling(pollingFunc) {
-            if (pollingInterval) return;
-            pollingInterval = setInterval(pollingFunc, 3000);
+        function startPolling(pollingFunc, interval) {
+            if (state.pollingInterval) clearInterval(state.pollingInterval);
+            pollingFunc();
+            state.pollingInterval = setInterval(pollingFunc, interval);
         }
 
         function stopPolling() {
-            clearInterval(pollingInterval);
-            pollingInterval = null;
+            clearInterval(state.pollingInterval);
+            state.pollingInterval = null;
         }
-
-        sidebar.addEventListener('click', e => {
-            const runLink = e.target.closest('a[data-run-id]');
-            const navLink = e.target.closest('a[data-navigo]');
-
-            if (runLink) {
-                e.preventDefault();
-                setActiveRun(runLink.dataset.runId);
-                if (window.innerWidth < 640) sidebar.classList.add('-translate-x-full');
-            } else if (navLink) {
-                // Let the hashchange event handle it
-                 if (window.innerWidth < 640) sidebar.classList.add('-translate-x-full');
+        
+        DOM.graphContainer.addEventListener('click', e => {
+            const node = e.target.closest('.graph-node');
+            if (node) {
+                const runId = window.location.hash.split('/')[2];
+                window.location.hash = `#/runs/${runId}/steps/${node.dataset.stepName}`;
             }
         });
         
-        graphContainer.addEventListener('click', e => {
-            const node = e.target.closest('.graph-node');
-            if (node) showStepDetails(node.dataset.stepName);
+        DOM.sidebar.addEventListener('click', e => {
+            const runLink = e.target.closest('a[data-run-id]');
+            if (runLink && window.innerWidth < 640) {
+                DOM.sidebar.classList.add('-translate-x-full');
+            }
         });
 
-        closeModalBtn.addEventListener('click', closeModal);
-        modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
-        openSidebarBtn.addEventListener('click', () => sidebar.classList.remove('-translate-x-full'));
-        closeSidebarBtn.addEventListener('click', () => sidebar.classList.add('-translate-x-full'));
+        DOM.closeModalBtn.addEventListener('click', closeModal);
+        DOM.modal.addEventListener('click', e => { if (e.target === DOM.modal) closeModal(); });
+        DOM.openSidebarBtn.addEventListener('click', () => DOM.sidebar.classList.remove('-translate-x-full'));
+        DOM.closeSidebarBtn.addEventListener('click', () => DOM.sidebar.classList.add('-translate-x-full'));
         
-        // --- Initial Load ---
         window.addEventListener('hashchange', router);
-        router(); // Initial call
+        
+        router();
     });
     </script>
 </body>
 </html>
-

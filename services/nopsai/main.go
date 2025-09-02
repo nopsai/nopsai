@@ -66,6 +66,7 @@ type StepDetail struct {
 	Status    string       `json:"status"`
 	DependsOn []string     `json:"depends_on"`
 	Tasks     []TaskDetail `json:"tasks"`
+	Duration  string       `json:"duration"`
 }
 
 type TaskDetail struct {
@@ -80,8 +81,9 @@ type TaskDetail struct {
 }
 
 type RunDetail struct {
-	RunInfo RunListItem  `json:"run_info"`
-	Steps   []StepDetail `json:"steps"`
+	RunInfo            RunListItem     `json:"run_info"`
+	Steps              []StepDetail    `json:"steps"`
+	PipelineDefinition models.Pipeline `json:"pipeline_definition"`
 }
 
 type StepStatusUpdate struct {
@@ -1066,9 +1068,28 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	for _, pStep := range pipeline.Steps {
 		stepTasks := tasksByStep[pStep.Name]
 
-		// Determine aggregate step status
 		status := "pending"
+		var stepDuration time.Duration
+		var firstTaskStart, lastTaskFinish time.Time
+
 		if len(stepTasks) > 0 {
+			for _, t := range stepTasks {
+				if firstTaskStart.IsZero() || (!t.StartedAt.IsZero() && t.StartedAt.Before(firstTaskStart)) {
+					firstTaskStart = t.StartedAt
+				}
+				if !t.FinishedAt.IsZero() && t.FinishedAt.After(lastTaskFinish) {
+					lastTaskFinish = t.FinishedAt
+				}
+			}
+
+			if !firstTaskStart.IsZero() {
+				if !lastTaskFinish.IsZero() {
+					stepDuration = lastTaskFinish.Sub(firstTaskStart)
+				} else {
+					stepDuration = time.Since(firstTaskStart)
+				}
+			}
+
 			if slices.ContainsFunc(stepTasks, func(t TaskDetail) bool {
 				return strings.Contains(t.Status, "fail") && !strings.Contains(t.Status, "ignore")
 			}) {
@@ -1091,12 +1112,14 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 			Status:    status,
 			DependsOn: pStep.DependsOn,
 			Tasks:     stepTasks,
+			Duration:  stepDuration.Round(time.Second).String(),
 		})
 	}
 
 	response := RunDetail{
-		RunInfo: run,
-		Steps:   steps,
+		RunInfo:            run,
+		Steps:              steps,
+		PipelineDefinition: pipeline,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
