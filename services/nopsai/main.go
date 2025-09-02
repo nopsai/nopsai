@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -46,6 +47,43 @@ type App struct {
 	encKey []byte
 }
 
+type RunListItem struct {
+	RunID         string    `json:"run_id"`
+	PipelineName  string    `json:"pipeline_name"`
+	Status        string    `json:"status"`
+	GitCommitSHA  string    `json:"git_commit_sha"`
+	GitRepoName   string    `json:"git_repo_name"`
+	StartedAt     time.Time `json:"started_at"`
+	FinishedAt    time.Time `json:"finished_at"`
+	Duration      string    `json:"duration"`
+	IsComplete    bool      `json:"is_complete"`
+	ParentRunID   *string   `json:"parent_run_id"`
+	GitPusherName string    `json:"git_pusher_name"`
+}
+
+type StepDetail struct {
+	Name      string       `json:"name"`
+	Status    string       `json:"status"`
+	DependsOn []string     `json:"depends_on"`
+	Tasks     []TaskDetail `json:"tasks"`
+}
+
+type TaskDetail struct {
+	TaskID     string    `json:"task_id"`
+	StepName   string    `json:"step_name"`
+	TaskName   string    `json:"task_name"`
+	Status     string    `json:"status"`
+	ExitCode   *int      `json:"exit_code"`
+	StartedAt  time.Time `json:"started_at"`
+	FinishedAt time.Time `json:"finished_at"`
+	TaskIndex  int       `json:"task_index"`
+}
+
+type RunDetail struct {
+	RunInfo RunListItem  `json:"run_info"`
+	Steps   []StepDetail `json:"steps"`
+}
+
 type StepStatusUpdate struct {
 	Status   string `json:"status"`
 	ExitCode int    `json:"exit_code"`
@@ -72,6 +110,22 @@ type FinalizeRequest struct {
 }
 
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
+
+// corsMiddleware allows cross-origin requests from the UI development server.
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*") // Allow any origin for simplicity in POC
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
 
 func validatePipeline(pipeline *models.Pipeline) error {
 	if pipeline.Name == "" {
@@ -875,6 +929,190 @@ func (a *App) handleDeletePipeline(w http.ResponseWriter, r *http.Request) {
 func sanitizeInput(name string) string {
 	sanitized := strings.ReplaceAll(name, " ", "-")
 	return nonAlphanumericRegex.ReplaceAllString(sanitized, "")
+}
+
+func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.db.Query(context.Background(), `
+		SELECT
+			run_id, pipeline_name, status, COALESCE(git_commit_sha, ''),
+			COALESCE(git_repo_name, ''), started_at, finished_at, parent_run_id,
+			COALESCE(git_pusher_name, '')
+		FROM runs
+		ORDER BY created_at DESC
+		LIMIT 100
+	`)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to query runs from database")
+		http.Error(w, "Failed to retrieve runs", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var runs []RunListItem
+	for rows.Next() {
+		var run RunListItem
+		var startedAt, finishedAt sql.NullTime
+		var commitSHA, repoName, pusherName sql.NullString
+		err := rows.Scan(
+			&run.RunID, &run.PipelineName, &run.Status, &commitSHA,
+			&repoName, &startedAt, &finishedAt, &run.ParentRunID, &pusherName,
+		)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to scan run row")
+			continue
+		}
+		run.GitCommitSHA = commitSHA.String
+		run.GitRepoName = repoName.String
+		run.GitPusherName = pusherName.String
+		if startedAt.Valid {
+			run.StartedAt = startedAt.Time
+		}
+		if finishedAt.Valid {
+			run.FinishedAt = finishedAt.Time
+			run.Duration = run.FinishedAt.Sub(run.StartedAt).Round(time.Second).String()
+			run.IsComplete = true
+		} else if startedAt.Valid {
+			run.Duration = time.Since(run.StartedAt).Round(time.Second).String()
+			run.IsComplete = false
+		} else {
+			run.IsComplete = true // If it hasn't even started, it's not "running"
+		}
+		runs = append(runs, run)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(runs)
+}
+
+func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
+	runID := r.PathValue("runID")
+
+	// Get main run info
+	var run RunListItem
+	var pipelineDefinition string
+	var startedAt, finishedAt sql.NullTime
+	var commitSHA, repoName, pusherName sql.NullString
+	err := a.db.QueryRow(context.Background(), `
+		SELECT
+			run_id, pipeline_name, status, COALESCE(git_commit_sha, ''),
+			COALESCE(git_repo_name, ''), started_at, finished_at, parent_run_id,
+			COALESCE(git_pusher_name, ''), pipeline_definition
+		FROM runs
+		WHERE run_id = $1
+	`, runID).Scan(
+		&run.RunID, &run.PipelineName, &run.Status, &commitSHA,
+		&repoName, &startedAt, &finishedAt, &run.ParentRunID, &pusherName, &pipelineDefinition,
+	)
+
+	if err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to query run details from database")
+		http.Error(w, "Run not found", http.StatusNotFound)
+		return
+	}
+	run.GitCommitSHA = commitSHA.String
+	run.GitRepoName = repoName.String
+	run.GitPusherName = pusherName.String
+	if startedAt.Valid {
+		run.StartedAt = startedAt.Time
+	}
+	if finishedAt.Valid {
+		run.FinishedAt = finishedAt.Time
+		run.Duration = run.FinishedAt.Sub(run.StartedAt).Round(time.Second).String()
+		run.IsComplete = true
+	} else if startedAt.Valid {
+		run.Duration = time.Since(run.StartedAt).Round(time.Second).String()
+	}
+
+	// Get all tasks for the run
+	taskRows, err := a.db.Query(context.Background(), `
+		SELECT task_id, step_name, task_name, status, exit_code, started_at, finished_at, task_index
+		FROM tasks
+		WHERE run_id = $1
+		ORDER BY task_index ASC
+	`, runID)
+	if err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to query tasks for run")
+		http.Error(w, "Failed to retrieve tasks", http.StatusInternalServerError)
+		return
+	}
+	defer taskRows.Close()
+
+	tasksByStep := make(map[string][]TaskDetail)
+	for taskRows.Next() {
+		var task TaskDetail
+		var startedAt, finishedAt sql.NullTime
+		if err := taskRows.Scan(&task.TaskID, &task.StepName, &task.TaskName, &task.Status, &task.ExitCode, &startedAt, &finishedAt, &task.TaskIndex); err != nil {
+			log.Error().Err(err).Msg("Failed to scan task row")
+			continue
+		}
+		if startedAt.Valid {
+			task.StartedAt = startedAt.Time
+		}
+		if finishedAt.Valid {
+			task.FinishedAt = finishedAt.Time
+		}
+		tasksByStep[task.StepName] = append(tasksByStep[task.StepName], task)
+	}
+
+	// Parse pipeline definition to get step dependencies
+	var pipeline models.Pipeline
+	if err := yaml.Unmarshal([]byte(pipelineDefinition), &pipeline); err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to parse pipeline definition for dependencies")
+		http.Error(w, "Failed to parse pipeline definition", http.StatusInternalServerError)
+		return
+	}
+
+	var steps []StepDetail
+	for _, pStep := range pipeline.Steps {
+		stepTasks := tasksByStep[pStep.Name]
+
+		// Determine aggregate step status
+		status := "pending"
+		if len(stepTasks) > 0 {
+			if slices.ContainsFunc(stepTasks, func(t TaskDetail) bool {
+				return strings.Contains(t.Status, "fail") && !strings.Contains(t.Status, "ignore")
+			}) {
+				status = "failure"
+			} else if slices.ContainsFunc(stepTasks, func(t TaskDetail) bool { return t.Status == "started" }) {
+				status = "running"
+			} else if allTasksDone(stepTasks) {
+				if slices.ContainsFunc(stepTasks, func(t TaskDetail) bool { return strings.Contains(t.Status, "ignore") }) {
+					status = "failed (ignored)"
+				} else {
+					status = "success"
+				}
+			} else if slices.ContainsFunc(stepTasks, func(t TaskDetail) bool { return t.Status == "skipped" }) {
+				status = "skipped"
+			}
+		}
+
+		steps = append(steps, StepDetail{
+			Name:      pStep.Name,
+			Status:    status,
+			DependsOn: pStep.DependsOn,
+			Tasks:     stepTasks,
+		})
+	}
+
+	response := RunDetail{
+		RunInfo: run,
+		Steps:   steps,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+func allTasksDone(tasks []TaskDetail) bool {
+	if len(tasks) == 0 {
+		return false
+	}
+	for _, t := range tasks {
+		if t.Status != "completed" && !strings.Contains(t.Status, "ignore") {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *App) launchAndRunPipeline(
@@ -1807,13 +2045,15 @@ func main() {
 	// Pipeline Execution
 	mux.HandleFunc("POST /v1/run", app.handleRunPipeline)
 	mux.HandleFunc("POST /v1/run/{pipelineName}", app.handleRunPipeline)
+	mux.HandleFunc("GET /v1/runs", app.handleListRuns)              // New endpoint for UI
+	mux.HandleFunc("GET /v1/runs/{runID}", app.handleGetRunDetails) // New endpoint for UI
 	mux.HandleFunc("POST /v1/runs/{runID}/rerun", app.handleRerunPipeline)
 	mux.HandleFunc("POST /v1/runs/{runID}/finalize", app.handleFinalizeRun)
 	mux.HandleFunc("POST /v1/runs/{runID}/steps/{stepName}/tasks/{taskName}", app.handleTaskUpdate)
 
 	server := &http.Server{
 		Addr:    cfg.NopsaiListenAddress,
-		Handler: mux,
+		Handler: corsMiddleware(mux), // Important: Wrap mux with CORS middleware
 	}
 
 	stop := make(chan os.Signal, 1)
