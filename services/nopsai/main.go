@@ -1091,14 +1091,14 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if slices.ContainsFunc(stepTasks, func(t TaskDetail) bool {
-				return strings.Contains(t.Status, "fail") && !strings.Contains(t.Status, "ignore")
+				return t.Status == "failure" && !strings.Contains(t.Status, "ignored")
 			}) {
 				status = "failure"
-			} else if slices.ContainsFunc(stepTasks, func(t TaskDetail) bool { return t.Status == "started" }) {
+			} else if slices.ContainsFunc(stepTasks, func(t TaskDetail) bool { return t.Status == "running" }) {
 				status = "running"
 			} else if allTasksDone(stepTasks) {
-				if slices.ContainsFunc(stepTasks, func(t TaskDetail) bool { return strings.Contains(t.Status, "ignore") }) {
-					status = "failed (ignored)"
+				if slices.ContainsFunc(stepTasks, func(t TaskDetail) bool { return strings.Contains(t.Status, "ignored") }) {
+					status = "failure (ignored)"
 				} else {
 					status = "success"
 				}
@@ -1131,7 +1131,7 @@ func allTasksDone(tasks []TaskDetail) bool {
 		return false
 	}
 	for _, t := range tasks {
-		if t.Status != "completed" && !strings.Contains(t.Status, "ignore") {
+		if t.Status != "success" && !strings.Contains(t.Status, "ignore") {
 			return false
 		}
 	}
@@ -1480,8 +1480,8 @@ func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var query string
-	if update.Status == "started" {
-		query = "UPDATE tasks SET status = 'started', started_at = NOW() WHERE run_id = $1 AND step_name = $2 AND task_name = $3"
+	if update.Status == "running" {
+		query = "UPDATE tasks SET status = 'running', started_at = NOW() WHERE run_id = $1 AND step_name = $2 AND task_name = $3"
 		_, err := a.db.Exec(context.Background(), query, runID, stepName, taskName)
 		if err != nil {
 			log.Error().Err(err).Str("run_id", runID).Str("step", stepName).Str("task", taskName).Msg("Failed to update task start time")
@@ -1658,7 +1658,7 @@ func (a *App) handleFinalizeRun(w http.ResponseWriter, r *http.Request) {
 	if finalStatus != "success" {
 		finalStatus = "failure" // Normalize status
 		// This query now finds the first task that is not in a successful or pending state.
-		err := a.db.QueryRow(context.Background(), "SELECT step_name, task_name FROM tasks WHERE run_id = $1 AND status NOT IN ('completed', 'pending', 'skipped', 'failed (ignored)', 'started') ORDER BY finished_at ASC, started_at ASC LIMIT 1", runID).Scan(&failedStep, &failedTask)
+		err := a.db.QueryRow(context.Background(), "SELECT step_name, task_name FROM tasks WHERE run_id = $1 AND status NOT IN ('success', 'pending', 'skipped', 'failure (ignored)', 'running') ORDER BY finished_at ASC, started_at ASC LIMIT 1", runID).Scan(&failedStep, &failedTask)
 		if err != nil {
 			log.Warn().Err(err).Str("run_id", runID).Msg("Could not determine the exact failed task for final status notification.")
 		}
@@ -1716,7 +1716,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	secrets, err := a.prepareSecretsForPipeline(pipeline, gitContext, environment)
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to prepare secrets for pipeline")
-		a.db.Exec(context.Background(), "UPDATE runs SET status = $1, finished_at = NOW() WHERE run_id = $2", "failed", runID)
+		a.db.Exec(context.Background(), "UPDATE runs SET status = $1, finished_at = NOW() WHERE run_id = $2", "failure", runID)
 		if gitContext["repo_owner"] != "" {
 			a.notifyGitBotOfFinalStatus("failure", "", "", err.Error(), gitContext)
 		}
@@ -1728,7 +1728,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	finalEnv, err := a.prepareEnvironmentForPipeline(pipeline, gitContext, environment)
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to prepare environment variables for pipeline")
-		a.db.Exec(context.Background(), "UPDATE runs SET status = $1, finished_at = NOW() WHERE run_id = $2", "failed", runID)
+		a.db.Exec(context.Background(), "UPDATE runs SET status = $1, finished_at = NOW() WHERE run_id = $2", "failure", runID)
 		if gitContext["repo_owner"] != "" {
 			a.notifyGitBotOfFinalStatus("failure", "", "", err.Error(), gitContext)
 		}
@@ -1776,7 +1776,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	secretsJSON, err := json.Marshal(secrets)
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to marshal secrets")
-		a.db.Exec(context.Background(), "UPDATE runs SET status = $1, finished_at = NOW() WHERE run_id = $2", "failed", runID)
+		a.db.Exec(context.Background(), "UPDATE runs SET status = $1, finished_at = NOW() WHERE run_id = $2", "failure", runID)
 		return
 	}
 
@@ -1844,7 +1844,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	case err := <-errCh:
 		if err != nil {
 			log.Error().Err(err).Str("run_id", runID).Msg("Error waiting for agent container")
-			a.db.Exec(context.Background(), "UPDATE runs SET status = 'failed', finished_at = NOW() WHERE run_id = $1 AND finished_at IS NULL", runID)
+			a.db.Exec(context.Background(), "UPDATE runs SET status = 'failure', finished_at = NOW() WHERE run_id = $1 AND finished_at IS NULL", runID)
 		}
 	case status := <-statusCh:
 		log.Info().Str("run_id", runID).Int64("status_code", status.StatusCode).Msg("Agent container finished.")
