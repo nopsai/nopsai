@@ -2,64 +2,64 @@ package models
 
 // Manifest represents the structure of the .nopsai.yaml manifest file.
 type Manifest struct {
-	Triggers []Trigger `yaml:"triggers"`
+	Triggers []Trigger `yaml:"triggers" json:"triggers"`
 }
 
 // Trigger defines a rule for when a pipeline should be run.
 type Trigger struct {
-	On          string   `yaml:"on"`
-	Branches    []string `yaml:"branches,omitempty"`
-	Tags        []string `yaml:"tags,omitempty"`
-	Path        string   `yaml:"path"`
-	Environment string   `yaml:"environment,omitempty"`
+	On          string   `yaml:"on" json:"on"`
+	Branches    []string `yaml:"branches,omitempty" json:"branches,omitempty"`
+	Tags        []string `yaml:"tags,omitempty" json:"tags,omitempty"`
+	Path        string   `yaml:"path" json:"path"`
+	Environment string   `yaml:"environment,omitempty" json:"environment,omitempty"`
 }
 
 // Pipeline represents the structure of a pipeline definition file.
 type Pipeline struct {
-	Name              string         `yaml:"name"`
-	Description       string         `yaml:"description"`
-	ContainerImage    string         `yaml:"container_image"`
-	DisplayOptions    DisplayOptions `yaml:"display_options"`
-	WorkingDirectory  string         `yaml:"working_directory,omitempty"`
-	Environment       []string       `yaml:"environment"`
-	Steps             []PipelineStep `yaml:"steps"`
-	Timeout           string         `yaml:"timeout,omitempty"`
-	LlmContentSharing *bool          `yaml:"llm_content_sharing,omitempty"`
-	LlmOutputSharing  *bool          `yaml:"llm_output_sharing,omitempty"`
+	Name              string         `yaml:"name" json:"name"`
+	Description       string         `yaml:"description" json:"description"`
+	ContainerImage    string         `yaml:"container_image" json:"container_image"`
+	DisplayOptions    DisplayOptions `yaml:"display_options" json:"display_options"`
+	WorkingDirectory  string         `yaml:"working_directory,omitempty" json:"working_directory,omitempty"`
+	Environment       []string       `yaml:"environment" json:"environment"`
+	Steps             []PipelineStep `yaml:"steps" json:"steps"`
+	Timeout           string         `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	LlmContentSharing *bool          `yaml:"llm_content_sharing,omitempty" json:"llm_content_sharing,omitempty"`
+	LlmOutputSharing  *bool          `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
 }
 
 // DisplayOptions defines how the pipeline progress is displayed in integrations like GitHub.
 type DisplayOptions struct {
-	GitHubView string `yaml:"github_view,omitempty"` // "mermaid", "tree" or "flat"
+	GitHubView string `yaml:"github_view,omitempty" json:"github_view,omitempty"` // "mermaid", "tree" or "flat"
 }
 
 // Task is an individual command or goal within a PipelineStep.
 type Task struct {
-	Name             string   `yaml:"name"`
-	Goal             string   `yaml:"goal"`
-	Script           string   `yaml:"script,omitempty"`
-	DependsOn        []string `yaml:"depends_on,omitempty"`
-	IgnoreFailure    bool     `yaml:"ignore_failure,omitempty"`
-	LlmOutputSharing *bool    `yaml:"llm_output_sharing,omitempty"`
+	Name             string   `yaml:"name" json:"name"`
+	Goal             string   `yaml:"goal" json:"goal"`
+	Script           string   `yaml:"script,omitempty" json:"script,omitempty"`
+	DependsOn        []string `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
+	IgnoreFailure    bool     `yaml:"ignore_failure,omitempty" json:"ignore_failure,omitempty"`
+	LlmOutputSharing *bool    `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
 }
 
 // PipelineStep is a single logical step within a pipeline definition.
 type PipelineStep struct {
-	Name        string            `yaml:"name"`
-	Include     string            `yaml:"include,omitempty"`
-	Sync        bool              `yaml:"sync,omitempty"`
-	Image       string            `yaml:"image,omitempty"`
-	Secrets     []string          `yaml:"secrets,omitempty"`
-	Volumes     []string          `yaml:"volumes,omitempty"`
-	Environment map[string]string `yaml:"environment,omitempty"`
-	Tasks       []Task            `yaml:"tasks"`
+	Name        string            `yaml:"name" json:"name"`
+	Include     string            `yaml:"include,omitempty" json:"include,omitempty"`
+	Sync        bool              `yaml:"sync,omitempty" json:"sync,omitempty"`
+	Image       string            `yaml:"image,omitempty" json:"image,omitempty"`
+	Secrets     []string          `yaml:"secrets,omitempty" json:"secrets,omitempty"`
+	Volumes     []string          `yaml:"volumes,omitempty" json:"volumes,omitempty"`
+	Environment map[string]string `yaml:"environment,omitempty" json:"environment,omitempty"`
+	Tasks       []Task            `yaml:"tasks" json:"tasks"`
 
 	// Legacy fields
-	Goal             string   `yaml:"goal,omitempty"`
-	Script           string   `yaml:"script,omitempty"`
-	DependsOn        []string `yaml:"depends_on,omitempty"`
-	IgnoreFailure    bool     `yaml:"ignore_failure,omitempty"`
-	LlmOutputSharing *bool    `yaml:"llm_output_sharing,omitempty"`
+	Goal             string   `yaml:"goal,omitempty" json:"goal,omitempty"`
+	Script           string   `yaml:"script,omitempty" json:"script,omitempty"`
+	DependsOn        []string `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
+	IgnoreFailure    bool     `yaml:"ignore_failure,omitempty" json:"ignore_failure,omitempty"`
+	LlmOutputSharing *bool    `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
 }
 
 // CommandAction defines a command to be executed in the shell.
