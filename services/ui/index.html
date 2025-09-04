@@ -281,11 +281,6 @@
                 state.groups = [];
             }
         }
-        
-        async function fetchBranchesForRepo(repoFullName) {
-            const [owner, repo] = repoFullName.split('/');
-            return await fetchData(`/v1/repositories/${owner}/${repo}/branches`);
-        }
 
         function resetMainView() {
             DOM.placeholder.classList.add('hidden');
@@ -315,11 +310,10 @@
 
             DOM.sidebarNav.innerHTML = `<div class="space-y-1">${navHtml}</div>`;
 
-            const currentTab = (window.location.hash.split('/')[1] || 'pipelineruns');
-            const subTab = (window.location.hash.split('/')[2] || 'main');
-            
-            if (currentTab === 'pipelineruns') {
-                if (subTab === 'recent') {
+            const currentTab = (window.location.hash.split('/')[2] || 'main').split('?')[0];
+
+            if (activeRoute === 'pipelineruns') {
+                if (currentTab === 'recent') {
                     DOM.sidebarNav.innerHTML += `<h2 class="px-2 mt-6 mb-2 text-xs font-semibold tracking-wider text-gray-400 uppercase">Recent Runs</h2>
                                                <ul id="pipeline-runs-list" class="space-y-1"></ul>`;
                 } else {
@@ -331,7 +325,6 @@
                 }
             }
         }
-
 
         function renderHierarchy(groups, parentId = null, level = 0) {
             const container = level === 0 ? document.getElementById('main-hierarchy') : document.querySelector(`[data-group-id='${parentId}'] .group-children`);
@@ -400,29 +393,6 @@
                     </li>`;
             }).join('');
         }
-        
-        function renderMainGridForBranches(branches, groupId) {
-            resetMainView();
-            DOM.mainGridContainer.classList.remove('hidden');
-
-            let html = '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">';
-
-            (branches || []).forEach(branch => {
-                html += `
-                    <a href="#/pipelineruns/main/${groupId}/branch/${encodeURIComponent(branch)}" class="relative group bg-gray-800 p-4 rounded-md hover:bg-gray-700/50 transition-colors duration-200 group-card">
-                        <div class="flex items-center">
-                            <svg class="h-8 w-8 text-indigo-400 mr-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 5l-2.5 2.5 2.5 2.5m4 5l2.5-2.5-2.5-2.5m-7.5 0h11" />
-                            </svg>
-                            <span class="text-lg font-medium text-gray-200 truncate">${branch}</span>
-                        </div>
-                    </a>
-                `;
-            });
-            html += '</div>';
-            DOM.mainGridContainer.innerHTML = html;
-        }
-
 
         function renderMainGridContent(subgroups, runs, showAddButton = false) {
              resetMainView();
@@ -657,7 +627,12 @@
             }, 10);
         }
 
-        function renderBreadcrumbs(groupId, branch) {
+        function renderBreadcrumbs(groupId) {
+            if (!groupId) {
+                DOM.mainHeader.innerHTML = '<div>Pipeline Runs</div>';
+                return;
+            }
+
             let breadcrumbs = [];
             let currentGroup = state.groups.find(g => g.id == groupId);
 
@@ -677,10 +652,6 @@
             breadcrumbs.forEach(breadcrumb => {
                 html += ` <span class="mx-2 text-gray-500">/</span> <a href="#/pipelineruns/main/${breadcrumb.id}" class="text-gray-400 hover:text-indigo-400">${breadcrumb.name}</a>`;
             });
-            
-            if(branch) {
-                html += ` <span class="mx-2 text-gray-500">/</span> <span class="text-white">${branch}</span>`;
-            }
 
             DOM.mainHeader.innerHTML = `<div>${html}</div>`;
         }
@@ -692,21 +663,18 @@
             DOM.placeholder.classList.remove('hidden');
 
             const hash = window.location.hash || '#/pipelineruns/main';
-            const [path, subpath, ...rest] = hash.slice(2).split('/');
-            const runId = (subpath === 'recent') ? rest[0] : null;
-            const groupId = (subpath === 'main') ? rest[0] : null;
-            const branch = (rest[1] === 'branch') ? decodeURIComponent(rest[2]) : null;
+            const [path, subpath, runId, ...rest] = hash.slice(2).split('/');
 
             DOM.pages.forEach(p => p.classList.toggle('active', p.dataset.page === path));
 
             if (path === 'pipelineruns') {
-                await fetchGroups();
-                renderSidebar(path);
+                 await fetchGroups();
+                 renderSidebar(path);
                 updateTabs(subpath || 'main');
                 if (subpath === 'recent') {
-                    startPolling(fetchAllRuns, 3000); 
+                    startPolling(fetchAllRuns, 3000); // Poll for the sidebar
                     if (runId) {
-                        await fetchActiveRun(runId);
+                         await fetchActiveRun(runId);
                     } else {
                         DOM.mainHeader.textContent = "Recent Pipeline Runs";
                         DOM.mainGridContainer.classList.remove('hidden');
@@ -714,24 +682,11 @@
                         renderMainGridContent([], runs, false);
                     }
                 } else { // 'main' tab
-                    const groupIdInt = groupId ? parseInt(groupId, 10) : null;
-                     if (groupIdInt) {
-                        state.selectedGroupId = groupIdInt;
-                        const currentGroup = state.groups.find(g => g.id === groupIdInt);
-                        if (currentGroup && currentGroup.is_repo) {
-                             if(branch) {
-                                renderBreadcrumbs(groupIdInt, branch);
-                                const runs = await fetchData(`/v1/runs?groupId=${groupIdInt}&branch=${branch}`);
-                                renderMainGridContent([], runs, false);
-                            } else {
-                                renderBreadcrumbs(groupIdInt);
-                                const branches = await fetchBranchesForRepo(currentGroup.name);
-                                renderMainGridForBranches(branches, groupIdInt);
-                            }
-                        } else {
-                            renderBreadcrumbs(groupIdInt);
-                            fetchMainContent(groupIdInt);
-                        }
+                    const groupId = runId ? parseInt(runId, 10) : null;
+                     if (groupId) {
+                        state.selectedGroupId = groupId;
+                        renderBreadcrumbs(groupId);
+                        fetchMainContent(groupId);
                     } else {
                         state.selectedGroupId = null;
                         renderBreadcrumbs(null);
