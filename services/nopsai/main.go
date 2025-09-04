@@ -951,12 +951,23 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		FROM runs
 	`
 	args := []interface{}{}
+	var conditions []string
+
 	if groupIDStr := r.URL.Query().Get("groupId"); groupIDStr != "" {
 		groupID, err := strconv.Atoi(groupIDStr)
 		if err == nil {
-			query += " WHERE group_id = $1"
+			conditions = append(conditions, fmt.Sprintf("group_id = $%d", len(args)+1))
 			args = append(args, groupID)
 		}
+	}
+
+	if branchName := r.URL.Query().Get("branch"); branchName != "" {
+		conditions = append(conditions, fmt.Sprintf("git_ref = $%d", len(args)+1))
+		args = append(args, "refs/heads/"+branchName)
+	}
+
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
 	query += " ORDER BY created_at DESC LIMIT 100"
 
@@ -2183,6 +2194,44 @@ func (a *App) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (a *App) handleListRepoBranches(w http.ResponseWriter, r *http.Request) {
+	repoOwner := r.PathValue("repoOwner")
+	repoName := r.PathValue("repoName")
+	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
+
+	query := `
+		SELECT DISTINCT git_ref
+		FROM runs
+		WHERE git_repo_name = $1 AND git_ref IS NOT NULL
+		ORDER BY git_ref ASC
+	`
+
+	rows, err := a.db.Query(context.Background(), query, fullName)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to query branches from database")
+		http.Error(w, "Failed to retrieve branches", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var branches []string
+	for rows.Next() {
+		var branch sql.NullString
+		if err := rows.Scan(&branch); err != nil {
+			log.Error().Err(err).Msg("Failed to scan branch name")
+			http.Error(w, "Failed to process branches", http.StatusInternalServerError)
+			return
+		}
+		if branch.Valid {
+			branches = append(branches, strings.TrimPrefix(branch.String, "refs/heads/"))
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(branches)
+}
+
 func main() {
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
@@ -2269,6 +2318,9 @@ func main() {
 	mux.HandleFunc("GET /v1/repositories/{repoOwner}/{repoName}/secrets", app.handleListRepoSecrets)
 	mux.HandleFunc("PUT /v1/repositories/{repoOwner}/{repoName}/secrets/{secretName}", app.handleCreateOrUpdateRepoSecret)
 	mux.HandleFunc("DELETE /v1/repositories/{repoOwner}/{repoName}/secrets/{secretName}", app.handleDeleteRepoSecret)
+
+	// Branch Management
+	mux.HandleFunc("GET /v1/repositories/{repoOwner}/{repoName}/branches", app.handleListRepoBranches)
 
 	// General Environment Variable Management
 	mux.HandleFunc("GET /v1/environments", app.handleListGeneralEnvs)
