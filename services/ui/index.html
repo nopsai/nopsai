@@ -26,6 +26,11 @@
             height: 100%;
             overflow: auto;
         }
+        .group-header-container:hover .delete-group-btn {
+            opacity: 1;
+        }
+        .chevron { transition: transform 0.2s ease-in-out; }
+        .expanded .chevron { transform: rotate(90deg); }
     </style>
 </head>
 <body class="bg-gray-900 text-gray-100">
@@ -53,13 +58,22 @@
                 <div id="main-header" class="flex-1 text-xl font-semibold">Dashboard</div>
             </header>
             <div id="page-content-wrapper" class="flex-1 overflow-auto">
-                <div data-page="runs" class="active h-full">
+                <div data-page="pipelineruns" class="active h-full flex flex-col">
+                     <div class="px-6 pt-6 flex-shrink-0">
+                        <div class="border-b border-gray-700">
+                            <nav class="-mb-px flex space-x-8" aria-label="Tabs">
+                                <a href="#/pipelineruns/main" data-tab="main" class="whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium">Main</a>
+                                <a href="#/pipelineruns/recent" data-tab="recent" class="whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium">Recent</a>
+                            </nav>
+                        </div>
+                    </div>
                     <div id="main-content-runs" class="p-6 h-full">
                          <div id="placeholder" class="h-full flex flex-col items-center justify-center text-center text-gray-500">
                              <svg class="h-12 w-12 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
                             <h3 class="text-lg font-semibold">Select a pipeline run</h3>
                             <p>Choose a run from the sidebar to view its progress.</p>
                         </div>
+                         <div id="runs-list-container" class="hidden"></div>
                         <div id="graph-container" class="hidden w-full h-full">
                              <div id="graph-wrapper"></div>
                         </div>
@@ -67,7 +81,12 @@
                 </div>
 
                 <div data-page="pipelines" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Pipelines</h1><p class="text-gray-400">UI for managing central pipelines is coming soon.</p></div></div>
-                <div data-page="secrets" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Secrets</h1><p class="text-gray-400">UI for managing secrets is coming soon.</p></div></div>
+                 <div data-page="secrets" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Secrets</h1><p class="text-gray-400">UI for managing secrets is coming soon.</p></div></div>
+                <div data-page="steps" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Steps</h1><p class="text-gray-400">UI for managing reusable steps is coming soon.</p></div></div>
+                <div data-page="environment" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Environment Variables</h1><p class="text-gray-400">UI for managing environment variables is coming soon.</p></div></div>
+                <div data-page="monitoring" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Monitoring</h1><p class="text-gray-400">Monitoring dashboards are coming soon.</p></div></div>
+                <div data-page="triggers" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Triggers</h1><p class="text-gray-400">UI for managing triggers is coming soon.</p></div></div>
+                <div data-page="system" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">System</h1><p class="text-gray-400">System administration and status page is coming soon.</p></div></div>
             </div>
         </main>
     </div>
@@ -92,6 +111,42 @@
         </div>
     </div>
 
+    <div id="add-group-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
+        <div class="bg-gray-800 rounded-lg shadow-2xl w-full max-w-md">
+            <div class="flex items-center justify-between p-4 border-b border-gray-700">
+                <h2 class="text-xl font-semibold">Create New Folder</h2>
+                <button id="close-add-group-modal-btn" class="text-gray-400 hover:text-white"><svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
+            </div>
+            <form id="add-group-form" class="p-6 space-y-4">
+                <div>
+                    <label for="group-name" class="block text-sm font-medium text-gray-300">Folder Name</label>
+                    <input type="text" id="group-name" name="name" class="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" required>
+                </div>
+                <input type="hidden" id="parent-id" name="parent_id">
+                <div class="flex justify-end pt-4">
+                    <button type="button" id="cancel-add-group-btn" class="mr-2 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500">Cancel</button>
+                    <button type="submit" class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">Create</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <div id="delete-group-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
+        <div class="bg-gray-800 rounded-lg shadow-2xl w-full max-w-md">
+            <div class="p-6 text-center">
+                <svg class="mx-auto mb-4 h-14 w-14 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <h3 class="mb-5 text-lg font-normal text-gray-300">Are you sure you want to delete this item?</h3>
+                <p id="delete-item-name" class="mb-5 text-sm font-bold text-white"></p>
+                <button id="confirm-delete-btn" type="button" class="text-white bg-red-600 hover:bg-red-800 focus:ring-4 focus:outline-none focus:ring-red-300 font-medium rounded-lg text-sm inline-flex items-center px-5 py-2.5 text-center mr-2">
+                    Yes, I'm sure
+                </button>
+                <button id="cancel-delete-btn" type="button" class="text-gray-300 bg-white hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-200 rounded-lg border border-gray-500 text-sm font-medium px-5 py-2.5 hover:text-gray-900 focus:z-10">No, cancel</button>
+            </div>
+        </div>
+    </div>
+    
     <script>
     document.addEventListener('DOMContentLoaded', () => {
         const API_BASE_URL = 'http://localhost:8080';
@@ -103,17 +158,31 @@
             placeholder: document.getElementById('placeholder'),
             graphContainer: document.getElementById('graph-container'),
             graphWrapper: document.getElementById('graph-wrapper'),
+            runsListContainer: document.getElementById('runs-list-container'),
             openSidebarBtn: document.getElementById('open-sidebar-btn'),
             closeSidebarBtn: document.getElementById('close-sidebar-btn'),
             sidebar: document.getElementById('sidebar'),
             modal: document.getElementById('step-modal'),
             modalContent: document.getElementById('modal-content'),
             closeModalBtn: document.getElementById('close-modal-btn'),
+            tabs: document.querySelectorAll('[data-tab]'),
+            addGroupModal: document.getElementById('add-group-modal'),
+            closeAddGroupModalBtn: document.getElementById('close-add-group-modal-btn'),
+            cancelAddGroupBtn: document.getElementById('cancel-add-group-btn'),
+            addGroupForm: document.getElementById('add-group-form'),
+            deleteGroupModal: document.getElementById('delete-group-modal'),
+            confirmDeleteBtn: document.getElementById('confirm-delete-btn'),
+            cancelDeleteBtn: document.getElementById('cancel-delete-btn'),
+            deleteItemName: document.getElementById('delete-item-name'),
         };
-        
+
         let state = {
             pollingInterval: null,
             currentRunData: null,
+            groups: [],
+            selectedGroupId: null,
+            groupToDelete: null,
+            expandedGroups: new Set(),
         };
 
         const statusConfig = {
@@ -124,7 +193,7 @@
             skipped: { icon: 'M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-yellow-400', rectClass: 'stroke-yellow-500 fill-yellow-500/10' },
             'failure (ignored)': { icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z', color: 'text-yellow-400', rectClass: 'stroke-yellow-500 fill-yellow-500/10' },
         };
-        
+
         function timeAgo(dateString) {
             if (!dateString || new Date(dateString).getFullYear() < 2000) return '';
             const seconds = Math.round((new Date() - new Date(dateString)) / 1000);
@@ -143,28 +212,55 @@
             const end = (endStr && new Date(endStr).getFullYear() > 2000) ? new Date(endStr) : new Date();
             return `${((end - start) / 1000).toFixed(2)}s`;
         }
-        
-        async function fetchData(url) {
+
+        async function fetchData(url, options = {}) {
             try {
-                const response = await fetch(API_BASE_URL + url);
-                if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+                const response = await fetch(API_BASE_URL + url, options);
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(errorText || `HTTP error! Status: ${response.status}`);
+                }
+                if(response.status === 204) return null; // Handle No Content
                 return await response.json();
             } catch (error) {
                 console.error(`Fetch error for ${url}:`, error);
+                alert(`Error: ${error.message}`);
                 return null;
             }
         }
+        
+        async function postData(url, data) {
+            return await fetchData(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data),
+            });
+        }
+        
+        async function deleteData(url) {
+            return await fetchData(url, { method: 'DELETE' });
+        }
+
 
         async function fetchAllRuns() {
             const runs = await fetchData('/v1/runs');
-            if (runs) renderPipelineRunsList(runs);
+            if (runs) renderSidebarPipelineRunsList(runs);
+        }
+
+        async function fetchRunsByGroup(groupId) {
+            const runs = await fetchData(`/v1/runs?groupId=${groupId}`);
+            if(runs) {
+                renderMainRunsList(runs);
+            }
         }
 
         async function fetchActiveRun(runId) {
             if (!runId) return;
+            resetMainView();
             const runDetails = await fetchData(`/v1/runs/${runId}`);
             if (runDetails) {
                 state.currentRunData = runDetails;
+                DOM.graphContainer.classList.remove('hidden');
                 renderPipelineGraph(runDetails);
                 const stepName = window.location.hash.split('/steps/')[1];
                 if (stepName) {
@@ -172,13 +268,34 @@
                 }
             }
         }
+
+        async function fetchGroups() {
+            const groups = await fetchData('/v1/groups');
+            if (groups) {
+                state.groups = groups;
+            } else {
+                state.groups = [];
+            }
+        }
         
+        function resetMainView() {
+            DOM.placeholder.classList.add('hidden');
+            DOM.graphContainer.classList.add('hidden');
+            DOM.runsListContainer.classList.add('hidden');
+        }
+
         function renderSidebar(activeRoute) {
-            const navConfig = [
-                { route: 'runs', title: 'Pipeline Runs', icon: 'M4 6h16M4 12h16M4 18h7' },
+             const navConfig = [
+                { route: 'pipelineruns', title: 'Pipeline Runs', icon: 'M4 6h16M4 12h16M4 18h7' },
                 { route: 'pipelines', title: 'Pipelines', icon: 'M9 17V7h2v10H9zm4-12h2v12h-2V5zm4 4h2v8h-2V9zM3 3h18v2H3V3z' },
                 { route: 'secrets', title: 'Secrets', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
+                { route: 'steps', title: 'Steps', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
+                { route: 'environment', title: 'Environment', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
+                { route: 'monitoring', title: 'Monitoring', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
+                { route: 'triggers', title: 'Triggers', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
+                { route: 'system', title: 'System', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
             ];
+
             let navHtml = navConfig.map(item => {
                 const isActive = activeRoute === item.route;
                 return `<a href="#/${item.route}" class="flex items-center p-2 text-gray-300 rounded-md hover:bg-gray-700 transition-colors duration-200 group ${isActive ? 'bg-gray-700 text-white' : ''}" data-navigo>
@@ -188,23 +305,82 @@
             }).join('');
             
             DOM.sidebarNav.innerHTML = `<div class="space-y-1">${navHtml}</div>`;
-            if (activeRoute === 'runs') {
-                 DOM.sidebarNav.innerHTML += `<h2 class="px-2 mt-6 mb-2 text-xs font-semibold tracking-wider text-gray-400 uppercase">Recent Runs</h2>
-                                            <ul id="pipeline-runs-list" class="space-y-1"></ul>`;
+
+            const currentTab = (window.location.hash.split('/')[2] || 'main').split('?')[0];
+
+            if (activeRoute === 'pipelineruns') {
+                if (currentTab === 'recent') {
+                    DOM.sidebarNav.innerHTML += `<h2 class="px-2 mt-6 mb-2 text-xs font-semibold tracking-wider text-gray-400 uppercase">Recent Runs</h2>
+                                               <ul id="pipeline-runs-list" class="space-y-1"></ul>`;
+                } else {
+                    DOM.sidebarNav.innerHTML += `<div class="px-2 mt-6 mb-2 flex items-center justify-between">
+                                                    <h2 class="text-xs font-semibold tracking-wider text-gray-400 uppercase">Main</h2>
+                                                    <button id="add-group-btn" class="text-gray-400 hover:text-white">
+                                                        <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+                                                    </button>
+                                                </div>
+                                                <div id="main-hierarchy"></div>`;
+                    renderHierarchy(state.groups);
+                }
             }
         }
+        
+        function renderHierarchy(groups, parentId = null, level = 0) {
+            const container = level === 0 ? document.getElementById('main-hierarchy') : document.querySelector(`[data-group-id='${parentId}'] .group-children`);
+            if (!container) return;
 
-        function renderPipelineRunsList(runs) {
+            const children = groups.filter(g => {
+                const gParentId = (g.parent_id === 0 || g.parent_id === null) ? null : g.parent_id;
+                return gParentId === parentId;
+            });
+            
+            if (children.length === 0 && level > 0) return;
+
+            let html = `<ul class="${level > 0 ? 'pl-4' : ''}">`;
+            children.forEach(group => {
+                const hasChildren = groups.some(g => g.parent_id === group.id);
+                const isExpanded = state.expandedGroups.has(group.id);
+                const chevron = hasChildren ? `<svg class="h-4 w-4 mr-1 text-gray-400 chevron ${isExpanded ? 'rotate-90' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>` : '<div class="w-5"></div>';
+                
+                html += `<li data-group-id="${group.id}" data-group-name="${group.display_name}">
+                            <div class="flex items-center justify-between p-2 text-gray-300 rounded-md hover:bg-gray-700 group-header-container">
+                                <div class="flex items-center cursor-pointer group-header flex-grow">
+                                    ${chevron}
+                                    <svg class="h-4 w-4 mr-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                                    <span>${group.display_name}</span>
+                                </div>
+                                <button class="delete-group-btn text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                </button>
+                            </div>
+                            <div class="group-children ${isExpanded ? '' : 'hidden'}"></div>
+                         </li>`;
+            });
+            html += '</ul>';
+            container.innerHTML = html;
+            
+            children.forEach(group => {
+                if (state.expandedGroups.has(group.id)) {
+                    renderHierarchy(groups, group.id, level + 1);
+                }
+            });
+        }
+
+        function renderSidebarPipelineRunsList(runs) {
             const listEl = document.getElementById('pipeline-runs-list');
             if (!listEl) return;
-            const activeRunId = window.location.hash.split('/')[2];
-            listEl.innerHTML = runs.map(run => {
+            const activeRunId = window.location.hash.split('/')[3];
+             if (!runs || runs.length === 0) {
+                listEl.innerHTML = '<li><p class="p-2 text-gray-400 text-sm">No recent runs found.</p></li>';
+                return;
+            }
+            listEl.innerHTML = (runs || []).map(run => {
                 const status = run.is_complete ? run.status : 'running';
                 const config = statusConfig[status.toLowerCase()] || statusConfig.pending;
                 const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
                 const isActive = run.run_id === activeRunId;
                 return `<li>
-                        <a href="#/runs/${run.run_id}" class="flex items-center p-2 text-gray-300 rounded-md hover:bg-gray-700 ${isActive ? 'bg-gray-700 text-white' : ''}">
+                        <a href="#/pipelineruns/recent/${run.run_id}" class="flex items-center p-2 text-gray-300 rounded-md hover:bg-gray-700 ${isActive ? 'bg-gray-700 text-white' : ''}">
                             <svg class="h-5 w-5 mr-3 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
                             <div class="flex-1 overflow-hidden">
                                 <div class="flex justify-between items-center">
@@ -218,6 +394,44 @@
                         </a>
                     </li>`;
             }).join('');
+        }
+        
+        function renderMainRunsList(runs) {
+             resetMainView();
+             DOM.runsListContainer.classList.remove('hidden');
+             if (!runs || runs.length === 0) {
+                DOM.runsListContainer.innerHTML = '<p class="text-gray-500">No runs found for this group.</p>';
+                return;
+             }
+             let html = '<ul class="space-y-2">';
+            
+            (runs || []).forEach(run => {
+                 const status = run.is_complete ? run.status : 'running';
+                const config = statusConfig[status.toLowerCase()] || statusConfig.pending;
+                const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
+                html += `
+                    <li>
+                        <a href="#/pipelineruns/recent/${run.run_id}" class="block bg-gray-800 p-4 rounded-md hover:bg-gray-700/50">
+                            <div class="flex items-center justify-between">
+                                <p class="text-sm font-medium text-indigo-400 truncate">${run.pipeline_name}</p>
+                                <div class="ml-2 flex-shrink-0 flex">
+                                    <p class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${status === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${status}</p>
+                                </div>
+                            </div>
+                            <div class="mt-2 sm:flex sm:justify-between">
+                                <div class="sm:flex">
+                                    <p class="flex items-center text-sm text-gray-400">
+                                        <svg class="flex-shrink-0 mr-1.5 h-5 w-5 text-gray-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd" /></svg>
+                                        ${timeAgo(timeToDisplay)}
+                                    </p>
+                                </div>
+                            </div>
+                        </a>
+                    </li>
+                `;
+            });
+            html += '</ul>';
+            DOM.runsListContainer.innerHTML = html;
         }
 
         function renderPipelineGraph(runDetails) {
@@ -401,31 +615,151 @@
             }, 10);
         }
 
+        function renderBreadcrumbs(groupId) {
+            if (!groupId) {
+                DOM.mainHeader.innerHTML = '<div>Pipeline Runs</div>';
+                return;
+            }
+
+            let breadcrumbs = [];
+            let currentGroup = state.groups.find(g => g.id == groupId);
+
+            while (currentGroup) {
+                breadcrumbs.unshift({
+                    id: currentGroup.id,
+                    name: currentGroup.display_name
+                });
+                if (currentGroup.parent_id) {
+                    currentGroup = state.groups.find(g => g.id == currentGroup.parent_id);
+                } else {
+                    currentGroup = null;
+                }
+            }
+
+            let html = '<a href="#/pipelineruns/main" class="text-gray-400 hover:text-indigo-400">Main</a>';
+            breadcrumbs.forEach(breadcrumb => {
+                html += ` <span class="mx-2 text-gray-500">/</span> <a href="#/pipelineruns/main/${breadcrumb.id}" class="text-gray-400 hover:text-indigo-400">${breadcrumb.name}</a>`;
+            });
+
+            DOM.mainHeader.innerHTML = `<div>${html}</div>`;
+        }
+
+
         async function router() {
             stopPolling();
-            const hash = window.location.hash || '#/runs';
-            const [path, runId, , stepName] = hash.slice(2).split('/');
+            resetMainView();
+            DOM.placeholder.classList.remove('hidden');
+
+            const hash = window.location.hash || '#/pipelineruns/main';
+            const [path, subpath, runId, ...rest] = hash.slice(2).split('/');
             
             DOM.pages.forEach(p => p.classList.toggle('active', p.dataset.page === path));
-            renderSidebar(path);
             
-            if (path === 'runs') {
-                startPolling(fetchAllRuns, 3000);
-                if (runId) {
-                    await fetchActiveRun(runId);
-                    if (stepName) {
-                        showStepDetails(stepName);
+            if (path === 'pipelineruns') {
+                 await fetchGroups();
+                 renderSidebar(path);
+                updateTabs(subpath || 'main');
+                if (subpath === 'recent') {
+                    if (runId) {
+                         await fetchActiveRun(runId);
+                    } else {
+                        DOM.mainHeader.textContent = "Recent Pipeline Runs";
+                        startPolling(fetchAllRuns, 3000);
                     }
-                } else {
-                    DOM.placeholder.classList.remove('hidden');
-                    DOM.graphContainer.classList.add('hidden');
-                    DOM.mainHeader.textContent = 'Dashboard';
+                } else { // 'main' tab
+                    const groupId = runId; // In 'main' view, the runId is the groupId
+                     if (groupId) {
+                        state.selectedGroupId = groupId;
+                        renderBreadcrumbs(groupId);
+                        fetchRunsByGroup(groupId);
+                    } else {
+                        state.selectedGroupId = null;
+                        renderBreadcrumbs(null);
+                        DOM.placeholder.classList.remove('hidden');
+                    }
                 }
+
+                 const stepName = rest.length > 1 && rest[0] === 'steps' ? rest[1] : null;
+                 if (stepName) {
+                    showStepDetails(stepName);
+                 }
             } else {
+                renderSidebar(path);
                 DOM.mainHeader.textContent = path.charAt(0).toUpperCase() + path.slice(1);
             }
         }
+
+        function updateTabs(activeTab) {
+            DOM.tabs.forEach(tab => {
+                const isActive = (tab.dataset.tab === activeTab);
+                tab.classList.toggle('border-indigo-500', isActive);
+                tab.classList.toggle('text-indigo-400', isActive);
+                tab.classList.toggle('border-transparent', !isActive);
+                tab.classList.toggle('text-gray-400', !isActive);
+            });
+        }
+
+        function showAddGroupModal(parentId = null) {
+            DOM.addGroupForm.reset();
+            document.getElementById('parent-id').value = parentId;
+            DOM.addGroupModal.classList.remove('hidden');
+            setTimeout(() => DOM.addGroupModal.classList.add('opacity-100'), 10);
+        }
+
+        function closeAddGroupModal() {
+            DOM.addGroupModal.classList.remove('opacity-100');
+            setTimeout(() => DOM.addGroupModal.classList.add('hidden'), 300);
+        }
+
+        function showDeleteGroupModal(groupId, groupName) {
+            state.groupToDelete = { id: groupId, name: groupName };
+            DOM.deleteItemName.textContent = groupName;
+            DOM.deleteGroupModal.classList.remove('hidden');
+            setTimeout(() => DOM.deleteGroupModal.classList.add('opacity-100'), 10);
+        }
+
+        function closeDeleteGroupModal() {
+            DOM.deleteGroupModal.classList.remove('opacity-100');
+            setTimeout(() => DOM.deleteGroupModal.classList.add('hidden'), 300);
+        }
         
+        async function createGroup(event) {
+            event.preventDefault();
+            const formData = new FormData(event.target);
+            const parentId = formData.get('parent_id') ? parseInt(formData.get('parent_id'), 10) : null;
+            const displayName = formData.get('name');
+
+            const siblings = state.groups.filter(g => g.parent_id === parentId);
+            if (siblings.some(s => s.display_name === displayName)) {
+                alert('A folder with this name already exists at this level.');
+                return;
+            }
+
+            const data = {
+                display_name: displayName,
+                is_repo: false,
+                parent_id: parentId,
+            };
+            const newGroup = await postData('/v1/groups', data);
+            if (newGroup) {
+                closeAddGroupModal();
+                router(); // Full refresh
+            }
+        }
+        
+        async function deleteGroup() {
+            if (!state.groupToDelete) return;
+            await deleteData(`/v1/groups/${state.groupToDelete.id}`);
+            closeDeleteGroupModal();
+            
+            if (state.selectedGroupId == state.groupToDelete.id) {
+                state.selectedGroupId = null;
+                 window.location.hash = '#/pipelineruns/main';
+            } else {
+                router(); 
+            }
+        }
+
         function closeModal() {
             const hash = window.location.hash;
             const newHash = hash.split('/steps/')[0];
@@ -450,15 +784,43 @@
         DOM.graphContainer.addEventListener('click', e => {
             const node = e.target.closest('.graph-node');
             if (node) {
-                const runId = window.location.hash.split('/')[2];
-                window.location.hash = `#/runs/${runId}/steps/${node.dataset.stepName}`;
+                const [, subpath, runId] = window.location.hash.slice(2).split('/');
+                window.location.hash = `#/pipelineruns/${subpath}/${runId}/steps/${node.dataset.stepName}`;
             }
         });
         
-        DOM.sidebar.addEventListener('click', e => {
-            const runLink = e.target.closest('a[data-run-id]');
-            if (runLink && window.innerWidth < 640) {
-                DOM.sidebar.classList.add('-translate-x-full');
+        DOM.sidebarNav.addEventListener('click', e => {
+            const addGroupBtn = e.target.closest('#add-group-btn');
+            if (addGroupBtn) {
+                showAddGroupModal(state.selectedGroupId);
+                return;
+            }
+            
+            const deleteGroupBtn = e.target.closest('.delete-group-btn');
+            if (deleteGroupBtn) {
+                e.stopPropagation();
+                const groupLi = deleteGroupBtn.closest('li[data-group-id]');
+                const groupId = groupLi.dataset.groupId;
+                const groupName = groupLi.dataset.groupName;
+                showDeleteGroupModal(groupId, groupName);
+                return;
+            }
+
+            const groupHeader = e.target.closest('.group-header');
+            if (groupHeader) {
+                 const groupLi = groupHeader.closest('li[data-group-id]');
+                const groupId = parseInt(groupLi.dataset.groupId, 10);
+
+                if (state.expandedGroups.has(groupId)) {
+                    state.expandedGroups.delete(groupId);
+                } else {
+                    state.expandedGroups.add(groupId);
+                }
+                
+                state.selectedGroupId = groupId;
+                window.location.hash = `#/pipelineruns/main/${groupId}`;
+                // Re-render the hierarchy to show expanded/collapsed state
+                renderHierarchy(state.groups);
             }
         });
 
@@ -467,6 +829,14 @@
         DOM.openSidebarBtn.addEventListener('click', () => DOM.sidebar.classList.remove('-translate-x-full'));
         DOM.closeSidebarBtn.addEventListener('click', () => DOM.sidebar.classList.add('-translate-x-full'));
         
+        DOM.closeAddGroupModalBtn.addEventListener('click', closeAddGroupModal);
+        DOM.cancelAddGroupBtn.addEventListener('click', closeAddGroupModal);
+        DOM.addGroupForm.addEventListener('submit', createGroup);
+        
+        DOM.cancelDeleteBtn.addEventListener('click', closeDeleteGroupModal);
+        DOM.confirmDeleteBtn.addEventListener('click', deleteGroup);
+
+
         window.addEventListener('hashchange', router);
         
         router();
