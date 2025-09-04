@@ -111,6 +111,15 @@ type FinalizeRequest struct {
 	Status string `json:"status"`
 }
 
+type Group struct {
+	ID          int     `json:"id"`
+	Name        string  `json:"name"`
+	DisplayName string  `json:"display_name"`
+	ParentID    *int    `json:"parent_id"`
+	IsRepo      bool    `json:"is_repo"`
+	Children    []Group `json:"children"`
+}
+
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
 
 // corsMiddleware allows cross-origin requests from the UI development server.
@@ -934,15 +943,24 @@ func sanitizeInput(name string) string {
 }
 
 func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(context.Background(), `
+	query := `
 		SELECT
 			run_id, pipeline_name, status, COALESCE(git_commit_sha, ''),
 			COALESCE(git_repo_name, ''), started_at, finished_at, parent_run_id,
 			COALESCE(git_pusher_name, '')
 		FROM runs
-		ORDER BY created_at DESC
-		LIMIT 100
-	`)
+	`
+	args := []interface{}{}
+	if groupIDStr := r.URL.Query().Get("groupId"); groupIDStr != "" {
+		groupID, err := strconv.Atoi(groupIDStr)
+		if err == nil {
+			query += " WHERE group_id = $1"
+			args = append(args, groupID)
+		}
+	}
+	query += " ORDER BY created_at DESC LIMIT 100"
+
+	rows, err := a.db.Query(context.Background(), query, args...)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query runs from database")
 		http.Error(w, "Failed to retrieve runs", http.StatusInternalServerError)
@@ -1138,6 +1156,27 @@ func allTasksDone(tasks []TaskDetail) bool {
 	return true
 }
 
+// Helper function to get the depth of a group
+func getGroupDepth(groupID int, allGroups []Group) int {
+	depth := 0
+	currentID := &groupID
+	for currentID != nil {
+		depth++
+		found := false
+		for _, g := range allGroups {
+			if g.ID == *currentID {
+				currentID = g.ParentID
+				found = true
+				break
+			}
+		}
+		if !found {
+			break
+		}
+	}
+	return depth
+}
+
 func (a *App) launchAndRunPipeline(
 	w http.ResponseWriter,
 	pipeline models.Pipeline,
@@ -1146,7 +1185,7 @@ func (a *App) launchAndRunPipeline(
 	timeoutDuration time.Duration,
 	parentRunID string,
 	parentHistory string,
-	environment string, // Add environment to the function signature
+	environment string,
 ) {
 	runID := uuid.New()
 	log.Info().Str("run_id", runID.String()).Str("parent_run_id", parentRunID).Msgf("Launching pipeline: %s", pipeline.Name)
@@ -1171,18 +1210,77 @@ func (a *App) launchAndRunPipeline(
 		parentRunIDSQL.Valid = true
 	}
 
+	var groupID sql.NullInt32
+	if repoName, ok := gitContext["repo_name"]; ok && repoName != "" {
+		rows, err := tx.Query(context.Background(), "SELECT id, name, display_name, parent_id, is_repo FROM groups")
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to query all groups for hierarchy resolution")
+		} else {
+			var allGroups []Group
+			for rows.Next() {
+				var g Group
+				var parentID sql.NullInt32
+				if err := rows.Scan(&g.ID, &g.Name, &g.DisplayName, &parentID, &g.IsRepo); err == nil {
+					if parentID.Valid {
+						pid := int(parentID.Int32)
+						g.ParentID = &pid
+					}
+					allGroups = append(allGroups, g)
+				}
+			}
+			rows.Close()
+
+			var candidates []Group
+			for _, g := range allGroups {
+				if g.Name == repoName { // Match by name, ignore is_repo
+					candidates = append(candidates, g)
+				}
+			}
+
+			var targetGroup *Group
+			if len(candidates) == 1 {
+				targetGroup = &candidates[0]
+			} else if len(candidates) > 1 {
+				maxDepth := -1
+				for i := range candidates {
+					depth := getGroupDepth(candidates[i].ID, allGroups)
+					if depth > maxDepth {
+						maxDepth = depth
+						targetGroup = &candidates[i]
+					}
+				}
+			}
+
+			if targetGroup != nil {
+				groupID.Int32 = int32(targetGroup.ID)
+				groupID.Valid = true
+			} else {
+				var newID int32
+				err := tx.QueryRow(context.Background(),
+					`INSERT INTO groups (name, display_name, is_repo, parent_id) VALUES ($1, $2, true, NULL) RETURNING id`,
+					repoName, repoName).Scan(&newID)
+				if err != nil {
+					log.Error().Err(err).Msg("Failed to create group for new repo")
+				} else {
+					groupID.Int32 = newID
+					groupID.Valid = true
+				}
+			}
+		}
+	}
+
 	_, err = tx.Exec(context.Background(),
 		`INSERT INTO runs (run_id, parent_run_id, pipeline_name, status, started_at, timeout_at, pipeline_definition,
 			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref,
 			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
 			git_commit_author_email, git_commit_author_username, git_pusher_name,
-			git_pusher_email, git_check_run_id)
-			VALUES ($1, $2, $3, 'pending', NOW(), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+			git_pusher_email, git_check_run_id, group_id)
+			VALUES ($1, $2, $3, 'pending', NOW(), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
 		runID, parentRunIDSQL, pipeline.Name, timeoutAt, string(pipelineDef),
 		gitContext["repo_owner"], gitContext["repo_name"], gitContext["clone_url"], gitContext["ssh_url"], gitContext["ref"],
 		gitContext["commit_sha"], gitContext["commit_url"], gitContext["commit_message"], gitContext["commit_author_name"],
 		gitContext["commit_author_email"], gitContext["commit_author_username"], gitContext["pusher_name"],
-		gitContext["pusher_email"], gitContext["check_run_id"],
+		gitContext["pusher_email"], gitContext["check_run_id"], groupID,
 	)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to insert run record")
@@ -1974,6 +2072,117 @@ func ensureImageExists(ctx context.Context, cli *client.Client, imageName string
 	return nil
 }
 
+func (a *App) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
+	var group Group
+	if err := json.NewDecoder(r.Body).Decode(&group); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	group.Name = sanitizeInput(group.DisplayName)
+
+	// Check for duplicates at the same level
+	var existingID int
+	var err error
+	if group.ParentID != nil {
+		err = a.db.QueryRow(context.Background(), "SELECT id FROM groups WHERE name = $1 AND parent_id = $2", group.Name, *group.ParentID).Scan(&existingID)
+	} else {
+		err = a.db.QueryRow(context.Background(), "SELECT id FROM groups WHERE name = $1 AND parent_id IS NULL", group.Name).Scan(&existingID)
+	}
+
+	if err != pgx.ErrNoRows {
+		http.Error(w, "A folder with this name already exists at this level.", http.StatusConflict)
+		return
+	}
+
+	query := `INSERT INTO groups (name, display_name, parent_id, is_repo) VALUES ($1, $2, $3, $4) RETURNING id`
+	err = a.db.QueryRow(context.Background(), query, group.Name, group.DisplayName, group.ParentID, false).Scan(&group.ID) // Always false for is_repo
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to create group")
+		http.Error(w, "Failed to create group", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(group)
+}
+
+func (a *App) handleGetGroups(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.db.Query(context.Background(), "SELECT id, name, display_name, parent_id, is_repo FROM groups")
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to query groups from database")
+		http.Error(w, "Failed to retrieve groups", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var allGroups []Group
+	for rows.Next() {
+		var g Group
+		var parentID sql.NullInt32
+		if err := rows.Scan(&g.ID, &g.Name, &g.DisplayName, &parentID, &g.IsRepo); err != nil {
+			log.Error().Err(err).Msg("Failed to scan group row")
+			http.Error(w, "Error processing groups", http.StatusInternalServerError)
+			return
+		}
+		if parentID.Valid {
+			pid := int(parentID.Int32)
+			g.ParentID = &pid
+		}
+		allGroups = append(allGroups, g)
+	}
+	if rows.Err() != nil {
+		log.Error().Err(rows.Err()).Msg("Error iterating over group rows")
+		http.Error(w, "Error retrieving groups", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(allGroups)
+}
+
+func (a *App) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {
+	groupID, err := strconv.Atoi(r.PathValue("groupID"))
+	if err != nil {
+		http.Error(w, "Invalid group ID", http.StatusBadRequest)
+		return
+	}
+
+	var group Group
+	if err := json.NewDecoder(r.Body).Decode(&group); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	group.Name = sanitizeInput(group.DisplayName)
+
+	query := `UPDATE groups SET name = $1, display_name = $2, parent_id = $3, is_repo = $4, updated_at = NOW() WHERE id = $5`
+	_, err = a.db.Exec(context.Background(), query, group.Name, group.DisplayName, group.ParentID, group.IsRepo, groupID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to update group")
+		http.Error(w, "Failed to update group", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (a *App) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
+	groupID, err := strconv.Atoi(r.PathValue("groupID"))
+	if err != nil {
+		http.Error(w, "Invalid group ID", http.StatusBadRequest)
+		return
+	}
+
+	_, err = a.db.Exec(context.Background(), "DELETE FROM groups WHERE id = $1", groupID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to delete group")
+		http.Error(w, "Failed to delete group", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func main() {
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
@@ -2025,6 +2234,12 @@ func main() {
 	app := &App{db: dbpool, cfg: cfg, cli: cli, encKey: key[:]}
 
 	mux := http.NewServeMux()
+
+	// Group Management
+	mux.HandleFunc("POST /v1/groups", app.handleCreateGroup)
+	mux.HandleFunc("GET /v1/groups", app.handleGetGroups)
+	mux.HandleFunc("PUT /v1/groups/{groupID}", app.handleUpdateGroup)
+	mux.HandleFunc("DELETE /v1/groups/{groupID}", app.handleDeleteGroup)
 
 	// Pipeline Management
 	mux.HandleFunc("GET /v1/pipelines", app.handleListPipelines)

@@ -17,6 +17,10 @@ curl -X PUT \
   --data-binary "@.nopsai/reference-pipeline.yaml" \
   http://localhost:8080/v1/pipelines/reference-pipeline.yaml
 
+curl -X PUT \
+  -H "Content-Type: application/x-yaml" \
+  --data-binary "@.nopsai/simple-step.yaml" \
+  http://localhost:8080/v1/steps/simple-step
 _______________________________________-
 
 # Secrets
