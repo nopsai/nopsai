@@ -1,3 +1,14 @@
+CREATE TABLE groups (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    display_name VARCHAR(255) NOT NULL,
+    parent_id INTEGER REFERENCES groups(id) ON DELETE CASCADE,
+    is_repo BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(parent_id, name)
+);
+
 CREATE TABLE runs (
     run_id UUID PRIMARY KEY,
     parent_run_id UUID NULL REFERENCES runs(run_id) ON DELETE SET NULL,
@@ -21,7 +32,8 @@ CREATE TABLE runs (
     git_commit_author_username VARCHAR(255),
     git_pusher_name VARCHAR(255),
     git_pusher_email VARCHAR(255),
-    git_check_run_id BIGINT
+    git_check_run_id BIGINT,
+    group_id INTEGER REFERENCES groups(id) ON DELETE SET NULL
 );
 
 CREATE TABLE tasks (
