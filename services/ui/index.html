@@ -516,7 +516,8 @@
                         </div>
                     </div>
                     <div class="text-xs text-gray-400 space-y-1">
-                         <p class="truncate"><span class="font-semibold text-gray-300">Pusher:</span> ${run.git_pusher_name || 'N/A'}</p>
+                        <p class="truncate"><span class="font-semibold text-gray-300">ID:</span> ${run.run_id}</p>
+                        <p class="truncate"><span class="font-semibold text-gray-300">Pusher:</span> ${run.git_pusher_name || 'N/A'}</p>
                         <p class="truncate"><span class="font-semibold text-gray-300">Commit:</span> #${(run.git_commit_sha || '...').slice(0, 7)}</p>
                         <p class="truncate"><span class="font-semibold text-gray-300">Time:</span> ${timeAgo(timeToDisplay)}</p>
                     </div>
