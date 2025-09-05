@@ -1,4 +1,4 @@
-docker-compose down -v && docker container prune -f && docker volume prune -f && docker image prune -f
+docker-compose down -v ; docker container prune -f && docker volume prune -f && docker image prune -f
 
 curl -X PUT -d '{"value": "tcp://192.168.1.16:2375"}' \
   'http://localhost:8080/v1/environments/DOCKER_HOST?env=prod'

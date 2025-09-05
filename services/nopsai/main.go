@@ -114,12 +114,11 @@ type FinalizeRequest struct {
 }
 
 type Group struct {
-	ID          int     `json:"id"`
-	Name        string  `json:"name"`
-	DisplayName string  `json:"display_name"`
-	ParentID    *int    `json:"parent_id"`
-	IsRepo      bool    `json:"is_repo"`
-	Children    []Group `json:"children"`
+	ID        int        `json:"id"`
+	Name      string     `json:"name"`
+	ParentID  *int       `json:"parent_id"`
+	Children  []Group    `json:"children"`
+	LastRunAt *time.Time `json:"last_run_at,omitempty"`
 }
 
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
@@ -1187,27 +1186,6 @@ func allTasksDone(tasks []TaskDetail) bool {
 	return true
 }
 
-// Helper function to get the depth of a group
-func getGroupDepth(groupID int, allGroups []Group) int {
-	depth := 0
-	currentID := &groupID
-	for currentID != nil {
-		depth++
-		found := false
-		for _, g := range allGroups {
-			if g.ID == *currentID {
-				currentID = g.ParentID
-				found = true
-				break
-			}
-		}
-		if !found {
-			break
-		}
-	}
-	return depth
-}
-
 func (a *App) launchAndRunPipeline(
 	w http.ResponseWriter,
 	pipeline models.Pipeline,
@@ -1243,62 +1221,27 @@ func (a *App) launchAndRunPipeline(
 
 	var groupID sql.NullInt32
 	if repoName, ok := gitContext["repo_name"]; ok && repoName != "" {
-		rows, err := tx.Query(context.Background(), "SELECT id, name, display_name, parent_id, is_repo FROM groups")
+		repoOwner := gitContext["repo_owner"]
+		fullRepoName := fmt.Sprintf("%s/%s", repoOwner, repoName)
+
+		var existingID int32
+		// This is the corrected logic:
+		// It now correctly finds a top-level group with the name "owner/repo-name".
+		err := tx.QueryRow(context.Background(),
+			"SELECT id FROM groups WHERE name = $1 AND parent_id IS NULL", fullRepoName).Scan(&existingID)
+
+		if err == pgx.ErrNoRows {
+			// If no such top-level folder exists, create one.
+			err = tx.QueryRow(context.Background(),
+				`INSERT INTO groups (name, parent_id) VALUES ($1, NULL) RETURNING id`,
+				fullRepoName).Scan(&existingID)
+		}
+
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to query all groups for hierarchy resolution")
+			log.Error().Err(err).Str("repo", fullRepoName).Msg("Failed to find or create group for repository")
 		} else {
-			var allGroups []Group
-			for rows.Next() {
-				var g Group
-				var parentID sql.NullInt32
-				if err := rows.Scan(&g.ID, &g.Name, &g.DisplayName, &parentID, &g.IsRepo); err == nil {
-					if parentID.Valid {
-						pid := int(parentID.Int32)
-						g.ParentID = &pid
-					}
-					allGroups = append(allGroups, g)
-				}
-			}
-			rows.Close()
-
-			repoOwner := gitContext["repo_owner"]
-			fullRepoName := fmt.Sprintf("%s/%s", repoOwner, repoName)
-			var candidates []Group
-			for _, g := range allGroups {
-				if g.Name == fullRepoName {
-					candidates = append(candidates, g)
-				}
-			}
-
-			var targetGroup *Group
-			if len(candidates) == 1 {
-				targetGroup = &candidates[0]
-			} else if len(candidates) > 1 {
-				maxDepth := -1
-				for i := range candidates {
-					depth := getGroupDepth(candidates[i].ID, allGroups)
-					if depth > maxDepth {
-						maxDepth = depth
-						targetGroup = &candidates[i]
-					}
-				}
-			}
-
-			if targetGroup != nil {
-				groupID.Int32 = int32(targetGroup.ID)
-				groupID.Valid = true
-			} else {
-				var newID int32
-				err := tx.QueryRow(context.Background(),
-					`INSERT INTO groups (name, display_name, is_repo, parent_id) VALUES ($1, $2, true, NULL) RETURNING id`,
-					fullRepoName, repoName).Scan(&newID)
-				if err != nil {
-					log.Error().Err(err).Msg("Failed to create group for new repo")
-				} else {
-					groupID.Int32 = newID
-					groupID.Valid = true
-				}
-			}
+			groupID.Int32 = existingID
+			groupID.Valid = true
 		}
 	}
 
@@ -2151,25 +2094,13 @@ func (a *App) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	group.Name = sanitizeInput(group.DisplayName)
-
-	// Check for duplicates at the same level
-	var existingID int
-	var err error
-	if group.ParentID != nil {
-		err = a.db.QueryRow(context.Background(), "SELECT id FROM groups WHERE name = $1 AND parent_id = $2", group.Name, *group.ParentID).Scan(&existingID)
-	} else {
-		err = a.db.QueryRow(context.Background(), "SELECT id FROM groups WHERE name = $1 AND parent_id IS NULL", group.Name).Scan(&existingID)
-	}
-
-	if err != pgx.ErrNoRows {
-		http.Error(w, "A folder with this name already exists at this level.", http.StatusConflict)
-		return
-	}
-
-	query := `INSERT INTO groups (name, display_name, parent_id, is_repo) VALUES ($1, $2, $3, $4) RETURNING id`
-	err = a.db.QueryRow(context.Background(), query, group.Name, group.DisplayName, group.ParentID, false).Scan(&group.ID) // Always false for is_repo
+	query := `INSERT INTO groups (name, parent_id) VALUES ($1, $2) RETURNING id`
+	err := a.db.QueryRow(context.Background(), query, group.Name, group.ParentID).Scan(&group.ID)
 	if err != nil {
+		if strings.Contains(err.Error(), "unique constraint") {
+			http.Error(w, "A folder or repository with this name already exists at this level.", http.StatusConflict)
+			return
+		}
 		log.Error().Err(err).Msg("Failed to create group")
 		http.Error(w, "Failed to create group", http.StatusInternalServerError)
 		return
@@ -2181,7 +2112,7 @@ func (a *App) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleGetGroups(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(context.Background(), "SELECT id, name, display_name, parent_id, is_repo FROM groups")
+	rows, err := a.db.Query(context.Background(), "SELECT id, name, parent_id FROM groups")
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query groups from database")
 		http.Error(w, "Failed to retrieve groups", http.StatusInternalServerError)
@@ -2190,10 +2121,12 @@ func (a *App) handleGetGroups(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	var allGroups []Group
+	groupMap := make(map[int]*Group)
+
 	for rows.Next() {
 		var g Group
 		var parentID sql.NullInt32
-		if err := rows.Scan(&g.ID, &g.Name, &g.DisplayName, &parentID, &g.IsRepo); err != nil {
+		if err := rows.Scan(&g.ID, &g.Name, &parentID); err != nil {
 			log.Error().Err(err).Msg("Failed to scan group row")
 			http.Error(w, "Error processing groups", http.StatusInternalServerError)
 			return
@@ -2208,6 +2141,34 @@ func (a *App) handleGetGroups(w http.ResponseWriter, r *http.Request) {
 		log.Error().Err(rows.Err()).Msg("Error iterating over group rows")
 		http.Error(w, "Error retrieving groups", http.StatusInternalServerError)
 		return
+	}
+
+	for i := range allGroups {
+		groupMap[allGroups[i].ID] = &allGroups[i]
+	}
+
+	query := `
+        SELECT g.id, MAX(r.started_at)
+        FROM groups g
+        JOIN runs r ON g.id = r.group_id
+        GROUP BY g.id
+    `
+	runRows, err := a.db.Query(context.Background(), query)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to query last run times for groups")
+	} else {
+		defer runRows.Close()
+		for runRows.Next() {
+			var groupID int
+			var lastRunAt sql.NullTime
+			if err := runRows.Scan(&groupID, &lastRunAt); err == nil {
+				if lastRunAt.Valid {
+					if group, ok := groupMap[groupID]; ok {
+						group.LastRunAt = &lastRunAt.Time
+					}
+				}
+			}
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -2227,11 +2188,13 @@ func (a *App) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	group.Name = sanitizeInput(group.DisplayName)
-
-	query := `UPDATE groups SET name = $1, display_name = $2, parent_id = $3, is_repo = $4, updated_at = NOW() WHERE id = $5`
-	_, err = a.db.Exec(context.Background(), query, group.Name, group.DisplayName, group.ParentID, group.IsRepo, groupID)
+	query := `UPDATE groups SET name = $1, parent_id = $2, updated_at = NOW() WHERE id = $3`
+	_, err = a.db.Exec(context.Background(), query, group.Name, group.ParentID, groupID)
 	if err != nil {
+		if strings.Contains(err.Error(), "unique constraint") {
+			http.Error(w, "A folder or repository with this name already exists at this level.", http.StatusConflict)
+			return
+		}
 		log.Error().Err(err).Msg("Failed to update group")
 		http.Error(w, "Failed to update group", http.StatusInternalServerError)
 		return

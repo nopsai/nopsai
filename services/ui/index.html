@@ -59,7 +59,7 @@
         </aside>
 
         <main class="flex-1 flex flex-col overflow-hidden">
-            <header class="flex items-start justify-between px-6 py-4 bg-gray-800/50 backdrop-blur-sm border-b border-gray-700 z-10">
+             <header class="flex items-start justify-between px-6 py-4 bg-gray-800/50 backdrop-blur-sm border-b border-gray-700 z-10">
                 <button id="open-sidebar-btn" class="sm:hidden text-gray-400 hover:text-white">
                     <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7" /></svg>
                 </button>
@@ -257,7 +257,7 @@
 
         async function fetchMainContent(groupId) {
             const group = state.groups.find(g => g.id == groupId);
-            const isRepo = group && group.is_repo;
+            const isRepo = (group.name || '').includes('/');
         
             if (isRepo) {
                 const runsByBranch = await fetchData(`/v1/runs?groupId=${groupId}`);
@@ -346,29 +346,42 @@
                 const gParentId = (g.parent_id === 0 || g.parent_id === null) ? null : g.parent_id;
                 return gParentId === parentId;
             });
+
+            children.sort((a, b) => {
+                const isRepoA = (a.name || '').includes('/');
+                const isRepoB = (b.name || '').includes('/');
+                if (isRepoA !== isRepoB) {
+                    return isRepoA ? 1 : -1;
+                }
+                if (isRepoA && b.last_run_at) {
+                    return new Date(b.last_run_at) - new Date(a.last_run_at);
+                }
+                return a.name.localeCompare(b.name);
+            });
             
             let html = `<ul class="pl-${level > 0 ? '4' : '0'} space-y-1">`;
             for (const group of children) {
                 const hasChildren = groups.some(g => g.parent_id === group.id);
                 const isExpanded = state.expandedGroups.has(group.id);
-                const isRepo = group.is_repo;
+                const isRepo = (group.name || '').includes('/');
+                const displayName = isRepo ? group.name.split('/')[1] : group.name;
                 const canExpand = hasChildren || isRepo;
-                 const isActive = state.selectedGroupId === group.id;
+                const isActive = state.selectedGroupId === group.id;
 
                 let chevron = canExpand 
                     ? `<svg class="h-4 w-4 mr-1 text-gray-400 chevron ${isExpanded ? 'rotate-90' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>` 
                     : `<div class="w-5 h-4 mr-1"></div>`;
 
-                html += `<li data-group-id="${group.id}" data-is-repo="${isRepo}">
-                            <div class="flex items-center justify-between p-2 text-gray-300 rounded-md hover:bg-gray-700 group-header-container ${isActive && !isRepo ? 'bg-gray-700' : ''}">
+                html += `<li data-group-id="${group.id}">
+                            <div class="flex items-center justify-between p-2 text-gray-300 rounded-md hover:bg-gray-700 group-header-container ${isActive ? 'bg-gray-700' : ''}">
                                 <div class="flex items-center group-header flex-grow cursor-pointer ${isExpanded ? 'expanded' : ''}">
                                     ${chevron}
                                     <a href="#/pipelineruns/main/${group.id}" class="flex items-center flex-grow">
                                         <svg class="h-4 w-4 mr-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
-                                        <span>${group.display_name}</span>
+                                        <span>${displayName}</span>
                                     </a>
                                 </div>
-                                ${!isRepo ? `<button class="delete-group-btn text-gray-500 hover:text-red-400 opacity-0 transition-opacity" data-group-id="${group.id}" data-group-name="${group.display_name}"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>` : ''}
+                                <button class="delete-group-btn text-gray-500 hover:text-red-400 opacity-0 transition-opacity" data-group-id="${group.id}" data-group-name="${group.name}"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
                             </div>
                             <div class="group-children"></div>
                          </li>`;
@@ -379,7 +392,8 @@
             for (const group of children) {
                 if (state.expandedGroups.has(group.id)) {
                     const childContainer = document.querySelector(`[data-group-id='${group.id}'] .group-children`);
-                    if (group.is_repo) {
+                    const isRepo = (group.name || '').includes('/');
+                    if (isRepo) {
                         const runsByBranch = await fetchData(`/v1/runs?groupId=${group.id}`);
                         renderRepoChildren(childContainer, runsByBranch, level + 1);
                     } else {
@@ -476,7 +490,7 @@
             }).join('');
         }
         
-    function renderGroupedRuns(runsByBranch) {
+        function renderGroupedRuns(runsByBranch) {
             resetMainView();
             DOM.mainGridContainer.classList.remove('hidden');
             
@@ -548,6 +562,7 @@
                 </a>`;
         }
 
+
         function renderMainGridContent(subgroups, runs, showAddButton = false) {
              resetMainView();
              DOM.mainGridContainer.classList.remove('hidden');
@@ -555,14 +570,16 @@
              let html = '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">';
 
             (subgroups || []).forEach(group => {
+                const isRepo = (group.name || '').includes('/');
+                const displayName = isRepo ? group.name.split('/')[1] : group.name;
                 html += `
                     <a href="#/pipelineruns/main/${group.id}" class="relative group bg-gray-800 p-4 rounded-md hover:bg-gray-700/50 transition-colors duration-200 group-card">
-                        <button class="delete-group-btn absolute top-2 right-2 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity z-10" data-group-id="${group.id}" data-group-name="${group.display_name}">
+                        <button class="delete-group-btn absolute top-2 right-2 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity z-10" data-group-id="${group.id}" data-group-name="${group.name}">
                             <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                         </button>
                         <div class="flex items-center">
                             <svg class="h-8 w-8 text-indigo-400 mr-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
-                            <span class="text-lg font-medium text-gray-200 truncate">${group.display_name}</span>
+                            <span class="text-lg font-medium text-gray-200 truncate">${displayName}</span>
                         </div>
                     </a>`;
             });
@@ -798,7 +815,9 @@
             let breadcrumbs = [];
             let currentGroup = state.groups.find(g => g.id == groupId);
             while (currentGroup) {
-                breadcrumbs.unshift({ id: currentGroup.id, name: currentGroup.display_name });
+                const isRepo = (currentGroup.name || '').includes('/');
+                const displayName = isRepo ? currentGroup.name.split('/')[1] : currentGroup.name;
+                breadcrumbs.unshift({ id: currentGroup.id, name: displayName });
                 currentGroup = currentGroup.parent_id ? state.groups.find(g => g.id == currentGroup.parent_id) : null;
             }
 
@@ -894,17 +913,16 @@
             event.preventDefault();
             const formData = new FormData(event.target);
             const parentId = formData.get('parent_id') ? parseInt(formData.get('parent_id'), 10) : null;
-            const displayName = formData.get('name');
+            const name = formData.get('name');
 
             const siblings = state.groups.filter(g => g.parent_id === parentId);
-            if (siblings.some(s => s.display_name === displayName)) {
-                alert('A folder with this name already exists at this level.');
+            if (siblings.some(s => s.name === name)) {
+                alert('A folder or repository with this name already exists at this level.');
                 return;
             }
 
             const data = {
-                display_name: displayName,
-                is_repo: false,
+                name: name,
                 parent_id: parentId,
             };
             const newGroup = await postData('/v1/groups', data);
@@ -984,7 +1002,7 @@
             }
         });
         
-DOM.sidebarNav.addEventListener('click', async (e) => {
+        DOM.sidebarNav.addEventListener('click', async (e) => {
             // We will manage navigation and actions ourselves, so prevent default browser behavior.
             e.preventDefault();
 
