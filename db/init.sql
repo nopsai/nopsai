@@ -1,9 +1,7 @@
 CREATE TABLE groups (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
-    display_name VARCHAR(255) NOT NULL,
     parent_id INTEGER REFERENCES groups(id) ON DELETE CASCADE,
-    is_repo BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(parent_id, name)
