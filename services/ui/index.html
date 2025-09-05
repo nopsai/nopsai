@@ -427,11 +427,13 @@
                                 <svg class="h-4 w-4 mr-2 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
                                 <div class="flex-1 overflow-hidden">
                                     <div class="flex justify-between items-center">
-                                        <span class="font-medium truncate">${run.pipeline_name}</span>
+                                        <span class="font-medium truncate text-gray-300">${run.pipeline_name}</span>
                                         <span class="text-xs text-gray-500 flex-shrink-0 ml-2">${timeAgo(timeToDisplay)}</span>
                                     </div>
-                                    <p class="text-xs text-gray-400 truncate">ID:${(run.run_id || '...').slice(0, 16)}</p>
-                                    <p class="text-xs text-gray-400 truncate">Commit:${(run.git_commit_sha || '...').slice(0, 16)}</p>
+                                    <p class="text-xs text-gray-400 truncate"><span class="font-semibold text-gray-300">ID: </span>
+                                        ${(run.run_id || '...').slice(0, 16)}</p>
+                                    <p class="text-xs text-gray-400 truncate"><span class="font-semibold text-gray-300">Commit: </span>
+                                        ${(run.git_commit_sha || '...').slice(0, 16)}</p>
                                 </div>
                             </a>
                          </li>`;
@@ -461,11 +463,11 @@
                                     <span class="font-medium truncate">${run.pipeline_name}</span>
                                     <span class="text-xs text-gray-500 flex-shrink-0 ml-2">${timeAgo(timeToDisplay)}</span>
                                 </div>
-                                <p class="text-xs text-gray-400 truncate">Branch: ${(run.git_ref).split('/')[2]}</p>
-                                <p class="text-xs text-gray-400 truncate">ID:
+                                <p class="text-xs text-gray-400 truncate"><span class="font-semibold text-gray-300">Branch: </span>${(run.git_ref).split('/')[2]}</p>
+                                <p class="text-xs text-gray-400 truncate"><span class="font-semibold text-gray-300">ID: </span>
                                     ${(run.run_id || '...').slice(0, 16)}
                                 </p>
-                                <p class="text-xs text-gray-400 truncate">Commit:
+                                <p class="text-xs text-gray-400 truncate"><span class="font-semibold text-gray-300">Commit: </span>
                                     ${(run.git_commit_sha || '...').slice(0, 16)}
                                 </p>
                             </div>
@@ -474,7 +476,7 @@
             }).join('');
         }
         
-        function renderGroupedRuns(runsByBranch) {
+    function renderGroupedRuns(runsByBranch) {
             resetMainView();
             DOM.mainGridContainer.classList.remove('hidden');
             
@@ -484,7 +486,16 @@
             }
 
             let html = '<div class="space-y-6">';
-            const sortedBranches = Object.keys(runsByBranch).sort((a, b) => a.localeCompare(b));
+            
+            // Sort branches by the start time of their most recent run (which is the first in the list).
+            const sortedBranches = Object.keys(runsByBranch).sort((a, b) => {
+                const lastRunA = runsByBranch[a][0];
+                const lastRunB = runsByBranch[b][0];
+                // Handle cases where a run might not have a start time yet
+                if (!lastRunA || !lastRunA.started_at) return 1;
+                if (!lastRunB || !lastRunB.started_at) return -1;
+                return new Date(lastRunB.started_at) - new Date(lastRunA.started_at);
+            });
 
             sortedBranches.forEach((branch, index) => {
                 const runs = runsByBranch[branch];
@@ -527,9 +538,10 @@
                         </div>
                     </div>
                     <div class="text-xs text-gray-400 space-y-1">
-                        <p class="truncate"><span class="font-semibold text-gray-300">ID:</span> ${(run.run_id).slice(0, 16)}</p>
+                        <p class="text-xs text-gray-400 truncate"><span class="font-semibold text-gray-300">Branch:</span> ${(run.git_ref).split('/')[2]}</p>
+                        <p class="truncate"><span class="font-semibold text-gray-300">ID:</span> ${(run.run_id)}</p>
                         <p class="truncate"><span class="font-semibold text-gray-300">Pusher:</span> ${run.git_pusher_name || 'N/A'}</p>
-                        <p class="truncate"><span class="font-semibold text-gray-300">Commit:</span> ${(run.git_commit_sha || '...').slice(0, 16)}</p>
+                        <p class="truncate"><span class="font-semibold text-gray-300">Commit:</span> ${(run.git_commit_sha || '...')}</p>
                         <p class="truncate"><span class="font-semibold text-gray-300">Time:</span> ${timeAgo(timeToDisplay)}</p>
                     </div>
                 </a>`;
