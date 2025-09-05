@@ -421,17 +421,24 @@
             runs.forEach(run => {
                 const config = statusConfig[(run.is_complete ? run.status : 'running').toLowerCase()] || statusConfig.pending;
                 const isActive = run.run_id === activeRunId;
+                const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
                 html += `<li>
                             <a href="#/pipelineruns/recent/${run.run_id}" class="flex items-center p-2 text-sm text-gray-400 rounded-md hover:bg-gray-700 ${isActive ? 'bg-gray-700 text-white' : ''}">
                                 <svg class="h-4 w-4 mr-2 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
-                                <span class="truncate">#${run.git_commit_sha.slice(0, 7)} - ${timeAgo(run.started_at)}</span>
+                                <div class="flex-1 overflow-hidden">
+                                    <div class="flex justify-between items-center">
+                                        <span class="font-medium truncate">${run.pipeline_name}</span>
+                                        <span class="text-xs text-gray-500 flex-shrink-0 ml-2">${timeAgo(timeToDisplay)}</span>
+                                    </div>
+                                    <p class="text-xs text-gray-400 truncate">ID:${(run.run_id || '...').slice(0, 16)}</p>
+                                    <p class="text-xs text-gray-400 truncate">Commit:${(run.git_commit_sha || '...').slice(0, 16)}</p>
+                                </div>
                             </a>
                          </li>`;
             });
             html += `</ul>`;
             return html;
         }
-
 
         function renderSidebarPipelineRunsList(runs) {
             const listEl = document.getElementById('pipeline-runs-list');
@@ -454,8 +461,12 @@
                                     <span class="font-medium truncate">${run.pipeline_name}</span>
                                     <span class="text-xs text-gray-500 flex-shrink-0 ml-2">${timeAgo(timeToDisplay)}</span>
                                 </div>
-                                <p class="text-xs text-gray-400 truncate">
-                                    <span class="font-semibold">${run.git_repo_name || 'System'}</span> on #${(run.git_commit_sha || '...').slice(0, 7)}
+                                <p class="text-xs text-gray-400 truncate">Branch: ${(run.git_ref).split('/')[2]}</p>
+                                <p class="text-xs text-gray-400 truncate">ID:
+                                    ${(run.run_id || '...').slice(0, 16)}
+                                </p>
+                                <p class="text-xs text-gray-400 truncate">Commit:
+                                    ${(run.git_commit_sha || '...').slice(0, 16)}
                                 </p>
                             </div>
                         </a>
@@ -516,9 +527,9 @@
                         </div>
                     </div>
                     <div class="text-xs text-gray-400 space-y-1">
-                        <p class="truncate"><span class="font-semibold text-gray-300">ID:</span> ${run.run_id}</p>
+                        <p class="truncate"><span class="font-semibold text-gray-300">ID:</span> ${(run.run_id).slice(0, 16)}</p>
                         <p class="truncate"><span class="font-semibold text-gray-300">Pusher:</span> ${run.git_pusher_name || 'N/A'}</p>
-                        <p class="truncate"><span class="font-semibold text-gray-300">Commit:</span> #${(run.git_commit_sha || '...').slice(0, 7)}</p>
+                        <p class="truncate"><span class="font-semibold text-gray-300">Commit:</span> ${(run.git_commit_sha || '...').slice(0, 16)}</p>
                         <p class="truncate"><span class="font-semibold text-gray-300">Time:</span> ${timeAgo(timeToDisplay)}</p>
                     </div>
                 </a>`;
@@ -561,7 +572,7 @@
         function renderPipelineGraph(runDetails) {
             const runInfo = runDetails.run_info;
             DOM.mainHeader.innerHTML = `<div class="flex-1 text-xl font-semibold">
-                                        ${runInfo.pipeline_name} (#${runInfo.run_id.slice(0, 8)})
+                                        ${runInfo.pipeline_name} (${runInfo.run_id.slice(0, 16)})
                                         <span class="text-sm font-normal text-gray-400 ml-2">(${runInfo.duration || '0s'})</span>
                                       </div>`;
             DOM.placeholder.classList.add('hidden');
@@ -929,23 +940,29 @@
             }
         });
         
-        DOM.sidebarNav.addEventListener('click', async (e) => {
-            const branchLi = e.target.closest('li[data-branch-id]');
-            if (branchLi) {
-                e.preventDefault();
+DOM.sidebarNav.addEventListener('click', async (e) => {
+            // We will manage navigation and actions ourselves, so prevent default browser behavior.
+            e.preventDefault();
+
+            // Find the link and the header elements related to the click target.
+            const link = e.target.closest('a[href]');
+            const groupHeader = e.target.closest('.group-header');
+            const branchHeader = e.target.closest('li[data-branch-id] > .group-header');
+
+            // This variable will track if we changed the expansion state.
+            let didToggle = false;
+
+            // --- Handle Expansion/Collapse Logic ---
+            if (branchHeader) {
+                const branchLi = branchHeader.closest('li[data-branch-id]');
                 const branchId = branchLi.dataset.branchId;
                 if (state.expandedGroups.has(branchId)) {
                     state.expandedGroups.delete(branchId);
                 } else {
                     state.expandedGroups.add(branchId);
                 }
-                await renderHierarchy(state.groups);
-                return;
-            }
-
-            const groupHeader = e.target.closest('.group-header');
-            if (groupHeader) {
-                e.preventDefault();
+                didToggle = true;
+            } else if (groupHeader) {
                 const groupLi = groupHeader.closest('li[data-group-id]');
                 if (groupLi) {
                     const groupId = parseInt(groupLi.dataset.groupId);
@@ -954,8 +971,21 @@
                     } else {
                         state.expandedGroups.add(groupId);
                     }
-                    await renderHierarchy(state.groups);
+                    didToggle = true;
                 }
+            }
+
+            // --- Handle Navigation and Re-rendering ---
+
+            // If a link was the actual target of the click, navigate by setting the URL hash.
+            // This will trigger the main router, which will re-render the entire view,
+            // including the sidebar with its new expansion state.
+            if (link && window.location.hash !== link.getAttribute('href')) {
+                window.location.hash = link.getAttribute('href');
+            } else if (didToggle) {
+                // If only an expansion happened (the user clicked the header but not a link),
+                // we only need to re-render the sidebar hierarchy.
+                await renderHierarchy(state.groups);
             }
         });
 
