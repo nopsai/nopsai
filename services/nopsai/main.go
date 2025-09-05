@@ -53,6 +53,7 @@ type RunListItem struct {
 	Status        string    `json:"status"`
 	GitCommitSHA  string    `json:"git_commit_sha"`
 	GitRepoName   string    `json:"git_repo_name"`
+	GitRepoOwner  string    `json:"git_repo_owner"`
 	GitRef        string    `json:"git_ref"`
 	StartedAt     time.Time `json:"started_at"`
 	FinishedAt    time.Time `json:"finished_at"`
@@ -1037,17 +1038,19 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	var run RunListItem
 	var pipelineDefinition string
 	var startedAt, finishedAt sql.NullTime
-	var commitSHA, repoName, pusherName sql.NullString
+	var commitSHA, repoOwner, repoName, pusherName, gitRef sql.NullString // Added gitRef
 	err := a.db.QueryRow(context.Background(), `
 		SELECT
 			run_id, pipeline_name, status, COALESCE(git_commit_sha, ''),
-			COALESCE(git_repo_name, ''), started_at, finished_at, parent_run_id,
-			COALESCE(git_pusher_name, ''), pipeline_definition
+			COALESCE(git_repo_owner, ''), COALESCE(git_repo_name, ''),
+			started_at, finished_at, parent_run_id,
+			COALESCE(git_pusher_name, ''), pipeline_definition, COALESCE(git_ref, '')
 		FROM runs
 		WHERE run_id = $1
 	`, runID).Scan(
 		&run.RunID, &run.PipelineName, &run.Status, &commitSHA,
-		&repoName, &startedAt, &finishedAt, &run.ParentRunID, &pusherName, &pipelineDefinition,
+		&repoOwner, &repoName, &startedAt, &finishedAt,
+		&run.ParentRunID, &pusherName, &pipelineDefinition, &gitRef, // Scan gitRef
 	)
 
 	if err != nil {
@@ -1056,8 +1059,10 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	run.GitCommitSHA = commitSHA.String
+	run.GitRepoOwner = repoOwner.String
 	run.GitRepoName = repoName.String
 	run.GitPusherName = pusherName.String
+	run.GitRef = gitRef.String // Assign the scanned value
 	if startedAt.Valid {
 		run.StartedAt = startedAt.Time
 	}
