@@ -34,6 +34,12 @@
         .group-card:hover .delete-group-btn {
             opacity: 1;
         }
+        /* Styles for the new collapsible branch view */
+        .branch-runs {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-in-out;
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-gray-100">
@@ -72,7 +78,7 @@
                     </div>
                     <div id="main-content-runs" class="p-6 h-full">
                          <div id="placeholder" class="h-full flex flex-col items-center justify-center text-center text-gray-500">
-                             <svg class="h-12 w-12 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                             <svg class="h-12 w-12 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2 -2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
                             <h3 class="text-lg font-semibold">Select a pipeline run</h3>
                             <p>Choose a run from the sidebar to view its progress.</p>
                         </div>
@@ -224,7 +230,9 @@
                     throw new Error(errorText || `HTTP error! Status: ${response.status}`);
                 }
                 if(response.status === 204) return null; // Handle No Content
-                return await response.json();
+                const data = await response.json();
+                console.log(`Data for ${url}:`, data); // DEBUG
+                return data;
             } catch (error) {
                 console.error(`Fetch error for ${url}:`, error);
                 alert(`Error: ${error.message}`);
@@ -251,12 +259,19 @@
         }
 
         async function fetchMainContent(groupId) {
-            const runs = await fetchData(`/v1/runs?groupId=${groupId}`);
-            const subgroups = state.groups.filter(g => g.parent_id == groupId);
-            const currentGroupIsRepo = state.groups.some(g => g.id == groupId && g.is_repo);
-
-            renderMainGridContent(subgroups, runs, !currentGroupIsRepo);
+            const group = state.groups.find(g => g.id == groupId);
+            const isRepo = group && group.is_repo;
+        
+            if (isRepo) {
+                const runsByBranch = await fetchData(`/v1/runs?groupId=${groupId}`);
+                renderGroupedRuns(runsByBranch);
+            } else {
+                const runs = await fetchData(`/v1/runs?groupId=${groupId}`);
+                const subgroups = state.groups.filter(g => g.parent_id == groupId);
+                renderMainGridContent(subgroups, runs, true);
+            }
         }
+
 
         async function fetchActiveRun(runId) {
             if (!runId) return;
@@ -393,6 +408,72 @@
                     </li>`;
             }).join('');
         }
+        
+        // NEW function to render runs grouped by branch
+        function renderGroupedRuns(runsByBranch) {
+            resetMainView();
+            DOM.mainGridContainer.classList.remove('hidden');
+            
+            if (!runsByBranch || Object.keys(runsByBranch).length === 0) {
+                DOM.mainGridContainer.innerHTML = '<p class="text-gray-400">No pipeline runs found for this repository.</p>';
+                return;
+            }
+
+            let html = '<div class="space-y-6">';
+
+            const sortedBranches = Object.keys(runsByBranch).sort((a, b) => a.localeCompare(b));
+
+            sortedBranches.forEach((branch, index) => {
+                const runs = runsByBranch[branch];
+                const latestRun = runs[0]; // Runs are sorted by date from API
+                const config = statusConfig[(latestRun.is_complete ? latestRun.status : 'running').toLowerCase()] || statusConfig.pending;
+
+                html += `
+                <div class="bg-gray-800/50 rounded-lg">
+                    <div class="branch-header cursor-pointer flex items-center justify-between p-4 border-b border-gray-700">
+                        <div class="flex items-center">
+                            <svg class="h-5 w-5 mr-3 text-gray-400 chevron" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                            <svg class="h-5 w-5 mr-3 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                            <span class="font-semibold text-lg text-white">${branch}</span>
+                            <span class="ml-4 text-sm text-gray-400">(${runs.length} runs)</span>
+                        </div>
+                        <div class="flex items-center">
+                            <span class="text-sm text-gray-400 mr-3 hidden sm:block">Latest run: ${timeAgo(latestRun.started_at)}</span>
+                            <svg class="h-6 w-6 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
+                        </div>
+                    </div>
+                    <div class="branch-runs p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4" style="${index === 0 ? 'max-height: 1000px;' : ''}">
+                        ${runs.map(run => renderRunCard(run)).join('')}
+                    </div>
+                </div>
+                `;
+            });
+            html += '</div>';
+            DOM.mainGridContainer.innerHTML = html;
+        }
+
+        // Helper to render a single run card (used by grouped and flat views)
+        function renderRunCard(run) {
+            const status = run.is_complete ? run.status : 'running';
+            const config = statusConfig[status.toLowerCase()] || statusConfig.pending;
+            const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
+            return `
+                <a href="#/pipelineruns/recent/${run.run_id}" class="block bg-gray-800 p-4 rounded-md hover:bg-gray-700/50 transition-colors duration-200">
+                    <div class="flex items-center justify-between mb-2">
+                        <p class="text-sm font-medium text-indigo-400 truncate">${run.pipeline_name}</p>
+                        <div class="ml-2 flex-shrink-0 flex items-center">
+                                <svg class="h-5 w-5 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
+                        </div>
+                    </div>
+                    <div class="text-xs text-gray-400 space-y-1">
+                         <p class="truncate"><span class="font-semibold text-gray-300">Pusher:</span> ${run.git_pusher_name || 'N/A'}</p>
+                        <p class="truncate"><span class="font-semibold text-gray-300">Commit:</span> #${(run.git_commit_sha || '...').slice(0, 7)}</p>
+                        <p class="truncate"><span class="font-semibold text-gray-300">Time:</span> ${timeAgo(timeToDisplay)}</p>
+                    </div>
+                </a>
+            `;
+        }
+
 
         function renderMainGridContent(subgroups, runs, showAddButton = false) {
              resetMainView();
@@ -414,28 +495,12 @@
                 `;
             });
 
+            // This part is now only for the "Recent Runs" view
             (runs || []).forEach(run => {
-                 const status = run.is_complete ? run.status : 'running';
-                const config = statusConfig[status.toLowerCase()] || statusConfig.pending;
-                const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
-                html += `
-                    <a href="#/pipelineruns/recent/${run.run_id}" class="block bg-gray-800 p-4 rounded-md hover:bg-gray-700/50 transition-colors duration-200">
-                        <div class="flex items-center justify-between mb-2">
-                            <p class="text-sm font-medium text-indigo-400 truncate">${run.pipeline_name}</p>
-                            <div class="ml-2 flex-shrink-0 flex items-center">
-                                 <svg class="h-5 w-5 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
-                            </div>
-                        </div>
-                        <div class="text-xs text-gray-400 space-y-1">
-                            <p class="truncate"><span class="font-semibold text-gray-300">Repo:</span> ${run.git_repo_name || 'N/A'}</p>
-                            <p class="truncate"><span class="font-semibold text-gray-300">Commit:</span> #${(run.git_commit_sha || '...').slice(0, 7)}</p>
-                            <p class="truncate"><span class="font-semibold text-gray-300">Time:</span> ${timeAgo(timeToDisplay)}</p>
-                        </div>
-                    </a>
-                `;
+                html += renderRunCard(run);
             });
             
-             if (showAddButton && (!runs || runs.length === 0)) {
+             if (showAddButton) {
                 html += `
                     <div id="add-group-card" class="relative group bg-gray-800 p-4 rounded-md border-2 border-dashed border-gray-600 hover:border-indigo-500 hover:bg-gray-700/50 transition-colors duration-200 cursor-pointer flex items-center justify-center">
                         <svg class="h-10 w-10 text-gray-500 group-hover:text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
@@ -628,34 +693,19 @@
         }
 
         function renderBreadcrumbs(groupId) {
-            if (!groupId) {
-                DOM.mainHeader.innerHTML = '<div>Pipeline Runs</div>';
-                return;
-            }
-
             let breadcrumbs = [];
             let currentGroup = state.groups.find(g => g.id == groupId);
-
             while (currentGroup) {
-                breadcrumbs.unshift({
-                    id: currentGroup.id,
-                    name: currentGroup.display_name
-                });
-                if (currentGroup.parent_id) {
-                    currentGroup = state.groups.find(g => g.id == currentGroup.parent_id);
-                } else {
-                    currentGroup = null;
-                }
+                breadcrumbs.unshift({ id: currentGroup.id, name: currentGroup.display_name });
+                currentGroup = currentGroup.parent_id ? state.groups.find(g => g.id == currentGroup.parent_id) : null;
             }
 
             let html = '<a href="#/pipelineruns/main" class="text-gray-400 hover:text-indigo-400">Main</a>';
             breadcrumbs.forEach(breadcrumb => {
                 html += ` <span class="mx-2 text-gray-500">/</span> <a href="#/pipelineruns/main/${breadcrumb.id}" class="text-gray-400 hover:text-indigo-400">${breadcrumb.name}</a>`;
             });
-
             DOM.mainHeader.innerHTML = `<div>${html}</div>`;
         }
-
 
         async function router() {
             stopPolling();
@@ -663,7 +713,7 @@
             DOM.placeholder.classList.remove('hidden');
 
             const hash = window.location.hash || '#/pipelineruns/main';
-            const [path, subpath, runId, ...rest] = hash.slice(2).split('/');
+            const [path, subpath, runOrGroupId, ...rest] = hash.slice(2).split('/');
 
             DOM.pages.forEach(p => p.classList.toggle('active', p.dataset.page === path));
 
@@ -673,8 +723,8 @@
                 updateTabs(subpath || 'main');
                 if (subpath === 'recent') {
                     startPolling(fetchAllRuns, 3000); // Poll for the sidebar
-                    if (runId) {
-                         await fetchActiveRun(runId);
+                    if (runOrGroupId) {
+                         await fetchActiveRun(runOrGroupId);
                     } else {
                         DOM.mainHeader.textContent = "Recent Pipeline Runs";
                         DOM.mainGridContainer.classList.remove('hidden');
@@ -682,11 +732,11 @@
                         renderMainGridContent([], runs, false);
                     }
                 } else { // 'main' tab
-                    const groupId = runId ? parseInt(runId, 10) : null;
+                    const groupId = runOrGroupId ? parseInt(runOrGroupId, 10) : null;
                      if (groupId) {
                         state.selectedGroupId = groupId;
                         renderBreadcrumbs(groupId);
-                        fetchMainContent(groupId);
+                        await fetchMainContent(groupId);
                     } else {
                         state.selectedGroupId = null;
                         renderBreadcrumbs(null);
@@ -811,6 +861,17 @@
                 const groupId = deleteBtn.dataset.groupId;
                 const groupName = deleteBtn.dataset.groupName;
                 showDeleteGroupModal(groupId, groupName);
+            }
+             const branchHeader = e.target.closest('.branch-header');
+            if (branchHeader) {
+                const chevron = branchHeader.querySelector('.chevron');
+                chevron.parentElement.classList.toggle('expanded');
+                const runsContainer = branchHeader.nextElementSibling;
+                if (runsContainer.style.maxHeight && runsContainer.style.maxHeight !== '0px') {
+                    runsContainer.style.maxHeight = '0px';
+                } else {
+                    runsContainer.style.maxHeight = runsContainer.scrollHeight + 'px';
+                }
             }
         });
 
