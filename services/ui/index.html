@@ -34,7 +34,6 @@
         .group-card:hover .delete-group-btn {
             opacity: 1;
         }
-        /* Styles for the new collapsible branch view */
         .branch-runs {
             max-height: 0;
             overflow: hidden;
@@ -229,10 +228,8 @@
                     const errorText = await response.text();
                     throw new Error(errorText || `HTTP error! Status: ${response.status}`);
                 }
-                if(response.status === 204) return null; // Handle No Content
-                const data = await response.json();
-                console.log(`Data for ${url}:`, data); // DEBUG
-                return data;
+                if(response.status === 204) return null;
+                return await response.json();
             } catch (error) {
                 console.error(`Fetch error for ${url}:`, error);
                 alert(`Error: ${error.message}`);
@@ -266,9 +263,8 @@
                 const runsByBranch = await fetchData(`/v1/runs?groupId=${groupId}`);
                 renderGroupedRuns(runsByBranch);
             } else {
-                const runs = await fetchData(`/v1/runs?groupId=${groupId}`);
                 const subgroups = state.groups.filter(g => g.parent_id == groupId);
-                renderMainGridContent(subgroups, runs, true);
+                renderMainGridContent(subgroups, null, true);
             }
         }
 
@@ -303,7 +299,7 @@
             DOM.mainGridContainer.classList.add('hidden');
         }
 
-        function renderSidebar(activeRoute) {
+        async function renderSidebar(activeRoute) {
              const navConfig = [
                 { route: 'pipelineruns', title: 'Pipeline Runs', icon: 'M4 6h16M4 12h16M4 18h7' },
                 { route: 'pipelines', title: 'Pipelines', icon: 'M9 17V7h2v10H9zm4-12h2v12h-2V5zm4 4h2v8h-2V9zM3 3h18v2H3V3z' },
@@ -331,53 +327,111 @@
                 if (currentTab === 'recent') {
                     DOM.sidebarNav.innerHTML += `<h2 class="px-2 mt-6 mb-2 text-xs font-semibold tracking-wider text-gray-400 uppercase">Recent Runs</h2>
                                                <ul id="pipeline-runs-list" class="space-y-1"></ul>`;
+                    fetchAllRuns();
                 } else {
                     DOM.sidebarNav.innerHTML += `<div class="px-2 mt-6 mb-2 flex items-center justify-between">
                                                     <h2 class="text-xs font-semibold tracking-wider text-gray-400 uppercase">Main</h2>
                                                 </div>
                                                 <div id="main-hierarchy"></div>`;
-                    renderHierarchy(state.groups);
+                    await renderHierarchy(state.groups);
                 }
             }
         }
 
-        function renderHierarchy(groups, parentId = null, level = 0) {
-            const container = level === 0 ? document.getElementById('main-hierarchy') : document.querySelector(`[data-group-id='${parentId}'] .group-children`);
+        async function renderHierarchy(groups, parentId = null, level = 0, container = null) {
+            container = container || (level === 0 ? document.getElementById('main-hierarchy') : document.querySelector(`[data-group-id='${parentId}'] .group-children`));
             if (!container) return;
 
             const children = groups.filter(g => {
                 const gParentId = (g.parent_id === 0 || g.parent_id === null) ? null : g.parent_id;
                 return gParentId === parentId;
             });
-
-            if (children.length === 0 && level > 0) return;
-
-            let html = `<ul class="${level > 0 ? 'pl-4' : ''}">`;
-            children.forEach(group => {
+            
+            let html = `<ul class="pl-${level > 0 ? '4' : '0'} space-y-1">`;
+            for (const group of children) {
                 const hasChildren = groups.some(g => g.parent_id === group.id);
                 const isExpanded = state.expandedGroups.has(group.id);
-                const chevron = hasChildren ? `<svg class="h-4 w-4 mr-1 text-gray-400 chevron" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>` : '<div class="w-5"></div>';
+                const isRepo = group.is_repo;
+                const canExpand = hasChildren || isRepo;
+                 const isActive = state.selectedGroupId === group.id;
 
-                html += `<li data-group-id="${group.id}" data-group-name="${group.display_name}">
-                            <div class="flex items-center justify-between p-2 text-gray-300 rounded-md hover:bg-gray-700 group-header-container">
-                                <div class="flex items-center cursor-pointer group-header flex-grow ${isExpanded ? 'expanded' : ''}">
+                let chevron = canExpand 
+                    ? `<svg class="h-4 w-4 mr-1 text-gray-400 chevron ${isExpanded ? 'rotate-90' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>` 
+                    : `<div class="w-5 h-4 mr-1"></div>`;
+
+                html += `<li data-group-id="${group.id}" data-is-repo="${isRepo}">
+                            <div class="flex items-center justify-between p-2 text-gray-300 rounded-md hover:bg-gray-700 group-header-container ${isActive && !isRepo ? 'bg-gray-700' : ''}">
+                                <div class="flex items-center group-header flex-grow cursor-pointer ${isExpanded ? 'expanded' : ''}">
                                     ${chevron}
-                                    <svg class="h-4 w-4 mr-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
-                                    <span>${group.display_name}</span>
+                                    <a href="#/pipelineruns/main/${group.id}" class="flex items-center flex-grow">
+                                        <svg class="h-4 w-4 mr-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                                        <span>${group.display_name}</span>
+                                    </a>
                                 </div>
+                                ${!isRepo ? `<button class="delete-group-btn text-gray-500 hover:text-red-400 opacity-0 transition-opacity" data-group-id="${group.id}" data-group-name="${group.display_name}"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>` : ''}
                             </div>
-                            <div class="group-children ${isExpanded ? '' : 'hidden'}"></div>
+                            <div class="group-children"></div>
+                         </li>`;
+            }
+            html += '</ul>';
+            container.innerHTML = html;
+
+            for (const group of children) {
+                if (state.expandedGroups.has(group.id)) {
+                    const childContainer = document.querySelector(`[data-group-id='${group.id}'] .group-children`);
+                    if (group.is_repo) {
+                        const runsByBranch = await fetchData(`/v1/runs?groupId=${group.id}`);
+                        renderRepoChildren(childContainer, runsByBranch, level + 1);
+                    } else {
+                        await renderHierarchy(groups, group.id, level + 1, childContainer);
+                    }
+                }
+            }
+        }
+
+        function renderRepoChildren(container, runsByBranch, level) {
+            if (!container) return;
+            let html = `<ul class="pl-${level > 0 ? '4' : '0'} space-y-1">`;
+            const sortedBranches = Object.keys(runsByBranch).sort();
+
+            sortedBranches.forEach(branch => {
+                const runs = runsByBranch[branch];
+                const branchId = `branch-${container.closest('li').dataset.groupId}-${branch.replace(/[^a-zA-Z0-9]/g, '')}`;
+                const isExpanded = state.expandedGroups.has(branchId);
+                const chevron = `<svg class="h-4 w-4 mr-1 text-gray-400 chevron ${isExpanded ? 'rotate-90' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>`;
+
+                html += `<li data-branch-id="${branchId}">
+                            <div class="flex items-center p-2 text-gray-300 rounded-md hover:bg-gray-700 group-header cursor-pointer">
+                                ${chevron}
+                                <svg class="h-4 w-4 mr-2 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                                <span>${branch}</span>
+                            </div>
+                            <div class="group-children">
+                                ${isExpanded ? renderRunLinks(runs, level + 1) : ''}
+                            </div>
                          </li>`;
             });
             html += '</ul>';
             container.innerHTML = html;
-
-            children.forEach(group => {
-                if (state.expandedGroups.has(group.id)) {
-                    renderHierarchy(groups, group.id, level + 1);
-                }
-            });
         }
+
+        function renderRunLinks(runs, level) {
+            const activeRunId = window.location.hash.split('/')[3];
+            let html = `<ul class="pl-${level > 0 ? '4' : '0'} space-y-1">`;
+            runs.forEach(run => {
+                const config = statusConfig[(run.is_complete ? run.status : 'running').toLowerCase()] || statusConfig.pending;
+                const isActive = run.run_id === activeRunId;
+                html += `<li>
+                            <a href="#/pipelineruns/recent/${run.run_id}" class="flex items-center p-2 text-sm text-gray-400 rounded-md hover:bg-gray-700 ${isActive ? 'bg-gray-700 text-white' : ''}">
+                                <svg class="h-4 w-4 mr-2 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
+                                <span class="truncate">#${run.git_commit_sha.slice(0, 7)} - ${timeAgo(run.started_at)}</span>
+                            </a>
+                         </li>`;
+            });
+            html += `</ul>`;
+            return html;
+        }
+
 
         function renderSidebarPipelineRunsList(runs) {
             const listEl = document.getElementById('pipeline-runs-list');
@@ -409,7 +463,6 @@
             }).join('');
         }
         
-        // NEW function to render runs grouped by branch
         function renderGroupedRuns(runsByBranch) {
             resetMainView();
             DOM.mainGridContainer.classList.remove('hidden');
@@ -420,12 +473,11 @@
             }
 
             let html = '<div class="space-y-6">';
-
             const sortedBranches = Object.keys(runsByBranch).sort((a, b) => a.localeCompare(b));
 
             sortedBranches.forEach((branch, index) => {
                 const runs = runsByBranch[branch];
-                const latestRun = runs[0]; // Runs are sorted by date from API
+                const latestRun = runs[0];
                 const config = statusConfig[(latestRun.is_complete ? latestRun.status : 'running').toLowerCase()] || statusConfig.pending;
 
                 html += `
@@ -445,14 +497,12 @@
                     <div class="branch-runs p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4" style="${index === 0 ? 'max-height: 1000px;' : ''}">
                         ${runs.map(run => renderRunCard(run)).join('')}
                     </div>
-                </div>
-                `;
+                </div>`;
             });
             html += '</div>';
             DOM.mainGridContainer.innerHTML = html;
         }
 
-        // Helper to render a single run card (used by grouped and flat views)
         function renderRunCard(run) {
             const status = run.is_complete ? run.status : 'running';
             const config = statusConfig[status.toLowerCase()] || statusConfig.pending;
@@ -470,8 +520,7 @@
                         <p class="truncate"><span class="font-semibold text-gray-300">Commit:</span> #${(run.git_commit_sha || '...').slice(0, 7)}</p>
                         <p class="truncate"><span class="font-semibold text-gray-300">Time:</span> ${timeAgo(timeToDisplay)}</p>
                     </div>
-                </a>
-            `;
+                </a>`;
         }
 
 
@@ -491,21 +540,18 @@
                             <svg class="h-8 w-8 text-indigo-400 mr-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
                             <span class="text-lg font-medium text-gray-200 truncate">${group.display_name}</span>
                         </div>
-                    </a>
-                `;
+                    </a>`;
             });
-
-            // This part is now only for the "Recent Runs" view
+            
             (runs || []).forEach(run => {
                 html += renderRunCard(run);
             });
-            
+
              if (showAddButton) {
                 html += `
                     <div id="add-group-card" class="relative group bg-gray-800 p-4 rounded-md border-2 border-dashed border-gray-600 hover:border-indigo-500 hover:bg-gray-700/50 transition-colors duration-200 cursor-pointer flex items-center justify-center">
                         <svg class="h-10 w-10 text-gray-500 group-hover:text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
-                    </div>
-                `;
+                    </div>`;
             }
             html += '</div>';
             DOM.mainGridContainer.innerHTML = html;
@@ -718,18 +764,17 @@
             DOM.pages.forEach(p => p.classList.toggle('active', p.dataset.page === path));
 
             if (path === 'pipelineruns') {
-                 await fetchGroups();
-                 renderSidebar(path);
+                await fetchGroups();
+                await renderSidebar(path);
                 updateTabs(subpath || 'main');
                 if (subpath === 'recent') {
-                    startPolling(fetchAllRuns, 3000); // Poll for the sidebar
                     if (runOrGroupId) {
                          await fetchActiveRun(runOrGroupId);
                     } else {
                         DOM.mainHeader.textContent = "Recent Pipeline Runs";
                         DOM.mainGridContainer.classList.remove('hidden');
                         const runs = await fetchData('/v1/runs');
-                        renderMainGridContent([], runs, false);
+                        renderMainGridContent(null, runs, false);
                     }
                 } else { // 'main' tab
                     const groupId = runOrGroupId ? parseInt(runOrGroupId, 10) : null;
@@ -741,7 +786,7 @@
                         state.selectedGroupId = null;
                         renderBreadcrumbs(null);
                         const rootGroups = state.groups.filter(g => g.parent_id === null || g.parent_id === 0);
-                        renderMainGridContent(rootGroups, [], true);
+                        renderMainGridContent(rootGroups, null, true);
                     }
                 }
 
@@ -750,7 +795,7 @@
                     showStepDetails(stepName);
                  }
             } else {
-                renderSidebar(path);
+                await renderSidebar(path);
                 DOM.mainHeader.textContent = path.charAt(0).toUpperCase() + path.slice(1);
             }
         }
@@ -809,7 +854,7 @@
             const newGroup = await postData('/v1/groups', data);
             if (newGroup) {
                 closeAddGroupModal();
-                router(); // Full refresh
+                router();
             }
         }
 
@@ -882,22 +927,34 @@
                 window.location.hash = `#/pipelineruns/${subpath}/${runId}/steps/${node.dataset.stepName}`;
             }
         });
+        
+        DOM.sidebarNav.addEventListener('click', async (e) => {
+            const branchLi = e.target.closest('li[data-branch-id]');
+            if (branchLi) {
+                e.preventDefault();
+                const branchId = branchLi.dataset.branchId;
+                if (state.expandedGroups.has(branchId)) {
+                    state.expandedGroups.delete(branchId);
+                } else {
+                    state.expandedGroups.add(branchId);
+                }
+                await renderHierarchy(state.groups);
+                return;
+            }
 
-        DOM.sidebarNav.addEventListener('click', e => {
             const groupHeader = e.target.closest('.group-header');
             if (groupHeader) {
-                 const groupLi = groupHeader.closest('li[data-group-id]');
-                const groupId = parseInt(groupLi.dataset.groupId, 10);
-                if (state.expandedGroups.has(groupId)) {
-                    state.expandedGroups.delete(groupId);
-                } else {
-                    state.expandedGroups.add(groupId);
+                e.preventDefault();
+                const groupLi = groupHeader.closest('li[data-group-id]');
+                if (groupLi) {
+                    const groupId = parseInt(groupLi.dataset.groupId);
+                    if (state.expandedGroups.has(groupId)) {
+                        state.expandedGroups.delete(groupId);
+                    } else {
+                        state.expandedGroups.add(groupId);
+                    }
+                    await renderHierarchy(state.groups);
                 }
-
-                // Update the location hash to reflect the selected group
-                window.location.hash = `#/pipelineruns/main/${groupId}`;
-                // Re-render the hierarchy to show expanded/collapsed state
-                renderHierarchy(state.groups);
             }
         });
 
