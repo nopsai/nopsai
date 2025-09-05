@@ -53,6 +53,7 @@ type RunListItem struct {
 	Status        string    `json:"status"`
 	GitCommitSHA  string    `json:"git_commit_sha"`
 	GitRepoName   string    `json:"git_repo_name"`
+	GitRef        string    `json:"git_ref"`
 	StartedAt     time.Time `json:"started_at"`
 	FinishedAt    time.Time `json:"finished_at"`
 	Duration      string    `json:"duration"`
@@ -944,11 +945,11 @@ func sanitizeInput(name string) string {
 
 func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	query := `
-		SELECT
-			run_id, pipeline_name, status, COALESCE(git_commit_sha, ''),
-			COALESCE(git_repo_name, ''), started_at, finished_at, parent_run_id,
-			COALESCE(git_pusher_name, '')
-		FROM runs
+    	SELECT
+    	    run_id, pipeline_name, status, COALESCE(git_commit_sha, ''),
+    	    COALESCE(git_repo_name, ''), started_at, finished_at, parent_run_id,
+    	    COALESCE(git_pusher_name, ''), COALESCE(git_ref, '') -- <-- Add git_ref
+    	FROM runs
 	`
 	args := []interface{}{}
 	var conditions []string
@@ -979,14 +980,15 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var runs []RunListItem
+	runsByBranch := make(map[string][]RunListItem)
+	var allRuns []RunListItem
 	for rows.Next() {
 		var run RunListItem
 		var startedAt, finishedAt sql.NullTime
-		var commitSHA, repoName, pusherName sql.NullString
+		var commitSHA, repoName, pusherName, gitRef sql.NullString
 		err := rows.Scan(
 			&run.RunID, &run.PipelineName, &run.Status, &commitSHA,
-			&repoName, &startedAt, &finishedAt, &run.ParentRunID, &pusherName,
+			&repoName, &startedAt, &finishedAt, &run.ParentRunID, &pusherName, &gitRef,
 		)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to scan run row")
@@ -995,6 +997,7 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		run.GitCommitSHA = commitSHA.String
 		run.GitRepoName = repoName.String
 		run.GitPusherName = pusherName.String
+		run.GitRef = gitRef.String
 		if startedAt.Valid {
 			run.StartedAt = startedAt.Time
 		}
@@ -1008,11 +1011,23 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		} else {
 			run.IsComplete = true // If it hasn't even started, it's not "running"
 		}
-		runs = append(runs, run)
+		allRuns = append(allRuns, run)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(runs)
+	if r.URL.Query().Get("groupId") != "" {
+		for _, run := range allRuns {
+			branch := "Others"
+			if run.GitRef != "" {
+				branch = strings.TrimPrefix(run.GitRef, "refs/heads/")
+			}
+			runsByBranch[branch] = append(runsByBranch[branch], run)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(runsByBranch)
+	} else {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(allRuns)
+	}
 }
 
 func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
@@ -1241,9 +1256,11 @@ func (a *App) launchAndRunPipeline(
 			}
 			rows.Close()
 
+			repoOwner := gitContext["repo_owner"]
+			fullRepoName := fmt.Sprintf("%s/%s", repoOwner, repoName)
 			var candidates []Group
 			for _, g := range allGroups {
-				if g.Name == repoName { // Match by name, ignore is_repo
+				if g.Name == fullRepoName {
 					candidates = append(candidates, g)
 				}
 			}
@@ -1269,7 +1286,7 @@ func (a *App) launchAndRunPipeline(
 				var newID int32
 				err := tx.QueryRow(context.Background(),
 					`INSERT INTO groups (name, display_name, is_repo, parent_id) VALUES ($1, $2, true, NULL) RETURNING id`,
-					repoName, repoName).Scan(&newID)
+					fullRepoName, repoName).Scan(&newID)
 				if err != nil {
 					log.Error().Err(err).Msg("Failed to create group for new repo")
 				} else {
@@ -1419,6 +1436,30 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		"pusher_name":            r.Header.Get("X-Git-Pusher-Name"),
 		"pusher_email":           r.Header.Get("X-Git-Pusher-Email"),
 		"check_run_id":           r.Header.Get("X-Git-Check-Run-ID"),
+	}
+
+	rerunCommitSHA := r.Header.Get("X-Git-Rerun-Commit-SHA")
+	if rerunCommitSHA != "" {
+		log.Info().Str("commit_sha", rerunCommitSHA).Msg("Handling as a re-run: looking for original context.")
+		var originalPusherName sql.NullString
+
+		// Find the original run to copy context from
+		err := a.db.QueryRow(context.Background(),
+			`SELECT git_pusher_name FROM runs 
+			 WHERE git_commit_sha = $1 AND git_repo_owner = $2 AND git_repo_name = $3
+			 ORDER BY created_at DESC LIMIT 1`,
+			rerunCommitSHA, gitContext["repo_owner"], gitContext["repo_name"]).Scan(&originalPusherName)
+
+		if err != nil {
+			log.Warn().Err(err).Str("commit_sha", rerunCommitSHA).Msg("Could not find original run to copy context from.")
+		} else {
+			// If pusher name is missing from the re-run event, copy it from the original
+			if gitContext["pusher_name"] == "" && originalPusherName.Valid {
+				gitContext["pusher_name"] = originalPusherName.String
+				log.Info().Str("pusher_name", originalPusherName.String).Msg("Copied pusher name from original run.")
+			}
+			// You can copy other fields like pusher_email here as well
+		}
 	}
 
 	if parentRunID != "" {
@@ -1817,6 +1858,21 @@ func (a *App) handleGetRunStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": status})
+}
+
+func (a *App) handleGetRunByCheckID(w http.ResponseWriter, r *http.Request) {
+	checkRunID := r.PathValue("checkRunID")
+	var runID string
+	// Find the latest run for this check_run_id, as there could be multiple re-runs
+	err := a.db.QueryRow(context.Background(),
+		"SELECT run_id FROM runs WHERE git_check_run_id = $1 ORDER BY created_at DESC LIMIT 1",
+		checkRunID).Scan(&runID)
+	if err != nil {
+		http.Error(w, "Run not found for this check run ID", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"run_id": runID})
 }
 
 func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []byte, timeout time.Duration, gitContext map[string]string, parentHistory string, environment string) {
@@ -2335,8 +2391,9 @@ func main() {
 	// Pipeline Execution
 	mux.HandleFunc("POST /v1/run", app.handleRunPipeline)
 	mux.HandleFunc("POST /v1/run/{pipelineName}", app.handleRunPipeline)
-	mux.HandleFunc("GET /v1/runs", app.handleListRuns)              // New endpoint for UI
-	mux.HandleFunc("GET /v1/runs/{runID}", app.handleGetRunDetails) // New endpoint for UI
+	mux.HandleFunc("GET /v1/runs", app.handleListRuns)
+	mux.HandleFunc("GET /v1/runs/{runID}", app.handleGetRunDetails)
+	mux.HandleFunc("GET /v1/runs-by-check/{checkRunID}", app.handleGetRunByCheckID)
 	mux.HandleFunc("POST /v1/runs/{runID}/rerun", app.handleRerunPipeline)
 	mux.HandleFunc("POST /v1/runs/{runID}/finalize", app.handleFinalizeRun)
 	mux.HandleFunc("POST /v1/runs/{runID}/steps/{stepName}/tasks/{taskName}", app.handleTaskUpdate)
