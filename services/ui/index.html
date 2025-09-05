@@ -191,6 +191,7 @@
             selectedGroupId: null,
             groupToDelete: null,
             expandedGroups: new Set(),
+            repoLastRunCache: new Map(),
         };
 
         const statusConfig = {
@@ -256,18 +257,16 @@
         }
 
         async function fetchMainContent(groupId) {
-            const group = state.groups.find(g => g.id == groupId);
-            const isRepo = (group.name || '').includes('/');
-        
-            if (isRepo) {
-                const runsByBranch = await fetchData(`/v1/runs?groupId=${groupId}`);
+            const runsByBranch = await fetchData(`/v1/runs?groupId=${groupId}`);
+            const hasRuns = runsByBranch && Object.keys(runsByBranch).length > 0;
+            const subgroups = state.groups.filter(g => g.parent_id == groupId);
+
+            if (hasRuns) {
                 renderGroupedRuns(runsByBranch);
             } else {
-                const subgroups = state.groups.filter(g => g.parent_id == groupId);
                 renderMainGridContent(subgroups, null, true);
             }
         }
-
 
         async function fetchActiveRun(runId) {
             if (!runId) return;
@@ -320,7 +319,6 @@
             }).join('');
 
             DOM.sidebarNav.innerHTML = `<div class="space-y-1">${navHtml}</div>`;
-
             const currentTab = (window.location.hash.split('/')[2] || 'main').split('?')[0];
 
             if (activeRoute === 'pipelineruns') {
@@ -333,6 +331,8 @@
                                                     <h2 class="text-xs font-semibold tracking-wider text-gray-400 uppercase">Main</h2>
                                                 </div>
                                                 <div id="main-hierarchy"></div>`;
+                    
+                    state.repoLastRunCache.clear();
                     await renderHierarchy(state.groups);
                 }
             }
@@ -346,21 +346,49 @@
                 const gParentId = (g.parent_id === 0 || g.parent_id === null) ? null : g.parent_id;
                 return gParentId === parentId;
             });
+            
+            const childrenWithDataPromises = children.map(async (group) => {
+                const isRepo = (group.name || '').includes('/');
+                if (!isRepo) {
+                    return { ...group, lastRunAt: null };
+                }
+                if (state.repoLastRunCache && state.repoLastRunCache.has(group.id)) {
+                    return { ...group, lastRunAt: state.repoLastRunCache.get(group.id) };
+                }
+                const runsByBranch = await fetchData(`/v1/runs?groupId=${group.id}`);
+                let latestRun = null;
+                if (runsByBranch && Object.keys(runsByBranch).length > 0) {
+                    for (const branch in runsByBranch) {
+                        if (runsByBranch[branch].length > 0) {
+                            const latestBranchRun = runsByBranch[branch][0];
+                            if (!latestRun || (latestBranchRun.started_at && new Date(latestBranchRun.started_at) > new Date(latestRun.started_at))) {
+                                latestRun = latestBranchRun;
+                            }
+                        }
+                    }
+                }
+                const lastRunAt = latestRun ? latestRun.started_at : null;
+                if (!state.repoLastRunCache) state.repoLastRunCache = new Map();
+                state.repoLastRunCache.set(group.id, lastRunAt);
+                return { ...group, lastRunAt };
+            });
 
-            children.sort((a, b) => {
+            const childrenWithData = await Promise.all(childrenWithDataPromises);
+
+            childrenWithData.sort((a, b) => {
                 const isRepoA = (a.name || '').includes('/');
                 const isRepoB = (b.name || '').includes('/');
                 if (isRepoA !== isRepoB) {
                     return isRepoA ? 1 : -1;
                 }
-                if (isRepoA && b.last_run_at) {
-                    return new Date(b.last_run_at) - new Date(a.last_run_at);
+                if (isRepoA && a.lastRunAt && b.lastRunAt) {
+                    return new Date(b.lastRunAt) - new Date(a.lastRunAt);
                 }
                 return a.name.localeCompare(b.name);
             });
             
             let html = `<ul class="pl-${level > 0 ? '4' : '0'} space-y-1">`;
-            for (const group of children) {
+            for (const group of childrenWithData) {
                 const hasChildren = groups.some(g => g.parent_id === group.id);
                 const isExpanded = state.expandedGroups.has(group.id);
                 const isRepo = (group.name || '').includes('/');
@@ -378,7 +406,7 @@
                                     ${chevron}
                                     <a href="#/pipelineruns/main/${group.id}" class="flex items-center flex-grow">
                                         <svg class="h-4 w-4 mr-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
-                                        <span>${displayName}</span>
+                                        <span class="truncate">${displayName}</span>
                                     </a>
                                 </div>
                                 <button class="delete-group-btn text-gray-500 hover:text-red-400 opacity-0 transition-opacity" data-group-id="${group.id}" data-group-name="${group.name}"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
@@ -389,7 +417,7 @@
             html += '</ul>';
             container.innerHTML = html;
 
-            for (const group of children) {
+            for (const group of childrenWithData) {
                 if (state.expandedGroups.has(group.id)) {
                     const childContainer = document.querySelector(`[data-group-id='${group.id}'] .group-children`);
                     const isRepo = (group.name || '').includes('/');
@@ -480,6 +508,7 @@
                                     <span class="text-xs text-gray-500 flex-shrink-0 ml-2">${timeAgo(timeToDisplay)}</span>
                                 </div>
                                 <div class="text-xs text-gray-400 font-mono mt-1 grid grid-cols-[auto,1fr] gap-x-2">
+                                    <span class="font-semibold text-gray-300 justify-self-end">Repo:</span> <span class="truncate">${run.git_repo_name}</span>
                                     <span class="font-semibold text-gray-300 justify-self-end">Branch:</span><span class="truncate">${branchName}</span>
                                     <span class="font-semibold text-gray-300 justify-self-end">ID:</span><span class="truncate">${run.run_id.slice(0, 16)}</span>
                                     <span class="font-semibold text-gray-300 justify-self-end">Commit:</span><span class="truncate">${run.git_commit_sha.slice(0, 16)}</span>
@@ -501,11 +530,9 @@
 
             let html = '<div class="space-y-6">';
             
-            // Sort branches by the start time of their most recent run (which is the first in the list).
             const sortedBranches = Object.keys(runsByBranch).sort((a, b) => {
                 const lastRunA = runsByBranch[a][0];
                 const lastRunB = runsByBranch[b][0];
-                // Handle cases where a run might not have a start time yet
                 if (!lastRunA || !lastRunA.started_at) return 1;
                 if (!lastRunB || !lastRunB.started_at) return -1;
                 return new Date(lastRunB.started_at) - new Date(lastRunA.started_at);
@@ -552,13 +579,14 @@
                                 <svg class="h-5 w-5 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
                         </div>
                     </div>
-                    <div class="text-xs text-gray-400 space-y-1 font-mono grid grid-cols-[auto,1fr] gap-x-2">
-                        <span class="font-semibold text-gray-300 justify-self-end">Branch:</span> <span class="truncate">${branchName}</span>
-                        <span class="font-semibold text-gray-300 justify-self-end">ID:</span> <span class="truncate">${run.run_id}</span>
-                        <span class="font-semibold text-gray-300 justify-self-end">Pusher:</span> <span class="truncate">${run.git_pusher_name || 'N/A'}</span>
-                        <span class="font-semibold text-gray-300 justify-self-end">Commit:</span> <span class="truncate">${run.git_commit_sha || '...'}</span>
-                        <span class="font-semibold text-gray-300 justify-self-end">Time:</span> <span class="truncate">${timeAgo(timeToDisplay)}</span>
-                    </div>
+<div class="text-xs text-gray-400 font-mono grid grid-cols-[max-content,1fr] gap-x-2 items-center">
+  <span class="font-semibold text-gray-300 justify-self-end">Repo:</span> <span class="truncate">${run.git_repo_name}</span>
+  <span class="font-semibold text-gray-300 justify-self-end">Branch:</span> <span class="truncate">${branchName}</span>
+  <span class="font-semibold text-gray-300 justify-self-end">ID:</span> <span class="truncate">${run.run_id}</span>
+  <span class="font-semibold text-gray-300 justify-self-end">Pusher:</span> <span class="truncate">${run.git_pusher_name || 'N/A'}</span>
+  <span class="font-semibold text-gray-300 justify-self-end">Commit:</span> <span class="truncate">${run.git_commit_sha || '...'}</span>
+  <span class="font-semibold text-gray-300 justify-self-end">Time:</span> <span class="truncate">${timeAgo(timeToDisplay)}</span>
+</div>
                 </a>`;
         }
 
@@ -649,7 +677,7 @@
                     <g class="graph-node" data-step-name="${node.name}" transform="translate(${node.x}, ${node.y})">
                         <rect class="node-rect ${config.rectClass}" x="0" y="0" width="${node.width}" height="${node.height}" rx="8"></rect>
                         <foreignObject x="0" y="0" width="${node.width}" height="${node.height}">
-                            <div xmlns="http://www.w3.org/1999/xhtml" class="w-full h-full flex items-center p-3">
+                            <div xmlns="http://www.w3.org/2000/xhtml" class="w-full h-full flex items-center p-3">
                                 <svg class="h-5 w-5 mr-2 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
                                 <div><p class="node-text text-sm font-medium text-gray-200 truncate">${node.name}</p><p class="text-xs text-gray-400 capitalize">${node.status}</p></div>
                             </div>
@@ -777,7 +805,7 @@
                     <g transform="translate(${node.x}, ${node.y})">
                         <rect class="${config.rectClass}" x="0" y="0" width="${node.width}" height="${node.height}" rx="6" stroke-width="1.5"></rect>
                         <foreignObject x="0" y="0" width="${node.width}" height="${node.height}">
-                            <div xmlns="http://www.w3.org/1999/xhtml" class="w-full h-full flex items-center p-2 text-xs">
+                            <div xmlns="http://www.w3.org/2000/svg" class="w-full h-full flex items-center p-2 text-xs">
                                 <svg class="h-4 w-4 mr-2 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
                                 <div class="flex-1 overflow-hidden">
                                     <p class="font-medium text-gray-200 truncate">${node.task_name}</p>
@@ -1003,18 +1031,13 @@
         });
         
         DOM.sidebarNav.addEventListener('click', async (e) => {
-            // We will manage navigation and actions ourselves, so prevent default browser behavior.
             e.preventDefault();
 
-            // Find the link and the header elements related to the click target.
             const link = e.target.closest('a[href]');
             const groupHeader = e.target.closest('.group-header');
             const branchHeader = e.target.closest('li[data-branch-id] > .group-header');
-
-            // This variable will track if we changed the expansion state.
             let didToggle = false;
 
-            // --- Handle Expansion/Collapse Logic ---
             if (branchHeader) {
                 const branchLi = branchHeader.closest('li[data-branch-id]');
                 const branchId = branchLi.dataset.branchId;
@@ -1036,17 +1059,9 @@
                     didToggle = true;
                 }
             }
-
-            // --- Handle Navigation and Re-rendering ---
-
-            // If a link was the actual target of the click, navigate by setting the URL hash.
-            // This will trigger the main router, which will re-render the entire view,
-            // including the sidebar with its new expansion state.
             if (link && window.location.hash !== link.getAttribute('href')) {
                 window.location.hash = link.getAttribute('href');
             } else if (didToggle) {
-                // If only an expansion happened (the user clicked the header but not a link),
-                // we only need to re-render the sidebar hierarchy.
                 await renderHierarchy(state.groups);
             }
         });
