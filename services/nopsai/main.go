@@ -1223,18 +1223,33 @@ func (a *App) launchAndRunPipeline(
 	if repoName, ok := gitContext["repo_name"]; ok && repoName != "" {
 		repoOwner := gitContext["repo_owner"]
 		fullRepoName := fmt.Sprintf("%s/%s", repoOwner, repoName)
-
 		var existingID int32
-		// This is the corrected logic:
-		// It now correctly finds a top-level group with the name "owner/repo-name".
+
+		// 1. First, look for a group that already has the full 'owner/repo' name.
 		err := tx.QueryRow(context.Background(),
-			"SELECT id FROM groups WHERE name = $1 AND parent_id IS NULL", fullRepoName).Scan(&existingID)
+			"SELECT id FROM groups WHERE name = $1", fullRepoName).Scan(&existingID)
 
 		if err == pgx.ErrNoRows {
-			// If no such top-level folder exists, create one.
+			// 2. If not found, search recursively for a folder with just the repo name.
+			// This query will find the first matching folder regardless of its depth.
 			err = tx.QueryRow(context.Background(),
-				`INSERT INTO groups (name, parent_id) VALUES ($1, NULL) RETURNING id`,
-				fullRepoName).Scan(&existingID)
+				"SELECT id FROM groups WHERE name = $1", repoName).Scan(&existingID)
+
+			if err == nil {
+				// 3. If we found a folder, we "claim" it by renaming it to the full name.
+				log.Info().Str("old_name", repoName).Str("new_name", fullRepoName).Msg("Found matching folder, renaming to claim it for the repository.")
+				_, updateErr := tx.Exec(context.Background(), "UPDATE groups SET name = $1 WHERE id = $2", fullRepoName, existingID)
+				if updateErr != nil {
+					log.Error().Err(updateErr).Msg("Failed to rename existing folder to claim it.")
+					existingID = 0
+				}
+			} else if err == pgx.ErrNoRows {
+				// 4. If no matching folder is found anywhere, create a new one at the root.
+				log.Info().Str("repo", fullRepoName).Msg("No existing folder found. Creating a new one at the root.")
+				err = tx.QueryRow(context.Background(),
+					`INSERT INTO groups (name, parent_id) VALUES ($1, NULL) RETURNING id`,
+					fullRepoName).Scan(&existingID)
+			}
 		}
 
 		if err != nil {
