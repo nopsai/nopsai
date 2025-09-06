@@ -2217,6 +2217,64 @@ func (a *App) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+func (a *App) handleMoveGroup(w http.ResponseWriter, r *http.Request) {
+	groupID, err := strconv.Atoi(r.PathValue("groupID"))
+	if err != nil {
+		http.Error(w, "Invalid group ID", http.StatusBadRequest)
+		return
+	}
+
+	var payload struct {
+		ParentID *int `json:"parent_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validation: Prevent moving a group into itself or its own children.
+	if payload.ParentID != nil {
+		if groupID == *payload.ParentID {
+			http.Error(w, "Cannot move a folder into itself.", http.StatusBadRequest)
+			return
+		}
+
+		var isChild bool
+		query := `
+			WITH RECURSIVE Descendants AS (
+				SELECT id, parent_id FROM groups WHERE id = $1
+				UNION ALL
+				SELECT g.id, g.parent_id FROM groups g
+				INNER JOIN Descendants d ON g.id = d.parent_id
+			)
+			SELECT EXISTS (SELECT 1 FROM Descendants WHERE id = $2)
+		`
+		err := a.db.QueryRow(context.Background(), query, *payload.ParentID, groupID).Scan(&isChild)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed during ancestry check for group move")
+			http.Error(w, "Server error during validation.", http.StatusInternalServerError)
+			return
+		}
+		if isChild {
+			http.Error(w, "Cannot move a folder into one of its own subfolders.", http.StatusBadRequest)
+			return
+		}
+	}
+
+	_, err = a.db.Exec(context.Background(), "UPDATE groups SET parent_id = $1, updated_at = NOW() WHERE id = $2", payload.ParentID, groupID)
+	if err != nil {
+		if strings.Contains(err.Error(), "unique constraint") {
+			http.Error(w, "A folder or repository with the same name already exists in the target location.", http.StatusConflict)
+			return
+		}
+		log.Error().Err(err).Msg("Failed to update group parent")
+		http.Error(w, "Failed to move group", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (a *App) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 	groupID, err := strconv.Atoi(r.PathValue("groupID"))
 	if err != nil {
@@ -2328,6 +2386,7 @@ func main() {
 	mux.HandleFunc("GET /v1/groups", app.handleGetGroups)
 	mux.HandleFunc("PUT /v1/groups/{groupID}", app.handleUpdateGroup)
 	mux.HandleFunc("DELETE /v1/groups/{groupID}", app.handleDeleteGroup)
+	mux.HandleFunc("PUT /v1/groups/{groupID}/move", app.handleMoveGroup)
 
 	// Pipeline Management
 	mux.HandleFunc("GET /v1/pipelines", app.handleListPipelines)

@@ -42,6 +42,13 @@
         .sidebar-no-transition {
             transition: none !important;
          }
+        .drop-target-highlight {
+            background-color: #4c51bf4d !important;
+            outline: 2px dashed #4c51bf;
+        }
+        .dragging {
+            opacity: 0.5;
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-gray-100">
@@ -403,7 +410,7 @@
                     ? `<svg class="h-4 w-4 mr-1 text-gray-400 chevron ${isExpanded ? 'rotate-90' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>` 
                     : `<div class="w-5 h-4 mr-1"></div>`;
 
-                html += `<li data-group-id="${group.id}">
+                html += `<li data-group-id="${group.id}" draggable="true">
                             <div class="flex items-center justify-between p-2 text-gray-300 rounded-md hover:bg-gray-700 group-header-container ${isActive ? 'bg-gray-700' : ''}">
                                 <div class="flex items-center group-header flex-grow cursor-pointer ${isExpanded ? 'expanded' : ''}">
                                     ${chevron}
@@ -475,9 +482,15 @@
                                         <span class="font-medium truncate text-gray-300">${run.pipeline_name}</span>
                                         <span class="text-xs text-gray-500 flex-shrink-0 ml-2">${timeAgo(timeToDisplay)}</span>
                                     </div>
-                                    <div class="text-xs text-gray-400 font-mono mt-1 grid grid-cols-[auto,1fr] gap-x-2">
-                                      <span class="font-semibold text-gray-300 justify-self-end">ID:</span><span class="truncate">${(run.run_id || '...')}</span>
-                                      <span class="font-semibold text-gray-300 justify-self-end">Commit:</span><span class="truncate">${(run.git_commit_sha || '...')}</span>
+                                    <div class="text-xs text-gray-400 font-mono mt-1 space-y-1">
+                                      <div class="flex items-center">
+                                         <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H5v-2H3v-2H1v-4a6 6 0 016-6h1.5" /></svg>
+                                         <span class="truncate">${(run.run_id || '...').slice(0, 8)}</span>
+                                      </div>
+                                      <div class="flex items-center">
+                                         <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                                         <span class="truncate">${(run.git_commit_sha || '...').slice(0, 7)}</span>
+                                       </div>
                                     </div>
                                 </div>
                             </a>
@@ -510,11 +523,19 @@
                                     <span class="font-medium truncate">${run.pipeline_name}</span>
                                     <span class="text-xs text-gray-500 flex-shrink-0 ml-2">${timeAgo(timeToDisplay)}</span>
                                 </div>
-                                <div class="text-xs text-gray-400 font-mono mt-1 grid grid-cols-[auto,1fr] gap-x-2">
-                                    <span class="font-semibold text-gray-300 justify-self-end">Repo:</span> <span class="truncate">${run.git_repo_name}</span>
-                                    <span class="font-semibold text-gray-300 justify-self-end">Branch:</span><span class="truncate">${branchName}</span>
-                                    <span class="font-semibold text-gray-300 justify-self-end">ID:</span><span class="truncate">${run.run_id}</span>
-                                    <span class="font-semibold text-gray-300 justify-self-end">Commit:</span><span class="truncate">${run.git_commit_sha}</span>
+                                <div class="text-xs text-gray-400 font-mono mt-1 space-y-1">
+                                    <div class="flex items-center">
+                                        <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                                        <span class="truncate">${run.git_repo_name}</span>
+                                    </div>
+                                    <div class="flex items-center">
+                                       <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                                       <span class="truncate">${branchName}</span>
+                                    </div>
+                                    <div class="flex items-center">
+                                        <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                                        <span class="truncate">${run.git_commit_sha.slice(0, 7)}</span>
+                                    </div>
                                 </div>
                             </div>
                         </a>
@@ -1131,6 +1152,71 @@
                 await renderHierarchy(state.groups);
             }
         });
+
+// --- DRAG AND DROP LOGIC FOR SIDEBAR ---
+        (() => {
+            let draggedElement = null;
+
+            DOM.sidebarNav.addEventListener('dragstart', e => {
+                const target = e.target.closest('li[data-group-id]');
+                if (!target) return;
+                
+                draggedElement = target;
+                e.dataTransfer.setData('text/plain', target.dataset.groupId);
+                e.dataTransfer.effectAllowed = 'move';
+                setTimeout(() => target.classList.add('dragging'), 0);
+            });
+
+            DOM.sidebarNav.addEventListener('dragend', e => {
+                if (draggedElement) {
+                    draggedElement.classList.remove('dragging');
+                    draggedElement = null;
+                }
+            });
+
+            DOM.sidebarNav.addEventListener('dragover', e => {
+                e.preventDefault();
+                const target = e.target.closest('li[data-group-id] .group-header-container');
+                if (target) {
+                    target.classList.add('drop-target-highlight');
+                }
+            });
+            
+            DOM.sidebarNav.addEventListener('dragleave', e => {
+                const target = e.target.closest('li[data-group-id] .group-header-container');
+                 if (target) {
+                    target.classList.remove('drop-target-highlight');
+                }
+            });
+
+            DOM.sidebarNav.addEventListener('drop', async e => {
+                e.preventDefault();
+                e.stopPropagation();
+
+                const dropTarget = e.target.closest('li[data-group-id] .group-header-container');
+                if (dropTarget) {
+                    dropTarget.classList.remove('drop-target-highlight');
+                }
+
+                const movedGroupId = e.dataTransfer.getData('text/plain');
+                const targetGroupId = dropTarget ? dropTarget.closest('li[data-group-id]').dataset.groupId : null;
+                
+                if (movedGroupId === targetGroupId) return;
+
+                try {
+                    await fetchData(`/v1/groups/${movedGroupId}/move`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ parent_id: targetGroupId ? parseInt(targetGroupId, 10) : null }),
+                    });
+                    // Refresh the entire view to reflect the change
+                    await router();
+                } catch (error) {
+                    // Error is already alerted by fetchData, just log for good measure
+                    console.error("Move failed:", error);
+                }
+            });
+        })();
 
         DOM.closeModalBtn.addEventListener('click', closeModal);
         DOM.modal.addEventListener('click', e => { if (e.target === DOM.modal) closeModal(); });
