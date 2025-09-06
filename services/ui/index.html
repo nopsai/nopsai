@@ -39,12 +39,15 @@
             overflow: hidden;
             transition: max-height 0.3s ease-in-out;
         }
+        .sidebar-no-transition {
+            transition: none !important;
+         }
     </style>
 </head>
 <body class="bg-gray-900 text-gray-100">
 
     <div id="app" class="flex h-screen overflow-hidden">
-        <aside id="sidebar" class="bg-gray-800 w-64 lg:w-72 flex-shrink-0 flex flex-col transition-transform duration-300 ease-in-out -translate-x-full sm:translate-x-0 fixed sm:static h-full z-20">
+        <aside id="sidebar" class="bg-gray-800 flex-shrink-0 flex flex-col transition-transform duration-300 ease-in-out -translate-x-full sm:translate-x-0 fixed sm:static h-full z-20">
             <div class="flex items-center justify-between px-6 h-16 border-b border-gray-700">
                 <div class="flex items-center">
                      <svg class="h-8 w-8 text-indigo-400"  width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">  <path stroke="none" d="M0 0h24v24H0z"/>  <path d="M12.5 21H6a1 1 0 0 1 -1 -1V4a1 1 0 0 1 1 -1h12a1 1 0 0 1 1 1v5" />  <path d="M18 22v-6" />  <path d="M21 19l-3 -3l-3 3" />  <path d="M3 13h8" />  <path d="M5 10v6" /></svg>
@@ -57,6 +60,7 @@
              <nav class="flex-1 px-4 py-4 overflow-y-auto sidebar-scrollbar" id="sidebar-nav">
                 </nav>
         </aside>
+        <div id="sidebar-resizer" class="w-1.5 cursor-col-resize flex-shrink-0 bg-gray-700 hover:bg-indigo-500 transition-colors duration-200 hidden sm:block"></div>
 
         <main class="flex-1 flex flex-col overflow-hidden">
              <header class="flex items-start justify-between px-6 py-4 bg-gray-800/50 backdrop-blur-sm border-b border-gray-700 z-10">
@@ -473,8 +477,8 @@
                                         <span class="text-xs text-gray-500 flex-shrink-0 ml-2">${timeAgo(timeToDisplay)}</span>
                                     </div>
                                     <div class="text-xs text-gray-400 font-mono mt-1 grid grid-cols-[auto,1fr] gap-x-2">
-                                      <span class="font-semibold text-gray-300 justify-self-end">ID:</span><span class="truncate">${(run.run_id || '...').slice(0, 16)}</span>
-                                      <span class="font-semibold text-gray-300 justify-self-end">Commit:</span><span class="truncate">${(run.git_commit_sha || '...').slice(0, 16)}</span>
+                                      <span class="font-semibold text-gray-300 justify-self-end">ID:</span><span class="truncate">${(run.run_id || '...')}</span>
+                                      <span class="font-semibold text-gray-300 justify-self-end">Commit:</span><span class="truncate">${(run.git_commit_sha || '...')}</span>
                                     </div>
                                 </div>
                             </a>
@@ -510,8 +514,8 @@
                                 <div class="text-xs text-gray-400 font-mono mt-1 grid grid-cols-[auto,1fr] gap-x-2">
                                     <span class="font-semibold text-gray-300 justify-self-end">Repo:</span> <span class="truncate">${run.git_repo_name}</span>
                                     <span class="font-semibold text-gray-300 justify-self-end">Branch:</span><span class="truncate">${branchName}</span>
-                                    <span class="font-semibold text-gray-300 justify-self-end">ID:</span><span class="truncate">${run.run_id.slice(0, 16)}</span>
-                                    <span class="font-semibold text-gray-300 justify-self-end">Commit:</span><span class="truncate">${run.git_commit_sha.slice(0, 16)}</span>
+                                    <span class="font-semibold text-gray-300 justify-self-end">ID:</span><span class="truncate">${run.run_id}</span>
+                                    <span class="font-semibold text-gray-300 justify-self-end">Commit:</span><span class="truncate">${run.git_commit_sha}</span>
                                 </div>
                             </div>
                         </a>
@@ -572,22 +576,22 @@
             const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
             const branchName = (run.git_ref || '').startsWith('refs/heads/') ? run.git_ref.split('/')[2] : 'N/A';
             return `
-                <a href="#/pipelineruns/recent/${run.run_id}" class="block bg-gray-800 p-4 rounded-md hover:bg-gray-700/50 transition-colors duration-200">
+                <div data-href="#/pipelineruns/recent/${run.run_id}" class="block bg-gray-800 p-4 rounded-md hover:bg-gray-700/50 transition-colors duration-200 cursor-pointer">
                     <div class="flex items-center justify-between mb-2">
                         <p class="text-sm font-medium text-indigo-400 truncate">${run.pipeline_name}</p>
                         <div class="ml-2 flex-shrink-0 flex items-center">
                                 <svg class="h-5 w-5 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
                         </div>
                     </div>
-<div class="text-xs text-gray-400 font-mono grid grid-cols-[max-content,1fr] gap-x-2 items-center">
-  <span class="font-semibold text-gray-300 justify-self-end">Repo:</span> <span class="truncate">${run.git_repo_name}</span>
-  <span class="font-semibold text-gray-300 justify-self-end">Branch:</span> <span class="truncate">${branchName}</span>
-  <span class="font-semibold text-gray-300 justify-self-end">ID:</span> <span class="truncate">${run.run_id}</span>
-  <span class="font-semibold text-gray-300 justify-self-end">Pusher:</span> <span class="truncate">${run.git_pusher_name || 'N/A'}</span>
-  <span class="font-semibold text-gray-300 justify-self-end">Commit:</span> <span class="truncate">${run.git_commit_sha || '...'}</span>
-  <span class="font-semibold text-gray-300 justify-self-end">Time:</span> <span class="truncate">${timeAgo(timeToDisplay)}</span>
-</div>
-                </a>`;
+                    <div class="text-xs text-gray-400 font-mono grid grid-cols-[max-content,1fr] gap-x-2 items-center">
+                      <span class="font-semibold text-gray-300 justify-self-end">Repo:</span> <span class="truncate">${run.git_repo_name}</span>
+                      <span class="font-semibold text-gray-300 justify-self-end">Branch:</span> <span class="truncate">${branchName}</span>
+                      <span class="font-semibold text-gray-300 justify-self-end">ID:</span> <span class="truncate">${run.run_id}</span>
+                      <span class="font-semibold text-gray-300 justify-self-end">Pusher:</span> <span class="truncate">${run.git_pusher_name || 'N/A'}</span>
+                      <span class="font-semibold text-gray-300 justify-self-end">Commit:</span> <span class="truncate">${run.git_commit_sha || '...'}</span>
+                      <span class="font-semibold text-gray-300 justify-self-end">Time:</span> <span class="truncate">${timeAgo(timeToDisplay)}</span>
+                    </div>
+                </div>`;
         }
 
 
@@ -994,6 +998,47 @@
             state.pollingInterval = null;
         }
 
+        DOM.mainGridContainer.addEventListener('mousedown', e => {
+            const card = e.target.closest('[data-href]');
+            if (!card) return;
+
+            const startX = e.clientX;
+            const startY = e.clientY;
+
+            const onMouseUp = (upEvent) => {
+                const endX = upEvent.clientX;
+                const endY = upEvent.clientY;
+                const distance = Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endY - startY, 2));
+
+                const selectedText = window.getSelection().toString();
+
+                if (selectedText) {
+                    navigator.clipboard.writeText(selectedText).then(() => {
+                        // Create a "Copied!" message for user feedback
+                        const copiedMessage = document.createElement('div');
+                        copiedMessage.textContent = 'Copied!';
+                        copiedMessage.style.position = 'fixed';
+                        copiedMessage.style.top = `${upEvent.clientY - 30}px`;
+                        copiedMessage.style.left = `${upEvent.clientX}px`;
+                        copiedMessage.style.background = '#2d3748';
+                        copiedMessage.style.color = 'white';
+                        copiedMessage.style.padding = '5px 10px';
+                        copiedMessage.style.borderRadius = '5px';
+                        copiedMessage.style.zIndex = '1000';
+                        copiedMessage.style.pointerEvents = 'none';
+                        document.body.appendChild(copiedMessage);
+                        setTimeout(() => {
+                            copiedMessage.remove();
+                        }, 1000);
+                    });
+                } else if (distance < 5) {
+                    window.location.hash = card.dataset.href;
+                }
+            };
+
+            document.addEventListener('mouseup', onMouseUp, { once: true });
+        });
+
         DOM.mainGridContainer.addEventListener('click', e => {
             const addCard = e.target.closest('#add-group-card');
             if (addCard) {
@@ -1080,7 +1125,49 @@
 
 
         window.addEventListener('hashchange', router);
+        (() => {
+            const sidebar = document.getElementById('sidebar');
+            const resizer = document.getElementById('sidebar-resizer');
+            if (!sidebar || !resizer) return;
 
+            const MIN_WIDTH = 220;
+            const MAX_WIDTH = 600;
+            const DEFAULT_WIDTH = 288;
+
+            const savedWidth = localStorage.getItem('sidebarWidth');
+            sidebar.style.width = savedWidth ? savedWidth : `${DEFAULT_WIDTH}px`;
+
+            const resize = (e) => {
+                window.requestAnimationFrame(() => {
+                    let newWidth = e.clientX;
+                    if (newWidth < MIN_WIDTH) newWidth = MIN_WIDTH;
+                    if (newWidth > MAX_WIDTH) newWidth = MAX_WIDTH;
+                    sidebar.style.width = `${newWidth}px`;
+                });
+            };
+
+            resizer.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                sidebar.classList.add('sidebar-no-transition');
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+
+                const mouseMoveHandler = (moveEvent) => {
+                    resize(moveEvent);
+                };
+
+                const mouseUpHandler = () => {
+                    sidebar.classList.remove('sidebar-no-transition');
+                    localStorage.setItem('sidebarWidth', sidebar.style.width);
+                    document.body.style.cursor = '';
+                    document.body.style.userSelect = '';
+                    document.removeEventListener('mousemove', mouseMoveHandler);
+                };
+
+                document.addEventListener('mousemove', mouseMoveHandler);
+                document.addEventListener('mouseup', mouseUpHandler, { once: true });
+            });
+       })();            
         router();
     });
     </script>
