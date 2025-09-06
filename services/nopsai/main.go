@@ -2113,7 +2113,7 @@ func (a *App) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 	err := a.db.QueryRow(context.Background(), query, group.Name, group.ParentID).Scan(&group.ID)
 	if err != nil {
 		if strings.Contains(err.Error(), "unique constraint") {
-			http.Error(w, "A folder or repository with this name already exists at this level.", http.StatusConflict)
+			http.Error(w, "A folder or repository with this name already exists.", http.StatusConflict)
 			return
 		}
 		log.Error().Err(err).Msg("Failed to create group")
@@ -2207,7 +2207,7 @@ func (a *App) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {
 	_, err = a.db.Exec(context.Background(), query, group.Name, group.ParentID, groupID)
 	if err != nil {
 		if strings.Contains(err.Error(), "unique constraint") {
-			http.Error(w, "A folder or repository with this name already exists at this level.", http.StatusConflict)
+			http.Error(w, "A folder or repository with this name already exists.", http.StatusConflict)
 			return
 		}
 		log.Error().Err(err).Msg("Failed to update group")

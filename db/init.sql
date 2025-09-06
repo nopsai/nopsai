@@ -4,7 +4,7 @@ CREATE TABLE groups (
     parent_id INTEGER REFERENCES groups(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(parent_id, name)
+    UNIQUE(name)
 );
 
 CREATE TABLE runs (
