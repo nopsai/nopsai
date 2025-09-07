@@ -1202,6 +1202,24 @@
             }
         });
         
+        DOM.graphContainer.addEventListener('click', e => {
+            const includedLink = e.target.closest('[data-included-link="true"]');
+            if (includedLink) {
+                // This is a click on the special "Included Pipeline" link.
+                // Stop the event from bubbling up to the '.graph-node' logic.
+                // The browser will handle the navigation via the link's href attribute.
+                e.stopPropagation();
+                return;
+            }
+
+            // This part only runs if the click was NOT on the included link.
+            const node = e.target.closest('.graph-node');
+            if (node) {
+                const [, subpath, runId] = window.location.hash.slice(2).split('/');
+                window.location.hash = `#/pipelineruns/${subpath}/${runId}/steps/${node.dataset.stepName}`;
+            }
+        });
+
         DOM.sidebarNav.addEventListener('click', async (e) => {
             e.preventDefault();
 
