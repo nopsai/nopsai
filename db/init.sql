@@ -32,8 +32,11 @@ CREATE TABLE runs (
     git_pusher_name VARCHAR(255),
     git_pusher_email VARCHAR(255),
     git_check_run_id BIGINT,
-    group_id INTEGER REFERENCES groups(id) ON DELETE SET NULL
+    group_id INTEGER REFERENCES groups(id) ON DELETE SET NULL,
+    environment VARCHAR(255),
+    failure_reason TEXT
 );
+
 CREATE TABLE tasks (
     task_id UUID PRIMARY KEY,
     run_id UUID NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,

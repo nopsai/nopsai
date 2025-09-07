@@ -710,97 +710,108 @@
         }
 
         function renderPipelineGraph(runDetails) {
-    const runInfo = runDetails.run_info;
-    const branchName = (runInfo.git_ref || '').startsWith('refs/heads/') ? runInfo.git_ref.split('/')[2] : runInfo.git_ref;
-    const repoFullName = runInfo.git_repo_owner ? `${runInfo.git_repo_owner} / ${runInfo.git_repo_name}` : runInfo.git_repo_name;
-    
-    const repoGroup = state.groups.find(g => g.name === `${runInfo.git_repo_owner}/${runInfo.git_repo_name}`);
-    const repoLink = repoGroup ? `#/pipelineruns/main/${repoGroup.id}` : '#/pipelineruns/main';
+            const runInfo = runDetails.run_info;
+            const branchName = (runInfo.git_ref || '').startsWith('refs/heads/') ? runInfo.git_ref.split('/')[2] : runInfo.git_ref;
+            const repoFullName = runInfo.git_repo_owner ? `${runInfo.git_repo_owner} / ${runInfo.git_repo_name}` : runInfo.git_repo_name;
+            
+            const repoGroup = state.groups.find(g => g.name === `${runInfo.git_repo_owner}/${runInfo.git_repo_name}`);
+            const repoLink = repoGroup ? `#/pipelineruns/main/${repoGroup.id}` : '#/pipelineruns/main';
 
-    let headerHTML = `<div class="w-full">`;
+            let headerHTML = `<div class="w-full">`;
 
-    // Add parent pipeline link if it exists
-    if (runDetails.parent_run_info) {
-        headerHTML += `
-            <div class="mb-2">
-                <a href="#/pipelineruns/run/${runDetails.parent_run_info.run_id}" class="text-sm text-indigo-400 hover:text-indigo-300 hover:underline">
-                    &larr; Back to parent: ${runDetails.parent_run_info.pipeline_name}
-                </a>
-            </div>
-        `;
-    }
-
-    headerHTML += `
-            <div class="flex flex-wrap items-baseline gap-x-3">
-                <a href="${repoLink}" class="text-xl font-semibold text-gray-400 hover:text-indigo-400 transition-colors">${repoFullName}</a>
-                <h1 class="text-xl font-semibold text-gray-100 truncate">${runInfo.pipeline_name}</h1>
-            </div>
-
-            <div class="text-xs text-gray-400 mt-2 font-mono grid grid-cols-[auto,1fr] gap-x-4 w-full max-w-3xl">
-                <span class="text-gray-500 justify-self-end truncate">Run ID:</span>
-                <span class="truncate">${runInfo.run_id}</span>
-                <span class="text-gray-500 justify-self-end truncate">Commit:</span>
-                <span class="truncate">${runInfo.git_commit_sha}</span>
-            </div>
-
-            <div class="text-sm text-gray-400 mt-2 flex flex-wrap items-center gap-x-6 gap-y-1">
-                <div class="flex items-center" title="Duration">
-                    <svg class="h-4 w-4 mr-1.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                    <span>${runInfo.duration || '0s'}</span>
-                </div>
-                <div class="flex items-center" title="Committer">
-                    <svg class="h-4 w-4 mr-1.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-                    <span>${runInfo.git_pusher_name || 'N/A'}</span>
-                </div>
-                <div class="flex items-center" title="Branch">
-                    <svg class="h-4 w-4 mr-1.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                    <span>${branchName}</span>
-                </div>
-            </div>
-        </div>`;
-
-    DOM.mainHeader.innerHTML = headerHTML;
-
-    DOM.placeholder.classList.add('hidden');
-    DOM.graphContainer.classList.remove('hidden');
-
-    const { nodes, edges, width, height } = calculateGraphLayout(runDetails.steps, DOM.pageContentWrapper, 180, 50, 80, 50);
-
-    let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="8" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#6b7280" /></marker></defs>`;
-    edges.forEach(edge => svgContent += `<line x1="${edge.x1}" y1="${edge.y1}" x2="${edge.x2}" y2="${edge.y2}" stroke="#4b5563" stroke-width="1.5" marker-end="url(#arrowhead)"></line>`);
-    nodes.forEach(node => {
-        const config = statusConfig[node.status.toLowerCase()] || statusConfig.pending;
-        const originalStep = runDetails.pipeline_definition.steps.find(s => s.name === node.name);
-        const isInclude = originalStep && originalStep.include;
-        
-        let includeHTML = '';
-        if (isInclude) {
-            const childRun = runDetails.child_runs && runDetails.child_runs.find(cr => cr.parent_step_name === node.name);
-
-            if (childRun && childRun.run_id) {
-                includeHTML = `<a href="#/pipelineruns/run/${childRun.run_id}" data-included-link="true" class="text-xs text-blue-400 hover:underline">Included Pipeline</a>`;
-            } else {
-                console.warn(`Could not find a matching child run for included step: ${node.name}`);
-                includeHTML = `<span class="text-xs text-gray-500">Included Pipeline</span>`;
+            if (runDetails.parent_run_info) {
+                headerHTML += `
+                    <div class="mb-2">
+                        <a href="#/pipelineruns/run/${runDetails.parent_run_info.run_id}" class="text-sm text-indigo-400 hover:text-indigo-300 hover:underline">
+                            &larr; Back to parent: ${runDetails.parent_run_info.pipeline_name}
+                        </a>
+                    </div>
+                `;
             }
-        }
 
-        svgContent += `
-            <g class="graph-node" data-step-name="${node.name}" transform="translate(${node.x}, ${node.y})">
-                <rect class="node-rect ${config.rectClass}" x="0" y="0" width="${node.width}" height="${node.height}" rx="8"></rect>
-                <foreignObject x="0" y="0" width="${node.width}" height="${node.height}">
-                    <div xmlns="http://www.w3.org/2000/xhtml" class="w-full h-full flex items-center p-3">
-                        <svg class="h-5 w-5 mr-2 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
-                        <div>
-                            <p class="node-text text-sm font-medium text-gray-200 truncate">${node.name}</p>
-                            ${isInclude ? includeHTML : `<p class="text-xs text-gray-400 capitalize">${node.status}</p>`}
+            headerHTML += `
+                    <div class="flex flex-wrap items-baseline gap-x-3">
+                        <a href="${repoLink}" class="text-xl font-semibold text-gray-400 hover:text-indigo-400 transition-colors">${repoFullName}</a>
+                        <h1 class="text-xl font-semibold text-gray-100 truncate">${runInfo.pipeline_name}</h1>
+                    </div>
+
+                    <div class="text-xs text-gray-400 mt-2 font-mono grid grid-cols-[auto,1fr] gap-x-4 w-full max-w-3xl">
+                        <span class="text-gray-500 justify-self-end truncate">Run ID:</span>
+                        <span class="truncate">${runInfo.run_id}</span>
+                        <span class="text-gray-500 justify-self-end truncate">Commit:</span>
+                        <span class="truncate">${runInfo.git_commit_sha}</span>
+                    </div>
+
+                    <div class="text-sm text-gray-400 mt-2 flex flex-wrap items-center gap-x-6 gap-y-1">
+                        <div class="flex items-center" title="Duration">
+                            <svg class="h-4 w-4 mr-1.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            <span>${runInfo.duration || '0s'}</span>
+                        </div>
+                        <div class="flex items-center" title="Committer">
+                            <svg class="h-4 w-4 mr-1.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                            <span>${runInfo.git_pusher_name || 'N/A'}</span>
+                        </div>
+                        <div class="flex items-center" title="Branch">
+                            <svg class="h-4 w-4 mr-1.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                            <span>${branchName}</span>
                         </div>
                     </div>
-                </foreignObject>
-            </g>`;
-    });
-    DOM.graphWrapper.innerHTML = svgContent;
-}
+                </div>`;
+
+            DOM.mainHeader.innerHTML = headerHTML;
+            resetMainView();
+
+            if (runInfo.failure_reason) {
+                DOM.mainGridContainer.classList.remove('hidden');
+                DOM.mainGridContainer.innerHTML = `
+                    <div class="bg-red-900/50 border border-red-500/50 text-red-200 px-4 py-3 rounded-lg relative" role="alert">
+                        <strong class="font-bold">Pipeline Failed to Start</strong>
+                        <span class="block sm:inline mt-2 sm:mt-0 sm:ml-2">This pipeline could not be launched due to a configuration error.</span>
+                        <div class="mt-3 bg-gray-900/70 p-3 rounded font-mono">
+                            <code class="text-sm text-red-100">${runInfo.failure_reason}</code>
+                        </div>
+                    </div>
+                `;
+            } else {
+                DOM.graphContainer.classList.remove('hidden');
+                const { nodes, edges, width, height } = calculateGraphLayout(runDetails.steps, DOM.pageContentWrapper, 180, 50, 80, 50);
+
+                let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="8" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#6b7280" /></marker></defs>`;
+                edges.forEach(edge => svgContent += `<line x1="${edge.x1}" y1="${edge.y1}" x2="${edge.x2}" y2="${edge.y2}" stroke="#4b5563" stroke-width="1.5" marker-end="url(#arrowhead)"></line>`);
+                nodes.forEach(node => {
+                    const config = statusConfig[node.status.toLowerCase()] || statusConfig.pending;
+                    const originalStep = runDetails.pipeline_definition.steps.find(s => s.name === node.name);
+                    const isInclude = originalStep && originalStep.include;
+                    
+                    let includeHTML = '';
+                    if (isInclude) {
+                        const childRun = runDetails.child_runs && runDetails.child_runs.find(cr => cr.parent_step_name === node.name);
+
+                        if (childRun && childRun.run_id) {
+                            includeHTML = `<a href="#/pipelineruns/run/${childRun.run_id}" data-included-link="true" class="text-xs text-blue-400 hover:underline">Included Pipeline</a>`;
+                        } else {
+                            console.warn(`Could not find a matching child run for included step: ${node.name}`);
+                            includeHTML = `<span class="text-xs text-gray-500">Included Pipeline</span>`;
+                        }
+                    }
+
+                    svgContent += `
+                        <g class="graph-node" data-step-name="${node.name}" transform="translate(${node.x}, ${node.y})">
+                            <rect class="node-rect ${config.rectClass}" x="0" y="0" width="${node.width}" height="${node.height}" rx="8"></rect>
+                            <foreignObject x="0" y="0" width="${node.width}" height="${node.height}">
+                                <div xmlns="http://www.w3.org/2000/xhtml" class="w-full h-full flex items-center p-3">
+                                    <svg class="h-5 w-5 mr-2 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
+                                    <div>
+                                        <p class="node-text text-sm font-medium text-gray-200 truncate">${node.name}</p>
+                                        ${isInclude ? includeHTML : `<p class="text-xs text-gray-400 capitalize">${node.status}</p>`}
+                                    </div>
+                                </div>
+                            </foreignObject>
+                        </g>`;
+                });
+                DOM.graphWrapper.innerHTML = svgContent;
+            }
+        }
 
         function calculateGraphLayout(items, container, nodeWidth, nodeHeight, hGap, vGap) {
             if (!items || items.length === 0) return { nodes: [], edges: [], width: 0, height: 0 };
@@ -1201,7 +1212,7 @@
                 }
             }
         });
-        
+
         DOM.graphContainer.addEventListener('click', e => {
             const includedLink = e.target.closest('[data-included-link="true"]');
             if (includedLink) {
