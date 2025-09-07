@@ -924,19 +924,22 @@
                 nodes.forEach(node => {
                     const config = statusConfig[node.status.toLowerCase()] || statusConfig.pending;
                     const originalStep = runDetails.pipeline_definition.steps.find(s => s.name === node.name);
-                    const isInclude = originalStep && originalStep.include;
                     
                     let includeHTML = '';
-                    if (isInclude) {
-                        const childRun = runDetails.child_runs && runDetails.child_runs.find(cr => cr.parent_step_name === node.name);
-
-                        if (childRun && childRun.run_id) {
-                            includeHTML = `<a href="#/pipelineruns/run/${childRun.run_id}" data-included-link="true" class="text-xs text-blue-400 hover:underline">Included Pipeline</a>`;
-                        } else {
-                            console.warn(`Could not find a matching child run for included step: ${node.name}`);
-                            includeHTML = `<span class="text-xs text-gray-500">Included Pipeline</span>`;
+                    if (originalStep && originalStep.include) {
+                        if (originalStep.include.startsWith('pipeline:')) {
+                            const childRun = runDetails.child_runs && runDetails.child_runs.find(cr => cr.parent_step_name === node.name);
+                            if (childRun && childRun.run_id) {
+                                includeHTML = `<a href="#/pipelineruns/run/${childRun.run_id}" data-included-link="true" class="text-xs text-blue-400 hover:underline">Included Pipeline</a>`;
+                            } else {
+                                includeHTML = `<span class="text-xs text-gray-500">Included Pipeline</span>`;
+                            }
+                        } else if (originalStep.include.startsWith('step:')) {
+                            // --- THIS IS THE FIX ---
+                            includeHTML = `<span class="text-xs text-blue-400">Included Step</span>`;
                         }
                     }
+                    const isInclude = !!includeHTML;
 
                     svgContent += `
                         <g class="graph-node" data-step-name="${node.name}" transform="translate(${node.x}, ${node.y})">
@@ -1105,7 +1108,7 @@
             }
             modalHeader.innerHTML = headerHTML + closeButtonHTML;
 
-            // --- RENDER CONFIGURATION (RIGHT PANE) - CORRECTED & COMPLETE ---
+            // --- RENDER CONFIGURATION (RIGHT PANE) ---
             const configContainer = document.getElementById('step-config-container');
             let configHTML = '';
 
@@ -1172,7 +1175,8 @@
 
 
             // --- RENDER GRAPH (LEFT PANE) ---
-            if (stepConfig.include) {
+            // **THE FIX**: Only check for child runs if the include is a 'pipeline:'
+            if (stepConfig.include && stepConfig.include.startsWith('pipeline:')) {
                 const childRun = runDetails.child_runs.find(cr => cr.parent_step_name === stepName);
                 if (childRun) {
                     const childRunDetails = await fetchData(`/v1/runs/${childRun.run_id}`);
@@ -1181,6 +1185,7 @@
                     }
                 }
             } else {
+                // For regular steps AND resolved included steps, just render their tasks.
                 renderTaskGraph(stepName, step.tasks);
             }
         }

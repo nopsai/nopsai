@@ -1304,7 +1304,6 @@ func allTasksDone(tasks []TaskDetail) bool {
 	return true
 }
 
-// NEW HELPER
 func (a *App) updateRunRecordWithFailure(runID uuid.UUID, reason string, gitContext map[string]string) {
 	log.Error().Str("run_id", runID.String()).Msg(reason)
 	_, err := a.db.Exec(context.Background(),
@@ -1318,7 +1317,6 @@ func (a *App) updateRunRecordWithFailure(runID uuid.UUID, reason string, gitCont
 	}
 }
 
-// MODIFIED
 func (a *App) launchAndRunPipeline(
 	runID uuid.UUID,
 	pipeline models.Pipeline,
@@ -1379,7 +1377,6 @@ func (a *App) launchAndRunPipeline(
 	go a.launchAgent(runID.String(), pipeline, pipelineDef, timeoutDuration, gitContext, parentHistory, environment)
 }
 
-// MODIFIED
 func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	var pipeline models.Pipeline
 	var pipelineDef []byte
@@ -1538,7 +1535,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 			git_commit_author_email, git_commit_author_username, git_pusher_name,
 			git_pusher_email, git_check_run_id, group_id, parent_step_name, environment)
 			VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
-		runID, parentRunIDSQL, pipeline.Name, string(pipelineDef),
+		runID, parentRunIDSQL, pipeline.Name, string(pipelineDef), // Initially save the original definition
 		gitContext["repo_owner"], gitContext["repo_name"], gitContext["clone_url"], gitContext["ssh_url"], gitContext["ref"],
 		gitContext["commit_sha"], gitContext["commit_url"], gitContext["commit_message"], gitContext["commit_author_name"],
 		gitContext["commit_author_email"], gitContext["commit_author_username"], gitContext["pusher_name"],
@@ -1575,6 +1572,18 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		a.updateRunRecordWithFailure(runID, errMsg, gitContext)
 		return
 	}
+
+	// --- THIS IS THE KEY CHANGE ---
+	// Update the run record with the fully resolved pipeline definition
+	// so that the UI can access it later.
+	_, err = a.db.Exec(context.Background(), "UPDATE runs SET pipeline_definition = $1 WHERE run_id = $2", string(resolvedPipelineDef), runID)
+	if err != nil {
+		errMsg := "Failed to update run with resolved pipeline definition"
+		http.Error(w, errMsg, http.StatusInternalServerError)
+		a.updateRunRecordWithFailure(runID, errMsg, gitContext)
+		return
+	}
+	// --- END OF KEY CHANGE ---
 
 	timeoutStr := resolvedPipeline.Timeout
 	if timeoutStr == "" {
