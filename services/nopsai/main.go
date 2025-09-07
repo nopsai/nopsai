@@ -72,12 +72,25 @@ type RunListItem struct {
 	FailureReason  string    `json:"failure_reason,omitempty"`
 }
 
+type StepConfiguration struct {
+	Image            string            `json:"image,omitempty"`
+	Include          string            `json:"include,omitempty"`
+	Sync             bool              `json:"sync"`
+	Secrets          []string          `json:"secrets,omitempty"`
+	Volumes          []string          `json:"volumes,omitempty"`
+	Environment      map[string]string `json:"environment,omitempty"`
+	IgnoreFailure    bool              `json:"ignore_failure"`
+	LlmOutputSharing *bool             `json:"llm_output_sharing,omitempty"`
+	Tasks            []models.Task     `json:"tasks,omitempty"`
+}
+
 type StepDetail struct {
-	Name      string       `json:"name"`
-	Status    string       `json:"status"`
-	DependsOn []string     `json:"depends_on"`
-	Tasks     []TaskDetail `json:"tasks"`
-	Duration  string       `json:"duration"`
+	Name          string            `json:"name"`
+	Status        string            `json:"status"`
+	DependsOn     []string          `json:"depends_on"`
+	Tasks         []TaskDetail      `json:"tasks"`
+	Duration      string            `json:"duration"`
+	Configuration StepConfiguration `json:"configuration"`
 }
 
 type TaskDetail struct {
@@ -1083,6 +1096,8 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	run.FailureReason = failureReason.String
 	if startedAt.Valid {
 		run.StartedAt = startedAt.Time
+	}
+	if startedAt.Valid {
 		if finishedAt.Valid {
 			run.FinishedAt = finishedAt.Time
 			run.Duration = run.FinishedAt.Sub(run.StartedAt).Round(time.Second).String()
@@ -1090,6 +1105,8 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 		} else {
 			run.Duration = time.Since(run.StartedAt).Round(time.Second).String()
 		}
+	} else {
+		run.Duration = "0s"
 	}
 
 	// Get parent run info if it exists
@@ -1226,12 +1243,40 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// Create the configuration struct from the parsed pipeline step
+		config := StepConfiguration{
+			Image:            pStep.Image,
+			Include:          pStep.Include,
+			Sync:             pStep.Sync,
+			Secrets:          pStep.Secrets,
+			Volumes:          pStep.Volumes,
+			Environment:      pStep.Environment,
+			IgnoreFailure:    pStep.IgnoreFailure,
+			LlmOutputSharing: pStep.LlmOutputSharing,
+		}
+
+		// Normalize legacy goal/script fields into the new tasks structure for consistency
+		if len(pStep.Tasks) > 0 {
+			config.Tasks = pStep.Tasks
+		} else if pStep.Goal != "" || pStep.Script != "" {
+			config.Tasks = []models.Task{
+				{
+					Name:             pStep.Name,
+					Goal:             pStep.Goal,
+					Script:           pStep.Script,
+					IgnoreFailure:    pStep.IgnoreFailure,
+					LlmOutputSharing: pStep.LlmOutputSharing,
+				},
+			}
+		}
+
 		steps = append(steps, StepDetail{
-			Name:      pStep.Name,
-			Status:    status,
-			DependsOn: pStep.DependsOn,
-			Tasks:     stepTasks,
-			Duration:  stepDuration.Round(time.Second).String(),
+			Name:          pStep.Name,
+			Status:        status,
+			DependsOn:     pStep.DependsOn,
+			Tasks:         stepTasks, // Runtime tasks
+			Duration:      stepDuration.Round(time.Second).String(),
+			Configuration: config,
 		})
 	}
 
