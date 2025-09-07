@@ -42,6 +42,13 @@
         .sidebar-no-transition {
             transition: none !important;
          }
+        .sidebar-link.active {
+            background-color: #312e81; /* A deeper indigo for the active state */
+            box-shadow: inset 3px 0 0 0 #818cf8; /* A subtle inner left border */
+        }
+        .sidebar-link:hover {
+            background-color: #3730a3;
+        }
         .drop-target-highlight {
             background-color: #4c51bf4d !important;
             outline: 2px dashed #4c51bf;
@@ -83,8 +90,7 @@
         <div id="sidebar-resizer" class="w-1.5 cursor-col-resize flex-shrink-0 bg-gray-700 hover:bg-indigo-500 transition-colors duration-200 hidden sm:block"></div>
 
         <main class="flex-1 flex flex-col overflow-hidden">
-             <header class="flex items-start justify-between px-6 py-4 bg-gray-800/50 backdrop-blur-sm border-b border-gray-700 z-10">
-                <button id="open-sidebar-btn" class="sm:hidden text-gray-400 hover:text-white">
+            <header class="flex items-start justify-between px-6 py-4 bg-gray-800/50 backdrop-blur-sm shadow-lg z-10">                <button id="open-sidebar-btn" class="sm:hidden text-gray-400 hover:text-white">
                     <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7" /></svg>
                 </button>
                 <div id="main-header" class="flex-1 text-xl font-semibold">Dashboard</div>
@@ -135,17 +141,20 @@
                 </div>
                 <button id="close-modal-btn" class="text-gray-400 hover:text-white"><svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
             </div>
-            <div class="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-2 gap-x-6 p-4">
-                <div class="flex flex-col overflow-hidden h-full">
+            <div id="modal-grid-container" class="flex-1 overflow-hidden grid p-4" style="grid-template-columns: 1fr 10px 1fr; gap: 0 12px;">
+                <div id="modal-left-pane" class="flex flex-col overflow-hidden h-full">
                     <h3 class="text-lg font-semibold text-gray-200 mb-3 flex-shrink-0">Execution Flow & Status</h3>
                     <div class="flex-1 overflow-auto bg-gray-900/50 rounded-md p-4 flex items-center justify-center min-h-[200px]">
                         <div id="task-graph"></div>
                     </div>
                 </div>
-                <div class="flex flex-col overflow-hidden h-full">
-                     <h3 class="text-lg font-semibold text-gray-200 mb-3 flex-shrink-0">Configuration</h3>
-                     <div id="step-config-container" class="flex-1 overflow-y-auto pr-2 space-y-4 text-sm">
-                        </div>
+                <div id="modal-resizer" class="cursor-col-resize flex items-center justify-center group">
+                    <div class="w-1.5 h-12 bg-gray-700 rounded-full group-hover:bg-indigo-500 transition-colors duration-200"></div>
+                </div>
+                <div id="modal-right-pane" class="flex flex-col overflow-hidden h-full">
+                    <h3 class="text-lg font-semibold text-gray-200 mb-3 flex-shrink-0">Configuration</h3>
+                    <div id="step-config-container" class="flex-1 overflow-y-auto pr-2 space-y-4 text-sm">
+                    </div>
                 </div>
             </div>
         </div>
@@ -900,7 +909,13 @@
 
                     svgContent += `
                         <g class="graph-node" data-step-name="${node.name}" transform="translate(${node.x}, ${node.y})">
-                            <rect class="node-rect ${config.rectClass}" x="0" y="0" width="${node.width}" height="${node.height}" rx="8"></rect>
+                            <defs>
+                                <linearGradient id="grad-${config.rectClass}" x1="0%" y1="0%" x2="0%" y2="100%">
+                                    <stop offset="0%" style="stop-color:rgba(255,255,255,0.05)" />
+                                    <stop offset="100%" style="stop-color:rgba(255,255,255,0)" />
+                                </linearGradient>
+                            </defs>
+                            <rect class="node-rect ${config.rectClass}" x="0" y="0" width="${node.width}" height="${node.height}" rx="8" fill="url(#grad-${config.rectClass})"></rect>
                             <foreignObject x="0" y="0" width="${node.width}" height="${node.height}">
                                 <div xmlns="http://www.w3.org/2000/xhtml" class="w-full h-full flex items-center p-3">
                                     <svg class="h-5 w-5 mr-2 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
@@ -970,17 +985,21 @@
             let maxNodesInLevel = 0;
             levels.forEach(levelItems => maxNodesInLevel = Math.max(maxNodesInLevel, levelItems.length));
 
-            const graphWidth = levels.length * nodeWidth + (levels.length - 1) * hGap;
-            const graphHeight = maxNodesInLevel * nodeHeight + (maxNodesInLevel - 1) * vGap;
+            // --- THE FIX STARTS HERE ---
+            const graphWidth = maxNodesInLevel * nodeWidth + (maxNodesInLevel - 1) * hGap;
+            const graphHeight = levels.length * nodeHeight + (levels.length - 1) * vGap;
+            const PADDING = 40; // Total padding (20px on each side/top/bottom)
 
             levels.forEach((levelItems, i) => {
-                const levelHeight = levelItems.length * (nodeHeight + vGap) - vGap;
-                const yOffset = (container.clientHeight > levelHeight ? (container.clientHeight - levelHeight) / 2 : vGap);
+                const levelWidth = levelItems.length * (nodeWidth + hGap) - hGap;
+                // Calculate the starting X offset to center this row within the graph's own total width.
+                const xOffset = ((graphWidth - levelWidth) / 2) + (PADDING / 2);
+                
                 levelItems.forEach((itemName, j) => {
                     const node = nodes[itemName];
                     if(node) {
-                        node.x = i * (nodeWidth + hGap);
-                        node.y = j * (nodeHeight + vGap) + yOffset;
+                        node.x = j * (nodeWidth + hGap) + xOffset;
+                        node.y = i * (nodeHeight + vGap) + (PADDING / 2); // Apply top padding
                     }
                 });
             });
@@ -992,13 +1011,20 @@
                     const toNode = nodes[item[itemNameKey]];
                     if (fromNode && toNode) {
                         edges.push({
-                            x1: fromNode.x + nodeWidth, y1: fromNode.y + nodeHeight / 2,
-                            x2: toNode.x, y2: toNode.y + nodeHeight / 2
+                            x1: fromNode.x + nodeWidth / 2, y1: fromNode.y + nodeHeight,
+                            x2: toNode.x + nodeWidth / 2, y2: toNode.y
                         });
                     }
                 });
             });
-            return { nodes: Object.values(nodes), edges, width: Math.max(container.clientWidth, graphWidth + 20), height: Math.max(container.clientHeight, graphHeight + 20) };
+            
+            return { 
+                nodes: Object.values(nodes), 
+                edges, 
+                width: graphWidth + PADDING, 
+                height: graphHeight + PADDING 
+            };
+             // --- THE FIX ENDS HERE ---
         }
 
         async function showStepDetails(stepName) {
@@ -1612,6 +1638,59 @@
         DOM.sidebarNav.addEventListener('mouseout', handleRunHighlight);
 
         window.addEventListener('hashchange', router);
+// --- MODAL RESIZER LOGIC ---
+       (() => {
+            const resizer = document.getElementById('modal-resizer');
+            const container = document.getElementById('modal-grid-container');
+
+            if (!resizer || !container) return;
+
+            let isResizing = false;
+
+            resizer.addEventListener('mousedown', (e) => {
+                isResizing = true;
+                // Add styles to the body to prevent text selection and show resize cursor everywhere
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+
+                const mouseMoveHandler = (moveEvent) => {
+                    if (!isResizing) return;
+                    
+                    const containerRect = container.getBoundingClientRect();
+                    // Calculate the mouse's X position relative to the container's left edge
+                    let mouseXRelative = moveEvent.clientX - containerRect.left;
+
+                    // Define minimum and maximum widths for the left pane in percentages
+                    const minPercent = 20;
+                    const maxPercent = 80;
+                    const minWidth = (containerRect.width * minPercent) / 100;
+                    const maxWidth = (containerRect.width * maxPercent) / 100;
+
+                    // Enforce the min/max width constraints
+                    if (mouseXRelative < minWidth) mouseXRelative = minWidth;
+                    if (mouseXRelative > maxWidth) mouseXRelative = maxWidth;
+                    
+                    const newLeftWidth = mouseXRelative;
+                    
+                    // Dynamically update the grid-template-columns style to resize the panes
+                    container.style.gridTemplateColumns = `${newLeftWidth}px 10px 1fr`;
+                };
+
+                const mouseUpHandler = () => {
+                    isResizing = false;
+                    // Remove the global styles when dragging stops
+                    document.body.style.cursor = '';
+                    document.body.style.userSelect = '';
+                    // Clean up the event listeners
+                    document.removeEventListener('mousemove', mouseMoveHandler);
+                    document.removeEventListener('mouseup', mouseUpHandler);
+                };
+
+                document.addEventListener('mousemove', mouseMoveHandler);
+                document.addEventListener('mouseup', mouseUpHandler, { once: true });
+            });
+       })();
+       
         (() => {
             const sidebar = document.getElementById('sidebar');
             const resizer = document.getElementById('sidebar-resizer');
