@@ -10,6 +10,7 @@ CREATE TABLE groups (
 CREATE TABLE runs (
     run_id UUID PRIMARY KEY,
     parent_run_id UUID NULL REFERENCES runs(run_id) ON DELETE SET NULL,
+    parent_step_name VARCHAR(255),
     pipeline_name VARCHAR(255),
     pipeline_definition TEXT,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
@@ -33,7 +34,6 @@ CREATE TABLE runs (
     git_check_run_id BIGINT,
     group_id INTEGER REFERENCES groups(id) ON DELETE SET NULL
 );
-
 CREATE TABLE tasks (
     task_id UUID PRIMARY KEY,
     run_id UUID NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,

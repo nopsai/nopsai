@@ -330,7 +330,7 @@ func ensureImageExists(ctx context.Context, cli *client.Client, imageName string
 	return nil
 }
 
-func triggerPipeline(parentRunID, parentPipelineName string, pipelineDef []byte, history string) (string, error) {
+func triggerPipeline(parentRunID, parentPipelineName, parentStepName string, pipelineDef []byte, history string) (string, error) {
 	nopsaiURL := os.Getenv("NOPSAI_API_URL")
 	url := fmt.Sprintf("%s/v1/run", nopsaiURL)
 
@@ -341,6 +341,7 @@ func triggerPipeline(parentRunID, parentPipelineName string, pipelineDef []byte,
 	req.Header.Set("Content-Type", "application/x-yaml")
 	req.Header.Set("X-Nopsai-Parent-Run-ID", parentRunID)
 	req.Header.Set("X-Nopsai-Parent-Pipeline-Name", parentPipelineName)
+	req.Header.Set("X-Nopsai-Parent-Step-Name", parentStepName)
 
 	if history != "" {
 		encodedHistory := base64.StdEncoding.EncodeToString([]byte(history))
@@ -641,7 +642,7 @@ func run() int {
 					historyMutex.Lock()
 					historySnapshot := history.String()
 					historyMutex.Unlock()
-					childRunID, err := triggerPipeline(runID, pipelineName, childDef, historySnapshot)
+					childRunID, err := triggerPipeline(runID, pipelineName, step.Name, childDef, historySnapshot)
 					if err != nil {
 						log.Error().Err(err).Msg("Failed to trigger child pipeline")
 						updateTaskStatus(runID, stepName, stepName, "failure", 1, 0)
