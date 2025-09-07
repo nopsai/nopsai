@@ -577,6 +577,7 @@ func run() int {
 	}
 	completedTasks := make(map[string]bool)
 	pipelineFailed := false
+	var syncWg sync.WaitGroup
 
 	totalTasks := 0
 	for _, step := range pipeline.Steps {
@@ -650,40 +651,33 @@ func run() int {
 						return
 					}
 
-					if step.Sync {
+					monitorFunc := func() {
 						finalStatus, err := monitorPipeline(childRunID)
 						if err != nil {
-							log.Error().Err(err).Msg("Failed to monitor child pipeline")
-							updateTaskStatus(runID, stepName, stepName, "failure", 1, 0)
-							results <- TaskResult{Name: runnable.GlobalKey, Success: false}
-							return
+							log.Error().Err(err).Str("child_run_id", childRunID).Msg("Error monitoring child pipeline")
+							finalStatus = "failure"
 						}
-						if finalStatus == "failure" {
-							log.Error().Str("child_run_id", childRunID).Msg("Synchronous child pipeline failed.")
-							updateTaskStatus(runID, stepName, stepName, "failure", 1, 0)
-							results <- TaskResult{Name: runnable.GlobalKey, Success: false}
-							return
+						log.Info().Str("child_run_id", childRunID).Str("status", finalStatus).Msg("Child pipeline finished.")
+						updateTaskStatus(runID, stepName, stepName, finalStatus, 0, 0)
+						if finalStatus == "failure" && step.Sync {
+							pipelineFailed = true
 						}
-					} else {
-						// For non-sync, we still monitor but don't block the main pipeline's progress.
-						// We just update the step's status when the child is done.
-						go func() {
-							finalStatus, err := monitorPipeline(childRunID)
-							if err != nil {
-								log.Error().Err(err).Str("child_run_id", childRunID).Msg("Error monitoring non-sync child pipeline")
-								updateTaskStatus(runID, stepName, stepName, "failure", 1, 0)
-								return
-							}
-							log.Info().Str("child_run_id", childRunID).Str("status", finalStatus).Msg("Non-synchronous child pipeline finished.")
-							updateTaskStatus(runID, stepName, stepName, finalStatus, 0, 0)
-						}()
 					}
 
-					log.Info().Str("child_run_id", childRunID).Msg("Include step finished successfully (or is running in background).")
-					// For dependency purposes, the non-sync step is considered "successful" immediately
-					// so that subsequent steps can start. The final status will be updated asynchronously.
-					updateTaskStatus(runID, stepName, stepName, "success", 0, 0)
-					results <- TaskResult{Name: runnable.GlobalKey, Success: true}
+					if step.Sync {
+						syncWg.Add(1)
+						go func() {
+							defer syncWg.Done()
+							monitorFunc()
+						}()
+						// Mark the task as "completed" for the main loop, but its final status will be updated later.
+						results <- TaskResult{Name: runnable.GlobalKey, Success: true}
+					} else {
+						go monitorFunc()
+						// For non-sync, we mark it successful immediately to unblock dependencies.
+						updateTaskStatus(runID, stepName, stepName, "success", 0, 0)
+						results <- TaskResult{Name: runnable.GlobalKey, Success: true}
+					}
 					return
 				}
 
@@ -953,6 +947,8 @@ func run() int {
 			break
 		}
 	}
+
+	syncWg.Wait()
 
 	finalStatus := "success"
 	if pipelineFailed {
