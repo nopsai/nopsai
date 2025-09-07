@@ -124,20 +124,28 @@
     </div>
 
     <div id="step-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
-        <div id="modal-content" class="bg-gray-800 rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col transform scale-95 transition-transform duration-300">
-            <div class="flex items-center justify-between p-4 border-b border-gray-700">
-                <h2 id="modal-title" class="text-xl font-semibold">Step Details</h2>
+        <div id="modal-content" class="bg-gray-800 rounded-lg shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col transform scale-95 transition-transform duration-300">
+            <div class="flex items-center justify-between p-4 border-b border-gray-700 flex-shrink-0">
+                <div>
+                    <h2 id="modal-title" class="text-xl font-semibold">Step Details</h2>
+                    <div class="flex items-center space-x-6 mt-1 text-sm">
+                        <div><span class="text-gray-400">Status: </span><span id="modal-status" class="font-medium"></span></div>
+                        <div><span class="text-gray-400">Duration: </span><span id="modal-duration" class="font-medium"></span></div>
+                    </div>
+                </div>
                 <button id="close-modal-btn" class="text-gray-400 hover:text-white"><svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
             </div>
-            <div class="p-6 flex-1 overflow-y-auto">
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                    <div><h4 class="text-sm text-gray-400">Status</h4><p id="modal-status" class="text-lg font-medium"></p></div>
-                    <div><h4 class="text-sm text-gray-400">Duration</h4><p id="modal-duration" class="text-lg font-medium"></p></div>
-                    <div><h4 class="text-sm text-gray-400">Tasks</h4><p id="modal-task-count" class="text-lg font-medium"></p></div>
+            <div class="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-2 gap-x-6 p-4">
+                <div class="flex flex-col overflow-hidden h-full">
+                    <h3 class="text-lg font-semibold text-gray-200 mb-3 flex-shrink-0">Execution Flow & Status</h3>
+                    <div class="flex-1 overflow-auto bg-gray-900/50 rounded-md p-4 flex items-center justify-center min-h-[200px]">
+                        <div id="task-graph"></div>
+                    </div>
                 </div>
-                <div id="task-graph-container" class="mt-4">
-                    <h4 class="text-sm text-gray-400 mb-2">Task Dependencies</h4>
-                    <div id="task-graph" class="bg-gray-900/50 rounded-md p-4 flex items-center justify-center min-h-[100px]"></div>
+                <div class="flex flex-col overflow-hidden h-full">
+                     <h3 class="text-lg font-semibold text-gray-200 mb-3 flex-shrink-0">Configuration</h3>
+                     <div id="step-config-container" class="flex-1 overflow-y-auto pr-2 space-y-4 text-sm">
+                        </div>
                 </div>
             </div>
         </div>
@@ -1045,12 +1053,78 @@
             if (!step) return;
 
             const config = statusConfig[step.status.toLowerCase()] || statusConfig.pending;
+            const stepConfig = step.configuration;
 
-            document.getElementById('modal-title').textContent = `Step Details: ${stepName}`;
+            document.getElementById('modal-title').textContent = `Step: ${stepName}`;
             document.getElementById('modal-status').innerHTML = `<span class="font-bold capitalize ${config.color}">${step.status}</span>`;
             document.getElementById('modal-duration').textContent = step.duration || '0s';
-            document.getElementById('modal-task-count').textContent = `${step.tasks.length} task(s)`;
 
+            // --- RENDER CONFIGURATION DETAILS (RIGHT COLUMN) ---
+            const configContainer = document.getElementById('step-config-container');
+            let configHTML = '';
+
+            if (stepConfig.image) {
+                configHTML += `<div><h4 class="font-semibold text-gray-400 mb-1">Container Image</h4><code class="text-cyan-400 bg-gray-900 px-2 py-1 rounded">${stepConfig.image}</code></div>`;
+            }
+            if (stepConfig.include) {
+                configHTML += `<div><h4 class="font-semibold text-gray-400 mb-1">Included Definition</h4><code class="text-cyan-400 bg-gray-900 px-2 py-1 rounded">${stepConfig.include}</code></div>`;
+            }
+
+            let behaviorItems = [];
+            if (step.depends_on && step.depends_on.length > 0) {
+                behaviorItems.push(`<li><span class="font-medium text-gray-300">Depends On Steps:</span> <code class="text-gray-400">${JSON.stringify(step.depends_on)}</code></li>`);
+            }
+            if (stepConfig.ignore_failure) {
+                behaviorItems.push(`<li><span class="font-medium text-gray-300">Ignore Failure:</span> <span class="text-yellow-400">true</span></li>`);
+            }
+            if (stepConfig.llm_output_sharing === false) {
+                behaviorItems.push(`<li><span class="font-medium text-gray-300">LLM Output Sharing:</span> <span class="text-gray-400">false</span></li>`);
+            }
+            if (stepConfig.include && stepConfig.sync) {
+                behaviorItems.push(`<li><span class="font-medium text-gray-300">Sync Mode:</span> <span class="text-blue-400">true</span> (waits for included pipeline to finish)</li>`);
+            }
+            if(behaviorItems.length > 0) {
+                configHTML += `<div><h4 class="font-semibold text-gray-400 mb-1">Behavior & Flow Control</h4><ul class="list-disc list-inside pl-2 space-y-1">${behaviorItems.join('')}</ul></div>`;
+            }
+
+            if (stepConfig.secrets && stepConfig.secrets.length > 0) {
+                const secretsList = stepConfig.secrets.map(s => `<li class="inline-block mr-2 mb-1"><code class="text-purple-400 bg-gray-900 px-2 py-1 rounded">${s}</code></li>`).join('');
+                configHTML += `<div><h4 class="font-semibold text-gray-400 mb-1">Secrets</h4><ul class="flex flex-wrap">${secretsList}</ul></div>`;
+            }
+            if (stepConfig.volumes && stepConfig.volumes.length > 0) {
+                const volumesList = stepConfig.volumes.map(v => `<li class="inline-block mr-2 mb-1"><code class="text-green-400 bg-gray-900 px-2 py-1 rounded">${v}</code></li>`).join('');
+                configHTML += `<div><h4 class="font-semibold text-gray-400 mb-1">Volumes</h4><ul class="flex flex-wrap">${volumesList}</ul></div>`;
+            }
+            if (stepConfig.environment && Object.keys(stepConfig.environment).length > 0) {
+                const envList = Object.entries(stepConfig.environment).map(([k, v]) => `<li><code class="text-gray-400"><span class="text-orange-400">${k}</span>=${v}</code></li>`).join('');
+                configHTML += `<div><h4 class="font-semibold text-gray-400 mb-1">Environment Overrides</h4><ul class="space-y-1">${envList}</ul></div>`;
+            }
+
+            if (stepConfig.tasks && stepConfig.tasks.length > 0) {
+                configHTML += `<div><h4 class="font-semibold text-gray-400 mb-1">Tasks Configuration</h4><div class="space-y-3 pt-2">`;
+                stepConfig.tasks.forEach(task => {
+                    configHTML += `<div class="bg-gray-900/50 p-3 rounded-md border-l-2 border-gray-700">
+                                    <p class="font-semibold text-gray-200">${task.name}</p>`;
+                    if (task.goal) {
+                        configHTML += `<p class="mt-1 text-gray-300 italic"><strong>Goal:</strong> "${task.goal}"</p>`;
+                    }
+                    if (task.script) {
+                        const escapedScript = task.script.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        configHTML += `<div class="mt-2"><p class="text-xs text-gray-400 mb-1">Script:</p><pre class="bg-black p-2 rounded text-cyan-300 text-xs overflow-x-auto"><code>${escapedScript}</code></pre></div>`;
+                    }
+                    if (task.depends_on && task.depends_on.length > 0) {
+                        configHTML += `<p class="mt-2 text-xs text-gray-400"><strong>Depends on tasks:</strong> ${task.depends_on.join(', ')}</p>`;
+                    }
+                    if (task.ignore_failure) {
+                        configHTML += `<p class="mt-2 text-xs text-yellow-400">This task will not fail the step.</p>`;
+                    }
+                    configHTML += '</div>';
+                });
+                configHTML += '</div></div>';
+            }
+            configContainer.innerHTML = configHTML;
+            
+            // --- RENDER EXECUTION GRAPH (LEFT COLUMN) ---
             renderTaskGraph(step.name, step.tasks);
 
             DOM.modal.classList.remove('hidden');
@@ -1223,7 +1297,7 @@
                 showLogsModal();
             }
         });
-    
+
         DOM.closeLogsModalBtn.addEventListener('click', closeLogsModal);
         DOM.logsModal.addEventListener('click', e => { if (e.target === DOM.logsModal) closeLogsModal(); });
         DOM.copyLogsBtn.addEventListener('click', () => {
