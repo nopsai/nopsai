@@ -5,100 +5,164 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NopsAI - CI/CD Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      // Configure Tailwind CSS to use class-based dark mode
+      tailwind.config = {
+        darkMode: 'class',
+      }
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Inter', sans-serif; }
+        :root {
+            /* Light Theme Color Palette - REFINED */
+            --bg-primary: #ffffff;       /* white - Page background */
+            --bg-secondary: #f9fafb;     /* gray-50 - Softer content background for cards/modals */
+            --bg-tertiary: #f3f4f6;     /* gray-100 */
+            --bg-hover: #60ac9f;         /* indigo-700 */
+            --bg-active: #60ac9f;         /* indigo-800 */
+            --bg-overlay: rgba(17, 24, 39, 0.75); /* gray-900/75 */
+            --bg-code: #f3f4f6;          /* gray-100 */
+            --bg-code-darker: #e5e7eb;   /* gray-200 */
+
+            --text-primary: #1f2937;     /* gray-800 */
+            --text-secondary: #6b7280;   /* gray-500 */
+            --text-accent: #4f46e5;       /* indigo-600 */
+            --text-inverted: #f9fafb;     /* gray-50 */
+            --text-link: #4338ca;         /* indigo-700 */
+            --text-placeholder: #6b7280; /* gray-500 */
+            --text-button: #ffffff;      /* white */
+
+            --border-primary: #e5e7eb;   /* gray-200 */
+            --border-secondary: #d1d5db;   /* gray-300 */
+            --border-accent: #6366f1;     /* indigo-500 */
+            --border-input: #d1d5db;      /* gray-300 */
+            --border-input-focus: #4f46e5; /* indigo-600 */
+
+            --scrollbar-thumb: #9ca3af;   /* gray-400 */
+            --scrollbar-track: #e5e7eb;   /* gray-200 */
+            
+            --run-highlight-outline: rgba(245, 158, 11, 0.7); /* amber-500 */
+            --run-highlight-shadow: rgba(245, 158, 11, 0.3);
+        }
+
+        html.dark {
+            /* Dark Theme Color Palette */
+            --bg-primary: #111827;       /* gray-900 */
+            --bg-secondary: #1f2937;     /* gray-800 */
+            --bg-tertiary: #374151;       /* gray-700 */
+            --bg-hover: #00559b81;
+            --bg-active: #00559b81;
+            --bg-overlay: rgba(0, 0, 0, 0.75);
+            --bg-code: #374151;          /* gray-700 */
+            --bg-code-darker: #111827;   /* gray-900 */
+
+            --text-primary: #f3f4f6;     /* gray-200 */
+            --text-secondary: #9ca3af;   /* gray-400 */
+            --text-accent: #818cf8;       /* indigo-400 */
+            --text-inverted: #111827;     /* gray-900 */
+            --text-link: #a5b4fc;         /* indigo-300 */
+            --text-placeholder: #9ca3af; /* gray-400 */
+            --text-button: #ffffff;
+
+            --border-primary: #374151;   /* gray-700 */
+            --border-secondary: #4b5563;   /* gray-600 */
+            --border-accent: #818cf8;     /* indigo-400 */
+            --border-input: #4b5563;      /* gray-600 */
+            --border-input-focus: #818cf8; /* indigo-400 */
+            
+            --scrollbar-thumb: #4b5563;   /* gray-600 */
+            --scrollbar-track: #1f2937;   /* gray-800 */
+
+            --run-highlight-outline: rgba(250, 204, 21, 0.7); /* amber-400 */
+            --run-highlight-shadow: rgba(250, 204, 21, 0.3);
+        }
+
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
         .sidebar-scrollbar::-webkit-scrollbar { width: 4px; }
-        .sidebar-scrollbar::-webkit-scrollbar-thumb { background-color: #4a5568; border-radius: 10px; }
-        .sidebar-scrollbar::-webkit-scrollbar-track { background-color: #2d3748; }
+        .sidebar-scrollbar::-webkit-scrollbar-thumb { background-color: var(--scrollbar-thumb); border-radius: 10px; }
+        .sidebar-scrollbar::-webkit-scrollbar-track { background-color: var(--scrollbar-track); }
         .graph-node { cursor: pointer; transition: all 0.2s ease-in-out; }
         .graph-node:hover .node-rect { stroke-width: 2; }
         .graph-node:hover .node-text { font-weight: 600; }
         [data-page] { display: none; }
         [data-page].active { display: block; }
-        #graph-wrapper {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 100%;
-            height: 100%;
-            overflow: auto;
-        }
-        .group-header-container:hover .delete-group-btn {
-            opacity: 1;
-        }
+        #graph-wrapper { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; overflow: auto; }
+        .group-header-container:hover .delete-group-btn, .group-card:hover .delete-group-btn { opacity: 1; }
         .chevron { transition: transform 0.2s ease-in-out; }
         .expanded .chevron { transform: rotate(90deg); }
-        .group-card:hover .delete-group-btn {
-            opacity: 1;
-        }
-        .branch-runs {
-            max-height: 0;
-            overflow: hidden;
-            transition: max-height 0.3s ease-in-out;
-        }
-        .sidebar-no-transition {
-            transition: none !important;
-         }
+        .branch-runs { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-in-out; }
+        .sidebar-no-transition { transition: none !important; }
         .sidebar-link.active {
-            background-color: #312e81; /* A deeper indigo for the active state */
-            box-shadow: inset 3px 0 0 0 #818cf8; /* A subtle inner left border */
+            background-color: var(--bg-active);
+            box-shadow: inset 3px 0 0 0 var(--border-accent);
         }
-        .sidebar-link:hover {
-            background-color: #3730a3;
-        }
+        .sidebar-link:hover { background-color: var(--bg-hover); }
         .drop-target-highlight {
-            background-color: #4c51bf4d !important;
-            outline: 2px dashed #4c51bf;
+            background-color: hsla(242, 59%, 65%, 0.3) !important;
+            outline: 2px dashed var(--border-accent);
         }
-        .dragging {
-            opacity: 0.5;
-        }
-        .run-link-highlight > a, 
-        .run-link-highlight.bg-gray-800\/50 {
-            /* A slightly softer, semi-transparent outline */
-            outline: 1.5px solid rgba(250, 204, 21, 0.7); /* Tailwind's amber-400 with transparency */
+        .dragging { opacity: 0.5; }
         
-            /* A larger, more diffuse, and softer glow */
-            box-shadow: 0 0 16px 3px rgba(250, 204, 21, 0.3);
+        .run-link-highlight > a,
+        a.run-link-highlight {
+            outline: 1.5px solid var(--run-highlight-outline);
+            box-shadow: 0 0 16px 3px var(--run-highlight-shadow);
         }
-        
-        /* Keep the smooth transition for a polished feel */
+
         [data-run-id], [data-run-id] > a {
             transition: outline 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
-        }       
+        }
+        .themed-bg-blur {
+            background-color: rgba(249, 250, 251, 0.5); /* gray-50/50 */
+        }
+        html.dark .themed-bg-blur {
+            background-color: rgba(31, 41, 55, 0.5); /* gray-800/50 */
+        }
+        /* Style for placeholder SVGs */
+        .placeholder-icon {
+            color: var(--text-secondary);
+        }
     </style>
 </head>
-<body class="bg-gray-900 text-gray-100">
+<body>
 
     <div id="app" class="flex h-screen overflow-hidden">
-        <aside id="sidebar" class="bg-gray-800 flex-shrink-0 flex flex-col transition-transform duration-300 ease-in-out -translate-x-full sm:translate-x-0 fixed sm:static h-full z-20">
-            <div class="flex items-center justify-between px-6 h-16 border-b border-gray-700">
+        <aside id="sidebar" class="bg-[var(--bg-secondary)] flex-shrink-0 flex flex-col transition-transform duration-300 ease-in-out -translate-x-full sm:translate-x-0 fixed sm:static h-full z-20">
+            <div class="flex items-center justify-between px-6 h-16 border-b border-[var(--border-primary)]">
                 <div class="flex items-center">
-                     <svg class="h-8 w-8 text-indigo-400"  width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">  <path stroke="none" d="M0 0h24v24H0z"/>  <path d="M12.5 21H6a1 1 0 0 1 -1 -1V4a1 1 0 0 1 1 -1h12a1 1 0 0 1 1 1v5" />  <path d="M18 22v-6" />  <path d="M21 19l-3 -3l-3 3" />  <path d="M3 13h8" />  <path d="M5 10v6" /></svg>
+                    <svg class="h-8 w-8 text-[var(--text-accent)]" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"> <path stroke="none" d="M0 0h24v24H0z"/> <path d="M12.5 21H6a1 1 0 0 1 -1 -1V4a1 1 0 0 1 1 -1h12a1 1 0 0 1 1 1v5" /> <path d="M18 22v-6" /> <path d="M21 19l-3 -3l-3 3" /> <path d="M3 13h8" /> <path d="M5 10v6" /></svg>
                     <span class="ml-3 text-xl font-semibold">NopsAI</span>
                 </div>
-                <button id="close-sidebar-btn" class="sm:hidden text-gray-400 hover:text-white">
+                <button id="close-sidebar-btn" class="sm:hidden text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
                     <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
             </div>
-             <nav class="flex-1 px-4 py-4 overflow-y-auto sidebar-scrollbar" id="sidebar-nav">
-                </nav>
+            <nav class="flex-1 px-4 py-4 overflow-y-auto sidebar-scrollbar" id="sidebar-nav"></nav>
         </aside>
-        <div id="sidebar-resizer" class="w-1.5 cursor-col-resize flex-shrink-0 bg-gray-700 hover:bg-indigo-500 transition-colors duration-200 hidden sm:block"></div>
+        <div id="sidebar-resizer" class="w-1.5 cursor-col-resize flex-shrink-0 bg-[var(--bg-tertiary)] hover:bg-[var(--border-accent)] transition-colors duration-200 hidden sm:block"></div>
 
         <main class="flex-1 flex flex-col overflow-hidden">
-            <header class="flex items-start justify-between px-6 py-4 bg-gray-800/50 backdrop-blur-sm shadow-lg z-10">                <button id="open-sidebar-btn" class="sm:hidden text-gray-400 hover:text-white">
+            <header class="flex items-start justify-between px-6 py-4 themed-bg-blur backdrop-blur-sm shadow-lg z-10 border-b border-[var(--border-primary)]">
+                <button id="open-sidebar-btn" class="sm:hidden text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
                     <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7" /></svg>
                 </button>
                 <div id="main-header" class="flex-1 text-xl font-semibold">Dashboard</div>
+                <button id="theme-toggle" type="button" class="ml-4 p-2 rounded-full text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-accent)]">
+                    <svg id="theme-toggle-dark-icon" class="hidden h-5 w-5" fill="currentColor" viewBox="0 0 20 20"><path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"></path></svg>
+                    <svg id="theme-toggle-light-icon" class="hidden h-5 w-5" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.707.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm-.707 11.282a1 1 0 011.414 0l.707-.707a1 1 0 11-1.414-1.414l-.707.707zM1 11a1 1 0 100-2H0a1 1 0 100 2h1z" fill-rule="evenodd" clip-rule="evenodd"></path></svg>
+                </button>
             </header>
             <div id="page-content-wrapper" class="flex-1 overflow-auto">
                 <div data-page="pipelineruns" class="active h-full flex flex-col">
-                     <div class="px-6 pt-6 flex-shrink-0">
-                        <div class="border-b border-gray-700">
+                    <div class="px-6 pt-6 flex-shrink-0">
+                        <div class="border-b border-[var(--border-primary)]">
                             <nav class="-mb-px flex space-x-8" aria-label="Tabs">
                                 <a href="#/pipelineruns/main" data-tab="main" class="whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium">Main</a>
                                 <a href="#/pipelineruns/recent" data-tab="recent" class="whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium">Recent</a>
@@ -106,53 +170,53 @@
                         </div>
                     </div>
                     <div id="main-content-runs" class="p-6 h-full">
-                         <div id="placeholder" class="h-full flex flex-col items-center justify-center text-center text-gray-500">
-                             <svg class="h-12 w-12 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2 -2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
-                            <h3 class="text-lg font-semibold">Select a pipeline run</h3>
+                        <div id="placeholder" class="h-full flex flex-col items-center justify-center text-center text-[var(--text-placeholder)]">
+                            <svg class="h-12 w-12 mb-4 placeholder-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2 -2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                            <h3 class="text-lg font-semibold text-[var(--text-primary)]">Select a pipeline run</h3>
                             <p>Choose a run from the sidebar to view its progress.</p>
                         </div>
-                         <div id="main-grid-container" class="hidden"></div>
+                        <div id="main-grid-container" class="hidden"></div>
                         <div id="graph-container" class="hidden w-full h-full">
-                             <div id="graph-wrapper"></div>
+                            <div id="graph-wrapper"></div>
                         </div>
                     </div>
                 </div>
 
-                <div data-page="pipelines" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Pipelines</h1><p class="text-gray-400">UI for managing central pipelines is coming soon.</p></div></div>
-                 <div data-page="secrets" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Secrets</h1><p class="text-gray-400">UI for managing secrets is coming soon.</p></div></div>
-                <div data-page="steps" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Steps</h1><p class="text-gray-400">UI for managing reusable steps is coming soon.</p></div></div>
-                <div data-page="environment" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Environment Variables</h1><p class="text-gray-400">UI for managing environment variables is coming soon.</p></div></div>
-                <div data-page="monitoring" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Monitoring</h1><p class="text-gray-400">Monitoring dashboards are coming soon.</p></div></div>
-                <div data-page="triggers" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Triggers</h1><p class="text-gray-400">UI for managing triggers is coming soon.</p></div></div>
-                <div data-page="system" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">System</h1><p class="text-gray-400">System administration and status page is coming soon.</p></div></div>
+                <div data-page="pipelines" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Pipelines</h1><p class="text-[var(--text-secondary)]">UI for managing central pipelines is coming soon.</p></div></div>
+                <div data-page="secrets" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Secrets</h1><p class="text-[var(--text-secondary)]">UI for managing secrets is coming soon.</p></div></div>
+                <div data-page="steps" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Steps</h1><p class="text-[var(--text-secondary)]">UI for managing reusable steps is coming soon.</p></div></div>
+                <div data-page="environment" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Environment Variables</h1><p class="text-[var(--text-secondary)]">UI for managing environment variables is coming soon.</p></div></div>
+                <div data-page="monitoring" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Monitoring</h1><p class="text-[var(--text-secondary)]">Monitoring dashboards are coming soon.</p></div></div>
+                <div data-page="triggers" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Triggers</h1><p class="text-[var(--text-secondary)]">UI for managing triggers is coming soon.</p></div></div>
+                <div data-page="system" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">System</h1><p class="text-[var(--text-secondary)]">System administration and status page is coming soon.</p></div></div>
             </div>
         </main>
     </div>
 
-    <div id="step-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
-        <div id="modal-content" class="bg-gray-800 rounded-lg shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col transform scale-95 transition-transform duration-300">
-            <div class="flex items-center justify-between p-4 border-b border-gray-700 flex-shrink-0">
+    <div id="step-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
+        <div id="modal-content" class="bg-[var(--bg-secondary)] rounded-lg shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col transform scale-95 transition-transform duration-300">
+            <div class="flex items-center justify-between p-4 border-b border-[var(--border-primary)] flex-shrink-0">
                 <div>
                     <h2 id="modal-title" class="text-xl font-semibold">Step Details</h2>
                     <div class="flex items-center space-x-6 mt-1 text-sm">
-                        <div><span class="text-gray-400">Status: </span><span id="modal-status" class="font-medium"></span></div>
-                        <div><span class="text-gray-400">Duration: </span><span id="modal-duration" class="font-medium"></span></div>
+                        <div><span class="text-[var(--text-secondary)]">Status: </span><span id="modal-status" class="font-medium"></span></div>
+                        <div><span class="text-[var(--text-secondary)]">Duration: </span><span id="modal-duration" class="font-medium"></span></div>
                     </div>
                 </div>
-                <button id="close-modal-btn" class="text-gray-400 hover:text-white"><svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
+                <button id="close-modal-btn" class="text-[var(--text-secondary)] hover:text-[var(--text-primary)]"><svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
             </div>
             <div id="modal-grid-container" class="flex-1 overflow-hidden grid p-4" style="grid-template-columns: 1fr 10px 1fr; gap: 0 12px;">
                 <div id="modal-left-pane" class="flex flex-col overflow-hidden h-full">
-                    <h3 class="text-lg font-semibold text-gray-200 mb-3 flex-shrink-0">Execution Flow & Status</h3>
-                    <div class="flex-1 overflow-auto bg-gray-900/50 rounded-md p-4 flex items-center justify-center min-h-[200px]">
+                    <h3 class="text-lg font-semibold text-[var(--text-primary)] mb-3 flex-shrink-0">Execution Flow & Status</h3>
+                    <div class="flex-1 overflow-auto bg-[var(--bg-primary)] rounded-md p-4 flex items-center justify-center min-h-[200px]">
                         <div id="task-graph"></div>
                     </div>
                 </div>
                 <div id="modal-resizer" class="cursor-col-resize flex items-center justify-center group">
-                    <div class="w-1.5 h-12 bg-gray-700 rounded-full group-hover:bg-indigo-500 transition-colors duration-200"></div>
+                    <div class="w-1.5 h-12 bg-[var(--bg-tertiary)] rounded-full group-hover:bg-[var(--border-accent)] transition-colors duration-200"></div>
                 </div>
                 <div id="modal-right-pane" class="flex flex-col overflow-hidden h-full">
-                    <h3 class="text-lg font-semibold text-gray-200 mb-3 flex-shrink-0">Configuration</h3>
+                    <h3 class="text-lg font-semibold text-[var(--text-primary)] mb-3 flex-shrink-0">Configuration</h3>
                     <div id="step-config-container" class="flex-1 overflow-y-auto pr-2 space-y-4 text-sm">
                     </div>
                 </div>
@@ -160,61 +224,61 @@
         </div>
     </div>
 
-    <div id="add-group-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
-        <div class="bg-gray-800 rounded-lg shadow-2xl w-full max-w-md">
-            <div class="flex items-center justify-between p-4 border-b border-gray-700">
+    <div id="add-group-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
+        <div class="bg-[var(--bg-secondary)] rounded-lg shadow-2xl w-full max-w-md">
+            <div class="flex items-center justify-between p-4 border-b border-[var(--border-primary)]">
                 <h2 class="text-xl font-semibold">Create New Folder</h2>
-                <button id="close-add-group-modal-btn" class="text-gray-400 hover:text-white"><svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
+                <button id="close-add-group-modal-btn" class="text-[var(--text-secondary)] hover:text-[var(--text-primary)]"><svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
             </div>
             <form id="add-group-form" class="p-6 space-y-4">
                 <div>
-                    <label for="group-name" class="block text-sm font-medium text-gray-300">Folder Name</label>
-                    <input type="text" id="group-name" name="name" class="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" required>
+                    <label for="group-name" class="block text-sm font-medium text-[var(--text-secondary)]">Folder Name</label>
+                    <input type="text" id="group-name" name="name" class="mt-1 block w-full bg-[var(--bg-tertiary)] border border-[var(--border-input)] rounded-md shadow-sm py-2 px-3 text-[var(--text-primary)] focus:outline-none focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)] sm:text-sm" required>
                 </div>
                 <input type="hidden" id="parent-id" name="parent_id">
                 <div class="flex justify-end pt-4">
-                    <button type="button" id="cancel-add-group-btn" class="mr-2 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500">Cancel</button>
+                    <button type="button" id="cancel-add-group-btn" class="mr-2 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500">Cancel</button>
                     <button type="submit" class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">Create</button>
                 </div>
             </form>
         </div>
     </div>
 
-    <div id="delete-group-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
-        <div class="bg-gray-800 rounded-lg shadow-2xl w-full max-w-md">
+    <div id="delete-group-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
+        <div class="bg-[var(--bg-secondary)] rounded-lg shadow-2xl w-full max-w-md">
             <div class="p-6 text-center">
-                <svg class="mx-auto mb-4 h-14 w-14 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                <svg class="mx-auto mb-4 h-14 w-14 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
-                <h3 class="mb-5 text-lg font-normal text-gray-300">Are you sure you want to delete this item?</h3>
-                <p id="delete-item-name" class="mb-5 text-sm font-bold text-white"></p>
-                <button id="confirm-delete-btn" type="button" class="text-white bg-red-600 hover:bg-red-800 focus:ring-4 focus:outline-none focus:ring-red-300 font-medium rounded-lg text-sm inline-flex items-center px-5 py-2.5 text-center mr-2">
+                <h3 class="mb-5 text-lg font-normal text-[var(--text-primary)]">Are you sure you want to delete this item?</h3>
+                <p id="delete-item-name" class="mb-5 text-sm font-bold text-[var(--text-primary)]"></p>
+                <button id="confirm-delete-btn" type="button" class="text-white bg-red-600 hover:bg-red-800 focus:ring-4 focus:outline-none focus:ring-red-300 dark:focus:ring-red-800 font-medium rounded-lg text-sm inline-flex items-center px-5 py-2.5 text-center mr-2">
                     Yes, I'm sure
                 </button>
-                <button id="cancel-delete-btn" type="button" class="text-gray-300 bg-white hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-200 rounded-lg border border-gray-500 text-sm font-medium px-5 py-2.5 hover:text-gray-900 focus:z-10">No, cancel</button>
+                <button id="cancel-delete-btn" type="button" class="text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:ring-4 focus:outline-none focus:ring-gray-200 rounded-lg border border-[var(--border-secondary)] text-sm font-medium px-5 py-2.5 hover:text-[var(--text-primary)] focus:z-10 dark:focus:ring-gray-600">No, cancel</button>
             </div>
         </div>
     </div>
 
-    <div id="logs-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
-        <div id="logs-modal-content" class="bg-gray-800 rounded-lg shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col transform scale-95 transition-transform duration-300">
-            <div class="flex items-center justify-between p-4 border-b border-gray-700 flex-shrink-0">
+    <div id="logs-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
+        <div id="logs-modal-content" class="bg-[var(--bg-secondary)] rounded-lg shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col transform scale-95 transition-transform duration-300">
+            <div class="flex items-center justify-between p-4 border-b border-[var(--border-primary)] flex-shrink-0">
                 <h2 id="logs-modal-title" class="text-xl font-semibold">Agent Logs</h2>
                 <div class="flex items-center space-x-4">
                     <div class="flex items-center">
-                        <input id="follow-logs-checkbox" type="checkbox" checked class="h-4 w-4 text-indigo-600 bg-gray-700 border-gray-600 rounded focus:ring-indigo-500">
-                        <label for="follow-logs-checkbox" class="ml-2 block text-sm text-gray-300">Follow</label>
+                        <input id="follow-logs-checkbox" type="checkbox" checked class="h-4 w-4 text-indigo-600 bg-[var(--bg-tertiary)] border-[var(--border-secondary)] rounded focus:ring-indigo-500">
+                        <label for="follow-logs-checkbox" class="ml-2 block text-sm text-[var(--text-primary)]">Follow</label>
                     </div>
-                    <button id="copy-logs-btn" class="text-gray-400 hover:text-white" title="Copy to clipboard">
+                    <button id="copy-logs-btn" class="text-[var(--text-secondary)] hover:text-[var(--text-primary)]" title="Copy to clipboard">
                         <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
                     </button>
-                    <button id="close-logs-modal-btn" class="text-gray-400 hover:text-white">
+                    <button id="close-logs-modal-btn" class="text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
                         <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
                     </button>
                 </div>
             </div>
-            <div id="logs-container" class="p-4 flex-1 overflow-y-auto bg-gray-900 font-mono text-sm text-gray-300 whitespace-pre-wrap">
-                </div>
+            <div id="logs-container" class="p-4 flex-1 overflow-y-auto bg-[var(--bg-primary)] font-mono text-sm text-[var(--text-monospace)] whitespace-pre-wrap">
+            </div>
         </div>
     </div>
     <script>
@@ -264,12 +328,12 @@
         };
 
         const statusConfig = {
-            success: { icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-green-400', rectClass: 'stroke-green-500 fill-green-500/10' },
-            failure: { icon: 'M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-red-400', rectClass: 'stroke-red-500 fill-red-500/10' },
-            running: { icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-blue-400', rectClass: 'stroke-blue-500 fill-blue-500/10 animate-pulse' },
-            pending: { icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-gray-400', rectClass: 'stroke-gray-500 fill-gray-500/10' },
-            skipped: { icon: 'M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-yellow-400', rectClass: 'stroke-yellow-500 fill-yellow-500/10' },
-            'failure (ignored)': { icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z', color: 'text-yellow-400', rectClass: 'stroke-yellow-500 fill-yellow-500/10' },
+            success: { icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-green-500 dark:text-green-400', rectClass: 'stroke-green-500 fill-green-100 dark:fill-green-500/10' },
+            failure: { icon: 'M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-red-500 dark:text-red-400', rectClass: 'stroke-red-500 fill-red-100 dark:fill-red-500/10' },
+            running: { icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-blue-500 dark:text-blue-400', rectClass: 'stroke-blue-500 fill-blue-100 dark:fill-blue-500/10 animate-pulse' },
+            pending: { icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-gray-500 dark:text-gray-400', rectClass: 'stroke-gray-500 fill-gray-100 dark:fill-gray-500/10' },
+            skipped: { icon: 'M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-amber-500 dark:text-amber-400', rectClass: 'stroke-amber-500 fill-amber-100 dark:fill-amber-500/10' },
+            'failure (ignored)': { icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z', color: 'text-amber-500 dark:text-amber-400', rectClass: 'stroke-amber-500 fill-amber-100 dark:fill-amber-500/10' },
         };
 
         function timeAgo(dateString) {
@@ -342,7 +406,7 @@
             const isComplete = state.currentRunData.run_info.is_complete;
 
             document.getElementById('logs-modal-title').textContent = `Agent Logs for run ${runId.slice(0, 8)}`;
-            DOM.logsContainer.innerHTML = '<p class="text-gray-500">Loading logs...</p>';
+            DOM.logsContainer.innerHTML = `<p class="text-[var(--text-secondary)]">Loading logs...</p>`;
 
             DOM.logsModal.classList.remove('hidden');
             setTimeout(() => {
@@ -369,25 +433,24 @@
         async function fetchAndRenderLogs(runId) {
             const logs = await fetchData(`/v1/runs/${runId}/logs`);
             if (logs && logs.length > 0) {
-                // This regex helps convert ANSI color codes from the logs into HTML
                 const ansiRegex = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
                 const colorMap = {
-                    '31': 'text-red-400', '32': 'text-green-400', '33': 'text-yellow-400',
-                    '34': 'text-blue-400', '35': 'text-purple-400', '36': 'text-cyan-400', '90': 'text-gray-500',
+                    '31': 'text-red-600 dark:text-red-400', '32': 'text-green-600 dark:text-green-400', '33': 'text-yellow-600 dark:text-yellow-400',
+                    '34': 'text-blue-600 dark:text-blue-400', '35': 'text-purple-600 dark:text-purple-400', '36': 'text-cyan-600 dark:text-cyan-400', '90': 'text-gray-500 dark:text-gray-500',
                 };
 
                 const html = logs.map(log => {
-                    let line = log.line.replace(/</g, '&lt;').replace(/>/g, '&gt;'); // Escape HTML
+                    let line = log.line.replace(/</g, '&lt;').replace(/>/g, '&gt;'); 
 
                     line = line.replace(ansiRegex, (match) => {
                         const code = match.replace(/\u001b\[|m/g, '');
-                        if (code === '0') return '</span>'; // Reset
+                        if (code === '0') return '</span>'; 
                         const colorClass = colorMap[code];
                         return colorClass ? `<span class="${colorClass}">` : '';
                     });
 
                     const timestamp = new Date(log.timestamp).toLocaleTimeString();
-                    return `<div class="log-line"><span class="text-gray-500 mr-4 select-none">${timestamp}</span><span>${line}</span></div>`;
+                    return `<div class="log-line"><span class="text-[var(--text-secondary)] mr-4 select-none">${timestamp}</span><span>${line}</span></div>`;
                 }).join('');
                 DOM.logsContainer.innerHTML = html;
 
@@ -395,26 +458,22 @@
                     DOM.logsContainer.scrollTop = DOM.logsContainer.scrollHeight;
                 }
             } else if (DOM.logsContainer.innerHTML.includes('Loading')) {
-                DOM.logsContainer.innerHTML = '<p class="text-gray-500">No logs yet...</p>';
+                DOM.logsContainer.innerHTML = `<p class="text-[var(--text-secondary)]">No logs yet...</p>`;
             }
         }
         function handleRunHighlight(event) {
             const targetRunElement = event.target.closest('[data-run-id]');
 
-            // Remove all existing highlights when the mouse leaves any container
             document.querySelectorAll('.run-link-highlight').forEach(el => el.classList.remove('run-link-highlight'));
 
-            // If we are hovering over a valid run element, apply new highlights
             if (event.type === 'mouseover' && targetRunElement) {
                 const runId = targetRunElement.dataset.runId;
                 const parentRunId = targetRunElement.dataset.parentRunId;
 
                 let selector;
                 if (parentRunId) {
-                    // It's a child run. Highlight itself and its parent.
                     selector = `[data-run-id="${runId}"], [data-run-id="${parentRunId}"]`;
                 } else {
-                    // It's a parent run. Highlight itself and all its children.
                     selector = `[data-run-id="${runId}"], [data-parent-run-id="${runId}"]`;
                 }
                 
@@ -453,7 +512,7 @@
         }
 
         async function renderSidebar(activeRoute, currentTab) {
-             const navConfig = [
+            const navConfig = [
                 { route: 'pipelineruns', title: 'Pipeline Runs', icon: 'M4 6h16M4 12h16M4 18h7' },
                 { route: 'pipelines', title: 'Pipelines', icon: 'M9 17V7h2v10H9zm4-12h2v12h-2V5zm4 4h2v8h-2V9zM3 3h18v2H3V3z' },
                 { route: 'secrets', title: 'Secrets', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
@@ -466,8 +525,8 @@
 
             let navHtml = navConfig.map(item => {
                 const isActive = activeRoute === item.route;
-                return `<a href="#/${item.route}" class="flex items-center p-2 text-gray-300 rounded-md hover:bg-gray-700 transition-colors duration-200 group ${isActive ? 'bg-gray-700 text-white' : ''}" data-navigo>
-                            <svg class="h-5 w-5 mr-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${item.icon}"/></svg>
+                return `<a href="#/${item.route}" class="sidebar-link flex items-center p-2 text-[var(--text-primary)] rounded-md transition-colors duration-200 group ${isActive ? 'active' : ''}" data-navigo>
+                            <svg class="h-5 w-5 mr-3 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${item.icon}"/></svg>
                             <span>${item.title}</span>
                         </a>`;
             }).join('');
@@ -476,12 +535,12 @@
 
             if (activeRoute === 'pipelineruns') {
                 if (currentTab === 'recent') {
-                    DOM.sidebarNav.innerHTML += `<h2 class="px-2 mt-6 mb-2 text-xs font-semibold tracking-wider text-gray-400 uppercase">Recent Runs</h2>
-                                               <ul id="pipeline-runs-list" class="space-y-1"></ul>`;
+                    DOM.sidebarNav.innerHTML += `<h2 class="px-2 mt-6 mb-2 text-xs font-semibold tracking-wider text-[var(--text-secondary)] uppercase">Recent Runs</h2>
+                                                <ul id="pipeline-runs-list" class="space-y-1"></ul>`;
                     fetchAllRuns();
                 } else {
                     DOM.sidebarNav.innerHTML += `<div class="px-2 mt-6 mb-2 flex items-center justify-between">
-                                                    <h2 class="text-xs font-semibold tracking-wider text-gray-400 uppercase">Main</h2>
+                                                    <h2 class="text-xs font-semibold tracking-wider text-[var(--text-secondary)] uppercase">Main</h2>
                                                 </div>
                                                 <div id="main-hierarchy"></div>`;
                     
@@ -550,22 +609,22 @@
                 const isActive = state.selectedGroupId === group.id;
 
                 let chevron = canExpand 
-                    ? `<svg class="h-4 w-4 mr-1 text-gray-400 chevron ${isExpanded ? 'rotate-90' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>` 
+                    ? `<svg class="h-4 w-4 mr-1 text-[var(--text-secondary)] chevron ${isExpanded ? 'rotate-90' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>` 
                     : `<div class="w-5 h-4 mr-1"></div>`;
 
                 html += `<li data-group-id="${group.id}" draggable="true">
-                            <div class="flex items-center justify-between p-2 text-gray-300 rounded-md hover:bg-gray-700 group-header-container ${isActive ? 'bg-gray-700' : ''}">
-                                <div class="flex items-center group-header flex-grow cursor-pointer ${isExpanded ? 'expanded' : ''}">
-                                    ${chevron}
-                                    <a href="#/pipelineruns/main/${group.id}" class="flex items-center flex-grow">
-                                        <svg class="h-4 w-4 mr-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
-                                        <span class="truncate">${displayName}</span>
-                                    </a>
+                                <div class="flex items-center justify-between p-2 text-[var(--text-primary)] rounded-md hover:bg-[var(--bg-tertiary)] group-header-container ${isActive ? 'bg-[var(--bg-tertiary)]' : ''}">
+                                    <div class="flex items-center group-header flex-grow cursor-pointer ${isExpanded ? 'expanded' : ''}">
+                                        ${chevron}
+                                        <a href="#/pipelineruns/main/${group.id}" class="flex items-center flex-grow">
+                                            <svg class="h-4 w-4 mr-2 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                                            <span class="truncate">${displayName}</span>
+                                        </a>
+                                    </div>
+                                    <button class="delete-group-btn text-[var(--text-secondary)] hover:text-red-500 opacity-0 transition-opacity" data-group-id="${group.id}" data-group-name="${group.name}"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
                                 </div>
-                                <button class="delete-group-btn text-gray-500 hover:text-red-400 opacity-0 transition-opacity" data-group-id="${group.id}" data-group-name="${group.name}"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
-                            </div>
-                            <div class="group-children"></div>
-                         </li>`;
+                                <div class="group-children"></div>
+                            </li>`;
             }
             html += '</ul>';
             container.innerHTML = html;
@@ -593,18 +652,18 @@
                 const runs = runsByBranch[branch];
                 const branchId = `branch-${container.closest('li').dataset.groupId}-${branch.replace(/[^a-zA-Z0-9]/g, '')}`;
                 const isExpanded = state.expandedGroups.has(branchId);
-                const chevron = `<svg class="h-4 w-4 mr-1 text-gray-400 chevron ${isExpanded ? 'rotate-90' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>`;
+                const chevron = `<svg class="h-4 w-4 mr-1 text-[var(--text-secondary)] chevron ${isExpanded ? 'rotate-90' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>`;
 
                 html += `<li data-branch-id="${branchId}">
-                            <div class="flex items-center p-2 text-gray-300 rounded-md hover:bg-gray-700 group-header cursor-pointer">
-                                ${chevron}
-                                <svg class="h-4 w-4 mr-2 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                                <span>${branch}</span>
-                            </div>
-                            <div class="group-children">
-                                ${isExpanded ? renderRunLinks(runs, level + 1) : ''}
-                            </div>
-                         </li>`;
+                                <div class="flex items-center p-2 text-[var(--text-primary)] rounded-md hover:bg-[var(--bg-tertiary)] group-header cursor-pointer">
+                                    ${chevron}
+                                    <svg class="h-4 w-4 mr-2 text-[var(--text-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                                    <span>${branch}</span>
+                                </div>
+                                <div class="group-children">
+                                    ${isExpanded ? renderRunLinks(runs, level + 1) : ''}
+                                </div>
+                            </li>`;
             });
             html += '</ul>';
             container.innerHTML = html;
@@ -618,36 +677,36 @@
                 const isActive = run.run_id === activeRunId;
                 const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
 
-                let pipelineNameHTML = `<span class="font-medium truncate text-gray-300">${run.pipeline_name}</span>`;
+                let pipelineNameHTML = `<span class="font-medium truncate text-[var(--text-primary)]">${run.pipeline_name}</span>`;
                 if (run.parent_run_id) {
-                     pipelineNameHTML = `
+                    pipelineNameHTML = `
                         <div class="flex items-baseline">
-                            <span class="font-medium truncate text-gray-300">${run.pipeline_name}</span>
-                            <span class="ml-1.5 text-[10px] bg-gray-900 text-indigo-400 font-semibold px-1.5 py-0.5 rounded-md">Included</span>
+                            <span class="font-medium truncate text-[var(--text-primary)]">${run.pipeline_name}</span>
+                            <span class="ml-1.5 text-[10px] bg-[var(--bg-primary)] text-[var(--text-accent)] font-semibold px-1.5 py-0.5 rounded-md">Included</span>
                         </div>`;
                 }
 
                 html += `<li data-run-id="${run.run_id}" ${run.parent_run_id ? `data-parent-run-id="${run.parent_run_id}"` : ''}>
-                            <a href="#/pipelineruns/run/${run.run_id}" class="flex items-center p-2 text-sm text-gray-400 rounded-md hover:bg-gray-700 ${isActive ? 'bg-gray-700 text-white' : ''}">
-                                <svg class="h-4 w-4 mr-2 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
-                                <div class="flex-1 overflow-hidden">
-                                    <div class="flex justify-between items-center">
-                                        ${pipelineNameHTML}
-                                        <span class="text-xs text-gray-500 flex-shrink-0 ml-2">${timeAgo(timeToDisplay)}</span>
+                                <a href="#/pipelineruns/run/${run.run_id}" class="flex items-center p-2 text-sm text-[var(--text-secondary)] rounded-md hover:bg-[var(--bg-tertiary)] ${isActive ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : ''}">
+                                    <svg class="h-4 w-4 mr-2 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
+                                    <div class="flex-1 overflow-hidden">
+                                        <div class="flex justify-between items-center">
+                                            ${pipelineNameHTML}
+                                            <span class="text-xs text-[var(--text-secondary)] flex-shrink-0 ml-2">${timeAgo(timeToDisplay)}</span>
+                                        </div>
+                                        <div class="text-xs text-[var(--text-secondary)] font-mono mt-1 space-y-1">
+                                          <div class="flex items-center">
+                                              <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H5v-2H3v-2H1v-4a6 6 0 016-6h1.5" /></svg>
+                                              <span class="truncate">${(run.run_id || '...').slice(0, 8)}</span>
+                                          </div>
+                                          <div class="flex items-center">
+                                              <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                                              <span class="truncate">${(run.git_commit_sha || '...').slice(0, 7)}</span>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div class="text-xs text-gray-400 font-mono mt-1 space-y-1">
-                                      <div class="flex items-center">
-                                         <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H5v-2H3v-2H1v-4a6 6 0 016-6h1.5" /></svg>
-                                         <span class="truncate">${(run.run_id || '...').slice(0, 8)}</span>
-                                      </div>
-                                      <div class="flex items-center">
-                                         <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                                         <span class="truncate">${(run.git_commit_sha || '...').slice(0, 7)}</span>
-                                       </div>
-                                    </div>
-                                </div>
-                            </a>
-                         </li>`;
+                                </a>
+                            </li>`;
             });
             html += `</ul>`;
             return html;
@@ -658,7 +717,7 @@
             if (!listEl) return;
             const activeRunId = window.location.hash.split('/')[3];
              if (!runs || runs.length === 0) {
-                listEl.innerHTML = '<li><p class="p-2 text-gray-400 text-sm">No recent runs found.</p></li>';
+                listEl.innerHTML = `<li><p class="p-2 text-[var(--text-secondary)] text-sm">No recent runs found.</p></li>`;
                 return;
             }
             listEl.innerHTML = (runs || []).map(run => {
@@ -668,25 +727,24 @@
                 const isActive = run.run_id === activeRunId;
                 const branchName = (run.git_ref || '').startsWith('refs/heads/') ? run.git_ref.split('/')[2] : 'N/A';
 
-                // Conditionally add an "Included" badge for child pipelines
                 let pipelineNameHTML = `<span class="font-medium truncate">${run.pipeline_name}</span>`;
                 if (run.parent_run_id) {
                     pipelineNameHTML = `
                         <div class="flex items-baseline">
                             <span class="font-medium truncate">${run.pipeline_name}</span>
-                            <span class="ml-1.5 text-[10px] bg-gray-900 text-indigo-400 font-semibold px-1.5 py-0.5 rounded-md">Included</span>
+                            <span class="ml-1.5 text-[10px] bg-[var(--bg-primary)] text-[var(--text-accent)] font-semibold px-1.5 py-0.5 rounded-md">Included</span>
                         </div>`;
                 }
 
                 return `<li data-run-id="${run.run_id}" ${run.parent_run_id ? `data-parent-run-id="${run.parent_run_id}"` : ''}>
-                        <a href="#/pipelineruns/run/${run.run_id}" class="flex items-center p-2 text-gray-300 rounded-md hover:bg-gray-700 ${isActive ? 'bg-gray-700 text-white' : ''}">
+                        <a href="#/pipelineruns/run/${run.run_id}" class="flex items-center p-2 text-[var(--text-primary)] rounded-md hover:bg-[var(--bg-tertiary)] ${isActive ? 'bg-[var(--bg-tertiary)]' : ''}">
                             <svg class="h-5 w-5 mr-3 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
                             <div class="flex-1 overflow-hidden">
                                 <div class="flex justify-between items-center">
                                     ${pipelineNameHTML}
-                                    <span class="text-xs text-gray-500 flex-shrink-0 ml-2">${timeAgo(timeToDisplay)}</span>
+                                    <span class="text-xs text-[var(--text-secondary)] flex-shrink-0 ml-2">${timeAgo(timeToDisplay)}</span>
                                 </div>
-                                <div class="text-xs text-gray-400 font-mono mt-1 space-y-1">
+                                <div class="text-xs text-[var(--text-secondary)] font-mono mt-1 space-y-1">
                                     <div class="flex items-center">
                                         <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
                                         <span class="truncate">${run.git_repo_name}</span>
@@ -711,7 +769,7 @@
             DOM.mainGridContainer.classList.remove('hidden');
             
             if (!runsByBranch || Object.keys(runsByBranch).length === 0) {
-                DOM.mainGridContainer.innerHTML = '<p class="text-gray-400">No pipeline runs found for this repository.</p>';
+                DOM.mainGridContainer.innerHTML = `<p class="text-[var(--text-secondary)]">No pipeline runs found for this repository.</p>`;
                 return;
             }
 
@@ -731,16 +789,16 @@
                 const config = statusConfig[(latestRun.is_complete ? latestRun.status : 'running').toLowerCase()] || statusConfig.pending;
 
                 html += `
-                <div class="bg-gray-800/50 rounded-lg">
-                    <div class="branch-header cursor-pointer flex items-center justify-between p-4 border-b border-gray-700">
+                <div class="bg-[var(--bg-secondary)] rounded-lg shadow-md">
+                    <div class="branch-header cursor-pointer flex items-center justify-between p-4 border-b border-[var(--border-primary)]">
                         <div class="flex items-center">
-                            <svg class="h-5 w-5 mr-3 text-gray-400 chevron" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                            <svg class="h-5 w-5 mr-3 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                            <span class="font-semibold text-lg text-white">${branch}</span>
-                            <span class="ml-4 text-sm text-gray-400">(${runs.length} runs)</span>
+                            <svg class="h-5 w-5 mr-3 text-[var(--text-secondary)] chevron" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                            <svg class="h-5 w-5 mr-3 text-[var(--text-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                            <span class="font-semibold text-lg text-[var(--text-primary)]">${branch}</span>
+                            <span class="ml-4 text-sm text-[var(--text-secondary)]">(${runs.length} runs)</span>
                         </div>
                         <div class="flex items-center">
-                            <span class="text-sm text-gray-400 mr-3 hidden sm:block">Latest run: ${timeAgo(latestRun.started_at)}</span>
+                            <span class="text-sm text-[var(--text-secondary)] mr-3 hidden sm:block">Latest run: ${timeAgo(latestRun.started_at)}</span>
                             <svg class="h-6 w-6 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
                         </div>
                     </div>
@@ -759,21 +817,20 @@
             const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
             const branchName = (run.git_ref || '').startsWith('refs/heads/') ? run.git_ref.split('/')[2] : 'N/A';
             
-            // Conditionally add an "Included" badge if the run is a child pipeline
-            let pipelineNameHTML = `<p class="text-base font-semibold text-gray-200 truncate pr-4">${run.pipeline_name}</p>`;
+            let pipelineNameHTML = `<p class="text-base font-semibold text-[var(--text-primary)] truncate pr-4">${run.pipeline_name}</p>`;
             if (run.parent_run_id) {
                 pipelineNameHTML = `
                     <div class="flex items-center gap-x-2">
-                        <p class="text-base font-semibold text-gray-200">${run.pipeline_name}</p>
-                        <span class="ml-1.5 text-[10px] bg-gray-900 text-indigo-400 font-semibold px-1.5 py-0.5 rounded-md">Included</span>
+                        <p class="text-base font-semibold text-[var(--text-primary)]">${run.pipeline_name}</p>
+                        <span class="ml-1.5 text-[10px] bg-[var(--bg-primary)] text-[var(--text-accent)] font-semibold px-1.5 py-0.5 rounded-md">Included</span>
                     </div>`;
             }
 
             return `
                 <a href="#/pipelineruns/run/${run.run_id}"
-                     data-run-id="${run.run_id}" 
-                     ${run.parent_run_id ? `data-parent-run-id="${run.parent_run_id}"` : ''}
-                     class="block bg-gray-800/50 hover:bg-gray-700/50 transition-all duration-200 rounded-lg p-4 flex flex-col justify-between cursor-pointer border border-transparent hover:border-indigo-500/50">
+                    data-run-id="${run.run_id}" 
+                    ${run.parent_run_id ? `data-parent-run-id="${run.parent_run_id}"` : ''}
+                    class="block bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] transition-all duration-200 rounded-lg p-4 flex flex-col justify-between cursor-pointer border border-[var(--border-primary)] hover:border-[var(--border-accent)] shadow-sm hover:shadow-lg">
                     <div>
                         <div class="flex items-start justify-between">
                             ${pipelineNameHTML}
@@ -781,15 +838,15 @@
                                 <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
                             </div>
                         </div>
-                        <p class="text-sm text-gray-400 items-center mt-1">
+                        <p class="text-sm text-[var(--text-secondary)] items-center mt-1">
                            ${run.git_repo_name}
                         </p>
-                        <p class="text-sm text-indigo-400 font-mono items-center mt-1">
+                        <p class="text-sm text-[var(--text-link)] font-mono items-center mt-1">
                            <svg class="inline-block h-4 w-4 mr-1 -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
                            ${branchName}
                         </p>
                     </div>
-                    <div class="mt-4 text-xs text-gray-400 font-mono space-y-1.5">
+                    <div class="mt-4 text-xs text-[var(--text-secondary)] font-mono space-y-1.5">
                         <div class="flex items-center">
                             <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
                             <span class="truncate">${run.git_pusher_name || 'N/A'}</span>
@@ -803,7 +860,7 @@
                             <span class="truncate">${run.run_id}</span>
                         </div>
                     </div>
-                     <div class="mt-4 pt-3 border-t border-gray-700/50 flex items-center justify-between text-xs text-gray-500">
+                     <div class="mt-4 pt-3 border-t border-[var(--border-primary)] flex items-center justify-between text-xs text-[var(--text-secondary)]">
                         <span class="font-medium">${run.is_complete ? 'Completed' : 'Started'}</span>
                         <span>${timeAgo(timeToDisplay)}</span>
                     </div>
@@ -821,13 +878,13 @@
                 const isRepo = (group.name || '').includes('/');
                 const displayName = isRepo ? group.name.split('/')[1] : group.name;
                 html += `
-                    <a href="#/pipelineruns/main/${group.id}" class="relative group bg-gray-800 p-4 rounded-md hover:bg-gray-700/50 transition-colors duration-200 group-card">
-                        <button class="delete-group-btn absolute top-2 right-2 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity z-10" data-group-id="${group.id}" data-group-name="${group.name}">
+                    <a href="#/pipelineruns/main/${group.id}" class="relative group bg-[var(--bg-secondary)] p-4 rounded-md hover:bg-[var(--bg-tertiary)] transition-colors duration-200 group-card border border-[var(--border-primary)] hover:border-[var(--border-accent)] shadow-sm hover:shadow-lg">
+                        <button class="delete-group-btn absolute top-2 right-2 text-[var(--text-secondary)] hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity z-10" data-group-id="${group.id}" data-group-name="${group.name}">
                             <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                         </button>
                         <div class="flex items-center">
-                            <svg class="h-8 w-8 text-indigo-400 mr-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
-                            <span class="text-lg font-medium text-gray-200 truncate">${displayName}</span>
+                            <svg class="h-8 w-8 text-[var(--text-accent)] mr-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                            <span class="text-lg font-medium text-[var(--text-primary)] truncate">${displayName}</span>
                         </div>
                     </a>`;
             });
@@ -838,15 +895,13 @@
 
              if (showAddButton) {
                 html += `
-                    <div id="add-group-card" class="relative group bg-gray-800 p-4 rounded-md border-2 border-dashed border-gray-600 hover:border-indigo-500 hover:bg-gray-700/50 transition-colors duration-200 cursor-pointer flex items-center justify-center">
-                        <svg class="h-10 w-10 text-gray-500 group-hover:text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+                    <div id="add-group-card" class="relative group bg-[var(--bg-secondary)] p-4 rounded-md border-2 border-dashed border-[var(--border-secondary)] hover:border-[var(--border-accent)] hover:bg-[var(--bg-tertiary)] transition-colors duration-200 cursor-pointer flex items-center justify-center">
+                        <svg class="h-10 w-10 text-[var(--text-secondary)] group-hover:text-[var(--text-accent)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
                     </div>`;
             }
             html += '</div>';
             DOM.mainGridContainer.innerHTML = html;
         }
-
-        // services/ui/index.html
 
         function renderPipelineGraph(runDetails) {
             const runInfo = runDetails.run_info;
@@ -861,7 +916,7 @@
             if (runDetails.parent_run_info) {
                 headerHTML += `
                     <div class="mb-2">
-                        <a href="#/pipelineruns/run/${runDetails.parent_run_info.run_id}" class="text-sm text-indigo-400 hover:text-indigo-300 hover:underline">
+                        <a href="#/pipelineruns/run/${runDetails.parent_run_info.run_id}" class="text-sm text-[var(--text-link)] hover:underline">
                             &larr; Back to parent: ${runDetails.parent_run_info.pipeline_name}
                         </a>
                     </div>
@@ -870,18 +925,18 @@
 
             headerHTML += `
                     <div class="flex flex-wrap items-baseline gap-x-3">
-                        <a href="${repoLink}" class="text-xl font-semibold text-gray-400 hover:text-indigo-400 transition-colors">${repoFullName}</a>
-                        <h1 class="text-xl font-semibold text-gray-100 truncate">${runInfo.pipeline_name}</h1>
+                        <a href="${repoLink}" class="text-xl font-semibold text-[var(--text-secondary)] hover:text-[var(--text-accent)] transition-colors">${repoFullName}</a>
+                        <h1 class="text-xl font-semibold text-[var(--text-primary)] truncate">${runInfo.pipeline_name}</h1>
                     </div>
 
-                    <div class="text-xs text-gray-400 mt-2 font-mono grid grid-cols-[auto,1fr] gap-x-4 w-full max-w-3xl">
+                    <div class="text-xs text-[var(--text-secondary)] mt-2 font-mono grid grid-cols-[auto,1fr] gap-x-4 w-full max-w-3xl">
                         <span class="text-gray-500 justify-self-end truncate">Run ID:</span>
                         <span class="truncate">${runInfo.run_id}</span>
                         <span class="text-gray-500 justify-self-end truncate">Commit:</span>
                         <span class="truncate">${runInfo.git_commit_sha}</span>
                     </div>
 
-                    <div class="text-sm text-gray-400 mt-2 flex flex-wrap items-center gap-x-6 gap-y-1">
+                    <div class="text-sm text-[var(--text-secondary)] mt-2 flex flex-wrap items-center gap-x-6 gap-y-1">
                         <div class="flex items-center" title="Duration">
                             <svg class="h-4 w-4 mr-1.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                             <span>${runInfo.duration || '0s'}</span>
@@ -895,13 +950,13 @@
                         <span>${branchName}</span>
                     </div>
                     <div class="ml-auto">
-                        <button id="view-logs-btn" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-indigo-500">
+                        <button id="view-logs-btn" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-[var(--border-accent)]">
                             <svg class="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7" /></svg>
                             View Logs
                         </button>
                     </div>
-                </div>
-            </div>`;
+                    </div>
+                </div>`;
 
             DOM.mainHeader.innerHTML = headerHTML;
             resetMainView();
@@ -909,11 +964,11 @@
             if (runInfo.failure_reason) {
                 DOM.mainGridContainer.classList.remove('hidden');
                 DOM.mainGridContainer.innerHTML = `
-                    <div class="bg-red-900/50 border border-red-500/50 text-red-200 px-4 py-3 rounded-lg relative" role="alert">
+                    <div class="bg-red-50 dark:bg-red-900/50 border border-red-200 dark:border-red-500/50 text-red-800 dark:text-red-200 px-4 py-3 rounded-lg relative" role="alert">
                         <strong class="font-bold">Pipeline Failed to Start</strong>
                         <span class="block sm:inline mt-2 sm:mt-0 sm:ml-2">This pipeline could not be launched due to a configuration error.</span>
-                        <div class="mt-3 bg-gray-900/70 p-3 rounded font-mono">
-                            <code class="text-sm text-red-100">${runInfo.failure_reason}</code>
+                        <div class="mt-3 bg-red-100 dark:bg-gray-900/70 p-3 rounded font-mono">
+                            <code class="text-sm text-red-900 dark:text-red-100">${runInfo.failure_reason}</code>
                         </div>
                     </div>
                 `;
@@ -921,8 +976,8 @@
                 DOM.graphContainer.classList.remove('hidden');
                 const { nodes, edges, width, height } = calculateGraphLayout(runDetails.steps, DOM.pageContentWrapper, 180, 50, 80, 50);
 
-                let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="8" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#6b7280" /></marker></defs>`;
-                edges.forEach(edge => svgContent += `<line x1="${edge.x1}" y1="${edge.y1}" x2="${edge.x2}" y2="${edge.y2}" stroke="#4b5563" stroke-width="1.5" marker-end="url(#arrowhead)"></line>`);
+                let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="8" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" class="fill-current text-gray-400 dark:text-gray-600" /></marker></defs>`;
+                edges.forEach(edge => svgContent += `<line x1="${edge.x1}" y1="${edge.y1}" x2="${edge.x2}" y2="${edge.y2}" class="stroke-current text-gray-300 dark:text-gray-600" stroke-width="1.5" marker-end="url(#arrowhead)"></line>`);
                 nodes.forEach(node => {
                     const config = statusConfig[node.status.toLowerCase()] || statusConfig.pending;
                     const originalStep = runDetails.pipeline_definition.steps.find(s => s.name === node.name);
@@ -932,31 +987,25 @@
                         if (originalStep.include.startsWith('pipeline:')) {
                             const childRun = runDetails.child_runs && runDetails.child_runs.find(cr => cr.parent_step_name === node.name);
                             if (childRun && childRun.run_id) {
-                                includeHTML = `<a href="#/pipelineruns/run/${childRun.run_id}" data-included-link="true" class="text-xs text-blue-400 hover:underline">Included Pipeline</a>`;
+                                includeHTML = `<a href="#/pipelineruns/run/${childRun.run_id}" data-included-link="true" class="text-xs text-[var(--text-link)] hover:underline">Included Pipeline</a>`;
                             } else {
-                                includeHTML = `<span class="text-xs text-gray-500">Included Pipeline</span>`;
+                                includeHTML = `<span class="text-xs text-[var(--text-secondary)]">Included Pipeline</span>`;
                             }
                         } else if (originalStep.include.startsWith('step:')) {
-                            includeHTML = `<span class="text-xs text-blue-400">Included Step</span>`;
+                            includeHTML = `<span class="text-xs text-[var(--text-link)]">Included Step</span>`;
                         }
                     }
                     const isInclude = !!includeHTML;
 
                     svgContent += `
                         <g class="graph-node" data-step-name="${node.name}" transform="translate(${node.x}, ${node.y})">
-                            <defs>
-                                <linearGradient id="grad-${config.rectClass}" x1="0%" y1="0%" x2="0%" y2="100%">
-                                    <stop offset="0%" style="stop-color:rgba(255,255,255,0.05)" />
-                                    <stop offset="100%" style="stop-color:rgba(255,255,255,0)" />
-                                </linearGradient>
-                            </defs>
-                            <rect class="node-rect ${config.rectClass}" x="0" y="0" width="${node.width}" height="${node.height}" rx="8" fill="url(#grad-${config.rectClass})"></rect>
+                            <rect class="node-rect ${config.rectClass}" x="0" y="0" width="${node.width}" height="${node.height}" rx="8"></rect>
                             <foreignObject x="0" y="0" width="${node.width}" height="${node.height}">
                                 <div xmlns="http://www.w3.org/2000/xhtml" class="w-full h-full flex items-center p-3">
                                     <svg class="h-5 w-5 mr-2 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
                                     <div>
-                                        <p class="node-text text-sm font-medium text-gray-200 truncate">${node.name}</p>
-                                        ${isInclude ? includeHTML : `<p class="text-xs text-gray-400 capitalize">${node.status}</p>`}
+                                        <p class="node-text text-sm font-medium text-[var(--text-primary)] truncate">${node.name}</p>
+                                        ${isInclude ? includeHTML : `<p class="text-xs text-[var(--text-secondary)] capitalize">${node.status}</p>`}
                                     </div>
                                 </div>
                             </foreignObject>
@@ -1020,21 +1069,19 @@
             let maxNodesInLevel = 0;
             levels.forEach(levelItems => maxNodesInLevel = Math.max(maxNodesInLevel, levelItems.length));
 
-            // --- THE FIX STARTS HERE ---
             const graphWidth = maxNodesInLevel * nodeWidth + (maxNodesInLevel - 1) * hGap;
             const graphHeight = levels.length * nodeHeight + (levels.length - 1) * vGap;
-            const PADDING = 40; // Total padding (20px on each side/top/bottom)
+            const PADDING = 40; 
 
             levels.forEach((levelItems, i) => {
                 const levelWidth = levelItems.length * (nodeWidth + hGap) - hGap;
-                // Calculate the starting X offset to center this row within the graph's own total width.
                 const xOffset = ((graphWidth - levelWidth) / 2) + (PADDING / 2);
                 
                 levelItems.forEach((itemName, j) => {
                     const node = nodes[itemName];
                     if(node) {
                         node.x = j * (nodeWidth + hGap) + xOffset;
-                        node.y = i * (nodeHeight + vGap) + (PADDING / 2); // Apply top padding
+                        node.y = i * (nodeHeight + vGap) + (PADDING / 2);
                     }
                 });
             });
@@ -1059,12 +1106,10 @@
                 width: graphWidth + PADDING, 
                 height: graphHeight + PADDING 
             };
-             // --- THE FIX ENDS HERE ---
         }
 
         async function showStepDetails(stepName) {
             if (!state.currentRunData) return;
-            // The initial call to render the modal for a step from the main pipeline
             await renderModalForStep(state.currentRunData.run_info.run_id, stepName);
 
             DOM.modal.classList.remove('hidden');
@@ -1087,13 +1132,12 @@
             const modalHeader = document.querySelector('#modal-content > div:first-child');
             const closeButtonHTML = modalHeader.querySelector('#close-modal-btn').outerHTML;
 
-            // --- RENDER MODAL HEADER ---
             let headerHTML = `
                 <div>
                     <h2 id="modal-title" class="text-xl font-semibold">Step: ${stepName}</h2>
                     <div class="flex items-center space-x-6 mt-1 text-sm">
-                        <div><span class="text-gray-400">Status: </span><span id="modal-status" class="font-medium ${config.color}">${step.status}</span></div>
-                        <div><span class="text-gray-400">Duration: </span><span id="modal-duration" class="font-medium">${step.duration || '0s'}</span></div>
+                        <div><span class="text-[var(--text-secondary)]">Status: </span><span id="modal-status" class="font-medium ${config.color}">${step.status}</span></div>
+                        <div><span class="text-[var(--text-secondary)]">Duration: </span><span id="modal-duration" class="font-medium">${step.duration || '0s'}</span></div>
                     </div>
                 </div>`;
             
@@ -1101,72 +1145,71 @@
                 const parentContextString = JSON.stringify(parentContext).replace(/"/g, '&quot;');
                 headerHTML = `
                 <div class="flex items-center space-x-4">
-                     <button id="modal-back-btn" data-parent-context='${parentContextString}' class="p-1 rounded-full text-gray-400 hover:bg-gray-700 hover:text-white" title="Back to parent step">
-                        <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
-                    </button>
+                     <button id="modal-back-btn" data-parent-context='${parentContextString}' class="p-1 rounded-full text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]" title="Back to parent step">
+                         <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                     </button>
                     ${headerHTML}
                 </div>`;
             }
             modalHeader.innerHTML = headerHTML + closeButtonHTML;
 
-            // --- RENDER CONFIGURATION (RIGHT PANE) ---
             const configContainer = document.getElementById('step-config-container');
             let configHTML = '';
 
             if (stepConfig.image) {
-                configHTML += `<div><h4 class="font-semibold text-gray-400 mb-1">Container Image</h4><code class="text-cyan-400 bg-gray-900 px-2 py-1 rounded">${stepConfig.image}</code></div>`;
+                configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Container Image</h4><code class="text-cyan-600 dark:text-cyan-400 bg-[var(--bg-code)] px-2 py-1 rounded">${stepConfig.image}</code></div>`;
             }
             if (stepConfig.include) {
-                configHTML += `<div><h4 class="font-semibold text-gray-400 mb-1">Included Definition</h4><code class="text-cyan-400 bg-gray-900 px-2 py-1 rounded">${stepConfig.include}</code></div>`;
+                configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Included Definition</h4><code class="text-cyan-600 dark:text-cyan-400 bg-[var(--bg-code)] px-2 py-1 rounded">${stepConfig.include}</code></div>`;
             }
 
             let behaviorItems = [];
             if (step.depends_on && step.depends_on.length > 0) {
-                behaviorItems.push(`<li><span class="font-medium text-gray-300">Depends On Steps:</span> <code class="text-gray-400">${JSON.stringify(step.depends_on)}</code></li>`);
+                behaviorItems.push(`<li><span class="font-medium text-[var(--text-primary)]">Depends On Steps:</span> <code class="text-[var(--text-secondary)]">${JSON.stringify(step.depends_on)}</code></li>`);
             }
             if (stepConfig.ignore_failure) {
-                behaviorItems.push(`<li><span class="font-medium text-gray-300">Ignore Failure:</span> <span class="text-yellow-400">true</span></li>`);
+                behaviorItems.push(`<li><span class="font-medium text-[var(--text-primary)]">Ignore Failure:</span> <span class="text-amber-600 dark:text-amber-400">true</span></li>`);
             }
             if (stepConfig.llm_output_sharing === false) {
-                behaviorItems.push(`<li><span class="font-medium text-gray-300">LLM Output Sharing:</span> <span class="text-gray-400">false</span></li>`);
+                behaviorItems.push(`<li><span class="font-medium text-[var(--text-primary)]">LLM Output Sharing:</span> <span class="text-[var(--text-secondary)]">false</span></li>`);
             }
             if (stepConfig.include && stepConfig.sync) {
-                behaviorItems.push(`<li><span class="font-medium text-gray-300">Sync Mode:</span> <span class="text-blue-400">true</span> (waits for included pipeline to finish)</li>`);
+                behaviorItems.push(`<li><span class="font-medium text-[var(--text-primary)]">Sync Mode:</span> <span class="text-blue-600 dark:text-blue-400">true</span> (waits for included pipeline to finish)</li>`);
             }
             if(behaviorItems.length > 0) {
-                configHTML += `<div><h4 class="font-semibold text-gray-400 mb-1">Behavior & Flow Control</h4><ul class="list-disc list-inside pl-2 space-y-1">${behaviorItems.join('')}</ul></div>`;
+                configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Behavior & Flow Control</h4><ul class="list-disc list-inside pl-2 space-y-1">${behaviorItems.join('')}</ul></div>`;
             }
 
             if (stepConfig.secrets && stepConfig.secrets.length > 0) {
-                const secretsList = stepConfig.secrets.map(s => `<li class="inline-block mr-2 mb-1"><code class="text-purple-400 bg-gray-900 px-2 py-1 rounded">${s}</code></li>`).join('');
-                configHTML += `<div><h4 class="font-semibold text-gray-400 mb-1">Secrets</h4><ul class="flex flex-wrap">${secretsList}</ul></div>`;
+                const secretsList = stepConfig.secrets.map(s => `<li class="inline-block mr-2 mb-1"><code class="text-purple-600 dark:text-purple-400 bg-[var(--bg-code)] px-2 py-1 rounded">${s}</code></li>`).join('');
+                configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Secrets</h4><ul class="flex flex-wrap">${secretsList}</ul></div>`;
             }
             if (stepConfig.volumes && stepConfig.volumes.length > 0) {
-                const volumesList = stepConfig.volumes.map(v => `<li class="inline-block mr-2 mb-1"><code class="text-green-400 bg-gray-900 px-2 py-1 rounded">${v}</code></li>`).join('');
-                configHTML += `<div><h4 class="font-semibold text-gray-400 mb-1">Volumes</h4><ul class="flex flex-wrap">${volumesList}</ul></div>`;
+                const volumesList = stepConfig.volumes.map(v => `<li class="inline-block mr-2 mb-1"><code class="text-green-600 dark:text-green-400 bg-[var(--bg-code)] px-2 py-1 rounded">${v}</code></li>`).join('');
+                configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Volumes</h4><ul class="flex flex-wrap">${volumesList}</ul></div>`;
             }
             if (stepConfig.environment && Object.keys(stepConfig.environment).length > 0) {
-                const envList = Object.entries(stepConfig.environment).map(([k, v]) => `<li><code class="text-gray-400"><span class="text-orange-400">${k}</span>=${v}</code></li>`).join('');
-                configHTML += `<div><h4 class="font-semibold text-gray-400 mb-1">Environment Overrides</h4><ul class="space-y-1">${envList}</ul></div>`;
+                const envList = Object.entries(stepConfig.environment).map(([k, v]) => `<li><code class="text-[var(--text-secondary)]"><span class="text-orange-600 dark:text-orange-400">${k}</span>=${v}</code></li>`).join('');
+                configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Environment Overrides</h4><ul class="space-y-1">${envList}</ul></div>`;
             }
 
             if (stepConfig.tasks && stepConfig.tasks.length > 0) {
-                configHTML += `<div><h4 class="font-semibold text-gray-400 mb-1">Tasks Configuration</h4><div class="space-y-3 pt-2">`;
+                configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Tasks Configuration</h4><div class="space-y-3 pt-2">`;
                 stepConfig.tasks.forEach(task => {
-                    configHTML += `<div class="bg-gray-900/50 p-3 rounded-md border-l-2 border-gray-700">
-                                    <p class="font-semibold text-gray-200">${task.name}</p>`;
+                    configHTML += `<div class="bg-[var(--bg-primary)] p-3 rounded-md border-l-2 border-[var(--border-secondary)]">
+                                        <p class="font-semibold text-[var(--text-primary)]">${task.name}</p>`;
                     if (task.goal) {
-                        configHTML += `<p class="mt-1 text-gray-300 italic"><strong>Goal:</strong> "${task.goal}"</p>`;
+                        configHTML += `<p class="mt-1 text-[var(--text-primary)] italic"><strong>Goal:</strong> "${task.goal}"</p>`;
                     }
                     if (task.script) {
                         const escapedScript = task.script.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                        configHTML += `<div class="mt-2"><p class="text-xs text-gray-400 mb-1">Script:</p><pre class="bg-black p-2 rounded text-cyan-300 text-xs overflow-x-auto"><code>${escapedScript}</code></pre></div>`;
+                        configHTML += `<div class="mt-2"><p class="text-xs text-[var(--text-secondary)] mb-1">Script:</p><pre class="bg-[var(--bg-code-darker)] p-2 rounded text-cyan-700 dark:text-cyan-300 text-xs overflow-x-auto"><code>${escapedScript}</code></pre></div>`;
                     }
                     if (task.depends_on && task.depends_on.length > 0) {
-                        configHTML += `<p class="mt-2 text-xs text-gray-400"><strong>Depends on tasks:</strong> ${task.depends_on.join(', ')}</p>`;
+                        configHTML += `<p class="mt-2 text-xs text-[var(--text-secondary)]"><strong>Depends on tasks:</strong> ${task.depends_on.join(', ')}</p>`;
                     }
                     if (task.ignore_failure) {
-                        configHTML += `<p class="mt-2 text-xs text-yellow-400">This task will not fail the step.</p>`;
+                        configHTML += `<p class="mt-2 text-xs text-amber-600 dark:text-amber-400">This task will not fail the step.</p>`;
                     }
                     configHTML += '</div>';
                 });
@@ -1174,7 +1217,6 @@
             }
             configContainer.innerHTML = configHTML;
 
-            // --- RENDER GRAPH (LEFT PANE) ---
             if (stepConfig.include && stepConfig.include.startsWith('pipeline:')) {
                 const childRun = runDetails.child_runs.find(cr => cr.parent_step_name === stepName);
                 if (childRun) {
@@ -1184,7 +1226,6 @@
                     }
                 }
             } else {
-                // **THE FIX**: Pass the RUNTIME tasks from the step object, not the config.
                 renderTaskGraph(stepName, step.tasks);
             }
         }
@@ -1192,11 +1233,11 @@
         function renderTaskGraph(stepName, tasks, clickableNodeContext = null) {
             const taskGraphEl = document.getElementById('task-graph');
             if (!state.currentRunData || !state.currentRunData.pipeline_definition || !state.currentRunData.pipeline_definition.steps) {
-                 taskGraphEl.innerHTML = '<p class="text-gray-500 text-sm">Waiting for pipeline data...</p>';
+                 taskGraphEl.innerHTML = `<p class="text-[var(--text-secondary)] text-sm">Waiting for pipeline data...</p>`;
                  return;
             }
             if (!tasks || tasks.length === 0) {
-                taskGraphEl.innerHTML = '<p class="text-gray-500 text-sm">This step has no tasks defined.</p>';
+                taskGraphEl.innerHTML = `<p class="text-[var(--text-secondary)] text-sm">This step has no tasks defined.</p>`;
                 return;
             }
 
@@ -1212,8 +1253,8 @@
 
             const { nodes, edges, width, height } = calculateGraphLayout(itemsWithDeps, taskGraphEl, 160, 40, 60, 40);
 
-            let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><defs><marker id="task_arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#6b7280" /></marker></defs>`;
-            edges.forEach(edge => svgContent += `<line x1="${edge.x1}" y1="${edge.y1}" x2="${edge.x2}" y2="${edge.y2}" stroke="#4b5563" stroke-width="1" marker-end="url(#task_arrow)"></line>`);
+            let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><defs><marker id="task_arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" class="fill-current text-gray-400 dark:text-gray-600" /></marker></defs>`;
+            edges.forEach(edge => svgContent += `<line x1="${edge.x1}" y1="${edge.y1}" x2="${edge.x2}" y2="${edge.y2}" class="stroke-current text-gray-300 dark:text-gray-600" stroke-width="1" marker-end="url(#task_arrow)"></line>`);
             nodes.forEach(node => {
                 const status = (node.status || 'pending').toLowerCase();
                 const config = statusConfig[status] || statusConfig.pending;
@@ -1233,8 +1274,8 @@
                             <div xmlns="http://www.w3.org/2000/svg" class="w-full h-full flex items-center p-2 text-xs">
                                 <svg class="h-4 w-4 mr-2 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
                                 <div class="flex-1 overflow-hidden">
-                                    <p class="font-medium text-gray-200 truncate">${itemName}</p>
-                                    <p class="text-gray-400">${duration}</p>
+                                    <p class="font-medium text-[var(--text-primary)] truncate">${itemName}</p>
+                                    <p class="text-[var(--text-secondary)]">${duration}</p>
                                 </div>
                             </div>
                         </foreignObject>
@@ -1253,9 +1294,9 @@
                 currentGroup = currentGroup.parent_id ? state.groups.find(g => g.id == currentGroup.parent_id) : null;
             }
 
-            let html = '<a href="#/pipelineruns/main" class="text-gray-400 hover:text-indigo-400">Main</a>';
+            let html = `<a href="#/pipelineruns/main" class="text-[var(--text-secondary)] hover:text-[var(--text-accent)]">Main</a>`;
             breadcrumbs.forEach(breadcrumb => {
-                html += ` <span class="mx-2 text-gray-500">/</span> <a href="#/pipelineruns/main/${breadcrumb.id}" class="text-gray-400 hover:text-indigo-400">${breadcrumb.name}</a>`;
+                html += ` <span class="mx-2 text-gray-400 dark:text-gray-500">/</span> <a href="#/pipelineruns/main/${breadcrumb.id}" class="text-[var(--text-secondary)] hover:text-[var(--text-accent)]">${breadcrumb.name}</a>`;
             });
             DOM.mainHeader.innerHTML = `<div>${html}</div>`;
         }
@@ -1289,15 +1330,15 @@
                 } else { // 'main' tab or group view
                     const groupId = subpath === 'main' ? (id ? parseInt(id, 10) : null) : (subpath ? parseInt(subpath, 10) : null);
                      if (groupId) {
-                        state.selectedGroupId = groupId;
-                        renderBreadcrumbs(groupId);
-                        await fetchMainContent(groupId);
-                    } else {
-                        state.selectedGroupId = null;
-                        renderBreadcrumbs(null);
-                        const rootGroups = state.groups.filter(g => g.parent_id === null || g.parent_id === 0);
-                        renderMainGridContent(rootGroups, null, true);
-                    }
+                         state.selectedGroupId = groupId;
+                         renderBreadcrumbs(groupId);
+                         await fetchMainContent(groupId);
+                     } else {
+                         state.selectedGroupId = null;
+                         renderBreadcrumbs(null);
+                         const rootGroups = state.groups.filter(g => g.parent_id === null || g.parent_id === 0);
+                         renderMainGridContent(rootGroups, null, true);
+                     }
                 }
 
                  const stepName = rest.length > 1 && rest[0] === 'steps' ? rest[1] : null;
@@ -1305,7 +1346,7 @@
                     showStepDetails(stepName);
                  }
             } else {
-                await renderSidebar(path, 'main'); // Default to main for other pages
+                await renderSidebar(path, 'main'); 
                 DOM.mainHeader.textContent = path.charAt(0).toUpperCase() + path.slice(1);
             }
         }
@@ -1313,10 +1354,10 @@
         function updateTabs(activeTab) {
             DOM.tabs.forEach(tab => {
                 const isActive = (tab.dataset.tab === activeTab);
-                tab.classList.toggle('border-indigo-500', isActive);
-                tab.classList.toggle('text-indigo-400', isActive);
+                tab.classList.toggle('border-[var(--border-accent)]', isActive);
+                tab.classList.toggle('text-[var(--text-accent)]', isActive);
                 tab.classList.toggle('border-transparent', !isActive);
-                tab.classList.toggle('text-gray-400', !isActive);
+                tab.classList.toggle('text-[var(--text-secondary)]', !isActive);
             });
         }
 
@@ -1408,7 +1449,7 @@
         DOM.copyLogsBtn.addEventListener('click', () => {
             navigator.clipboard.writeText(DOM.logsContainer.innerText);
             const originalIcon = DOM.copyLogsBtn.innerHTML;
-            DOM.copyLogsBtn.innerHTML = '<svg class="h-5 w-5 text-green-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>';
+            DOM.copyLogsBtn.innerHTML = '<svg class="h-5 w-5 text-green-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>';
             setTimeout(() => DOM.copyLogsBtn.innerHTML = originalIcon, 2000);
         });
 
@@ -1416,14 +1457,12 @@
             const card = e.target.closest('[data-href]');
             if (!card) return;
 
-            // Handle middle-click to open in a new tab
             if (e.button === 1) { 
-                e.preventDefault(); // Prevent default browser action for middle-click (e.g., auto-scroll)
+                e.preventDefault();
                 window.open(card.dataset.href, '_blank');
                 return;
             }
 
-            // Existing logic for left-click (to differentiate between click and drag)
             const startX = e.clientX;
             const startY = e.clientY;
 
@@ -1436,7 +1475,6 @@
 
                 if (selectedText) {
                     navigator.clipboard.writeText(selectedText).then(() => {
-                        // Create a "Copied!" message for user feedback
                         const copiedMessage = document.createElement('div');
                         copiedMessage.textContent = 'Copied!';
                         copiedMessage.style.position = 'fixed';
@@ -1455,7 +1493,6 @@
                     });
                 } else if (distance < 5) {
                     const url = card.dataset.href;
-                    // Check for Ctrl key (Windows/Linux) or Meta key (Mac) for left-click
                     if (upEvent.ctrlKey || upEvent.metaKey) {
                         window.open(url, '_blank');
                     } else {
@@ -1470,7 +1507,6 @@
         DOM.mainGridContainer.addEventListener('click', e => {
             const card = e.target.closest('a[data-run-id]');
             if (card && !e.ctrlKey && !e.metaKey && e.button === 0) {
-                // This is a normal left-click, so we handle it for SPA navigation.
                 e.preventDefault();
                 window.location.hash = card.getAttribute('href');
             }
@@ -1505,14 +1541,10 @@
         DOM.graphContainer.addEventListener('click', e => {
             const includedLink = e.target.closest('[data-included-link="true"]');
             if (includedLink) {
-                // This is a click on the special "Included Pipeline" link.
-                // Stop the event from bubbling up to the '.graph-node' logic.
-                // The browser will handle the navigation via the link's href attribute.
                 e.stopPropagation();
                 return;
             }
 
-            // This part only runs if the click was NOT on the included link.
             const node = e.target.closest('.graph-node');
             if (node) {
                 const [, subpath, runId] = window.location.hash.slice(2).split('/');
@@ -1611,17 +1643,14 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ parent_id: targetGroupId ? parseInt(targetGroupId, 10) : null }),
                     });
-                    // Refresh the entire view to reflect the change
                     await router();
                 } catch (error) {
-                    // Error is already alerted by fetchData, just log for good measure
                     console.error("Move failed:", error);
                 }
             });
         })();
 
         DOM.modalContent.addEventListener('click', e => {
-            // Case 1: User clicks the 'X' close button
             const closeBtn = e.target.closest('#close-modal-btn');
             if (closeBtn) {
                 const hash = window.location.hash;
@@ -1631,7 +1660,6 @@
                 return;
             }
 
-            // Case 2: User clicks the 'Back' button
             const backBtn = e.target.closest('#modal-back-btn');
             if (backBtn) {
                 const parentContext = JSON.parse(backBtn.dataset.parentContext);
@@ -1639,7 +1667,6 @@
                 return;
             }
 
-            // Case 3: User clicks a child step node to drill down
             const node = e.target.closest('.graph-node[data-context]');
             if (node) {
                 const context = JSON.parse(node.dataset.context);
@@ -1648,7 +1675,6 @@
             }
         });
 
-        // This listener for the modal background remains separate
         DOM.modal.addEventListener('click', e => {
             if (e.target === DOM.modal) {
                  const hash = window.location.hash;
@@ -1673,7 +1699,41 @@
         DOM.sidebarNav.addEventListener('mouseout', handleRunHighlight);
 
         window.addEventListener('hashchange', router);
-// --- MODAL RESIZER LOGIC ---
+
+    // --- THEME TOGGLE LOGIC ---
+       (() => {
+            const themeToggleDarkIcon = document.getElementById('theme-toggle-dark-icon');
+            const themeToggleLightIcon = document.getElementById('theme-toggle-light-icon');
+            const themeToggleButton = document.getElementById('theme-toggle');
+
+            if (!themeToggleButton || !themeToggleDarkIcon || !themeToggleLightIcon) return;
+
+            const applyTheme = () => {
+                if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                    document.documentElement.classList.add('dark');
+                    themeToggleLightIcon.classList.remove('hidden');
+                    themeToggleDarkIcon.classList.add('hidden');
+                } else {
+                    document.documentElement.classList.remove('dark');
+                    themeToggleDarkIcon.classList.remove('hidden');
+                    themeToggleLightIcon.classList.add('hidden');
+                }
+            };
+
+            applyTheme();
+
+            themeToggleButton.addEventListener('click', () => {
+                const isDark = document.documentElement.classList.contains('dark');
+                if (isDark) {
+                    localStorage.setItem('theme', 'light');
+                } else {
+                    localStorage.setItem('theme', 'dark');
+                }
+                applyTheme();
+            });
+       })();
+
+    // --- MODAL RESIZER LOGIC ---
        (() => {
             const resizer = document.getElementById('modal-resizer');
             const container = document.getElementById('modal-grid-container');
@@ -1684,7 +1744,6 @@
 
             resizer.addEventListener('mousedown', (e) => {
                 isResizing = true;
-                // Add styles to the body to prevent text selection and show resize cursor everywhere
                 document.body.style.cursor = 'col-resize';
                 document.body.style.userSelect = 'none';
 
@@ -1692,31 +1751,25 @@
                     if (!isResizing) return;
                     
                     const containerRect = container.getBoundingClientRect();
-                    // Calculate the mouse's X position relative to the container's left edge
                     let mouseXRelative = moveEvent.clientX - containerRect.left;
 
-                    // Define minimum and maximum widths for the left pane in percentages
                     const minPercent = 20;
                     const maxPercent = 80;
                     const minWidth = (containerRect.width * minPercent) / 100;
                     const maxWidth = (containerRect.width * maxPercent) / 100;
 
-                    // Enforce the min/max width constraints
                     if (mouseXRelative < minWidth) mouseXRelative = minWidth;
                     if (mouseXRelative > maxWidth) mouseXRelative = maxWidth;
                     
                     const newLeftWidth = mouseXRelative;
                     
-                    // Dynamically update the grid-template-columns style to resize the panes
                     container.style.gridTemplateColumns = `${newLeftWidth}px 10px 1fr`;
                 };
 
                 const mouseUpHandler = () => {
                     isResizing = false;
-                    // Remove the global styles when dragging stops
                     document.body.style.cursor = '';
                     document.body.style.userSelect = '';
-                    // Clean up the event listeners
                     document.removeEventListener('mousemove', mouseMoveHandler);
                     document.removeEventListener('mouseup', mouseUpHandler);
                 };
@@ -1725,8 +1778,8 @@
                 document.addEventListener('mouseup', mouseUpHandler, { once: true });
             });
        })();
-       
-        (() => {
+        
+       (() => {
             const sidebar = document.getElementById('sidebar');
             const resizer = document.getElementById('sidebar-resizer');
             if (!sidebar || !resizer) return;
@@ -1768,7 +1821,7 @@
                 document.addEventListener('mousemove', mouseMoveHandler);
                 document.addEventListener('mouseup', mouseUpHandler, { once: true });
             });
-       })();            
+       })();           
         router();
     });
     </script>
