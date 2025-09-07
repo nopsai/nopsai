@@ -1062,7 +1062,6 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("runID")
 
-	// Get main run info
 	var run RunListItem
 	var pipelineDefinition string
 	var startedAt, finishedAt sql.NullTime
@@ -1109,7 +1108,6 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 		run.Duration = "0s"
 	}
 
-	// Get parent run info if it exists
 	var parentRunInfo *ParentRunInfo
 	if run.ParentRunID != nil && *run.ParentRunID != "" {
 		var parentPipelineName string
@@ -1126,7 +1124,6 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Get child runs
 	var childRuns []RunListItem
 	childRows, err := a.db.Query(context.Background(), `
 		SELECT run_id, pipeline_name, status, started_at, finished_at, parent_step_name
@@ -1161,7 +1158,6 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Get all tasks for the run
 	taskRows, err := a.db.Query(context.Background(), `
 		SELECT task_id, step_name, task_name, status, exit_code, started_at, finished_at, task_index
 		FROM tasks
@@ -1192,16 +1188,22 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 		tasksByStep[task.StepName] = append(tasksByStep[task.StepName], task)
 	}
 
-	// Parse pipeline definition to get step dependencies
-	var pipeline models.Pipeline
-	if err := yaml.Unmarshal([]byte(pipelineDefinition), &pipeline); err != nil {
-		log.Error().Err(err).Str("run_id", runID).Msg("Failed to parse pipeline definition for dependencies")
+	var originalPipeline models.Pipeline
+	if err := yaml.Unmarshal([]byte(pipelineDefinition), &originalPipeline); err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to parse original pipeline definition")
 		http.Error(w, "Failed to parse pipeline definition", http.StatusInternalServerError)
 		return
 	}
 
+	tempPipelineForResolving := originalPipeline
+	resolvedPipeline, err := a.resolveStepIncludes(&tempPipelineForResolving)
+	if err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to resolve includes for details view")
+		resolvedPipeline = &originalPipeline
+	}
+
 	var steps []StepDetail
-	for _, pStep := range pipeline.Steps {
+	for _, pStep := range resolvedPipeline.Steps {
 		stepTasks := tasksByStep[pStep.Name]
 
 		status := "pending"
@@ -1226,9 +1228,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
-			if slices.ContainsFunc(stepTasks, func(t TaskDetail) bool {
-				return t.Status == "failure" && !strings.Contains(t.Status, "ignored")
-			}) {
+			if slices.ContainsFunc(stepTasks, func(t TaskDetail) bool { return t.Status == "failure" && !strings.Contains(t.Status, "ignored") }) {
 				status = "failure"
 			} else if slices.ContainsFunc(stepTasks, func(t TaskDetail) bool { return t.Status == "running" }) {
 				status = "running"
@@ -1243,38 +1243,25 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Create the configuration struct from the parsed pipeline step
+		originalPStep, _ := findStepByName(originalPipeline.Steps, pStep.Name)
+
 		config := StepConfiguration{
 			Image:            pStep.Image,
-			Include:          pStep.Include,
+			Include:          originalPStep.Include,
 			Sync:             pStep.Sync,
 			Secrets:          pStep.Secrets,
 			Volumes:          pStep.Volumes,
 			Environment:      pStep.Environment,
 			IgnoreFailure:    pStep.IgnoreFailure,
 			LlmOutputSharing: pStep.LlmOutputSharing,
-		}
-
-		// Normalize legacy goal/script fields into the new tasks structure for consistency
-		if len(pStep.Tasks) > 0 {
-			config.Tasks = pStep.Tasks
-		} else if pStep.Goal != "" || pStep.Script != "" {
-			config.Tasks = []models.Task{
-				{
-					Name:             pStep.Name,
-					Goal:             pStep.Goal,
-					Script:           pStep.Script,
-					IgnoreFailure:    pStep.IgnoreFailure,
-					LlmOutputSharing: pStep.LlmOutputSharing,
-				},
-			}
+			Tasks:            pStep.Tasks,
 		}
 
 		steps = append(steps, StepDetail{
 			Name:          pStep.Name,
 			Status:        status,
 			DependsOn:     pStep.DependsOn,
-			Tasks:         stepTasks, // Runtime tasks
+			Tasks:         stepTasks,
 			Duration:      stepDuration.Round(time.Second).String(),
 			Configuration: config,
 		})
@@ -1283,7 +1270,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	response := RunDetail{
 		RunInfo:            run,
 		Steps:              steps,
-		PipelineDefinition: pipeline,
+		PipelineDefinition: originalPipeline,
 		ChildRuns:          childRuns,
 		ParentRunInfo:      parentRunInfo,
 	}
@@ -1375,6 +1362,15 @@ func (a *App) launchAndRunPipeline(
 	}
 
 	go a.launchAgent(runID.String(), pipeline, pipelineDef, timeoutDuration, gitContext, parentHistory, environment)
+}
+
+func findStepByName(steps []models.PipelineStep, name string) (models.PipelineStep, bool) {
+	for _, step := range steps {
+		if step.Name == name {
+			return step, true
+		}
+	}
+	return models.PipelineStep{}, false
 }
 
 func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
@@ -1486,7 +1482,6 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		gitContext["check_run_id"] = strconv.FormatInt(respData["check_run_id"], 10)
 	}
 
-	// NEW: Create run record *before* validation
 	runID := uuid.New()
 
 	var parentRunIDSQL sql.NullString
@@ -1535,7 +1530,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 			git_commit_author_email, git_commit_author_username, git_pusher_name,
 			git_pusher_email, git_check_run_id, group_id, parent_step_name, environment)
 			VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
-		runID, parentRunIDSQL, pipeline.Name, string(pipelineDef), // Initially save the original definition
+		runID, parentRunIDSQL, pipeline.Name, string(pipelineDef),
 		gitContext["repo_owner"], gitContext["repo_name"], gitContext["clone_url"], gitContext["ssh_url"], gitContext["ref"],
 		gitContext["commit_sha"], gitContext["commit_url"], gitContext["commit_message"], gitContext["commit_author_name"],
 		gitContext["commit_author_email"], gitContext["commit_author_username"], gitContext["pusher_name"],
@@ -1549,7 +1544,6 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// NEW: Perform validations after creating the record
 	resolvedPipeline, err := a.resolveStepIncludes(&pipeline)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to resolve step includes: %v", err)
@@ -1573,18 +1567,6 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// --- THIS IS THE KEY CHANGE ---
-	// Update the run record with the fully resolved pipeline definition
-	// so that the UI can access it later.
-	_, err = a.db.Exec(context.Background(), "UPDATE runs SET pipeline_definition = $1 WHERE run_id = $2", string(resolvedPipelineDef), runID)
-	if err != nil {
-		errMsg := "Failed to update run with resolved pipeline definition"
-		http.Error(w, errMsg, http.StatusInternalServerError)
-		a.updateRunRecordWithFailure(runID, errMsg, gitContext)
-		return
-	}
-	// --- END OF KEY CHANGE ---
-
 	timeoutStr := resolvedPipeline.Timeout
 	if timeoutStr == "" {
 		timeoutStr = a.cfg.DefaultPipelineTimeout
@@ -1600,7 +1582,6 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		timeoutDuration = duration
 	}
 
-	// NEW: Update timeout on the existing record
 	if timeoutDuration > 0 {
 		timeoutAt := time.Now().Add(timeoutDuration)
 		_, err := a.db.Exec(context.Background(), "UPDATE runs SET timeout_at = $1 WHERE run_id = $2", timeoutAt, runID)
@@ -1656,7 +1637,6 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// --- Repopulate gitContext from the original run ---
 	if repoOwner.Valid {
 		gitContext["repo_owner"] = repoOwner.String
 	}
@@ -1710,22 +1690,18 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	if timeoutAt.Valid {
 		var originalCreatedAt time.Time
 		err := a.db.QueryRow(context.Background(), "SELECT created_at FROM runs WHERE run_id = $1", originalRunID).Scan(&originalCreatedAt)
-		if err != nil {
-			log.Error().Err(err).Str("original_run_id", originalRunID).Msg("Failed to get original run creation time for timeout calculation")
-		} else {
+		if err == nil {
 			timeoutDuration = timeoutAt.Time.Sub(originalCreatedAt)
 		}
 	}
 
-	// --- Logic now mirrors handleRunPipeline ---
 	runID := uuid.New()
 
 	var groupID sql.NullInt32
-	if repoName, ok := gitContext["repo_name"]; ok && repoName != "" {
-		repoOwner := gitContext["repo_owner"]
-		fullRepoName := fmt.Sprintf("%s/%s", repoOwner, repoName)
+	if name, ok := gitContext["repo_name"]; ok && name != "" {
+		owner := gitContext["repo_owner"]
+		fullRepoName := fmt.Sprintf("%s/%s", owner, name)
 		var existingID int32
-		// Simplified group lookup for rerun
 		err := a.db.QueryRow(context.Background(), "SELECT id FROM groups WHERE name = $1", fullRepoName).Scan(&existingID)
 		if err == nil {
 			groupID.Int32 = existingID
@@ -1733,7 +1709,6 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Create the new run record based on the old one
 	_, err = a.db.Exec(context.Background(),
 		`INSERT INTO runs (run_id, pipeline_name, status, pipeline_definition,
 			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref,
@@ -1753,8 +1728,30 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Now that the record exists, we can launch the pipeline
-	a.launchAndRunPipeline(runID, pipeline, []byte(pipelineDef.String), timeoutDuration, gitContext, "", environment.String)
+	resolvedPipeline, err := a.resolveStepIncludes(&pipeline)
+	if err != nil {
+		errMsg := fmt.Sprintf("Failed to resolve step includes on rerun: %v", err)
+		a.updateRunRecordWithFailure(runID, errMsg, gitContext)
+		http.Error(w, errMsg, http.StatusBadRequest)
+		return
+	}
+
+	if err := validatePipeline(resolvedPipeline); err != nil {
+		errMsg := fmt.Sprintf("Pipeline validation failed on rerun: %v", err)
+		a.updateRunRecordWithFailure(runID, errMsg, gitContext)
+		http.Error(w, errMsg, http.StatusBadRequest)
+		return
+	}
+
+	resolvedPipelineDef, err := yaml.Marshal(resolvedPipeline)
+	if err != nil {
+		errMsg := "Failed to marshal resolved pipeline on rerun"
+		a.updateRunRecordWithFailure(runID, errMsg, gitContext)
+		http.Error(w, errMsg, http.StatusInternalServerError)
+		return
+	}
+
+	a.launchAndRunPipeline(runID, *resolvedPipeline, resolvedPipelineDef, timeoutDuration, gitContext, "", environment.String)
 
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte("Pipeline rerun created successfully with ID: " + runID.String()))

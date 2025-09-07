@@ -846,6 +846,8 @@
             DOM.mainGridContainer.innerHTML = html;
         }
 
+        // services/ui/index.html
+
         function renderPipelineGraph(runDetails) {
             const runInfo = runDetails.run_info;
             const branchName = (runInfo.git_ref || '').startsWith('refs/heads/') ? runInfo.git_ref.split('/')[2] : runInfo.git_ref;
@@ -935,7 +937,6 @@
                                 includeHTML = `<span class="text-xs text-gray-500">Included Pipeline</span>`;
                             }
                         } else if (originalStep.include.startsWith('step:')) {
-                            // --- THIS IS THE FIX ---
                             includeHTML = `<span class="text-xs text-blue-400">Included Step</span>`;
                         }
                     }
@@ -1173,9 +1174,7 @@
             }
             configContainer.innerHTML = configHTML;
 
-
             // --- RENDER GRAPH (LEFT PANE) ---
-            // **THE FIX**: Only check for child runs if the include is a 'pipeline:'
             if (stepConfig.include && stepConfig.include.startsWith('pipeline:')) {
                 const childRun = runDetails.child_runs.find(cr => cr.parent_step_name === stepName);
                 if (childRun) {
@@ -1185,7 +1184,7 @@
                     }
                 }
             } else {
-                // For regular steps AND resolved included steps, just render their tasks.
+                // **THE FIX**: Pass the RUNTIME tasks from the step object, not the config.
                 renderTaskGraph(stepName, step.tasks);
             }
         }
