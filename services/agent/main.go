@@ -629,7 +629,7 @@ func run() int {
 						if strings.Contains(err.Error(), "nopsai api returned non-200 status 404") {
 							log.Warn().Str("child_pipeline", childPipelineName).Msg("Child pipeline not found, marking as not found.")
 							updateTaskStatus(runID, stepName, stepName, "not_found", 0, 0)
-							results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+							results <- TaskResult{Name: runnable.GlobalKey, Success: false} // Treat as failure for dependency purposes
 							return
 						}
 
@@ -664,9 +664,24 @@ func run() int {
 							results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 							return
 						}
+					} else {
+						// For non-sync, we still monitor but don't block the main pipeline's progress.
+						// We just update the step's status when the child is done.
+						go func() {
+							finalStatus, err := monitorPipeline(childRunID)
+							if err != nil {
+								log.Error().Err(err).Str("child_run_id", childRunID).Msg("Error monitoring non-sync child pipeline")
+								updateTaskStatus(runID, stepName, stepName, "failure", 1, 0)
+								return
+							}
+							log.Info().Str("child_run_id", childRunID).Str("status", finalStatus).Msg("Non-synchronous child pipeline finished.")
+							updateTaskStatus(runID, stepName, stepName, finalStatus, 0, 0)
+						}()
 					}
 
-					log.Info().Str("child_run_id", childRunID).Msg("Include step finished successfully.")
+					log.Info().Str("child_run_id", childRunID).Msg("Include step finished successfully (or is running in background).")
+					// For dependency purposes, the non-sync step is considered "successful" immediately
+					// so that subsequent steps can start. The final status will be updated asynchronously.
 					updateTaskStatus(runID, stepName, stepName, "success", 0, 0)
 					results <- TaskResult{Name: runnable.GlobalKey, Success: true}
 					return
