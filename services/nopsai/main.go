@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/aes"
@@ -32,6 +33,7 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -45,6 +47,11 @@ type App struct {
 	cfg    *config.Config
 	cli    *client.Client
 	encKey []byte
+}
+
+type LogLine struct {
+	Timestamp time.Time `json:"timestamp"`
+	Line      string    `json:"line"`
 }
 
 type RunListItem struct {
@@ -1992,8 +1999,6 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		return
 	}
 
-	// --- MODIFICATION START ---
-	// Prepare the final environment variables for the pipeline.
 	finalEnv, err := a.prepareEnvironmentForPipeline(pipeline, gitContext, environment)
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to prepare environment variables for pipeline")
@@ -2003,7 +2008,6 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		}
 		return
 	}
-	// --- MODIFICATION END ---
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -2068,12 +2072,11 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	if environment != "" {
 		envVars = append(envVars, fmt.Sprintf("ENVIRONMENT=%s", environment))
 	}
-	// --- MODIFICATION START ---
-	// Add the fully resolved environment variables.
+
 	for key, value := range finalEnv {
 		envVars = append(envVars, fmt.Sprintf("%s=%s", key, value))
 	}
-	// --- MODIFICATION END ---
+
 	for key, value := range gitContext {
 		envKey := fmt.Sprintf("GIT_%s", strings.ToUpper(key))
 		envVars = append(envVars, fmt.Sprintf("%s=%s", envKey, value))
@@ -2101,12 +2104,49 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		return
 	}
 
-	if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+	if err := a.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		log.Error().Err(err).Str("container_id", resp.ID).Msg("Failed to start agent container")
 		return
 	}
 
 	log.Info().Str("run_id", runID).Str("container_name", agentContainerName).Msg("Successfully started agent container")
+
+	// --- START: New Log Capture Logic ---
+	go func() {
+		// Use a separate context for logging so it can outlive the main function's context if needed
+		logCtx := context.Background()
+		logReader, err := a.cli.ContainerLogs(logCtx, resp.ID, container.LogsOptions{ShowStdout: true, ShowStderr: true, Follow: true})
+		if err != nil {
+			log.Error().Err(err).Str("run_id", runID).Msg("Failed to attach to container logs")
+			return
+		}
+		defer logReader.Close()
+
+		// The Docker log stream multiplexes stdout and stderr. We use stdcopy to demultiplex it into a clean stream.
+		r, w := io.Pipe()
+		go func() {
+			defer w.Close()
+			_, err := stdcopy.StdCopy(w, w, logReader)
+			if err != nil {
+				log.Error().Err(err).Str("run_id", runID).Msg("Error demultiplexing log stream")
+			}
+		}()
+
+		// Read from the clean stream line by line and insert into the database
+		scanner := bufio.NewScanner(r)
+		for scanner.Scan() {
+			line := scanner.Text()
+			_, dbErr := a.db.Exec(context.Background(),
+				"INSERT INTO run_logs (run_id, line) VALUES ($1, $2)",
+				runID, line)
+			if dbErr != nil {
+				log.Error().Err(dbErr).Str("run_id", runID).Msg("Failed to insert log line into DB")
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			log.Error().Err(err).Str("run_id", runID).Msg("Error reading from log pipe")
+		}
+	}()
 
 	statusCh, errCh := cli.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
 	select {
@@ -2470,6 +2510,30 @@ func (a *App) handleListRepoBranches(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(branches)
 }
 
+func (a *App) handleGetRunLogs(w http.ResponseWriter, r *http.Request) {
+	runID := r.PathValue("runID")
+	rows, err := a.db.Query(context.Background(), "SELECT timestamp, line FROM run_logs WHERE run_id = $1 ORDER BY timestamp ASC", runID)
+	if err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to query logs for run")
+		http.Error(w, "Failed to retrieve logs", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var logs []LogLine
+	for rows.Next() {
+		var logLine LogLine
+		if err := rows.Scan(&logLine.Timestamp, &logLine.Line); err != nil {
+			log.Error().Err(err).Msg("Failed to scan log line")
+			continue
+		}
+		logs = append(logs, logLine)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(logs)
+}
+
 func main() {
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
@@ -2580,6 +2644,7 @@ func main() {
 	mux.HandleFunc("POST /v1/runs/{runID}/rerun", app.handleRerunPipeline)
 	mux.HandleFunc("POST /v1/runs/{runID}/finalize", app.handleFinalizeRun)
 	mux.HandleFunc("POST /v1/runs/{runID}/steps/{stepName}/tasks/{taskName}", app.handleTaskUpdate)
+	mux.HandleFunc("GET /v1/runs/{runID}/logs", app.handleGetRunLogs)
 
 	server := &http.Server{
 		Addr:    cfg.NopsaiListenAddress,

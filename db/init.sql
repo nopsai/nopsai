@@ -106,3 +106,12 @@ CREATE TABLE environments (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(name, repository_name, environment)
 );
+
+CREATE TABLE run_logs (
+    id SERIAL PRIMARY KEY,
+    run_id UUID NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    line TEXT NOT NULL
+);
+
+CREATE INDEX idx_run_logs_run_id ON run_logs(run_id);

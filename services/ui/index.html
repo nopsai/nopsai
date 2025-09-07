@@ -179,6 +179,27 @@
         </div>
     </div>
 
+    <div id="logs-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
+        <div id="logs-modal-content" class="bg-gray-800 rounded-lg shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col transform scale-95 transition-transform duration-300">
+            <div class="flex items-center justify-between p-4 border-b border-gray-700 flex-shrink-0">
+                <h2 id="logs-modal-title" class="text-xl font-semibold">Agent Logs</h2>
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center">
+                        <input id="follow-logs-checkbox" type="checkbox" checked class="h-4 w-4 text-indigo-600 bg-gray-700 border-gray-600 rounded focus:ring-indigo-500">
+                        <label for="follow-logs-checkbox" class="ml-2 block text-sm text-gray-300">Follow</label>
+                    </div>
+                    <button id="copy-logs-btn" class="text-gray-400 hover:text-white" title="Copy to clipboard">
+                        <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                    </button>
+                    <button id="close-logs-modal-btn" class="text-gray-400 hover:text-white">
+                        <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                </div>
+            </div>
+            <div id="logs-container" class="p-4 flex-1 overflow-y-auto bg-gray-900 font-mono text-sm text-gray-300 whitespace-pre-wrap">
+                </div>
+        </div>
+    </div>
     <script>
     document.addEventListener('DOMContentLoaded', () => {
         const API_BASE_URL = 'http://localhost:8080';
@@ -206,6 +227,12 @@
             confirmDeleteBtn: document.getElementById('confirm-delete-btn'),
             cancelDeleteBtn: document.getElementById('cancel-delete-btn'),
             deleteItemName: document.getElementById('delete-item-name'),
+            logsModal: document.getElementById('logs-modal'),
+            logsModalContent: document.getElementById('logs-modal-content'),
+            closeLogsModalBtn: document.getElementById('close-logs-modal-btn'),
+            logsContainer: document.getElementById('logs-container'),
+            followLogsCheckbox: document.getElementById('follow-logs-checkbox'),
+            copyLogsBtn: document.getElementById('copy-logs-btn'),
         };
 
         let state = {
@@ -216,6 +243,7 @@
             groupToDelete: null,
             expandedGroups: new Set(),
             repoLastRunCache: new Map(),
+            logPollingInterval: null,
         };
 
         const statusConfig = {
@@ -291,7 +319,68 @@
                 renderMainGridContent(subgroups, null, true);
             }
         }
+        function showLogsModal() {
+            if (!state.currentRunData) return;
+            const runId = state.currentRunData.run_info.run_id;
+            const isComplete = state.currentRunData.run_info.is_complete;
 
+            document.getElementById('logs-modal-title').textContent = `Agent Logs for run ${runId.slice(0, 8)}`;
+            DOM.logsContainer.innerHTML = '<p class="text-gray-500">Loading logs...</p>';
+
+            DOM.logsModal.classList.remove('hidden');
+            setTimeout(() => {
+                DOM.logsModal.classList.add('opacity-100');
+                DOM.logsModalContent.classList.remove('scale-95');
+            }, 10);
+
+            fetchAndRenderLogs(runId);
+            if (!isComplete) {
+                if (state.logPollingInterval) clearInterval(state.logPollingInterval);
+                state.logPollingInterval = setInterval(() => fetchAndRenderLogs(runId), 3000);
+            }
+        }
+
+        function closeLogsModal() {
+            if (state.logPollingInterval) clearInterval(state.logPollingInterval);
+            state.logPollingInterval = null;
+
+            DOM.logsModal.classList.remove('opacity-100');
+            DOM.logsModalContent.classList.add('scale-95');
+            setTimeout(() => DOM.logsModal.classList.add('hidden'), 300);
+        }
+
+        async function fetchAndRenderLogs(runId) {
+            const logs = await fetchData(`/v1/runs/${runId}/logs`);
+            if (logs && logs.length > 0) {
+                // This regex helps convert ANSI color codes from the logs into HTML
+                const ansiRegex = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
+                const colorMap = {
+                    '31': 'text-red-400', '32': 'text-green-400', '33': 'text-yellow-400',
+                    '34': 'text-blue-400', '35': 'text-purple-400', '36': 'text-cyan-400', '90': 'text-gray-500',
+                };
+
+                const html = logs.map(log => {
+                    let line = log.line.replace(/</g, '&lt;').replace(/>/g, '&gt;'); // Escape HTML
+
+                    line = line.replace(ansiRegex, (match) => {
+                        const code = match.replace(/\u001b\[|m/g, '');
+                        if (code === '0') return '</span>'; // Reset
+                        const colorClass = colorMap[code];
+                        return colorClass ? `<span class="${colorClass}">` : '';
+                    });
+
+                    const timestamp = new Date(log.timestamp).toLocaleTimeString();
+                    return `<div class="log-line"><span class="text-gray-500 mr-4 select-none">${timestamp}</span><span>${line}</span></div>`;
+                }).join('');
+                DOM.logsContainer.innerHTML = html;
+
+                if (DOM.followLogsCheckbox.checked) {
+                    DOM.logsContainer.scrollTop = DOM.logsContainer.scrollHeight;
+                }
+            } else if (DOM.logsContainer.innerHTML.includes('Loading')) {
+                DOM.logsContainer.innerHTML = '<p class="text-gray-500">No logs yet...</p>';
+            }
+        }
         function handleRunHighlight(event) {
             const targetRunElement = event.target.closest('[data-run-id]');
 
@@ -751,12 +840,18 @@
                             <svg class="h-4 w-4 mr-1.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
                             <span>${runInfo.git_pusher_name || 'N/A'}</span>
                         </div>
-                        <div class="flex items-center" title="Branch">
-                            <svg class="h-4 w-4 mr-1.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                            <span>${branchName}</span>
-                        </div>
+                    <div class="flex items-center" title="Branch">
+                        <svg class="h-4 w-4 mr-1.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                        <span>${branchName}</span>
                     </div>
-                </div>`;
+                    <div class="ml-auto">
+                        <button id="view-logs-btn" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-indigo-500">
+                            <svg class="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7" /></svg>
+                            View Logs
+                        </button>
+                    </div>
+                </div>
+            </div>`;
 
             DOM.mainHeader.innerHTML = headerHTML;
             resetMainView();
@@ -1122,6 +1217,21 @@
             clearInterval(state.pollingInterval);
             state.pollingInterval = null;
         }
+
+        DOM.mainHeader.addEventListener('click', e => {
+            if (e.target.closest('#view-logs-btn')) {
+                showLogsModal();
+            }
+        });
+    
+        DOM.closeLogsModalBtn.addEventListener('click', closeLogsModal);
+        DOM.logsModal.addEventListener('click', e => { if (e.target === DOM.logsModal) closeLogsModal(); });
+        DOM.copyLogsBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(DOM.logsContainer.innerText);
+            const originalIcon = DOM.copyLogsBtn.innerHTML;
+            DOM.copyLogsBtn.innerHTML = '<svg class="h-5 w-5 text-green-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>';
+            setTimeout(() => DOM.copyLogsBtn.innerHTML = originalIcon, 2000);
+        });
 
         DOM.mainGridContainer.addEventListener('mousedown', e => {
             const card = e.target.closest('[data-href]');
