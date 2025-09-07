@@ -48,19 +48,20 @@ type App struct {
 }
 
 type RunListItem struct {
-	RunID         string    `json:"run_id"`
-	PipelineName  string    `json:"pipeline_name"`
-	Status        string    `json:"status"`
-	GitCommitSHA  string    `json:"git_commit_sha"`
-	GitRepoName   string    `json:"git_repo_name"`
-	GitRepoOwner  string    `json:"git_repo_owner"`
-	GitRef        string    `json:"git_ref"`
-	StartedAt     time.Time `json:"started_at"`
-	FinishedAt    time.Time `json:"finished_at"`
-	Duration      string    `json:"duration"`
-	IsComplete    bool      `json:"is_complete"`
-	ParentRunID   *string   `json:"parent_run_id"`
-	GitPusherName string    `json:"git_pusher_name"`
+	RunID          string    `json:"run_id"`
+	PipelineName   string    `json:"pipeline_name"`
+	Status         string    `json:"status"`
+	GitCommitSHA   string    `json:"git_commit_sha"`
+	GitRepoName    string    `json:"git_repo_name"`
+	GitRepoOwner   string    `json:"git_repo_owner"`
+	GitRef         string    `json:"git_ref"`
+	StartedAt      time.Time `json:"started_at"`
+	FinishedAt     time.Time `json:"finished_at"`
+	Duration       string    `json:"duration"`
+	IsComplete     bool      `json:"is_complete"`
+	ParentRunID    *string   `json:"parent_run_id"`
+	GitPusherName  string    `json:"git_pusher_name"`
+	ParentStepName string    `json:"parent_step_name,omitempty"`
 }
 
 type StepDetail struct {
@@ -82,10 +83,17 @@ type TaskDetail struct {
 	TaskIndex  int       `json:"task_index"`
 }
 
+type ParentRunInfo struct {
+	RunID        string `json:"run_id"`
+	PipelineName string `json:"pipeline_name"`
+}
+
 type RunDetail struct {
 	RunInfo            RunListItem     `json:"run_info"`
 	Steps              []StepDetail    `json:"steps"`
 	PipelineDefinition models.Pipeline `json:"pipeline_definition"`
+	ChildRuns          []RunListItem   `json:"child_runs"`
+	ParentRunInfo      *ParentRunInfo  `json:"parent_run_info,omitempty"`
 }
 
 type StepStatusUpdate struct {
@@ -1037,7 +1045,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	var run RunListItem
 	var pipelineDefinition string
 	var startedAt, finishedAt sql.NullTime
-	var commitSHA, repoOwner, repoName, pusherName, gitRef sql.NullString // Added gitRef
+	var commitSHA, repoOwner, repoName, pusherName, gitRef sql.NullString
 	err := a.db.QueryRow(context.Background(), `
 		SELECT
 			run_id, pipeline_name, status, COALESCE(git_commit_sha, ''),
@@ -1049,7 +1057,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	`, runID).Scan(
 		&run.RunID, &run.PipelineName, &run.Status, &commitSHA,
 		&repoOwner, &repoName, &startedAt, &finishedAt,
-		&run.ParentRunID, &pusherName, &pipelineDefinition, &gitRef, // Scan gitRef
+		&run.ParentRunID, &pusherName, &pipelineDefinition, &gitRef,
 	)
 
 	if err != nil {
@@ -1061,7 +1069,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	run.GitRepoOwner = repoOwner.String
 	run.GitRepoName = repoName.String
 	run.GitPusherName = pusherName.String
-	run.GitRef = gitRef.String // Assign the scanned value
+	run.GitRef = gitRef.String
 	if startedAt.Valid {
 		run.StartedAt = startedAt.Time
 	}
@@ -1071,6 +1079,58 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 		run.IsComplete = true
 	} else if startedAt.Valid {
 		run.Duration = time.Since(run.StartedAt).Round(time.Second).String()
+	}
+
+	// Get parent run info if it exists
+	var parentRunInfo *ParentRunInfo
+	if run.ParentRunID != nil && *run.ParentRunID != "" {
+		var parentPipelineName string
+		err := a.db.QueryRow(context.Background(), `
+            SELECT pipeline_name FROM runs WHERE run_id = $1
+        `, *run.ParentRunID).Scan(&parentPipelineName)
+		if err != nil {
+			log.Error().Err(err).Str("parent_run_id", *run.ParentRunID).Msg("Failed to query parent pipeline name")
+		} else {
+			parentRunInfo = &ParentRunInfo{
+				RunID:        *run.ParentRunID,
+				PipelineName: parentPipelineName,
+			}
+		}
+	}
+
+	// Get child runs
+	var childRuns []RunListItem
+	childRows, err := a.db.Query(context.Background(), `
+		SELECT run_id, pipeline_name, status, started_at, finished_at, parent_step_name
+		FROM runs
+		WHERE parent_run_id = $1
+		ORDER BY created_at ASC
+	`, runID)
+	if err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to query child runs for details view")
+	} else {
+		defer childRows.Close()
+		for childRows.Next() {
+			var childRun RunListItem
+			var childStartedAt, childFinishedAt sql.NullTime
+			var parentStepName sql.NullString
+			if err := childRows.Scan(&childRun.RunID, &childRun.PipelineName, &childRun.Status, &childStartedAt, &childFinishedAt, &parentStepName); err != nil {
+				log.Error().Err(err).Msg("Failed to scan child run row")
+				continue
+			}
+			if childStartedAt.Valid {
+				childRun.StartedAt = childStartedAt.Time
+			}
+			if childFinishedAt.Valid {
+				childRun.FinishedAt = childFinishedAt.Time
+				childRun.Duration = childRun.FinishedAt.Sub(childRun.StartedAt).Round(time.Second).String()
+				childRun.IsComplete = true
+			} else if childStartedAt.Valid {
+				childRun.Duration = time.Since(childRun.StartedAt).Round(time.Second).String()
+			}
+			childRun.ParentStepName = parentStepName.String
+			childRuns = append(childRuns, childRun)
+		}
 	}
 
 	// Get all tasks for the run
@@ -1168,6 +1228,8 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 		RunInfo:            run,
 		Steps:              steps,
 		PipelineDefinition: pipeline,
+		ChildRuns:          childRuns,
+		ParentRunInfo:      parentRunInfo,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1195,6 +1257,7 @@ func (a *App) launchAndRunPipeline(
 	parentRunID string,
 	parentHistory string,
 	environment string,
+	parentStepName string,
 ) {
 	runID := uuid.New()
 	log.Info().Str("run_id", runID.String()).Str("parent_run_id", parentRunID).Msgf("Launching pipeline: %s", pipeline.Name)
@@ -1217,6 +1280,12 @@ func (a *App) launchAndRunPipeline(
 	if parentRunID != "" {
 		parentRunIDSQL.String = parentRunID
 		parentRunIDSQL.Valid = true
+	}
+
+	var parentStepNameSQL sql.NullString
+	if parentStepName != "" {
+		parentStepNameSQL.String = parentStepName
+		parentStepNameSQL.Valid = true
 	}
 
 	var groupID sql.NullInt32
@@ -1265,13 +1334,13 @@ func (a *App) launchAndRunPipeline(
 			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref,
 			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
 			git_commit_author_email, git_commit_author_username, git_pusher_name,
-			git_pusher_email, git_check_run_id, group_id)
-			VALUES ($1, $2, $3, 'pending', NOW(), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
+			git_pusher_email, git_check_run_id, group_id, parent_step_name)
+			VALUES ($1, $2, $3, 'pending', NOW(), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
 		runID, parentRunIDSQL, pipeline.Name, timeoutAt, string(pipelineDef),
 		gitContext["repo_owner"], gitContext["repo_name"], gitContext["clone_url"], gitContext["ssh_url"], gitContext["ref"],
 		gitContext["commit_sha"], gitContext["commit_url"], gitContext["commit_message"], gitContext["commit_author_name"],
 		gitContext["commit_author_email"], gitContext["commit_author_username"], gitContext["pusher_name"],
-		gitContext["pusher_email"], gitContext["check_run_id"], groupID,
+		gitContext["pusher_email"], gitContext["check_run_id"], groupID, parentStepNameSQL,
 	)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to insert run record")
@@ -1335,6 +1404,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	parentRunID := r.Header.Get("X-Nopsai-Parent-Run-ID")
 	parentHistory := r.Header.Get("X-Nopsai-Parent-History")
 	environment := r.Header.Get("X-Nopsai-Environment")
+	parentStepName := r.Header.Get("X-Nopsai-Parent-Step-Name")
 	pipelineNameFromPath := r.PathValue("pipelineName")
 
 	if pipelineNameFromPath != "" {
@@ -1472,7 +1542,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		timeoutDuration = duration
 	}
 
-	a.launchAndRunPipeline(w, *resolvedPipeline, resolvedPipelineDef, gitContext, timeoutDuration, parentRunID, parentHistory, environment)
+	a.launchAndRunPipeline(w, *resolvedPipeline, resolvedPipelineDef, gitContext, timeoutDuration, parentRunID, parentHistory, environment, parentStepName)
 }
 
 func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
@@ -1483,12 +1553,12 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 
 	originalRunID := r.PathValue("runID")
 
-	var pipelineDef, pipelineName sql.NullString
+	var pipelineDef, pipelineName, environment sql.NullString
 	var gitContext = make(map[string]string)
 	var timeoutAt sql.NullTime
 
 	query := `SELECT
-				pipeline_definition, pipeline_name, timeout_at,
+				pipeline_definition, pipeline_name, timeout_at, environment,
 				git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref,
 				git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
 				git_commit_author_email, git_commit_author_username, git_pusher_name,
@@ -1500,7 +1570,7 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	var checkRunID sql.NullInt64
 
 	err := a.db.QueryRow(context.Background(), query, originalRunID).Scan(
-		&pipelineDef, &pipelineName, &timeoutAt,
+		&pipelineDef, &pipelineName, &timeoutAt, &environment,
 		&repoOwner, &repoName, &cloneURL, &sshURL, &ref, &commitSHA, &commitURL, &commitMessage,
 		&commitAuthorName, &commitAuthorEmail, &commitAuthorUsername, &pusherName, &pusherEmail, &checkRunID,
 	)
@@ -1578,7 +1648,7 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 		timeoutDuration = originalDuration
 	}
 
-	a.launchAndRunPipeline(w, pipeline, []byte(pipelineDef.String), gitContext, timeoutDuration, "", "", "")
+	a.launchAndRunPipeline(w, pipeline, []byte(pipelineDef.String), gitContext, timeoutDuration, "", "", environment.String, "")
 }
 
 func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
