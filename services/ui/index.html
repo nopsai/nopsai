@@ -617,12 +617,22 @@
                 const config = statusConfig[(run.is_complete ? run.status : 'running').toLowerCase()] || statusConfig.pending;
                 const isActive = run.run_id === activeRunId;
                 const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
-                html += `<li>
+
+                let pipelineNameHTML = `<span class="font-medium truncate text-gray-300">${run.pipeline_name}</span>`;
+                if (run.parent_run_id) {
+                     pipelineNameHTML = `
+                        <div class="flex items-baseline">
+                            <span class="font-medium truncate text-gray-300">${run.pipeline_name}</span>
+                            <span class="ml-1.5 text-[10px] bg-gray-900 text-indigo-400 font-semibold px-1.5 py-0.5 rounded-md">Included</span>
+                        </div>`;
+                }
+
+                html += `<li data-run-id="${run.run_id}" ${run.parent_run_id ? `data-parent-run-id="${run.parent_run_id}"` : ''}>
                             <a href="#/pipelineruns/run/${run.run_id}" class="flex items-center p-2 text-sm text-gray-400 rounded-md hover:bg-gray-700 ${isActive ? 'bg-gray-700 text-white' : ''}">
                                 <svg class="h-4 w-4 mr-2 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
                                 <div class="flex-1 overflow-hidden">
                                     <div class="flex justify-between items-center">
-                                        <span class="font-medium truncate text-gray-300">${run.pipeline_name}</span>
+                                        ${pipelineNameHTML}
                                         <span class="text-xs text-gray-500 flex-shrink-0 ml-2">${timeAgo(timeToDisplay)}</span>
                                     </div>
                                     <div class="text-xs text-gray-400 font-mono mt-1 space-y-1">
@@ -658,12 +668,22 @@
                 const isActive = run.run_id === activeRunId;
                 const branchName = (run.git_ref || '').startsWith('refs/heads/') ? run.git_ref.split('/')[2] : 'N/A';
 
+                // Conditionally add an "Included" badge for child pipelines
+                let pipelineNameHTML = `<span class="font-medium truncate">${run.pipeline_name}</span>`;
+                if (run.parent_run_id) {
+                    pipelineNameHTML = `
+                        <div class="flex items-baseline">
+                            <span class="font-medium truncate">${run.pipeline_name}</span>
+                            <span class="ml-1.5 text-[10px] bg-gray-900 text-indigo-400 font-semibold px-1.5 py-0.5 rounded-md">Included</span>
+                        </div>`;
+                }
+
                 return `<li data-run-id="${run.run_id}" ${run.parent_run_id ? `data-parent-run-id="${run.parent_run_id}"` : ''}>
                         <a href="#/pipelineruns/run/${run.run_id}" class="flex items-center p-2 text-gray-300 rounded-md hover:bg-gray-700 ${isActive ? 'bg-gray-700 text-white' : ''}">
                             <svg class="h-5 w-5 mr-3 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
                             <div class="flex-1 overflow-hidden">
                                 <div class="flex justify-between items-center">
-                                    <span class="font-medium truncate">${run.pipeline_name}</span>
+                                    ${pipelineNameHTML}
                                     <span class="text-xs text-gray-500 flex-shrink-0 ml-2">${timeAgo(timeToDisplay)}</span>
                                 </div>
                                 <div class="text-xs text-gray-400 font-mono mt-1 space-y-1">
@@ -677,7 +697,7 @@
                                     </div>
                                     <div class="flex items-center">
                                         <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                                        <span class="truncate">${run.git_commit_sha.slice(0, 7)}</span>
+                                        <span class="truncate">${(run.git_commit_sha || '...').slice(0, 7)}</span>
                                     </div>
                                 </div>
                             </div>
@@ -738,6 +758,17 @@
             const config = statusConfig[status.toLowerCase()] || statusConfig.pending;
             const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
             const branchName = (run.git_ref || '').startsWith('refs/heads/') ? run.git_ref.split('/')[2] : 'N/A';
+            
+            // Conditionally add an "Included" badge if the run is a child pipeline
+            let pipelineNameHTML = `<p class="text-base font-semibold text-gray-200 truncate pr-4">${run.pipeline_name}</p>`;
+            if (run.parent_run_id) {
+                pipelineNameHTML = `
+                    <div class="flex items-center gap-x-2">
+                        <p class="text-base font-semibold text-gray-200">${run.pipeline_name}</p>
+                        <span class="ml-1.5 text-[10px] bg-gray-900 text-indigo-400 font-semibold px-1.5 py-0.5 rounded-md">Included</span>
+                    </div>`;
+            }
+
             return `
                 <a href="#/pipelineruns/run/${run.run_id}"
                      data-run-id="${run.run_id}" 
@@ -745,7 +776,7 @@
                      class="block bg-gray-800/50 hover:bg-gray-700/50 transition-all duration-200 rounded-lg p-4 flex flex-col justify-between cursor-pointer border border-transparent hover:border-indigo-500/50">
                     <div>
                         <div class="flex items-start justify-between">
-                            <p class="text-base font-semibold text-gray-200 truncate pr-4">${run.pipeline_name}</p>
+                            ${pipelineNameHTML}
                             <div class="flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center ${config.color}">
                                 <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
                             </div>
@@ -765,7 +796,7 @@
                         </div>
                         <div class="flex items-center">
                             <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                            <span class="truncate">${run.git_commit_sha || '...'}</span>
+                            <span class="truncate">${(run.git_commit_sha || '...').slice(0, 7)}</span>
                         </div>
                          <div class="flex items-center">
                             <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H5v-2H3v-2H1v-4a6 6 0 016-6h1.5" /></svg>
