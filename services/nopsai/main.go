@@ -1009,14 +1009,14 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		run.GitRef = gitRef.String
 		if startedAt.Valid {
 			run.StartedAt = startedAt.Time
-		}
-		if finishedAt.Valid {
-			run.FinishedAt = finishedAt.Time
-			run.Duration = run.FinishedAt.Sub(run.StartedAt).Round(time.Second).String()
-			run.IsComplete = true
-		} else if startedAt.Valid {
-			run.Duration = time.Since(run.StartedAt).Round(time.Second).String()
-			run.IsComplete = false
+			if finishedAt.Valid {
+				run.FinishedAt = finishedAt.Time
+				run.Duration = run.FinishedAt.Sub(run.StartedAt).Round(time.Second).String()
+				run.IsComplete = true
+			} else {
+				run.Duration = time.Since(run.StartedAt).Round(time.Second).String()
+				run.IsComplete = false
+			}
 		} else {
 			run.IsComplete = true // If it hasn't even started, it's not "running"
 		}
@@ -1076,13 +1076,13 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	run.FailureReason = failureReason.String
 	if startedAt.Valid {
 		run.StartedAt = startedAt.Time
-	}
-	if finishedAt.Valid {
-		run.FinishedAt = finishedAt.Time
-		run.Duration = run.FinishedAt.Sub(run.StartedAt).Round(time.Second).String()
-		run.IsComplete = true
-	} else if startedAt.Valid {
-		run.Duration = time.Since(run.StartedAt).Round(time.Second).String()
+		if finishedAt.Valid {
+			run.FinishedAt = finishedAt.Time
+			run.Duration = run.FinishedAt.Sub(run.StartedAt).Round(time.Second).String()
+			run.IsComplete = true
+		} else {
+			run.Duration = time.Since(run.StartedAt).Round(time.Second).String()
+		}
 	}
 
 	// Get parent run info if it exists
@@ -1710,17 +1710,40 @@ func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var query string
 	if update.Status == "running" {
-		query = "UPDATE tasks SET status = 'running', started_at = NOW() WHERE run_id = $1 AND step_name = $2 AND task_name = $3"
-		_, err := a.db.Exec(context.Background(), query, runID, stepName, taskName)
+		// Use a transaction to ensure both updates succeed or fail together.
+		tx, err := a.db.Begin(context.Background())
+		if err != nil {
+			log.Error().Err(err).Str("run_id", runID).Msg("Failed to start transaction for task update")
+			http.Error(w, "Failed to update task status", http.StatusInternalServerError)
+			return
+		}
+		defer tx.Rollback(context.Background())
+
+		// 1. Update the task's status and start time.
+		_, err = tx.Exec(context.Background(), "UPDATE tasks SET status = 'running', started_at = NOW() WHERE run_id = $1 AND step_name = $2 AND task_name = $3", runID, stepName, taskName)
 		if err != nil {
 			log.Error().Err(err).Str("run_id", runID).Str("step", stepName).Str("task", taskName).Msg("Failed to update task start time")
 			http.Error(w, "Failed to update task status", http.StatusInternalServerError)
 			return
 		}
+
+		// 2. Conditionally update the parent run's start time.
+		_, err = tx.Exec(context.Background(), "UPDATE runs SET started_at = NOW() WHERE run_id = $1 AND started_at IS NULL", runID)
+		if err != nil {
+			log.Error().Err(err).Str("run_id", runID).Msg("Failed to update run start time")
+			http.Error(w, "Failed to update task status", http.StatusInternalServerError)
+			return
+		}
+
+		if err := tx.Commit(context.Background()); err != nil {
+			log.Error().Err(err).Str("run_id", runID).Msg("Failed to commit transaction for task update")
+			http.Error(w, "Failed to update task status", http.StatusInternalServerError)
+			return
+		}
 	} else {
-		query = "UPDATE tasks SET status = $1, exit_code = $2, finished_at = NOW() WHERE run_id = $3 AND step_name = $4 AND task_name = $5"
+		// Handle finished statuses (success, failure, etc.)
+		query := "UPDATE tasks SET status = $1, exit_code = $2, finished_at = NOW() WHERE run_id = $3 AND step_name = $4 AND task_name = $5"
 		_, err := a.db.Exec(context.Background(), query, update.Status, update.ExitCode, runID, stepName, taskName)
 		if err != nil {
 			log.Error().Err(err).Str("run_id", runID).Str("step", stepName).Str("task", taskName).Msg("Failed to update task finish status")
