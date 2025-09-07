@@ -1001,65 +1001,54 @@
             return { nodes: Object.values(nodes), edges, width: Math.max(container.clientWidth, graphWidth + 20), height: Math.max(container.clientHeight, graphHeight + 20) };
         }
 
-        function renderTaskGraph(stepName, tasks) {
-            const taskGraphEl = document.getElementById('task-graph');
-            if (!state.currentRunData || !state.currentRunData.pipeline_definition || !state.currentRunData.pipeline_definition.steps) {
-                 taskGraphEl.innerHTML = '<p class="text-gray-500 text-sm">Waiting for pipeline data...</p>';
-                 return;
-            }
-            if (!tasks || tasks.length === 0) {
-                taskGraphEl.innerHTML = '<p class="text-gray-500 text-sm">This step has no tasks defined.</p>';
-                return;
-            }
-            if (tasks.length === 1) {
-                taskGraphEl.innerHTML = '<p class="text-gray-500 text-sm">This step has a single task with no internal dependencies.</p>';
-                return;
-            }
+        async function showStepDetails(stepName) {
+            if (!state.currentRunData) return;
+            // The initial call to render the modal for a step from the main pipeline
+            await renderModalForStep(state.currentRunData.run_info.run_id, stepName);
 
-            const stepDef = state.currentRunData.pipeline_definition.steps.find(s => s.name === stepName);
-            const tasksWithDeps = tasks.map(task => {
-                const taskDef = stepDef && stepDef.tasks ? stepDef.tasks.find(t => t.name === task.task_name) : null;
-                return { ...task, depends_on: taskDef ? taskDef.depends_on : [] };
-            });
-
-            const { nodes, edges, width, height } = calculateGraphLayout(tasksWithDeps, taskGraphEl, 160, 40, 60, 40);
-
-            let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><defs><marker id="task_arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#6b7280" /></marker></defs>`;
-            edges.forEach(edge => svgContent += `<line x1="${edge.x1}" y1="${edge.y1}" x2="${edge.x2}" y2="${edge.y2}" stroke="#4b5563" stroke-width="1" marker-end="url(#task_arrow)"></line>`);
-            nodes.forEach(node => {
-                const status = (node.status || 'pending').toLowerCase();
-                const config = statusConfig[status] || statusConfig.pending;
-                const duration = formatDuration(node.started_at, node.finished_at);
-                svgContent += `
-                    <g transform="translate(${node.x}, ${node.y})">
-                        <rect class="${config.rectClass}" x="0" y="0" width="${node.width}" height="${node.height}" rx="6" stroke-width="1.5"></rect>
-                        <foreignObject x="0" y="0" width="${node.width}" height="${node.height}">
-                            <div xmlns="http://www.w3.org/2000/svg" class="w-full h-full flex items-center p-2 text-xs">
-                                <svg class="h-4 w-4 mr-2 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
-                                <div class="flex-1 overflow-hidden">
-                                    <p class="font-medium text-gray-200 truncate">${node.task_name}</p>
-                                    <p class="text-gray-400">${duration}</p>
-                                </div>
-                            </div>
-                        </foreignObject>
-                    </g>`;
-            });
-            taskGraphEl.innerHTML = svgContent + `</svg>`;
+            DOM.modal.classList.remove('hidden');
+            setTimeout(() => {
+                DOM.modal.classList.add('opacity-100');
+                DOM.modalContent.classList.remove('scale-95');
+            }, 10);
         }
 
-        function showStepDetails(stepName) {
-            if (!state.currentRunData || !state.currentRunData.steps) return;
-            const step = state.currentRunData.steps.find(s => s.name === stepName);
+        async function renderModalForStep(runId, stepName, parentContext = null) {
+            const runDetails = await fetchData(`/v1/runs/${runId}`);
+            if (!runDetails) return;
+            
+            const step = runDetails.steps.find(s => s.name === stepName);
             if (!step) return;
 
             const config = statusConfig[step.status.toLowerCase()] || statusConfig.pending;
             const stepConfig = step.configuration;
+            
+            const modalHeader = document.querySelector('#modal-content > div:first-child');
+            const closeButtonHTML = modalHeader.querySelector('#close-modal-btn').outerHTML;
 
-            document.getElementById('modal-title').textContent = `Step: ${stepName}`;
-            document.getElementById('modal-status').innerHTML = `<span class="font-bold capitalize ${config.color}">${step.status}</span>`;
-            document.getElementById('modal-duration').textContent = step.duration || '0s';
+            // --- RENDER MODAL HEADER ---
+            let headerHTML = `
+                <div>
+                    <h2 id="modal-title" class="text-xl font-semibold">Step: ${stepName}</h2>
+                    <div class="flex items-center space-x-6 mt-1 text-sm">
+                        <div><span class="text-gray-400">Status: </span><span id="modal-status" class="font-medium ${config.color}">${step.status}</span></div>
+                        <div><span class="text-gray-400">Duration: </span><span id="modal-duration" class="font-medium">${step.duration || '0s'}</span></div>
+                    </div>
+                </div>`;
+            
+            if (parentContext) {
+                const parentContextString = JSON.stringify(parentContext).replace(/"/g, '&quot;');
+                headerHTML = `
+                <div class="flex items-center space-x-4">
+                     <button id="modal-back-btn" data-parent-context='${parentContextString}' class="p-1 rounded-full text-gray-400 hover:bg-gray-700 hover:text-white" title="Back to parent step">
+                        <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    </button>
+                    ${headerHTML}
+                </div>`;
+            }
+            modalHeader.innerHTML = headerHTML + closeButtonHTML;
 
-            // --- RENDER CONFIGURATION DETAILS (RIGHT COLUMN) ---
+            // --- RENDER CONFIGURATION (RIGHT PANE) - CORRECTED & COMPLETE ---
             const configContainer = document.getElementById('step-config-container');
             let configHTML = '';
 
@@ -1123,15 +1112,74 @@
                 configHTML += '</div></div>';
             }
             configContainer.innerHTML = configHTML;
-            
-            // --- RENDER EXECUTION GRAPH (LEFT COLUMN) ---
-            renderTaskGraph(step.name, step.tasks);
 
-            DOM.modal.classList.remove('hidden');
-            setTimeout(() => {
-                DOM.modal.classList.add('opacity-100');
-                DOM.modalContent.classList.remove('scale-95');
-            }, 10);
+
+            // --- RENDER GRAPH (LEFT PANE) ---
+            if (stepConfig.include) {
+                const childRun = runDetails.child_runs.find(cr => cr.parent_step_name === stepName);
+                if (childRun) {
+                    const childRunDetails = await fetchData(`/v1/runs/${childRun.run_id}`);
+                    if (childRunDetails) {
+                        renderTaskGraph(stepName, childRunDetails.steps, { runId: childRun.run_id, parentRunId: runId, parentStepName: stepName });
+                    }
+                }
+            } else {
+                renderTaskGraph(stepName, step.tasks);
+            }
+        }
+
+        function renderTaskGraph(stepName, tasks, clickableNodeContext = null) {
+            const taskGraphEl = document.getElementById('task-graph');
+            if (!state.currentRunData || !state.currentRunData.pipeline_definition || !state.currentRunData.pipeline_definition.steps) {
+                 taskGraphEl.innerHTML = '<p class="text-gray-500 text-sm">Waiting for pipeline data...</p>';
+                 return;
+            }
+            if (!tasks || tasks.length === 0) {
+                taskGraphEl.innerHTML = '<p class="text-gray-500 text-sm">This step has no tasks defined.</p>';
+                return;
+            }
+
+            const stepDef = state.currentRunData.pipeline_definition.steps.find(s => s.name === stepName);
+            const itemsWithDeps = tasks.map(item => {
+                if (item.task_name) {
+                    const taskDef = stepDef && stepDef.tasks ? stepDef.tasks.find(t => t.name === item.task_name) : null;
+                    return { ...item, depends_on: taskDef ? taskDef.depends_on : [] };
+                } else {
+                    return { ...item, depends_on: item.depends_on || [] };
+                }
+            });
+
+            const { nodes, edges, width, height } = calculateGraphLayout(itemsWithDeps, taskGraphEl, 160, 40, 60, 40);
+
+            let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><defs><marker id="task_arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#6b7280" /></marker></defs>`;
+            edges.forEach(edge => svgContent += `<line x1="${edge.x1}" y1="${edge.y1}" x2="${edge.x2}" y2="${edge.y2}" stroke="#4b5563" stroke-width="1" marker-end="url(#task_arrow)"></line>`);
+            nodes.forEach(node => {
+                const status = (node.status || 'pending').toLowerCase();
+                const config = statusConfig[status] || statusConfig.pending;
+                const duration = formatDuration(node.started_at, node.finished_at);
+                const itemName = node.task_name || node.name;
+                
+                let clickableAttrs = '';
+                if (clickableNodeContext) {
+                    const contextString = JSON.stringify({ ...clickableNodeContext, childStepName: itemName }).replace(/"/g, '&quot;');
+                    clickableAttrs = `class="graph-node" data-context='${contextString}'`;
+                }
+
+                svgContent += `
+                    <g transform="translate(${node.x}, ${node.y})" ${clickableAttrs}>
+                        <rect class="${config.rectClass}" x="0" y="0" width="${node.width}" height="${node.height}" rx="6" stroke-width="1.5"></rect>
+                        <foreignObject x="0" y="0" width="${node.width}" height="${node.height}">
+                            <div xmlns="http://www.w3.org/2000/svg" class="w-full h-full flex items-center p-2 text-xs">
+                                <svg class="h-4 w-4 mr-2 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
+                                <div class="flex-1 overflow-hidden">
+                                    <p class="font-medium text-gray-200 truncate">${itemName}</p>
+                                    <p class="text-gray-400">${duration}</p>
+                                </div>
+                            </div>
+                        </foreignObject>
+                    </g>`;
+            });
+            taskGraphEl.innerHTML = svgContent + `</svg>`;
         }
 
         function renderBreadcrumbs(groupId) {
@@ -1272,10 +1320,6 @@
         }
 
         function closeModal() {
-            const hash = window.location.hash;
-            const newHash = hash.split('/steps/')[0];
-            if (hash !== newHash) window.location.hash = newHash;
-
             DOM.modal.classList.remove('opacity-100');
             DOM.modalContent.classList.add('scale-95');
             setTimeout(() => DOM.modal.classList.add('hidden'), 300);
@@ -1451,7 +1495,6 @@
             }
         });
 
-// --- DRAG AND DROP LOGIC FOR SIDEBAR ---
         (() => {
             let draggedElement = null;
 
@@ -1516,8 +1559,43 @@
             });
         })();
 
-        DOM.closeModalBtn.addEventListener('click', closeModal);
-        DOM.modal.addEventListener('click', e => { if (e.target === DOM.modal) closeModal(); });
+        DOM.modalContent.addEventListener('click', e => {
+            // Case 1: User clicks the 'X' close button
+            const closeBtn = e.target.closest('#close-modal-btn');
+            if (closeBtn) {
+                const hash = window.location.hash;
+                const newHash = hash.split('/steps/')[0];
+                if (hash !== newHash) window.location.hash = newHash;
+                closeModal();
+                return;
+            }
+
+            // Case 2: User clicks the 'Back' button
+            const backBtn = e.target.closest('#modal-back-btn');
+            if (backBtn) {
+                const parentContext = JSON.parse(backBtn.dataset.parentContext);
+                renderModalForStep(parentContext.runId, parentContext.stepName);
+                return;
+            }
+
+            // Case 3: User clicks a child step node to drill down
+            const node = e.target.closest('.graph-node[data-context]');
+            if (node) {
+                const context = JSON.parse(node.dataset.context);
+                renderModalForStep(context.runId, context.childStepName, { runId: context.parentRunId, stepName: context.parentStepName });
+                return;
+            }
+        });
+
+        // This listener for the modal background remains separate
+        DOM.modal.addEventListener('click', e => {
+            if (e.target === DOM.modal) {
+                 const hash = window.location.hash;
+                 const newHash = hash.split('/steps/')[0];
+                 if (hash !== newHash) window.location.hash = newHash;
+                 closeModal();
+            }
+        });
         DOM.openSidebarBtn.addEventListener('click', () => DOM.sidebar.classList.remove('-translate-x-full'));
         DOM.closeSidebarBtn.addEventListener('click', () => DOM.sidebar.classList.add('-translate-x-full'));
 
