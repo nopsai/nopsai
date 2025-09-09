@@ -1448,11 +1448,17 @@
 
         async function router() {
             stopPolling();
-            resetMainView();
-            DOM.placeholder.classList.remove('hidden');
+            // Clear the previous run data to prevent stale states
+            state.currentRunData = null; 
+            
+            // Let the route handler decide what to show, don't show placeholder by default.
+            resetMainView(); 
 
             const hash = window.location.hash || '#/pipelineruns/main';
-            const [path, subpath, id, ...rest] = hash.slice(2).split('/');
+            const parts = hash.slice(2).split('/');
+            const path = parts[0];
+            const subpath = parts[1];
+            const id = parts[2];
 
             DOM.pages.forEach(p => p.classList.toggle('active', p.dataset.page === path));
 
@@ -1460,39 +1466,50 @@
                 await fetchGroups();
                 
                 const currentTab = (subpath === 'recent' || subpath === 'main') ? subpath : (state.currentTab || 'main');
+
                 state.currentTab = currentTab;
                 updateTabs(currentTab);
                 
                 await renderSidebar(path, currentTab);
 
-                if (subpath === 'run') {
+                // --- REVISED AND EXPLICIT ROUTING LOGIC ---
+                if (subpath === 'run' && id) {
                     await fetchActiveRun(id);
+                    const stepName = parts.length > 3 && parts[3] === 'steps' ? parts[4] : null;
+                    if (stepName) {
+                        showStepDetails(stepName);
+                    }
                 } else if (subpath === 'recent') {
-                     DOM.mainHeader.textContent = "Recent Pipeline Runs";
-                     DOM.mainGridContainer.classList.remove('hidden');
-                     const runs = await fetchData('/v1/runs');
-                     renderMainGridContent(null, runs, false);
-                } else { // 'main' tab or group view
-                    const groupId = subpath === 'main' ? (id ? parseInt(id, 10) : null) : (subpath ? parseInt(subpath, 10) : null);
-                     if (groupId) {
-                         state.selectedGroupId = groupId;
-                         renderBreadcrumbs(groupId);
-                         await fetchMainContent(groupId);
-                     } else {
-                         state.selectedGroupId = null;
-                         renderBreadcrumbs(null);
-                         const rootGroups = state.groups.filter(g => g.parent_id === null || g.parent_id === 0);
-                         renderMainGridContent(rootGroups, null, true);
-                     }
+                    DOM.mainHeader.textContent = "Recent Pipeline Runs";
+                    const runs = await fetchData('/v1/runs');
+                    renderMainGridContent(null, runs, false);
+                } else if (subpath === 'main') {
+                    const groupId = id ? parseInt(id, 10) : null;
+                    state.selectedGroupId = groupId;
+                    renderBreadcrumbs(groupId);
+                    if (groupId) {
+                        await fetchMainContent(groupId);
+                    } else {
+                        const rootGroups = state.groups.filter(g => g.parent_id === null || g.parent_id === 0);
+                        renderMainGridContent(rootGroups, null, true);
+                    }
+                } else {
+                    // Fallback for old group URLs like #/pipelineruns/123
+                    const groupId = subpath ? parseInt(subpath, 10) : null;
+                    if (groupId && !isNaN(groupId)) {
+                        window.location.hash = `#/pipelineruns/main/${groupId}`; // Redirect to new canonical URL
+                    } else {
+                         // Default to main view if URL is unrecognized
+                        window.location.hash = '#/pipelineruns/main';
+                    }
                 }
-
-                 const stepName = rest.length > 1 && rest[0] === 'steps' ? rest[1] : null;
-                 if (stepName) {
-                    showStepDetails(stepName);
-                 }
             } else {
                 await renderSidebar(path, 'main'); 
                 DOM.mainHeader.textContent = path.charAt(0).toUpperCase() + path.slice(1);
+                // Show a placeholder for non-pipelinerun pages since they are not implemented
+                DOM.placeholder.classList.remove('hidden');
+                DOM.placeholder.querySelector('h3').textContent = `Welcome to ${path}`;
+                DOM.placeholder.querySelector('p').textContent = 'This page is under construction.';
             }
         }
 
