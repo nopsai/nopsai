@@ -17,31 +17,31 @@
     <style>
         :root {
             /* Light Theme Color Palette - REFINED */
-            --bg-primary: #ffffff;       /* white - Page background */
-            --bg-secondary: #f9fafb;     /* gray-50 - Softer content background for cards/modals */
-            --bg-tertiary: #f3f4f6;     /* gray-100 */
-            --bg-hover: #60ac9f;         /* indigo-700 */
-            --bg-active: #60ac9f;         /* indigo-800 */
+            --bg-primary: #ffffff;      /* white - Page background */
+            --bg-secondary: #f9fafb;    /* gray-50 - Softer content background for cards/modals */
+            --bg-tertiary: #f3f4f6;    /* gray-100 */
+            --bg-hover: #e0e7ff;      /* indigo-100 */
+            --bg-active: #c7d2fe;      /* indigo-200 */
             --bg-overlay: rgba(17, 24, 39, 0.75); /* gray-900/75 */
-            --bg-code: #f3f4f6;          /* gray-100 */
-            --bg-code-darker: #e5e7eb;   /* gray-200 */
+            --bg-code: #f3f4f6;        /* gray-100 */
+            --bg-code-darker: #e5e7eb;  /* gray-200 */
 
-            --text-primary: #1f2937;     /* gray-800 */
-            --text-secondary: #6b7280;   /* gray-500 */
-            --text-accent: #4f46e5;       /* indigo-600 */
-            --text-inverted: #f9fafb;     /* gray-50 */
-            --text-link: #4338ca;         /* indigo-700 */
+            --text-primary: #1f2937;    /* gray-800 */
+            --text-secondary: #6b7280;  /* gray-500 */
+            --text-accent: #4f46e5;      /* indigo-600 */
+            --text-inverted: #f9fafb;    /* gray-50 */
+            --text-link: #4338ca;      /* indigo-700 */
             --text-placeholder: #6b7280; /* gray-500 */
-            --text-button: #ffffff;      /* white */
+            --text-button: #ffffff;     /* white */
 
-            --border-primary: #e5e7eb;   /* gray-200 */
-            --border-secondary: #d1d5db;   /* gray-300 */
-            --border-accent: #6366f1;     /* indigo-500 */
-            --border-input: #d1d5db;      /* gray-300 */
+            --border-primary: #e5e7eb;  /* gray-200 */
+            --border-secondary: #d1d5db;  /* gray-300 */
+            --border-accent: #6366f1;    /* indigo-500 */
+            --border-input: #d1d5db;    /* gray-300 */
             --border-input-focus: #4f46e5; /* indigo-600 */
 
-            --scrollbar-thumb: #9ca3af;   /* gray-400 */
-            --scrollbar-track: #e5e7eb;   /* gray-200 */
+            --scrollbar-thumb: #9ca3af;  /* gray-400 */
+            --scrollbar-track: #e5e7eb;  /* gray-200 */
             
             --run-highlight-outline: rgba(245, 158, 11, 0.7); /* amber-500 */
             --run-highlight-shadow: rgba(245, 158, 11, 0.3);
@@ -49,38 +49,38 @@
 
         html.dark {
             /* Dark Theme Color Palette */
-            --bg-primary: #111827;       /* gray-900 */
-            --bg-secondary: #1f2937;     /* gray-800 */
-            --bg-tertiary: #374151;       /* gray-700 */
-            --bg-hover: #00559b81;
-            --bg-active: #00559b81;
+            --bg-primary: #111827;      /* gray-900 */
+            --bg-secondary: #1f2937;    /* gray-800 */
+            --bg-tertiary: #374151;      /* gray-700 */
+            --bg-hover: #374151;      /* gray-700 */
+            --bg-active: #4b5563;      /* gray-600 */
             --bg-overlay: rgba(0, 0, 0, 0.75);
-            --bg-code: #374151;          /* gray-700 */
-            --bg-code-darker: #111827;   /* gray-900 */
+            --bg-code: #374151;        /* gray-700 */
+            --bg-code-darker: #111827;  /* gray-900 */
 
-            --text-primary: #f3f4f6;     /* gray-200 */
-            --text-secondary: #9ca3af;   /* gray-400 */
-            --text-accent: #818cf8;       /* indigo-400 */
-            --text-inverted: #111827;     /* gray-900 */
-            --text-link: #a5b4fc;         /* indigo-300 */
+            --text-primary: #f3f4f6;    /* gray-200 */
+            --text-secondary: #9ca3af;  /* gray-400 */
+            --text-accent: #818cf8;      /* indigo-400 */
+            --text-inverted: #111827;    /* gray-900 */
+            --text-link: #a5b4fc;      /* indigo-300 */
             --text-placeholder: #9ca3af; /* gray-400 */
             --text-button: #ffffff;
 
-            --border-primary: #374151;   /* gray-700 */
-            --border-secondary: #4b5563;   /* gray-600 */
-            --border-accent: #818cf8;     /* indigo-400 */
-            --border-input: #4b5563;      /* gray-600 */
+            --border-primary: #374151;  /* gray-700 */
+            --border-secondary: #4b5563;  /* gray-600 */
+            --border-accent: #818cf8;    /* indigo-400 */
+            --border-input: #4b5563;    /* gray-600 */
             --border-input-focus: #818cf8; /* indigo-400 */
             
-            --scrollbar-thumb: #4b5563;   /* gray-600 */
-            --scrollbar-track: #1f2937;   /* gray-800 */
+            --scrollbar-thumb: #4b5563;  /* gray-600 */
+            --scrollbar-track: #1f2937;  /* gray-800 */
 
             --run-highlight-outline: rgba(250, 204, 21, 0.7); /* amber-400 */
             --run-highlight-shadow: rgba(250, 204, 21, 0.3);
         }
 
-        body { 
-            font-family: 'Inter', sans-serif; 
+        body {  
+            font-family: 'Inter', sans-serif;  
             background-color: var(--bg-primary);
             color: var(--text-primary);
             transition: background-color 0.3s ease, color 0.3s ease;
@@ -88,12 +88,11 @@
         .sidebar-scrollbar::-webkit-scrollbar { width: 4px; }
         .sidebar-scrollbar::-webkit-scrollbar-thumb { background-color: var(--scrollbar-thumb); border-radius: 10px; }
         .sidebar-scrollbar::-webkit-scrollbar-track { background-color: var(--scrollbar-track); }
-        .graph-node { cursor: pointer; transition: all 0.2s ease-in-out; }
-        .graph-node:hover .node-rect { stroke-width: 2; }
-        .graph-node:hover .node-text { font-weight: 600; }
+        .graph-node { cursor: pointer; }
+        
         [data-page] { display: none; }
         [data-page].active { display: block; }
-        #graph-wrapper { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; overflow: auto; }
+        #graph-wrapper { display: flex; align-items: flex-start; justify-content: flex-start; width: 100%; height: 100%; overflow: auto; padding-top: 2rem; }
         .group-header-container:hover .delete-group-btn, .group-card:hover .delete-group-btn { opacity: 1; }
         .chevron { transition: transform 0.2s ease-in-out; }
         .expanded .chevron { transform: rotate(90deg); }
@@ -129,13 +128,42 @@
         .placeholder-icon {
             color: var(--text-secondary);
         }
+
+        /* New Graph Styles */
+        .edge-path {
+            fill: none;
+            stroke: var(--border-secondary);
+            stroke-width: 2px;
+            transition: stroke 0.3s ease;
+        }
+        .edge-path--completed {
+            stroke: var(--border-accent);
+        }
+        .edge-path--running {
+            stroke: url(#edge-gradient);
+            stroke-dasharray: 10;
+            animation: edge-flow 1s linear infinite;
+        }
+        @keyframes edge-flow {
+            from { stroke-dashoffset: 20; }
+            to { stroke-dashoffset: 0; }
+        }
+        .graph-node path {
+             transition: all 0.2s ease-in-out;
+        }
+        .graph-node:hover path {
+            transform: translate(-12px, -12px) scale(1.3);
+        }
+        .graph-node:hover text {
+            font-weight: 600;
+        }
     </style>
 </head>
-<body>
+<body class="bg-[var(--bg-primary)]">
 
     <div id="app" class="flex h-screen overflow-hidden">
         <aside id="sidebar" class="bg-[var(--bg-secondary)] flex-shrink-0 flex flex-col transition-transform duration-300 ease-in-out -translate-x-full sm:translate-x-0 fixed sm:static h-full z-20">
-            <div class="flex items-center justify-between px-6 h-16 border-b border-[var(--border-primary)]">
+            <div class="flex items-center justify-between px-6 h-16 border-b border-[var(--border-primary)] flex-shrink-0">
                 <div class="flex items-center">
                     <svg class="h-8 w-8 text-[var(--text-accent)]" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"> <path stroke="none" d="M0 0h24v24H0z"/> <path d="M12.5 21H6a1 1 0 0 1 -1 -1V4a1 1 0 0 1 1 -1h12a1 1 0 0 1 1 1v5" /> <path d="M18 22v-6" /> <path d="M21 19l-3 -3l-3 3" /> <path d="M3 13h8" /> <path d="M5 10v6" /></svg>
                     <span class="ml-3 text-xl font-semibold">NopsAI</span>
@@ -149,11 +177,11 @@
         <div id="sidebar-resizer" class="w-1.5 cursor-col-resize flex-shrink-0 bg-[var(--bg-tertiary)] hover:bg-[var(--border-accent)] transition-colors duration-200 hidden sm:block"></div>
 
         <main class="flex-1 flex flex-col overflow-hidden">
-            <header class="flex items-start justify-between px-6 py-4 themed-bg-blur backdrop-blur-sm shadow-lg z-10 border-b border-[var(--border-primary)]">
-                <button id="open-sidebar-btn" class="sm:hidden text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
+            <header class="flex items-center justify-between px-6 py-4 themed-bg-blur backdrop-blur-sm shadow-sm z-10 border-b border-[var(--border-primary)] flex-shrink-0">
+                <button id="open-sidebar-btn" class="sm:hidden text-[var(--text-secondary)] hover:text-[var(--text-primary)] mr-4">
                     <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7" /></svg>
                 </button>
-                <div id="main-header" class="flex-1 text-xl font-semibold">Dashboard</div>
+                <div id="main-header" class="flex-1 text-xl font-semibold min-w-0">Dashboard</div>
                 <button id="theme-toggle" type="button" class="ml-4 p-2 rounded-full text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-accent)]">
                     <svg id="theme-toggle-dark-icon" class="hidden h-5 w-5" fill="currentColor" viewBox="0 0 20 20"><path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"></path></svg>
                     <svg id="theme-toggle-light-icon" class="hidden h-5 w-5" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.707.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm-.707 11.282a1 1 0 011.414 0l.707-.707a1 1 0 11-1.414-1.414l-.707.707zM1 11a1 1 0 100-2H0a1 1 0 100 2h1z" fill-rule="evenodd" clip-rule="evenodd"></path></svg>
@@ -787,22 +815,23 @@
                 const runs = runsByBranch[branch];
                 const latestRun = runs[0];
                 const config = statusConfig[(latestRun.is_complete ? latestRun.status : 'running').toLowerCase()] || statusConfig.pending;
-
+                const isExpanded = index === 0; // Expand first branch by default
+                
                 html += `
                 <div class="bg-[var(--bg-secondary)] rounded-lg shadow-md">
-                    <div class="branch-header cursor-pointer flex items-center justify-between p-4 border-b border-[var(--border-primary)]">
-                        <div class="flex items-center">
-                            <svg class="h-5 w-5 mr-3 text-[var(--text-secondary)] chevron" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                            <svg class="h-5 w-5 mr-3 text-[var(--text-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                            <span class="font-semibold text-lg text-[var(--text-primary)]">${branch}</span>
-                            <span class="ml-4 text-sm text-[var(--text-secondary)]">(${runs.length} runs)</span>
+                    <div class="branch-header cursor-pointer flex items-center justify-between p-4 border-b border-[var(--border-primary)] ${isExpanded ? 'expanded' : ''}">
+                        <div class="flex items-center min-w-0">
+                            <svg class="h-5 w-5 mr-3 text-[var(--text-secondary)] chevron flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                            <svg class="h-5 w-5 mr-3 text-[var(--text-accent)] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                            <span class="font-semibold text-lg text-[var(--text-primary)] truncate">${branch}</span>
+                            <span class="ml-4 text-sm text-[var(--text-secondary)] hidden sm:inline">(${runs.length} runs)</span>
                         </div>
                         <div class="flex items-center">
                             <span class="text-sm text-[var(--text-secondary)] mr-3 hidden sm:block">Latest run: ${timeAgo(latestRun.started_at)}</span>
                             <svg class="h-6 w-6 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
                         </div>
                     </div>
-                    <div class="branch-runs p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4" style="${index === 0 ? 'max-height: 1000px;' : ''}">
+                    <div class="branch-runs p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4" style="${isExpanded ? 'max-height: 2000px;' : ''}">
                         ${runs.map(run => renderRunCard(run)).join('')}
                     </div>
                 </div>`;
@@ -830,7 +859,7 @@
                 <a href="#/pipelineruns/run/${run.run_id}"
                     data-run-id="${run.run_id}" 
                     ${run.parent_run_id ? `data-parent-run-id="${run.parent_run_id}"` : ''}
-                    class="block bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] transition-all duration-200 rounded-lg p-4 flex flex-col justify-between cursor-pointer border border-[var(--border-primary)] hover:border-[var(--border-accent)] shadow-sm hover:shadow-lg">
+                    class="block bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] transition-all duration-200 rounded-lg p-4 flex flex-col justify-between cursor-pointer border border-[var(--border-primary)] hover:border-[var(--border-accent)] shadow-sm hover:shadow-lg">
                     <div>
                         <div class="flex items-start justify-between">
                             ${pipelineNameHTML}
@@ -894,13 +923,135 @@
             });
 
              if (showAddButton) {
-                html += `
-                    <div id="add-group-card" class="relative group bg-[var(--bg-secondary)] p-4 rounded-md border-2 border-dashed border-[var(--border-secondary)] hover:border-[var(--border-accent)] hover:bg-[var(--bg-tertiary)] transition-colors duration-200 cursor-pointer flex items-center justify-center">
-                        <svg class="h-10 w-10 text-[var(--text-secondary)] group-hover:text-[var(--text-accent)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+                 html += `
+                    <div id="add-group-card" class="relative group bg-[var(--bg-secondary)] p-4 rounded-md border-2 border-dashed border-[var(--border-secondary)] hover:border-[var(--border-accent)] hover:bg-[var(--bg-tertiary)] transition-colors duration-200 cursor-pointer flex items-center justify-center min-h-[120px]">
+                        <div class="text-center">
+                           <svg class="mx-auto h-8 w-8 text-[var(--text-secondary)] group-hover:text-[var(--text-accent)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+                           <p class="mt-2 text-sm font-medium text-[var(--text-secondary)] group-hover:text-[var(--text-accent)]">New Folder</p>
+                        </div>
                     </div>`;
             }
             html += '</div>';
             DOM.mainGridContainer.innerHTML = html;
+        }
+
+        function calculateGraphLayout(items, container, nodeWidth, nodeHeight, hGap, vGap, isVertical = false) {
+            if (!items || items.length === 0) return { nodes: [], edges: [], width: 0, height: 0 };
+
+            const nodes = {};
+            const adj = {};
+            const itemNameKey = 'task_name' in items[0] ? 'task_name' : 'name';
+
+            items.forEach((item, index) => {
+                const name = item[itemNameKey];
+                nodes[name] = { ...item, id: name, level: -1, parents: new Set(), children: new Set() };
+                adj[name] = [];
+            });
+
+            items.forEach(item => {
+                const name = item[itemNameKey];
+                (item.depends_on || []).forEach(dep => {
+                    if (nodes[dep] && nodes[name]) {
+                        adj[dep].push(name);
+                        nodes[name].parents.add(dep);
+                        nodes[dep].children.add(name);
+                    }
+                });
+            });
+
+            // Assign levels (topological sort)
+            let level = 0;
+            let queue = Object.values(nodes).filter(node => node.parents.size === 0);
+            let processedCount = 0;
+            
+            while(queue.length > 0) {
+                const levelSize = queue.length;
+                for(let i=0; i < levelSize; i++){
+                    const node = queue.shift();
+                    node.level = level;
+                    processedCount++;
+
+                    (adj[node.id] || []).forEach(childId => {
+                        const childNode = nodes[childId];
+                        childNode.parents.delete(node.id);
+                        if (childNode.parents.size === 0) {
+                            queue.push(childNode);
+                        }
+                    });
+                }
+                level++;
+            }
+
+            if (processedCount < Object.keys(nodes).length) {
+                console.warn("Cycle detected in graph, layout may be incorrect.");
+                // Handle cycles by assigning remaining nodes to a final level
+                Object.values(nodes).filter(n => n.level === -1).forEach(n => n.level = level);
+            }
+            
+            const levels = [];
+            Object.values(nodes).forEach(node => {
+                if (!levels[node.level]) levels[node.level] = [];
+                levels[node.level].push(node);
+            });
+
+            const PADDING_X = 80;
+            const PADDING_Y = 60;
+            let totalWidth, totalHeight;
+
+            if (isVertical) {
+                let maxNodesInLevel = 0;
+                levels.forEach(l => { if(l) maxNodesInLevel = Math.max(maxNodesInLevel, l.length); });
+                totalWidth = maxNodesInLevel * nodeWidth + (maxNodesInLevel > 1 ? (maxNodesInLevel - 1) * hGap : 0);
+                totalHeight = levels.length * nodeHeight + (levels.length > 1 ? (levels.length - 1) * vGap : 0);
+                
+                levels.forEach((levelNodes, i) => {
+                    if (!levelNodes) return;
+                    const levelWidth = levelNodes.length * nodeWidth + (levelNodes.length > 1 ? (levelNodes.length - 1) * hGap : 0);
+                    const xOffset = (totalWidth - levelWidth) / 2;
+                    levelNodes.forEach((node, j) => {
+                        node.x = j * (nodeWidth + hGap) + xOffset + PADDING_X / 2;
+                        node.y = i * (nodeHeight + vGap) + PADDING_Y / 2;
+                    });
+                });
+            } else { // Horizontal layout
+                let maxNodesInLevel = 0;
+                levels.forEach(l => { if(l) maxNodesInLevel = Math.max(maxNodesInLevel, l.length); });
+                totalWidth = levels.length * nodeWidth + (levels.length > 1 ? (levels.length - 1) * hGap : 0);
+                totalHeight = maxNodesInLevel * nodeHeight + (maxNodesInLevel > 1 ? (maxNodesInLevel - 1) * vGap : 0);
+                
+                levels.forEach((levelNodes, i) => {
+                    if (!levelNodes) return;
+                    const levelHeight = levelNodes.length * nodeHeight + (levelNodes.length > 1 ? (levelNodes.length - 1) * vGap : 0);
+                    const yOffset = (totalHeight - levelHeight) / 2;
+                    levelNodes.forEach((node, j) => {
+                        node.x = i * (nodeWidth + hGap) + PADDING_X / 2;
+                        node.y = j * (nodeHeight + vGap) + yOffset + PADDING_Y / 2;
+                    });
+                });
+            }
+
+            Object.values(nodes).forEach(node => {
+                node.width = nodeWidth;
+                node.height = nodeHeight;
+            });
+
+            const edges = [];
+            Object.values(nodes).forEach(item => {
+                (item.depends_on || []).forEach(dep => {
+                    const fromNode = nodes[dep];
+                    const toNode = nodes[item[itemNameKey]];
+                    if (fromNode && toNode) {
+                        edges.push({ from: fromNode, to: toNode });
+                    }
+                });
+            });
+            
+            return { 
+                nodes: Object.values(nodes), 
+                edges, 
+                width: totalWidth + PADDING_X, 
+                height: totalHeight + PADDING_Y
+            };
         }
 
         function renderPipelineGraph(runDetails) {
@@ -911,7 +1062,7 @@
             const repoGroup = state.groups.find(g => g.name === `${runInfo.git_repo_owner}/${runInfo.git_repo_name}`);
             const repoLink = repoGroup ? `#/pipelineruns/main/${repoGroup.id}` : '#/pipelineruns/main';
 
-            let headerHTML = `<div class="w-full">`;
+            let headerHTML = `<div class="w-full min-w-0">`;
 
             if (runDetails.parent_run_info) {
                 headerHTML += `
@@ -924,8 +1075,8 @@
             }
 
             headerHTML += `
-                    <div class="flex flex-wrap items-baseline gap-x-3">
-                        <a href="${repoLink}" class="text-xl font-semibold text-[var(--text-secondary)] hover:text-[var(--text-accent)] transition-colors">${repoFullName}</a>
+                    <div class="flex flex-wrap items-baseline gap-x-3 min-w-0">
+                        <a href="${repoLink}" class="text-xl font-semibold text-[var(--text-secondary)] hover:text-[var(--text-accent)] transition-colors truncate">${repoFullName}</a>
                         <h1 class="text-xl font-semibold text-[var(--text-primary)] truncate">${runInfo.pipeline_name}</h1>
                     </div>
 
@@ -974,140 +1125,106 @@
                 `;
             } else {
                 DOM.graphContainer.classList.remove('hidden');
-                const { nodes, edges, width, height } = calculateGraphLayout(runDetails.steps, DOM.pageContentWrapper, 180, 50, 80, 50);
+                const isVerticalLayout = DOM.graphWrapper.clientWidth < 768;
 
-                let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="8" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" class="fill-current text-gray-400 dark:text-gray-600" /></marker></defs>`;
-                edges.forEach(edge => svgContent += `<line x1="${edge.x1}" y1="${edge.y1}" x2="${edge.x2}" y2="${edge.y2}" class="stroke-current text-gray-300 dark:text-gray-600" stroke-width="1.5" marker-end="url(#arrowhead)"></line>`);
+                const nodeWidth = isVerticalLayout ? 160 : 120;
+                const nodeHeight = isVerticalLayout ? 80 : 100;
+                const hGap = isVerticalLayout ? 40 : 120;
+                const vGap = isVerticalLayout ? 100 : 20;
+
+                const { nodes, edges, width, height } = calculateGraphLayout(runDetails.steps, DOM.graphWrapper, nodeWidth, nodeHeight, hGap, vGap, isVerticalLayout);
+
+                const getEdgePath = (fromNode, toNode) => {
+                    const iconRadius = 14; // Adjusted for scaled icon
+                    const from_center_x = fromNode.x + fromNode.width / 2;
+                    const from_center_y = fromNode.y + fromNode.height / 2;
+                    const to_center_x = toNode.x + toNode.width / 2;
+                    const to_center_y = toNode.y + toNode.height / 2;
+
+                    let x1, y1, x2, y2, curveX, curveY;
+
+                    if (isVerticalLayout) {
+                        x1 = from_center_x;
+                        y1 = from_center_y + iconRadius;
+                        x2 = to_center_x;
+                        y2 = to_center_y - iconRadius;
+                        curveX = x1;
+                        curveY = y1 + (y2 - y1) * 0.5;
+                        return `M ${x1} ${y1} C ${curveX} ${curveY}, ${x2} ${curveY}, ${x2} ${y2}`;
+                    } else { // Horizontal
+                        x1 = from_center_x + iconRadius;
+                        y1 = from_center_y;
+                        x2 = to_center_x - iconRadius;
+                        y2 = to_center_y;
+                        curveX = x1 + (x2 - x1) * 0.5;
+                        return `M ${x1} ${y1} C ${curveX} ${y1}, ${curveX} ${y2}, ${x2} ${y2}`;
+                    }
+                };
+
+                const isRunning = !runDetails.run_info.is_complete;
+
+                let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <marker id="arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                            <path d="M 0 0 L 10 5 L 0 10 z" class="fill-current text-gray-300 dark:text-gray-600" />
+                        </marker>
+                        <marker id="arrowhead-completed" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                            <path d="M 0 0 L 10 5 L 0 10 z" class="fill-current text-[var(--text-accent)]" />
+                        </marker>
+                        ${isRunning ? `
+                        <linearGradient id="edge-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                            <stop offset="0%" style="stop-color:var(--border-secondary);" />
+                            <stop offset="50%" style="stop-color:var(--border-accent);" />
+                            <stop offset="100%" style="stop-color:var(--border-secondary);" />
+                        </linearGradient>
+                        ` : ''}
+                    </defs>
+                `;
+                
+                edges.forEach(edge => {
+                    const pathData = getEdgePath(edge.from, edge.to);
+                    const isCompletedEdge = edge.from.status === 'Success' && (edge.to.status.toLowerCase() !== 'pending' && edge.to.status.toLowerCase() !== 'skipped');
+
+                    const marker = isCompletedEdge ? 'url(#arrowhead-completed)' : 'url(#arrowhead)';
+                    svgContent += `<path d="${pathData}" class="edge-path ${isCompletedEdge ? 'edge-path--completed' : ''} ${isRunning && isCompletedEdge ? 'edge-path--running' : ''}" marker-end="${marker}"></path>`;
+                });
+
                 nodes.forEach(node => {
                     const config = statusConfig[node.status.toLowerCase()] || statusConfig.pending;
-                    const originalStep = runDetails.pipeline_definition.steps.find(s => s.name === node.name);
+                    const node_center_x = node.x + node.width / 2;
+                    const node_center_y = node.y + node.height / 2;
                     
-                    let includeHTML = '';
+                    const originalStep = runDetails.pipeline_definition.steps.find(s => s.name === node.name);
+                    let subText = `<text x="${node_center_x}" y="${node_center_y + 53}" text-anchor="middle" class="text-xs fill-current text-[var(--text-secondary)]">${node.duration || '...'}</text>`;
                     if (originalStep && originalStep.include) {
-                        if (originalStep.include.startsWith('pipeline:')) {
-                            const childRun = runDetails.child_runs && runDetails.child_runs.find(cr => cr.parent_step_name === node.name);
-                            if (childRun && childRun.run_id) {
-                                includeHTML = `<a href="#/pipelineruns/run/${childRun.run_id}" data-included-link="true" class="text-xs text-[var(--text-link)] hover:underline">Included Pipeline</a>`;
-                            } else {
-                                includeHTML = `<span class="text-xs text-[var(--text-secondary)]">Included Pipeline</span>`;
-                            }
-                        } else if (originalStep.include.startsWith('step:')) {
-                            includeHTML = `<span class="text-xs text-[var(--text-link)]">Included Step</span>`;
+                        let includeType = originalStep.include.startsWith('pipeline:') ? '(Included Pipeline)' : '(Included Step)';
+                        let linkClass = originalStep.include.startsWith('pipeline:') ? 'text-[var(--text-link)] hover:underline' : 'text-[var(--text-accent)]';
+                        
+                        const childRun = originalStep.include.startsWith('pipeline:') ? runDetails.child_runs.find(cr => cr.parent_step_name === node.name) : null;
+                        
+                        if (childRun) {
+                             subText = `<a href="#/pipelineruns/run/${childRun.run_id}" class="fill-current ${linkClass}">
+                                <text x="${node_center_x}" y="${node_center_y + 53}" text-anchor="middle" class="text-xs">${includeType}</text>
+                             </a>`;
+                        } else {
+                             subText = `<text x="${node_center_x}" y="${node_center_y + 53}" text-anchor="middle" class="text-xs fill-current ${linkClass}">${includeType}</text>`;
                         }
                     }
-                    const isInclude = !!includeHTML;
+
 
                     svgContent += `
-                        <g class="graph-node" data-step-name="${node.name}" transform="translate(${node.x}, ${node.y})">
-                            <rect class="node-rect ${config.rectClass}" x="0" y="0" width="${node.width}" height="${node.height}" rx="8"></rect>
-                            <foreignObject x="0" y="0" width="${node.width}" height="${node.height}">
-                                <div xmlns="http://www.w3.org/2000/xhtml" class="w-full h-full flex items-center p-3">
-                                    <svg class="h-5 w-5 mr-2 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
-                                    <div>
-                                        <p class="node-text text-sm font-medium text-[var(--text-primary)] truncate">${node.name}</p>
-                                        ${isInclude ? includeHTML : `<p class="text-xs text-[var(--text-secondary)] capitalize">${node.status}</p>`}
-                                    </div>
-                                </div>
-                            </foreignObject>
+                        <g class="graph-node" data-step-name="${node.name}">
+                            <g transform="translate(${node_center_x}, ${node_center_y})">
+                                <path d="${config.icon}" transform="translate(-12, -12) scale(1.2)" stroke-width="2" class="stroke-current ${config.color}" fill="none"/>
+                            </g>
+                            <text x="${node_center_x}" y="${node_center_y + 35}" text-anchor="middle" class="text-sm font-semibold fill-current text-[var(--text-primary)]">${node.name}</text>
+                            ${subText}
                         </g>`;
                 });
-                DOM.graphWrapper.innerHTML = svgContent;
+                DOM.graphWrapper.innerHTML = svgContent + `</svg>`;
             }
         }
-
-        function calculateGraphLayout(items, container, nodeWidth, nodeHeight, hGap, vGap) {
-            if (!items || items.length === 0) return { nodes: [], edges: [], width: 0, height: 0 };
-
-            const nodes = {};
-            const adj = {};
-            const itemNameKey = 'task_name' in items[0] ? 'task_name' : 'name';
-
-            items.forEach(item => {
-                const name = item[itemNameKey];
-                nodes[name] = { ...item, parents: 0, children: [], x: 0, y: 0, width: nodeWidth, height: nodeHeight };
-                adj[name] = [];
-            });
-
-            items.forEach(item => {
-                const name = item[itemNameKey];
-                (item.depends_on || []).forEach(dep => {
-                    if (adj[dep] && nodes[name]) {
-                        adj[dep].push(name);
-                        nodes[name].parents++;
-                    }
-                });
-            });
-
-            const levels = [];
-            let queue = Object.values(nodes).filter(node => node.parents === 0);
-            let processedNodes = 0;
-            while (queue.length > 0 && processedNodes < items.length) {
-                processedNodes += queue.length;
-                const currentLevelNames = queue.map(n => n[itemNameKey]);
-                levels.push(currentLevelNames);
-
-                const nextQueue = [];
-                queue.forEach(node => {
-                    (adj[node[itemNameKey]] || []).forEach(neighborName => {
-                        const neighbor = nodes[neighborName];
-                        if (neighbor) {
-                            neighbor.parents--;
-                            if (neighbor.parents === 0) nextQueue.push(neighbor);
-                        }
-                    });
-                });
-                queue = nextQueue;
-            }
-
-            if (processedNodes < items.length) {
-                console.warn("A dependency cycle was detected. Some items may not be rendered.", items);
-                Object.keys(nodes).forEach(nodeName => {
-                    if (nodes[nodeName].parents > 0) delete nodes[nodeName];
-                });
-            }
-
-            let maxNodesInLevel = 0;
-            levels.forEach(levelItems => maxNodesInLevel = Math.max(maxNodesInLevel, levelItems.length));
-
-            const graphWidth = maxNodesInLevel * nodeWidth + (maxNodesInLevel - 1) * hGap;
-            const graphHeight = levels.length * nodeHeight + (levels.length - 1) * vGap;
-            const PADDING = 40; 
-
-            levels.forEach((levelItems, i) => {
-                const levelWidth = levelItems.length * (nodeWidth + hGap) - hGap;
-                const xOffset = ((graphWidth - levelWidth) / 2) + (PADDING / 2);
-                
-                levelItems.forEach((itemName, j) => {
-                    const node = nodes[itemName];
-                    if(node) {
-                        node.x = j * (nodeWidth + hGap) + xOffset;
-                        node.y = i * (nodeHeight + vGap) + (PADDING / 2);
-                    }
-                });
-            });
-
-            const edges = [];
-            Object.values(nodes).forEach(item => {
-                (item.depends_on || []).forEach(dep => {
-                    const fromNode = nodes[dep];
-                    const toNode = nodes[item[itemNameKey]];
-                    if (fromNode && toNode) {
-                        edges.push({
-                            x1: fromNode.x + nodeWidth / 2, y1: fromNode.y + nodeHeight,
-                            x2: toNode.x + nodeWidth / 2, y2: toNode.y
-                        });
-                    }
-                });
-            });
-            
-            return { 
-                nodes: Object.values(nodes), 
-                edges, 
-                width: graphWidth + PADDING, 
-                height: graphHeight + PADDING 
-            };
-        }
-
+        
         async function showStepDetails(stepName) {
             if (!state.currentRunData) return;
             await renderModalForStep(state.currentRunData.run_info.run_id, stepName);
@@ -1251,15 +1368,48 @@
                 }
             });
 
-            const { nodes, edges, width, height } = calculateGraphLayout(itemsWithDeps, taskGraphEl, 160, 40, 60, 40);
+            const isVerticalLayout = taskGraphEl.clientWidth < 500;
+            const nodeWidth = isVerticalLayout ? 160 : 120;
+            const nodeHeight = isVerticalLayout ? 80 : 100;
+            const hGap = isVerticalLayout ? 20 : 60;
+            const vGap = isVerticalLayout ? 80 : 20;
+
+            const { nodes, edges, width, height } = calculateGraphLayout(itemsWithDeps, taskGraphEl, nodeWidth, nodeHeight, hGap, vGap, isVerticalLayout);
+            
+            const getEdgePath = (fromNode, toNode) => {
+                const iconRadius = 14; 
+                const from_center_x = fromNode.x + fromNode.width / 2;
+                const from_center_y = fromNode.y + fromNode.height / 2;
+                const to_center_x = toNode.x + toNode.width / 2;
+                const to_center_y = toNode.y + toNode.height / 2;
+                let x1, y1, x2, y2, curveX, curveY;
+                if (isVerticalLayout) {
+                    x1 = from_center_x; y1 = from_center_y + iconRadius;
+                    x2 = to_center_x; y2 = to_center_y - iconRadius;
+                    curveX = x1; curveY = y1 + (y2 - y1) * 0.5;
+                    return `M ${x1} ${y1} C ${curveX} ${curveY}, ${x2} ${curveY}, ${x2} ${y2}`;
+                } else {
+                    x1 = from_center_x + iconRadius; y1 = from_center_y;
+                    x2 = to_center_x - iconRadius; y2 = to_center_y;
+                    curveX = x1 + (x2 - x1) * 0.5;
+                    return `M ${x1} ${y1} C ${curveX} ${y1}, ${curveX} ${y2}, ${x2} ${y2}`;
+                }
+            };
+
 
             let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><defs><marker id="task_arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" class="fill-current text-gray-400 dark:text-gray-600" /></marker></defs>`;
-            edges.forEach(edge => svgContent += `<line x1="${edge.x1}" y1="${edge.y1}" x2="${edge.x2}" y2="${edge.y2}" class="stroke-current text-gray-300 dark:text-gray-600" stroke-width="1" marker-end="url(#task_arrow)"></line>`);
+            
+            edges.forEach(edge => {
+                svgContent += `<path d="${getEdgePath(edge.from, edge.to)}" class="edge-path" marker-end="url(#task_arrow)"></path>`;
+            });
+
             nodes.forEach(node => {
                 const status = (node.status || 'pending').toLowerCase();
                 const config = statusConfig[status] || statusConfig.pending;
                 const duration = formatDuration(node.started_at, node.finished_at);
                 const itemName = node.task_name || node.name;
+                const node_center_x = node.x + node.width / 2;
+                const node_center_y = node.y + node.height / 2;
                 
                 let clickableAttrs = '';
                 if (clickableNodeContext) {
@@ -1268,17 +1418,12 @@
                 }
 
                 svgContent += `
-                    <g transform="translate(${node.x}, ${node.y})" ${clickableAttrs}>
-                        <rect class="${config.rectClass}" x="0" y="0" width="${node.width}" height="${node.height}" rx="6" stroke-width="1.5"></rect>
-                        <foreignObject x="0" y="0" width="${node.width}" height="${node.height}">
-                            <div xmlns="http://www.w3.org/2000/svg" class="w-full h-full flex items-center p-2 text-xs">
-                                <svg class="h-4 w-4 mr-2 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
-                                <div class="flex-1 overflow-hidden">
-                                    <p class="font-medium text-[var(--text-primary)] truncate">${itemName}</p>
-                                    <p class="text-[var(--text-secondary)]">${duration}</p>
-                                </div>
-                            </div>
-                        </foreignObject>
+                    <g transform="translate(0,0)" ${clickableAttrs} data-task-name="${itemName}">
+                         <g transform="translate(${node_center_x}, ${node_center_y})">
+                            <path d="${config.icon}" transform="translate(-12, -12) scale(1.1)" stroke-width="2" class="stroke-current ${config.color}" fill="none"/>
+                        </g>
+                        <text x="${node_center_x}" y="${node_center_y + 30}" text-anchor="middle" class="text-xs font-semibold fill-current text-[var(--text-primary)]">${itemName}</text>
+                        <text x="${node_center_x}" y="${node_center_y + 48}" text-anchor="middle" class="text-[10px] fill-current text-[var(--text-secondary)]">${duration}</text>
                     </g>`;
             });
             taskGraphEl.innerHTML = svgContent + `</svg>`;
@@ -1821,9 +1966,19 @@
                 document.addEventListener('mousemove', mouseMoveHandler);
                 document.addEventListener('mouseup', mouseUpHandler, { once: true });
             });
-       })();           
+       })();
+       
+       new ResizeObserver(() => {
+           requestAnimationFrame(() => {
+               if (state.currentRunData) {
+                   renderPipelineGraph(state.currentRunData);
+               }
+           });
+       }).observe(DOM.graphWrapper);
+
         router();
     });
     </script>
 </body>
 </html>
+
