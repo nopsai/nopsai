@@ -102,13 +102,6 @@
             height: 100%; 
             overflow: auto; 
         }
-.edge-path {
-  stroke: var(--border-secondary);
-  stroke-width: 2.25px;
-  stroke-linecap: round;
-  fill: none;
-  vector-effect: non-scaling-stroke;
-}
         .group-header-container:hover .delete-group-btn, .group-card:hover .delete-group-btn { opacity: 1; }
         .chevron { transition: transform 0.2s ease-in-out; }
         .expanded .chevron { transform: rotate(90deg); }
@@ -149,8 +142,10 @@
         .edge-path {
             fill: none;
             stroke: var(--border-secondary);
-            stroke-width: 2px;
-            transition: stroke 0.3s ease;
+            stroke-width: 2.25px;
+            stroke-linecap: round;
+            vector-effect: non-scaling-stroke;
+            transition: stroke 0.3s ease, stroke-opacity 0.3s ease, filter 0.3s ease;
         }
         .edge-path--completed {
             stroke: var(--border-accent);
@@ -160,6 +155,25 @@
             stroke-dasharray: 10;
             animation: edge-flow 1s linear infinite;
         }
+        /* Subtle pulse for completed (non-running) edges */
+        @keyframes edge-completed-pulse {
+            0%, 100% { stroke-opacity: 0.75; }
+            50% { stroke-opacity: 1; }
+        }
+        .edge-path--completed:not(.edge-path--running) {
+            animation: edge-completed-pulse 2.4s ease-in-out infinite;
+        }
+        /* Hover highlight for connectors */
+        .edge-path--highlight {
+            stroke-width: 2.75px;
+            filter: drop-shadow(0 0 8px rgba(99,102,241,.45));
+        }
+        /* Fade-in for expanded task clusters (Steps view) */
+        @keyframes cluster-fade {
+            from { opacity: 0; transform: translateY(4px); }
+            to   { opacity: 1; transform: none; }
+        }
+        .step-cluster { animation: cluster-fade 200ms ease-out both; }
         @keyframes edge-flow {
             from { stroke-dashoffset: 20; }
             to { stroke-dashoffset: 0; }
@@ -173,6 +187,10 @@
         }
         .graph-node:hover text {
             font-weight: 600;
+        }
+        /* Extra hover glow for step icons */
+        .graph-node:hover {
+            filter: drop-shadow(0 0 10px rgba(99,102,241,.35));
         }
         
         /* --- NEW: Column-based Task View Styles --- */
@@ -236,11 +254,25 @@
   border: 1px solid var(--border-primary);
   box-shadow: 0 6px 18px rgba(0,0,0,0.08);
   transition: box-shadow .2s ease, transform .2s ease, border-color .2s ease;
+  position: relative;
 }
 .task-step-card:hover {
   transform: translateY(-1px);
   box-shadow: 0 10px 24px rgba(0,0,0,0.12);
   border-color: var(--border-accent);
+}
+/* Accent ring on hover */
+.task-step-card::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 12px;
+  box-shadow: 0 0 0 0 rgba(99,102,241,0);
+  transition: box-shadow .2s ease;
+  pointer-events: none;
+}
+.task-step-card:hover::after {
+  box-shadow: 0 0 0 2px var(--border-accent), 0 0 18px rgba(99,102,241,.25);
 }
 
 /* status pill in card headers */
@@ -302,6 +334,59 @@
   background: var(--bg-tertiary);
 }
 
+/* Task node boxes (mini graphs in Tasks view) */
+.task-node-box {
+  fill: var(--bg-primary);
+  stroke: var(--border-primary);
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+  rx: 10; ry: 10;
+}
+html.dark .task-node-box { fill: var(--bg-tertiary); }
+
+.task-node-label {
+  font-size: 11px;
+}
+
+/* Controls pill for style toggle */
+#tasks-graph-controls {
+  position: absolute; right: 12px; bottom: 12px; z-index: 30;
+  display: flex; gap: 8px; align-items: center;
+}
+#tasks-graph-controls .ctrl {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+#tasks-graph-controls .segmented {
+  display: inline-flex; border-radius: 10px; overflow: hidden;
+  border: 1px solid var(--border-primary);
+}
+#tasks-graph-controls .segmented button {
+  padding: 6px 10px; font-size: 12px; border: 0; background: var(--bg-secondary); color: var(--text-secondary);
+}
+#tasks-graph-controls .segmented button.active {
+  background: var(--bg-tertiary); color: var(--text-primary);
+}
+
+/* Keep lines crisp - merged into .edge-path above */
+
+        .task-graph-mini-container svg { max-width: 100%; max-height: 100%; display: block; }
+        .step-cluster { cursor: pointer; }
+
+        /* Visual grouping for expanded task clusters in Steps view */
+        .step-cluster-box {
+          fill: var(--bg-secondary);
+          stroke: var(--border-primary);
+          stroke-width: 1.25px;
+          vector-effect: non-scaling-stroke;
+          opacity: .86;
+        }
+        html.dark .step-cluster-box { fill: var(--bg-tertiary); opacity: .78; }
+
     </style>
 </head>
 <body class="bg-[var(--bg-primary)]">
@@ -356,15 +441,11 @@
                         </div>
 
                         <div id="tasks-graph-container" class="hidden w-full h-full overflow-hidden cursor-grab relative">
-                             <div id="tasks-graph-wrapper" class="w-full h-full">
-                                </div>
-                            <svg id="tasks-graph-connections" class="pointer-events-none absolute inset-0 z-0 w-full h-full"></svg>
-                            <div id="tasks-empty" class="absolute inset-0 flex items-center justify-center text-center text-[var(--text-placeholder)] hidden">
-                                <div>
-                                    <svg class="h-12 w-12 mx-auto mb-4 placeholder-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                    <h3 class="text-lg font-semibold text-[var(--text-primary)]">No Tasks to Display</h3>
-                                    <p>This pipeline run does not contain any steps with tasks.</p>
-                                </div>
+  <div id="tasks-graph-wrapper" class="w-full h-full relative">
+    <svg id="tasks-graph-connections" class="pointer-events-none absolute inset-0 z-0 w-full h-full"></svg>
+  </div>
+  <div id="tasks-empty" class="absolute inset-0 ... hidden">...</div>
+</div>
                             </div>
                         </div>
                     </div>
@@ -516,6 +597,10 @@
             groupToDelete: null,
             panzoomInstance: null,
             expandedGroups: new Set(),
+            expandedSteps: new Set(),
+            expandedStepPositions: new Map(), // stepName -> { x, y }
+            stepLayoutScale: 1.0, // scales step size + gaps when needed
+            taskClusterScale: 1.0, // scales inside expanded boxes (tasks + gaps)
             repoLastRunCache: new Map(),
             logPollingInterval: null,
             currentGraphView: localStorage.getItem('graphView') || 'tasks', // MODIFIED: Default to new tasks view
@@ -532,9 +617,15 @@
 
 
         function initPanAndZoom(view, layout = null) {
+  // Clean up any previous panzoom + wheel handler
   if (state.panzoomInstance) {
     try { state.panzoomInstance.destroy(); } catch (e) {}
     state.panzoomInstance = null;
+  }
+  if (state._wheelTarget && state._wheelHandler) {
+    try { state._wheelTarget.removeEventListener('wheel', state._wheelHandler); } catch (e) {}
+    state._wheelTarget = null;
+    state._wheelHandler = null;
   }
 
   let container, element;
@@ -555,15 +646,28 @@
     maxScale: 5,
     minScale: 0.1,
   });
-  container.addEventListener('wheel', state.panzoomInstance.zoomWithWheel);
+  state._wheelTarget = container;
+  state._wheelHandler = state.panzoomInstance.zoomWithWheel;
+  container.addEventListener('wheel', state._wheelHandler, { passive: false });
 
   container.addEventListener('dblclick', () => {
     state.panzoomInstance.reset({ animate: true });
     fitToView();
   });
 
-  // Initial fit
-  setTimeout(() => fitToView(), 60);
+  // Restore transform for Steps view if requested and no fit is pending; otherwise fit
+  const restore = (view === 'steps' && state._stepsViewTransform && !state._fitOnNextStepsRender) ? state._stepsViewTransform : null;
+  if (restore) {
+    try {
+      state.panzoomInstance.zoom(restore.scale || 1, { animate: false });
+      state.panzoomInstance.pan(restore.x || 0, restore.y || 0, { animate: false });
+    } catch {}
+    // one-time restore
+    delete state._stepsViewTransform;
+  } else {
+    // Initial fit
+    setTimeout(() => fitToView(), 60);
+  }
 
   function fitToView() {
     const parentRect = container.getBoundingClientRect();
@@ -593,6 +697,11 @@
   }
 
   state.__fitToView = fitToView;
+  if (view === 'steps' && state._fitOnNextStepsRender) {
+    // ensure a final synchronous fit
+    setTimeout(() => fitToView(), 0);
+    delete state._fitOnNextStepsRender;
+  }
 }
 
 
@@ -748,6 +857,25 @@
             const runDetails = await fetchData(`/v1/runs/${runId}`);
             if (runDetails) {
                 state.currentRunData = runDetails;
+                // Restore persisted Steps layout for this run (expanded, positions, scale)
+                try {
+                    const key = `nopsai_steps_layout:${runDetails.run_info?.run_id || ''}`;
+                    const raw = localStorage.getItem(key);
+                    if (raw) {
+                        const saved = JSON.parse(raw);
+                        if (saved && typeof saved === 'object') {
+                            if (Array.isArray(saved.expanded)) {
+                                state.expandedSteps = new Set(saved.expanded);
+                            }
+                            if (saved.positions && typeof saved.positions === 'object') {
+                                const entries = Object.entries(saved.positions);
+                                state.expandedStepPositions = new Map(entries.map(([k, v]) => [k, { x: Number(v.x)||0, y: Number(v.y)||0 }]));
+                            }
+                            if (saved.scale) state.stepLayoutScale = Math.max(1, Math.min(1.8, Number(saved.scale) || 1.0));
+                            if (saved.tasksScale) state.taskClusterScale = Math.max(0.65, Math.min(1.0, Number(saved.tasksScale) || 1.0));
+                        }
+                    }
+                } catch {}
                 renderRunView(runDetails);
                 const stepName = window.location.hash.split('/steps/')[1];
                 if (stepName) {
@@ -1362,16 +1490,32 @@
             } else {
                 renderStepsGraph(runDetails);
                 renderTasksGraph(runDetails);
+                ensureStepsControls();
                 switchGraphView(state.currentGraphView);
             }
         }
 
         function renderStepsGraph(runDetails) {
-            const isVerticalLayout = DOM.graphWrapper.clientWidth < 768;
-            const nodeWidth = isVerticalLayout ? 160 : 120;
-            const nodeHeight = isVerticalLayout ? 80 : 100;
-            const hGap = isVerticalLayout ? 40 : 120;
-            const vGap = isVerticalLayout ? 100 : 20;
+            // If nothing is expanded, reset scale to default so the base layout stays compact
+            if (!state.expandedSteps || state.expandedSteps.size === 0) {
+                state.stepLayoutScale = 1.0;
+            }
+
+            const pref = localStorage.getItem('stepsLayout') || 'auto';
+            const autoVertical = DOM.graphWrapper.clientWidth < 768;
+            const isVerticalLayout = (pref === 'auto') ? autoVertical : (pref === 'vertical');
+            const MAX_STEP_LAYOUT_SCALE = 1.8;
+            const MIN_TASK_CLUSTER_SCALE = 0.65;
+            const scale = Math.max(1, Math.min(MAX_STEP_LAYOUT_SCALE, state.stepLayoutScale || 1.0));
+            const clusterScale = Math.max(MIN_TASK_CLUSTER_SCALE, Math.min(1.0, state.taskClusterScale || 1.0));
+            const baseW = isVerticalLayout ? 160 : 120;
+            const baseH = isVerticalLayout ? 80  : 100;
+            const baseHG = isVerticalLayout ? 40  : 120;
+            const baseVG = isVerticalLayout ? 100 : 20;
+            const nodeWidth = Math.round(baseW * scale);
+            const nodeHeight = Math.round(baseH * scale);
+            const hGap = Math.round(baseHG * scale);
+            const vGap = Math.round(baseVG * scale);
             const { nodes, edges, width, height } = calculateGraphLayout(runDetails.steps, DOM.graphWrapper, nodeWidth, nodeHeight, hGap, vGap, isVerticalLayout);
 
             const getEdgePath = (fromNode, toNode) => {
@@ -1394,73 +1538,647 @@
                 }
             };
 
+            // Pre-compute expanded clusters to size SVG properly
             const isRunning = !runDetails.run_info.is_complete;
-            let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+            let finalWidth = width;
+            let finalHeight = height;
+            const clusters = [];
+            const placed = []; // track placed cluster boxes to avoid overlap
+            // Precompute step rectangles to avoid collisions between expanded tasks and other steps
+            const stepRects = nodes.map(n => ({
+                name: n.name,
+                x1: n.x,
+                y1: n.y,
+                x2: n.x + n.width,
+                y2: n.y + n.height,
+            }));
+
+            // Helper geometry for dynamic spacing: line/rect intersection
+            function pointInRect(px, py, rx1, ry1, rx2, ry2) {
+              return px >= rx1 && px <= rx2 && py >= ry1 && py <= ry2;
+            }
+            function segmentsIntersect(ax, ay, bx, by, cx, cy, dx, dy) {
+              function orient(px, py, qx, qy, rx, ry) { return (qy - py) * (rx - qx) - (qx - px) * (ry - qy); }
+              function onSeg(px, py, qx, qy, rx, ry) { return Math.min(px, qx) <= rx && rx <= Math.max(px, qx) && Math.min(py, qy) <= ry && ry <= Math.max(py, qy); }
+              const o1 = orient(ax, ay, bx, by, cx, cy);
+              const o2 = orient(ax, ay, bx, by, dx, dy);
+              const o3 = orient(cx, cy, dx, dy, ax, ay);
+              const o4 = orient(cx, cy, dx, dy, bx, by);
+              if ((o1 > 0 && o2 < 0 || o1 < 0 && o2 > 0) && (o3 > 0 && o4 < 0 || o3 < 0 && o4 > 0)) return true;
+              if (o1 === 0 && onSeg(ax, ay, bx, by, cx, cy)) return true;
+              if (o2 === 0 && onSeg(ax, ay, bx, by, dx, dy)) return true;
+              if (o3 === 0 && onSeg(cx, cy, dx, dy, ax, ay)) return true;
+              if (o4 === 0 && onSeg(cx, cy, dx, dy, bx, by)) return true;
+              return false;
+            }
+            function lineIntersectsRect(x1, y1, x2, y2, rx1, ry1, rx2, ry2) {
+              if (pointInRect(x1, y1, rx1, ry1, rx2, ry2) || pointInRect(x2, y2, rx1, ry1, rx2, ry2)) return true;
+              // check against each edge of rectangle
+              return (
+                segmentsIntersect(x1, y1, x2, y2, rx1, ry1, rx2, ry1) ||
+                segmentsIntersect(x1, y1, x2, y2, rx2, ry1, rx2, ry2) ||
+                segmentsIntersect(x1, y1, x2, y2, rx2, ry2, rx1, ry2) ||
+                segmentsIntersect(x1, y1, x2, y2, rx1, ry2, rx1, ry1)
+              );
+            }
+
+            // Build simple step-edge segments (center-to-center) for overlap checks
+            const simpleEdgeSegments = edges.map(e => ({
+              from: e.from.name,
+              to: e.to.name,
+              x1: e.from.x + e.from.width / 2,
+              y1: e.from.y + e.from.height / 2,
+              x2: e.to.x   + e.to.width   / 2,
+              y2: e.to.y   + e.to.height  / 2,
+            }));
+
+            // Place expanded step clusters in flow order to reduce collisions
+            const expandedStepNodes = nodes.filter(n => state.expandedSteps && state.expandedSteps.has(n.name));
+            expandedStepNodes.sort((a, b) => {
+                return isVerticalLayout
+                  ? (a.y - b.y) || (a.x - b.x)
+                  : (a.x - b.x) || (a.y - b.y);
+            });
+
+            expandedStepNodes.forEach(stepNode => {
+                const step = runDetails.steps.find(s => s.name === stepNode.name);
+                if (!step || !Array.isArray(step.tasks) || step.tasks.length === 0) return;
+
+                const stepDef = runDetails.pipeline_definition?.steps?.find(s => s.name === stepNode.name);
+                const itemsWithDeps = step.tasks.map(item => {
+                    if (item.task_name) {
+                        const taskDef = stepDef && stepDef.tasks ? stepDef.tasks.find(t => t.name === item.task_name) : null;
+                        return { ...item, depends_on: taskDef ? (taskDef.depends_on || []) : [] };
+                    } else {
+                        return { ...item, depends_on: item.depends_on || [] };
+                    }
+                });
+
+                const tNodeW = Math.round(110 * clusterScale);
+                const tNodeH = Math.round(64  * clusterScale);
+                const tHG    = Math.max(14, Math.round(24 * clusterScale));
+                const tVG    = Math.max(12, Math.round(20 * clusterScale));
+                const tLayout = calculateGraphLayout(itemsWithDeps, DOM.graphWrapper, tNodeW, tNodeH, tHG, tVG, true);
+                const stepCenterX = stepNode.x + stepNode.width / 2;
+                const stepCenterY = stepNode.y + stepNode.height / 2;
+                const pad = Math.max(8, Math.round(12 * Math.max(0.85, clusterScale)));     // background padding scales with cluster
+                const stackGap = 28;// spacing between clusters when pushing forward
+
+                // Place box initially centered on the step position
+                const children = edges
+                  .filter(e => e.from.name === stepNode.name)
+                  .map(e => e.to);
+                const anchorX = stepCenterX;
+                const anchorY = stepCenterY;
+
+                // Corridor band between step and its children to keep the box visually “in flow”
+                const corridorMargin = pad + 16;
+                let bandMin, bandMax;
+                if (isVerticalLayout) {
+                  const xs = [stepCenterX].concat(children.map(n => n.x + n.width / 2));
+                  const minX = Math.min.apply(null, xs);
+                  const maxX = Math.max.apply(null, xs);
+                  bandMin = (isFinite(minX) ? minX : stepCenterX) - corridorMargin;
+                  bandMax = (isFinite(maxX) ? maxX : stepCenterX) + corridorMargin;
+                } else {
+                  const ys = [stepCenterY].concat(children.map(n => n.y + n.height / 2));
+                  const minY = Math.min.apply(null, ys);
+                  const maxY = Math.max.apply(null, ys);
+                  // For horizontal layout, widen the corridor by half the cluster height to allow vertical sliding
+                  const corridorBoost = Math.round((tLayout.height / 2) || 0);
+                  bandMin = (isFinite(minY) ? minY : stepCenterY) - corridorMargin - corridorBoost;
+                  bandMax = (isFinite(maxY) ? maxY : stepCenterY) + corridorMargin + corridorBoost;
+                }
+
+                // Prefer exact step center for first open; reuse saved position on subsequent renders
+                const saved = state.expandedStepPositions && state.expandedStepPositions.get(stepNode.name);
+                const isJustExpanded = !!(state._justExpandedSteps && state._justExpandedSteps.has(stepNode.name));
+                const hasSaved = !!saved && !isJustExpanded; // ignore saved on the first expand in this cycle
+                let originX, originY;
+                if (hasSaved) {
+                  originX = saved.x; originY = saved.y;
+                } else {
+                  // Center the expanded box over the step’s center
+                  originX = Math.round(stepCenterX - (tLayout.width  / 2));
+                  originY = Math.round(stepCenterY - (tLayout.height / 2));
+                }
+                if (originX < 0) originX = 0;
+                if (originY < 0) originY = 0;
+
+                // Clamp within corridor only if restoring a saved position and not just expanded
+                if (hasSaved) {
+                  if (isVerticalLayout) {
+                    const centerX = originX + tLayout.width / 2;
+                    const clampedCenterX = Math.max(bandMin + tLayout.width / 2, Math.min(bandMax - tLayout.width / 2, centerX));
+                    originX = Math.round(clampedCenterX - tLayout.width / 2);
+                  } else {
+                    const centerY = originY + tLayout.height / 2;
+                    const clampedCenterY = Math.max(bandMin + tLayout.height / 2, Math.min(bandMax - tLayout.height / 2, centerY));
+                    originY = Math.round(clampedCenterY - tLayout.height / 2);
+                  }
+                }
+
+                // Compute background box for overlap checks
+                let boxX1 = originX - pad;
+                let boxX2 = originX + tLayout.width + pad;
+                let boxY1 = originY - pad;
+                let boxY2 = originY + tLayout.height + pad;
+
+                // Helper to test overlap against placed boxes and step rects
+                const overlapsAny = (x1, y1, x2, y2) => {
+                  for (const pc of placed) {
+                    if (x1 < pc.x2 && x2 > pc.x1 && y1 < pc.y2 && y2 > pc.y1) return true;
+                  }
+                  for (const sr of stepRects) {
+                    if (sr.name === stepNode.name) continue;
+                    if (x1 < sr.x2 && x2 > sr.x1 && y1 < sr.y2 && y2 > sr.y1) return true;
+                  }
+                  return false;
+                };
+
+                const overlapsStepsOnly = (x1, y1, x2, y2) => {
+                  for (const sr of stepRects) {
+                    if (sr.name === stepNode.name) continue;
+                    if (x1 < sr.x2 && x2 > sr.x1 && y1 < sr.y2 && y2 > sr.y1) return true;
+                  }
+                  return false;
+                };
+
+                // If the box cannot fit within the corridor band, mark for scale-up
+                let needsCorridorScale = false;
+                if (isVerticalLayout) {
+                  const corridorWidth = (bandMax - bandMin);
+                  if ((tLayout.width + 2 * pad) > (corridorWidth - 8)) needsCorridorScale = true;
+                } else {
+                  const corridorHeight = (bandMax - bandMin);
+                  if ((tLayout.height + 2 * pad) > (corridorHeight - 8)) needsCorridorScale = true;
+                }
+
+                // (Edge intersection check moved to after final placement)
+
+                // Try to resolve overlaps for both saved and first-time boxes by sliding within corridor,
+                // then pushing along the flow direction. If still conflicting (steps or edges), scale up.
+                let bumpedByStep = false;
+                let guard = 0;
+                const MAX_GUARD = 60;
+                const offsets = [0];
+                for (let i = 1; i <= 8; i++) { offsets.push(i * stackGap, -i * stackGap); }
+                const hasConflict = () => overlapsAny(boxX1, boxY1, boxX2, boxY2) ||
+                  simpleEdgeSegments
+                    .filter(s => s.from !== stepNode.name && s.to !== stepNode.name)
+                    .some(seg => lineIntersectsRect(seg.x1, seg.y1, seg.x2, seg.y2, boxX1, boxY1, boxX2, boxY2));
+                while (hasConflict() && guard++ < MAX_GUARD) {
+                  let placedOk = false;
+                  for (const off of offsets) {
+                    let nx1 = boxX1, nx2 = boxX2, ny1 = boxY1, ny2 = boxY2;
+                    if (isVerticalLayout) {
+                      // move left/right within corridor
+                      const candCenterX = anchorX + off;
+                      const clampedCenterX = Math.max(bandMin + tLayout.width / 2, Math.min(bandMax - tLayout.width / 2, candCenterX));
+                      nx1 = Math.round(clampedCenterX - tLayout.width / 2) - pad;
+                      nx2 = nx1 + tLayout.width + 2 * pad;
+                    } else {
+                      // move up/down within corridor
+                      const candCenterY = anchorY + off;
+                      const clampedCenterY = Math.max(bandMin + tLayout.height / 2, Math.min(bandMax - tLayout.height / 2, candCenterY));
+                      ny1 = Math.round(clampedCenterY - tLayout.height / 2) - pad;
+                      ny2 = ny1 + tLayout.height + 2 * pad;
+                    }
+                    if (!overlapsAny(nx1, ny1, nx2, ny2) && nx1 >= 0 && ny1 >= 0) {
+                      // accept orthogonal placement if it also clears edges
+                      const clearsEdges = !simpleEdgeSegments
+                        .filter(s => s.from !== stepNode.name && s.to !== stepNode.name)
+                        .some(seg => lineIntersectsRect(seg.x1, seg.y1, seg.x2, seg.y2, nx1, ny1, nx2, ny2));
+                      if (clearsEdges) {
+                        boxX1 = nx1; boxX2 = nx2; boxY1 = ny1; boxY2 = ny2;
+                        originX = boxX1 + pad; originY = boxY1 + pad;
+                        placedOk = true;
+                        break;
+                      }
+                    }
+                  }
+                  if (placedOk) break;
+                  // Fallback: push along the flow
+                  if (isVerticalLayout) {
+                    originY += stackGap;
+                  } else {
+                    originX += stackGap;
+                  }
+                  boxX1 = originX - pad;
+                  boxX2 = originX + tLayout.width + pad;
+                  boxY1 = originY - pad;
+                  boxY2 = originY + tLayout.height + pad;
+                  if (overlapsStepsOnly(boxX1, boxY1, boxX2, boxY2)) bumpedByStep = true;
+                }
+
+                finalWidth = Math.max(finalWidth, originX + tLayout.width + 16);
+                finalHeight = Math.max(finalHeight, originY + tLayout.height + 16);
+
+                const rootNames = itemsWithDeps.filter(t => !t.depends_on || t.depends_on.length === 0)
+                  .map(t => t.task_name || t.name);
+
+                // Save placed cluster rect and remember position
+                placed.push({ x1: boxX1, x2: boxX2, y1: boxY1, y2: boxY2 });
+                if (!state.expandedStepPositions) state.expandedStepPositions = new Map();
+                state.expandedStepPositions.set(stepNode.name, { x: originX, y: originY });
+
+                // Detect intersections with other step edges (not involving this step) at the final position
+                const hitsEdges = simpleEdgeSegments
+                  .filter(s => s.from !== stepNode.name && s.to !== stepNode.name)
+                  .some(seg => lineIntersectsRect(seg.x1, seg.y1, seg.x2, seg.y2, boxX1, boxY1, boxX2, boxY2));
+
+                clusters.push({ stepNode, stepName: stepNode.name, layout: tLayout, originX, originY, stepCenterX, rootNames, pad, bumpedByStep, needsCorridorScale, hitsEdges });
+            });
+
+            // Dynamic spacing: if any cluster overlaps steps/boxes/edges or corridor is too narrow,
+            // iteratively adjust sizes and re-render until clear or caps reached.
+            const needMoreSpace = clusters.some(c => c.bumpedByStep || c.needsCorridorScale || c.hitsEdges);
+            if (needMoreSpace) {
+                const tryIncreaseStepScale = () => {
+                  const prevStep = state.stepLayoutScale || 1.0;
+                  const inc = prevStep < 1.2 ? 0.15 : 0.1;
+                  const nextStep = Math.min(MAX_STEP_LAYOUT_SCALE, prevStep + inc);
+                  if (nextStep > prevStep + 1e-6) {
+                      state.stepLayoutScale = nextStep;
+                      state._fitOnNextStepsRender = true;
+                      renderStepsGraph(runDetails);
+                      return true;
+                  }
+                  return false;
+                };
+                const tryDecreaseClusterScale = () => {
+                  const prevCluster = state.taskClusterScale || 1.0;
+                  const dec = prevCluster > 0.85 ? 0.1 : 0.05;
+                  const nextCluster = Math.max(MIN_TASK_CLUSTER_SCALE, prevCluster - dec);
+                  if (nextCluster < prevCluster - 1e-6) {
+                      state.taskClusterScale = nextCluster;
+                      state._fitOnNextStepsRender = true;
+                      renderStepsGraph(runDetails);
+                      return true;
+                  }
+                  return false;
+                };
+
+                // Horizontal: shrink cluster internals first (more vertical clearance), then expand step layout
+                // Vertical: expand step layout first (more horizontal clearance), then shrink cluster internals
+                if (!isVerticalLayout) {
+                  if (tryDecreaseClusterScale()) return;
+                  if (tryIncreaseStepScale()) return;
+                } else {
+                  if (tryIncreaseStepScale()) return;
+                  if (tryDecreaseClusterScale()) return;
+                }
+            }
+
+            let svgContent = `<svg width="${finalWidth}" height="${finalHeight}" xmlns="http://www.w3.org/2000/svg">
                 <defs>
                     <marker id="arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" class="fill-current text-gray-300 dark:text-gray-600" /></marker>
                     <marker id="arrowhead-completed" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" class="fill-current text-[var(--text-accent)]" /></marker>
                     ${isRunning ? `<linearGradient id="edge-gradient" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:var(--border-secondary);" /><stop offset="50%" style="stop-color:var(--border-accent);" /><stop offset="100%" style="stop-color:var(--border-secondary);" /></linearGradient>` : ''}
                 </defs>`;
-            
-            edges.forEach(edge => {
-                const pathData = getEdgePath(edge.from, edge.to);
-                const isCompletedEdge = edge.from.status === 'Success' && (edge.to.status.toLowerCase() !== 'pending' && edge.to.status.toLowerCase() !== 'skipped');
-                const marker = isCompletedEdge ? 'url(#arrowhead-completed)' : 'url(#arrowhead)';
-                svgContent += `<path d="${pathData}" class="edge-path ${isCompletedEdge ? 'edge-path--completed' : ''} ${isRunning && isCompletedEdge ? 'edge-path--running' : ''} edge-path--glow" marker-end="${marker}"></path>`;
+
+            // Build quick lookups for step indegree/outdegree to integrate tasks into flow
+            const stepIn = new Map();
+            const stepOut = new Map();
+            nodes.forEach(n => { stepIn.set(n.name, 0); stepOut.set(n.name, 0); });
+            edges.forEach(e => {
+                stepOut.set(e.from.name, (stepOut.get(e.from.name) || 0) + 1);
+                stepIn.set(e.to.name, (stepIn.get(e.to.name) || 0) + 1);
             });
 
+            const clustersByStep = new Map();
+            clusters.forEach(c => clustersByStep.set(c.stepName, c));
+
+            const iconRadius = 14, arrowPad = 8;
+            const pathBetween = (x1, y1, x2, y2) => {
+                if (isVerticalLayout) {
+                    const curveY = y1 + (y2 - y1) * 0.5;
+                    return `M ${x1} ${y1} C ${x1} ${curveY}, ${x2} ${curveY}, ${x2} ${y2}`;
+                } else {
+                    const curveX = x1 + (x2 - x1) * 0.5;
+                    return `M ${x1} ${y1} C ${curveX} ${y1}, ${curveX} ${y2}, ${x2} ${y2}`;
+                }
+            };
+
+            // Step-level edges (single input/output per expanded box)
+            edges.forEach(edge => {
+                const fromBox = clustersByStep.get(edge.from.name);
+                const toBox   = clustersByStep.get(edge.to.name);
+                const isCompletedEdge = edge.from.status === 'Success' && (edge.to.status.toLowerCase() !== 'pending' && edge.to.status.toLowerCase() !== 'skipped');
+                const marker = isCompletedEdge ? 'url(#arrowhead-completed)' : 'url(#arrowhead)';
+                const edgeClasses = ['edge-path', 'edge-path--glow'];
+                if (isCompletedEdge) edgeClasses.push('edge-path--completed');
+                if (isRunning && isCompletedEdge) edgeClasses.push('edge-path--running');
+
+                const fromCx = edge.from.x + edge.from.width / 2;
+                const fromCy = edge.from.y + edge.from.height / 2;
+                const toCx   = edge.to.x   + edge.to.width   / 2;
+                const toCy   = edge.to.y   + edge.to.height  / 2;
+
+                let sx, sy, tx, ty;
+                if (fromBox) {
+                    sx = isVerticalLayout ? (fromBox.originX + fromBox.layout.width / 2) : (fromBox.originX + fromBox.layout.width);
+                    sy = isVerticalLayout ? (fromBox.originY + fromBox.layout.height) : (fromBox.originY + fromBox.layout.height / 2);
+                } else {
+                    sx = isVerticalLayout ? fromCx : (fromCx + iconRadius + arrowPad);
+                    sy = isVerticalLayout ? (fromCy + iconRadius) : fromCy;
+                }
+
+                if (toBox) {
+                    tx = isVerticalLayout ? (toBox.originX + toBox.layout.width / 2) : (toBox.originX);
+                    ty = isVerticalLayout ? (toBox.originY) : (toBox.originY + toBox.layout.height / 2);
+                } else {
+                    tx = isVerticalLayout ? toCx : (toCx - iconRadius - arrowPad);
+                    ty = isVerticalLayout ? (toCy - iconRadius) : toCy;
+                }
+
+                const d = pathBetween(sx, sy, tx, ty);
+                svgContent += `<path d="${d}" class="${edgeClasses.join(' ')}" marker-end="${marker}"></path>`;
+            });
+
+            // Step nodes
             nodes.forEach(node => {
                 const config = statusConfig[node.status.toLowerCase()] || statusConfig.pending;
                 const node_center_x = node.x + node.width / 2;
                 const node_center_y = node.y + node.height / 2;
                 const originalStep = runDetails.pipeline_definition.steps.find(s => s.name === node.name);
+                const isExpanded = clustersByStep.has(node.name);
+                if (isExpanded) return; // replaced by a box
                 let subText = `<text x="${node_center_x}" y="${node_center_y + 53}" text-anchor="middle" class="text-xs fill-current text-[var(--text-secondary)]">${node.duration || '...'}</text>`;
                 if (originalStep && originalStep.include) {
                     let includeType = originalStep.include.startsWith('pipeline:') ? '(Included Pipeline)' : '(Included Step)';
                     let linkClass = originalStep.include.startsWith('pipeline:') ? 'text-[var(--text-link)] hover:underline' : 'text-[var(--text-accent)]';
                     const childRun = originalStep.include.startsWith('pipeline:') ? runDetails.child_runs.find(cr => cr.parent_step_name === node.name) : null;
                     if (childRun) {
-                         subText = `<a href="#/pipelineruns/run/${childRun.run_id}" class="fill-current ${linkClass}"><text x="${node_center_x}" y="${node_center_y + 53}" text-anchor="middle" class="text-xs">${includeType}</text></a>`;
+                         subText = `<a data-included-link="true" href="#/pipelineruns/run/${childRun.run_id}" class="fill-current ${linkClass}"><text x="${node_center_x}" y="${node_center_y + 53}" text-anchor="middle" class="text-xs">${includeType}</text></a>`;
                     } else {
                          subText = `<text x="${node_center_x}" y="${node_center_y + 53}" text-anchor="middle" class="text-xs fill-current ${linkClass}">${includeType}</text>`;
                     }
                 }
-                svgContent += `<g class="graph-node" data-step-name="${node.name}"><g transform="translate(${node_center_x}, ${node_center_y})"><path d="${config.icon}" transform="translate(-12, -12) scale(1.2)" stroke-width="2" class="stroke-current ${config.color}" fill="none"/></g><text x="${node_center_x}" y="${node_center_y + 35}" text-anchor="middle" class="text-sm font-semibold fill-current text-[var(--text-primary)]">${node.name}</text>${subText}</g>`;
+                const caret = (state.expandedSteps && state.expandedSteps.has(node.name)) ? '▾' : '▸';
+                svgContent += `<g class="graph-node" data-step-name="${node.name}"><title>Click to expand. Ctrl/Cmd-click for details</title><g transform="translate(${node_center_x}, ${node_center_y})"><path d="${config.icon}" transform="translate(-12, -12) scale(1.2)" stroke-width="2" class="stroke-current ${config.color}" fill="none"/></g><text x="${node_center_x}" y="${node_center_y + 35}" text-anchor="middle" class="text-sm font-semibold fill-current text-[var(--text-primary)]">${caret} ${node.name}</text>${subText}</g>`;
             });
+
+            // Expanded task clusters per step (boxed with single input/output)
+            clusters.forEach(cluster => {
+                const { layout, originX, originY, stepCenterX, rootNames, pad } = cluster;
+
+                svgContent += `<g class="step-cluster" data-step-name="${cluster.stepName}">`;
+                // Background card (box in flow)
+                const bgX = originX - pad;
+                const bgY = originY - pad;
+                const bgW = layout.width + pad * 2;
+                const bgH = layout.height + pad * 2;
+                svgContent += `<rect x="${bgX}" y="${bgY}" width="${bgW}" height="${bgH}" rx="12" ry="12" class="step-cluster-box" style="pointer-events:none"></rect>`;
+                // Ports (visual only)
+                if (isVerticalLayout) {
+                    const portInX = originX + layout.width / 2;
+                    const portInY = originY - 2;
+                    const portOutX = originX + layout.width / 2;
+                    const portOutY = originY + layout.height + 2;
+                    svgContent += `<circle cx="${portInX}" cy="${portInY}" r="3" fill="var(--border-accent)"></circle>`;
+                    svgContent += `<circle cx="${portOutX}" cy="${portOutY}" r="3" fill="var(--border-accent)"></circle>`;
+                } else {
+                    const portLeftX = originX - 2;
+                    const portLeftY = originY + layout.height / 2;
+                    const portRightX = originX + layout.width + 2;
+                    const portRightY = originY + layout.height / 2;
+                    svgContent += `<circle cx="${portLeftX}" cy="${portLeftY}" r="3" fill="var(--border-accent)"></circle>`;
+                    svgContent += `<circle cx="${portRightX}" cy="${portRightY}" r="3" fill="var(--border-accent)"></circle>`;
+                }
+
+                // Task edges inside cluster (vertical layout)
+                layout.edges.forEach(edge => {
+                    const from_center_x = originX + edge.from.x + edge.from.width / 2;
+                    const from_center_y = originY + edge.from.y + edge.from.height / 2;
+                    const to_center_x   = originX + edge.to.x   + edge.to.width   / 2;
+                    const to_center_y   = originY + edge.to.y   + edge.to.height  / 2;
+                    const arrowPad = 8;
+                    const x1 = from_center_x;
+                    const y1 = from_center_y + (edge.from.height / 2) + arrowPad;
+                    const x2 = to_center_x;
+                    const y2 = to_center_y - (edge.to.height / 2)  - arrowPad;
+                    const curveY = y1 + (y2 - y1) * 0.5;
+                    const pathData = `M ${x1} ${y1} C ${x1} ${curveY}, ${x2} ${curveY}, ${x2} ${y2}`;
+                    const isCompletedEdge = (edge.from.status || '').toLowerCase() === 'success';
+                    const marker = isCompletedEdge ? 'url(#arrowhead-completed)' : 'url(#arrowhead)';
+                    const classes = ['edge-path', 'edge-path--glow'];
+                    if (isCompletedEdge) classes.push('edge-path--completed');
+                    if (isRunning && isCompletedEdge) classes.push('edge-path--running');
+                    svgContent += `<path d="${pathData}" class="${classes.join(' ')}" marker-end="${marker}"></path>`;
+                });
+
+                // (No external connections to internal tasks; box presents single in/out)
+
+                // Task nodes as integrated icons
+                layout.nodes.forEach(n => {
+                    const status = (n.status || 'pending').toLowerCase();
+                    const config = statusConfig[status] || statusConfig.pending;
+                    const duration = formatDuration(n.started_at, n.finished_at);
+                    const label = n.task_name || n.name;
+                    const cx = originX + n.x + n.width / 2;
+                    const cy = originY + n.y + n.height / 2;
+                    svgContent += `
+                        <g class="graph-node" transform="translate(${cx}, ${cy})">
+                          <path d="${config.icon}" transform="translate(-12, -12) scale(1.0)" stroke-width="2" class="stroke-current ${config.color}" fill="none"></path>
+                          <text x="0" y="30" text-anchor="middle" class="text-xs font-semibold fill-current text-[var(--text-primary)]">${label}</text>
+                          <text x="0" y="46" text-anchor="middle" class="text-[10px] fill-current text-[var(--text-secondary)]">${duration}</text>
+                        </g>`;
+                });
+                svgContent += `</g>`;
+            });
+
             DOM.graphWrapper.innerHTML = svgContent + `</svg>`;
+
+            // Clear the one-shot just-expanded hints after render cycle completes (allows scale pass to reuse them in same tick)
+            setTimeout(() => { if (state._justExpandedSteps) state._justExpandedSteps.clear(); }, 0);
+
+            // Persist current Steps layout (expanded set, positions, scale) per run
+            try {
+              const runId = state.currentRunData?.run_info?.run_id;
+              if (runId) {
+                const key = `nopsai_steps_layout:${runId}`;
+                const positions = {};
+                if (state.expandedStepPositions && typeof state.expandedStepPositions.forEach === 'function') {
+                  state.expandedStepPositions.forEach((pos, name) => { positions[name] = { x: pos.x, y: pos.y }; });
+                }
+                const payload = {
+                  expanded: Array.from(state.expandedSteps || []),
+                  positions,
+                  scale: state.stepLayoutScale || 1.0,
+                  tasksScale: state.taskClusterScale || 1.0,
+                };
+                localStorage.setItem(key, JSON.stringify(payload));
+              }
+            } catch {}
+
             initPanAndZoom('steps');
         }
 
         function makeResizable(card, step) {
-            const handle = card.querySelector('.resize-handle');
-            const miniGraphContainer = card.querySelector('.task-graph-mini-container');
+  const handle = card.querySelector('.resize-handle');
+  const miniGraphContainer = card.querySelector('.task-graph-mini-container');
+  if (!handle) return;
 
-            handle.addEventListener('mousedown', function (e) {
-                e.preventDefault();
-                e.stopPropagation();
+  handle.addEventListener('mousedown', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
 
-                const startX = e.clientX;
-                const startY = e.clientY;
-                const startWidth = parseInt(document.defaultView.getComputedStyle(card).width, 10);
-                const startHeight = parseInt(document.defaultView.getComputedStyle(card).height, 10);
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startWidth  = parseInt(document.defaultView.getComputedStyle(card).width, 10);
+    const startHeight = parseInt(document.defaultView.getComputedStyle(card).height, 10);
 
-                function doDrag(e) {
-                    card.style.width = (startWidth + e.clientX - startX) + 'px';
-                    card.style.height = (startHeight + e.clientY - startY) + 'px';
-                }
+    function doDrag(ev) {
+      card.style.width  = (startWidth  + ev.clientX - startX) + 'px';
+      card.style.height = (startHeight + ev.clientY - startY) + 'px';
+    }
 
-                function stopDrag() {
-                    document.documentElement.removeEventListener('mousemove', doDrag, false);
-                    document.documentElement.removeEventListener('mouseup', stopDrag, false);
-                    
-                    // Re-render the graph to fit the new container size
-                    renderTaskGraph(miniGraphContainer, step.name, step.tasks);
-                }
+    function stopDrag() {
+      document.documentElement.removeEventListener('mousemove', doDrag, false);
+      document.documentElement.removeEventListener('mouseup', stopDrag, false);
 
-                document.documentElement.addEventListener('mousemove', doDrag, false);
-                document.documentElement.addEventListener('mouseup', stopDrag, false);
-            });
-        }
+      const style = localStorage.getItem('tasksMiniStyle') || 'icon';
+      renderMiniForStep(miniGraphContainer, step, style);
+      // Refresh inter-card connectors so arrow endpoints match the new card edge
+      if (state._lastStepLayout && state._lastStepElements) {
+        const isRunning = !state.currentRunData?.run_info?.is_complete;
+        drawStepConnections(state._lastStepLayout, state._lastStepElements, { running: isRunning });
+      }
+    }
+
+    document.documentElement.addEventListener('mousemove', doDrag, false);
+    document.documentElement.addEventListener('mouseup', stopDrag, false);
+  });
+}
+
+function renderMiniForStep(container, step, style) {
+  if (style === 'box') {
+    renderTaskGraphBoxes(container, step.name, step.tasks);
+  } else {
+    renderTaskGraph(container, step.name, step.tasks); // original icon-only nodes
+  }
+}
+
+function renderTaskGraphBoxes(container, stepName, tasks) {
+  if (!state.currentRunData || !state.currentRunData.pipeline_definition || !state.currentRunData.pipeline_definition.steps) {
+    container.innerHTML = `<p class="text-[var(--text-secondary)] text-sm">Waiting for pipeline data...</p>`;
+    return;
+  }
+  if (!tasks || tasks.length === 0) {
+    container.innerHTML = `<p class="text-[var(--text-secondary)] text-sm">This step has no tasks defined.</p>`;
+    return;
+  }
+
+  const stepDef = state.currentRunData.pipeline_definition.steps.find(s => s.name === stepName);
+  const itemsWithDeps = tasks.map(item => {
+    if (item.task_name) {
+      const taskDef = stepDef && stepDef.tasks ? stepDef.tasks.find(t => t.name === item.task_name) : null;
+      return { ...item, depends_on: taskDef ? (taskDef.depends_on || []) : [] };
+    } else {
+      return { ...item, depends_on: item.depends_on || [] };
+    }
+  });
+
+  const isVerticalLayout = container.clientWidth < 500;
+  const nodeWidth  = isVerticalLayout ? 140 : 120;
+  const nodeHeight = isVerticalLayout ? 64  : 56;
+  const hGap = isVerticalLayout ? 20 : 60;
+  const vGap = isVerticalLayout ? 80 : 20;
+
+  const { nodes, edges, width, height } =
+    calculateGraphLayout(itemsWithDeps, container, nodeWidth, nodeHeight, hGap, vGap, isVerticalLayout);
+
+  const arrowPad = 10;
+  const getEdgePath = (fromNode, toNode) => {
+    const fc = { x: fromNode.x + fromNode.width / 2, y: fromNode.y + fromNode.height / 2 };
+    const tc = { x: toNode.x   + toNode.width   / 2, y: toNode.y   + toNode.height   / 2 };
+    if (isVerticalLayout) {
+      const x1 = fc.x, y1 = fc.y + (fromNode.height / 2) + arrowPad;
+      const x2 = tc.x, y2 = tc.y - (toNode.height / 2)  - arrowPad;
+      const curveY = y1 + (y2 - y1) * 0.5;
+      return `M ${x1} ${y1} C ${x1} ${curveY}, ${x2} ${curveY}, ${x2} ${y2}`;
+    } else {
+      const x1 = fc.x + (fromNode.width / 2) + arrowPad, y1 = fc.y;
+      const x2 = tc.x - (toNode.width  / 2) - arrowPad, y2 = tc.y;
+      const curveX = x1 + (x2 - x1) * 0.5;
+      return `M ${x1} ${y1} C ${curveX} ${y1}, ${curveX} ${y2}, ${x2} ${y2}`;
+    }
+  };
+
+  // Build SVG with CSS vars via inline "style" (so they resolve inside SVG reliably)
+let svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"
+               style="max-width:100%;max-height:100%;display:block">
+  <defs>
+    <marker id="task_arrow_box_secondary" viewBox="0 0 12 12" refX="11" refY="6"
+            markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0,0 L12,6 L0,12 Z" fill="var(--border-secondary)"></path>
+    </marker>
+    <marker id="task_arrow_box_accent" viewBox="0 0 12 12" refX="11" refY="6"
+            markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0,0 L12,6 L0,12 Z" fill="var(--border-accent)"></path>
+    </marker>
+  </defs>`;
+
+const nodeNames = new Set(nodes.map(n => n.task_name || n.name));
+const filteredEdges = edges.filter(e =>
+  nodeNames.has(e.from.task_name || e.from.name) &&
+  nodeNames.has(e.to.task_name   || e.to.name)
+);
+const connectors = filteredEdges.length ? filteredEdges : (
+  nodes.length > 1
+    ? nodes.slice(0, -1).map((_, i) => ({ from: nodes[i], to: nodes[i + 1] }))
+    : []
+);
+edges.forEach(e => {
+  // drop edges whose endpoints aren’t in the layout for any reason
+  if (!nodeNames.has(e.from.task_name || e.from.name) ||
+      !nodeNames.has(e.to.task_name   || e.to.name)) {
+    e.__drop = true;
+  }
+});
+const validEdges = edges.filter(e => !e.__drop);
+
+// edges: pick color + marker per edge
+connectors.forEach(edge => {
+  const pathData = getEdgePath(edge.from, edge.to);
+  const isCompleted = (edge.from.status || '').toLowerCase() === 'success';
+  const stroke = isCompleted ? 'var(--border-accent)' : 'var(--border-secondary)';
+  const marker = isCompleted ? 'url(#task_arrow_box_accent)' : 'url(#task_arrow_box_secondary)';
+  svg += `<path d="${pathData}" class="edge-path" stroke="${stroke}" marker-end="${marker}"></path>`;
+});
+
+
+  // nodes as boxes + icon + labels
+  nodes.forEach(node => {
+    const status = (node.status || 'pending').toLowerCase();
+    const config = statusConfig[status] || statusConfig.pending;
+    const duration = formatDuration(node.started_at, node.finished_at);
+    const itemName = node.task_name || node.name;
+
+    const x = node.x, y = node.y, w = node.width, h = node.height;
+    const cx = x + w / 2;
+
+    svg += `
+      <g transform="translate(${x}, ${y})">
+        <rect width="${w}" height="${h}" rx="10" ry="10"
+              style="fill:var(--bg-primary);stroke:var(--border-primary);stroke-width:1.5"
+              vector-effect="non-scaling-stroke"></rect>
+        <g transform="translate(10, 10)">
+          <path d="${config.icon}" stroke="currentColor" class="${config.color}" fill="none" stroke-width="2"></path>
+        </g>
+        <text x="${w - 6}" y="16" text-anchor="end"
+              class="text-[10px] fill-current ${config.color} font-medium">${(status || '').toUpperCase()}</text>
+        <text x="${cx}" y="${h - 18}" text-anchor="middle"
+              class="fill-current text-[var(--text-primary)] font-semibold" style="font-size:11px">${itemName}</text>
+        <text x="${cx}" y="${h - 6}" text-anchor="middle"
+              class="text-[10px] fill-current text-[var(--text-secondary)]">${duration}</text>
+      </g>`;
+  });
+
+  svg += `</svg>`;
+  container.innerHTML = svg;
+}
 
         function renderTasksGraph(runDetails) {
   // Clear old
@@ -1474,21 +2192,22 @@
   }
   DOM.tasksEmpty.classList.add('hidden');
 
-  // Compute layout for step cards
+  // Layout for step cards
   const stepLayout = calculateGraphLayout(
     runDetails.steps,
     DOM.tasksGraphWrapper,
-    360, 260, /* nodeWidth, nodeHeight */
-    80, 80,   /* hGap, vGap */
-    false     /* horizontal */
+    360, 260,   // nodeWidth, nodeHeight
+    80, 80,     // hGap, vGap
+    false
   );
 
-  // ⚠️ set wrapper to EXACT content size (don't stretch to container)
+  // wrapper size == content size (for precise centering)
   DOM.tasksGraphWrapper.style.width  = `${stepLayout.width}px`;
   DOM.tasksGraphWrapper.style.height = `${stepLayout.height}px`;
 
-  // Build step cards
   const stepElements = new Map();
+  const miniStyle = (localStorage.getItem('tasksMiniStyle') || 'icon'); // 'icon' | 'box'
+
   stepLayout.nodes.forEach(stepNode => {
     const step = runDetails.steps.find(s => s.name === stepNode.name);
     if (!step) return;
@@ -1507,7 +2226,7 @@
     card.innerHTML = `
       <div class="flex items-center justify-between mb-2 flex-shrink-0 cursor-pointer" data-role="header">
         <h3 class="text-base font-semibold text-[var(--text-primary)] truncate pr-2">${step.name}</h3>
-        <span class="task-status-pill ${stepStatusConfig.color.replace('text-','border-')}">${step.status}</span>
+        <span class="task-status-pill ${stepStatusConfig.color}">${step.status}</span>
       </div>
       <div class="task-graph-mini-container bg-[var(--bg-primary)] rounded-md p-2 flex-1 flex items-center justify-center overflow-auto"></div>
       <div class="mt-2 text-[10px] text-[var(--text-secondary)] flex items-center justify-between">
@@ -1517,7 +2236,7 @@
       <div class="resize-handle"></div>
     `;
 
-    // header opens modal
+    // header opens modal (keeps "inside a step" behavior unchanged)
     card.querySelector('[data-role="header"]').addEventListener('click', () => {
       const [, subpath, runId] = window.location.hash.slice(2).split('/');
       window.location.hash = `#/pipelineruns/${subpath}/${runId}/steps/${step.name}`;
@@ -1526,52 +2245,61 @@
     DOM.tasksGraphWrapper.appendChild(card);
     stepElements.set(step.name, card);
 
-    // use your original per-step task renderer (no boxes)
+    // render mini graph with chosen style
     const mini = card.querySelector('.task-graph-mini-container');
-    renderTaskGraph(mini, step.name, step.tasks);
+    renderMiniForStep(mini, step, miniStyle);
 
-    // resizable
+    // resizable: re-render with current style on release
     makeResizable(card, step);
-  });
 
-  // draw edges between step cards
+    // highlight connectors on hover
+    card.addEventListener('mouseenter', () => {
+      DOM.tasksGraphConnections
+        .querySelectorAll(`[data-from="${step.name}"] ,[data-to="${step.name}"]`)
+        .forEach(p => p.classList.add('edge-path--highlight'));
+    });
+    card.addEventListener('mouseleave', () => {
+      DOM.tasksGraphConnections
+        .querySelectorAll(`[data-from="${step.name}"] ,[data-to="${step.name}"]`)
+        .forEach(p => p.classList.remove('edge-path--highlight'));
+    });
+  });
+DOM.tasksGraphWrapper.style.width  = `${stepLayout.width}px`;
+DOM.tasksGraphWrapper.style.height = `${stepLayout.height}px`;
+
+// 🔧 Make sure the connections SVG lives inside the wrapper so it gets the same pan/zoom transform
+if (DOM.tasksGraphConnections.parentElement !== DOM.tasksGraphWrapper) {
+  DOM.tasksGraphWrapper.appendChild(DOM.tasksGraphConnections);
+}
+  // connectors between step cards
   const isRunning = !runDetails.run_info.is_complete;
+  // Save to state for later refresh (e.g., after resize)
+  state._lastStepLayout = stepLayout;
+  state._lastStepElements = stepElements;
   drawStepConnections(stepLayout, stepElements, { running: isRunning });
 
-  // controls overlay (+/−/Fit) — uses existing helper if you added it
-  if (typeof ensureTasksControls === 'function') ensureTasksControls();
+  // controls (+/−/Fit + style toggle)
+  ensureTasksControls();
 
-  // pan/zoom & center using the known layout
+  // center & fit
   setTimeout(() => initPanAndZoom('tasks', stepLayout), 40);
 }
 
 
-function ensureTasksControls() {
-  let controls = document.getElementById('tasks-graph-controls');
-  if (!controls) {
-    controls = document.createElement('div');
-    controls.id = 'tasks-graph-controls';
-    controls.innerHTML = `
-      <button data-zoom="in"  title="Zoom In">+</button>
-      <button data-zoom="out" title="Zoom Out">−</button>
-      <button data-fit       title="Fit to Screen">Fit</button>
-    `;
-    DOM.tasksGraphContainer.appendChild(controls);
-
-    controls.addEventListener('click', (e) => {
-      const btn = e.target.closest('button');
-      if (!btn || !state.panzoomInstance) return;
-      if (btn.dataset.zoom === 'in') {
-        state.panzoomInstance.zoomIn();
-      } else if (btn.dataset.zoom === 'out') {
-        state.panzoomInstance.zoomOut();
-      } else if (btn.hasAttribute('data-fit')) {
-        if (typeof state.__fitToView === 'function') state.__fitToView();
-      }
-    });
+function stripStepFromHashWithoutRouting() {
+  const hash = window.location.hash || '';
+  const newHash = hash.split('/steps/')[0] || '#/pipelineruns/main';
+  if (hash !== newHash) {
+    try {
+      const url = new URL(window.location.href);
+      url.hash = newHash.slice(1); // drop leading '#'
+      history.replaceState(null, '', url.toString()); // no hashchange event
+    } catch {
+      // Fallback: minimal disruption if replaceState fails
+      window.location.hash = newHash;
+    }
   }
 }
-
 
 function ensureTasksControls() {
   let controls = document.getElementById('tasks-graph-controls');
@@ -1579,25 +2307,133 @@ function ensureTasksControls() {
     controls = document.createElement('div');
     controls.id = 'tasks-graph-controls';
     controls.innerHTML = `
-      <button data-zoom="in"  title="Zoom In">+</button>
-      <button data-zoom="out" title="Zoom Out">−</button>
-      <button data-fit       title="Fit to Screen">Fit</button>
+      <div class="segmented" role="tablist" aria-label="Task mini style">
+        <button type="button" class="" data-style="icon">Icons</button>
+        <button type="button" class="" data-style="box">Boxes</button>
+      </div>
+      <button class="ctrl" data-zoom="in"  title="Zoom In">+</button>
+      <button class="ctrl" data-zoom="out" title="Zoom Out">−</button>
+      <button class="ctrl" data-fit       title="Fit to Screen">Fit</button>
     `;
     DOM.tasksGraphContainer.appendChild(controls);
 
+    // Zoom controls
     controls.addEventListener('click', (e) => {
       const btn = e.target.closest('button');
-      if (!btn || !state.panzoomInstance) return;
-      if (btn.dataset.zoom === 'in') {
+      if (!btn) return;
+
+      if (btn.dataset.zoom === 'in' && state.panzoomInstance) {
         state.panzoomInstance.zoomIn();
-      } else if (btn.dataset.zoom === 'out') {
+      } else if (btn.dataset.zoom === 'out' && state.panzoomInstance) {
         state.panzoomInstance.zoomOut();
       } else if (btn.hasAttribute('data-fit')) {
         if (typeof state.__fitToView === 'function') state.__fitToView();
       }
     });
+
+    // Style toggle
+    controls.querySelectorAll('[data-style]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const style = btn.dataset.style; // 'icon' | 'box'
+    localStorage.setItem('tasksMiniStyle', style);   // <-- was hardcoded to 'icon'
+    if (state.currentRunData) renderTasksGraph(state.currentRunData);
+  });
+});
+
+
   }
+
+  // paint active style state
+  const current = localStorage.getItem('tasksMiniStyle') || 'icon';
+  controls.querySelectorAll('[data-style]').forEach(b => b.classList.toggle('active', b.dataset.style === current));
 }
+
+    function ensureStepsControls() {
+      let controls = document.getElementById('steps-graph-controls');
+      if (!controls) {
+        controls = document.createElement('div');
+        controls.id = 'steps-graph-controls';
+        controls.innerHTML = `
+          <div class="segmented" role="tablist" aria-label="Steps layout">
+            <button type="button" data-layout="auto">Auto</button>
+            <button type="button" data-layout="horizontal">Horizontal</button>
+            <button type="button" data-layout="vertical">Vertical</button>
+          </div>
+          <button class="ctrl" data-zoom="in"  title="Zoom In">+</button>
+          <button class="ctrl" data-zoom="out" title="Zoom Out">−</button>
+          <button class="ctrl" data-fit       title="Fit to Screen">Fit</button>
+          <button class="ctrl" data-reset    title="Reset Layout">Reset</button>
+        `;
+    // Reuse tasks control styles
+    controls.style.position = 'absolute';
+    controls.style.right = '12px';
+    controls.style.bottom = '12px';
+    controls.style.zIndex = '30';
+    controls.style.display = 'flex';
+    controls.style.gap = '8px';
+    DOM.graphContainer.appendChild(controls);
+
+        // Controls: zoom/fit/reset
+        controls.addEventListener('click', (e) => {
+          const btn = e.target.closest('button');
+          if (!btn) return;
+          if (btn.dataset.zoom === 'in' && state.panzoomInstance) state.panzoomInstance.zoomIn();
+          else if (btn.dataset.zoom === 'out' && state.panzoomInstance) state.panzoomInstance.zoomOut();
+          else if (btn.hasAttribute('data-fit')) {
+            if (typeof state.__fitToView === 'function') state.__fitToView();
+          } else if (btn.hasAttribute('data-reset')) {
+            // Clear expanded steps, positions, and scale. Remove persisted storage for this run.
+            try {
+              const runId = state.currentRunData?.run_info?.run_id;
+              if (runId) localStorage.removeItem(`nopsai_steps_layout:${runId}`);
+            } catch {}
+            state.expandedSteps = new Set();
+            state.expandedStepPositions = new Map();
+            state.stepLayoutScale = 1.0;
+            if (state.currentRunData) {
+              renderStepsGraph(state.currentRunData);
+              // Fit after reset for a clean view
+              setTimeout(() => { if (typeof state.__fitToView === 'function') state.__fitToView(); }, 0);
+            }
+          }
+        });
+
+    // Layout toggle
+    controls.querySelectorAll('[data-layout]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const layout = btn.dataset.layout; // auto | horizontal | vertical
+        localStorage.setItem('stepsLayout', layout);
+        if (state.currentRunData) {
+          renderStepsGraph(state.currentRunData);
+          // Keep controls visible and repaint active state
+          ensureStepsControls();
+        }
+      });
+    });
+  }
+
+  const layout = localStorage.getItem('stepsLayout') || 'auto';
+  controls.querySelectorAll('[data-layout]').forEach(b => {
+    b.classList.toggle('active', b.dataset.layout === layout);
+    // mimic segmented button visuals like tasks controls
+    b.style.padding = '6px 10px';
+    b.style.fontSize = '12px';
+    b.style.border = '0';
+    b.style.background = 'var(--bg-secondary)';
+    b.style.color = (b.dataset.layout === layout) ? 'var(--text-primary)' : 'var(--text-secondary)';
+  });
+
+  // match tasks controls visual for container and ctrl buttons
+  controls.querySelectorAll('.ctrl').forEach(b => {
+    b.style.background = 'var(--bg-secondary)';
+    b.style.border = '1px solid var(--border-primary)';
+    b.style.borderRadius = '10px';
+    b.style.padding = '6px 10px';
+    b.style.fontSize = '12px';
+    b.style.color = 'var(--text-primary)';
+  });
+}
+
 
         function renderMiniTaskGraph(step, container) {
             if (!step.tasks || step.tasks.length === 0) {
@@ -1624,11 +2460,13 @@ function ensureTasksControls() {
 
         function drawStepConnections(stepLayout, stepElements, opts = { running: false }) {
   const svg = DOM.tasksGraphConnections;
-  const totalW = Math.max(DOM.tasksGraphWrapper.scrollWidth,  stepLayout.width  || 0);
-  const totalH = Math.max(DOM.tasksGraphWrapper.scrollHeight, stepLayout.height || 0);
 
-  svg.setAttribute('width', totalW);
-  svg.setAttribute('height', totalH);
+  // Match the SVG’s coordinate space to the wrapper’s content box
+  const w = Math.max(stepLayout.width || 0, DOM.tasksGraphWrapper.scrollWidth);
+  const h = Math.max(stepLayout.height || 0, DOM.tasksGraphWrapper.scrollHeight);
+  svg.setAttribute('width', w);
+  svg.setAttribute('height', h);
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
 
   const defs = `
     <defs>
@@ -1652,6 +2490,7 @@ function ensureTasksControls() {
     const toEl   = stepElements.get(edge.to.name);
     if (!fromEl || !toEl) return;
 
+    // Offsets are relative to #tasks-graph-wrapper (perfect for this SVG)
     const x1 = fromEl.offsetLeft + fromEl.offsetWidth;
     const y1 = fromEl.offsetTop + fromEl.offsetHeight / 2;
     const x2 = toEl.offsetLeft;
@@ -1667,15 +2506,19 @@ function ensureTasksControls() {
       opts.running && isCompleted ? 'edge-path--running' : ''
     ].join(' ').trim();
 
-    // Use gradient stroke for all edges; completed edges also get color class
+    const strokeStyle = isCompleted ? 'var(--border-accent)' : 'url(#tasks-edge-gradient)';
     paths += `<path d="M ${x1} ${y1} C ${curveX} ${y1}, ${curveX} ${y2}, ${x2} ${y2}"
                  class="${extra}"
-                 style="stroke:url(#tasks-edge-gradient);"
-                 marker-end="${marker}"></path>`;
+                 style="stroke:${strokeStyle};"
+                 marker-end="${marker}"
+                 data-from="${edge.from.name}"
+                 data-to="${edge.to.name}"></path>`;
   });
 
   svg.innerHTML = defs + paths;
 }
+
+
 
 
         function switchGraphView(view) {
@@ -2081,10 +2924,34 @@ function ensureTasksControls() {
         }
 
         function closeModal() {
-            DOM.modal.classList.remove('opacity-100');
-            DOM.modalContent.classList.add('scale-95');
-            setTimeout(() => DOM.modal.classList.add('hidden'), 300);
-        }
+  // hide animation
+  DOM.modal.classList.remove('opacity-100');
+  DOM.modalContent.classList.add('scale-95');
+
+  setTimeout(() => {
+    DOM.modal.classList.add('hidden');
+
+    // Safety: ensure the main view is still visible after closing the modal
+    // without relying solely on router timing.
+    if (state.currentGraphView === 'tasks') {
+      DOM.graphContainer.classList.add('hidden');
+      DOM.tasksGraphContainer.classList.remove('hidden');
+
+      // If tasks graph somehow got cleared, rebuild current view.
+      const hasSvg = !!DOM.tasksGraphWrapper.querySelector('svg');
+      if (!hasSvg && state.currentRunData) {
+        renderRunView(state.currentRunData);
+        switchGraphView('tasks');
+      }
+
+      // Re-center after layout settles
+      if (typeof state.__fitToView === 'function') {
+        requestAnimationFrame(() => state.__fitToView());
+      }
+    }
+  }, 300);
+}
+
 
         function startPolling(pollingFunc, interval) {
             if (state.pollingInterval) clearInterval(state.pollingInterval);
@@ -2204,10 +3071,32 @@ function ensureTasksControls() {
                 return;
             }
 
-            const node = e.target.closest('.graph-node');
-            if (node) {
-                const [, subpath, runId] = window.location.hash.slice(2).split('/');
-                window.location.hash = `#/pipelineruns/${subpath}/${runId}/steps/${node.dataset.stepName}`;
+            // Ignore clicks on inner task nodes (graph-node without step name)
+            const innerTaskNode = e.target.closest('g.graph-node');
+            if (innerTaskNode && !innerTaskNode.dataset.stepName) return;
+
+            // Handle clicks on step nodes or step boxes
+            const stepEl = e.target.closest('[data-step-name]');
+            if (stepEl && stepEl.dataset.stepName) {
+                // Request fit-after-render for Steps view on expand/collapse
+                state._fitOnNextStepsRender = true;
+                delete state._stepsViewTransform;
+                const stepName = stepEl.dataset.stepName;
+                if (e.ctrlKey || e.metaKey) {
+                    const [, subpath, runId] = window.location.hash.slice(2).split('/');
+                    window.location.hash = `#/pipelineruns/${subpath}/${runId}/steps/${stepName}`;
+                } else {
+                    if (!state.expandedSteps) state.expandedSteps = new Set();
+                    if (state.expandedSteps.has(stepName)) {
+                        state.expandedSteps.delete(stepName);
+                    } else {
+                        state.expandedSteps.add(stepName);
+                        // Mark as just expanded so we place the box exactly on the step position for this cycle
+                        if (!state._justExpandedSteps) state._justExpandedSteps = new Set();
+                        state._justExpandedSteps.add(stepName);
+                    }
+                    if (state.currentRunData) renderStepsGraph(state.currentRunData);
+                }
             }
         });
 
@@ -2312,12 +3201,10 @@ function ensureTasksControls() {
         DOM.modalContent.addEventListener('click', e => {
             const closeBtn = e.target.closest('#close-modal-btn');
             if (closeBtn) {
-                const hash = window.location.hash;
-                const newHash = hash.split('/steps/')[0];
-                if (hash !== newHash) window.location.hash = newHash;
-                closeModal();
-                return;
-            }
+  stripStepFromHashWithoutRouting();   // ✅ replace
+  closeModal();
+  return;
+}
 
             const backBtn = e.target.closest('#modal-back-btn');
             if (backBtn) {
@@ -2336,11 +3223,9 @@ function ensureTasksControls() {
 
         DOM.modal.addEventListener('click', e => {
             if (e.target === DOM.modal) {
-                 const hash = window.location.hash;
-                 const newHash = hash.split('/steps/')[0];
-                 if (hash !== newHash) window.location.hash = newHash;
-                 closeModal();
-            }
+  stripStepFromHashWithoutRouting();   // ✅ replace
+  closeModal();
+}
         });
         DOM.openSidebarBtn.addEventListener('click', () => DOM.sidebar.classList.remove('-translate-x-full'));
         DOM.closeSidebarBtn.addEventListener('click', () => DOM.sidebar.classList.add('-translate-x-full'));
