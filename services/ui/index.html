@@ -32,7 +32,7 @@
             --text-inverted: #f9fafb;    /* gray-50 */
             --text-link: #4338ca;      /* indigo-700 */
             --text-placeholder: #6b7280; /* gray-500 */
-            --text-button: #ffffff;     /* white */
+            --text-button: #ffffff;      /* white */
 
             --border-primary: #e5e7eb;  /* gray-200 */
             --border-secondary: #d1d5db;  /* gray-300 */
@@ -92,7 +92,7 @@
         
         [data-page] { display: none; }
         [data-page].active { display: block; }
-        #graph-wrapper { display: flex; align-items: flex-start; justify-content: flex-start; width: 100%; height: 100%; overflow: auto; padding-top: 2rem; }
+        #graph-wrapper, #tasks-graph-wrapper { display: flex; align-items: flex-start; justify-content: flex-start; width: 100%; height: 100%; overflow: auto; padding-top: 2rem; }
         .group-header-container:hover .delete-group-btn, .group-card:hover .delete-group-btn { opacity: 1; }
         .chevron { transition: transform 0.2s ease-in-out; }
         .expanded .chevron { transform: rotate(90deg); }
@@ -204,8 +204,21 @@
                             <p>Choose a run from the sidebar to view its progress.</p>
                         </div>
                         <div id="main-grid-container" class="hidden"></div>
+                        
                         <div id="graph-container" class="hidden w-full h-full">
-                            <div id="graph-wrapper"></div>
+                            <div id="graph-wrapper" class="w-full h-full min-h-[320px]"></div>
+                        </div>
+
+                        <div id="tasks-graph-container" class="hidden relative w-full h-full">
+                            <svg id="tasks-graph-connections" class="pointer-events-none absolute inset-0 w-full h-full"></svg>
+                            <div id="tasks-graph-wrapper" class="w-full h-full min-h-[320px]"></div>
+                            <div id="tasks-empty" class="absolute inset-0 flex items-center justify-center text-center text-[var(--text-placeholder)] hidden">
+                                <div>
+                                    <svg class="h-12 w-12 mx-auto mb-4 placeholder-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                    <h3 class="text-lg font-semibold text-[var(--text-primary)]">No Tasks to Display</h3>
+                                    <p>This pipeline run does not contain any steps with tasks.</p>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -320,6 +333,11 @@
             placeholder: document.getElementById('placeholder'),
             graphContainer: document.getElementById('graph-container'),
             graphWrapper: document.getElementById('graph-wrapper'),
+            // FIX: Added new DOM elements for the tasks view
+            tasksGraphContainer: document.getElementById('tasks-graph-container'),
+            tasksGraphWrapper: document.getElementById('tasks-graph-wrapper'),
+            tasksGraphConnections: document.getElementById('tasks-graph-connections'),
+            tasksEmpty: document.getElementById('tasks-empty'),
             mainGridContainer: document.getElementById('main-grid-container'),
             openSidebarBtn: document.getElementById('open-sidebar-btn'),
             closeSidebarBtn: document.getElementById('close-sidebar-btn'),
@@ -353,6 +371,7 @@
             expandedGroups: new Set(),
             repoLastRunCache: new Map(),
             logPollingInterval: null,
+            currentGraphView: localStorage.getItem('graphView') || 'steps',
         };
 
         const statusConfig = {
@@ -515,8 +534,7 @@
             const runDetails = await fetchData(`/v1/runs/${runId}`);
             if (runDetails) {
                 state.currentRunData = runDetails;
-                DOM.graphContainer.classList.remove('hidden');
-                renderPipelineGraph(runDetails);
+                renderRunView(runDetails);
                 const stepName = window.location.hash.split('/steps/')[1];
                 if (stepName) {
                     showStepDetails(stepName);
@@ -536,6 +554,8 @@
         function resetMainView() {
             DOM.placeholder.classList.add('hidden');
             DOM.graphContainer.classList.add('hidden');
+            DOM.tasksGraphContainer.classList.add('hidden');
+            DOM.tasksEmpty.classList.add('hidden');
             DOM.mainGridContainer.classList.add('hidden');
         }
 
@@ -564,7 +584,7 @@
             if (activeRoute === 'pipelineruns') {
                 if (currentTab === 'recent') {
                     DOM.sidebarNav.innerHTML += `<h2 class="px-2 mt-6 mb-2 text-xs font-semibold tracking-wider text-[var(--text-secondary)] uppercase">Recent Runs</h2>
-                                                <ul id="pipeline-runs-list" class="space-y-1"></ul>`;
+                                                 <ul id="pipeline-runs-list" class="space-y-1"></ul>`;
                     fetchAllRuns();
                 } else {
                     DOM.sidebarNav.innerHTML += `<div class="px-2 mt-6 mb-2 flex items-center justify-between">
@@ -727,9 +747,9 @@
                                               <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H5v-2H3v-2H1v-4a6 6 0 016-6h1.5" /></svg>
                                               <span class="truncate">${(run.run_id || '...').slice(0, 8)}</span>
                                           </div>
-                                          <div class="flex items-center">
-                                              <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                                              <span class="truncate">${(run.git_commit_sha || '...').slice(0, 7)}</span>
+                                            <div class="flex items-center">
+                                                <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                                                <span class="truncate">${(run.git_commit_sha || '...').slice(0, 7)}</span>
                                             </div>
                                         </div>
                                     </div>
@@ -745,9 +765,9 @@
             if (!listEl) return;
             const activeRunId = window.location.hash.split('/')[3];
              if (!runs || runs.length === 0) {
-                listEl.innerHTML = `<li><p class="p-2 text-[var(--text-secondary)] text-sm">No recent runs found.</p></li>`;
-                return;
-            }
+                 listEl.innerHTML = `<li><p class="p-2 text-[var(--text-secondary)] text-sm">No recent runs found.</p></li>`;
+                 return;
+             }
             listEl.innerHTML = (runs || []).map(run => {
                 const status = run.is_complete ? run.status : 'running';
                 const config = statusConfig[status.toLowerCase()] || statusConfig.pending;
@@ -923,7 +943,7 @@
             });
 
              if (showAddButton) {
-                 html += `
+                  html += `
                     <div id="add-group-card" class="relative group bg-[var(--bg-secondary)] p-4 rounded-md border-2 border-dashed border-[var(--border-secondary)] hover:border-[var(--border-accent)] hover:bg-[var(--bg-tertiary)] transition-colors duration-200 cursor-pointer flex items-center justify-center min-h-[120px]">
                         <div class="text-center">
                            <svg class="mx-auto h-8 w-8 text-[var(--text-secondary)] group-hover:text-[var(--text-accent)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
@@ -1053,8 +1073,8 @@
                 height: totalHeight + PADDING_Y
             };
         }
-
-        function renderPipelineGraph(runDetails) {
+        
+        function renderRunView(runDetails) {
             const runInfo = runDetails.run_info;
             const branchName = (runInfo.git_ref || '').startsWith('refs/heads/') ? runInfo.git_ref.split('/')[2] : runInfo.git_ref;
             const repoFullName = runInfo.git_repo_owner ? `${runInfo.git_repo_owner} / ${runInfo.git_repo_name}` : runInfo.git_repo_name;
@@ -1079,14 +1099,12 @@
                         <a href="${repoLink}" class="text-xl font-semibold text-[var(--text-secondary)] hover:text-[var(--text-accent)] transition-colors truncate">${repoFullName}</a>
                         <h1 class="text-xl font-semibold text-[var(--text-primary)] truncate">${runInfo.pipeline_name}</h1>
                     </div>
-
                     <div class="text-xs text-[var(--text-secondary)] mt-2 font-mono grid grid-cols-[auto,1fr] gap-x-4 w-full max-w-3xl">
                         <span class="text-gray-500 justify-self-end truncate">Run ID:</span>
                         <span class="truncate">${runInfo.run_id}</span>
                         <span class="text-gray-500 justify-self-end truncate">Commit:</span>
                         <span class="truncate">${runInfo.git_commit_sha}</span>
                     </div>
-
                     <div class="text-sm text-[var(--text-secondary)] mt-2 flex flex-wrap items-center gap-x-6 gap-y-1">
                         <div class="flex items-center" title="Duration">
                             <svg class="h-4 w-4 mr-1.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -1096,21 +1114,26 @@
                             <svg class="h-4 w-4 mr-1.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
                             <span>${runInfo.git_pusher_name || 'N/A'}</span>
                         </div>
-                    <div class="flex items-center" title="Branch">
-                        <svg class="h-4 w-4 mr-1.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                        <span>${branchName}</span>
-                    </div>
-                    <div class="ml-auto">
-                        <button id="view-logs-btn" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-[var(--border-accent)]">
-                            <svg class="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7" /></svg>
-                            View Logs
-                        </button>
-                    </div>
+                        <div class="flex items-center" title="Branch">
+                            <svg class="h-4 w-4 mr-1.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                            <span>${branchName}</span>
+                        </div>
+                        <div class="ml-auto flex items-center gap-3">
+                            <div id="graph-view-toggle" class="inline-flex rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-1">
+                                <button id="toggle-steps" class="px-3 py-1.5 text-xs font-medium rounded-md transition-colors">Steps</button>
+                                <button id="toggle-tasks" class="px-3 py-1.5 text-xs font-medium rounded-md transition-colors">Tasks</button>
+                            </div>
+                            <button id="view-logs-btn" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-accent)]">
+                                <svg class="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7" /></svg>
+                                View Logs
+                            </button>
+                        </div>
                     </div>
                 </div>`;
 
             DOM.mainHeader.innerHTML = headerHTML;
             resetMainView();
+            initGraphViewToggle();
 
             if (runInfo.failure_reason) {
                 DOM.mainGridContainer.classList.remove('hidden');
@@ -1121,263 +1144,24 @@
                         <div class="mt-3 bg-red-100 dark:bg-gray-900/70 p-3 rounded font-mono">
                             <code class="text-sm text-red-900 dark:text-red-100">${runInfo.failure_reason}</code>
                         </div>
-                    </div>
-                `;
+                    </div>`;
             } else {
-                DOM.graphContainer.classList.remove('hidden');
-                const isVerticalLayout = DOM.graphWrapper.clientWidth < 768;
-
-                const nodeWidth = isVerticalLayout ? 160 : 120;
-                const nodeHeight = isVerticalLayout ? 80 : 100;
-                const hGap = isVerticalLayout ? 40 : 120;
-                const vGap = isVerticalLayout ? 100 : 20;
-
-                const { nodes, edges, width, height } = calculateGraphLayout(runDetails.steps, DOM.graphWrapper, nodeWidth, nodeHeight, hGap, vGap, isVerticalLayout);
-
-                const getEdgePath = (fromNode, toNode) => {
-                    const iconRadius = 14; // Adjusted for scaled icon
-                    const from_center_x = fromNode.x + fromNode.width / 2;
-                    const from_center_y = fromNode.y + fromNode.height / 2;
-                    const to_center_x = toNode.x + toNode.width / 2;
-                    const to_center_y = toNode.y + toNode.height / 2;
-
-                    let x1, y1, x2, y2, curveX, curveY;
-
-                    if (isVerticalLayout) {
-                        x1 = from_center_x;
-                        y1 = from_center_y + iconRadius;
-                        x2 = to_center_x;
-                        y2 = to_center_y - iconRadius;
-                        curveX = x1;
-                        curveY = y1 + (y2 - y1) * 0.5;
-                        return `M ${x1} ${y1} C ${curveX} ${curveY}, ${x2} ${curveY}, ${x2} ${y2}`;
-                    } else { // Horizontal
-                        x1 = from_center_x + iconRadius;
-                        y1 = from_center_y;
-                        x2 = to_center_x - iconRadius;
-                        y2 = to_center_y;
-                        curveX = x1 + (x2 - x1) * 0.5;
-                        return `M ${x1} ${y1} C ${curveX} ${y1}, ${curveX} ${y2}, ${x2} ${y2}`;
-                    }
-                };
-
-                const isRunning = !runDetails.run_info.is_complete;
-
-                let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-                    <defs>
-                        <marker id="arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                            <path d="M 0 0 L 10 5 L 0 10 z" class="fill-current text-gray-300 dark:text-gray-600" />
-                        </marker>
-                        <marker id="arrowhead-completed" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                            <path d="M 0 0 L 10 5 L 0 10 z" class="fill-current text-[var(--text-accent)]" />
-                        </marker>
-                        ${isRunning ? `
-                        <linearGradient id="edge-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                            <stop offset="0%" style="stop-color:var(--border-secondary);" />
-                            <stop offset="50%" style="stop-color:var(--border-accent);" />
-                            <stop offset="100%" style="stop-color:var(--border-secondary);" />
-                        </linearGradient>
-                        ` : ''}
-                    </defs>
-                `;
-                
-                edges.forEach(edge => {
-                    const pathData = getEdgePath(edge.from, edge.to);
-                    const isCompletedEdge = edge.from.status === 'Success' && (edge.to.status.toLowerCase() !== 'pending' && edge.to.status.toLowerCase() !== 'skipped');
-
-                    const marker = isCompletedEdge ? 'url(#arrowhead-completed)' : 'url(#arrowhead)';
-                    svgContent += `<path d="${pathData}" class="edge-path ${isCompletedEdge ? 'edge-path--completed' : ''} ${isRunning && isCompletedEdge ? 'edge-path--running' : ''}" marker-end="${marker}"></path>`;
-                });
-
-                nodes.forEach(node => {
-                    const config = statusConfig[node.status.toLowerCase()] || statusConfig.pending;
-                    const node_center_x = node.x + node.width / 2;
-                    const node_center_y = node.y + node.height / 2;
-                    
-                    const originalStep = runDetails.pipeline_definition.steps.find(s => s.name === node.name);
-                    let subText = `<text x="${node_center_x}" y="${node_center_y + 53}" text-anchor="middle" class="text-xs fill-current text-[var(--text-secondary)]">${node.duration || '...'}</text>`;
-                    if (originalStep && originalStep.include) {
-                        let includeType = originalStep.include.startsWith('pipeline:') ? '(Included Pipeline)' : '(Included Step)';
-                        let linkClass = originalStep.include.startsWith('pipeline:') ? 'text-[var(--text-link)] hover:underline' : 'text-[var(--text-accent)]';
-                        
-                        const childRun = originalStep.include.startsWith('pipeline:') ? runDetails.child_runs.find(cr => cr.parent_step_name === node.name) : null;
-                        
-                        if (childRun) {
-                             subText = `<a href="#/pipelineruns/run/${childRun.run_id}" class="fill-current ${linkClass}">
-                                <text x="${node_center_x}" y="${node_center_y + 53}" text-anchor="middle" class="text-xs">${includeType}</text>
-                             </a>`;
-                        } else {
-                             subText = `<text x="${node_center_x}" y="${node_center_y + 53}" text-anchor="middle" class="text-xs fill-current ${linkClass}">${includeType}</text>`;
-                        }
-                    }
-
-
-                    svgContent += `
-                        <g class="graph-node" data-step-name="${node.name}">
-                            <g transform="translate(${node_center_x}, ${node_center_y})">
-                                <path d="${config.icon}" transform="translate(-12, -12) scale(1.2)" stroke-width="2" class="stroke-current ${config.color}" fill="none"/>
-                            </g>
-                            <text x="${node_center_x}" y="${node_center_y + 35}" text-anchor="middle" class="text-sm font-semibold fill-current text-[var(--text-primary)]">${node.name}</text>
-                            ${subText}
-                        </g>`;
-                });
-                DOM.graphWrapper.innerHTML = svgContent + `</svg>`;
-            }
-        }
-        
-        async function showStepDetails(stepName) {
-            if (!state.currentRunData) return;
-            await renderModalForStep(state.currentRunData.run_info.run_id, stepName);
-
-            DOM.modal.classList.remove('hidden');
-            setTimeout(() => {
-                DOM.modal.classList.add('opacity-100');
-                DOM.modalContent.classList.remove('scale-95');
-            }, 10);
-        }
-
-        async function renderModalForStep(runId, stepName, parentContext = null) {
-            const runDetails = await fetchData(`/v1/runs/${runId}`);
-            if (!runDetails) return;
-            
-            const step = runDetails.steps.find(s => s.name === stepName);
-            if (!step) return;
-
-            const config = statusConfig[step.status.toLowerCase()] || statusConfig.pending;
-            const stepConfig = step.configuration;
-            
-            const modalHeader = document.querySelector('#modal-content > div:first-child');
-            const closeButtonHTML = modalHeader.querySelector('#close-modal-btn').outerHTML;
-
-            let headerHTML = `
-                <div>
-                    <h2 id="modal-title" class="text-xl font-semibold">Step: ${stepName}</h2>
-                    <div class="flex items-center space-x-6 mt-1 text-sm">
-                        <div><span class="text-[var(--text-secondary)]">Status: </span><span id="modal-status" class="font-medium ${config.color}">${step.status}</span></div>
-                        <div><span class="text-[var(--text-secondary)]">Duration: </span><span id="modal-duration" class="font-medium">${step.duration || '0s'}</span></div>
-                    </div>
-                </div>`;
-            
-            if (parentContext) {
-                const parentContextString = JSON.stringify(parentContext).replace(/"/g, '&quot;');
-                headerHTML = `
-                <div class="flex items-center space-x-4">
-                     <button id="modal-back-btn" data-parent-context='${parentContextString}' class="p-1 rounded-full text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]" title="Back to parent step">
-                         <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
-                     </button>
-                    ${headerHTML}
-                </div>`;
-            }
-            modalHeader.innerHTML = headerHTML + closeButtonHTML;
-
-            const configContainer = document.getElementById('step-config-container');
-            let configHTML = '';
-
-            if (stepConfig.image) {
-                configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Container Image</h4><code class="text-cyan-600 dark:text-cyan-400 bg-[var(--bg-code)] px-2 py-1 rounded">${stepConfig.image}</code></div>`;
-            }
-            if (stepConfig.include) {
-                configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Included Definition</h4><code class="text-cyan-600 dark:text-cyan-400 bg-[var(--bg-code)] px-2 py-1 rounded">${stepConfig.include}</code></div>`;
-            }
-
-            let behaviorItems = [];
-            if (step.depends_on && step.depends_on.length > 0) {
-                behaviorItems.push(`<li><span class="font-medium text-[var(--text-primary)]">Depends On Steps:</span> <code class="text-[var(--text-secondary)]">${JSON.stringify(step.depends_on)}</code></li>`);
-            }
-            if (stepConfig.ignore_failure) {
-                behaviorItems.push(`<li><span class="font-medium text-[var(--text-primary)]">Ignore Failure:</span> <span class="text-amber-600 dark:text-amber-400">true</span></li>`);
-            }
-            if (stepConfig.llm_output_sharing === false) {
-                behaviorItems.push(`<li><span class="font-medium text-[var(--text-primary)]">LLM Output Sharing:</span> <span class="text-[var(--text-secondary)]">false</span></li>`);
-            }
-            if (stepConfig.include && stepConfig.sync) {
-                behaviorItems.push(`<li><span class="font-medium text-[var(--text-primary)]">Sync Mode:</span> <span class="text-blue-600 dark:text-blue-400">true</span> (waits for included pipeline to finish)</li>`);
-            }
-            if(behaviorItems.length > 0) {
-                configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Behavior & Flow Control</h4><ul class="list-disc list-inside pl-2 space-y-1">${behaviorItems.join('')}</ul></div>`;
-            }
-
-            if (stepConfig.secrets && stepConfig.secrets.length > 0) {
-                const secretsList = stepConfig.secrets.map(s => `<li class="inline-block mr-2 mb-1"><code class="text-purple-600 dark:text-purple-400 bg-[var(--bg-code)] px-2 py-1 rounded">${s}</code></li>`).join('');
-                configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Secrets</h4><ul class="flex flex-wrap">${secretsList}</ul></div>`;
-            }
-            if (stepConfig.volumes && stepConfig.volumes.length > 0) {
-                const volumesList = stepConfig.volumes.map(v => `<li class="inline-block mr-2 mb-1"><code class="text-green-600 dark:text-green-400 bg-[var(--bg-code)] px-2 py-1 rounded">${v}</code></li>`).join('');
-                configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Volumes</h4><ul class="flex flex-wrap">${volumesList}</ul></div>`;
-            }
-            if (stepConfig.environment && Object.keys(stepConfig.environment).length > 0) {
-                const envList = Object.entries(stepConfig.environment).map(([k, v]) => `<li><code class="text-[var(--text-secondary)]"><span class="text-orange-600 dark:text-orange-400">${k}</span>=${v}</code></li>`).join('');
-                configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Environment Overrides</h4><ul class="space-y-1">${envList}</ul></div>`;
-            }
-
-            if (stepConfig.tasks && stepConfig.tasks.length > 0) {
-                configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Tasks Configuration</h4><div class="space-y-3 pt-2">`;
-                stepConfig.tasks.forEach(task => {
-                    configHTML += `<div class="bg-[var(--bg-primary)] p-3 rounded-md border-l-2 border-[var(--border-secondary)]">
-                                        <p class="font-semibold text-[var(--text-primary)]">${task.name}</p>`;
-                    if (task.goal) {
-                        configHTML += `<p class="mt-1 text-[var(--text-primary)] italic"><strong>Goal:</strong> "${task.goal}"</p>`;
-                    }
-                    if (task.script) {
-                        const escapedScript = task.script.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                        configHTML += `<div class="mt-2"><p class="text-xs text-[var(--text-secondary)] mb-1">Script:</p><pre class="bg-[var(--bg-code-darker)] p-2 rounded text-cyan-700 dark:text-cyan-300 text-xs overflow-x-auto"><code>${escapedScript}</code></pre></div>`;
-                    }
-                    if (task.depends_on && task.depends_on.length > 0) {
-                        configHTML += `<p class="mt-2 text-xs text-[var(--text-secondary)]"><strong>Depends on tasks:</strong> ${task.depends_on.join(', ')}</p>`;
-                    }
-                    if (task.ignore_failure) {
-                        configHTML += `<p class="mt-2 text-xs text-amber-600 dark:text-amber-400">This task will not fail the step.</p>`;
-                    }
-                    configHTML += '</div>';
-                });
-                configHTML += '</div></div>';
-            }
-            configContainer.innerHTML = configHTML;
-
-            if (stepConfig.include && stepConfig.include.startsWith('pipeline:')) {
-                const childRun = runDetails.child_runs.find(cr => cr.parent_step_name === stepName);
-                if (childRun) {
-                    const childRunDetails = await fetchData(`/v1/runs/${childRun.run_id}`);
-                    if (childRunDetails) {
-                        renderTaskGraph(stepName, childRunDetails.steps, { runId: childRun.run_id, parentRunId: runId, parentStepName: stepName });
-                    }
-                }
-            } else {
-                renderTaskGraph(stepName, step.tasks);
+                renderStepsGraph(runDetails);
+                renderTasksGraph(runDetails);
+                switchGraphView(state.currentGraphView);
             }
         }
 
-        function renderTaskGraph(stepName, tasks, clickableNodeContext = null) {
-            const taskGraphEl = document.getElementById('task-graph');
-            if (!state.currentRunData || !state.currentRunData.pipeline_definition || !state.currentRunData.pipeline_definition.steps) {
-                 taskGraphEl.innerHTML = `<p class="text-[var(--text-secondary)] text-sm">Waiting for pipeline data...</p>`;
-                 return;
-            }
-            if (!tasks || tasks.length === 0) {
-                taskGraphEl.innerHTML = `<p class="text-[var(--text-secondary)] text-sm">This step has no tasks defined.</p>`;
-                return;
-            }
-
-            const stepDef = state.currentRunData.pipeline_definition.steps.find(s => s.name === stepName);
-            const itemsWithDeps = tasks.map(item => {
-                if (item.task_name) {
-                    const taskDef = stepDef && stepDef.tasks ? stepDef.tasks.find(t => t.name === item.task_name) : null;
-                    return { ...item, depends_on: taskDef ? taskDef.depends_on : [] };
-                } else {
-                    return { ...item, depends_on: item.depends_on || [] };
-                }
-            });
-
-            const isVerticalLayout = taskGraphEl.clientWidth < 500;
+        function renderStepsGraph(runDetails) {
+            const isVerticalLayout = DOM.graphWrapper.clientWidth < 768;
             const nodeWidth = isVerticalLayout ? 160 : 120;
             const nodeHeight = isVerticalLayout ? 80 : 100;
-            const hGap = isVerticalLayout ? 20 : 60;
-            const vGap = isVerticalLayout ? 80 : 20;
+            const hGap = isVerticalLayout ? 40 : 120;
+            const vGap = isVerticalLayout ? 100 : 20;
+            const { nodes, edges, width, height } = calculateGraphLayout(runDetails.steps, DOM.graphWrapper, nodeWidth, nodeHeight, hGap, vGap, isVerticalLayout);
 
-            const { nodes, edges, width, height } = calculateGraphLayout(itemsWithDeps, taskGraphEl, nodeWidth, nodeHeight, hGap, vGap, isVerticalLayout);
-            
             const getEdgePath = (fromNode, toNode) => {
-                const iconRadius = 14; 
+                const iconRadius = 14;
                 const from_center_x = fromNode.x + fromNode.width / 2;
                 const from_center_y = fromNode.y + fromNode.height / 2;
                 const to_center_x = toNode.x + toNode.width / 2;
@@ -1396,6 +1180,336 @@
                 }
             };
 
+            const isRunning = !runDetails.run_info.is_complete;
+            let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <marker id="arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" class="fill-current text-gray-300 dark:text-gray-600" /></marker>
+                    <marker id="arrowhead-completed" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" class="fill-current text-[var(--text-accent)]" /></marker>
+                    ${isRunning ? `<linearGradient id="edge-gradient" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:var(--border-secondary);" /><stop offset="50%" style="stop-color:var(--border-accent);" /><stop offset="100%" style="stop-color:var(--border-secondary);" /></linearGradient>` : ''}
+                </defs>`;
+            
+            edges.forEach(edge => {
+                const pathData = getEdgePath(edge.from, edge.to);
+                const isCompletedEdge = edge.from.status === 'Success' && (edge.to.status.toLowerCase() !== 'pending' && edge.to.status.toLowerCase() !== 'skipped');
+                const marker = isCompletedEdge ? 'url(#arrowhead-completed)' : 'url(#arrowhead)';
+                svgContent += `<path d="${pathData}" class="edge-path ${isCompletedEdge ? 'edge-path--completed' : ''} ${isRunning && isCompletedEdge ? 'edge-path--running' : ''}" marker-end="${marker}"></path>`;
+            });
+
+            nodes.forEach(node => {
+                const config = statusConfig[node.status.toLowerCase()] || statusConfig.pending;
+                const node_center_x = node.x + node.width / 2;
+                const node_center_y = node.y + node.height / 2;
+                const originalStep = runDetails.pipeline_definition.steps.find(s => s.name === node.name);
+                let subText = `<text x="${node_center_x}" y="${node_center_y + 53}" text-anchor="middle" class="text-xs fill-current text-[var(--text-secondary)]">${node.duration || '...'}</text>`;
+                if (originalStep && originalStep.include) {
+                    let includeType = originalStep.include.startsWith('pipeline:') ? '(Included Pipeline)' : '(Included Step)';
+                    let linkClass = originalStep.include.startsWith('pipeline:') ? 'text-[var(--text-link)] hover:underline' : 'text-[var(--text-accent)]';
+                    const childRun = originalStep.include.startsWith('pipeline:') ? runDetails.child_runs.find(cr => cr.parent_step_name === node.name) : null;
+                    if (childRun) {
+                         subText = `<a href="#/pipelineruns/run/${childRun.run_id}" class="fill-current ${linkClass}"><text x="${node_center_x}" y="${node_center_y + 53}" text-anchor="middle" class="text-xs">${includeType}</text></a>`;
+                    } else {
+                         subText = `<text x="${node_center_x}" y="${node_center_y + 53}" text-anchor="middle" class="text-xs fill-current ${linkClass}">${includeType}</text>`;
+                    }
+                }
+                svgContent += `<g class="graph-node" data-step-name="${node.name}"><g transform="translate(${node_center_x}, ${node_center_y})"><path d="${config.icon}" transform="translate(-12, -12) scale(1.2)" stroke-width="2" class="stroke-current ${config.color}" fill="none"/></g><text x="${node_center_x}" y="${node_center_y + 35}" text-anchor="middle" class="text-sm font-semibold fill-current text-[var(--text-primary)]">${node.name}</text>${subText}</g>`;
+            });
+            DOM.graphWrapper.innerHTML = svgContent + `</svg>`;
+        }
+
+        function renderTasksGraph(runDetails) {
+            DOM.tasksGraphWrapper.innerHTML = '';
+            DOM.tasksGraphConnections.innerHTML = '';
+            const stepsWithTasks = runDetails.steps.filter(s => s.tasks && s.tasks.length > 0);
+            if (stepsWithTasks.length === 0) {
+                DOM.tasksEmpty.classList.remove('hidden');
+                return;
+            }
+            DOM.tasksEmpty.classList.add('hidden');
+            DOM.tasksGraphWrapper.className = 'p-4 flex flex-wrap items-start justify-center gap-8';
+            const stepElements = new Map();
+            const stepLayout = calculateGraphLayout(runDetails.steps, DOM.tasksGraphWrapper, 350, 250, 60, 60, false); // Increased height for the detailed graph
+            
+            DOM.tasksGraphWrapper.style.position = 'relative';
+            DOM.tasksGraphWrapper.style.width = `${stepLayout.width}px`;
+            DOM.tasksGraphWrapper.style.height = `${stepLayout.height}px`;
+
+            stepLayout.nodes.forEach(stepNode => {
+                const step = runDetails.steps.find(s => s.name === stepNode.name);
+                if (!step) return;
+
+                const card = document.createElement('div');
+                card.id = `step-card-${step.name}`;
+                card.className = 'bg-[var(--bg-secondary)] rounded-lg p-4 shadow-md border border-[var(--border-primary)] flex-shrink-0 flex flex-col absolute overflow-hidden'; // Added overflow-hidden
+                card.style.left = `${stepNode.x}px`;
+                card.style.top = `${stepNode.y}px`;
+                card.style.width = `${stepNode.width}px`;
+                card.style.height = `${stepNode.height}px`; // Set explicit height
+                card.style.cursor = 'pointer';
+                card.dataset.stepName = step.name;
+
+                const stepStatusConfig = statusConfig[step.status.toLowerCase()] || statusConfig.pending;
+                card.innerHTML = `
+                    <div class="flex items-center justify-between mb-2 flex-shrink-0">
+                         <h3 class="text-base font-semibold text-[var(--text-primary)] truncate pr-2">${step.name}</h3>
+                         <svg class="h-5 w-5 flex-shrink-0 ${stepStatusConfig.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${stepStatusConfig.icon}"/></svg>
+                    </div>
+                    <div class="task-graph-mini-container bg-[var(--bg-primary)] rounded p-1 flex-1 flex items-center justify-center overflow-auto"></div>
+                `;
+                
+                card.addEventListener('click', (e) => {
+                    const stepName = e.currentTarget.dataset.stepName;
+                    const [, subpath, runId] = window.location.hash.slice(2).split('/');
+                    window.location.hash = `#/pipelineruns/${subpath}/${runId}/steps/${stepName}`;
+                });
+
+                DOM.tasksGraphWrapper.appendChild(card);
+                stepElements.set(step.name, card);
+
+                const miniGraphContainer = card.querySelector('.task-graph-mini-container');
+                
+                // **** THIS IS THE KEY CHANGE ****
+                // We now call the detailed graph renderer for the card's content.
+                // We also pass the container it should draw into.
+                renderTaskGraph(miniGraphContainer, step.name, step.tasks);
+            });
+
+            setTimeout(() => drawStepConnections(stepLayout, stepElements), 50);
+        }
+
+        function renderMiniTaskGraph(step, container) {
+            if (!step.tasks || step.tasks.length === 0) {
+                container.innerHTML = `<span class="text-xs text-[var(--text-secondary)]">No tasks</span>`;
+                return;
+            }
+            const { nodes, edges, width, height } = calculateGraphLayout(step.tasks, container, 60, 50, 10, 20, false);
+            let svg = `<svg width="${width}" height="${height}" class="max-w-full max-h-full">`;
+            edges.forEach(edge => {
+                const path = `M${edge.from.x + edge.from.width/2},${edge.from.y + edge.from.height/2} L${edge.to.x + edge.to.width/2},${edge.to.y + edge.to.height/2}`;
+                svg += `<path d="${path}" class="edge-path" />`;
+            });
+            nodes.forEach(node => {
+                const config = statusConfig[node.status.toLowerCase()] || statusConfig.pending;
+                svg += `<g transform="translate(${node.x}, ${node.y})">
+                    <rect width="60" height="50" rx="8" ry="8" class="fill-current ${config.color} opacity-10" />
+                    <svg x="22" y="5" width="16" height="16" viewBox="0 0 24 24" class="${config.color}"><path d="${config.icon}" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    <text x="30" y="38" text-anchor="middle" class="text-[10px] font-medium fill-current text-[var(--text-primary)] truncate">${node.task_name}</text>
+                </g>`;
+            });
+            svg += `</svg>`;
+            container.innerHTML = svg;
+        }
+
+        function drawStepConnections(stepLayout, stepElements) {
+            const svg = DOM.tasksGraphConnections;
+            svg.setAttribute('width', DOM.tasksGraphWrapper.scrollWidth);
+            svg.setAttribute('height', DOM.tasksGraphWrapper.scrollHeight);
+            let paths = '';
+            stepLayout.edges.forEach(edge => {
+                const fromEl = stepElements.get(edge.from.name);
+                const toEl = stepElements.get(edge.to.name);
+                if (!fromEl || !toEl) return;
+                const x1 = fromEl.offsetLeft + fromEl.offsetWidth;
+                const y1 = fromEl.offsetTop + fromEl.offsetHeight / 2;
+                const x2 = toEl.offsetLeft;
+                const y2 = toEl.offsetTop + toEl.offsetHeight / 2;
+                const curveX = x1 + (x2-x1)/2;
+                const pathData = `M ${x1} ${y1} C ${curveX} ${y1}, ${curveX} ${y2}, ${x2} ${y2}`;
+                const isCompleted = edge.from.status === 'Success';
+                paths += `<path d="${pathData}" class="edge-path ${isCompleted ? 'edge-path--completed' : ''}" marker-end="${isCompleted ? 'url(#arrowhead-completed)' : 'url(#arrowhead)'}"></path>`;
+            });
+            svg.innerHTML = `<defs>
+                <marker id="arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" class="fill-current text-gray-300 dark:text-gray-600" /></marker>
+                <marker id="arrowhead-completed" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" class="fill-current text-[var(--text-accent)]" /></marker>
+            </defs>${paths}`;
+        }
+
+        function switchGraphView(view) {
+            state.currentGraphView = view;
+            localStorage.setItem('graphView', view);
+            DOM.graphContainer.classList.toggle('hidden', view !== 'steps');
+            DOM.tasksGraphContainer.classList.toggle('hidden', view !== 'tasks');
+        }
+
+        function initGraphViewToggle() {
+            const stepsBtn = document.getElementById('toggle-steps');
+            const tasksBtn = document.getElementById('toggle-tasks');
+            if (!stepsBtn || !tasksBtn) return;
+            const paint = () => {
+                const isSteps = state.currentGraphView === 'steps';
+                stepsBtn.classList.toggle('bg-[var(--bg-tertiary)]', isSteps);
+                stepsBtn.classList.toggle('text-[var(--text-primary)]', isSteps);
+                stepsBtn.classList.toggle('text-[var(--text-secondary)]', !isSteps);
+                tasksBtn.classList.toggle('bg-[var(--bg-tertiary)]', !isSteps);
+                tasksBtn.classList.toggle('text-[var(--text-primary)]', !isSteps);
+                tasksBtn.classList.toggle('text-[var(--text-secondary)]', isSteps);
+            };
+            stepsBtn.onclick = () => { if(state.currentGraphView !== 'steps') { switchGraphView('steps'); paint(); } };
+            tasksBtn.onclick = () => { if(state.currentGraphView !== 'tasks') { switchGraphView('tasks'); paint(); } };
+            paint();
+        }
+
+        async function showStepDetails(stepName) {
+            if (!state.currentRunData) return;
+            await renderModalForStep(state.currentRunData.run_info.run_id, stepName);
+            DOM.modal.classList.remove('hidden');
+            setTimeout(() => {
+                DOM.modal.classList.add('opacity-100');
+                DOM.modalContent.classList.remove('scale-95');
+            }, 10);
+        }
+
+        async function renderModalForStep(runId, stepName, parentContext = null) {
+            const runDetails = await fetchData(`/v1/runs/${runId}`);
+            if (!runDetails) return;
+            const step = runDetails.steps.find(s => s.name === stepName);
+            if (!step) return;
+            const config = statusConfig[step.status.toLowerCase()] || statusConfig.pending;
+            const stepConfig = step.configuration;
+            const modalHeader = document.querySelector('#modal-content > div:first-child');
+            const closeButtonHTML = modalHeader.querySelector('#close-modal-btn').outerHTML;
+            let headerHTML = `
+                <div>
+                    <h2 id="modal-title" class="text-xl font-semibold">Step: ${stepName}</h2>
+                    <div class="flex items-center space-x-6 mt-1 text-sm">
+                        <div><span class="text-[var(--text-secondary)]">Status: </span><span id="modal-status" class="font-medium ${config.color}">${step.status}</span></div>
+                        <div><span class="text-[var(--text-secondary)]">Duration: </span><span id="modal-duration" class="font-medium">${step.duration || '0s'}</span></div>
+                    </div>
+                </div>`;
+            if (parentContext) {
+                const parentContextString = JSON.stringify(parentContext).replace(/"/g, '&quot;');
+                headerHTML = `
+                <div class="flex items-center space-x-4">
+                   <button id="modal-back-btn" data-parent-context='${parentContextString}' class="p-1 rounded-full text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]" title="Back to parent step">
+                       <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                   </button>
+                    ${headerHTML}
+                </div>`;
+            }
+            modalHeader.innerHTML = headerHTML + closeButtonHTML;
+            const configContainer = document.getElementById('step-config-container');
+            let configHTML = '';
+            if (stepConfig.image) {
+                configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Container Image</h4><code class="text-cyan-600 dark:text-cyan-400 bg-[var(--bg-code)] px-2 py-1 rounded">${stepConfig.image}</code></div>`;
+            }
+            if (stepConfig.include) {
+                configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Included Definition</h4><code class="text-cyan-600 dark:text-cyan-400 bg-[var(--bg-code)] px-2 py-1 rounded">${stepConfig.include}</code></div>`;
+            }
+            let behaviorItems = [];
+            if (step.depends_on && step.depends_on.length > 0) {
+                behaviorItems.push(`<li><span class="font-medium text-[var(--text-primary)]">Depends On Steps:</span> <code class="text-[var(--text-secondary)]">${JSON.stringify(step.depends_on)}</code></li>`);
+            }
+            if (stepConfig.ignore_failure) {
+                behaviorItems.push(`<li><span class="font-medium text-[var(--text-primary)]">Ignore Failure:</span> <span class="text-amber-600 dark:text-amber-400">true</span></li>`);
+            }
+            if (stepConfig.llm_output_sharing === false) {
+                behaviorItems.push(`<li><span class="font-medium text-[var(--text-primary)]">LLM Output Sharing:</span> <span class="text-[var(--text-secondary)]">false</span></li>`);
+            }
+            if (stepConfig.include && stepConfig.sync) {
+                behaviorItems.push(`<li><span class="font-medium text-[var(--text-primary)]">Sync Mode:</span> <span class="text-blue-600 dark:text-blue-400">true</span> (waits for included pipeline to finish)</li>`);
+            }
+            if(behaviorItems.length > 0) {
+                configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Behavior & Flow Control</h4><ul class="list-disc list-inside pl-2 space-y-1">${behaviorItems.join('')}</ul></div>`;
+            }
+            if (stepConfig.secrets && stepConfig.secrets.length > 0) {
+                const secretsList = stepConfig.secrets.map(s => `<li class="inline-block mr-2 mb-1"><code class="text-purple-600 dark:text-purple-400 bg-[var(--bg-code)] px-2 py-1 rounded">${s}</code></li>`).join('');
+                configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Secrets</h4><ul class="flex flex-wrap">${secretsList}</ul></div>`;
+            }
+            if (stepConfig.volumes && stepConfig.volumes.length > 0) {
+                const volumesList = stepConfig.volumes.map(v => `<li class="inline-block mr-2 mb-1"><code class="text-green-600 dark:text-green-400 bg-[var(--bg-code)] px-2 py-1 rounded">${v}</code></li>`).join('');
+                configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Volumes</h4><ul class="flex flex-wrap">${volumesList}</ul></div>`;
+            }
+            if (stepConfig.environment && Object.keys(stepConfig.environment).length > 0) {
+                const envList = Object.entries(stepConfig.environment).map(([k, v]) => `<li><code class="text-[var(--text-secondary)]"><span class="text-orange-600 dark:text-orange-400">${k}</span>=${v}</code></li>`).join('');
+                configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Environment Overrides</h4><ul class="space-y-1">${envList}</ul></div>`;
+            }
+            if (stepConfig.tasks && stepConfig.tasks.length > 0) {
+                configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Tasks Configuration</h4><div class="space-y-3 pt-2">`;
+                stepConfig.tasks.forEach(task => {
+                    configHTML += `<div class="bg-[var(--bg-primary)] p-3 rounded-md border-l-2 border-[var(--border-secondary)]"><p class="font-semibold text-[var(--text-primary)]">${task.name}</p>`;
+                    if (task.goal) {
+                        configHTML += `<p class="mt-1 text-[var(--text-primary)] italic"><strong>Goal:</strong> "${task.goal}"</p>`;
+                    }
+                    if (task.script) {
+                        const escapedScript = task.script.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        configHTML += `<div class="mt-2"><p class="text-xs text-[var(--text-secondary)] mb-1">Script:</p><pre class="bg-[var(--bg-code-darker)] p-2 rounded text-cyan-700 dark:text-cyan-300 text-xs overflow-x-auto"><code>${escapedScript}</code></pre></div>`;
+                    }
+                    if (task.depends_on && task.depends_on.length > 0) {
+                        configHTML += `<p class="mt-2 text-xs text-[var(--text-secondary)]"><strong>Depends on tasks:</strong> ${task.depends_on.join(', ')}</p>`;
+                    }
+                    if (task.ignore_failure) {
+                        configHTML += `<p class="mt-2 text-xs text-amber-600 dark:text-amber-400">This task will not fail the step.</p>`;
+                    }
+                    configHTML += '</div>';
+                });
+                configHTML += '</div></div>';
+            }
+            configContainer.innerHTML = configHTML;
+            
+            // **** THIS IS THE KEY CHANGE ****
+            // We now explicitly tell renderTaskGraph which element to draw in.
+            const taskGraphEl = document.getElementById('task-graph');
+            if (stepConfig.include && stepConfig.include.startsWith('pipeline:')) {
+                const childRun = runDetails.child_runs.find(cr => cr.parent_step_name === stepName);
+                if (childRun) {
+                    const childRunDetails = await fetchData(`/v1/runs/${childRun.run_id}`);
+                    if (childRunDetails) {
+                        renderTaskGraph(taskGraphEl, stepName, childRunDetails.steps, { runId: childRun.run_id, parentRunId: runId, parentStepName: stepName });
+                    }
+                }
+            } else {
+                renderTaskGraph(taskGraphEl, stepName, step.tasks);
+            }
+        }
+
+        // **** FIX for "renderTaskGraph is not defined" ****
+        // This is the function for the MODAL, it is now included.
+        function renderTaskGraph(container, stepName, tasks, clickableNodeContext = null) {
+            if (!state.currentRunData || !state.currentRunData.pipeline_definition || !state.currentRunData.pipeline_definition.steps) {
+                container.innerHTML = `<p class="text-[var(--text-secondary)] text-sm">Waiting for pipeline data...</p>`;
+                return;
+            }
+            if (!tasks || tasks.length === 0) {
+                container.innerHTML = `<p class="text-[var(--text-secondary)] text-sm">This step has no tasks defined.</p>`;
+                return;
+            }
+
+            const stepDef = state.currentRunData.pipeline_definition.steps.find(s => s.name === stepName);
+            const itemsWithDeps = tasks.map(item => {
+                if (item.task_name) {
+                    const taskDef = stepDef && stepDef.tasks ? stepDef.tasks.find(t => t.name === item.task_name) : null;
+                    return { ...item, depends_on: taskDef ? taskDef.depends_on : [] };
+                } else {
+                    return { ...item, depends_on: item.depends_on || [] };
+                }
+            });
+
+            const isVerticalLayout = container.clientWidth < 500;
+            const nodeWidth = isVerticalLayout ? 160 : 120;
+            const nodeHeight = isVerticalLayout ? 80 : 100;
+            const hGap = isVerticalLayout ? 20 : 60;
+            const vGap = isVerticalLayout ? 80 : 20;
+
+            const { nodes, edges, width, height } = calculateGraphLayout(itemsWithDeps, container, nodeWidth, nodeHeight, hGap, vGap, isVerticalLayout);
+            
+            const getEdgePath = (fromNode, toNode) => {
+                const iconRadius = 14;
+                const from_center_x = fromNode.x + fromNode.width / 2;
+                const from_center_y = fromNode.y + fromNode.height / 2;
+                const to_center_x = toNode.x + toNode.width / 2;
+                const to_center_y = toNode.y + toNode.height / 2;
+                let x1, y1, x2, y2, curveX, curveY;
+                if (isVerticalLayout) {
+                    x1 = from_center_x; y1 = from_center_y + iconRadius;
+                    x2 = to_center_x; y2 = to_center_y - iconRadius;
+                    curveX = x1; curveY = y1 + (y2 - y1) * 0.5;
+                    return `M ${x1} ${y1} C ${curveX} ${curveY}, ${x2} ${curveY}, ${x2} ${y2}`;
+                } else {
+                    x1 = from_center_x + iconRadius; y1 = from_center_y;
+                    x2 = to_center_x - iconRadius; y2 = to_center_y;
+                    curveX = x1 + (x2 - x1) * 0.5;
+                    return `M ${x1} ${y1} C ${curveX} ${y1}, ${curveX} ${y2}, ${x2} ${y2}`;
+                }
+            };
 
             let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><defs><marker id="task_arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" class="fill-current text-gray-400 dark:text-gray-600" /></marker></defs>`;
             
@@ -1426,7 +1540,7 @@
                         <text x="${node_center_x}" y="${node_center_y + 48}" text-anchor="middle" class="text-[10px] fill-current text-[var(--text-secondary)]">${duration}</text>
                     </g>`;
             });
-            taskGraphEl.innerHTML = svgContent + `</svg>`;
+            container.innerHTML = svgContent + `</svg>`;
         }
 
         function renderBreadcrumbs(groupId) {
@@ -1448,10 +1562,7 @@
 
         async function router() {
             stopPolling();
-            // Clear the previous run data to prevent stale states
             state.currentRunData = null; 
-            
-            // Let the route handler decide what to show, don't show placeholder by default.
             resetMainView(); 
 
             const hash = window.location.hash || '#/pipelineruns/main';
@@ -1472,7 +1583,6 @@
                 
                 await renderSidebar(path, currentTab);
 
-                // --- REVISED AND EXPLICIT ROUTING LOGIC ---
                 if (subpath === 'run' && id) {
                     await fetchActiveRun(id);
                     const stepName = parts.length > 3 && parts[3] === 'steps' ? parts[4] : null;
@@ -1494,19 +1604,16 @@
                         renderMainGridContent(rootGroups, null, true);
                     }
                 } else {
-                    // Fallback for old group URLs like #/pipelineruns/123
                     const groupId = subpath ? parseInt(subpath, 10) : null;
                     if (groupId && !isNaN(groupId)) {
-                        window.location.hash = `#/pipelineruns/main/${groupId}`; // Redirect to new canonical URL
+                        window.location.hash = `#/pipelineruns/main/${groupId}`;
                     } else {
-                         // Default to main view if URL is unrecognized
                         window.location.hash = '#/pipelineruns/main';
                     }
                 }
             } else {
                 await renderSidebar(path, 'main'); 
                 DOM.mainHeader.textContent = path.charAt(0).toUpperCase() + path.slice(1);
-                // Show a placeholder for non-pipelinerun pages since they are not implemented
                 DOM.placeholder.classList.remove('hidden');
                 DOM.placeholder.querySelector('h3').textContent = `Welcome to ${path}`;
                 DOM.placeholder.querySelector('p').textContent = 'This page is under construction.';
@@ -1940,7 +2047,7 @@
                 document.addEventListener('mouseup', mouseUpHandler, { once: true });
             });
        })();
-        
+       
        (() => {
             const sidebar = document.getElementById('sidebar');
             const resizer = document.getElementById('sidebar-resizer');
@@ -1988,7 +2095,7 @@
        new ResizeObserver(() => {
            requestAnimationFrame(() => {
                if (state.currentRunData) {
-                   renderPipelineGraph(state.currentRunData);
+                   renderRunView(state.currentRunData);
                }
            });
        }).observe(DOM.graphWrapper);
@@ -1998,4 +2105,3 @@
     </script>
 </body>
 </html>
-
