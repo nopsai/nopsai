@@ -102,6 +102,18 @@
             height: 100%; 
             overflow: auto; 
         }
+        /* Ensure the pan/zoom applies to the inner canvas, not the viewport */
+        #graph-wrapper {
+          position: relative !important;
+          display: block !important;
+          padding: 0 !important;
+          overflow: visible !important;
+          transform-origin: 0 0 !important;
+        }
+        #graph-container, #tasks-graph-container {
+          touch-action: none;            /* prevent browser scrolling while panning */
+          overscroll-behavior: contain;  /* avoid viewport scrolling on edges */
+        }
         .group-header-container:hover .delete-group-btn, .group-card:hover .delete-group-btn { opacity: 1; }
         .chevron { transition: transform 0.2s ease-in-out; }
         .expanded .chevron { transform: rotate(90deg); }
@@ -154,6 +166,16 @@
             stroke: url(#edge-gradient);
             stroke-dasharray: 10;
             animation: edge-flow 1s linear infinite;
+        }
+        .edge-path--internal { stroke-opacity: 0.5; }
+        /* Halo for main edges to remain visible over content */
+        .edge-path-halo {
+          fill: none;
+          stroke: var(--bg-primary);
+          stroke-opacity: 0.9;
+          stroke-width: 6px;
+          vector-effect: non-scaling-stroke;
+          pointer-events: none;
         }
         /* Subtle pulse for completed (non-running) edges */
         @keyframes edge-completed-pulse {
@@ -383,9 +405,9 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
           stroke: var(--border-primary);
           stroke-width: 1.25px;
           vector-effect: non-scaling-stroke;
-          opacity: .86;
+          opacity: .25; /* lighter so main step edges remain vivid over boxes */
         }
-        html.dark .step-cluster-box { fill: var(--bg-tertiary); opacity: .78; }
+        html.dark .step-cluster-box { fill: var(--bg-tertiary); opacity: .22; }
 
     </style>
 </head>
@@ -1508,6 +1530,8 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
             const MIN_TASK_CLUSTER_SCALE = 0.65;
             const scale = Math.max(1, Math.min(MAX_STEP_LAYOUT_SCALE, state.stepLayoutScale || 1.0));
             const clusterScale = Math.max(MIN_TASK_CLUSTER_SCALE, Math.min(1.0, state.taskClusterScale || 1.0));
+            // Use icon-only task graphs inside expanded steps for clarity
+            const miniStyle = 'icon';
             const baseW = isVerticalLayout ? 160 : 120;
             const baseH = isVerticalLayout ? 80  : 100;
             const baseHG = isVerticalLayout ? 40  : 120;
@@ -1614,14 +1638,16 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
                     }
                 });
 
-                const tNodeW = Math.round(110 * clusterScale);
-                const tNodeH = Math.round(64  * clusterScale);
-                const tHG    = Math.max(14, Math.round(24 * clusterScale));
-                const tVG    = Math.max(12, Math.round(20 * clusterScale));
-                const tLayout = calculateGraphLayout(itemsWithDeps, DOM.graphWrapper, tNodeW, tNodeH, tHG, tVG, true);
+            // Size the inner task graph and ALIGN its direction with the main graph
+            // Horizontal steps => horizontal inner graph; Vertical steps => vertical inner graph
+            const tNodeW = Math.round((isVerticalLayout ? 184 : 136) * clusterScale);
+            const tNodeH = Math.round((isVerticalLayout ?  92 : 112) * clusterScale);
+            const tHG    = Math.max(44,  Math.round((isVerticalLayout ?  44 : 100) * clusterScale));
+            const tVG    = Math.max( (isVerticalLayout ? 120 :  36), Math.round((isVerticalLayout ? 120 : 36) * clusterScale));
+            const tLayout = calculateGraphLayout(itemsWithDeps, DOM.graphWrapper, tNodeW, tNodeH, tHG, tVG, isVerticalLayout);
                 const stepCenterX = stepNode.x + stepNode.width / 2;
                 const stepCenterY = stepNode.y + stepNode.height / 2;
-                const pad = Math.max(8, Math.round(12 * Math.max(0.85, clusterScale)));     // background padding scales with cluster
+                const pad = Math.max(16, Math.round(20 * Math.max(0.85, clusterScale)));     // larger background padding for breathing room
                 const stackGap = 28;// spacing between clusters when pushing forward
 
                 // Place box initially centered on the step position
@@ -1650,33 +1676,12 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
                   bandMax = (isFinite(maxY) ? maxY : stepCenterY) + corridorMargin + corridorBoost;
                 }
 
-                // Prefer exact step center for first open; reuse saved position on subsequent renders
-                const saved = state.expandedStepPositions && state.expandedStepPositions.get(stepNode.name);
-                const isJustExpanded = !!(state._justExpandedSteps && state._justExpandedSteps.has(stepNode.name));
-                const hasSaved = !!saved && !isJustExpanded; // ignore saved on the first expand in this cycle
-                let originX, originY;
-                if (hasSaved) {
-                  originX = saved.x; originY = saved.y;
-                } else {
-                  // Center the expanded box over the step’s center
-                  originX = Math.round(stepCenterX - (tLayout.width  / 2));
-                  originY = Math.round(stepCenterY - (tLayout.height / 2));
-                }
+                // Always anchor box to the step center so it stays in place across renders
+                let originX = Math.round(stepCenterX - (tLayout.width  / 2));
+                let originY = Math.round(stepCenterY - (tLayout.height / 2));
                 if (originX < 0) originX = 0;
                 if (originY < 0) originY = 0;
 
-                // Clamp within corridor only if restoring a saved position and not just expanded
-                if (hasSaved) {
-                  if (isVerticalLayout) {
-                    const centerX = originX + tLayout.width / 2;
-                    const clampedCenterX = Math.max(bandMin + tLayout.width / 2, Math.min(bandMax - tLayout.width / 2, centerX));
-                    originX = Math.round(clampedCenterX - tLayout.width / 2);
-                  } else {
-                    const centerY = originY + tLayout.height / 2;
-                    const clampedCenterY = Math.max(bandMin + tLayout.height / 2, Math.min(bandMax - tLayout.height / 2, centerY));
-                    originY = Math.round(clampedCenterY - tLayout.height / 2);
-                  }
-                }
 
                 // Compute background box for overlap checks
                 let boxX1 = originX - pad;
@@ -1716,59 +1721,61 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
 
                 // (Edge intersection check moved to after final placement)
 
-                // Try to resolve overlaps for both saved and first-time boxes by sliding within corridor,
-                // then pushing along the flow direction. If still conflicting (steps or edges), scale up.
+                // Try to smart-position the cluster within the corridor band to avoid overlap
+                const fits = (x1, y1, x2, y2) => !overlapsAny(x1, y1, x2, y2);
+                const centerX = () => originX + (tLayout.width / 2);
+                const centerY = () => originY + (tLayout.height / 2);
+                const clamp = (val, min, max) => Math.max(min, Math.min(max, val));
                 let bumpedByStep = false;
-                let guard = 0;
-                const MAX_GUARD = 60;
-                const offsets = [0];
-                for (let i = 1; i <= 8; i++) { offsets.push(i * stackGap, -i * stackGap); }
-                const hasConflict = () => overlapsAny(boxX1, boxY1, boxX2, boxY2) ||
-                  simpleEdgeSegments
-                    .filter(s => s.from !== stepNode.name && s.to !== stepNode.name)
-                    .some(seg => lineIntersectsRect(seg.x1, seg.y1, seg.x2, seg.y2, boxX1, boxY1, boxX2, boxY2));
-                while (hasConflict() && guard++ < MAX_GUARD) {
-                  let placedOk = false;
-                  for (const off of offsets) {
-                    let nx1 = boxX1, nx2 = boxX2, ny1 = boxY1, ny2 = boxY2;
-                    if (isVerticalLayout) {
-                      // move left/right within corridor
-                      const candCenterX = anchorX + off;
-                      const clampedCenterX = Math.max(bandMin + tLayout.width / 2, Math.min(bandMax - tLayout.width / 2, candCenterX));
-                      nx1 = Math.round(clampedCenterX - tLayout.width / 2) - pad;
-                      nx2 = nx1 + tLayout.width + 2 * pad;
-                    } else {
-                      // move up/down within corridor
-                      const candCenterY = anchorY + off;
-                      const clampedCenterY = Math.max(bandMin + tLayout.height / 2, Math.min(bandMax - tLayout.height / 2, candCenterY));
-                      ny1 = Math.round(clampedCenterY - tLayout.height / 2) - pad;
-                      ny2 = ny1 + tLayout.height + 2 * pad;
+
+                const attemptReposition = () => {
+                  // scan along the orthogonal axis, alternating +/-, up to corridor bounds
+                  const maxIter = 80; // 80 * step ~ reasonable spread
+                  const step = 12;    // scan resolution in px
+                  if (isVerticalLayout) {
+                    // move left/right but keep within bandMin..bandMax
+                    const baseCenter = stepCenterX;
+                    for (let i = 0; i <= maxIter; i++) {
+                      const dir = (i % 2 === 0) ? 1 : -1;
+                      const delta = Math.floor(i / 2) * step * dir;
+                      const candCenter = baseCenter + delta;
+                      if (candCenter < bandMin || candCenter > bandMax) continue;
+                      const candOriginX = Math.round(candCenter - (tLayout.width / 2));
+                      const cx1 = candOriginX - pad;
+                      const cx2 = candOriginX + tLayout.width + pad;
+                      const cy1 = originY - pad;
+                      const cy2 = originY + tLayout.height + pad;
+                      if (fits(cx1, cy1, cx2, cy2)) {
+                        originX = candOriginX;
+                        boxX1 = cx1; boxX2 = cx2; boxY1 = cy1; boxY2 = cy2;
+                        return true;
+                      }
                     }
-                    if (!overlapsAny(nx1, ny1, nx2, ny2) && nx1 >= 0 && ny1 >= 0) {
-                      // accept orthogonal placement if it also clears edges
-                      const clearsEdges = !simpleEdgeSegments
-                        .filter(s => s.from !== stepNode.name && s.to !== stepNode.name)
-                        .some(seg => lineIntersectsRect(seg.x1, seg.y1, seg.x2, seg.y2, nx1, ny1, nx2, ny2));
-                      if (clearsEdges) {
-                        boxX1 = nx1; boxX2 = nx2; boxY1 = ny1; boxY2 = ny2;
-                        originX = boxX1 + pad; originY = boxY1 + pad;
-                        placedOk = true;
-                        break;
+                  } else {
+                    // move up/down but keep within bandMin..bandMax
+                    const baseCenter = stepCenterY;
+                    for (let i = 0; i <= maxIter; i++) {
+                      const dir = (i % 2 === 0) ? 1 : -1;
+                      const delta = Math.floor(i / 2) * step * dir;
+                      const candCenter = baseCenter + delta;
+                      if (candCenter < bandMin || candCenter > bandMax) continue;
+                      const candOriginY = Math.round(candCenter - (tLayout.height / 2));
+                      const cx1 = originX - pad;
+                      const cx2 = originX + tLayout.width + pad;
+                      const cy1 = candOriginY - pad;
+                      const cy2 = candOriginY + tLayout.height + pad;
+                      if (fits(cx1, cy1, cx2, cy2)) {
+                        originY = candOriginY;
+                        boxX1 = cx1; boxX2 = cx2; boxY1 = cy1; boxY2 = cy2;
+                        return true;
                       }
                     }
                   }
-                  if (placedOk) break;
-                  // Fallback: push along the flow
-                  if (isVerticalLayout) {
-                    originY += stackGap;
-                  } else {
-                    originX += stackGap;
-                  }
-                  boxX1 = originX - pad;
-                  boxX2 = originX + tLayout.width + pad;
-                  boxY1 = originY - pad;
-                  boxY2 = originY + tLayout.height + pad;
-                  if (overlapsStepsOnly(boxX1, boxY1, boxX2, boxY2)) bumpedByStep = true;
+                  return false;
+                };
+
+                if (overlapsAny(boxX1, boxY1, boxX2, boxY2)) {
+                  bumpedByStep = !attemptReposition();
                 }
 
                 finalWidth = Math.max(finalWidth, originX + tLayout.width + 16);
@@ -1834,6 +1841,18 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
                 <defs>
                     <marker id="arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" class="fill-current text-gray-300 dark:text-gray-600" /></marker>
                     <marker id="arrowhead-completed" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" class="fill-current text-[var(--text-accent)]" /></marker>
+                    <!-- Crisp arrow used by modal task graph -->
+                    <marker id="task_arrow" viewBox="0 0 12 12" refX="11" refY="6"
+                            markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto">
+                      <path d="M0,0 L12,6 L0,12 Z" class="fill-current text-gray-400 dark:text-gray-600" />
+                    </marker>
+                    <!-- Markers for task box connectors (match Tasks view) -->
+                    <marker id="task_arrow_box_secondary" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto">
+                      <path d="M0,0 L12,6 L0,12 Z" fill="var(--border-secondary)"></path>
+                    </marker>
+                    <marker id="task_arrow_box_accent" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto">
+                      <path d="M0,0 L12,6 L0,12 Z" fill="var(--border-accent)"></path>
+                    </marker>
                     ${isRunning ? `<linearGradient id="edge-gradient" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:var(--border-secondary);" /><stop offset="50%" style="stop-color:var(--border-accent);" /><stop offset="100%" style="stop-color:var(--border-secondary);" /></linearGradient>` : ''}
                 </defs>`;
 
@@ -1860,7 +1879,12 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
                 }
             };
 
-            // Step-level edges (single input/output per expanded box)
+            // We collect SVG layers to keep main edges above clusters for readability
+            let svgEdges = '';
+            let svgNodes = '';
+            let svgClusters = '';
+
+            // Step-level edges (single input/output per expanded box) – will be appended after clusters
             edges.forEach(edge => {
                 const fromBox = clustersByStep.get(edge.from.name);
                 const toBox   = clustersByStep.get(edge.to.name);
@@ -1893,7 +1917,9 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
                 }
 
                 const d = pathBetween(sx, sy, tx, ty);
-                svgContent += `<path d="${d}" class="${edgeClasses.join(' ')}" marker-end="${marker}"></path>`;
+                // halo then main stroke for readability
+                svgEdges += `<path d="${d}" class="edge-path-halo"></path>`;
+                svgEdges += `<path d="${d}" class="${edgeClasses.join(' ')}" marker-end="${marker}"></path>`;
             });
 
             // Step nodes
@@ -1916,79 +1942,85 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
                     }
                 }
                 const caret = (state.expandedSteps && state.expandedSteps.has(node.name)) ? '▾' : '▸';
-                svgContent += `<g class="graph-node" data-step-name="${node.name}"><title>Click to expand. Ctrl/Cmd-click for details</title><g transform="translate(${node_center_x}, ${node_center_y})"><path d="${config.icon}" transform="translate(-12, -12) scale(1.2)" stroke-width="2" class="stroke-current ${config.color}" fill="none"/></g><text x="${node_center_x}" y="${node_center_y + 35}" text-anchor="middle" class="text-sm font-semibold fill-current text-[var(--text-primary)]">${caret} ${node.name}</text>${subText}</g>`;
+                svgNodes += `<g class="graph-node" data-step-name="${node.name}"><title>Click to expand. Ctrl/Cmd-click for details</title><g transform="translate(${node_center_x}, ${node_center_y})"><path d="${config.icon}" transform="translate(-12, -12) scale(1.2)" stroke-width="2" class="stroke-current ${config.color}" fill="none"/></g><text x="${node_center_x}" y="${node_center_y + 35}" text-anchor="middle" class="text-sm font-semibold fill-current text-[var(--text-primary)]">${caret} ${node.name}</text>${subText}</g>`;
             });
 
             // Expanded task clusters per step (boxed with single input/output)
             clusters.forEach(cluster => {
                 const { layout, originX, originY, stepCenterX, rootNames, pad } = cluster;
-
-                svgContent += `<g class="step-cluster" data-step-name="${cluster.stepName}">`;
+                svgClusters += `<g class="step-cluster" data-step-name="${cluster.stepName}">`;
                 // Background card (box in flow)
                 const bgX = originX - pad;
                 const bgY = originY - pad;
                 const bgW = layout.width + pad * 2;
                 const bgH = layout.height + pad * 2;
-                svgContent += `<rect x="${bgX}" y="${bgY}" width="${bgW}" height="${bgH}" rx="12" ry="12" class="step-cluster-box" style="pointer-events:none"></rect>`;
+                svgClusters += `<rect x="${bgX}" y="${bgY}" width="${bgW}" height="${bgH}" rx="12" ry="12" class="step-cluster-box" style="pointer-events:none"></rect>`;
                 // Ports (visual only)
                 if (isVerticalLayout) {
                     const portInX = originX + layout.width / 2;
                     const portInY = originY - 2;
                     const portOutX = originX + layout.width / 2;
                     const portOutY = originY + layout.height + 2;
-                    svgContent += `<circle cx="${portInX}" cy="${portInY}" r="3" fill="var(--border-accent)"></circle>`;
-                    svgContent += `<circle cx="${portOutX}" cy="${portOutY}" r="3" fill="var(--border-accent)"></circle>`;
+                    svgClusters += `<circle cx="${portInX}" cy="${portInY}" r="3" fill="var(--border-accent)"></circle>`;
+                    svgClusters += `<circle cx="${portOutX}" cy="${portOutY}" r="3" fill="var(--border-accent)"></circle>`;
                 } else {
                     const portLeftX = originX - 2;
                     const portLeftY = originY + layout.height / 2;
                     const portRightX = originX + layout.width + 2;
                     const portRightY = originY + layout.height / 2;
-                    svgContent += `<circle cx="${portLeftX}" cy="${portLeftY}" r="3" fill="var(--border-accent)"></circle>`;
-                    svgContent += `<circle cx="${portRightX}" cy="${portRightY}" r="3" fill="var(--border-accent)"></circle>`;
+                    svgClusters += `<circle cx="${portLeftX}" cy="${portLeftY}" r="3" fill="var(--border-accent)"></circle>`;
+                    svgClusters += `<circle cx="${portRightX}" cy="${portRightY}" r="3" fill="var(--border-accent)"></circle>`;
                 }
 
-                // Task edges inside cluster (vertical layout)
+                // Task edges inside cluster – icon style only, aligned with main direction
                 layout.edges.forEach(edge => {
                     const from_center_x = originX + edge.from.x + edge.from.width / 2;
                     const from_center_y = originY + edge.from.y + edge.from.height / 2;
                     const to_center_x   = originX + edge.to.x   + edge.to.width   / 2;
                     const to_center_y   = originY + edge.to.y   + edge.to.height  / 2;
-                    const arrowPad = 8;
-                    const x1 = from_center_x;
-                    const y1 = from_center_y + (edge.from.height / 2) + arrowPad;
-                    const x2 = to_center_x;
-                    const y2 = to_center_y - (edge.to.height / 2)  - arrowPad;
-                    const curveY = y1 + (y2 - y1) * 0.5;
-                    const pathData = `M ${x1} ${y1} C ${x1} ${curveY}, ${x2} ${curveY}, ${x2} ${y2}`;
-                    const isCompletedEdge = (edge.from.status || '').toLowerCase() === 'success';
-                    const marker = isCompletedEdge ? 'url(#arrowhead-completed)' : 'url(#arrowhead)';
-                    const classes = ['edge-path', 'edge-path--glow'];
-                    if (isCompletedEdge) classes.push('edge-path--completed');
-                    if (isRunning && isCompletedEdge) classes.push('edge-path--running');
-                    svgContent += `<path d="${pathData}" class="${classes.join(' ')}" marker-end="${marker}"></path>`;
+                    const arrowPad = 10;
+                    let pathData;
+                    if (isVerticalLayout) {
+                        const x1 = from_center_x;
+                        const y1 = from_center_y + (edge.from.height / 2) + arrowPad;
+                        const x2 = to_center_x;
+                        const y2 = to_center_y - (edge.to.height / 2)  - arrowPad;
+                        const curveY = y1 + (y2 - y1) * 0.5;
+                        pathData = `M ${x1} ${y1} C ${x1} ${curveY}, ${x2} ${curveY}, ${x2} ${y2}`;
+                    } else {
+                        const x1 = from_center_x + (edge.from.width / 2) + arrowPad;
+                        const y1 = from_center_y;
+                        const x2 = to_center_x - (edge.to.width / 2) - arrowPad;
+                        const y2 = to_center_y;
+                        const curveX = x1 + (x2 - x1) * 0.5;
+                        pathData = `M ${x1} ${y1} C ${curveX} ${y1}, ${curveX} ${y2}, ${x2} ${y2}`;
+                    }
+                    // Use the same simple arrow as the modal task graph; fade internals for readability
+                    svgClusters += `<path d="${pathData}" class="edge-path edge-path--internal" marker-end="url(#task_arrow)"></path>`;
                 });
 
                 // (No external connections to internal tasks; box presents single in/out)
 
-                // Task nodes as integrated icons
+                // Task nodes: icon-only nodes for clarity
                 layout.nodes.forEach(n => {
                     const status = (n.status || 'pending').toLowerCase();
                     const config = statusConfig[status] || statusConfig.pending;
                     const duration = formatDuration(n.started_at, n.finished_at);
-                    const label = n.task_name || n.name;
+                    const itemName = n.task_name || n.name;
                     const cx = originX + n.x + n.width / 2;
                     const cy = originY + n.y + n.height / 2;
-                    svgContent += `
-                        <g class="graph-node" transform="translate(${cx}, ${cy})">
-                          <path d="${config.icon}" transform="translate(-12, -12) scale(1.0)" stroke-width="2" class="stroke-current ${config.color}" fill="none"></path>
-                          <text x="0" y="30" text-anchor="middle" class="text-xs font-semibold fill-current text-[var(--text-primary)]">${label}</text>
-                          <text x="0" y="46" text-anchor="middle" class="text-[10px] fill-current text-[var(--text-secondary)]">${duration}</text>
+                    svgClusters += `
+                        <g class=\"graph-node\" transform=\"translate(${cx}, ${cy})\"> 
+                          <path d=\"${config.icon}\" transform=\"translate(-12, -12) scale(1.1)\" stroke-width=\"2\" class=\"stroke-current ${config.color}\" fill=\"none\"></path>
+                          <text x=\"0\" y=\"30\" text-anchor=\"middle\" class=\"text-xs font-medium fill-current text-[var(--text-secondary)]\">${itemName}</text>
+                          <text x=\"0\" y=\"46\" text-anchor=\"middle\" class=\"text-[10px] fill-current text-[var(--text-secondary)]\">${duration}</text>
                         </g>`;
                 });
-                svgContent += `</g>`;
+                svgClusters += `</g>`;
             });
 
-            DOM.graphWrapper.innerHTML = svgContent + `</svg>`;
+            // Compose final SVG layers: clusters (background), edges (main flow), nodes (top)
+            DOM.graphWrapper.innerHTML = svgContent + svgClusters + svgEdges + svgNodes + `</svg>`;
 
             // Clear the one-shot just-expanded hints after render cycle completes (allows scale pass to reuse them in same tick)
             setTimeout(() => { if (state._justExpandedSteps) state._justExpandedSteps.clear(); }, 0);
@@ -2053,11 +2085,8 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
 }
 
 function renderMiniForStep(container, step, style) {
-  if (style === 'box') {
-    renderTaskGraphBoxes(container, step.name, step.tasks);
-  } else {
-    renderTaskGraph(container, step.name, step.tasks); // original icon-only nodes
-  }
+  // Always use icon-only task graph for clarity
+  renderTaskGraph(container, step.name, step.tasks);
 }
 
 function renderTaskGraphBoxes(container, stepName, tasks) {
@@ -2080,16 +2109,17 @@ function renderTaskGraphBoxes(container, stepName, tasks) {
     }
   });
 
-  const isVerticalLayout = container.clientWidth < 500;
-  const nodeWidth  = isVerticalLayout ? 140 : 120;
-  const nodeHeight = isVerticalLayout ? 64  : 56;
-  const hGap = isVerticalLayout ? 20 : 60;
-  const vGap = isVerticalLayout ? 80 : 20;
+  const isVerticalLayout = container.clientWidth < 600;
+  // Larger cards + more generous spacing for clarity
+  const nodeWidth  = isVerticalLayout ? 160 : 140;
+  const nodeHeight = isVerticalLayout ? 72  : 64;
+  const hGap = isVerticalLayout ? 30 : 84;
+  const vGap = isVerticalLayout ? 96 : 28;
 
   const { nodes, edges, width, height } =
     calculateGraphLayout(itemsWithDeps, container, nodeWidth, nodeHeight, hGap, vGap, isVerticalLayout);
 
-  const arrowPad = 10;
+  const arrowPad = 12;
   const getEdgePath = (fromNode, toNode) => {
     const fc = { x: fromNode.x + fromNode.width / 2, y: fromNode.y + fromNode.height / 2 };
     const tc = { x: toNode.x   + toNode.width   / 2, y: toNode.y   + toNode.height   / 2 };
@@ -2307,10 +2337,6 @@ function ensureTasksControls() {
     controls = document.createElement('div');
     controls.id = 'tasks-graph-controls';
     controls.innerHTML = `
-      <div class="segmented" role="tablist" aria-label="Task mini style">
-        <button type="button" class="" data-style="icon">Icons</button>
-        <button type="button" class="" data-style="box">Boxes</button>
-      </div>
       <button class="ctrl" data-zoom="in"  title="Zoom In">+</button>
       <button class="ctrl" data-zoom="out" title="Zoom Out">−</button>
       <button class="ctrl" data-fit       title="Fit to Screen">Fit</button>
@@ -2330,22 +2356,9 @@ function ensureTasksControls() {
         if (typeof state.__fitToView === 'function') state.__fitToView();
       }
     });
-
-    // Style toggle
-    controls.querySelectorAll('[data-style]').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const style = btn.dataset.style; // 'icon' | 'box'
-    localStorage.setItem('tasksMiniStyle', style);   // <-- was hardcoded to 'icon'
-    if (state.currentRunData) renderTasksGraph(state.currentRunData);
-  });
-});
-
-
   }
 
-  // paint active style state
-  const current = localStorage.getItem('tasksMiniStyle') || 'icon';
-  controls.querySelectorAll('[data-style]').forEach(b => b.classList.toggle('active', b.dataset.style === current));
+  // no style toggle; always icon mode
 }
 
     function ensureStepsControls() {
@@ -2692,18 +2705,19 @@ function ensureTasksControls() {
     }
   });
 
-  const isVerticalLayout = container.clientWidth < 500;
-  const nodeWidth  = isVerticalLayout ? 160 : 120;
-  const nodeHeight = isVerticalLayout ? 80  : 100;
-  const hGap = isVerticalLayout ? 20 : 60;
-  const vGap = isVerticalLayout ? 80 : 20;
+  const isVerticalLayout = container.clientWidth < 700;
+  // Expand spacing to improve readability
+  const nodeWidth  = isVerticalLayout ? 184 : 136;
+  const nodeHeight = isVerticalLayout ? 92  : 112;
+  const hGap = isVerticalLayout ? 44 : 100;
+  const vGap = isVerticalLayout ? 120 : 36;
 
   const { nodes, edges, width, height } =
     calculateGraphLayout(itemsWithDeps, container, nodeWidth, nodeHeight, hGap, vGap, isVerticalLayout);
 
   // keep arrows clear of node icons
   const iconRadius = 14;
-  const arrowPad   = 8; // extra gap so the tip doesn’t sit on the icon
+  const arrowPad   = 12; // extra gap so the tip doesn’t sit on the icon
 
   const getEdgePath = (fromNode, toNode) => {
     const from_center_x = fromNode.x + fromNode.width / 2;
