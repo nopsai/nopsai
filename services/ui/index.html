@@ -101,6 +101,10 @@
             width: 100%; 
             height: 100%; 
             overflow: auto; 
+            min-width: 100%;
+            min-height: 100%;
+            cursor: grab;
+            user-select: none;
         }
         /* Ensure the pan/zoom applies to the inner canvas, not the viewport */
         #graph-wrapper {
@@ -154,7 +158,7 @@
         .edge-path {
             fill: none;
             stroke: var(--border-secondary);
-            stroke-width: 2.25px;
+            stroke-width: 2.25px; /* keep default stroke size */
             stroke-linecap: round;
             vector-effect: non-scaling-stroke;
             transition: stroke 0.3s ease, stroke-opacity 0.3s ease, filter 0.3s ease;
@@ -172,8 +176,8 @@
         .edge-path-halo {
           fill: none;
           stroke: var(--bg-primary);
-          stroke-opacity: 0.9;
-          stroke-width: 6px;
+          stroke-opacity: 0.92;
+          stroke-width: 6px; /* halo for contrast without thicker lines */
           vector-effect: non-scaling-stroke;
           pointer-events: none;
         }
@@ -322,9 +326,7 @@
 }
 
 /* SVG edge glow + animated running stroke */
-.edge-path--glow {
-  filter: drop-shadow(0 0 6px rgba(99,102,241,.35));
-}
+.edge-path--glow { filter: drop-shadow(0 1px 8px rgba(99,102,241,.35)) drop-shadow(0 0 14px rgba(99,102,241,.22)); }
 .edge-path--running {
   stroke-dasharray: 10;
   animation: edge-flow 1s linear infinite;
@@ -405,9 +407,9 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
           stroke: var(--border-primary);
           stroke-width: 1.25px;
           vector-effect: non-scaling-stroke;
-          opacity: .25; /* lighter so main step edges remain vivid over boxes */
+          opacity: .2; /* lighter so main step edges remain vivid over boxes */
         }
-        html.dark .step-cluster-box { fill: var(--bg-tertiary); opacity: .22; }
+        html.dark .step-cluster-box { fill: var(--bg-tertiary); opacity: .18; }
 
     </style>
 </head>
@@ -625,7 +627,7 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
             taskClusterScale: 1.0, // scales inside expanded boxes (tasks + gaps)
             repoLastRunCache: new Map(),
             logPollingInterval: null,
-            currentGraphView: localStorage.getItem('graphView') || 'tasks', // MODIFIED: Default to new tasks view
+            currentGraphView: localStorage.getItem('graphView') || 'steps',
         };
 
         const statusConfig = {
@@ -670,7 +672,29 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
   });
   state._wheelTarget = container;
   state._wheelHandler = state.panzoomInstance.zoomWithWheel;
+  // Attach wheel to both the container and the element for robustness
   container.addEventListener('wheel', state._wheelHandler, { passive: false });
+  element.addEventListener('wheel', state._wheelHandler, { passive: false });
+
+  // Also bind pointer/touch start on the container so users can pan immediately,
+  // even if the pointer starts outside the inner SVG element.
+  if (state._pointerDownHandler) {
+    try {
+      container.removeEventListener('mousedown', state._pointerDownHandler);
+      container.removeEventListener('touchstart', state._pointerDownHandler);
+    } catch (e) {}
+  }
+  state._pointerDownHandler = (ev) => {
+    if (!state.panzoomInstance) return;
+    const isControl = !!(ev.target && (ev.target.closest('#steps-graph-controls') || ev.target.closest('#tasks-graph-controls')));
+    if (isControl) return;
+    try {
+      ev.preventDefault();
+      state.panzoomInstance.handleDown(ev);
+    } catch {}
+  };
+  container.addEventListener('mousedown', state._pointerDownHandler, { passive: false });
+  container.addEventListener('touchstart', state._pointerDownHandler, { passive: false });
 
   container.addEventListener('dblclick', () => {
     state.panzoomInstance.reset({ animate: true });
@@ -1523,11 +1547,12 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
                 state.stepLayoutScale = 1.0;
             }
 
-            const pref = localStorage.getItem('stepsLayout') || 'auto';
-            const autoVertical = DOM.graphWrapper.clientWidth < 768;
-            const isVerticalLayout = (pref === 'auto') ? autoVertical : (pref === 'vertical');
-            const MAX_STEP_LAYOUT_SCALE = 1.8;
-            const MIN_TASK_CLUSTER_SCALE = 0.65;
+            // Only horizontal layout
+            const isVerticalLayout = false;
+            // Allow the main steps layout to expand more to avoid any overlap
+            const MAX_STEP_LAYOUT_SCALE = 3.0;
+            // Keep internal task clusters close to 1.0; we prefer growing the main layout
+            const MIN_TASK_CLUSTER_SCALE = 0.9;
             const scale = Math.max(1, Math.min(MAX_STEP_LAYOUT_SCALE, state.stepLayoutScale || 1.0));
             const clusterScale = Math.max(MIN_TASK_CLUSTER_SCALE, Math.min(1.0, state.taskClusterScale || 1.0));
             // Use icon-only task graphs inside expanded steps for clarity
@@ -1803,7 +1828,7 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
             if (needMoreSpace) {
                 const tryIncreaseStepScale = () => {
                   const prevStep = state.stepLayoutScale || 1.0;
-                  const inc = prevStep < 1.2 ? 0.15 : 0.1;
+                  const inc = prevStep < 1.4 ? 0.2 : 0.12;
                   const nextStep = Math.min(MAX_STEP_LAYOUT_SCALE, prevStep + inc);
                   if (nextStep > prevStep + 1e-6) {
                       state.stepLayoutScale = nextStep;
@@ -1815,7 +1840,7 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
                 };
                 const tryDecreaseClusterScale = () => {
                   const prevCluster = state.taskClusterScale || 1.0;
-                  const dec = prevCluster > 0.85 ? 0.1 : 0.05;
+                  const dec = prevCluster > 0.95 ? 0.05 : 0.03;
                   const nextCluster = Math.max(MIN_TASK_CLUSTER_SCALE, prevCluster - dec);
                   if (nextCluster < prevCluster - 1e-6) {
                       state.taskClusterScale = nextCluster;
@@ -1826,15 +1851,9 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
                   return false;
                 };
 
-                // Horizontal: shrink cluster internals first (more vertical clearance), then expand step layout
-                // Vertical: expand step layout first (more horizontal clearance), then shrink cluster internals
-                if (!isVerticalLayout) {
-                  if (tryDecreaseClusterScale()) return;
-                  if (tryIncreaseStepScale()) return;
-                } else {
-                  if (tryIncreaseStepScale()) return;
-                  if (tryDecreaseClusterScale()) return;
-                }
+                // Always prefer expanding the main step layout first.
+                if (tryIncreaseStepScale()) return;
+                if (tryDecreaseClusterScale()) return;
             }
 
             let svgContent = `<svg width="${finalWidth}" height="${finalHeight}" xmlns="http://www.w3.org/2000/svg">
@@ -1854,7 +1873,8 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
                       <path d="M0,0 L12,6 L0,12 Z" fill="var(--border-accent)"></path>
                     </marker>
                     ${isRunning ? `<linearGradient id="edge-gradient" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:var(--border-secondary);" /><stop offset="50%" style="stop-color:var(--border-accent);" /><stop offset="100%" style="stop-color:var(--border-secondary);" /></linearGradient>` : ''}
-                </defs>`;
+                </defs>
+                <rect x="0" y="0" width="${finalWidth}" height="${finalHeight}" fill="transparent" style="pointer-events:all"></rect>`;
 
             // Build quick lookups for step indegree/outdegree to integrate tasks into flow
             const stepIn = new Map();
@@ -2367,11 +2387,6 @@ function ensureTasksControls() {
         controls = document.createElement('div');
         controls.id = 'steps-graph-controls';
         controls.innerHTML = `
-          <div class="segmented" role="tablist" aria-label="Steps layout">
-            <button type="button" data-layout="auto">Auto</button>
-            <button type="button" data-layout="horizontal">Horizontal</button>
-            <button type="button" data-layout="vertical">Vertical</button>
-          </div>
           <button class="ctrl" data-zoom="in"  title="Zoom In">+</button>
           <button class="ctrl" data-zoom="out" title="Zoom Out">−</button>
           <button class="ctrl" data-fit       title="Fit to Screen">Fit</button>
@@ -2411,30 +2426,7 @@ function ensureTasksControls() {
           }
         });
 
-    // Layout toggle
-    controls.querySelectorAll('[data-layout]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const layout = btn.dataset.layout; // auto | horizontal | vertical
-        localStorage.setItem('stepsLayout', layout);
-        if (state.currentRunData) {
-          renderStepsGraph(state.currentRunData);
-          // Keep controls visible and repaint active state
-          ensureStepsControls();
-        }
-      });
-    });
   }
-
-  const layout = localStorage.getItem('stepsLayout') || 'auto';
-  controls.querySelectorAll('[data-layout]').forEach(b => {
-    b.classList.toggle('active', b.dataset.layout === layout);
-    // mimic segmented button visuals like tasks controls
-    b.style.padding = '6px 10px';
-    b.style.fontSize = '12px';
-    b.style.border = '0';
-    b.style.background = 'var(--bg-secondary)';
-    b.style.color = (b.dataset.layout === layout) ? 'var(--text-primary)' : 'var(--text-secondary)';
-  });
 
   // match tasks controls visual for container and ctrl buttons
   controls.querySelectorAll('.ctrl').forEach(b => {
@@ -2520,7 +2512,9 @@ function ensureTasksControls() {
     ].join(' ').trim();
 
     const strokeStyle = isCompleted ? 'var(--border-accent)' : 'url(#tasks-edge-gradient)';
-    paths += `<path d="M ${x1} ${y1} C ${curveX} ${y1}, ${curveX} ${y2}, ${x2} ${y2}"
+    const d = `M ${x1} ${y1} C ${curveX} ${y1}, ${curveX} ${y2}, ${x2} ${y2}`;
+    paths += `<path d="${d}" class="edge-path-halo"></path>`;
+    paths += `<path d="${d}"
                  class="${extra}"
                  style="stroke:${strokeStyle};"
                  marker-end="${marker}"
@@ -2539,6 +2533,14 @@ function ensureTasksControls() {
             localStorage.setItem('graphView', view);
             DOM.graphContainer.classList.toggle('hidden', view !== 'steps');
             DOM.tasksGraphContainer.classList.toggle('hidden', view !== 'tasks');
+            // Ensure pan/zoom is bound for the visible view
+            if (view === 'steps') {
+              initPanAndZoom('steps');
+            } else if (view === 'tasks') {
+              // if we have a saved layout, pass it to fit accurately
+              const layout = state._lastStepLayout || null;
+              initPanAndZoom('tasks', layout);
+            }
         }
 
         function initGraphViewToggle() {
