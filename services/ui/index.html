@@ -640,7 +640,7 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
         };
 
 
-        function initPanAndZoom(view, layout = null) {
+function initPanAndZoom(view, layout = null) {
   // Clean up any previous panzoom + wheel handler
   if (state.panzoomInstance) {
     try { state.panzoomInstance.destroy(); } catch (e) {}
@@ -675,6 +675,8 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
   // Attach wheel to both the container and the element for robustness
   container.addEventListener('wheel', state._wheelHandler, { passive: false });
   element.addEventListener('wheel', state._wheelHandler, { passive: false });
+  // remember which element panzoom is bound to
+  state._panElement = element;
 
   // Also bind pointer/touch start on the container so users can pan immediately,
   // even if the pointer starts outside the inner SVG element.
@@ -748,6 +750,116 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
     setTimeout(() => fitToView(), 0);
     delete state._fitOnNextStepsRender;
   }
+}
+
+
+// Center a particular step (node or expanded cluster) in view
+function focusStepIntoView(stepName) {
+  try {
+    const container = DOM.graphContainer;
+    const svg = DOM.graphWrapper.querySelector('svg');
+    if (!container || !svg || !state.panzoomInstance) return;
+
+    // Prefer the expanded cluster bbox; fallback to the step node bbox
+    let target = svg.querySelector(`.step-cluster[data-step-name="${stepName}"]`);
+    if (!target) target = svg.querySelector(`g.graph-node[data-step-name="${stepName}"]`);
+    if (!target || !target.getBBox) return;
+
+    const bbox = target.getBBox();
+    const cx = bbox.x + bbox.width / 2;
+    const cy = bbox.y + bbox.height / 2;
+
+    // Read current scale from computed transform matrix
+    const panEl = state._panElement || svg; // actual pan element
+    const tr = window.getComputedStyle(panEl).transform;
+    let scale = 1;
+    if (tr && tr !== 'none') {
+      const m = tr.match(/matrix\(([^)]+)\)/);
+      if (m) {
+        const vals = m[1].split(',').map(parseFloat);
+        if (vals.length === 6) {
+          const a = vals[0], b = vals[1];
+          scale = Math.sqrt(a*a + b*b) || 1;
+        }
+      }
+    }
+
+    // Compute a zoom that keeps the cluster fully visible with margins
+    const margin = 20;
+    const topSafe = 72; // room for tabs/header
+    const availW = Math.max(100, container.clientWidth - 2 * margin);
+    const availH = Math.max(100, container.clientHeight - topSafe - 2 * margin);
+    const fitScaleX = availW / Math.max(1, bbox.width);
+    const fitScaleY = availH / Math.max(1, bbox.height);
+    const fitScale = Math.min(fitScaleX, fitScaleY);
+    if (fitScale < scale - 1e-6) {
+      state.panzoomInstance.zoom(fitScale, { animate: true });
+      scale = fitScale;
+    }
+
+    // Clamp pan so the bbox is fully inside the viewport margins
+    const centerPanX = (container.clientWidth / 2) - (cx * scale);
+    const centerPanY = ((container.clientHeight - topSafe) / 2 + topSafe) - (cy * scale);
+    const leftMin   = margin - bbox.x * scale;
+    const rightMax  = container.clientWidth - margin - (bbox.x + bbox.width) * scale;
+    const topMin    = topSafe + margin - bbox.y * scale;
+    const bottomMax = container.clientHeight - margin - (bbox.y + bbox.height) * scale;
+
+    const panX = Math.min(leftMin, Math.max(rightMax, centerPanX));
+    const panY = Math.min(bottomMax, Math.max(topMin, centerPanY));
+    state.panzoomInstance.pan(panX, panY, { animate: true });
+  } catch {}
+}
+
+// Minimal pan-only nudge to keep a step fully visible without changing zoom
+function nudgeStepIntoView(stepName) {
+  try {
+    const container = DOM.graphContainer;
+    const svg = DOM.graphWrapper.querySelector('svg');
+    if (!container || !svg || !state.panzoomInstance) return;
+    let target = svg.querySelector(`.step-cluster[data-step-name="${stepName}"]`);
+    if (!target) target = svg.querySelector(`g.graph-node[data-step-name="${stepName}"]`);
+    if (!target || !target.getBBox) return;
+
+    const bbox = target.getBBox();
+    const panEl = state._panElement || svg;
+    const tr = window.getComputedStyle(panEl).transform;
+    let scale = 1;
+    if (tr && tr !== 'none') {
+      const m = tr.match(/matrix\(([^)]+)\)/);
+      if (m) {
+        const vals = m[1].split(',').map(parseFloat);
+        if (vals.length === 6) { const a = vals[0], b = vals[1]; scale = Math.sqrt(a*a + b*b) || 1; }
+      }
+    }
+
+    const margin = 20, topSafe = 84; // extra room for sticky header/tabs
+    // Current pan from transform matrix
+    let panX = 0, panY = 0;
+    if (tr && tr !== 'none') {
+      const m = tr.match(/matrix\(([^)]+)\)/);
+      if (m) {
+        const vals = m[1].split(',').map(parseFloat);
+        if (vals.length === 6) { panX = vals[4] || 0; panY = vals[5] || 0; }
+      }
+    }
+
+    // Compute deltas so bbox lies within margins
+    const left = bbox.x * scale + panX;
+    const top = bbox.y * scale + panY;
+    const right = (bbox.x + bbox.width) * scale + panX;
+    const bottom = (bbox.y + bbox.height) * scale + panY;
+
+    let dx = 0, dy = 0;
+    if (left < margin) dx = margin - left;
+    if (right > container.clientWidth - margin) dx = (container.clientWidth - margin) - right;
+    if (top < topSafe + margin) dy = (topSafe + margin) - top;
+    if (bottom > container.clientHeight - margin) dy = (container.clientHeight - margin) - bottom;
+
+    if (dx !== 0 || dy !== 0) {
+      state.panzoomInstance.pan(panX + dx, panY + dy, { animate: true });
+    }
+  } catch {}
 }
 
 
@@ -1403,7 +1515,7 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
             });
 
             const PADDING_X = 80;
-            const PADDING_Y = 60;
+            const PADDING_Y = 136; // extra top/bottom breathing room so top badges aren't obscured
             let totalWidth, totalHeight;
 
             if (isVertical) {
@@ -1538,6 +1650,8 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
                 renderTasksGraph(runDetails);
                 ensureStepsControls();
                 switchGraphView(state.currentGraphView);
+                // Center the visible graph after initial render
+                setTimeout(() => { if (typeof state.__fitToView === 'function') state.__fitToView(); }, 0);
             }
         }
 
@@ -1559,8 +1673,9 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
             const miniStyle = 'icon';
             const baseW = isVerticalLayout ? 160 : 120;
             const baseH = isVerticalLayout ? 80  : 100;
-            const baseHG = isVerticalLayout ? 40  : 120;
-            const baseVG = isVerticalLayout ? 100 : 20;
+            // tighter horizontal spacing to keep graph compact when many steps are expanded
+            const baseHG = isVerticalLayout ? 40  : 90;   // was 120 for horizontal
+            const baseVG = isVerticalLayout ? 100 : 16;   // was 20 for horizontal
             const nodeWidth = Math.round(baseW * scale);
             const nodeHeight = Math.round(baseH * scale);
             const hGap = Math.round(baseHG * scale);
@@ -1667,12 +1782,12 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
             // Horizontal steps => horizontal inner graph; Vertical steps => vertical inner graph
             const tNodeW = Math.round((isVerticalLayout ? 184 : 136) * clusterScale);
             const tNodeH = Math.round((isVerticalLayout ?  92 : 112) * clusterScale);
-            const tHG    = Math.max(44,  Math.round((isVerticalLayout ?  44 : 100) * clusterScale));
+            const tHG    = Math.max(44,  Math.round((isVerticalLayout ?  44 : 84) * clusterScale));
             const tVG    = Math.max( (isVerticalLayout ? 120 :  36), Math.round((isVerticalLayout ? 120 : 36) * clusterScale));
             const tLayout = calculateGraphLayout(itemsWithDeps, DOM.graphWrapper, tNodeW, tNodeH, tHG, tVG, isVerticalLayout);
                 const stepCenterX = stepNode.x + stepNode.width / 2;
                 const stepCenterY = stepNode.y + stepNode.height / 2;
-                const pad = Math.max(16, Math.round(20 * Math.max(0.85, clusterScale)));     // larger background padding for breathing room
+                const pad = Math.max(12, Math.round(16 * Math.max(0.85, clusterScale)));     // smaller padding for tighter layout
                 const stackGap = 28;// spacing between clusters when pushing forward
 
                 // Place box initially centered on the step position
@@ -1683,7 +1798,7 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
                 const anchorY = stepCenterY;
 
                 // Corridor band between step and its children to keep the box visually “in flow”
-                const corridorMargin = pad + 16;
+                const corridorMargin = pad + 12;
                 let bandMin, bandMax;
                 if (isVerticalLayout) {
                   const xs = [stepCenterX].concat(children.map(n => n.x + n.width / 2));
@@ -1704,8 +1819,14 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
                 // Always anchor box to the step center so it stays in place across renders
                 let originX = Math.round(stepCenterX - (tLayout.width  / 2));
                 let originY = Math.round(stepCenterY - (tLayout.height / 2));
-                if (originX < 0) originX = 0;
-                if (originY < 0) originY = 0;
+                // Ensure background with padding stays inside the SVG viewBox
+                if (originX < pad) originX = pad;
+                // Keep expanded clusters clear of the sticky header/tabs area so the
+                // collapse badge (−) is always visible. This clamps the content origin
+                // to be below an estimated header height, plus some breathing room.
+                const HEADER_SAFE = 84; // px — header + tabs safe zone
+                const topClamp = Math.max(pad + 28, HEADER_SAFE + 16);
+                if (originY < topClamp) originY = topClamp;
 
 
                 // Compute background box for overlap checks
@@ -1779,11 +1900,15 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
                   } else {
                     // move up/down but keep within bandMin..bandMax
                     const baseCenter = stepCenterY;
+                    // Honor header safe area when testing candidate positions
+                    const HEADER_SAFE = 84; // must match clamp above
+                    const minCenter = (Math.max(topClamp, HEADER_SAFE + 16)) + (tLayout.height / 2);
                     for (let i = 0; i <= maxIter; i++) {
                       const dir = (i % 2 === 0) ? 1 : -1;
                       const delta = Math.floor(i / 2) * step * dir;
                       const candCenter = baseCenter + delta;
                       if (candCenter < bandMin || candCenter > bandMax) continue;
+                      if (candCenter < minCenter) continue; // keep below sticky header
                       const candOriginY = Math.round(candCenter - (tLayout.height / 2));
                       const cx1 = originX - pad;
                       const cx2 = originX + tLayout.width + pad;
@@ -1803,8 +1928,9 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
                   bumpedByStep = !attemptReposition();
                 }
 
-                finalWidth = Math.max(finalWidth, originX + tLayout.width + 16);
-                finalHeight = Math.max(finalHeight, originY + tLayout.height + 16);
+                // Ensure overall SVG fully contains the expanded cluster box (including padding)
+                finalWidth = Math.max(finalWidth, boxX2 + 24);
+                finalHeight = Math.max(finalHeight, boxY2 + 24);
 
                 const rootNames = itemsWithDeps.filter(t => !t.depends_on || t.depends_on.length === 0)
                   .map(t => t.task_name || t.name);
@@ -1903,6 +2029,7 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
             let svgEdges = '';
             let svgNodes = '';
             let svgClusters = '';
+            let svgOverlays = '';
 
             // Step-level edges (single input/output per expanded box) – will be appended after clusters
             edges.forEach(edge => {
@@ -2036,11 +2163,30 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
                           <text x=\"0\" y=\"46\" text-anchor=\"middle\" class=\"text-[10px] fill-current text-[var(--text-secondary)]\">${duration}</text>
                         </g>`;
                 });
-                svgClusters += `</g>`;
+                // Collapse badge (minus) in top-right corner of the cluster box
+                // Place collapse badge slightly inside the content area so it's never clipped by the top border
+                const tbx = originX + layout.width + pad - 14;
+                const tby = (originY - pad) + 20;   
+                svgClusters += `
+                  <g class=\"step-collapse-badge\">
+                    <circle cx=\"${tbx}\" cy=\"${tby}\" r=\"9\" fill=\"var(--bg-primary)\" stroke=\"var(--border-accent)\" stroke-width=\"1.5\"></circle>
+                    <line x1=\"${tbx - 4}\" y1=\"${tby}\" x2=\"${tbx + 4}\" y2=\"${tby}\" stroke=\"var(--border-accent)\" stroke-width=\"2\" stroke-linecap=\"round\"></line>
+                    <title>Collapse step</title>
+                  </g>
+                </g>`;
+                // Top overlay collapse badge (duplicate for z-order)
+                (function(){
+                  const tbx_ = originX + layout.width + pad - 14;
+                  // Keep the badge inside the visible SVG even if an upstream calc misplaces originY
+                  const HEADER_SAFE = 84; // header + tabs
+                  const minBadgeY = Math.max(8, HEADER_SAFE + 8);
+                  const tby_ = Math.max(minBadgeY, (originY - pad) + 20);
+                  svgOverlays += `\n                  <g class=\"step-collapse-badge\" data-step-name=\"${cluster.stepName}\">\n                    <circle cx=\"${tbx_}\" cy=\"${tby_}\" r=\"9\" fill=\"var(--bg-primary)\" stroke=\"var(--border-accent)\" stroke-width=\"1.5\"></circle>\n                    <line x1=\"${tbx_ - 4}\" y1=\"${tby_}\" x2=\"${tbx_ + 4}\" y2=\"${tby_}\" stroke=\"var(--border-accent)\" stroke-width=\"2\" stroke-linecap=\"round\"></line>\n                    <title>Collapse step</title>\n                  </g>`;
+                })();
             });
 
-            // Compose final SVG layers: clusters (background), edges (main flow), nodes (top)
-            DOM.graphWrapper.innerHTML = svgContent + svgClusters + svgEdges + svgNodes + `</svg>`;
+            // Compose final SVG layers: clusters (background), edges, nodes, overlays
+            DOM.graphWrapper.innerHTML = svgContent + svgClusters + svgEdges + svgNodes + svgOverlays + `</svg>`;
 
             // Clear the one-shot just-expanded hints after render cycle completes (allows scale pass to reuse them in same tick)
             setTimeout(() => { if (state._justExpandedSteps) state._justExpandedSteps.clear(); }, 0);
@@ -2064,7 +2210,12 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
               }
             } catch {}
 
-            initPanAndZoom('steps');
+            initPanAndZoom('steps', { width: finalWidth, height: finalHeight });
+            if (state._justExpandedSteps && state._justExpandedSteps.size > 0) {
+              const last = Array.from(state._justExpandedSteps).pop();
+              // Nudge only; avoid surprising recenter
+              setTimeout(() => nudgeStepIntoView(last), 50);
+            }
         }
 
         function makeResizable(card, step) {
