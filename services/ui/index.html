@@ -46,6 +46,11 @@
             
             --run-highlight-outline: rgba(245, 158, 11, 0.7); /* amber-500 */
             --run-highlight-shadow: rgba(245, 158, 11, 0.3);
+
+            /* Icon badge colors (lighter) */
+            --icon-info-bg: #818cf8;      /* indigo-400 */
+            --icon-collapse-bg: #94a3b8;  /* slate-400 */
+            --icon-glyph: #ffffff;        /* white */
         }
 
         html.dark {
@@ -78,6 +83,10 @@
 
             --run-highlight-outline: rgba(250, 204, 21, 0.7); /* amber-400 */
             --run-highlight-shadow: rgba(250, 204, 21, 0.3);
+            /* Icon badge colors (dark mode, deeper for contrast) */
+            --icon-info-bg: #4f46e5;      /* indigo-600 */
+            --icon-collapse-bg: #475569;  /* slate-600 */
+            /* --icon-glyph inherits white */
         }
 
         body {  
@@ -2220,8 +2229,10 @@ function nudgeStepIntoView(stepName) {
                     <text x="${node_center_x}" y="${node_center_y + 35}" text-anchor="middle" class="text-sm font-semibold fill-current text-[var(--text-primary)]">${caret} ${node.name}</text>
                     ${subText}
                     <g class="step-info" data-step-info="true" data-step-name="${node.name}">
-                      <circle cx="${infoCx}" cy="${infoCy}" r="7" fill="var(--bg-primary)" stroke="var(--border-accent)" stroke-width="1.5"></circle>
-                      <text x="${infoCx}" y="${infoCy + 3}" text-anchor="middle" class="text-[10px] fill-current text-[var(--border-accent)] font-semibold">i</text>
+                      <circle cx="${infoCx}" cy="${infoCy}" r="7" fill="var(--icon-info-bg)"></circle>
+                      <circle cx="${infoCx - 3.8}" cy="${infoCy}" r="1.1" fill="var(--icon-glyph)"></circle>
+                      <circle cx="${infoCx}" cy="${infoCy}" r="1.1" fill="var(--icon-glyph)"></circle>
+                      <circle cx="${infoCx + 3.8}" cy="${infoCy}" r="1.1" fill="var(--icon-glyph)"></circle>
                     </g>
                   </g>`;
             });
@@ -2293,9 +2304,9 @@ function nudgeStepIntoView(stepName) {
                 const tbx = originX + layout.width + pad - 14;
                 const tby = (originY - pad) + 20;   
                 svgClusters += `
-                  <g class=\"step-collapse-badge\">
-                    <circle cx=\"${tbx}\" cy=\"${tby}\" r=\"9\" fill=\"var(--bg-primary)\" stroke=\"var(--border-accent)\" stroke-width=\"1.5\"></circle>
-                    <line x1=\"${tbx - 4}\" y1=\"${tby}\" x2=\"${tbx + 4}\" y2=\"${tby}\" stroke=\"var(--border-accent)\" stroke-width=\"2\" stroke-linecap=\"round\"></line>
+                  <g class=\"step-collapse-badge\"> 
+                    <circle cx=\"${tbx}\" cy=\"${tby}\" r=\"7\" fill=\"var(--icon-collapse-bg)\"></circle>
+                    <path d=\"M ${tbx - 4} ${tby + 1.5} L ${tbx} ${tby - 2.5} L ${tbx + 4} ${tby + 1.5}\" stroke=\"var(--icon-glyph)\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"></path>
                   </g>
                 </g>`;
                 // Top overlay collapse badge (duplicate for z-order)
@@ -2305,11 +2316,11 @@ function nudgeStepIntoView(stepName) {
                   const HEADER_SAFE = 84; // header + tabs
                   const minBadgeY = Math.max(8, HEADER_SAFE + 8);
                   const tby_ = Math.max(minBadgeY, (originY - pad) + 20);
-                  svgOverlays += `\n                  <g class=\"step-collapse-badge\" data-step-name=\"${cluster.stepName}\">\n                    <circle cx=\"${tbx_}\" cy=\"${tby_}\" r=\"9\" fill=\"var(--bg-primary)\" stroke=\"var(--border-accent)\" stroke-width=\"1.5\"></circle>\n                    <line x1=\"${tbx_ - 4}\" y1=\"${tby_}\" x2=\"${tbx_ + 4}\" y2=\"${tby_}\" stroke=\"var(--border-accent)\" stroke-width=\"2\" stroke-linecap=\"round\"></line>\n                  </g>`;
-                  // Info badge (top-left inside the box)
-                  const ibx_ = (originX - pad) + 14;
-                  const iby_ = Math.max(minBadgeY, (originY - pad) + 20);
-                  svgOverlays += `\n                  <g class=\"step-info\" data-step-info=\"true\" data-step-name=\"${cluster.stepName}\">\n                    <circle cx=\"${ibx_}\" cy=\"${iby_}\" r=\"7\" fill=\"var(--bg-primary)\" stroke=\"var(--border-accent)\" stroke-width=\"1.5\"></circle>\n                    <text x=\"${ibx_}\" y=\"${iby_ + 3}\" text-anchor=\"middle\" class=\"text-[10px] fill-current text-[var(--border-accent)] font-semibold\">i</text>\n                  </g>`;
+                  svgOverlays += `\n                  <g class=\"step-collapse-badge\" data-step-name=\"${cluster.stepName}\">\n                    <circle cx=\"${tbx_}\" cy=\"${tby_}\" r=\"7\" fill=\"var(--icon-collapse-bg)\"></circle>\n                    <path d=\"M ${tbx_ - 4} ${tby_ + 1.5} L ${tbx_} ${tby_ - 2.5} L ${tbx_ + 4} ${tby_ + 1.5}\" stroke=\"var(--icon-glyph)\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"></path>\n                  </g>`;
+                  // Info badge: move to right side near collapse (accent circle with modern "i")
+                  const ibx_ = tbx_ - 22;
+                  const iby_ = tby_;
+                  svgOverlays += `\n                  <g class=\"step-info\" data-step-info=\"true\" data-step-name=\"${cluster.stepName}\">\n                    <circle cx=\"${ibx_}\" cy=\"${iby_}\" r=\"7\" fill=\"var(--icon-info-bg)\"></circle>\n                    <circle cx=\"${ibx_ - 3.8}\" cy=\"${iby_}\" r=\"1.1\" fill=\"var(--icon-glyph)\"></circle>\n                    <circle cx=\"${ibx_}\" cy=\"${iby_}\" r=\"1.1\" fill=\"var(--icon-glyph)\"></circle>\n                    <circle cx=\"${ibx_ + 3.8}\" cy=\"${iby_}\" r=\"1.1\" fill=\"var(--icon-glyph)\"></circle>\n                  </g>`;
                 })();
             });
 
@@ -3475,14 +3486,65 @@ function ensureTasksControls() {
             const info = e.target.closest('[data-step-info="true"]');
             if (info) { lastTarget = info; show('Details', 'accent', e.clientX, e.clientY); return; }
             const collapse = e.target.closest('.step-collapse-badge');
-            if (collapse) { lastTarget = collapse; show('Collapse', null, e.clientX, e.clientY); return; }
+            if (collapse) { lastTarget = collapse; show('Collapse', 'accent', e.clientX, e.clientY); return; }
             const cluster = e.target.closest('.step-cluster');
-            if (cluster) { lastTarget = cluster; show('Collapse', null, e.clientX, e.clientY); return; }
+            if (cluster) { lastTarget = cluster; show('Collapse', 'accent', e.clientX, e.clientY); return; }
             const node = e.target.closest('g.graph-node[data-step-name]');
             if (node) { lastTarget = node; show('Expand', null, e.clientX, e.clientY); return; }
             hide();
           });
           DOM.graphContainer.addEventListener('mouseleave', hide);
+        })();
+
+        // Global tooltip unifier: replace native title tooltips with the same pill
+        ;(function setupGlobalTitleTooltips(){
+          const hint = DOM.hoverHint;
+          if (!hint) return;
+          let currentEl = null;
+          let currentText = '';
+          const show = (text, variant, x, y) => {
+            hint.textContent = text;
+            if (variant) hint.setAttribute('data-variant', variant); else hint.removeAttribute('data-variant');
+            hint.style.left = (x + 12) + 'px';
+            hint.style.top = (y + 12) + 'px';
+            hint.classList.add('show');
+          };
+          const hide = () => { hint.classList.remove('show'); };
+
+          document.addEventListener('mouseover', (e) => {
+            const el = e.target.closest('[title]');
+            if (!el) return;
+            try {
+              currentEl = el;
+              currentText = el.getAttribute('title') || '';
+              el.dataset.__title = currentText;
+              el.removeAttribute('title'); // prevent native tooltip
+              show(currentText, 'accent', e.clientX, e.clientY);
+            } catch {}
+          });
+
+          document.addEventListener('mousemove', (e) => {
+            if (!currentEl) return;
+            hint.style.left = (e.clientX + 12) + 'px';
+            hint.style.top = (e.clientY + 12) + 'px';
+          });
+
+          document.addEventListener('mouseout', (e) => {
+            if (!currentEl) return;
+            // If moving outside the element that triggered the tooltip, hide it
+            const leavingEl = currentEl;
+            if (!e.relatedTarget || !leavingEl.contains(e.relatedTarget)) {
+              try {
+                if (leavingEl.dataset.__title !== undefined) {
+                  leavingEl.setAttribute('title', leavingEl.dataset.__title);
+                  delete leavingEl.dataset.__title;
+                }
+              } catch {}
+              currentEl = null;
+              currentText = '';
+              hide();
+            }
+          });
         })();
 
         DOM.sidebarNav.addEventListener('click', async (e) => {
