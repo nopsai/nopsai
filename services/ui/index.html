@@ -41,8 +41,9 @@
             --border-input: #d1d5db;    /* gray-300 */
             --border-input-focus: #4f46e5; /* indigo-600 */
 
-            --scrollbar-thumb: #9ca3af;  /* gray-400 */
-            --scrollbar-track: #e5e7eb;  /* gray-200 */
+            --scrollbar-thumb: #9ca3af;         /* gray-400 */
+            --scrollbar-thumb-hover: #6b7280;   /* gray-500 */
+            --scrollbar-track: #e5e7eb;         /* gray-200 */
             
             --run-highlight-outline: rgba(245, 158, 11, 0.7); /* amber-500 */
             --run-highlight-shadow: rgba(245, 158, 11, 0.3);
@@ -78,8 +79,9 @@
             --border-input: #4b5563;    /* gray-600 */
             --border-input-focus: #818cf8; /* indigo-400 */
             
-            --scrollbar-thumb: #4b5563;  /* gray-600 */
-            --scrollbar-track: #1f2937;  /* gray-800 */
+            --scrollbar-thumb: #4b5563;        /* gray-600 */
+            --scrollbar-thumb-hover: #6b7280;  /* gray-500 */
+            --scrollbar-track: #1f2937;        /* gray-800 */
 
             --run-highlight-outline: rgba(250, 204, 21, 0.7); /* amber-400 */
             --run-highlight-shadow: rgba(250, 204, 21, 0.3);
@@ -95,9 +97,27 @@
             color: var(--text-primary);
             transition: background-color 0.3s ease, color 0.3s ease;
         }
-        .sidebar-scrollbar::-webkit-scrollbar { width: 4px; }
-        .sidebar-scrollbar::-webkit-scrollbar-thumb { background-color: var(--scrollbar-thumb); border-radius: 10px; }
-        .sidebar-scrollbar::-webkit-scrollbar-track { background-color: var(--scrollbar-track); }
+        /* Global modern scrollbar styling */
+        * { scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; }
+        *::-webkit-scrollbar { width: 8px; height: 8px; }
+        *::-webkit-scrollbar-track { background-color: transparent; }
+        *::-webkit-scrollbar-thumb {
+          background-color: var(--scrollbar-thumb);
+          border-radius: 9999px;
+          border: 2px solid transparent; /* creates airy pill */
+          background-clip: content-box;
+        }
+        *::-webkit-scrollbar-thumb:hover { background-color: var(--scrollbar-thumb-hover); }
+        /* Sidebar keeps same style but a touch slimmer */
+        .sidebar-scrollbar::-webkit-scrollbar { width: 6px; }
+        .sidebar-scrollbar::-webkit-scrollbar-track { background-color: transparent; }
+        .sidebar-scrollbar::-webkit-scrollbar-thumb {
+          background-color: var(--scrollbar-thumb);
+          border-radius: 9999px;
+          border: 2px solid transparent;
+          background-clip: content-box;
+        }
+        .sidebar-scrollbar::-webkit-scrollbar-thumb:hover { background-color: var(--scrollbar-thumb-hover); }
         .graph-node { cursor: pointer; }
         /* Steps view: use normal cursor */
         #graph-container .graph-node[data-step-name],
@@ -411,9 +431,14 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
 #tasks-graph-controls .segmented button {
   padding: 6px 10px; font-size: 12px; border: 0; background: var(--bg-secondary); color: var(--text-secondary);
 }
-#tasks-graph-controls .segmented button.active {
-  background: var(--bg-tertiary); color: var(--text-primary);
-}
+        #tasks-graph-controls .segmented button.active {
+          background: var(--bg-tertiary); color: var(--text-primary);
+        }
+
+        /* Hide page scrollbars when viewing graphs */
+        #page-content-wrapper.no-scroll { overflow: hidden !important; }
+        #page-content-wrapper.no-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+        #page-content-wrapper.no-scroll::-webkit-scrollbar { display: none; }
 
 /* Keep lines crisp - merged into .edge-path above */
 
@@ -1169,6 +1194,7 @@ function nudgeStepIntoView(stepName) {
             DOM.tasksGraphContainer.classList.add('hidden');
             DOM.tasksEmpty.classList.add('hidden');
             DOM.mainGridContainer.classList.add('hidden');
+            if (DOM.pageContentWrapper) DOM.pageContentWrapper.classList.remove('no-scroll');
         }
 
         async function renderSidebar(activeRoute, currentTab) {
@@ -2114,19 +2140,23 @@ function nudgeStepIntoView(stepName) {
 
             let svgContent = `<svg width="${finalWidth}" height="${finalHeight}" xmlns="http://www.w3.org/2000/svg">
                 <defs>
-                    <marker id="arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" class="fill-current text-gray-300 dark:text-gray-600" /></marker>
-                    <marker id="arrowhead-completed" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" class="fill-current text-[var(--text-accent)]" /></marker>
-                    <!-- Crisp arrow used by modal task graph -->
-                    <marker id="task_arrow" viewBox="0 0 12 12" refX="11" refY="6"
-                            markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto">
-                      <path d="M0,0 L12,6 L0,12 Z" class="fill-current text-gray-400 dark:text-gray-600" />
+                    <marker id="arrowhead" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+                      <path d="M0,0 L8,4 L0,8 Q2.4,4 0,0 Z" class="fill-current text-gray-300 dark:text-gray-600" />
+                    </marker>
+                    <marker id="arrowhead-completed" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+                      <path d="M0,0 L8,4 L0,8 Q2.4,4 0,0 Z" class="fill-current text-[var(--text-accent)]" />
+                    </marker>
+                    <!-- Compact, crisp arrows for task graphs -->
+                    <marker id="task_arrow" viewBox="0 0 10 10" refX="9" refY="5"
+                            markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+                      <path d="M0,0 L10,5 L0,10 Q2.8,5 0,0 Z" class="fill-current text-gray-400 dark:text-gray-600" />
                     </marker>
                     <!-- Markers for task box connectors (match Tasks view) -->
-                    <marker id="task_arrow_box_secondary" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto">
-                      <path d="M0,0 L12,6 L0,12 Z" fill="var(--border-secondary)"></path>
+                    <marker id="task_arrow_box_secondary" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+                      <path d="M0,0 L10,5 L0,10 Q2.8,5 0,0 Z" fill="var(--border-secondary)"></path>
                     </marker>
-                    <marker id="task_arrow_box_accent" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto">
-                      <path d="M0,0 L12,6 L0,12 Z" fill="var(--border-accent)"></path>
+                    <marker id="task_arrow_box_accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+                      <path d="M0,0 L10,5 L0,10 Q2.8,5 0,0 Z" fill="var(--border-accent)"></path>
                     </marker>
                     ${isRunning ? `<linearGradient id="edge-gradient" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:var(--border-secondary);" /><stop offset="50%" style="stop-color:var(--border-accent);" /><stop offset="100%" style="stop-color:var(--border-secondary);" /></linearGradient>` : ''}
                 </defs>
@@ -2452,13 +2482,13 @@ function renderTaskGraphBoxes(container, stepName, tasks) {
 let svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"
                style="max-width:100%;max-height:100%;display:block">
   <defs>
-    <marker id="task_arrow_box_secondary" viewBox="0 0 12 12" refX="11" refY="6"
-            markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto">
-      <path d="M0,0 L12,6 L0,12 Z" fill="var(--border-secondary)"></path>
+    <marker id="task_arrow_box_secondary" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Q2.8,5 0,0 Z" fill="var(--border-secondary)"></path>
     </marker>
-    <marker id="task_arrow_box_accent" viewBox="0 0 12 12" refX="11" refY="6"
-            markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto">
-      <path d="M0,0 L12,6 L0,12 Z" fill="var(--border-accent)"></path>
+    <marker id="task_arrow_box_accent" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Q2.8,5 0,0 Z" fill="var(--border-accent)"></path>
     </marker>
   </defs>`;
 
@@ -2841,6 +2871,11 @@ function ensureTasksControls() {
             localStorage.setItem('graphView', view);
             DOM.graphContainer.classList.toggle('hidden', view !== 'steps');
             DOM.tasksGraphContainer.classList.toggle('hidden', view !== 'tasks');
+            // Hide page scrollbars when a graph view is active
+            if (DOM.pageContentWrapper) {
+              const active = (view === 'steps' || view === 'tasks');
+              DOM.pageContentWrapper.classList.toggle('no-scroll', active);
+            }
             // Ensure pan/zoom is bound for the visible view
             if (view === 'steps') {
               initPanAndZoom('steps');
@@ -3063,10 +3098,10 @@ function ensureTasksControls() {
 
   let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
     <defs>
-      <!-- crisp arrow that doesn’t distort with stroke width -->
-      <marker id="task_arrow" viewBox="0 0 12 12" refX="11" refY="6"
-              markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto">
-        <path d="M0,0 L12,6 L0,12 Z" class="fill-current text-gray-400 dark:text-gray-600" />
+      <!-- compact, crisp arrow that doesn’t distort with stroke width -->
+      <marker id="task_arrow" viewBox="0 0 10 10" refX="9" refY="5"
+              markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+        <path d="M0,0 L10,5 L0,10 Q2.8,5 0,0 Z" class="fill-current text-gray-400 dark:text-gray-600" />
       </marker>
     </defs>`;
 
