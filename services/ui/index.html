@@ -781,12 +781,9 @@ function initPanAndZoom(view, layout = null) {
     // one-time restore
     delete state._stepsViewTransform;
   } else {
-    // Initial fit (optional). When rebinding from controls we suppress this to avoid jump.
-    if (!state._suppressInitialFit) {
-      setTimeout(() => fitToView(), 60);
-    } else {
-      delete state._suppressInitialFit;
-    }
+    // Do not auto-fit on bind; keep current zoom/pan unless explicitly requested.
+    // Initial fit is triggered by external caller (first render) or when _fitOnNextStepsRender is set.
+    if (state._suppressInitialFit) delete state._suppressInitialFit;
   }
 
   function fitToView() {
@@ -803,26 +800,19 @@ function initPanAndZoom(view, layout = null) {
     if (!state.panzoomInstance) return;
     state.panzoomInstance.reset({ animate: false });
 
-    if (view === 'steps') {
-      // For Steps view, always start at top-left at 1x
-      const scale = 1;
-      state.panzoomInstance.zoom(scale, { animate: false });
-      state.panzoomInstance.pan(0, 0, { animate: false });
-      // Record baseline so Reset reproduces this
-      state._baselineStepsTransform = { x: 0, y: 0, scale };
-    } else {
-      // Tasks view keeps centered fit behavior
-      const padding = 40;
-      const fitScale = Math.min(
-        parentRect.width  / (contentWidth  + padding),
-        parentRect.height / (contentHeight + padding)
-      ) * 0.98;
-      const scale = Math.min(1, fitScale);
-      state.panzoomInstance.zoom(scale, { animate: false });
-      const x = (parentRect.width  - contentWidth  * scale) / 2;
-      const y = (parentRect.height - contentHeight * scale) / 2;
-      state.panzoomInstance.pan(x, y, { animate: false });
-    }
+    // Centered fit behavior for both Steps and Tasks
+    const padding = 40;
+    const fitScale = Math.min(
+      parentRect.width  / (contentWidth  + padding),
+      parentRect.height / (contentHeight + padding)
+    ) * 0.98;
+    const scale = Math.min(1, fitScale);
+    state.panzoomInstance.zoom(scale, { animate: false });
+    const x = (parentRect.width  - contentWidth  * scale) / 2;
+    const y = (parentRect.height - contentHeight * scale) / 2;
+    state.panzoomInstance.pan(x, y, { animate: false });
+    // Record baseline so Reset reproduces this
+    if (view === 'steps') state._baselineStepsTransform = { x, y, scale };
 
     // Record baseline transform for Steps view so Reset matches refresh
     try {
@@ -1767,10 +1757,6 @@ function nudgeStepIntoView(stepName) {
                             <span>${branchName}</span>
                         </div>
                         <div class="ml-auto flex items-center gap-3">
-                            <div id="graph-view-toggle" class="inline-flex rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-1">
-                                <button id="toggle-steps" class="px-3 py-1.5 text-xs font-medium rounded-md transition-colors">Steps</button>
-                                <button id="toggle-tasks" class="px-3 py-1.5 text-xs font-medium rounded-md transition-colors">Tasks</button>
-                            </div>
                             <button id="view-logs-btn" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-accent)]">
                                 <svg class="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7" /></svg>
                                 View Logs
@@ -1781,7 +1767,9 @@ function nudgeStepIntoView(stepName) {
 
             DOM.mainHeader.innerHTML = headerHTML;
             resetMainView();
-            initGraphViewToggle();
+            // Force single-view mode (Steps) regardless of any saved preference
+            try { localStorage.setItem('graphView', 'steps'); } catch {}
+            state.currentGraphView = 'steps';
 
             if (runInfo.failure_reason) {
                 DOM.mainGridContainer.classList.remove('hidden');
@@ -1795,14 +1783,12 @@ function nudgeStepIntoView(stepName) {
                     </div>`;
             } else {
                 renderStepsGraph(runDetails);
-                renderTasksGraph(runDetails);
                 ensureStepsControls();
-                switchGraphView(state.currentGraphView);
+                switchGraphView('steps');
                 // Rebind pan/zoom to the active view to avoid last-render wins
                 setTimeout(() => {
-                  const view = state.currentGraphView;
-                  const layout = (view === 'tasks') ? (state._lastStepLayout || null) : null;
-                  initPanAndZoom(view, layout);
+                  const view = 'steps';
+                  initPanAndZoom(view);
                   // Center the visible graph after initial render
                   if (typeof state.__fitToView === 'function') state.__fitToView();
                 }, 0);
@@ -1810,9 +1796,12 @@ function nudgeStepIntoView(stepName) {
         }
 
         function renderStepsGraph(runDetails) {
-            // If nothing is expanded, reset scale to default so the base layout stays compact
+            // If nothing is expanded, optionally reset step layout scale.
+            // When triggered by "toggle all" actions, preserve the current scale so user zoom feel remains.
             if (!state.expandedSteps || state.expandedSteps.size === 0) {
-                state.stepLayoutScale = 1.0;
+                if (!state._preserveScale) {
+                    state.stepLayoutScale = 1.0;
+                }
             }
 
             // Only horizontal layout
@@ -2242,10 +2231,18 @@ function nudgeStepIntoView(stepName) {
                     let includeType = originalStep.include.startsWith('pipeline:') ? '(Included Pipeline)' : '(Included Step)';
                     let linkClass = originalStep.include.startsWith('pipeline:') ? 'text-[var(--text-link)] hover:underline' : 'text-[var(--text-accent)]';
                     const childRun = originalStep.include.startsWith('pipeline:') ? runDetails.child_runs.find(cr => cr.parent_step_name === node.name) : null;
+                    const yInclude = node_center_y + 53;
+                    const yDuration = node_center_y + 67;
                     if (childRun) {
-                         subText = `<a data-included-link="true" href="#/pipelineruns/run/${childRun.run_id}" class="fill-current ${linkClass}"><text x="${node_center_x}" y="${node_center_y + 53}" text-anchor="middle" class="text-xs">${includeType}</text></a>`;
+                         subText = `
+                           <a data-included-link="true" href="#/pipelineruns/run/${childRun.run_id}" class="fill-current ${linkClass}">
+                             <text x="${node_center_x}" y="${yInclude}" text-anchor="middle" class="text-xs">${includeType}</text>
+                           </a>
+                           <text x="${node_center_x}" y="${yDuration}" text-anchor="middle" class="text-xs fill-current text-[var(--text-secondary)]">${node.duration || '...'}</text>`;
                     } else {
-                         subText = `<text x="${node_center_x}" y="${node_center_y + 53}" text-anchor="middle" class="text-xs fill-current ${linkClass}">${includeType}</text>`;
+                         subText = `
+                           <text x="${node_center_x}" y="${yInclude}" text-anchor="middle" class="text-xs fill-current ${linkClass}">${includeType}</text>
+                           <text x="${node_center_x}" y="${yDuration}" text-anchor="middle" class="text-xs fill-current text-[var(--text-secondary)]">${node.duration || '...'}</text>`;
                     }
                 }
                 const caret = (state.expandedSteps && state.expandedSteps.has(node.name)) ? '▾' : '▸';
@@ -2356,6 +2353,7 @@ function nudgeStepIntoView(stepName) {
 
   // Compose final SVG layers: clusters (background), edges, nodes, overlays
   DOM.graphWrapper.innerHTML = svgContent + svgClusters + svgEdges + svgNodes + svgOverlays + `</svg>`;
+  try { updateExpandToggleLabel(); } catch {}
 
             // Clear the one-shot just-expanded hints after render cycle completes (allows scale pass to reuse them in same tick)
             setTimeout(() => { if (state._justExpandedSteps) state._justExpandedSteps.clear(); }, 0);
@@ -2380,8 +2378,11 @@ function nudgeStepIntoView(stepName) {
             } catch {}
 
             initPanAndZoom('steps', { width: finalWidth, height: finalHeight });
+            // Clear one-shot preserve flag after render
+            if (state._preserveScale) delete state._preserveScale;
             // In case this ran while hidden, ensure a binding once visible
             requestAnimationFrame(() => ensurePanzoomBound('steps'));
+            try { updateExpandToggleLabel(); } catch {}
             if (state._justExpandedSteps && state._justExpandedSteps.size > 0) {
               const last = Array.from(state._justExpandedSteps).pop();
               // Nudge only; avoid surprising recenter
@@ -2703,17 +2704,20 @@ function ensureTasksControls() {
   // no style toggle; always icon mode
 }
 
-    function ensureStepsControls() {
-      let controls = document.getElementById('steps-graph-controls');
-      if (!controls) {
-        controls = document.createElement('div');
-        controls.id = 'steps-graph-controls';
-        controls.innerHTML = `
-          <button class="ctrl" data-zoom="in"  title="Zoom In">+</button>
-          <button class="ctrl" data-zoom="out" title="Zoom Out">−</button>
-          <button class="ctrl" data-fit       title="Fit to Screen">Fit</button>
-          <button class="ctrl" data-reset    title="Reset Layout">Reset</button>
-        `;
+        function ensureStepsControls() {
+          let controls = document.getElementById('steps-graph-controls');
+          if (!controls) {
+            controls = document.createElement('div');
+            controls.id = 'steps-graph-controls';
+            controls.innerHTML = `
+              <button class="ctrl" data-zoom="in"  title="Zoom In">+</button>
+              <button class="ctrl" data-zoom="out" title="Zoom Out">−</button>
+              <button class="ctrl" data-fit       title="Fit to Screen">Fit</button>
+              <button class="ctrl" data-toggleall data-mode="expand" title="Expand All" aria-pressed="false">
+                <span class="label">Expand All</span>
+              </button>
+              <button class="ctrl" data-reset    title="Reset Layout">Reset</button>
+            `;
     // Reuse tasks control styles
     controls.style.position = 'absolute';
     controls.style.right = '12px';
@@ -2723,25 +2727,60 @@ function ensureTasksControls() {
     controls.style.gap = '8px';
     DOM.graphContainer.appendChild(controls);
 
-        // Controls: zoom/fit/reset
-        controls.addEventListener('click', (e) => {
-          const btn = e.target.closest('button');
-          if (!btn) return;
-          // Guarantee there is a bound panzoom before acting
-          if (!state.panzoomInstance || state._panElement !== DOM.graphWrapper) {
-            ensurePanzoomBound('steps');
-          }
-          if (btn.dataset.zoom === 'in') {
-            if (state.panzoomInstance) state.panzoomInstance.zoomIn();
-          } else if (btn.dataset.zoom === 'out') {
-            if (state.panzoomInstance) state.panzoomInstance.zoomOut();
-          } else if (btn.hasAttribute('data-fit')) {
-            if (typeof state.__fitToView === 'function') state.__fitToView();
-          } else if (btn.hasAttribute('data-reset')) {
-            // Clear expanded steps, positions, and scale. Remove persisted storage for this run.
-            try {
-              const runId = state.currentRunData?.run_info?.run_id;
-              if (runId) localStorage.removeItem(`nopsai_steps_layout:${runId}`);
+            // Controls: zoom/fit/reset
+            controls.addEventListener('click', (e) => {
+              const btn = e.target.closest('button');
+              if (!btn) return;
+              // Guarantee there is a bound panzoom before acting
+              if (!state.panzoomInstance || state._panElement !== DOM.graphWrapper) {
+                ensurePanzoomBound('steps');
+              }
+              if (btn.dataset.zoom === 'in') {
+                if (state.panzoomInstance) state.panzoomInstance.zoomIn();
+              } else if (btn.dataset.zoom === 'out') {
+                if (state.panzoomInstance) state.panzoomInstance.zoomOut();
+              } else if (btn.hasAttribute('data-fit')) {
+                if (typeof state.__fitToView === 'function') state.__fitToView();
+              } else if (btn.hasAttribute('data-toggleall')) {
+                // Toggle all: expand all if some are collapsed; otherwise collapse all
+                const shouldExpand = (() => {
+                  try {
+                    const total = (state.currentRunData?.steps || []).length;
+                    const expanded = state.expandedSteps ? state.expandedSteps.size : 0;
+                    return total > 0 && expanded < total;
+                  } catch { return true; }
+                })();
+                try {
+                  const panEl = state._panElement || DOM.graphWrapper;
+                  const tr = panEl ? window.getComputedStyle(panEl).transform : null;
+                  let scale = 1, x = 0, y = 0;
+                  if (tr && tr !== 'none') {
+                    const m = tr.match(/matrix\(([^)]+)\)/);
+                    if (m) {
+                      const v = m[1].split(',').map(parseFloat);
+                      if (v.length === 6) { const a=v[0], b=v[1]; scale = Math.sqrt(a*a+b*b)||1; x=v[4]||0; y=v[5]||0; }
+                    }
+                  }
+                  state._stepsViewTransform = { x, y, scale };
+                } catch {}
+                if (shouldExpand) {
+                  // Do not change internal step layout scale; keep user's zoom feel
+                  state._preserveScale = true;
+                  if (state.currentRunData && Array.isArray(state.currentRunData.steps)) {
+                    state.expandedSteps = new Set(state.currentRunData.steps.map(s => s && s.name).filter(Boolean));
+                  }
+                } else {
+                  state._preserveScale = true;
+                  state.expandedSteps = new Set();
+                  state.expandedStepPositions = new Map();
+                }
+                state._fitOnNextStepsRender = false;
+                if (state.currentRunData) renderStepsGraph(state.currentRunData);
+              } else if (btn.hasAttribute('data-reset')) {
+                // Clear expanded steps, positions, and scale. Remove persisted storage for this run.
+                try {
+                  const runId = state.currentRunData?.run_info?.run_id;
+                  if (runId) localStorage.removeItem(`nopsai_steps_layout:${runId}`);
             } catch {}
             state.expandedSteps = new Set();
             state.expandedStepPositions = new Map();
@@ -2775,6 +2814,24 @@ function ensureTasksControls() {
     b.style.fontSize = '12px';
     b.style.color = 'var(--text-primary)';
   });
+
+  // Sync the toggle button label based on current expanded state
+  try { updateExpandToggleLabel(); } catch {}
+}
+
+// Update label and aria state for the expand/collapse toggle
+function updateExpandToggleLabel() {
+  const btn = document.querySelector('#steps-graph-controls [data-toggleall]');
+  if (!btn) return;
+  const total = (state.currentRunData?.steps || []).length;
+  const expanded = state.expandedSteps ? state.expandedSteps.size : 0;
+  const all = total > 0 && expanded >= total;
+  const label = all ? 'Collapse All' : 'Expand All';
+  btn.dataset.mode = all ? 'collapse' : 'expand';
+  btn.setAttribute('title', label);
+  btn.setAttribute('aria-pressed', all ? 'true' : 'false');
+  const span = btn.querySelector('.label');
+  if (span) span.textContent = label; else btn.textContent = label;
 }
 
 
@@ -2895,21 +2952,8 @@ function ensureTasksControls() {
         }
 
         function initGraphViewToggle() {
-            const stepsBtn = document.getElementById('toggle-steps');
-            const tasksBtn = document.getElementById('toggle-tasks');
-            if (!stepsBtn || !tasksBtn) return;
-            const paint = () => {
-                const isSteps = state.currentGraphView === 'steps';
-                stepsBtn.classList.toggle('bg-[var(--bg-tertiary)]', isSteps);
-                stepsBtn.classList.toggle('text-[var(--text-primary)]', isSteps);
-                stepsBtn.classList.toggle('text-[var(--text-secondary)]', !isSteps);
-                tasksBtn.classList.toggle('bg-[var(--bg-tertiary)]', !isSteps);
-                tasksBtn.classList.toggle('text-[var(--text-primary)]', !isSteps);
-                tasksBtn.classList.toggle('text-[var(--text-secondary)]', isSteps);
-            };
-            stepsBtn.onclick = () => { if(state.currentGraphView !== 'steps') { switchGraphView('steps'); paint(); } };
-            tasksBtn.onclick = () => { if(state.currentGraphView !== 'tasks') { switchGraphView('tasks'); paint(); } };
-            paint();
+            // Tasks view removed: nothing to initialize
+            return;
         }
 
         async function showStepDetails(stepName) {
@@ -3301,7 +3345,7 @@ function ensureTasksControls() {
 
     // Safety: ensure the main view is still visible after closing the modal
     // without relying solely on router timing.
-    if (state.currentGraphView === 'tasks') {
+    if (false && state.currentGraphView === 'tasks') {
       DOM.graphContainer.classList.add('hidden');
       DOM.tasksGraphContainer.classList.remove('hidden');
 
@@ -3309,7 +3353,7 @@ function ensureTasksControls() {
       const hasSvg = !!DOM.tasksGraphWrapper.querySelector('svg');
       if (!hasSvg && state.currentRunData) {
         renderRunView(state.currentRunData);
-        switchGraphView('tasks');
+        switchGraphView('steps');
       }
 
       // Re-center after layout settles
