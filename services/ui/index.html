@@ -871,8 +871,9 @@ function initPanAndZoom(view, layout = null) {
     fitToView();
   });
 
-  // Restore transform for Steps view if requested and no fit is pending; otherwise fit
-  const restore = (view === 'steps' && state._stepsViewTransform && !state._fitOnNextStepsRender) ? state._stepsViewTransform : null;
+  // Restore transform for Steps view if requested. When preserving scale (e.g., expand/collapse all),
+  // ignore any pending auto-fit requests set by layout passes.
+  const restore = (view === 'steps' && state._stepsViewTransform && (!state._fitOnNextStepsRender || state._preserveScale)) ? state._stepsViewTransform : null;
   if (restore) {
     try {
       state.panzoomInstance.zoom(restore.scale || 1, { animate: false });
@@ -937,7 +938,7 @@ function initPanAndZoom(view, layout = null) {
   }
 
   state.__fitToView = fitToView;
-  if (view === 'steps' && state._fitOnNextStepsRender) {
+  if (view === 'steps' && state._fitOnNextStepsRender && !state._preserveScale) {
     // ensure a final synchronous fit
     setTimeout(() => fitToView(), 0);
     delete state._fitOnNextStepsRender;
@@ -2291,7 +2292,7 @@ function nudgeStepIntoView(stepName) {
                   const nextStep = Math.min(MAX_STEP_LAYOUT_SCALE, prevStep + inc);
                   if (nextStep > prevStep + 1e-6) {
                       state.stepLayoutScale = nextStep;
-                      state._fitOnNextStepsRender = true;
+                      if (!state._preserveScale) state._fitOnNextStepsRender = true;
                       renderStepsGraph(runDetails);
                       return true;
                   }
@@ -2303,7 +2304,7 @@ function nudgeStepIntoView(stepName) {
                   const nextCluster = Math.max(MIN_TASK_CLUSTER_SCALE, prevCluster - dec);
                   if (nextCluster < prevCluster - 1e-6) {
                       state.taskClusterScale = nextCluster;
-                      state._fitOnNextStepsRender = true;
+                      if (!state._preserveScale) state._fitOnNextStepsRender = true;
                       renderStepsGraph(runDetails);
                       return true;
                   }
