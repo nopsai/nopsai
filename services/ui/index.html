@@ -366,10 +366,73 @@
 
 /* SVG edge glow + animated running stroke */
 .edge-path--glow { filter: drop-shadow(0 1px 8px rgba(99,102,241,.35)) drop-shadow(0 0 14px rgba(99,102,241,.22)); }
-.edge-path--running {
-  stroke-dasharray: 10;
-  animation: edge-flow 1s linear infinite;
-}
+        .edge-path--running {
+          stroke-dasharray: 10;
+          animation: edge-flow 1s linear infinite;
+        }
+
+        /* Logs highlight and dimming */
+        .log-line--dim { opacity: .45; }
+        .log-highlight { background-color: rgba(99,102,241,.22); border-radius: 3px; padding: 0 2px; }
+        .log-line--sel { border-radius: 4px; }
+        /* Per-step color palette for selected lines */
+        .log-line--sel.c0 { background-color: rgba(99,102,241,.10); }
+        .log-line--sel.c1 { background-color: rgba(16,185,129,.10); }
+        .log-line--sel.c2 { background-color: rgba(245,158,11,.12); }
+        .log-line--sel.c3 { background-color: rgba(56,189,248,.10); }
+        .log-line--sel.c4 { background-color: rgba(217,70,239,.10); }
+        .log-line--sel.c5 { background-color: rgba(132,204,22,.12); }
+        .log-line--sel.c6 { background-color: rgba(249,115,22,.10); }
+        .log-line--sel.c7 { background-color: rgba(244,63,94,.10); }
+        html.dark .log-line--sel.c0 { background-color: rgba(129,140,248,.14); }
+        html.dark .log-line--sel.c1 { background-color: rgba(52,211,153,.14); }
+        html.dark .log-line--sel.c2 { background-color: rgba(251,191,36,.16); }
+        html.dark .log-line--sel.c3 { background-color: rgba(125,211,252,.14); }
+        html.dark .log-line--sel.c4 { background-color: rgba(232,121,249,.14); }
+        html.dark .log-line--sel.c5 { background-color: rgba(190,242,100,.16); }
+        html.dark .log-line--sel.c6 { background-color: rgba(253,186,116,.14); }
+        html.dark .log-line--sel.c7 { background-color: rgba(252,165,165,.14); }
+        /* Per-step inline token highlight */
+        .log-step-token.c0 { background-color: rgba(99,102,241,.18); border-radius: 3px; padding: 0 2px; }
+        .log-step-token.c1 { background-color: rgba(16,185,129,.18); border-radius: 3px; padding: 0 2px; }
+        .log-step-token.c2 { background-color: rgba(245,158,11,.22); border-radius: 3px; padding: 0 2px; }
+        .log-step-token.c3 { background-color: rgba(56,189,248,.18); border-radius: 3px; padding: 0 2px; }
+        .log-step-token.c4 { background-color: rgba(217,70,239,.18); border-radius: 3px; padding: 0 2px; }
+        .log-step-token.c5 { background-color: rgba(132,204,22,.22); border-radius: 3px; padding: 0 2px; }
+        .log-step-token.c6 { background-color: rgba(249,115,22,.18); border-radius: 3px; padding: 0 2px; }
+        .log-step-token.c7 { background-color: rgba(244,63,94,.18); border-radius: 3px; padding: 0 2px; }
+        /* Logs steps sidebar */
+        #logs-steps-sidebar { -webkit-overflow-scrolling: touch; }
+        .logs-step-item { border: 1px solid var(--border-primary); color: var(--text-primary); background: var(--bg-primary); transition: background .15s ease, border-color .15s ease; }
+        .logs-step-item.is-active { border-color: var(--border-accent); box-shadow: 0 0 0 1px var(--border-accent) inset; }
+        /* Selected palette background to match log colors */
+        .logs-step-item.is-active.c0 { background-color: rgba(99,102,241,.10); }
+        .logs-step-item.is-active.c1 { background-color: rgba(16,185,129,.10); }
+        .logs-step-item.is-active.c2 { background-color: rgba(245,158,11,.12); }
+        .logs-step-item.is-active.c3 { background-color: rgba(56,189,248,.10); }
+        .logs-step-item.is-active.c4 { background-color: rgba(217,70,239,.10); }
+        .logs-step-item.is-active.c5 { background-color: rgba(132,204,22,.12); }
+        .logs-step-item.is-active.c6 { background-color: rgba(249,115,22,.10); }
+        .logs-step-item.is-active.c7 { background-color: rgba(244,63,94,.10); }
+        html.dark .logs-step-item.is-active.c0 { background-color: rgba(129,140,248,.14); }
+        html.dark .logs-step-item.is-active.c1 { background-color: rgba(52,211,153,.14); }
+        html.dark .logs-step-item.is-active.c2 { background-color: rgba(251,191,36,.16); }
+        html.dark .logs-step-item.is-active.c3 { background-color: rgba(125,211,252,.14); }
+        html.dark .logs-step-item.is-active.c4 { background-color: rgba(232,121,249,.14); }
+        html.dark .logs-step-item.is-active.c5 { background-color: rgba(190,242,100,.16); }
+        html.dark .logs-step-item.is-active.c6 { background-color: rgba(253,186,116,.14); }
+        html.dark .logs-step-item.is-active.c7 { background-color: rgba(252,165,165,.14); }
+        /* Colored dot for selected items */
+        .step-dot { width: 8px; height: 8px; border-radius: 9999px; flex: 0 0 auto; }
+        .step-dot.c0 { background-color: #6366f1; }
+        .step-dot.c1 { background-color: #10b981; }
+        .step-dot.c2 { background-color: #f59e0b; }
+        .step-dot.c3 { background-color: #38bdf8; }
+        .step-dot.c4 { background-color: #d946ef; }
+        .step-dot.c5 { background-color: #84cc16; }
+        .step-dot.c6 { background-color: #f97316; }
+        .step-dot.c7 { background-color: #f43f5e; }
+        .logs-mini-btn { font-size: 11px; padding: 4px 8px; border: 1px solid var(--border-primary); border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary); }
 
 /* zoom control panel */
 #tasks-graph-controls {
@@ -615,7 +678,31 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
                     </button>
                 </div>
             </div>
-            <div id="logs-container" class="p-4 flex-1 overflow-y-auto bg-[var(--bg-primary)] font-mono text-sm text-[var(--text-monospace)] whitespace-pre-wrap">
+            <!-- Logs two-column layout: left steps, right logs -->
+            <div class="flex-1 min-h-0 flex">
+              <aside id="logs-steps-sidebar" class="w-64 border-r border-[var(--border-primary)] bg-[var(--bg-secondary)] flex-shrink-0 flex flex-col p-3 gap-2">
+                <div class="relative">
+                  <input id="logs-step-search" type="text" placeholder="Filter steps..." class="w-full pl-2 pr-7 py-1.5 text-xs rounded-md bg-[var(--bg-primary)] border border-[var(--border-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)]" />
+                </div>
+                <div id="logs-step-list" class="flex-1 overflow-auto space-y-1"></div>
+                <div class="flex items-center gap-2 pt-1">
+                  <button id="logs-steps-select-all" class="logs-mini-btn flex-1" title="Select all steps">All</button>
+                  <button id="logs-steps-clear" class="logs-mini-btn flex-1" title="Clear selection">Clear</button>
+                </div>
+              </aside>
+              <section class="flex-1 min-h-0 flex flex-col">
+                <div class="px-4 py-2 border-b border-[var(--border-primary)] flex items-center gap-2 flex-shrink-0">
+                  <div class="relative">
+                    <input id="logs-search" type="text" placeholder="Search logs..." class="pl-8 pr-7 py-1.5 text-xs rounded-md bg-[var(--bg-primary)] border border-[var(--border-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)] w-64" />
+                    <svg class="w-4 h-4 text-[var(--text-secondary)] absolute left-2 top-1/2 -translate-y-1/2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <button id="logs-clear-search" title="Clear" class="absolute right-1 top-1/2 -translate-y-1/2 text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
+                      <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                  </div>
+                  <span id="logs-count" class="text-[var(--text-secondary)] text-xs"></span>
+                </div>
+                <div id="logs-container" class="p-4 flex-1 overflow-y-auto bg-[var(--bg-primary)] font-mono text-sm text-[var(--text-monospace)] whitespace-pre-wrap"></div>
+              </section>
             </div>
         </div>
     </div>
@@ -657,6 +744,14 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
             logsContainer: document.getElementById('logs-container'),
             followLogsCheckbox: document.getElementById('follow-logs-checkbox'),
             copyLogsBtn: document.getElementById('copy-logs-btn'),
+            logsStepsSidebar: document.getElementById('logs-steps-sidebar'),
+            logsStepList: document.getElementById('logs-step-list'),
+            logsStepSearch: document.getElementById('logs-step-search'),
+            logsStepsSelectAll: document.getElementById('logs-steps-select-all'),
+            logsStepsClear: document.getElementById('logs-steps-clear'),
+            logsSearch: document.getElementById('logs-search'),
+            logsClearSearch: document.getElementById('logs-clear-search'),
+            logsCount: document.getElementById('logs-count'),
         };
 
         let state = {
@@ -674,6 +769,11 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
             repoLastRunCache: new Map(),
             logPollingInterval: null,
             currentGraphView: localStorage.getItem('graphView') || 'steps',
+            _logsRaw: [],
+            logsSelectedSteps: new Set(),
+            logsSearchText: '',
+            _logsFocusFirstMatch: false,
+            logsAllSteps: [],
         };
 
         const statusConfig = {
@@ -1069,6 +1169,8 @@ function nudgeStepIntoView(stepName) {
                 DOM.logsModalContent.classList.remove('scale-95');
             }, 10);
 
+            // Build steps filter UI
+            try { buildLogsFilters(); } catch {}
             fetchAndRenderLogs(runId);
             if (!isComplete) {
                 if (state.logPollingInterval) clearInterval(state.logPollingInterval);
@@ -1088,32 +1190,118 @@ function nudgeStepIntoView(stepName) {
         async function fetchAndRenderLogs(runId) {
             const logs = await fetchData(`/v1/runs/${runId}/logs`);
             if (logs && logs.length > 0) {
-                const ansiRegex = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
-                const colorMap = {
-                    '31': 'text-red-600 dark:text-red-400', '32': 'text-green-600 dark:text-green-400', '33': 'text-yellow-600 dark:text-yellow-400',
-                    '34': 'text-blue-600 dark:text-blue-400', '35': 'text-purple-600 dark:text-purple-400', '36': 'text-cyan-600 dark:text-cyan-400', '90': 'text-gray-500 dark:text-gray-500',
-                };
-
-                const html = logs.map(log => {
-                    let line = log.line.replace(/</g, '&lt;').replace(/>/g, '&gt;'); 
-
-                    line = line.replace(ansiRegex, (match) => {
-                        const code = match.replace(/\u001b\[|m/g, '');
-                        if (code === '0') return '</span>'; 
-                        const colorClass = colorMap[code];
-                        return colorClass ? `<span class="${colorClass}">` : '';
-                    });
-
-                    const timestamp = new Date(log.timestamp).toLocaleTimeString();
-                    return `<div class="log-line"><span class="text-[var(--text-secondary)] mr-4 select-none">${timestamp}</span><span>${line}</span></div>`;
-                }).join('');
-                DOM.logsContainer.innerHTML = html;
-
-                if (DOM.followLogsCheckbox.checked) {
-                    DOM.logsContainer.scrollTop = DOM.logsContainer.scrollHeight;
-                }
+                state._logsRaw = logs;
+                renderLogsWithFilters();
             } else if (DOM.logsContainer.innerHTML.includes('Loading')) {
                 DOM.logsContainer.innerHTML = `<p class="text-[var(--text-secondary)]">No logs yet...</p>`;
+            }
+        }
+
+        function getLogStepName(log) {
+            return log.step || log.step_name || log.stepName || (log.meta && (log.meta.step || log.meta.step_name)) || null;
+        }
+
+        function buildLogsFilters() {
+            state.logsAllSteps = (state.currentRunData?.steps || []).map(s => s.name);
+            updateLogsStepList();
+        }
+
+        function updateLogsStepList() {
+            const list = DOM.logsStepList; if (!list) return;
+            const q = (DOM.logsStepSearch?.value || '').toLowerCase();
+            const steps = (state.logsAllSteps || []).filter(n => !q || n.toLowerCase().includes(q));
+            const selectedOrder = Array.from(state.logsSelectedSteps || []);
+            list.innerHTML = steps.map(name => {
+              const isSelected = state.logsSelectedSteps.has(name);
+              const idx = isSelected ? (selectedOrder.indexOf(name) % 8) : -1;
+              const selClass = isSelected ? (` is-active c${idx}`) : '';
+              const dot = isSelected ? (`<span class="step-dot c${idx}"></span>`) : '';
+              return `
+                <button type="button" class="logs-step-item w-full text-left px-3 py-2 rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] text-xs${selClass}" data-step="${name}">
+                  <span class="inline-flex items-center gap-2 truncate"><span>${dot}</span><span class="truncate">${name}</span></span>
+                </button>`;
+            }).join('');
+        }
+
+        function escapeRegExp(str){ return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+        function renderLogsWithFilters() {
+            const logs = state._logsRaw || [];
+            const selected = state.logsSelectedSteps || new Set();
+            const query = (state.logsSearchText || '').toLowerCase();
+
+            const ansiRegex = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
+            const colorMap = { '31': 'text-red-600 dark:text-red-400', '32': 'text-green-600 dark:text-green-400', '33': 'text-yellow-600 dark:text-yellow-400', '34': 'text-blue-600 dark:text-blue-400', '35': 'text-purple-600 dark:text-purple-400', '36': 'text-cyan-600 dark:text-cyan-400', '90': 'text-gray-500 dark:text-gray-500' };
+
+            const rx = query ? new RegExp(`(${escapeRegExp(query)})`, 'ig') : null;
+            let matches = 0;
+
+            const selectedNames = selected.size > 0 ? Array.from(selected) : [];
+            const nameToIdx = new Map(selectedNames.map((n,i) => [n, i % 8]));
+
+            const html = logs.map(log => {
+                let line = (log.line || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                const lineRawLower = (log.line || '').toString().toLowerCase();
+                // Determine selection color index for this line
+                let lineColorIdx = -1;
+                let isSelectedLine = false;
+                if (selected.size > 0) {
+                  const stepName = getLogStepName(log);
+                  if (stepName) {
+                    if (selected.has(stepName)) { isSelectedLine = true; lineColorIdx = nameToIdx.get(stepName) ?? 0; }
+                  } else {
+                    for (const s of selectedNames) { if ((log.line || '').includes(s)) { isSelectedLine = true; lineColorIdx = nameToIdx.get(s) ?? 0; break; } }
+                  }
+                }
+                // Per-step token highlight first (before search/ANSI), using color per step
+                if (selected.size > 0) {
+                  for (const s of selectedNames) {
+                    const idx = nameToIdx.get(s) ?? 0;
+                    const rxSel = new RegExp(`(${escapeRegExp(s)})`, 'g');
+                    line = line.replace(rxSel, `<span class=\"log-step-token c${idx}\">$1</span>`);
+                  }
+                }
+                if (rx && lineRawLower.includes(query)) {
+                    matches++;
+                    // highlight query terms on escaped line text
+                    line = line.replace(rx, '<span class="log-highlight">$1</span>');
+                }
+                line = line.replace(ansiRegex, (match) => {
+                    const code = match.replace(/\u001b\[|m/g, '');
+                    if (code === '0') return '</span>';
+                    const colorClass = colorMap[code];
+                    return colorClass ? `<span class="${colorClass}">` : '';
+                });
+                const timestamp = log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '';
+                // Dim non-selected steps when any selection exists
+                let dimClass = '';
+                if (selected.size > 0 && !isSelectedLine) dimClass = ' log-line--dim';
+                const selClass = (isSelectedLine && lineColorIdx >= 0) ? ` log-line--sel c${lineColorIdx}` : '';
+                return `<div class="log-line${dimClass}${selClass}"><span class="text-[var(--text-secondary)] mr-4 select-none">${timestamp}</span><span>${line}</span></div>`;
+            }).join('');
+
+            DOM.logsContainer.innerHTML = html || `<p class="text-[var(--text-secondary)]">No matching logs.</p>`;
+            if (DOM.logsCount) {
+                const total = logs.length || 0;
+                DOM.logsCount.textContent = query && total ? `${matches} matches • ${total} lines` : (total ? `${total} lines` : '');
+            }
+            // Scroll behavior: if user is searching or selecting steps, focus the first match
+            if (state._logsFocusFirstMatch) {
+                requestAnimationFrame(() => {
+                    let target = null;
+                    if (query) {
+                        target = DOM.logsContainer.querySelector('.log-highlight');
+                        if (target) target = target.closest('.log-line') || target;
+                    }
+                    if (!target && selected.size > 0) {
+                        target = DOM.logsContainer.querySelector('.log-line--sel') || null;
+                    }
+                    if (target && typeof target.scrollIntoView === 'function') {
+                        try { target.scrollIntoView({ block: 'start' }); } catch { target.scrollIntoView(); }
+                    }
+                    state._logsFocusFirstMatch = false;
+                });
+            } else if (DOM.followLogsCheckbox && DOM.followLogsCheckbox.checked) {
+                DOM.logsContainer.scrollTop = DOM.logsContainer.scrollHeight;
             }
         }
         function handleRunHighlight(event) {
@@ -3385,11 +3573,79 @@ function updateExpandToggleLabel() {
         DOM.closeLogsModalBtn.addEventListener('click', closeLogsModal);
         DOM.logsModal.addEventListener('click', e => { if (e.target === DOM.logsModal) closeLogsModal(); });
         DOM.copyLogsBtn.addEventListener('click', () => {
-            navigator.clipboard.writeText(DOM.logsContainer.innerText);
+            try {
+              const hasSelection = (state.logsSelectedSteps && state.logsSelectedSteps.size > 0);
+              const hasQuery = !!(state.logsSearchText && state.logsSearchText.trim());
+              let lines = [];
+              if (hasSelection || hasQuery) {
+                const nodes = DOM.logsContainer.querySelectorAll('.log-line');
+                nodes.forEach(n => {
+                  const sel = n.classList.contains('log-line--sel');
+                  const hit = n.querySelector('.log-highlight');
+                  if ((hasSelection && sel) || (hasQuery && hit)) {
+                    lines.push(n.innerText);
+                  }
+                });
+              }
+              const text = (lines.length > 0) ? lines.join('\n') : DOM.logsContainer.innerText;
+              navigator.clipboard.writeText(text);
+            } catch {}
             const originalIcon = DOM.copyLogsBtn.innerHTML;
             DOM.copyLogsBtn.innerHTML = '<svg class="h-5 w-5 text-green-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>';
             setTimeout(() => DOM.copyLogsBtn.innerHTML = originalIcon, 2000);
         });
+
+        // Logs filtering interactions
+        // Steps sidebar interactions
+        if (DOM.logsStepsSidebar) {
+          DOM.logsStepsSidebar.addEventListener('click', (e) => {
+            const item = e.target.closest('.logs-step-item');
+            if (item) {
+              const name = item.dataset.step;
+              if (state.logsSelectedSteps.has(name)) state.logsSelectedSteps.delete(name); else state.logsSelectedSteps.add(name);
+              updateLogsStepList();
+              state._logsFocusFirstMatch = true;
+              renderLogsWithFilters();
+              return;
+            }
+          });
+        }
+        if (DOM.logsStepSearch) {
+          DOM.logsStepSearch.addEventListener('input', () => updateLogsStepList());
+        }
+
+        // Select all / clear
+        if (DOM.logsStepsSelectAll) {
+          DOM.logsStepsSelectAll.addEventListener('click', () => {
+            (state.logsAllSteps || []).forEach(n => state.logsSelectedSteps.add(n));
+            updateLogsStepList();
+            state._logsFocusFirstMatch = true;
+            renderLogsWithFilters();
+          });
+        }
+        if (DOM.logsStepsClear) {
+          DOM.logsStepsClear.addEventListener('click', () => {
+            state.logsSelectedSteps = new Set();
+            updateLogsStepList();
+            state._logsFocusFirstMatch = true;
+            renderLogsWithFilters();
+          });
+        }
+        // No 'only selected' toggle; selecting none means show all
+        if (DOM.logsSearch) {
+          DOM.logsSearch.addEventListener('input', (e) => {
+            state.logsSearchText = e.target.value || '';
+            state._logsFocusFirstMatch = true;
+            renderLogsWithFilters();
+          });
+        }
+        if (DOM.logsClearSearch) {
+          DOM.logsClearSearch.addEventListener('click', () => {
+            if (DOM.logsSearch) DOM.logsSearch.value = '';
+            state.logsSearchText = '';
+            renderLogsWithFilters();
+          });
+        }
 
         DOM.mainGridContainer.addEventListener('mousedown', e => {
             const card = e.target.closest('[data-href]');
