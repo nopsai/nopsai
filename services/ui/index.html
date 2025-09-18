@@ -1483,7 +1483,8 @@ function nudgeStepIntoView(stepName) {
                     return { ...group, lastRunAt: null };
                 }
                 if (state.repoLastRunCache && state.repoLastRunCache.has(group.id)) {
-                    return { ...group, lastRunAt: state.repoLastRunCache.get(group.id) };
+                    const latestRun = state.repoLastRunCache.get(group.id);
+                    return { ...group, lastRunAt: latestRun ? latestRun.started_at : null };
                 }
                 const runsByBranch = await fetchData(`/v1/runs?groupId=${group.id}`);
                 let latestRun = null;
@@ -1499,7 +1500,7 @@ function nudgeStepIntoView(stepName) {
                 }
                 const lastRunAt = latestRun ? latestRun.started_at : null;
                 if (!state.repoLastRunCache) state.repoLastRunCache = new Map();
-                state.repoLastRunCache.set(group.id, lastRunAt);
+                state.repoLastRunCache.set(group.id, latestRun);
                 return { ...group, lastRunAt };
             });
 
@@ -1614,14 +1615,14 @@ function nudgeStepIntoView(stepName) {
                                             <span class="text-xs text-[var(--text-secondary)] flex-shrink-0 ml-2">${timeAgo(timeToDisplay)}</span>
                                         </div>
                                         <div class="text-xs text-[var(--text-secondary)] font-mono mt-1 space-y-1">
+                                            <div class="flex items-center">
+                                                <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                                                <span class="truncate">${(run.git_commit_sha || '...').slice(0, 8)}</span>
+                                            </div>                                          
                                           <div class="flex items-center">
                                               <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H5v-2H3v-2H1v-4a6 6 0 016-6h1.5" /></svg>
                                               <span class="truncate">${(run.run_id || '...').slice(0, 8)}</span>
                                           </div>
-                                            <div class="flex items-center">
-                                                <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                                                <span class="truncate">${(run.git_commit_sha || '...').slice(0, 7)}</span>
-                                            </div>
                                         </div>
                                     </div>
                                 </a>
@@ -1675,7 +1676,11 @@ function nudgeStepIntoView(stepName) {
                                     </div>
                                     <div class="flex items-center">
                                         <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                                        <span class="truncate">${(run.git_commit_sha || '...').slice(0, 7)}</span>
+                                        <span class="truncate">${(run.git_commit_sha || '...').slice(0, 8)}</span>
+                                    </div>                                    
+                                    <div class="flex items-center">
+                                        <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H5v-2H3v-2H1v-4a6 6 0 016-6h1.5" /></svg>
+                                        <span class="truncate">${(run.run_id || '...').slice(0, 8)}</span>
                                     </div>
                                 </div>
                             </div>
@@ -1776,11 +1781,11 @@ function nudgeStepIntoView(stepName) {
                         </div>
                         <div class="flex items-center">
                             <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                            <span class="truncate">${(run.git_commit_sha || '...').slice(0, 7)}</span>
+                            <span class="truncate">${(run.git_commit_sha || '...').slice(0, 8)}</span>
                         </div>
                          <div class="flex items-center">
                             <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H5v-2H3v-2H1v-4a6 6 0 016-6h1.5" /></svg>
-                            <span class="truncate">${run.run_id}</span>
+                            <span class="truncate">${(run.run_id).slice(0, 8)}</span>
                         </div>
                     </div>
                      <div class="mt-4 pt-3 border-t border-[var(--border-primary)] flex items-center justify-between text-xs text-[var(--text-secondary)]">
@@ -1799,15 +1804,45 @@ function nudgeStepIntoView(stepName) {
             (subgroups || []).forEach(group => {
                 const isRepo = (group.name || '').includes('/');
                 const displayName = isRepo ? group.name.split('/')[1] : group.name;
+                const latestRun = isRepo ? state.repoLastRunCache.get(group.id) : null;
+                let latestRunInfo = '';
+                if (latestRun) {
+                    const branchName = (latestRun.git_ref || '').startsWith('refs/heads/') ? latestRun.git_ref.split('/')[2] : 'N/A';
+                    const config = statusConfig[(latestRun.is_complete ? latestRun.status : 'running').toLowerCase()] || statusConfig.pending;
+                    const timeToDisplay = latestRun.is_complete ? latestRun.finished_at : latestRun.started_at;
+                    latestRunInfo = `
+                        <div class="mt-4 pt-3 border-t border-[var(--border-primary)] text-xs text-[var(--text-secondary)] font-mono space-y-1.5">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center">
+                                    <svg class="h-4 w-4 mr-2 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
+                                    <span class="font-semibold text-sm text-[var(--text-primary)] truncate">${branchName}</span>
+                                </div>
+                                <span class="text-xs text-[var(--text-secondary)] flex-shrink-0 ml-2">${timeAgo(timeToDisplay)}</span>
+                            </div>
+                            <div class="flex items-center">
+                                <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                                <span class="truncate">${(latestRun.git_commit_sha || '...').slice(0, 7)}</span>
+                            </div>
+                            <div class="flex items-center">
+                                <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                                <span class="truncate">${latestRun.git_pusher_name || 'N/A'}</span>
+                            </div>
+                        </div>`;
+                }
+
+
                 html += `
-                    <a href="#/pipelineruns/main/${group.id}" draggable="true" class="relative group bg-[var(--bg-secondary)] p-4 rounded-md hover:bg-[var(--bg-tertiary)] transition-colors duration-200 group-card border border-[var(--border-primary)] hover:border-[var(--border-accent)] shadow-sm hover:shadow-lg" data-group-id="${group.id}">
-                        <button class="delete-group-btn absolute top-2 right-2 text-[var(--text-secondary)] hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity z-10" data-group-id="${group.id}" data-group-name="${group.name}">
-                            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                        </button>
-                        <div class="flex items-center">
-                            <svg class="h-8 w-8 text-[var(--text-accent)] mr-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
-                            <span class="text-lg font-medium text-[var(--text-primary)] truncate">${displayName}</span>
+                    <a href="#/pipelineruns/main/${group.id}" draggable="true" class="relative group bg-[var(--bg-secondary)] p-4 rounded-md hover:bg-[var(--bg-tertiary)] transition-colors duration-200 group-card border border-[var(--border-primary)] hover:border-[var(--border-accent)] shadow-sm hover:shadow-lg flex flex-col justify-between" data-group-id="${group.id}">
+                        <div>
+                            <button class="delete-group-btn absolute top-2 right-2 text-[var(--text-secondary)] hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity z-10" data-group-id="${group.id}" data-group-name="${group.name}">
+                                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            </button>
+                            <div class="flex items-center">
+                                <svg class="h-8 w-8 text-[var(--text-accent)] mr-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                                <span class="text-lg font-medium text-[var(--text-primary)] truncate">${displayName}</span>
+                            </div>
                         </div>
+                        ${latestRunInfo}
                     </a>`;
             });
             
@@ -4006,7 +4041,7 @@ function renderTaskGraph(container, stepName, tasks, clickableNodeContext = null
                 }
             });
         })();
-        
+
         DOM.mainGridContainer.addEventListener('mousedown', e => {
             const card = e.target.closest('[data-href]');
             if (!card || e.button !== 0) return; // Only for primary mouse button
