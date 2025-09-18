@@ -1795,9 +1795,34 @@ function nudgeStepIntoView(stepName) {
                 </div>`;
         }
 
-        function renderMainGridContent(subgroups, runs, showAddButton = false) {
+        async function renderMainGridContent(subgroups, runs, showAddButton = false) {
              resetMainView();
              DOM.mainGridContainer.classList.remove('hidden');
+
+             // Pre-fetch latest run info for all subgroups if not in cache
+            const subgroupsWithDataPromises = (subgroups || []).map(async (group) => {
+                const isRepo = (group.name || '').includes('/');
+                if (isRepo && (!state.repoLastRunCache || !state.repoLastRunCache.has(group.id))) {
+                    const runsByBranch = await fetchData(`/v1/runs?groupId=${group.id}`);
+                    let latestRun = null;
+                    if (runsByBranch && Object.keys(runsByBranch).length > 0) {
+                        for (const branch in runsByBranch) {
+                            if (runsByBranch[branch].length > 0) {
+                                const latestBranchRun = runsByBranch[branch][0];
+                                if (!latestRun || (latestBranchRun.started_at && new Date(latestBranchRun.started_at) > new Date(latestRun.started_at))) {
+                                    latestRun = latestBranchRun;
+                                }
+                            }
+                        }
+                    }
+                    if (!state.repoLastRunCache) state.repoLastRunCache = new Map();
+                    state.repoLastRunCache.set(group.id, latestRun);
+                }
+                return group;
+            });
+
+            await Promise.all(subgroupsWithDataPromises);
+
 
              let html = '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">';
 
@@ -4035,6 +4060,7 @@ function renderTaskGraph(container, stepName, tasks, clickableNodeContext = null
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ parent_id: targetGroupId ? parseInt(targetGroupId, 10) : null }),
                     });
+                    state.repoLastRunCache.clear(); // Clear the cache to force a refresh
                     await router();
                 } catch (error) {
                     console.error("Move failed:", error);
@@ -4294,37 +4320,34 @@ function renderTaskGraph(container, stepName, tasks, clickableNodeContext = null
         })();
 
         DOM.sidebarNav.addEventListener('click', async (e) => {
-            e.preventDefault();
-
             const link = e.target.closest('a[href]');
             const groupHeader = e.target.closest('.group-header');
-            const branchHeader = e.target.closest('li[data-branch-id] > .group-header');
-            let didToggle = false;
 
-            if (branchHeader) {
-                const branchLi = branchHeader.closest('li[data-branch-id]');
-                const branchId = branchLi.dataset.branchId;
-                if (state.expandedGroups.has(branchId)) {
-                    state.expandedGroups.delete(branchId);
-                } else {
-                    state.expandedGroups.add(branchId);
+            if (link) {
+                e.preventDefault();
+                if (window.location.hash !== link.getAttribute('href')) {
+                    window.location.hash = link.getAttribute('href');
                 }
-                didToggle = true;
             } else if (groupHeader) {
+                e.preventDefault();
                 const groupLi = groupHeader.closest('li[data-group-id]');
-                if (groupLi) {
+                const branchLi = groupHeader.closest('li[data-branch-id]');
+
+                if (branchLi) {
+                    const branchId = branchLi.dataset.branchId;
+                    if (state.expandedGroups.has(branchId)) {
+                        state.expandedGroups.delete(branchId);
+                    } else {
+                        state.expandedGroups.add(branchId);
+                    }
+                } else if (groupLi) {
                     const groupId = parseInt(groupLi.dataset.groupId);
                     if (state.expandedGroups.has(groupId)) {
                         state.expandedGroups.delete(groupId);
                     } else {
                         state.expandedGroups.add(groupId);
                     }
-                    didToggle = true;
                 }
-            }
-            if (link && window.location.hash !== link.getAttribute('href')) {
-                window.location.hash = link.getAttribute('href');
-            } else if (didToggle) {
                 await renderHierarchy(state.groups);
             }
         });
@@ -4333,20 +4356,19 @@ function renderTaskGraph(container, stepName, tasks, clickableNodeContext = null
             let draggedElement = null;
 
             DOM.sidebarNav.addEventListener('dragstart', e => {
-              const isRecentRunsActive = state.currentTab === 'recent';
-              if (isRecentRunsActive) {
-                  e.preventDefault();
-                  return;
-              }
-            
-              const target = e.target.closest('li[data-group-id]');
-              if (!target) return;
-            
-              draggedElement = target;
-              e.dataTransfer.setData('text/plain', target.dataset.groupId);
-              e.dataTransfer.effectAllowed = 'move';
-              setTimeout(() => target.classList.add('dragging'), 0);
-          });
+                const isRecentRunsActive = state.currentTab === 'recent';
+                if (isRecentRunsActive) {
+                    e.preventDefault();
+                    return;
+                }
+                const target = e.target.closest('li[data-group-id]');
+                if (!target) return;
+                
+                draggedElement = target;
+                e.dataTransfer.setData('text/plain', target.dataset.groupId);
+                e.dataTransfer.effectAllowed = 'move';
+                setTimeout(() => target.classList.add('dragging'), 0);
+            });
 
             DOM.sidebarNav.addEventListener('dragend', e => {
                 if (draggedElement) {
@@ -4390,6 +4412,7 @@ function renderTaskGraph(container, stepName, tasks, clickableNodeContext = null
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ parent_id: targetGroupId ? parseInt(targetGroupId, 10) : null }),
                     });
+                    state.repoLastRunCache.clear(); // Clear the cache to force a refresh
                     await router();
                 } catch (error) {
                     console.error("Move failed:", error);
