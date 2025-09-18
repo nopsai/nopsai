@@ -1901,6 +1901,8 @@ function nudgeStepIntoView(stepName) {
             };
         }
         
+// services/ui/index.html
+
         function renderRunView(runDetails) {
             const runInfo = runDetails.run_info;
             const branchName = (runInfo.git_ref || '').startsWith('refs/heads/') ? runInfo.git_ref.split('/')[2] : runInfo.git_ref;
@@ -1946,6 +1948,21 @@ function nudgeStepIntoView(stepName) {
                             <span>${branchName}</span>
                         </div>
                         <div class="ml-auto flex items-center gap-3">
+                            <div id="pipeline-details-container" class="relative">
+                                <button id="pipeline-details-btn" type="button" class="p-1.5 rounded-full text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-accent)]" aria-haspopup="true" aria-expanded="false">
+                                    <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" /></svg>
+                                </button>
+                                <div id="pipeline-details-popover" class="hidden absolute right-0 mt-2 w-80 bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-lg shadow-xl z-20 transition-all duration-200 ease-in-out transform opacity-0 scale-95">
+                                    <div class="p-3">
+                                        <div class="flex justify-between items-center mb-2">
+                                            <h3 class="text-sm font-semibold text-[var(--text-primary)]">Pipeline Configuration</h3>
+                                            <button id="copy-pipeline-details-btn" class="text-xs font-medium text-[var(--text-accent)] hover:underline focus:outline-none">Copy</button>
+                                        </div>
+                                        <div id="pipeline-details-content" class="text-xs space-y-3 max-h-60 overflow-y-auto pr-2">
+                                            </div>
+                                    </div>
+                                </div>
+                            </div>
                             <button id="view-logs-btn" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-accent)]">
                                 <svg class="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7" /></svg>
                                 View Logs
@@ -1955,8 +1972,10 @@ function nudgeStepIntoView(stepName) {
                 </div>`;
 
             DOM.mainHeader.innerHTML = headerHTML;
+
+            setupPipelineDetailsPopover(runDetails);
+
             resetMainView();
-            // Force single-view mode (Steps) regardless of any saved preference
             try { localStorage.setItem('graphView', 'steps'); } catch {}
             state.currentGraphView = 'steps';
 
@@ -1974,14 +1993,100 @@ function nudgeStepIntoView(stepName) {
                 renderStepsGraph(runDetails);
                 ensureStepsControls();
                 switchGraphView('steps');
-                // Rebind pan/zoom to the active view to avoid last-render wins
                 setTimeout(() => {
                   const view = 'steps';
                   initPanAndZoom(view);
-                  // Center the visible graph after initial render
                   if (typeof state.__fitToView === 'function') state.__fitToView();
                 }, 0);
             }
+        }
+
+        function setupPipelineDetailsPopover(runDetails) {
+            const container = document.getElementById('pipeline-details-container');
+            const btn = document.getElementById('pipeline-details-btn');
+            const popover = document.getElementById('pipeline-details-popover');
+            const contentEl = document.getElementById('pipeline-details-content');
+            const copyBtn = document.getElementById('copy-pipeline-details-btn');
+
+            if (!container || !btn || !popover || !contentEl || !copyBtn) return;
+
+            const pipelineDetails = {
+                llm_content_sharing: runDetails.pipeline_definition.llm_content_sharing,
+                llm_output_sharing: runDetails.pipeline_definition.llm_output_sharing,
+                display_options: runDetails.pipeline_definition.display_options,
+                container_image: runDetails.pipeline_definition.container_image,
+                working_directory: runDetails.pipeline_definition.working_directory,
+                timeout: runDetails.pipeline_definition.timeout,
+                environment: runDetails.pipeline_definition.environment,
+            };
+
+            const filteredDetails = Object.fromEntries(Object.entries(pipelineDetails).filter(([_, v]) => v != null));
+
+            let detailsHTML = '<dl class="space-y-3">';
+            let detailsTextForCopy = '';
+
+            for (const [key, value] of Object.entries(filteredDetails)) {
+                const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                let displayValue;
+
+                if (key === 'environment' && Array.isArray(value)) {
+                    displayValue = `<ul class="list-disc list-inside pl-2">${value.map(v => `<li>${v}</li>`).join('')}</ul>`;
+                    detailsTextForCopy += `${formattedKey}:\n${value.join('\n')}\n\n`;
+                } else {
+                    displayValue = (typeof value === 'object' && value !== null) ? JSON.stringify(value, null, 2) : value;
+                    detailsTextForCopy += `${formattedKey}: ${displayValue}\n`;
+                }
+
+
+                detailsHTML += `
+                    <div>
+                        <dt class="text-xs font-semibold text-[var(--text-primary)]">${formattedKey}</dt>
+                        <dd class="mt-1 text-xs text-[var(--text-secondary)] bg-[var(--bg-code)] p-2 rounded font-mono break-all">${displayValue}</dd>
+                    </div>
+                `;
+            }
+            detailsHTML += '</dl>';
+
+            contentEl.innerHTML = detailsHTML;
+            
+            let enterTimeout, leaveTimeout;
+
+            const showPopover = () => {
+                clearTimeout(leaveTimeout);
+                enterTimeout = setTimeout(() => {
+                    popover.classList.remove('hidden');
+                    btn.setAttribute('aria-expanded', 'true');
+                    setTimeout(() => {
+                        popover.classList.remove('opacity-0', 'scale-95');
+                    }, 10);
+                }, 150);
+            };
+
+            const hidePopover = () => {
+                clearTimeout(enterTimeout);
+                leaveTimeout = setTimeout(() => {
+                    popover.classList.add('opacity-0', 'scale-95');
+                    btn.setAttribute('aria-expanded', 'false');
+                    setTimeout(() => {
+                        popover.classList.add('hidden');
+                    }, 200);
+                }, 300);
+            };
+
+            container.addEventListener('mouseenter', showPopover);
+            container.addEventListener('mouseleave', hidePopover);
+
+            copyBtn.addEventListener('click', () => {
+                navigator.clipboard.writeText(detailsTextForCopy.trim()).then(() => {
+                    const originalText = copyBtn.textContent;
+                    copyBtn.textContent = 'Copied!';
+                    copyBtn.disabled = true;
+                    setTimeout(() => {
+                        copyBtn.textContent = originalText;
+                        copyBtn.disabled = false;
+                    }, 2000);
+                });
+            });
         }
 
         function renderStepsGraph(runDetails) {
@@ -3168,13 +3273,19 @@ function updateExpandToggleLabel() {
   }, 80);
 }
 
+// services/ui/index.html
+
         async function renderModalForStep(runId, stepName, parentContext = null) {
             const runDetails = await fetchData(`/v1/runs/${runId}`);
             if (!runDetails) return;
             const step = runDetails.steps.find(s => s.name === stepName);
             if (!step) return;
+            
+            // Get the original step definition from the pipeline definition
+            const stepDef = runDetails.pipeline_definition.steps.find(s => s.name === stepName);
+            if (!stepDef) return;
+
             const config = statusConfig[step.status.toLowerCase()] || statusConfig.pending;
-            const stepConfig = step.configuration;
             const modalHeader = document.querySelector('#modal-content > div:first-child');
             const closeButtonHTML = modalHeader.querySelector('#close-modal-btn').outerHTML;
             let headerHTML = `
@@ -3198,43 +3309,46 @@ function updateExpandToggleLabel() {
             modalHeader.innerHTML = headerHTML + closeButtonHTML;
             const configContainer = document.getElementById('step-config-container');
             let configHTML = '';
-            if (stepConfig.image) {
-                configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Container Image</h4><code class="text-cyan-600 dark:text-cyan-400 bg-[var(--bg-code)] px-2 py-1 rounded">${stepConfig.image}</code></div>`;
+            if (stepDef.image) {
+                configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Container Image</h4><code class="text-cyan-600 dark:text-cyan-400 bg-[var(--bg-code)] px-2 py-1 rounded">${stepDef.image}</code></div>`;
             }
-            if (stepConfig.include) {
-                configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Included Definition</h4><code class="text-cyan-600 dark:text-cyan-400 bg-[var(--bg-code)] px-2 py-1 rounded">${stepConfig.include}</code></div>`;
+            if (stepDef.include) {
+                configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Included Definition</h4><code class="text-cyan-600 dark:text-cyan-400 bg-[var(--bg-code)] px-2 py-1 rounded">${stepDef.include}</code></div>`;
             }
             let behaviorItems = [];
-            if (step.depends_on && step.depends_on.length > 0) {
-                behaviorItems.push(`<li><span class="font-medium text-[var(--text-primary)]">Depends On Steps:</span> <code class="text-[var(--text-secondary)]">${JSON.stringify(step.depends_on)}</code></li>`);
+            if (stepDef.depends_on && stepDef.depends_on.length > 0) {
+                behaviorItems.push(`<li><span class="font-medium text-[var(--text-primary)]">Depends On Steps:</span> <code class="text-[var(--text-secondary)]">${JSON.stringify(stepDef.depends_on)}</code></li>`);
             }
-            if (stepConfig.ignore_failure) {
+            if (stepDef.ignore_failure) {
                 behaviorItems.push(`<li><span class="font-medium text-[var(--text-primary)]">Ignore Failure:</span> <span class="text-amber-600 dark:text-amber-400">true</span></li>`);
             }
-            if (stepConfig.llm_output_sharing === false) {
+            if (stepDef.llm_output_sharing === false) {
                 behaviorItems.push(`<li><span class="font-medium text-[var(--text-primary)]">LLM Output Sharing:</span> <span class="text-[var(--text-secondary)]">false</span></li>`);
             }
-            if (stepConfig.include && stepConfig.sync) {
+            if (stepDef.llm_content_sharing === false) {
+                behaviorItems.push(`<li><span class="font-medium text-[var(--text-primary)]">LLM Content Sharing:</span> <span class="text-[var(--text-secondary)]">false</span></li>`);
+            }
+            if (stepDef.include && stepDef.sync) {
                 behaviorItems.push(`<li><span class="font-medium text-[var(--text-primary)]">Sync Mode:</span> <span class="text-blue-600 dark:text-blue-400">true</span> (waits for included pipeline to finish)</li>`);
             }
             if(behaviorItems.length > 0) {
                 configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Behavior & Flow Control</h4><ul class="list-disc list-inside pl-2 space-y-1">${behaviorItems.join('')}</ul></div>`;
             }
-            if (stepConfig.secrets && stepConfig.secrets.length > 0) {
-                const secretsList = stepConfig.secrets.map(s => `<li class="inline-block mr-2 mb-1"><code class="text-purple-600 dark:text-purple-400 bg-[var(--bg-code)] px-2 py-1 rounded">${s}</code></li>`).join('');
+            if (stepDef.secrets && stepDef.secrets.length > 0) {
+                const secretsList = stepDef.secrets.map(s => `<li class="inline-block mr-2 mb-1"><code class="text-purple-600 dark:text-purple-400 bg-[var(--bg-code)] px-2 py-1 rounded">${s}</code></li>`).join('');
                 configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Secrets</h4><ul class="flex flex-wrap">${secretsList}</ul></div>`;
             }
-            if (stepConfig.volumes && stepConfig.volumes.length > 0) {
-                const volumesList = stepConfig.volumes.map(v => `<li class="inline-block mr-2 mb-1"><code class="text-green-600 dark:text-green-400 bg-[var(--bg-code)] px-2 py-1 rounded">${v}</code></li>`).join('');
+            if (stepDef.volumes && stepDef.volumes.length > 0) {
+                const volumesList = stepDef.volumes.map(v => `<li class="inline-block mr-2 mb-1"><code class="text-green-600 dark:text-green-400 bg-[var(--bg-code)] px-2 py-1 rounded">${v}</code></li>`).join('');
                 configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Volumes</h4><ul class="flex flex-wrap">${volumesList}</ul></div>`;
             }
-            if (stepConfig.environment && Object.keys(stepConfig.environment).length > 0) {
-                const envList = Object.entries(stepConfig.environment).map(([k, v]) => `<li><code class="text-[var(--text-secondary)]"><span class="text-orange-600 dark:text-orange-400">${k}</span>=${v}</code></li>`).join('');
+            if (stepDef.environment && Object.keys(stepDef.environment).length > 0) {
+                const envList = Object.entries(stepDef.environment).map(([k, v]) => `<li><code class="text-[var(--text-secondary)]"><span class="text-orange-600 dark:text-orange-400">${k}</span>=${v}</code></li>`).join('');
                 configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Environment Overrides</h4><ul class="space-y-1">${envList}</ul></div>`;
             }
-            if (stepConfig.tasks && stepConfig.tasks.length > 0) {
+            if (stepDef.tasks && stepDef.tasks.length > 0) {
                 configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Tasks Configuration</h4><div class="space-y-3 pt-2">`;
-                stepConfig.tasks.forEach(task => {
+                stepDef.tasks.forEach(task => {
                     configHTML += `<div class="bg-[var(--bg-primary)] p-3 rounded-md border-l-2 border-[var(--border-secondary)]"><p class="font-semibold text-[var(--text-primary)]">${task.name}</p>`;
                     if (task.goal) {
                         configHTML += `<p class="mt-1 text-[var(--text-primary)] italic"><strong>Goal:</strong> "${task.goal}"</p>`;
@@ -3249,16 +3363,17 @@ function updateExpandToggleLabel() {
                     if (task.ignore_failure) {
                         configHTML += `<p class="mt-2 text-xs text-amber-600 dark:text-amber-400">This task will not fail the step.</p>`;
                     }
+                    if (task.llm_output_sharing === false) {
+                        configHTML += `<p class="mt-2 text-xs text-[var(--text-secondary)]">LLM Output Sharing is disabled for this task.</p>`;
+                    }
                     configHTML += '</div>';
                 });
                 configHTML += '</div></div>';
             }
             configContainer.innerHTML = configHTML;
             
-            // **** THIS IS THE KEY CHANGE ****
-            // We now explicitly tell renderTaskGraph which element to draw in.
             const taskGraphEl = document.getElementById('task-graph');
-            if (stepConfig.include && stepConfig.include.startsWith('pipeline:')) {
+            if (stepDef.include && stepDef.include.startsWith('pipeline:')) {
                 const childRun = runDetails.child_runs.find(cr => cr.parent_step_name === stepName);
                 if (childRun) {
                     const childRunDetails = await fetchData(`/v1/runs/${childRun.run_id}`);
@@ -3271,7 +3386,7 @@ function updateExpandToggleLabel() {
             }
         }
 
-        function renderTaskGraph(container, stepName, tasks, clickableNodeContext = null) {
+function renderTaskGraph(container, stepName, tasks, clickableNodeContext = null) {
   if (!state.currentRunData || !state.currentRunData.pipeline_definition || !state.currentRunData.pipeline_definition.steps) {
     container.innerHTML = `<p class="text-[var(--text-secondary)] text-sm">Waiting for pipeline data...</p>`;
     return;
