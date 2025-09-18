@@ -3788,6 +3788,8 @@ function updateExpandToggleLabel() {
                     window.location.hash = `#/pipelineruns/${subpath}/${runId}/steps/${stepName}`;
                 } else {
                     if (!state.expandedSteps) state.expandedSteps = new Set();
+                    // Hold on to the current zoom/pan even if layout retries need more space.
+                    state._preserveScale = true;
                     if (state.expandedSteps.has(stepName)) {
                         state.expandedSteps.delete(stepName);
                     } else {
