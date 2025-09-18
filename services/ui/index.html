@@ -172,8 +172,9 @@
         }
         .dragging { opacity: 0.5; }
         
-        .run-link-highlight > a,
-        a.run-link-highlight {
+        .run-link-highlight,
+        .sidebar-link-highlight > a,
+        .sidebar-link-highlight > div {
             outline: 1.5px solid var(--run-highlight-outline);
             box-shadow: 0 0 16px 3px var(--run-highlight-shadow);
         }
@@ -1337,46 +1338,36 @@ function nudgeStepIntoView(stepName) {
             }
         }
         function handleRunHighlight(event) {
+            // Find the closest element that represents a run, either in the main content or sidebar
             const targetRunElement = event.target.closest('[data-run-id]');
-            const targetGroupElement = event.target.closest('[data-group-id]');
 
-            // Clear all previous highlights first
+            // Clear all previous highlights
             document.querySelectorAll('.run-link-highlight').forEach(el => el.classList.remove('run-link-highlight'));
             document.querySelectorAll('.sidebar-link-highlight').forEach(el => el.classList.remove('sidebar-link-highlight'));
 
-            if (event.type === 'mouseover') {
-                if (targetRunElement) {
-                    // --- Hovering over a RUN CARD ---
-                    const runId = targetRunElement.dataset.runId;
-                    const parentRunId = targetRunElement.dataset.parentRunId;
-                    const repoFullName = targetRunElement.dataset.repoFullName;
+            if (event.type === 'mouseover' && targetRunElement) {
+                // --- Hovering over a RUN CARD or a SIDEBAR RUN LINK ---
+                const runId = targetRunElement.dataset.runId;
+                const parentRunId = targetRunElement.dataset.parentRunId;
+                const repoFullName = targetRunElement.dataset.repoFullName;
 
-                    // Determine the main parent run ID for the group
-                    const mainParentId = parentRunId || runId;
-                    
-                    // Highlight the parent and ALL of its children
-                    const runSelector = `[data-run-id="${mainParentId}"], [data-parent-run-id="${mainParentId}"]`;
-                    document.querySelectorAll(runSelector).forEach(el => el.classList.add('run-link-highlight'));
-
-                    // Highlight related sidebar items (the repo and its parents)
-                    if (repoFullName) {
-                        let currentGroup = state.groups.find(g => g.name === repoFullName);
-                        while (currentGroup) {
-                            const sidebarElement = document.querySelector(`#sidebar-nav li[data-group-id='${currentGroup.id}']`);
-                            if (sidebarElement) {
-                                sidebarElement.classList.add('sidebar-link-highlight');
-                            }
-                            currentGroup = currentGroup.parent_id ? state.groups.find(g => g.id === currentGroup.parent_id) : null;
-                        }
+                // Determine the main parent run ID to group included pipelines
+                const mainParentId = parentRunId || runId;
+                
+                // Highlight all related run cards/links (the parent and all of its children)
+                const runSelector = `[data-run-id="${mainParentId}"], [data-parent-run-id="${mainParentId}"]`;
+                document.querySelectorAll(runSelector).forEach(el => {
+                    // The element itself could be a card or a sidebar li
+                    if (el.matches('a, div[data-href]')) {
+                        el.classList.add('run-link-highlight');
+                    } else { // It's a sidebar li
+                        el.classList.add('sidebar-link-highlight');
                     }
-                } else if (targetGroupElement) {
-                    // --- Hovering over a SIDEBAR ITEM (GROUP/REPO) ---
-                    const groupId = parseInt(targetGroupElement.dataset.groupId, 10);
-                    const group = state.groups.find(g => g.id === groupId);
-                    if (!group) return;
+                });
 
-                    // Highlight the hovered sidebar item and all its parents
-                    let currentGroup = group;
+                // Highlight the corresponding repository folder in the sidebar
+                if (repoFullName) {
+                    let currentGroup = state.groups.find(g => g.name === repoFullName);
                     while (currentGroup) {
                         const sidebarElement = document.querySelector(`#sidebar-nav li[data-group-id='${currentGroup.id}']`);
                         if (sidebarElement) {
@@ -1384,23 +1375,6 @@ function nudgeStepIntoView(stepName) {
                         }
                         currentGroup = currentGroup.parent_id ? state.groups.find(g => g.id === currentGroup.parent_id) : null;
                     }
-
-                    // Find all descendant repos of the hovered group and highlight their runs
-                    const descendantRepos = [];
-                    const findDescendants = (gId) => {
-                        const current = state.groups.find(g => g.id === gId);
-                        if (current && current.name.includes('/')) {
-                            descendantRepos.push(current);
-                        }
-                        const children = state.groups.filter(g => g.parent_id === gId);
-                        children.forEach(child => findDescendants(child.id));
-                    };
-
-                    findDescendants(groupId);
-
-                    descendantRepos.forEach(repo => {
-                        document.querySelectorAll(`[data-repo-full-name="${repo.name}"]`).forEach(el => el.classList.add('run-link-highlight'));
-                    });
                 }
             }
         }
@@ -1776,7 +1750,7 @@ function nudgeStepIntoView(stepName) {
             }
 
             return `
-                <a href="#/pipelineruns/run/${run.run_id}"
+                <div data-href="#/pipelineruns/run/${run.run_id}"
                     data-run-id="${run.run_id}" 
                     data-repo-full-name="${repoFullName}"
                     ${run.parent_run_id ? `data-parent-run-id="${run.parent_run_id}"` : ''}
@@ -1814,7 +1788,7 @@ function nudgeStepIntoView(stepName) {
                         <span class="font-medium">${run.is_complete ? 'Completed' : 'Started'}</span>
                         <span>${timeAgo(timeToDisplay)}</span>
                     </div>
-                </a>`;
+                </div>`;
         }
 
         function renderMainGridContent(subgroups, runs, showAddButton = false) {
@@ -3974,26 +3948,15 @@ function renderTaskGraph(container, stepName, tasks, clickableNodeContext = null
 
         DOM.mainGridContainer.addEventListener('mousedown', e => {
             const card = e.target.closest('[data-href]');
-            if (!card) return;
-
-            if (e.button === 1) { 
-                e.preventDefault();
-                window.open(card.dataset.href, '_blank');
-                return;
-            }
-
-            const startX = e.clientX;
-            const startY = e.clientY;
+            if (!card || e.button !== 0) return; // Only for primary mouse button
 
             const onMouseUp = (upEvent) => {
-                const endX = upEvent.clientX;
-                const endY = upEvent.clientY;
-                const distance = Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endY - startY, 2));
+                document.removeEventListener('mouseup', onMouseUp);
 
-                const selectedText = window.getSelection().toString();
-
-                if (selectedText) {
-                    navigator.clipboard.writeText(selectedText).then(() => {
+                const selection = window.getSelection().toString();
+                if (selection && selection.length > 0) {
+                    // If text is selected, copy it
+                    navigator.clipboard.writeText(selection).then(() => {
                         const copiedMessage = document.createElement('div');
                         copiedMessage.textContent = 'Copied!';
                         copiedMessage.style.position = 'fixed';
@@ -4010,7 +3973,8 @@ function renderTaskGraph(container, stepName, tasks, clickableNodeContext = null
                             copiedMessage.remove();
                         }, 1000);
                     });
-                } else if (distance < 5) {
+                } else {
+                    // No text selected, treat as a navigation click
                     const url = card.dataset.href;
                     if (upEvent.ctrlKey || upEvent.metaKey) {
                         window.open(url, '_blank');
@@ -4019,10 +3983,9 @@ function renderTaskGraph(container, stepName, tasks, clickableNodeContext = null
                     }
                 }
             };
-
+            
             document.addEventListener('mouseup', onMouseUp, { once: true });
         });
-
         DOM.mainGridContainer.addEventListener('click', e => {
             const card = e.target.closest('a[data-run-id]');
             if (card && !e.ctrlKey && !e.metaKey && e.button === 0) {
@@ -4056,7 +4019,7 @@ function renderTaskGraph(container, stepName, tasks, clickableNodeContext = null
                 }
             }
         });
-DOM.mainHeader.addEventListener('click', e => {
+        DOM.mainHeader.addEventListener('click', e => {
             if (e.target.closest('#view-logs-btn')) {
                 showLogsModal();
             }
