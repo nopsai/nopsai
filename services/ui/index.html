@@ -166,7 +166,6 @@
             background-color: var(--bg-active);
             box-shadow: inset 3px 0 0 0 var(--border-accent);
         }
-        .sidebar-link:hover { background-color: var(--bg-hover); }
         .drop-target-highlight {
             background-color: hsla(242, 59%, 65%, 0.3) !important;
             outline: 2px dashed var(--border-accent);
@@ -1339,21 +1338,70 @@ function nudgeStepIntoView(stepName) {
         }
         function handleRunHighlight(event) {
             const targetRunElement = event.target.closest('[data-run-id]');
+            const targetGroupElement = event.target.closest('[data-group-id]');
 
+            // Clear all previous highlights first
             document.querySelectorAll('.run-link-highlight').forEach(el => el.classList.remove('run-link-highlight'));
+            document.querySelectorAll('.sidebar-link-highlight').forEach(el => el.classList.remove('sidebar-link-highlight'));
 
-            if (event.type === 'mouseover' && targetRunElement) {
-                const runId = targetRunElement.dataset.runId;
-                const parentRunId = targetRunElement.dataset.parentRunId;
+            if (event.type === 'mouseover') {
+                if (targetRunElement) {
+                    // --- Hovering over a RUN CARD ---
+                    const runId = targetRunElement.dataset.runId;
+                    const parentRunId = targetRunElement.dataset.parentRunId;
+                    const repoFullName = targetRunElement.dataset.repoFullName;
 
-                let selector;
-                if (parentRunId) {
-                    selector = `[data-run-id="${runId}"], [data-run-id="${parentRunId}"]`;
-                } else {
-                    selector = `[data-run-id="${runId}"], [data-parent-run-id="${runId}"]`;
+                    // Determine the main parent run ID for the group
+                    const mainParentId = parentRunId || runId;
+                    
+                    // Highlight the parent and ALL of its children
+                    const runSelector = `[data-run-id="${mainParentId}"], [data-parent-run-id="${mainParentId}"]`;
+                    document.querySelectorAll(runSelector).forEach(el => el.classList.add('run-link-highlight'));
+
+                    // Highlight related sidebar items (the repo and its parents)
+                    if (repoFullName) {
+                        let currentGroup = state.groups.find(g => g.name === repoFullName);
+                        while (currentGroup) {
+                            const sidebarElement = document.querySelector(`#sidebar-nav li[data-group-id='${currentGroup.id}']`);
+                            if (sidebarElement) {
+                                sidebarElement.classList.add('sidebar-link-highlight');
+                            }
+                            currentGroup = currentGroup.parent_id ? state.groups.find(g => g.id === currentGroup.parent_id) : null;
+                        }
+                    }
+                } else if (targetGroupElement) {
+                    // --- Hovering over a SIDEBAR ITEM (GROUP/REPO) ---
+                    const groupId = parseInt(targetGroupElement.dataset.groupId, 10);
+                    const group = state.groups.find(g => g.id === groupId);
+                    if (!group) return;
+
+                    // Highlight the hovered sidebar item and all its parents
+                    let currentGroup = group;
+                    while (currentGroup) {
+                        const sidebarElement = document.querySelector(`#sidebar-nav li[data-group-id='${currentGroup.id}']`);
+                        if (sidebarElement) {
+                            sidebarElement.classList.add('sidebar-link-highlight');
+                        }
+                        currentGroup = currentGroup.parent_id ? state.groups.find(g => g.id === currentGroup.parent_id) : null;
+                    }
+
+                    // Find all descendant repos of the hovered group and highlight their runs
+                    const descendantRepos = [];
+                    const findDescendants = (gId) => {
+                        const current = state.groups.find(g => g.id === gId);
+                        if (current && current.name.includes('/')) {
+                            descendantRepos.push(current);
+                        }
+                        const children = state.groups.filter(g => g.parent_id === gId);
+                        children.forEach(child => findDescendants(child.id));
+                    };
+
+                    findDescendants(groupId);
+
+                    descendantRepos.forEach(repo => {
+                        document.querySelectorAll(`[data-repo-full-name="${repo.name}"]`).forEach(el => el.classList.add('run-link-highlight'));
+                    });
                 }
-                
-                document.querySelectorAll(selector).forEach(el => el.classList.add('run-link-highlight'));
             }
         }
 
@@ -1510,7 +1558,7 @@ function nudgeStepIntoView(stepName) {
                     : `<div class="w-5 h-4 mr-1"></div>`;
 
                 html += `<li data-group-id="${group.id}" draggable="true">
-                                <div class="flex items-center justify-between p-2 text-[var(--text-primary)] rounded-md hover:bg-[var(--bg-tertiary)] group-header-container ${isActive ? 'bg-[var(--bg-tertiary)]' : ''}">
+                                <div class="flex items-center justify-between p-2 text-[var(--text-primary)] rounded-md group-header-container ${isActive ? 'bg-[var(--bg-tertiary)]' : ''}">
                                     <div class="flex items-center group-header flex-grow cursor-pointer ${isExpanded ? 'expanded' : ''}">
                                         ${chevron}
                                         <a href="#/pipelineruns/main/${group.id}" class="flex items-center flex-grow">
@@ -1552,7 +1600,7 @@ function nudgeStepIntoView(stepName) {
                 const chevron = `<svg class="h-4 w-4 mr-1 text-[var(--text-secondary)] chevron ${isExpanded ? 'rotate-90' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>`;
 
                 html += `<li data-branch-id="${branchId}">
-                                <div class="flex items-center p-2 text-[var(--text-primary)] rounded-md hover:bg-[var(--bg-tertiary)] group-header cursor-pointer">
+                                <div class="flex items-center p-2 text-[var(--text-primary)] rounded-md group-header cursor-pointer">
                                     ${chevron}
                                     <svg class="h-4 w-4 mr-2 text-[var(--text-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
                                     <span>${branch}</span>
@@ -1573,6 +1621,7 @@ function nudgeStepIntoView(stepName) {
                 const config = statusConfig[(run.is_complete ? run.status : 'running').toLowerCase()] || statusConfig.pending;
                 const isActive = run.run_id === activeRunId;
                 const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
+                const repoFullName = `${run.git_repo_owner}/${run.git_repo_name}`;
 
                 let pipelineNameHTML = `<span class="font-medium truncate text-[var(--text-primary)]">${run.pipeline_name}</span>`;
                 if (run.parent_run_id) {
@@ -1583,8 +1632,8 @@ function nudgeStepIntoView(stepName) {
                         </div>`;
                 }
 
-                html += `<li data-run-id="${run.run_id}" ${run.parent_run_id ? `data-parent-run-id="${run.parent_run_id}"` : ''}>
-                                <a href="#/pipelineruns/run/${run.run_id}" class="flex items-center p-2 text-sm text-[var(--text-secondary)] rounded-md hover:bg-[var(--bg-tertiary)] ${isActive ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : ''}">
+                html += `<li data-run-id="${run.run_id}" data-repo-full-name="${repoFullName}" ${run.parent_run_id ? `data-parent-run-id="${run.parent_run_id}"` : ''}>
+                                <a href="#/pipelineruns/run/${run.run_id}" class="flex items-center p-2 text-sm text-[var(--text-secondary)] rounded-md ${isActive ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : ''}">
                                     <svg class="h-4 w-4 mr-2 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
                                     <div class="flex-1 overflow-hidden">
                                         <div class="flex justify-between items-center">
@@ -1623,6 +1672,7 @@ function nudgeStepIntoView(stepName) {
                 const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
                 const isActive = run.run_id === activeRunId;
                 const branchName = (run.git_ref || '').startsWith('refs/heads/') ? run.git_ref.split('/')[2] : 'N/A';
+                const repoFullName = `${run.git_repo_owner}/${run.git_repo_name}`;
 
                 let pipelineNameHTML = `<span class="font-medium truncate">${run.pipeline_name}</span>`;
                 if (run.parent_run_id) {
@@ -1633,8 +1683,8 @@ function nudgeStepIntoView(stepName) {
                         </div>`;
                 }
 
-                return `<li data-run-id="${run.run_id}" ${run.parent_run_id ? `data-parent-run-id="${run.parent_run_id}"` : ''}>
-                        <a href="#/pipelineruns/run/${run.run_id}" class="flex items-center p-2 text-[var(--text-primary)] rounded-md hover:bg-[var(--bg-tertiary)] ${isActive ? 'bg-[var(--bg-tertiary)]' : ''}">
+                return `<li data-run-id="${run.run_id}" data-repo-full-name="${repoFullName}" ${run.parent_run_id ? `data-parent-run-id="${run.parent_run_id}"` : ''}>
+                        <a href="#/pipelineruns/run/${run.run_id}" class="flex items-center p-2 text-[var(--text-primary)] rounded-md ${isActive ? 'bg-[var(--bg-tertiary)]' : ''}">
                             <svg class="h-5 w-5 mr-3 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
                             <div class="flex-1 overflow-hidden">
                                 <div class="flex justify-between items-center">
@@ -1714,6 +1764,7 @@ function nudgeStepIntoView(stepName) {
             const config = statusConfig[status.toLowerCase()] || statusConfig.pending;
             const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
             const branchName = (run.git_ref || '').startsWith('refs/heads/') ? run.git_ref.split('/')[2] : 'N/A';
+            const repoFullName = `${run.git_repo_owner}/${run.git_repo_name}`;
             
             let pipelineNameHTML = `<p class="text-base font-semibold text-[var(--text-primary)] truncate pr-4">${run.pipeline_name}</p>`;
             if (run.parent_run_id) {
@@ -1727,8 +1778,9 @@ function nudgeStepIntoView(stepName) {
             return `
                 <a href="#/pipelineruns/run/${run.run_id}"
                     data-run-id="${run.run_id}" 
+                    data-repo-full-name="${repoFullName}"
                     ${run.parent_run_id ? `data-parent-run-id="${run.parent_run_id}"` : ''}
-                    class="block bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] transition-all duration-200 rounded-lg p-4 flex flex-col justify-between cursor-pointer border border-[var(--border-primary)] hover:border-[var(--border-accent)] shadow-sm hover:shadow-lg">
+                    class="block bg-[var(--bg-primary)] transition-all duration-200 rounded-lg p-4 flex flex-col justify-between cursor-pointer border border-[var(--border-primary)] shadow-sm">
                     <div>
                         <div class="flex items-start justify-between">
                             ${pipelineNameHTML}
@@ -1764,7 +1816,6 @@ function nudgeStepIntoView(stepName) {
                     </div>
                 </a>`;
         }
-
 
         function renderMainGridContent(subgroups, runs, showAddButton = false) {
              resetMainView();
