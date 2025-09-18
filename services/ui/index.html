@@ -733,8 +733,7 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
                 </div>
             </div>
             <div class="flex-1 p-4 overflow-auto">
-                <pre id="pipeline-definition-content" class="bg-[var(--bg-tertiary)] dark:bg-[var(--bg-primary)] p-4 rounded text-cyan-700 dark:text-cyan-300 text-xs overflow-x-auto h-full"><code></code></pre>
-            </div>
+            <pre id="pipeline-definition-content" class="bg-gray-800 dark:bg-gray-900 p-4 rounded text-cyan-300 dark:text-cyan-300 text-xs overflow-x-auto h-full"><code></code></pre>            </div>
         </div>
     </div> 
     <script>
@@ -1801,7 +1800,7 @@ function nudgeStepIntoView(stepName) {
                 const isRepo = (group.name || '').includes('/');
                 const displayName = isRepo ? group.name.split('/')[1] : group.name;
                 html += `
-                    <a href="#/pipelineruns/main/${group.id}" class="relative group bg-[var(--bg-secondary)] p-4 rounded-md hover:bg-[var(--bg-tertiary)] transition-colors duration-200 group-card border border-[var(--border-primary)] hover:border-[var(--border-accent)] shadow-sm hover:shadow-lg">
+                    <a href="#/pipelineruns/main/${group.id}" draggable="true" class="relative group bg-[var(--bg-secondary)] p-4 rounded-md hover:bg-[var(--bg-tertiary)] transition-colors duration-200 group-card border border-[var(--border-primary)] hover:border-[var(--border-accent)] shadow-sm hover:shadow-lg" data-group-id="${group.id}">
                         <button class="delete-group-btn absolute top-2 right-2 text-[var(--text-secondary)] hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity z-10" data-group-id="${group.id}" data-group-name="${group.name}">
                             <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                         </button>
@@ -3946,6 +3945,68 @@ function renderTaskGraph(container, stepName, tasks, clickableNodeContext = null
           });
         }
 
+(() => {
+            let draggedElement = null;
+
+            DOM.mainGridContainer.addEventListener('dragstart', e => {
+                const target = e.target.closest('a[data-group-id]');
+                if (!target) return;
+
+                draggedElement = target;
+                e.dataTransfer.setData('text/plain', target.dataset.groupId);
+                e.dataTransfer.effectAllowed = 'move';
+                setTimeout(() => target.classList.add('dragging'), 0);
+            });
+
+            DOM.mainGridContainer.addEventListener('dragend', e => {
+                if (draggedElement) {
+                    draggedElement.classList.remove('dragging');
+                    draggedElement = null;
+                }
+            });
+
+            DOM.mainGridContainer.addEventListener('dragover', e => {
+                e.preventDefault();
+                const target = e.target.closest('a[data-group-id]');
+                if (target && target !== draggedElement) {
+                    target.classList.add('drop-target-highlight');
+                }
+            });
+            
+            DOM.mainGridContainer.addEventListener('dragleave', e => {
+                const target = e.target.closest('a[data-group-id]');
+                 if (target) {
+                    target.classList.remove('drop-target-highlight');
+                }
+            });
+
+            DOM.mainGridContainer.addEventListener('drop', async e => {
+                e.preventDefault();
+                e.stopPropagation();
+
+                const dropTarget = e.target.closest('a[data-group-id]');
+                if (dropTarget) {
+                    dropTarget.classList.remove('drop-target-highlight');
+                }
+
+                const movedGroupId = e.dataTransfer.getData('text/plain');
+                const targetGroupId = dropTarget ? dropTarget.dataset.groupId : state.selectedGroupId;
+                
+                if (movedGroupId === targetGroupId) return;
+
+                try {
+                    await fetchData(`/v1/groups/${movedGroupId}/move`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ parent_id: targetGroupId ? parseInt(targetGroupId, 10) : null }),
+                    });
+                    await router();
+                } catch (error) {
+                    console.error("Move failed:", error);
+                }
+            });
+        })();
+        
         DOM.mainGridContainer.addEventListener('mousedown', e => {
             const card = e.target.closest('[data-href]');
             if (!card || e.button !== 0) return; // Only for primary mouse button
@@ -4237,14 +4298,20 @@ function renderTaskGraph(container, stepName, tasks, clickableNodeContext = null
             let draggedElement = null;
 
             DOM.sidebarNav.addEventListener('dragstart', e => {
-                const target = e.target.closest('li[data-group-id]');
-                if (!target) return;
-                
-                draggedElement = target;
-                e.dataTransfer.setData('text/plain', target.dataset.groupId);
-                e.dataTransfer.effectAllowed = 'move';
-                setTimeout(() => target.classList.add('dragging'), 0);
-            });
+              const isRecentRunsActive = state.currentTab === 'recent';
+              if (isRecentRunsActive) {
+                  e.preventDefault();
+                  return;
+              }
+            
+              const target = e.target.closest('li[data-group-id]');
+              if (!target) return;
+            
+              draggedElement = target;
+              e.dataTransfer.setData('text/plain', target.dataset.groupId);
+              e.dataTransfer.effectAllowed = 'move';
+              setTimeout(() => target.classList.add('dragging'), 0);
+          });
 
             DOM.sidebarNav.addEventListener('dragend', e => {
                 if (draggedElement) {
