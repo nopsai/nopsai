@@ -378,20 +378,19 @@
           stroke-dasharray: 10;
           animation: edge-flow 1s linear infinite;
         }
+  .log-highlight { background: rgba(180, 220, 255, 0.35); padding: 0 2px; border-radius: 3px; }
+  .log-line--dim { opacity: 0.45; }
+  .log-line--sel { position: relative; }
+  .log-line--sel::before { content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: 8px; }
+  .log-line--sel.c0::before { background: rgba(99,102,241,.10); }  /* indigo */
+  .log-line--sel.c1::before { background: rgba(251,191,36,.10); }  /* amber */
+  .log-line--sel.c2::before { background: rgba(244,63,94,.10); }   /* rose  */
+  .log-line--sel.c3::before { background: rgba(34,197,94,.10); }   /* green */
+  .log-line--sel.c4::before { background: rgba(20,184,166,.10); }  /* teal  */
+  .log-line--sel.c5::before { background: rgba(59,130,246,.10); }  /* blue  */
+  .log-line--sel.c6::before { background: rgba(168,85,247,.10); }  /* purple*/
+  .log-line--sel.c7::before { background: rgba(234,179,8,.10); }   /* yellow*/
 
-        /* Logs highlight and dimming */
-        .log-line--dim { opacity: .45; }
-        .log-highlight { background-color: rgba(99,102,241,.22); border-radius: 3px; padding: 0 2px; }
-        .log-line--sel { border-radius: 4px; }
-        /* Per-step color palette for selected lines */
-        .log-line--sel.c0 { background-color: rgba(99,102,241,.10); }
-        .log-line--sel.c1 { background-color: rgba(16,185,129,.10); }
-        .log-line--sel.c2 { background-color: rgba(245,158,11,.12); }
-        .log-line--sel.c3 { background-color: rgba(56,189,248,.10); }
-        .log-line--sel.c4 { background-color: rgba(217,70,239,.10); }
-        .log-line--sel.c5 { background-color: rgba(132,204,22,.12); }
-        .log-line--sel.c6 { background-color: rgba(249,115,22,.10); }
-        .log-line--sel.c7 { background-color: rgba(244,63,94,.10); }
         html.dark .log-line--sel.c0 { background-color: rgba(129,140,248,.14); }
         html.dark .log-line--sel.c1 { background-color: rgba(52,211,153,.14); }
         html.dark .log-line--sel.c2 { background-color: rgba(251,191,36,.16); }
@@ -669,53 +668,87 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
         </div>
     </div>
 
-    <div id="logs-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
-        <div id="logs-modal-content" class="bg-[var(--bg-secondary)] rounded-lg shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col transform scale-95 transition-transform duration-300">
-            <div class="flex items-center justify-between p-4 border-b border-[var(--border-primary)] flex-shrink-0">
-                <h2 id="logs-modal-title" class="text-xl font-semibold">Agent Logs</h2>
-                <div class="flex items-center space-x-4">
-                    <div class="flex items-center">
-                        <input id="follow-logs-checkbox" type="checkbox" checked class="h-4 w-4 text-indigo-600 bg-[var(--bg-tertiary)] border-[var(--border-secondary)] rounded focus:ring-indigo-500">
-                        <label for="follow-logs-checkbox" class="ml-2 block text-sm text-[var(--text-primary)]">Follow</label>
-                    </div>
-                    <button id="download-logs-btn" class="text-[var(--text-secondary)] hover:text-[var(--text-primary)]" title="Download logs">
-                        <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                    </button>
-                    <button id="copy-logs-btn" class="text-[var(--text-secondary)] hover:text-[var(--text-primary)]" title="Copy to clipboard">
-                        <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-                    </button>
-                    <button id="close-logs-modal-btn" class="text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
-                        <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                    </button>
-                </div>
-            </div>
-            <div class="flex-1 min-h-0 flex">
-              <aside id="logs-steps-sidebar" class="w-64 border-r border-[var(--border-primary)] bg-[var(--bg-secondary)] flex-shrink-0 flex flex-col p-3 gap-2">
-                <div class="relative">
-                  <input id="logs-step-search" type="text" placeholder="Filter steps..." class="w-full pl-2 pr-7 py-1.5 text-xs rounded-md bg-[var(--bg-primary)] border border-[var(--border-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)]" />
-                </div>
-                <div id="logs-step-list" class="flex-1 overflow-auto space-y-1"></div>
-                <div class="flex items-center gap-2 pt-1">
-                  <button id="logs-steps-select-all" class="logs-mini-btn flex-1" title="Select all steps">All</button>
-                  <button id="logs-steps-clear" class="logs-mini-btn flex-1" title="Clear selection">Clear</button>
-                </div>
-              </aside>
-              <section class="flex-1 min-h-0 flex flex-col">
-                <div class="px-4 py-2 border-b border-[var(--border-primary)] flex items-center gap-2 flex-shrink-0">
-                  <div class="relative">
-                    <input id="logs-search" type="text" placeholder="Search logs..." class="pl-8 pr-7 py-1.5 text-xs rounded-md bg-[var(--bg-primary)] border border-[var(--border-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)] w-64" />
-                    <svg class="w-4 h-4 text-[var(--text-secondary)] absolute left-2 top-1/2 -translate-y-1/2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                    <button id="logs-clear-search" title="Clear" class="absolute right-1 top-1/2 -translate-y-1/2 text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
-                      <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                    </button>
-                  </div>
-                  <span id="logs-count" class="text-[var(--text-secondary)] text-xs"></span>
-                </div>
-                <div id="logs-container" class="p-4 flex-1 overflow-y-auto bg-[var(--bg-primary)] font-mono text-sm text-[var(--text-monospace)] whitespace-pre-wrap"></div>
-              </section>
-            </div>
+<div id="logs-modal" role="dialog" aria-modal="true" aria-labelledby="logs-modal-title" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
+  <div id="logs-modal-content" class="bg-[var(--bg-secondary)] rounded-lg shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col transform scale-95 transition-transform duration-300">
+    <!-- Header -->
+    <div class="flex items-center justify-between p-4 border-b border-[var(--border-primary)] flex-shrink-0">
+      <h2 id="logs-modal-title" class="text-xl font-semibold">Agent Logs</h2>
+
+      <!-- Toolbar -->
+      <div class="flex items-center space-x-3">
+        <!-- Follow -->
+        <div class="flex items-center">
+          <input id="follow-logs-checkbox" type="checkbox" checked class="h-4 w-4 text-indigo-600 bg-[var(--bg-tertiary)] border-[var(--border-secondary)] rounded focus:ring-indigo-500">
+          <label for="follow-logs-checkbox" class="ml-2 block text-sm text-[var(--text-primary)]">Follow</label>
         </div>
+
+        <!-- Level chips -->
+        <div class="hidden sm:flex items-center gap-1 text-xs">
+          <button type="button" class="px-2 py-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)]" data-level-chip="info">INFO</button>
+          <button type="button" class="px-2 py-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)]" data-level-chip="warn">WARN</button>
+          <button type="button" class="px-2 py-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)]" data-level-chip="error">ERROR</button>
+          <button type="button" class="px-2 py-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)]" data-level-chip="debug">DEBUG</button>
+        </div>
+
+        <!-- Segmented toggles -->
+        <div class="hidden md:flex items-center gap-1 text-xs">
+          <label class="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] cursor-pointer">
+            <input id="logs-toggle-wrap" type="checkbox" class="accent-indigo-600"> Wrap
+          </label>
+          <label class="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] cursor-pointer">
+            <input id="logs-toggle-ts" type="checkbox" class="accent-indigo-600" checked> Timestamps
+          </label>
+          <label class="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] cursor-pointer">
+            <input id="logs-toggle-structured" type="checkbox" class="accent-indigo-600" checked> Structured
+          </label>
+        </div>
+
+        <!-- Download / Copy / Close -->
+        <button type="button" id="download-logs-btn" class="text-[var(--text-secondary)] hover:text-[var(--text-primary)]" title="Download logs">
+          <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+        </button>
+        <button type="button" id="copy-logs-btn" class="text-[var(--text-secondary)] hover:text-[var(--text-primary)]" title="Copy to clipboard">
+          <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+        </button>
+        <button type="button" id="close-logs-modal-btn" class="text-[var(--text-secondary)] hover:text-[var(--text-primary)]" title="Close">
+          <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
     </div>
+
+    <!-- Body -->
+    <div class="flex-1 min-h-0 flex">
+      <!-- Steps sidebar -->
+      <aside id="logs-steps-sidebar" class="w-64 border-r border-[var(--border-primary)] bg-[var(--bg-secondary)] flex-shrink-0 flex flex-col p-3 gap-2">
+        <div class="relative">
+          <input id="logs-step-search" type="text" placeholder="Filter steps..." class="w-full pl-2 pr-7 py-1.5 text-xs rounded-md bg-[var(--bg-primary)] border border-[var(--border-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)]" />
+        </div>
+        <div id="logs-step-list" class="flex-1 overflow-auto space-y-1"></div>
+        <div class="flex items-center gap-2 pt-1">
+          <button type="button" id="logs-steps-select-all" class="logs-mini-btn flex-1" title="Select all steps">All</button>
+          <button type="button" id="logs-steps-clear" class="logs-mini-btn flex-1" title="Clear selection">Clear</button>
+        </div>
+      </aside>
+
+      <!-- Log stream -->
+      <section class="flex-1 min-h-0 flex flex-col">
+        <div class="px-4 py-2 border-b border-[var(--border-primary)] flex items-center gap-2 flex-shrink-0">
+          <div class="relative">
+            <input id="logs-search" type="text" placeholder="Search logs..." class="pl-8 pr-7 py-1.5 text-xs rounded-md bg-[var(--bg-primary)] border border-[var(--border-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)] w-64" />
+            <svg class="w-4 h-4 text-[var(--text-secondary)] absolute left-2 top-1/2 -translate-y-1/2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <button type="button" id="logs-clear-search" title="Clear" class="absolute right-1 top-1/2 -translate-y-1/2 text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
+              <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+          <span id="logs-count" class="text-[var(--text-secondary)] text-xs"></span>
+        </div>
+
+        <div id="logs-container" class="p-4 flex-1 overflow-y-auto bg-[var(--bg-primary)] font-mono text-sm text-[var(--text-monospace)] whitespace-pre-wrap"></div>
+      </section>
+    </div>
+  </div>
+</div>
+
    <div id="pipeline-definition-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
         <div id="pipeline-definition-modal-content" class="bg-[var(--bg-secondary)] rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col transform scale-95 transition-transform duration-300">
             <div class="flex items-center justify-between p-4 border-b border-[var(--border-primary)] flex-shrink-0">
@@ -805,6 +838,10 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
             logsSearchText: '',
             _logsFocusFirstMatch: false,
             logsAllSteps: [],
+            logsWrap: true,
+            logsShowTimestamps: true,
+            logsStructured: true,
+            logsLevelFilter: new Set(['info','warn','error','debug']),
         };
 
         const statusConfig = {
@@ -1188,27 +1225,76 @@ function nudgeStepIntoView(stepName) {
             }
         }
         function showLogsModal() {
-            if (!state.currentRunData) return;
-            const runId = state.currentRunData.run_info.run_id;
-            const isComplete = state.currentRunData.run_info.is_complete;
+  if (!state.currentRunData) return;
+  const runId = state.currentRunData.run_info.run_id;
+  const isComplete = state.currentRunData.run_info.is_complete;
 
-            document.getElementById('logs-modal-title').textContent = `Agent Logs for run ${runId.slice(0, 8)}`;
-            DOM.logsContainer.innerHTML = `<p class="text-[var(--text-secondary)]">Loading logs...</p>`;
+  document.getElementById('logs-modal-title').textContent = `Agent Logs for run ${runId.slice(0, 8)}`;
+  DOM.logsContainer.innerHTML = `<p class="text-[var(--text-secondary)]">Loading logs...</p>`;
 
-            DOM.logsModal.classList.remove('hidden');
-            setTimeout(() => {
-                DOM.logsModal.classList.add('opacity-100');
-                DOM.logsModalContent.classList.remove('scale-95');
-            }, 10);
+  // Open modal animation
+  DOM.logsModal.classList.remove('hidden');
+  setTimeout(() => {
+    DOM.logsModal.classList.add('opacity-100');
+    DOM.logsModalContent.classList.remove('scale-95');
+  }, 10);
 
-            // Build steps filter UI
-            try { buildLogsFilters(); } catch {}
-            fetchAndRenderLogs(runId);
-            if (!isComplete) {
-                if (state.logPollingInterval) clearInterval(state.logPollingInterval);
-                state.logPollingInterval = setInterval(() => fetchAndRenderLogs(runId), 3000);
-            }
-        }
+  // Build filters + bind controls
+  try { buildLogsFilters(); } catch {}
+  try { initLogsUIControls(); } catch {}
+
+  fetchAndRenderLogs(runId);
+  if (!isComplete) {
+    if (state.logPollingInterval) clearInterval(state.logPollingInterval);
+    state.logPollingInterval = setInterval(() => fetchAndRenderLogs(runId), 3000);
+  }
+}
+
+function initLogsUIControls() {
+  const wrap = document.getElementById('logs-toggle-wrap');
+  const ts = document.getElementById('logs-toggle-ts');
+  const structured = document.getElementById('logs-toggle-structured');
+
+  if (wrap) {
+    wrap.checked = !!state.logsWrap;
+    wrap.addEventListener('change', () => {
+      state.logsWrap = !!wrap.checked;
+      renderLogsWithFilters();
+    });
+  }
+  if (ts) {
+    ts.checked = !!state.logsShowTimestamps;
+    ts.addEventListener('change', () => {
+      state.logsShowTimestamps = !!ts.checked;
+      renderLogsWithFilters();
+    });
+  }
+  if (structured) {
+    structured.checked = !!state.logsStructured;
+    structured.addEventListener('change', () => {
+      state.logsStructured = !!structured.checked;
+      renderLogsWithFilters();
+    });
+  }
+
+  // Level chips
+  document.querySelectorAll('[data-level-chip]').forEach(btn => {
+    const lvl = btn.getAttribute('data-level-chip');
+    const activate = () => btn.classList.add('ring-1','ring-[var(--border-accent)]','text-[var(--text-primary)]');
+    const deactivate = () => btn.classList.remove('ring-1','ring-[var(--border-accent)]','text-[var(--text-primary)]');
+
+    if (state.logsLevelFilter.has(lvl)) activate(); else deactivate();
+
+    btn.addEventListener('click', () => {
+      if (state.logsLevelFilter.has(lvl)) state.logsLevelFilter.delete(lvl);
+      else state.logsLevelFilter.add(lvl);
+      // visual state
+      if (state.logsLevelFilter.has(lvl)) activate(); else deactivate();
+      state._logsFocusFirstMatch = true;
+      renderLogsWithFilters();
+    });
+  });
+}
 
         function closeLogsModal() {
             if (state.logPollingInterval) clearInterval(state.logPollingInterval);
@@ -1249,93 +1335,520 @@ function nudgeStepIntoView(stepName) {
               const selClass = isSelected ? (` is-active c${idx}`) : '';
               const dot = isSelected ? (`<span class="step-dot c${idx}"></span>`) : '';
               return `
-                <button type="button" class="logs-step-item w-full text-left px-3 py-2 rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] text-xs${selClass}" data-step="${name}">
+                <button type="button" class="logs-step-item w-full text-left px-3 py-1.5 rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] text-xs${selClass}" data-step="${name}">
                   <span class="inline-flex items-center gap-2 truncate"><span>${dot}</span><span class="truncate">${name}</span></span>
                 </button>`;
             }).join('');
         }
 
+function parseKVLine(raw) {
+  // Robust key=value parser.
+  // - Keys: [A-Za-z0-9_-]+
+  // - Values: either unquoted (no whitespace) or double-quoted strings
+  //   that may span multiple lines and include escaped quotes \" and escapes \\ etc.
+  // Returns { hasKV: boolean, kv: object }
+  const kv = {};
+  let i = 0;
+  const n = raw.length;
+
+  const isSpace = ch => /\s/.test(ch);
+  const isKeyChar = ch => /[A-Za-z0-9_-]/.test(ch);
+
+  while (i < n) {
+    // skip leading whitespace
+    while (i < n && isSpace(raw[i])) i++;
+    if (i >= n) break;
+
+    // read key
+    const kStart = i;
+    while (i < n && isKeyChar(raw[i])) i++;
+    const key = raw.slice(kStart, i);
+    if (!key) { i++; continue; }
+
+    // find separator (= or :) after optional whitespace
+    let sepIndex = i;
+    while (sepIndex < n && isSpace(raw[sepIndex])) sepIndex++;
+    if (sepIndex >= n) { kv[key] = ''; break; }
+
+    const sep = raw[sepIndex];
+    if (sep !== '=' && sep !== ':') {
+      // not a key/value pair; continue scanning from the first non-space char we found
+      i = sepIndex;
+      continue;
+    }
+
+    // move i to the first character of the value
+    i = sepIndex + 1;
+    while (i < n && isSpace(raw[i])) i++;
+    if (i >= n) { kv[key] = ''; break; }
+
+    // read value
+    let val = '';
+    if (raw[i] === '"') {
+      i++; // skip opening quote
+      let esc = false;
+      while (i < n) {
+        const ch = raw[i];
+        if (esc) { val += ch; esc = false; i++; continue; }
+        if (ch === '\\') { esc = true; i++; continue; }
+        if (ch === '"') { i++; break; }
+        val += ch; i++;
+      }
+    } else {
+      // unquoted value ends at whitespace
+      const vStart = i;
+      while (i < n && !isSpace(raw[i])) i++;
+      val = raw.slice(vStart, i);
+    }
+
+    kv[key] = val;
+  }
+
+  return { hasKV: Object.keys(kv).length > 0, kv };
+}
         function escapeRegExp(str){ return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
         function renderLogsWithFilters() {
-            const logs = state._logsRaw || [];
-            const selected = state.logsSelectedSteps || new Set();
-            const query = (state.logsSearchText || '').toLowerCase();
+  const logs = state._logsRaw || [];
+  const selected = state.logsSelectedSteps || new Set();
+  const query = (state.logsSearchText || '').toLowerCase();
+  const showTs = !!state.logsShowTimestamps;
+  const structuredOn = !!state.logsStructured;
+  const wrap = !!state.logsWrap;
+  const levelFilter = state.logsLevelFilter || new Set(['info','warn','error','debug']);
 
-            const ansiRegex = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
-            const colorMap = { '31': 'text-red-600 dark:text-red-400', '32': 'text-green-600 dark:text-green-400', '33': 'text-yellow-600 dark:text-yellow-400', '34': 'text-blue-600 dark:text-blue-400', '35': 'text-purple-600 dark:text-purple-400', '36': 'text-cyan-600 dark:text-cyan-400', '90': 'text-gray-500 dark:text-gray-500' };
+  // container presentation
+  DOM.logsContainer.classList.toggle('whitespace-pre-wrap', wrap);
+  DOM.logsContainer.classList.toggle('whitespace-pre', !wrap);
 
-            const rx = query ? new RegExp(`(${escapeRegExp(query)})`, 'ig') : null;
-            let matches = 0;
+  const ansiRegex = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
 
-            const selectedNames = selected.size > 0 ? Array.from(selected) : [];
-            const nameToIdx = new Map(selectedNames.map((n,i) => [n, i % 8]));
+  const colorConfig = {
+    info:   { levelBg: 'bg-indigo-100 dark:bg-indigo-900', levelText: 'text-indigo-600 dark:text-indigo-300' },
+    warn:   { levelBg: 'bg-amber-100  dark:bg-amber-900',  levelText: 'text-amber-600  dark:text-amber-300'  },
+    error:  { levelBg: 'bg-rose-100   dark:bg-rose-900',   levelText: 'text-rose-600   dark:text-rose-300'   },
+    debug:  { levelBg: 'bg-slate-200  dark:bg-slate-800',  levelText: 'text-slate-700  dark:text-slate-300'  },
+    default:{ levelBg: 'bg-slate-100  dark:bg-slate-900',  levelText: 'text-slate-600  dark:text-slate-300'  },
+    success:{ levelBg: 'bg-emerald-100 dark:bg-emerald-900', levelText: 'text-emerald-600 dark:text-emerald-300' },
+  };
 
-            const html = logs.map(log => {
-                let line = (log.line || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                const lineRawLower = (log.line || '').toString().toLowerCase();
-                // Determine selection color index for this line
-                let lineColorIdx = -1;
-                let isSelectedLine = false;
-                if (selected.size > 0) {
-                  const stepName = getLogStepName(log);
-                  if (stepName) {
-                    if (selected.has(stepName)) { isSelectedLine = true; lineColorIdx = nameToIdx.get(stepName) ?? 0; }
-                  } else {
-                    for (const s of selectedNames) { if ((log.line || '').includes(s)) { isSelectedLine = true; lineColorIdx = nameToIdx.get(s) ?? 0; break; } }
-                  }
-                }
-                // Per-step token highlight first (before search/ANSI), using color per step
-                if (selected.size > 0) {
-                  for (const s of selectedNames) {
-                    const idx = nameToIdx.get(s) ?? 0;
-                    const rxSel = new RegExp(`(${escapeRegExp(s)})`, 'g');
-                    line = line.replace(rxSel, `<span class=\"log-step-token c${idx}\">$1</span>`);
-                  }
-                }
-                if (rx && lineRawLower.includes(query)) {
-                    matches++;
-                    // highlight query terms on escaped line text
-                    line = line.replace(rx, '<span class="log-highlight">$1</span>');
-                }
-                line = line.replace(ansiRegex, (match) => {
-                    const code = match.replace(/\u001b\[|m/g, '');
-                    if (code === '0') return '</span>';
-                    const colorClass = colorMap[code];
-                    return colorClass ? `<span class="${colorClass}">` : '';
-                });
-                const timestamp = log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '';
-                // Dim non-selected steps when any selection exists
-                let dimClass = '';
-                if (selected.size > 0 && !isSelectedLine) dimClass = ' log-line--dim';
-                const selClass = (isSelectedLine && lineColorIdx >= 0) ? ` log-line--sel c${lineColorIdx}` : '';
-                return `<div class="log-line${dimClass}${selClass}"><span class="text-[var(--text-secondary)] mr-4 select-none">${timestamp}</span><span>${line}</span></div>`;
-            }).join('');
+  const preferredDetailOrder = new Map([
+    ['runid', 0],
+    ['pipeline', 1],
+    ['step', 2],
+    ['task', 3],
+    ['status', 4],
+    ['stage', 5],
+    ['job', 6],
+    ['task_id', 7],
+    ['attempt', 8]
+  ]);
 
-            DOM.logsContainer.innerHTML = html || `<p class="text-[var(--text-secondary)]">No matching logs.</p>`;
-            if (DOM.logsCount) {
-                const total = logs.length || 0;
-                DOM.logsCount.textContent = query && total ? `${matches} matches • ${total} lines` : (total ? `${total} lines` : '');
-            }
-            // Scroll behavior: if user is searching or selecting steps, focus the first match
-            if (state._logsFocusFirstMatch) {
-                requestAnimationFrame(() => {
-                    let target = null;
-                    if (query) {
-                        target = DOM.logsContainer.querySelector('.log-highlight');
-                        if (target) target = target.closest('.log-line') || target;
-                    }
-                    if (!target && selected.size > 0) {
-                        target = DOM.logsContainer.querySelector('.log-line--sel') || null;
-                    }
-                    if (target && typeof target.scrollIntoView === 'function') {
-                        try { target.scrollIntoView({ block: 'start' }); } catch { target.scrollIntoView(); }
-                    }
-                    state._logsFocusFirstMatch = false;
-                });
-            } else if (DOM.followLogsCheckbox && DOM.followLogsCheckbox.checked) {
-                DOM.logsContainer.scrollTop = DOM.logsContainer.scrollHeight;
-            }
+  const multilineKeys = new Set(['action','script','cmd','command','stderr','stdout','details']);
+  const messageAllowedKeys = new Set(['status','action','output']);
+
+  // assign stable color index to selected steps for background tint
+  const nameToIdx = new Map(Array.from(selected).map((n, i) => [n, i % 8]));
+
+  const escapeRegExp = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const rx = query ? new RegExp(`(${escapeRegExp(query)})`, 'ig') : null;
+  let matches = 0;
+
+  const html = logs.map((log, i) => {
+    const rawLine = (log.line || '').replace(ansiRegex, '');
+    // timestamp (fallback to log.timestamp if present)
+    const tsMatch = rawLine.match(/^(\d{1,2}:\d{2}:\d{2}\s[AP]M)/);
+    const ts = tsMatch ? tsMatch[0] : (log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '');
+
+    // If "structured" toggle is on, try JSON first
+    const jsonStart = rawLine.indexOf('{');
+    if (structuredOn && jsonStart !== -1) {
+      try {
+        const json = JSON.parse(rawLine.substring(jsonStart));
+        return renderStructured(json, {rawLine, i, ts});
+      } catch { /* fall through to KV and then to raw */ }
+    }
+
+    // Try key=value parsing (supports multi-line quoted values)
+    if (structuredOn) {
+      const { hasKV, kv } = parseKVLine(rawLine);
+      if (hasKV) {
+        if (!kv.level) {
+          const prefixMatch = rawLine.match(/^\s*(INFO|WARN|WARNING|ERROR|DEBUG|TRACE|SUCCESS|FAIL|FAILED)\b/i);
+          if (prefixMatch) {
+            const candidate = prefixMatch[1].toLowerCase();
+            let normalized = candidate;
+            if (candidate === 'warning') normalized = 'warn';
+            else if (candidate === 'success') normalized = 'info';
+            else if (candidate === 'fail' || candidate === 'failed') normalized = 'error';
+            else if (candidate === 'trace') normalized = 'debug';
+            kv.level = normalized;
+          }
         }
+
+        // normalize level from level/status
+        const derivedLevel = deriveLevelFromStatus(kv.status);
+        const level = (kv.level || derivedLevel || 'info').toLowerCase();
+        if (!levelFilter.has(level)) return '';
+
+        // step selection tinting
+        let isSelectedLine = false;
+        let lineColorIdx = -1;
+        if (selected.size > 0) {
+          const stepName = (typeof getLogStepName === 'function') ? getLogStepName({ ...log, ...kv }) : null;
+          if (stepName && selected.has(stepName)) {
+            isSelectedLine = true;
+            lineColorIdx = nameToIdx.get(stepName) ?? 0;
+          }
+        }
+        const dimClass = (selected.size > 0 && !isSelectedLine) ? ' log-line--dim' : '';
+        const selClass = (isSelectedLine && lineColorIdx >= 0) ? ` log-line--sel c${lineColorIdx}` : '';
+
+        // message: prefer 'message'; else fallback to status/raw line
+        let message = kv.message || '';
+        if (!message) {
+          const parts = [];
+          if (!parts.length && kv.status) parts.push(`status: ${kv.status}`);
+          message = parts.join(' • ') || rawLine;
+        }
+
+        // Build details rows (pretty-print multi-line values like action/script/command)
+        const detailRows = [];
+        let fallbackOrder = preferredDetailOrder.size;
+        for (const key in kv) {
+          if (['message','level','output','action'].includes(key)) continue;
+          const v = String(kv[key] ?? '');
+          const isMultiline = v.includes('\n');
+          const vDisplay = rx && v.toLowerCase().includes(query) ? v.replace(rx, '<span class="log-highlight">$1</span>') : v;
+          const markup = (isMultiline || multilineKeys.has(key))
+            ? `<div class="grid grid-cols-[120px,1fr] gap-x-2 items-start">
+              <strong class="text-right text-gray-500 dark:text-gray-400 font-normal mt-1">${key}:</strong>
+              <pre class="bg-gray-900/90 dark:bg-gray-900 text-gray-100 dark:text-gray-200 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto">${vDisplay}</pre>
+            </div>`
+            : rowKV(key, vDisplay);
+          if (rx && v.toLowerCase().includes(query)) matches++;
+          const order = preferredDetailOrder.has(key) ? preferredDetailOrder.get(key) : fallbackOrder++;
+          detailRows.push({ order, markup });
+        }
+        detailRows.sort((a, b) => a.order - b.order);
+        const detailsHTML = detailRows.map(r => r.markup).join('');
+
+        // action block (full-width)
+        let actionBlock = '';
+        if (kv.action !== undefined) {
+          const actionRaw = String(kv.action ?? '');
+          const actionLower = actionRaw.toLowerCase();
+          const actionHit = rx && actionLower.includes(query);
+          const actionDisplay = actionHit ? actionRaw.replace(rx, '<span class="log-highlight">$1</span>') : actionRaw;
+          if (actionHit) matches++;
+          const actionPretty = actionDisplay.replace(/\r/g, '');
+          actionBlock = `<div class="mt-0.5 flex items-start gap-2">
+          <span class="shrink-0 text-[11px] uppercase tracking-wide font-semibold text-indigo-600 dark:text-indigo-300 bg-indigo-500/10 dark:bg-indigo-500/20 px-2 py-0.5 rounded">Action</span>
+          <pre class="flex-1 bg-indigo-950/90 dark:bg-indigo-950 text-indigo-100 dark:text-indigo-50 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto">${actionPretty}</pre>
+        </div>`;
+        }
+
+        if (actionBlock && message) {
+          message = message.replace(/action:\s?[^•]+(?:•\s*)?/i, '').trim();
+          if (message.endsWith('•')) message = message.slice(0, -1).trim();
+        }
+
+        // output block (empty allowed)
+        let outputBlock = '';
+        if ('output' in kv) {
+          const out = kv.output ?? '';
+          const outStr = String(out);
+          const outLower = outStr.toLowerCase();
+          const outHit = rx && outLower.includes(query);
+          const outDisplay = outHit ? outStr.replace(rx, '<span class="log-highlight">$1</span>') : outStr;
+          if (outHit) matches++;
+          if (outStr === '') {
+            outputBlock = `<div class="mt-0.5 flex items-start gap-2">
+              <span class="shrink-0 text-[11px] uppercase tracking-wide font-semibold text-slate-600 dark:text-slate-300 bg-slate-500/10 dark:bg-slate-500/20 px-2 py-0.5 rounded">Output</span>
+              <pre class="flex-1 bg-gray-900/90 dark:bg-gray-900 text-gray-100 dark:text-gray-200 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto italic opacity-70">(empty output)</pre>
+            </div>`;
+          } else {
+            const pretty = outDisplay.replace(/\r/g, '');
+            outputBlock = `<div class="mt-0.5 flex items-start gap-2">
+              <span class="shrink-0 text-[11px] uppercase tracking-wide font-semibold text-slate-600 dark:text-slate-300 bg-slate-500/10 dark:bg-slate-500/20 px-2 py-0.5 rounded">Output</span>
+              <pre class="flex-1 bg-gray-900/90 dark:bg-gray-900 text-gray-100 dark:text-gray-200 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto">${pretty}</pre>
+            </div>`;
+          }
+        }
+
+        // highlight message
+        if (rx && message.toLowerCase().includes(query)) {
+          message = message.replace(rx, '<span class="log-highlight">$1</span>');
+          matches++;
+        }
+
+        if (!outputBlock && message) {
+          const label = 'Output';
+          outputBlock = `<div class="mt-0.5 flex items-start gap-2">
+              <span class="shrink-0 text-[11px] uppercase tracking-wide font-semibold text-slate-600 dark:text-slate-300 bg-slate-500/10 dark:bg-slate-500/20 px-2 py-0.5 rounded">${label}</span>
+              <pre class="flex-1 bg-gray-900/90 dark:bg-gray-900 text-gray-100 dark:text-gray-200 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto">${message.replace(/\r/g, '')}</pre>
+            </div>`;
+          message = '';
+        }
+
+                const isSuccess = (kv.status && kv.status.toLowerCase() === 'success');
+        const colors = isSuccess ? colorConfig.success : (colorConfig[level] || colorConfig.default);
+        const left = [
+          `<span class="opacity-60 select-none pr-3">${String(i + 1).padStart(4, '0')}</span>`,
+          showTs ? `<span class="text-[var(--text-secondary)] select-none pr-3">${ts}</span>` : ''
+        ].join('');
+
+        const bodyPieces = [];
+        if (actionBlock) bodyPieces.push(actionBlock);
+        if (outputBlock) bodyPieces.push(outputBlock);
+        if (!outputBlock && message) {
+          bodyPieces.push(actionBlock ? `<div class="mt-0.5">${message}</div>` : message);
+        }
+        const bodyHtml = bodyPieces.length > 0 ? bodyPieces.join('') : '<span class="opacity-50">—</span>';
+
+        return `
+          <div class="log-line-structured ${dimClass} ${selClass} mb-1">
+            <div class="grid grid-cols-[auto,1fr] gap-2 py-1">
+              <span class="inline-flex items-start pt-1">${left}</span>
+              <div class="rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)]/60 backdrop-blur-sm p-2 ring-1 ring-transparent hover:ring-[var(--border-accent)] transition">
+                <div class="flex items-center gap-x-3 text-xs">
+                  <span class="font-semibold px-2 py-0.5 rounded-full ${colors.levelBg} ${colors.levelText}">${(kv.status ? kv.status : level).toString().toUpperCase()}</span>
+                  <div class="font-mono text-gray-600 dark:text-gray-400 overflow-hidden text-ellipsis">${detailsHTML || '<span class="opacity-50">—</span>'}</div>
+                </div>
+                <div class="mt-2 pl-0 text-sm text-[var(--text-primary)] leading-6">${bodyHtml}</div>
+              </div>
+            </div>
+          </div>`;
+      }
+    }
+
+    // Fallback: plain/raw rendering
+    let line = rawLine.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    if (rx && rawLine.toLowerCase().includes(query)) {
+      matches++;
+      line = line.replace(rx, '<span class="log-highlight">$1</span>');
+    }
+    const left = [
+      `<span class="opacity-60 select-none pr-3">${String(i + 1).padStart(4, '0')}</span>`,
+      showTs ? `<span class="text-[var(--text-secondary)] select-none pr-3">${ts}</span>` : ''
+    ].join('');
+    return `<div class="log-line py-1 grid grid-cols-[auto,1fr] gap-1">
+              <span class="inline-flex items-baseline">${left}</span>
+              <span>${line}</span>
+            </div>`;
+
+    // ---- helpers (scoped) ----
+    function renderStructured(json, ctx) {
+      const baseMessage = json.message || '';
+      const parsedMessage = baseMessage ? parseKVLine(baseMessage) : { hasKV: false, kv: {} };
+      const messagePairsAll = parsedMessage.hasKV ? parsedMessage.kv : {};
+      const messagePairs = {};
+      for (const key in messagePairsAll) {
+        if (messageAllowedKeys.has(key)) {
+          messagePairs[key] = messagePairsAll[key];
+        }
+      }
+      const messageKeys = Object.keys(messagePairs);
+      const kvOnlyRegex = /^(?:\s*[A-Za-z0-9_-]+(?:=|:)(?:"(?:[^"\\]|\\.)*"|[^\s"]+)\s*)+$/;
+      const statusTextRaw = (json.status !== undefined && json.status !== null && json.status !== '')
+        ? json.status
+        : (Object.prototype.hasOwnProperty.call(messagePairs, 'status') ? messagePairs.status : undefined);
+      const levelCandidateRaw = json.level || (statusTextRaw ? deriveLevelFromStatus(statusTextRaw) : 'info');
+      const level = String(levelCandidateRaw || 'info').toLowerCase();
+      if (!levelFilter.has(level)) return '';
+
+      // step selection tinting
+      let isSelectedLine = false;
+      let lineColorIdx = -1;
+      if (selected.size > 0) {
+        const stepName = (typeof getLogStepName === 'function') ? getLogStepName({ ...log, ...json }) : null;
+        if (stepName && selected.has(stepName)) {
+          isSelectedLine = true;
+          lineColorIdx = nameToIdx.get(stepName) ?? 0;
+        }
+      }
+      const dimClass = (selected.size > 0 && !isSelectedLine) ? ' log-line--dim' : '';
+      const selClass = (isSelectedLine && lineColorIdx >= 0) ? ` log-line--sel c${lineColorIdx}` : '';
+
+      // detail rows
+      const detailRows = [];
+      let fallbackOrder = preferredDetailOrder.size;
+      const seenKeys = new Set(['message','level','time']);
+      let message = baseMessage;
+
+      for (const key in json) {
+        if (['message','level','time','output','action'].includes(key)) continue;
+        const vStr = String(json[key]);
+        const vHtml = rx && vStr.toLowerCase().includes(query) ? vStr.replace(rx, '<span class="log-highlight">$1</span>') : vStr;
+        if (rx && vStr.toLowerCase().includes(query)) matches++;
+        const order = preferredDetailOrder.has(key) ? preferredDetailOrder.get(key) : fallbackOrder++;
+        detailRows.push({ order, markup: rowKV(key, vHtml) });
+        seenKeys.add(key);
+      }
+
+      if (messageKeys.length > 0) {
+        for (const key of messageKeys) {
+          if (seenKeys.has(key) || key === 'output' || key === 'action') continue;
+          const rawVal = messagePairs[key] ?? '';
+          const vStr = String(rawVal);
+          const isMultiline = vStr.includes('\n');
+          const vHtml = rx && vStr.toLowerCase().includes(query) ? vStr.replace(rx, '<span class="log-highlight">$1</span>') : vStr;
+          if (rx && vStr.toLowerCase().includes(query)) matches++;
+          const markup = (isMultiline || multilineKeys.has(key))
+            ? `<div class="grid grid-cols-[120px,1fr] gap-x-2 items-start">
+              <strong class="text-right text-gray-500 dark:text-gray-400 font-normal mt-1">${key}:</strong>
+              <pre class="bg-gray-900/90 dark:bg-gray-900 text-gray-100 dark:text-gray-200 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto">${vHtml}</pre>
+            </div>`
+            : rowKV(key, vHtml);
+          const order = preferredDetailOrder.has(key) ? preferredDetailOrder.get(key) : fallbackOrder++;
+          detailRows.push({ order, markup });
+          seenKeys.add(key);
+        }
+      }
+
+      detailRows.sort((a, b) => a.order - b.order);
+      const detailsHTML = detailRows.map(r => r.markup).join('');
+
+      // action block (prefers message-derived value)
+      let actionBlock = '';
+      let actionSource = undefined;
+      if (Object.prototype.hasOwnProperty.call(messagePairs, 'action')) {
+        actionSource = messagePairs.action;
+      } else if (Object.prototype.hasOwnProperty.call(json, 'action')) {
+        actionSource = json.action;
+      }
+      if (actionSource !== undefined) {
+        const actionRaw = String(actionSource ?? '');
+        const actionLower = actionRaw.toLowerCase();
+        const actionHit = rx && actionLower.includes(query);
+        const actionDisplay = actionHit ? actionRaw.replace(rx, '<span class="log-highlight">$1</span>') : actionRaw;
+        if (actionHit) matches++;
+        const actionPretty = actionDisplay.replace(/\r/g, '');
+        actionBlock = `<div class="mt-0.5 flex items-start gap-2">
+          <span class="shrink-0 text-[11px] uppercase tracking-wide font-semibold text-indigo-600 dark:text-indigo-300 bg-indigo-500/10 dark:bg-indigo-500/20 px-2 py-0.5 rounded">Action</span>
+          <pre class="flex-1 bg-indigo-950/90 dark:bg-indigo-950 text-indigo-100 dark:text-indigo-50 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto">${actionPretty}</pre>
+        </div>`;
+        seenKeys.add('action');
+      }
+
+      if (actionBlock && message) {
+        message = message.replace(/action:\s?[^•]+(?:•\s*)?/i, '').trim();
+        if (message.endsWith('•')) message = message.slice(0, -1).trim();
+      }
+
+      // output block (prefers message-derived value)
+      let outputBlock = '';
+      const hasMessageOutput = Object.prototype.hasOwnProperty.call(messagePairs, 'output');
+      if (hasMessageOutput || Object.prototype.hasOwnProperty.call(json, 'output')) {
+        const outVal = hasMessageOutput ? (messagePairs.output ?? '') : (json.output ?? '');
+        const outStr = String(outVal);
+        const outLower = outStr.toLowerCase();
+        const hit = rx && outLower.includes(query);
+        const outDisplay = hit ? outStr.replace(rx, '<span class="log-highlight">$1</span>') : outStr;
+        if (hit) matches++;
+        if (outStr === '') {
+          outputBlock = `<div class="mt-0.5 flex items-start gap-2">
+            <span class="shrink-0 text-[11px] uppercase tracking-wide font-semibold text-slate-600 dark:text-slate-300 bg-slate-500/10 dark:bg-slate-500/20 px-2 py-0.5 rounded">Output</span>
+            <pre class="flex-1 bg-gray-900/90 dark:bg-gray-900 text-gray-100 dark:text-gray-200 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto italic opacity-70">(empty output)</pre>
+          </div>`;
+        } else {
+          const pretty = outDisplay.replace(/\r/g, '');
+          outputBlock = `<div class="mt-0.5 flex items-start gap-2">
+            <span class="shrink-0 text-[11px] uppercase tracking-wide font-semibold text-slate-600 dark:text-slate-300 bg-slate-500/10 dark:bg-slate-500/20 px-2 py-0.5 rounded">Output</span>
+            <pre class="flex-1 bg-gray-900/90 dark:bg-gray-900 text-gray-100 dark:text-gray-200 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto">${pretty}</pre>
+          </div>`;
+        }
+      }
+
+      if (messageKeys.length > 0 && kvOnlyRegex.test(baseMessage.trim())) {
+        message = '';
+      }
+
+      if (message && rx && message.toLowerCase().includes(query)) {
+        message = message.replace(rx, '<span class="log-highlight">$1</span>');
+        matches++;
+      }
+
+      if (!outputBlock && message) {
+        const label = 'Output';
+        outputBlock = `<div class="mt-0.5 flex items-start gap-2">
+            <span class="shrink-0 text-[11px] uppercase tracking-wide font-semibold text-slate-600 dark:text-slate-300 bg-slate-500/10 dark:bg-slate-500/20 px-2 py-0.5 rounded">${label}</span>
+            <pre class="flex-1 bg-gray-900/90 dark:bg-gray-900 text-gray-100 dark:text-gray-200 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto">${message.replace(/\\r/g, '')}</pre>
+          </div>`;
+        message = '';
+      }
+
+      const statusText = statusTextRaw ? String(statusTextRaw) : null;
+      const isSuccess = statusText && statusText.toLowerCase() === 'success';
+      const colors = isSuccess ? colorConfig.success : (colorConfig[level] || colorConfig.default);
+      const badgeLabelSource = statusText || (Object.prototype.hasOwnProperty.call(messagePairs, 'status') ? messagePairs.status : levelCandidateRaw) || 'INFO';
+      const badgeLabel = String(badgeLabelSource).toUpperCase();
+
+      const left = [
+        `<span class="opacity-60 select-none pr-3">${String(ctx.i + 1).padStart(4, '0')}</span>`,
+        showTs ? `<span class="text-[var(--text-secondary)] select-none pr-3">${ctx.ts}</span>` : ''
+      ].join('');
+
+      const bodyPieces = [];
+      if (actionBlock) bodyPieces.push(actionBlock);
+      if (outputBlock) bodyPieces.push(outputBlock);
+      if (!outputBlock && message) {
+        bodyPieces.push(actionBlock ? `<div class="mt-0.5">${message}</div>` : message);
+      }
+      const bodyHtml = bodyPieces.length > 0 ? bodyPieces.join('') : '<span class="opacity-50">—</span>';
+
+      return `
+        <div class="log-line-structured ${dimClass} ${selClass} mb-1">
+          <div class="grid grid-cols-[auto,1fr] gap-2 py-1">
+            <span class="inline-flex items-start pt-1">${left}</span>
+            <div class="rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)]/60 backdrop-blur-sm p-2 ring-1 ring-transparent hover:ring-[var(--border-accent)] transition">
+              <div class="flex items-center gap-x-3 text-xs">
+                <span class="font-semibold px-2 py-0.5 rounded-full ${colors.levelBg} ${colors.levelText}">${badgeLabel}</span>
+                <div class="font-mono text-gray-600 dark:text-gray-400 overflow-hidden text-ellipsis">${detailsHTML || '<span class="opacity-50">—</span>'}</div>
+              </div>
+              <div class="mt-2 pl-0 text-sm text-[var(--text-primary)] leading-6">${bodyHtml}</div>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    function rowKV(k, vHtml) {
+      return `<div class="grid grid-cols-[120px,1fr] gap-x-2">
+        <strong class="text-right text-gray-500 dark:text-gray-400 font-normal">${k}:</strong>
+        <span class="truncate">${vHtml}</span>
+      </div>`;
+    }
+
+    function deriveLevelFromStatus(status) {
+      if (!status) return 'info';
+      const s = String(status).toLowerCase();
+      if (s === 'success' || s === 'ok' || s === 'passed') return 'info';
+      if (s === 'warn' || s === 'warning') return 'warn';
+      if (s === 'debug') return 'debug';
+      return 'error';
+    }
+  }).filter(Boolean).join('');
+
+  DOM.logsContainer.innerHTML = html || `<p class="text-[var(--text-secondary)]">No matching logs.</p>`;
+
+  if (DOM.logsCount) {
+    const total = logs.length || 0;
+    DOM.logsCount.textContent = query && total ? `${matches} matches • ${total} lines` : (total ? `${total} lines` : '');
+  }
+
+  // focus + follow behaviors
+  if (state._logsFocusFirstMatch) {
+    requestAnimationFrame(() => {
+      let target = DOM.logsContainer.querySelector('.log-highlight');
+      if (target) target = target.closest('.log-line-structured') || target.closest('.log-line') || target;
+      if (target && typeof target.scrollIntoView === 'function') {
+        try { target.scrollIntoView({ block: 'start' }); } catch { target.scrollIntoView(); }
+      }
+      state._logsFocusFirstMatch = false;
+    });
+  } else if (DOM.followLogsCheckbox && DOM.followLogsCheckbox.checked) {
+    DOM.logsContainer.scrollTop = DOM.logsContainer.scrollHeight;
+  }
+}
         function handleRunHighlight(event) {
             // Find the closest element that represents a run, either in the main content or sidebar
             const targetRunElement = event.target.closest('[data-run-id]');
