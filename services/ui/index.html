@@ -1582,13 +1582,13 @@ function parseKVLine(raw) {
           const outDisplay = outHit ? outStr.replace(rx, '<span class="log-highlight">$1</span>') : outStr;
           if (outHit) matches++;
           if (outStr === '') {
-            outputBlock = `<div class="mt-0.5 flex items-start gap-2">
+            outputBlock = `<div class="mt-1 flex items-start gap-2">
               <span class="shrink-0 text-[11px] uppercase tracking-wide font-semibold text-slate-600 dark:text-slate-300 bg-slate-500/10 dark:bg-slate-500/20 px-2 py-0.5 rounded">Output</span>
               <pre class="flex-1 bg-gray-900/90 dark:bg-gray-900 text-gray-100 dark:text-gray-200 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto italic opacity-70">(empty output)</pre>
             </div>`;
           } else {
             const pretty = outDisplay.replace(/\r/g, '');
-            outputBlock = `<div class="mt-0.5 flex items-start gap-2">
+            outputBlock = `<div class="mt-1 flex items-start gap-2">
               <span class="shrink-0 text-[11px] uppercase tracking-wide font-semibold text-slate-600 dark:text-slate-300 bg-slate-500/10 dark:bg-slate-500/20 px-2 py-0.5 rounded">Output</span>
               <pre class="flex-1 bg-gray-900/90 dark:bg-gray-900 text-gray-100 dark:text-gray-200 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto">${pretty}</pre>
             </div>`;
@@ -1603,7 +1603,7 @@ function parseKVLine(raw) {
 
         if (!outputBlock && message) {
           const label = 'Output';
-          outputBlock = `<div class="mt-0.5 flex items-start gap-2">
+          outputBlock = `<div class="mt-1 flex items-start gap-2">
               <span class="shrink-0 text-[11px] uppercase tracking-wide font-semibold text-slate-600 dark:text-slate-300 bg-slate-500/10 dark:bg-slate-500/20 px-2 py-0.5 rounded">${label}</span>
               <pre class="flex-1 bg-gray-900/90 dark:bg-gray-900 text-gray-100 dark:text-gray-200 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto">${message.replace(/\r/g, '')}</pre>
             </div>`;
@@ -1633,8 +1633,8 @@ function parseKVLine(raw) {
               <div class="rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)]/60 backdrop-blur-sm p-2 ring-1 ring-transparent hover:ring-[var(--border-accent)] transition">
                 <div class="flex flex-wrap items-center gap-0.5 text-xs mb-0">
                   <span class="font-semibold px-2 py-0.5 rounded-full ${colors.levelBg} ${colors.levelText}">${(kv.status ? kv.status : level).toString().toUpperCase()}</span>
-                  <div class="font-mono text-gray-600 dark:text-gray-400 overflow-hidden text-ellipsis">${detailsHTML || '<span class="opacity-50">—</span>'}</div>
-                  ${tagsBlock || ''}
+                  <div class="flex-1 min-w-0 font-mono text-gray-600 dark:text-gray-400 overflow-hidden text-ellipsis">${detailsHTML || '<span class="opacity-50">—</span>'}</div>
+                  ${tagsBlock ? `<div class="flex flex-wrap items-center gap-0.5 ml-1">${tagsBlock}</div>` : ''}
                 </div>
                 <div class="pl-0 text-sm text-[var(--text-primary)] leading-6">${bodyHtml}</div>
               </div>
@@ -1783,13 +1783,13 @@ function parseKVLine(raw) {
         const outDisplay = hit ? outStr.replace(rx, '<span class="log-highlight">$1</span>') : outStr;
         if (hit) matches++;
         if (outStr === '') {
-          outputBlock = `<div class="mt-0.5 flex items-start gap-2">
+          outputBlock = `<div class="mt-1 flex items-start gap-2">
             <span class="shrink-0 text-[11px] uppercase tracking-wide font-semibold text-slate-600 dark:text-slate-300 bg-slate-500/10 dark:bg-slate-500/20 px-2 py-0.5 rounded">Output</span>
             <pre class="flex-1 bg-gray-900/90 dark:bg-gray-900 text-gray-100 dark:text-gray-200 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto italic opacity-70">(empty output)</pre>
           </div>`;
         } else {
           const pretty = outDisplay.replace(/\r/g, '');
-          outputBlock = `<div class="mt-0.5 flex items-start gap-2">
+          outputBlock = `<div class="mt-1 flex items-start gap-2">
             <span class="shrink-0 text-[11px] uppercase tracking-wide font-semibold text-slate-600 dark:text-slate-300 bg-slate-500/10 dark:bg-slate-500/20 px-2 py-0.5 rounded">Output</span>
             <pre class="flex-1 bg-gray-900/90 dark:bg-gray-900 text-gray-100 dark:text-gray-200 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto">${pretty}</pre>
           </div>`;
@@ -1807,7 +1807,7 @@ function parseKVLine(raw) {
 
       if (!outputBlock && message) {
         const label = 'Output';
-        outputBlock = `<div class="mt-0.5 flex items-start gap-2">
+        outputBlock = `<div class="mt-1 flex items-start gap-2">
             <span class="shrink-0 text-[11px] uppercase tracking-wide font-semibold text-slate-600 dark:text-slate-300 bg-slate-500/10 dark:bg-slate-500/20 px-2 py-0.5 rounded">${label}</span>
             <pre class="flex-1 bg-gray-900/90 dark:bg-gray-900 text-gray-100 dark:text-gray-200 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto">${message.replace(/\\r/g, '')}</pre>
           </div>`;
@@ -1832,16 +1832,16 @@ function parseKVLine(raw) {
       if (!outputBlock && message) {
         bodyPieces.push(actionBlock ? `<div class="mt-0.5">${message}</div>` : message);
       }
-      const bodyHtml = bodyPieces.length > 0 ? bodyPieces.join('') : '<span class="opacity-50">—</span>';
+    //   const bodyHtml = bodyPieces.length > 0 ? bodyPieces.join('') : '<span class="opacity-50">—</span>';
 
       return `
         <div class="log-line-structured ${dimClass} ${selClass} mb-1">
-          <div class="grid grid-cols-[auto,1fr] gap-2 py-1">
+          <div class="grid grid-cols-[auto,1fr] gap-0 py-1">
             <span class="inline-flex items-start pt-1">${left}</span>
             <div class="rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)]/60 backdrop-blur-sm p-2 ring-1 ring-transparent hover:ring-[var(--border-accent)] transition">
-              <div class="flex flex-wrap items-center gap-0.5 text-xs mb-0">
+              <div class="flex flex-wrap items-center gap-0 text-xs mb-0">
                 <span class="font-semibold px-2 py-0.5 rounded-full ${colors.levelBg} ${colors.levelText}">${badgeLabel}</span>
-                <div class="font-mono text-gray-600 dark:text-gray-400 overflow-hidden text-ellipsis">${detailsHTML || '<span class="opacity-50">—</span>'}</div>
+                <div class="font-mono text-gray-600 dark:text-gray-400 overflow-hidden text-ellipsis"></div>
                 ${tagsBlock || ''}
               </div>
               <div class="pl-0 text-sm text-[var(--text-primary)] leading-6">${bodyHtml}</div>
@@ -1865,14 +1865,14 @@ function parseKVLine(raw) {
         chips.push(`<span title="${title}" class="inline-flex items-center gap-1 rounded-full bg-slate-500/10 dark:bg-slate-200/10 text-slate-700 dark:text-slate-100 px-2 py-0.5 text-[11px] font-medium"><span class="uppercase tracking-wide text-[10px] text-slate-500 dark:text-slate-300">${label}</span><span class="font-mono text-[11px] text-slate-800 dark:text-slate-100 break-all">${valueHtml}</span></span>`);
       }
       if (chips.length === 0) return '';
-      const wrapperClass = inline
-        ? 'flex flex-wrap items-center gap-0.5'
-        : 'flex flex-wrap gap-1 -mt-1.5 mb-0.25';
-      return `<div class="${wrapperClass}">${chips.join('')}</div>`;
+      if (inline) {
+        return `<span class="inline-flex flex-wrap items-center gap-0.5">${chips.join('')}</span>`;
+      }
+      return `<div class="flex flex-wrap gap-1 -mt-1.5 mb-0.25">${chips.join('')}</div>`;
     }
 
     function rowKV(k, vHtml) {
-      return `<div class="grid grid-cols-[120px,1fr] gap-x-2">
+      return `<div class="grid grid-cols-[60px,1fr] gap-x-2">
         <strong class="text-right text-gray-500 dark:text-gray-400 font-normal">${k}:</strong>
         <span class="truncate">${vHtml}</span>
       </div>`;
