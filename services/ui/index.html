@@ -1445,6 +1445,19 @@ function parseKVLine(raw) {
 
   const multilineKeys = new Set(['action','script','cmd','command','stderr','stdout','details']);
   const messageAllowedKeys = new Set(['status','action','output']);
+  const tagKeys = ['runid','pipeline','step','task','status','component','session','container_id','child_run_id','image'];
+  const tagLabels = {
+    runid: 'Run ID',
+    pipeline: 'Pipeline',
+    step: 'Step',
+    task: 'Task',
+    status: 'Status',
+    component: 'Component',
+    session: 'Session',
+    container_id: 'Container ID',
+    child_run_id: 'Child Run',
+    image: 'Image'
+  };
 
   // assign stable color index to selected steps for background tint
   const nameToIdx = new Map(Array.from(selected).map((n, i) => [n, i % 8]));
@@ -1512,20 +1525,27 @@ function parseKVLine(raw) {
         }
 
         // Build details rows (pretty-print multi-line values like action/script/command)
+        const tagValues = new Map();
         const detailRows = [];
         let fallbackOrder = preferredDetailOrder.size;
         for (const key in kv) {
-          if (['message','level','output','action'].includes(key)) continue;
+          const keyLower = key.toLowerCase();
+          if (['message','level','output','action'].includes(keyLower)) continue;
           const v = String(kv[key] ?? '');
+          const trimmed = v.trim();
           const isMultiline = v.includes('\n');
           const vDisplay = rx && v.toLowerCase().includes(query) ? v.replace(rx, '<span class="log-highlight">$1</span>') : v;
-          const markup = (isMultiline || multilineKeys.has(key))
+          if (rx && v.toLowerCase().includes(query)) matches++;
+          if (tagKeys.includes(keyLower)) {
+            if (!tagValues.has(keyLower) && trimmed) tagValues.set(keyLower, { raw: trimmed, display: vDisplay });
+            continue;
+          }
+          const markup = (isMultiline || multilineKeys.has(keyLower))
             ? `<div class="grid grid-cols-[120px,1fr] gap-x-2 items-start">
               <strong class="text-right text-gray-500 dark:text-gray-400 font-normal mt-1">${key}:</strong>
               <pre class="bg-gray-900/90 dark:bg-gray-900 text-gray-100 dark:text-gray-200 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto">${vDisplay}</pre>
             </div>`
             : rowKV(key, vDisplay);
-          if (rx && v.toLowerCase().includes(query)) matches++;
           const order = preferredDetailOrder.has(key) ? preferredDetailOrder.get(key) : fallbackOrder++;
           detailRows.push({ order, markup });
         }
@@ -1542,7 +1562,7 @@ function parseKVLine(raw) {
           if (actionHit) matches++;
           const actionPretty = actionDisplay.replace(/\r/g, '');
           actionBlock = `<div class="mt-0.5 flex items-start gap-2">
-          <span class="shrink-0 text-[11px] uppercase tracking-wide font-semibold text-indigo-600 dark:text-indigo-300 bg-indigo-500/10 dark:bg-indigo-500/20 px-2 py-0.5 rounded">Action</span>
+          <span class="shrink-0 text-[11px] uppercase tracking-wide font-semibold text-indigo-200 dark:text-indigo-100 bg-indigo-950/70 dark:bg-indigo-700/50 px-2 py-0.5 rounded">Action</span>
           <pre class="flex-1 bg-indigo-950/90 dark:bg-indigo-950 text-indigo-100 dark:text-indigo-50 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto">${actionPretty}</pre>
         </div>`;
         }
@@ -1590,13 +1610,14 @@ function parseKVLine(raw) {
           message = '';
         }
 
-                const isSuccess = (kv.status && kv.status.toLowerCase() === 'success');
+        const isSuccess = (kv.status && kv.status.toLowerCase() === 'success');
         const colors = isSuccess ? colorConfig.success : (colorConfig[level] || colorConfig.default);
         const left = [
           `<span class="opacity-60 select-none pr-3">${String(i + 1).padStart(4, '0')}</span>`,
           showTs ? `<span class="text-[var(--text-secondary)] select-none pr-3">${ts}</span>` : ''
         ].join('');
 
+        const tagsBlock = renderTagPills(tagValues, { inline: true });
         const bodyPieces = [];
         if (actionBlock) bodyPieces.push(actionBlock);
         if (outputBlock) bodyPieces.push(outputBlock);
@@ -1610,11 +1631,12 @@ function parseKVLine(raw) {
             <div class="grid grid-cols-[auto,1fr] gap-2 py-1">
               <span class="inline-flex items-start pt-1">${left}</span>
               <div class="rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)]/60 backdrop-blur-sm p-2 ring-1 ring-transparent hover:ring-[var(--border-accent)] transition">
-                <div class="flex items-center gap-x-3 text-xs">
+                <div class="flex flex-wrap items-center gap-0.5 text-xs mb-0">
                   <span class="font-semibold px-2 py-0.5 rounded-full ${colors.levelBg} ${colors.levelText}">${(kv.status ? kv.status : level).toString().toUpperCase()}</span>
                   <div class="font-mono text-gray-600 dark:text-gray-400 overflow-hidden text-ellipsis">${detailsHTML || '<span class="opacity-50">—</span>'}</div>
+                  ${tagsBlock || ''}
                 </div>
-                <div class="mt-2 pl-0 text-sm text-[var(--text-primary)] leading-6">${bodyHtml}</div>
+                <div class="pl-0 text-sm text-[var(--text-primary)] leading-6">${bodyHtml}</div>
               </div>
             </div>
           </div>`;
@@ -1670,30 +1692,45 @@ function parseKVLine(raw) {
       const selClass = (isSelectedLine && lineColorIdx >= 0) ? ` log-line--sel c${lineColorIdx}` : '';
 
       // detail rows
+      const tagValues = new Map();
       const detailRows = [];
       let fallbackOrder = preferredDetailOrder.size;
       const seenKeys = new Set(['message','level','time']);
       let message = baseMessage;
 
       for (const key in json) {
-        if (['message','level','time','output','action'].includes(key)) continue;
+        const keyLower = key.toLowerCase();
+        if (['message','level','time','output','action'].includes(keyLower)) continue;
         const vStr = String(json[key]);
+        const trimmed = vStr.trim();
         const vHtml = rx && vStr.toLowerCase().includes(query) ? vStr.replace(rx, '<span class="log-highlight">$1</span>') : vStr;
         if (rx && vStr.toLowerCase().includes(query)) matches++;
+        if (tagKeys.includes(keyLower)) {
+          if (!tagValues.has(keyLower) && trimmed) tagValues.set(keyLower, { raw: trimmed, display: vHtml });
+          seenKeys.add(keyLower);
+          continue;
+        }
         const order = preferredDetailOrder.has(key) ? preferredDetailOrder.get(key) : fallbackOrder++;
         detailRows.push({ order, markup: rowKV(key, vHtml) });
-        seenKeys.add(key);
+        seenKeys.add(keyLower);
       }
 
       if (messageKeys.length > 0) {
         for (const key of messageKeys) {
-          if (seenKeys.has(key) || key === 'output' || key === 'action') continue;
+          const keyLower = key.toLowerCase();
+          if (seenKeys.has(keyLower) || keyLower === 'output' || keyLower === 'action') continue;
           const rawVal = messagePairs[key] ?? '';
           const vStr = String(rawVal);
+          const trimmed = vStr.trim();
           const isMultiline = vStr.includes('\n');
           const vHtml = rx && vStr.toLowerCase().includes(query) ? vStr.replace(rx, '<span class="log-highlight">$1</span>') : vStr;
           if (rx && vStr.toLowerCase().includes(query)) matches++;
-          const markup = (isMultiline || multilineKeys.has(key))
+          if (tagKeys.includes(keyLower)) {
+            if (!tagValues.has(keyLower) && trimmed) tagValues.set(keyLower, { raw: trimmed, display: vHtml });
+            seenKeys.add(keyLower);
+            continue;
+          }
+          const markup = (isMultiline || multilineKeys.has(keyLower))
             ? `<div class="grid grid-cols-[120px,1fr] gap-x-2 items-start">
               <strong class="text-right text-gray-500 dark:text-gray-400 font-normal mt-1">${key}:</strong>
               <pre class="bg-gray-900/90 dark:bg-gray-900 text-gray-100 dark:text-gray-200 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto">${vHtml}</pre>
@@ -1701,7 +1738,7 @@ function parseKVLine(raw) {
             : rowKV(key, vHtml);
           const order = preferredDetailOrder.has(key) ? preferredDetailOrder.get(key) : fallbackOrder++;
           detailRows.push({ order, markup });
-          seenKeys.add(key);
+          seenKeys.add(keyLower);
         }
       }
 
@@ -1724,7 +1761,7 @@ function parseKVLine(raw) {
         if (actionHit) matches++;
         const actionPretty = actionDisplay.replace(/\r/g, '');
         actionBlock = `<div class="mt-0.5 flex items-start gap-2">
-          <span class="shrink-0 text-[11px] uppercase tracking-wide font-semibold text-indigo-600 dark:text-indigo-300 bg-indigo-500/10 dark:bg-indigo-500/20 px-2 py-0.5 rounded">Action</span>
+          <span class="shrink-0 text-[11px] uppercase tracking-wide font-semibold text-indigo-200 dark:text-indigo-100 bg-indigo-950/70 dark:bg-indigo-700/50 px-2 py-0.5 rounded">Action</span>
           <pre class="flex-1 bg-indigo-950/90 dark:bg-indigo-950 text-indigo-100 dark:text-indigo-50 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto">${actionPretty}</pre>
         </div>`;
         seenKeys.add('action');
@@ -1788,6 +1825,7 @@ function parseKVLine(raw) {
         showTs ? `<span class="text-[var(--text-secondary)] select-none pr-3">${ctx.ts}</span>` : ''
       ].join('');
 
+      const tagsBlock = renderTagPills(tagValues, { inline: true });
       const bodyPieces = [];
       if (actionBlock) bodyPieces.push(actionBlock);
       if (outputBlock) bodyPieces.push(outputBlock);
@@ -1801,14 +1839,36 @@ function parseKVLine(raw) {
           <div class="grid grid-cols-[auto,1fr] gap-2 py-1">
             <span class="inline-flex items-start pt-1">${left}</span>
             <div class="rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)]/60 backdrop-blur-sm p-2 ring-1 ring-transparent hover:ring-[var(--border-accent)] transition">
-              <div class="flex items-center gap-x-3 text-xs">
+              <div class="flex flex-wrap items-center gap-0.5 text-xs mb-0">
                 <span class="font-semibold px-2 py-0.5 rounded-full ${colors.levelBg} ${colors.levelText}">${badgeLabel}</span>
                 <div class="font-mono text-gray-600 dark:text-gray-400 overflow-hidden text-ellipsis">${detailsHTML || '<span class="opacity-50">—</span>'}</div>
+                ${tagsBlock || ''}
               </div>
-              <div class="mt-2 pl-0 text-sm text-[var(--text-primary)] leading-6">${bodyHtml}</div>
+              <div class="pl-0 text-sm text-[var(--text-primary)] leading-6">${bodyHtml}</div>
             </div>
           </div>
         </div>`;
+    }
+
+    function renderTagPills(map, opts = {}) {
+      if (!map || map.size === 0) return '';
+      const chips = [];
+      const inline = !!opts.inline;
+      for (const key of tagKeys) {
+        const entry = map.get(key);
+        if (!entry) continue;
+        const valueHtml = entry.display || entry.raw || '';
+        const rawValue = entry.raw || '';
+        if (!valueHtml) continue;
+        const label = tagLabels[key] || key.toUpperCase();
+        const title = rawValue.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+        chips.push(`<span title="${title}" class="inline-flex items-center gap-1 rounded-full bg-slate-500/10 dark:bg-slate-200/10 text-slate-700 dark:text-slate-100 px-2 py-0.5 text-[11px] font-medium"><span class="uppercase tracking-wide text-[10px] text-slate-500 dark:text-slate-300">${label}</span><span class="font-mono text-[11px] text-slate-800 dark:text-slate-100 break-all">${valueHtml}</span></span>`);
+      }
+      if (chips.length === 0) return '';
+      const wrapperClass = inline
+        ? 'flex flex-wrap items-center gap-0.5'
+        : 'flex flex-wrap gap-1 -mt-1.5 mb-0.25';
+      return `<div class="${wrapperClass}">${chips.join('')}</div>`;
     }
 
     function rowKV(k, vHtml) {
@@ -3646,7 +3706,7 @@ connectors.forEach(edge => {
     const stepStatusConfig = statusConfig[step.status.toLowerCase()] || statusConfig.pending;
 
     card.innerHTML = `
-      <div class="flex items-center justify-between mb-0.5 flex-shrink-0 cursor-pointer" data-role="header">
+      <div class="flex items-center justify-between mb-0 flex-shrink-0 cursor-pointer" data-role="header">
         <h3 class="text-sm font-semibold text-[var(--text-primary)] truncate pr-1">${step.name}</h3>
         <span class="task-status-pill ${stepStatusConfig.color}">${step.status}</span>
       </div>
