@@ -1832,7 +1832,7 @@ function parseKVLine(raw) {
       if (!outputBlock && message) {
         bodyPieces.push(actionBlock ? `<div class="mt-0.5">${message}</div>` : message);
       }
-    //   const bodyHtml = bodyPieces.length > 0 ? bodyPieces.join('') : '<span class="opacity-50">—</span>';
+      const bodyHtml = bodyPieces.length > 0 ? bodyPieces.join('') : '<span class="opacity-50">—</span>';
 
       return `
         <div class="log-line-structured ${dimClass} ${selClass} mb-1">
