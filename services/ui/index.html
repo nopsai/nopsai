@@ -153,6 +153,10 @@
           overflow: visible !important;
           transform-origin: 0 0 !important;
         }
+        .whitespace-pre-wrap pre {
+          white-space: pre-wrap;
+          word-break: break-all;
+        }
         #graph-container, #tasks-graph-container {
           touch-action: none;            /* prevent browser scrolling while panning */
           overscroll-behavior: contain;  /* avoid viewport scrolling on edges */
@@ -1561,7 +1565,7 @@ function parseKVLine(raw) {
           const actionDisplay = actionHit ? actionRaw.replace(rx, '<span class="log-highlight">$1</span>') : actionRaw;
           if (actionHit) matches++;
           const actionPretty = actionDisplay.replace(/\r/g, '');
-          actionBlock = `<div class="mt-0.5 flex items-start gap-2">
+          actionBlock = `<div class="mt-1 flex items-start gap-2">
           <span class="shrink-0 text-[11px] uppercase tracking-wide font-semibold text-indigo-200 dark:text-indigo-100 bg-indigo-950/70 dark:bg-indigo-700/50 px-2 py-0.5 rounded">Action</span>
           <pre class="flex-1 bg-indigo-950/90 dark:bg-indigo-950 text-indigo-100 dark:text-indigo-50 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto">${actionPretty}</pre>
         </div>`;
@@ -1612,11 +1616,7 @@ function parseKVLine(raw) {
 
         const isSuccess = (kv.status && kv.status.toLowerCase() === 'success');
         const colors = isSuccess ? colorConfig.success : (colorConfig[level] || colorConfig.default);
-        const left = [
-          `<span class="opacity-60 select-none pr-3">${String(i + 1).padStart(4, '0')}</span>`,
-          showTs ? `<span class="text-[var(--text-secondary)] select-none pr-3">${ts}</span>` : ''
-        ].join('');
-
+        
         const tagsBlock = renderTagPills(tagValues, { inline: true });
         const bodyPieces = [];
         if (actionBlock) bodyPieces.push(actionBlock);
@@ -1628,13 +1628,14 @@ function parseKVLine(raw) {
 
         return `
           <div class="log-line-structured ${dimClass} ${selClass} mb-1">
-            <div class="grid grid-cols-[auto,1fr] gap-2 py-1">
-              <span class="inline-flex items-start pt-1">${left}</span>
+            <div class="grid grid-cols-1 gap-0 py-1">
               <div class="rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)]/60 backdrop-blur-sm p-2 ring-1 ring-transparent hover:ring-[var(--border-accent)] transition">
-                <div class="flex flex-wrap items-center gap-0.5 text-xs mb-0">
+                <div class="flex flex-wrap items-center gap-2 text-xs mb-1">
+                  ${showTs ? `<span class="text-[var(--text-secondary)] select-none">${ts}</span>` : ''}
                   <span class="font-semibold px-2 py-0.5 rounded-full ${colors.levelBg} ${colors.levelText}">${(kv.status ? kv.status : level).toString().toUpperCase()}</span>
-                  <div class="flex-1 min-w-0 font-mono text-gray-600 dark:text-gray-400 overflow-hidden text-ellipsis">${detailsHTML || '<span class="opacity-50">—</span>'}</div>
-                  ${tagsBlock ? `<div class="flex flex-wrap items-center gap-0.5 ml-1">${tagsBlock}</div>` : ''}
+                </div>
+                <div class="flex flex-wrap items-center gap-0.5 text-xs mb-2">
+                  ${tagsBlock ? `<div class="flex flex-wrap items-center gap-0.5">${tagsBlock}</div>` : ''}
                 </div>
                 <div class="pl-0 text-sm text-[var(--text-primary)] leading-6">${bodyHtml}</div>
               </div>
@@ -1650,7 +1651,6 @@ function parseKVLine(raw) {
       line = line.replace(rx, '<span class="log-highlight">$1</span>');
     }
     const left = [
-      `<span class="opacity-60 select-none pr-3">${String(i + 1).padStart(4, '0')}</span>`,
       showTs ? `<span class="text-[var(--text-secondary)] select-none pr-3">${ts}</span>` : ''
     ].join('');
     return `<div class="log-line py-1 grid grid-cols-[auto,1fr] gap-1">
@@ -1760,7 +1760,7 @@ function parseKVLine(raw) {
         const actionDisplay = actionHit ? actionRaw.replace(rx, '<span class="log-highlight">$1</span>') : actionRaw;
         if (actionHit) matches++;
         const actionPretty = actionDisplay.replace(/\r/g, '');
-        actionBlock = `<div class="mt-0.5 flex items-start gap-2">
+        actionBlock = `<div class="mt-1 flex items-start gap-2">
           <span class="shrink-0 text-[11px] uppercase tracking-wide font-semibold text-indigo-200 dark:text-indigo-100 bg-indigo-950/70 dark:bg-indigo-700/50 px-2 py-0.5 rounded">Action</span>
           <pre class="flex-1 bg-indigo-950/90 dark:bg-indigo-950 text-indigo-100 dark:text-indigo-50 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto">${actionPretty}</pre>
         </div>`;
@@ -1820,11 +1820,6 @@ function parseKVLine(raw) {
       const badgeLabelSource = statusText || (Object.prototype.hasOwnProperty.call(messagePairs, 'status') ? messagePairs.status : levelCandidateRaw) || 'INFO';
       const badgeLabel = String(badgeLabelSource).toUpperCase();
 
-      const left = [
-        `<span class="opacity-60 select-none pr-3">${String(ctx.i + 1).padStart(4, '0')}</span>`,
-        showTs ? `<span class="text-[var(--text-secondary)] select-none pr-3">${ctx.ts}</span>` : ''
-      ].join('');
-
       const tagsBlock = renderTagPills(tagValues, { inline: true });
       const bodyPieces = [];
       if (actionBlock) bodyPieces.push(actionBlock);
@@ -1836,12 +1831,13 @@ function parseKVLine(raw) {
 
       return `
         <div class="log-line-structured ${dimClass} ${selClass} mb-1">
-          <div class="grid grid-cols-[auto,1fr] gap-0 py-1">
-            <span class="inline-flex items-start pt-1">${left}</span>
+          <div class="grid grid-cols-1 gap-0 py-1">
             <div class="rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)]/60 backdrop-blur-sm p-2 ring-1 ring-transparent hover:ring-[var(--border-accent)] transition">
-              <div class="flex flex-wrap items-center gap-0 text-xs mb-0">
+              <div class="flex flex-wrap items-center gap-2 text-xs mb-1">
+                ${showTs ? `<span class="text-[var(--text-secondary)] select-none">${ctx.ts}</span>` : ''}
                 <span class="font-semibold px-2 py-0.5 rounded-full ${colors.levelBg} ${colors.levelText}">${badgeLabel}</span>
-                <div class="font-mono text-gray-600 dark:text-gray-400 overflow-hidden text-ellipsis"></div>
+              </div>
+              <div class="flex flex-wrap items-center gap-0 text-xs mb-2">
                 ${tagsBlock || ''}
               </div>
               <div class="pl-0 text-sm text-[var(--text-primary)] leading-6">${bodyHtml}</div>
@@ -1909,6 +1905,7 @@ function parseKVLine(raw) {
     DOM.logsContainer.scrollTop = DOM.logsContainer.scrollHeight;
   }
 }
+
         function handleRunHighlight(event) {
             // Find the closest element that represents a run, either in the main content or sidebar
             const targetRunElement = event.target.closest('[data-run-id]');
