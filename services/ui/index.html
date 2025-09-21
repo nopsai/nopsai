@@ -1427,12 +1427,12 @@ function parseKVLine(raw) {
   const ansiRegex = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
 
   const colorConfig = {
-    info:   { levelBg: 'bg-indigo-100 dark:bg-indigo-900', levelText: 'text-indigo-600 dark:text-indigo-300' },
-    warn:   { levelBg: 'bg-amber-100  dark:bg-amber-900',  levelText: 'text-amber-600  dark:text-amber-300'  },
-    error:  { levelBg: 'bg-rose-100   dark:bg-rose-900',   levelText: 'text-rose-600   dark:text-rose-300'   },
-    debug:  { levelBg: 'bg-slate-200  dark:bg-slate-800',  levelText: 'text-slate-700  dark:text-slate-300'  },
-    default:{ levelBg: 'bg-slate-100  dark:bg-slate-900',  levelText: 'text-slate-600  dark:text-slate-300'  },
-    success:{ levelBg: 'bg-emerald-100 dark:bg-emerald-900', levelText: 'text-emerald-600 dark:text-emerald-300' },
+    info:   { levelBg: 'bg-indigo-100 dark:bg-indigo-900', levelText: 'text-indigo-600 dark:text-indigo-300', borderColor: 'border-indigo-500' },
+    warn:   { levelBg: 'bg-amber-100  dark:bg-amber-900',  levelText: 'text-amber-600  dark:text-amber-300', borderColor: 'border-amber-500'  },
+    error:  { levelBg: 'bg-rose-100   dark:bg-rose-900',   levelText: 'text-rose-600   dark:text-rose-300',   borderColor: 'border-rose-500'   },
+    debug:  { levelBg: 'bg-slate-200  dark:bg-slate-800',  levelText: 'text-slate-700  dark:text-slate-300',  borderColor: 'border-slate-500'  },
+    default:{ levelBg: 'bg-slate-100  dark:bg-slate-900',  levelText: 'text-slate-600  dark:text-slate-300',  borderColor: 'border-slate-500'  },
+    success:{ levelBg: 'bg-emerald-100 dark:bg-emerald-900', levelText: 'text-emerald-600 dark:text-emerald-300', borderColor: 'border-emerald-500' },
   };
 
   const preferredDetailOrder = new Map([
@@ -1629,12 +1629,12 @@ function parseKVLine(raw) {
         return `
           <div class="log-line-structured ${dimClass} ${selClass} mb-1">
             <div class="grid grid-cols-1 gap-0 py-1">
-              <div class="rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)]/60 backdrop-blur-sm p-2 ring-1 ring-transparent hover:ring-[var(--border-accent)] transition">
+              <div class="border-l-4 ${colors.borderColor} pl-4">
                 <div class="flex flex-wrap items-center gap-2 text-xs mb-1">
                   ${showTs ? `<span class="text-[var(--text-secondary)] select-none">${ts}</span>` : ''}
                   <span class="font-semibold px-2 py-0.5 rounded-full ${colors.levelBg} ${colors.levelText}">${(kv.status ? kv.status : level).toString().toUpperCase()}</span>
                 </div>
-                <div class="flex flex-wrap items-center gap-0.5 text-xs mb-2">
+                <div class="flex flex-wrap items-center gap-0.5 text-xs mb-1">
                   ${tagsBlock ? `<div class="flex flex-wrap items-center gap-0.5">${tagsBlock}</div>` : ''}
                 </div>
                 <div class="pl-0 text-sm text-[var(--text-primary)] leading-6">${bodyHtml}</div>
@@ -1832,15 +1832,17 @@ function parseKVLine(raw) {
       return `
         <div class="log-line-structured ${dimClass} ${selClass} mb-1">
           <div class="grid grid-cols-1 gap-0 py-1">
-            <div class="rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)]/60 backdrop-blur-sm p-2 ring-1 ring-transparent hover:ring-[var(--border-accent)] transition">
-              <div class="flex flex-wrap items-center gap-2 text-xs mb-1">
-                ${showTs ? `<span class="text-[var(--text-secondary)] select-none">${ctx.ts}</span>` : ''}
-                <span class="font-semibold px-2 py-0.5 rounded-full ${colors.levelBg} ${colors.levelText}">${badgeLabel}</span>
+            <div class="border-l-4 ${colors.borderColor} pl-4">
+              <div class="flex flex-col gap-1">
+                <div class="flex flex-wrap items-center gap-2 text-xs">
+                  ${showTs ? `<span class="text-[var(--text-secondary)] select-none">${ctx.ts}</span>` : ''}
+                  <span class="font-semibold px-2 py-0.5 rounded-full ${colors.levelBg} ${colors.levelText}">${badgeLabel}</span>
+                </div>
+                <div class="flex flex-wrap items-center gap-0.5 text-xs">
+                  ${tagsBlock || ''}
+                </div>
+                <div class="pl-0 text-sm text-[var(--text-primary)] leading-6">${bodyHtml}</div>
               </div>
-              <div class="flex flex-wrap items-center gap-0 text-xs mb-2">
-                ${tagsBlock || ''}
-              </div>
-              <div class="pl-0 text-sm text-[var(--text-primary)] leading-6">${bodyHtml}</div>
             </div>
           </div>
         </div>`;
