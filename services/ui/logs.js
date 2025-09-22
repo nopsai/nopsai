@@ -204,7 +204,7 @@ kv[key] = val;
   // container presentation
   DOM.logsContainer.classList.toggle('whitespace-pre-wrap', wrap);
   DOM.logsContainer.classList.toggle('whitespace-pre', !wrap);
-
+  DOM.logsContainer.classList.toggle('overflow-x-auto', !wrap);
   const ansiRegex = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
 
   const colorConfig = {
@@ -436,7 +436,7 @@ const left = [
 ].join('');
 return `<div class="log-line py-0 grid grid-cols-[auto,1fr] gap-1">
           <span class="inline-flex items-baseline">${left}</span>
-          <span>${line}</span>
+          <pre><span>${line}</span></pre>
         </div>`;
 
 // ---- helpers (scoped) ----
