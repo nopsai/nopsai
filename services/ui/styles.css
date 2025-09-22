@@ -1,0 +1,512 @@
+:root {
+    /* Light Theme Color Palette - REFINED */
+    --bg-primary: #ffffff;      /* white - Page background */
+    --bg-secondary: #f9fafb;    /* gray-50 - Softer content background for cards/modals */
+    --bg-tertiary: #f3f4f6;    /* gray-100 */
+    --bg-hover: #e0e7ff;      /* indigo-100 */
+    --bg-active: #c7d2fe;      /* indigo-200 */
+    --bg-overlay: rgba(17, 24, 39, 0.75); /* gray-900/75 */
+    --bg-code: #f3f4f6;        /* gray-100 */
+    --bg-code-darker: #e5e7eb;  /* gray-200 */
+
+    --text-primary: #1f2937;    /* gray-800 */
+    --text-secondary: #6b7280;  /* gray-500 */
+    --text-accent: #4f46e5;      /* indigo-600 */
+    --text-inverted: #f9fafb;    /* gray-50 */
+    --text-link: #4338ca;      /* indigo-700 */
+    --text-placeholder: #6b7280; /* gray-500 */
+    --text-button: #ffffff;      /* white */
+
+    --border-primary: #e5e7eb;  /* gray-200 */
+    --border-secondary: #d1d5db;  /* gray-300 */
+    --border-accent: #6366f1;    /* indigo-500 */
+    --border-input: #d1d5db;    /* gray-300 */
+    --border-input-focus: #4f46e5; /* indigo-600 */
+
+    --scrollbar-thumb: #9ca3af;         /* gray-400 */
+    --scrollbar-thumb-hover: #6b7280;   /* gray-500 */
+    --scrollbar-track: #e5e7eb;         /* gray-200 */
+
+    --run-highlight-outline: rgba(245, 158, 11, 0.7); /* amber-500 */
+    --run-highlight-shadow: rgba(245, 158, 11, 0.3);
+
+    /* Icon badge colors (lighter) */
+    --icon-info-bg: #818cf8;      /* indigo-400 */
+    --icon-collapse-bg: #94a3b8;  /* slate-400 */
+    --icon-glyph: #ffffff;        /* white */
+}
+
+html.dark {
+    /* Dark Theme Color Palette */
+    --bg-primary: #111827;      /* gray-900 */
+    --bg-secondary: #1f2937;    /* gray-800 */
+    --bg-tertiary: #374151;      /* gray-700 */
+    --bg-hover: #374151;      /* gray-700 */
+    --bg-active: #4b5563;      /* gray-600 */
+    --bg-overlay: rgba(0, 0, 0, 0.75);
+    --bg-code: #374151;        /* gray-700 */
+    --bg-code-darker: #111827;  /* gray-900 */
+
+    --text-primary: #f3f4f6;    /* gray-200 */
+    --text-secondary: #9ca3af;  /* gray-400 */
+    --text-accent: #818cf8;      /* indigo-400 */
+    --text-inverted: #111827;    /* gray-900 */
+    --text-link: #a5b4fc;      /* indigo-300 */
+    --text-placeholder: #9ca3af; /* gray-400 */
+    --text-button: #ffffff;
+
+    --border-primary: #374151;  /* gray-700 */
+    --border-secondary: #4b5563;  /* gray-600 */
+    --border-accent: #818cf8;    /* indigo-400 */
+    --border-input: #4b5563;    /* gray-600 */
+    --border-input-focus: #818cf8; /* indigo-400 */
+
+    --scrollbar-thumb: #4b5563;        /* gray-600 */
+    --scrollbar-thumb-hover: #6b7280;  /* gray-500 */
+    --scrollbar-track: #1f2937;        /* gray-800 */
+
+    --run-highlight-outline: rgba(250, 204, 21, 0.7); /* amber-400 */
+    --run-highlight-shadow: rgba(250, 204, 21, 0.3);
+    /* Icon badge colors (dark mode, deeper for contrast) */
+    --icon-info-bg: #4f46e5;      /* indigo-600 */
+    --icon-collapse-bg: #475569;  /* slate-600 */
+    /* --icon-glyph inherits white */
+}
+
+body {  
+    font-family: 'Inter', sans-serif;  
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+/* Global modern scrollbar styling */
+* { scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background-color: transparent; }
+*::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  border-radius: 9999px;
+  border: 2px solid transparent; /* creates airy pill */
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover { background-color: var(--scrollbar-thumb-hover); }
+/* Sidebar keeps same style but a touch slimmer */
+.sidebar-scrollbar::-webkit-scrollbar { width: 6px; }
+.sidebar-scrollbar::-webkit-scrollbar-track { background-color: transparent; }
+.sidebar-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.sidebar-scrollbar::-webkit-scrollbar-thumb:hover { background-color: var(--scrollbar-thumb-hover); }
+.graph-node { cursor: pointer; }
+/* Steps view: use normal cursor */
+#graph-container .graph-node[data-step-name],
+#graph-container .graph-node[data-step-name]:hover,
+#graph-container .step-cluster,
+#graph-container .step-collapse-badge,
+#graph-container .step-info { cursor: default; }
+/* Modern hover hint pill */
+#hover-hint { position: fixed; z-index: 60; pointer-events: none; display: none; opacity: 0; transform: translate3d(0,0,0); padding: 6px 10px; border-radius: 9999px; font-size: 12px; line-height: 1; white-space: nowrap; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-primary); box-shadow: 0 6px 18px rgba(0,0,0,.12); transition: opacity .12s ease, transform .12s ease; }
+#hover-hint.show { display: block; opacity: 1; transform: translate3d(0,0,0); }
+#hover-hint[data-variant="accent"] { border-color: var(--border-accent); box-shadow: 0 6px 18px rgba(99,102,241,.18); }
+
+[data-page] { display: none; }
+[data-page].active { display: block; }
+
+/* MODIFIED: graph-wrapper now handles both views cleanly */
+#graph-wrapper, #tasks-graph-wrapper { 
+    display: flex; 
+    align-items: flex-start; 
+    width: 100%; 
+    height: 100%; 
+    overflow: auto; 
+    min-width: 100%;
+    min-height: 100%;
+    cursor: grab;
+    user-select: none;
+}
+/* Ensure the pan/zoom applies to the inner canvas, not the viewport */
+#graph-wrapper {
+  position: relative !important;
+  display: block !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  transform-origin: 0 0 !important;
+}
+.whitespace-pre-wrap pre {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+#graph-container, #tasks-graph-container {
+  touch-action: none;            /* prevent browser scrolling while panning */
+  overscroll-behavior: contain;  /* avoid viewport scrolling on edges */
+}
+.group-header-container:hover .delete-group-btn, .group-card:hover .delete-group-btn { opacity: 1; }
+.chevron { transition: transform 0.2s ease-in-out; }
+.expanded .chevron { transform: rotate(90deg); }
+.branch-runs { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-in-out; }
+.sidebar-no-transition { transition: none !important; }
+.sidebar-link.active {
+    background-color: var(--bg-active);
+    box-shadow: inset 3px 0 0 0 var(--border-accent);
+}
+.drop-target-highlight {
+    background-color: hsla(242, 59%, 65%, 0.3) !important;
+    outline: 2px dashed var(--border-accent);
+}
+.dragging { opacity: 0.5; }
+
+.run-link-highlight,
+.sidebar-link-highlight > a,
+.sidebar-link-highlight > div {
+    outline: 1.5px solid var(--run-highlight-outline);
+    box-shadow: 0 0 16px 3px var(--run-highlight-shadow);
+}
+
+[data-run-id], [data-run-id] > a {
+    transition: outline 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+}
+.themed-bg-blur {
+    background-color: rgba(249, 250, 251, 0.5); /* gray-50/50 */
+}
+html.dark .themed-bg-blur {
+    background-color: rgba(31, 41, 55, 0.5); /* gray-800/50 */
+}
+/* Style for placeholder SVGs */
+.placeholder-icon {
+    color: var(--text-secondary);
+}
+
+/* --- NEW & IMPROVED Graph Styles --- */
+.edge-path {
+    fill: none;
+    stroke: var(--border-secondary);
+    stroke-width: 2.25px; /* keep default stroke size */
+    stroke-linecap: round;
+    vector-effect: non-scaling-stroke;
+    transition: stroke 0.3s ease, stroke-opacity 0.3s ease, filter 0.3s ease;
+}
+.edge-path--completed {
+    stroke: var(--border-accent);
+}
+.edge-path--running {
+    stroke: url(#edge-gradient);
+    stroke-dasharray: 10;
+    animation: edge-flow 1s linear infinite;
+}
+.edge-path--internal { stroke-opacity: 0.5; }
+/* Halo for main edges to remain visible over content */
+.edge-path-halo {
+  fill: none;
+  stroke: var(--bg-primary);
+  stroke-opacity: 0.92;
+  stroke-width: 6px; /* halo for contrast without thicker lines */
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+/* Subtle pulse for completed (non-running) edges */
+@keyframes edge-completed-pulse {
+    0%, 100% { stroke-opacity: 0.75; }
+    50% { stroke-opacity: 1; }
+}
+.edge-path--completed:not(.edge-path--running) {
+    animation: edge-completed-pulse 2.4s ease-in-out infinite;
+}
+/* Hover highlight for connectors */
+.edge-path--highlight {
+    stroke-width: 2.75px;
+    filter: drop-shadow(0 0 8px rgba(99,102,241,.45));
+}
+/* Fade-in for expanded task clusters (Steps view) */
+@keyframes cluster-fade {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: none; }
+}
+.step-cluster { animation: cluster-fade 200ms ease-out both; }
+@keyframes edge-flow {
+    from { stroke-dashoffset: 20; }
+    to { stroke-dashoffset: 0; }
+}
+.graph-node path {
+     transition: all 0.2s ease-in-out;
+}
+.graph-node:hover path {
+    transform: translate(-12px, -12px) scale(1.3);
+    filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));
+}
+.graph-node:hover text {
+    font-weight: 600;
+}
+/* Extra hover glow for step icons */
+.graph-node:hover {
+    filter: drop-shadow(0 0 10px rgba(99,102,241,.35));
+}
+
+/* --- NEW: Column-based Task View Styles --- */
+.task-view-column {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem; /* 24px */
+    padding: 1rem 0;
+    min-width: 280px;
+}
+.step-card {
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: 0.75rem; /* 12px */
+    box-shadow: 0 1px 3px 0 rgba(0,0,0,0.05), 0 1px 2px 0 rgba(0,0,0,0.03);
+    transition: all 0.2s ease-in-out;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.step-card:hover {
+    border-color: var(--border-accent);
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -1px rgba(0,0,0,0.04);
+    transform: translateY(-2px);
+}
+.step-card__header {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border-primary);
+    cursor: pointer;
+}
+.step-card__body {
+    background-color: var(--bg-primary);
+    padding: 0.75rem;
+    flex-grow: 1;
+    min-height: 100px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.mini-task-node rect {
+    stroke: var(--border-secondary);
+    stroke-width: 1.5px;
+}
+.mini-task-node text {
+    font-size: 11px;
+    font-weight: 500;
+    fill: var(--text-primary);
+}
+.yaml-step-0 { color: #A5B4FC; } /* indigo-300 */
+.yaml-step-1 { color: #6EE7B7; } /* emerald-300 */
+.yaml-step-2 { color: #FCD34D; } /* amber-300 */
+.yaml-step-3 { color: #FDBA74; } /* orange-300 */
+.yaml-step-4 { color: #F9A8D4; } /* pink-300 */
+.yaml-step-5 { color: #93C5FD; } /* blue-300 */
+.yaml-step-6 { color: #A78BFA; } /* violet-400 */
+.yaml-step-7 { color: #F472B6; } /* pink-400 */
+#tasks-graph-wrapper{
+  position: relative !important;
+  display: block !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  transform-origin: 0 0 !important;
+}
+#tasks-graph-container{ position: relative; }
+
+/* --- Step card glow + glass look --- */
+.task-step-card {
+  backdrop-filter: saturate(1.2) blur(4px);
+  border: 1px solid var(--border-primary);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+  transition: box-shadow .2s ease, transform .2s ease, border-color .2s ease;
+  position: relative;
+}
+.task-step-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.12);
+  border-color: var(--border-accent);
+}
+/* Accent ring on hover */
+.task-step-card::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 12px;
+  box-shadow: 0 0 0 0 rgba(99,102,241,0);
+  transition: box-shadow .2s ease;
+  pointer-events: none;
+}
+.task-step-card:hover::after {
+  box-shadow: 0 0 0 2px var(--border-accent), 0 0 18px rgba(99,102,241,.25);
+}
+
+/* status pill in card headers */
+.task-status-pill {
+  font-size: 9px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 9999px;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+}
+
+/* nicer resize handle */
+.resize-handle {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 14px;
+  height: 14px;
+  border-right: 2px solid var(--border-secondary);
+  border-bottom: 2px solid var(--border-secondary);
+  transform: rotate(0deg);
+  opacity: .6;
+}
+
+/* SVG edge glow + animated running stroke */
+.edge-path--glow { filter: drop-shadow(0 1px 8px rgba(99,102,241,.35)) drop-shadow(0 0 14px rgba(99,102,241,.22)); }
+.edge-path--running {
+  stroke-dasharray: 10;
+  animation: edge-flow 1s linear infinite;
+}
+  .log-highlight { background: rgba(180, 220, 255, 0.35); padding: 0 2px; border-radius: 3px; }
+  .log-line--dim { opacity: 0.45; }
+  .log-line--sel { position: relative; }
+  .log-line--sel::before { content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: 8px; }
+  .log-line--sel.c0::before { background: rgba(99,102,241,.10); }  /* indigo */
+  .log-line--sel.c1::before { background: rgba(251,191,36,.10); }  /* amber */
+  .log-line--sel.c2::before { background: rgba(244,63,94,.10); }   /* rose  */
+  .log-line--sel.c3::before { background: rgba(34,197,94,.10); }   /* green */
+  .log-line--sel.c4::before { background: rgba(20,184,166,.10); }  /* teal  */
+  .log-line--sel.c5::before { background: rgba(59,130,246,.10); }  /* blue  */
+  .log-line--sel.c6::before { background: rgba(168,85,247,.10); }  /* purple*/
+  .log-line--sel.c7::before { background: rgba(234,179,8,.10); }   /* yellow*/
+
+html.dark .log-line--sel.c0 { background-color: rgba(129,140,248,.14); }
+html.dark .log-line--sel.c1 { background-color: rgba(52,211,153,.14); }
+html.dark .log-line--sel.c2 { background-color: rgba(251,191,36,.16); }
+html.dark .log-line--sel.c3 { background-color: rgba(125,211,252,.14); }
+html.dark .log-line--sel.c4 { background-color: rgba(232,121,249,.14); }
+html.dark .log-line--sel.c5 { background-color: rgba(190,242,100,.16); }
+html.dark .log-line--sel.c6 { background-color: rgba(253,186,116,.14); }
+html.dark .log-line--sel.c7 { background-color: rgba(252,165,165,.14); }
+/* Per-step inline token highlight */
+.log-step-token.c0 { background-color: rgba(99,102,241,.18); border-radius: 3px; padding: 0 2px; }
+.log-step-token.c1 { background-color: rgba(16,185,129,.18); border-radius: 3px; padding: 0 2px; }
+.log-step-token.c2 { background-color: rgba(245,158,11,.22); border-radius: 3px; padding: 0 2px; }
+.log-step-token.c3 { background-color: rgba(56,189,248,.18); border-radius: 3px; padding: 0 2px; }
+.log-step-token.c4 { background-color: rgba(217,70,239,.18); border-radius: 3px; padding: 0 2px; }
+.log-step-token.c5 { background-color: rgba(132,204,22,.22); border-radius: 3px; padding: 0 2px; }
+.log-step-token.c6 { background-color: rgba(249,115,22,.18); border-radius: 3px; padding: 0 2px; }
+.log-step-token.c7 { background-color: rgba(244,63,94,.18); border-radius: 3px; padding: 0 2px; }
+/* Logs steps sidebar */
+#logs-steps-sidebar { -webkit-overflow-scrolling: touch; }
+.logs-step-item { border: 1px solid var(--border-primary); color: var(--text-primary); background: var(--bg-primary); transition: background .15s ease, border-color .15s ease; }
+.logs-step-item.is-active { border-color: var(--border-accent); box-shadow: 0 0 0 1px var(--border-accent) inset; }
+/* Selected palette background to match log colors */
+.logs-step-item.is-active.c0 { background-color: rgba(99,102,241,.10); }
+.logs-step-item.is-active.c1 { background-color: rgba(16,185,129,.10); }
+.logs-step-item.is-active.c2 { background-color: rgba(245,158,11,.12); }
+.logs-step-item.is-active.c3 { background-color: rgba(56,189,248,.10); }
+.logs-step-item.is-active.c4 { background-color: rgba(217,70,239,.10); }
+.logs-step-item.is-active.c5 { background-color: rgba(132,204,22,.12); }
+.logs-step-item.is-active.c6 { background-color: rgba(249,115,22,.10); }
+.logs-step-item.is-active.c7 { background-color: rgba(244,63,94,.10); }
+html.dark .logs-step-item.is-active.c0 { background-color: rgba(129,140,248,.14); }
+html.dark .logs-step-item.is-active.c1 { background-color: rgba(52,211,153,.14); }
+html.dark .logs-step-item.is-active.c2 { background-color: rgba(251,191,36,.16); }
+html.dark .logs-step-item.is-active.c3 { background-color: rgba(125,211,252,.14); }
+html.dark .logs-step-item.is-active.c4 { background-color: rgba(232,121,249,.14); }
+html.dark .logs-step-item.is-active.c5 { background-color: rgba(190,242,100,.16); }
+html.dark .logs-step-item.is-active.c6 { background-color: rgba(253,186,116,.14); }
+html.dark .logs-step-item.is-active.c7 { background-color: rgba(252,165,165,.14); }
+/* Colored dot for selected items */
+.step-dot { width: 8px; height: 8px; border-radius: 9999px; flex: 0 0 auto; }
+.step-dot.c0 { background-color: #6366f1; }
+.step-dot.c1 { background-color: #10b981; }
+.step-dot.c2 { background-color: #f59e0b; }
+.step-dot.c3 { background-color: #38bdf8; }
+.step-dot.c4 { background-color: #d946ef; }
+.step-dot.c5 { background-color: #84cc16; }
+.step-dot.c6 { background-color: #f97316; }
+.step-dot.c7 { background-color: #f43f5e; }
+.logs-mini-btn { font-size: 11px; padding: 4px 8px; border: 1px solid var(--border-primary); border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary); }
+
+/* zoom control panel */
+#tasks-graph-controls {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 30;
+  display: flex;
+  gap: 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 10px;
+  padding: 6px;
+  box-shadow: 0 6px 16px rgba(0,0,0,.12);
+}
+#tasks-graph-controls button {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+#tasks-graph-controls button:hover {
+  background: var(--bg-tertiary);
+}
+
+/* Task node boxes (mini graphs in Tasks view) */
+.task-node-box {
+  fill: var(--bg-primary);
+  stroke: var(--border-primary);
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+  rx: 10; ry: 10;
+}
+html.dark .task-node-box { fill: var(--bg-tertiary); }
+
+.task-node-label {
+  font-size: 11px;
+}
+
+/* Controls pill for style toggle */
+#tasks-graph-controls {
+  position: absolute; right: 12px; bottom: 12px; z-index: 30;
+  display: flex; gap: 8px; align-items: center;
+}
+#tasks-graph-controls .ctrl {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+#tasks-graph-controls .segmented {
+  display: inline-flex; border-radius: 10px; overflow: hidden;
+  border: 1px solid var(--border-primary);
+}
+#tasks-graph-controls .segmented button {
+  padding: 6px 10px; font-size: 12px; border: 0; background: var(--bg-secondary); color: var(--text-secondary);
+}
+#tasks-graph-controls .segmented button.active {
+  background: var(--bg-tertiary); color: var(--text-primary);
+}
+
+/* Hide page scrollbars when viewing graphs */
+#page-content-wrapper.no-scroll { overflow: hidden !important; }
+#page-content-wrapper.no-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+#page-content-wrapper.no-scroll::-webkit-scrollbar { display: none; }
+
+/* Keep lines crisp - merged into .edge-path above */
+
+.task-graph-mini-container svg { max-width: 100%; max-height: 100%; display: block; }
+.step-cluster { cursor: pointer; }
+
+/* Visual grouping for expanded task clusters in Steps view */
+.step-cluster-box {
+  fill: var(--bg-secondary);
+  stroke: var(--border-primary);
+  stroke-width: 1.25px;
+  vector-effect: non-scaling-stroke;
+  opacity: .2; /* lighter so main step edges remain vivid over boxes */
+}
+html.dark .step-cluster-box { fill: var(--bg-tertiary); opacity: .18; }
