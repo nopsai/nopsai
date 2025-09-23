@@ -38,20 +38,12 @@
 
     function initLogsUIControls() {
         const wrap = document.getElementById('logs-toggle-wrap');
-        const ts = document.getElementById('logs-toggle-ts');
         const structured = document.getElementById('logs-toggle-structured');
 
         if (wrap) {
             wrap.checked = !!state.logsWrap;
             wrap.addEventListener('change', () => {
                 state.logsWrap = !!wrap.checked;
-                renderLogsWithFilters();
-            });
-        }
-        if (ts) {
-            ts.checked = !!state.logsShowTimestamps;
-            ts.addEventListener('change', () => {
-                state.logsShowTimestamps = !!ts.checked;
                 renderLogsWithFilters();
             });
         }
@@ -260,7 +252,6 @@
         const logs = state._logsRaw || [];
         const selected = state.logsSelectedSteps || new Set();
         const query = (state.logsSearchText || '').toLowerCase();
-        const showTs = !!state.logsShowTimestamps;
         const structuredOn = !!state.logsStructured;
         const wrap = !!state.logsWrap;
         const levelFilter = state.logsLevelFilter || new Set(['info','warn','error','debug']);
@@ -295,7 +286,7 @@
             }
         
             const tsMatch = rawLine.match(/^(\d{1,2}:\d{2}:\d{2}\s[AP]M)\s*/);
-            const ts = log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '';
+            let ts = log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '';
             if (tsMatch) {
                 rawLine = rawLine.substring(tsMatch[0].length);
             }
@@ -315,6 +306,9 @@
             if (structuredOn && jsonStart !== -1) {
                 try {
                     const json = JSON.parse(rawLine.substring(jsonStart));
+                    if (json.time) {
+                        ts = new Date(json.time * 1000).toLocaleTimeString();
+                    }
                     return renderStructured(json, {rawLine, i, ts, selClass, dimClass, log });
                 } catch { /* Fall through */ }
             }
@@ -328,7 +322,7 @@
                 matches++;
                 line = line.replace(rx, `<span class="log-highlight" data-match-index="${matches - 1}">$1</span>`);
             }
-            const left = showTs ? `<span class="text-[var(--text-secondary)] select-none pr-3">${ts}</span>` : '';
+            const left = `<span class="text-[var(--text-secondary)] select-none pr-3">${ts}</span>`;
             const textColorClass = isSelectedLine ? `log-line-text c${lineColorIdx}` : '';
         
             return `<div class="log-line log-line-raw ${selClass} ${dimClass}">
@@ -503,7 +497,7 @@ function renderStructured(json, ctx) {
   return `
         <div class="flex flex-col ${dimClass} ${selClass}">
           <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs">
-            ${showTs ? `<span class="text-[var(--text-secondary)] select-none">${ctx.ts}</span>` : ''}
+            <span class="text-[var(--text-secondary)] select-none">${ctx.ts}</span>
             <span class="font-semibold px-2 py-0.5 rounded-full ${colors.levelBg} ${colors.levelText}">${badgeLabel}</span>
             ${tagsBlock || ''}
           </div>
