@@ -532,3 +532,48 @@ html.dark .step-cluster-box { fill: var(--bg-tertiary); opacity: .18; }
 #logs-container pre {
   margin: 0;
 }
+
+.log-highlight.active {
+  background-color: #f59e0b; /* A brighter, more distinct color for the active match */
+  color: #1f2937; /* Dark text for better contrast on the bright background */
+}
+
+.log-line-raw {
+    display: flex;
+}
+
+.log-line-raw .log-line-content {
+    /* Default to wrapped */
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin: 1;
+    flex-grow: 1;
+}
+
+/* When unwrapped, apply no-wrap style to the pre tag */
+.logs-unwrapped .log-line-raw .log-line-content {
+    white-space: pre;
+}
+
+/* Also ensure the main container can scroll horizontally when unwrapped */
+.logs-unwrapped {
+    overflow-x: auto;
+}
+
+#logs-container > .log-line-raw,
+#logs-container > .flex.flex-col {
+    padding-bottom: 2rem; /* Adjust this value for more or less space */
+    transition: padding-bottom 0.2s ease-in-out; /* Smooth transition */
+}
+
+/* 2. When unwrapped, REMOVE the padding from BOTH raw and structured log entries. */
+.logs-unwrapped .log-line-raw,
+.logs-unwrapped .flex.flex-col {
+    padding-bottom: 0;
+}
+
+/* 3. When unwrapped, slightly tighten the line-height of BOTH log types for a compact view. */
+.logs-unwrapped .log-line-raw .log-line-content,
+.logs-unwrapped .flex.flex-col .leading-6 { /* Targets the body of structured logs */
+    line-height: 1.4;
+}

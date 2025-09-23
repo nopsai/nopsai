@@ -10,76 +10,76 @@
     }
 
     function showLogsModal() {
-  if (!state.currentRunData) return;
-  const runId = state.currentRunData.run_info.run_id;
-  const isComplete = state.currentRunData.run_info.is_complete;
+        if (!state.currentRunData) return;
+        const runId = state.currentRunData.run_info.run_id;
+        const isComplete = state.currentRunData.run_info.is_complete;
 
-  document.getElementById('logs-modal-title').textContent = `Agent Logs for run ${runId.slice(0, 8)}`;
-  DOM.logsContainer.innerHTML = `<p class="text-[var(--text-secondary)]">Loading logs...</p>`;
+        document.getElementById('logs-modal-title').textContent = `Agent Logs for run ${runId.slice(0, 8)}`;
+        DOM.logsContainer.innerHTML = `<p class="text-[var(--text-secondary)]">Loading logs...</p>`;
 
-  // Open modal animation
-  DOM.logsModal.classList.remove('hidden');
-  setTimeout(() => {
-DOM.logsModal.classList.add('opacity-100');
-DOM.logsModalContent.classList.remove('scale-95');
-  }, 10);
+        DOM.logsModal.classList.remove('hidden');
+        setTimeout(() => {
+            DOM.logsModal.classList.add('opacity-100');
+            DOM.logsModalContent.classList.remove('scale-95');
+        }, 10);
 
-  // Build filters + bind controls
-  try { buildLogsFilters(); } catch {}
-  try { initLogsUIControls(); } catch {}
+        try { buildLogsFilters(); } catch {}
+        try { initLogsUIControls(); } catch {}
 
-  fetchAndRenderLogs(runId);
-  if (!isComplete) {
-if (state.logPollingInterval) clearInterval(state.logPollingInterval);
-state.logPollingInterval = setInterval(() => fetchAndRenderLogs(runId), 3000);
-  }
-}
+        fetchAndRenderLogs(runId);
+        if (!isComplete) {
+            if (state.logPollingInterval) clearInterval(state.logPollingInterval);
+            state.logPollingInterval = setInterval(() => fetchAndRenderLogs(runId), 3000);
+        }
+    }
 
-function initLogsUIControls() {
-  const wrap = document.getElementById('logs-toggle-wrap');
-  const ts = document.getElementById('logs-toggle-ts');
-  const structured = document.getElementById('logs-toggle-structured');
+    function initLogsUIControls() {
+        const wrap = document.getElementById('logs-toggle-wrap');
+        const ts = document.getElementById('logs-toggle-ts');
+        const structured = document.getElementById('logs-toggle-structured');
 
-  if (wrap) {
-wrap.checked = !!state.logsWrap;
-wrap.addEventListener('change', () => {
-  state.logsWrap = !!wrap.checked;
-  renderLogsWithFilters();
-});
-  }
-  if (ts) {
-ts.checked = !!state.logsShowTimestamps;
-ts.addEventListener('change', () => {
-  state.logsShowTimestamps = !!ts.checked;
-  renderLogsWithFilters();
-});
-  }
-  if (structured) {
-structured.checked = !!state.logsStructured;
-structured.addEventListener('change', () => {
-  state.logsStructured = !!structured.checked;
-  renderLogsWithFilters();
-});
-  }
+        if (wrap) {
+            wrap.checked = !!state.logsWrap;
+            wrap.addEventListener('change', () => {
+                state.logsWrap = !!wrap.checked;
+                renderLogsWithFilters();
+            });
+        }
+        if (ts) {
+            ts.checked = !!state.logsShowTimestamps;
+            ts.addEventListener('change', () => {
+                state.logsShowTimestamps = !!ts.checked;
+                renderLogsWithFilters();
+            });
+        }
+        if (structured) {
+            structured.checked = !!state.logsStructured;
+            structured.addEventListener('change', () => {
+                state.logsStructured = !!structured.checked;
+                renderLogsWithFilters();
+            });
+        }
 
-  // Level chips
-  document.querySelectorAll('[data-level-chip]').forEach(btn => {
-const lvl = btn.getAttribute('data-level-chip');
-const activate = () => btn.classList.add('ring-1','ring-[var(--border-accent)]','text-[var(--text-primary)]');
-const deactivate = () => btn.classList.remove('ring-1','ring-[var(--border-accent)]','text-[var(--text-primary)]');
+        document.querySelectorAll('[data-level-chip]').forEach(btn => {
+            const lvl = btn.getAttribute('data-level-chip');
+            const activate = () => btn.classList.add('ring-1','ring-[var(--border-accent)]','text-[var(--text-primary)]');
+            const deactivate = () => btn.classList.remove('ring-1','ring-[var(--border-accent)]','text-[var(--text-primary)]');
 
-if (state.logsLevelFilter.has(lvl)) activate(); else deactivate();
+            if (state.logsLevelFilter.has(lvl)) activate(); else deactivate();
 
-btn.addEventListener('click', () => {
-  if (state.logsLevelFilter.has(lvl)) state.logsLevelFilter.delete(lvl);
-  else state.logsLevelFilter.add(lvl);
-  // visual state
-  if (state.logsLevelFilter.has(lvl)) activate(); else deactivate();
-  state._logsFocusFirstMatch = true;
-  renderLogsWithFilters();
-});
-  });
-}
+            btn.addEventListener('click', () => {
+                if (state.logsLevelFilter.has(lvl)) state.logsLevelFilter.delete(lvl);
+                else state.logsLevelFilter.add(lvl);
+                if (state.logsLevelFilter.has(lvl)) activate(); else deactivate();
+                state._logsFocusFirstMatch = true;
+                renderLogsWithFilters();
+            });
+        });
+
+        // Event listeners for search navigation
+        DOM.logsSearchNext.addEventListener('click', () => navigateSearch('next'));
+        DOM.logsSearchPrev.addEventListener('click', () => navigateSearch('prev'));
+    }
 
     function closeLogsModal() {
         if (state.logPollingInterval) clearInterval(state.logPollingInterval);
@@ -126,73 +126,96 @@ btn.addEventListener('click', () => {
         }).join('');
     }
 
-function parseKVLine(raw) {
-  // Robust key=value parser.
-  // - Keys: [A-Za-z0-9_-]+
-  // - Values: either unquoted (no whitespace) or double-quoted strings
-  //   that may span multiple lines and include escaped quotes \" and escapes \\ etc.
-  // Returns { hasKV: boolean, kv: object }
-  const kv = {};
-  let i = 0;
-  const n = raw.length;
+    function parseKVLine(raw) {
+      const kv = {};
+      let i = 0;
+      const n = raw.length;
 
-  const isSpace = ch => /\s/.test(ch);
-  const isKeyChar = ch => /[A-Za-z0-9_-]/.test(ch);
+      const isSpace = ch => /\s/.test(ch);
+      const isKeyChar = ch => /[A-Za-z0-9_-]/.test(ch);
 
-  while (i < n) {
-// skip leading whitespace
-while (i < n && isSpace(raw[i])) i++;
-if (i >= n) break;
+      while (i < n) {
+        while (i < n && isSpace(raw[i])) i++;
+        if (i >= n) break;
 
-// read key
-const kStart = i;
-while (i < n && isKeyChar(raw[i])) i++;
-const key = raw.slice(kStart, i);
-if (!key) { i++; continue; }
+        const kStart = i;
+        while (i < n && isKeyChar(raw[i])) i++;
+        const key = raw.slice(kStart, i);
+        if (!key) { i++; continue; }
 
-// find separator (= or :) after optional whitespace
-let sepIndex = i;
-while (sepIndex < n && isSpace(raw[sepIndex])) sepIndex++;
-if (sepIndex >= n) { kv[key] = ''; break; }
+        let sepIndex = i;
+        while (sepIndex < n && isSpace(raw[sepIndex])) sepIndex++;
+        if (sepIndex >= n) { kv[key] = ''; break; }
 
-const sep = raw[sepIndex];
-if (sep !== '=' && sep !== ':') {
-  // not a key/value pair; continue scanning from the first non-space char we found
-  i = sepIndex;
-  continue;
-}
+        const sep = raw[sepIndex];
+        if (sep !== '=' && sep !== ':') {
+          i = sepIndex;
+          continue;
+        }
 
-// move i to the first character of the value
-i = sepIndex + 1;
-while (i < n && isSpace(raw[i])) i++;
-if (i >= n) { kv[key] = ''; break; }
+        i = sepIndex + 1;
+        while (i < n && isSpace(raw[i])) i++;
+        if (i >= n) { kv[key] = ''; break; }
 
-// read value
-let val = '';
-if (raw[i] === '"') {
-  i++; // skip opening quote
-  let esc = false;
-  while (i < n) {
-    const ch = raw[i];
-    if (esc) { val += ch; esc = false; i++; continue; }
-    if (ch === '\\') { esc = true; i++; continue; }
-    if (ch === '"') { i++; break; }
-    val += ch; i++;
-  }
-} else {
-  // unquoted value ends at whitespace
-  const vStart = i;
-  while (i < n && !isSpace(raw[i])) i++;
-  val = raw.slice(vStart, i);
-}
-
-kv[key] = val;
-  }
-
-  return { hasKV: Object.keys(kv).length > 0, kv };
-}
+        let val = '';
+        if (raw[i] === '"') {
+          i++; 
+          let esc = false;
+          while (i < n) {
+            const ch = raw[i];
+            if (esc) { val += ch; esc = false; i++; continue; }
+            if (ch === '\\') { esc = true; i++; continue; }
+            if (ch === '"') { i++; break; }
+            val += ch; i++;
+          }
+        } else {
+          const vStart = i;
+          while (i < n && !isSpace(raw[i])) i++;
+          val = raw.slice(vStart, i);
+        }
+        kv[key] = val;
+      }
+      return { hasKV: Object.keys(kv).length > 0, kv };
+    }
+    
     function escapeRegExp(str){ return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
+    function updateSearchNav() {
+        if (state._logsSearchMatches.length > 0) {
+            DOM.logSearchNav.classList.remove('hidden');
+            DOM.logsSearchMatches.textContent = `${state._logsSearchMatchIndex + 1} / ${state._logsSearchMatches.length}`;
+        } else {
+            DOM.logSearchNav.classList.add('hidden');
+        }
+    }
+
+    function navigateSearch(direction) {
+        if (state._logsSearchMatches.length === 0) return;
+
+        if (state._logsSearchMatchIndex !== -1 && state._logsSearchMatches[state._logsSearchMatchIndex]) {
+            state._logsSearchMatches[state._logsSearchMatchIndex].classList.remove('active');
+        }
+
+        if (direction === 'next') {
+            state._logsSearchMatchIndex++;
+            if (state._logsSearchMatchIndex >= state._logsSearchMatches.length) {
+                state._logsSearchMatchIndex = 0;
+            }
+        } else {
+            state._logsSearchMatchIndex--;
+            if (state._logsSearchMatchIndex < 0) {
+                state._logsSearchMatchIndex = state._logsSearchMatches.length - 1;
+            }
+        }
+
+        const activeMatch = state._logsSearchMatches[state._logsSearchMatchIndex];
+        if (activeMatch) {
+            activeMatch.classList.add('active');
+            activeMatch.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+        updateSearchNav();
+    }
+    
     function renderLogsWithFilters() {
         const logs = state._logsRaw || [];
         const selected = state.logsSelectedSteps || new Set();
@@ -202,10 +225,11 @@ kv[key] = val;
         const wrap = !!state.logsWrap;
         const levelFilter = state.logsLevelFilter || new Set(['info','warn','error','debug']);
         
-        DOM.logsContainer.classList.toggle('whitespace-pre-wrap', wrap);
-        DOM.logsContainer.classList.toggle('whitespace-pre', !wrap);
-        DOM.logsContainer.classList.toggle('overflow-x-auto', !wrap);
+        DOM.logsContainer.classList.toggle('logs-unwrapped', !wrap);
         
+        state._logsSearchMatches = [];
+        state._logsSearchMatchIndex = -1;
+
         const ansiRegex = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
         const colorConfig = {
             info:   { levelBg: 'bg-indigo-100 dark:bg-indigo-900', levelText: 'text-indigo-600 dark:text-indigo-300', borderColor: 'border-indigo-500' },
@@ -262,13 +286,13 @@ kv[key] = val;
             let line = rawLine.replace(/</g, '&lt;').replace(/>/g, '&gt;');
             if (rx && rawLine.toLowerCase().includes(query)) {
                 matches++;
-                line = line.replace(rx, `<span class="log-highlight">$1</span>`);
+                line = line.replace(rx, `<span class="log-highlight" data-match-index="${matches - 1}">$1</span>`);
             }
             const left = showTs ? `<span class="text-[var(--text-secondary)] select-none pr-3">${ts}</span>` : '';
             const textColorClass = isSelectedLine ? `log-line-text c${lineColorIdx}` : '';
         
-            return `<div class="log-line-raw-content">
-${left}<span class="${textColorClass}">${line}</span>
+            return `<div class="log-line log-line-raw ${selClass} ${dimClass}">
+    <pre class="log-line-content">${left}<span class="${textColorClass}">${line}</span></pre>
 </div>`;
 
 function renderStructured(json, ctx) {
@@ -293,7 +317,6 @@ function renderStructured(json, ctx) {
   const level = String(levelCandidateRaw || 'info').toLowerCase();
   if (!levelFilter.has(level)) return '';
 
-  // step selection tinting
   let isSelectedLine = false;
   let lineColorIdx = -1;
   if (selected.size > 0) {
@@ -306,7 +329,6 @@ function renderStructured(json, ctx) {
   const dimClass = (selected.size > 0 && !isSelectedLine) ? ' log-line--dim' : '';
   const selClass = (isSelectedLine && lineColorIdx >= 0) ? ` log-line--sel c${lineColorIdx}` : '';
 
-  // detail rows
   const tagValues = new Map();
   const detailRows = [];
   let fallbackOrder = preferredDetailOrder.size;
@@ -318,7 +340,7 @@ function renderStructured(json, ctx) {
     if (['message','level','time','output','action'].includes(keyLower)) continue;
     const vStr = String(json[key]);
     const trimmed = vStr.trim();
-    const vHtml = rx && vStr.toLowerCase().includes(query) ? vStr.replace(rx, '<span class="log-highlight">$1</span>') : vStr;
+    const vHtml = rx && vStr.toLowerCase().includes(query) ? vStr.replace(rx, `<span class="log-highlight" data-match-index="${matches}">$1</span>`) : vStr;
     if (rx && vStr.toLowerCase().includes(query)) matches++;
     if (tagKeys.includes(keyLower)) {
       if (!tagValues.has(keyLower) && trimmed) tagValues.set(keyLower, { raw: trimmed, display: vHtml });
@@ -338,7 +360,7 @@ function renderStructured(json, ctx) {
       const vStr = String(rawVal);
       const trimmed = vStr.trim();
       const isMultiline = vStr.includes('\n');
-      const vHtml = rx && vStr.toLowerCase().includes(query) ? vStr.replace(rx, '<span class="log-highlight">$1</span>') : vStr;
+      const vHtml = rx && vStr.toLowerCase().includes(query) ? vStr.replace(rx, `<span class="log-highlight" data-match-index="${matches}">$1</span>`) : vStr;
       if (rx && vStr.toLowerCase().includes(query)) matches++;
       if (tagKeys.includes(keyLower)) {
         if (!tagValues.has(keyLower) && trimmed) tagValues.set(keyLower, { raw: trimmed, display: vHtml });
@@ -358,9 +380,7 @@ function renderStructured(json, ctx) {
   }
 
   detailRows.sort((a, b) => a.order - b.order);
-  const detailsHTML = detailRows.map(r => r.markup).join('');
 
-  // action block (prefers message-derived value)
   let actionBlock = '';
   let actionSource = undefined;
   if (Object.prototype.hasOwnProperty.call(messagePairs, 'action')) {
@@ -372,7 +392,7 @@ function renderStructured(json, ctx) {
     const actionRaw = String(actionSource ?? '');
     const actionLower = actionRaw.toLowerCase();
     const actionHit = rx && actionLower.includes(query);
-    const actionDisplay = actionHit ? actionRaw.replace(rx, '<span class="log-highlight">$1</span>') : actionRaw;
+    const actionDisplay = actionHit ? actionRaw.replace(rx, `<span class="log-highlight" data-match-index="${matches}">$1</span>`) : actionRaw;
     if (actionHit) matches++;
     const actionPretty = actionDisplay.replace(/\r/g, '');
     actionBlock = `<div class="mt-1 flex items-start gap-2">
@@ -387,7 +407,6 @@ function renderStructured(json, ctx) {
     if (message.endsWith('•')) message = message.slice(0, -1).trim();
   }
 
-  // output block (prefers message-derived value)
   let outputBlock = '';
   const hasMessageOutput = Object.prototype.hasOwnProperty.call(messagePairs, 'output');
   if (hasMessageOutput || Object.prototype.hasOwnProperty.call(json, 'output')) {
@@ -395,7 +414,7 @@ function renderStructured(json, ctx) {
     const outStr = String(outVal);
     const outLower = outStr.toLowerCase();
     const hit = rx && outLower.includes(query);
-    const outDisplay = hit ? outStr.replace(rx, '<span class="log-highlight">$1</span>') : outStr;
+    const outDisplay = hit ? outStr.replace(rx, `<span class="log-highlight" data-match-index="${matches}">$1</span>`) : outStr;
     if (hit) matches++;
     if (outStr === '') {
       outputBlock = `<div class="mt-1 flex items-start gap-2">
@@ -416,7 +435,7 @@ function renderStructured(json, ctx) {
   }
 
   if (message && rx && message.toLowerCase().includes(query)) {
-    message = message.replace(rx, '<span class="log-highlight">$1</span>');
+    message = message.replace(rx, `<span class="log-highlight" data-match-index="${matches}">$1</span>`);
     matches++;
   }
 
@@ -494,10 +513,13 @@ function deriveLevelFromStatus(status) {
   return 'error';
 }
 
-    }).filter(Boolean).join(''); // This .filter(Boolean) will now remove the null entries from empty lines.
+    }).filter(Boolean).join(''); 
 
     DOM.logsContainer.innerHTML = html || `<p class="text-[var(--text-secondary)]">No matching logs.</p>`;
-
+    
+    state._logsSearchMatches = Array.from(DOM.logsContainer.querySelectorAll('.log-highlight'));
+    updateSearchNav();
+    
     if (DOM.logsCount) {
         const total = logs.length || 0;
         DOM.logsCount.textContent = query && total ? `${matches} matches • ${total} lines` : (total ? `${total} lines` : '');
@@ -516,7 +538,7 @@ function deriveLevelFromStatus(status) {
         DOM.logsContainer.scrollTop = DOM.logsContainer.scrollHeight;
     }
 }
-
+    
     global.logs = {
         init,
         showLogsModal,
@@ -527,5 +549,7 @@ function deriveLevelFromStatus(status) {
         buildLogsFilters,
         updateLogsStepList,
         renderLogsWithFilters,
+        navigateSearch, 
+        updateSearchNav
     };
 })(window.NopsAI = window.NopsAI || {});
