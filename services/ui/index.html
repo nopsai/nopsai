@@ -230,15 +230,7 @@
               <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
           </div>
-          <div id="logs-search-nav" class="flex items-center gap-1 text-xs text-[var(--text-secondary)]">
-            <span id="logs-count"></span>
-            <button type="button" id="logs-search-prev" title="Previous match" class="p-1 rounded-md hover:bg-[var(--bg-tertiary)] disabled:opacity-50 disabled:cursor-not-allowed">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" /></svg>
-            </button>
-            <button type="button" id="logs-search-next" title="Next match" class="p-1 rounded-md hover:bg-[var(--bg-tertiary)] disabled:opacity-50 disabled:cursor-not-allowed">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
-            </button>
-          </div>
+          <span id="logs-count" class="text-[var(--text-secondary)] text-xs"></span>
         </div>
 
         <div id="logs-container" class="p-4 flex-1 overflow-y-auto bg-[var(--bg-primary)] font-mono text-sm ..."></div>
