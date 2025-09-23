@@ -22,6 +22,9 @@
             DOM.logsModal.classList.add('opacity-100');
             DOM.logsModalContent.classList.remove('scale-95');
         }, 10);
+        
+        state.presentLogLevels = new Set();
+        updateLogLevelFiltersVisibility();
 
         try { buildLogsFilters(); } catch {}
         try { initLogsUIControls(); } catch {}
@@ -94,9 +97,32 @@
         const logs = await fetchData(`/v1/runs/${runId}/logs`);
         if (logs && logs.length > 0) {
             state._logsRaw = logs;
+
+            // Analyze the logs to find unique levels
+            const presentLevels = new Set();
+            logs.forEach(log => {
+                try {
+                    const line = (log.line || '').trim();
+                    const jsonStart = line.indexOf('{');
+                    if (jsonStart !== -1) {
+                        const json = JSON.parse(line.substring(jsonStart));
+                        if (json.level) {
+                            presentLevels.add(json.level.toLowerCase());
+                        }
+                    }
+                } catch (e) { /* Ignore parsing errors */ }
+            });
+            // Also account for simple, non-structured log levels if needed
+            if (!presentLevels.has('info')) presentLevels.add('info');
+
+
+            state.presentLogLevels = presentLevels;
+            updateLogLevelFiltersVisibility(); // Update the UI based on the findings
+            
             renderLogsWithFilters();
         } else if (DOM.logsContainer.innerHTML.includes('Loading')) {
             DOM.logsContainer.innerHTML = `<p class="text-[var(--text-secondary)]">No logs yet...</p>`;
+            updateLogLevelFiltersVisibility(); // Ensure buttons are hidden if no logs
         }
     }
 
@@ -114,6 +140,7 @@
         const q = (DOM.logsStepSearch?.value || '').toLowerCase();
         const steps = (state.logsAllSteps || []).filter(n => !q || n.toLowerCase().includes(q));
         const selectedOrder = Array.from(state.logsSelectedSteps || []);
+
         list.innerHTML = steps.map(name => {
           const isSelected = state.logsSelectedSteps.has(name);
           const idx = isSelected ? (selectedOrder.indexOf(name) % 8) : -1;
@@ -178,6 +205,19 @@
       return { hasKV: Object.keys(kv).length > 0, kv };
     }
     
+    function updateLogLevelFiltersVisibility() {
+        const presentLevels = state.presentLogLevels || new Set();
+        const allLevels = ['info', 'warn', 'error', 'debug'];
+    
+        allLevels.forEach(level => {
+            const button = document.querySelector(`[data-level-chip="${level}"]`);
+            if (button) {
+                // Show the button only if its level is in the set of present levels
+                button.classList.toggle('hidden', !presentLevels.has(level));
+            }
+        });
+    }
+
     function escapeRegExp(str){ return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
     function updateSearchNav() {
@@ -216,7 +256,7 @@
         updateSearchNav();
     }
     
-    function renderLogsWithFilters() {
+    function renderLogsWithFilters(options = {}) {
         const logs = state._logsRaw || [];
         const selected = state.logsSelectedSteps || new Set();
         const query = (state.logsSearchText || '').toLowerCase();
@@ -314,7 +354,7 @@ function renderStructured(json, ctx) {
     ? json.status
     : (Object.prototype.hasOwnProperty.call(messagePairs, 'status') ? messagePairs.status : undefined);
   const levelCandidateRaw = json.level || (statusTextRaw ? deriveLevelFromStatus(statusTextRaw) : 'info');
-  const level = String(levelCandidateRaw || 'info').toLowerCase();
+  const level = String(json.level || 'info').toLowerCase();
   if (!levelFilter.has(level)) return '';
 
   let isSelectedLine = false;
@@ -448,11 +488,8 @@ function renderStructured(json, ctx) {
     message = '';
   }
 
-  const statusText = statusTextRaw ? String(statusTextRaw) : null;
-  const isSuccess = statusText && statusText.toLowerCase() === 'success';
-  const colors = isSuccess ? colorConfig.success : (colorConfig[level] || colorConfig.default);
-  const badgeLabelSource = statusText || (Object.prototype.hasOwnProperty.call(messagePairs, 'status') ? messagePairs.status : levelCandidateRaw) || 'INFO';
-  const badgeLabel = String(badgeLabelSource).toUpperCase();
+  const colors = colorConfig[level] || colorConfig.default;
+  const badgeLabel = level.toUpperCase();
 
   const tagsBlock = renderTagPills(tagValues, { inline: true });
   const bodyPieces = [];
@@ -517,27 +554,30 @@ function deriveLevelFromStatus(status) {
 
     DOM.logsContainer.innerHTML = html || `<p class="text-[var(--text-secondary)]">No matching logs.</p>`;
     
-    state._logsSearchMatches = Array.from(DOM.logsContainer.querySelectorAll('.log-highlight'));
-    updateSearchNav();
-    
-    if (DOM.logsCount) {
-        const total = logs.length || 0;
-        DOM.logsCount.textContent = query && total ? `${matches} matches • ${total} lines` : (total ? `${total} lines` : '');
-    }
+        state._logsSearchMatches = Array.from(DOM.logsContainer.querySelectorAll('.log-highlight'));
+        updateSearchNav();
+        
+        if (DOM.logsCount) {
+            const total = logs.length || 0;
+            DOM.logsCount.textContent = query && total ? `${matches} matches • ${total} lines` : (total ? `${total} lines` : '');
+        }
 
-    if (state._logsFocusFirstMatch) {
-        requestAnimationFrame(() => {
-            let target = DOM.logsContainer.querySelector('.log-highlight');
-            if (target) target = target.closest('.log-line-structured') || target.closest('.log-line') || target;
-            if (target && typeof target.scrollIntoView === 'function') {
-                try { target.scrollIntoView({ block: 'start' }); } catch { target.scrollIntoView(); }
-            }
-            state._logsFocusFirstMatch = false;
-        });
-    } else if (DOM.followLogsCheckbox && DOM.followLogsCheckbox.checked) {
-        DOM.logsContainer.scrollTop = DOM.logsContainer.scrollHeight;
+        // New logic to handle scrolling
+        if (options.scrollToTop) {
+            DOM.logsContainer.scrollTop = 0;
+        } else if (state._logsFocusFirstMatch) {
+            requestAnimationFrame(() => {
+                let target = DOM.logsContainer.querySelector('.log-highlight');
+                if (target) target = target.closest('.log-line-structured') || target.closest('.log-line') || target;
+                if (target && typeof target.scrollIntoView === 'function') {
+                    try { target.scrollIntoView({ block: 'start' }); } catch { target.scrollIntoView(); }
+                }
+                state._logsFocusFirstMatch = false;
+            });
+        } else if (DOM.followLogsCheckbox && DOM.followLogsCheckbox.checked) {
+            DOM.logsContainer.scrollTop = DOM.logsContainer.scrollHeight;
+        }
     }
-}
     
     global.logs = {
         init,
