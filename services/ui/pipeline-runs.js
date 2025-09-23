@@ -1099,90 +1099,90 @@ if (dx !== 0 || dy !== 0) {
 // services/ui/index.html
 
     function renderRunView(runDetails) {
-        const runInfo = runDetails.run_info;
-        const branchName = (runInfo.git_ref || '').startsWith('refs/heads/') ? runInfo.git_ref.split('/')[2] : runInfo.git_ref;
-        const repoFullName = runInfo.git_repo_owner ? `${runInfo.git_repo_owner} / ${runInfo.git_repo_name}` : runInfo.git_repo_name;
+    const runInfo = runDetails.run_info;
+    const branchName = (runInfo.git_ref || '').startsWith('refs/heads/') ? runInfo.git_ref.split('/')[2] : runInfo.git_ref;
+    const repoFullName = runInfo.git_repo_owner ? `${runInfo.git_repo_owner} / ${runInfo.git_repo_name}` : runInfo.git_repo_name;
 
-        const repoGroup = state.groups.find(g => g.name === `${runInfo.git_repo_owner}/${runInfo.git_repo_name}`);
-        const repoLink = repoGroup ? `#/pipelineruns/main/${repoGroup.id}` : '#/pipelineruns/main';
+    const repoGroup = state.groups.find(g => g.name === `${runInfo.git_repo_owner}/${runInfo.git_repo_name}`);
+    const repoLink = repoGroup ? `#/pipelineruns/main/${repoGroup.id}` : '#/pipelineruns/main';
 
-        let headerHTML = `<div class="w-full min-w-0">`;
+    let headerHTML = `<div class="w-full min-w-0">`;
 
-        if (runDetails.parent_run_info) {
-            headerHTML += `
-                <div class="mb-2">
-                    <a href="#/pipelineruns/run/${runDetails.parent_run_info.run_id}" class="text-sm text-[var(--text-link)] hover:underline">
-                        &larr; Back to parent: ${runDetails.parent_run_info.pipeline_name}
+    if (runDetails.parent_run_info) {
+        headerHTML += `
+            <div class="mb-2">
+                <a href="#/pipelineruns/run/${runDetails.parent_run_info.run_id}" class="text-sm text-[var(--text-link)] hover:underline">
+                    &larr; Back to parent: ${runDetails.parent_run_info.pipeline_name}
+                </a>
+            </div>
+        `;
+    }
+
+    headerHTML += `
+            <div class="flex flex-wrap items-baseline gap-x-3 min-w-0">
+                <a href="${repoLink}" class="text-xl font-semibold text-[var(--text-secondary)] hover:text-[var(--text-accent)] transition-colors truncate">${repoFullName}</a>
+                <a href="#" id="view-pipeline-definition-link" class="text-xl font-semibold text-[var(--text-primary)] hover:text-[var(--text-accent)] transition-colors truncate">${runInfo.pipeline_name}</a>
+            </div>
+            <div class="text-xs text-[var(--text-secondary)] mt-2 font-mono grid grid-cols-[auto,1fr] gap-x-4 w-full max-w-3xl">
+                <span class="text-gray-500 justify-self-end truncate">Run ID:</span>
+                <span class="truncate">${runInfo.run_id}</span>
+                <span class="text-gray-500 justify-self-end truncate">Commit:</span>
+                <span class="truncate">${runInfo.git_commit_sha}</span>
+            </div>
+            <div class="text-sm text-[var(--text-secondary)] mt-2 flex flex-wrap items-center gap-x-6 gap-y-1">
+                <div class="flex items-center" title="Duration">
+                    <svg class="h-4 w-4 mr-1.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    <span>${runInfo.duration || '0s'}</span>
+                </div>
+                <div class="flex items-center" title="Committer">
+                    <svg class="h-4 w-4 mr-1.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                    <span>${runInfo.git_pusher_name || 'N/A'}</span>
+                </div>
+                <div class="flex items-center" title="Branch">
+                    <svg class="h-4 w-4 mr-1.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                    <span>${branchName}</span>
+                </div>
+                <div class="ml-auto flex items-center gap-3">
+                    <a href="#/pipelineruns/run/${runInfo.run_id}/logs" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-accent)]">
+                        <svg class="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7" /></svg>
+                        View Logs
                     </a>
                 </div>
-            `;
-        }
+            </div>
+        </div>`;
 
-        headerHTML += `
-                <div class="flex flex-wrap items-baseline gap-x-3 min-w-0">
-                    <a href="${repoLink}" class="text-xl font-semibold text-[var(--text-secondary)] hover:text-[var(--text-accent)] transition-colors truncate">${repoFullName}</a>
-                    <a href="#" id="view-pipeline-definition-link" class="text-xl font-semibold text-[var(--text-primary)] hover:text-[var(--text-accent)] transition-colors truncate">${runInfo.pipeline_name}</a>
-                </div>
-                <div class="text-xs text-[var(--text-secondary)] mt-2 font-mono grid grid-cols-[auto,1fr] gap-x-4 w-full max-w-3xl">
-                    <span class="text-gray-500 justify-self-end truncate">Run ID:</span>
-                    <span class="truncate">${runInfo.run_id}</span>
-                    <span class="text-gray-500 justify-self-end truncate">Commit:</span>
-                    <span class="truncate">${runInfo.git_commit_sha}</span>
-                </div>
-                <div class="text-sm text-[var(--text-secondary)] mt-2 flex flex-wrap items-center gap-x-6 gap-y-1">
-                    <div class="flex items-center" title="Duration">
-                        <svg class="h-4 w-4 mr-1.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                        <span>${runInfo.duration || '0s'}</span>
-                    </div>
-                    <div class="flex items-center" title="Committer">
-                        <svg class="h-4 w-4 mr-1.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-                        <span>${runInfo.git_pusher_name || 'N/A'}</span>
-                    </div>
-                    <div class="flex items-center" title="Branch">
-                        <svg class="h-4 w-4 mr-1.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                        <span>${branchName}</span>
-                    </div>
-                    <div class="ml-auto flex items-center gap-3">
-                        <button id="view-logs-btn" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-accent)]">
-                            <svg class="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7" /></svg>
-                            View Logs
-                        </button>
-                    </div>
+    DOM.mainHeader.innerHTML = headerHTML;
+
+    document.getElementById('view-pipeline-definition-link').addEventListener('click', (e) => {
+        e.preventDefault();
+        showPipelineDefinitionModal(runDetails.pipeline_definition);
+    });
+
+    resetMainView();
+    try { localStorage.setItem('graphView', 'steps'); } catch {}
+    state.currentGraphView = 'steps';
+
+    if (runInfo.failure_reason) {
+        DOM.mainGridContainer.classList.remove('hidden');
+        DOM.mainGridContainer.innerHTML = `
+            <div class="bg-red-50 dark:bg-red-900/50 border border-red-200 dark:border-red-500/50 text-red-800 dark:text-red-200 px-4 py-3 rounded-lg relative" role="alert">
+                <strong class="font-bold">Pipeline Failed to Start</strong>
+                <span class="block sm:inline mt-2 sm:mt-0 sm:ml-2">This pipeline could not be launched due to a configuration error.</span>
+                <div class="mt-3 bg-red-100 dark:bg-gray-900/70 p-3 rounded font-mono">
+                    <code class="text-sm text-red-900 dark:text-red-100">${runInfo.failure_reason}</code>
                 </div>
             </div>`;
-
-        DOM.mainHeader.innerHTML = headerHTML;
-
-        document.getElementById('view-pipeline-definition-link').addEventListener('click', (e) => {
-            e.preventDefault();
-            showPipelineDefinitionModal(runDetails.pipeline_definition);
-        });
-
-        resetMainView();
-        try { localStorage.setItem('graphView', 'steps'); } catch {}
-        state.currentGraphView = 'steps';
-
-        if (runInfo.failure_reason) {
-            DOM.mainGridContainer.classList.remove('hidden');
-            DOM.mainGridContainer.innerHTML = `
-                <div class="bg-red-50 dark:bg-red-900/50 border border-red-200 dark:border-red-500/50 text-red-800 dark:text-red-200 px-4 py-3 rounded-lg relative" role="alert">
-                    <strong class="font-bold">Pipeline Failed to Start</strong>
-                    <span class="block sm:inline mt-2 sm:mt-0 sm:ml-2">This pipeline could not be launched due to a configuration error.</span>
-                    <div class="mt-3 bg-red-100 dark:bg-gray-900/70 p-3 rounded font-mono">
-                        <code class="text-sm text-red-900 dark:text-red-100">${runInfo.failure_reason}</code>
-                    </div>
-                </div>`;
-        } else {
-            renderStepsGraph(runDetails);
-            ensureStepsControls();
-            switchGraphView('steps');
-            setTimeout(() => {
-              const view = 'steps';
-              initPanAndZoom(view);
-              if (typeof state.__fitToView === 'function') state.__fitToView();
-            }, 0);
-        }
+    } else {
+        renderStepsGraph(runDetails);
+        ensureStepsControls();
+        switchGraphView('steps');
+        setTimeout(() => {
+          const view = 'steps';
+          initPanAndZoom(view);
+          if (typeof state.__fitToView === 'function') state.__fitToView();
+        }, 0);
     }
+}
 
 function showPipelineDefinitionModal(pipelineDefinition) {
         const modal = document.getElementById('pipeline-definition-modal');
@@ -2831,64 +2831,69 @@ svgContent += `
     }
 
     async function handleRoute(hashOverride) {
-        stopPolling();
-        state.currentRunData = null; 
-        resetMainView(); 
+    stopPolling();
+    state.currentRunData = null;
+    resetMainView();
 
-        const hash = hashOverride || window.location.hash || '#/pipelineruns/main';
-        const parts = hash.slice(2).split('/');
-        const path = parts[0];
-        const subpath = parts[1];
-        const id = parts[2];
+    const hash = hashOverride || window.location.hash || '#/pipelineruns/main';
+    const parts = hash.slice(2).split('/');
+    const path = parts[0];
+    const subpath = parts[1];
+    const id = parts[2];
+    const action = parts[3];
 
-        DOM.pages.forEach(p => p.classList.toggle('active', p.dataset.page === path));
+    DOM.pages.forEach(p => p.classList.toggle('active', p.dataset.page === path));
 
-        if (path === 'pipelineruns') {
-            await fetchGroups();
+    if (path === 'pipelineruns') {
+        await fetchGroups();
 
-            const currentTab = (subpath === 'recent' || subpath === 'main') ? subpath : (state.currentTab || 'main');
+        const currentTab = (subpath === 'recent' || subpath === 'main') ? subpath : (state.currentTab || 'main');
 
-            state.currentTab = currentTab;
-            updateTabs(currentTab);
+        state.currentTab = currentTab;
+        updateTabs(currentTab);
 
-            await renderSidebar(path, currentTab);
+        await renderSidebar(path, currentTab);
 
-            if (subpath === 'run' && id) {
-                await fetchActiveRun(id);
+        if (subpath === 'run' && id) {
+            await fetchActiveRun(id);
+            if (action === 'logs') {
+                showLogsModal();
+            } else {
                 const stepName = parts.length > 3 && parts[3] === 'steps' ? parts[4] : null;
                 if (stepName) {
                     showStepDetails(stepName);
                 }
-            } else if (subpath === 'recent') {
-                DOM.mainHeader.textContent = "Recent Pipeline Runs";
-                const runs = await fetchData('/v1/runs');
-                renderMainGridContent(null, runs, false);
-            } else if (subpath === 'main') {
-                const groupId = id ? parseInt(id, 10) : null;
-                state.selectedGroupId = groupId;
-                renderBreadcrumbs(groupId);
-                if (groupId) {
-                    await fetchMainContent(groupId);
-                } else {
-                    const rootGroups = state.groups.filter(g => g.parent_id === null || g.parent_id === 0);
-                    renderMainGridContent(rootGroups, null, true);
-                }
+            }
+        } else if (subpath === 'recent') {
+            DOM.mainHeader.textContent = "Recent Pipeline Runs";
+            const runs = await fetchData('/v1/runs');
+            renderMainGridContent(null, runs, false);
+        } else if (subpath === 'main') {
+            const groupId = id ? parseInt(id, 10) : null;
+            state.selectedGroupId = groupId;
+            renderBreadcrumbs(groupId);
+            if (groupId) {
+                await fetchMainContent(groupId);
             } else {
-                const groupId = subpath ? parseInt(subpath, 10) : null;
-                if (groupId && !isNaN(groupId)) {
-                    window.location.hash = `#/pipelineruns/main/${groupId}`;
-                } else {
-                    window.location.hash = '#/pipelineruns/main';
-                }
+                const rootGroups = state.groups.filter(g => g.parent_id === null || g.parent_id === 0);
+                renderMainGridContent(rootGroups, null, true);
             }
         } else {
-            await renderSidebar(path, 'main'); 
-            DOM.mainHeader.textContent = path.charAt(0).toUpperCase() + path.slice(1);
-            DOM.placeholder.classList.remove('hidden');
-            DOM.placeholder.querySelector('h3').textContent = `Welcome to ${path}`;
-            DOM.placeholder.querySelector('p').textContent = 'This page is under construction.';
+            const groupId = subpath ? parseInt(subpath, 10) : null;
+            if (groupId && !isNaN(groupId)) {
+                window.location.hash = `#/pipelineruns/main/${groupId}`;
+            } else {
+                window.location.hash = '#/pipelineruns/main';
+            }
         }
+    } else {
+        await renderSidebar(path, 'main');
+        DOM.mainHeader.textContent = path.charAt(0).toUpperCase() + path.slice(1);
+        DOM.placeholder.classList.remove('hidden');
+        DOM.placeholder.querySelector('h3').textContent = `Welcome to ${path}`;
+        DOM.placeholder.querySelector('p').textContent = 'This page is under construction.';
     }
+}
 
     function updateTabs(activeTab) {
         DOM.tabs.forEach(tab => {
