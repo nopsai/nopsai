@@ -3012,28 +3012,40 @@ if (false && state.currentGraphView === 'tasks') {
     DOM.logsModal.addEventListener('click', e => { if (e.target === DOM.logsModal) closeLogsModal(); });
     DOM.copyLogsBtn.addEventListener('click', () => {
         try {
-          const hasSelection = (state.logsSelectedSteps && state.logsSelectedSteps.size > 0);
-          const hasQuery = !!(state.logsSearchText && state.logsSearchText.trim());
-          let lines = [];
-          if (hasSelection || hasQuery) {
-            const nodes = DOM.logsContainer.querySelectorAll('.log-line');
-            nodes.forEach(n => {
-              const sel = n.classList.contains('log-line--sel');
-              const hit = n.querySelector('.log-highlight');
-              if ((hasSelection && sel) || (hasQuery && hit)) {
-                lines.push(n.innerText);
-              }
-            });
-          }
-          const text = (lines.length > 0) ? lines.join('\n') : DOM.logsContainer.innerText;
-          navigator.clipboard.writeText(text);
-        } catch {}
+            const hasQuery = !!(state.logsSearchText && state.logsSearchText.trim());
+            let linesToCopy = [];
+
+            if (hasQuery) {
+                const highlightedElements = DOM.logsContainer.querySelectorAll('.log-highlight');
+                const uniqueLogEntries = new Set();
+
+                highlightedElements.forEach(highlight => {
+                    // This selector is key: it finds the parent container for BOTH structured and unstructured logs.
+                    const logEntry = highlight.closest('.log-line-raw, .flex.flex-col');
+                    if (logEntry) {
+                        uniqueLogEntries.add(logEntry);
+                    }
+                });
+
+                uniqueLogEntries.forEach(entry => {
+                    linesToCopy.push(entry.innerText);
+                });
+            }
+
+            // Fallback to copying everything if there's no active search, otherwise join the found entries.
+            const textToCopy = linesToCopy.length > 0 ? linesToCopy.join('\n\n') : DOM.logsContainer.innerText;
+            navigator.clipboard.writeText(textToCopy);
+
+        } catch (e) {
+            console.error("Copy to clipboard failed:", e);
+        }
+
+        // Provide visual feedback to the user.
         const originalIcon = DOM.copyLogsBtn.innerHTML;
         DOM.copyLogsBtn.innerHTML = '<svg class="h-5 w-5 text-green-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>';
         setTimeout(() => DOM.copyLogsBtn.innerHTML = originalIcon, 2000);
     });
 
-    // Logs filtering interactions
     // Steps sidebar interactions
     if (DOM.logsStepsSidebar) {
       DOM.logsStepsSidebar.addEventListener('click', (e) => {
