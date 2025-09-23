@@ -192,87 +192,89 @@ kv[key] = val;
   return { hasKV: Object.keys(kv).length > 0, kv };
 }
     function escapeRegExp(str){ return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
-    // In services/ui/logs.js
 
-function renderLogsWithFilters() {
-    const logs = state._logsRaw || [];
-    const selected = state.logsSelectedSteps || new Set();
-    const query = (state.logsSearchText || '').toLowerCase();
-    const showTs = !!state.logsShowTimestamps;
-    const structuredOn = !!state.logsStructured;
-    const wrap = !!state.logsWrap;
-    const levelFilter = state.logsLevelFilter || new Set(['info','warn','error','debug']);
-
-    DOM.logsContainer.classList.toggle('whitespace-pre-wrap', wrap);
-    DOM.logsContainer.classList.toggle('whitespace-pre', !wrap);
-    DOM.logsContainer.classList.toggle('overflow-x-auto', !wrap);
+    function renderLogsWithFilters() {
+        const logs = state._logsRaw || [];
+        const selected = state.logsSelectedSteps || new Set();
+        const query = (state.logsSearchText || '').toLowerCase();
+        const showTs = !!state.logsShowTimestamps;
+        const structuredOn = !!state.logsStructured;
+        const wrap = !!state.logsWrap;
+        const levelFilter = state.logsLevelFilter || new Set(['info','warn','error','debug']);
+        
+        DOM.logsContainer.classList.toggle('whitespace-pre-wrap', wrap);
+        DOM.logsContainer.classList.toggle('whitespace-pre', !wrap);
+        DOM.logsContainer.classList.toggle('overflow-x-auto', !wrap);
+        
+        const ansiRegex = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
+        const colorConfig = {
+            info:   { levelBg: 'bg-indigo-100 dark:bg-indigo-900', levelText: 'text-indigo-600 dark:text-indigo-300', borderColor: 'border-indigo-500' },
+            warn:   { levelBg: 'bg-amber-100  dark:bg-amber-900',  levelText: 'text-amber-600  dark:text-amber-300', borderColor: 'border-amber-500'  },
+            error:  { levelBg: 'bg-rose-100   dark:bg-rose-900',   levelText: 'text-rose-600   dark:text-rose-300',   borderColor: 'border-rose-500'   },
+            debug:  { levelBg: 'bg-slate-200  dark:bg-slate-800',  levelText: 'text-slate-700  dark:text-slate-300',  borderColor: 'border-slate-500'  },
+            default:{ levelBg: 'bg-slate-100  dark:bg-slate-900',  levelText: 'text-slate-600  dark:text-slate-300',  borderColor: 'border-slate-500'  },
+            success:{ levelBg: 'bg-emerald-100 dark:bg-emerald-900', levelText: 'text-emerald-600 dark:text-emerald-300', borderColor: 'border-emerald-500' },
+        };
+        const preferredDetailOrder = new Map([['runid', 0],['pipeline', 1],['step', 2],['task', 3],['status', 4],['stage', 5],['job', 6],['task_id', 7],['attempt', 8]]);
+        const multilineKeys = new Set(['action','script','cmd','command','stderr','stdout','details']);
+        const messageAllowedKeys = new Set(['status','action','output']);
+        const tagKeys = ['runid','pipeline','step','task','status','component','session','container_id','child_run_id','image'];
+        const tagLabels = {runid: 'Run ID',pipeline: 'Pipeline',step: 'Step',task: 'Task',status: 'Status',component: 'Component',session: 'Session',container_id: 'Container ID',child_run_id: 'Child Run',image: 'Image'};
+        const nameToIdx = new Map(Array.from(selected).map((n, i) => [n, i % 8]));
+        const rx = query ? new RegExp(`(${escapeRegExp(query)})`, 'ig') : null;
+        let matches = 0;
     
-    const ansiRegex = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
-    const colorConfig = {
-        info:   { levelBg: 'bg-indigo-100 dark:bg-indigo-900', levelText: 'text-indigo-600 dark:text-indigo-300', borderColor: 'border-indigo-500' },
-        warn:   { levelBg: 'bg-amber-100  dark:bg-amber-900',  levelText: 'text-amber-600  dark:text-amber-300', borderColor: 'border-amber-500'  },
-        error:  { levelBg: 'bg-rose-100   dark:bg-rose-900',   levelText: 'text-rose-600   dark:text-rose-300',   borderColor: 'border-rose-500'   },
-        debug:  { levelBg: 'bg-slate-200  dark:bg-slate-800',  levelText: 'text-slate-700  dark:text-slate-300',  borderColor: 'border-slate-500'  },
-        default:{ levelBg: 'bg-slate-100  dark:bg-slate-900',  levelText: 'text-slate-600  dark:text-slate-300',  borderColor: 'border-slate-500'  },
-        success:{ levelBg: 'bg-emerald-100 dark:bg-emerald-900', levelText: 'text-emerald-600 dark:text-emerald-300', borderColor: 'border-emerald-500' },
-    };
-    const preferredDetailOrder = new Map([['runid', 0],['pipeline', 1],['step', 2],['task', 3],['status', 4],['stage', 5],['job', 6],['task_id', 7],['attempt', 8]]);
-    const multilineKeys = new Set(['action','script','cmd','command','stderr','stdout','details']);
-    const messageAllowedKeys = new Set(['status','action','output']);
-    const tagKeys = ['runid','pipeline','step','task','status','component','session','container_id','child_run_id','image'];
-    const tagLabels = {runid: 'Run ID',pipeline: 'Pipeline',step: 'Step',task: 'Task',status: 'Status',component: 'Component',session: 'Session',container_id: 'Container ID',child_run_id: 'Child Run',image: 'Image'};
-    const nameToIdx = new Map(Array.from(selected).map((n, i) => [n, i % 8]));
-    const rx = query ? new RegExp(`(${escapeRegExp(query)})`, 'ig') : null;
-    let matches = 0;
-
-    const html = logs.map((log, i) => {
-        let rawLine = (log.line || '').replace(ansiRegex, '').trim();
-        if (!rawLine) {
-            return null;
-        }
-
-        const tsMatch = rawLine.match(/^(\d{1,2}:\d{2}:\d{2}\s[AP]M)\s*/);
-        const ts = log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '';
-        if (tsMatch) {
-            rawLine = rawLine.substring(tsMatch[0].length);
-        }
+        const html = logs.map((log, i) => {
+            let rawLine = (log.line || '').replace(ansiRegex, '').trim();
+            if (!rawLine) {
+                return null;
+            }
         
-        const jsonStart = rawLine.indexOf('{');
-        let kv = {};
-        if (jsonStart !== -1) {
-            try { kv = JSON.parse(rawLine.substring(jsonStart)); } catch {}
-        }
+            const tsMatch = rawLine.match(/^(\d{1,2}:\d{2}:\d{2}\s[AP]M)\s*/);
+            const ts = log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '';
+            if (tsMatch) {
+                rawLine = rawLine.substring(tsMatch[0].length);
+            }
+            
+            const jsonStart = rawLine.indexOf('{');
+            let kv = {};
+            if (jsonStart !== -1) {
+                try { kv = JSON.parse(rawLine.substring(jsonStart)); } catch {}
+            }
+            
+            const stepName = getLogStepName({ ...log, ...kv });
+            const isSelectedLine = selected.size > 0 && stepName && selected.has(stepName);
+            const lineColorIdx = isSelectedLine ? nameToIdx.get(stepName) ?? 0 : -1;
+            const dimClass = (selected.size > 0 && !isSelectedLine) ? ' log-line--dim' : '';
+            const selClass = (isSelectedLine && lineColorIdx >= 0) ? ` log-line--sel c${lineColorIdx}` : '';
         
-        const stepName = getLogStepName({ ...log, ...kv });
-        const isSelectedLine = selected.size > 0 && stepName && selected.has(stepName);
-        const lineColorIdx = isSelectedLine ? nameToIdx.get(stepName) ?? 0 : -1;
-        const dimClass = (selected.size > 0 && !isSelectedLine) ? ' log-line--dim' : '';
-        const selClass = (isSelectedLine && lineColorIdx >= 0) ? ` log-line--sel c${lineColorIdx}` : '';
-
-        if (structuredOn && jsonStart !== -1) {
-            try {
-                const json = JSON.parse(rawLine.substring(jsonStart));
-                return renderStructured(json, {rawLine, i, ts, selClass, dimClass, log });
-            } catch { /* Fall through */ }
-        }
-
-        if (selected.size > 0 && !isSelectedLine) {
-            return null;
-        }
-
-        let line = rawLine.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        if (rx && rawLine.toLowerCase().includes(query)) {
-            matches++;
-            line = line.replace(rx, `<span class="log-highlight">$1</span>`);
-        }
-        const left = showTs ? `<span class="text-[var(--text-secondary)] select-none pr-3">${ts}</span>` : '';
-        const textColorClass = isSelectedLine ? `log-line-text c${lineColorIdx}` : '';
-
-        return `<div class="log-line-raw-content">
+            if (structuredOn && jsonStart !== -1) {
+                try {
+                    const json = JSON.parse(rawLine.substring(jsonStart));
+                    return renderStructured(json, {rawLine, i, ts, selClass, dimClass, log });
+                } catch { /* Fall through */ }
+            }
+        
+            if (selected.size > 0 && !isSelectedLine) {
+                return null;
+            }
+        
+            let line = rawLine.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            if (rx && rawLine.toLowerCase().includes(query)) {
+                matches++;
+                line = line.replace(rx, `<span class="log-highlight">$1</span>`);
+            }
+            const left = showTs ? `<span class="text-[var(--text-secondary)] select-none pr-3">${ts}</span>` : '';
+            const textColorClass = isSelectedLine ? `log-line-text c${lineColorIdx}` : '';
+        
+            return `<div class="log-line-raw-content">
 ${left}<span class="${textColorClass}">${line}</span>
 </div>`;
 
 function renderStructured(json, ctx) {
+  if (ctx.dimClass.includes('log-line--dim')) {
+    return '';
+  }
   const baseMessage = json.message || '';
   const parsedMessage = baseMessage ? parseKVLine(baseMessage) : { hasKV: false, kv: {} };
   const messagePairsAll = parsedMessage.hasKV ? parsedMessage.kv : {};
@@ -443,9 +445,7 @@ function renderStructured(json, ctx) {
   const bodyHtml = bodyPieces.length > 0 ? bodyPieces.join('') : '<span class="opacity-50">—</span>';
 
   return `
-    <div class="log-line-structured ${dimClass} ${selClass}">
-      <div class="border-l-4 ${colors.borderColor} pl-4">
-        <div class="flex flex-col">
+        <div class="flex flex-col ${dimClass} ${selClass}">
           <div class="flex flex-wrap items-center gap-2 text-xs">
             ${showTs ? `<span class="text-[var(--text-secondary)] select-none">${ctx.ts}</span>` : ''}
             <span class="font-semibold px-2 py-0.5 rounded-full ${colors.levelBg} ${colors.levelText}">${badgeLabel}</span>
@@ -454,9 +454,7 @@ function renderStructured(json, ctx) {
             ${tagsBlock || ''}
           </div>
           <div class="pl-0 text-sm text-[var(--text-primary)] leading-6 mt-1">${bodyHtml}</div>
-        </div>
-      </div>
-    </div>`;
+        </div>`;
 }
 
 function renderTagPills(map, opts = {}) {
