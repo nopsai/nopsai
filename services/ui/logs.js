@@ -502,11 +502,9 @@ function renderStructured(json, ctx) {
 
   return `
         <div class="flex flex-col ${dimClass} ${selClass}">
-          <div class="flex flex-wrap items-center gap-2 text-xs">
+          <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs">
             ${showTs ? `<span class="text-[var(--text-secondary)] select-none">${ctx.ts}</span>` : ''}
             <span class="font-semibold px-2 py-0.5 rounded-full ${colors.levelBg} ${colors.levelText}">${badgeLabel}</span>
-          </div>
-          <div class="flex flex-wrap items-center gap-0.5 text-xs mt-1">
             ${tagsBlock || ''}
           </div>
           <div class="pl-0 text-sm text-[var(--text-primary)] leading-6 mt-1">${bodyHtml}</div>
@@ -529,7 +527,7 @@ function renderTagPills(map, opts = {}) {
   }
   if (chips.length === 0) return '';
   if (inline) {
-    return `<span class="inline-flex flex-wrap items-center gap-0.5">${chips.join('')}</span>`;
+    return chips.join('');
   }
   return `<div class="flex flex-wrap gap-1 -mt-1.5 mb-0.25">${chips.join('')}</div>`;
 }

@@ -577,3 +577,12 @@ html.dark .step-cluster-box { fill: var(--bg-tertiary); opacity: .18; }
 .logs-unwrapped .flex.flex-col .leading-6 { /* Targets the body of structured logs */
     line-height: 1.4;
 }
+
+.log-header-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem; /* This creates space between the items */
+    font-size: 0.75rem; /* 12px */
+    margin-bottom: 0.25rem; /* A little space before the log body */
+}
