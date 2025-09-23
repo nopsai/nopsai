@@ -532,23 +532,3 @@ html.dark .step-cluster-box { fill: var(--bg-tertiary); opacity: .18; }
 #logs-container pre {
   margin: 0;
 }
-
-.log-highlight { 
-  background-color: rgba(250, 204, 21, 0.4); /* amber-400 with opacity */
-  border-radius: 3px; 
-  padding: 0 2px;
-}
-
-.log-highlight--active {
-  background-color: rgba(249, 115, 22, 0.7); /* orange-500 with opacity */
-  box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.5);
-}
-
-html.dark .log-highlight {
-  background-color: rgba(250, 204, 21, 0.5);
-}
-
-html.dark .log-highlight--active {
-  background-color: rgba(251, 146, 60, 0.8); /* orange-400 with opacity */
-  box-shadow: 0 0 0 2px rgba(251, 146, 60, 0.6);
-}
