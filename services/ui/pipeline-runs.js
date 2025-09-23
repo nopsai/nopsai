@@ -3055,7 +3055,7 @@ if (false && state.currentGraphView === 'tasks') {
           if (state.logsSelectedSteps.has(name)) state.logsSelectedSteps.delete(name); else state.logsSelectedSteps.add(name);
           updateLogsStepList();
           state._logsFocusFirstMatch = true;
-          renderLogsWithFilters();
+          renderLogsWithFilters({ scrollToTop: true }); 
           return;
         }
       });

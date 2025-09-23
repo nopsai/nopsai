@@ -566,13 +566,13 @@ html.dark .step-cluster-box { fill: var(--bg-tertiary); opacity: .18; }
     transition: padding-bottom 0.2s ease-in-out; /* Smooth transition */
 }
 
-/* 2. When unwrapped, REMOVE the padding from BOTH raw and structured log entries. */
+/* When unwrapped, REMOVE the padding from BOTH raw and structured log entries. */
 .logs-unwrapped .log-line-raw,
 .logs-unwrapped .flex.flex-col {
     padding-bottom: 0;
 }
 
-/* 3. When unwrapped, slightly tighten the line-height of BOTH log types for a compact view. */
+/* When unwrapped, slightly tighten the line-height of BOTH log types for a compact view. */
 .logs-unwrapped .log-line-raw .log-line-content,
 .logs-unwrapped .flex.flex-col .leading-6 { /* Targets the body of structured logs */
     line-height: 1.4;
