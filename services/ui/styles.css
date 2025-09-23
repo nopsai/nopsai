@@ -546,7 +546,7 @@ html.dark .step-cluster-box { fill: var(--bg-tertiary); opacity: .18; }
     /* Default to wrapped */
     white-space: pre-wrap;
     word-break: break-all;
-    margin: 1;
+    margin: 0;
     flex-grow: 1;
 }
 
