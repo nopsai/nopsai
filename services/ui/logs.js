@@ -192,254 +192,86 @@ kv[key] = val;
   return { hasKV: Object.keys(kv).length > 0, kv };
 }
     function escapeRegExp(str){ return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
-    function renderLogsWithFilters() {
-  const logs = state._logsRaw || [];
-  const selected = state.logsSelectedSteps || new Set();
-  const query = (state.logsSearchText || '').toLowerCase();
-  const showTs = !!state.logsShowTimestamps;
-  const structuredOn = !!state.logsStructured;
-  const wrap = !!state.logsWrap;
-  const levelFilter = state.logsLevelFilter || new Set(['info','warn','error','debug']);
+    // In services/ui/logs.js
 
-  // container presentation
-  DOM.logsContainer.classList.toggle('whitespace-pre-wrap', wrap);
-  DOM.logsContainer.classList.toggle('whitespace-pre', !wrap);
-  DOM.logsContainer.classList.toggle('overflow-x-auto', !wrap);
-  const ansiRegex = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
+function renderLogsWithFilters() {
+    const logs = state._logsRaw || [];
+    const selected = state.logsSelectedSteps || new Set();
+    const query = (state.logsSearchText || '').toLowerCase();
+    const showTs = !!state.logsShowTimestamps;
+    const structuredOn = !!state.logsStructured;
+    const wrap = !!state.logsWrap;
+    const levelFilter = state.logsLevelFilter || new Set(['info','warn','error','debug']);
 
-  const colorConfig = {
-info:   { levelBg: 'bg-indigo-100 dark:bg-indigo-900', levelText: 'text-indigo-600 dark:text-indigo-300', borderColor: 'border-indigo-500' },
-warn:   { levelBg: 'bg-amber-100  dark:bg-amber-900',  levelText: 'text-amber-600  dark:text-amber-300', borderColor: 'border-amber-500'  },
-error:  { levelBg: 'bg-rose-100   dark:bg-rose-900',   levelText: 'text-rose-600   dark:text-rose-300',   borderColor: 'border-rose-500'   },
-debug:  { levelBg: 'bg-slate-200  dark:bg-slate-800',  levelText: 'text-slate-700  dark:text-slate-300',  borderColor: 'border-slate-500'  },
-default:{ levelBg: 'bg-slate-100  dark:bg-slate-900',  levelText: 'text-slate-600  dark:text-slate-300',  borderColor: 'border-slate-500'  },
-success:{ levelBg: 'bg-emerald-100 dark:bg-emerald-900', levelText: 'text-emerald-600 dark:text-emerald-300', borderColor: 'border-emerald-500' },
-  };
+    DOM.logsContainer.classList.toggle('whitespace-pre-wrap', wrap);
+    DOM.logsContainer.classList.toggle('whitespace-pre', !wrap);
+    DOM.logsContainer.classList.toggle('overflow-x-auto', !wrap);
+    
+    const ansiRegex = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
+    const colorConfig = {
+        info:   { levelBg: 'bg-indigo-100 dark:bg-indigo-900', levelText: 'text-indigo-600 dark:text-indigo-300', borderColor: 'border-indigo-500' },
+        warn:   { levelBg: 'bg-amber-100  dark:bg-amber-900',  levelText: 'text-amber-600  dark:text-amber-300', borderColor: 'border-amber-500'  },
+        error:  { levelBg: 'bg-rose-100   dark:bg-rose-900',   levelText: 'text-rose-600   dark:text-rose-300',   borderColor: 'border-rose-500'   },
+        debug:  { levelBg: 'bg-slate-200  dark:bg-slate-800',  levelText: 'text-slate-700  dark:text-slate-300',  borderColor: 'border-slate-500'  },
+        default:{ levelBg: 'bg-slate-100  dark:bg-slate-900',  levelText: 'text-slate-600  dark:text-slate-300',  borderColor: 'border-slate-500'  },
+        success:{ levelBg: 'bg-emerald-100 dark:bg-emerald-900', levelText: 'text-emerald-600 dark:text-emerald-300', borderColor: 'border-emerald-500' },
+    };
+    const preferredDetailOrder = new Map([['runid', 0],['pipeline', 1],['step', 2],['task', 3],['status', 4],['stage', 5],['job', 6],['task_id', 7],['attempt', 8]]);
+    const multilineKeys = new Set(['action','script','cmd','command','stderr','stdout','details']);
+    const messageAllowedKeys = new Set(['status','action','output']);
+    const tagKeys = ['runid','pipeline','step','task','status','component','session','container_id','child_run_id','image'];
+    const tagLabels = {runid: 'Run ID',pipeline: 'Pipeline',step: 'Step',task: 'Task',status: 'Status',component: 'Component',session: 'Session',container_id: 'Container ID',child_run_id: 'Child Run',image: 'Image'};
+    const nameToIdx = new Map(Array.from(selected).map((n, i) => [n, i % 8]));
+    const rx = query ? new RegExp(`(${escapeRegExp(query)})`, 'ig') : null;
+    let matches = 0;
 
-  const preferredDetailOrder = new Map([
-['runid', 0],
-['pipeline', 1],
-['step', 2],
-['task', 3],
-['status', 4],
-['stage', 5],
-['job', 6],
-['task_id', 7],
-['attempt', 8]
-  ]);
+    const html = logs.map((log, i) => {
+        let rawLine = (log.line || '').replace(ansiRegex, '').trim();
+        if (!rawLine) {
+            return null;
+        }
 
-  const multilineKeys = new Set(['action','script','cmd','command','stderr','stdout','details']);
-  const messageAllowedKeys = new Set(['status','action','output']);
-  const tagKeys = ['runid','pipeline','step','task','status','component','session','container_id','child_run_id','image'];
-  const tagLabels = {
-runid: 'Run ID',
-pipeline: 'Pipeline',
-step: 'Step',
-task: 'Task',
-status: 'Status',
-component: 'Component',
-session: 'Session',
-container_id: 'Container ID',
-child_run_id: 'Child Run',
-image: 'Image'
-  };
+        const tsMatch = rawLine.match(/^(\d{1,2}:\d{2}:\d{2}\s[AP]M)\s*/);
+        const ts = log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '';
+        if (tsMatch) {
+            rawLine = rawLine.substring(tsMatch[0].length);
+        }
+        
+        const jsonStart = rawLine.indexOf('{');
+        let kv = {};
+        if (jsonStart !== -1) {
+            try { kv = JSON.parse(rawLine.substring(jsonStart)); } catch {}
+        }
+        
+        const stepName = getLogStepName({ ...log, ...kv });
+        const isSelectedLine = selected.size > 0 && stepName && selected.has(stepName);
+        const lineColorIdx = isSelectedLine ? nameToIdx.get(stepName) ?? 0 : -1;
+        const dimClass = (selected.size > 0 && !isSelectedLine) ? ' log-line--dim' : '';
+        const selClass = (isSelectedLine && lineColorIdx >= 0) ? ` log-line--sel c${lineColorIdx}` : '';
 
-  // assign stable color index to selected steps for background tint
-  const nameToIdx = new Map(Array.from(selected).map((n, i) => [n, i % 8]));
+        if (structuredOn && jsonStart !== -1) {
+            try {
+                const json = JSON.parse(rawLine.substring(jsonStart));
+                return renderStructured(json, {rawLine, i, ts, selClass, dimClass, log });
+            } catch { /* Fall through */ }
+        }
 
-  const escapeRegExp = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const rx = query ? new RegExp(`(${escapeRegExp(query)})`, 'ig') : null;
-  let matches = 0;
+        if (selected.size > 0 && !isSelectedLine) {
+            return null;
+        }
 
-  const html = logs.map((log, i) => {
-const rawLine = (log.line || '').replace(ansiRegex, '');
-// timestamp (fallback to log.timestamp if present)
-const tsMatch = rawLine.match(/^(\d{1,2}:\d{2}:\d{2}\s[AP]M)/);
-const ts = tsMatch ? tsMatch[0] : (log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '');
+        let line = rawLine.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        if (rx && rawLine.toLowerCase().includes(query)) {
+            matches++;
+            line = line.replace(rx, `<span class="log-highlight">$1</span>`);
+        }
+        const left = showTs ? `<span class="text-[var(--text-secondary)] select-none pr-3">${ts}</span>` : '';
+        const textColorClass = isSelectedLine ? `log-line-text c${lineColorIdx}` : '';
 
-// If "structured" toggle is on, try JSON first
-const jsonStart = rawLine.indexOf('{');
-if (structuredOn && jsonStart !== -1) {
-  try {
-    const json = JSON.parse(rawLine.substring(jsonStart));
-    return renderStructured(json, {rawLine, i, ts});
-  } catch { /* fall through to KV and then to raw */ }
-}
+        return `<div class="log-line-raw-content">
+${left}<span class="${textColorClass}">${line}</span>
+</div>`;
 
-// Try key=value parsing (supports multi-line quoted values)
-if (structuredOn) {
-  const { hasKV, kv } = parseKVLine(rawLine);
-  if (hasKV) {
-    if (!kv.level) {
-      const prefixMatch = rawLine.match(/^\s*(INFO|WARN|WARNING|ERROR|DEBUG|TRACE|SUCCESS|FAIL|FAILED)\b/i);
-      if (prefixMatch) {
-        const candidate = prefixMatch[1].toLowerCase();
-        let normalized = candidate;
-        if (candidate === 'warning') normalized = 'warn';
-        else if (candidate === 'success') normalized = 'info';
-        else if (candidate === 'fail' || candidate === 'failed') normalized = 'error';
-        else if (candidate === 'trace') normalized = 'debug';
-        kv.level = normalized;
-      }
-    }
-
-    // normalize level from level/status
-    const derivedLevel = deriveLevelFromStatus(kv.status);
-    const level = (kv.level || derivedLevel || 'info').toLowerCase();
-    if (!levelFilter.has(level)) return '';
-
-    // step selection tinting
-    let isSelectedLine = false;
-    let lineColorIdx = -1;
-    if (selected.size > 0) {
-      const stepName = (typeof getLogStepName === 'function') ? getLogStepName({ ...log, ...kv }) : null;
-      if (stepName && selected.has(stepName)) {
-        isSelectedLine = true;
-        lineColorIdx = nameToIdx.get(stepName) ?? 0;
-      }
-    }
-    const dimClass = (selected.size > 0 && !isSelectedLine) ? ' log-line--dim' : '';
-    const selClass = (isSelectedLine && lineColorIdx >= 0) ? ` log-line--sel c${lineColorIdx}` : '';
-
-    // message: prefer 'message'; else fallback to status/raw line
-    let message = kv.message || '';
-    if (!message) {
-      const parts = [];
-      if (!parts.length && kv.status) parts.push(`status: ${kv.status}`);
-      message = parts.join(' • ') || rawLine;
-    }
-
-    // Build details rows (pretty-print multi-line values like action/script/command)
-    const tagValues = new Map();
-    const detailRows = [];
-    let fallbackOrder = preferredDetailOrder.size;
-    for (const key in kv) {
-      const keyLower = key.toLowerCase();
-      if (['message','level','output','action'].includes(keyLower)) continue;
-      const v = String(kv[key] ?? '');
-      const trimmed = v.trim();
-      const isMultiline = v.includes('\n');
-      const vDisplay = rx && v.toLowerCase().includes(query) ? v.replace(rx, '<span class="log-highlight">$1</span>') : v;
-      if (rx && v.toLowerCase().includes(query)) matches++;
-      if (tagKeys.includes(keyLower)) {
-        if (!tagValues.has(keyLower) && trimmed) tagValues.set(keyLower, { raw: trimmed, display: vDisplay });
-        continue;
-      }
-      const markup = (isMultiline || multilineKeys.has(keyLower))
-        ? `<div class="grid grid-cols-[120px,1fr] gap-x-2 items-start">
-          <strong class="text-right text-gray-500 dark:text-gray-400 font-normal mt-1">${key}:</strong>
-          <pre class="bg-gray-900/90 dark:bg-gray-900 text-gray-100 dark:text-gray-200 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto">${vDisplay}</pre>
-        </div>`
-        : rowKV(key, vDisplay);
-      const order = preferredDetailOrder.has(key) ? preferredDetailOrder.get(key) : fallbackOrder++;
-      detailRows.push({ order, markup });
-    }
-    detailRows.sort((a, b) => a.order - b.order);
-    const detailsHTML = detailRows.map(r => r.markup).join('');
-
-    // action block (full-width)
-    let actionBlock = '';
-    if (kv.action !== undefined) {
-      const actionRaw = String(kv.action ?? '');
-      const actionLower = actionRaw.toLowerCase();
-      const actionHit = rx && actionLower.includes(query);
-      const actionDisplay = actionHit ? actionRaw.replace(rx, '<span class="log-highlight">$1</span>') : actionRaw;
-      if (actionHit) matches++;
-      const actionPretty = actionDisplay.replace(/\r/g, '');
-      actionBlock = `<div class="mt-1 flex items-start gap-2">
-      <span class="shrink-0 text-[11px] uppercase tracking-wide font-semibold text-indigo-200 dark:text-indigo-100 bg-indigo-950/70 dark:bg-indigo-700/50 px-2 py-0.5 rounded">Action</span>
-      <pre class="flex-1 bg-indigo-950/90 dark:bg-indigo-950 text-indigo-100 dark:text-indigo-50 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto">${actionPretty}</pre>
-    </div>`;
-    }
-
-    if (actionBlock && message) {
-      message = message.replace(/action:\s?[^•]+(?:•\s*)?/i, '').trim();
-      if (message.endsWith('•')) message = message.slice(0, -1).trim();
-    }
-
-    // output block (empty allowed)
-    let outputBlock = '';
-    if ('output' in kv) {
-      const out = kv.output ?? '';
-      const outStr = String(out);
-      const outLower = outStr.toLowerCase();
-      const outHit = rx && outLower.includes(query);
-      const outDisplay = outHit ? outStr.replace(rx, '<span class="log-highlight">$1</span>') : outStr;
-      if (outHit) matches++;
-      if (outStr === '') {
-        outputBlock = `<div class="mt-1 flex items-start gap-2">
-          <span class="shrink-0 text-[11px] uppercase tracking-wide font-semibold text-slate-600 dark:text-slate-300 bg-slate-500/10 dark:bg-slate-500/20 px-2 py-0.5 rounded">Output</span>
-          <pre class="flex-1 bg-gray-900/90 dark:bg-gray-900 text-gray-100 dark:text-gray-200 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto italic opacity-70">(empty output)</pre>
-        </div>`;
-      } else {
-        const pretty = outDisplay.replace(/\r/g, '');
-        outputBlock = `<div class="mt-1 flex items-start gap-2">
-          <span class="shrink-0 text-[11px] uppercase tracking-wide font-semibold text-slate-600 dark:text-slate-300 bg-slate-500/10 dark:bg-slate-500/20 px-2 py-0.5 rounded">Output</span>
-          <pre class="flex-1 bg-gray-900/90 dark:bg-gray-900 text-gray-100 dark:text-gray-200 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto">${pretty}</pre>
-        </div>`;
-      }
-    }
-
-    // highlight message
-    if (rx && message.toLowerCase().includes(query)) {
-      message = message.replace(rx, '<span class="log-highlight">$1</span>');
-      matches++;
-    }
-
-    if (!outputBlock && message) {
-      const label = 'Output';
-      outputBlock = `<div class="mt-1 flex items-start gap-2">
-          <span class="shrink-0 text-[11px] uppercase tracking-wide font-semibold text-slate-600 dark:text-slate-300 bg-slate-500/10 dark:bg-slate-500/20 px-2 py-0.5 rounded">${label}</span>
-          <pre class="flex-1 bg-gray-900/90 dark:bg-gray-900 text-gray-100 dark:text-gray-200 px-3 py-1.5 rounded-lg text-xs shadow-inner overflow-auto">${message.replace(/\r/g, '')}</pre>
-        </div>`;
-      message = '';
-    }
-
-    const isSuccess = (kv.status && kv.status.toLowerCase() === 'success');
-    const colors = isSuccess ? colorConfig.success : (colorConfig[level] || colorConfig.default);
-
-    const tagsBlock = renderTagPills(tagValues, { inline: true });
-    const bodyPieces = [];
-    if (actionBlock) bodyPieces.push(actionBlock);
-    if (outputBlock) bodyPieces.push(outputBlock);
-    if (!outputBlock && message) {
-      bodyPieces.push(actionBlock ? `<div class="mt-0.5">${message}</div>` : message);
-    }
-    const bodyHtml = bodyPieces.length > 0 ? bodyPieces.join('') : '<span class="opacity-50">—</span>';
-
-    return `
-      <div class="log-line-structured ${dimClass} ${selClass}">
-        <div class="border-l-4 ${colors.borderColor} pl-4">
-          <div class="flex flex-col">
-            <div class="flex flex-wrap items-center gap-2 text-xs">
-              ${showTs ? `<span class="text-[var(--text-secondary)] select-none">${ts}</span>` : ''}
-              <span class="font-semibold px-2 py-0.5 rounded-full ${colors.levelBg} ${colors.levelText}">${(kv.status ? kv.status : level).toString().toUpperCase()}</span>
-            </div>
-            <div class="flex flex-wrap items-center gap-0.5 text-xs mt-1">
-              ${tagsBlock ? `<div class="flex flex-wrap items-center gap-0.5">${tagsBlock}</div>` : ''}
-            </div>
-            <div class="pl-0 text-sm text-[var(--text-primary)] leading-6 mt-1">${bodyHtml}</div>
-          </div>
-        </div>
-      </div>`;
-  }
-}
-
-// Fallback: plain/raw rendering
-let line = rawLine.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-if (rx && rawLine.toLowerCase().includes(query)) {
-  matches++;
-  line = line.replace(rx, '<span class="log-highlight">$1</span>');
-}
-const left = [
-  showTs ? `<span class="text-[var(--text-secondary)] select-none pr-3">${ts}</span>` : ''
-].join('');
-return `<div class="log-line py-0 grid grid-cols-[auto,1fr] gap-1">
-          <span class="inline-flex items-baseline">${left}</span>
-          <pre><span>${line}</span></pre>
-        </div>`;
-
-// ---- helpers (scoped) ----
 function renderStructured(json, ctx) {
   const baseMessage = json.message || '';
   const parsedMessage = baseMessage ? parseKVLine(baseMessage) : { hasKV: false, kv: {} };
@@ -663,30 +495,29 @@ function deriveLevelFromStatus(status) {
   if (s === 'debug') return 'debug';
   return 'error';
 }
-  }).filter(Boolean).join('');
 
-  DOM.logsContainer.innerHTML = html || `<p class="text-[var(--text-secondary)]">No matching logs.</p>`;
+    }).filter(Boolean).join(''); // This .filter(Boolean) will now remove the null entries from empty lines.
 
-  if (DOM.logsCount) {
-const total = logs.length || 0;
-DOM.logsCount.textContent = query && total ? `${matches} matches • ${total} lines` : (total ? `${total} lines` : '');
-  }
+    DOM.logsContainer.innerHTML = html || `<p class="text-[var(--text-secondary)]">No matching logs.</p>`;
 
-  // focus + follow behaviors
-  if (state._logsFocusFirstMatch) {
-requestAnimationFrame(() => {
-  let target = DOM.logsContainer.querySelector('.log-highlight');
-  if (target) target = target.closest('.log-line-structured') || target.closest('.log-line') || target;
-  if (target && typeof target.scrollIntoView === 'function') {
-    try { target.scrollIntoView({ block: 'start' }); } catch { target.scrollIntoView(); }
-  }
-  state._logsFocusFirstMatch = false;
-});
-  } else if (DOM.followLogsCheckbox && DOM.followLogsCheckbox.checked) {
-DOM.logsContainer.scrollTop = DOM.logsContainer.scrollHeight;
-  }
+    if (DOM.logsCount) {
+        const total = logs.length || 0;
+        DOM.logsCount.textContent = query && total ? `${matches} matches • ${total} lines` : (total ? `${total} lines` : '');
+    }
+
+    if (state._logsFocusFirstMatch) {
+        requestAnimationFrame(() => {
+            let target = DOM.logsContainer.querySelector('.log-highlight');
+            if (target) target = target.closest('.log-line-structured') || target.closest('.log-line') || target;
+            if (target && typeof target.scrollIntoView === 'function') {
+                try { target.scrollIntoView({ block: 'start' }); } catch { target.scrollIntoView(); }
+            }
+            state._logsFocusFirstMatch = false;
+        });
+    } else if (DOM.followLogsCheckbox && DOM.followLogsCheckbox.checked) {
+        DOM.logsContainer.scrollTop = DOM.logsContainer.scrollHeight;
+    }
 }
-
 
     global.logs = {
         init,
