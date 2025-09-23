@@ -377,6 +377,24 @@ html.dark .themed-bg-blur {
   .log-line--sel.c6::before { background: rgba(168,85,247,.10); }  /* purple*/
   .log-line--sel.c7::before { background: rgba(234,179,8,.10); }   /* yellow*/
 
+.log-line-text.c0 { color: #6366f1; } /* indigo-500 */
+.log-line-text.c1 { color: #10b981; } /* emerald-500 */
+.log-line-text.c2 { color: #f59e0b; } /* amber-500 */
+.log-line-text.c3 { color: #38bdf8; } /* lightBlue-400 */
+.log-line-text.c4 { color: #d946ef; } /* fuchsia-500 */
+.log-line-text.c5 { color: #84cc16; } /* lime-500 */
+.log-line-text.c6 { color: #f97316; } /* orange-500 */
+.log-line-text.c7 { color: #f43f5e; } /* rose-500 */
+
+html.dark .log-line-text.c0 { color: #818cf8; } /* indigo-400 */
+html.dark .log-line-text.c1 { color: #34d399; } /* emerald-400 */
+html.dark .log-line-text.c2 { color: #fbbf24; } /* amber-400 */
+html.dark .log-line-text.c3 { color: #7dd3fc; } /* lightBlue-300 */
+html.dark .log-line-text.c4 { color: #e879f9; } /* fuchsia-400 */
+html.dark .log-line-text.c5 { color: #a3e635; } /* lime-400 */
+html.dark .log-line-text.c6 { color: #fb923c; } /* orange-400 */
+html.dark .log-line-text.c7 { color: #fb7185; } /* rose-400 */
+
 html.dark .log-line--sel.c0 { background-color: rgba(129,140,248,.14); }
 html.dark .log-line--sel.c1 { background-color: rgba(52,211,153,.14); }
 html.dark .log-line--sel.c2 { background-color: rgba(251,191,36,.16); }
@@ -510,3 +528,7 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
   opacity: .2; /* lighter so main step edges remain vivid over boxes */
 }
 html.dark .step-cluster-box { fill: var(--bg-tertiary); opacity: .18; }
+/* In services/ui/styles.css, you can add this at the end */
+#logs-container pre {
+  margin: 0;
+}
