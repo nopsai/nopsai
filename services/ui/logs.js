@@ -9,6 +9,21 @@
         fetchData = context.fetchData;
     }
 
+    // ADD THIS FUNCTION HERE
+    function stripLogFromHashWithoutRouting() {
+      const hash = window.location.hash || '';
+      const newHash = hash.split('/logs')[0] || '#/pipelineruns/main';
+      if (hash !== newHash) {
+        try {
+          const url = new URL(window.location.href);
+          url.hash = newHash.slice(1);
+          history.replaceState(null, '', url.toString());
+        } catch {
+          window.location.hash = newHash;
+        }
+      }
+    }
+
     function showLogsModal() {
         if (!state.currentRunData) return;
         const runId = state.currentRunData.run_info.run_id;
@@ -83,6 +98,7 @@
         DOM.logsModal.classList.remove('opacity-100');
         DOM.logsModalContent.classList.add('scale-95');
         setTimeout(() => DOM.logsModal.classList.add('hidden'), 300);
+        stripLogFromHashWithoutRouting(); // CALL THE NEWLY ADDED FUNCTION
     }
 
     async function fetchAndRenderLogs(runId) {
@@ -571,7 +587,7 @@ function deriveLevelFromStatus(status) {
         }
     }
     
-    global.logs = {
+      global.logs = {
         init,
         showLogsModal,
         initLogsUIControls,

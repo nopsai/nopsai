@@ -10,7 +10,7 @@ type Trigger struct {
 	On          string   `yaml:"on" json:"on"`
 	Branches    []string `yaml:"branches,omitempty" json:"branches,omitempty"`
 	Tags        []string `yaml:"tags,omitempty" json:"tags,omitempty"`
-	Path        string   `yaml:"path" json:"path"`
+	Paths       []string `yaml:"paths" json:"paths"`
 	Environment string   `yaml:"environment,omitempty" json:"environment,omitempty"`
 }
 
