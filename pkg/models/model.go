@@ -7,11 +7,25 @@ type Manifest struct {
 
 // Trigger defines a rule for when a pipeline should be run.
 type Trigger struct {
-	On          string   `yaml:"on" json:"on"`
-	Branches    []string `yaml:"branches,omitempty" json:"branches,omitempty"`
-	Tags        []string `yaml:"tags,omitempty" json:"tags,omitempty"`
-	Paths       []string `yaml:"paths" json:"paths"`
-	Environment string   `yaml:"environment,omitempty" json:"environment,omitempty"`
+	On          string           `yaml:"on" json:"on"`
+	Branches    []string         `yaml:"branches,omitempty" json:"branches,omitempty"`
+	Tags        []string         `yaml:"tags,omitempty" json:"tags,omitempty"`
+	Pipelines   []PipelineSource `yaml:"pipelines" json:"pipelines"`
+	Environment string           `yaml:"environment,omitempty" json:"environment,omitempty"`
+}
+
+// PipelineSource defines a single pipeline to be run, sourced from a local path or a remote URL.
+type PipelineSource struct {
+	Path           string         `yaml:"path,omitempty" json:"path,omitempty"`
+	URL            string         `yaml:"url,omitempty" json:"url,omitempty"`
+	Authentication Authentication `yaml:"authentication,omitempty" json:"authentication,omitempty"`
+	Environment    string         `yaml:"environment,omitempty" json:"environment,omitempty"`
+}
+
+// Authentication defines the credentials for accessing a remote pipeline.
+type Authentication struct {
+	Provider string `yaml:"provider,omitempty" json:"provider,omitempty"`
+	Secret   string `yaml:"secret,omitempty" json:"secret,omitempty"`
 }
 
 // Pipeline represents the structure of a pipeline definition file.
