@@ -520,7 +520,7 @@ func (a *GitBotApp) initializeCheckRunState(checkRunID int64, owner, repo, pipel
 	return nil
 }
 
-func (a *GitBotApp) findPipelineForEvent(manifest models.Manifest, eventType, ref string) (string, string) {
+func (a *GitBotApp) findPipelinesForEvent(manifest models.Manifest, eventType, ref string) ([]string, string) {
 	for _, trigger := range manifest.Triggers {
 		if trigger.On != eventType {
 			continue
@@ -532,14 +532,14 @@ func (a *GitBotApp) findPipelineForEvent(manifest models.Manifest, eventType, re
 				branchName := strings.TrimPrefix(ref, "refs/heads/")
 				for _, pattern := range trigger.Branches {
 					if matched, _ := filepath.Match(pattern, branchName); matched {
-						return trigger.Path, trigger.Environment
+						return trigger.Paths, trigger.Environment
 					}
 				}
 			} else if strings.HasPrefix(ref, "refs/tags/") { // It's a tag
 				tagName := strings.TrimPrefix(ref, "refs/tags/")
 				for _, pattern := range trigger.Tags {
 					if matched, _ := filepath.Match(pattern, tagName); matched {
-						return trigger.Path, trigger.Environment
+						return trigger.Paths, trigger.Environment
 					}
 				}
 			}
@@ -547,10 +547,10 @@ func (a *GitBotApp) findPipelineForEvent(manifest models.Manifest, eventType, re
 
 		// Handle pull_request events
 		if eventType == "pull_request" {
-			return trigger.Path, trigger.Environment
+			return trigger.Paths, trigger.Environment
 		}
 	}
-	return "", ""
+	return nil, ""
 }
 
 func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
@@ -782,156 +782,156 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	pipelinePath, environment := a.findPipelineForEvent(manifest, eventType, ref)
-	if pipelinePath == "" {
+	pipelinePaths, environment := a.findPipelinesForEvent(manifest, eventType, ref)
+	if len(pipelinePaths) == 0 {
 		log.Info().Msgf("No pipeline found for event '%s' and ref '%s'.", eventType, ref)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("No pipeline found for this event."))
 		return
 	}
 
-	if pipelineSource == "repository" {
-		fullPipelinePath := filepath.Join(".nopsai", pipelinePath)
-		log.Info().Msgf("Found pipeline '%s' for event '%s' and ref '%s'.", fullPipelinePath, eventType, ref)
-		pipelineFileContent, _, _, err := a.ghClient.Repositories.GetContents(context.Background(), owner, repo, fullPipelinePath, &github.RepositoryContentGetOptions{Ref: commitSHA})
-		if err != nil || pipelineFileContent == nil {
-			log.Error().Err(err).Msgf("Failed to fetch pipeline file '%s' from repository", fullPipelinePath)
-			http.Error(w, "Could not fetch pipeline file", http.StatusNotFound)
+	for _, pipelinePath := range pipelinePaths {
+		if pipelineSource == "repository" {
+			fullPipelinePath := filepath.Join(".nopsai", pipelinePath)
+			log.Info().Msgf("Found pipeline '%s' for event '%s' and ref '%s'.", fullPipelinePath, eventType, ref)
+			pipelineFileContent, _, _, err := a.ghClient.Repositories.GetContents(context.Background(), owner, repo, fullPipelinePath, &github.RepositoryContentGetOptions{Ref: commitSHA})
+			if err != nil || pipelineFileContent == nil {
+				log.Error().Err(err).Msgf("Failed to fetch pipeline file '%s' from repository", fullPipelinePath)
+				http.Error(w, "Could not fetch pipeline file", http.StatusNotFound)
+				return
+			}
+			pipelineContent, err := pipelineFileContent.GetContent()
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to decode pipeline file content")
+				http.Error(w, "Could not decode pipeline file content", http.StatusInternalServerError)
+				return
+			}
+			pipelineYAML = []byte(pipelineContent)
+		} else {
+			log.Info().Str("pipeline_name", pipelinePath).Msg("Fetching central pipeline definition for override")
+			pipelineURL := fmt.Sprintf("%s/v1/pipelines/%s", a.cfg.GitBotNopsaiAPIURL, pipelinePath)
+			resp, err := http.Get(pipelineURL)
+			if err != nil || resp.StatusCode != http.StatusOK {
+				log.Error().Err(err).Msg("Failed to fetch central pipeline definition")
+				http.Error(w, "Could not fetch central pipeline", http.StatusInternalServerError)
+				return
+			}
+			pipelineYAML, _ = io.ReadAll(resp.Body)
+			resp.Body.Close()
+		}
+
+		var checkRunID int64
+		var pipeline models.Pipeline
+		_ = yaml.Unmarshal(pipelineYAML, &pipeline)
+		checkName := pipeline.Name
+		if pipelineSource == "database override" {
+			checkName = fmt.Sprintf("%s-overridden", checkName)
+		}
+
+		if isRerun {
+			checkRunID = newCheckRunForRerun.GetID()
+			a.initializeCheckRunState(checkRunID, owner, repo, string(pipelineYAML), checkName)
+			inProgressOpts := github.UpdateCheckRunOptions{
+				Name:   checkName,
+				Status: github.String("in_progress"),
+				Output: &github.CheckRunOutput{
+					Title:   github.String(checkName),
+					Summary: github.String("Pipeline is starting..."),
+				},
+			}
+			a.ghClient.Checks.UpdateCheckRun(context.Background(), owner, repo, checkRunID, inProgressOpts)
+		} else {
+			checkRunID = a.createCheckRun(owner, repo, commitSHA, string(pipelineYAML), pipelineSource)
+		}
+
+		if checkRunID == 0 {
+			http.Error(w, "Failed to create or initialize check run", http.StatusInternalServerError)
 			return
 		}
-		pipelineContent, err := pipelineFileContent.GetContent()
+
+		var runURL string
+		var req *http.Request
+		if pipelineSource == "repository" {
+			runURL = fmt.Sprintf("%s/v1/run", a.cfg.GitBotNopsaiAPIURL)
+			req, _ = http.NewRequest("POST", runURL, bytes.NewBuffer(pipelineYAML))
+			req.Header.Set("Content-Type", "application/x-yaml")
+		} else {
+			runURL = fmt.Sprintf("%s/v1/run/%s", a.cfg.GitBotNopsaiAPIURL, pipelinePath)
+			req, _ = http.NewRequest("POST", runURL, nil)
+		}
+
+		req.Header.Set("X-Git-Repo-Owner", owner)
+		req.Header.Set("X-Git-Repo-Name", repo)
+		req.Header.Set("X-Git-Commit-SHA", commitSHA)
+		req.Header.Set("X-Git-Check-Run-ID", strconv.FormatInt(checkRunID, 10))
+		req.Header.Set("X-Nopsai-Environment", environment)
+		req.Header.Set("X-Git-Ref", ref)
+
+		if isRerun {
+			req.Header.Set("X-Git-Rerun-Commit-SHA", commitSHA)
+		}
+
+		if pushEvent, ok := payload.(*github.PushEvent); ok {
+			if pushEvent.Repo.CloneURL != nil {
+				req.Header.Set("X-Git-Clone-URL", *pushEvent.Repo.CloneURL)
+			}
+			if pushEvent.Repo.SSHURL != nil {
+				req.Header.Set("X-Git-SSH-URL", *pushEvent.Repo.SSHURL)
+			}
+			if headCommit != nil {
+				if headCommit.URL != nil {
+					req.Header.Set("X-Git-Commit-URL", *headCommit.URL)
+				}
+				if headCommit.Message != nil {
+					firstLine := strings.Split(*headCommit.Message, "\n")[0]
+					req.Header.Set("X-Git-Commit-Message", firstLine)
+				}
+				if headCommit.Author != nil {
+					if headCommit.Author.Name != nil {
+						req.Header.Set("X-Git-Commit-Author-Name", *headCommit.Author.Name)
+					}
+					if headCommit.Author.Email != nil {
+						req.Header.Set("X-Git-Commit-Author-Email", *headCommit.Author.Email)
+					}
+					if headCommit.Author.Login != nil {
+						req.Header.Set("X-Git-Commit-Author-Username", *headCommit.Author.Login)
+					}
+				}
+			}
+			if pusher != nil {
+				if pusher.Name != nil {
+					req.Header.Set("X-Git-Pusher-Name", *pusher.Name)
+				}
+				if pusher.Email != nil {
+					req.Header.Set("X-Git-Pusher-Email", *pusher.Email)
+				}
+			}
+		}
+
+		client := &http.Client{}
+		resp, err = client.Do(req)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to decode pipeline file content")
-			http.Error(w, "Could not decode pipeline file content", http.StatusInternalServerError)
+			log.Error().Err(err).Int("status_code", 0).Msg("Failed to trigger nopsai pipeline")
+			summary := fmt.Sprintf("Failed to trigger Nopsai pipeline.\n\nError: %s", err.Error())
+			a.concludeCheckRun(owner, repo, checkRunID, "failure", summary)
+			http.Error(w, "Failed to trigger pipeline", http.StatusInternalServerError)
 			return
 		}
-		pipelineYAML = []byte(pipelineContent)
-	} else {
-		log.Info().Str("pipeline_name", pipelinePath).Msg("Fetching central pipeline definition for override")
-		pipelineURL := fmt.Sprintf("%s/v1/pipelines/%s", a.cfg.GitBotNopsaiAPIURL, pipelinePath)
-		resp, err := http.Get(pipelineURL)
-		if err != nil || resp.StatusCode != http.StatusOK {
-			log.Error().Err(err).Msg("Failed to fetch central pipeline definition")
-			http.Error(w, "Could not fetch central pipeline", http.StatusInternalServerError)
+
+		if resp.StatusCode != http.StatusCreated {
+			statusCode := resp.StatusCode
+			errorBody, _ := io.ReadAll(resp.Body)
+			log.Error().Int("status_code", statusCode).Msg("Nopsai service returned non-OK status")
+			summary := fmt.Sprintf("Failed to trigger Nopsai pipeline. The nopsai service responded with status %d.\n\nError: %s", statusCode, string(errorBody))
+			a.concludeCheckRun(owner, repo, checkRunID, "failure", summary)
+			http.Error(w, "Failed to trigger pipeline", http.StatusInternalServerError)
 			return
 		}
-		pipelineYAML, _ = io.ReadAll(resp.Body)
-		resp.Body.Close()
 	}
-
-	var checkRunID int64
-	var pipeline models.Pipeline
-	_ = yaml.Unmarshal(pipelineYAML, &pipeline)
-	checkName := pipeline.Name
-	if pipelineSource == "database override" {
-		checkName = fmt.Sprintf("%s-overridden", checkName)
-	}
-
-	if isRerun {
-		checkRunID = newCheckRunForRerun.GetID()
-		a.initializeCheckRunState(checkRunID, owner, repo, string(pipelineYAML), checkName)
-		inProgressOpts := github.UpdateCheckRunOptions{
-			Name:   checkName,
-			Status: github.String("in_progress"),
-			Output: &github.CheckRunOutput{
-				Title:   github.String(checkName),
-				Summary: github.String("Pipeline is starting..."),
-			},
-		}
-		a.ghClient.Checks.UpdateCheckRun(context.Background(), owner, repo, checkRunID, inProgressOpts)
-	} else {
-		checkRunID = a.createCheckRun(owner, repo, commitSHA, string(pipelineYAML), pipelineSource)
-	}
-
-	if checkRunID == 0 {
-		http.Error(w, "Failed to create or initialize check run", http.StatusInternalServerError)
-		return
-	}
-
-	var runURL string
-	var req *http.Request
-	if pipelineSource == "repository" {
-		runURL = fmt.Sprintf("%s/v1/run", a.cfg.GitBotNopsaiAPIURL)
-		req, _ = http.NewRequest("POST", runURL, bytes.NewBuffer(pipelineYAML))
-		req.Header.Set("Content-Type", "application/x-yaml")
-	} else {
-		runURL = fmt.Sprintf("%s/v1/run/%s", a.cfg.GitBotNopsaiAPIURL, pipelinePath)
-		req, _ = http.NewRequest("POST", runURL, nil)
-	}
-
-	req.Header.Set("X-Git-Repo-Owner", owner)
-	req.Header.Set("X-Git-Repo-Name", repo)
-	req.Header.Set("X-Git-Commit-SHA", commitSHA)
-	req.Header.Set("X-Git-Check-Run-ID", strconv.FormatInt(checkRunID, 10))
-	req.Header.Set("X-Nopsai-Environment", environment)
-	req.Header.Set("X-Git-Ref", ref)
-
-	if isRerun {
-		req.Header.Set("X-Git-Rerun-Commit-SHA", commitSHA)
-	}
-
-	if pushEvent, ok := payload.(*github.PushEvent); ok {
-		if pushEvent.Repo.CloneURL != nil {
-			req.Header.Set("X-Git-Clone-URL", *pushEvent.Repo.CloneURL)
-		}
-		if pushEvent.Repo.SSHURL != nil {
-			req.Header.Set("X-Git-SSH-URL", *pushEvent.Repo.SSHURL)
-		}
-		if headCommit != nil {
-			if headCommit.URL != nil {
-				req.Header.Set("X-Git-Commit-URL", *headCommit.URL)
-			}
-			if headCommit.Message != nil {
-				firstLine := strings.Split(*headCommit.Message, "\n")[0]
-				req.Header.Set("X-Git-Commit-Message", firstLine)
-			}
-			if headCommit.Author != nil {
-				if headCommit.Author.Name != nil {
-					req.Header.Set("X-Git-Commit-Author-Name", *headCommit.Author.Name)
-				}
-				if headCommit.Author.Email != nil {
-					req.Header.Set("X-Git-Commit-Author-Email", *headCommit.Author.Email)
-				}
-				if headCommit.Author.Login != nil {
-					req.Header.Set("X-Git-Commit-Author-Username", *headCommit.Author.Login)
-				}
-			}
-		}
-		if pusher != nil {
-			if pusher.Name != nil {
-				req.Header.Set("X-Git-Pusher-Name", *pusher.Name)
-			}
-			if pusher.Email != nil {
-				req.Header.Set("X-Git-Pusher-Email", *pusher.Email)
-			}
-		}
-	}
-
-	client := &http.Client{}
-	resp, err = client.Do(req)
-	if err != nil {
-		log.Error().Err(err).Int("status_code", 0).Msg("Failed to trigger nopsai pipeline")
-		summary := fmt.Sprintf("Failed to trigger Nopsai pipeline.\n\nError: %s", err.Error())
-		a.concludeCheckRun(owner, repo, checkRunID, "failure", summary)
-		http.Error(w, "Failed to trigger pipeline", http.StatusInternalServerError)
-		return
-	}
-
-	if resp.StatusCode != http.StatusCreated {
-		statusCode := resp.StatusCode
-		errorBody, _ := io.ReadAll(resp.Body)
-		log.Error().Int("status_code", statusCode).Msg("Nopsai service returned non-OK status")
-		summary := fmt.Sprintf("Failed to trigger Nopsai pipeline. The nopsai service responded with status %d.\n\nError: %s", statusCode, string(errorBody))
-		a.concludeCheckRun(owner, repo, checkRunID, "failure", summary)
-		http.Error(w, "Failed to trigger pipeline", http.StatusInternalServerError)
-		return
-	}
-
 	w.WriteHeader(http.StatusAccepted)
-	w.Write([]byte("Pipeline triggered."))
+	w.Write([]byte("Pipelines triggered."))
 }
 
-// handleTaskStatusUpdate processes updates for individual tasks.
 func (a *GitBotApp) handleTaskStatusUpdate(w http.ResponseWriter, r *http.Request) {
 	var update TaskStatusUpdate
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
