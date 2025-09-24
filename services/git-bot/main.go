@@ -520,7 +520,7 @@ func (a *GitBotApp) initializeCheckRunState(checkRunID int64, owner, repo, pipel
 	return nil
 }
 
-func (a *GitBotApp) findPipelinesForEvent(manifest models.Manifest, eventType, ref string) ([]string, string) {
+func (a *GitBotApp) findPipelinesForEvent(manifest models.Manifest, eventType, ref string) ([]models.PipelineSource, string) {
 	for _, trigger := range manifest.Triggers {
 		if trigger.On != eventType {
 			continue
@@ -532,14 +532,14 @@ func (a *GitBotApp) findPipelinesForEvent(manifest models.Manifest, eventType, r
 				branchName := strings.TrimPrefix(ref, "refs/heads/")
 				for _, pattern := range trigger.Branches {
 					if matched, _ := filepath.Match(pattern, branchName); matched {
-						return trigger.Paths, trigger.Environment
+						return trigger.Pipelines, trigger.Environment
 					}
 				}
 			} else if strings.HasPrefix(ref, "refs/tags/") { // It's a tag
 				tagName := strings.TrimPrefix(ref, "refs/tags/")
 				for _, pattern := range trigger.Tags {
 					if matched, _ := filepath.Match(pattern, tagName); matched {
-						return trigger.Paths, trigger.Environment
+						return trigger.Pipelines, trigger.Environment
 					}
 				}
 			}
@@ -547,7 +547,7 @@ func (a *GitBotApp) findPipelinesForEvent(manifest models.Manifest, eventType, r
 
 		// Handle pull_request events
 		if eventType == "pull_request" {
-			return trigger.Paths, trigger.Environment
+			return trigger.Pipelines, trigger.Environment
 		}
 	}
 	return nil, ""
@@ -782,17 +782,17 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	pipelinePaths, environment := a.findPipelinesForEvent(manifest, eventType, ref)
-	if len(pipelinePaths) == 0 {
+	pipelines, environment := a.findPipelinesForEvent(manifest, eventType, ref)
+	if len(pipelines) == 0 {
 		log.Info().Msgf("No pipeline found for event '%s' and ref '%s'.", eventType, ref)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("No pipeline found for this event."))
 		return
 	}
 
-	for _, pipelinePath := range pipelinePaths {
+	for _, pipeline := range pipelines {
 		if pipelineSource == "repository" {
-			fullPipelinePath := filepath.Join(".nopsai", pipelinePath)
+			fullPipelinePath := pipeline.Path
 			log.Info().Msgf("Found pipeline '%s' for event '%s' and ref '%s'.", fullPipelinePath, eventType, ref)
 			pipelineFileContent, _, _, err := a.ghClient.Repositories.GetContents(context.Background(), owner, repo, fullPipelinePath, &github.RepositoryContentGetOptions{Ref: commitSHA})
 			if err != nil || pipelineFileContent == nil {
@@ -808,8 +808,8 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 			}
 			pipelineYAML = []byte(pipelineContent)
 		} else {
-			log.Info().Str("pipeline_name", pipelinePath).Msg("Fetching central pipeline definition for override")
-			pipelineURL := fmt.Sprintf("%s/v1/pipelines/%s", a.cfg.GitBotNopsaiAPIURL, pipelinePath)
+			log.Info().Str("pipeline_name", pipeline.Path).Msg("Fetching central pipeline definition for override")
+			pipelineURL := fmt.Sprintf("%s/v1/pipelines/%s", a.cfg.GitBotNopsaiAPIURL, pipeline.Path)
 			resp, err := http.Get(pipelineURL)
 			if err != nil || resp.StatusCode != http.StatusOK {
 				log.Error().Err(err).Msg("Failed to fetch central pipeline definition")
@@ -821,9 +821,9 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var checkRunID int64
-		var pipeline models.Pipeline
-		_ = yaml.Unmarshal(pipelineYAML, &pipeline)
-		checkName := pipeline.Name
+		var p models.Pipeline
+		_ = yaml.Unmarshal(pipelineYAML, &p)
+		checkName := p.Name
 		if pipelineSource == "database override" {
 			checkName = fmt.Sprintf("%s-overridden", checkName)
 		}
@@ -856,7 +856,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 			req, _ = http.NewRequest("POST", runURL, bytes.NewBuffer(pipelineYAML))
 			req.Header.Set("Content-Type", "application/x-yaml")
 		} else {
-			runURL = fmt.Sprintf("%s/v1/run/%s", a.cfg.GitBotNopsaiAPIURL, pipelinePath)
+			runURL = fmt.Sprintf("%s/v1/run/%s", a.cfg.GitBotNopsaiAPIURL, pipeline.Path)
 			req, _ = http.NewRequest("POST", runURL, nil)
 		}
 
@@ -1161,7 +1161,7 @@ func main() {
 		}
 
 		log.Info().Msgf("Writing GITHUB_PRIVATE_KEY to file: %s", cfg.GitHubPrivateKeyPath)
-		err := os.WriteFile(cfg.GitHubPrivateKeyPath, []byte(correctedKey), 0600)
+		err = os.WriteFile(cfg.GitHubPrivateKeyPath, []byte(correctedKey), 0600)
 		if err != nil {
 			log.Fatal().Err(err).Msgf("Failed to write private key to file: %s", cfg.GitHubPrivateKeyPath)
 		}
