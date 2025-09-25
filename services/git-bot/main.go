@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -553,6 +554,118 @@ func (a *GitBotApp) findPipelinesForEvent(manifest models.Manifest, eventType, r
 	return nil, ""
 }
 
+// NEW FUNCTION: Fetches a secret from the NopsAI API
+func (a *GitBotApp) getSecretValue(secretName, owner, repo, environment string) (string, error) {
+	// Construct the URL to the NopsAI secrets endpoint
+	// This is a simplified example; a real implementation would need a more robust way to get a secret
+	// regardless of whether it's repo-specific or general. For now, we assume a general secret endpoint.
+	url := fmt.Sprintf("%s/v1/secrets/%s?env=%s", a.cfg.GitBotNopsaiAPIURL, secretName, environment)
+
+	// This is a placeholder for a more secure internal API authentication mechanism
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to call nopsai api for secret: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("nopsai api returned status %d for secret '%s'", resp.StatusCode, secretName)
+	}
+
+	var secretResp struct {
+		Value string `json:"value"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&secretResp); err != nil {
+		return "", fmt.Errorf("failed to decode secret response: %w", err)
+	}
+
+	return secretResp.Value, nil
+}
+
+func parseGitHubRawURL(rawURL string) (owner, repo, ref, path string, err error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", "", "", "", err
+	}
+
+	if u.Host != "github.com" {
+		return "", "", "", "", fmt.Errorf("not a github.com URL")
+	}
+
+	parts := strings.Split(strings.TrimPrefix(u.Path, "/"), "/")
+	if len(parts) < 4 {
+		return "", "", "", "", fmt.Errorf("invalid raw GitHub URL path. e.x. go to the file in Github and copy the URL")
+	}
+
+	owner = parts[0]
+	repo = parts[1]
+	ref = parts[3]
+	path = strings.Join(parts[4:], "/")
+	return owner, repo, ref, path, nil
+}
+
+func (a *GitBotApp) fetchRemotePipeline(p models.PipelineSource, owner, repo string) ([]byte, error) {
+	if p.Authentication.Provider == "" && strings.Contains(p.URL, "github.com") {
+		urlOwner, urlRepo, urlRef, urlPath, err := parseGitHubRawURL(p.URL)
+		if err == nil {
+			log.Info().Str("owner", urlOwner).Str("repo", urlRepo).Msg("Fetching remote pipeline using GitHub App credentials")
+			fileContent, _, _, err := a.ghClient.Repositories.GetContents(context.Background(), urlOwner, urlRepo, urlPath, &github.RepositoryContentGetOptions{Ref: urlRef})
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch remote pipeline with GitHub App: %w", err)
+			}
+			if fileContent == nil {
+				return nil, fmt.Errorf("remote pipeline file is empty")
+			}
+			content, err := fileContent.GetContent()
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode remote pipeline content: %w", err)
+			}
+			return []byte(content), nil
+		}
+	}
+
+	// Case 2 & 3: It's a public URL or a private URL with a specific token.
+	client := &http.Client{}
+	req, err := http.NewRequest("GET", p.URL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request for remote pipeline: %w", err)
+	}
+
+	// Handle explicit authentication if specified
+	if p.Authentication.Provider != "" {
+		secretValue, err := a.getSecretValue(p.Authentication.Secret, owner, repo, p.Environment)
+		if err != nil {
+			return nil, fmt.Errorf("failed to retrieve secret '%s' for remote pipeline: %w", p.Authentication.Secret, err)
+		}
+
+		switch p.Authentication.Provider {
+		case "github":
+			req.Header.Set("Authorization", "token "+secretValue)
+		// Add cases for other providers like gitlab, etc. here
+		default:
+			return nil, fmt.Errorf("unsupported authentication provider: %s", p.Authentication.Provider)
+		}
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch remote pipeline from %s: %w", p.URL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to fetch remote pipeline: received status code %d from %s", resp.StatusCode, p.URL)
+	}
+
+	return io.ReadAll(resp.Body)
+}
+
 func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -790,40 +903,47 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for _, pipeline := range pipelines {
-		if pipelineSource == "repository" {
-			fullPipelinePath := pipeline.Path
-			log.Info().Msgf("Found pipeline '%s' for event '%s' and ref '%s'.", fullPipelinePath, eventType, ref)
-			pipelineFileContent, _, _, err := a.ghClient.Repositories.GetContents(context.Background(), owner, repo, fullPipelinePath, &github.RepositoryContentGetOptions{Ref: commitSHA})
+	for _, p := range pipelines {
+		if p.Path != "" {
+			// This is a local pipeline, fetch from the repository.
+			log.Info().Msgf("Found local pipeline '%s' for event '%s' and ref '%s'.", p.Path, eventType, ref)
+			pipelineFileContent, _, _, err := a.ghClient.Repositories.GetContents(context.Background(), owner, repo, p.Path, &github.RepositoryContentGetOptions{Ref: commitSHA})
 			if err != nil || pipelineFileContent == nil {
-				log.Error().Err(err).Msgf("Failed to fetch pipeline file '%s' from repository", fullPipelinePath)
-				http.Error(w, "Could not fetch pipeline file", http.StatusNotFound)
-				return
+				log.Error().Err(err).Msgf("Failed to fetch pipeline file '%s' from repository", p.Path)
+				// Create a failed check run to provide feedback in the UI
+				// This requires a minimal pipeline definition to get a name.
+				checkRunID := a.createCheckRun(owner, repo, commitSHA, fmt.Sprintf("name: %s\nsteps: []", p.Path), pipelineSource)
+				a.concludeCheckRun(owner, repo, checkRunID, "failure", fmt.Sprintf("Error: Could not fetch pipeline file `%s` from the repository.", p.Path))
+				continue // Continue to the next pipeline in the list
 			}
 			pipelineContent, err := pipelineFileContent.GetContent()
 			if err != nil {
 				log.Error().Err(err).Msg("Failed to decode pipeline file content")
-				http.Error(w, "Could not decode pipeline file content", http.StatusInternalServerError)
-				return
+				checkRunID := a.createCheckRun(owner, repo, commitSHA, fmt.Sprintf("name: %s\nsteps: []", p.Path), pipelineSource)
+				a.concludeCheckRun(owner, repo, checkRunID, "failure", fmt.Sprintf("Error: Could not decode pipeline file `%s`.", p.Path))
+				continue
 			}
 			pipelineYAML = []byte(pipelineContent)
-		} else {
-			log.Info().Str("pipeline_name", pipeline.Path).Msg("Fetching central pipeline definition for override")
-			pipelineURL := fmt.Sprintf("%s/v1/pipelines/%s", a.cfg.GitBotNopsaiAPIURL, pipeline.Path)
-			resp, err := http.Get(pipelineURL)
-			if err != nil || resp.StatusCode != http.StatusOK {
-				log.Error().Err(err).Msg("Failed to fetch central pipeline definition")
-				http.Error(w, "Could not fetch central pipeline", http.StatusInternalServerError)
-				return
+		} else if p.URL != "" {
+			// This is a remote pipeline, fetch from the URL.
+			log.Info().Msgf("Fetching remote pipeline from URL: %s", p.URL)
+			remoteYAML, err := a.fetchRemotePipeline(p, owner, repo)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to fetch remote pipeline")
+				checkRunID := a.createCheckRun(owner, repo, commitSHA, fmt.Sprintf("name: %s\nsteps: []", p.URL), "remote")
+				a.concludeCheckRun(owner, repo, checkRunID, "failure", fmt.Sprintf("Error: Could not fetch remote pipeline from `%s`.", p.URL))
+				continue
 			}
-			pipelineYAML, _ = io.ReadAll(resp.Body)
-			resp.Body.Close()
+			pipelineYAML = remoteYAML
+		} else {
+			log.Warn().Msg("Pipeline source has neither a path nor a URL. Skipping.")
+			continue
 		}
 
 		var checkRunID int64
-		var p models.Pipeline
-		_ = yaml.Unmarshal(pipelineYAML, &p)
-		checkName := p.Name
+		var pipeline models.Pipeline
+		_ = yaml.Unmarshal(pipelineYAML, &pipeline)
+		checkName := pipeline.Name
 		if pipelineSource == "database override" {
 			checkName = fmt.Sprintf("%s-overridden", checkName)
 		}
@@ -856,7 +976,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 			req, _ = http.NewRequest("POST", runURL, bytes.NewBuffer(pipelineYAML))
 			req.Header.Set("Content-Type", "application/x-yaml")
 		} else {
-			runURL = fmt.Sprintf("%s/v1/run/%s", a.cfg.GitBotNopsaiAPIURL, pipeline.Path)
+			runURL = fmt.Sprintf("%s/v1/run/%s", a.cfg.GitBotNopsaiAPIURL, p.Path)
 			req, _ = http.NewRequest("POST", runURL, nil)
 		}
 
@@ -864,7 +984,12 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		req.Header.Set("X-Git-Repo-Name", repo)
 		req.Header.Set("X-Git-Commit-SHA", commitSHA)
 		req.Header.Set("X-Git-Check-Run-ID", strconv.FormatInt(checkRunID, 10))
-		req.Header.Set("X-Nopsai-Environment", environment)
+		// Use the most specific environment definition
+		if p.Environment != "" {
+			req.Header.Set("X-Nopsai-Environment", p.Environment)
+		} else {
+			req.Header.Set("X-Nopsai-Environment", environment)
+		}
 		req.Header.Set("X-Git-Ref", ref)
 
 		if isRerun {
