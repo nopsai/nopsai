@@ -611,48 +611,52 @@ func parseGitHubRawURL(rawURL string) (owner, repo, ref, path string, err error)
 }
 
 func (a *GitBotApp) fetchRemotePipeline(p models.PipelineSource, owner, repo string) ([]byte, error) {
-	if p.Authentication.Provider == "" && strings.Contains(p.URL, "github.com") {
-		urlOwner, urlRepo, urlRef, urlPath, err := parseGitHubRawURL(p.URL)
-		if err == nil {
-			log.Info().Str("owner", urlOwner).Str("repo", urlRepo).Msg("Fetching remote pipeline using GitHub App credentials")
-			fileContent, _, _, err := a.ghClient.Repositories.GetContents(context.Background(), urlOwner, urlRepo, urlPath, &github.RepositoryContentGetOptions{Ref: urlRef})
-			if err != nil {
-				return nil, fmt.Errorf("failed to fetch remote pipeline with GitHub App: %w", err)
-			}
-			if fileContent == nil {
-				return nil, fmt.Errorf("remote pipeline file is empty")
-			}
-			content, err := fileContent.GetContent()
-			if err != nil {
-				return nil, fmt.Errorf("failed to decode remote pipeline content: %w", err)
-			}
-			return []byte(content), nil
-		}
-	}
-
-	// Case 2 & 3: It's a public URL or a private URL with a specific token.
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", p.URL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request for remote pipeline: %w", err)
 	}
 
-	// Handle explicit authentication if specified
-	if p.Authentication.Provider != "" {
+	// Case 1: GitHub provider with a specific secret
+	if p.Authentication.Provider == "github" && p.Authentication.Secret != "" {
+		log.Info().Str("url", p.URL).Msg("Fetching remote GitHub pipeline using a specific secret token.")
 		secretValue, err := a.getSecretValue(p.Authentication.Secret, owner, repo, p.Environment)
 		if err != nil {
 			return nil, fmt.Errorf("failed to retrieve secret '%s' for remote pipeline: %w", p.Authentication.Secret, err)
 		}
+		req.Header.Set("Authorization", "token "+secretValue)
 
-		switch p.Authentication.Provider {
-		case "github":
-			req.Header.Set("Authorization", "token "+secretValue)
-		// Add cases for other providers like gitlab, etc. here
-		default:
-			return nil, fmt.Errorf("unsupported authentication provider: %s", p.Authentication.Provider)
+		// Case 2: GitHub provider WITHOUT a secret (fallback to GitHub App credentials)
+	} else if p.Authentication.Provider == "github" && p.Authentication.Secret == "" {
+		urlOwner, urlRepo, urlRef, urlPath, err := parseGitHubRawURL(p.URL)
+		if err != nil {
+			return nil, fmt.Errorf("URL is not a valid GitHub raw content URL, cannot use GitHub App: %w", err)
 		}
+		log.Info().Str("owner", urlOwner).Str("repo", urlRepo).Msg("Fetching remote pipeline using GitHub App credentials.")
+		fileContent, _, _, err := a.ghClient.Repositories.GetContents(context.Background(), urlOwner, urlRepo, urlPath, &github.RepositoryContentGetOptions{Ref: urlRef})
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch remote pipeline with GitHub App: %w", err)
+		}
+		if fileContent == nil {
+			return nil, fmt.Errorf("remote pipeline file is empty")
+		}
+		content, err := fileContent.GetContent()
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode remote pipeline content: %w", err)
+		}
+		return []byte(content), nil
+
+		// Case 3: No provider specified, but a secret is present (private URL with Bearer token)
+	} else if p.Authentication.Provider == "" && p.Authentication.Secret != "" {
+		log.Info().Str("url", p.URL).Msg("Fetching remote pipeline using a generic Bearer token.")
+		secretValue, err := a.getSecretValue(p.Authentication.Secret, owner, repo, p.Environment)
+		if err != nil {
+			return nil, fmt.Errorf("failed to retrieve secret '%s' for remote pipeline: %w", p.Authentication.Secret, err)
+		}
+		req.Header.Set("Authorization", "Bearer "+secretValue)
 	}
 
+	// Case 4 (Default): No provider and no secret - treat as a public URL
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch remote pipeline from %s: %w", p.URL, err)

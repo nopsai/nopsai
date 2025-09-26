@@ -6,6 +6,14 @@ networks:
     name: nopsai-net
 
 services:
+  base:
+    container_name: nopsai-base
+    image: nopsai-base
+    build:
+      context: .
+      dockerfile: Dockerfile
+    entrypoint: 'true'
+
   db:
     container_name: nopsai-db
     image: postgres:15
@@ -107,14 +115,6 @@ services:
       dockerfile: container/Dockerfile.agent
     depends_on:
       - base
-    entrypoint: 'true'
-
-  base:
-    container_name: nopsai-base
-    image: nopsai-base
-    build:
-      context: .
-      dockerfile: Dockerfile
     entrypoint: 'true'
 
   pipeline:
