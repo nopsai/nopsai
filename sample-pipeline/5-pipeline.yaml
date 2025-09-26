@@ -1,9 +1,9 @@
-name: Test-Pipeline
+name: Main-Pipeline
 description: A sample pipeline.
 llm_content_sharing: true
 llm_output_sharing: true
 display_options:
-  github_view: "flat" # mermaid, tree or flat
+  github_view: "mermaid" # mermaid, tree or flat
 container_image: "pipeline-image:latest"
 working_directory: "/tmp/test"
 timeout: "20m"
@@ -50,7 +50,25 @@ steps:
         goal: "what is the commit hash?"
         depends_on:
         - branch-versioning
+        
+  - name: image-scanning
+    include: "pipeline:reference-pipeline.yaml"
+    sync: false
+    secrets:
+      - TEST_SECRET
+    volumes:
+      - "sample-exisitng:/tmp/sample-exisitng"
+    depends_on:
+    - preparation
 
+  - name: included-main-pipeline
+    include: "pipeline:include.yaml"
+    sync: false
+    secrets:
+      - TEST_SECRET
+    depends_on:
+    - preparation
+    
   - name: secret-validation
     image: ubuntu:latest
     secrets:
@@ -92,16 +110,6 @@ steps:
         goal: build docker image with repo name and 3 tag, latest,latest git tag and commit hash 
         depends_on:
         - dockerfile-modification
-
-  - name: image-scanning
-    include: "pipeline:reference-pipeline.yaml"
-    sync: false
-    secrets:
-      - TEST_SECRET
-    volumes:
-      - "sample-exisitng:/tmp/sample-exisitng"
-    depends_on:
-    - docker-builder
 
   - name: overwrite
     include: "step:simple-step"

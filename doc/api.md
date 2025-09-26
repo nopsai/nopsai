@@ -12,6 +12,9 @@ curl -X PUT -d '{"value": "general prod"}' \
 curl -X PUT -d '{"value": "General level secret prod env"}' \
   'http://localhost:8080/v1/secrets/TEST_SECRET?env=prod'
 
+curl -X PUT -d '{"value": "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"}' \
+  'http://localhost:8080/v1/secrets/GITHUB_PIPELINE_TOKEN?env=prod'
+
 curl -X PUT \
   -H "Content-Type: application/x-yaml" \
   --data-binary "@.nopsai/reference-pipeline.yaml" \
@@ -32,7 +35,7 @@ _______________________________________-
 # Secrets
 
 ## General
-curl http://localhost:8080/v1/secrets
+curl http://localhost:8080/v1/secrets?env=prod
 
 curl -X DELETE http://localhost:8080/v1/secrets/TEST_SECRET
 
