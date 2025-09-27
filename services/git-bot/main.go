@@ -7,10 +7,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -35,6 +35,7 @@ type GitBotApp struct {
 	webhookSecret  string
 	checkRunStates map[int64]*CheckRunState
 	stateLock      sync.Mutex
+	githubAppID    int64
 }
 
 // TaskStatusUpdate reflects the new granular status updates.
@@ -81,6 +82,58 @@ type CreateChildCheckRunRequest struct {
 	ParentName         string `json:"parent_name"`
 	IncludeName        string `json:"include_name"`
 	PipelineDefinition string `json:"pipeline_definition"`
+}
+
+type FileContentRequest struct {
+	Owner string `json:"owner"`
+	Repo  string `json:"repo"`
+	Ref   string `json:"ref"`
+	Path  string `json:"path"`
+}
+
+type FileContentResponse struct {
+	Content string `json:"content"`
+}
+
+type PipelineContentRequest struct {
+	Owner  string                `json:"owner"`
+	Repo   string                `json:"repo"`
+	Ref    string                `json:"ref"`
+	Source models.PipelineSource `json:"source"`
+}
+
+type PipelineContentResponse struct {
+	Content string `json:"content"`
+}
+
+type CreateCheckRunRequest struct {
+	Owner              string `json:"owner"`
+	Repo               string `json:"repo"`
+	Ref                string `json:"ref"`
+	PipelineDefinition string `json:"pipeline_definition"`
+	PipelineSource     string `json:"pipeline_source"`
+}
+
+type CreateCheckRunResponse struct {
+	CheckRunID int64 `json:"check_run_id"`
+}
+
+type InitializeCheckRunRequest struct {
+	Owner              string `json:"owner"`
+	Repo               string `json:"repo"`
+	CheckRunID         int64  `json:"check_run_id"`
+	PipelineDefinition string `json:"pipeline_definition"`
+	PipelineName       string `json:"pipeline_name"`
+}
+
+type CancelStaleCheckRunsRequest struct {
+	Owner     string `json:"owner"`
+	Repo      string `json:"repo"`
+	BeforeSHA string `json:"before_sha"`
+}
+
+type CancelStaleCheckRunsResponse struct {
+	Cancelled int `json:"cancelled"`
 }
 
 func (a *GitBotApp) renderMarkdownTree(state *CheckRunState) string {
@@ -521,155 +574,6 @@ func (a *GitBotApp) initializeCheckRunState(checkRunID int64, owner, repo, pipel
 	return nil
 }
 
-func (a *GitBotApp) findPipelinesForEvent(manifest models.Manifest, eventType, ref string) ([]models.PipelineSource, string) {
-	for _, trigger := range manifest.Triggers {
-		if trigger.On != eventType {
-			continue
-		}
-
-		// Handle push events (branches and tags)
-		if eventType == "push" {
-			if strings.HasPrefix(ref, "refs/heads/") { // It's a branch
-				branchName := strings.TrimPrefix(ref, "refs/heads/")
-				for _, pattern := range trigger.Branches {
-					if matched, _ := filepath.Match(pattern, branchName); matched {
-						return trigger.Pipelines, trigger.Environment
-					}
-				}
-			} else if strings.HasPrefix(ref, "refs/tags/") { // It's a tag
-				tagName := strings.TrimPrefix(ref, "refs/tags/")
-				for _, pattern := range trigger.Tags {
-					if matched, _ := filepath.Match(pattern, tagName); matched {
-						return trigger.Pipelines, trigger.Environment
-					}
-				}
-			}
-		}
-
-		// Handle pull_request events
-		if eventType == "pull_request" {
-			return trigger.Pipelines, trigger.Environment
-		}
-	}
-	return nil, ""
-}
-
-// NEW FUNCTION: Fetches a secret from the NopsAI API
-func (a *GitBotApp) getSecretValue(secretName, owner, repo, environment string) (string, error) {
-	// Construct the URL to the NopsAI secrets endpoint
-	// This is a simplified example; a real implementation would need a more robust way to get a secret
-	// regardless of whether it's repo-specific or general. For now, we assume a general secret endpoint.
-	url := fmt.Sprintf("%s/v1/secrets/%s?env=%s", a.cfg.GitBotNopsaiAPIURL, secretName, environment)
-
-	// This is a placeholder for a more secure internal API authentication mechanism
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return "", err
-	}
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to call nopsai api for secret: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("nopsai api returned status %d for secret '%s'", resp.StatusCode, secretName)
-	}
-
-	var secretResp struct {
-		Value string `json:"value"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&secretResp); err != nil {
-		return "", fmt.Errorf("failed to decode secret response: %w", err)
-	}
-
-	return secretResp.Value, nil
-}
-
-func parseGitHubRawURL(rawURL string) (owner, repo, ref, path string, err error) {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return "", "", "", "", err
-	}
-
-	if u.Host != "github.com" {
-		return "", "", "", "", fmt.Errorf("not a github.com URL")
-	}
-
-	parts := strings.Split(strings.TrimPrefix(u.Path, "/"), "/")
-	if len(parts) < 4 {
-		return "", "", "", "", fmt.Errorf("invalid raw GitHub URL path. e.x. go to the file in Github and copy the URL")
-	}
-
-	owner = parts[0]
-	repo = parts[1]
-	ref = parts[3]
-	path = strings.Join(parts[4:], "/")
-	return owner, repo, ref, path, nil
-}
-
-func (a *GitBotApp) fetchRemotePipeline(p models.PipelineSource, owner, repo string) ([]byte, error) {
-	client := &http.Client{}
-	req, err := http.NewRequest("GET", p.URL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request for remote pipeline: %w", err)
-	}
-
-	// Case 1: GitHub provider with a specific secret
-	if p.Authentication.Provider == "github" && p.Authentication.Secret != "" {
-		log.Info().Str("url", p.URL).Msg("Fetching remote GitHub pipeline using a specific secret token.")
-		secretValue, err := a.getSecretValue(p.Authentication.Secret, owner, repo, p.Environment)
-		if err != nil {
-			return nil, fmt.Errorf("failed to retrieve secret '%s' for remote pipeline: %w", p.Authentication.Secret, err)
-		}
-		req.Header.Set("Authorization", "token "+secretValue)
-
-		// Case 2: GitHub provider WITHOUT a secret (fallback to GitHub App credentials)
-	} else if p.Authentication.Provider == "github" && p.Authentication.Secret == "" {
-		urlOwner, urlRepo, urlRef, urlPath, err := parseGitHubRawURL(p.URL)
-		if err != nil {
-			return nil, fmt.Errorf("URL is not a valid GitHub raw content URL, cannot use GitHub App: %w", err)
-		}
-		log.Info().Str("owner", urlOwner).Str("repo", urlRepo).Msg("Fetching remote pipeline using GitHub App credentials.")
-		fileContent, _, _, err := a.ghClient.Repositories.GetContents(context.Background(), urlOwner, urlRepo, urlPath, &github.RepositoryContentGetOptions{Ref: urlRef})
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch remote pipeline with GitHub App: %w", err)
-		}
-		if fileContent == nil {
-			return nil, fmt.Errorf("remote pipeline file is empty")
-		}
-		content, err := fileContent.GetContent()
-		if err != nil {
-			return nil, fmt.Errorf("failed to decode remote pipeline content: %w", err)
-		}
-		return []byte(content), nil
-
-		// Case 3: No provider specified, but a secret is present (private URL with Bearer token)
-	} else if p.Authentication.Provider == "" && p.Authentication.Secret != "" {
-		log.Info().Str("url", p.URL).Msg("Fetching remote pipeline using a generic Bearer token.")
-		secretValue, err := a.getSecretValue(p.Authentication.Secret, owner, repo, p.Environment)
-		if err != nil {
-			return nil, fmt.Errorf("failed to retrieve secret '%s' for remote pipeline: %w", p.Authentication.Secret, err)
-		}
-		req.Header.Set("Authorization", "Bearer "+secretValue)
-	}
-
-	// Case 4 (Default): No provider and no secret - treat as a public URL
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch remote pipeline from %s: %w", p.URL, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to fetch remote pipeline: received status code %d from %s", resp.StatusCode, p.URL)
-	}
-
-	return io.ReadAll(resp.Body)
-}
-
 func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -682,383 +586,249 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	eventType := github.WebHookType(r)
-	payload, err := github.ParseWebHook(eventType, body)
+	forwardURL := fmt.Sprintf("%s/v1/git/events", a.cfg.GitBotNopsaiAPIURL)
+	req, err := http.NewRequest(http.MethodPost, forwardURL, bytes.NewReader(body))
 	if err != nil {
-		http.Error(w, "Could not parse webhook", http.StatusBadRequest)
+		log.Error().Err(err).Msg("Failed to create request to nopsai event endpoint")
+		http.Error(w, "Failed to forward event", http.StatusInternalServerError)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	for _, header := range []string{"X-GitHub-Event", "X-GitHub-Delivery", "X-GitHub-Enterprise-Host", "X-GitHub-Enterprise-Version"} {
+		if value := r.Header.Get(header); value != "" {
+			req.Header.Set(header, value)
+		}
+	}
+	req.Header.Set("X-Nopsai-Forwarded-By", "git-bot")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to forward event to nopsai")
+		http.Error(w, "Failed to forward event", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	for key, values := range resp.Header {
+		for _, value := range values {
+			w.Header().Add(key, value)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	if _, err := io.Copy(w, resp.Body); err != nil {
+		log.Error().Err(err).Msg("Failed to proxy response body")
+	}
+}
+
+func (a *GitBotApp) handleFetchFile(w http.ResponseWriter, r *http.Request) {
+	var req FileContentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	var repoName, commitSHA, owner, repo, ref string
-	var headCommit *github.HeadCommit
-	var pusher *github.User
-	isRerun := false
-	var newCheckRunForRerun *github.CheckRun
-
-	switch event := payload.(type) {
-	case *github.PushEvent:
-		if event.GetAfter() == "0000000000000000000000000000000000000000" {
-			log.Info().Msg("Ignoring push event for branch deletion.")
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		if event.Repo == nil || event.Repo.Owner == nil || event.Repo.Owner.Login == nil ||
-			event.Repo.Name == nil || event.Repo.FullName == nil || event.After == nil {
-			log.Warn().Msg("Received push event with missing essential repository, owner, or commit SHA. Ignoring.")
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		repoName = *event.Repo.FullName
-		commitSHA = *event.After
-		owner = *event.Repo.Owner.Login
-		repo = *event.Repo.Name
-		ref = *event.Ref
-		headCommit = event.HeadCommit
-		pusher = event.Pusher
-		log.Info().Str("repo", repoName).Str("commit", commitSHA).Msg("Processing push event")
-
-		beforeSHA := event.GetBefore()
-		if beforeSHA != "" && beforeSHA != "0000000000000000000000000000000000000000" {
-			log.Info().Str("repo", repoName).Str("before_commit", beforeSHA).Msg("Checking for stale check runs on previous commit")
-			appID, _ := strconv.ParseInt(a.cfg.GitHubAppID, 10, 64)
-			opts := &github.ListCheckRunsOptions{}
-			checkRuns, _, listErr := a.ghClient.Checks.ListCheckRunsForRef(context.Background(), owner, repo, beforeSHA, opts)
-			if listErr != nil {
-				log.Error().Err(listErr).Msg("Failed to list check runs for previous commit")
-			} else {
-				for _, cr := range checkRuns.CheckRuns {
-					isOurApp := cr.GetApp() != nil && cr.GetApp().GetID() == appID
-					isStillRunning := cr.GetStatus() == "queued" || cr.GetStatus() == "in_progress"
-					if isOurApp && isStillRunning {
-						log.Info().Int64("check_run_id", cr.GetID()).Msg("Cancelling stale check run")
-						updateOpts := github.UpdateCheckRunOptions{
-							Name:        cr.GetName(),
-							Status:      github.String("completed"),
-							Conclusion:  github.String("cancelled"),
-							CompletedAt: &github.Timestamp{Time: time.Now()},
-							Output: &github.CheckRunOutput{
-								Title:   github.String(cr.GetName() + " - Cancelled"),
-								Summary: github.String("This run was cancelled because a new commit was pushed to the branch."),
-							},
-						}
-						_, _, updateErr := a.ghClient.Checks.UpdateCheckRun(context.Background(), owner, repo, cr.GetID(), updateOpts)
-						if updateErr != nil {
-							log.Error().Err(updateErr).Int64("check_run_id", cr.GetID()).Msg("Failed to cancel stale check run")
-						}
-					}
-				}
-			}
-		}
-
-	case *github.PullRequestEvent:
-		if event.GetAction() == "closed" {
-			log.Info().Msg("Ignoring pull_request event with 'closed' action to prevent duplicate runs on merge.")
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		eventType = "pull_request"
-		if event.Repo == nil || event.Repo.Owner == nil || event.Repo.Owner.Login == nil ||
-			event.Repo.Name == nil || event.Repo.FullName == nil || event.PullRequest == nil || event.PullRequest.Head == nil || event.PullRequest.Head.SHA == nil {
-			log.Warn().Msg("Received pull_request event with missing essential data. Ignoring.")
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		repoName = *event.Repo.FullName
-		commitSHA = *event.PullRequest.Head.SHA
-		owner = *event.Repo.Owner.Login
-		repo = *event.Repo.Name
-		ref = *event.PullRequest.Head.Ref
-		log.Info().Str("repo", repoName).Str("commit", commitSHA).Msg("Processing pull_request event")
-
-	case *github.CreateEvent:
-		log.Info().Msg("Ignoring 'create' event as per configuration.")
-		w.WriteHeader(http.StatusOK)
-		return
-
-	case *github.CheckRunEvent:
-		if event.GetAction() == "rerequested" {
-			isRerun = true
-			if event.Repo == nil || event.Repo.Owner == nil || event.Repo.Owner.Login == nil ||
-				event.Repo.Name == nil || event.Repo.FullName == nil || event.CheckRun == nil || event.CheckRun.HeadSHA == nil {
-				log.Warn().Msg("Received rerequested check_run event with missing essential data. Ignoring.")
-				w.WriteHeader(http.StatusOK)
-				return
-			}
-			repoName = event.GetRepo().GetFullName()
-			commitSHA = event.GetCheckRun().GetHeadSHA()
-			owner = event.GetRepo().GetOwner().GetLogin()
-			repo = event.GetRepo().GetName()
-			newCheckRunForRerun = event.GetCheckRun() // Save the new check run object
-
-			if len(event.CheckRun.PullRequests) > 0 {
-				eventType = "pull_request"
-				ref = *event.CheckRun.PullRequests[0].Head.Ref
-			} else {
-				eventType = "push"
-				if event.CheckRun.CheckSuite != nil && event.CheckRun.CheckSuite.HeadBranch != nil {
-					ref = "refs/heads/" + *event.CheckRun.CheckSuite.HeadBranch
-				} else {
-					ref = commitSHA // Fallback if branch isn't in the payload
-				}
-			}
-			log.Info().Int64("new_check_run_id", newCheckRunForRerun.GetID()).Msg("Processing rerun request from check_run event")
-		} else {
-			log.Info().Msgf("Received check_run event with action '%s', ignoring.", event.GetAction())
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-	case *github.CheckSuiteEvent:
-		if event.GetAction() == "rerequested" {
-			isRerun = true
-			if event.Repo == nil || event.Repo.Owner == nil || event.Repo.Owner.Login == nil ||
-				event.Repo.Name == nil || event.Repo.FullName == nil || event.CheckSuite == nil || event.CheckSuite.HeadSHA == nil {
-				log.Warn().Msg("Received rerequested check_suite event with missing essential data. Ignoring.")
-				w.WriteHeader(http.StatusOK)
-				return
-			}
-			repoName = *event.Repo.FullName
-			commitSHA = *event.CheckSuite.HeadSHA
-			owner = *event.Repo.Owner.Login
-			repo = *event.Repo.Name
-
-			// For a suite rerun, we need to find an associated check run to get its ID.
-			opts := &github.ListCheckRunsOptions{}
-			checkRuns, _, err := a.ghClient.Checks.ListCheckRunsForRef(context.Background(), owner, repo, commitSHA, opts)
-			if err == nil && len(checkRuns.CheckRuns) > 0 {
-				newCheckRunForRerun = checkRuns.CheckRuns[0]
-			} else {
-				log.Error().Err(err).Msg("Could not find an associated check run for the rerequested suite.")
-				http.Error(w, "Could not find a check run for this suite.", http.StatusInternalServerError)
-				return
-			}
-
-			if len(event.CheckSuite.PullRequests) > 0 {
-				eventType = "pull_request"
-				ref = *event.CheckSuite.PullRequests[0].Head.Ref
-			} else {
-				eventType = "push"
-				if event.CheckSuite.HeadBranch != nil {
-					ref = "refs/heads/" + *event.CheckSuite.HeadBranch
-				} else {
-					ref = commitSHA
-				}
-			}
-			log.Info().Int64("new_check_run_id", newCheckRunForRerun.GetID()).Msg("Processing rerun request from check_suite event")
-		} else {
-			log.Info().Msgf("Received check_suite event with action '%s', ignoring.", event.GetAction())
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-	default:
-		log.Info().Msgf("Received unhandled event type '%s', ignoring.", eventType)
-		w.WriteHeader(http.StatusOK)
+	if req.Owner == "" || req.Repo == "" || req.Path == "" || req.Ref == "" {
+		http.Error(w, "owner, repo, ref, and path are required", http.StatusBadRequest)
 		return
 	}
 
-	// === SHARED LOGIC FOR ALL TRIGGERS ===
+	fileContent, _, _, err := a.ghClient.Repositories.GetContents(
+		context.Background(),
+		req.Owner,
+		req.Repo,
+		req.Path,
+		&github.RepositoryContentGetOptions{Ref: req.Ref},
+	)
+	if err != nil {
+		var respErr *github.ErrorResponse
+		if errors.As(err, &respErr) && respErr.Response != nil && respErr.Response.StatusCode == http.StatusNotFound {
+			http.Error(w, "file not found", http.StatusNotFound)
+			return
+		}
+		log.Error().Err(err).Str("owner", req.Owner).Str("repo", req.Repo).Str("path", req.Path).Msg("Failed to fetch repository file")
+		http.Error(w, "Failed to fetch file", http.StatusInternalServerError)
+		return
+	}
+	if fileContent == nil {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
 
-	var manifest models.Manifest
+	content, err := fileContent.GetContent()
+	if err != nil {
+		log.Error().Err(err).Str("owner", req.Owner).Str("repo", req.Repo).Str("path", req.Path).Msg("Failed to decode repository file")
+		http.Error(w, "Failed to decode file", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(FileContentResponse{Content: content})
+}
+
+func (a *GitBotApp) handleFetchPipeline(w http.ResponseWriter, r *http.Request) {
+	var req PipelineContentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Owner == "" || req.Repo == "" || req.Ref == "" {
+		http.Error(w, "owner, repo, and ref are required", http.StatusBadRequest)
+		return
+	}
+
 	var pipelineYAML []byte
-	var pipelineSource string
 
-	overrideURL := fmt.Sprintf("%s/v1/overrides/%s/%s", a.cfg.GitBotNopsaiAPIURL, owner, repo)
-	resp, err := http.Get(overrideURL)
-	if err == nil && resp.StatusCode == http.StatusOK {
-		pipelineSource = "database override"
-		log.Info().Str("repo", repoName).Msg("Found trigger override from nopsai service.")
-		overrideBody, _ := io.ReadAll(resp.Body)
-		if err := yaml.Unmarshal(overrideBody, &manifest); err != nil {
-			log.Error().Err(err).Msg("Failed to parse trigger override manifest")
-			// Don't create a check run here, as we can't determine the pipeline name
-			http.Error(w, "Could not parse trigger override manifest", http.StatusInternalServerError)
+	if req.Source.Path != "" {
+		if strings.HasPrefix(req.Source.Path, "http://") || strings.HasPrefix(req.Source.Path, "https://") {
+			http.Error(w, "Remote pipeline URLs are no longer supported", http.StatusBadRequest)
 			return
 		}
-		resp.Body.Close()
+		fileContent, _, _, fetchErr := a.ghClient.Repositories.GetContents(
+			context.Background(),
+			req.Owner,
+			req.Repo,
+			req.Source.Path,
+			&github.RepositoryContentGetOptions{Ref: req.Ref},
+		)
+		if fetchErr != nil {
+			var respErr *github.ErrorResponse
+			if errors.As(fetchErr, &respErr) && respErr.Response != nil && respErr.Response.StatusCode == http.StatusNotFound {
+				http.Error(w, "pipeline file not found", http.StatusNotFound)
+				return
+			}
+			log.Error().Err(fetchErr).Str("owner", req.Owner).Str("repo", req.Repo).Str("path", req.Source.Path).Msg("Failed to fetch pipeline file")
+			http.Error(w, "Failed to fetch pipeline file", http.StatusInternalServerError)
+			return
+		}
+		if fileContent == nil {
+			http.Error(w, "pipeline file not found", http.StatusNotFound)
+			return
+		}
+		content, decodeErr := fileContent.GetContent()
+		if decodeErr != nil {
+			log.Error().Err(decodeErr).Str("owner", req.Owner).Str("repo", req.Repo).Str("path", req.Source.Path).Msg("Failed to decode pipeline file content")
+			http.Error(w, "Failed to decode pipeline file", http.StatusInternalServerError)
+			return
+		}
+		pipelineYAML = []byte(content)
 	} else {
-		pipelineSource = "repository"
-		log.Info().Str("repo", repoName).Msg("No override found, fetching .nopsai/triggers.yaml from repository.")
-		manifestPath := ".nopsai/triggers.yaml"
-		fileContent, _, _, err := a.ghClient.Repositories.GetContents(context.Background(), owner, repo, manifestPath, &github.RepositoryContentGetOptions{Ref: commitSHA})
-		if err != nil || fileContent == nil {
-			log.Info().Err(err).Msg("No .nopsai/triggers.yaml found, no pipelines will be triggered.")
-			w.WriteHeader(http.StatusOK) // Not an error, just no action to take
-			return
-		}
-		content, err := fileContent.GetContent()
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to decode file content")
-			http.Error(w, "Could not decode file content", http.StatusInternalServerError)
-			return
-		}
-		if err := yaml.Unmarshal([]byte(content), &manifest); err != nil {
-			log.Error().Err(err).Msg("Failed to parse .nopsai/triggers.yaml manifest")
-			http.Error(w, "Could not parse manifest file", http.StatusBadRequest)
-			return
-		}
-	}
-
-	pipelines, environment := a.findPipelinesForEvent(manifest, eventType, ref)
-	if len(pipelines) == 0 {
-		log.Info().Msgf("No pipeline found for event '%s' and ref '%s'.", eventType, ref)
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("No pipeline found for this event."))
+		http.Error(w, "pipeline source must include a path", http.StatusBadRequest)
 		return
 	}
 
-	for _, p := range pipelines {
-		if p.Path != "" {
-			// This is a local pipeline, fetch from the repository.
-			log.Info().Msgf("Found local pipeline '%s' for event '%s' and ref '%s'.", p.Path, eventType, ref)
-			pipelineFileContent, _, _, err := a.ghClient.Repositories.GetContents(context.Background(), owner, repo, p.Path, &github.RepositoryContentGetOptions{Ref: commitSHA})
-			if err != nil || pipelineFileContent == nil {
-				log.Error().Err(err).Msgf("Failed to fetch pipeline file '%s' from repository", p.Path)
-				// Create a failed check run to provide feedback in the UI
-				// This requires a minimal pipeline definition to get a name.
-				checkRunID := a.createCheckRun(owner, repo, commitSHA, fmt.Sprintf("name: %s\nsteps: []", p.Path), pipelineSource)
-				a.concludeCheckRun(owner, repo, checkRunID, "failure", fmt.Sprintf("Error: Could not fetch pipeline file `%s` from the repository.", p.Path))
-				continue // Continue to the next pipeline in the list
-			}
-			pipelineContent, err := pipelineFileContent.GetContent()
-			if err != nil {
-				log.Error().Err(err).Msg("Failed to decode pipeline file content")
-				checkRunID := a.createCheckRun(owner, repo, commitSHA, fmt.Sprintf("name: %s\nsteps: []", p.Path), pipelineSource)
-				a.concludeCheckRun(owner, repo, checkRunID, "failure", fmt.Sprintf("Error: Could not decode pipeline file `%s`.", p.Path))
-				continue
-			}
-			pipelineYAML = []byte(pipelineContent)
-		} else if p.URL != "" {
-			// This is a remote pipeline, fetch from the URL.
-			log.Info().Msgf("Fetching remote pipeline from URL: %s", p.URL)
-			remoteYAML, err := a.fetchRemotePipeline(p, owner, repo)
-			if err != nil {
-				log.Error().Err(err).Msg("Failed to fetch remote pipeline")
-				checkRunID := a.createCheckRun(owner, repo, commitSHA, fmt.Sprintf("name: %s\nsteps: []", p.URL), "remote")
-				a.concludeCheckRun(owner, repo, checkRunID, "failure", fmt.Sprintf("Error: Could not fetch remote pipeline from `%s`.", p.URL))
-				continue
-			}
-			pipelineYAML = remoteYAML
-		} else {
-			log.Warn().Msg("Pipeline source has neither a path nor a URL. Skipping.")
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(PipelineContentResponse{Content: string(pipelineYAML)})
+}
+
+func (a *GitBotApp) handleCreateCheckRun(w http.ResponseWriter, r *http.Request) {
+	var req CreateCheckRunRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Owner == "" || req.Repo == "" || req.Ref == "" || req.PipelineDefinition == "" {
+		http.Error(w, "owner, repo, ref, and pipeline_definition are required", http.StatusBadRequest)
+		return
+	}
+
+	if req.PipelineSource == "" {
+		req.PipelineSource = "repository"
+	}
+
+	checkRunID := a.createCheckRun(req.Owner, req.Repo, req.Ref, req.PipelineDefinition, req.PipelineSource)
+	if checkRunID == 0 {
+		http.Error(w, "Failed to create check run", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(CreateCheckRunResponse{CheckRunID: checkRunID})
+}
+
+func (a *GitBotApp) handleInitializeCheckRun(w http.ResponseWriter, r *http.Request) {
+	var req InitializeCheckRunRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Owner == "" || req.Repo == "" || req.CheckRunID == 0 || req.PipelineDefinition == "" || req.PipelineName == "" {
+		http.Error(w, "owner, repo, check_run_id, pipeline_definition, and pipeline_name are required", http.StatusBadRequest)
+		return
+	}
+
+	if err := a.initializeCheckRunState(req.CheckRunID, req.Owner, req.Repo, req.PipelineDefinition, req.PipelineName); err != nil {
+		log.Error().Err(err).Int64("check_run_id", req.CheckRunID).Msg("Failed to initialize check run state")
+		http.Error(w, "Failed to initialize check run state", http.StatusInternalServerError)
+		return
+	}
+
+	opts := github.UpdateCheckRunOptions{
+		Name:   req.PipelineName,
+		Status: github.String("in_progress"),
+		Output: &github.CheckRunOutput{
+			Title:   github.String(req.PipelineName),
+			Summary: github.String("Pipeline is starting..."),
+		},
+	}
+	if _, _, err := a.ghClient.Checks.UpdateCheckRun(context.Background(), req.Owner, req.Repo, req.CheckRunID, opts); err != nil {
+		log.Error().Err(err).Int64("check_run_id", req.CheckRunID).Msg("Failed to mark check run in progress")
+		http.Error(w, "Failed to update check run", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (a *GitBotApp) handleCancelStaleCheckRuns(w http.ResponseWriter, r *http.Request) {
+	var req CancelStaleCheckRunsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Owner == "" || req.Repo == "" || req.BeforeSHA == "" {
+		http.Error(w, "owner, repo, and before_sha are required", http.StatusBadRequest)
+		return
+	}
+
+	opts := &github.ListCheckRunsOptions{}
+	checkRuns, _, err := a.ghClient.Checks.ListCheckRunsForRef(context.Background(), req.Owner, req.Repo, req.BeforeSHA, opts)
+	if err != nil {
+		log.Error().Err(err).Str("owner", req.Owner).Str("repo", req.Repo).Str("sha", req.BeforeSHA).Msg("Failed to list check runs for stale commit")
+		http.Error(w, "Failed to list check runs", http.StatusInternalServerError)
+		return
+	}
+
+	cancelled := 0
+	for _, cr := range checkRuns.CheckRuns {
+		isOurApp := cr.GetApp() != nil && cr.GetApp().GetID() == a.githubAppID
+		isRunning := cr.GetStatus() == "queued" || cr.GetStatus() == "in_progress"
+		if !isOurApp || !isRunning {
 			continue
 		}
 
-		var checkRunID int64
-		var pipeline models.Pipeline
-		_ = yaml.Unmarshal(pipelineYAML, &pipeline)
-		checkName := pipeline.Name
-		if pipelineSource == "database override" {
-			checkName = fmt.Sprintf("%s-overridden", checkName)
+		updateOpts := github.UpdateCheckRunOptions{
+			Name:        cr.GetName(),
+			Status:      github.String("completed"),
+			Conclusion:  github.String("cancelled"),
+			CompletedAt: &github.Timestamp{Time: time.Now()},
+			Output: &github.CheckRunOutput{
+				Title:   github.String(cr.GetName() + " - Cancelled"),
+				Summary: github.String("This run was cancelled because a new commit was pushed to the branch."),
+			},
 		}
-
-		if isRerun {
-			checkRunID = newCheckRunForRerun.GetID()
-			a.initializeCheckRunState(checkRunID, owner, repo, string(pipelineYAML), checkName)
-			inProgressOpts := github.UpdateCheckRunOptions{
-				Name:   checkName,
-				Status: github.String("in_progress"),
-				Output: &github.CheckRunOutput{
-					Title:   github.String(checkName),
-					Summary: github.String("Pipeline is starting..."),
-				},
-			}
-			a.ghClient.Checks.UpdateCheckRun(context.Background(), owner, repo, checkRunID, inProgressOpts)
-		} else {
-			checkRunID = a.createCheckRun(owner, repo, commitSHA, string(pipelineYAML), pipelineSource)
+		if _, _, err := a.ghClient.Checks.UpdateCheckRun(context.Background(), req.Owner, req.Repo, cr.GetID(), updateOpts); err != nil {
+			log.Error().Err(err).Int64("check_run_id", cr.GetID()).Msg("Failed to cancel stale check run")
+			continue
 		}
-
-		if checkRunID == 0 {
-			http.Error(w, "Failed to create or initialize check run", http.StatusInternalServerError)
-			return
-		}
-
-		var runURL string
-		var req *http.Request
-		if pipelineSource == "repository" {
-			runURL = fmt.Sprintf("%s/v1/run", a.cfg.GitBotNopsaiAPIURL)
-			req, _ = http.NewRequest("POST", runURL, bytes.NewBuffer(pipelineYAML))
-			req.Header.Set("Content-Type", "application/x-yaml")
-		} else {
-			runURL = fmt.Sprintf("%s/v1/run/%s", a.cfg.GitBotNopsaiAPIURL, p.Path)
-			req, _ = http.NewRequest("POST", runURL, nil)
-		}
-
-		req.Header.Set("X-Git-Repo-Owner", owner)
-		req.Header.Set("X-Git-Repo-Name", repo)
-		req.Header.Set("X-Git-Commit-SHA", commitSHA)
-		req.Header.Set("X-Git-Check-Run-ID", strconv.FormatInt(checkRunID, 10))
-		// Use the most specific environment definition
-		if p.Environment != "" {
-			req.Header.Set("X-Nopsai-Environment", p.Environment)
-		} else {
-			req.Header.Set("X-Nopsai-Environment", environment)
-		}
-		req.Header.Set("X-Git-Ref", ref)
-
-		if isRerun {
-			req.Header.Set("X-Git-Rerun-Commit-SHA", commitSHA)
-		}
-
-		if pushEvent, ok := payload.(*github.PushEvent); ok {
-			if pushEvent.Repo.CloneURL != nil {
-				req.Header.Set("X-Git-Clone-URL", *pushEvent.Repo.CloneURL)
-			}
-			if pushEvent.Repo.SSHURL != nil {
-				req.Header.Set("X-Git-SSH-URL", *pushEvent.Repo.SSHURL)
-			}
-			if headCommit != nil {
-				if headCommit.URL != nil {
-					req.Header.Set("X-Git-Commit-URL", *headCommit.URL)
-				}
-				if headCommit.Message != nil {
-					firstLine := strings.Split(*headCommit.Message, "\n")[0]
-					req.Header.Set("X-Git-Commit-Message", firstLine)
-				}
-				if headCommit.Author != nil {
-					if headCommit.Author.Name != nil {
-						req.Header.Set("X-Git-Commit-Author-Name", *headCommit.Author.Name)
-					}
-					if headCommit.Author.Email != nil {
-						req.Header.Set("X-Git-Commit-Author-Email", *headCommit.Author.Email)
-					}
-					if headCommit.Author.Login != nil {
-						req.Header.Set("X-Git-Commit-Author-Username", *headCommit.Author.Login)
-					}
-				}
-			}
-			if pusher != nil {
-				if pusher.Name != nil {
-					req.Header.Set("X-Git-Pusher-Name", *pusher.Name)
-				}
-				if pusher.Email != nil {
-					req.Header.Set("X-Git-Pusher-Email", *pusher.Email)
-				}
-			}
-		}
-
-		client := &http.Client{}
-		resp, err = client.Do(req)
-		if err != nil {
-			log.Error().Err(err).Int("status_code", 0).Msg("Failed to trigger nopsai pipeline")
-			summary := fmt.Sprintf("Failed to trigger Nopsai pipeline.\n\nError: %s", err.Error())
-			a.concludeCheckRun(owner, repo, checkRunID, "failure", summary)
-			http.Error(w, "Failed to trigger pipeline", http.StatusInternalServerError)
-			return
-		}
-
-		if resp.StatusCode != http.StatusCreated {
-			statusCode := resp.StatusCode
-			errorBody, _ := io.ReadAll(resp.Body)
-			log.Error().Int("status_code", statusCode).Msg("Nopsai service returned non-OK status")
-			summary := fmt.Sprintf("Failed to trigger Nopsai pipeline. The nopsai service responded with status %d.\n\nError: %s", statusCode, string(errorBody))
-			a.concludeCheckRun(owner, repo, checkRunID, "failure", summary)
-			http.Error(w, "Failed to trigger pipeline", http.StatusInternalServerError)
-			return
-		}
+		cancelled++
 	}
-	w.WriteHeader(http.StatusAccepted)
-	w.Write([]byte("Pipelines triggered."))
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(CancelStaleCheckRunsResponse{Cancelled: cancelled})
 }
 
 func (a *GitBotApp) handleTaskStatusUpdate(w http.ResponseWriter, r *http.Request) {
@@ -1337,10 +1107,16 @@ func main() {
 		ghClient:       ghClient,
 		webhookSecret:  cfg.GitHubWebhookSecret,
 		checkRunStates: make(map[int64]*CheckRunState),
+		githubAppID:    appID,
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/webhook", app.handleWebhook)
+	mux.HandleFunc("POST /v1/github/file", app.handleFetchFile)
+	mux.HandleFunc("POST /v1/github/pipeline", app.handleFetchPipeline)
+	mux.HandleFunc("POST /v1/checks/create", app.handleCreateCheckRun)
+	mux.HandleFunc("POST /v1/checks/initialize", app.handleInitializeCheckRun)
+	mux.HandleFunc("POST /v1/checks/cancel-stale", app.handleCancelStaleCheckRuns)
 	mux.HandleFunc("/v1/run/status", app.handleRunStatusUpdate)
 	mux.HandleFunc("/v1/task/status", app.handleTaskStatusUpdate)
 	mux.HandleFunc("/v1/checks/create-child", app.handleCreateChildCheckRun)
