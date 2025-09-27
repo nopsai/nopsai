@@ -6,25 +6,18 @@ triggers:
     branches:
       - main
     pipelines:
-      - path: .nopsai/main-pipeline.yaml
-      - url: 'https://github.com/hosein-yousefii/TerraformHelmSample/blob/main/included-pipeline.yaml'
-        authentication:
-          provider: github
-          secret: 'GITHUB_PIPELINE_TOKEN'
-      - url: 'https://github.com/hosein-yousefii/pre-nopsai/blob/main/sample-pipeline/5-pipeline.yaml'
-        authentication:
-          provider: github
-      - url: 'https://some-public-url'
+      - .nopsai/main-pipeline.yaml
+      - .nopsai/secondary-pipeline.yaml
     environment: prod
 
   # Trigger for pushes to any feature branch
   - on: push
     branches:
       - 'test-**'
-    pipelines: 
-      - path: .nopsai/branch-pipeline.yaml
+    pipelines:
+      - .nopsai/branch-pipeline.yaml
 
   # Trigger for new pull requests
   - on: pull_request
-    pipelines: 
-      - path: .nopsai/main-pipeline.yaml
+    pipelines:
+      - .nopsai/main-pipeline.yaml

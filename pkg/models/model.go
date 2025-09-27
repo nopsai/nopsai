@@ -1,5 +1,11 @@
 package models
 
+import (
+	"fmt"
+
+	"gopkg.in/yaml.v3"
+)
+
 // Manifest represents the structure of the .nopsai.yaml manifest file.
 type Manifest struct {
 	Triggers []Trigger `yaml:"triggers" json:"triggers"`
@@ -14,18 +20,26 @@ type Trigger struct {
 	Environment string           `yaml:"environment,omitempty" json:"environment,omitempty"`
 }
 
-// PipelineSource defines a single pipeline to be run, sourced from a local path or a remote URL.
+// PipelineSource defines a single pipeline to be run from a local path or stored definition.
 type PipelineSource struct {
-	Path           string         `yaml:"path,omitempty" json:"path,omitempty"`
-	URL            string         `yaml:"url,omitempty" json:"url,omitempty"`
-	Authentication Authentication `yaml:"authentication,omitempty" json:"authentication,omitempty"`
-	Environment    string         `yaml:"environment,omitempty" json:"environment,omitempty"`
+	Path string `yaml:"path" json:"path"`
 }
 
-// Authentication defines the credentials for accessing a remote pipeline.
-type Authentication struct {
-	Provider string `yaml:"provider,omitempty" json:"provider,omitempty"`
-	Secret   string `yaml:"secret,omitempty" json:"secret,omitempty"`
+// UnmarshalYAML allows pipeline sources to be declared as simple strings (path).
+func (p *PipelineSource) UnmarshalYAML(value *yaml.Node) error {
+	*p = PipelineSource{}
+	if value.Kind == yaml.ScalarNode {
+		var path string
+		if err := value.Decode(&path); err != nil {
+			return err
+		}
+		if path == "" {
+			return fmt.Errorf("pipeline path cannot be empty")
+		}
+		p.Path = path
+		return nil
+	}
+	return fmt.Errorf("invalid pipeline source definition; only scalar paths are supported")
 }
 
 // Pipeline represents the structure of a pipeline definition file.
