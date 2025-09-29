@@ -878,16 +878,50 @@ func (a *App) handleGetPipeline(w http.ResponseWriter, r *http.Request) {
 	pipelineName := r.PathValue("pipelineName")
 
 	var pipelineDef string
-	err := a.db.QueryRow(context.Background(), "SELECT definition FROM pipelines WHERE name = $1", pipelineName).Scan(&pipelineDef)
-	if err != nil {
-		log.Error().Err(err).Str("pipeline_name", pipelineName).Msg("Pipeline not found in database")
-		http.Error(w, "Pipeline not found", http.StatusNotFound)
+	err := a.db.QueryRow(context.Background(), "SELECT * FROM pipelines WHERE name = $1", pipelineName).Scan(&pipelineDef)
+	if err == nil {
+		// Found in DB, return it
+		w.Header().Set("Content-Type", "application/x-yaml")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(pipelineDef))
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/x-yaml")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(pipelineDef))
+	if err != pgx.ErrNoRows {
+		// A real database error occurred
+		log.Error().Err(err).Str("pipeline_name", pipelineName).Msg("Database error while fetching pipeline")
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+
+	// Not found in DB, try fetching from Git repo if context is provided
+	repoOwner := r.URL.Query().Get("repoOwner")
+	repoName := r.URL.Query().Get("repoName")
+	commitSHA := r.URL.Query().Get("commitSHA")
+
+	if repoOwner != "" && repoName != "" && commitSHA != "" {
+		log.Info().Str("pipeline_name", pipelineName).Msg("Pipeline not in DB, attempting to fetch from repository as fallback")
+		pipelinePath := pipelineName
+		if !strings.HasPrefix(pipelinePath, ".nopsai/") {
+			pipelinePath = ".nopsai/" + pipelinePath
+		}
+
+		pipelineYAML, fetchErr := a.requestGitBotPipeline(repoOwner, repoName, commitSHA, models.PipelineSource{Path: pipelinePath})
+		if fetchErr != nil {
+			log.Error().Err(fetchErr).Str("pipeline_name", pipelineName).Msg("Failed to fetch pipeline from repository as fallback")
+			http.Error(w, "Pipeline not found in database or repository", http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/x-yaml")
+		w.WriteHeader(http.StatusOK)
+		w.Write(pipelineYAML)
+		return
+	}
+
+	// Not in DB and no git context provided
+	log.Error().Err(err).Str("pipeline_name", pipelineName).Msg("Pipeline not found in database and no git context for fallback")
+	http.Error(w, "Pipeline not found", http.StatusNotFound)
 }
 
 func (a *App) handleGetTriggerOverride(w http.ResponseWriter, r *http.Request) {
@@ -1584,7 +1618,6 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 		repoFullName = event.GetRepo().GetFullName()
 		owner = event.GetRepo().GetOwner().GetLogin()
 		repo = event.GetRepo().GetName()
-		commitSHA = event.GetCheckSuite().GetHeadSHA()
 		isRerun = true
 
 		suiteInfo, err := a.findSuiteCheckRun(owner, repo, event.GetCheckSuite().GetID(), event.GetCheckSuite().GetHeadSHA())
@@ -1689,21 +1722,31 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 			log.Warn().Str("repo", repoFullName).Msg("Pipeline entry missing path; skipping.")
 			continue
 		}
+
 		var pipelineYAML []byte
-		pipelineSourceForCheck := pipelineSource
+		pipelineSourceForCheck := pipelineSource // Start with the trigger's source
 		var err error
-		switch {
-		case pipelineSource == "database override":
-			if p.Path == "" {
-				log.Warn().Msg("Override manifest pipeline missing path; skipping.")
-				continue
+
+		// Attempt to fetch the pipeline from the database first to check for an override.
+		pipelineYAML, err = a.fetchPipelineFromDB(p.Path)
+		if err == nil {
+			// Success: An override exists in the database.
+			pipelineSourceForCheck = "database override"
+			log.Info().Str("pipeline", p.Path).Msg("Using overridden pipeline definition from database.")
+		} else if errors.Is(err, errPipelineNotFound) {
+			// Not found in DB, so fetch from the repository.
+			if pipelineSource == "database override" {
+				log.Error().Str("pipeline", p.Path).Msg("Trigger override points to a non-existent pipeline in the database.")
+				continue // Skip this pipeline as it's a configuration error.
 			}
-			pipelineYAML, err = a.fetchPipelineFromDB(p.Path)
-		case p.Path != "":
+
+			// Adjust path for repository lookup.
+			repoPath := p.Path
+			if !strings.HasPrefix(repoPath, ".nopsai/") {
+				repoPath = ".nopsai/" + repoPath
+			}
+			p.Path = repoPath // Update for the requestGitBotPipeline call
 			pipelineYAML, err = a.requestGitBotPipeline(owner, repo, commitSHA, p)
-		default:
-			log.Warn().Msg("Pipeline source has neither path nor URL; skipping.")
-			continue
 		}
 
 		if err != nil {
@@ -1779,7 +1822,7 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var req *http.Request
-		if pipelineSource == "database override" {
+		if pipelineSourceForCheck == "database override" {
 			req = httptest.NewRequest(http.MethodPost, "/v1/run/"+p.Path, nil)
 			req.SetPathValue("pipelineName", p.Path)
 		} else {
@@ -2821,6 +2864,7 @@ func findPipelinesForEvent(manifest models.Manifest, eventType, ref string) ([]m
 		}
 
 		if eventType == "pull_request" {
+			// This logic is now correctly isolated to only pull_request events
 			return trigger.Pipelines, trigger.Environment
 		}
 	}

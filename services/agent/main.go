@@ -453,6 +453,14 @@ func getPipelineDef(pipelineName string) ([]byte, error) {
 	// It must fetch named pipelines from the nopsai service.
 	url := fmt.Sprintf("%s/v1/pipelines/%s", nopsaiURL, pipelineName)
 
+	// Add git context as query parameters if available
+	repoOwner := os.Getenv("GIT_REPO_OWNER")
+	repoName := os.Getenv("GIT_REPO_NAME")
+	commitSHA := os.Getenv("GIT_COMMIT_SHA")
+	if repoOwner != "" && repoName != "" && commitSHA != "" {
+		url = fmt.Sprintf("%s?repoOwner=%s&repoName=%s&commitSHA=%s", url, repoOwner, repoName, commitSHA)
+	}
+
 	resp, err := http.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call nopsai api: %w", err)
