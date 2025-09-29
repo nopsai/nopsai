@@ -19,7 +19,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -121,6 +120,13 @@ type RunDetail struct {
 	ParentRunInfo      *ParentRunInfo  `json:"parent_run_info,omitempty"`
 }
 
+type suiteCheckRunResponse struct {
+	CheckRunID         int64  `json:"check_run_id"`
+	HeadSHA            string `json:"head_sha"`
+	PullRequestHeadRef string `json:"pull_request_head_ref,omitempty"`
+	HeadBranch         string `json:"head_branch,omitempty"`
+}
+
 type StepStatusUpdate struct {
 	Status   string `json:"status"`
 	ExitCode int    `json:"exit_code"`
@@ -155,6 +161,38 @@ type Group struct {
 }
 
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
+
+func matchBranchPattern(pattern, name string) bool {
+	if pattern == "" {
+		return false
+	}
+	var builder strings.Builder
+	builder.WriteString("^")
+	for i := 0; i < len(pattern); i++ {
+		switch pattern[i] {
+		case '*':
+			if i+1 < len(pattern) && pattern[i+1] == '*' {
+				builder.WriteString(".*")
+				i++
+			} else {
+				builder.WriteString("[^/]*")
+			}
+		case '?':
+			builder.WriteString(".")
+		case '.', '(', ')', '+', '|', '^', '$', '{', '}', '[', ']', '\\':
+			builder.WriteByte('\\')
+			builder.WriteByte(pattern[i])
+		default:
+			builder.WriteByte(pattern[i])
+		}
+	}
+	builder.WriteString("$")
+	re, err := regexp.Compile(builder.String())
+	if err != nil {
+		return pattern == name
+	}
+	return re.MatchString(name)
+}
 
 var (
 	errManifestNotFound = errors.New("manifest not found")
@@ -1537,9 +1575,51 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		log.Warn().Msg("check_suite rerun events are not yet supported in orchestrator mode.")
-		w.WriteHeader(http.StatusOK)
-		return
+		if event.Repo == nil || event.Repo.Owner == nil || event.Repo.Owner.Login == nil ||
+			event.Repo.Name == nil || event.Repo.FullName == nil || event.CheckSuite == nil || event.CheckSuite.HeadSHA == nil {
+			log.Warn().Msg("Received rerequested check_suite event with missing essential data. Ignoring.")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		repoFullName = event.GetRepo().GetFullName()
+		owner = event.GetRepo().GetOwner().GetLogin()
+		repo = event.GetRepo().GetName()
+		commitSHA = event.GetCheckSuite().GetHeadSHA()
+		isRerun = true
+
+		suiteInfo, err := a.findSuiteCheckRun(owner, repo, event.GetCheckSuite().GetID(), event.GetCheckSuite().GetHeadSHA())
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to resolve check run for rerequested suite")
+			http.Error(w, "Could not find check run for this suite.", http.StatusInternalServerError)
+			return
+		}
+		rerunCheckRun = &github.CheckRun{
+			ID:      github.Int64(suiteInfo.CheckRunID),
+			HeadSHA: github.String(suiteInfo.HeadSHA),
+		}
+		commitSHA = suiteInfo.HeadSHA
+		if suiteInfo.PullRequestHeadRef != "" {
+			rerunCheckRun.PullRequests = []*github.PullRequest{{
+				Head: &github.PullRequestBranch{Ref: github.String(suiteInfo.PullRequestHeadRef)},
+			}}
+		}
+
+		if len(event.CheckSuite.PullRequests) > 0 {
+			eventType = "pull_request"
+			ref = event.CheckSuite.PullRequests[0].GetHead().GetRef()
+		} else if suiteInfo.PullRequestHeadRef != "" {
+			eventType = "pull_request"
+			ref = suiteInfo.PullRequestHeadRef
+		} else {
+			eventType = "push"
+			if event.CheckSuite.HeadBranch != nil {
+				ref = "refs/heads/" + event.CheckSuite.GetHeadBranch()
+			} else if suiteInfo.HeadBranch != "" {
+				ref = "refs/heads/" + suiteInfo.HeadBranch
+			} else {
+				ref = commitSHA
+			}
+		}
 	default:
 		log.Info().Msgf("Received unhandled event type '%s', ignoring.", eventType)
 		w.WriteHeader(http.StatusOK)
@@ -1550,6 +1630,21 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 		log.Warn().Msg("Skipping event due to missing owner, repo, or commit SHA")
 		w.WriteHeader(http.StatusOK)
 		return
+	}
+
+	if eventType == "push" && !strings.HasPrefix(ref, "refs/") {
+		var storedRef sql.NullString
+		err := a.db.QueryRow(
+			context.Background(),
+			"SELECT git_ref FROM runs WHERE git_repo_owner = $1 AND git_repo_name = $2 AND git_commit_sha = $3 ORDER BY created_at DESC LIMIT 1",
+			owner, repo, commitSHA,
+		).Scan(&storedRef)
+		if err == nil && storedRef.Valid && strings.HasPrefix(storedRef.String, "refs/") {
+			log.Info().Str("commit", commitSHA).Str("ref", storedRef.String).Msg("Recovered original ref for rerun event")
+			ref = storedRef.String
+		} else if err != nil && err != sql.ErrNoRows {
+			log.Warn().Err(err).Str("commit", commitSHA).Msg("Failed to recover original ref for rerun event")
+		}
 	}
 
 	if beforeSHA != "" && beforeSHA != "0000000000000000000000000000000000000000" {
@@ -2711,14 +2806,14 @@ func findPipelinesForEvent(manifest models.Manifest, eventType, ref string) ([]m
 			if strings.HasPrefix(ref, "refs/heads/") {
 				branchName := strings.TrimPrefix(ref, "refs/heads/")
 				for _, pattern := range trigger.Branches {
-					if matched, _ := filepath.Match(pattern, branchName); matched {
+					if matchBranchPattern(pattern, branchName) {
 						return trigger.Pipelines, trigger.Environment
 					}
 				}
 			} else if strings.HasPrefix(ref, "refs/tags/") {
 				tagName := strings.TrimPrefix(ref, "refs/tags/")
 				for _, pattern := range trigger.Tags {
-					if matched, _ := filepath.Match(pattern, tagName); matched {
+					if matchBranchPattern(pattern, tagName) {
 						return trigger.Pipelines, trigger.Environment
 					}
 				}
@@ -2841,6 +2936,37 @@ func (a *App) requestGitBotPipeline(owner, repo, ref string, source models.Pipel
 		respBody, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("git-bot pipeline request failed with status %d: %s", resp.StatusCode, string(respBody))
 	}
+}
+
+func (a *App) findSuiteCheckRun(owner, repo string, suiteID int64, commitSHA string) (*suiteCheckRunResponse, error) {
+	payload := map[string]interface{}{
+		"owner":      owner,
+		"repo":       repo,
+		"suite_id":   suiteID,
+		"commit_sha": commitSHA,
+	}
+	body, _ := json.Marshal(payload)
+
+	url := fmt.Sprintf("%s/v1/checks/find-suite-run", a.cfg.NopsaiGitBotAPIURL)
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to request suite check run from git-bot: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("git-bot suite lookup failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+
+	var out suiteCheckRunResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("failed to decode git-bot suite lookup response: %w", err)
+	}
+	if out.CheckRunID == 0 || out.HeadSHA == "" {
+		return nil, fmt.Errorf("git-bot returned incomplete suite check run data")
+	}
+	return &out, nil
 }
 
 func (a *App) createGitHubCheckRun(owner, repo, ref string, pipelineDef []byte, pipelineSource string) (int64, error) {
