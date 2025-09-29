@@ -136,6 +136,20 @@ type CancelStaleCheckRunsResponse struct {
 	Cancelled int `json:"cancelled"`
 }
 
+type FindSuiteCheckRunRequest struct {
+	Owner     string `json:"owner"`
+	Repo      string `json:"repo"`
+	SuiteID   int64  `json:"suite_id"`
+	CommitSHA string `json:"commit_sha"`
+}
+
+type FindSuiteCheckRunResponse struct {
+	CheckRunID         int64  `json:"check_run_id"`
+	HeadSHA            string `json:"head_sha"`
+	PullRequestHeadRef string `json:"pull_request_head_ref,omitempty"`
+	HeadBranch         string `json:"head_branch,omitempty"`
+}
+
 func (a *GitBotApp) renderMarkdownTree(state *CheckRunState) string {
 	var builder strings.Builder
 	allTasks := make(map[string]TaskStatusUpdate)
@@ -831,6 +845,64 @@ func (a *GitBotApp) handleCancelStaleCheckRuns(w http.ResponseWriter, r *http.Re
 	json.NewEncoder(w).Encode(CancelStaleCheckRunsResponse{Cancelled: cancelled})
 }
 
+func (a *GitBotApp) handleFindSuiteCheckRun(w http.ResponseWriter, r *http.Request) {
+	var req FindSuiteCheckRunRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Owner == "" || req.Repo == "" || req.SuiteID == 0 {
+		http.Error(w, "owner, repo, and suite_id are required", http.StatusBadRequest)
+		return
+	}
+
+	if req.CommitSHA == "" {
+		http.Error(w, "commit_sha is required", http.StatusBadRequest)
+		return
+	}
+
+	runsResp, _, err := a.ghClient.Checks.ListCheckRunsForRef(context.Background(), req.Owner, req.Repo, req.CommitSHA, &github.ListCheckRunsOptions{})
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to list check runs for commit")
+		http.Error(w, "Failed to list check runs for commit", http.StatusInternalServerError)
+		return
+	}
+	if len(runsResp.CheckRuns) == 0 {
+		http.Error(w, "No check runs found for suite", http.StatusNotFound)
+		return
+	}
+
+	var target *github.CheckRun
+	for _, cr := range runsResp.CheckRuns {
+		if cr.CheckSuite != nil && cr.CheckSuite.ID != nil && *cr.CheckSuite.ID == req.SuiteID {
+			target = cr
+			break
+		}
+		if cr.GetApp() != nil && cr.GetApp().GetID() == a.githubAppID {
+			target = cr
+			break
+		}
+	}
+	if target == nil {
+		target = runsResp.CheckRuns[0]
+	}
+
+	response := FindSuiteCheckRunResponse{
+		CheckRunID: target.GetID(),
+		HeadSHA:    target.GetHeadSHA(),
+	}
+	if target.CheckSuite != nil && target.CheckSuite.HeadBranch != nil {
+		response.HeadBranch = target.CheckSuite.GetHeadBranch()
+	}
+	if len(target.PullRequests) > 0 && target.PullRequests[0] != nil && target.PullRequests[0].Head != nil && target.PullRequests[0].Head.Ref != nil {
+		response.PullRequestHeadRef = target.PullRequests[0].GetHead().GetRef()
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
 func (a *GitBotApp) handleTaskStatusUpdate(w http.ResponseWriter, r *http.Request) {
 	var update TaskStatusUpdate
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
@@ -1116,6 +1188,7 @@ func main() {
 	mux.HandleFunc("POST /v1/github/pipeline", app.handleFetchPipeline)
 	mux.HandleFunc("POST /v1/checks/create", app.handleCreateCheckRun)
 	mux.HandleFunc("POST /v1/checks/initialize", app.handleInitializeCheckRun)
+	mux.HandleFunc("POST /v1/checks/find-suite-run", app.handleFindSuiteCheckRun)
 	mux.HandleFunc("POST /v1/checks/cancel-stale", app.handleCancelStaleCheckRuns)
 	mux.HandleFunc("/v1/run/status", app.handleRunStatusUpdate)
 	mux.HandleFunc("/v1/task/status", app.handleTaskStatusUpdate)
