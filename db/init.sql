@@ -13,6 +13,7 @@ CREATE TABLE runs (
     parent_step_name VARCHAR(255),
     pipeline_name VARCHAR(255),
     pipeline_definition TEXT,
+    pipeline_source VARCHAR(20),
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     started_at TIMESTAMPTZ,
