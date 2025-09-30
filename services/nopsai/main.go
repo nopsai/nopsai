@@ -60,6 +60,7 @@ type LogLine struct {
 type RunListItem struct {
 	RunID          string    `json:"run_id"`
 	PipelineName   string    `json:"pipeline_name"`
+	PipelineSource string    `json:"pipeline_source,omitempty"`
 	Status         string    `json:"status"`
 	GitCommitSHA   string    `json:"git_commit_sha"`
 	GitRepoName    string    `json:"git_repo_name"`
@@ -1059,7 +1060,8 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
     	SELECT
     	    run_id, pipeline_name, status, COALESCE(git_commit_sha, ''),
     	    COALESCE(git_repo_name, ''), started_at, finished_at, parent_run_id,
-    	    COALESCE(git_pusher_name, ''), COALESCE(git_ref, '') -- <-- Add git_ref
+    	    COALESCE(git_pusher_name, ''), COALESCE(git_ref, ''),
+			COALESCE(pipeline_source, '')
     	FROM runs
 	`
 	args := []interface{}{}
@@ -1096,10 +1098,10 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var run RunListItem
 		var startedAt, finishedAt sql.NullTime
-		var commitSHA, repoName, pusherName, gitRef sql.NullString
+		var commitSHA, repoName, pusherName, gitRef, pipelineSource sql.NullString
 		err := rows.Scan(
 			&run.RunID, &run.PipelineName, &run.Status, &commitSHA,
-			&repoName, &startedAt, &finishedAt, &run.ParentRunID, &pusherName, &gitRef,
+			&repoName, &startedAt, &finishedAt, &run.ParentRunID, &pusherName, &gitRef, &pipelineSource,
 		)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to scan run row")
@@ -1109,6 +1111,7 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		run.GitRepoName = repoName.String
 		run.GitPusherName = pusherName.String
 		run.GitRef = gitRef.String
+		run.PipelineSource = pipelineSource.String
 		if startedAt.Valid {
 			run.StartedAt = startedAt.Time
 			if finishedAt.Valid {
@@ -1137,6 +1140,7 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(runsByBranch)
 	} else {
 		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(allRuns)
 	}
 }
@@ -1147,21 +1151,21 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	var run RunListItem
 	var pipelineDefinition string
 	var startedAt, finishedAt sql.NullTime
-	var commitSHA, repoOwner, repoName, pusherName, gitRef, failureReason sql.NullString
+	var commitSHA, repoOwner, repoName, pusherName, gitRef, failureReason, pipelineSource sql.NullString
 	err := a.db.QueryRow(context.Background(), `
 		SELECT
 			run_id, pipeline_name, status, COALESCE(git_commit_sha, ''),
 			COALESCE(git_repo_owner, ''), COALESCE(git_repo_name, ''),
 			started_at, finished_at, parent_run_id,
 			COALESCE(git_pusher_name, ''), pipeline_definition, COALESCE(git_ref, ''),
-			failure_reason
+			failure_reason, COALESCE(pipeline_source, '')
 		FROM runs
 		WHERE run_id = $1
 	`, runID).Scan(
 		&run.RunID, &run.PipelineName, &run.Status, &commitSHA,
 		&repoOwner, &repoName, &startedAt, &finishedAt,
 		&run.ParentRunID, &pusherName, &pipelineDefinition, &gitRef,
-		&failureReason,
+		&failureReason, &pipelineSource,
 	)
 
 	if err != nil {
@@ -1175,6 +1179,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	run.GitPusherName = pusherName.String
 	run.GitRef = gitRef.String
 	run.FailureReason = failureReason.String
+	run.PipelineSource = pipelineSource.String
 	if startedAt.Valid {
 		run.StartedAt = startedAt.Time
 	}
@@ -1816,6 +1821,7 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 			"X-Git-Commit-Author-Username": commitAuthorUsername,
 			"X-Git-Pusher-Name":            pusherName,
 			"X-Git-Pusher-Email":           pusherEmail,
+			"X-Nopsai-Pipeline-Source":     pipelineSourceForCheck,
 		}
 		if isRerun {
 			headers["X-Git-Rerun-Commit-SHA"] = commitSHA
@@ -1868,6 +1874,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	parentHistory := r.Header.Get("X-Nopsai-Parent-History")
 	environment := r.Header.Get("X-Nopsai-Environment")
 	parentStepName := r.Header.Get("X-Nopsai-Parent-Step-Name")
+	pipelineSource := r.Header.Get("X-Nopsai-Pipeline-Source")
 	pipelineNameFromPath := r.PathValue("pipelineName")
 
 	if pipelineNameFromPath != "" {
@@ -2014,13 +2021,13 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref,
 			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
 			git_commit_author_email, git_commit_author_username, git_pusher_name,
-			git_pusher_email, git_check_run_id, group_id, parent_step_name, environment)
-			VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
+			git_pusher_email, git_check_run_id, group_id, parent_step_name, environment, pipeline_source)
+			VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)`,
 		runID, parentRunIDSQL, pipeline.Name, string(pipelineDef),
 		gitContext["repo_owner"], gitContext["repo_name"], gitContext["clone_url"], gitContext["ssh_url"], gitContext["ref"],
 		gitContext["commit_sha"], gitContext["commit_url"], gitContext["commit_message"], gitContext["commit_author_name"],
 		gitContext["commit_author_email"], gitContext["commit_author_username"], gitContext["pusher_name"],
-		gitContext["pusher_email"], gitContext["check_run_id"], groupID, parentStepNameSQL, environment,
+		gitContext["pusher_email"], gitContext["check_run_id"], groupID, parentStepNameSQL, environment, pipelineSource,
 	)
 
 	if err != nil {

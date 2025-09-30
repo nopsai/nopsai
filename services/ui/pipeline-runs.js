@@ -21,6 +21,22 @@
         'failure (ignored)': { icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z', color: 'text-amber-500 dark:text-amber-400', rectClass: 'stroke-amber-500 fill-amber-100 dark:fill-amber-500/10' },
     };
 
+    function getPipelineNameHTML(run) {
+        const name = `<span class="font-medium truncate flex-1 min-w-0">${run.pipeline_name}</span>`;
+        const overrideIcon = run.pipeline_source === 'database override'
+            ? `<span class="flex-shrink-0 text-blue-400" title="Overridden from database"><svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></span>`
+            : '';
+        const includedBadge = run.parent_run_id
+            ? `<span class="flex-shrink-0 text-[10px] bg-[var(--bg-primary)] text-[var(--text-accent)] font-semibold px-1.5 py-0.5 rounded-md">Included</span>`
+            : '';
+        return `<div class="flex items-center gap-1.5 min-w-0">${[name, overrideIcon, includedBadge].filter(Boolean).join('')}</div>`;
+    }
+
+    function getPipelineSteps(definition) {
+        if (!definition || typeof definition !== 'object') return [];
+        const steps = definition.steps;
+        return Array.isArray(steps) ? steps : [];
+    }
 
     function init(context = {}) {
         if (initialized) return;
@@ -675,15 +691,7 @@ if (dx !== 0 || dy !== 0) {
             const isActive = run.run_id === activeRunId;
             const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
             const repoFullName = `${run.git_repo_owner}/${run.git_repo_name}`;
-
-            let pipelineNameHTML = `<span class="font-medium truncate text-[var(--text-primary)]">${run.pipeline_name}</span>`;
-            if (run.parent_run_id) {
-                pipelineNameHTML = `
-                    <div class="flex items-baseline">
-                        <span class="font-medium truncate text-[var(--text-primary)]">${run.pipeline_name}</span>
-                        <span class="ml-1.5 text-[10px] bg-[var(--bg-primary)] text-[var(--text-accent)] font-semibold px-1.5 py-0.5 rounded-md">Included</span>
-                    </div>`;
-            }
+            const pipelineNameHTML = getPipelineNameHTML(run);
 
             html += `<li data-run-id="${run.run_id}" data-repo-full-name="${repoFullName}" ${run.parent_run_id ? `data-parent-run-id="${run.parent_run_id}"` : ''}>
                             <a href="#/pipelineruns/run/${run.run_id}" class="flex items-center p-2 text-sm text-[var(--text-secondary)] rounded-md ${isActive ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : ''}">
@@ -726,15 +734,7 @@ if (dx !== 0 || dy !== 0) {
             const isActive = run.run_id === activeRunId;
             const branchName = (run.git_ref || '').startsWith('refs/heads/') ? run.git_ref.split('/')[2] : 'N/A';
             const repoFullName = `${run.git_repo_owner}/${run.git_repo_name}`;
-
-            let pipelineNameHTML = `<span class="font-medium truncate">${run.pipeline_name}</span>`;
-            if (run.parent_run_id) {
-                pipelineNameHTML = `
-                    <div class="flex items-baseline">
-                        <span class="font-medium truncate">${run.pipeline_name}</span>
-                        <span class="ml-1.5 text-[10px] bg-[var(--bg-primary)] text-[var(--text-accent)] font-semibold px-1.5 py-0.5 rounded-md">Included</span>
-                    </div>`;
-            }
+            const pipelineNameHTML = getPipelineNameHTML(run);
 
             return `<li data-run-id="${run.run_id}" data-repo-full-name="${repoFullName}" ${run.parent_run_id ? `data-parent-run-id="${run.parent_run_id}"` : ''}>
                     <a href="#/pipelineruns/run/${run.run_id}" class="flex items-center p-2 text-[var(--text-primary)] rounded-md ${isActive ? 'bg-[var(--bg-tertiary)]' : ''}">
@@ -822,15 +822,7 @@ if (dx !== 0 || dy !== 0) {
         const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
         const branchName = (run.git_ref || '').startsWith('refs/heads/') ? run.git_ref.split('/')[2] : 'N/A';
         const repoFullName = `${run.git_repo_owner}/${run.git_repo_name}`;
-
-        let pipelineNameHTML = `<p class="text-base font-semibold text-[var(--text-primary)] truncate pr-4">${run.pipeline_name}</p>`;
-        if (run.parent_run_id) {
-            pipelineNameHTML = `
-                <div class="flex items-center gap-x-2">
-                    <p class="text-base font-semibold text-[var(--text-primary)]">${run.pipeline_name}</p>
-                    <span class="ml-1.5 text-[10px] bg-[var(--bg-primary)] text-[var(--text-accent)] font-semibold px-1.5 py-0.5 rounded-md">Included</span>
-                </div>`;
-        }
+        const pipelineNameHTML = getPipelineNameHTML(run);
 
         return `
             <div data-href="#/pipelineruns/run/${run.run_id}"
@@ -840,7 +832,7 @@ if (dx !== 0 || dy !== 0) {
                 class="block bg-[var(--bg-primary)] transition-all duration-200 rounded-lg p-4 flex flex-col justify-between cursor-pointer border border-[var(--border-primary)] shadow-sm">
                 <div>
                     <div class="flex items-start justify-between">
-                        ${pipelineNameHTML}
+                        <div class="flex-1 min-w-0 pr-4">${pipelineNameHTML}</div>
                         <div class="flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center ${config.color}">
                             <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
                         </div>
@@ -1095,9 +1087,7 @@ if (dx !== 0 || dy !== 0) {
             height: totalHeight + PADDING_Y
         };
     }
-
-// services/ui/index.html
-
+// 
     function renderRunView(runDetails) {
     const runInfo = runDetails.run_info;
     const branchName = (runInfo.git_ref || '').startsWith('refs/heads/') ? runInfo.git_ref.split('/')[2] : runInfo.git_ref;
@@ -1118,10 +1108,15 @@ if (dx !== 0 || dy !== 0) {
         `;
     }
 
+    const overrideIcon = runInfo.pipeline_source === 'database override'
+        ? `<svg class="h-5 w-5 text-purple-500 ml-2" title="Overridden from database" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l4-4 4 4m0 6l-4 4-4-4"/></svg>`
+        : '';
+
     headerHTML += `
             <div class="flex flex-wrap items-baseline gap-x-3 min-w-0">
                 <a href="${repoLink}" class="text-xl font-semibold text-[var(--text-secondary)] hover:text-[var(--text-accent)] transition-colors truncate">${repoFullName}</a>
                 <a href="#" id="view-pipeline-definition-link" class="text-xl font-semibold text-[var(--text-primary)] hover:text-[var(--text-accent)] transition-colors truncate">${runInfo.pipeline_name}</a>
+                ${overrideIcon}
             </div>
             <div class="text-xs text-[var(--text-secondary)] mt-2 font-mono grid grid-cols-[auto,1fr] gap-x-4 w-full max-w-3xl">
                 <span class="text-gray-500 justify-self-end truncate">Run ID:</span>
@@ -1439,6 +1434,7 @@ function showPipelineDefinitionModal(pipelineDefinition) {
         const hGap = Math.round(baseHG * scale);
         const vGap = Math.round(baseVG * scale);
         const { nodes, edges, width, height } = calculateGraphLayout(runDetails.steps, DOM.graphWrapper, nodeWidth, nodeHeight, hGap, vGap, isVerticalLayout);
+        const pipelineSteps = getPipelineSteps(runDetails.pipeline_definition);
 
         const getEdgePath = (fromNode, toNode) => {
             const iconRadius = 14;
@@ -1526,7 +1522,7 @@ function showPipelineDefinitionModal(pipelineDefinition) {
             const step = runDetails.steps.find(s => s.name === stepNode.name);
             if (!step || !Array.isArray(step.tasks) || step.tasks.length === 0) return;
 
-            const stepDef = runDetails.pipeline_definition?.steps?.find(s => s.name === stepNode.name);
+            const stepDef = pipelineSteps.find(s => s.name === stepNode.name);
             const itemsWithDeps = step.tasks.map(item => {
                 if (item.task_name) {
                     const taskDef = stepDef && stepDef.tasks ? stepDef.tasks.find(t => t.name === item.task_name) : null;
@@ -1750,12 +1746,10 @@ function showPipelineDefinitionModal(pipelineDefinition) {
                 <marker id="arrowhead-completed" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
                   <path d="M0,0 L8,4 L0,8 Q2.4,4 0,0 Z" class="fill-current text-[var(--text-accent)]" />
                 </marker>
-                <!-- Compact, crisp arrows for task graphs -->
                 <marker id="task_arrow" viewBox="0 0 10 10" refX="9" refY="5"
                         markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
                   <path d="M0,0 L10,5 L0,10 Q2.8,5 0,0 Z" class="fill-current text-gray-400 dark:text-gray-600" />
                 </marker>
-                <!-- Markers for task box connectors (match Tasks view) -->
                 <marker id="task_arrow_box_secondary" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
                   <path d="M0,0 L10,5 L0,10 Q2.8,5 0,0 Z" fill="var(--border-secondary)"></path>
                 </marker>
@@ -1838,7 +1832,7 @@ function showPipelineDefinitionModal(pipelineDefinition) {
             const config = statusConfig[node.status.toLowerCase()] || statusConfig.pending;
             const node_center_x = node.x + node.width / 2;
             const node_center_y = node.y + node.height / 2;
-            const originalStep = runDetails.pipeline_definition.steps.find(s => s.name === node.name);
+            const originalStep = pipelineSteps.find(s => s.name === node.name);
             const isExpanded = clustersByStep.has(node.name);
             if (isExpanded) return; // replaced by a box
             let subText = `<text x="${node_center_x}" y="${node_center_y + 53}" text-anchor="middle" class="text-xs fill-current text-[var(--text-secondary)]">${node.duration || '...'}</text>`;
@@ -2048,24 +2042,29 @@ function renderMiniForStep(container, step, style) {
 }
 
 function renderTaskGraphBoxes(container, stepName, tasks) {
-  if (!state.currentRunData || !state.currentRunData.pipeline_definition || !state.currentRunData.pipeline_definition.steps) {
-container.innerHTML = `<p class="text-[var(--text-secondary)] text-sm">Waiting for pipeline data...</p>`;
-return;
-  }
-  if (!tasks || tasks.length === 0) {
-container.innerHTML = `<p class="text-[var(--text-secondary)] text-sm">This step has no tasks defined.</p>`;
-return;
-  }
+        if (!state.currentRunData) {
+            container.innerHTML = `<p class="text-[var(--text-secondary)] text-sm">Waiting for pipeline data...</p>`;
+            return;
+        }
+        const pipelineSteps = getPipelineSteps(state.currentRunData.pipeline_definition);
+        if (pipelineSteps.length === 0) {
+            container.innerHTML = `<p class="text-[var(--text-secondary)] text-sm">Waiting for pipeline data...</p>`;
+            return;
+        }
+        if (!tasks || tasks.length === 0) {
+            container.innerHTML = `<p class="text-[var(--text-secondary)] text-sm">This step has no tasks defined.</p>`;
+            return;
+        }
 
-  const stepDef = state.currentRunData.pipeline_definition.steps.find(s => s.name === stepName);
-  const itemsWithDeps = tasks.map(item => {
-if (item.task_name) {
-  const taskDef = stepDef && stepDef.tasks ? stepDef.tasks.find(t => t.name === item.task_name) : null;
-  return { ...item, depends_on: taskDef ? (taskDef.depends_on || []) : [] };
-} else {
-  return { ...item, depends_on: item.depends_on || [] };
-}
-  });
+        const stepDef = pipelineSteps.find(s => s.name === stepName);
+        const itemsWithDeps = tasks.map(item => {
+            if (item.task_name) {
+                const taskDef = stepDef && stepDef.tasks ? stepDef.tasks.find(t => t.name === item.task_name) : null;
+                return { ...item, depends_on: taskDef ? (taskDef.depends_on || []) : [] };
+            } else {
+                return { ...item, depends_on: item.depends_on || [] };
+            }
+        });
 
   const isVerticalLayout = container.clientWidth < 600;
   // Compact mini graphs to fit smaller task cards
@@ -2602,8 +2601,8 @@ if (el && el.querySelector('svg') == null) {
         const step = runDetails.steps.find(s => s.name === stepName);
         if (!step) return;
 
-        const stepDef = runDetails.pipeline_definition.steps.find(s => s.name === stepName);
-        if (!stepDef) return;
+        const pipelineSteps = getPipelineSteps(runDetails.pipeline_definition);
+        const stepDef = pipelineSteps.find(s => s.name === stepName) || null;
 
         const config = statusConfig[step.status.toLowerCase()] || statusConfig.pending;
         const modalHeader = document.querySelector('#modal-content > div:first-child');
@@ -2630,42 +2629,42 @@ if (el && el.querySelector('svg') == null) {
         const configContainer = document.getElementById('step-config-container');
         let configHTML = '';
 
-        if (stepDef.image) {
+        if (stepDef?.image) {
             configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Image</h4><code class="text-cyan-600 dark:text-cyan-400 bg-[var(--bg-code)] px-2 py-1 rounded">${stepDef.image}</code></div>`;
         }
-        if (stepDef.include) {
+        if (stepDef?.include) {
             configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Include</h4><code class="text-cyan-600 dark:text-cyan-400 bg-[var(--bg-code)] px-2 py-1 rounded">${stepDef.include}</code></div>`;
         }
-        if (stepDef.depends_on && stepDef.depends_on.length > 0) {
+        if (stepDef?.depends_on && stepDef.depends_on.length > 0) {
             const dependsOnList = stepDef.depends_on.map(d => `<li class="inline-block mr-2 mb-1"><code class="text-gray-600 dark:text-gray-400 bg-[var(--bg-code)] px-2 py-1 rounded">${d}</code></li>`).join('');
             configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Depends On</h4><ul class="flex flex-wrap">${dependsOnList}</ul></div>`;
         }
-        if (stepDef.secrets && stepDef.secrets.length > 0) {
+        if (stepDef?.secrets && stepDef.secrets.length > 0) {
             const secretsList = stepDef.secrets.map(s => `<li class="inline-block mr-2 mb-1"><code class="text-purple-600 dark:text-purple-400 bg-[var(--bg-code)] px-2 py-1 rounded">${s}</code></li>`).join('');
             configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Secrets</h4><ul class="flex flex-wrap">${secretsList}</ul></div>`;
         }
-        if (stepDef.volumes && stepDef.volumes.length > 0) {
+        if (stepDef?.volumes && stepDef.volumes.length > 0) {
             const volumesList = stepDef.volumes.map(v => `<li class="inline-block mr-2 mb-1"><code class="text-green-600 dark:text-green-400 bg-[var(--bg-code)] px-2 py-1 rounded">${v}</code></li>`).join('');
             configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Volumes</h4><ul class="flex flex-wrap">${volumesList}</ul></div>`;
         }
-        if (stepDef.environment && Object.keys(stepDef.environment).length > 0) {
+        if (stepDef?.environment && Object.keys(stepDef.environment).length > 0) {
             const envList = Object.entries(stepDef.environment).map(([k, v]) => `<li><code class="text-[var(--text-secondary)]"><span class="text-orange-600 dark:text-orange-400">${k}</span>=${v}</code></li>`).join('');
             configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Environment</h4><ul class="space-y-1">${envList}</ul></div>`;
         }
-        if (stepDef.ignore_failure) {
+        if (stepDef?.ignore_failure) {
             configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Ignore Failure</h4><span class="text-amber-600 dark:text-amber-400">true</span></div>`;
         }
-         if (stepDef.include && stepDef.sync) {
+         if (stepDef?.include && stepDef?.sync) {
             configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Sync</h4><span class="text-blue-600 dark:text-blue-400">true</span></div>`;
         }
-        if (stepDef.llm_output_sharing === false) {
+        if (stepDef?.llm_output_sharing === false) {
             configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">LLM Output Sharing</h4><span class="text-[var(--text-secondary)]">false</span></div>`;
         }
-        if (stepDef.llm_content_sharing === false) {
+        if (stepDef?.llm_content_sharing === false) {
             configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">LLM Content Sharing</h4><span class="text-[var(--text-secondary)]">false</span></div>`;
         }
 
-        if (stepDef.tasks && stepDef.tasks.length > 0) {
+        if (stepDef?.tasks && stepDef.tasks.length > 0) {
             configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Tasks</h4><div class="space-y-3 pt-2">`;
             stepDef.tasks.forEach(task => {
                 configHTML += `<div class="bg-[var(--bg-primary)] p-3 rounded-md border-l-2 border-[var(--border-secondary)] space-y-3">
@@ -2694,7 +2693,7 @@ if (el && el.querySelector('svg') == null) {
         configContainer.innerHTML = configHTML;
 
         const taskGraphEl = document.getElementById('task-graph');
-        if (stepDef.include && stepDef.include.startsWith('pipeline:')) {
+        if (stepDef?.include && stepDef.include.startsWith('pipeline:')) {
             const childRun = runDetails.child_runs.find(cr => cr.parent_step_name === stepName);
             if (childRun) {
                 const childRunDetails = await fetchData(`/v1/runs/${childRun.run_id}`);
@@ -2708,24 +2707,29 @@ if (el && el.querySelector('svg') == null) {
     }
 
 function renderTaskGraph(container, stepName, tasks, clickableNodeContext = null) {
-  if (!state.currentRunData || !state.currentRunData.pipeline_definition || !state.currentRunData.pipeline_definition.steps) {
-container.innerHTML = `<p class="text-[var(--text-secondary)] text-sm">Waiting for pipeline data...</p>`;
-return;
-  }
-  if (!tasks || tasks.length === 0) {
-container.innerHTML = `<p class="text-[var(--text-secondary)] text-sm">This step has no tasks defined.</p>`;
-return;
-  }
+        if (!state.currentRunData) {
+            container.innerHTML = `<p class="text-[var(--text-secondary)] text-sm">Waiting for pipeline data...</p>`;
+            return;
+        }
+        const pipelineSteps = getPipelineSteps(state.currentRunData.pipeline_definition);
+        if (pipelineSteps.length === 0) {
+            container.innerHTML = `<p class="text-[var(--text-secondary)] text-sm">Waiting for pipeline data...</p>`;
+            return;
+        }
+        if (!tasks || tasks.length === 0) {
+            container.innerHTML = `<p class="text-[var(--text-secondary)] text-sm">This step has no tasks defined.</p>`;
+            return;
+        }
 
-  const stepDef = state.currentRunData.pipeline_definition.steps.find(s => s.name === stepName);
-  const itemsWithDeps = tasks.map(item => {
-if (item.task_name) {
-  const taskDef = stepDef && stepDef.tasks ? stepDef.tasks.find(t => t.name === item.task_name) : null;
-  return { ...item, depends_on: taskDef ? (taskDef.depends_on || []) : [] };
-} else {
-  return { ...item, depends_on: item.depends_on || [] };
-}
-  });
+        const stepDef = pipelineSteps.find(s => s.name === stepName);
+        const itemsWithDeps = tasks.map(item => {
+            if (item.task_name) {
+                const taskDef = stepDef && stepDef.tasks ? stepDef.tasks.find(t => t.name === item.task_name) : null;
+                return { ...item, depends_on: taskDef ? (taskDef.depends_on || []) : [] };
+            } else {
+                return { ...item, depends_on: item.depends_on || [] };
+            }
+        });
 
   const isVerticalLayout = container.clientWidth < 700;
   const isMini = container.classList.contains('task-graph-mini-container');
@@ -2767,7 +2771,6 @@ if (isVerticalLayout) {
 
   let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
 <defs>
-  <!-- compact, crisp arrow that doesn’t distort with stroke width -->
   <marker id="task_arrow" viewBox="0 0 10 10" refX="9" refY="5"
           markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
     <path d="M0,0 L10,5 L0,10 Q2.8,5 0,0 Z" class="fill-current text-gray-400 dark:text-gray-600" />

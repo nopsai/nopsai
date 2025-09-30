@@ -20,6 +20,16 @@ curl -X PUT \
   --data-binary "@.nopsai/reference-pipeline.yaml" \
   http://localhost:8080/v1/pipelines/reference-pipeline.yaml
 
+curl -X PUT \
+  -H "Content-Type: application/x-yaml" \
+  --data-binary "@.nopsai/include.yaml" \
+  http://localhost:8080/v1/pipelines/include.yaml
+
+  curl -X PUT \
+  -H "Content-Type: application/x-yaml" \
+  --data-binary "@.nopsai/branch-pipeline.yaml" \
+  http://localhost:8080/v1/pipelines/branch-pipeline.yaml
+
 curl -X PUT -d '{"value": "tcp://192.168.1.16:2375"}' \
   'http://localhost:8080/v1/environments/DOCKER_HOST'
 
