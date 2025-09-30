@@ -11,6 +11,7 @@
     let closeLogsModal = () => {};
     let renderLogsWithFilters = () => {};
     let updateLogsStepList = () => {};
+    let wsManager;
 
     const statusConfig = {
         success: { icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-green-500 dark:text-green-400', rectClass: 'stroke-green-500 fill-green-100 dark:fill-green-500/10' },
@@ -46,6 +47,7 @@
         postData = context.postData;
         deleteData = context.deleteData;
         logsModule = context.logsModule;
+        wsManager = context.wsManager; // Store wsManager
         refresh = context.refresh || (() => {});
         setupLogHelpers();
         bindDomEvents();
@@ -53,6 +55,21 @@
         initialized = true;
     }
 
+async function handleRealtimeUpdate(updatedRunId) {
+        // If the update is for the currently viewed run, re-fetch and re-render
+        if (state.currentRunData && state.currentRunData.run_info.run_id === updatedRunId) {
+            await fetchActiveRun(updatedRunId, true); // `true` to indicate it's a refresh
+        }
+
+        // Also refresh sidebar lists if they are visible
+        if (state.currentTab === 'recent') {
+             const runs = await fetchData('/v1/runs');
+             if (runs) renderSidebarPipelineRunsList(runs);
+        } else if (state.currentTab === 'main') {
+            await renderHierarchy(state.groups);
+        }
+    }
+        
 function setupLogHelpers() {
         if (!logsModule) {
             showLogsModal = () => {};
@@ -473,12 +490,17 @@ if (dx !== 0 || dy !== 0) {
         }
     }
 
-    async function fetchActiveRun(runId) {
+    async function fetchActiveRun(runId, isRefresh = false) {
         if (!runId) return;
-        resetMainView();
+        if (!isRefresh) {
+            resetMainView();
+        }
         const runDetails = await fetchData(`/v1/runs/${runId}`);
         if (runDetails) {
             state.currentRunData = runDetails;
+            if (wsManager) {
+                wsManager.subscribeToRun(runId);
+            }
             // Restore persisted Steps layout for this run (expanded, positions, scale)
             try {
                 const key = `nopsai_steps_layout:${runDetails.run_info?.run_id || ''}`;
@@ -1405,7 +1427,7 @@ function showPipelineDefinitionModal(pipelineDefinition) {
         });
     }
 
-    function renderStepsGraph(runDetails) {
+function renderStepsGraph(runDetails) {
         // If nothing is expanded, optionally reset step layout scale.
         // When triggered by "toggle all" actions, preserve the current scale so user zoom feel remains.
         if (!state.expandedSteps || state.expandedSteps.size === 0) {
@@ -1839,7 +1861,7 @@ function showPipelineDefinitionModal(pipelineDefinition) {
             if (originalStep && originalStep.include) {
                 let includeType = originalStep.include.startsWith('pipeline:') ? '(Included Pipeline)' : '(Included Step)';
                 let linkClass = originalStep.include.startsWith('pipeline:') ? 'text-[var(--text-link)] hover:underline' : 'text-[var(--text-accent)]';
-                const childRun = originalStep.include.startsWith('pipeline:') ? runDetails.child_runs.find(cr => cr.parent_step_name === node.name) : null;
+                const childRun = originalStep.include.startsWith('pipeline:') && Array.isArray(runDetails.child_runs) ? runDetails.child_runs.find(cr => cr.parent_step_name === node.name) : null;
                 const yInclude = node_center_y + 53;
                 const yDuration = node_center_y + 67;
                 if (childRun) {
@@ -2595,14 +2617,16 @@ if (el && el.querySelector('svg') == null) {
 
 
 
-    async function renderModalForStep(runId, stepName, parentContext = null) {
+async function renderModalForStep(runId, stepName, parentContext = null) {
         const runDetails = await fetchData(`/v1/runs/${runId}`);
         if (!runDetails) return;
-        const step = runDetails.steps.find(s => s.name === stepName);
+        
+        // Defensive check for steps array
+        const step = (runDetails.steps || []).find(s => s.name === stepName);
         if (!step) return;
 
         const pipelineSteps = getPipelineSteps(runDetails.pipeline_definition);
-        const stepDef = pipelineSteps.find(s => s.name === stepName) || null;
+        const stepDef = (pipelineSteps || []).find(s => s.name === stepName) || null;
 
         const config = statusConfig[step.status.toLowerCase()] || statusConfig.pending;
         const modalHeader = document.querySelector('#modal-content > div:first-child');
@@ -2834,69 +2858,86 @@ svgContent += `
     }
 
     async function handleRoute(hashOverride) {
-    stopPolling();
-    state.currentRunData = null;
-    resetMainView();
+        const hash = hashOverride || window.location.hash || '#/pipelineruns/main';
+        const parts = hash.slice(2).split('/');
+        const path = parts[0];
+        const subpath = parts[1];
+        const id = parts[2];
+        const action = parts[3];
 
-    const hash = hashOverride || window.location.hash || '#/pipelineruns/main';
-    const parts = hash.slice(2).split('/');
-    const path = parts[0];
-    const subpath = parts[1];
-    const id = parts[2];
-    const action = parts[3];
+        // --- FIX ---
+        // Only clear the current run data if we are navigating to a different run ID.
+        // This preserves the state when navigating to a sub-view like '/logs'.
+        const newRunId = (subpath === 'run' && id) ? id : null;
+        if (!newRunId || (state.currentRunData && state.currentRunData.run_info.run_id !== newRunId)) {
+            state.currentRunData = null;
+        }
+        // --- END FIX ---
 
-    DOM.pages.forEach(p => p.classList.toggle('active', p.dataset.page === path));
+        resetMainView();
 
-    if (path === 'pipelineruns') {
-        await fetchGroups();
+        DOM.pages.forEach(p => p.classList.toggle('active', p.dataset.page === path));
 
-        const currentTab = (subpath === 'recent' || subpath === 'main') ? subpath : (state.currentTab || 'main');
+        if (path === 'pipelineruns') {
+            await fetchGroups();
 
-        state.currentTab = currentTab;
-        updateTabs(currentTab);
+            const currentTab = (subpath === 'recent' || subpath === 'main') ? subpath : (state.currentTab || 'main');
 
-        await renderSidebar(path, currentTab);
+            state.currentTab = currentTab;
+            updateTabs(currentTab);
 
-        if (subpath === 'run' && id) {
-            await fetchActiveRun(id);
-            if (action === 'logs') {
-                showLogsModal();
+            await renderSidebar(path, currentTab);
+
+            if (subpath === 'run' && id) {
+                // Fetch run data only if it's not already loaded.
+                if (!state.currentRunData) {
+                    await fetchActiveRun(id);
+                }
+
+                // If data is available (either pre-existing or freshly fetched), proceed.
+                if (state.currentRunData) {
+                     if (action === 'logs') {
+                        // The main graph view should still be rendered in the background
+                        renderRunView(state.currentRunData);
+                        showLogsModal();
+                    } else {
+                        const stepName = parts.length > 3 && parts[3] === 'steps' ? parts[4] : null;
+                        renderRunView(state.currentRunData); // Always render the main view
+                        if (stepName) {
+                            showStepDetails(stepName);
+                        }
+                    }
+                }
+            } else if (subpath === 'recent') {
+                DOM.mainHeader.textContent = "Recent Pipeline Runs";
+                const runs = await fetchData('/v1/runs');
+                renderMainGridContent(null, runs, false);
+            } else if (subpath === 'main') {
+                const groupId = id ? parseInt(id, 10) : null;
+                state.selectedGroupId = groupId;
+                renderBreadcrumbs(groupId);
+                if (groupId) {
+                    await fetchMainContent(groupId);
+                } else {
+                    const rootGroups = state.groups.filter(g => g.parent_id === null || g.parent_id === 0);
+                    renderMainGridContent(rootGroups, null, true);
+                }
             } else {
-                const stepName = parts.length > 3 && parts[3] === 'steps' ? parts[4] : null;
-                if (stepName) {
-                    showStepDetails(stepName);
+                const groupId = subpath ? parseInt(subpath, 10) : null;
+                if (groupId && !isNaN(groupId)) {
+                    window.location.hash = `#/pipelineruns/main/${groupId}`;
+                } else {
+                    window.location.hash = '#/pipelineruns/main';
                 }
             }
-        } else if (subpath === 'recent') {
-            DOM.mainHeader.textContent = "Recent Pipeline Runs";
-            const runs = await fetchData('/v1/runs');
-            renderMainGridContent(null, runs, false);
-        } else if (subpath === 'main') {
-            const groupId = id ? parseInt(id, 10) : null;
-            state.selectedGroupId = groupId;
-            renderBreadcrumbs(groupId);
-            if (groupId) {
-                await fetchMainContent(groupId);
-            } else {
-                const rootGroups = state.groups.filter(g => g.parent_id === null || g.parent_id === 0);
-                renderMainGridContent(rootGroups, null, true);
-            }
         } else {
-            const groupId = subpath ? parseInt(subpath, 10) : null;
-            if (groupId && !isNaN(groupId)) {
-                window.location.hash = `#/pipelineruns/main/${groupId}`;
-            } else {
-                window.location.hash = '#/pipelineruns/main';
-            }
+            await renderSidebar(path, 'main');
+            DOM.mainHeader.textContent = path.charAt(0).toUpperCase() + path.slice(1);
+            DOM.placeholder.classList.remove('hidden');
+            DOM.placeholder.querySelector('h3').textContent = `Welcome to ${path}`;
+            DOM.placeholder.querySelector('p').textContent = 'This page is under construction.';
         }
-    } else {
-        await renderSidebar(path, 'main');
-        DOM.mainHeader.textContent = path.charAt(0).toUpperCase() + path.slice(1);
-        DOM.placeholder.classList.remove('hidden');
-        DOM.placeholder.querySelector('h3').textContent = `Welcome to ${path}`;
-        DOM.placeholder.querySelector('p').textContent = 'This page is under construction.';
     }
-}
 
     function updateTabs(activeTab) {
         DOM.tabs.forEach(tab => {
@@ -2996,18 +3037,6 @@ if (false && state.currentGraphView === 'tasks') {
 }
   }, 300);
 }
-
-
-    function startPolling(pollingFunc, interval) {
-        if (state.pollingInterval) clearInterval(state.pollingInterval);
-        pollingFunc();
-        state.pollingInterval = setInterval(pollingFunc, interval);
-    }
-
-    function stopPolling() {
-        clearInterval(state.pollingInterval);
-        state.pollingInterval = null;
-    }
 
     function bindDomEvents() {
         DOM.mainHeader.addEventListener('click', e => {
@@ -3574,10 +3603,10 @@ if (false && state.currentGraphView === 'tasks') {
         });
     }
 
-
     global.pages = global.pages || {};
     global.pages.pipelineruns = {
         init,
         handleRoute,
+        handleRealtimeUpdate,
     };
 })(window.NopsAI = window.NopsAI || {});
