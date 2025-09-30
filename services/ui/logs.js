@@ -45,10 +45,6 @@
         try { initLogsUIControls(); } catch {}
 
         fetchAndRenderLogs(runId);
-        if (!isComplete) {
-            if (state.logPollingInterval) clearInterval(state.logPollingInterval);
-            state.logPollingInterval = setInterval(() => fetchAndRenderLogs(runId), 3000);
-        }
     }
 
     function initLogsUIControls() {
@@ -92,13 +88,11 @@
     }
 
     function closeLogsModal() {
-        if (state.logPollingInterval) clearInterval(state.logPollingInterval);
-        state.logPollingInterval = null;
 
         DOM.logsModal.classList.remove('opacity-100');
         DOM.logsModalContent.classList.add('scale-95');
         setTimeout(() => DOM.logsModal.classList.add('hidden'), 300);
-        stripLogFromHashWithoutRouting(); // CALL THE NEWLY ADDED FUNCTION
+        stripLogFromHashWithoutRouting();
     }
 
     async function fetchAndRenderLogs(runId) {

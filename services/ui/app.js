@@ -1,6 +1,47 @@
 window.NopsAI = window.NopsAI || {};
 document.addEventListener('DOMContentLoaded', () => {
     const API_BASE_URL = 'http://localhost:8080';
+    const WS_URL = 'ws://localhost:8080/v1/ws';
+
+    // WebSocket Manager
+    const wsManager = {
+        socket: null,
+        connect() {
+            if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+                return;
+            }
+            this.socket = new WebSocket(WS_URL);
+            this.socket.onopen = () => console.log('WebSocket connected');
+            this.socket.onmessage = (event) => this.handleMessage(event);
+            this.socket.onclose = () => {
+                console.log('WebSocket disconnected. Reconnecting in 3s...');
+                setTimeout(() => this.connect(), 3000);
+            };
+            this.socket.onerror = (err) => console.error('WebSocket error:', err);
+        },
+        handleMessage(event) {
+            const message = JSON.parse(event.data);
+            if (message.type === 'run_update' && message.payload && message.payload.runId) {
+                // Notify the active page module to refresh its data
+                if (window.NopsAI.pages.pipelineruns &&
+                    typeof window.NopsAI.pages.pipelineruns.handleRealtimeUpdate === 'function') {
+                    window.NopsAI.pages.pipelineruns.handleRealtimeUpdate(message.payload.runId);
+                }
+            }
+        },
+        subscribeToRun(runId) {
+            if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+                this.socket.send(JSON.stringify({
+                    type: 'subscribe',
+                    payload: { runId: runId }
+                }));
+            }
+        }
+    };
+
+    // Connect WebSocket on load
+    wsManager.connect();
+
     const DOM = {
         sidebarNav: document.getElementById('sidebar-nav'),
         mainHeader: document.getElementById('main-header'),
@@ -52,7 +93,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     let state = {
-        pollingInterval: null,
+        pollingInterval: null, // This will be removed
         currentRunData: null,
         groups: [],
         selectedGroupId: null,
@@ -64,7 +105,7 @@ document.addEventListener('DOMContentLoaded', () => {
         stepLayoutScale: 1.0, // scales step size + gaps when needed
         taskClusterScale: 1.0, // scales inside expanded boxes (tasks + gaps)
         repoLastRunCache: new Map(),
-        logPollingInterval: null,
+        logPollingInterval: null, // This will be removed
         currentGraphView: localStorage.getItem('graphView') || 'steps',
         _logsRaw: [],
         _logsSearchMatches: [],
@@ -109,6 +150,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const logsModule = (window.NopsAI && window.NopsAI.logs) ? window.NopsAI.logs : null;
 
+    const context = { state, DOM, fetchData, postData, deleteData, wsManager, refresh: router, logsModule };
+
     const pageModules = (window.NopsAI && window.NopsAI.pages) ? window.NopsAI.pages : {};
     const pipelineRunsModule = pageModules.pipelineruns || null;
 
@@ -117,7 +160,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (pipelineRunsModule && typeof pipelineRunsModule.init === 'function') {
-        pipelineRunsModule.init({ state, DOM, fetchData, postData, deleteData, logsModule, refresh: router });
+        pipelineRunsModule.init(context);
     }
 
     async function router(hashOverride) {
@@ -132,7 +175,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (path === 'pipelineruns' && pipelineRunsModule && typeof pipelineRunsModule.handleRoute === 'function') {
-            await pipelineRunsModule.handleRoute(hash);
+            await pipelineRunsModule.handleRoute(hash, wsManager); // Pass wsManager
             return;
         }
 
@@ -272,6 +315,6 @@ document.addEventListener('DOMContentLoaded', () => {
    })();
 
 
-    window.addEventListener('hashchange', () => router());
     router();
+    window.addEventListener('hashchange', () => router());
 });

@@ -23,6 +23,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -38,6 +39,7 @@ import (
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/google/go-github/v53/github"
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
@@ -45,11 +47,148 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// WebSocket Hub implementation
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true // Allow all origins for simplicity
+	},
+}
+
+type Hub struct {
+	clients    map[*Client]bool
+	broadcast  chan []byte
+	register   chan *Client
+	unregister chan *Client
+	// Map runId to a map of clients subscribed to it
+	runSubscriptions map[string]map[*Client]bool
+	mu               sync.Mutex
+}
+
+type Client struct {
+	hub    *Hub
+	conn   *websocket.Conn
+	send   chan []byte
+	runIds map[string]bool
+	mu     sync.Mutex
+}
+
+// WebSocket message structure
+type WebSocketMessage struct {
+	Type    string      `json:"type"`
+	Payload interface{} `json:"payload"`
+}
+
+func newHub() *Hub {
+	return &Hub{
+		broadcast:        make(chan []byte),
+		register:         make(chan *Client),
+		unregister:       make(chan *Client),
+		clients:          make(map[*Client]bool),
+		runSubscriptions: make(map[string]map[*Client]bool),
+	}
+}
+
+func (h *Hub) run() {
+	for {
+		select {
+		case client := <-h.register:
+			h.mu.Lock()
+			h.clients[client] = true
+			h.mu.Unlock()
+		case client := <-h.unregister:
+			h.mu.Lock()
+			if _, ok := h.clients[client]; ok {
+				delete(h.clients, client)
+				close(client.send)
+				// Also remove from all run subscriptions
+				for runId := range client.runIds {
+					if _, ok := h.runSubscriptions[runId]; ok {
+						delete(h.runSubscriptions[runId], client)
+						if len(h.runSubscriptions[runId]) == 0 {
+							delete(h.runSubscriptions, runId)
+						}
+					}
+				}
+			}
+			h.mu.Unlock()
+		}
+	}
+}
+
+func (h *Hub) broadcastToRun(runId string, message []byte) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if subscribers, ok := h.runSubscriptions[runId]; ok {
+		for client := range subscribers {
+			select {
+			case client.send <- message:
+			default:
+				close(client.send)
+				delete(h.clients, client)
+			}
+		}
+	}
+}
+
+func (c *Client) readPump() {
+	defer func() {
+		c.hub.unregister <- c
+		c.conn.Close()
+	}()
+	for {
+		_, message, err := c.conn.ReadMessage()
+		if err != nil {
+			break
+		}
+		var msg WebSocketMessage
+		if err := json.Unmarshal(message, &msg); err != nil {
+			continue
+		}
+
+		if msg.Type == "subscribe" {
+			if payload, ok := msg.Payload.(map[string]interface{}); ok {
+				if runId, ok := payload["runId"].(string); ok {
+					c.hub.mu.Lock()
+					if _, ok := c.hub.runSubscriptions[runId]; !ok {
+						c.hub.runSubscriptions[runId] = make(map[*Client]bool)
+					}
+					c.hub.runSubscriptions[runId][c] = true
+					c.mu.Lock()
+					c.runIds[runId] = true
+					c.mu.Unlock()
+					c.hub.mu.Unlock()
+				}
+			}
+		}
+	}
+}
+
+func (c *Client) writePump() {
+	defer c.conn.Close()
+	for message := range c.send {
+		c.conn.WriteMessage(websocket.TextMessage, message)
+	}
+}
+
+func (a *App) serveWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to upgrade websocket")
+		return
+	}
+	client := &Client{hub: hub, conn: conn, send: make(chan []byte, 256), runIds: make(map[string]bool)}
+	client.hub.register <- client
+
+	go client.writePump()
+	go client.readPump()
+}
+
 type App struct {
 	db     *pgxpool.Pool
 	cfg    *config.Config
 	cli    *client.Client
 	encKey []byte
+	hub    *Hub
 }
 
 type LogLine struct {
@@ -162,6 +301,19 @@ type Group struct {
 }
 
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
+
+func (a *App) broadcastRunUpdate(runID string) {
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		message, _ := json.Marshal(WebSocketMessage{
+			Type: "run_update",
+			Payload: map[string]string{
+				"runId": runID,
+			},
+		})
+		a.hub.broadcastToRun(runID, message)
+	}()
+}
 
 func matchBranchPattern(pattern, name string) bool {
 	if pattern == "" {
@@ -877,11 +1029,27 @@ func (a *App) handleListTriggerOverrides(w http.ResponseWriter, r *http.Request)
 
 func (a *App) handleGetPipeline(w http.ResponseWriter, r *http.Request) {
 	pipelineName := r.PathValue("pipelineName")
+	rows, err := a.db.Query(context.Background(), "SELECT definition FROM pipelines WHERE name = $1", pipelineName)
+	if err != nil {
+		log.Error().Err(err).Str("pipeline_name", pipelineName).Msg("Database query failed for pipeline")
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
 
 	var pipelineDef string
-	err := a.db.QueryRow(context.Background(), "SELECT * FROM pipelines WHERE name = $1", pipelineName).Scan(&pipelineDef)
+	if rows.Next() {
+		err = rows.Scan(&pipelineDef)
+		if err != nil {
+			log.Error().Err(err).Str("pipeline_name", pipelineName).Msg("Database scan failed for pipeline definition")
+			http.Error(w, "Database error", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		err = pgx.ErrNoRows
+	}
+
 	if err == nil {
-		// Found in DB, return it
 		w.Header().Set("Content-Type", "application/x-yaml")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(pipelineDef))
@@ -889,13 +1057,11 @@ func (a *App) handleGetPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != pgx.ErrNoRows {
-		// A real database error occurred
 		log.Error().Err(err).Str("pipeline_name", pipelineName).Msg("Database error while fetching pipeline")
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
 
-	// Not found in DB, try fetching from Git repo if context is provided
 	repoOwner := r.URL.Query().Get("repoOwner")
 	repoName := r.URL.Query().Get("repoName")
 	commitSHA := r.URL.Query().Get("commitSHA")
@@ -920,7 +1086,6 @@ func (a *App) handleGetPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Not in DB and no git context provided
 	log.Error().Err(err).Str("pipeline_name", pipelineName).Msg("Pipeline not found in database and no git context for fallback")
 	http.Error(w, "Pipeline not found", http.StatusNotFound)
 }
@@ -1211,7 +1376,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var childRuns []RunListItem
+	childRuns := make([]RunListItem, 0)
 	childRows, err := a.db.Query(context.Background(), `
 		SELECT run_id, pipeline_name, status, started_at, finished_at, parent_step_name
 		FROM runs
@@ -1289,7 +1454,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 		resolvedPipeline = &originalPipeline
 	}
 
-	var steps []StepDetail
+	steps := make([]StepDetail, 0) // Initialize as an empty slice
 	for _, pStep := range resolvedPipeline.Steps {
 		stepTasks := tasksByStep[pStep.Name]
 
@@ -2262,7 +2427,6 @@ func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if update.Status == "running" {
-		// Use a transaction to ensure both updates succeed or fail together.
 		tx, err := a.db.Begin(context.Background())
 		if err != nil {
 			log.Error().Err(err).Str("run_id", runID).Msg("Failed to start transaction for task update")
@@ -2271,7 +2435,6 @@ func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		defer tx.Rollback(context.Background())
 
-		// 1. Update the task's status and start time.
 		_, err = tx.Exec(context.Background(), "UPDATE tasks SET status = 'running', started_at = NOW() WHERE run_id = $1 AND step_name = $2 AND task_name = $3", runID, stepName, taskName)
 		if err != nil {
 			log.Error().Err(err).Str("run_id", runID).Str("step", stepName).Str("task", taskName).Msg("Failed to update task start time")
@@ -2279,7 +2442,6 @@ func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// 2. Conditionally update the parent run's start time.
 		_, err = tx.Exec(context.Background(), "UPDATE runs SET started_at = NOW() WHERE run_id = $1 AND started_at IS NULL", runID)
 		if err != nil {
 			log.Error().Err(err).Str("run_id", runID).Msg("Failed to update run start time")
@@ -2293,7 +2455,6 @@ func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		// Handle finished statuses (success, failure, etc.)
 		query := "UPDATE tasks SET status = $1, exit_code = $2, finished_at = NOW() WHERE run_id = $3 AND step_name = $4 AND task_name = $5"
 		_, err := a.db.Exec(context.Background(), query, update.Status, update.ExitCode, runID, stepName, taskName)
 		if err != nil {
@@ -2304,6 +2465,8 @@ func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Info().Str("run_id", runID).Str("step", stepName).Str("task", taskName).Str("status", update.Status).Msg("Updated task status")
+
+	a.broadcastRunUpdate(runID) // Broadcast the update
 
 	go a.notifyGitBotOfTaskStatus(runID, stepName, taskName, update.Status)
 
@@ -2462,7 +2625,6 @@ func (a *App) handleFinalizeRun(w http.ResponseWriter, r *http.Request) {
 	var failedStep, failedTask string
 	if finalStatus != "success" {
 		finalStatus = "failure" // Normalize status
-		// This query now finds the first task that is not in a successful or pending state.
 		err := a.db.QueryRow(context.Background(), "SELECT step_name, task_name FROM tasks WHERE run_id = $1 AND status NOT IN ('success', 'pending', 'skipped', 'failure (ignored)', 'running') ORDER BY finished_at ASC, started_at ASC LIMIT 1", runID).Scan(&failedStep, &failedTask)
 		if err != nil {
 			log.Warn().Err(err).Str("run_id", runID).Msg("Could not determine the exact failed task for final status notification.")
@@ -2495,6 +2657,8 @@ func (a *App) handleFinalizeRun(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to update final run status in DB from agent notification")
 	}
+
+	a.broadcastRunUpdate(runID) // Broadcast the final update
 
 	if gitContext["repo_owner"] != "" {
 		a.notifyGitBotOfFinalStatus(finalStatus, failedStep, failedTask, "", gitContext)
@@ -3437,9 +3601,17 @@ func main() {
 	}
 	defer cli.Close()
 
-	app := &App{db: dbpool, cfg: cfg, cli: cli, encKey: key[:]}
+	hub := newHub()
+	go hub.run()
+
+	app := &App{db: dbpool, cfg: cfg, cli: cli, encKey: key[:], hub: hub}
 
 	mux := http.NewServeMux()
+
+	// WebSocket Endpoint
+	mux.HandleFunc("/v1/ws", func(w http.ResponseWriter, r *http.Request) {
+		app.serveWs(hub, w, r)
+	})
 
 	// Group Management
 	mux.HandleFunc("POST /v1/git/events", app.handleGitEvent)
@@ -3455,44 +3627,28 @@ func main() {
 	mux.HandleFunc("GET /v1/runs/{runID}/status", app.handleGetRunStatus)
 	mux.HandleFunc("PUT /v1/pipelines/{pipelineName}", app.handleCreateOrUpdatePipeline)
 	mux.HandleFunc("DELETE /v1/pipelines/{pipelineName}", app.handleDeletePipeline)
-
-	// Reusable Step Management
 	mux.HandleFunc("GET /v1/steps", app.handleListReusableSteps)
 	mux.HandleFunc("GET /v1/steps/{stepName}", app.handleGetReusableStep)
 	mux.HandleFunc("PUT /v1/steps/{stepName}", app.handleCreateOrUpdateReusableStep)
 	mux.HandleFunc("DELETE /v1/steps/{stepName}", app.handleDeleteReusableStep)
-
-	// Trigger Override Management
 	mux.HandleFunc("GET /v1/overrides", app.handleListTriggerOverrides)
 	mux.HandleFunc("GET /v1/overrides/{repoOwner}/{repoName}", app.handleGetTriggerOverride)
 	mux.HandleFunc("PUT /v1/overrides/{repoOwner}/{repoName}", app.handleCreateOrUpdateTriggerOverride)
 	mux.HandleFunc("DELETE /v1/overrides/{repoOwner}/{repoName}", app.handleDeleteTriggerOverride)
-
-	// General Secret Management
 	mux.HandleFunc("GET /v1/secrets", app.handleListGeneralSecrets)
 	mux.HandleFunc("GET /v1/secrets/{secretName}", app.handleGetGeneralSecretValue)
 	mux.HandleFunc("PUT /v1/secrets/{secretName}", app.handleCreateOrUpdateGeneralSecret)
 	mux.HandleFunc("DELETE /v1/secrets/{secretName}", app.handleDeleteGeneralSecret)
-
-	// Repository-level Secret Management
 	mux.HandleFunc("GET /v1/repositories/{repoOwner}/{repoName}/secrets", app.handleListRepoSecrets)
 	mux.HandleFunc("PUT /v1/repositories/{repoOwner}/{repoName}/secrets/{secretName}", app.handleCreateOrUpdateRepoSecret)
 	mux.HandleFunc("DELETE /v1/repositories/{repoOwner}/{repoName}/secrets/{secretName}", app.handleDeleteRepoSecret)
-
-	// Branch Management
 	mux.HandleFunc("GET /v1/repositories/{repoOwner}/{repoName}/branches", app.handleListRepoBranches)
-
-	// General Environment Variable Management
 	mux.HandleFunc("GET /v1/environments", app.handleListGeneralEnvs)
 	mux.HandleFunc("PUT /v1/environments/{envName}", app.handleCreateOrUpdateGeneralEnv)
 	mux.HandleFunc("DELETE /v1/environments/{envName}", app.handleDeleteGeneralEnv)
-
-	// Repository-level Environment Variable Management
 	mux.HandleFunc("GET /v1/repositories/{repoOwner}/{repoName}/environments", app.handleListRepoEnvs)
 	mux.HandleFunc("PUT /v1/repositories/{repoOwner}/{repoName}/environments/{envName}", app.handleCreateOrUpdateRepoEnv)
 	mux.HandleFunc("DELETE /v1/repositories/{repoOwner}/{repoName}/environments/{envName}", app.handleDeleteRepoEnv)
-
-	// Pipeline Execution
 	mux.HandleFunc("POST /v1/run", app.handleRunPipeline)
 	mux.HandleFunc("POST /v1/run/{pipelineName}", app.handleRunPipeline)
 	mux.HandleFunc("GET /v1/runs", app.handleListRuns)
@@ -3505,7 +3661,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:    cfg.NopsaiListenAddress,
-		Handler: corsMiddleware(mux), // Important: Wrap mux with CORS middleware
+		Handler: corsMiddleware(mux),
 	}
 
 	stop := make(chan os.Signal, 1)
