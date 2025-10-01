@@ -21,11 +21,25 @@ document.addEventListener('DOMContentLoaded', () => {
         },
         handleMessage(event) {
             const message = JSON.parse(event.data);
+            const pipelineRunsModule = window.NopsAI.pages.pipelineruns;
+            const logsModule = window.NopsAI.logs;
+
             if (message.type === 'run_update' && message.payload && message.payload.runId) {
-                // Notify the active page module to refresh its data
-                if (window.NopsAI.pages.pipelineruns &&
-                    typeof window.NopsAI.pages.pipelineruns.handleRealtimeUpdate === 'function') {
-                    window.NopsAI.pages.pipelineruns.handleRealtimeUpdate(message.payload.runId);
+                if (pipelineRunsModule && typeof pipelineRunsModule.handleRealtimeUpdate === 'function') {
+                    pipelineRunsModule.handleRealtimeUpdate(message.payload.runId);
+                }
+            } else if (message.type === 'run_summary_update' && message.payload) {
+                if (pipelineRunsModule && typeof pipelineRunsModule.handleRunSummaryUpdate === 'function') {
+                    pipelineRunsModule.handleRunSummaryUpdate(message.payload);
+                }
+            } else if (message.type === 'new_run_started' && message.payload) {
+                showToast(message.payload);
+                if (pipelineRunsModule && typeof pipelineRunsModule.handleNewRunStarted === 'function') {
+                    pipelineRunsModule.handleNewRunStarted(message.payload);
+                }
+            } else if (message.type === 'log_line') {
+                if (logsModule && typeof logsModule.appendLogLine === 'function') {
+                    logsModule.appendLogLine(message.payload);
                 }
             }
         },
@@ -41,6 +55,54 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Connect WebSocket on load
     wsManager.connect();
+
+    const showToast = (runData) => {
+        const container = document.getElementById('toast-container');
+        if (!container) return;
+
+        const toast = document.createElement('div');
+        toast.className = 'pointer-events-auto w-full max-w-sm overflow-hidden rounded-lg bg-[var(--bg-secondary)] shadow-lg ring-1 ring-black ring-opacity-5 transition-transform transform translate-x-full duration-300 ease-in-out';
+        
+        const repoName = runData.git_repo_owner && runData.git_repo_name
+            ? `${runData.git_repo_owner}/${runData.git_repo_name}`
+            : (runData.git_repo_name || 'N/A');
+
+        toast.innerHTML = `
+            <div class="p-4">
+                <div class="flex items-start">
+                    <div class="flex-shrink-0">
+                        <svg class="h-6 w-6 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    </div>
+                    <div class="ml-3 w-0 flex-1 pt-0.5">
+                        <p class="text-sm font-medium text-[var(--text-primary)]">New Run Started</p>
+                        <p class="mt-1 text-sm text-[var(--text-secondary)] truncate">
+                            ${runData.pipeline_name} on ${repoName}
+                        </p>
+                    </div>
+                    <div class="ml-4 flex flex-shrink-0">
+                        <button class="inline-flex rounded-md bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:ring-offset-2">
+                            <span class="sr-only">Close</span>
+                            <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"></path></svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        const closeButton = toast.querySelector('button');
+        const closeToast = () => {
+            toast.classList.add('translate-x-full', 'opacity-0');
+            setTimeout(() => toast.remove(), 300);
+        };
+        closeButton.addEventListener('click', closeToast);
+        
+        container.appendChild(toast);
+        
+        // Animate in
+        setTimeout(() => toast.classList.remove('translate-x-full'), 10);
+        // Auto-dismiss after 5 seconds
+        setTimeout(closeToast, 5000);
+    };
 
     const DOM = {
         sidebarNav: document.getElementById('sidebar-nav'),
@@ -107,6 +169,8 @@ document.addEventListener('DOMContentLoaded', () => {
         repoLastRunCache: new Map(),
         logPollingInterval: null, // This will be removed
         currentGraphView: localStorage.getItem('graphView') || 'steps',
+        currentPath: 'pipelineruns',
+        pollingInterval: null,
         _logsRaw: [],
         _logsSearchMatches: [],
         _logsSearchMatchIndex: -1,
@@ -168,6 +232,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const parts = hash.replace(/^#/,'').replace(/^\//,'').split('/');
         const path = parts[0] || 'pipelineruns';
 
+        state.currentPath = path;
         if (DOM.pages && DOM.pages.length) {
             DOM.pages.forEach(page => {
                 page.classList.toggle('active', page.dataset.page === path);

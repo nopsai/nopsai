@@ -111,8 +111,49 @@ func (h *Hub) run() {
 				}
 			}
 			h.mu.Unlock()
+		// --- FIX START ---
+		// Add case for handling global broadcast messages
+		case message := <-h.broadcast:
+			h.mu.Lock()
+			for client := range h.clients {
+				select {
+				case client.send <- message:
+				default:
+					close(client.send)
+					delete(h.clients, client)
+				}
+			}
+			h.mu.Unlock()
+			// --- FIX END ---
 		}
 	}
+}
+
+// This new function broadcasts a "new_run_started" message to all connected clients.
+func (a *App) broadcastNewRun(runID string) {
+	go func() {
+		// Small delay to ensure the run is fully committed to the DB
+		time.Sleep(100 * time.Millisecond)
+
+		runListItem, err := a.getRunListItem(runID)
+		if err != nil {
+			log.Error().Err(err).Str("run_id", runID).Msg("Failed to get RunListItem for new run broadcast")
+			return
+		}
+
+		message, err := json.Marshal(WebSocketMessage{
+			Type:    "new_run_started",
+			Payload: runListItem,
+		})
+
+		if err != nil {
+			log.Error().Err(err).Str("run_id", runID).Msg("Failed to marshal new run message for WebSocket")
+			return
+		}
+
+		// Send to the global broadcast channel
+		a.hub.broadcast <- message
+	}()
 }
 
 func (h *Hub) broadcastToRun(runId string, message []byte) {
@@ -302,16 +343,92 @@ type Group struct {
 
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
 
+// This new helper function fetches and builds a RunListItem for a given run ID.
+func (a *App) getRunListItem(runID string) (*RunListItem, error) {
+	var run RunListItem
+	var startedAt, finishedAt sql.NullTime
+	var commitSHA, repoOwner, repoName, pusherName, gitRef, pipelineSource sql.NullString
+
+	query := `
+        SELECT
+            run_id, pipeline_name, status, COALESCE(git_commit_sha, ''),
+            COALESCE(git_repo_owner, ''), COALESCE(git_repo_name, ''), started_at, finished_at,
+			parent_run_id, COALESCE(git_pusher_name, ''), COALESCE(git_ref, ''),
+			COALESCE(pipeline_source, '')
+        FROM runs
+        WHERE run_id = $1
+    `
+	err := a.db.QueryRow(context.Background(), query, runID).Scan(
+		&run.RunID, &run.PipelineName, &run.Status, &commitSHA,
+		&repoOwner, &repoName, &startedAt, &finishedAt, &run.ParentRunID, &pusherName, &gitRef, &pipelineSource,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	run.GitCommitSHA = commitSHA.String
+	run.GitRepoOwner = repoOwner.String
+	run.GitRepoName = repoName.String
+	run.GitPusherName = pusherName.String
+	run.GitRef = gitRef.String
+	run.PipelineSource = pipelineSource.String
+
+	if startedAt.Valid {
+		run.StartedAt = startedAt.Time
+		if finishedAt.Valid {
+			run.FinishedAt = finishedAt.Time
+			run.Duration = run.FinishedAt.Sub(run.StartedAt).Round(time.Second).String()
+			run.IsComplete = true
+		} else {
+			run.Duration = time.Since(run.StartedAt).Round(time.Second).String()
+			run.IsComplete = false
+		}
+	} else {
+		run.IsComplete = true
+	}
+
+	return &run, nil
+}
+
+// The broadcast function is updated to send a more specific 'run_summary_update' message
+// with the full RunListItem as the payload.
 func (a *App) broadcastRunUpdate(runID string) {
 	go func() {
 		time.Sleep(100 * time.Millisecond)
-		message, _ := json.Marshal(WebSocketMessage{
-			Type: "run_update",
-			Payload: map[string]string{
-				"runId": runID,
-			},
+
+		runListItem, err := a.getRunListItem(runID)
+		if err != nil {
+			log.Error().Err(err).Str("run_id", runID).Msg("Failed to get RunListItem for broadcast")
+			// We won't send a fallback message here to avoid complexity.
+			// The UI will simply not update until the next full refresh.
+			return
+		}
+
+		message, err := json.Marshal(WebSocketMessage{
+			Type:    "run_summary_update",
+			Payload: runListItem,
 		})
-		a.hub.broadcastToRun(runID, message)
+		if err != nil {
+			log.Error().Err(err).Str("run_id", runID).Msg("Failed to marshal run summary for WebSocket")
+			return
+		}
+
+		// --- CORRECTED LOGIC ---
+		// Send the summary update to ALL clients to update dashboards and sidebars.
+		a.hub.broadcast <- message
+		// --- END ---
+
+		// Also notify the parent run (if any) that one of its children has been updated,
+		// prompting a generic refresh of the parent's detail view.
+		if runListItem.ParentRunID != nil && *runListItem.ParentRunID != "" {
+			parentMessage, _ := json.Marshal(WebSocketMessage{
+				Type:    "run_update", // Generic update type
+				Payload: map[string]string{"runId": *runListItem.ParentRunID},
+			})
+			// This one is targeted, as only users viewing the parent need this specific update.
+			a.hub.broadcastToRun(*runListItem.ParentRunID, parentMessage)
+		}
 	}()
 }
 
@@ -2202,6 +2319,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	a.broadcastNewRun(runID.String())
 	resolvedPipeline, err := a.resolveStepIncludes(&pipeline)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to resolve step includes: %v", err)
@@ -2819,18 +2937,16 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 
 	log.Info().Str("run_id", runID).Str("container_name", agentContainerName).Msg("Successfully started agent container")
 
-	// --- START: New Log Capture Logic ---
+	// --- LOG STREAMING MODIFICATION ---
 	go func() {
-		// Use a separate context for logging so it can outlive the main function's context if needed
 		logCtx := context.Background()
-		logReader, err := a.cli.ContainerLogs(logCtx, resp.ID, container.LogsOptions{ShowStdout: true, ShowStderr: true, Follow: true})
+		logReader, err := a.cli.ContainerLogs(logCtx, resp.ID, container.LogsOptions{ShowStdout: true, ShowStderr: true, Follow: true, Timestamps: true})
 		if err != nil {
 			log.Error().Err(err).Str("run_id", runID).Msg("Failed to attach to container logs")
 			return
 		}
 		defer logReader.Close()
 
-		// The Docker log stream multiplexes stdout and stderr. We use stdcopy to demultiplex it into a clean stream.
 		r, w := io.Pipe()
 		go func() {
 			defer w.Close()
@@ -2840,21 +2956,41 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 			}
 		}()
 
-		// Read from the clean stream line by line and insert into the database
 		scanner := bufio.NewScanner(r)
 		for scanner.Scan() {
 			line := scanner.Text()
+
+			// Also insert into DB for historical storage
 			_, dbErr := a.db.Exec(context.Background(),
 				"INSERT INTO run_logs (run_id, line) VALUES ($1, $2)",
 				runID, line)
 			if dbErr != nil {
 				log.Error().Err(dbErr).Str("run_id", runID).Msg("Failed to insert log line into DB")
 			}
+
+			// Create the WebSocket message
+			logLine := LogLine{
+				Timestamp: time.Now(),
+				Line:      line,
+			}
+			message, err := json.Marshal(WebSocketMessage{
+				Type:    "log_line",
+				Payload: logLine,
+			})
+
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to marshal log line for WebSocket")
+				continue
+			}
+
+			// Broadcast the message
+			a.hub.broadcastToRun(runID, message)
 		}
 		if err := scanner.Err(); err != nil {
 			log.Error().Err(err).Str("run_id", runID).Msg("Error reading from log pipe")
 		}
 	}()
+	// --- END MODIFICATION ---
 
 	statusCh, errCh := cli.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
 	select {
