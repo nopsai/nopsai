@@ -706,87 +706,30 @@ if (dx !== 0 || dy !== 0) {
     }
 
     function renderRunLinks(runs, level) {
-        const activeRunId = window.location.hash.split('/')[3];
         let html = `<ul class="pl-${level > 0 ? '4' : '0'} space-y-1">`;
         runs.forEach(run => {
-            const config = statusConfig[(run.is_complete ? run.status : 'running').toLowerCase()] || statusConfig.pending;
-            const isActive = run.run_id === activeRunId;
-            const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
             const repoFullName = `${run.git_repo_owner}/${run.git_repo_name}`;
-            const pipelineNameHTML = getPipelineNameHTML(run);
-
             html += `<li data-run-id="${run.run_id}" data-repo-full-name="${repoFullName}" ${run.parent_run_id ? `data-parent-run-id="${run.parent_run_id}"` : ''}>
-                            <a href="#/pipelineruns/run/${run.run_id}" class="flex items-center p-2 text-sm text-[var(--text-secondary)] rounded-md ${isActive ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : ''}">
-                                <svg class="h-4 w-4 mr-2 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
-                                <div class="flex-1 overflow-hidden">
-                                    <div class="flex justify-between items-center">
-                                        ${pipelineNameHTML}
-                                        <span class="text-xs text-[var(--text-secondary)] flex-shrink-0 ml-2">${timeAgo(timeToDisplay)}</span>
-                                    </div>
-                                    <div class="text-xs text-[var(--text-secondary)] font-mono mt-1 space-y-1">
-                                        <div class="flex items-center">
-                                            <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                                            <span class="truncate">${(run.git_commit_sha || '...').slice(0, 8)}</span>
-                                        </div>                                          
-                                      <div class="flex items-center">
-                                          <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H5v-2H3v-2H1v-4a6 6 0 016-6h1.5" /></svg>
-                                          <span class="truncate">${(run.run_id || '...').slice(0, 8)}</span>
-                                      </div>
-                                    </div>
-                                </div>
-                            </a>
-                        </li>`;
+                        ${renderSidebarRunLinkHTML(run)}
+                     </li>`;
         });
         html += `</ul>`;
         return html;
     }
 
+    // Update renderSidebarPipelineRunsList to use the new reusable function
     function renderSidebarPipelineRunsList(runs) {
         const listEl = document.getElementById('pipeline-runs-list');
         if (!listEl) return;
-        const activeRunId = window.location.hash.split('/')[3];
          if (!runs || runs.length === 0) {
              listEl.innerHTML = `<li><p class="p-2 text-[var(--text-secondary)] text-sm">No recent runs found.</p></li>`;
              return;
          }
         listEl.innerHTML = (runs || []).map(run => {
-            const status = run.is_complete ? run.status : 'running';
-            const config = statusConfig[status.toLowerCase()] || statusConfig.pending;
-            const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
-            const isActive = run.run_id === activeRunId;
-            const branchName = (run.git_ref || '').startsWith('refs/heads/') ? run.git_ref.split('/')[2] : 'N/A';
             const repoFullName = `${run.git_repo_owner}/${run.git_repo_name}`;
-            const pipelineNameHTML = getPipelineNameHTML(run);
-
             return `<li data-run-id="${run.run_id}" data-repo-full-name="${repoFullName}" ${run.parent_run_id ? `data-parent-run-id="${run.parent_run_id}"` : ''}>
-                    <a href="#/pipelineruns/run/${run.run_id}" class="flex items-center p-2 text-[var(--text-primary)] rounded-md ${isActive ? 'bg-[var(--bg-tertiary)]' : ''}">
-                        <svg class="h-5 w-5 mr-3 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
-                        <div class="flex-1 overflow-hidden">
-                            <div class="flex justify-between items-center">
-                                ${pipelineNameHTML}
-                                <span class="text-xs text-[var(--text-secondary)] flex-shrink-0 ml-2">${timeAgo(timeToDisplay)}</span>
-                            </div>
-                            <div class="text-xs text-[var(--text-secondary)] font-mono mt-1 space-y-1">
-                                <div class="flex items-center">
-                                    <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
-                                    <span class="truncate">${run.git_repo_name}</span>
-                                </div>
-                                <div class="flex items-center">
-                                   <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                                   <span class="truncate">${branchName}</span>
-                                </div>
-                                <div class="flex items-center">
-                                    <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                                    <span class="truncate">${(run.git_commit_sha || '...').slice(0, 8)}</span>
-                                </div>                                    
-                                <div class="flex items-center">
-                                    <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H5v-2H3v-2H1v-4a6 6 0 016-6h1.5" /></svg>
-                                    <span class="truncate">${(run.run_id || '...').slice(0, 8)}</span>
-                                </div>
-                            </div>
-                        </div>
-                    </a>
-                </li>`;
+                        ${renderSidebarRunLinkHTML(run)}
+                    </li>`;
         }).join('');
     }
 
@@ -838,7 +781,7 @@ if (dx !== 0 || dy !== 0) {
         DOM.mainGridContainer.innerHTML = html;
     }
 
-    function renderRunCard(run) {
+    function renderRunCardHTML(run) {
         const status = run.is_complete ? run.status : 'running';
         const config = statusConfig[status.toLowerCase()] || statusConfig.pending;
         const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
@@ -847,44 +790,93 @@ if (dx !== 0 || dy !== 0) {
         const pipelineNameHTML = getPipelineNameHTML(run);
 
         return `
+            <div>
+                <div class="flex items-start justify-between">
+                    <div class="flex-1 min-w-0 pr-4">${pipelineNameHTML}</div>
+                    <div class="flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center ${config.color}">
+                        <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
+                    </div>
+                </div>
+                <p class="text-sm text-[var(--text-secondary)] items-center mt-1">
+                   ${run.git_repo_name}
+                </p>
+                <p class="text-sm text-[var(--text-link)] font-mono items-center mt-1">
+                   <svg class="inline-block h-4 w-4 mr-1 -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                   ${branchName}
+                </p>
+            </div>
+            <div class="mt-4 text-xs text-[var(--text-secondary)] font-mono space-y-1.5">
+                <div class="flex items-center">
+                    <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                    <span class="truncate">${run.git_pusher_name || 'N/A'}</span>
+                </div>
+                <div class="flex items-center">
+                    <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                    <span class="truncate">${(run.git_commit_sha || '...').slice(0, 8)}</span>
+                </div>
+                 <div class="flex items-center">
+                    <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H5v-2H3v-2H1v-4a6 6 0 016-6h1.5" /></svg>
+                    <span class="truncate">${(run.run_id).slice(0, 8)}</span>
+                </div>
+            </div>
+             <div class="mt-4 pt-3 border-t border-[var(--border-primary)] flex items-center justify-between text-xs text-[var(--text-secondary)]">
+                <span class="font-medium">${run.is_complete ? 'Completed' : 'Started'}</span>
+                <span>${timeAgo(timeToDisplay)}</span>
+            </div>`;
+    }
+
+    function renderSidebarRunLinkHTML(run) {
+        const activeRunId = window.location.hash.split('/')[3];
+        const config = statusConfig[(run.is_complete ? run.status : 'running').toLowerCase()] || statusConfig.pending;
+        const isActive = run.run_id === activeRunId;
+        const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
+        const pipelineNameHTML = getPipelineNameHTML(run);
+        
+        return `
+            <a href="#/pipelineruns/run/${run.run_id}" class="flex items-center p-2 text-sm text-[var(--text-secondary)] rounded-md ${isActive ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : ''}">
+                <svg class="h-4 w-4 mr-2 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
+                <div class="flex-1 overflow-hidden">
+                    <div class="flex justify-between items-center">
+                        ${pipelineNameHTML}
+                        <span class="text-xs text-[var(--text-secondary)] flex-shrink-0 ml-2">${timeAgo(timeToDisplay)}</span>
+                    </div>
+                    <div class="text-xs text-[var(--text-secondary)] font-mono mt-1 space-y-1">
+                        <div class="flex items-center">
+                            <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                            <span class="truncate">${(run.git_commit_sha || '...').slice(0, 8)}</span>
+                        </div>                                          
+                      <div class="flex items-center">
+                          <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H5v-2H3v-2H1v-4a6 6 0 016-6h1.5" /></svg>
+                          <span class="truncate">${(run.run_id || '...').slice(0, 8)}</span>
+                      </div>
+                    </div>
+                </div>
+            </a>`;
+    }
+    
+    function handleRunSummaryUpdate(runData) {
+        // Find all elements representing this run (cards in main view, links in sidebar)
+        const elements = document.querySelectorAll(`[data-run-id="${runData.run_id}"]`);
+        
+        elements.forEach(el => {
+            if (el.hasAttribute('data-href')) { // It's a run card
+                el.innerHTML = renderRunCardHTML(runData);
+            } else if (el.tagName === 'LI') { // It's a sidebar item
+                el.innerHTML = renderSidebarRunLinkHTML(runData);
+            }
+        });
+    }
+
+    // Update renderRunCard to use the new reusable function
+    function renderRunCard(run) {
+        const repoFullName = `${run.git_repo_owner}/${run.git_repo_name}`;
+        return `
             <div data-href="#/pipelineruns/run/${run.run_id}"
                 data-run-id="${run.run_id}" 
                 data-repo-full-name="${repoFullName}"
                 ${run.parent_run_id ? `data-parent-run-id="${run.parent_run_id}"` : ''}
                 class="block bg-[var(--bg-primary)] transition-all duration-200 rounded-lg p-4 flex flex-col justify-between cursor-pointer border border-[var(--border-primary)] shadow-sm">
-                <div>
-                    <div class="flex items-start justify-between">
-                        <div class="flex-1 min-w-0 pr-4">${pipelineNameHTML}</div>
-                        <div class="flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center ${config.color}">
-                            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
-                        </div>
-                    </div>
-                    <p class="text-sm text-[var(--text-secondary)] items-center mt-1">
-                       ${run.git_repo_name}
-                    </p>
-                    <p class="text-sm text-[var(--text-link)] font-mono items-center mt-1">
-                       <svg class="inline-block h-4 w-4 mr-1 -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                       ${branchName}
-                    </p>
-                </div>
-                <div class="mt-4 text-xs text-[var(--text-secondary)] font-mono space-y-1.5">
-                    <div class="flex items-center">
-                        <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-                        <span class="truncate">${run.git_pusher_name || 'N/A'}</span>
-                    </div>
-                    <div class="flex items-center">
-                        <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                        <span class="truncate">${(run.git_commit_sha || '...').slice(0, 8)}</span>
-                    </div>
-                     <div class="flex items-center">
-                        <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H5v-2H3v-2H1v-4a6 6 0 016-6h1.5" /></svg>
-                        <span class="truncate">${(run.run_id).slice(0, 8)}</span>
-                    </div>
-                </div>
-                 <div class="mt-4 pt-3 border-t border-[var(--border-primary)] flex items-center justify-between text-xs text-[var(--text-secondary)]">
-                    <span class="font-medium">${run.is_complete ? 'Completed' : 'Started'}</span>
-                    <span>${timeAgo(timeToDisplay)}</span>
-                </div>
+                ${renderRunCardHTML(run)}
             </div>`;
     }
 
@@ -3534,6 +3526,38 @@ if (false && state.currentGraphView === 'tasks') {
         });
     }
 
+    async function handleNewRunStarted(runData) {
+        // This function triggers a refresh of both the sidebar and the main content area.
+
+        // 1. Refresh the sidebar (existing logic, which is working)
+        if (state.repoLastRunCache) {
+            state.repoLastRunCache.clear();
+        }
+        await renderSidebar(state.currentPath || 'pipelineruns', state.currentTab || 'main');
+
+        // --- FIX START ---
+        // 2. Refresh the main content view if it's a relevant page.
+        // We only need to do this if we are on the main 'pipelineruns' page.
+        if (state.currentPath === 'pipelineruns' && !window.location.hash.includes('/run/')) {
+            if (state.currentTab === 'recent') {
+                // If on the "Recent" tab, re-fetch all runs and re-render the main grid.
+                const runs = await fetchData('/v1/runs');
+                renderMainGridContent(null, runs, false);
+            } else if (state.currentTab === 'main') {
+                // If on the "Main" tab, re-fetch the content for the currently selected group.
+                // This will show new branches or update the grouped run lists.
+                if (state.selectedGroupId) {
+                    await fetchMainContent(state.selectedGroupId);
+                } else {
+                    // If at the root, re-render the top-level groups.
+                    const rootGroups = state.groups.filter(g => g.parent_id === null || g.parent_id === 0);
+                    renderMainGridContent(rootGroups, null, true);
+                }
+            }
+        }
+        // --- FIX END ---
+    }
+
     function setupSidebarDragAndDrop() {
         if (!DOM.sidebarNav) return;
         let draggedElement = null;
@@ -3608,5 +3632,7 @@ if (false && state.currentGraphView === 'tasks') {
         init,
         handleRoute,
         handleRealtimeUpdate,
+        handleRunSummaryUpdate,
+        handleNewRunStarted,
     };
 })(window.NopsAI = window.NopsAI || {});
