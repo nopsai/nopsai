@@ -27,7 +27,6 @@
     function showLogsModal() {
         if (!state.currentRunData) return;
         const runId = state.currentRunData.run_info.run_id;
-        const isComplete = state.currentRunData.run_info.is_complete;
 
         document.getElementById('logs-modal-title').textContent = `Agent Logs for run ${runId.slice(0, 8)}`;
         DOM.logsContainer.innerHTML = `<p class="text-[var(--text-secondary)]">Loading logs...</p>`;
@@ -44,6 +43,7 @@
         try { buildLogsFilters(); } catch {}
         try { initLogsUIControls(); } catch {}
 
+        // Fetch historical logs, new ones will come via WebSocket
         fetchAndRenderLogs(runId);
     }
 
@@ -88,7 +88,7 @@
     }
 
     function closeLogsModal() {
-
+        // No polling to clear anymore
         DOM.logsModal.classList.remove('opacity-100');
         DOM.logsModalContent.classList.add('scale-95');
         setTimeout(() => DOM.logsModal.classList.add('hidden'), 300);
@@ -98,7 +98,7 @@
     async function fetchAndRenderLogs(runId) {
         const logs = await fetchData(`/v1/runs/${runId}/logs`);
         if (logs && logs.length > 0) {
-            state._logsRaw = logs;
+            state._logsRaw = logs || [];
 
             // Analyze the logs to find unique levels
             const presentLevels = new Set();
@@ -126,6 +126,14 @@
             DOM.logsContainer.innerHTML = `<p class="text-[var(--text-secondary)]">No logs yet...</p>`;
             updateLogLevelFiltersVisibility(); // Ensure buttons are hidden if no logs
         }
+    }
+
+    function appendLogLine(logLine) {
+        if (!state._logsRaw) {
+            state._logsRaw = [];
+        }
+        state._logsRaw.push(logLine);
+        renderLogsWithFilters();
     }
 
     function getLogStepName(log) {
@@ -586,6 +594,7 @@ function deriveLevelFromStatus(status) {
         showLogsModal,
         initLogsUIControls,
         closeLogsModal,
+        appendLogLine,
         fetchAndRenderLogs,
         getLogStepName,
         buildLogsFilters,
