@@ -94,7 +94,7 @@ CREATE TABLE secrets (
     repository_name VARCHAR(255),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(name, repository_name, environment)
+    UNIQUE NULLS NOT DISTINCT (name, repository_name, environment)
 );
 
 CREATE TABLE environments (
@@ -105,9 +105,8 @@ CREATE TABLE environments (
     environment VARCHAR(255),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(name, repository_name, environment)
+    UNIQUE NULLS NOT DISTINCT (name, repository_name, environment)
 );
-
 CREATE TABLE run_logs (
     id SERIAL PRIMARY KEY,
     run_id UUID NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
