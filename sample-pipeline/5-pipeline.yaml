@@ -1,6 +1,10 @@
 name: Main-Pipeline
 description: A sample pipeline.
 llm_content_sharing: true
+llm_content_ignore:
+  - ".git"
+  - "README.md"
+  - "*file"
 llm_output_sharing: true
 display_options:
   github_view: "mermaid" # mermaid, tree or flat
