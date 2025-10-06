@@ -7,7 +7,7 @@ option go_package = "nopsai/pkg/proto";
 // Service for the LLM Agent, called by the Agent
 service LLMService {
     rpc GetAction(GetActionRequest) returns (Action);
-    rpc EvaluateCondition(ConditionRequest) returns (ConditionResponse); // Add this line
+    rpc EvaluateCondition(ConditionRequest) returns (ConditionResponse);
 }
 
 // Request for evaluating a condition

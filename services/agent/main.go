@@ -40,6 +40,49 @@ func agentLog(runID, pipeline string) *zerolog.Logger {
 	return &logger
 }
 
+type Matcher struct {
+	Pattern  string
+	IsDir    bool
+	IsGlobal bool
+}
+
+func (m *Matcher) Matches(relPath string, isDir bool) bool {
+	if m.IsDir {
+		if !isDir && !strings.HasPrefix(relPath, m.Pattern) {
+			return false
+		}
+		// Match if the path is the directory itself or a path within it
+		return relPath == m.Pattern || strings.HasPrefix(relPath, m.Pattern+"/")
+	}
+
+	if m.IsGlobal {
+		// If the pattern has no '/', it should match the basename of the path.
+		base := filepath.Base(relPath)
+		matched, _ := filepath.Match(m.Pattern, base)
+		return matched
+	}
+
+	// It's a full path pattern
+	matched, _ := filepath.Match(m.Pattern, relPath)
+	return matched
+}
+
+func isIgnored(path string, matchers []Matcher, root string, isDir bool) bool {
+	relPath, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	// On Windows, convert backslashes to forward slashes for consistent matching
+	relPath = filepath.ToSlash(relPath)
+
+	for _, matcher := range matchers {
+		if matcher.Matches(relPath, isDir) {
+			return true
+		}
+	}
+	return false
+}
+
 func stepLog(runID, pipeline, step, task string) *zerolog.Logger {
 	logger := log.With().
 		Str("runid", runID).
@@ -74,16 +117,43 @@ func sanitizeInput(name string) string {
 }
 
 // getDirectoryListing recursively walks the specified root directory.
-func getDirectoryListing(logger *zerolog.Logger, root string) map[string]string {
+func getDirectoryListing(logger *zerolog.Logger, root string, ignorePatterns []string) map[string]string {
 	directoryListing := make(map[string]string)
+	var matchers []Matcher
+
+	// Create matchers from the pipeline's ignorePatterns
+	for _, p := range ignorePatterns {
+		p = strings.TrimSpace(p)
+		if p == "" || strings.HasPrefix(p, "#") {
+			continue
+		}
+		isDir := strings.HasSuffix(p, "/")
+		pattern := strings.TrimSuffix(p, "/")
+		matchers = append(matchers, Matcher{
+			Pattern:  pattern,
+			IsDir:    isDir,
+			IsGlobal: !strings.Contains(pattern, "/"),
+		})
+	}
+
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			logger.Error().Err(err).Str("path", path).Msg("Error accessing path")
 			return nil
 		}
+
+		// Check if the path should be ignored by the patterns from the pipeline directive
+		if isIgnored(path, matchers, root, info.IsDir()) {
+			if info.IsDir() {
+				return filepath.SkipDir // Skip the entire directory
+			}
+			return nil // Skip this file
+		}
+
 		if info.IsDir() && info.Name() == ".git" {
 			return filepath.SkipDir
 		}
+
 		if !info.IsDir() {
 			content, readErr := os.ReadFile(path)
 			if readErr != nil {
@@ -907,7 +977,8 @@ func run() int {
 					var directoryListing map[string]string
 					if shareContent {
 						taskLogger.Debug().Msg("Content sharing is ENABLED for this pipeline. Scanning directory")
-						directoryListing = getDirectoryListing(taskLogger, "/workspace")
+						directoryListing = getDirectoryListing(taskLogger, "/workspace", pipeline.LlmContentIgnore)
+						fmt.Print(directoryListing)
 					} else {
 						taskLogger.Debug().Msg("Content sharing is DISABLED for this pipeline. Skipping directory scan")
 						directoryListing = make(map[string]string)

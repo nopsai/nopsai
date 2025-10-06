@@ -42,7 +42,6 @@ func (p *PipelineSource) UnmarshalYAML(value *yaml.Node) error {
 	return fmt.Errorf("invalid pipeline source definition; only scalar paths are supported")
 }
 
-// Pipeline represents the structure of a pipeline definition file.
 type Pipeline struct {
 	Name              string         `yaml:"name" json:"name"`
 	Description       string         `yaml:"description" json:"description"`
@@ -54,6 +53,7 @@ type Pipeline struct {
 	Timeout           string         `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 	LlmContentSharing *bool          `yaml:"llm_content_sharing,omitempty" json:"llm_content_sharing,omitempty"`
 	LlmOutputSharing  *bool          `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
+	LlmContentIgnore  []string       `yaml:"llm_content_ignore,omitempty" json:"llm_content_ignore,omitempty"` // New field
 }
 
 // DisplayOptions defines how the pipeline progress is displayed in integrations like GitHub.
