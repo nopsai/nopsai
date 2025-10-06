@@ -32,7 +32,7 @@ func (s *llmAgentServer) GetAction(ctx context.Context, req *proto.GetActionRequ
 
 	actionModel, err := s.callRealGemini(prompt)
 	if err != nil {
-		log.Error().Err(err).Msg("Error calling Gemini")
+		log.Error().Err(err).Msg("Error calling Gemini for GetAction")
 		return nil, err
 	}
 
@@ -48,6 +48,94 @@ func (s *llmAgentServer) GetAction(ctx context.Context, req *proto.GetActionRequ
 	}
 
 	return protoAction, nil
+}
+
+// EvaluateCondition is the new RPC method for conditional checks.
+func (s *llmAgentServer) EvaluateCondition(ctx context.Context, req *proto.ConditionRequest) (*proto.ConditionResponse, error) {
+	prompt := s.buildConditionPrompt(req)
+
+	// We call a different Gemini function that specifically parses a boolean
+	result, err := s.callGeminiForBoolean(prompt)
+	if err != nil {
+		log.Error().Err(err).Msg("Error calling Gemini for EvaluateCondition")
+		// Default to false on error to be safe
+		return &proto.ConditionResponse{Result: false}, err
+	}
+
+	return &proto.ConditionResponse{Result: result}, nil
+}
+
+// buildConditionPrompt assembles a prompt specifically for a true/false answer.
+func (s *llmAgentServer) buildConditionPrompt(req *proto.ConditionRequest) string {
+	var envBuilder strings.Builder
+	envBuilder.WriteString("**Environment Variables:**\n")
+	for key, value := range req.GetEnvironment() {
+		envBuilder.WriteString(fmt.Sprintf("- %s: %s\n", key, value))
+	}
+
+	history := req.GetHistory()
+	if history == "" {
+		history = "No history yet."
+	}
+
+	promptTemplate := `You are a CI/CD automation bot. Your task is to answer a YES/NO question based on the provided context.
+You must only respond with the word "true" or "false" and nothing else.
+
+---
+%s
+---
+**Execution History (Previous Steps):**
+%s
+---
+**Question:**
+"%s"
+---
+Based on the context, is the answer to the question YES or NO? Respond with only "true" or "false".`
+
+	fullPrompt := fmt.Sprintf(promptTemplate, envBuilder.String(), history, req.GetGoal())
+	log.Debug().Msgf("Condition prompt:\n%s", fullPrompt)
+	return fullPrompt
+}
+
+// callGeminiForBoolean handles calling the Gemini API and parsing a boolean response.
+func (s *llmAgentServer) callGeminiForBoolean(prompt string) (bool, error) {
+	log.Debug().Msg("Calling real Gemini API for boolean...")
+	geminiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", s.cfg.GeminiModel, s.cfg.GeminiAPIKey)
+
+	reqPayload := models.GeminiRequest{
+		Contents: []models.Content{
+			{Parts: []models.Part{{Text: prompt}}},
+		},
+	}
+
+	payloadBytes, err := json.Marshal(reqPayload)
+	if err != nil {
+		return false, fmt.Errorf("failed to marshal gemini request: %w", err)
+	}
+
+	resp, err := http.Post(geminiURL, "application/json", bytes.NewBuffer(payloadBytes))
+	if err != nil {
+		return false, fmt.Errorf("failed to call gemini api: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("gemini api returned non-200 status: %s, body: %s", resp.Status, string(body))
+	}
+
+	var geminiResp models.GeminiResponse
+	if err := json.Unmarshal(body, &geminiResp); err != nil {
+		return false, fmt.Errorf("failed to unmarshal gemini response: %w", err)
+	}
+
+	if len(geminiResp.Candidates) == 0 || len(geminiResp.Candidates[0].Content.Parts) == 0 {
+		return false, fmt.Errorf("invalid or empty response from gemini: %s", string(body))
+	}
+
+	responseText := strings.ToLower(strings.TrimSpace(geminiResp.Candidates[0].Content.Parts[0].Text))
+
+	return responseText == "true", nil
 }
 
 // buildPrompt assembles the full context into a single string for the LLM.

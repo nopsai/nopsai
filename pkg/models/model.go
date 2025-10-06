@@ -81,6 +81,7 @@ type PipelineStep struct {
 	Volumes     []string          `yaml:"volumes,omitempty" json:"volumes,omitempty"`
 	Environment map[string]string `yaml:"environment,omitempty" json:"environment,omitempty"`
 	Tasks       []Task            `yaml:"tasks" json:"tasks"`
+	Condition   string            `yaml:"condition,omitempty" json:"condition,omitempty"`
 
 	// Legacy fields
 	Goal             string   `yaml:"goal,omitempty" json:"goal,omitempty"`

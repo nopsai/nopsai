@@ -1,0 +1,189 @@
+# Nopsai: The Complete Guide
+
+Welcome to the Nopsai documentation. This guide covers the architecture, features, and usage of the Nopsai CI/CD platform.
+
+## 1\. Overall Vision
+
+Nopsai is a next-generation CI/CD platform designed to make automation more intelligent, intuitive, and efficient. Its core philosophy is to replace rigid, hard-coded scripts with high-level, natural language goals. Instead of telling the system *how* to do something, you tell it *what* you want to achieve, and an AI agent determines the best way to execute it.
+
+This AI-native approach is combined with a modern, real-time architecture to provide a seamless and interactive user experience, from live log streaming to instant dashboard updates.
+
+## 2\. Architecture
+
+Nopsai is built on a distributed, microservice-based architecture designed for scalability and resilience. The system is composed of several key services that communicate via gRPC and REST APIs.
+
+  * **Nopsai Server (`nopsai`)**:
+
+      * The central brain of the system. It's a Go application that serves the main REST API and WebSocket hub.
+      * **Responsibilities**: Manages the PostgreSQL database, handles incoming Git events from the `git-bot`, orchestrates the lifecycle of `agent` containers, and broadcasts real-time updates to the UI.
+
+  * **LLM Agent (`llm-agent`)**:
+
+      * A dedicated gRPC service that acts as a bridge to the Google Gemini Large Language Model.
+      * **Responsibilities**:
+        1.  Receives a `goal` from an `agent` and constructs a detailed prompt for the LLM to translate it into an executable shell command.
+        2.  Receives a `condition` and constructs a prompt to get a simple `true`/`false` answer from the LLM.
+
+  * **Git Bot (`git-bot`)**:
+
+      * A Go service that acts as the interface between Nopsai and GitHub.
+      * **Responsibilities**: Receives webhook events from a GitHub App, forwards them to the Nopsai server, and updates GitHub check runs with pipeline status and results.
+
+  * **Agent (`agent`)**:
+
+      * An ephemeral, lightweight Go application that runs in its own Docker container for each pipeline execution.
+      * **Responsibilities**: Orchestrates a single pipeline run. It reads the pipeline definition, evaluates conditions, calls the `llm-agent` to resolve goals, executes commands in step-specific containers, and reports the status back to the Nopsai server.
+
+  * **User Interface (UI)**:
+
+      * A single-page application built with vanilla JavaScript and Tailwind CSS.
+      * **Responsibilities**: Provides a real-time dashboard for viewing pipeline runs. It establishes a WebSocket connection to the Nopsai server to receive live updates for run statuses, new runs, and log streaming.
+
+  * **PostgreSQL Database (`nopsai-db`)**:
+
+      * The central data store for the entire system.
+      * **Stores**: Pipeline run history, task statuses, encrypted secrets, environment variables, reusable steps, and trigger overrides.
+
+## 3\. Installation & Setup
+
+Nopsai is designed to run entirely within Docker using Docker Compose.
+
+### Prerequisites
+
+  * Docker and Docker Compose installed on your machine.
+  * A running Docker daemon.
+
+### Installation Steps
+
+1.  **Clone the Repository**:
+
+    ```bash
+    git clone <your-repo-url>
+    cd pre-nopsai
+    ```
+
+2.  **Configure Environment**:
+    The project is configured using the `.env` file. This file contains all the necessary settings, including database credentials, API keys, and service addresses. The default values are suitable for local development.
+
+3.  **Build and Run**:
+    Use Docker Compose to build all the service images and start the containers.
+
+    ```bash
+    docker-compose up --build -d
+    ```
+
+    This command will:
+
+      * Build a base image containing all the compiled Go binaries.
+      * Build the final, lightweight images for each microservice.
+      * Start all services, including the database and UI.
+
+4.  **Access the UI**:
+    Once the services are running, you can access the Nopsai dashboard in your browser at: `http://localhost:5173`
+
+## 4\. GitHub Integration
+
+Nopsai integrates with GitHub through a **GitHub App**. This allows it to receive webhooks, post status updates, and create check runs for your commits.
+
+### Setting up the GitHub App
+
+1.  **Create a New GitHub App**:
+
+      * Navigate to your GitHub organization or personal account settings.
+      * Go to **Developer settings \> GitHub Apps \> New GitHub App**.
+      * **App name**: "Nopsai CI" (or your preferred name).
+      * **Homepage URL**: Your application's URL. For local testing, you can use a placeholder like `http://localhost`.
+      * **Webhook URL**: This is the public URL that GitHub will send events to. For local development, you'll need to use a tunneling service like **ngrok**.
+          * Start ngrok to expose your local `git-bot` service: `ngrok http 8081`.
+          * Copy the `https` forwarding URL provided by ngrok and append `/webhook` (e.g., `https://<your-id>.ngrok-free.app/webhook`).
+      * **Webhook secret**: Generate a strong, random string and save it. You will need to put this in your `.env` file as `GITHUB_WEBHOOK_SECRET`.
+      * **Repository permissions**: Grant the following permissions:
+          * **Checks**: `Read & write`
+          * **Contents**: `Read-only`
+          * **Metadata**: `Read-only`
+          * **Pull requests**: `Read-only`
+      * **Subscribe to events**: Select `Push`, `Pull request`, and `Check run`.
+
+2.  **Generate a Private Key**:
+
+      * In your GitHub App's settings, generate a new private key. This will download a `.pem` file.
+
+3.  **Install the App**:
+
+      * Install the app on the repositories you want Nopsai to have access to.
+      * After installation, note the **Installation ID** from the URL.
+
+4.  **Configure `.env`**:
+
+      * Open the `.env` file in your project.
+      * `GITHUB_APP_ID`: The App ID from your GitHub App's settings page.
+      * `GITHUB_INSTALLATION_ID`: The Installation ID you noted after installing the app.
+      * `GITHUB_WEBHOOK_SECRET`: The secret you created for your webhook.
+      * `GITHUB_PRIVATE_KEY`: Copy the **entire contents** of the `.pem` file you downloaded and paste it here, preserving the newlines.
+
+Once configured, Nopsai will automatically listen for `push` and `pull_request` events from your selected repositories.
+
+## 5\. How the System Works: End-to-End Flow
+
+Here is the step-by-step lifecycle of a pipeline run:
+
+1.  **Git Event**: A developer pushes a commit to a repository.
+2.  **Webhook**: GitHub sends a `push` event to your ngrok URL, which forwards it to the `git-bot`.
+3.  **Event Forwarding**: The `git-bot` validates the webhook signature and forwards the event to the `nopsai` server.
+4.  **Trigger Matching**: The `nopsai` server checks for a trigger override in its database. If none exists, it requests the `.nopsai/triggers.yaml` file from the repository via the `git-bot`. It then finds a matching trigger for the event (e.g., a push to the `main` branch).
+5.  **Check Run Creation**: The `nopsai` server instructs the `git-bot` to create a "queued" GitHub check run for the commit.
+6.  **Agent Launch**: The `nopsai` server launches a new, ephemeral `agent` container for the pipeline run. It injects all necessary configuration, including the pipeline definition and encrypted secrets, as environment variables.
+7.  **Pipeline Execution**:
+      * The `agent` starts and reads the pipeline definition.
+      * It identifies the first runnable step. If the step has a `condition`, the `agent` calls the `llm-agent` to evaluate it.
+      * If the condition passes (or doesn't exist), the `agent` executes the step's `goal` or `script`. For a `goal`, it calls the `llm-agent` to get an executable command.
+      * The `agent` reports the status of each task (`running`, `success`, `failure`) back to the `nopsai` server.
+8.  **Real-Time Updates**:
+      * The `nopsai` server receives the status update and broadcasts it via WebSocket to all connected UI clients.
+      * It also instructs the `git-bot` to update the GitHub check run with the latest status.
+9.  **Pipeline Completion**: Once all steps are complete, the `agent` sends a final status to the `nopsai` server and terminates.
+10. **Final Status**: The `nopsai` server broadcasts the final status to the UI and updates the GitHub check run to "completed".
+
+## 6\. Pipeline Features (`.yaml` Syntax)
+
+Nopsai pipelines are defined in YAML files and offer a powerful set of features.
+
+| Key | Type | Description |
+| :--- | :--- | :--- |
+| `name` | string | **Required**. The name of the pipeline. |
+| `container_image` | string | The default Docker image to use for all steps. |
+| `environment` | array | A list of environment variable *names* that the pipeline requires. The values are resolved from the Nopsai server's configuration. |
+| `timeout` | string | A global timeout for the entire pipeline (e.g., "20m"). |
+| `llm_content_sharing`| boolean | If `true` (default), the AI can access the contents of files in the workspace. |
+| `llm_output_sharing` | boolean | If `true` (default), the AI can see the output of previously executed steps. |
+| `steps` | array | **Required**. A list of step objects to be executed. |
+
+### The `steps` Block
+
+Each object in the `steps` array represents a unit of work.
+
+| Key | Type | Description |
+| :--- | :--- | :--- |
+| `name` | string | **Required**. A unique name for the step. |
+| `condition` | string | **AI-driven condition**. A natural language question. The step will only run if the LLM evaluates this condition to `true`. |
+| `goal` | string | A natural language description of what the step should accomplish. The AI will translate this into a command. |
+| `script` | string | A shell script to be executed directly, bypassing the AI. |
+| `image` | string | A specific Docker image for this step, overriding the pipeline's default. |
+| `depends_on` | array | A list of other step names that must complete successfully before this step can run. |
+| `ignore_failure` | boolean | If `true`, the pipeline will continue even if this step fails. |
+| `secrets` | array | A list of secret names to be injected into this step's environment. |
+| `include` | string | Include a reusable step (`step:my-step`) or an entire pipeline (`pipeline:my-pipeline.yaml`). |
+| `tasks` | array | A modern way to define a list of sub-tasks within a single step, each with its own `name`, `goal`, `script`, and `depends_on`. |
+
+## 7\. UI Features
+
+The Nopsai UI is a real-time dashboard designed for intuitive monitoring of your pipelines.
+
+  * **Live Dashboard**: The main view shows run cards for different branches and repositories. Thanks to WebSockets, these cards update their status (e.g., from "running" to "success") instantly, without any user interaction.
+  * **Real-Time Sidebar**:
+      * The "Recent Runs" list is updated live. When a new run is triggered anywhere in the system, it immediately appears at the top of this list for all connected users.
+      * The "Main" repository browser also reflects the latest status of the most recent run for each branch.
+  * **Global Activity Toasts**: A toast notification appears at the top of the screen for every new pipeline run that is triggered, providing system-wide, real-time awareness.
+  * **Interactive Graph View**: When you click on a run, you are taken to a detailed view with an interactive dependency graph of your pipeline's steps. You can pan, zoom, and click on steps to view their details.
+  * **Live Log Streaming**: When you open the logs for a run, new log lines are streamed directly to your screen in real-time, providing an experience similar to `tail -f`.
+  * **Hierarchical Organization**: The "Main" view allows you to organize your repositories into folders using a drag-and-drop interface, making it easy to manage projects at scale.

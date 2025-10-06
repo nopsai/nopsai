@@ -53,8 +53,10 @@ func stepLog(runID, pipeline, step, task string) *zerolog.Logger {
 }
 
 type TaskResult struct {
-	Name    string
-	Success bool
+	Name      string
+	Success   bool
+	Skipped   bool
+	Condition string
 }
 
 // Helper struct to manage task execution
@@ -644,6 +646,57 @@ func run() int {
 				stepName := step.Name
 				taskLogger := stepLog(runID, pipeline.Name, stepName, task.Name)
 
+				// --- CONDITION EVALUATION LOGIC START ---
+				if step.Condition != "" {
+					taskLogger.Info().Msgf("Evaluating condition for step '%s': \"%s\"", stepName, step.Condition)
+
+					historyMutex.Lock()
+					historySnapshot := history.String()
+					historyMutex.Unlock()
+
+					envMap := make(map[string]string)
+					for _, e := range os.Environ() {
+						parts := strings.SplitN(e, "=", 2)
+						if len(parts) == 2 {
+							envMap[parts[0]] = parts[1]
+						}
+					}
+
+					req := &proto.ConditionRequest{
+						Goal:        step.Condition,
+						History:     historySnapshot,
+						Environment: envMap,
+					}
+
+					ctx, cancel := context.WithTimeout(context.Background(), llmAgentTimeout)
+					resp, err := llmClient.EvaluateCondition(ctx, req)
+					cancel()
+
+					if err != nil {
+						taskLogger.Error().Err(err).Msg("Failed to evaluate condition from LLM agent. Skipping step.")
+						pipelineFailed = true // Mark failure to stop pipeline
+						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+						return
+					}
+
+					if !resp.Result {
+						taskLogger.Info().Msg("Condition evaluated to false. Skipping all tasks in this step.")
+						// Mark all tasks in this step as skipped and completed
+						tasksInStep := step.Tasks
+						if len(tasksInStep) == 0 { // For legacy/include steps
+							tasksInStep = []models.Task{{Name: stepName}}
+						}
+						for _, t := range tasksInStep {
+							updateTaskStatus(pipeline.Name, runID, stepName, t.Name, "skipped", 0, 0)
+							// We send a success result so the main loop can correctly count this as "handled"
+							results <- TaskResult{Name: fmt.Sprintf("%s/%s", stepName, t.Name), Success: true, Skipped: true}
+						}
+						return
+					}
+					taskLogger.Info().Msg("Condition evaluated to true. Proceeding with step.")
+				}
+				// --- CONDITION EVALUATION LOGIC END ---
+
 				if step.Include != "" {
 					updateTaskStatus(pipeline.Name, runID, stepName, stepName, "running", 0, 0)
 
@@ -715,33 +768,25 @@ func run() int {
 				var stepContainerID string
 				updateTaskStatus(pipeline.Name, runID, stepName, task.Name, "running", 0, 0)
 
-				// --- MODIFICATION START ---
-				// This slice will hold the final, resolved environment variables for the step.
 				var stepEnvVars []string
-
-				// Create a set of required environment variable keys for efficient lookup.
 				requiredEnvKeys := make(map[string]struct{})
 				for _, key := range pipeline.Environment {
 					requiredEnvKeys[key] = struct{}{}
 				}
 
-				// Iterate over the agent's environment to find the resolved values.
 				for _, e := range os.Environ() {
 					parts := strings.SplitN(e, "=", 2)
 					if len(parts) == 2 {
 						key := parts[0]
-						// Check if this variable is one of the ones required by the pipeline.
 						if _, ok := requiredEnvKeys[key]; ok {
 							stepEnvVars = append(stepEnvVars, e)
 						}
 					}
 
-					// Always forward GIT_* context and the current ENVIRONMENT.
 					if strings.HasPrefix(e, "GIT_") || strings.HasPrefix(e, "ENVIRONMENT=") {
 						stepEnvVars = append(stepEnvVars, e)
 					}
 				}
-				// --- MODIFICATION END ---
 
 				if len(step.Secrets) > 0 && len(secrets) > 0 {
 					for _, secretName := range step.Secrets {
@@ -963,10 +1008,14 @@ func run() int {
 		close(results)
 
 		for result := range results {
-			if result.Success {
-				completedTasks[result.Name] = true
+			if !result.Skipped {
+				if result.Success {
+					completedTasks[result.Name] = true
+				} else {
+					pipelineFailed = true
+				}
 			} else {
-				pipelineFailed = true
+				completedTasks[result.Name] = true
 			}
 		}
 

@@ -7,6 +7,19 @@ option go_package = "nopsai/pkg/proto";
 // Service for the LLM Agent, called by the Agent
 service LLMService {
     rpc GetAction(GetActionRequest) returns (Action);
+    rpc EvaluateCondition(ConditionRequest) returns (ConditionResponse); // Add this line
+}
+
+// Request for evaluating a condition
+message ConditionRequest {
+    string goal = 1;
+    string history = 2;
+    map<string, string> environment = 3;
+}
+
+// Response for a condition evaluation
+message ConditionResponse {
+    bool result = 1;
 }
 
 // The entire context needed by the LLM to decide on the next action.

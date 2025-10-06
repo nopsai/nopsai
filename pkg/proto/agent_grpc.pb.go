@@ -19,7 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	LLMService_GetAction_FullMethodName = "/proto.LLMService/GetAction"
+	LLMService_GetAction_FullMethodName         = "/proto.LLMService/GetAction"
+	LLMService_EvaluateCondition_FullMethodName = "/proto.LLMService/EvaluateCondition"
 )
 
 // LLMServiceClient is the client API for LLMService service.
@@ -29,6 +30,7 @@ const (
 // Service for the LLM Agent, called by the Agent
 type LLMServiceClient interface {
 	GetAction(ctx context.Context, in *GetActionRequest, opts ...grpc.CallOption) (*Action, error)
+	EvaluateCondition(ctx context.Context, in *ConditionRequest, opts ...grpc.CallOption) (*ConditionResponse, error)
 }
 
 type lLMServiceClient struct {
@@ -49,6 +51,16 @@ func (c *lLMServiceClient) GetAction(ctx context.Context, in *GetActionRequest, 
 	return out, nil
 }
 
+func (c *lLMServiceClient) EvaluateCondition(ctx context.Context, in *ConditionRequest, opts ...grpc.CallOption) (*ConditionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ConditionResponse)
+	err := c.cc.Invoke(ctx, LLMService_EvaluateCondition_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LLMServiceServer is the server API for LLMService service.
 // All implementations must embed UnimplementedLLMServiceServer
 // for forward compatibility.
@@ -56,6 +68,7 @@ func (c *lLMServiceClient) GetAction(ctx context.Context, in *GetActionRequest, 
 // Service for the LLM Agent, called by the Agent
 type LLMServiceServer interface {
 	GetAction(context.Context, *GetActionRequest) (*Action, error)
+	EvaluateCondition(context.Context, *ConditionRequest) (*ConditionResponse, error)
 	mustEmbedUnimplementedLLMServiceServer()
 }
 
@@ -68,6 +81,9 @@ type UnimplementedLLMServiceServer struct{}
 
 func (UnimplementedLLMServiceServer) GetAction(context.Context, *GetActionRequest) (*Action, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetAction not implemented")
+}
+func (UnimplementedLLMServiceServer) EvaluateCondition(context.Context, *ConditionRequest) (*ConditionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method EvaluateCondition not implemented")
 }
 func (UnimplementedLLMServiceServer) mustEmbedUnimplementedLLMServiceServer() {}
 func (UnimplementedLLMServiceServer) testEmbeddedByValue()                    {}
@@ -108,6 +124,24 @@ func _LLMService_GetAction_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LLMService_EvaluateCondition_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ConditionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LLMServiceServer).EvaluateCondition(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LLMService_EvaluateCondition_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LLMServiceServer).EvaluateCondition(ctx, req.(*ConditionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // LLMService_ServiceDesc is the grpc.ServiceDesc for LLMService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -118,6 +152,10 @@ var LLMService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetAction",
 			Handler:    _LLMService_GetAction_Handler,
+		},
+		{
+			MethodName: "EvaluateCondition",
+			Handler:    _LLMService_EvaluateCondition_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
