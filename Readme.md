@@ -8,7 +8,7 @@
     * **`nopsai`**: The main API gateway that manages pipeline runs, agent lifecycles, and the central database.
     * **`agent`**: An ephemeral, per-run service that orchestrates a single pipeline, communicating with the LLM to execute steps.
     * **`llm-agent`**: An AI service that uses the Gemini LLM to translate goals into executable shell commands.
-* **`git-bot`**: Integrates with GitHub to receive webhooks, forward events to `nopsai`, expose GitHub adapter APIs (files, pipelines, check runs), and publish status updates.
+    * **`git-bot`**: Integrates with GitHub to receive webhooks, forward events to `nopsai`, expose GitHub adapter APIs (files, pipelines, check runs), and publish status updates.
 * **Agent as a Service Model**: For each pipeline run, a dedicated, ephemeral agent is launched to act as a self-contained orchestrator, making the system highly scalable and resilient.
 * **Immediate Status Reporting**: The agent reports the final pipeline status the moment all tasks are complete, providing rapid feedback in the UI before post-run cleanup begins.
 

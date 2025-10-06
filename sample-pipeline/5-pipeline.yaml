@@ -53,6 +53,7 @@ steps:
         
   - name: image-scanning
     include: "pipeline:reference-pipeline.yaml"
+    condition: "If the latest tag from preparation step was higher than 2.0.0"
     sync: false
     secrets:
       - TEST_SECRET
