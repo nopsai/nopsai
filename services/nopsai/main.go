@@ -471,22 +471,6 @@ var (
 	errPipelineNotFound = errors.New("pipeline not found")
 )
 
-// corsMiddleware allows cross-origin requests from the UI development server.
-func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*") // Allow any origin for simplicity in POC
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
-}
-
 func validatePipeline(pipeline *models.Pipeline) error {
 	if pipeline.Name == "" {
 		return fmt.Errorf("'name' is a required field")
@@ -4154,8 +4138,7 @@ func main() {
 	mux.HandleFunc("GET /v1/runs/{runID}/logs", app.handleGetRunLogs)
 
 	server := &http.Server{
-		Addr:    cfg.NopsaiListenAddress,
-		Handler: corsMiddleware(mux),
+		Addr: cfg.NopsaiListenAddress,
 	}
 
 	stop := make(chan os.Signal, 1)
