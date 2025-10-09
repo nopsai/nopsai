@@ -17,8 +17,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -1093,6 +1095,249 @@ func (a *App) prepareSecretsForPipeline(pipeline models.Pipeline, gitContext map
 	return finalSecrets, nil
 }
 
+func (a *App) handleConfigSync(w http.ResponseWriter, r *http.Request) {
+	if a.cfg.ConfigRepoURL == "" {
+		http.Error(w, "CONFIG_REPO_URL is not configured", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "synchronization started"}); err != nil {
+		log.Warn().Err(err).Msg("Failed to encode config sync response")
+	}
+
+	go func() {
+		log.Info().Msg("Starting configuration synchronization from Git")
+		if err := a.syncConfigurationFromGit(context.Background()); err != nil {
+			log.Error().Err(err).Msg("Configuration synchronization failed")
+		}
+	}()
+}
+
+func (a *App) syncConfigurationFromGit(ctx context.Context) error {
+	owner, repo, err := parseGitHubRepoURL(a.cfg.ConfigRepoURL)
+	if err != nil {
+		return fmt.Errorf("failed to parse CONFIG_REPO_URL: %w", err)
+	}
+	if err := a.ensureConfigRepoAccessible(owner, repo); err != nil {
+		return err
+	}
+
+	pipelineFiles, err := a.requestGitBotDirectory(owner, repo, "pipelines")
+	if err != nil {
+		return fmt.Errorf("failed to fetch pipeline definitions: %w", err)
+	}
+	stepFiles, err := a.requestGitBotDirectory(owner, repo, "steps")
+	if err != nil {
+		return fmt.Errorf("failed to fetch reusable steps: %w", err)
+	}
+	triggerFiles, err := a.requestGitBotDirectory(owner, repo, "triggers")
+	if err != nil {
+		return fmt.Errorf("failed to fetch trigger manifests: %w", err)
+	}
+
+	pipelines := make(map[string]string)
+	for path, content := range pipelineFiles {
+		normalized := filepath.ToSlash(path)
+		rel := strings.TrimPrefix(normalized, "pipelines/")
+		if rel == "" || strings.HasSuffix(rel, "/") {
+			continue
+		}
+		if !isYAMLFile(rel) {
+			continue
+		}
+
+		var pipeline models.Pipeline
+		if err := yaml.Unmarshal([]byte(content), &pipeline); err != nil {
+			return fmt.Errorf("failed to parse pipeline '%s': %w", normalized, err)
+		}
+		if err := validatePipeline(&pipeline); err != nil {
+			return fmt.Errorf("pipeline validation failed for '%s': %w", normalized, err)
+		}
+		if _, exists := pipelines[pipeline.Name]; exists {
+			return fmt.Errorf("duplicate pipeline name '%s' detected in config repository", pipeline.Name)
+		}
+
+		pipelines[pipeline.Name] = content
+	}
+
+	steps := make(map[string]string)
+	for path, content := range stepFiles {
+		normalized := filepath.ToSlash(path)
+		rel := strings.TrimPrefix(normalized, "steps/")
+		if rel == "" || strings.HasSuffix(rel, "/") {
+			continue
+		}
+		if !isYAMLFile(rel) {
+			continue
+		}
+
+		var step models.PipelineStep
+		if err := yaml.Unmarshal([]byte(content), &step); err != nil {
+			return fmt.Errorf("failed to parse reusable step '%s': %w", normalized, err)
+		}
+		if step.Name == "" {
+			return fmt.Errorf("reusable step '%s' is missing the required 'name' field", normalized)
+		}
+		if _, exists := steps[step.Name]; exists {
+			return fmt.Errorf("duplicate reusable step name '%s' detected in config repository", step.Name)
+		}
+
+		steps[step.Name] = content
+	}
+
+	triggers := make(map[string]string)
+	for path, content := range triggerFiles {
+		normalized := filepath.ToSlash(path)
+		rel := strings.TrimPrefix(normalized, "triggers/")
+		if rel == "" || strings.HasSuffix(rel, "/") {
+			continue
+		}
+		if !isYAMLFile(rel) {
+			continue
+		}
+
+		repoKey := strings.TrimSuffix(rel, filepath.Ext(rel))
+		repoKey = strings.Trim(repoKey, "/")
+		if repoKey == "" {
+			return fmt.Errorf("trigger file '%s' does not specify a repository", normalized)
+		}
+		if strings.Contains(repoKey, "..") {
+			return fmt.Errorf("trigger file '%s' contains invalid path segments", normalized)
+		}
+		repoKey = filepath.ToSlash(repoKey)
+
+		if err := yaml.Unmarshal([]byte(content), &models.Manifest{}); err != nil {
+			return fmt.Errorf("failed to parse trigger manifest '%s': %w", normalized, err)
+		}
+
+		if _, exists := triggers[repoKey]; exists {
+			return fmt.Errorf("duplicate trigger manifest for repository '%s' detected", repoKey)
+		}
+
+		triggers[repoKey] = content
+	}
+
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to start transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	existingPipelines, err := loadExistingNames(ctx, tx, "SELECT name FROM pipelines")
+	if err != nil {
+		return fmt.Errorf("failed to load existing pipelines: %w", err)
+	}
+	existingSteps, err := loadExistingNames(ctx, tx, "SELECT name FROM reusable_steps")
+	if err != nil {
+		return fmt.Errorf("failed to load existing reusable steps: %w", err)
+	}
+	existingTriggers, err := loadExistingNames(ctx, tx, "SELECT repository_name FROM trigger_overrides")
+	if err != nil {
+		return fmt.Errorf("failed to load existing trigger overrides: %w", err)
+	}
+
+	const pipelineUpsert = `INSERT INTO pipelines (name, definition, updated_at) VALUES ($1, $2, NOW())
+		ON CONFLICT (name) DO UPDATE SET definition = $2, updated_at = NOW()`
+	const stepUpsert = `INSERT INTO reusable_steps (name, definition, updated_at) VALUES ($1, $2, NOW())
+		ON CONFLICT (name) DO UPDATE SET definition = $2, updated_at = NOW()`
+	const triggerUpsert = `INSERT INTO trigger_overrides (repository_name, trigger_definition) VALUES ($1, $2)
+		ON CONFLICT (repository_name) DO UPDATE SET trigger_definition = $2`
+
+	for name, definition := range pipelines {
+		if _, err := tx.Exec(ctx, pipelineUpsert, name, definition); err != nil {
+			return fmt.Errorf("failed to upsert pipeline '%s': %w", name, err)
+		}
+	}
+
+	deletedPipelines := 0
+	for name := range existingPipelines {
+		if _, ok := pipelines[name]; !ok {
+			if _, err := tx.Exec(ctx, "DELETE FROM pipelines WHERE name = $1", name); err != nil {
+				return fmt.Errorf("failed to delete pipeline '%s': %w", name, err)
+			}
+			deletedPipelines++
+		}
+	}
+
+	for name, definition := range steps {
+		if _, err := tx.Exec(ctx, stepUpsert, name, definition); err != nil {
+			return fmt.Errorf("failed to upsert reusable step '%s': %w", name, err)
+		}
+	}
+
+	deletedSteps := 0
+	for name := range existingSteps {
+		if _, ok := steps[name]; !ok {
+			if _, err := tx.Exec(ctx, "DELETE FROM reusable_steps WHERE name = $1", name); err != nil {
+				return fmt.Errorf("failed to delete reusable step '%s': %w", name, err)
+			}
+			deletedSteps++
+		}
+	}
+
+	for repoName, definition := range triggers {
+		if _, err := tx.Exec(ctx, triggerUpsert, repoName, definition); err != nil {
+			return fmt.Errorf("failed to upsert trigger override '%s': %w", repoName, err)
+		}
+	}
+
+	deletedTriggers := 0
+	for repoName := range existingTriggers {
+		if _, ok := triggers[repoName]; !ok {
+			if _, err := tx.Exec(ctx, "DELETE FROM trigger_overrides WHERE repository_name = $1", repoName); err != nil {
+				return fmt.Errorf("failed to delete trigger override '%s': %w", repoName, err)
+			}
+			deletedTriggers++
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit configuration synchronization transaction: %w", err)
+	}
+
+	log.Info().
+		Str("repo_owner", owner).
+		Str("repo_name", repo).
+		Int("pipelines", len(pipelines)).
+		Int("pipelines_deleted", deletedPipelines).
+		Int("reusable_steps", len(steps)).
+		Int("steps_deleted", deletedSteps).
+		Int("triggers", len(triggers)).
+		Int("triggers_deleted", deletedTriggers).
+		Msg("Configuration synchronization from Git completed")
+
+	return nil
+}
+
+func loadExistingNames(ctx context.Context, tx pgx.Tx, query string) (map[string]struct{}, error) {
+	rows, err := tx.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]struct{})
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		result[name] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func isYAMLFile(path string) bool {
+	lower := strings.ToLower(path)
+	return strings.HasSuffix(lower, ".yaml") || strings.HasSuffix(lower, ".yml")
+}
+
 func (a *App) handleListPipelines(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query(context.Background(), "SELECT name FROM pipelines ORDER BY name ASC")
 	if err != nil {
@@ -1335,6 +1580,44 @@ func (a *App) handleDeletePipeline(w http.ResponseWriter, r *http.Request) {
 func sanitizeInput(name string) string {
 	sanitized := strings.ReplaceAll(name, " ", "-")
 	return nonAlphanumericRegex.ReplaceAllString(sanitized, "")
+}
+
+func parseGitHubRepoURL(raw string) (string, string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", "", fmt.Errorf("config repository URL is empty")
+	}
+
+	trimmed = strings.TrimSuffix(trimmed, ".git")
+
+	if strings.HasPrefix(trimmed, "git@") {
+		parts := strings.SplitN(trimmed, ":", 2)
+		if len(parts) != 2 {
+			return "", "", fmt.Errorf("invalid config repository URL: %s", raw)
+		}
+		trimmed = parts[1]
+	}
+
+	if strings.Contains(trimmed, "://") {
+		u, err := url.Parse(trimmed)
+		if err != nil {
+			return "", "", fmt.Errorf("invalid config repository URL: %w", err)
+		}
+		path := strings.Trim(u.Path, "/")
+		parts := strings.Split(path, "/")
+		if len(parts) < 2 {
+			return "", "", fmt.Errorf("invalid config repository URL: %s", raw)
+		}
+		return parts[len(parts)-2], parts[len(parts)-1], nil
+	}
+
+	trimmed = strings.Trim(trimmed, "/")
+	parts := strings.Split(trimmed, "/")
+	if len(parts) < 2 {
+		return "", "", fmt.Errorf("invalid config repository URL: %s", raw)
+	}
+
+	return parts[len(parts)-2], parts[len(parts)-1], nil
 }
 
 func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
@@ -1993,6 +2276,7 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 
 	anyTriggered := false
 	for _, p := range pipelines {
+		originalPath := p.Path
 		effectiveEnv := baseEnvironment
 
 		if strings.HasPrefix(p.Path, "http://") || strings.HasPrefix(p.Path, "https://") {
@@ -2021,23 +2305,28 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 			pipelineSourceForCheck = "database override"
 			log.Info().Str("pipeline", p.Path).Msg("Using overridden pipeline definition from database.")
 		} else if errors.Is(err, errPipelineNotFound) {
-			// Not found in DB, so fetch from the repository.
 			if pipelineSource == "database override" {
-				log.Error().Str("pipeline", p.Path).Msg("Trigger override points to a non-existent pipeline in the database.")
-				continue // Skip this pipeline as it's a configuration error.
+				log.Warn().Str("pipeline", p.Path).Msg("Pipeline not found in database; falling back to repository definition.")
 			}
-
-			// Adjust path for repository lookup.
-			repoPath := p.Path
+			// Not found in DB, so fetch from the repository.
+			repoPath := originalPath
 			if !strings.HasPrefix(repoPath, ".nopsai/") {
 				repoPath = ".nopsai/" + repoPath
 			}
-			p.Path = repoPath // Update for the requestGitBotPipeline call
-			pipelineYAML, err = a.requestGitBotPipeline(owner, repo, commitSHA, p)
+			repoSource := p
+			repoSource.Path = repoPath
+			pipelineYAML, err = a.requestGitBotPipeline(owner, repo, commitSHA, repoSource)
+			if err == nil {
+				pipelineSourceForCheck = "repository"
+				p.Path = originalPath
+			}
 		}
 
 		if err != nil {
-			identifier := p.Path
+			identifier := originalPath
+			if errors.Is(err, errPipelineNotFound) && !strings.HasPrefix(identifier, ".nopsai/") {
+				identifier = ".nopsai/" + identifier
+			}
 			summary := ""
 			switch {
 			case errors.Is(err, errPipelineNotFound):
@@ -2111,8 +2400,8 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 
 		var req *http.Request
 		if pipelineSourceForCheck == "database override" {
-			req = httptest.NewRequest(http.MethodPost, "/v1/run/"+p.Path, nil)
-			req.SetPathValue("pipelineName", p.Path)
+			req = httptest.NewRequest(http.MethodPost, "/v1/run/"+originalPath, nil)
+			req.SetPathValue("pipelineName", originalPath)
 		} else {
 			req = httptest.NewRequest(http.MethodPost, "/v1/run", bytes.NewReader(pipelineYAML))
 			req.Header.Set("Content-Type", "application/x-yaml")
@@ -3200,6 +3489,7 @@ func (a *App) fetchTriggerManifest(owner, repo, commitSHA string) (models.Manife
 		if err := yaml.Unmarshal([]byte(overrideDef), &manifest); err != nil {
 			return manifest, "", err
 		}
+		log.Info().Str("repository", fullName).Msg("Using trigger override from database")
 		return manifest, "database override", nil
 	}
 
@@ -3243,6 +3533,71 @@ func (a *App) requestGitBotFile(owner, repo, ref, path string, notFoundErr error
 	default:
 		respBody, _ := io.ReadAll(resp.Body)
 		return "", fmt.Errorf("git-bot file request failed with status %d: %s", resp.StatusCode, string(respBody))
+	}
+}
+
+func (a *App) requestGitBotDirectory(owner, repo, path string) (map[string]string, error) {
+	payload := map[string]string{
+		"owner": owner,
+		"repo":  repo,
+		"path":  path,
+	}
+	body, _ := json.Marshal(payload)
+
+	url := fmt.Sprintf("%s/v1/github/contents", a.cfg.NopsaiGitBotAPIURL)
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var out struct {
+			Files map[string]string `json:"files"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			return nil, err
+		}
+		if out.Files == nil {
+			out.Files = map[string]string{}
+		}
+		return out.Files, nil
+	case http.StatusNotFound:
+		return map[string]string{}, nil
+	default:
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("git-bot contents request for '%s' failed with status %d: %s", path, resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+}
+
+func (a *App) ensureConfigRepoAccessible(owner, repo string) error {
+	payload := map[string]string{
+		"owner": owner,
+		"repo":  repo,
+	}
+	body, _ := json.Marshal(payload)
+
+	url := fmt.Sprintf("%s/v1/github/repo/access", a.cfg.NopsaiGitBotAPIURL)
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("failed to verify config repository access: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		return nil
+	}
+
+	respBody, _ := io.ReadAll(resp.Body)
+
+	switch resp.StatusCode {
+	case http.StatusNotFound:
+		return fmt.Errorf("config repository '%s/%s' could not be found or Git Bot is not installed", owner, repo)
+	case http.StatusForbidden:
+		return fmt.Errorf("nopsai git-bot does not have permission to access config repository '%s/%s'", owner, repo)
+	default:
+		return fmt.Errorf("failed to verify config repository access (status %d): %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
 }
 
@@ -3756,6 +4111,9 @@ func main() {
 	mux.HandleFunc("PUT /v1/groups/{groupID}", app.handleUpdateGroup)
 	mux.HandleFunc("DELETE /v1/groups/{groupID}", app.handleDeleteGroup)
 	mux.HandleFunc("PUT /v1/groups/{groupID}/move", app.handleMoveGroup)
+
+	// Configuration Synchronization
+	mux.HandleFunc("POST /v1/internal/config/sync", app.handleConfigSync)
 
 	// Pipeline Management
 	mux.HandleFunc("GET /v1/pipelines", app.handleListPipelines)

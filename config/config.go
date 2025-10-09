@@ -19,6 +19,8 @@ type Config struct {
 	GeminiAPIKey string `yaml:"gemini_api_key" env:"GEMINI_API_KEY"`
 	GeminiModel  string `yaml:"gemini_model" env:"GEMINI_MODEL"`
 
+	ConfigRepoURL string `yaml:"config_repo_url" env:"CONFIG_REPO_URL"`
+
 	// Addresses for services to listen on
 	NopsaiListenAddress   string `yaml:"nopsai_listen_address" env:"NOPSAI_LISTEN_ADDRESS"`
 	LlmAgentListenAddress string `yaml:"llm_agent_listen_address" env:"LLM_AGENT_LISTEN_ADDRESS"`

@@ -95,6 +95,27 @@ type FileContentResponse struct {
 	Content string `json:"content"`
 }
 
+type DirectoryContentsRequest struct {
+	Owner string `json:"owner"`
+	Repo  string `json:"repo"`
+	Path  string `json:"path"`
+	Ref   string `json:"ref,omitempty"`
+}
+
+type DirectoryContentsResponse struct {
+	Files map[string]string `json:"files"`
+}
+
+type RepositoryAccessRequest struct {
+	Owner string `json:"owner"`
+	Repo  string `json:"repo"`
+}
+
+type RepositoryAccessResponse struct {
+	Accessible    bool   `json:"accessible"`
+	DefaultBranch string `json:"default_branch,omitempty"`
+}
+
 type PipelineContentRequest struct {
 	Owner  string                `json:"owner"`
 	Repo   string                `json:"repo"`
@@ -679,6 +700,131 @@ func (a *GitBotApp) handleFetchFile(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(FileContentResponse{Content: content})
 }
 
+func (a *GitBotApp) handleFetchDirectoryContents(w http.ResponseWriter, r *http.Request) {
+	var req DirectoryContentsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Owner == "" || req.Repo == "" || req.Path == "" {
+		http.Error(w, "owner, repo, and path are required", http.StatusBadRequest)
+		return
+	}
+
+	files := make(map[string]string)
+
+	if err := a.collectRepositoryContents(context.Background(), req.Owner, req.Repo, strings.TrimPrefix(req.Path, "/"), req.Ref, files); err != nil {
+		var respErr *github.ErrorResponse
+		if errors.As(err, &respErr) && respErr.Response != nil && respErr.Response.StatusCode == http.StatusNotFound {
+			http.Error(w, "path not found", http.StatusNotFound)
+			return
+		}
+		log.Error().Err(err).Str("owner", req.Owner).Str("repo", req.Repo).Str("path", req.Path).Msg("Failed to fetch repository contents")
+		http.Error(w, "Failed to fetch repository contents", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(DirectoryContentsResponse{Files: files})
+}
+
+func (a *GitBotApp) handleCheckRepoAccess(w http.ResponseWriter, r *http.Request) {
+	var req RepositoryAccessRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Owner == "" || req.Repo == "" {
+		http.Error(w, "owner and repo are required", http.StatusBadRequest)
+		return
+	}
+
+	repo, resp, err := a.ghClient.Repositories.Get(context.Background(), req.Owner, req.Repo)
+	if err != nil {
+		var ghErr *github.ErrorResponse
+		if errors.As(err, &ghErr) && ghErr.Response != nil {
+			switch ghErr.Response.StatusCode {
+			case http.StatusNotFound:
+				http.Error(w, "repository not found", http.StatusNotFound)
+				return
+			case http.StatusForbidden:
+				http.Error(w, "access to repository forbidden", http.StatusForbidden)
+				return
+			}
+		}
+		status := http.StatusInternalServerError
+		if resp != nil {
+			status = resp.StatusCode
+		}
+		http.Error(w, "failed to verify repository access", status)
+		return
+	}
+
+	defaultBranch := ""
+	if repo != nil && repo.DefaultBranch != nil {
+		defaultBranch = repo.GetDefaultBranch()
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(RepositoryAccessResponse{Accessible: true, DefaultBranch: defaultBranch})
+}
+
+func (a *GitBotApp) collectRepositoryContents(ctx context.Context, owner, repo, path, ref string, results map[string]string) error {
+	fileContent, dirContents, _, err := a.ghClient.Repositories.GetContents(
+		ctx,
+		owner,
+		repo,
+		path,
+		&github.RepositoryContentGetOptions{Ref: ref},
+	)
+	if err != nil {
+		return err
+	}
+
+	if fileContent != nil {
+		content, err := fileContent.GetContent()
+		if err != nil {
+			return err
+		}
+		results[fileContent.GetPath()] = content
+		return nil
+	}
+
+	for _, entry := range dirContents {
+		entryPath := entry.GetPath()
+
+		switch entry.GetType() {
+		case "dir":
+			if err := a.collectRepositoryContents(ctx, owner, repo, entryPath, ref, results); err != nil {
+				return err
+			}
+		case "file":
+			fileContent, _, _, err := a.ghClient.Repositories.GetContents(
+				ctx,
+				owner,
+				repo,
+				entryPath,
+				&github.RepositoryContentGetOptions{Ref: ref},
+			)
+			if err != nil {
+				return err
+			}
+			if fileContent == nil {
+				continue
+			}
+			content, err := fileContent.GetContent()
+			if err != nil {
+				return err
+			}
+			results[entryPath] = content
+		}
+	}
+
+	return nil
+}
+
 func (a *GitBotApp) handleFetchPipeline(w http.ResponseWriter, r *http.Request) {
 	var req PipelineContentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1185,6 +1331,8 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/webhook", app.handleWebhook)
 	mux.HandleFunc("POST /v1/github/file", app.handleFetchFile)
+	mux.HandleFunc("POST /v1/github/contents", app.handleFetchDirectoryContents)
+	mux.HandleFunc("POST /v1/github/repo/access", app.handleCheckRepoAccess)
 	mux.HandleFunc("POST /v1/github/pipeline", app.handleFetchPipeline)
 	mux.HandleFunc("POST /v1/checks/create", app.handleCreateCheckRun)
 	mux.HandleFunc("POST /v1/checks/initialize", app.handleInitializeCheckRun)
