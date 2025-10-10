@@ -23,7 +23,7 @@ curl -X PUT \
 curl -X PUT \
   -H "Content-Type: application/x-yaml" \
   --data-binary "@.nopsai/include.yaml" \
-  http://localhost:8080/v1/pipelines/include
+  http://localhost:8080/v1/pipelines/include-pipeline
 
   curl -X PUT \
   -H "Content-Type: application/x-yaml" \
@@ -122,6 +122,7 @@ _______________________________________-
 # Pipelines
 
 > The identifier in the URL must match the pipeline `name` declared inside the YAML payload; the pipeline is stored using that name in the database.
+> Include an optional `version` field in the YAML if you want to pin a revision—when omitted the service persists the pipeline as version `latest`.
 
 curl http://localhost:8080/v1/pipelines
 

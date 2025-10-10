@@ -44,6 +44,7 @@ func (p *PipelineSource) UnmarshalYAML(value *yaml.Node) error {
 
 type Pipeline struct {
 	Name              string         `yaml:"name" json:"name"`
+	Version           string         `yaml:"version,omitempty" json:"version,omitempty"`
 	Description       string         `yaml:"description" json:"description"`
 	ContainerImage    string         `yaml:"container_image" json:"container_image"`
 	DisplayOptions    DisplayOptions `yaml:"display_options" json:"display_options"`
