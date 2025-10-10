@@ -1,5 +1,6 @@
 name: Main-Pipeline
 description: A sample pipeline.
+version: "1.0"
 llm_content_sharing: true
 llm_content_ignore:
   - ".git"
