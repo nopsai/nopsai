@@ -1147,6 +1147,10 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to fetch trigger manifests: %w", err)
 	}
+	environmentFiles, err := a.requestGitBotDirectory(owner, repo, "environments")
+	if err != nil {
+		return fmt.Errorf("failed to fetch environment definitions: %w", err)
+	}
 
 	type storedPipeline struct {
 		definition string
@@ -1240,6 +1244,65 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) error {
 		}
 	}
 
+	generalEnvs := make(map[generalEnvKey]string)
+	repoEnvs := make(map[repoEnvKey]string)
+
+	for path, content := range environmentFiles {
+		normalized := filepath.ToSlash(path)
+		rel := strings.TrimPrefix(normalized, "environments/")
+		if rel == "" || strings.HasSuffix(rel, "/") {
+			continue
+		}
+
+		envPath, ok, err := parseEnvironmentFilePath(rel)
+		if err != nil {
+			return fmt.Errorf("invalid environment file '%s': %w", normalized, err)
+		}
+		if !ok {
+			continue
+		}
+
+		var raw map[string]interface{}
+		if err := yaml.Unmarshal([]byte(content), &raw); err != nil {
+			return fmt.Errorf("failed to parse environment file '%s': %w", normalized, err)
+		}
+
+		for key, value := range raw {
+			trimmedKey := strings.TrimSpace(key)
+			if trimmedKey == "" {
+				return fmt.Errorf("environment file '%s' contains an empty key", normalized)
+			}
+
+			strValue, ok := value.(string)
+			if !ok {
+				return fmt.Errorf("environment entry '%s' in '%s' must be a string", trimmedKey, normalized)
+			}
+
+			parts := strings.Split(trimmedKey, "/")
+			switch len(parts) {
+			case 1:
+				gKey := generalEnvKey{envPath: envPath, name: trimmedKey}
+				if _, exists := generalEnvs[gKey]; exists {
+					return fmt.Errorf("duplicate environment variable '%s' for '%s' detected", trimmedKey, envPath)
+				}
+				generalEnvs[gKey] = strValue
+			case 3:
+				repoName := fmt.Sprintf("%s/%s", strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
+				varName := strings.TrimSpace(parts[2])
+				if repoName == "" || varName == "" {
+					return fmt.Errorf("invalid repository-scoped environment key '%s' in '%s'", trimmedKey, normalized)
+				}
+				rKey := repoEnvKey{repo: repoName, envPath: envPath, name: varName}
+				if _, exists := repoEnvs[rKey]; exists {
+					return fmt.Errorf("duplicate repository environment variable '%s' for '%s' detected", trimmedKey, envPath)
+				}
+				repoEnvs[rKey] = strValue
+			default:
+				return fmt.Errorf("environment key '%s' in '%s' has an unsupported format", trimmedKey, normalized)
+			}
+		}
+	}
+
 	triggers := make(map[string]string)
 	for path, content := range triggerFiles {
 		normalized := filepath.ToSlash(path)
@@ -1286,6 +1349,14 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to load existing reusable steps: %w", err)
 	}
+	existingGeneralEnvs, err := loadExistingGeneralEnvs(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("failed to load existing environments: %w", err)
+	}
+	existingRepoEnvs, err := loadExistingRepoEnvs(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("failed to load existing repository environments: %w", err)
+	}
 	existingTriggers, err := loadExistingNames(ctx, tx, "SELECT repository_name FROM trigger_overrides")
 	if err != nil {
 		return fmt.Errorf("failed to load existing trigger overrides: %w", err)
@@ -1295,6 +1366,8 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) error {
 		ON CONFLICT (path, name) DO UPDATE SET version = $3, definition = $4, updated_at = NOW()`
 	const stepUpsert = `INSERT INTO reusable_steps (path, name, definition, updated_at) VALUES ($1, $2, $3, NOW())
 		ON CONFLICT (path, name) DO UPDATE SET definition = $3, updated_at = NOW()`
+	const envUpsert = `INSERT INTO environments (name, value, repository_name, environment, updated_at) VALUES ($1, $2, $3, $4, NOW())
+		ON CONFLICT (name, repository_name, environment) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
 	const triggerUpsert = `INSERT INTO trigger_overrides (repository_name, trigger_definition) VALUES ($1, $2)
 		ON CONFLICT (repository_name) DO UPDATE SET trigger_definition = $2`
 
@@ -1330,6 +1403,54 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) error {
 		}
 	}
 
+	for key, value := range generalEnvs {
+		var envParam interface{}
+		if key.envPath != "" {
+			envParam = key.envPath
+		}
+		if _, err := tx.Exec(ctx, envUpsert, key.name, value, nil, envParam); err != nil {
+			return fmt.Errorf("failed to upsert environment '%s' for scope '%s': %w", key.name, key.envPath, err)
+		}
+	}
+
+	for key, value := range repoEnvs {
+		var envParam interface{}
+		if key.envPath != "" {
+			envParam = key.envPath
+		}
+		if _, err := tx.Exec(ctx, envUpsert, key.name, value, key.repo, envParam); err != nil {
+			return fmt.Errorf("failed to upsert repository environment '%s' for repo '%s' scope '%s': %w", key.name, key.repo, key.envPath, err)
+		}
+	}
+
+	deletedGeneralEnvs := 0
+	for key := range existingGeneralEnvs {
+		if _, ok := generalEnvs[key]; !ok {
+			var envParam interface{}
+			if key.envPath != "" {
+				envParam = key.envPath
+			}
+			if _, err := tx.Exec(ctx, "DELETE FROM environments WHERE repository_name IS NULL AND name = $1 AND environment IS NOT DISTINCT FROM $2", key.name, envParam); err != nil {
+				return fmt.Errorf("failed to delete environment '%s' for scope '%s': %w", key.name, key.envPath, err)
+			}
+			deletedGeneralEnvs++
+		}
+	}
+
+	deletedRepoEnvs := 0
+	for key := range existingRepoEnvs {
+		if _, ok := repoEnvs[key]; !ok {
+			var envParam interface{}
+			if key.envPath != "" {
+				envParam = key.envPath
+			}
+			if _, err := tx.Exec(ctx, "DELETE FROM environments WHERE repository_name = $1 AND name = $2 AND environment IS NOT DISTINCT FROM $3", key.repo, key.name, envParam); err != nil {
+				return fmt.Errorf("failed to delete repository environment '%s' for repo '%s' scope '%s': %w", key.name, key.repo, key.envPath, err)
+			}
+			deletedRepoEnvs++
+		}
+	}
+
 	for repoName, definition := range triggers {
 		if _, err := tx.Exec(ctx, triggerUpsert, repoName, definition); err != nil {
 			return fmt.Errorf("failed to upsert trigger override '%s': %w", repoName, err)
@@ -1357,6 +1478,8 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) error {
 		Int("pipelines_deleted", deletedPipelines).
 		Int("reusable_steps", len(steps)).
 		Int("steps_deleted", deletedSteps).
+		Int("environments", len(generalEnvs)+len(repoEnvs)).
+		Int("environments_deleted", deletedGeneralEnvs+deletedRepoEnvs).
 		Int("triggers", len(triggers)).
 		Int("triggers_deleted", deletedTriggers).
 		Msg("Configuration synchronization from Git completed")
@@ -1434,6 +1557,71 @@ func loadExistingStepKeys(ctx context.Context, tx pgx.Tx) (map[string]stepKey, e
 		}
 		key := buildStepIdentifier(path, name)
 		result[key] = stepKey{path: path, name: name}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+type generalEnvKey struct {
+	envPath string
+	name    string
+}
+
+type repoEnvKey struct {
+	repo    string
+	envPath string
+	name    string
+}
+
+func loadExistingGeneralEnvs(ctx context.Context, tx pgx.Tx) (map[generalEnvKey]struct{}, error) {
+	rows, err := tx.Query(ctx, "SELECT name, environment FROM environments WHERE repository_name IS NULL")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[generalEnvKey]struct{})
+	for rows.Next() {
+		var name string
+		var env sql.NullString
+		if err := rows.Scan(&name, &env); err != nil {
+			return nil, err
+		}
+		envPath := ""
+		if env.Valid {
+			envPath = env.String
+		}
+		result[generalEnvKey{envPath: envPath, name: name}] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func loadExistingRepoEnvs(ctx context.Context, tx pgx.Tx) (map[repoEnvKey]struct{}, error) {
+	rows, err := tx.Query(ctx, "SELECT name, repository_name, environment FROM environments WHERE repository_name IS NOT NULL")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[repoEnvKey]struct{})
+	for rows.Next() {
+		var name, repo string
+		var env sql.NullString
+		if err := rows.Scan(&name, &repo, &env); err != nil {
+			return nil, err
+		}
+		envPath := ""
+		if env.Valid {
+			envPath = env.String
+		}
+		result[repoEnvKey{repo: repo, envPath: envPath, name: name}] = struct{}{}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -1815,6 +2003,35 @@ func splitStepIdentifier(identifier string) (string, string, string, error) {
 
 func buildStepIdentifier(path, name string) string {
 	return buildPipelineIdentifier(path, name)
+}
+
+func parseEnvironmentFilePath(rel string) (string, bool, error) {
+	lower := strings.ToLower(rel)
+	if !strings.HasSuffix(lower, "env.yaml") && !strings.HasSuffix(lower, "env.yml") {
+		return "", false, nil
+	}
+
+	base := filepath.Base(rel)
+	if !strings.EqualFold(base, "env.yaml") && !strings.EqualFold(base, "env.yml") {
+		return "", false, nil
+	}
+
+	envPath := strings.TrimSuffix(rel[:len(rel)-len(base)], "/")
+	envPath = strings.Trim(envPath, "/")
+	if envPath != "" {
+		if strings.Contains(envPath, "..") {
+			return "", false, fmt.Errorf("environment path contains invalid segments")
+		}
+		segments := strings.Split(envPath, "/")
+		for _, segment := range segments {
+			if segment == "" {
+				return "", false, fmt.Errorf("environment path contains empty segments")
+			}
+		}
+		envPath = filepath.ToSlash(envPath)
+	}
+
+	return envPath, true, nil
 }
 
 func parseGitHubRepoURL(raw string) (string, string, error) {
