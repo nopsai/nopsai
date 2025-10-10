@@ -471,6 +471,22 @@ var (
 	errPipelineNotFound = errors.New("pipeline not found")
 )
 
+// corsMiddleware allows cross-origin requests from the UI development server.
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*") // Allow any origin for simplicity in POC
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 func validatePipeline(pipeline *models.Pipeline) error {
 	if pipeline.Name == "" {
 		return fmt.Errorf("'name' is a required field")
@@ -1509,7 +1525,7 @@ func (a *App) handleDeleteTriggerOverride(w http.ResponseWriter, r *http.Request
 }
 
 func (a *App) handleCreateOrUpdatePipeline(w http.ResponseWriter, r *http.Request) {
-	pipelineName := r.PathValue("pipelineName")
+	pathIdentifier := r.PathValue("pipelineName")
 
 	pipelineDef, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -1539,9 +1555,17 @@ func (a *App) handleCreateOrUpdatePipeline(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	storedName := pipeline.Name
+	if pathIdentifier != "" && pathIdentifier != storedName {
+		log.Info().
+			Str("path_identifier", pathIdentifier).
+			Str("pipeline_name", storedName).
+			Msg("Pipeline path identifier differs from pipeline name; using pipeline name for persistence")
+	}
+
 	query := `INSERT INTO pipelines (name, definition, updated_at) VALUES ($1, $2, NOW())
 			  ON CONFLICT (name) DO UPDATE SET definition = $2, updated_at = NOW()`
-	_, err = a.db.Exec(context.Background(), query, pipelineName, string(pipelineDef))
+	_, err = a.db.Exec(context.Background(), query, storedName, string(pipelineDef))
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to save pipeline to database")
 		http.Error(w, "Failed to save pipeline", http.StatusInternalServerError)
@@ -3574,6 +3598,13 @@ func (a *App) ensureConfigRepoAccessible(owner, repo string) error {
 	}
 
 	respBody, _ := io.ReadAll(resp.Body)
+	message := strings.TrimSpace(string(respBody))
+	var errPayload struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(respBody, &errPayload); err == nil && errPayload.Error != "" {
+		message = errPayload.Error
+	}
 
 	switch resp.StatusCode {
 	case http.StatusNotFound:
@@ -3581,7 +3612,7 @@ func (a *App) ensureConfigRepoAccessible(owner, repo string) error {
 	case http.StatusForbidden:
 		return fmt.Errorf("nopsai git-bot does not have permission to access config repository '%s/%s'", owner, repo)
 	default:
-		return fmt.Errorf("failed to verify config repository access (status %d): %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+		return fmt.Errorf("failed to verify config repository access for %s/%s (status %d): %s", owner, repo, resp.StatusCode, message)
 	}
 }
 
@@ -4138,7 +4169,8 @@ func main() {
 	mux.HandleFunc("GET /v1/runs/{runID}/logs", app.handleGetRunLogs)
 
 	server := &http.Server{
-		Addr: cfg.NopsaiListenAddress,
+		Addr:    cfg.NopsaiListenAddress,
+		Handler: corsMiddleware(mux),
 	}
 
 	stop := make(chan os.Signal, 1)
