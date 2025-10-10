@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -978,7 +979,24 @@ func run() int {
 					if shareContent {
 						taskLogger.Debug().Msg("Content sharing is ENABLED for this pipeline. Scanning directory")
 						directoryListing = getDirectoryListing(taskLogger, "/workspace", pipeline.LlmContentIgnore)
-						fmt.Print(directoryListing)
+						if len(directoryListing) == 0 {
+							taskLogger.Debug().Msg("Sharing directory listing metadata with LLM agent (empty)")
+						} else {
+							fileNames := make([]string, 0, len(directoryListing))
+							for name := range directoryListing {
+								fileNames = append(fileNames, name)
+							}
+							sort.Strings(fileNames)
+							maxLoggedFiles := 5
+							if len(fileNames) < maxLoggedFiles {
+								maxLoggedFiles = len(fileNames)
+							}
+							evt := taskLogger.Debug().Int("directory_file_count", len(directoryListing)).Strs("directory_file_sample", fileNames[:maxLoggedFiles])
+							if len(fileNames) > maxLoggedFiles {
+								evt = evt.Int("directory_file_remaining", len(fileNames)-maxLoggedFiles)
+							}
+							evt.Msg("Sharing directory listing metadata with LLM agent")
+						}
 					} else {
 						taskLogger.Debug().Msg("Content sharing is DISABLED for this pipeline. Skipping directory scan")
 						directoryListing = make(map[string]string)
