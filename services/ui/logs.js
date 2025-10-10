@@ -296,17 +296,47 @@
         const nameToIdx = new Map(Array.from(selected).map((n, i) => [n, i % 8]));
         const rx = query ? new RegExp(`(${escapeRegExp(query)})`, 'ig') : null;
         let matches = 0;
+
+        const formatTimestamp = (value) => {
+            if (!value) {
+                return '';
+            }
+            const numericValue = Number(value);
+            const isNumeric = !Number.isNaN(numericValue) && `${value}`.trim() !== '';
+            const date = isNumeric && numericValue < 1e12
+                ? new Date(numericValue * 1000)
+                : new Date(value);
+            return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString();
+        };
     
         const html = logs.map((log, i) => {
             let rawLine = (log.line || '').replace(ansiRegex, '').trim();
             if (!rawLine) {
                 return null;
             }
-        
+
+            let ts = formatTimestamp(log.timestamp);
+
+            const isoTsMatch = rawLine.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)/);
+            if (isoTsMatch) {
+                const isoTime = formatTimestamp(isoTsMatch[1]);
+                if (isoTime) {
+                    ts = isoTime;
+                }
+                rawLine = rawLine.substring(isoTsMatch[1].length);
+                rawLine = rawLine.replace(/^\s{1}/, '');
+            }
+
             const tsMatch = rawLine.match(/^(\d{1,2}:\d{2}:\d{2}\s[AP]M)\s*/);
-            let ts = log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '';
             if (tsMatch) {
+                if (!ts) {
+                    ts = tsMatch[1];
+                }
                 rawLine = rawLine.substring(tsMatch[0].length);
+            }
+
+            if (!rawLine.trim()) {
+                return null;
             }
             
             const jsonStart = rawLine.indexOf('{');
