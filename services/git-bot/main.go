@@ -106,6 +106,10 @@ type DirectoryContentsResponse struct {
 	Files map[string]string `json:"files"`
 }
 
+type errorResponse struct {
+	Error string `json:"error"`
+}
+
 type RepositoryAccessRequest struct {
 	Owner string `json:"owner"`
 	Repo  string `json:"repo"`
@@ -729,15 +733,21 @@ func (a *GitBotApp) handleFetchDirectoryContents(w http.ResponseWriter, r *http.
 	json.NewEncoder(w).Encode(DirectoryContentsResponse{Files: files})
 }
 
+func writeJSONError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(errorResponse{Error: message})
+}
+
 func (a *GitBotApp) handleCheckRepoAccess(w http.ResponseWriter, r *http.Request) {
 	var req RepositoryAccessRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	if req.Owner == "" || req.Repo == "" {
-		http.Error(w, "owner and repo are required", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "owner and repo are required")
 		return
 	}
 
@@ -747,10 +757,10 @@ func (a *GitBotApp) handleCheckRepoAccess(w http.ResponseWriter, r *http.Request
 		if errors.As(err, &ghErr) && ghErr.Response != nil {
 			switch ghErr.Response.StatusCode {
 			case http.StatusNotFound:
-				http.Error(w, "repository not found", http.StatusNotFound)
+				writeJSONError(w, http.StatusNotFound, "repository not found or Git Bot not installed")
 				return
 			case http.StatusForbidden:
-				http.Error(w, "access to repository forbidden", http.StatusForbidden)
+				writeJSONError(w, http.StatusForbidden, "access to repository forbidden for Git Bot")
 				return
 			}
 		}
@@ -758,7 +768,14 @@ func (a *GitBotApp) handleCheckRepoAccess(w http.ResponseWriter, r *http.Request
 		if resp != nil {
 			status = resp.StatusCode
 		}
-		http.Error(w, "failed to verify repository access", status)
+		message := "failed to verify repository access"
+		if ghErr != nil && ghErr.Message != "" {
+			message = fmt.Sprintf("%s: %s", message, ghErr.Message)
+		} else {
+			message = fmt.Sprintf("%s: %v", message, err)
+		}
+		log.Error().Err(err).Str("owner", req.Owner).Str("repo", req.Repo).Int("status", status).Msg("Failed to verify repository access")
+		writeJSONError(w, status, message)
 		return
 	}
 
