@@ -41,6 +41,30 @@ func agentLog(runID, pipeline string) *zerolog.Logger {
 	return &logger
 }
 
+func splitPipelineIdentifier(identifier string) (string, string) {
+	trimmed := strings.TrimSpace(identifier)
+	trimmed = strings.Trim(trimmed, "/")
+	if trimmed == "" {
+		return "", ""
+	}
+
+	normalized := filepath.ToSlash(trimmed)
+	lower := strings.ToLower(normalized)
+	if strings.HasSuffix(lower, ".yaml") {
+		normalized = normalized[:len(normalized)-len(".yaml")]
+	} else if strings.HasSuffix(lower, ".yml") {
+		normalized = normalized[:len(normalized)-len(".yml")]
+	}
+
+	parts := strings.Split(normalized, "/")
+	name := parts[len(parts)-1]
+	var path string
+	if len(parts) > 1 {
+		path = strings.Join(parts[:len(parts)-1], "/")
+	}
+	return path, name
+}
+
 type Matcher struct {
 	Pattern  string
 	IsDir    bool
@@ -424,7 +448,7 @@ func ensureImageExists(ctx context.Context, logger *zerolog.Logger, cli *client.
 	return nil
 }
 
-func triggerPipeline(parentRunID, parentPipelineName, parentStepName string, pipelineDef []byte, history string) (string, error) {
+func triggerPipeline(parentRunID, parentPipelineName, parentStepName, pipelineIdentifier string, pipelineDef []byte, history string) (string, error) {
 	nopsaiURL := os.Getenv("NOPSAI_API_URL")
 	url := fmt.Sprintf("%s/v1/run", nopsaiURL)
 
@@ -436,6 +460,11 @@ func triggerPipeline(parentRunID, parentPipelineName, parentStepName string, pip
 	req.Header.Set("X-Nopsai-Parent-Run-ID", parentRunID)
 	req.Header.Set("X-Nopsai-Parent-Pipeline-Name", parentPipelineName)
 	req.Header.Set("X-Nopsai-Parent-Step-Name", parentStepName)
+
+	if pipelineIdentifier != "" {
+		pathPart, _ := splitPipelineIdentifier(pipelineIdentifier)
+		req.Header.Set("X-Nopsai-Pipeline-Path", pathPart)
+	}
 
 	if history != "" {
 		encodedHistory := base64.StdEncoding.EncodeToString([]byte(history))
@@ -798,7 +827,7 @@ func run() int {
 					historyMutex.Lock()
 					historySnapshot := history.String()
 					historyMutex.Unlock()
-					childRunID, err := triggerPipeline(runID, pipelineName, step.Name, childDef, historySnapshot)
+					childRunID, err := triggerPipeline(runID, pipelineName, step.Name, childPipelineName, childDef, historySnapshot)
 					if err != nil {
 						taskLogger.Error().Err(err).Msg("Failed to trigger child pipeline")
 						updateTaskStatus(pipeline.Name, runID, stepName, stepName, "failure", 1, 0)
