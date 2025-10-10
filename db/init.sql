@@ -12,6 +12,7 @@ CREATE TABLE runs (
     parent_run_id UUID NULL REFERENCES runs(run_id) ON DELETE SET NULL,
     parent_step_name VARCHAR(255),
     pipeline_name VARCHAR(255),
+    pipeline_version VARCHAR(255) NOT NULL DEFAULT 'latest',
     pipeline_definition TEXT,
     pipeline_source VARCHAR(20),
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
@@ -73,6 +74,7 @@ CREATE TABLE trigger_overrides (
 CREATE TABLE pipelines (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) UNIQUE NOT NULL,
+    version VARCHAR(255) NOT NULL DEFAULT 'latest',
     definition TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

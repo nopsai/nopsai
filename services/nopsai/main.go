@@ -240,22 +240,23 @@ type LogLine struct {
 }
 
 type RunListItem struct {
-	RunID          string    `json:"run_id"`
-	PipelineName   string    `json:"pipeline_name"`
-	PipelineSource string    `json:"pipeline_source,omitempty"`
-	Status         string    `json:"status"`
-	GitCommitSHA   string    `json:"git_commit_sha"`
-	GitRepoName    string    `json:"git_repo_name"`
-	GitRepoOwner   string    `json:"git_repo_owner"`
-	GitRef         string    `json:"git_ref"`
-	StartedAt      time.Time `json:"started_at"`
-	FinishedAt     time.Time `json:"finished_at"`
-	Duration       string    `json:"duration"`
-	IsComplete     bool      `json:"is_complete"`
-	ParentRunID    *string   `json:"parent_run_id"`
-	GitPusherName  string    `json:"git_pusher_name"`
-	ParentStepName string    `json:"parent_step_name,omitempty"`
-	FailureReason  string    `json:"failure_reason,omitempty"`
+	RunID           string    `json:"run_id"`
+	PipelineName    string    `json:"pipeline_name"`
+	PipelineVersion string    `json:"pipeline_version"`
+	PipelineSource  string    `json:"pipeline_source,omitempty"`
+	Status          string    `json:"status"`
+	GitCommitSHA    string    `json:"git_commit_sha"`
+	GitRepoName     string    `json:"git_repo_name"`
+	GitRepoOwner    string    `json:"git_repo_owner"`
+	GitRef          string    `json:"git_ref"`
+	StartedAt       time.Time `json:"started_at"`
+	FinishedAt      time.Time `json:"finished_at"`
+	Duration        string    `json:"duration"`
+	IsComplete      bool      `json:"is_complete"`
+	ParentRunID     *string   `json:"parent_run_id"`
+	GitPusherName   string    `json:"git_pusher_name"`
+	ParentStepName  string    `json:"parent_step_name,omitempty"`
+	FailureReason   string    `json:"failure_reason,omitempty"`
 }
 
 type StepConfiguration struct {
@@ -291,8 +292,9 @@ type TaskDetail struct {
 }
 
 type ParentRunInfo struct {
-	RunID        string `json:"run_id"`
-	PipelineName string `json:"pipeline_name"`
+	RunID           string `json:"run_id"`
+	PipelineName    string `json:"pipeline_name"`
+	PipelineVersion string `json:"pipeline_version"`
 }
 
 type RunDetail struct {
@@ -349,11 +351,11 @@ var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
 func (a *App) getRunListItem(runID string) (*RunListItem, error) {
 	var run RunListItem
 	var startedAt, finishedAt sql.NullTime
-	var commitSHA, repoOwner, repoName, pusherName, gitRef, pipelineSource sql.NullString
+	var commitSHA, repoOwner, repoName, pusherName, gitRef, pipelineSource, pipelineVersion sql.NullString
 
 	query := `
         SELECT
-            run_id, pipeline_name, status, COALESCE(git_commit_sha, ''),
+            run_id, pipeline_name, pipeline_version, status, COALESCE(git_commit_sha, ''),
             COALESCE(git_repo_owner, ''), COALESCE(git_repo_name, ''), started_at, finished_at,
 			parent_run_id, COALESCE(git_pusher_name, ''), COALESCE(git_ref, ''),
 			COALESCE(pipeline_source, '')
@@ -361,7 +363,7 @@ func (a *App) getRunListItem(runID string) (*RunListItem, error) {
         WHERE run_id = $1
     `
 	err := a.db.QueryRow(context.Background(), query, runID).Scan(
-		&run.RunID, &run.PipelineName, &run.Status, &commitSHA,
+		&run.RunID, &run.PipelineName, &pipelineVersion, &run.Status, &commitSHA,
 		&repoOwner, &repoName, &startedAt, &finishedAt, &run.ParentRunID, &pusherName, &gitRef, &pipelineSource,
 	)
 
@@ -370,6 +372,7 @@ func (a *App) getRunListItem(runID string) (*RunListItem, error) {
 	}
 
 	run.GitCommitSHA = commitSHA.String
+	run.PipelineVersion = normalizePipelineVersion(pipelineVersion.String)
 	run.GitRepoOwner = repoOwner.String
 	run.GitRepoName = repoName.String
 	run.GitPusherName = pusherName.String
@@ -493,6 +496,11 @@ func validatePipeline(pipeline *models.Pipeline) error {
 	}
 	if !regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`).MatchString(pipeline.Name) {
 		return fmt.Errorf("pipeline name can only contain alphanumeric characters, underscores, dots, and hyphens")
+	}
+	if pipeline.Version == "" {
+		pipeline.Version = "latest"
+	} else if !regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`).MatchString(pipeline.Version) {
+		return fmt.Errorf("pipeline version can only contain alphanumeric characters, underscores, dots, and hyphens")
 	}
 	if pipeline.ContainerImage == "" && len(pipeline.Steps) > 0 && pipeline.Steps[0].Image == "" {
 		return fmt.Errorf("'container_image' is a required field if steps don't have their own image")
@@ -1137,7 +1145,12 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) error {
 		return fmt.Errorf("failed to fetch trigger manifests: %w", err)
 	}
 
-	pipelines := make(map[string]string)
+	type storedPipeline struct {
+		definition string
+		version    string
+	}
+
+	pipelines := make(map[string]storedPipeline)
 	for path, content := range pipelineFiles {
 		normalized := filepath.ToSlash(path)
 		rel := strings.TrimPrefix(normalized, "pipelines/")
@@ -1159,7 +1172,10 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) error {
 			return fmt.Errorf("duplicate pipeline name '%s' detected in config repository", pipeline.Name)
 		}
 
-		pipelines[pipeline.Name] = content
+		pipelines[pipeline.Name] = storedPipeline{
+			definition: content,
+			version:    normalizePipelineVersion(pipeline.Version),
+		}
 	}
 
 	steps := make(map[string]string)
@@ -1238,15 +1254,15 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) error {
 		return fmt.Errorf("failed to load existing trigger overrides: %w", err)
 	}
 
-	const pipelineUpsert = `INSERT INTO pipelines (name, definition, updated_at) VALUES ($1, $2, NOW())
-		ON CONFLICT (name) DO UPDATE SET definition = $2, updated_at = NOW()`
+	const pipelineUpsert = `INSERT INTO pipelines (name, version, definition, updated_at) VALUES ($1, $2, $3, NOW())
+		ON CONFLICT (name) DO UPDATE SET version = $2, definition = $3, updated_at = NOW()`
 	const stepUpsert = `INSERT INTO reusable_steps (name, definition, updated_at) VALUES ($1, $2, NOW())
 		ON CONFLICT (name) DO UPDATE SET definition = $2, updated_at = NOW()`
 	const triggerUpsert = `INSERT INTO trigger_overrides (repository_name, trigger_definition) VALUES ($1, $2)
 		ON CONFLICT (repository_name) DO UPDATE SET trigger_definition = $2`
 
-	for name, definition := range pipelines {
-		if _, err := tx.Exec(ctx, pipelineUpsert, name, definition); err != nil {
+	for name, stored := range pipelines {
+		if _, err := tx.Exec(ctx, pipelineUpsert, name, stored.version, stored.definition); err != nil {
 			return fmt.Errorf("failed to upsert pipeline '%s': %w", name, err)
 		}
 	}
@@ -1555,6 +1571,8 @@ func (a *App) handleCreateOrUpdatePipeline(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	pipeline.Version = normalizePipelineVersion(pipeline.Version)
+
 	storedName := pipeline.Name
 	if pathIdentifier != "" && pathIdentifier != storedName {
 		errorMsg := fmt.Sprintf("Validation failed: the pipeline name in the URL ('%s') must match the 'name' field in the YAML ('%s').", pathIdentifier, storedName)
@@ -1562,9 +1580,10 @@ func (a *App) handleCreateOrUpdatePipeline(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	query := `INSERT INTO pipelines (name, definition, updated_at) VALUES ($1, $2, NOW())
-			  ON CONFLICT (name) DO UPDATE SET definition = $2, updated_at = NOW()`
-	_, err = a.db.Exec(context.Background(), query, storedName, string(pipelineDef))
+	storedVersion := pipeline.Version
+	query := `INSERT INTO pipelines (name, version, definition, updated_at) VALUES ($1, $2, $3, NOW())
+			  ON CONFLICT (name) DO UPDATE SET version = $2, definition = $3, updated_at = NOW()`
+	_, err = a.db.Exec(context.Background(), query, storedName, storedVersion, string(pipelineDef))
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to save pipeline to database")
 		http.Error(w, "Failed to save pipeline", http.StatusInternalServerError)
@@ -1587,6 +1606,14 @@ func (a *App) handleDeletePipeline(w http.ResponseWriter, r *http.Request) {
 func sanitizeInput(name string) string {
 	sanitized := strings.ReplaceAll(name, " ", "-")
 	return nonAlphanumericRegex.ReplaceAllString(sanitized, "")
+}
+
+func normalizePipelineVersion(version string) string {
+	sanitized := sanitizeInput(version)
+	if sanitized == "" {
+		return "latest"
+	}
+	return sanitized
 }
 
 func parseGitHubRepoURL(raw string) (string, string, error) {
@@ -1630,7 +1657,7 @@ func parseGitHubRepoURL(raw string) (string, string, error) {
 func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	query := `
     	SELECT
-    	    run_id, pipeline_name, status, COALESCE(git_commit_sha, ''),
+    	    run_id, pipeline_name, pipeline_version, status, COALESCE(git_commit_sha, ''),
     	    COALESCE(git_repo_name, ''), started_at, finished_at, parent_run_id,
     	    COALESCE(git_pusher_name, ''), COALESCE(git_ref, ''),
 			COALESCE(pipeline_source, '')
@@ -1670,9 +1697,9 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var run RunListItem
 		var startedAt, finishedAt sql.NullTime
-		var commitSHA, repoName, pusherName, gitRef, pipelineSource sql.NullString
+		var commitSHA, repoName, pusherName, gitRef, pipelineSource, pipelineVersion sql.NullString
 		err := rows.Scan(
-			&run.RunID, &run.PipelineName, &run.Status, &commitSHA,
+			&run.RunID, &run.PipelineName, &pipelineVersion, &run.Status, &commitSHA,
 			&repoName, &startedAt, &finishedAt, &run.ParentRunID, &pusherName, &gitRef, &pipelineSource,
 		)
 		if err != nil {
@@ -1680,6 +1707,7 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		run.GitCommitSHA = commitSHA.String
+		run.PipelineVersion = normalizePipelineVersion(pipelineVersion.String)
 		run.GitRepoName = repoName.String
 		run.GitPusherName = pusherName.String
 		run.GitRef = gitRef.String
@@ -1723,10 +1751,10 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	var run RunListItem
 	var pipelineDefinition string
 	var startedAt, finishedAt sql.NullTime
-	var commitSHA, repoOwner, repoName, pusherName, gitRef, failureReason, pipelineSource sql.NullString
+	var commitSHA, repoOwner, repoName, pusherName, gitRef, failureReason, pipelineSource, pipelineVersion sql.NullString
 	err := a.db.QueryRow(context.Background(), `
 		SELECT
-			run_id, pipeline_name, status, COALESCE(git_commit_sha, ''),
+			run_id, pipeline_name, pipeline_version, status, COALESCE(git_commit_sha, ''),
 			COALESCE(git_repo_owner, ''), COALESCE(git_repo_name, ''),
 			started_at, finished_at, parent_run_id,
 			COALESCE(git_pusher_name, ''), pipeline_definition, COALESCE(git_ref, ''),
@@ -1734,7 +1762,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 		FROM runs
 		WHERE run_id = $1
 	`, runID).Scan(
-		&run.RunID, &run.PipelineName, &run.Status, &commitSHA,
+		&run.RunID, &run.PipelineName, &pipelineVersion, &run.Status, &commitSHA,
 		&repoOwner, &repoName, &startedAt, &finishedAt,
 		&run.ParentRunID, &pusherName, &pipelineDefinition, &gitRef,
 		&failureReason, &pipelineSource,
@@ -1752,6 +1780,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	run.GitRef = gitRef.String
 	run.FailureReason = failureReason.String
 	run.PipelineSource = pipelineSource.String
+	run.PipelineVersion = normalizePipelineVersion(pipelineVersion.String)
 	if startedAt.Valid {
 		run.StartedAt = startedAt.Time
 	}
@@ -1769,23 +1798,24 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 
 	var parentRunInfo *ParentRunInfo
 	if run.ParentRunID != nil && *run.ParentRunID != "" {
-		var parentPipelineName string
+		var parentPipelineName, parentPipelineVersion string
 		err := a.db.QueryRow(context.Background(), `
-            SELECT pipeline_name FROM runs WHERE run_id = $1
-        `, *run.ParentRunID).Scan(&parentPipelineName)
+            SELECT pipeline_name, pipeline_version FROM runs WHERE run_id = $1
+        `, *run.ParentRunID).Scan(&parentPipelineName, &parentPipelineVersion)
 		if err != nil {
 			log.Error().Err(err).Str("parent_run_id", *run.ParentRunID).Msg("Failed to query parent pipeline name")
 		} else {
 			parentRunInfo = &ParentRunInfo{
-				RunID:        *run.ParentRunID,
-				PipelineName: parentPipelineName,
+				RunID:           *run.ParentRunID,
+				PipelineName:    parentPipelineName,
+				PipelineVersion: normalizePipelineVersion(parentPipelineVersion),
 			}
 		}
 	}
 
 	childRuns := make([]RunListItem, 0)
 	childRows, err := a.db.Query(context.Background(), `
-		SELECT run_id, pipeline_name, status, started_at, finished_at, parent_step_name
+		SELECT run_id, pipeline_name, pipeline_version, status, started_at, finished_at, parent_step_name
 		FROM runs
 		WHERE parent_run_id = $1
 		ORDER BY created_at ASC
@@ -1797,11 +1827,12 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 		for childRows.Next() {
 			var childRun RunListItem
 			var childStartedAt, childFinishedAt sql.NullTime
-			var parentStepName sql.NullString
-			if err := childRows.Scan(&childRun.RunID, &childRun.PipelineName, &childRun.Status, &childStartedAt, &childFinishedAt, &parentStepName); err != nil {
+			var parentStepName, childPipelineVersion sql.NullString
+			if err := childRows.Scan(&childRun.RunID, &childRun.PipelineName, &childPipelineVersion, &childRun.Status, &childStartedAt, &childFinishedAt, &parentStepName); err != nil {
 				log.Error().Err(err).Msg("Failed to scan child run row")
 				continue
 			}
+			childRun.PipelineVersion = normalizePipelineVersion(childPipelineVersion.String)
 			if childStartedAt.Valid {
 				childRun.StartedAt = childStartedAt.Time
 			}
@@ -2482,6 +2513,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pipeline.Name = sanitizeInput(pipeline.Name)
+	pipeline.Version = normalizePipelineVersion(pipeline.Version)
 
 	gitContext := map[string]string{
 		"repo_owner":             r.Header.Get("X-Git-Repo-Owner"),
@@ -2595,13 +2627,13 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err = a.db.Exec(context.Background(),
-		`INSERT INTO runs (run_id, parent_run_id, pipeline_name, status, pipeline_definition,
+		`INSERT INTO runs (run_id, parent_run_id, pipeline_name, pipeline_version, status, pipeline_definition,
 			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref,
 			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
 			git_commit_author_email, git_commit_author_username, git_pusher_name,
 			git_pusher_email, git_check_run_id, group_id, parent_step_name, environment, pipeline_source)
-			VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)`,
-		runID, parentRunIDSQL, pipeline.Name, string(pipelineDef),
+			VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)`,
+		runID, parentRunIDSQL, pipeline.Name, pipeline.Version, string(pipelineDef),
 		gitContext["repo_owner"], gitContext["repo_name"], gitContext["clone_url"], gitContext["ssh_url"], gitContext["ref"],
 		gitContext["commit_sha"], gitContext["commit_url"], gitContext["commit_message"], gitContext["commit_author_name"],
 		gitContext["commit_author_email"], gitContext["commit_author_username"], gitContext["pusher_name"],
@@ -2676,12 +2708,12 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 
 	originalRunID := r.PathValue("runID")
 
-	var pipelineDef, pipelineName, environment sql.NullString
+	var pipelineDef, pipelineName, pipelineVersionDB, environment sql.NullString
 	var gitContext = make(map[string]string)
 	var timeoutAt sql.NullTime
 
 	query := `SELECT
-				pipeline_definition, pipeline_name, timeout_at, environment,
+				pipeline_definition, pipeline_name, pipeline_version, timeout_at, environment,
 				git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref,
 				git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
 				git_commit_author_email, git_commit_author_username, git_pusher_name,
@@ -2693,7 +2725,7 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	var checkRunID sql.NullInt64
 
 	err := a.db.QueryRow(context.Background(), query, originalRunID).Scan(
-		&pipelineDef, &pipelineName, &timeoutAt, &environment,
+		&pipelineDef, &pipelineName, &pipelineVersionDB, &timeoutAt, &environment,
 		&repoOwner, &repoName, &cloneURL, &sshURL, &ref, &commitSHA, &commitURL, &commitMessage,
 		&commitAuthorName, &commitAuthorEmail, &commitAuthorUsername, &pusherName, &pusherEmail, &checkRunID,
 	)
@@ -2757,6 +2789,10 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Could not parse original pipeline definition", http.StatusInternalServerError)
 		return
 	}
+	pipeline.Version = normalizePipelineVersion(pipeline.Version)
+	if pipeline.Version == "latest" && pipelineVersionDB.Valid {
+		pipeline.Version = normalizePipelineVersion(pipelineVersionDB.String)
+	}
 
 	var timeoutDuration time.Duration
 	if timeoutAt.Valid {
@@ -2782,13 +2818,13 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err = a.db.Exec(context.Background(),
-		`INSERT INTO runs (run_id, pipeline_name, status, pipeline_definition,
+		`INSERT INTO runs (run_id, pipeline_name, pipeline_version, status, pipeline_definition,
 			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref,
 			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
 			git_commit_author_email, git_commit_author_username, git_pusher_name,
 			git_pusher_email, git_check_run_id, group_id, environment)
-			VALUES ($1, $2, 'pending', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
-		runID, pipeline.Name, pipelineDef.String,
+			VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
+		runID, pipeline.Name, pipeline.Version, pipelineDef.String,
 		gitContext["repo_owner"], gitContext["repo_name"], gitContext["clone_url"], gitContext["ssh_url"], gitContext["ref"],
 		gitContext["commit_sha"], gitContext["commit_url"], gitContext["commit_message"], gitContext["commit_author_name"],
 		gitContext["commit_author_email"], gitContext["commit_author_username"], gitContext["pusher_name"],
@@ -3181,6 +3217,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	envVars := []string{
 		fmt.Sprintf("RUN_ID=%s", runID),
 		fmt.Sprintf("PIPELINE_NAME=%s", pipeline.Name),
+		fmt.Sprintf("PIPELINE_VERSION=%s", pipeline.Version),
 		fmt.Sprintf("PIPELINE_TIMEOUT=%s", timeout.String()),
 		fmt.Sprintf("LLM_AGENT_ADDRESS=%s", a.cfg.AgentLlmAgentAddress),
 		fmt.Sprintf("NOPSAI_API_URL=%s", a.cfg.AgentNopsaiAPIURL),
