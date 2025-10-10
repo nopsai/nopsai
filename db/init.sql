@@ -12,6 +12,7 @@ CREATE TABLE runs (
     parent_run_id UUID NULL REFERENCES runs(run_id) ON DELETE SET NULL,
     parent_step_name VARCHAR(255),
     pipeline_name VARCHAR(255),
+    pipeline_path TEXT NOT NULL DEFAULT '',
     pipeline_version VARCHAR(255) NOT NULL DEFAULT 'latest',
     pipeline_definition TEXT,
     pipeline_source VARCHAR(20),
@@ -73,19 +74,23 @@ CREATE TABLE trigger_overrides (
 
 CREATE TABLE pipelines (
     id SERIAL PRIMARY KEY,
-    name VARCHAR(255) UNIQUE NOT NULL,
+    path TEXT NOT NULL DEFAULT '',
+    name VARCHAR(255) NOT NULL,
     version VARCHAR(255) NOT NULL DEFAULT 'latest',
     definition TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (path, name)
 );
 
 CREATE TABLE reusable_steps (
     id SERIAL PRIMARY KEY,
-    name VARCHAR(255) UNIQUE NOT NULL,
+    path TEXT NOT NULL DEFAULT '',
+    name VARCHAR(255) NOT NULL,
     definition TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (path, name)
 );
 
 CREATE TABLE secrets (

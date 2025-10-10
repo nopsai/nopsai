@@ -242,6 +242,7 @@ type LogLine struct {
 type RunListItem struct {
 	RunID           string    `json:"run_id"`
 	PipelineName    string    `json:"pipeline_name"`
+	PipelinePath    string    `json:"pipeline_path"`
 	PipelineVersion string    `json:"pipeline_version"`
 	PipelineSource  string    `json:"pipeline_source,omitempty"`
 	Status          string    `json:"status"`
@@ -294,6 +295,7 @@ type TaskDetail struct {
 type ParentRunInfo struct {
 	RunID           string `json:"run_id"`
 	PipelineName    string `json:"pipeline_name"`
+	PipelinePath    string `json:"pipeline_path"`
 	PipelineVersion string `json:"pipeline_version"`
 }
 
@@ -351,11 +353,11 @@ var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
 func (a *App) getRunListItem(runID string) (*RunListItem, error) {
 	var run RunListItem
 	var startedAt, finishedAt sql.NullTime
-	var commitSHA, repoOwner, repoName, pusherName, gitRef, pipelineSource, pipelineVersion sql.NullString
+	var commitSHA, repoOwner, repoName, pusherName, gitRef, pipelineSource, pipelineVersion, pipelinePath sql.NullString
 
 	query := `
         SELECT
-            run_id, pipeline_name, pipeline_version, status, COALESCE(git_commit_sha, ''),
+		    run_id, pipeline_name, pipeline_path, pipeline_version, status, COALESCE(git_commit_sha, ''),
             COALESCE(git_repo_owner, ''), COALESCE(git_repo_name, ''), started_at, finished_at,
 			parent_run_id, COALESCE(git_pusher_name, ''), COALESCE(git_ref, ''),
 			COALESCE(pipeline_source, '')
@@ -363,7 +365,7 @@ func (a *App) getRunListItem(runID string) (*RunListItem, error) {
         WHERE run_id = $1
     `
 	err := a.db.QueryRow(context.Background(), query, runID).Scan(
-		&run.RunID, &run.PipelineName, &pipelineVersion, &run.Status, &commitSHA,
+		&run.RunID, &run.PipelineName, &pipelinePath, &pipelineVersion, &run.Status, &commitSHA,
 		&repoOwner, &repoName, &startedAt, &finishedAt, &run.ParentRunID, &pusherName, &gitRef, &pipelineSource,
 	)
 
@@ -371,6 +373,7 @@ func (a *App) getRunListItem(runID string) (*RunListItem, error) {
 		return nil, err
 	}
 
+	run.PipelinePath = pipelinePath.String
 	run.GitCommitSHA = commitSHA.String
 	run.PipelineVersion = normalizePipelineVersion(pipelineVersion.String)
 	run.GitRepoOwner = repoOwner.String
@@ -1148,6 +1151,8 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) error {
 	type storedPipeline struct {
 		definition string
 		version    string
+		path       string
+		name       string
 	}
 
 	pipelines := make(map[string]storedPipeline)
@@ -1168,17 +1173,35 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) error {
 		if err := validatePipeline(&pipeline); err != nil {
 			return fmt.Errorf("pipeline validation failed for '%s': %w", normalized, err)
 		}
-		if _, exists := pipelines[pipeline.Name]; exists {
-			return fmt.Errorf("duplicate pipeline name '%s' detected in config repository", pipeline.Name)
+
+		pipelinePath, fileBase, _, err := splitPipelineIdentifier(rel)
+		if err != nil {
+			return fmt.Errorf("invalid pipeline path '%s': %w", normalized, err)
+		}
+		if pipeline.Name != fileBase {
+			return fmt.Errorf("pipeline '%s' name '%s' must match file name '%s'", normalized, pipeline.Name, fileBase)
 		}
 
-		pipelines[pipeline.Name] = storedPipeline{
+		key := buildPipelineIdentifier(pipelinePath, pipeline.Name)
+		if _, exists := pipelines[key]; exists {
+			return fmt.Errorf("duplicate pipeline '%s' detected in config repository", key)
+		}
+
+		pipelines[key] = storedPipeline{
 			definition: content,
 			version:    normalizePipelineVersion(pipeline.Version),
+			path:       pipelinePath,
+			name:       pipeline.Name,
 		}
 	}
 
-	steps := make(map[string]string)
+	type storedStep struct {
+		definition string
+		path       string
+		name       string
+	}
+
+	steps := make(map[string]storedStep)
 	for path, content := range stepFiles {
 		normalized := filepath.ToSlash(path)
 		rel := strings.TrimPrefix(normalized, "steps/")
@@ -1196,11 +1219,25 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) error {
 		if step.Name == "" {
 			return fmt.Errorf("reusable step '%s' is missing the required 'name' field", normalized)
 		}
-		if _, exists := steps[step.Name]; exists {
-			return fmt.Errorf("duplicate reusable step name '%s' detected in config repository", step.Name)
+
+		stepPath, fileBase, _, err := splitStepIdentifier(rel)
+		if err != nil {
+			return fmt.Errorf("invalid reusable step path '%s': %w", normalized, err)
+		}
+		if step.Name != fileBase {
+			return fmt.Errorf("reusable step '%s' name '%s' must match file name '%s'", normalized, step.Name, fileBase)
 		}
 
-		steps[step.Name] = content
+		key := buildStepIdentifier(stepPath, step.Name)
+		if _, exists := steps[key]; exists {
+			return fmt.Errorf("duplicate reusable step '%s' detected in config repository", key)
+		}
+
+		steps[key] = storedStep{
+			definition: content,
+			path:       stepPath,
+			name:       step.Name,
+		}
 	}
 
 	triggers := make(map[string]string)
@@ -1241,11 +1278,11 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	existingPipelines, err := loadExistingNames(ctx, tx, "SELECT name FROM pipelines")
+	existingPipelines, err := loadExistingPipelineKeys(ctx, tx)
 	if err != nil {
 		return fmt.Errorf("failed to load existing pipelines: %w", err)
 	}
-	existingSteps, err := loadExistingNames(ctx, tx, "SELECT name FROM reusable_steps")
+	existingSteps, err := loadExistingStepKeys(ctx, tx)
 	if err != nil {
 		return fmt.Errorf("failed to load existing reusable steps: %w", err)
 	}
@@ -1254,40 +1291,40 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) error {
 		return fmt.Errorf("failed to load existing trigger overrides: %w", err)
 	}
 
-	const pipelineUpsert = `INSERT INTO pipelines (name, version, definition, updated_at) VALUES ($1, $2, $3, NOW())
-		ON CONFLICT (name) DO UPDATE SET version = $2, definition = $3, updated_at = NOW()`
-	const stepUpsert = `INSERT INTO reusable_steps (name, definition, updated_at) VALUES ($1, $2, NOW())
-		ON CONFLICT (name) DO UPDATE SET definition = $2, updated_at = NOW()`
+	const pipelineUpsert = `INSERT INTO pipelines (path, name, version, definition, updated_at) VALUES ($1, $2, $3, $4, NOW())
+		ON CONFLICT (path, name) DO UPDATE SET version = $3, definition = $4, updated_at = NOW()`
+	const stepUpsert = `INSERT INTO reusable_steps (path, name, definition, updated_at) VALUES ($1, $2, $3, NOW())
+		ON CONFLICT (path, name) DO UPDATE SET definition = $3, updated_at = NOW()`
 	const triggerUpsert = `INSERT INTO trigger_overrides (repository_name, trigger_definition) VALUES ($1, $2)
 		ON CONFLICT (repository_name) DO UPDATE SET trigger_definition = $2`
 
-	for name, stored := range pipelines {
-		if _, err := tx.Exec(ctx, pipelineUpsert, name, stored.version, stored.definition); err != nil {
-			return fmt.Errorf("failed to upsert pipeline '%s': %w", name, err)
+	for key, stored := range pipelines {
+		if _, err := tx.Exec(ctx, pipelineUpsert, stored.path, stored.name, stored.version, stored.definition); err != nil {
+			return fmt.Errorf("failed to upsert pipeline '%s': %w", key, err)
 		}
 	}
 
 	deletedPipelines := 0
-	for name := range existingPipelines {
-		if _, ok := pipelines[name]; !ok {
-			if _, err := tx.Exec(ctx, "DELETE FROM pipelines WHERE name = $1", name); err != nil {
-				return fmt.Errorf("failed to delete pipeline '%s': %w", name, err)
+	for key, info := range existingPipelines {
+		if _, ok := pipelines[key]; !ok {
+			if _, err := tx.Exec(ctx, "DELETE FROM pipelines WHERE path = $1 AND name = $2", info.path, info.name); err != nil {
+				return fmt.Errorf("failed to delete pipeline '%s': %w", key, err)
 			}
 			deletedPipelines++
 		}
 	}
 
-	for name, definition := range steps {
-		if _, err := tx.Exec(ctx, stepUpsert, name, definition); err != nil {
-			return fmt.Errorf("failed to upsert reusable step '%s': %w", name, err)
+	for key, stored := range steps {
+		if _, err := tx.Exec(ctx, stepUpsert, stored.path, stored.name, stored.definition); err != nil {
+			return fmt.Errorf("failed to upsert reusable step '%s': %w", key, err)
 		}
 	}
 
 	deletedSteps := 0
-	for name := range existingSteps {
-		if _, ok := steps[name]; !ok {
-			if _, err := tx.Exec(ctx, "DELETE FROM reusable_steps WHERE name = $1", name); err != nil {
-				return fmt.Errorf("failed to delete reusable step '%s': %w", name, err)
+	for key, info := range existingSteps {
+		if _, ok := steps[key]; !ok {
+			if _, err := tx.Exec(ctx, "DELETE FROM reusable_steps WHERE path = $1 AND name = $2", info.path, info.name); err != nil {
+				return fmt.Errorf("failed to delete reusable step '%s': %w", key, err)
 			}
 			deletedSteps++
 		}
@@ -1349,13 +1386,69 @@ func loadExistingNames(ctx context.Context, tx pgx.Tx, query string) (map[string
 	return result, nil
 }
 
+type pipelineKey struct {
+	path string
+	name string
+}
+
+func loadExistingPipelineKeys(ctx context.Context, tx pgx.Tx) (map[string]pipelineKey, error) {
+	rows, err := tx.Query(ctx, "SELECT path, name FROM pipelines")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]pipelineKey)
+	for rows.Next() {
+		var path, name string
+		if err := rows.Scan(&path, &name); err != nil {
+			return nil, err
+		}
+		key := buildPipelineIdentifier(path, name)
+		result[key] = pipelineKey{path: path, name: name}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+type stepKey struct {
+	path string
+	name string
+}
+
+func loadExistingStepKeys(ctx context.Context, tx pgx.Tx) (map[string]stepKey, error) {
+	rows, err := tx.Query(ctx, "SELECT path, name FROM reusable_steps")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]stepKey)
+	for rows.Next() {
+		var path, name string
+		if err := rows.Scan(&path, &name); err != nil {
+			return nil, err
+		}
+		key := buildStepIdentifier(path, name)
+		result[key] = stepKey{path: path, name: name}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
 func isYAMLFile(path string) bool {
 	lower := strings.ToLower(path)
 	return strings.HasSuffix(lower, ".yaml") || strings.HasSuffix(lower, ".yml")
 }
 
 func (a *App) handleListPipelines(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(context.Background(), "SELECT name FROM pipelines ORDER BY name ASC")
+	rows, err := a.db.Query(context.Background(), "SELECT path, name FROM pipelines ORDER BY path ASC, name ASC")
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query pipelines from database")
 		http.Error(w, "Failed to retrieve pipelines", http.StatusInternalServerError)
@@ -1365,13 +1458,13 @@ func (a *App) handleListPipelines(w http.ResponseWriter, r *http.Request) {
 
 	var pipelineNames []string
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			log.Error().Err(err).Msg("Failed to scan pipeline name")
+		var path, name string
+		if err := rows.Scan(&path, &name); err != nil {
+			log.Error().Err(err).Msg("Failed to scan pipeline entry")
 			http.Error(w, "Failed to process pipelines", http.StatusInternalServerError)
 			return
 		}
-		pipelineNames = append(pipelineNames, name)
+		pipelineNames = append(pipelineNames, buildPipelineIdentifier(path, name))
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1406,10 +1499,16 @@ func (a *App) handleListTriggerOverrides(w http.ResponseWriter, r *http.Request)
 }
 
 func (a *App) handleGetPipeline(w http.ResponseWriter, r *http.Request) {
-	pipelineName := r.PathValue("pipelineName")
-	rows, err := a.db.Query(context.Background(), "SELECT definition FROM pipelines WHERE name = $1", pipelineName)
+	pipelineIdentifier := r.PathValue("pipelineName")
+	pathPart, namePart, extPart, err := splitPipelineIdentifier(pipelineIdentifier)
 	if err != nil {
-		log.Error().Err(err).Str("pipeline_name", pipelineName).Msg("Database query failed for pipeline")
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	rows, err := a.db.Query(context.Background(), "SELECT definition FROM pipelines WHERE path = $1 AND name = $2", pathPart, namePart)
+	if err != nil {
+		log.Error().Err(err).Str("pipeline", pipelineIdentifier).Msg("Database query failed for pipeline")
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
@@ -1419,7 +1518,7 @@ func (a *App) handleGetPipeline(w http.ResponseWriter, r *http.Request) {
 	if rows.Next() {
 		err = rows.Scan(&pipelineDef)
 		if err != nil {
-			log.Error().Err(err).Str("pipeline_name", pipelineName).Msg("Database scan failed for pipeline definition")
+			log.Error().Err(err).Str("pipeline", pipelineIdentifier).Msg("Database scan failed for pipeline definition")
 			http.Error(w, "Database error", http.StatusInternalServerError)
 			return
 		}
@@ -1435,7 +1534,7 @@ func (a *App) handleGetPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != pgx.ErrNoRows {
-		log.Error().Err(err).Str("pipeline_name", pipelineName).Msg("Database error while fetching pipeline")
+		log.Error().Err(err).Str("pipeline", pipelineIdentifier).Msg("Database error while fetching pipeline")
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
@@ -1445,15 +1544,33 @@ func (a *App) handleGetPipeline(w http.ResponseWriter, r *http.Request) {
 	commitSHA := r.URL.Query().Get("commitSHA")
 
 	if repoOwner != "" && repoName != "" && commitSHA != "" {
-		log.Info().Str("pipeline_name", pipelineName).Msg("Pipeline not in DB, attempting to fetch from repository as fallback")
-		pipelinePath := pipelineName
-		if !strings.HasPrefix(pipelinePath, ".nopsai/") {
-			pipelinePath = ".nopsai/" + pipelinePath
+		log.Info().Str("pipeline", pipelineIdentifier).Msg("Pipeline not in DB, attempting to fetch from repository as fallback")
+
+		fetchWithExtension := func(extension string) ([]byte, error) {
+			pipelinePath := buildPipelineFilePath(pathPart, namePart, extension)
+			if !strings.HasPrefix(pipelinePath, ".nopsai/") {
+				pipelinePath = ".nopsai/" + pipelinePath
+			}
+			return a.requestGitBotPipeline(repoOwner, repoName, commitSHA, models.PipelineSource{Path: pipelinePath})
 		}
 
-		pipelineYAML, fetchErr := a.requestGitBotPipeline(repoOwner, repoName, commitSHA, models.PipelineSource{Path: pipelinePath})
+		extensions := []string{}
+		if extPart != "" {
+			extensions = append(extensions, extPart)
+		} else {
+			extensions = append(extensions, ".yaml", ".yml")
+		}
+
+		var pipelineYAML []byte
+		var fetchErr error
+		for _, extension := range extensions {
+			pipelineYAML, fetchErr = fetchWithExtension(extension)
+			if fetchErr == nil {
+				break
+			}
+		}
 		if fetchErr != nil {
-			log.Error().Err(fetchErr).Str("pipeline_name", pipelineName).Msg("Failed to fetch pipeline from repository as fallback")
+			log.Error().Err(fetchErr).Str("pipeline", pipelineIdentifier).Msg("Failed to fetch pipeline from repository as fallback")
 			http.Error(w, "Pipeline not found in database or repository", http.StatusNotFound)
 			return
 		}
@@ -1464,7 +1581,7 @@ func (a *App) handleGetPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Error().Err(err).Str("pipeline_name", pipelineName).Msg("Pipeline not found in database and no git context for fallback")
+	log.Error().Err(err).Str("pipeline", pipelineIdentifier).Msg("Pipeline not found in database and no git context for fallback")
 	http.Error(w, "Pipeline not found", http.StatusNotFound)
 }
 
@@ -1541,7 +1658,20 @@ func (a *App) handleDeleteTriggerOverride(w http.ResponseWriter, r *http.Request
 }
 
 func (a *App) handleCreateOrUpdatePipeline(w http.ResponseWriter, r *http.Request) {
-	pathIdentifier := r.PathValue("pipelineName")
+	identifier := r.PathValue("pipelineName")
+	var (
+		dbPath       string
+		expectedName string
+	)
+	if identifier != "" {
+		pathPart, namePart, _, err := splitPipelineIdentifier(identifier)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		dbPath = pathPart
+		expectedName = namePart
+	}
 
 	pipelineDef, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -1573,17 +1703,17 @@ func (a *App) handleCreateOrUpdatePipeline(w http.ResponseWriter, r *http.Reques
 
 	pipeline.Version = normalizePipelineVersion(pipeline.Version)
 
-	storedName := pipeline.Name
-	if pathIdentifier != "" && pathIdentifier != storedName {
-		errorMsg := fmt.Sprintf("Validation failed: the pipeline name in the URL ('%s') must match the 'name' field in the YAML ('%s').", pathIdentifier, storedName)
+	if expectedName != "" && expectedName != pipeline.Name {
+		errorMsg := fmt.Sprintf("Validation failed: the pipeline name in the URL ('%s') must match the 'name' field in the YAML ('%s').", expectedName, pipeline.Name)
 		http.Error(w, errorMsg, http.StatusBadRequest)
 		return
 	}
 
+	storedName := pipeline.Name
 	storedVersion := pipeline.Version
-	query := `INSERT INTO pipelines (name, version, definition, updated_at) VALUES ($1, $2, $3, NOW())
-			  ON CONFLICT (name) DO UPDATE SET version = $2, definition = $3, updated_at = NOW()`
-	_, err = a.db.Exec(context.Background(), query, storedName, storedVersion, string(pipelineDef))
+	query := `INSERT INTO pipelines (path, name, version, definition, updated_at) VALUES ($1, $2, $3, $4, NOW())
+			  ON CONFLICT (path, name) DO UPDATE SET version = $3, definition = $4, updated_at = NOW()`
+	_, err = a.db.Exec(context.Background(), query, dbPath, storedName, storedVersion, string(pipelineDef))
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to save pipeline to database")
 		http.Error(w, "Failed to save pipeline", http.StatusInternalServerError)
@@ -1593,8 +1723,14 @@ func (a *App) handleCreateOrUpdatePipeline(w http.ResponseWriter, r *http.Reques
 }
 
 func (a *App) handleDeletePipeline(w http.ResponseWriter, r *http.Request) {
-	pipelineName := r.PathValue("pipelineName")
-	_, err := a.db.Exec(context.Background(), "DELETE FROM pipelines WHERE name = $1", pipelineName)
+	pipelineIdentifier := r.PathValue("pipelineName")
+	pathPart, namePart, _, err := splitPipelineIdentifier(pipelineIdentifier)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	_, err = a.db.Exec(context.Background(), "DELETE FROM pipelines WHERE path = $1 AND name = $2", pathPart, namePart)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to delete pipeline from database")
 		http.Error(w, "Failed to delete pipeline", http.StatusInternalServerError)
@@ -1614,6 +1750,71 @@ func normalizePipelineVersion(version string) string {
 		return "latest"
 	}
 	return sanitized
+}
+
+func splitYAMLIdentifier(identifier string) (string, string, string, error) {
+	trimmed := strings.TrimSpace(identifier)
+	trimmed = strings.Trim(trimmed, "/")
+	if trimmed == "" {
+		return "", "", "", fmt.Errorf("identifier cannot be empty")
+	}
+
+	normalized := filepath.ToSlash(trimmed)
+	lower := strings.ToLower(normalized)
+	var ext string
+	switch {
+	case strings.HasSuffix(lower, ".yaml"):
+		ext = normalized[len(normalized)-len(".yaml"):]
+		normalized = normalized[:len(normalized)-len(".yaml")]
+	case strings.HasSuffix(lower, ".yml"):
+		ext = normalized[len(normalized)-len(".yml"):]
+		normalized = normalized[:len(normalized)-len(".yml")]
+	}
+
+	parts := strings.Split(normalized, "/")
+	name := parts[len(parts)-1]
+	if name == "" {
+		return "", "", "", fmt.Errorf("identifier missing name")
+	}
+
+	var path string
+	if len(parts) > 1 {
+		path = strings.Join(parts[:len(parts)-1], "/")
+	}
+	if strings.Contains(path, "..") {
+		return "", "", "", fmt.Errorf("identifier contains invalid path segments")
+	}
+
+	return path, name, ext, nil
+}
+
+func splitPipelineIdentifier(identifier string) (string, string, string, error) {
+	return splitYAMLIdentifier(identifier)
+}
+
+func buildPipelineIdentifier(path, name string) string {
+	if path == "" {
+		return name
+	}
+	return path + "/" + name
+}
+
+func buildPipelineFilePath(path, name, ext string) string {
+	if ext == "" {
+		ext = ".yaml"
+	}
+	if path == "" {
+		return name + ext
+	}
+	return path + "/" + name + ext
+}
+
+func splitStepIdentifier(identifier string) (string, string, string, error) {
+	return splitYAMLIdentifier(identifier)
+}
+
+func buildStepIdentifier(path, name string) string {
+	return buildPipelineIdentifier(path, name)
 }
 
 func parseGitHubRepoURL(raw string) (string, string, error) {
@@ -1657,7 +1858,7 @@ func parseGitHubRepoURL(raw string) (string, string, error) {
 func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	query := `
     	SELECT
-    	    run_id, pipeline_name, pipeline_version, status, COALESCE(git_commit_sha, ''),
+    	    run_id, pipeline_name, pipeline_path, pipeline_version, status, COALESCE(git_commit_sha, ''),
     	    COALESCE(git_repo_name, ''), started_at, finished_at, parent_run_id,
     	    COALESCE(git_pusher_name, ''), COALESCE(git_ref, ''),
 			COALESCE(pipeline_source, '')
@@ -1697,15 +1898,16 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var run RunListItem
 		var startedAt, finishedAt sql.NullTime
-		var commitSHA, repoName, pusherName, gitRef, pipelineSource, pipelineVersion sql.NullString
+		var commitSHA, repoName, pusherName, gitRef, pipelineSource, pipelineVersion, pipelinePath sql.NullString
 		err := rows.Scan(
-			&run.RunID, &run.PipelineName, &pipelineVersion, &run.Status, &commitSHA,
+			&run.RunID, &run.PipelineName, &pipelinePath, &pipelineVersion, &run.Status, &commitSHA,
 			&repoName, &startedAt, &finishedAt, &run.ParentRunID, &pusherName, &gitRef, &pipelineSource,
 		)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to scan run row")
 			continue
 		}
+		run.PipelinePath = pipelinePath.String
 		run.GitCommitSHA = commitSHA.String
 		run.PipelineVersion = normalizePipelineVersion(pipelineVersion.String)
 		run.GitRepoName = repoName.String
@@ -1751,10 +1953,10 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	var run RunListItem
 	var pipelineDefinition string
 	var startedAt, finishedAt sql.NullTime
-	var commitSHA, repoOwner, repoName, pusherName, gitRef, failureReason, pipelineSource, pipelineVersion sql.NullString
+	var commitSHA, repoOwner, repoName, pusherName, gitRef, failureReason, pipelineSource, pipelineVersion, pipelinePath sql.NullString
 	err := a.db.QueryRow(context.Background(), `
 		SELECT
-			run_id, pipeline_name, pipeline_version, status, COALESCE(git_commit_sha, ''),
+			run_id, pipeline_name, pipeline_path, pipeline_version, status, COALESCE(git_commit_sha, ''),
 			COALESCE(git_repo_owner, ''), COALESCE(git_repo_name, ''),
 			started_at, finished_at, parent_run_id,
 			COALESCE(git_pusher_name, ''), pipeline_definition, COALESCE(git_ref, ''),
@@ -1762,7 +1964,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 		FROM runs
 		WHERE run_id = $1
 	`, runID).Scan(
-		&run.RunID, &run.PipelineName, &pipelineVersion, &run.Status, &commitSHA,
+		&run.RunID, &run.PipelineName, &pipelinePath, &pipelineVersion, &run.Status, &commitSHA,
 		&repoOwner, &repoName, &startedAt, &finishedAt,
 		&run.ParentRunID, &pusherName, &pipelineDefinition, &gitRef,
 		&failureReason, &pipelineSource,
@@ -1773,6 +1975,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Run not found", http.StatusNotFound)
 		return
 	}
+	run.PipelinePath = pipelinePath.String
 	run.GitCommitSHA = commitSHA.String
 	run.GitRepoOwner = repoOwner.String
 	run.GitRepoName = repoName.String
@@ -1798,16 +2001,17 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 
 	var parentRunInfo *ParentRunInfo
 	if run.ParentRunID != nil && *run.ParentRunID != "" {
-		var parentPipelineName, parentPipelineVersion string
+		var parentPipelineName, parentPipelineVersion, parentPipelinePath string
 		err := a.db.QueryRow(context.Background(), `
-            SELECT pipeline_name, pipeline_version FROM runs WHERE run_id = $1
-        `, *run.ParentRunID).Scan(&parentPipelineName, &parentPipelineVersion)
+            SELECT pipeline_name, pipeline_path, pipeline_version FROM runs WHERE run_id = $1
+        `, *run.ParentRunID).Scan(&parentPipelineName, &parentPipelinePath, &parentPipelineVersion)
 		if err != nil {
 			log.Error().Err(err).Str("parent_run_id", *run.ParentRunID).Msg("Failed to query parent pipeline name")
 		} else {
 			parentRunInfo = &ParentRunInfo{
 				RunID:           *run.ParentRunID,
 				PipelineName:    parentPipelineName,
+				PipelinePath:    parentPipelinePath,
 				PipelineVersion: normalizePipelineVersion(parentPipelineVersion),
 			}
 		}
@@ -1815,7 +2019,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 
 	childRuns := make([]RunListItem, 0)
 	childRows, err := a.db.Query(context.Background(), `
-		SELECT run_id, pipeline_name, pipeline_version, status, started_at, finished_at, parent_step_name
+		SELECT run_id, pipeline_name, pipeline_path, pipeline_version, status, started_at, finished_at, parent_step_name
 		FROM runs
 		WHERE parent_run_id = $1
 		ORDER BY created_at ASC
@@ -1827,11 +2031,12 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 		for childRows.Next() {
 			var childRun RunListItem
 			var childStartedAt, childFinishedAt sql.NullTime
-			var parentStepName, childPipelineVersion sql.NullString
-			if err := childRows.Scan(&childRun.RunID, &childRun.PipelineName, &childPipelineVersion, &childRun.Status, &childStartedAt, &childFinishedAt, &parentStepName); err != nil {
+			var parentStepName, childPipelineVersion, childPipelinePath sql.NullString
+			if err := childRows.Scan(&childRun.RunID, &childRun.PipelineName, &childPipelinePath, &childPipelineVersion, &childRun.Status, &childStartedAt, &childFinishedAt, &parentStepName); err != nil {
 				log.Error().Err(err).Msg("Failed to scan child run row")
 				continue
 			}
+			childRun.PipelinePath = childPipelinePath.String
 			childRun.PipelineVersion = normalizePipelineVersion(childPipelineVersion.String)
 			if childStartedAt.Valid {
 				childRun.StartedAt = childStartedAt.Time
@@ -2336,8 +2541,14 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 		pipelineSourceForCheck := pipelineSource // Start with the trigger's source
 		var err error
 
+		dbPath, dbName, _, parseErr := splitPipelineIdentifier(p.Path)
+		if parseErr != nil {
+			log.Warn().Err(parseErr).Str("pipeline", p.Path).Msg("Skipping pipeline due to invalid identifier")
+			continue
+		}
+
 		// Attempt to fetch the pipeline from the database first to check for an override.
-		pipelineYAML, err = a.fetchPipelineFromDB(p.Path)
+		pipelineYAML, err = a.fetchPipelineFromDB(dbPath, dbName)
 		if err == nil {
 			// Success: An override exists in the database.
 			pipelineSourceForCheck = "database override"
@@ -2421,6 +2632,7 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 			"X-Git-Check-Run-ID":           strconv.FormatInt(checkRunID, 10),
 			"X-Git-Ref":                    ref,
 			"X-Nopsai-Environment":         effectiveEnv,
+			"X-Nopsai-Pipeline-Path":       dbPath,
 			"X-Git-Clone-URL":              cloneURL,
 			"X-Git-SSH-URL":                sshURL,
 			"X-Git-Commit-URL":             commitURL,
@@ -2485,12 +2697,23 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	parentStepName := r.Header.Get("X-Nopsai-Parent-Step-Name")
 	pipelineSource := r.Header.Get("X-Nopsai-Pipeline-Source")
 	pipelineNameFromPath := r.PathValue("pipelineName")
+	pipelinePathForRun := strings.TrimSpace(r.Header.Get("X-Nopsai-Pipeline-Path"))
+	pipelinePathForRun = filepath.ToSlash(strings.Trim(pipelinePathForRun, "/"))
+	if pipelinePathForRun == "." {
+		pipelinePathForRun = ""
+	}
 
 	if pipelineNameFromPath != "" {
 		var pipelineDefStr string
-		err = a.db.QueryRow(context.Background(), "SELECT definition FROM pipelines WHERE name = $1", pipelineNameFromPath).Scan(&pipelineDefStr)
+		pathPart, namePart, _, parseErr := splitPipelineIdentifier(pipelineNameFromPath)
+		if parseErr != nil {
+			http.Error(w, parseErr.Error(), http.StatusBadRequest)
+			return
+		}
+		pipelinePathForRun = pathPart
+		err = a.db.QueryRow(context.Background(), "SELECT definition FROM pipelines WHERE path = $1 AND name = $2", pathPart, namePart).Scan(&pipelineDefStr)
 		if err != nil {
-			log.Error().Err(err).Str("pipeline_name", pipelineNameFromPath).Msg("Pipeline not found in database")
+			log.Error().Err(err).Str("pipeline", pipelineNameFromPath).Msg("Pipeline not found in database")
 			http.Error(w, "Pipeline not found", http.StatusNotFound)
 			return
 		}
@@ -2508,6 +2731,10 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		}
 		if err = yaml.Unmarshal(pipelineDef, &pipeline); err != nil {
 			http.Error(w, fmt.Sprintf("Pipeline YAML is malformed: %v", err), http.StatusBadRequest)
+			return
+		}
+		if pipelinePathForRun != "" && strings.Contains(pipelinePathForRun, "..") {
+			http.Error(w, "Invalid pipeline path", http.StatusBadRequest)
 			return
 		}
 	}
@@ -2627,13 +2854,13 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err = a.db.Exec(context.Background(),
-		`INSERT INTO runs (run_id, parent_run_id, pipeline_name, pipeline_version, status, pipeline_definition,
+		`INSERT INTO runs (run_id, parent_run_id, pipeline_name, pipeline_path, pipeline_version, status, pipeline_definition,
 			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref,
 			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
 			git_commit_author_email, git_commit_author_username, git_pusher_name,
 			git_pusher_email, git_check_run_id, group_id, parent_step_name, environment, pipeline_source)
-			VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)`,
-		runID, parentRunIDSQL, pipeline.Name, pipeline.Version, string(pipelineDef),
+			VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)`,
+		runID, parentRunIDSQL, pipeline.Name, pipelinePathForRun, pipeline.Version, string(pipelineDef),
 		gitContext["repo_owner"], gitContext["repo_name"], gitContext["clone_url"], gitContext["ssh_url"], gitContext["ref"],
 		gitContext["commit_sha"], gitContext["commit_url"], gitContext["commit_message"], gitContext["commit_author_name"],
 		gitContext["commit_author_email"], gitContext["commit_author_username"], gitContext["pusher_name"],
@@ -2708,12 +2935,12 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 
 	originalRunID := r.PathValue("runID")
 
-	var pipelineDef, pipelineName, pipelineVersionDB, environment sql.NullString
+	var pipelineDef, pipelineName, pipelinePathDB, pipelineVersionDB, environment sql.NullString
 	var gitContext = make(map[string]string)
 	var timeoutAt sql.NullTime
 
 	query := `SELECT
-				pipeline_definition, pipeline_name, pipeline_version, timeout_at, environment,
+				pipeline_definition, pipeline_name, pipeline_path, pipeline_version, timeout_at, environment,
 				git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref,
 				git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
 				git_commit_author_email, git_commit_author_username, git_pusher_name,
@@ -2725,7 +2952,7 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	var checkRunID sql.NullInt64
 
 	err := a.db.QueryRow(context.Background(), query, originalRunID).Scan(
-		&pipelineDef, &pipelineName, &pipelineVersionDB, &timeoutAt, &environment,
+		&pipelineDef, &pipelineName, &pipelinePathDB, &pipelineVersionDB, &timeoutAt, &environment,
 		&repoOwner, &repoName, &cloneURL, &sshURL, &ref, &commitSHA, &commitURL, &commitMessage,
 		&commitAuthorName, &commitAuthorEmail, &commitAuthorUsername, &pusherName, &pusherEmail, &checkRunID,
 	)
@@ -2818,13 +3045,13 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err = a.db.Exec(context.Background(),
-		`INSERT INTO runs (run_id, pipeline_name, pipeline_version, status, pipeline_definition,
+		`INSERT INTO runs (run_id, pipeline_name, pipeline_path, pipeline_version, status, pipeline_definition,
 			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref,
 			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
 			git_commit_author_email, git_commit_author_username, git_pusher_name,
 			git_pusher_email, git_check_run_id, group_id, environment)
-			VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
-		runID, pipeline.Name, pipeline.Version, pipelineDef.String,
+			VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
+		runID, pipeline.Name, pipelinePathDB.String, pipeline.Version, pipelineDef.String,
 		gitContext["repo_owner"], gitContext["repo_name"], gitContext["clone_url"], gitContext["ssh_url"], gitContext["ref"],
 		gitContext["commit_sha"], gitContext["commit_url"], gitContext["commit_message"], gitContext["commit_author_name"],
 		gitContext["commit_author_email"], gitContext["commit_author_username"], gitContext["pusher_name"],
@@ -2932,11 +3159,16 @@ func (a *App) resolveStepIncludes(pipeline *models.Pipeline) (*models.Pipeline, 
 		}
 
 		// Handle step include
-		includeName := strings.TrimPrefix(step.Include, "step:")
-		var stepDefStr string
-		err := a.db.QueryRow(context.Background(), "SELECT definition FROM reusable_steps WHERE name = $1", includeName).Scan(&stepDefStr)
+		includeIdentifier := strings.TrimPrefix(step.Include, "step:")
+		stepPath, includeName, _, err := splitStepIdentifier(includeIdentifier)
 		if err != nil {
-			return nil, fmt.Errorf("failed to fetch included step '%s': %w", includeName, err)
+			return nil, fmt.Errorf("invalid reusable step identifier '%s': %w", includeIdentifier, err)
+		}
+
+		var stepDefStr string
+		err = a.db.QueryRow(context.Background(), "SELECT definition FROM reusable_steps WHERE path = $1 AND name = $2", stepPath, includeName).Scan(&stepDefStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch included step '%s': %w", includeIdentifier, err)
 		}
 
 		var includedStep models.PipelineStep
@@ -2973,7 +3205,7 @@ func (a *App) resolveStepIncludes(pipeline *models.Pipeline) (*models.Pipeline, 
 }
 
 func (a *App) handleListReusableSteps(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(context.Background(), "SELECT name FROM reusable_steps ORDER BY name ASC")
+	rows, err := a.db.Query(context.Background(), "SELECT path, name FROM reusable_steps ORDER BY path ASC, name ASC")
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query reusable steps from database")
 		http.Error(w, "Failed to retrieve reusable steps", http.StatusInternalServerError)
@@ -2983,13 +3215,13 @@ func (a *App) handleListReusableSteps(w http.ResponseWriter, r *http.Request) {
 
 	var stepNames []string
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			log.Error().Err(err).Msg("Failed to scan reusable step name")
+		var path, name string
+		if err := rows.Scan(&path, &name); err != nil {
+			log.Error().Err(err).Msg("Failed to scan reusable step entry")
 			http.Error(w, "Failed to process reusable steps", http.StatusInternalServerError)
 			return
 		}
-		stepNames = append(stepNames, name)
+		stepNames = append(stepNames, buildStepIdentifier(path, name))
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -2998,12 +3230,17 @@ func (a *App) handleListReusableSteps(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleGetReusableStep(w http.ResponseWriter, r *http.Request) {
-	stepName := r.PathValue("stepName")
+	identifier := r.PathValue("stepName")
+	pathPart, namePart, _, err := splitStepIdentifier(identifier)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	var stepDef string
-	err := a.db.QueryRow(context.Background(), "SELECT definition FROM reusable_steps WHERE name = $1", stepName).Scan(&stepDef)
+	err = a.db.QueryRow(context.Background(), "SELECT definition FROM reusable_steps WHERE path = $1 AND name = $2", pathPart, namePart).Scan(&stepDef)
 	if err != nil {
-		log.Error().Err(err).Str("step_name", stepName).Msg("Reusable step not found in database")
+		log.Error().Err(err).Str("step", identifier).Msg("Reusable step not found in database")
 		http.Error(w, "Reusable step not found", http.StatusNotFound)
 		return
 	}
@@ -3014,7 +3251,20 @@ func (a *App) handleGetReusableStep(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleCreateOrUpdateReusableStep(w http.ResponseWriter, r *http.Request) {
-	pathIdentifier := r.PathValue("stepName")
+	identifier := r.PathValue("stepName")
+	var (
+		dbPath       string
+		expectedName string
+	)
+	if identifier != "" {
+		pathPart, namePart, _, err := splitStepIdentifier(identifier)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		dbPath = pathPart
+		expectedName = namePart
+	}
 
 	stepDef, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -3035,15 +3285,15 @@ func (a *App) handleCreateOrUpdateReusableStep(w http.ResponseWriter, r *http.Re
 	}
 
 	storedName := step.Name
-	if pathIdentifier != "" && pathIdentifier != storedName {
-		errorMsg := fmt.Sprintf("Validation failed: the step name in the URL ('%s') must match the 'name' field in the YAML ('%s').", pathIdentifier, storedName)
+	if expectedName != "" && expectedName != storedName {
+		errorMsg := fmt.Sprintf("Validation failed: the step name in the URL ('%s') must match the 'name' field in the YAML ('%s').", expectedName, storedName)
 		http.Error(w, errorMsg, http.StatusBadRequest)
 		return
 	}
 
-	query := `INSERT INTO reusable_steps (name, definition, updated_at) VALUES ($1, $2, NOW())
-			  ON CONFLICT (name) DO UPDATE SET definition = $2, updated_at = NOW()`
-	_, err = a.db.Exec(context.Background(), query, storedName, string(stepDef))
+	query := `INSERT INTO reusable_steps (path, name, definition, updated_at) VALUES ($1, $2, $3, NOW())
+			  ON CONFLICT (path, name) DO UPDATE SET definition = $3, updated_at = NOW()`
+	_, err = a.db.Exec(context.Background(), query, dbPath, storedName, string(stepDef))
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to save reusable step to database")
 		http.Error(w, "Failed to save reusable step", http.StatusInternalServerError)
@@ -3053,8 +3303,14 @@ func (a *App) handleCreateOrUpdateReusableStep(w http.ResponseWriter, r *http.Re
 }
 
 func (a *App) handleDeleteReusableStep(w http.ResponseWriter, r *http.Request) {
-	stepName := r.PathValue("stepName")
-	_, err := a.db.Exec(context.Background(), "DELETE FROM reusable_steps WHERE name = $1", stepName)
+	identifier := r.PathValue("stepName")
+	pathPart, namePart, _, err := splitStepIdentifier(identifier)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	_, err = a.db.Exec(context.Background(), "DELETE FROM reusable_steps WHERE path = $1 AND name = $2", pathPart, namePart)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to delete reusable step from database")
 		http.Error(w, "Failed to delete reusable step", http.StatusInternalServerError)
@@ -3804,9 +4060,9 @@ func (a *App) cancelStaleCheckRuns(owner, repo, beforeSHA string) {
 	resp.Body.Close()
 }
 
-func (a *App) fetchPipelineFromDB(name string) ([]byte, error) {
+func (a *App) fetchPipelineFromDB(path, name string) ([]byte, error) {
 	var pipelineDef string
-	err := a.db.QueryRow(context.Background(), "SELECT definition FROM pipelines WHERE name = $1", name).Scan(&pipelineDef)
+	err := a.db.QueryRow(context.Background(), "SELECT definition FROM pipelines WHERE path = $1 AND name = $2", path, name).Scan(&pipelineDef)
 	if err == pgx.ErrNoRows {
 		return nil, errPipelineNotFound
 	}
@@ -4171,14 +4427,14 @@ func main() {
 
 	// Pipeline Management
 	mux.HandleFunc("GET /v1/pipelines", app.handleListPipelines)
-	mux.HandleFunc("GET /v1/pipelines/{pipelineName}", app.handleGetPipeline)
+	mux.HandleFunc("GET /v1/pipelines/{pipelineName...}", app.handleGetPipeline)
 	mux.HandleFunc("GET /v1/runs/{runID}/status", app.handleGetRunStatus)
-	mux.HandleFunc("PUT /v1/pipelines/{pipelineName}", app.handleCreateOrUpdatePipeline)
-	mux.HandleFunc("DELETE /v1/pipelines/{pipelineName}", app.handleDeletePipeline)
+	mux.HandleFunc("PUT /v1/pipelines/{pipelineName...}", app.handleCreateOrUpdatePipeline)
+	mux.HandleFunc("DELETE /v1/pipelines/{pipelineName...}", app.handleDeletePipeline)
 	mux.HandleFunc("GET /v1/steps", app.handleListReusableSteps)
-	mux.HandleFunc("GET /v1/steps/{stepName}", app.handleGetReusableStep)
-	mux.HandleFunc("PUT /v1/steps/{stepName}", app.handleCreateOrUpdateReusableStep)
-	mux.HandleFunc("DELETE /v1/steps/{stepName}", app.handleDeleteReusableStep)
+	mux.HandleFunc("GET /v1/steps/{stepName...}", app.handleGetReusableStep)
+	mux.HandleFunc("PUT /v1/steps/{stepName...}", app.handleCreateOrUpdateReusableStep)
+	mux.HandleFunc("DELETE /v1/steps/{stepName...}", app.handleDeleteReusableStep)
 	mux.HandleFunc("GET /v1/overrides", app.handleListTriggerOverrides)
 	mux.HandleFunc("GET /v1/overrides/{repoOwner}/{repoName}", app.handleGetTriggerOverride)
 	mux.HandleFunc("PUT /v1/overrides/{repoOwner}/{repoName}", app.handleCreateOrUpdateTriggerOverride)
@@ -4198,7 +4454,7 @@ func main() {
 	mux.HandleFunc("PUT /v1/repositories/{repoOwner}/{repoName}/environments/{envName}", app.handleCreateOrUpdateRepoEnv)
 	mux.HandleFunc("DELETE /v1/repositories/{repoOwner}/{repoName}/environments/{envName}", app.handleDeleteRepoEnv)
 	mux.HandleFunc("POST /v1/run", app.handleRunPipeline)
-	mux.HandleFunc("POST /v1/run/{pipelineName}", app.handleRunPipeline)
+	mux.HandleFunc("POST /v1/run/{pipelineName...}", app.handleRunPipeline)
 	mux.HandleFunc("GET /v1/runs", app.handleListRuns)
 	mux.HandleFunc("GET /v1/runs/{runID}", app.handleGetRunDetails)
 	mux.HandleFunc("GET /v1/runs-by-check/{checkRunID}", app.handleGetRunByCheckID)
