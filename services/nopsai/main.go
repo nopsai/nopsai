@@ -1557,10 +1557,9 @@ func (a *App) handleCreateOrUpdatePipeline(w http.ResponseWriter, r *http.Reques
 
 	storedName := pipeline.Name
 	if pathIdentifier != "" && pathIdentifier != storedName {
-		log.Info().
-			Str("path_identifier", pathIdentifier).
-			Str("pipeline_name", storedName).
-			Msg("Pipeline path identifier differs from pipeline name; using pipeline name for persistence")
+		errorMsg := fmt.Sprintf("Validation failed: the pipeline name in the URL ('%s') must match the 'name' field in the YAML ('%s').", pathIdentifier, storedName)
+		http.Error(w, errorMsg, http.StatusBadRequest)
+		return
 	}
 
 	query := `INSERT INTO pipelines (name, definition, updated_at) VALUES ($1, $2, NOW())
@@ -2979,7 +2978,7 @@ func (a *App) handleGetReusableStep(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleCreateOrUpdateReusableStep(w http.ResponseWriter, r *http.Request) {
-	stepName := r.PathValue("stepName")
+	pathIdentifier := r.PathValue("stepName")
 
 	stepDef, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -2998,14 +2997,17 @@ func (a *App) handleCreateOrUpdateReusableStep(w http.ResponseWriter, r *http.Re
 		http.Error(w, "Validation failed: a reusable step must have a 'name' field in its definition.", http.StatusBadRequest)
 		return
 	}
-	if step.Name != stepName {
-		http.Error(w, fmt.Sprintf("Validation failed: the step name in the URL ('%s') must match the 'name' field in the YAML ('%s').", stepName, step.Name), http.StatusBadRequest)
+
+	storedName := step.Name
+	if pathIdentifier != "" && pathIdentifier != storedName {
+		errorMsg := fmt.Sprintf("Validation failed: the step name in the URL ('%s') must match the 'name' field in the YAML ('%s').", pathIdentifier, storedName)
+		http.Error(w, errorMsg, http.StatusBadRequest)
 		return
 	}
 
 	query := `INSERT INTO reusable_steps (name, definition, updated_at) VALUES ($1, $2, NOW())
 			  ON CONFLICT (name) DO UPDATE SET definition = $2, updated_at = NOW()`
-	_, err = a.db.Exec(context.Background(), query, stepName, string(stepDef))
+	_, err = a.db.Exec(context.Background(), query, storedName, string(stepDef))
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to save reusable step to database")
 		http.Error(w, "Failed to save reusable step", http.StatusInternalServerError)

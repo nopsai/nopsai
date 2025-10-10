@@ -18,17 +18,17 @@ curl -X PUT -d '{"value": "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"}' \
 curl -X PUT \
   -H "Content-Type: application/x-yaml" \
   --data-binary "@.nopsai/reference-pipeline.yaml" \
-  http://localhost:8080/v1/pipelines/reference-pipeline.yaml
+  http://localhost:8080/v1/pipelines/reference-pipeline
 
 curl -X PUT \
   -H "Content-Type: application/x-yaml" \
   --data-binary "@.nopsai/include.yaml" \
-  http://localhost:8080/v1/pipelines/include.yaml
+  http://localhost:8080/v1/pipelines/include
 
   curl -X PUT \
   -H "Content-Type: application/x-yaml" \
   --data-binary "@.nopsai/branch-pipeline.yaml" \
-  http://localhost:8080/v1/pipelines/branch-pipeline.yaml
+  http://localhost:8080/v1/pipelines/branch-pipeline
 
 curl -X PUT -d '{"value": "tcp://192.168.1.16:2375"}' \
   'http://localhost:8080/v1/environments/DOCKER_HOST'
@@ -119,18 +119,20 @@ curl -X DELETE 'http://localhost:8080/v1/repositories/hosein-yousefii/test-app/e
 
 _______________________________________-
 
-# Pipelines  
+# Pipelines
+
+> The identifier in the URL must match the pipeline `name` declared inside the YAML payload; the pipeline is stored using that name in the database.
 
 curl http://localhost:8080/v1/pipelines
 
-curl http://localhost:8080/v1/pipelines/main-pipeline.yaml
+curl http://localhost:8080/v1/pipelines/main-pipeline
 
-curl -X DELETE http://localhost:8080/v1/pipelines/main-pipeline.yaml
+curl -X DELETE http://localhost:8080/v1/pipelines/main-pipeline
 
 curl -X PUT \
   -H "Content-Type: application/x-yaml" \
   --data-binary "@.nopsai/main-pipeline.yaml" \
-  http://localhost:8080/v1/pipelines/main-pipeline.yaml
+  http://localhost:8080/v1/pipelines/main-pipeline
 
 
 
