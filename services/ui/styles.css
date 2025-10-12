@@ -29,6 +29,7 @@
 
     --run-highlight-outline: rgba(245, 158, 11, 0.7); /* amber-500 */
     --run-highlight-shadow: rgba(245, 158, 11, 0.3);
+    --run-highlight-background: rgba(245, 158, 11, 0.12);
 
     /* Icon badge colors (lighter) */
     --icon-info-bg: #818cf8;      /* indigo-400 */
@@ -67,6 +68,7 @@ html.dark {
 
     --run-highlight-outline: rgba(250, 204, 21, 0.7); /* amber-400 */
     --run-highlight-shadow: rgba(250, 204, 21, 0.3);
+    --run-highlight-background: rgba(250, 204, 21, 0.18);
     /* Icon badge colors (dark mode, deeper for contrast) */
     --icon-info-bg: #4f46e5;      /* indigo-600 */
     --icon-collapse-bg: #475569;  /* slate-600 */
@@ -163,10 +165,11 @@ body {
 .sidebar-link-highlight > div {
     outline: 1.5px solid var(--run-highlight-outline);
     box-shadow: 0 0 16px 3px var(--run-highlight-shadow);
+    background-color: var(--run-highlight-background) !important;
 }
 
 [data-run-id], [data-run-id] > a {
-    transition: outline 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+    transition: outline 0.2s ease-in-out, box-shadow 0.2s ease-in-out, background-color 0.2s ease-in-out;
 }
 .themed-bg-blur {
     background-color: rgba(249, 250, 251, 0.5); /* gray-50/50 */

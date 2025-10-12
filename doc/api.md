@@ -1,4 +1,4 @@
-docker-compose down -v ; docker container prune -f && docker volume prune -f && docker image prune -f
+docker-compose down -v ; docker container prune -f -a && docker volume prune -f -a && docker image prune -f -a
 
 curl -X PUT -d '{"value": "General level secret prod env"}' \
   'http://localhost:8080/v1/secrets/TEST_SECRET?env=prod'
@@ -6,6 +6,7 @@ curl -X PUT -d '{"value": "General level secret prod env"}' \
 curl -X PUT -d '{"value": "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"}' \
   'http://localhost:8080/v1/secrets/GITHUB_PIPELINE_TOKEN?env=prod'
 
+curl -X PUT -d '{"value": "General level secret env"}'   'http://localhost:8080/v1/secrets/TEST_SECRET'
 
 # Secrets
 
