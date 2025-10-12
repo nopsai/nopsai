@@ -11,6 +11,7 @@ CREATE TABLE runs (
     run_id UUID PRIMARY KEY,
     parent_run_id UUID NULL REFERENCES runs(run_id) ON DELETE SET NULL,
     parent_step_name VARCHAR(255),
+    trigger_event_id VARCHAR(255),
     pipeline_name VARCHAR(255),
     pipeline_path TEXT NOT NULL DEFAULT '',
     pipeline_version VARCHAR(255) NOT NULL DEFAULT 'latest',

@@ -22,6 +22,32 @@
         'failure (ignored)': { icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z', color: 'text-amber-500 dark:text-amber-400', rectClass: 'stroke-amber-500 fill-amber-100 dark:fill-amber-500/10' },
     };
 
+    function escapeAttribute(value) {
+        if (value === null || value === undefined) return '';
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+
+    function getTriggerGroupId(run) {
+        if (!run || typeof run !== 'object') return '';
+        if (run.trigger_event_id) return String(run.trigger_event_id);
+        if (run.trigger_group_id) return String(run.trigger_group_id);
+        const owner = (run.git_repo_owner || '').toLowerCase();
+        const name = (run.git_repo_name || '').toLowerCase();
+        const ref = (run.git_ref || '').toLowerCase();
+        const sha = (run.git_commit_sha || '').toLowerCase();
+        if (!owner && !name && !ref && !sha) return '';
+        return [owner, name, ref, sha].join('|');
+    }
+
+    function getTriggerGroupAttr(run) {
+        const id = getTriggerGroupId(run);
+        return id ? ` data-trigger-group-id="${escapeAttribute(id)}"` : '';
+    }
+
     function getPipelineNameHTML(run) {
         const name = `<span class="font-medium truncate flex-1 min-w-0">${run.pipeline_name}</span>`;
         const overrideIcon = run.pipeline_source === 'database override'
@@ -461,17 +487,28 @@ if (dx !== 0 || dy !== 0) {
             const runId = targetRunElement.dataset.runId;
             const parentRunId = targetRunElement.dataset.parentRunId;
             const repoFullName = targetRunElement.dataset.repoFullName;
+            const triggerGroupId = targetRunElement.dataset.triggerGroupId;
 
-            // Determine the main parent run ID to group included pipelines
+            const highlightedElements = new Set();
+
+            if (triggerGroupId) {
+                document.querySelectorAll('[data-trigger-group-id]').forEach(el => {
+                    if (el.dataset.triggerGroupId === triggerGroupId) {
+                        highlightedElements.add(el);
+                    }
+                });
+            }
+
             const mainParentId = parentRunId || runId;
+            if (mainParentId) {
+                document.querySelectorAll(`[data-run-id="${mainParentId}"]`).forEach(el => highlightedElements.add(el));
+                document.querySelectorAll(`[data-parent-run-id="${mainParentId}"]`).forEach(el => highlightedElements.add(el));
+            }
 
-            // Highlight all related run cards/links (the parent and all of its children)
-            const runSelector = `[data-run-id="${mainParentId}"], [data-parent-run-id="${mainParentId}"]`;
-            document.querySelectorAll(runSelector).forEach(el => {
-                // The element itself could be a card or a sidebar li
+            highlightedElements.forEach(el => {
                 if (el.matches('a, div[data-href]')) {
                     el.classList.add('run-link-highlight');
-                } else { // It's a sidebar li
+                } else {
                     el.classList.add('sidebar-link-highlight');
                 }
             });
@@ -709,7 +746,7 @@ if (dx !== 0 || dy !== 0) {
         let html = `<ul class="pl-${level > 0 ? '4' : '0'} space-y-1">`;
         runs.forEach(run => {
             const repoFullName = `${run.git_repo_owner}/${run.git_repo_name}`;
-            html += `<li data-run-id="${run.run_id}" data-repo-full-name="${repoFullName}" ${run.parent_run_id ? `data-parent-run-id="${run.parent_run_id}"` : ''}>
+            html += `<li data-run-id="${run.run_id}" data-repo-full-name="${repoFullName}"${run.parent_run_id ? ` data-parent-run-id="${run.parent_run_id}"` : ''}${getTriggerGroupAttr(run)}>
                         ${renderSidebarRunLinkHTML(run)}
                      </li>`;
         });
@@ -727,7 +764,7 @@ if (dx !== 0 || dy !== 0) {
          }
         listEl.innerHTML = (runs || []).map(run => {
             const repoFullName = `${run.git_repo_owner}/${run.git_repo_name}`;
-            return `<li data-run-id="${run.run_id}" data-repo-full-name="${repoFullName}" ${run.parent_run_id ? `data-parent-run-id="${run.parent_run_id}"` : ''}>
+            return `<li data-run-id="${run.run_id}" data-repo-full-name="${repoFullName}"${run.parent_run_id ? ` data-parent-run-id="${run.parent_run_id}"` : ''}${getTriggerGroupAttr(run)}>
                         ${renderSidebarRunLinkHTML(run)}
                     </li>`;
         }).join('');
@@ -857,8 +894,26 @@ if (dx !== 0 || dy !== 0) {
     function handleRunSummaryUpdate(runData) {
         // Find all elements representing this run (cards in main view, links in sidebar)
         const elements = document.querySelectorAll(`[data-run-id="${runData.run_id}"]`);
-        
+        const repoOwner = runData.git_repo_owner || '';
+        const repoName = runData.git_repo_name || '';
+        const repoFullName = `${repoOwner}/${repoName}`;
+        const triggerGroupId = getTriggerGroupId(runData);
         elements.forEach(el => {
+            if (repoOwner || repoName) {
+                el.dataset.repoFullName = repoFullName;
+            } else {
+                delete el.dataset.repoFullName;
+            }
+            if (runData.parent_run_id) {
+                el.dataset.parentRunId = runData.parent_run_id;
+            } else {
+                delete el.dataset.parentRunId;
+            }
+            if (triggerGroupId) {
+                el.dataset.triggerGroupId = triggerGroupId;
+            } else {
+                delete el.dataset.triggerGroupId;
+            }
             if (el.hasAttribute('data-href')) { // It's a run card
                 el.innerHTML = renderRunCardHTML(runData);
             } else if (el.tagName === 'LI') { // It's a sidebar item
@@ -870,11 +925,11 @@ if (dx !== 0 || dy !== 0) {
     // Update renderRunCard to use the new reusable function
     function renderRunCard(run) {
         const repoFullName = `${run.git_repo_owner}/${run.git_repo_name}`;
+        const parentAttr = run.parent_run_id ? ` data-parent-run-id="${run.parent_run_id}"` : '';
         return `
             <div data-href="#/pipelineruns/run/${run.run_id}"
                 data-run-id="${run.run_id}" 
-                data-repo-full-name="${repoFullName}"
-                ${run.parent_run_id ? `data-parent-run-id="${run.parent_run_id}"` : ''}
+                data-repo-full-name="${repoFullName}"${parentAttr}${getTriggerGroupAttr(run)}
                 class="block bg-[var(--bg-primary)] transition-all duration-200 rounded-lg p-4 flex flex-col justify-between cursor-pointer border border-[var(--border-primary)] shadow-sm">
                 ${renderRunCardHTML(run)}
             </div>`;
