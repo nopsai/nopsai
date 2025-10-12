@@ -255,6 +255,7 @@ type RunListItem struct {
 	Duration        string    `json:"duration"`
 	IsComplete      bool      `json:"is_complete"`
 	ParentRunID     *string   `json:"parent_run_id"`
+	TriggerEventID  string    `json:"trigger_event_id,omitempty"`
 	GitPusherName   string    `json:"git_pusher_name"`
 	ParentStepName  string    `json:"parent_step_name,omitempty"`
 	FailureReason   string    `json:"failure_reason,omitempty"`
@@ -349,24 +350,38 @@ type Group struct {
 
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
 
+func deriveTriggerEventID(gitContext map[string]string) string {
+	if gitContext == nil {
+		return ""
+	}
+	owner := strings.ToLower(strings.TrimSpace(gitContext["repo_owner"]))
+	name := strings.ToLower(strings.TrimSpace(gitContext["repo_name"]))
+	ref := strings.ToLower(strings.TrimSpace(gitContext["ref"]))
+	sha := strings.ToLower(strings.TrimSpace(gitContext["commit_sha"]))
+	if owner == "" && name == "" && ref == "" && sha == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s|%s|%s|%s", owner, name, ref, sha)
+}
+
 // This new helper function fetches and builds a RunListItem for a given run ID.
 func (a *App) getRunListItem(runID string) (*RunListItem, error) {
 	var run RunListItem
 	var startedAt, finishedAt sql.NullTime
-	var commitSHA, repoOwner, repoName, pusherName, gitRef, pipelineSource, pipelineVersion, pipelinePath sql.NullString
+	var commitSHA, repoOwner, repoName, pusherName, gitRef, pipelineSource, pipelineVersion, pipelinePath, triggerEventID sql.NullString
 
 	query := `
         SELECT
 		    run_id, pipeline_name, pipeline_path, pipeline_version, status, COALESCE(git_commit_sha, ''),
             COALESCE(git_repo_owner, ''), COALESCE(git_repo_name, ''), started_at, finished_at,
 			parent_run_id, COALESCE(git_pusher_name, ''), COALESCE(git_ref, ''),
-			COALESCE(pipeline_source, '')
+			COALESCE(pipeline_source, ''), COALESCE(trigger_event_id, '')
         FROM runs
         WHERE run_id = $1
     `
 	err := a.db.QueryRow(context.Background(), query, runID).Scan(
 		&run.RunID, &run.PipelineName, &pipelinePath, &pipelineVersion, &run.Status, &commitSHA,
-		&repoOwner, &repoName, &startedAt, &finishedAt, &run.ParentRunID, &pusherName, &gitRef, &pipelineSource,
+		&repoOwner, &repoName, &startedAt, &finishedAt, &run.ParentRunID, &pusherName, &gitRef, &pipelineSource, &triggerEventID,
 	)
 
 	if err != nil {
@@ -381,6 +396,7 @@ func (a *App) getRunListItem(runID string) (*RunListItem, error) {
 	run.GitPusherName = pusherName.String
 	run.GitRef = gitRef.String
 	run.PipelineSource = pipelineSource.String
+	run.TriggerEventID = triggerEventID.String
 
 	if startedAt.Valid {
 		run.StartedAt = startedAt.Time
@@ -2076,9 +2092,9 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	query := `
     	SELECT
     	    run_id, pipeline_name, pipeline_path, pipeline_version, status, COALESCE(git_commit_sha, ''),
-    	    COALESCE(git_repo_name, ''), started_at, finished_at, parent_run_id,
+    	    COALESCE(git_repo_owner, ''), COALESCE(git_repo_name, ''), started_at, finished_at, parent_run_id,
     	    COALESCE(git_pusher_name, ''), COALESCE(git_ref, ''),
-			COALESCE(pipeline_source, '')
+			COALESCE(pipeline_source, ''), COALESCE(trigger_event_id, '')
     	FROM runs
 	`
 	args := []interface{}{}
@@ -2115,10 +2131,10 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var run RunListItem
 		var startedAt, finishedAt sql.NullTime
-		var commitSHA, repoName, pusherName, gitRef, pipelineSource, pipelineVersion, pipelinePath sql.NullString
+		var commitSHA, repoOwner, repoName, pusherName, gitRef, pipelineSource, pipelineVersion, pipelinePath, triggerEventID sql.NullString
 		err := rows.Scan(
 			&run.RunID, &run.PipelineName, &pipelinePath, &pipelineVersion, &run.Status, &commitSHA,
-			&repoName, &startedAt, &finishedAt, &run.ParentRunID, &pusherName, &gitRef, &pipelineSource,
+			&repoOwner, &repoName, &startedAt, &finishedAt, &run.ParentRunID, &pusherName, &gitRef, &pipelineSource, &triggerEventID,
 		)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to scan run row")
@@ -2127,10 +2143,12 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		run.PipelinePath = pipelinePath.String
 		run.GitCommitSHA = commitSHA.String
 		run.PipelineVersion = normalizePipelineVersion(pipelineVersion.String)
+		run.GitRepoOwner = repoOwner.String
 		run.GitRepoName = repoName.String
 		run.GitPusherName = pusherName.String
 		run.GitRef = gitRef.String
 		run.PipelineSource = pipelineSource.String
+		run.TriggerEventID = triggerEventID.String
 		if startedAt.Valid {
 			run.StartedAt = startedAt.Time
 			if finishedAt.Valid {
@@ -2170,21 +2188,21 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	var run RunListItem
 	var pipelineDefinition string
 	var startedAt, finishedAt sql.NullTime
-	var commitSHA, repoOwner, repoName, pusherName, gitRef, failureReason, pipelineSource, pipelineVersion, pipelinePath sql.NullString
+	var commitSHA, repoOwner, repoName, pusherName, gitRef, failureReason, pipelineSource, pipelineVersion, pipelinePath, triggerEventID sql.NullString
 	err := a.db.QueryRow(context.Background(), `
 		SELECT
 			run_id, pipeline_name, pipeline_path, pipeline_version, status, COALESCE(git_commit_sha, ''),
 			COALESCE(git_repo_owner, ''), COALESCE(git_repo_name, ''),
 			started_at, finished_at, parent_run_id,
 			COALESCE(git_pusher_name, ''), pipeline_definition, COALESCE(git_ref, ''),
-			failure_reason, COALESCE(pipeline_source, '')
+			failure_reason, COALESCE(pipeline_source, ''), COALESCE(trigger_event_id, '')
 		FROM runs
 		WHERE run_id = $1
 	`, runID).Scan(
 		&run.RunID, &run.PipelineName, &pipelinePath, &pipelineVersion, &run.Status, &commitSHA,
 		&repoOwner, &repoName, &startedAt, &finishedAt,
 		&run.ParentRunID, &pusherName, &pipelineDefinition, &gitRef,
-		&failureReason, &pipelineSource,
+		&failureReason, &pipelineSource, &triggerEventID,
 	)
 
 	if err != nil {
@@ -2201,6 +2219,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	run.FailureReason = failureReason.String
 	run.PipelineSource = pipelineSource.String
 	run.PipelineVersion = normalizePipelineVersion(pipelineVersion.String)
+	run.TriggerEventID = triggerEventID.String
 	if startedAt.Valid {
 		run.StartedAt = startedAt.Time
 	}
@@ -2236,7 +2255,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 
 	childRuns := make([]RunListItem, 0)
 	childRows, err := a.db.Query(context.Background(), `
-		SELECT run_id, pipeline_name, pipeline_path, pipeline_version, status, started_at, finished_at, parent_step_name
+		SELECT run_id, pipeline_name, pipeline_path, pipeline_version, status, started_at, finished_at, parent_step_name, COALESCE(trigger_event_id, '')
 		FROM runs
 		WHERE parent_run_id = $1
 		ORDER BY created_at ASC
@@ -2248,13 +2267,14 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 		for childRows.Next() {
 			var childRun RunListItem
 			var childStartedAt, childFinishedAt sql.NullTime
-			var parentStepName, childPipelineVersion, childPipelinePath sql.NullString
-			if err := childRows.Scan(&childRun.RunID, &childRun.PipelineName, &childPipelinePath, &childPipelineVersion, &childRun.Status, &childStartedAt, &childFinishedAt, &parentStepName); err != nil {
+			var parentStepName, childPipelineVersion, childPipelinePath, childTriggerEventID sql.NullString
+			if err := childRows.Scan(&childRun.RunID, &childRun.PipelineName, &childPipelinePath, &childPipelineVersion, &childRun.Status, &childStartedAt, &childFinishedAt, &parentStepName, &childTriggerEventID); err != nil {
 				log.Error().Err(err).Msg("Failed to scan child run row")
 				continue
 			}
 			childRun.PipelinePath = childPipelinePath.String
 			childRun.PipelineVersion = normalizePipelineVersion(childPipelineVersion.String)
+			childRun.TriggerEventID = childTriggerEventID.String
 			if childStartedAt.Valid {
 				childRun.StartedAt = childStartedAt.Time
 			}
@@ -2522,6 +2542,8 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 		isRerun                     bool
 		rerunCheckRun               *github.CheckRun
 	)
+	deliveryID := strings.TrimSpace(r.Header.Get("X-GitHub-Delivery"))
+	triggerEventID := deliveryID
 
 	switch event := payload.(type) {
 	case *github.PushEvent:
@@ -2694,6 +2716,17 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
+	if triggerEventID == "" {
+		triggerEventID = deriveTriggerEventID(map[string]string{
+			"repo_owner": owner,
+			"repo_name":  repo,
+			"ref":        ref,
+			"commit_sha": commitSHA,
+		})
+	}
+	if triggerEventID == "" {
+		triggerEventID = uuid.NewString()
+	}
 
 	if eventType == "push" && !strings.HasPrefix(ref, "refs/") {
 		var storedRef sql.NullString
@@ -2860,6 +2893,7 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 			"X-Git-Pusher-Name":            pusherName,
 			"X-Git-Pusher-Email":           pusherEmail,
 			"X-Nopsai-Pipeline-Source":     pipelineSourceForCheck,
+			"X-Nopsai-Trigger-Event-ID":    triggerEventID,
 		}
 		if isRerun {
 			headers["X-Git-Rerun-Commit-SHA"] = commitSHA
@@ -2974,6 +3008,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		"pusher_name":            r.Header.Get("X-Git-Pusher-Name"),
 		"pusher_email":           r.Header.Get("X-Git-Pusher-Email"),
 		"check_run_id":           r.Header.Get("X-Git-Check-Run-ID"),
+		"trigger_event_id":       r.Header.Get("X-Nopsai-Trigger-Event-ID"),
 	}
 
 	rerunCommitSHA := r.Header.Get("X-Git-Rerun-Commit-SHA")
@@ -3041,6 +3076,19 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		parentStepNameSQL.String = parentStepName
 		parentStepNameSQL.Valid = true
 	}
+	var triggerEventIDSQL sql.NullString
+	id := strings.TrimSpace(gitContext["trigger_event_id"])
+	if id == "" {
+		id = deriveTriggerEventID(gitContext)
+	}
+	if id == "" {
+		id = runID.String()
+	}
+	if id != "" {
+		triggerEventIDSQL.String = id
+		triggerEventIDSQL.Valid = true
+		gitContext["trigger_event_id"] = id
+	}
 
 	var groupID sql.NullInt32
 	if repoName, ok := gitContext["repo_name"]; ok && repoName != "" {
@@ -3075,13 +3123,13 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref,
 			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
 			git_commit_author_email, git_commit_author_username, git_pusher_name,
-			git_pusher_email, git_check_run_id, group_id, parent_step_name, environment, pipeline_source)
-			VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)`,
+			git_pusher_email, git_check_run_id, group_id, parent_step_name, trigger_event_id, environment, pipeline_source)
+			VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)`,
 		runID, parentRunIDSQL, pipeline.Name, pipelinePathForRun, pipeline.Version, string(pipelineDef),
 		gitContext["repo_owner"], gitContext["repo_name"], gitContext["clone_url"], gitContext["ssh_url"], gitContext["ref"],
 		gitContext["commit_sha"], gitContext["commit_url"], gitContext["commit_message"], gitContext["commit_author_name"],
 		gitContext["commit_author_email"], gitContext["commit_author_username"], gitContext["pusher_name"],
-		gitContext["pusher_email"], gitContext["check_run_id"], groupID, parentStepNameSQL, environment, pipelineSource,
+		gitContext["pusher_email"], gitContext["check_run_id"], groupID, parentStepNameSQL, triggerEventIDSQL, environment, pipelineSource,
 	)
 
 	if err != nil {
@@ -3161,17 +3209,17 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 				git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref,
 				git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
 				git_commit_author_email, git_commit_author_username, git_pusher_name,
-				git_pusher_email, git_check_run_id
+				git_pusher_email, git_check_run_id, trigger_event_id
 			  FROM runs WHERE run_id = $1`
 
 	var repoOwner, repoName, cloneURL, sshURL, ref, commitSHA, commitURL, commitMessage,
-		commitAuthorName, commitAuthorEmail, commitAuthorUsername, pusherName, pusherEmail sql.NullString
+		commitAuthorName, commitAuthorEmail, commitAuthorUsername, pusherName, pusherEmail, triggerEventID sql.NullString
 	var checkRunID sql.NullInt64
 
 	err := a.db.QueryRow(context.Background(), query, originalRunID).Scan(
 		&pipelineDef, &pipelineName, &pipelinePathDB, &pipelineVersionDB, &timeoutAt, &environment,
 		&repoOwner, &repoName, &cloneURL, &sshURL, &ref, &commitSHA, &commitURL, &commitMessage,
-		&commitAuthorName, &commitAuthorEmail, &commitAuthorUsername, &pusherName, &pusherEmail, &checkRunID,
+		&commitAuthorName, &commitAuthorEmail, &commitAuthorUsername, &pusherName, &pusherEmail, &checkRunID, &triggerEventID,
 	)
 
 	if err != nil {
@@ -3227,6 +3275,9 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	if checkRunID.Valid {
 		gitContext["check_run_id"] = strconv.FormatInt(checkRunID.Int64, 10)
 	}
+	if triggerEventID.Valid {
+		gitContext["trigger_event_id"] = triggerEventID.String
+	}
 
 	var pipeline models.Pipeline
 	if err := yaml.Unmarshal([]byte(pipelineDef.String), &pipeline); err != nil {
@@ -3260,19 +3311,32 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 			groupID.Valid = true
 		}
 	}
+	var triggerEventIDSQL sql.NullString
+	id := strings.TrimSpace(gitContext["trigger_event_id"])
+	if id == "" {
+		id = deriveTriggerEventID(gitContext)
+	}
+	if id == "" {
+		id = runID.String()
+	}
+	if id != "" {
+		triggerEventIDSQL.String = id
+		triggerEventIDSQL.Valid = true
+		gitContext["trigger_event_id"] = id
+	}
 
 	_, err = a.db.Exec(context.Background(),
 		`INSERT INTO runs (run_id, pipeline_name, pipeline_path, pipeline_version, status, pipeline_definition,
 			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref,
 			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
 			git_commit_author_email, git_commit_author_username, git_pusher_name,
-			git_pusher_email, git_check_run_id, group_id, environment)
-			VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
+			git_pusher_email, git_check_run_id, group_id, trigger_event_id, environment)
+			VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)`,
 		runID, pipeline.Name, pipelinePathDB.String, pipeline.Version, pipelineDef.String,
 		gitContext["repo_owner"], gitContext["repo_name"], gitContext["clone_url"], gitContext["ssh_url"], gitContext["ref"],
 		gitContext["commit_sha"], gitContext["commit_url"], gitContext["commit_message"], gitContext["commit_author_name"],
 		gitContext["commit_author_email"], gitContext["commit_author_username"], gitContext["pusher_name"],
-		gitContext["pusher_email"], gitContext["check_run_id"], groupID, environment.String,
+		gitContext["pusher_email"], gitContext["check_run_id"], groupID, triggerEventIDSQL, environment.String,
 	)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to insert initial record for rerun")
