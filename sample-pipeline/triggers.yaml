@@ -7,17 +7,18 @@ triggers:
       - main
     pipelines:
       - main-pipeline.yaml
-      - secondary-pipeline.yaml
+      - general/include-pipeline
     environment: prod
 
   # Trigger for pushes to any feature branch
   - on: push
-    branches:
-      - 'test-**'
-    pipelines:
+    skip_branches:
+      - 'main'
+      - 'master'
+    pipelines: 
       - branch-pipeline.yaml
 
   # Trigger for new pull requests
   - on: pull_request
-    pipelines:
+    pipelines: 
       - main-pipeline.yaml

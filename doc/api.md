@@ -1,5 +1,7 @@
 docker-compose down -v ; docker container prune -f -a && docker volume prune -f -a && docker image prune -f -a
 
+curl -X POST http://localhost:8080/v1/internal/config/sync
+
 curl -X PUT -d '{"value": "General level secret prod env"}' \
   'http://localhost:8080/v1/secrets/TEST_SECRET?env=prod'
 
