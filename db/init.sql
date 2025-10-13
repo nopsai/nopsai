@@ -7,9 +7,9 @@ CREATE TABLE groups (
     UNIQUE(name)
 );
 
-CREATE TABLE runs (
+CREATE TABLE pipeline_runs (
     run_id UUID PRIMARY KEY,
-    parent_run_id UUID NULL REFERENCES runs(run_id) ON DELETE SET NULL,
+    parent_run_id UUID NULL REFERENCES pipeline_runs(run_id) ON DELETE SET NULL,
     parent_step_name VARCHAR(255),
     trigger_event_id VARCHAR(255),
     pipeline_name VARCHAR(255),
@@ -41,9 +41,9 @@ CREATE TABLE runs (
     failure_reason TEXT
 );
 
-CREATE TABLE tasks (
+CREATE TABLE task_runs (
     task_id UUID PRIMARY KEY,
-    run_id UUID NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+    run_id UUID NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
     step_name VARCHAR(255) NOT NULL,
     task_name VARCHAR(255) NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
@@ -54,9 +54,9 @@ CREATE TABLE tasks (
     UNIQUE(run_id, step_name, task_name)
 );
 
-CREATE TABLE steps (
+CREATE TABLE step_runs (
     step_id UUID PRIMARY KEY,
-    run_id UUID NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+    run_id UUID NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
     exit_code INT,
@@ -66,7 +66,7 @@ CREATE TABLE steps (
     UNIQUE(run_id, name)
 );
 
-CREATE TABLE trigger_overrides (
+CREATE TABLE triggers (
     id SERIAL PRIMARY KEY,
     repository_name VARCHAR(255) UNIQUE NOT NULL,
     trigger_definition TEXT NOT NULL,
@@ -84,7 +84,7 @@ CREATE TABLE pipelines (
     UNIQUE (path, name)
 );
 
-CREATE TABLE reusable_steps (
+CREATE TABLE steps (
     id SERIAL PRIMARY KEY,
     path TEXT NOT NULL DEFAULT '',
     name VARCHAR(255) NOT NULL,
@@ -115,11 +115,11 @@ CREATE TABLE environments (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE NULLS NOT DISTINCT (name, repository_name, environment)
 );
-CREATE TABLE run_logs (
+CREATE TABLE pipeline_run_logs (
     id SERIAL PRIMARY KEY,
-    run_id UUID NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+    run_id UUID NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
     timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     line TEXT NOT NULL
 );
 
-CREATE INDEX idx_run_logs_run_id ON run_logs(run_id);
+CREATE INDEX idx_pipeline_run_logs_run_id ON pipeline_run_logs(run_id);

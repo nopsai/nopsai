@@ -376,7 +376,7 @@ func (a *App) getRunListItem(runID string) (*RunListItem, error) {
             COALESCE(git_repo_owner, ''), COALESCE(git_repo_name, ''), started_at, finished_at,
 			parent_run_id, COALESCE(git_pusher_name, ''), COALESCE(git_ref, ''),
 			COALESCE(pipeline_source, ''), COALESCE(trigger_event_id, '')
-        FROM runs
+        FROM pipeline_runs
         WHERE run_id = $1
     `
 	err := a.db.QueryRow(context.Background(), query, runID).Scan(
@@ -1373,18 +1373,18 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to load existing repository environments: %w", err)
 	}
-	existingTriggers, err := loadExistingNames(ctx, tx, "SELECT repository_name FROM trigger_overrides")
+	existingTriggers, err := loadExistingNames(ctx, tx, "SELECT repository_name FROM triggers")
 	if err != nil {
 		return fmt.Errorf("failed to load existing trigger overrides: %w", err)
 	}
 
 	const pipelineUpsert = `INSERT INTO pipelines (path, name, version, definition, updated_at) VALUES ($1, $2, $3, $4, NOW())
 		ON CONFLICT (path, name) DO UPDATE SET version = $3, definition = $4, updated_at = NOW()`
-	const stepUpsert = `INSERT INTO reusable_steps (path, name, definition, updated_at) VALUES ($1, $2, $3, NOW())
+	const stepUpsert = `INSERT INTO steps (path, name, definition, updated_at) VALUES ($1, $2, $3, NOW())
 		ON CONFLICT (path, name) DO UPDATE SET definition = $3, updated_at = NOW()`
 	const envUpsert = `INSERT INTO environments (name, value, repository_name, environment, updated_at) VALUES ($1, $2, $3, $4, NOW())
 		ON CONFLICT (name, repository_name, environment) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
-	const triggerUpsert = `INSERT INTO trigger_overrides (repository_name, trigger_definition) VALUES ($1, $2)
+	const triggerUpsert = `INSERT INTO triggers (repository_name, trigger_definition) VALUES ($1, $2)
 		ON CONFLICT (repository_name) DO UPDATE SET trigger_definition = $2`
 
 	for key, stored := range pipelines {
@@ -1412,7 +1412,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) error {
 	deletedSteps := 0
 	for key, info := range existingSteps {
 		if _, ok := steps[key]; !ok {
-			if _, err := tx.Exec(ctx, "DELETE FROM reusable_steps WHERE path = $1 AND name = $2", info.path, info.name); err != nil {
+			if _, err := tx.Exec(ctx, "DELETE FROM steps WHERE path = $1 AND name = $2", info.path, info.name); err != nil {
 				return fmt.Errorf("failed to delete reusable step '%s': %w", key, err)
 			}
 			deletedSteps++
@@ -1476,7 +1476,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) error {
 	deletedTriggers := 0
 	for repoName := range existingTriggers {
 		if _, ok := triggers[repoName]; !ok {
-			if _, err := tx.Exec(ctx, "DELETE FROM trigger_overrides WHERE repository_name = $1", repoName); err != nil {
+			if _, err := tx.Exec(ctx, "DELETE FROM triggers WHERE repository_name = $1", repoName); err != nil {
 				return fmt.Errorf("failed to delete trigger override '%s': %w", repoName, err)
 			}
 			deletedTriggers++
@@ -1492,7 +1492,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) error {
 		Str("repo_name", repo).
 		Int("pipelines", len(pipelines)).
 		Int("pipelines_deleted", deletedPipelines).
-		Int("reusable_steps", len(steps)).
+		Int("steps", len(steps)).
 		Int("steps_deleted", deletedSteps).
 		Int("environments", len(generalEnvs)+len(repoEnvs)).
 		Int("environments_deleted", deletedGeneralEnvs+deletedRepoEnvs).
@@ -1559,7 +1559,7 @@ type stepKey struct {
 }
 
 func loadExistingStepKeys(ctx context.Context, tx pgx.Tx) (map[string]stepKey, error) {
-	rows, err := tx.Query(ctx, "SELECT path, name FROM reusable_steps")
+	rows, err := tx.Query(ctx, "SELECT path, name FROM steps")
 	if err != nil {
 		return nil, err
 	}
@@ -1678,7 +1678,7 @@ func (a *App) handleListPipelines(w http.ResponseWriter, r *http.Request) {
 
 // handleListTriggerOverrides retrieves the names of all repositories with active trigger overrides.
 func (a *App) handleListTriggerOverrides(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(context.Background(), "SELECT repository_name FROM trigger_overrides ORDER BY repository_name ASC")
+	rows, err := a.db.Query(context.Background(), "SELECT repository_name FROM triggers ORDER BY repository_name ASC")
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query trigger overrides from database")
 		http.Error(w, "Failed to retrieve trigger overrides", http.StatusInternalServerError)
@@ -1795,7 +1795,7 @@ func (a *App) handleGetTriggerOverride(w http.ResponseWriter, r *http.Request) {
 	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
 
 	var triggerDef string
-	err := a.db.QueryRow(context.Background(), "SELECT trigger_definition FROM trigger_overrides WHERE repository_name = $1", fullName).Scan(&triggerDef)
+	err := a.db.QueryRow(context.Background(), "SELECT trigger_definition FROM triggers WHERE repository_name = $1", fullName).Scan(&triggerDef)
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -1835,7 +1835,7 @@ func (a *App) handleCreateOrUpdateTriggerOverride(w http.ResponseWriter, r *http
 		return
 	}
 
-	query := `INSERT INTO trigger_overrides (repository_name, trigger_definition) VALUES ($1, $2)
+	query := `INSERT INTO triggers (repository_name, trigger_definition) VALUES ($1, $2)
 			  ON CONFLICT (repository_name) DO UPDATE SET trigger_definition = $2`
 	_, err = a.db.Exec(context.Background(), query, fullName, string(triggerDef))
 	if err != nil {
@@ -1851,7 +1851,7 @@ func (a *App) handleDeleteTriggerOverride(w http.ResponseWriter, r *http.Request
 	repoName := r.PathValue("repoName")
 	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
 
-	_, err := a.db.Exec(context.Background(), "DELETE FROM trigger_overrides WHERE repository_name = $1", fullName)
+	_, err := a.db.Exec(context.Background(), "DELETE FROM triggers WHERE repository_name = $1", fullName)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to delete trigger override from database")
 		http.Error(w, "Failed to delete trigger override", http.StatusInternalServerError)
@@ -2095,7 +2095,7 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
     	    COALESCE(git_repo_owner, ''), COALESCE(git_repo_name, ''), started_at, finished_at, parent_run_id,
     	    COALESCE(git_pusher_name, ''), COALESCE(git_ref, ''),
 			COALESCE(pipeline_source, ''), COALESCE(trigger_event_id, '')
-    	FROM runs
+    	FROM pipeline_runs
 	`
 	args := []interface{}{}
 	var conditions []string
@@ -2196,7 +2196,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 			started_at, finished_at, parent_run_id,
 			COALESCE(git_pusher_name, ''), pipeline_definition, COALESCE(git_ref, ''),
 			failure_reason, COALESCE(pipeline_source, ''), COALESCE(trigger_event_id, '')
-		FROM runs
+		FROM pipeline_runs
 		WHERE run_id = $1
 	`, runID).Scan(
 		&run.RunID, &run.PipelineName, &pipelinePath, &pipelineVersion, &run.Status, &commitSHA,
@@ -2239,7 +2239,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	if run.ParentRunID != nil && *run.ParentRunID != "" {
 		var parentPipelineName, parentPipelineVersion, parentPipelinePath string
 		err := a.db.QueryRow(context.Background(), `
-            SELECT pipeline_name, pipeline_path, pipeline_version FROM runs WHERE run_id = $1
+            SELECT pipeline_name, pipeline_path, pipeline_version FROM pipeline_runs WHERE run_id = $1
         `, *run.ParentRunID).Scan(&parentPipelineName, &parentPipelinePath, &parentPipelineVersion)
 		if err != nil {
 			log.Error().Err(err).Str("parent_run_id", *run.ParentRunID).Msg("Failed to query parent pipeline name")
@@ -2256,7 +2256,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	childRuns := make([]RunListItem, 0)
 	childRows, err := a.db.Query(context.Background(), `
 		SELECT run_id, pipeline_name, pipeline_path, pipeline_version, status, started_at, finished_at, parent_step_name, COALESCE(trigger_event_id, '')
-		FROM runs
+		FROM pipeline_runs
 		WHERE parent_run_id = $1
 		ORDER BY created_at ASC
 	`, runID)
@@ -2292,7 +2292,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 
 	taskRows, err := a.db.Query(context.Background(), `
 		SELECT task_id, step_name, task_name, status, exit_code, started_at, finished_at, task_index
-		FROM tasks
+		FROM task_runs
 		WHERE run_id = $1
 		ORDER BY task_index ASC
 	`, runID)
@@ -2426,7 +2426,7 @@ func allTasksDone(tasks []TaskDetail) bool {
 func (a *App) updateRunRecordWithFailure(runID uuid.UUID, reason string, gitContext map[string]string) {
 	log.Error().Str("run_id", runID.String()).Msg(reason)
 	_, err := a.db.Exec(context.Background(),
-		"UPDATE runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2",
+		"UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2",
 		reason, runID)
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID.String()).Msg("Failed to update run record with failure reason")
@@ -2456,7 +2456,7 @@ func (a *App) launchAndRunPipeline(
 	for _, step := range pipeline.Steps {
 		if step.Include != "" {
 			_, err := tx.Exec(context.Background(),
-				"INSERT INTO tasks (task_id, run_id, step_name, task_name, status, task_index) VALUES (gen_random_uuid(), $1, $2, $3, 'pending', $4)",
+				"INSERT INTO task_runs (task_id, run_id, step_name, task_name, status, task_index) VALUES (gen_random_uuid(), $1, $2, $3, 'pending', $4)",
 				runID, step.Name, step.Name, 1,
 			)
 			if err != nil {
@@ -2467,7 +2467,7 @@ func (a *App) launchAndRunPipeline(
 		} else if len(step.Tasks) > 0 {
 			for i, task := range step.Tasks {
 				_, err := tx.Exec(context.Background(),
-					"INSERT INTO tasks (task_id, run_id, step_name, task_name, status, task_index) VALUES (gen_random_uuid(), $1, $2, $3, 'pending', $4)",
+					"INSERT INTO task_runs (task_id, run_id, step_name, task_name, status, task_index) VALUES (gen_random_uuid(), $1, $2, $3, 'pending', $4)",
 					runID, step.Name, task.Name, i+1,
 				)
 				if err != nil {
@@ -2477,7 +2477,7 @@ func (a *App) launchAndRunPipeline(
 			}
 		} else { // Legacy step
 			_, err := tx.Exec(context.Background(),
-				"INSERT INTO tasks (task_id, run_id, step_name, task_name, status, task_index) VALUES (gen_random_uuid(), $1, $2, $3, 'pending', $4)",
+				"INSERT INTO task_runs (task_id, run_id, step_name, task_name, status, task_index) VALUES (gen_random_uuid(), $1, $2, $3, 'pending', $4)",
 				runID, step.Name, step.Name, 1,
 			)
 			if err != nil {
@@ -2765,7 +2765,7 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 		var storedRef sql.NullString
 		err := a.db.QueryRow(
 			context.Background(),
-			"SELECT git_ref FROM runs WHERE git_repo_owner = $1 AND git_repo_name = $2 AND git_commit_sha = $3 ORDER BY created_at DESC LIMIT 1",
+			"SELECT git_ref FROM pipeline_runs WHERE git_repo_owner = $1 AND git_repo_name = $2 AND git_commit_sha = $3 ORDER BY created_at DESC LIMIT 1",
 			owner, repo, commitSHA,
 		).Scan(&storedRef)
 		if err == nil && storedRef.Valid && strings.HasPrefix(storedRef.String, "refs/") {
@@ -3050,7 +3050,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		var originalPusherName sql.NullString
 
 		err := a.db.QueryRow(context.Background(),
-			`SELECT git_pusher_name FROM runs 
+			`SELECT git_pusher_name FROM pipeline_runs 
 			 WHERE git_commit_sha = $1 AND git_repo_owner = $2 AND git_repo_name = $3
 			 ORDER BY created_at DESC LIMIT 1`,
 			rerunCommitSHA, gitContext["repo_owner"], gitContext["repo_name"]).Scan(&originalPusherName)
@@ -3152,7 +3152,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err = a.db.Exec(context.Background(),
-		`INSERT INTO runs (run_id, parent_run_id, pipeline_name, pipeline_path, pipeline_version, status, pipeline_definition,
+		`INSERT INTO pipeline_runs (run_id, parent_run_id, pipeline_name, pipeline_path, pipeline_version, status, pipeline_definition,
 			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref,
 			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
 			git_commit_author_email, git_commit_author_username, git_pusher_name,
@@ -3213,7 +3213,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 
 	if timeoutDuration > 0 {
 		timeoutAt := time.Now().Add(timeoutDuration)
-		_, err := a.db.Exec(context.Background(), "UPDATE runs SET timeout_at = $1 WHERE run_id = $2", timeoutAt, runID)
+		_, err := a.db.Exec(context.Background(), "UPDATE pipeline_runs SET timeout_at = $1 WHERE run_id = $2", timeoutAt, runID)
 		if err != nil {
 			log.Error().Err(err).Str("run_id", runID.String()).Msg("Failed to update run timeout")
 		}
@@ -3243,7 +3243,7 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 				git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
 				git_commit_author_email, git_commit_author_username, git_pusher_name,
 				git_pusher_email, git_check_run_id, trigger_event_id
-			  FROM runs WHERE run_id = $1`
+			  FROM pipeline_runs WHERE run_id = $1`
 
 	var repoOwner, repoName, cloneURL, sshURL, ref, commitSHA, commitURL, commitMessage,
 		commitAuthorName, commitAuthorEmail, commitAuthorUsername, pusherName, pusherEmail, triggerEventID sql.NullString
@@ -3325,7 +3325,7 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	var timeoutDuration time.Duration
 	if timeoutAt.Valid {
 		var originalCreatedAt time.Time
-		err := a.db.QueryRow(context.Background(), "SELECT created_at FROM runs WHERE run_id = $1", originalRunID).Scan(&originalCreatedAt)
+		err := a.db.QueryRow(context.Background(), "SELECT created_at FROM pipeline_runs WHERE run_id = $1", originalRunID).Scan(&originalCreatedAt)
 		if err == nil {
 			timeoutDuration = timeoutAt.Time.Sub(originalCreatedAt)
 		}
@@ -3359,7 +3359,7 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err = a.db.Exec(context.Background(),
-		`INSERT INTO runs (run_id, pipeline_name, pipeline_path, pipeline_version, status, pipeline_definition,
+		`INSERT INTO pipeline_runs (run_id, pipeline_name, pipeline_path, pipeline_version, status, pipeline_definition,
 			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref,
 			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
 			git_commit_author_email, git_commit_author_username, git_pusher_name,
@@ -3426,14 +3426,14 @@ func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		defer tx.Rollback(context.Background())
 
-		_, err = tx.Exec(context.Background(), "UPDATE tasks SET status = 'running', started_at = NOW() WHERE run_id = $1 AND step_name = $2 AND task_name = $3", runID, stepName, taskName)
+		_, err = tx.Exec(context.Background(), "UPDATE task_runs SET status = 'running', started_at = NOW() WHERE run_id = $1 AND step_name = $2 AND task_name = $3", runID, stepName, taskName)
 		if err != nil {
 			log.Error().Err(err).Str("run_id", runID).Str("step", stepName).Str("task", taskName).Msg("Failed to update task start time")
 			http.Error(w, "Failed to update task status", http.StatusInternalServerError)
 			return
 		}
 
-		_, err = tx.Exec(context.Background(), "UPDATE runs SET started_at = NOW() WHERE run_id = $1 AND started_at IS NULL", runID)
+		_, err = tx.Exec(context.Background(), "UPDATE pipeline_runs SET started_at = NOW() WHERE run_id = $1 AND started_at IS NULL", runID)
 		if err != nil {
 			log.Error().Err(err).Str("run_id", runID).Msg("Failed to update run start time")
 			http.Error(w, "Failed to update task status", http.StatusInternalServerError)
@@ -3446,7 +3446,7 @@ func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		query := "UPDATE tasks SET status = $1, exit_code = $2, finished_at = NOW() WHERE run_id = $3 AND step_name = $4 AND task_name = $5"
+		query := "UPDATE task_runs SET status = $1, exit_code = $2, finished_at = NOW() WHERE run_id = $3 AND step_name = $4 AND task_name = $5"
 		_, err := a.db.Exec(context.Background(), query, update.Status, update.ExitCode, runID, stepName, taskName)
 		if err != nil {
 			log.Error().Err(err).Str("run_id", runID).Str("step", stepName).Str("task", taskName).Msg("Failed to update task finish status")
@@ -3480,7 +3480,7 @@ func (a *App) resolveStepIncludes(pipeline *models.Pipeline) (*models.Pipeline, 
 		}
 
 		var stepDefStr string
-		err = a.db.QueryRow(context.Background(), "SELECT definition FROM reusable_steps WHERE path = $1 AND name = $2", stepPath, includeName).Scan(&stepDefStr)
+		err = a.db.QueryRow(context.Background(), "SELECT definition FROM steps WHERE path = $1 AND name = $2", stepPath, includeName).Scan(&stepDefStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch included step '%s': %w", includeIdentifier, err)
 		}
@@ -3519,7 +3519,7 @@ func (a *App) resolveStepIncludes(pipeline *models.Pipeline) (*models.Pipeline, 
 }
 
 func (a *App) handleListReusableSteps(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(context.Background(), "SELECT path, name FROM reusable_steps ORDER BY path ASC, name ASC")
+	rows, err := a.db.Query(context.Background(), "SELECT path, name FROM steps ORDER BY path ASC, name ASC")
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query reusable steps from database")
 		http.Error(w, "Failed to retrieve reusable steps", http.StatusInternalServerError)
@@ -3552,7 +3552,7 @@ func (a *App) handleGetReusableStep(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var stepDef string
-	err = a.db.QueryRow(context.Background(), "SELECT definition FROM reusable_steps WHERE path = $1 AND name = $2", pathPart, namePart).Scan(&stepDef)
+	err = a.db.QueryRow(context.Background(), "SELECT definition FROM steps WHERE path = $1 AND name = $2", pathPart, namePart).Scan(&stepDef)
 	if err != nil {
 		log.Error().Err(err).Str("step", identifier).Msg("Reusable step not found in database")
 		http.Error(w, "Reusable step not found", http.StatusNotFound)
@@ -3605,7 +3605,7 @@ func (a *App) handleCreateOrUpdateReusableStep(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	query := `INSERT INTO reusable_steps (path, name, definition, updated_at) VALUES ($1, $2, $3, NOW())
+	query := `INSERT INTO steps (path, name, definition, updated_at) VALUES ($1, $2, $3, NOW())
 			  ON CONFLICT (path, name) DO UPDATE SET definition = $3, updated_at = NOW()`
 	_, err = a.db.Exec(context.Background(), query, dbPath, storedName, string(stepDef))
 	if err != nil {
@@ -3624,7 +3624,7 @@ func (a *App) handleDeleteReusableStep(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = a.db.Exec(context.Background(), "DELETE FROM reusable_steps WHERE path = $1 AND name = $2", pathPart, namePart)
+	_, err = a.db.Exec(context.Background(), "DELETE FROM steps WHERE path = $1 AND name = $2", pathPart, namePart)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to delete reusable step from database")
 		http.Error(w, "Failed to delete reusable step", http.StatusInternalServerError)
@@ -3648,7 +3648,7 @@ func (a *App) handleFinalizeRun(w http.ResponseWriter, r *http.Request) {
 	var failedStep, failedTask string
 	if finalStatus != "success" {
 		finalStatus = "failure" // Normalize status
-		err := a.db.QueryRow(context.Background(), "SELECT step_name, task_name FROM tasks WHERE run_id = $1 AND status NOT IN ('success', 'pending', 'skipped', 'failure (ignored)', 'running') ORDER BY finished_at ASC, started_at ASC LIMIT 1", runID).Scan(&failedStep, &failedTask)
+		err := a.db.QueryRow(context.Background(), "SELECT step_name, task_name FROM task_runs WHERE run_id = $1 AND status NOT IN ('success', 'pending', 'skipped', 'failure (ignored)', 'running') ORDER BY finished_at ASC, started_at ASC LIMIT 1", runID).Scan(&failedStep, &failedTask)
 		if err != nil {
 			log.Warn().Err(err).Str("run_id", runID).Msg("Could not determine the exact failed task for final status notification.")
 		}
@@ -3657,7 +3657,7 @@ func (a *App) handleFinalizeRun(w http.ResponseWriter, r *http.Request) {
 	var gitContext = make(map[string]string)
 	var repoOwner, repoName, commitSHA sql.NullString
 	var checkRunID sql.NullInt64
-	query := `SELECT git_repo_owner, git_repo_name, git_commit_sha, git_check_run_id FROM runs WHERE run_id = $1`
+	query := `SELECT git_repo_owner, git_repo_name, git_commit_sha, git_check_run_id FROM pipeline_runs WHERE run_id = $1`
 	err := a.db.QueryRow(context.Background(), query, runID).Scan(&repoOwner, &repoName, &commitSHA, &checkRunID)
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to retrieve git context for final notification")
@@ -3676,7 +3676,7 @@ func (a *App) handleFinalizeRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	_, err = a.db.Exec(context.Background(), "UPDATE runs SET status = $1, finished_at = NOW() WHERE run_id = $2 AND finished_at IS NULL", finalStatus, runID)
+	_, err = a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = $1, finished_at = NOW() WHERE run_id = $2 AND finished_at IS NULL", finalStatus, runID)
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to update final run status in DB from agent notification")
 	}
@@ -3693,7 +3693,7 @@ func (a *App) handleFinalizeRun(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleGetRunStatus(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("runID")
 	var status string
-	err := a.db.QueryRow(context.Background(), "SELECT status FROM runs WHERE run_id = $1", runID).Scan(&status)
+	err := a.db.QueryRow(context.Background(), "SELECT status FROM pipeline_runs WHERE run_id = $1", runID).Scan(&status)
 	if err != nil {
 		http.Error(w, "Run not found", http.StatusNotFound)
 		return
@@ -3707,7 +3707,7 @@ func (a *App) handleGetRunByCheckID(w http.ResponseWriter, r *http.Request) {
 	var runID string
 	// Find the latest run for this check_run_id, as there could be multiple re-runs
 	err := a.db.QueryRow(context.Background(),
-		"SELECT run_id FROM runs WHERE git_check_run_id = $1 ORDER BY created_at DESC LIMIT 1",
+		"SELECT run_id FROM pipeline_runs WHERE git_check_run_id = $1 ORDER BY created_at DESC LIMIT 1",
 		checkRunID).Scan(&runID)
 	if err != nil {
 		http.Error(w, "Run not found for this check run ID", http.StatusNotFound)
@@ -3723,7 +3723,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	secrets, err := a.prepareSecretsForPipeline(pipeline, gitContext, environment)
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to prepare secrets for pipeline")
-		a.db.Exec(context.Background(), "UPDATE runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", err.Error(), runID)
+		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", err.Error(), runID)
 		if gitContext["repo_owner"] != "" {
 			a.notifyGitBotOfFinalStatus("failure", "", "", err.Error(), gitContext)
 		}
@@ -3733,7 +3733,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	finalEnv, err := a.prepareEnvironmentForPipeline(pipeline, gitContext, environment)
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to prepare environment variables for pipeline")
-		a.db.Exec(context.Background(), "UPDATE runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", err.Error(), runID)
+		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", err.Error(), runID)
 		if gitContext["repo_owner"] != "" {
 			a.notifyGitBotOfFinalStatus("failure", "", "", err.Error(), gitContext)
 		}
@@ -3780,7 +3780,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	secretsJSON, err := json.Marshal(secrets)
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to marshal secrets")
-		a.db.Exec(context.Background(), "UPDATE runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", "Failed to marshal secrets", runID)
+		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", "Failed to marshal secrets", runID)
 		return
 	}
 
@@ -3868,7 +3868,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 
 			// Also insert into DB for historical storage
 			_, dbErr := a.db.Exec(context.Background(),
-				"INSERT INTO run_logs (run_id, line) VALUES ($1, $2)",
+				"INSERT INTO pipeline_run_logs (run_id, line) VALUES ($1, $2)",
 				runID, line)
 			if dbErr != nil {
 				log.Error().Err(dbErr).Str("run_id", runID).Msg("Failed to insert log line into DB")
@@ -3903,7 +3903,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	case err := <-errCh:
 		if err != nil {
 			log.Error().Err(err).Str("run_id", runID).Msg("Error waiting for agent container")
-			a.db.Exec(context.Background(), "UPDATE runs SET status = 'failure', finished_at = NOW() WHERE run_id = $1 AND finished_at IS NULL", runID)
+			a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW() WHERE run_id = $1 AND finished_at IS NULL", runID)
 		}
 	case status := <-statusCh:
 		log.Info().Str("run_id", runID).Int64("status_code", status.StatusCode).Msg("Agent container finished.")
@@ -3911,7 +3911,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		if status.StatusCode != 0 {
 			finalStatus = "failure"
 		}
-		a.db.Exec(context.Background(), "UPDATE runs SET status = $1, finished_at = NOW() WHERE run_id = $2 AND finished_at IS NULL", finalStatus, runID)
+		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = $1, finished_at = NOW() WHERE run_id = $2 AND finished_at IS NULL", finalStatus, runID)
 	}
 }
 
@@ -3953,9 +3953,9 @@ func (a *App) notifyGitBotOfTaskStatus(runID, stepName, taskName, taskStatus str
 	query := `
 		SELECT
 			r.git_repo_owner, r.git_repo_name, r.git_commit_sha, r.git_check_run_id, r.pipeline_definition,
-			t.task_index, (SELECT COUNT(*) FROM tasks WHERE run_id = r.run_id),
+			t.task_index, (SELECT COUNT(*) FROM task_runs WHERE run_id = r.run_id),
 			t.started_at, t.finished_at
-		FROM runs r JOIN tasks t ON r.run_id = t.run_id
+		FROM pipeline_runs r JOIN task_runs t ON r.run_id = t.run_id
 		WHERE r.run_id = $1 AND t.step_name = $2 AND t.task_name = $3`
 
 	err := a.db.QueryRow(context.Background(), query, runID, stepName, taskName).Scan(&repoOwner, &repoName, &commitSHA, &checkRunID, &pipelineDef, &taskIndex, &totalTasks, &startedAt, &finishedAt)
@@ -4102,7 +4102,7 @@ func branchMatchesAnyPattern(branchName string, patterns []string) bool {
 
 func (a *App) getTriggerOverride(fullName string) (string, error) {
 	var triggerDef string
-	err := a.db.QueryRow(context.Background(), "SELECT trigger_definition FROM trigger_overrides WHERE repository_name = $1", fullName).Scan(&triggerDef)
+	err := a.db.QueryRow(context.Background(), "SELECT trigger_definition FROM triggers WHERE repository_name = $1", fullName).Scan(&triggerDef)
 	if err == pgx.ErrNoRows {
 		return "", nil
 	}
@@ -4658,7 +4658,7 @@ func (a *App) handleListRepoBranches(w http.ResponseWriter, r *http.Request) {
 
 	query := `
 		SELECT DISTINCT git_ref
-		FROM runs
+		FROM pipeline_runs
 		WHERE git_repo_name = $1 AND git_ref IS NOT NULL
 		ORDER BY git_ref ASC
 	`
@@ -4691,7 +4691,7 @@ func (a *App) handleListRepoBranches(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleGetRunLogs(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("runID")
-	rows, err := a.db.Query(context.Background(), "SELECT timestamp, line FROM run_logs WHERE run_id = $1 ORDER BY timestamp ASC", runID)
+	rows, err := a.db.Query(context.Background(), "SELECT timestamp, line FROM pipeline_run_logs WHERE run_id = $1 ORDER BY timestamp ASC", runID)
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to query logs for run")
 		http.Error(w, "Failed to retrieve logs", http.StatusInternalServerError)
