@@ -2531,6 +2531,7 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 		pusher                      *github.User
 		cloneURL                    string
 		sshURL                      string
+		branchName                  string
 		commitURL                   string
 		commitMessage               string
 		commitAuthorName            string
@@ -2563,6 +2564,9 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 		repo = event.GetRepo().GetName()
 		commitSHA = event.GetAfter()
 		ref = event.GetRef()
+		if strings.HasPrefix(ref, "refs/heads/") {
+			branchName = strings.TrimPrefix(ref, "refs/heads/")
+		}
 		headCommit = event.HeadCommit
 		pusher = event.Pusher
 		beforeSHA = event.GetBefore()
@@ -2625,6 +2629,23 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 		repo = event.GetRepo().GetName()
 		commitSHA = event.GetPullRequest().GetHead().GetSHA()
 		ref = event.GetPullRequest().GetHead().GetRef()
+		branchName = ref
+		if strings.HasPrefix(branchName, "refs/heads/") {
+			branchName = strings.TrimPrefix(branchName, "refs/heads/")
+		} else if branchName != "" {
+			ref = fmt.Sprintf("refs/heads/%s", branchName)
+		}
+		if prUser := event.GetPullRequest().GetUser(); prUser != nil {
+			if name := prUser.GetName(); name != "" {
+				pusherName = name
+			} else {
+				pusherName = prUser.GetLogin()
+			}
+			pusherEmail = prUser.GetEmail()
+		}
+		if pusherName == "" && commitAuthorName != "" {
+			pusherName = commitAuthorName
+		}
 		log.Info().Str("repo", repoFullName).Str("commit", commitSHA).Msg("Processing pull_request event")
 	case *github.CheckRunEvent:
 		if event.GetAction() != "rerequested" {
@@ -2709,6 +2730,18 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 		log.Info().Msgf("Received unhandled event type '%s', ignoring.", eventType)
 		w.WriteHeader(http.StatusOK)
 		return
+	}
+
+	if eventType == "push" && branchName != "" {
+		hasOpenPR, err := a.branchHasOpenPullRequest(owner, repo, branchName)
+		if err != nil {
+			log.Error().Err(err).Str("repo", repoFullName).Str("branch", branchName).Msg("Failed to check for open pull requests; proceeding with push event")
+		} else if hasOpenPR {
+			log.Info().Str("repo", repoFullName).Str("branch", branchName).Msg("Skipping push event because branch has open pull request")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("Push event skipped: branch has open pull request."))
+			return
+		}
 	}
 
 	if owner == "" || repo == "" || commitSHA == "" {
@@ -4028,10 +4061,17 @@ func findPipelinesForEvent(manifest models.Manifest, eventType, ref string) ([]m
 		if eventType == "push" {
 			if strings.HasPrefix(ref, "refs/heads/") {
 				branchName := strings.TrimPrefix(ref, "refs/heads/")
-				for _, pattern := range trigger.Branches {
-					if matchBranchPattern(pattern, branchName) {
-						return trigger.Pipelines, trigger.Environment
+				branchIncluded := false
+				if len(trigger.Branches) > 0 {
+					branchIncluded = branchMatchesAnyPattern(branchName, trigger.Branches)
+				} else if len(trigger.SkipBranches) > 0 {
+					branchIncluded = true
+				}
+				if branchIncluded {
+					if branchMatchesAnyPattern(branchName, trigger.SkipBranches) {
+						continue
 					}
+					return trigger.Pipelines, trigger.Environment
 				}
 			} else if strings.HasPrefix(ref, "refs/tags/") {
 				tagName := strings.TrimPrefix(ref, "refs/tags/")
@@ -4049,6 +4089,15 @@ func findPipelinesForEvent(manifest models.Manifest, eventType, ref string) ([]m
 		}
 	}
 	return nil, ""
+}
+
+func branchMatchesAnyPattern(branchName string, patterns []string) bool {
+	for _, pattern := range patterns {
+		if matchBranchPattern(pattern, branchName) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *App) getTriggerOverride(fullName string) (string, error) {
@@ -4153,6 +4202,35 @@ func (a *App) requestGitBotDirectory(owner, repo, path string) (map[string]strin
 		respBody, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("git-bot contents request for '%s' failed with status %d: %s", path, resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
+}
+
+func (a *App) branchHasOpenPullRequest(owner, repo, branch string) (bool, error) {
+	payload := map[string]string{
+		"owner":  owner,
+		"repo":   repo,
+		"branch": branch,
+	}
+	body, _ := json.Marshal(payload)
+
+	url := fmt.Sprintf("%s/v1/github/branch/has-open-pr", a.cfg.NopsaiGitBotAPIURL)
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		var out struct {
+			HasOpenPR bool `json:"has_open_pr"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			return false, err
+		}
+		return out.HasOpenPR, nil
+	}
+
+	respBody, _ := io.ReadAll(resp.Body)
+	return false, fmt.Errorf("branch open PR check failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 }
 
 func (a *App) ensureConfigRepoAccessible(owner, repo string) error {

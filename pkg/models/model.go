@@ -13,11 +13,12 @@ type Manifest struct {
 
 // Trigger defines a rule for when a pipeline should be run.
 type Trigger struct {
-	On          string           `yaml:"on" json:"on"`
-	Branches    []string         `yaml:"branches,omitempty" json:"branches,omitempty"`
-	Tags        []string         `yaml:"tags,omitempty" json:"tags,omitempty"`
-	Pipelines   []PipelineSource `yaml:"pipelines" json:"pipelines"`
-	Environment string           `yaml:"environment,omitempty" json:"environment,omitempty"`
+	On           string           `yaml:"on" json:"on"`
+	Branches     []string         `yaml:"branches,omitempty" json:"branches,omitempty"`
+	SkipBranches []string         `yaml:"skip_branches,omitempty" json:"skip_branches,omitempty"`
+	Tags         []string         `yaml:"tags,omitempty" json:"tags,omitempty"`
+	Pipelines    []PipelineSource `yaml:"pipelines" json:"pipelines"`
+	Environment  string           `yaml:"environment,omitempty" json:"environment,omitempty"`
 }
 
 // PipelineSource defines a single pipeline to be run from a local path or stored definition.

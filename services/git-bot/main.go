@@ -120,6 +120,16 @@ type RepositoryAccessResponse struct {
 	DefaultBranch string `json:"default_branch,omitempty"`
 }
 
+type BranchPROpenRequest struct {
+	Owner  string `json:"owner"`
+	Repo   string `json:"repo"`
+	Branch string `json:"branch"`
+}
+
+type BranchPROpenResponse struct {
+	HasOpenPR bool `json:"has_open_pr"`
+}
+
 type PipelineContentRequest struct {
 	Owner  string                `json:"owner"`
 	Repo   string                `json:"repo"`
@@ -788,6 +798,41 @@ func (a *GitBotApp) handleCheckRepoAccess(w http.ResponseWriter, r *http.Request
 	json.NewEncoder(w).Encode(RepositoryAccessResponse{Accessible: true, DefaultBranch: defaultBranch})
 }
 
+func (a *GitBotApp) handleCheckBranchHasOpenPR(w http.ResponseWriter, r *http.Request) {
+	var req BranchPROpenRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Owner == "" || req.Repo == "" || req.Branch == "" {
+		writeJSONError(w, http.StatusBadRequest, "owner, repo, and branch are required")
+		return
+	}
+
+	options := &github.PullRequestListOptions{
+		State: "open",
+		Head:  fmt.Sprintf("%s:%s", req.Owner, req.Branch),
+		ListOptions: github.ListOptions{
+			PerPage: 1,
+		},
+	}
+
+	prs, _, err := a.ghClient.PullRequests.List(context.Background(), req.Owner, req.Repo, options)
+	if err != nil {
+		log.Error().Err(err).Str("owner", req.Owner).Str("repo", req.Repo).Str("branch", req.Branch).Msg("Failed to check open pull requests for branch")
+		writeJSONError(w, http.StatusInternalServerError, "failed to check pull requests")
+		return
+	}
+
+	response := BranchPROpenResponse{HasOpenPR: len(prs) > 0}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Error().Err(err).Msg("Failed to encode branch PR response")
+	}
+}
+
 func (a *GitBotApp) collectRepositoryContents(ctx context.Context, owner, repo, path, ref string, results map[string]string) error {
 	fileContent, dirContents, _, err := a.ghClient.Repositories.GetContents(
 		ctx,
@@ -1350,6 +1395,7 @@ func main() {
 	mux.HandleFunc("POST /v1/github/file", app.handleFetchFile)
 	mux.HandleFunc("POST /v1/github/contents", app.handleFetchDirectoryContents)
 	mux.HandleFunc("POST /v1/github/repo/access", app.handleCheckRepoAccess)
+	mux.HandleFunc("POST /v1/github/branch/has-open-pr", app.handleCheckBranchHasOpenPR)
 	mux.HandleFunc("POST /v1/github/pipeline", app.handleFetchPipeline)
 	mux.HandleFunc("POST /v1/checks/create", app.handleCreateCheckRun)
 	mux.HandleFunc("POST /v1/checks/initialize", app.handleInitializeCheckRun)

@@ -144,6 +144,17 @@ Here is the step-by-step lifecycle of a pipeline run:
 9.  **Pipeline Completion**: Once all steps are complete, the `agent` sends a final status to the `nopsai` server and terminates.
 10. **Final Status**: The `nopsai` server broadcasts the final status to the UI and updates the GitHub check run to "completed".
 
+## Trigger Manifest (`.nopsai/triggers.yaml`)
+
+Each trigger entry decides whether an incoming GitHub event should run one or more pipelines. The most common keys are:
+
+- `on`: the event type (`push`, `pull_request`, etc.).
+- `branches`: optional list of branch name patterns that *must* match (globs such as `feature-*` are supported).
+- `skip_branches`: optional list of branch patterns to exclude. This lets you configure a trigger that runs for every branch except a few (for example, skip `main` and `release-*`). If both `branches` and `skip_branches` are provided, the branch must match the former and must not match the latter.
+- `tags`: optional list of tag patterns for push events that target tags.
+- `pipelines`: the pipeline files to execute when the trigger matches.
+- `environment`: optional environment name to pass along with the run.
+
 ## 6\. Pipeline Features (`.yaml` Syntax)
 
 Nopsai pipelines are defined in YAML files and offer a powerful set of features.
