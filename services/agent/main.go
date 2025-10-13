@@ -578,21 +578,13 @@ func getPipelineDef(pipelineName string) ([]byte, error) {
 
 func run() int {
 	// --- Initialization ---
-	logLevelStr := os.Getenv("LOG_LEVEL")
-	if logLevelStr == "" {
-		logLevelStr = "info"
-	}
-	logLevel, err := zerolog.ParseLevel(logLevelStr)
-	if err != nil {
-		logLevel = zerolog.InfoLevel
-	}
 	logFormat := os.Getenv("LOG_FORMAT")
 	if logFormat == "console" {
 		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen})
 	} else {
 		zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	}
-	zerolog.SetGlobalLevel(logLevel)
+	zerolog.SetGlobalLevel(zerolog.TraceLevel)
 
 	runID := os.Getenv("RUN_ID")
 	pipelineName := os.Getenv("PIPELINE_NAME")
