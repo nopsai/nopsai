@@ -31,21 +31,47 @@
             .replace(/>/g, '&gt;');
     }
 
-    function getTriggerGroupId(run) {
-        if (!run || typeof run !== 'object') return '';
-        if (run.trigger_event_id) return String(run.trigger_event_id);
-        if (run.trigger_group_id) return String(run.trigger_group_id);
+    function escapeForSelector(value) {
+        if (value === null || value === undefined) return '';
+        const str = String(value);
+        if (typeof CSS !== 'undefined' && CSS && typeof CSS.escape === 'function') {
+            return CSS.escape(str);
+        }
+        return str.replace(/["\\]/g, '\\$&');
+    }
+
+    function computeTriggerGroupIdentifiers(run) {
+        if (!run || typeof run !== 'object') {
+            return { primary: '', secondary: '' };
+        }
+
+        const explicit = ((run.trigger_event_id || run.trigger_group_id || '') + '').trim();
         const owner = (run.git_repo_owner || '').toLowerCase();
         const name = (run.git_repo_name || '').toLowerCase();
         const ref = (run.git_ref || '').toLowerCase();
         const sha = (run.git_commit_sha || '').toLowerCase();
-        if (!owner && !name && !ref && !sha) return '';
-        return [owner, name, ref, sha].join('|');
+        const fallback = owner || name || ref || sha ? [owner, name, ref, sha].join('|') : '';
+
+        const primary = explicit || fallback;
+        const secondary = explicit && fallback && explicit !== fallback ? fallback : '';
+
+        return { primary, secondary };
+    }
+
+    function getTriggerGroupId(run) {
+        return computeTriggerGroupIdentifiers(run).primary;
     }
 
     function getTriggerGroupAttr(run) {
-        const id = getTriggerGroupId(run);
-        return id ? ` data-trigger-group-id="${escapeAttribute(id)}"` : '';
+        const { primary, secondary } = computeTriggerGroupIdentifiers(run);
+        let attrs = '';
+        if (primary) {
+            attrs += ` data-trigger-group-id="${escapeAttribute(primary)}"`;
+        }
+        if (secondary) {
+            attrs += ` data-trigger-group-alt="${escapeAttribute(secondary)}"`;
+        }
+        return attrs;
     }
 
     function getPipelineNameHTML(run) {
@@ -488,22 +514,28 @@ if (dx !== 0 || dy !== 0) {
             const parentRunId = targetRunElement.dataset.parentRunId;
             const repoFullName = targetRunElement.dataset.repoFullName;
             const triggerGroupId = targetRunElement.dataset.triggerGroupId;
+            const triggerGroupAlt = targetRunElement.dataset.triggerGroupAlt;
 
             const highlightedElements = new Set();
 
-            if (triggerGroupId) {
-                document.querySelectorAll('[data-trigger-group-id]').forEach(el => {
-                    if (el.dataset.triggerGroupId === triggerGroupId) {
-                        highlightedElements.add(el);
-                    }
-                });
-            }
+            const groupIds = new Set();
+            if (triggerGroupId) groupIds.add(triggerGroupId);
+            if (triggerGroupAlt) groupIds.add(triggerGroupAlt);
+
+            groupIds.forEach(id => {
+                const safeId = escapeForSelector(id);
+                if (!safeId) return;
+                document.querySelectorAll(`[data-trigger-group-id="${safeId}"]`).forEach(el => highlightedElements.add(el));
+                document.querySelectorAll(`[data-trigger-group-alt="${safeId}"]`).forEach(el => highlightedElements.add(el));
+            });
 
             const mainParentId = parentRunId || runId;
             if (mainParentId) {
                 document.querySelectorAll(`[data-run-id="${mainParentId}"]`).forEach(el => highlightedElements.add(el));
                 document.querySelectorAll(`[data-parent-run-id="${mainParentId}"]`).forEach(el => highlightedElements.add(el));
             }
+
+            highlightedElements.add(targetRunElement);
 
             highlightedElements.forEach(el => {
                 if (el.matches('a, div[data-href]')) {
@@ -897,7 +929,7 @@ if (dx !== 0 || dy !== 0) {
         const repoOwner = runData.git_repo_owner || '';
         const repoName = runData.git_repo_name || '';
         const repoFullName = `${repoOwner}/${repoName}`;
-        const triggerGroupId = getTriggerGroupId(runData);
+        const { primary: triggerGroupId, secondary: triggerGroupAlt } = computeTriggerGroupIdentifiers(runData);
         elements.forEach(el => {
             if (repoOwner || repoName) {
                 el.dataset.repoFullName = repoFullName;
@@ -913,6 +945,11 @@ if (dx !== 0 || dy !== 0) {
                 el.dataset.triggerGroupId = triggerGroupId;
             } else {
                 delete el.dataset.triggerGroupId;
+            }
+            if (triggerGroupAlt) {
+                el.dataset.triggerGroupAlt = triggerGroupAlt;
+            } else {
+                delete el.dataset.triggerGroupAlt;
             }
             if (el.hasAttribute('data-href')) { // It's a run card
                 el.innerHTML = renderRunCardHTML(runData);
