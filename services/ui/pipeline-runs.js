@@ -870,7 +870,7 @@ if (dx !== 0 || dy !== 0) {
         const pipelineNameHTML = getPipelineNameHTML(run);
         
         return `
-            <a href="#/pipelineruns/run/${run.run_id}" class="flex items-center p-2 text-sm text-[var(--text-secondary)] rounded-md ${isActive ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : ''}">
+            <a href="#/pipelineruns/run/${run.run_id}" class="sidebar-run-link flex items-center p-2 text-sm text-[var(--text-secondary)] rounded-md ${isActive ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)] sidebar-run-link--active' : ''}">
                 <svg class="h-4 w-4 mr-2 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
                 <div class="flex-1 overflow-hidden">
                     <div class="flex justify-between items-center">
@@ -930,7 +930,7 @@ if (dx !== 0 || dy !== 0) {
             <div data-href="#/pipelineruns/run/${run.run_id}"
                 data-run-id="${run.run_id}" 
                 data-repo-full-name="${repoFullName}"${parentAttr}${getTriggerGroupAttr(run)}
-                class="block bg-[var(--bg-primary)] transition-all duration-200 rounded-lg p-4 flex flex-col justify-between cursor-pointer border border-[var(--border-primary)] shadow-sm">
+                class="run-card block bg-[var(--bg-primary)] transition-all duration-200 rounded-lg p-4 flex flex-col justify-between cursor-pointer border border-[var(--border-primary)] shadow-sm">
                 ${renderRunCardHTML(run)}
             </div>`;
     }
