@@ -4525,7 +4525,7 @@ func (a *App) handleGetGroups(w http.ResponseWriter, r *http.Request) {
 	query := `
         SELECT g.id, MAX(r.started_at)
         FROM groups g
-        JOIN runs r ON g.id = r.group_id
+        JOIN pipeline_runs r ON g.id = r.group_id
         GROUP BY g.id
     `
 	runRows, err := a.db.Query(context.Background(), query)
