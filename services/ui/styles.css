@@ -160,16 +160,48 @@ body {
 }
 .dragging { opacity: 0.5; }
 
-.run-link-highlight,
+.run-link-highlight {
+    background-color: inherit !important;
+    border-color: rgba(250, 204, 21, 0.45) !important;
+    box-shadow: inset 0 0 0 2px rgba(250, 204, 21, 0.35), inset 0 0 10px rgba(250, 204, 21, 0.25);
+    outline: none;
+}
+
 .sidebar-link-highlight > a,
 .sidebar-link-highlight > div {
-    outline: 1.5px solid var(--run-highlight-outline);
-    box-shadow: 0 0 16px 3px var(--run-highlight-shadow);
-    background-color: var(--run-highlight-background) !important;
+    background-color: inherit !important;
+    border-color: rgba(250, 204, 21, 0.35) !important;
+    box-shadow: inset 0 0 0 2px rgba(250, 204, 21, 0.35), inset 0 0 8px rgba(250, 204, 21, 0.2);
+    outline: none;
+}
+
+.run-card {
+    transition: border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out, transform 0.2s ease-in-out;
+}
+
+.run-card:hover {
+    border-color: rgba(250, 204, 21, 0.45);
+    box-shadow: inset 0 0 0 2px rgba(250, 204, 21, 0.35), 0 10px 24px rgba(250, 204, 21, 0.18);
+    background-color: inherit !important;
+}
+
+.sidebar-run-link {
+    border: 1px solid transparent;
+    transition: border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out, background-color 0.2s ease-in-out;
+}
+
+.sidebar-run-link:hover {
+    border-color: rgba(250, 204, 21, 0.35);
+    box-shadow: inset 0 0 0 2px rgba(250, 204, 21, 0.35), inset 0 0 8px rgba(250, 204, 21, 0.18);
+    background-color: inherit !important;
+}
+
+.sidebar-run-link--active {
+    border-color: var(--border-primary);
 }
 
 [data-run-id], [data-run-id] > a {
-    transition: outline 0.2s ease-in-out, box-shadow 0.2s ease-in-out, background-color 0.2s ease-in-out;
+    transition: border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
 }
 .themed-bg-blur {
     background-color: rgba(249, 250, 251, 0.5); /* gray-50/50 */
