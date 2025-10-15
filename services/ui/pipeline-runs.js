@@ -40,38 +40,15 @@
         return str.replace(/["\\]/g, '\\$&');
     }
 
-    function computeTriggerGroupIdentifiers(run) {
-        if (!run || typeof run !== 'object') {
-            return { primary: '', secondary: '' };
-        }
-
-        const explicit = ((run.trigger_event_id || run.trigger_group_id || '') + '').trim();
-        const owner = (run.git_repo_owner || '').toLowerCase();
-        const name = (run.git_repo_name || '').toLowerCase();
-        const ref = (run.git_ref || '').toLowerCase();
-        const sha = (run.git_commit_sha || '').toLowerCase();
-        const fallback = owner || name || ref || sha ? [owner, name, ref, sha].join('|') : '';
-
-        const primary = explicit || fallback;
-        const secondary = explicit && fallback && explicit !== fallback ? fallback : '';
-
-        return { primary, secondary };
-    }
-
     function getTriggerGroupId(run) {
-        return computeTriggerGroupIdentifiers(run).primary;
+        if (!run || typeof run !== 'object') return '';
+        const id = run.trigger_event_id;
+        return id === undefined || id === null || id === '' ? '' : String(id);
     }
 
     function getTriggerGroupAttr(run) {
-        const { primary, secondary } = computeTriggerGroupIdentifiers(run);
-        let attrs = '';
-        if (primary) {
-            attrs += ` data-trigger-group-id="${escapeAttribute(primary)}"`;
-        }
-        if (secondary) {
-            attrs += ` data-trigger-group-alt="${escapeAttribute(secondary)}"`;
-        }
-        return attrs;
+        const id = getTriggerGroupId(run);
+        return id ? ` data-trigger-group-id="${escapeAttribute(id)}"` : '';
     }
 
     function getPipelineNameHTML(run) {
@@ -510,29 +487,16 @@ if (dx !== 0 || dy !== 0) {
 
         if (event.type === 'mouseover' && targetRunElement) {
             // --- Hovering over a RUN CARD or a SIDEBAR RUN LINK ---
-            const runId = targetRunElement.dataset.runId;
-            const parentRunId = targetRunElement.dataset.parentRunId;
             const repoFullName = targetRunElement.dataset.repoFullName;
             const triggerGroupId = targetRunElement.dataset.triggerGroupId;
-            const triggerGroupAlt = targetRunElement.dataset.triggerGroupAlt;
 
             const highlightedElements = new Set();
 
-            const groupIds = new Set();
-            if (triggerGroupId) groupIds.add(triggerGroupId);
-            if (triggerGroupAlt) groupIds.add(triggerGroupAlt);
-
-            groupIds.forEach(id => {
-                const safeId = escapeForSelector(id);
-                if (!safeId) return;
-                document.querySelectorAll(`[data-trigger-group-id="${safeId}"]`).forEach(el => highlightedElements.add(el));
-                document.querySelectorAll(`[data-trigger-group-alt="${safeId}"]`).forEach(el => highlightedElements.add(el));
-            });
-
-            const mainParentId = parentRunId || runId;
-            if (mainParentId) {
-                document.querySelectorAll(`[data-run-id="${mainParentId}"]`).forEach(el => highlightedElements.add(el));
-                document.querySelectorAll(`[data-parent-run-id="${mainParentId}"]`).forEach(el => highlightedElements.add(el));
+            if (triggerGroupId) {
+                const safeId = escapeForSelector(triggerGroupId);
+                if (safeId) {
+                    document.querySelectorAll(`[data-trigger-group-id="${safeId}"]`).forEach(el => highlightedElements.add(el));
+                }
             }
 
             highlightedElements.add(targetRunElement);
@@ -929,7 +893,7 @@ if (dx !== 0 || dy !== 0) {
         const repoOwner = runData.git_repo_owner || '';
         const repoName = runData.git_repo_name || '';
         const repoFullName = `${repoOwner}/${repoName}`;
-        const { primary: triggerGroupId, secondary: triggerGroupAlt } = computeTriggerGroupIdentifiers(runData);
+        const triggerGroupId = getTriggerGroupId(runData);
         elements.forEach(el => {
             if (repoOwner || repoName) {
                 el.dataset.repoFullName = repoFullName;
@@ -945,11 +909,6 @@ if (dx !== 0 || dy !== 0) {
                 el.dataset.triggerGroupId = triggerGroupId;
             } else {
                 delete el.dataset.triggerGroupId;
-            }
-            if (triggerGroupAlt) {
-                el.dataset.triggerGroupAlt = triggerGroupAlt;
-            } else {
-                delete el.dataset.triggerGroupAlt;
             }
             if (el.hasAttribute('data-href')) { // It's a run card
                 el.innerHTML = renderRunCardHTML(runData);
