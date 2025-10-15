@@ -5,6 +5,10 @@ networks:
     driver: bridge
     name: nopsai-net
 
+volumes:
+  db:
+    name: db
+    
 services:
   base:
     container_name: nopsai-base
@@ -26,6 +30,7 @@ services:
       - "5432:5432"
     volumes:
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      -  db:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U nopsai_user -d nopsai_db"]
       interval: 5s
