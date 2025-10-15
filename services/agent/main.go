@@ -476,6 +476,10 @@ func triggerPipeline(parentRunID, parentPipelineName, parentStepName, pipelineId
 		req.Header.Set("X-Nopsai-Environment", environment)
 	}
 
+	if triggerEventID := os.Getenv("GIT_TRIGGER_EVENT_ID"); triggerEventID != "" {
+		req.Header.Set("X-Nopsai-Trigger-Event-ID", triggerEventID)
+	}
+
 	for _, e := range os.Environ() {
 		if strings.HasPrefix(e, "GIT_") {
 			parts := strings.SplitN(e, "=", 2)
