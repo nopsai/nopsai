@@ -301,11 +301,12 @@ type ParentRunInfo struct {
 }
 
 type RunDetail struct {
-	RunInfo            RunListItem     `json:"run_info"`
-	Steps              []StepDetail    `json:"steps"`
-	PipelineDefinition models.Pipeline `json:"pipeline_definition"`
-	ChildRuns          []RunListItem   `json:"child_runs"`
-	ParentRunInfo      *ParentRunInfo  `json:"parent_run_info,omitempty"`
+	RunInfo                RunListItem     `json:"run_info"`
+	Steps                  []StepDetail    `json:"steps"`
+	PipelineDefinition     models.Pipeline `json:"pipeline_definition"`
+	PipelineDefinitionYAML string          `json:"pipeline_definition_yaml"`
+	ChildRuns              []RunListItem   `json:"child_runs"`
+	ParentRunInfo          *ParentRunInfo  `json:"parent_run_info,omitempty"`
 }
 
 type suiteCheckRunResponse struct {
@@ -2400,11 +2401,12 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := RunDetail{
-		RunInfo:            run,
-		Steps:              steps,
-		PipelineDefinition: originalPipeline,
-		ChildRuns:          childRuns,
-		ParentRunInfo:      parentRunInfo,
+		RunInfo:                run,
+		Steps:                  steps,
+		PipelineDefinition:     originalPipeline,
+		PipelineDefinitionYAML: pipelineDefinition,
+		ChildRuns:              childRuns,
+		ParentRunInfo:          parentRunInfo,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
