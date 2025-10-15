@@ -1215,7 +1215,7 @@ if (dx !== 0 || dy !== 0) {
 
     document.getElementById('view-pipeline-definition-link').addEventListener('click', (e) => {
         e.preventDefault();
-        showPipelineDefinitionModal(runDetails.pipeline_definition);
+        showPipelineDefinitionModal(runDetails.pipeline_definition_yaml || runDetails.pipeline_definition);
     });
 
     resetMainView();
@@ -1415,10 +1415,10 @@ function showPipelineDefinitionModal(pipelineDefinition) {
         };
 
         let pipelineYAML;
-        if(typeof runDetails.pipeline_definition === 'string') {
-            pipelineYAML = runDetails.pipeline_definition;
-        } else if (typeof runDetails.pipeline_definition === 'object' && runDetails.pipeline_definition !== null) {
-            pipelineYAML = toYAML(runDetails.pipeline_definition);
+        if (typeof pipelineDefinition === 'string') {
+            pipelineYAML = pipelineDefinition;
+        } else if (typeof pipelineDefinition === 'object' && pipelineDefinition !== null) {
+            pipelineYAML = toYAML(pipelineDefinition);
         } else {
             pipelineYAML = 'Pipeline definition is not available.';
         }
@@ -3176,7 +3176,7 @@ if (false && state.currentGraphView === 'tasks') {
         renderLogsWithFilters();
       });
     }
-        if (DOM.downloadLogsBtn) {
+    if (DOM.downloadLogsBtn) {
       DOM.downloadLogsBtn.addEventListener('click', () => {
         try {
           const text = DOM.logsContainer?.innerText || '';
@@ -3199,6 +3199,16 @@ if (false && state.currentGraphView === 'tasks') {
           alert('Could not download the logs.');
         }
       });
+    }
+
+    if (DOM.addGroupForm) {
+      DOM.addGroupForm.addEventListener('submit', createGroup);
+    }
+    if (DOM.closeAddGroupModalBtn) {
+      DOM.closeAddGroupModalBtn.addEventListener('click', closeAddGroupModal);
+    }
+    if (DOM.cancelAddGroupBtn) {
+      DOM.cancelAddGroupBtn.addEventListener('click', closeAddGroupModal);
     }
         if (DOM.graphContainer) {
       DOM.graphContainer.addEventListener('click', (e) => {
