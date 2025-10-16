@@ -247,17 +247,30 @@
     }
 
     function buildLogsFilters() {
-        state.logsAllSteps = (state.currentRunData?.steps || []).map(s => s.name);
+        const steps = Array.isArray(state.currentRunData?.steps) ? state.currentRunData.steps : [];
+        state.logsAllSteps = steps.map(s => s.name);
+        state.logsStepStatuses = new Map(steps.map(s => [s.name, s.status || '']));
         updateLogsStepList();
     }
 
     function updateLogsStepList() {
         const list = DOM.logsStepList; if (!list) return;
         const q = (DOM.logsStepSearch?.value || '').toLowerCase();
-        const steps = (state.logsAllSteps || []).filter(n => !q || n.toLowerCase().includes(q));
+        const statusMap = state.logsStepStatuses instanceof Map ? state.logsStepStatuses : new Map();
+        const steps = (state.logsAllSteps || [])
+            .filter(name => !q || name.toLowerCase().includes(q))
+            .map(name => ({ name, status: statusMap.get(name) || '' }));
         const selectedOrder = Array.from(state.logsSelectedSteps || []);
 
-        list.innerHTML = steps.map(name => {
+        const statusBadge = (status) => {
+          const trimmed = (status || '').trim();
+          if (!trimmed) return '';
+          const clean = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+          const label = trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+          return `<span class="logs-status-badge logs-status-${clean}">${label}</span>`;
+        };
+
+        list.innerHTML = steps.map(({ name, status }) => {
           const isSelected = state.logsSelectedSteps.has(name);
           const idx = isSelected ? (selectedOrder.indexOf(name) % 8) : -1;
           const selClass = isSelected ? (` is-active c${idx}`) : '';
@@ -265,6 +278,7 @@
           return `
             <button type="button" class="logs-step-item w-full text-left px-3 py-1.5 rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] text-xs${selClass}" data-step="${name}">
               <span class="inline-flex items-center gap-2 truncate"><span>${dot}</span><span class="truncate">${name}</span></span>
+              ${statusBadge(status)}
             </button>`;
         }).join('');
     }
