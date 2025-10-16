@@ -986,15 +986,28 @@ func run() int {
 				var historyGoal string
 				var llmDurationMs int64
 
+				goalText := strings.TrimSpace(task.Goal)
+				if goalText == "" {
+					goalText = strings.TrimSpace(step.Goal)
+				}
+
 				if task.Script != "" {
-					taskLogger.Info().Msg("Executing direct script")
+					if goalText != "" {
+						taskLogger.Info().Msgf("Executing direct script for goal: %s", goalText)
+					} else {
+						taskLogger.Info().Msg("Executing direct script")
+					}
 					action = &proto.Action{
 						Type:    "EXECUTE_COMMAND",
 						Payload: &proto.Action_CommandAction{CommandAction: &proto.CommandAction{Command: task.Script}},
 					}
 					actionStr = task.Script
 				} else {
-					taskLogger.Info().Msg("Resolving goal with LLM")
+					if goalText != "" {
+						taskLogger.Info().Msgf("Resolving goal with LLM: %s", goalText)
+					} else {
+						taskLogger.Info().Msg("Resolving goal with LLM")
+					}
 					shareContent := true
 					if pipeline.LlmContentSharing != nil {
 						shareContent = *pipeline.LlmContentSharing
@@ -1039,7 +1052,7 @@ func run() int {
 					}
 
 					req := &proto.GetActionRequest{
-						Goal:             task.Goal,
+						Goal:             goalText,
 						History:          historySnapshot,
 						DirectoryListing: directoryListing,
 						Environment:      envMap,
@@ -1059,7 +1072,7 @@ func run() int {
 					} else if file := action.GetFileAction(); file != nil {
 						actionStr = fmt.Sprintf("Write to %s", file.Path)
 					} else if ans := action.GetAnswerAction(); ans != nil {
-						actionStr = task.Goal
+						actionStr = goalText
 					}
 				}
 
@@ -1088,7 +1101,7 @@ func run() int {
 				if task.LlmOutputSharing != nil {
 					shareOutput = *task.LlmOutputSharing
 				}
-				historyGoal = task.Goal
+				historyGoal = goalText
 				if historyGoal == "" {
 					historyGoal = fmt.Sprintf("Execute script for task: %s", task.Name)
 				}
