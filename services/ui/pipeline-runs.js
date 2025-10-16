@@ -148,6 +148,67 @@
         }
     }
 
+    function openLogsForTask(stepName, taskName) {
+        if (!state || !state.currentRunData) return;
+        if (typeof showLogsModal !== 'function') return;
+
+        const selectedSteps = new Set();
+        if (stepName) selectedSteps.add(stepName);
+        state.logsSelectedSteps = selectedSteps;
+        state.logsSearchText = taskName || '';
+        state._logsFocusFirstMatch = true;
+
+        if (DOM.logsSearch) {
+            DOM.logsSearch.value = state.logsSearchText;
+        }
+        if (DOM.logsStepSearch) {
+            DOM.logsStepSearch.value = '';
+        }
+
+        const logsVisible = DOM.logsModal && !DOM.logsModal.classList.contains('hidden');
+
+        if (logsVisible) {
+            if (typeof updateLogsStepList === 'function') updateLogsStepList();
+            if (typeof renderLogsWithFilters === 'function') renderLogsWithFilters({ scrollToTop: true });
+            if (typeof state.syncLogsHash === 'function') state.syncLogsHash({ replace: true });
+        } else {
+            showLogsModal();
+        }
+    }
+
+    function openLogsForStep(stepName) {
+        if (!stepName) return;
+        openLogsForTask(stepName, '');
+    }
+
+    function bindTaskGraphLogging(container) {
+        if (!container) return;
+        if (container.__taskLogsBound) return;
+        container.addEventListener('click', handleTaskGraphClick);
+        container.__taskLogsBound = true;
+    }
+
+    function handleTaskGraphClick(event) {
+        const node = event.target.closest('g.graph-node[data-task-name]');
+        if (!node) return;
+        if (node.dataset && node.dataset.context) return;
+
+        const taskName = node.dataset.taskName || '';
+        if (!taskName) return;
+
+        const container = event.currentTarget;
+        let stepName = (container && container.dataset && container.dataset.stepName) || '';
+        if (!stepName) {
+            const host = container.closest('[data-step-name]');
+            if (host && host.dataset.stepName) stepName = host.dataset.stepName;
+        }
+        if (!stepName) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        openLogsForTask(stepName, taskName);
+    }
+
     function normalizeParentId(id) {
         return id === null || id === undefined || id === 0 ? null : id;
     }
@@ -2406,8 +2467,10 @@ function renderStepsGraph(runDetails) {
                 const itemName = n.task_name || n.name;
                 const cx = originX + n.x + n.width / 2;
                 const cy = originY + n.y + n.height / 2;
+                const taskAttr = escapeAttribute(itemName);
+                const stepAttr = escapeAttribute(cluster.stepName || '');
                 svgClusters += `
-                    <g class=\"graph-node\" transform=\"translate(${cx}, ${cy})\"> 
+                    <g class=\"graph-node\" data-task-name=\"${taskAttr}\" data-step-name=\"${stepAttr}\" transform=\"translate(${cx}, ${cy})\"> 
                       <path d=\"${config.icon}\" transform=\"translate(-12, -12) scale(1.1)\" stroke-width=\"2\" class=\"stroke-current ${config.color}\" fill=\"none\"></path>
                       <text x=\"0\" y=\"30\" text-anchor=\"middle\" class=\"text-xs font-medium fill-current text-[var(--text-secondary)]\">${itemName}</text>
                       <text x=\"0\" y=\"46\" text-anchor=\"middle\" class=\"text-[10px] fill-current text-[var(--text-secondary)]\">${duration}</text>
@@ -2534,6 +2597,9 @@ function renderTaskGraphBoxes(container, stepName, tasks) {
             return;
         }
 
+        container.dataset.stepName = stepName || '';
+        bindTaskGraphLogging(container);
+
         const stepDef = pipelineSteps.find(s => s.name === stepName);
         const itemsWithDeps = tasks.map(item => {
             if (item.task_name) {
@@ -2623,9 +2689,11 @@ const itemName = node.task_name || node.name;
 
 const x = node.x, y = node.y, w = node.width, h = node.height;
 const cx = x + w / 2;
+const taskAttr = escapeAttribute(itemName);
+const stepAttr = escapeAttribute(stepName || '');
 
 svg += `
-  <g transform="translate(${x}, ${y})">
+  <g class="graph-node" data-task-name="${taskAttr}" data-step-name="${stepAttr}" transform="translate(${x}, ${y})">
     <rect width="${w}" height="${h}" rx="10" ry="10"
           style="fill:var(--bg-primary);stroke:var(--border-primary);stroke-width:1.5"
           vector-effect="non-scaling-stroke"></rect>
@@ -3088,6 +3156,7 @@ async function renderModalForStep(runId, stepName, parentContext = null) {
         const stepDef = (pipelineSteps || []).find(s => s.name === stepName) || null;
 
         const config = statusConfig[step.status.toLowerCase()] || statusConfig.pending;
+        const safeStepAttr = escapeAttribute(stepName);
         const modalHeader = document.querySelector('#modal-content > div:first-child');
         const closeButtonHTML = modalHeader.querySelector('#close-modal-btn').outerHTML;
         let headerHTML = `
@@ -3096,6 +3165,10 @@ async function renderModalForStep(runId, stepName, parentContext = null) {
                 <div class="flex items-center space-x-6 mt-1 text-sm">
                     <div><span class="text-[var(--text-secondary)]">Status: </span><span id="modal-status" class="font-medium ${config.color}">${step.status}</span></div>
                     <div><span class="text-[var(--text-secondary)]">Duration: </span><span id="modal-duration" class="font-medium">${step.duration || '0s'}</span></div>
+                    <button id="step-modal-open-logs-btn" data-step-name="${safeStepAttr}" class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md border border-[var(--border-primary)] text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-accent)]">
+                        <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7" /></svg>
+                        View Logs
+                    </button>
                 </div>
             </div>`;
         if (parentContext) {
@@ -3204,6 +3277,9 @@ function renderTaskGraph(container, stepName, tasks, clickableNodeContext = null
             return;
         }
 
+        container.dataset.stepName = stepName || '';
+        bindTaskGraphLogging(container);
+
         const stepDef = pipelineSteps.find(s => s.name === stepName);
         const itemsWithDeps = tasks.map(item => {
             if (item.task_name) {
@@ -3282,8 +3358,11 @@ if (clickableNodeContext) {
   clickableAttrs = `class="graph-node" data-context='${contextString}'`;
 }
 
+const taskAttr = escapeAttribute(itemName);
+const stepAttr = escapeAttribute(stepName || '');
+
 svgContent += `
-  <g transform="translate(0,0)" ${clickableAttrs} data-task-name="${itemName}">
+  <g transform="translate(0,0)" ${clickableAttrs} data-task-name="${taskAttr}" data-step-name="${stepAttr}">
     <g transform="translate(${cx}, ${cy})">
       <path d="${config.icon}" transform="translate(-12, -12) scale(1.1)"
             stroke-width="2" class="stroke-current ${config.color}" fill="none"/>
@@ -3715,10 +3794,21 @@ if (false && state.currentGraphView === 'tasks') {
           return;
         }
 
-        const innerTaskNode = e.target.closest('g.graph-node');
-        if (innerTaskNode && !innerTaskNode.dataset.stepName) return;
-
         const stepEl = e.target.closest('[data-step-name]');
+        const taskNode = e.target.closest('g.graph-node[data-task-name]');
+        if (taskNode) {
+          if (!(taskNode.dataset && taskNode.dataset.context)) {
+            const taskStepName = taskNode.dataset.stepName || (stepEl && stepEl.dataset.stepName) || '';
+            const taskName = taskNode.dataset.taskName || '';
+            if (taskStepName && taskName) {
+              e.preventDefault();
+              e.stopPropagation();
+              openLogsForTask(taskStepName, taskName);
+              return;
+            }
+          }
+        }
+
         if (stepEl && stepEl.dataset.stepName) {
           try {
             const panEl = state._panElement || DOM.graphWrapper;
@@ -3857,6 +3947,12 @@ if (false && state.currentGraphView === 'tasks') {
                 if (closeBtn) {
                     stripStepFromHashWithoutRouting();
                     closeModal();
+                    return;
+                }
+
+                const logsBtn = e.target.closest('#step-modal-open-logs-btn');
+                if (logsBtn && logsBtn.dataset.stepName) {
+                    openLogsForStep(logsBtn.dataset.stepName);
                     return;
                 }
 
@@ -4026,6 +4122,8 @@ if (false && state.currentGraphView === 'tasks') {
 
             const info = e.target.closest('[data-step-info="true"]');
             if (info) { show('Details', 'accent', e.clientX, e.clientY); return; }
+            const taskNode = e.target.closest('g.graph-node[data-task-name]');
+            if (taskNode) { show('Logs', 'accent', e.clientX, e.clientY); return; }
             const collapse = e.target.closest('.step-collapse-badge');
             if (collapse) { show('Collapse', 'accent', e.clientX, e.clientY); return; }
             const cluster = e.target.closest('.step-cluster');
