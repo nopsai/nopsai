@@ -449,7 +449,7 @@ html.dark .log-line--sel.c7 { background-color: rgba(252,165,165,.14); }
 .log-step-token.c7 { background-color: rgba(244,63,94,.18); border-radius: 3px; padding: 0 2px; }
 /* Logs steps sidebar */
 #logs-steps-sidebar { -webkit-overflow-scrolling: touch; }
-.logs-step-item { border: 1px solid var(--border-primary); color: var(--text-primary); background: var(--bg-primary); transition: background .15s ease, border-color .15s ease; }
+.logs-step-item { border: 1px solid var(--border-primary); color: var(--text-primary); background: var(--bg-primary); transition: background .15s ease, border-color .15s ease; display: flex; align-items: center; gap: 0.5rem; }
 .logs-step-item.is-active { border-color: var(--border-accent); box-shadow: 0 0 0 1px var(--border-accent) inset; }
 /* Selected palette background to match log colors */
 .logs-step-item.is-active.c0 { background-color: rgba(99,102,241,.10); }
@@ -614,6 +614,31 @@ html.dark .step-cluster-box { fill: var(--bg-tertiary); opacity: .18; }
     flex: 1;
     color: var(--text-primary);
 }
+
+.logs-status-badge {
+    margin-left: auto;
+    padding: 0.1rem 0.4rem;
+    border-radius: 9999px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: capitalize;
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+}
+
+.logs-status-success { color: #166534; background: rgba(22,101,52,0.12); }
+.logs-status-failure { color: #b91c1c; background: rgba(185,28,28,0.12); }
+.logs-status-running { color: #1d4ed8; background: rgba(29,78,216,0.12); }
+.logs-status-pending { color: #92400e; background: rgba(146,64,14,0.12); }
+.logs-status-skipped { color: #7c3aed; background: rgba(124,58,237,0.12); }
+.logs-status-warning { color: #b45309; background: rgba(180,83,9,0.12); }
+
+html.dark .logs-status-badge { background: rgba(148,163,184,0.12); }
+html.dark .logs-status-success { color: #4ade80; background: rgba(34,197,94,0.18); }
+html.dark .logs-status-failure { color: #f87171; background: rgba(248,113,113,0.18); }
+html.dark .logs-status-running { color: #60a5fa; background: rgba(96,165,250,0.18); }
+html.dark .logs-status-pending { color: #facc15; background: rgba(250,204,21,0.18); }
+html.dark .logs-status-skipped { color: #c4b5fd; background: rgba(196,181,253,0.18); }
 
 /* Also ensure the main container can scroll horizontally when unwrapped */
 .logs-unwrapped {
