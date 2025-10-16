@@ -57,15 +57,61 @@
 
         try { buildLogsFilters(); } catch {}
         try { initLogsUIControls(); } catch {}
+        try { updateAgentFilterButton(); } catch {}
+        updateShortModeUI();
 
         // Fetch historical logs, new ones will come via WebSocket
         fetchAndRenderLogs(runId);
         syncLogsHash({ replace: true });
     }
 
+    function setButtonActive(btn, active) {
+        if (!btn) return;
+        const classes = ['ring-1', 'ring-[var(--border-accent)]', 'text-[var(--text-primary)]'];
+        classes.forEach(cls => btn.classList.toggle(cls, !!active));
+        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    }
+
+    function updateAgentFilterButton() {
+        const btn = DOM?.logsToggleAgent || document.getElementById('logs-toggle-agent');
+        setButtonActive(btn, !!state.logsAgentOnly);
+    }
+
+    function setToggleDisabled(input, disabled) {
+        if (!input) return;
+        input.disabled = !!disabled;
+        const label = input.closest('label');
+        if (label) {
+            label.classList.toggle('opacity-50', !!disabled);
+        }
+    }
+
+    function updateShortModeUI() {
+        const shortOn = !!state.logsShortView;
+        const wrapToggle = document.getElementById('logs-toggle-wrap');
+        const structuredToggle = document.getElementById('logs-toggle-structured');
+        const shortToggle = DOM?.logsToggleShort || document.getElementById('logs-toggle-short');
+        if (shortToggle) {
+            shortToggle.checked = shortOn;
+        }
+        setToggleDisabled(wrapToggle, shortOn);
+        setToggleDisabled(structuredToggle, shortOn);
+    }
+
+    function getDefaultLevelSet() {
+        return new Set(DEFAULT_LOG_LEVELS);
+    }
+
+    function isDefaultLevelSelection() {
+        const set = state.logsLevelFilter instanceof Set ? state.logsLevelFilter : getDefaultLevelSet();
+        return set.size === DEFAULT_LOG_LEVELS.length && DEFAULT_LOG_LEVELS.every(level => set.has(level));
+    }
+
     function initLogsUIControls() {
         const wrap = document.getElementById('logs-toggle-wrap');
         const structured = document.getElementById('logs-toggle-structured');
+        const agentBtn = DOM?.logsToggleAgent || document.getElementById('logs-toggle-agent');
+        const shortToggle = DOM?.logsToggleShort || document.getElementById('logs-toggle-short');
         const firstInit = !controlsBound;
         controlsBound = true;
 
@@ -89,19 +135,49 @@
                 });
             }
         }
+        if (agentBtn) {
+            updateAgentFilterButton();
+            if (firstInit) {
+                agentBtn.addEventListener('click', () => {
+                    state.logsAgentOnly = !state.logsAgentOnly;
+                    updateAgentFilterButton();
+                    state._logsFocusFirstMatch = true;
+                    renderLogsWithFilters({ scrollToTop: true });
+                    syncLogsHash({ replace: true });
+                });
+            }
+        }
+        if (shortToggle) {
+            shortToggle.checked = !!state.logsShortView;
+            if (firstInit) {
+                shortToggle.addEventListener('change', () => {
+                    state.logsShortView = !!shortToggle.checked;
+                    updateShortModeUI();
+                    state._logsFocusFirstMatch = true;
+                    renderLogsWithFilters({ scrollToTop: true });
+                    syncLogsHash({ replace: true });
+                });
+            }
+        }
 
         document.querySelectorAll('[data-level-chip]').forEach(btn => {
             const lvl = btn.getAttribute('data-level-chip');
             const activate = () => btn.classList.add('ring-1','ring-[var(--border-accent)]','text-[var(--text-primary)]');
             const deactivate = () => btn.classList.remove('ring-1','ring-[var(--border-accent)]','text-[var(--text-primary)]');
 
-            if (state.logsLevelFilter.has(lvl)) activate(); else deactivate();
+            const initialAll = isDefaultLevelSelection();
+            if (initialAll) deactivate(); else if (state.logsLevelFilter.has(lvl)) activate(); else deactivate();
 
             if (firstInit) {
                 btn.addEventListener('click', () => {
-                    if (state.logsLevelFilter.has(lvl)) state.logsLevelFilter.delete(lvl);
-                    else state.logsLevelFilter.add(lvl);
-                    if (state.logsLevelFilter.has(lvl)) activate(); else deactivate();
+                    const currentSet = state.logsLevelFilter instanceof Set ? new Set(state.logsLevelFilter) : getDefaultLevelSet();
+                    const isAll = currentSet.size === DEFAULT_LOG_LEVELS.length;
+                    if (!isAll && currentSet.size === 1 && currentSet.has(lvl)) {
+                        state.logsLevelFilter = getDefaultLevelSet();
+                    } else {
+                        state.logsLevelFilter = new Set([lvl]);
+                    }
+                    updateLogLevelFiltersVisibility();
                     state._logsFocusFirstMatch = true;
                     renderLogsWithFilters();
                     syncLogsHash({ replace: true });
@@ -113,6 +189,8 @@
             DOM.logsSearchNext.addEventListener('click', () => navigateSearch('next'));
             DOM.logsSearchPrev.addEventListener('click', () => navigateSearch('prev'));
         }
+        updateLogLevelFiltersVisibility();
+        updateShortModeUI();
     }
 
     function closeLogsModal() {
@@ -246,6 +324,7 @@
     function updateLogLevelFiltersVisibility() {
         const presentLevels = (state.presentLogLevels instanceof Set) ? state.presentLogLevels : new Set();
         const showAll = presentLevels.size === 0;
+        const allSelection = isDefaultLevelSelection();
 
         DEFAULT_LOG_LEVELS.forEach(level => {
             const button = document.querySelector(`[data-level-chip="${level}"]`);
@@ -253,7 +332,15 @@
 
             const isPresent = showAll || presentLevels.has(level);
             button.classList.remove('hidden');
-            button.classList.toggle('opacity-40', !isPresent);
+            if (allSelection) {
+                setButtonActive(button, false);
+                button.classList.remove('opacity-40');
+            } else {
+                const active = state.logsLevelFilter instanceof Set && state.logsLevelFilter.has(level);
+                setButtonActive(button, active);
+                button.classList.toggle('opacity-40', !active);
+            }
+            button.classList.toggle('opacity-20', !isPresent);
             button.removeAttribute('disabled');
         });
     }
@@ -303,7 +390,9 @@
         const structuredOn = !!state.logsStructured;
         const wrap = !!state.logsWrap;
         const levelFilter = state.logsLevelFilter || new Set(['info','warn','error','debug']);
-        
+        const agentOnly = !!state.logsAgentOnly;
+        const shortMode = !!state.logsShortView;
+
         DOM.logsContainer.classList.toggle('logs-unwrapped', !wrap);
         
         state._logsSearchMatches = [];
@@ -339,6 +428,33 @@
             return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString();
         };
     
+        const extractComponent = (candidate) => {
+            if (!candidate || typeof candidate !== 'object') return '';
+            const meta = candidate.meta || {};
+            const value = candidate.component || candidate.Component || meta.component || meta.Component || '';
+            return typeof value === 'string' ? value.toLowerCase() : String(value || '').toLowerCase();
+        };
+        const normalizeLevel = (value) => {
+            if (value === undefined || value === null) return '';
+            let lvl = String(value).toLowerCase();
+            if (lvl === 'warning') lvl = 'warn';
+            return lvl;
+        };
+
+        const deriveLevelValue = (logObj = {}, kvObj = {}, raw = '') => {
+            let lvl = normalizeLevel(logObj.level || logObj.level_name || logObj.levelName);
+            if (!lvl) {
+                lvl = normalizeLevel(kvObj.level || kvObj.Level);
+            }
+            if (!lvl && typeof raw === 'string') {
+                const match = raw.match(/\b(info|warn|warning|error|debug)\b/i);
+                if (match) {
+                    lvl = normalizeLevel(match[1]);
+                }
+            }
+            return lvl || 'info';
+        };
+
         const html = logs.map((log, i) => {
             let rawLine = (log.line || '').replace(ansiRegex, '').trim();
             if (!rawLine) {
@@ -380,29 +496,68 @@
             const lineColorIdx = isSelectedLine ? nameToIdx.get(stepName) ?? 0 : -1;
             const dimClass = (selected.size > 0 && !isSelectedLine) ? ' log-line--dim' : '';
             const selClass = (isSelectedLine && lineColorIdx >= 0) ? ` log-line--sel c${lineColorIdx}` : '';
-        
+            let componentValue = extractComponent(log);
+
             if (structuredOn && jsonStart !== -1) {
                 try {
                     const json = JSON.parse(rawLine.substring(jsonStart));
                     if (json.time) {
                         ts = new Date(json.time * 1000).toLocaleTimeString();
                     }
-                    return renderStructured(json, {rawLine, i, ts, selClass, dimClass, log });
+                    componentValue = extractComponent({ ...log, ...json });
+                    const levelValue = deriveLevelValue({ ...log, ...json }, json, rawLine);
+                    if (!levelFilter.has(levelValue)) {
+                        return null;
+                    }
+                    if (agentOnly && componentValue !== 'agent') {
+                        return null;
+                    }
+                    return renderStructured(json, {
+                        rawLine,
+                        i,
+                        ts,
+                        selClass,
+                        dimClass,
+                        log,
+                        agentOnly,
+                        componentValue,
+                        levelValue,
+                        shortMode,
+                    });
                 } catch { /* Fall through */ }
             }
-        
+
             if (selected.size > 0 && !isSelectedLine) {
                 return null;
             }
-        
+
+            const mergedForComponent = { ...log, ...kv };
+            componentValue = extractComponent(mergedForComponent);
+            const levelValue = deriveLevelValue(log, kv, rawLine);
+            if (!levelFilter.has(levelValue)) {
+                return null;
+            }
+            if (agentOnly && componentValue !== 'agent') {
+                return null;
+            }
+
             let line = rawLine.replace(/</g, '&lt;').replace(/>/g, '&gt;');
             if (rx && rawLine.toLowerCase().includes(query)) {
                 matches++;
                 line = line.replace(rx, `<span class="log-highlight" data-match-index="${matches - 1}">$1</span>`);
             }
-            const left = `<span class="text-[var(--text-secondary)] select-none pr-3">${ts}</span>`;
+            const left = `<span class="text-[var(--text-secondary)] pr-3">${ts}</span>`;
+            const shortTime = `<span class="log-short-ts">${ts}</span>`;
             const textColorClass = isSelectedLine ? `log-line-text c${lineColorIdx}` : '';
-        
+
+            if (shortMode) {
+                const levelLabel = (levelValue || '').toUpperCase();
+                const messageHtml = line || '<span class="opacity-50">—</span>';
+                return `<div class="log-line log-line-short ${selClass} ${dimClass}">
+    ${shortTime}<span class="log-short-level">${levelLabel}</span><span class="log-short-msg ${textColorClass}">${messageHtml}</span>
+</div>`;
+            }
+
             return `<div class="log-line log-line-raw ${selClass} ${dimClass}">
     <pre class="log-line-content">${left}<span class="${textColorClass}">${line}</span></pre>
 </div>`;
@@ -420,13 +575,17 @@ function renderStructured(json, ctx) {
       messagePairs[key] = messagePairsAll[key];
     }
   }
+  const agentOnly = !!ctx.agentOnly;
+  let componentValue = (ctx.componentValue || '').toLowerCase();
+  const levelOverride = ctx.levelValue ? String(ctx.levelValue).toLowerCase() : '';
+  const shortMode = !!ctx.shortMode;
   const messageKeys = Object.keys(messagePairs);
   const kvOnlyRegex = /^(?:\s*[A-Za-z0-9_-]+(?:=|:)(?:"(?:[^"\\]|\\.)*"|[^\s"]+)\s*)+$/;
   const statusTextRaw = (json.status !== undefined && json.status !== null && json.status !== '')
     ? json.status
     : (Object.prototype.hasOwnProperty.call(messagePairs, 'status') ? messagePairs.status : undefined);
-  const levelCandidateRaw = json.level || (statusTextRaw ? deriveLevelFromStatus(statusTextRaw) : 'info');
-  const level = String(json.level || 'info').toLowerCase();
+  const levelCandidateRaw = levelOverride || json.level || (statusTextRaw ? deriveLevelFromStatus(statusTextRaw) : 'info');
+  const level = String(levelOverride || json.level || 'info').toLowerCase();
   if (!levelFilter.has(level)) return '';
 
   let isSelectedLine = false;
@@ -440,6 +599,42 @@ function renderStructured(json, ctx) {
   }
   const dimClass = (selected.size > 0 && !isSelectedLine) ? ' log-line--dim' : '';
   const selClass = (isSelectedLine && lineColorIdx >= 0) ? ` log-line--sel c${lineColorIdx}` : '';
+  const textColorClass = isSelectedLine ? `log-line-text c${lineColorIdx}` : '';
+
+  if (agentOnly && componentValue !== 'agent') {
+    return '';
+  }
+
+  if (shortMode) {
+    let messageCandidate = '';
+    if (typeof baseMessage === 'string' && baseMessage.trim()) {
+      messageCandidate = baseMessage.trim();
+    } else if (typeof json.output === 'string' && json.output.trim()) {
+      messageCandidate = json.output.trim();
+    } else if (typeof messagePairs.output === 'string' && messagePairs.output.trim()) {
+      messageCandidate = messagePairs.output.trim();
+    } else if (typeof json.action === 'string' && json.action.trim()) {
+      messageCandidate = json.action.trim();
+    } else if (typeof json.status === 'string' && json.status.trim()) {
+      messageCandidate = json.status.trim();
+    } else {
+      messageCandidate = JSON.stringify(json);
+    }
+    let messageHtml = messageCandidate.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    if (rx && messageCandidate.toLowerCase().includes(query)) {
+      matches++;
+      messageHtml = messageHtml.replace(rx, `<span class="log-highlight" data-match-index="${matches - 1}">$1</span>`);
+    }
+    if (!messageHtml) {
+      messageHtml = '<span class="opacity-50">—</span>';
+    }
+    const levelLabel = level.toUpperCase();
+    return `<div class="log-line log-line-short ${selClass} ${dimClass}">
+      <span class="log-short-ts">${ctx.ts}</span>
+      <span class="log-short-level">${levelLabel}</span>
+      <span class="log-short-msg ${textColorClass}">${messageHtml}</span>
+    </div>`;
+  }
 
   const tagValues = new Map();
   const detailRows = [];
@@ -492,6 +687,15 @@ function renderStructured(json, ctx) {
   }
 
   detailRows.sort((a, b) => a.order - b.order);
+
+  if (!componentValue) {
+    const tagEntry = tagValues.get('component');
+    if (tagEntry && tagEntry.raw) {
+      componentValue = String(tagEntry.raw).toLowerCase();
+    } else if (json.component) {
+      componentValue = String(json.component).toLowerCase();
+    }
+  }
 
   let actionBlock = '';
   let actionSource = undefined;
@@ -575,7 +779,7 @@ function renderStructured(json, ctx) {
   return `
         <div class="flex flex-col ${dimClass} ${selClass}">
           <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs">
-            <span class="text-[var(--text-secondary)] select-none">${ctx.ts}</span>
+            <span class="text-[var(--text-secondary)]">${ctx.ts}</span>
             <span class="font-semibold px-2 py-0.5 rounded-full ${colors.levelBg} ${colors.levelText}">${badgeLabel}</span>
             ${tagsBlock || ''}
           </div>

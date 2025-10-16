@@ -590,6 +590,31 @@ html.dark .step-cluster-box { fill: var(--bg-tertiary); opacity: .18; }
     white-space: pre;
 }
 
+.log-line-short {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 4px 0;
+    font-size: 0.875rem;
+}
+
+.log-short-ts {
+    min-width: 80px;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+.log-short-level {
+    min-width: 56px;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.log-short-msg {
+    flex: 1;
+    color: var(--text-primary);
+}
+
 /* Also ensure the main container can scroll horizontally when unwrapped */
 .logs-unwrapped {
     overflow-x: auto;

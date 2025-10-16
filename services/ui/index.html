@@ -163,25 +163,24 @@
     <div class="flex items-center justify-between p-4 border-b border-[var(--border-primary)] flex-shrink-0">
       <h2 id="logs-modal-title" class="text-xl font-semibold">Agent Logs</h2>
 
-      <div class="flex items-center space-x-3">
-        <div class="flex items-center">
+      <div class="flex items-center space-x-4 text-sm">
+        <label class="inline-flex items-center gap-2 text-[var(--text-primary)]">
           <input id="follow-logs-checkbox" type="checkbox" checked class="h-4 w-4 text-indigo-600 bg-[var(--bg-tertiary)] border-[var(--border-secondary)] rounded focus:ring-indigo-500">
-          <label for="follow-logs-checkbox" class="ml-2 block text-sm text-[var(--text-primary)]">Follow</label>
-        </div>
+          <span>Follow</span>
+        </label>
 
-        <div class="hidden sm:flex items-center gap-1 text-xs">
-          <button type="button" class="px-2 py-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)]" data-level-chip="info">INFO</button>
-          <button type="button" class="px-2 py-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)]" data-level-chip="warn">WARN</button>
-          <button type="button" class="px-2 py-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)]" data-level-chip="error">ERROR</button>
-          <button type="button" class="px-2 py-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)]" data-level-chip="debug">DEBUG</button>
-        </div>
-
-        <div class="hidden md:flex items-center gap-1 text-xs">
-          <label class="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] cursor-pointer">
-            <input id="logs-toggle-wrap" type="checkbox" class="accent-indigo-600"> Wrap
+        <div class="hidden md:flex items-center gap-4">
+          <label class="inline-flex items-center gap-2 text-[var(--text-primary)] cursor-pointer">
+            <input id="logs-toggle-wrap" type="checkbox" class="h-4 w-4 accent-indigo-600">
+            <span>Wrap</span>
           </label>
-          <label class="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] cursor-pointer">
-            <input id="logs-toggle-structured" type="checkbox" class="accent-indigo-600" checked> Structured
+          <label class="inline-flex items-center gap-2 text-[var(--text-primary)] cursor-pointer">
+            <input id="logs-toggle-structured" type="checkbox" class="h-4 w-4 accent-indigo-600" checked>
+            <span>Structured</span>
+          </label>
+          <label class="inline-flex items-center gap-2 text-[var(--text-primary)] cursor-pointer">
+            <input id="logs-toggle-short" type="checkbox" class="h-4 w-4 accent-indigo-600">
+            <span>Short</span>
           </label>
         </div>
 
@@ -210,20 +209,31 @@
       </aside>
 
       <section class="flex-1 min-h-0 flex flex-col min-w-0">
-        <div class="px-4 py-2 border-b border-[var(--border-primary)] flex items-center gap-2 flex-shrink-0">
-          <div class="relative">
-            <input id="logs-search" type="text" placeholder="Search logs..." class="pl-8 pr-7 py-1.5 text-xs rounded-md bg-[var(--bg-primary)] border border-[var(--border-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)] w-64" />
-            <svg class="w-4 h-4 text-[var(--text-secondary)] absolute left-2 top-1/2 -translate-y-1/2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <button type="button" id="logs-clear-search" title="Clear" class="absolute right-1 top-1/2 -translate-y-1/2 text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
-              <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-            </button>
-          </div>
-          <div id="log-search-nav" class="hidden items-center gap-1 text-xs">
+        <div class="px-4 py-2 border-b border-[var(--border-primary)] flex items-center justify-between gap-2 flex-shrink-0">
+          <div class="flex items-center gap-2">
+            <div class="relative">
+              <input id="logs-search" type="text" placeholder="Search logs..." class="pl-8 pr-7 py-1.5 text-xs rounded-md bg-[var(--bg-primary)] border border-[var(--border-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)] w-64" />
+              <svg class="w-4 h-4 text-[var(--text-secondary)] absolute left-2 top-1/2 -translate-y-1/2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <button type="button" id="logs-clear-search" title="Clear" class="absolute right-1 top-1/2 -translate-y-1/2 text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
+                <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div id="log-search-nav" class="hidden items-center gap-1 text-xs">
             <button id="logs-search-prev" class="px-2 py-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)]">&lt;</button>
             <span id="logs-search-matches"></span>
             <button id="logs-search-next" class="px-2 py-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)]">&gt;</button>
           </div>
           <span id="logs-count" class="text-[var(--text-secondary)] text-xs"></span>
+          </div>
+          <div class="flex items-center gap-2">
+            <div class="hidden sm:flex items-center gap-1 text-xs">
+              <button type="button" class="px-2 py-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)]" data-level-chip="info">INFO</button>
+              <button type="button" class="px-2 py-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)]" data-level-chip="warn">WARN</button>
+              <button type="button" class="px-2 py-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)]" data-level-chip="error">ERROR</button>
+              <button type="button" class="px-2 py-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)]" data-level-chip="debug">DEBUG</button>
+              <button type="button" id="logs-toggle-agent" class="px-2 py-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)]" title="Show only agent logs">Agent</button>
+            </div>
+          </div>
         </div>
 
         <div id="logs-container" class="p-4 flex-1 overflow-y-auto bg-[var(--bg-primary)] font-mono text-sm ..."></div>
