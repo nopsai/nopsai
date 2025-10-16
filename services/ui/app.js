@@ -181,6 +181,7 @@ document.addEventListener('DOMContentLoaded', () => {
         logsSearchText: '',
         _logsFocusFirstMatch: false,
         logsAllSteps: [],
+        logsStepStatuses: new Map(),
         logsWrap: true,
         logsShowTimestamps: true,
         logsStructured: true,
