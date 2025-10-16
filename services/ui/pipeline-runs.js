@@ -115,6 +115,22 @@
         if (!newHash) return;
         const currentHash = window.location.hash || '';
         if (currentHash === newHash) return;
+
+        if (state) {
+            state._suppressNextRoute = true;
+            if (state._suppressRouteTimeout) {
+                try { clearTimeout(state._suppressRouteTimeout); } catch {}
+            }
+            try {
+                state._suppressRouteTimeout = setTimeout(() => {
+                    state._suppressNextRoute = false;
+                    state._suppressRouteTimeout = null;
+                }, 100);
+            } catch {
+                state._suppressNextRoute = false;
+            }
+        }
+
         try {
             const url = new URL(window.location.href);
             url.hash = newHash.slice(1);

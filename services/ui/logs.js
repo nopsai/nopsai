@@ -1,7 +1,9 @@
 (function (global) {
+    const DEFAULT_LOG_LEVELS = ['info', 'warn', 'error', 'debug'];
     let state;
     let DOM;
     let fetchData;
+    let controlsBound = false;
 
     function syncLogsHash(options) {
         if (state && typeof state.syncLogsHash === 'function') {
@@ -47,7 +49,7 @@
             DOM.logsModalContent.classList.remove('scale-95');
         }, 10);
         
-        state.presentLogLevels = new Set();
+        state.presentLogLevels = new Set(DEFAULT_LOG_LEVELS);
         updateLogLevelFiltersVisibility();
         if (DOM.logsSearch) {
             DOM.logsSearch.value = state.logsSearchText || '';
@@ -64,22 +66,28 @@
     function initLogsUIControls() {
         const wrap = document.getElementById('logs-toggle-wrap');
         const structured = document.getElementById('logs-toggle-structured');
+        const firstInit = !controlsBound;
+        controlsBound = true;
 
         if (wrap) {
             wrap.checked = !!state.logsWrap;
-            wrap.addEventListener('change', () => {
-                state.logsWrap = !!wrap.checked;
-                renderLogsWithFilters();
-                syncLogsHash({ replace: true });
-            });
+            if (firstInit) {
+                wrap.addEventListener('change', () => {
+                    state.logsWrap = !!wrap.checked;
+                    renderLogsWithFilters();
+                    syncLogsHash({ replace: true });
+                });
+            }
         }
         if (structured) {
             structured.checked = !!state.logsStructured;
-            structured.addEventListener('change', () => {
-                state.logsStructured = !!structured.checked;
-                renderLogsWithFilters();
-                syncLogsHash({ replace: true });
-            });
+            if (firstInit) {
+                structured.addEventListener('change', () => {
+                    state.logsStructured = !!structured.checked;
+                    renderLogsWithFilters();
+                    syncLogsHash({ replace: true });
+                });
+            }
         }
 
         document.querySelectorAll('[data-level-chip]').forEach(btn => {
@@ -89,19 +97,22 @@
 
             if (state.logsLevelFilter.has(lvl)) activate(); else deactivate();
 
-            btn.addEventListener('click', () => {
-                if (state.logsLevelFilter.has(lvl)) state.logsLevelFilter.delete(lvl);
-                else state.logsLevelFilter.add(lvl);
-                if (state.logsLevelFilter.has(lvl)) activate(); else deactivate();
-                state._logsFocusFirstMatch = true;
-                renderLogsWithFilters();
-                syncLogsHash({ replace: true });
-            });
+            if (firstInit) {
+                btn.addEventListener('click', () => {
+                    if (state.logsLevelFilter.has(lvl)) state.logsLevelFilter.delete(lvl);
+                    else state.logsLevelFilter.add(lvl);
+                    if (state.logsLevelFilter.has(lvl)) activate(); else deactivate();
+                    state._logsFocusFirstMatch = true;
+                    renderLogsWithFilters();
+                    syncLogsHash({ replace: true });
+                });
+            }
         });
 
-        // Event listeners for search navigation
-        DOM.logsSearchNext.addEventListener('click', () => navigateSearch('next'));
-        DOM.logsSearchPrev.addEventListener('click', () => navigateSearch('prev'));
+        if (firstInit) {
+            DOM.logsSearchNext.addEventListener('click', () => navigateSearch('next'));
+            DOM.logsSearchPrev.addEventListener('click', () => navigateSearch('prev'));
+        }
     }
 
     function closeLogsModal() {
@@ -233,15 +244,17 @@
     }
     
     function updateLogLevelFiltersVisibility() {
-        const presentLevels = state.presentLogLevels || new Set();
-        const allLevels = ['info', 'warn', 'error', 'debug'];
-    
-        allLevels.forEach(level => {
+        const presentLevels = (state.presentLogLevels instanceof Set) ? state.presentLogLevels : new Set();
+        const showAll = presentLevels.size === 0;
+
+        DEFAULT_LOG_LEVELS.forEach(level => {
             const button = document.querySelector(`[data-level-chip="${level}"]`);
-            if (button) {
-                // Show the button only if its level is in the set of present levels
-                button.classList.toggle('hidden', !presentLevels.has(level));
-            }
+            if (!button) return;
+
+            const isPresent = showAll || presentLevels.has(level);
+            button.classList.remove('hidden');
+            button.classList.toggle('opacity-40', !isPresent);
+            button.removeAttribute('disabled');
         });
     }
 
