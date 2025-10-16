@@ -184,6 +184,8 @@ document.addEventListener('DOMContentLoaded', () => {
         logsStructured: true,
         logsLevelFilter: new Set(['info','warn','error','debug']),
         currentRunContext: null,
+        _suppressNextRoute: false,
+        _suppressRouteTimeout: null,
     };
 
     async function fetchData(url, options = {}) {
@@ -230,6 +232,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function router(hashOverride) {
+        if (state._suppressNextRoute) {
+            state._suppressNextRoute = false;
+            if (state._suppressRouteTimeout) {
+                clearTimeout(state._suppressRouteTimeout);
+                state._suppressRouteTimeout = null;
+            }
+            return;
+        }
         if (window.location.search) {
             try {
                 const clean = window.location.pathname + (window.location.hash || '');
