@@ -22,6 +22,221 @@
         'failure (ignored)': { icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z', color: 'text-amber-500 dark:text-amber-400', rectClass: 'stroke-amber-500 fill-amber-100 dark:fill-amber-500/10' },
     };
 
+    const RUN_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const groupPathCache = new Map();
+
+    function normalizeParentId(id) {
+        return id === null || id === undefined || id === 0 ? null : id;
+    }
+
+    function getGroupById(id) {
+        if (!id || !state || !Array.isArray(state.groups)) return null;
+        return state.groups.find(g => g.id === id) || null;
+    }
+
+    function getGroupPathSegmentsById(groupId) {
+        if (!groupId) return [];
+        if (groupPathCache.has(groupId)) return [...groupPathCache.get(groupId)];
+
+        const segments = [];
+        const visited = new Set();
+        let current = getGroupById(groupId);
+        while (current && !visited.has(current.id)) {
+            visited.add(current.id);
+            const parentId = normalizeParentId(current.parent_id);
+            segments.unshift(buildGroupSegment(current, parentId));
+            current = parentId ? getGroupById(parentId) : null;
+        }
+        groupPathCache.set(groupId, segments);
+        return [...segments];
+    }
+
+    function buildGroupSegment(group, parentId) {
+        const rawName = group?.name || '';
+        const base = encodeURIComponent(rawName || '');
+        const siblings = (state.groups || []).filter(g => normalizeParentId(g.parent_id) === parentId && g.id !== group.id);
+        const hasCollision = rawName ? siblings.some(s => (s.name || '') === rawName) : false;
+        const safeBase = base || `group-${group.id}`;
+        return hasCollision ? `${safeBase}~${group.id}` : safeBase;
+    }
+
+    function parseGroupSegment(segment) {
+        if (!segment) return { name: '', idHint: null };
+        let decoded;
+        try {
+            decoded = decodeURIComponent(segment);
+        } catch {
+            decoded = segment;
+        }
+        let idHint = null;
+        let name = decoded;
+        const tildeIndex = decoded.lastIndexOf('~');
+        if (tildeIndex > -1) {
+            const maybeId = decoded.slice(tildeIndex + 1);
+            if (/^\d+$/.test(maybeId)) {
+                idHint = Number(maybeId);
+                name = decoded.slice(0, tildeIndex);
+            }
+        }
+        return { name, idHint };
+    }
+
+    function findGroupByPathSegments(segments) {
+        if (!Array.isArray(segments) || segments.length === 0) return null;
+        let currentParentId = null;
+        let currentGroup = null;
+        const visited = new Set();
+        for (const segment of segments) {
+            const { name, idHint } = parseGroupSegment(segment);
+            const siblings = (state.groups || []).filter(g => normalizeParentId(g.parent_id) === currentParentId);
+            let match = null;
+            if (idHint !== null) {
+                match = siblings.find(g => g.id === idHint);
+            }
+            if (!match) {
+                match = siblings.find(g => (g.name || '') === name);
+            }
+            if (!match) {
+                return null;
+            }
+            if (visited.has(match.id)) {
+                return null;
+            }
+            visited.add(match.id);
+            currentGroup = match;
+            currentParentId = match.id;
+        }
+        return currentGroup;
+    }
+
+    function findGroupByName(name) {
+        if (!name || !Array.isArray(state.groups)) return null;
+        return state.groups.find(g => g.name === name) || null;
+    }
+
+    function ensureGroupAncestorsExpanded(groupId) {
+        let current = getGroupById(groupId);
+        const visited = new Set();
+        while (current && !visited.has(current.id)) {
+            visited.add(current.id);
+            state.expandedGroups.add(current.id);
+            const parentId = normalizeParentId(current.parent_id);
+            current = parentId ? getGroupById(parentId) : null;
+        }
+    }
+
+    function encodeRunContext(context) {
+        try {
+            return encodeURIComponent(JSON.stringify(context || {}));
+        } catch {
+            return '';
+        }
+    }
+
+    function parseRunContextAttr(attr) {
+        if (!attr) return null;
+        try {
+            return JSON.parse(decodeURIComponent(attr));
+        } catch {
+            return null;
+        }
+    }
+
+    function resolveRunContext(contextOverride) {
+        const resolved = contextOverride ? { ...contextOverride } : { tab: state.currentTab || 'main' };
+        resolved.tab = resolved.tab || 'main';
+        if (resolved.tab === 'main') {
+            if (!Array.isArray(resolved.groupSegments)) {
+                if (resolved.groupId) {
+                    resolved.groupSegments = getGroupPathSegmentsById(resolved.groupId);
+                } else if (state && Array.isArray(state.selectedGroupPathSegments)) {
+                    resolved.groupSegments = [...state.selectedGroupPathSegments];
+                } else {
+                    resolved.groupSegments = [];
+                }
+            }
+            if (!resolved.groupId && resolved.groupSegments.length) {
+                const grp = findGroupByPathSegments(resolved.groupSegments);
+                if (grp) {
+                    resolved.groupId = grp.id;
+                }
+            }
+        } else {
+            resolved.groupSegments = resolved.groupSegments || [];
+        }
+        return resolved;
+    }
+
+    function buildRunHash(run, contextOverride) {
+        if (!run) return '#/pipelineruns/main';
+        const context = resolveRunContext(contextOverride);
+        const segments = ['pipelineruns', context.tab || 'main'];
+
+        if (context.tab === 'recent') {
+            segments.push(run.run_id);
+        } else if (context.tab === 'main') {
+            let groupSegments = Array.isArray(context.groupSegments) ? [...context.groupSegments] : [];
+            if (!groupSegments.length && context.groupId) {
+                groupSegments = getGroupPathSegmentsById(context.groupId);
+            }
+            if (!groupSegments.length && run.git_repo_owner && run.git_repo_name) {
+                const repoGroup = findGroupByName(`${run.git_repo_owner}/${run.git_repo_name}`);
+                if (repoGroup) {
+                    groupSegments = getGroupPathSegmentsById(repoGroup.id);
+                }
+            }
+            const filteredSegments = groupSegments.filter(Boolean);
+            if (filteredSegments.length) {
+                segments.push(...filteredSegments);
+            }
+            segments.push(run.run_id);
+        } else {
+            segments.push(run.run_id);
+        }
+
+        return '#/' + segments.join('/');
+    }
+
+    function buildRunHashWithExtras(run, contextOverride, extras = []) {
+        const base = buildRunHash(run, contextOverride);
+        if (!extras || !extras.length) return base;
+        const encodedExtras = extras.map(seg => encodeURIComponent(seg));
+        return `${base}/${encodedExtras.join('/')}`;
+    }
+
+    function parsePipelineRunsHash(hash) {
+        const normalized = (hash || '').replace(/^#\/?/, '');
+        const parts = normalized ? normalized.split('/').filter(Boolean) : [];
+        const path = parts[0] || 'pipelineruns';
+        const tab = parts[1] || 'main';
+        const rest = parts.slice(2);
+
+        let runId = null;
+        let action = null;
+        let stepName = null;
+        let groupSegments = rest;
+
+        const runIndex = rest.findIndex(seg => RUN_ID_REGEX.test(seg));
+        if (runIndex !== -1) {
+            runId = rest[runIndex];
+            groupSegments = rest.slice(0, runIndex);
+            action = rest[runIndex + 1] || null;
+            if (action === 'steps' && rest[runIndex + 2]) {
+                try {
+                    stepName = decodeURIComponent(rest[runIndex + 2]);
+                } catch {
+                    stepName = rest[runIndex + 2];
+                }
+            }
+        }
+
+        return { path, tab, groupSegments, runId, action, stepName };
+    }
+
+    function getActiveRunId() {
+        return parsePipelineRunsHash(window.location.hash).runId;
+    }
+
     function escapeAttribute(value) {
         if (value === null || value === undefined) return '';
         return String(value)
@@ -468,7 +683,7 @@ if (dx !== 0 || dy !== 0) {
     async function fetchMainContent(groupId) {
         const runsByBranch = await fetchData(`/v1/runs?groupId=${groupId}`);
         const hasRuns = runsByBranch && Object.keys(runsByBranch).length > 0;
-        const subgroups = state.groups.filter(g => g.parent_id == groupId);
+        const subgroups = state.groups.filter(g => normalizeParentId(g.parent_id) === normalizeParentId(groupId));
 
         if (hasRuns) {
             renderGroupedRuns(runsByBranch);
@@ -554,8 +769,8 @@ if (dx !== 0 || dy !== 0) {
                 }
             } catch {}
             renderRunView(runDetails);
-            const stepName = window.location.hash.split('/steps/')[1];
-            if (stepName) {
+            const { action, stepName } = parsePipelineRunsHash(window.location.hash);
+            if (action === 'steps' && stepName) {
                 showStepDetails(stepName);
             }
         }
@@ -568,6 +783,7 @@ if (dx !== 0 || dy !== 0) {
         } else {
             state.groups = [];
         }
+        groupPathCache.clear();
     }
 
     function resetMainView() {
@@ -622,10 +838,8 @@ if (dx !== 0 || dy !== 0) {
         container = container || (level === 0 ? document.getElementById('main-hierarchy') : document.querySelector(`[data-group-id='${parentId}'] .group-children`));
         if (!container) return;
 
-        const children = groups.filter(g => {
-            const gParentId = (g.parent_id === 0 || g.parent_id === null) ? null : g.parent_id;
-            return gParentId === parentId;
-        });
+        const normalizedParentId = normalizeParentId(parentId);
+        const children = groups.filter(g => normalizeParentId(g.parent_id) === normalizedParentId);
 
         const childrenWithDataPromises = children.map(async (group) => {
             const isRepo = (group.name || '').includes('/');
@@ -670,12 +884,14 @@ if (dx !== 0 || dy !== 0) {
 
         let html = `<ul class="pl-${level > 0 ? '4' : '0'} space-y-1">`;
         for (const group of childrenWithData) {
-            const hasChildren = groups.some(g => g.parent_id === group.id);
+            const hasChildren = groups.some(g => normalizeParentId(g.parent_id) === group.id);
             const isExpanded = state.expandedGroups.has(group.id);
             const isRepo = (group.name || '').includes('/');
             const displayName = isRepo ? group.name.split('/')[1] : group.name;
             const canExpand = hasChildren || isRepo;
             const isActive = state.selectedGroupId === group.id;
+            const pathSegments = getGroupPathSegmentsById(group.id);
+            const groupHref = pathSegments.length ? `#/pipelineruns/main/${pathSegments.join('/')}` : '#/pipelineruns/main';
 
             let chevron = canExpand 
                 ? `<svg class="h-4 w-4 mr-1 text-[var(--text-secondary)] chevron ${isExpanded ? 'rotate-90' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>` 
@@ -685,7 +901,7 @@ if (dx !== 0 || dy !== 0) {
                             <div class="flex items-center justify-between p-2 text-[var(--text-primary)] rounded-md group-header-container ${isActive ? 'bg-[var(--bg-tertiary)]' : ''}">
                                 <div class="flex items-center group-header flex-grow cursor-pointer ${isExpanded ? 'expanded' : ''}">
                                     ${chevron}
-                                    <a href="#/pipelineruns/main/${group.id}" class="flex items-center flex-grow">
+                                    <a href="${groupHref}" class="flex items-center flex-grow">
                                         <svg class="h-4 w-4 mr-2 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
                                         <span class="truncate">${displayName}</span>
                                     </a>
@@ -704,7 +920,7 @@ if (dx !== 0 || dy !== 0) {
                 const isRepo = (group.name || '').includes('/');
                 if (isRepo) {
                     const runsByBranch = await fetchData(`/v1/runs?groupId=${group.id}`);
-                    renderRepoChildren(childContainer, runsByBranch, level + 1);
+                    renderRepoChildren(childContainer, runsByBranch, level + 1, group.id);
                 } else {
                     await renderHierarchy(groups, group.id, level + 1, childContainer);
                 }
@@ -712,7 +928,7 @@ if (dx !== 0 || dy !== 0) {
         }
     }
 
-    function renderRepoChildren(container, runsByBranch, level) {
+    function renderRepoChildren(container, runsByBranch, level, repoGroupId) {
         if (!container) return;
         let html = `<ul class="pl-${level > 0 ? '4' : '0'} space-y-1">`;
         const sortedBranches = Object.keys(runsByBranch).sort();
@@ -730,7 +946,7 @@ if (dx !== 0 || dy !== 0) {
                                 <span>${branch}</span>
                             </div>
                             <div class="group-children">
-                                ${isExpanded ? renderRunLinks(runs, level + 1) : ''}
+                                ${isExpanded ? renderRunLinks(runs, level + 1, repoGroupId) : ''}
                             </div>
                         </li>`;
         });
@@ -738,12 +954,15 @@ if (dx !== 0 || dy !== 0) {
         container.innerHTML = html;
     }
 
-    function renderRunLinks(runs, level) {
+    function renderRunLinks(runs, level, groupId) {
         let html = `<ul class="pl-${level > 0 ? '4' : '0'} space-y-1">`;
+        const groupSegments = groupId ? getGroupPathSegmentsById(groupId) : [];
         runs.forEach(run => {
             const repoFullName = `${run.git_repo_owner}/${run.git_repo_name}`;
-            html += `<li data-run-id="${run.run_id}" data-repo-full-name="${repoFullName}"${run.parent_run_id ? ` data-parent-run-id="${run.parent_run_id}"` : ''}${getTriggerGroupAttr(run)}>
-                        ${renderSidebarRunLinkHTML(run)}
+            const context = { tab: 'main', groupId, groupSegments };
+            const contextAttr = encodeRunContext(context);
+            html += `<li data-run-id="${run.run_id}" data-repo-full-name="${repoFullName}"${run.parent_run_id ? ` data-parent-run-id="${run.parent_run_id}"` : ''}${getTriggerGroupAttr(run)} data-run-context="${contextAttr}">
+                        ${renderSidebarRunLinkHTML(run, context)}
                      </li>`;
         });
         html += `</ul>`;
@@ -758,10 +977,12 @@ if (dx !== 0 || dy !== 0) {
              listEl.innerHTML = `<li><p class="p-2 text-[var(--text-secondary)] text-sm">No recent runs found.</p></li>`;
              return;
          }
+        const context = { tab: 'recent' };
         listEl.innerHTML = (runs || []).map(run => {
             const repoFullName = `${run.git_repo_owner}/${run.git_repo_name}`;
-            return `<li data-run-id="${run.run_id}" data-repo-full-name="${repoFullName}"${run.parent_run_id ? ` data-parent-run-id="${run.parent_run_id}"` : ''}${getTriggerGroupAttr(run)}>
-                        ${renderSidebarRunLinkHTML(run)}
+            const contextAttr = encodeRunContext(context);
+            return `<li data-run-id="${run.run_id}" data-repo-full-name="${repoFullName}"${run.parent_run_id ? ` data-parent-run-id="${run.parent_run_id}"` : ''}${getTriggerGroupAttr(run)} data-run-context="${contextAttr}">
+                        ${renderSidebarRunLinkHTML(run, context)}
                     </li>`;
         }).join('');
     }
@@ -785,6 +1006,12 @@ if (dx !== 0 || dy !== 0) {
             return new Date(lastRunB.started_at) - new Date(lastRunA.started_at);
         });
 
+        const context = resolveRunContext({
+            tab: 'main',
+            groupId: state.selectedGroupId,
+            groupSegments: state.selectedGroupPathSegments,
+        });
+
         sortedBranches.forEach((branch, index) => {
             const runs = runsByBranch[branch];
             const latestRun = runs[0];
@@ -806,7 +1033,7 @@ if (dx !== 0 || dy !== 0) {
                     </div>
                 </div>
                 <div class="branch-runs p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4" style="${isExpanded ? 'max-height: 2000px;' : ''}">
-                    ${runs.map(run => renderRunCard(run)).join('')}
+                    ${runs.map(run => renderRunCard(run, context)).join('')}
                 </div>
             </div>`;
         });
@@ -858,15 +1085,19 @@ if (dx !== 0 || dy !== 0) {
             </div>`;
     }
 
-    function renderSidebarRunLinkHTML(run) {
-        const activeRunId = window.location.hash.split('/')[3];
+    function renderSidebarRunLinkHTML(run, contextOverride) {
+        const context = resolveRunContext(contextOverride);
+        const runUrl = buildRunHash(run, context);
+        const contextAttr = encodeRunContext(context);
+        const activeRunId = getActiveRunId();
         const config = statusConfig[(run.is_complete ? run.status : 'running').toLowerCase()] || statusConfig.pending;
         const isActive = run.run_id === activeRunId;
         const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
         const pipelineNameHTML = getPipelineNameHTML(run);
         
         return `
-            <a href="#/pipelineruns/run/${run.run_id}" class="sidebar-run-link flex items-center p-2 text-sm text-[var(--text-secondary)] rounded-md ${isActive ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)] sidebar-run-link--active' : ''}">
+            <a href="${runUrl}" data-run-context="${contextAttr}"
+                class="sidebar-run-link flex items-center p-2 text-sm text-[var(--text-secondary)] rounded-md ${isActive ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)] sidebar-run-link--active' : ''}">
                 <svg class="h-4 w-4 mr-2 flex-shrink-0 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
                 <div class="flex-1 overflow-hidden">
                     <div class="flex justify-between items-center">
@@ -895,6 +1126,8 @@ if (dx !== 0 || dy !== 0) {
         const repoFullName = `${repoOwner}/${repoName}`;
         const triggerGroupId = getTriggerGroupId(runData);
         elements.forEach(el => {
+            const context = parseRunContextAttr(el.dataset.runContext) || null;
+            const resolvedContext = resolveRunContext(context);
             if (repoOwner || repoName) {
                 el.dataset.repoFullName = repoFullName;
             } else {
@@ -910,22 +1143,28 @@ if (dx !== 0 || dy !== 0) {
             } else {
                 delete el.dataset.triggerGroupId;
             }
+            el.dataset.runContext = encodeRunContext(resolvedContext);
             if (el.hasAttribute('data-href')) { // It's a run card
+                el.setAttribute('data-href', buildRunHash(runData, resolvedContext));
                 el.innerHTML = renderRunCardHTML(runData);
             } else if (el.tagName === 'LI') { // It's a sidebar item
-                el.innerHTML = renderSidebarRunLinkHTML(runData);
+                el.innerHTML = renderSidebarRunLinkHTML(runData, resolvedContext);
             }
         });
     }
 
     // Update renderRunCard to use the new reusable function
-    function renderRunCard(run) {
+    function renderRunCard(run, contextOverride) {
         const repoFullName = `${run.git_repo_owner}/${run.git_repo_name}`;
         const parentAttr = run.parent_run_id ? ` data-parent-run-id="${run.parent_run_id}"` : '';
+        const context = resolveRunContext(contextOverride);
+        const runUrl = buildRunHash(run, context);
+        const contextAttr = encodeRunContext(context);
         return `
-            <div data-href="#/pipelineruns/run/${run.run_id}"
+            <div data-href="${runUrl}"
                 data-run-id="${run.run_id}" 
                 data-repo-full-name="${repoFullName}"${parentAttr}${getTriggerGroupAttr(run)}
+                data-run-context="${contextAttr}"
                 class="run-card block bg-[var(--bg-primary)] transition-all duration-200 rounded-lg p-4 flex flex-col justify-between cursor-pointer border border-[var(--border-primary)] shadow-sm">
                 ${renderRunCardHTML(run)}
             </div>`;
@@ -960,7 +1199,13 @@ if (dx !== 0 || dy !== 0) {
         await Promise.all(subgroupsWithDataPromises);
 
 
-         let html = '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">';
+        const contextForRuns = resolveRunContext({
+            tab: state.currentTab || (runs ? 'recent' : 'main'),
+            groupId: state.selectedGroupId,
+            groupSegments: state.selectedGroupPathSegments,
+        });
+
+        let html = '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">';
 
         (subgroups || []).forEach(group => {
             const isRepo = (group.name || '').includes('/');
@@ -992,8 +1237,10 @@ if (dx !== 0 || dy !== 0) {
             }
 
 
+            const groupSegments = getGroupPathSegmentsById(group.id);
+            const groupHref = groupSegments.length ? `#/pipelineruns/main/${groupSegments.join('/')}` : '#/pipelineruns/main';
             html += `
-                <a href="#/pipelineruns/main/${group.id}" draggable="true" class="relative group bg-[var(--bg-secondary)] p-4 rounded-md hover:bg-[var(--bg-tertiary)] transition-colors duration-200 group-card border border-[var(--border-primary)] hover:border-[var(--border-accent)] shadow-sm hover:shadow-lg flex flex-col justify-between" data-group-id="${group.id}">
+                <a href="${groupHref}" draggable="true" class="relative group bg-[var(--bg-secondary)] p-4 rounded-md hover:bg-[var(--bg-tertiary)] transition-colors duration-200 group-card border border-[var(--border-primary)] hover:border-[var(--border-accent)] shadow-sm hover:shadow-lg flex flex-col justify-between" data-group-id="${group.id}">
                     <div>
                         <button class="delete-group-btn absolute top-2 right-2 text-[var(--text-secondary)] hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity z-10" data-group-id="${group.id}" data-group-name="${group.name}">
                             <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
@@ -1008,7 +1255,7 @@ if (dx !== 0 || dy !== 0) {
         });
 
         (runs || []).forEach(run => {
-            html += renderRunCard(run);
+            html += renderRunCard(run, contextForRuns);
         });
 
          if (showAddButton) {
@@ -1158,15 +1405,25 @@ if (dx !== 0 || dy !== 0) {
     const branchName = (runInfo.git_ref || '').startsWith('refs/heads/') ? runInfo.git_ref.split('/')[2] : runInfo.git_ref;
     const repoFullName = runInfo.git_repo_owner ? `${runInfo.git_repo_owner} / ${runInfo.git_repo_name}` : runInfo.git_repo_name;
 
-    const repoGroup = state.groups.find(g => g.name === `${runInfo.git_repo_owner}/${runInfo.git_repo_name}`);
-    const repoLink = repoGroup ? `#/pipelineruns/main/${repoGroup.id}` : '#/pipelineruns/main';
+    const runContext = resolveRunContext(state.currentRunContext || null);
+    state.currentRunContext = runContext;
+    const baseRunHash = buildRunHash(runInfo, runContext);
+
+    const repoGroup = findGroupByName(`${runInfo.git_repo_owner}/${runInfo.git_repo_name}`);
+    const repoSegments = repoGroup ? getGroupPathSegmentsById(repoGroup.id) : [];
+    const repoLink = repoSegments.length ? `#/pipelineruns/main/${repoSegments.join('/')}` : '#/pipelineruns/main';
 
     let headerHTML = `<div class="w-full min-w-0">`;
 
     if (runDetails.parent_run_info) {
+        const parentRunLink = buildRunHash({
+            run_id: runDetails.parent_run_info.run_id,
+            git_repo_owner: runInfo.git_repo_owner,
+            git_repo_name: runInfo.git_repo_name,
+        }, runContext);
         headerHTML += `
             <div class="mb-2">
-                <a href="#/pipelineruns/run/${runDetails.parent_run_info.run_id}" class="text-sm text-[var(--text-link)] hover:underline">
+                <a href="${parentRunLink}" class="text-sm text-[var(--text-link)] hover:underline">
                     &larr; Back to parent: ${runDetails.parent_run_info.pipeline_name}
                 </a>
             </div>
@@ -1203,7 +1460,7 @@ if (dx !== 0 || dy !== 0) {
                     <span>${branchName}</span>
                 </div>
                 <div class="ml-auto flex items-center gap-3">
-                    <a href="#/pipelineruns/run/${runInfo.run_id}/logs" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-accent)]">
+                    <a href="${buildRunHashWithExtras(runInfo, runContext, ['logs'])}" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-accent)]">
                         <svg class="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7" /></svg>
                         View Logs
                     </a>
@@ -1471,6 +1728,9 @@ function showPipelineDefinitionModal(pipelineDefinition) {
     }
 
 function renderStepsGraph(runDetails) {
+        const runInfo = runDetails?.run_info || {};
+        const runContext = resolveRunContext(state.currentRunContext || null);
+
         // If nothing is expanded, optionally reset step layout scale.
         // When triggered by "toggle all" actions, preserve the current scale so user zoom feel remains.
         if (!state.expandedSteps || state.expandedSteps.size === 0) {
@@ -1909,7 +2169,11 @@ function renderStepsGraph(runDetails) {
                 const yDuration = node_center_y + 67;
                 if (childRun) {
                      subText = `
-                       <a data-included-link="true" href="#/pipelineruns/run/${childRun.run_id}" class="fill-current ${linkClass}">
+                      <a data-included-link="true" href="${buildRunHash({
+                          run_id: childRun.run_id,
+                          git_repo_owner: runInfo.git_repo_owner,
+                          git_repo_name: runInfo.git_repo_name,
+                        }, runContext)}" class="fill-current ${linkClass}">
                          <text x="${node_center_x}" y="${yInclude}" text-anchor="middle" class="text-xs">${includeType}</text>
                        </a>
                        <text x="${node_center_x}" y="${yDuration}" text-anchor="middle" class="text-xs fill-current text-[var(--text-secondary)]">${node.duration || '...'}</text>`;
@@ -2290,8 +2554,9 @@ card.innerHTML = `
 
 // header opens modal (keeps "inside a step" behavior unchanged)
 card.querySelector('[data-role="header"]').addEventListener('click', () => {
-  const [, subpath, runId] = window.location.hash.slice(2).split('/');
-  window.location.hash = `#/pipelineruns/${subpath}/${runId}/steps/${step.name}`;
+  const context = resolveRunContext(state.currentRunContext || null);
+  const newHash = buildRunHashWithExtras(runDetails.run_info, context, ['steps', step.name]);
+  window.location.hash = newHash;
 });
 
 DOM.tasksGraphWrapper.appendChild(card);
@@ -2339,17 +2604,19 @@ if (DOM.tasksGraphConnections.parentElement !== DOM.tasksGraphWrapper) {
 
 
 function stripStepFromHashWithoutRouting() {
-  const hash = window.location.hash || '';
-  const newHash = hash.split('/steps/')[0] || '#/pipelineruns/main';
-  if (hash !== newHash) {
-try {
-  const url = new URL(window.location.href);
-  url.hash = newHash.slice(1); // drop leading '#'
-  history.replaceState(null, '', url.toString()); // no hashchange event
-} catch {
-  // Fallback: minimal disruption if replaceState fails
-  window.location.hash = newHash;
-}
+  const info = parsePipelineRunsHash(window.location.hash);
+  if (!info.runId) return;
+  const runInfo = state.currentRunData ? state.currentRunData.run_info : { run_id: info.runId };
+  const context = resolveRunContext(state.currentRunContext || { tab: info.tab, groupSegments: info.groupSegments, groupId: state.selectedGroupId });
+  const newHash = buildRunHash(runInfo, context);
+  const currentHash = window.location.hash || '';
+  if (currentHash === newHash) return;
+  try {
+    const url = new URL(window.location.href);
+    url.hash = newHash.slice(1);
+    history.replaceState(null, '', url.toString());
+  } catch {
+    window.location.hash = newHash;
   }
 }
 
@@ -2884,38 +3151,39 @@ svgContent += `
 
 
     function renderBreadcrumbs(groupId) {
-        let breadcrumbs = [];
-        let currentGroup = state.groups.find(g => g.id == groupId);
-        while (currentGroup) {
-            const isRepo = (currentGroup.name || '').includes('/');
-            const displayName = isRepo ? currentGroup.name.split('/')[1] : currentGroup.name;
-            breadcrumbs.unshift({ id: currentGroup.id, name: displayName });
-            currentGroup = currentGroup.parent_id ? state.groups.find(g => g.id == currentGroup.parent_id) : null;
+        const baseLink = `<a href="#/pipelineruns/main" class="text-[var(--text-secondary)] hover:text-[var(--text-accent)]">Main</a>`;
+        if (!groupId) {
+            DOM.mainHeader.innerHTML = `<div>${baseLink}</div>`;
+            return;
         }
 
-        let html = `<a href="#/pipelineruns/main" class="text-[var(--text-secondary)] hover:text-[var(--text-accent)]">Main</a>`;
-        breadcrumbs.forEach(breadcrumb => {
-            html += ` <span class="mx-2 text-gray-400 dark:text-gray-500">/</span> <a href="#/pipelineruns/main/${breadcrumb.id}" class="text-[var(--text-secondary)] hover:text-[var(--text-accent)]">${breadcrumb.name}</a>`;
+        const pathSegments = getGroupPathSegmentsById(groupId);
+        let html = baseLink;
+        const accumulated = [];
+
+        pathSegments.forEach(segment => {
+            accumulated.push(segment);
+            const group = findGroupByPathSegments(accumulated);
+            const displayName = group ? ((group.name || '').includes('/') ? group.name.split('/')[1] : group.name) : decodeURIComponent(segment);
+            html += ` <span class="mx-2 text-gray-400 dark:text-gray-500">/</span> <a href="#/pipelineruns/main/${accumulated.join('/')}">
+                        <span class="text-[var(--text-secondary)] hover:text-[var(--text-accent)]">${displayName}</span>
+                    </a>`;
         });
+
         DOM.mainHeader.innerHTML = `<div>${html}</div>`;
     }
 
     async function handleRoute(hashOverride) {
         const hash = hashOverride || window.location.hash || '#/pipelineruns/main';
-        const parts = hash.slice(2).split('/');
-        const path = parts[0];
-        const subpath = parts[1];
-        const id = parts[2];
-        const action = parts[3];
+        const info = parsePipelineRunsHash(hash);
+        const { path, tab, groupSegments, runId, action, stepName } = info;
 
-        // --- FIX ---
-        // Only clear the current run data if we are navigating to a different run ID.
-        // This preserves the state when navigating to a sub-view like '/logs'.
-        const newRunId = (subpath === 'run' && id) ? id : null;
-        if (!newRunId || (state.currentRunData && state.currentRunData.run_info.run_id !== newRunId)) {
+        if (!runId && state.currentRunData) {
             state.currentRunData = null;
+            state.currentRunContext = null;
+            state.expandedSteps = new Set();
+            state.expandedStepPositions = new Map();
         }
-        // --- END FIX ---
 
         resetMainView();
 
@@ -2924,53 +3192,85 @@ svgContent += `
         if (path === 'pipelineruns') {
             await fetchGroups();
 
-            const currentTab = (subpath === 'recent' || subpath === 'main') ? subpath : (state.currentTab || 'main');
+            state.currentTab = (tab === 'recent' || tab === 'main') ? tab : 'main';
+            updateTabs(state.currentTab);
 
-            state.currentTab = currentTab;
-            updateTabs(currentTab);
+            let selectedGroupId = null;
+            if (state.currentTab === 'main' && groupSegments.length) {
+                let group = findGroupByPathSegments(groupSegments);
+                if (!group) {
+                    const maybeId = parseInt(groupSegments[groupSegments.length - 1], 10);
+                    if (!Number.isNaN(maybeId)) {
+                        const fallbackGroup = getGroupById(maybeId);
+                        if (fallbackGroup) {
+                            const canonicalSegments = getGroupPathSegmentsById(fallbackGroup.id);
+                            const newHash = canonicalSegments.length ? `#/pipelineruns/main/${canonicalSegments.join('/')}` : '#/pipelineruns/main';
+                            try {
+                                history.replaceState(null, '', newHash);
+                            } catch {
+                                window.location.hash = newHash;
+                                return;
+                            }
+                            groupSegments.splice(0, groupSegments.length, ...canonicalSegments);
+                            group = fallbackGroup;
+                        }
+                    }
+                }
+                if (!group) {
+                    window.location.hash = '#/pipelineruns/main';
+                    return;
+                }
+                selectedGroupId = group.id;
+                groupSegments.splice(0, groupSegments.length, ...getGroupPathSegmentsById(group.id));
+            }
 
-            await renderSidebar(path, currentTab);
+            state.selectedGroupId = selectedGroupId;
+            state.selectedGroupPathSegments = state.currentTab === 'main' ? groupSegments.slice() : [];
+            if (selectedGroupId) {
+                ensureGroupAncestorsExpanded(selectedGroupId);
+            }
 
-            if (subpath === 'run' && id) {
-                // Fetch run data only if it's not already loaded.
-                if (!state.currentRunData) {
-                    await fetchActiveRun(id);
+            await renderSidebar(path, state.currentTab);
+
+            if (runId) {
+                const shouldFetch = !state.currentRunData || state.currentRunData.run_info.run_id !== runId;
+                if (shouldFetch) {
+                    await fetchActiveRun(runId);
                 }
 
-                // If data is available (either pre-existing or freshly fetched), proceed.
+                state.currentRunContext = {
+                    tab: state.currentTab,
+                    groupSegments: state.selectedGroupPathSegments.slice(),
+                    groupId: selectedGroupId || null,
+                };
+
                 if (state.currentRunData) {
-                     if (action === 'logs') {
-                        // The main graph view should still be rendered in the background
+                    if (action === 'logs') {
                         renderRunView(state.currentRunData);
                         showLogsModal();
                     } else {
-                        const stepName = parts.length > 3 && parts[3] === 'steps' ? parts[4] : null;
-                        renderRunView(state.currentRunData); // Always render the main view
-                        if (stepName) {
+                        renderRunView(state.currentRunData);
+                        if (action === 'steps' && stepName) {
                             showStepDetails(stepName);
                         }
                     }
                 }
-            } else if (subpath === 'recent') {
-                DOM.mainHeader.textContent = "Recent Pipeline Runs";
+            } else if (state.currentTab === 'recent') {
+                state.selectedGroupId = null;
+                state.selectedGroupPathSegments = [];
+                state.currentRunContext = null;
+                DOM.mainHeader.textContent = 'Recent Pipeline Runs';
                 const runs = await fetchData('/v1/runs');
                 renderMainGridContent(null, runs, false);
-            } else if (subpath === 'main') {
-                const groupId = id ? parseInt(id, 10) : null;
-                state.selectedGroupId = groupId;
+            } else { // main tab without specific run
+                state.currentRunContext = null;
+                const groupId = selectedGroupId;
                 renderBreadcrumbs(groupId);
                 if (groupId) {
                     await fetchMainContent(groupId);
                 } else {
-                    const rootGroups = state.groups.filter(g => g.parent_id === null || g.parent_id === 0);
+                    const rootGroups = state.groups.filter(g => normalizeParentId(g.parent_id) === null);
                     renderMainGridContent(rootGroups, null, true);
-                }
-            } else {
-                const groupId = subpath ? parseInt(subpath, 10) : null;
-                if (groupId && !isNaN(groupId)) {
-                    window.location.hash = `#/pipelineruns/main/${groupId}`;
-                } else {
-                    window.location.hash = '#/pipelineruns/main';
                 }
             }
         } else {
@@ -3022,7 +3322,7 @@ svgContent += `
         const parentId = formData.get('parent_id') ? parseInt(formData.get('parent_id'), 10) : null;
         const name = formData.get('name');
 
-        const siblings = state.groups.filter(g => g.parent_id === parentId);
+        const siblings = state.groups.filter(g => normalizeParentId(g.parent_id) === normalizeParentId(parentId));
         if (siblings.some(s => s.name === name)) {
             alert('A folder or repository with this name already exists at this level.');
             return;
@@ -3082,11 +3382,43 @@ if (false && state.currentGraphView === 'tasks') {
 }
 
     function bindDomEvents() {
-        DOM.mainHeader.addEventListener('click', e => {
+    DOM.mainHeader.addEventListener('click', e => {
         if (e.target.closest('#view-logs-btn')) {
             showLogsModal();
         }
     });
+
+    // Tabs navigation (Recent, Main, etc.) should update the hash lazily.
+    if (DOM.tabs && DOM.tabs.length) {
+        DOM.tabs.forEach(tab => {
+            tab.addEventListener('click', (e) => {
+                e.preventDefault();
+                const targetTab = tab.dataset.tab;
+                if (!targetTab) return;
+
+                const current = parsePipelineRunsHash(window.location.hash);
+                const sameTab = current.tab === targetTab;
+                const hasRunOpen = !!current.runId;
+
+                if (targetTab === 'recent') {
+                    if (sameTab && !hasRunOpen) return;
+                    window.location.hash = '#/pipelineruns/recent';
+                } else if (targetTab === 'main') {
+                    let segments = [];
+                    if (sameTab && !hasRunOpen) {
+                        segments = [];
+                    } else if (sameTab && hasRunOpen && Array.isArray(current.groupSegments) && current.groupSegments.length) {
+                        segments = current.groupSegments.slice();
+                    } else if (state.selectedGroupPathSegments && state.selectedGroupPathSegments.length) {
+                        segments = state.selectedGroupPathSegments.slice();
+                    }
+
+                    const targetHash = segments.length ? `#/pipelineruns/main/${segments.join('/')}` : '#/pipelineruns/main';
+                    window.location.hash = targetHash;
+                }
+            });
+        });
+    }
 
     DOM.closeLogsModalBtn.addEventListener('click', closeLogsModal);
     DOM.logsModal.addEventListener('click', e => { if (e.target === DOM.logsModal) closeLogsModal(); });
@@ -3222,12 +3554,8 @@ if (false && state.currentGraphView === 'tasks') {
         if (infoBtn && infoBtn.dataset.stepName) {
           e.stopPropagation();
           const stepName = infoBtn.dataset.stepName;
-          try {
-            const [, subpath, runId] = window.location.hash.slice(2).split('/');
-            if (subpath && runId) {
-              window.location.hash = `#/pipelineruns/${subpath}/${runId}/steps/${stepName}`;
-            }
-          } catch {}
+          const newHash = buildRunHashWithExtras(state.currentRunData?.run_info, resolveRunContext(state.currentRunContext || null), ['steps', stepName]);
+          window.location.hash = newHash;
           showStepDetails(stepName);
           return;
         }
@@ -3258,10 +3586,8 @@ if (false && state.currentGraphView === 'tasks') {
           state._fitOnNextStepsRender = false;
           const stepName = stepEl.dataset.stepName;
           if (e.ctrlKey || e.metaKey) {
-            const [, subpath, runId] = window.location.hash.slice(2).split('/');
-            if (subpath && runId) {
-              window.location.hash = `#/pipelineruns/${subpath}/${runId}/steps/${stepName}`;
-            }
+            const newHash = buildRunHashWithExtras(state.currentRunData?.run_info, resolveRunContext(state.currentRunContext || null), ['steps', stepName]);
+            window.location.hash = newHash;
           } else {
             if (!state.expandedSteps) state.expandedSteps = new Set();
             state._preserveScale = true;
@@ -3307,6 +3633,10 @@ if (false && state.currentGraphView === 'tasks') {
                         });
                     } else {
                         const url = card.dataset.href;
+                        const context = parseRunContextAttr(card.dataset.runContext);
+                        if (context) {
+                            state.currentRunContext = context;
+                        }
                         if (upEvent.ctrlKey || upEvent.metaKey) {
                             window.open(url, '_blank');
                         } else {
@@ -3322,6 +3652,10 @@ if (false && state.currentGraphView === 'tasks') {
                 const card = e.target.closest('a[data-run-id]');
                 if (card && !e.ctrlKey && !e.metaKey && e.button === 0) {
                     e.preventDefault();
+                    const context = parseRunContextAttr(card.dataset.runContext);
+                    if (context) {
+                        state.currentRunContext = context;
+                    }
                     window.location.hash = card.getAttribute('href');
                 }
 
@@ -3410,8 +3744,13 @@ if (false && state.currentGraphView === 'tasks') {
 
                 if (link) {
                     e.preventDefault();
-                    if (window.location.hash !== link.getAttribute('href')) {
-                        window.location.hash = link.getAttribute('href');
+                    const context = parseRunContextAttr(link.dataset.runContext);
+                    if (context) {
+                        state.currentRunContext = context;
+                    }
+                    const href = link.getAttribute('href');
+                    if (window.location.hash !== href) {
+                        window.location.hash = href;
                     }
                 } else if (groupHeader) {
                     e.preventDefault();
@@ -3599,7 +3938,8 @@ if (false && state.currentGraphView === 'tasks') {
         // --- FIX START ---
         // 2. Refresh the main content view if it's a relevant page.
         // We only need to do this if we are on the main 'pipelineruns' page.
-        if (state.currentPath === 'pipelineruns' && !window.location.hash.includes('/run/')) {
+        const hashInfo = parsePipelineRunsHash(window.location.hash);
+        if (state.currentPath === 'pipelineruns' && !hashInfo.runId) {
             if (state.currentTab === 'recent') {
                 // If on the "Recent" tab, re-fetch all runs and re-render the main grid.
                 const runs = await fetchData('/v1/runs');
@@ -3611,7 +3951,7 @@ if (false && state.currentGraphView === 'tasks') {
                     await fetchMainContent(state.selectedGroupId);
                 } else {
                     // If at the root, re-render the top-level groups.
-                    const rootGroups = state.groups.filter(g => g.parent_id === null || g.parent_id === 0);
+                    const rootGroups = state.groups.filter(g => normalizeParentId(g.parent_id) === null);
                     renderMainGridContent(rootGroups, null, true);
                 }
             }
