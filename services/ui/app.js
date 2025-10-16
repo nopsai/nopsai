@@ -159,6 +159,7 @@ document.addEventListener('DOMContentLoaded', () => {
         currentRunData: null,
         groups: [],
         selectedGroupId: null,
+        selectedGroupPathSegments: [],
         groupToDelete: null,
         panzoomInstance: null,
         expandedGroups: new Set(),
@@ -182,6 +183,7 @@ document.addEventListener('DOMContentLoaded', () => {
         logsShowTimestamps: true,
         logsStructured: true,
         logsLevelFilter: new Set(['info','warn','error','debug']),
+        currentRunContext: null,
     };
 
     async function fetchData(url, options = {}) {
@@ -228,6 +230,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function router(hashOverride) {
+        if (window.location.search) {
+            try {
+                const clean = window.location.pathname + (window.location.hash || '');
+                history.replaceState(null, '', clean);
+            } catch {
+                window.location.search = '';
+            }
+        }
         const hash = hashOverride || window.location.hash || '#/pipelineruns/main';
         const parts = hash.replace(/^#/,'').replace(/^\//,'').split('/');
         const path = parts[0] || 'pipelineruns';
