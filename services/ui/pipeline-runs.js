@@ -24,6 +24,113 @@
 
     const RUN_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const groupPathCache = new Map();
+    const LOG_LEVEL_FILTER_KEYS = ['info', 'warn', 'error', 'debug'];
+
+    function createDefaultLogLevelFilter() {
+        return new Set(LOG_LEVEL_FILTER_KEYS);
+    }
+
+    function decodeHashSegment(segment) {
+        if (typeof segment !== 'string') return '';
+        try {
+            return decodeURIComponent(segment);
+        } catch {
+            return segment;
+        }
+    }
+
+    function applyLogRouteState(logSegments = [], query = {}) {
+        const segments = Array.isArray(logSegments) ? logSegments : [];
+        const [rawSteps, rawLevels, rawWrap, rawStructured] = segments;
+
+        const stepSpec = decodeHashSegment(rawSteps || '').trim();
+        const selectedSteps = new Set();
+        if (stepSpec && stepSpec.toLowerCase() !== 'all') {
+            stepSpec.split(',').forEach(part => {
+                const name = part.trim();
+                if (name) selectedSteps.add(name);
+            });
+        }
+        state.logsSelectedSteps = selectedSteps;
+
+        const levelSpecRaw = decodeHashSegment(rawLevels || '').trim().toLowerCase();
+        if (!levelSpecRaw || levelSpecRaw === 'all') {
+            state.logsLevelFilter = createDefaultLogLevelFilter();
+        } else {
+            const levels = levelSpecRaw.split(',').map(l => l.trim()).filter(l => LOG_LEVEL_FILTER_KEYS.includes(l));
+            state.logsLevelFilter = levels.length ? new Set(levels) : createDefaultLogLevelFilter();
+        }
+
+        const wrapSpec = decodeHashSegment(rawWrap || '').trim().toLowerCase();
+        if (!wrapSpec || wrapSpec === 'wrap' || wrapSpec === 'on') {
+            state.logsWrap = true;
+        } else if (wrapSpec === 'unwrap' || wrapSpec === 'nowrap' || wrapSpec === 'off') {
+            state.logsWrap = false;
+        }
+
+        const structuredSpec = decodeHashSegment(rawStructured || '').trim().toLowerCase();
+        if (!structuredSpec || structuredSpec === 'structured' || structuredSpec === 'on') {
+            state.logsStructured = true;
+        } else if (structuredSpec === 'unstructured' || structuredSpec === 'raw' || structuredSpec === 'off') {
+            state.logsStructured = false;
+        }
+
+        const searchText = typeof query.search === 'string' ? query.search : '';
+        state.logsSearchText = searchText;
+        state._logsFocusFirstMatch = !!searchText;
+        if (DOM && DOM.logsSearch) {
+            DOM.logsSearch.value = searchText;
+        }
+    }
+
+    function buildLogSegmentsFromState() {
+        const selectedSteps = state.logsSelectedSteps instanceof Set ? Array.from(state.logsSelectedSteps) : [];
+        const stepSegment = selectedSteps.length ? selectedSteps.join(',') : 'all';
+
+        const levelSet = state.logsLevelFilter instanceof Set ? state.logsLevelFilter : createDefaultLogLevelFilter();
+        const orderedLevels = LOG_LEVEL_FILTER_KEYS.filter(level => levelSet.has(level));
+        const levelSegment = orderedLevels.length === LOG_LEVEL_FILTER_KEYS.length || orderedLevels.length === 0
+            ? 'all'
+            : orderedLevels.join(',');
+
+        const wrapSegment = state.logsWrap === false ? 'unwrap' : 'wrap';
+        const structuredSegment = state.logsStructured === false ? 'unstructured' : 'structured';
+
+        return [stepSegment || 'all', levelSegment || 'all', wrapSegment, structuredSegment];
+    }
+
+    function buildLogsHashFromState() {
+        if (!state.currentRunData || !state.currentRunData.run_info) return null;
+        const runInfo = state.currentRunData.run_info;
+        const context = resolveRunContext(state.currentRunContext);
+        const extras = ['logs', ...buildLogSegmentsFromState()];
+        const search = (state.logsSearchText || '').trim();
+        const queryOptions = search ? { query: { search } } : undefined;
+        return buildRunHashWithExtras(runInfo, context, extras, queryOptions);
+    }
+
+    function syncLogsHash(options = {}) {
+        const { replace = true } = options || {};
+        const newHash = buildLogsHashFromState();
+        if (!newHash) return;
+        const currentHash = window.location.hash || '';
+        if (currentHash === newHash) return;
+        try {
+            const url = new URL(window.location.href);
+            url.hash = newHash.slice(1);
+            if (replace) {
+                history.replaceState(null, '', url.toString());
+            } else {
+                history.pushState(null, '', url.toString());
+            }
+        } catch {
+            if (replace) {
+                window.location.replace(newHash);
+            } else {
+                window.location.hash = newHash;
+            }
+        }
+    }
 
     function normalizeParentId(id) {
         return id === null || id === undefined || id === 0 ? null : id;
@@ -197,16 +304,35 @@
         return '#/' + segments.join('/');
     }
 
-    function buildRunHashWithExtras(run, contextOverride, extras = []) {
-        const base = buildRunHash(run, contextOverride);
-        if (!extras || !extras.length) return base;
-        const encodedExtras = extras.map(seg => encodeURIComponent(seg));
-        return `${base}/${encodedExtras.join('/')}`;
+    function buildRunHashWithExtras(run, contextOverride, extras = [], options = {}) {
+        let hash = buildRunHash(run, contextOverride);
+        if (extras && extras.length) {
+            const encodedExtras = extras.map(seg => encodeURIComponent(seg));
+            hash += `/${encodedExtras.join('/')}`;
+        }
+        if (options && options.query) {
+            const params = Object.entries(options.query)
+                .filter(([, value]) => value !== undefined && value !== null && String(value).length > 0);
+            if (params.length) {
+                const search = new URLSearchParams(params).toString();
+                hash += `?${search}`;
+            }
+        }
+        return hash;
     }
 
     function parsePipelineRunsHash(hash) {
-        const normalized = (hash || '').replace(/^#\/?/, '');
-        const parts = normalized ? normalized.split('/').filter(Boolean) : [];
+        const raw = (hash || '').replace(/^#/, '');
+        const questionIndex = raw.indexOf('?');
+        const pathPart = questionIndex === -1 ? raw : raw.slice(0, questionIndex);
+        const queryPart = questionIndex === -1 ? '' : raw.slice(questionIndex + 1);
+        const normalizedPath = (pathPart || '').replace(/^\/?/, '');
+        const parts = normalizedPath ? normalizedPath.split('/').filter(Boolean) : [];
+        const searchParams = new URLSearchParams(queryPart || '');
+        const query = {};
+        searchParams.forEach((value, key) => {
+            query[key] = value;
+        });
         const path = parts[0] || 'pipelineruns';
         const tab = parts[1] || 'main';
         const rest = parts.slice(2);
@@ -214,23 +340,29 @@
         let runId = null;
         let action = null;
         let stepName = null;
+        let actionSegments = [];
+        let logSegments = [];
         let groupSegments = rest;
 
         const runIndex = rest.findIndex(seg => RUN_ID_REGEX.test(seg));
         if (runIndex !== -1) {
             runId = rest[runIndex];
             groupSegments = rest.slice(0, runIndex);
-            action = rest[runIndex + 1] || null;
-            if (action === 'steps' && rest[runIndex + 2]) {
+            actionSegments = rest.slice(runIndex + 1);
+            action = actionSegments[0] || null;
+            if (action === 'steps' && actionSegments[1]) {
                 try {
-                    stepName = decodeURIComponent(rest[runIndex + 2]);
+                    stepName = decodeURIComponent(actionSegments[1]);
                 } catch {
-                    stepName = rest[runIndex + 2];
+                    stepName = actionSegments[1];
                 }
+            }
+            if (action === 'logs') {
+                logSegments = actionSegments.slice(1);
             }
         }
 
-        return { path, tab, groupSegments, runId, action, stepName };
+        return { path, tab, groupSegments, runId, action, stepName, actionSegments, logSegments, query };
     }
 
     function getActiveRunId() {
@@ -293,6 +425,7 @@
         logsModule = context.logsModule;
         wsManager = context.wsManager; // Store wsManager
         refresh = context.refresh || (() => {});
+        state.syncLogsHash = syncLogsHash;
         setupLogHelpers();
         bindDomEvents();
         setupObservers();
@@ -3176,7 +3309,7 @@ svgContent += `
     async function handleRoute(hashOverride) {
         const hash = hashOverride || window.location.hash || '#/pipelineruns/main';
         const info = parsePipelineRunsHash(hash);
-        const { path, tab, groupSegments, runId, action, stepName } = info;
+        const { path, tab, groupSegments, runId, action, stepName, logSegments, query } = info;
 
         if (!runId && state.currentRunData) {
             state.currentRunData = null;
@@ -3246,6 +3379,7 @@ svgContent += `
 
                 if (state.currentRunData) {
                     if (action === 'logs') {
+                        applyLogRouteState(logSegments, query);
                         renderRunView(state.currentRunData);
                         showLogsModal();
                     } else {
@@ -3468,6 +3602,7 @@ if (false && state.currentGraphView === 'tasks') {
           updateLogsStepList();
           state._logsFocusFirstMatch = true;
           renderLogsWithFilters({ scrollToTop: true }); 
+          if (typeof state.syncLogsHash === 'function') state.syncLogsHash({ replace: true });
           return;
         }
       });
@@ -3483,6 +3618,7 @@ if (false && state.currentGraphView === 'tasks') {
         updateLogsStepList();
         state._logsFocusFirstMatch = true;
         renderLogsWithFilters();
+        if (typeof state.syncLogsHash === 'function') state.syncLogsHash({ replace: true });
       });
     }
     if (DOM.logsStepsClear) {
@@ -3491,6 +3627,7 @@ if (false && state.currentGraphView === 'tasks') {
         updateLogsStepList();
         state._logsFocusFirstMatch = true;
         renderLogsWithFilters();
+        if (typeof state.syncLogsHash === 'function') state.syncLogsHash({ replace: true });
       });
     }
     // No 'only selected' toggle; selecting none means show all
@@ -3499,6 +3636,7 @@ if (false && state.currentGraphView === 'tasks') {
         state.logsSearchText = e.target.value || '';
         state._logsFocusFirstMatch = true;
         renderLogsWithFilters();
+        if (typeof state.syncLogsHash === 'function') state.syncLogsHash({ replace: true });
       });
     }
     if (DOM.logsClearSearch) {
@@ -3506,6 +3644,7 @@ if (false && state.currentGraphView === 'tasks') {
         if (DOM.logsSearch) DOM.logsSearch.value = '';
         state.logsSearchText = '';
         renderLogsWithFilters();
+        if (typeof state.syncLogsHash === 'function') state.syncLogsHash({ replace: true });
       });
     }
     if (DOM.downloadLogsBtn) {
