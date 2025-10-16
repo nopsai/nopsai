@@ -99,15 +99,16 @@
         }
         const wrapToggle = document.getElementById('logs-toggle-wrap');
         const structuredToggle = document.getElementById('logs-toggle-structured');
+        const shortOn = !!state.logsShortView;
         if (wrapToggle) {
-            wrapToggle.disabled = !!state.logsShortView;
+            wrapToggle.disabled = shortOn;
             const label = wrapToggle.closest('label');
-            if (label) label.classList.toggle('opacity-50', !!state.logsShortView);
+            if (label) label.classList.toggle('opacity-50', shortOn);
         }
         if (structuredToggle) {
-            structuredToggle.disabled = !!state.logsShortView;
+            structuredToggle.disabled = shortOn;
             const label = structuredToggle.closest('label');
-            if (label) label.classList.toggle('opacity-50', !!state.logsShortView);
+            if (label) label.classList.toggle('opacity-50', shortOn);
         }
     }
 
@@ -3189,6 +3190,23 @@ async function renderModalForStep(runId, stepName, parentContext = null) {
         const safeStepAttr = escapeAttribute(stepName);
         const modalHeader = document.querySelector('#modal-content > div:first-child');
         const closeButtonHTML = modalHeader.querySelector('#close-modal-btn').outerHTML;
+        const escapeHtml = (value) => {
+            if (value === undefined || value === null) return '';
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        };
+        const addConfigRow = (label, valueHtml) => {
+            if (!valueHtml) return;
+            configHTML += `<div class="step-config-row"><span class="step-config-label">${label}:</span><span class="step-config-value">${valueHtml}</span></div>`;
+        };
+        const boolBadge = (value) => {
+            if (value === undefined || value === null) return '';
+            return `<span class="step-config-bool">${value ? 'true' : 'false'}</span>`;
+        };
         let headerHTML = `
             <div>
                 <h2 id="modal-title" class="text-xl font-semibold">Step: ${stepName}</h2>
@@ -3216,61 +3234,57 @@ async function renderModalForStep(runId, stepName, parentContext = null) {
         let configHTML = '';
 
         if (stepDef?.image) {
-            configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Image</h4><code class="text-cyan-600 dark:text-cyan-400 bg-[var(--bg-code)] px-2 py-1 rounded">${stepDef.image}</code></div>`;
+            addConfigRow('Image', escapeHtml(stepDef.image));
         }
         if (stepDef?.include) {
-            configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Include</h4><code class="text-cyan-600 dark:text-cyan-400 bg-[var(--bg-code)] px-2 py-1 rounded">${stepDef.include}</code></div>`;
+            addConfigRow('Include', escapeHtml(stepDef.include));
         }
         if (stepDef?.depends_on && stepDef.depends_on.length > 0) {
-            const dependsOnList = stepDef.depends_on.map(d => `<li class="inline-block mr-2 mb-1"><code class="text-gray-600 dark:text-gray-400 bg-[var(--bg-code)] px-2 py-1 rounded">${d}</code></li>`).join('');
-            configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Depends On</h4><ul class="flex flex-wrap">${dependsOnList}</ul></div>`;
+            const dependsOnList = stepDef.depends_on.map(d => `<li>${escapeHtml(d)}</li>`).join('');
+            configHTML += `<div class="step-config-list"><h4>Depends On</h4><ul>${dependsOnList}</ul></div>`;
         }
         if (stepDef?.secrets && stepDef.secrets.length > 0) {
-            const secretsList = stepDef.secrets.map(s => `<li class="inline-block mr-2 mb-1"><code class="text-purple-600 dark:text-purple-400 bg-[var(--bg-code)] px-2 py-1 rounded">${s}</code></li>`).join('');
-            configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Secrets</h4><ul class="flex flex-wrap">${secretsList}</ul></div>`;
+            const secretsList = stepDef.secrets.map(s => `<li>${escapeHtml(s)}</li>`).join('');
+            configHTML += `<div class="step-config-list"><h4>Secrets</h4><ul>${secretsList}</ul></div>`;
         }
         if (stepDef?.volumes && stepDef.volumes.length > 0) {
-            const volumesList = stepDef.volumes.map(v => `<li class="inline-block mr-2 mb-1"><code class="text-green-600 dark:text-green-400 bg-[var(--bg-code)] px-2 py-1 rounded">${v}</code></li>`).join('');
-            configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Volumes</h4><ul class="flex flex-wrap">${volumesList}</ul></div>`;
+            const volumesList = stepDef.volumes.map(v => `<li>${escapeHtml(v)}</li>`).join('');
+            configHTML += `<div class="step-config-list"><h4>Volumes</h4><ul>${volumesList}</ul></div>`;
         }
         if (stepDef?.environment && Object.keys(stepDef.environment).length > 0) {
-            const envList = Object.entries(stepDef.environment).map(([k, v]) => `<li><code class="text-[var(--text-secondary)]"><span class="text-orange-600 dark:text-orange-400">${k}</span>=${v}</code></li>`).join('');
-            configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Environment</h4><ul class="space-y-1">${envList}</ul></div>`;
+            const envList = Object.entries(stepDef.environment).map(([k, v]) => `<li class="step-config-row"><span class="step-config-label">${escapeHtml(k)}:</span><span class="step-config-value">${escapeHtml(v)}</span></li>`).join('');
+            configHTML += `<div class="step-config-list"><h4>Environment</h4><ul>${envList}</ul></div>`;
         }
-        if (stepDef?.ignore_failure) {
-            configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Ignore Failure</h4><span class="text-amber-600 dark:text-amber-400">true</span></div>`;
+        addConfigRow('Ignore Failure', boolBadge(!!stepDef?.ignore_failure));
+        addConfigRow('Sync', boolBadge(!!step.sync));
+        if (stepDef?.llm_output_sharing !== undefined) {
+            addConfigRow('LLM Output Sharing', boolBadge(!!stepDef.llm_output_sharing));
         }
-         if (stepDef?.include && stepDef?.sync) {
-            configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Sync</h4><span class="text-blue-600 dark:text-blue-400">true</span></div>`;
-        }
-        if (stepDef?.llm_output_sharing === false) {
-            configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">LLM Output Sharing</h4><span class="text-[var(--text-secondary)]">false</span></div>`;
-        }
-        if (stepDef?.llm_content_sharing === false) {
-            configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">LLM Content Sharing</h4><span class="text-[var(--text-secondary)]">false</span></div>`;
+        if (stepDef?.llm_content_sharing !== undefined) {
+            addConfigRow('LLM Content Sharing', boolBadge(!!stepDef.llm_content_sharing));
         }
 
         if (stepDef?.tasks && stepDef.tasks.length > 0) {
-            configHTML += `<div><h4 class="font-semibold text-[var(--text-secondary)] mb-1">Tasks</h4><div class="space-y-3 pt-2">`;
+            configHTML += `<div class="step-config-list"><h4>Tasks</h4><div class="space-y-3 pt-2">`;
             stepDef.tasks.forEach(task => {
                 configHTML += `<div class="bg-[var(--bg-primary)] p-3 rounded-md border-l-2 border-[var(--border-secondary)] space-y-3">
-                                <p class="font-semibold text-[var(--text-primary)]">${task.name}</p>`;
+                                <p class="font-semibold text-[var(--text-primary)]">${escapeHtml(task.name)}</p>`;
                 if (task.goal) {
-                    configHTML += `<div><h5 class="text-xs font-semibold text-[var(--text-secondary)] mb-1">Goal</h5><p class="text-[var(--text-primary)] italic">"${task.goal}"</p></div>`;
+                    configHTML += `<div class="step-task-row"><span class="step-config-label">Goal:</span><span class="step-config-value italic">"${escapeHtml(task.goal)}"</span></div>`;
                 }
                 if (task.script) {
                     const escapedScript = task.script.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                    configHTML += `<div><h5 class="text-xs font-semibold text-[var(--text-secondary)] mb-1">Script</h5><pre class="bg-[var(--bg-code-darker)] p-2 rounded text-cyan-700 dark:text-cyan-300 text-xs overflow-x-auto"><code>${escapedScript}</code></pre></div>`;
+                    configHTML += `<div class="step-config-list"><h5>Script</h5><pre class="bg-[var(--bg-code-darker)] p-2 rounded text-cyan-700 dark:text-cyan-300 text-xs overflow-x-auto"><code>${escapedScript}</code></pre></div>`;
                 }
                 if (task.depends_on && task.depends_on.length > 0) {
-                    const dependsOnList = task.depends_on.map(d => `<li class="inline-block mr-2 mb-1"><code class="text-gray-600 dark:text-gray-400 bg-[var(--bg-code)] px-2 py-1 rounded">${d}</code></li>`).join('');
-                    configHTML += `<div><h5 class="text-xs font-semibold text-[var(--text-secondary)] mb-1">Depends On</h5><ul class="flex flex-wrap">${dependsOnList}</ul></div>`;
+                    const dependsOnList = task.depends_on.map(d => `<li>${escapeHtml(d)}</li>`).join('');
+                    configHTML += `<div class="step-config-list"><h5>Depends On</h5><ul>${dependsOnList}</ul></div>`;
                 }
                 if (task.ignore_failure) {
-                    configHTML += `<div><h5 class="text-xs font-semibold text-[var(--text-secondary)] mb-1">Ignore Failure</h5><span class="text-amber-600 dark:text-amber-400">true</span></div>`;
+                    configHTML += `<div class="step-task-row"><span class="step-config-label">Ignore Failure:</span><span class="step-config-value">${boolBadge(true)}</span></div>`;
                 }
                 if (task.llm_output_sharing === false) {
-                    configHTML += `<div><h5 class="text-xs font-semibold text-[var(--text-secondary)] mb-1">LLM Output Sharing</h5><span class="text-[var(--text-secondary)]">false</span></div>`;
+                    configHTML += `<div class="step-task-row"><span class="step-config-label">LLM Output Sharing:</span><span class="step-config-value">${boolBadge(false)}</span></div>`;
                 }
                 configHTML += '</div>';
             });

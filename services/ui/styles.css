@@ -615,6 +615,63 @@ html.dark .step-cluster-box { fill: var(--bg-tertiary); opacity: .18; }
     color: var(--text-primary);
 }
 
+.step-config-row,
+.step-task-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.35rem;
+}
+
+.step-config-label {
+    color: var(--text-secondary);
+    white-space: nowrap;
+    font-size: 0.95rem;
+    font-weight: 400;
+}
+
+.step-config-value {
+    color: var(--text-primary);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.9rem;
+}
+
+.step-config-bool {
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.step-config-list {
+    margin-bottom: 0.75rem;
+}
+
+.step-config-list h4,
+.step-config-list h5 {
+    margin: 0 0 0.25rem 0;
+    font-size: 0.95rem;
+    font-weight: 400;
+    color: var(--text-secondary);
+}
+
+.step-config-list h4::after,
+.step-config-list h5::after {
+    content: ':';
+    margin-left: 0.25rem;
+}
+
+.step-config-list ul {
+    margin: 0;
+    padding-left: 1.1rem;
+}
+
+.step-config-list li {
+    margin-bottom: 0.2rem;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
 .logs-status-badge {
     margin-left: auto;
     padding: 0.1rem 0.4rem;
