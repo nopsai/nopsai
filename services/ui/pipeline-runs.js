@@ -1287,6 +1287,8 @@ if (dx !== 0 || dy !== 0) {
         const config = statusConfig[status.toLowerCase()] || statusConfig.pending;
         const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
         const branchName = (run.git_ref || '').startsWith('refs/heads/') ? run.git_ref.split('/')[2] : 'N/A';
+        const targetRef = (run.git_target_ref || '').startsWith('refs/heads/') ? run.git_target_ref.split('/')[2] : (run.git_target_ref || '');
+        const branchDisplay = targetRef ? `${branchName} &gt; ${targetRef}` : branchName;
         const repoFullName = `${run.git_repo_owner}/${run.git_repo_name}`;
         const pipelineNameHTML = getPipelineNameHTML(run);
 
@@ -1303,7 +1305,7 @@ if (dx !== 0 || dy !== 0) {
                 </p>
                 <p class="text-sm text-[var(--text-link)] font-mono items-center mt-1">
                    <svg class="inline-block h-4 w-4 mr-1 -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                   ${branchName}
+                   ${branchDisplay}
                 </p>
             </div>
             <div class="mt-4 text-xs text-[var(--text-secondary)] font-mono space-y-1.5">
@@ -3898,39 +3900,42 @@ if (false && state.currentGraphView === 'tasks') {
         if (DOM.mainGridContainer) {
             DOM.mainGridContainer.addEventListener('mousedown', e => {
                 const card = e.target.closest('[data-href]');
-                if (!card || e.button !== 0) return;
+                if (!card) return;
+
+                const startX = e.clientX;
+                const startY = e.clientY;
+                const button = e.button;
+                if (button !== 0 && button !== 1) return;
 
                 const onMouseUp = (upEvent) => {
                     document.removeEventListener('mouseup', onMouseUp);
 
-                    const selection = window.getSelection().toString();
-                    if (selection && selection.length > 0) {
-                        navigator.clipboard.writeText(selection).then(() => {
-                            const copiedMessage = document.createElement('div');
-                            copiedMessage.textContent = 'Copied!';
-                            copiedMessage.style.position = 'fixed';
-                            copiedMessage.style.top = `${upEvent.clientY - 30}px`;
-                            copiedMessage.style.left = `${upEvent.clientX}px`;
-                            copiedMessage.style.background = '#2d3748';
-                            copiedMessage.style.color = 'white';
-                            copiedMessage.style.padding = '5px 10px';
-                            copiedMessage.style.borderRadius = '5px';
-                            copiedMessage.style.zIndex = '1000';
-                            copiedMessage.style.pointerEvents = 'none';
-                            document.body.appendChild(copiedMessage);
-                            setTimeout(() => { copiedMessage.remove(); }, 1000);
-                        });
-                    } else {
-                        const url = card.dataset.href;
-                        const context = parseRunContextAttr(card.dataset.runContext);
-                        if (context) {
-                            state.currentRunContext = context;
-                        }
-                        if (upEvent.ctrlKey || upEvent.metaKey) {
+                    const dx = upEvent.clientX - startX;
+                    const dy = upEvent.clientY - startY;
+                    if (Math.hypot(dx, dy) > 5) return;
+
+                    const selection = window.getSelection();
+                    if (selection && selection.toString().trim().length > 0 && button === 0) {
+                        try {
+                            navigator.clipboard.writeText(selection.toString());
+                        } catch {}
+                        return;
+                    }
+
+                    const url = card.dataset.href;
+                    const context = parseRunContextAttr(card.dataset.runContext);
+                    if (context) {
+                        state.currentRunContext = context;
+                    }
+
+                    if (button === 1 || upEvent.ctrlKey || upEvent.metaKey) {
+                        try {
                             window.open(url, '_blank');
-                        } else {
+                        } catch {
                             window.location.hash = url;
                         }
+                    } else if (button === 0) {
+                        window.location.hash = url;
                     }
                 };
 
