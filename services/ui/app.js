@@ -152,6 +152,8 @@ document.addEventListener('DOMContentLoaded', () => {
         logsSearchMatches: document.getElementById('logs-search-matches'),
         logsCount: document.getElementById('logs-count'),
         downloadLogsBtn: document.getElementById('download-logs-btn'),
+        logsToggleAgent: document.getElementById('logs-toggle-agent'),
+        logsToggleShort: document.getElementById('logs-toggle-short'),
     };
 
     let state = {
@@ -183,6 +185,8 @@ document.addEventListener('DOMContentLoaded', () => {
         logsShowTimestamps: true,
         logsStructured: true,
         logsLevelFilter: new Set(['info','warn','error','debug']),
+        logsShortView: false,
+        logsAgentOnly: false,
         currentRunContext: null,
         _suppressNextRoute: false,
         _suppressRouteTimeout: null,

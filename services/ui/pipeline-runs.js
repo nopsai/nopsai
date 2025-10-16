@@ -41,7 +41,7 @@
 
     function applyLogRouteState(logSegments = [], query = {}) {
         const segments = Array.isArray(logSegments) ? logSegments : [];
-        const [rawSteps, rawLevels, rawWrap, rawStructured] = segments;
+        const [rawSteps, rawLevels, rawWrap, rawStructured, rawAgent, rawShort] = segments;
 
         const stepSpec = decodeHashSegment(rawSteps || '').trim();
         const selectedSteps = new Set();
@@ -75,11 +75,39 @@
             state.logsStructured = false;
         }
 
+        const agentSpec = decodeHashSegment(rawAgent || '').trim().toLowerCase();
+        state.logsAgentOnly = agentSpec === 'agent';
+
+        const shortSpec = decodeHashSegment(rawShort || '').trim().toLowerCase();
+        state.logsShortView = shortSpec === 'short';
+
         const searchText = typeof query.search === 'string' ? query.search : '';
         state.logsSearchText = searchText;
         state._logsFocusFirstMatch = !!searchText;
         if (DOM && DOM.logsSearch) {
             DOM.logsSearch.value = searchText;
+        }
+        if (DOM && DOM.logsToggleAgent) {
+            const btn = DOM.logsToggleAgent;
+            const classes = ['ring-1', 'ring-[var(--border-accent)]', 'text-[var(--text-primary)]'];
+            classes.forEach(cls => btn.classList.toggle(cls, state.logsAgentOnly));
+            btn.setAttribute('aria-pressed', state.logsAgentOnly ? 'true' : 'false');
+        }
+        const shortToggle = DOM && DOM.logsToggleShort;
+        if (shortToggle) {
+            shortToggle.checked = !!state.logsShortView;
+        }
+        const wrapToggle = document.getElementById('logs-toggle-wrap');
+        const structuredToggle = document.getElementById('logs-toggle-structured');
+        if (wrapToggle) {
+            wrapToggle.disabled = !!state.logsShortView;
+            const label = wrapToggle.closest('label');
+            if (label) label.classList.toggle('opacity-50', !!state.logsShortView);
+        }
+        if (structuredToggle) {
+            structuredToggle.disabled = !!state.logsShortView;
+            const label = structuredToggle.closest('label');
+            if (label) label.classList.toggle('opacity-50', !!state.logsShortView);
         }
     }
 
@@ -95,8 +123,10 @@
 
         const wrapSegment = state.logsWrap === false ? 'unwrap' : 'wrap';
         const structuredSegment = state.logsStructured === false ? 'unstructured' : 'structured';
+        const agentSegment = state.logsAgentOnly ? 'agent' : 'all';
+        const shortSegment = state.logsShortView ? 'short' : 'full';
 
-        return [stepSegment || 'all', levelSegment || 'all', wrapSegment, structuredSegment];
+        return [stepSegment || 'all', levelSegment || 'all', wrapSegment, structuredSegment, agentSegment, shortSegment];
     }
 
     function buildLogsHashFromState() {
