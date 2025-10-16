@@ -3,6 +3,16 @@
     let DOM;
     let fetchData;
 
+    function syncLogsHash(options) {
+        if (state && typeof state.syncLogsHash === 'function') {
+            try {
+                state.syncLogsHash(options);
+            } catch (err) {
+                console.error('Failed to sync logs hash:', err);
+            }
+        }
+    }
+
     function init(context) {
         state = context.state;
         DOM = context.DOM;
@@ -39,12 +49,16 @@
         
         state.presentLogLevels = new Set();
         updateLogLevelFiltersVisibility();
+        if (DOM.logsSearch) {
+            DOM.logsSearch.value = state.logsSearchText || '';
+        }
 
         try { buildLogsFilters(); } catch {}
         try { initLogsUIControls(); } catch {}
 
         // Fetch historical logs, new ones will come via WebSocket
         fetchAndRenderLogs(runId);
+        syncLogsHash({ replace: true });
     }
 
     function initLogsUIControls() {
@@ -56,6 +70,7 @@
             wrap.addEventListener('change', () => {
                 state.logsWrap = !!wrap.checked;
                 renderLogsWithFilters();
+                syncLogsHash({ replace: true });
             });
         }
         if (structured) {
@@ -63,6 +78,7 @@
             structured.addEventListener('change', () => {
                 state.logsStructured = !!structured.checked;
                 renderLogsWithFilters();
+                syncLogsHash({ replace: true });
             });
         }
 
@@ -79,6 +95,7 @@
                 if (state.logsLevelFilter.has(lvl)) activate(); else deactivate();
                 state._logsFocusFirstMatch = true;
                 renderLogsWithFilters();
+                syncLogsHash({ replace: true });
             });
         });
 
