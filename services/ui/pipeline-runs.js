@@ -26,6 +26,30 @@
     const groupPathCache = new Map();
     const LOG_LEVEL_FILTER_KEYS = ['info', 'warn', 'error', 'debug'];
 
+    function escapeText(value) {
+        if (value === null || value === undefined) return '';
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+
+    function normalizeBranchRef(ref) {
+        if (typeof ref !== 'string' || !ref) return '';
+        return ref.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : ref;
+    }
+
+    function formatBranchDisplay(sourceRef, targetRef, options = {}) {
+        const opts = typeof options === 'object' && options !== null ? options : {};
+        const arrow = opts.html ? '&gt;' : '>';
+        const source = normalizeBranchRef(sourceRef);
+        const target = normalizeBranchRef(targetRef);
+        if (target) {
+            return `${source || 'N/A'} ${arrow} ${target}`;
+        }
+        return source || 'N/A';
+    }
+
     function createDefaultLogLevelFilter() {
         return new Set(LOG_LEVEL_FILTER_KEYS);
     }
@@ -504,6 +528,39 @@
     function getTriggerGroupAttr(run) {
         const id = getTriggerGroupId(run);
         return id ? ` data-trigger-group-id="${escapeAttribute(id)}"` : '';
+    }
+
+    function formatTriggerEventInfo(id, options = {}) {
+        const opts = typeof options === 'object' && options !== null ? options : {};
+        const fallback = opts.fallback || 'N/A';
+        if (id === undefined || id === null) {
+            return { text: fallback, full: fallback };
+        }
+        const raw = String(id).trim();
+        if (!raw) {
+            return { text: fallback, full: fallback };
+        }
+        const limit = Number(opts.limit);
+        const hasLimit = Number.isFinite(limit) && limit > 0;
+        const text = hasLimit && raw.length > limit ? `${raw.slice(0, limit)}…` : raw;
+        return { text, full: raw };
+    }
+
+    function formatTriggerEventCardDisplay(id, options = {}) {
+        const info = formatTriggerEventInfo(id, options);
+        if (info.full === 'N/A') {
+            return {
+                display: info.text,
+                title: escapeAttribute(info.full),
+            };
+        }
+
+        const raw = info.full;
+        const trimmed = raw.length > 8 ? raw.slice(0, 8) : raw;
+        return {
+            display: trimmed,
+            title: escapeAttribute(raw),
+        };
     }
 
     function getPipelineNameHTML(run) {
@@ -1286,11 +1343,10 @@ if (dx !== 0 || dy !== 0) {
         const status = run.is_complete ? run.status : 'running';
         const config = statusConfig[status.toLowerCase()] || statusConfig.pending;
         const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
-        const branchName = (run.git_ref || '').startsWith('refs/heads/') ? run.git_ref.split('/')[2] : 'N/A';
-        const targetRef = (run.git_target_ref || '').startsWith('refs/heads/') ? run.git_target_ref.split('/')[2] : (run.git_target_ref || '');
-        const branchDisplay = targetRef ? `${branchName} &gt; ${targetRef}` : branchName;
+        const branchDisplay = formatBranchDisplay(run.git_ref, run.git_target_ref, { html: true });
         const repoFullName = `${run.git_repo_owner}/${run.git_repo_name}`;
         const pipelineNameHTML = getPipelineNameHTML(run);
+        const triggerCard = formatTriggerEventCardDisplay(run.trigger_event_id);
 
         return `
             <div>
@@ -1315,11 +1371,15 @@ if (dx !== 0 || dy !== 0) {
                 </div>
                 <div class="flex items-center">
                     <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                    <span class="truncate">${(run.git_commit_sha || '...').slice(0, 8)}</span>
+                    <span class="truncate" title="Commit Hash">${(run.git_commit_sha || '...').slice(0, 8)}</span>
+                </div>
+                <div class="flex items-center">
+                    <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H5v-2H3v-2H1v-4a6 6 0 016-6h1.5" /></svg>
+                    <span class="truncate" title="Run ID">${(run.run_id || '...').slice(0, 8)}</span>
                 </div>
                  <div class="flex items-center">
-                    <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H5v-2H3v-2H1v-4a6 6 0 016-6h1.5" /></svg>
-                    <span class="truncate">${(run.run_id).slice(0, 8)}</span>
+                    <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7a1 1 0 011-1h3.586a1 1 0 01.707.293l6.414 6.414a1 1 0 010 1.414l-4.586 4.586a1 1 0 01-1.414 0L7.293 13.707A1 1 0 017 13V9a1 1 0 011-1z" /></svg>
+                    <span class="truncate" title="Trigger Event ID">${escapeText(triggerCard.display)}</span>
                 </div>
             </div>
              <div class="mt-4 pt-3 border-t border-[var(--border-primary)] flex items-center justify-between text-xs text-[var(--text-secondary)]">
@@ -1337,6 +1397,7 @@ if (dx !== 0 || dy !== 0) {
         const isActive = run.run_id === activeRunId;
         const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
         const pipelineNameHTML = getPipelineNameHTML(run);
+        const triggerCard = formatTriggerEventCardDisplay(run.trigger_event_id);
         
         return `
             <a href="${runUrl}" data-run-context="${contextAttr}"
@@ -1350,11 +1411,15 @@ if (dx !== 0 || dy !== 0) {
                     <div class="text-xs text-[var(--text-secondary)] font-mono mt-1 space-y-1">
                         <div class="flex items-center">
                             <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                            <span class="truncate">${(run.git_commit_sha || '...').slice(0, 8)}</span>
+                            <span class="truncate" title="Commit Hash">${(run.git_commit_sha || '...').slice(0, 8)}</span>
                         </div>                                          
                       <div class="flex items-center">
                           <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H5v-2H3v-2H1v-4a6 6 0 016-6h1.5" /></svg>
-                          <span class="truncate">${(run.run_id || '...').slice(0, 8)}</span>
+                          <span class="truncate" title="Run ID">${(run.run_id || '...').slice(0, 8)}</span>
+                      </div>
+                      <div class="flex items-center">
+                          <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7a1 1 0 011-1h3.586a1 1 0 01.707.293l6.414 6.414a1 1 0 010 1.414l-4.586 4.586a1 1 0 01-1.414 0L7.293 13.707A1 1 0 017 13V9a1 1 0 011-1z" /></svg>
+                          <span class="truncate" title="Trigger Event ID">${escapeText(triggerCard.display)}</span>
                       </div>
                     </div>
                 </div>
@@ -1408,7 +1473,8 @@ if (dx !== 0 || dy !== 0) {
                 data-run-id="${run.run_id}" 
                 data-repo-full-name="${repoFullName}"${parentAttr}${getTriggerGroupAttr(run)}
                 data-run-context="${contextAttr}"
-                class="run-card block bg-[var(--bg-primary)] transition-all duration-200 rounded-lg p-4 flex flex-col justify-between cursor-pointer border border-[var(--border-primary)] shadow-sm">
+                class="run-card block bg-[var(--bg-primary)] transition-all duration-200 rounded-lg p-4 flex flex-col justify-between cursor-pointer border border-[var(--border-primary)] shadow-sm"
+            >
                 ${renderRunCardHTML(run)}
             </div>`;
     }
@@ -1456,7 +1522,7 @@ if (dx !== 0 || dy !== 0) {
             const latestRun = isRepo ? state.repoLastRunCache.get(group.id) : null;
             let latestRunInfo = '';
             if (latestRun) {
-                const branchName = (latestRun.git_ref || '').startsWith('refs/heads/') ? latestRun.git_ref.split('/')[2] : 'N/A';
+                const branchDisplay = formatBranchDisplay(latestRun.git_ref, latestRun.git_target_ref, { html: true });
                 const config = statusConfig[(latestRun.is_complete ? latestRun.status : 'running').toLowerCase()] || statusConfig.pending;
                 const timeToDisplay = latestRun.is_complete ? latestRun.finished_at : latestRun.started_at;
                 latestRunInfo = `
@@ -1464,7 +1530,7 @@ if (dx !== 0 || dy !== 0) {
                         <div class="flex items-center justify-between">
                             <div class="flex items-center">
                                 <svg class="h-4 w-4 mr-2 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
-                                <span class="font-semibold text-sm text-[var(--text-primary)] truncate">${branchName}</span>
+                                <span class="font-semibold text-sm text-[var(--text-primary)] truncate">${branchDisplay}</span>
                             </div>
                             <span class="text-xs text-[var(--text-secondary)] flex-shrink-0 ml-2">${timeAgo(timeToDisplay)}</span>
                         </div>
@@ -1645,7 +1711,9 @@ if (dx !== 0 || dy !== 0) {
 // 
     function renderRunView(runDetails) {
     const runInfo = runDetails.run_info;
-    const branchName = (runInfo.git_ref || '').startsWith('refs/heads/') ? runInfo.git_ref.split('/')[2] : runInfo.git_ref;
+    const branchDisplay = formatBranchDisplay(runInfo.git_ref, runInfo.git_target_ref, { html: true });
+    const triggerRaw = (runInfo.trigger_event_id ?? '').toString().trim();
+    const triggerDisplay = triggerRaw || 'N/A';
     const repoFullName = runInfo.git_repo_owner ? `${runInfo.git_repo_owner} / ${runInfo.git_repo_name}` : runInfo.git_repo_name;
 
     const runContext = resolveRunContext(state.currentRunContext || null);
@@ -1688,6 +1756,8 @@ if (dx !== 0 || dy !== 0) {
                 <span class="truncate">${runInfo.run_id}</span>
                 <span class="text-gray-500 justify-self-end truncate">Commit:</span>
                 <span class="truncate">${runInfo.git_commit_sha}</span>
+                <span class="text-gray-500 justify-self-end truncate">Trigger Event:</span>
+                <span class="break-all" title="${escapeAttribute(triggerDisplay)}">${escapeText(triggerDisplay)}</span>
             </div>
             <div class="text-sm text-[var(--text-secondary)] mt-2 flex flex-wrap items-center gap-x-6 gap-y-1">
                 <div class="flex items-center" title="Duration">
@@ -1700,7 +1770,7 @@ if (dx !== 0 || dy !== 0) {
                 </div>
                 <div class="flex items-center" title="Branch">
                     <svg class="h-4 w-4 mr-1.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                    <span>${branchName}</span>
+                    <span>${branchDisplay}</span>
                 </div>
                 <div class="ml-auto flex items-center gap-3">
                     <a href="${buildRunHashWithExtras(runInfo, runContext, ['logs'])}" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-accent)]">

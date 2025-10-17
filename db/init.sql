@@ -27,6 +27,7 @@ CREATE TABLE pipeline_runs (
     git_clone_url VARCHAR(255),
     git_ssh_url VARCHAR(255),
     git_ref VARCHAR(255),
+    git_target_ref VARCHAR(255),
     git_commit_sha VARCHAR(255),
     git_commit_url TEXT,
     git_commit_message TEXT,
