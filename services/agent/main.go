@@ -592,6 +592,7 @@ func run() int {
 
 	runID := os.Getenv("RUN_ID")
 	pipelineName := os.Getenv("PIPELINE_NAME")
+	triggerEventID := os.Getenv("GIT_TRIGGER_EVENT_ID")
 	llmAgentAddress := os.Getenv("LLM_AGENT_ADDRESS")
 	pipelineDefBase64 := os.Getenv("PIPELINE_DEFINITION")
 	parentHistoryBase64 := os.Getenv("PARENT_EXECUTION_HISTORY")
@@ -638,6 +639,10 @@ func run() int {
 		return 1
 	}
 
+	if triggerEventID == "" {
+		triggerEventID = "N/A"
+	}
+	agentLog(runID, pipeline.Name).Info().Str("trigger_event_id", triggerEventID).Msg("Pipeline execution starting")
 	agentLog(runID, pipeline.Name).Info().Str("llm_agent", llmAgentAddress).Msg("Agent starting and connecting to LLM agent")
 
 	var conn *grpc.ClientConn

@@ -3806,15 +3806,23 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	defer cli.VolumeRemove(context.Background(), sharedVolumeName, true)
 
 	repoName := gitContext["repo_name"]
+	triggerEventID := strings.TrimSpace(gitContext["trigger_event_id"])
 	sanitizedPipelineName := sanitizeInput(pipeline.Name)
 	shortRunID := runID[:8]
+
+	sanitizedTriggerID := sanitizeInput(triggerEventID)
+	if sanitizedTriggerID == "" {
+		sanitizedTriggerID = "no-trigger"
+	} else if len(sanitizedTriggerID) > 8 {
+		sanitizedTriggerID = sanitizedTriggerID[:8]
+	}
 
 	var agentContainerName string
 	if repoName != "" {
 		sanitizedRepoName := sanitizeInput(repoName)
-		agentContainerName = fmt.Sprintf("agent-%s-%s-%s", sanitizedRepoName, sanitizedPipelineName, shortRunID)
+		agentContainerName = fmt.Sprintf("agent-%s-%s-%s-%s", sanitizedRepoName, sanitizedPipelineName, sanitizedTriggerID, shortRunID)
 	} else {
-		agentContainerName = fmt.Sprintf("agent-%s-%s", sanitizedPipelineName, shortRunID)
+		agentContainerName = fmt.Sprintf("agent-%s-%s-%s", sanitizedPipelineName, sanitizedTriggerID, shortRunID)
 	}
 
 	secretsJSON, err := json.Marshal(secrets)
@@ -3881,7 +3889,25 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		return
 	}
 
-	log.Info().Str("run_id", runID).Str("container_name", agentContainerName).Msg("Successfully started agent container")
+	log.Info().Str("run_id", runID).Str("container_name", agentContainerName).Str("trigger_event_id", triggerEventID).Msg("Successfully started agent container")
+
+	initialTriggerLine := ""
+	if triggerEventID != "" {
+		initialTriggerLine = fmt.Sprintf("Trigger Event ID: %s", triggerEventID)
+	} else {
+		initialTriggerLine = "Trigger Event ID: N/A"
+	}
+	_, dbErr := a.db.Exec(context.Background(), "INSERT INTO pipeline_run_logs (run_id, line) VALUES ($1, $2)", runID, initialTriggerLine)
+	if dbErr != nil {
+		log.Error().Err(dbErr).Str("run_id", runID).Msg("Failed to record initial trigger event log line")
+	} else {
+		logLine := LogLine{Timestamp: time.Now(), Line: initialTriggerLine}
+		if message, err := json.Marshal(WebSocketMessage{Type: "log_line", Payload: logLine}); err == nil {
+			a.hub.broadcastToRun(runID, message)
+		} else {
+			log.Error().Err(err).Str("run_id", runID).Msg("Failed to marshal initial trigger log line")
+		}
+	}
 
 	// --- LOG STREAMING MODIFICATION ---
 	go func() {
