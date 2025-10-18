@@ -2442,6 +2442,131 @@ func (a *App) updateRunRecordWithFailure(runID uuid.UUID, reason string, gitCont
 	}
 }
 
+func (a *App) resolveGroupIDForRepo(repoOwner, repoName string) (sql.NullInt32, error) {
+	var groupID sql.NullInt32
+	repoName = strings.TrimSpace(repoName)
+	if repoName == "" {
+		return groupID, nil
+	}
+
+	repoOwner = strings.TrimSpace(repoOwner)
+	fullRepoName := repoName
+	if repoOwner != "" {
+		fullRepoName = fmt.Sprintf("%s/%s", repoOwner, repoName)
+	}
+
+	var existingID int32
+	err := a.db.QueryRow(context.Background(), "SELECT id FROM groups WHERE name = $1", fullRepoName).Scan(&existingID)
+	if err == pgx.ErrNoRows {
+		if repoOwner != "" {
+			err = a.db.QueryRow(context.Background(), "SELECT id FROM groups WHERE name = $1", repoName).Scan(&existingID)
+			if err == nil {
+				log.Info().Str("old_name", repoName).Str("new_name", fullRepoName).Msg("Found matching folder, renaming to claim it for the repository.")
+				if _, updateErr := a.db.Exec(context.Background(), "UPDATE groups SET name = $1 WHERE id = $2", fullRepoName, existingID); updateErr != nil {
+					log.Error().Err(updateErr).Msg("Failed to rename existing folder to claim it.")
+					existingID = 0
+				}
+			} else if err == pgx.ErrNoRows {
+				log.Info().Str("repo", fullRepoName).Msg("No existing folder found. Creating a new one at the root.")
+				err = a.db.QueryRow(context.Background(), `INSERT INTO groups (name, parent_id) VALUES ($1, NULL) RETURNING id`, fullRepoName).Scan(&existingID)
+			}
+		} else {
+			log.Info().Str("repo", repoName).Msg("No existing folder found. Creating a new one at the root.")
+			err = a.db.QueryRow(context.Background(), `INSERT INTO groups (name, parent_id) VALUES ($1, NULL) RETURNING id`, repoName).Scan(&existingID)
+		}
+	}
+	if err != nil && err != pgx.ErrNoRows {
+		return groupID, err
+	}
+	if existingID != 0 {
+		groupID.Int32 = existingID
+		groupID.Valid = true
+	}
+	return groupID, nil
+}
+
+func (a *App) recordMissingPipelineRun(identifier string, pipelineVersion string, pipelineDef []byte, gitContext map[string]string, environment, pipelineSource, summary string) {
+	runID := uuid.New()
+	pathPart, namePart, _, err := splitPipelineIdentifier(identifier)
+	if err != nil {
+		namePart = sanitizeInput(identifier)
+		pathPart = ""
+	}
+	namePart = sanitizeInput(namePart)
+	if namePart == "" {
+		namePart = "missing-pipeline"
+	}
+
+	groupID, groupErr := a.resolveGroupIDForRepo(gitContext["repo_owner"], gitContext["repo_name"])
+	if groupErr != nil {
+		log.Error().Err(groupErr).Str("pipeline", identifier).Msg("Failed to resolve group for missing pipeline run")
+	}
+
+	var triggerEventIDSQL sql.NullString
+	if gitContext != nil {
+		id := strings.TrimSpace(gitContext["trigger_event_id"])
+		if id == "" {
+			id = deriveTriggerEventID(gitContext)
+		}
+		if id == "" {
+			id = runID.String()
+		}
+		if id != "" {
+			triggerEventIDSQL.String = id
+			triggerEventIDSQL.Valid = true
+			gitContext["trigger_event_id"] = id
+		}
+	}
+
+	now := time.Now()
+	_, err = a.db.Exec(context.Background(), `
+		INSERT INTO pipeline_runs (
+			run_id, pipeline_name, pipeline_path, pipeline_version, status,
+			pipeline_definition, git_repo_owner, git_repo_name, git_clone_url, git_ssh_url,
+			git_ref, git_target_ref, git_commit_sha, git_commit_url, git_commit_message,
+			git_commit_author_name, git_commit_author_email, git_commit_author_username,
+			git_pusher_name, git_pusher_email, git_check_run_id, group_id, trigger_event_id,
+			environment, pipeline_source, started_at, finished_at, failure_reason
+		) VALUES (
+			$1, $2, $3, $4, 'failure', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+			$15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27
+		)`,
+		runID,
+		namePart,
+		pathPart,
+		normalizePipelineVersion(pipelineVersion),
+		string(pipelineDef),
+		gitContext["repo_owner"],
+		gitContext["repo_name"],
+		gitContext["clone_url"],
+		gitContext["ssh_url"],
+		gitContext["ref"],
+		gitContext["target_ref"],
+		gitContext["commit_sha"],
+		gitContext["commit_url"],
+		gitContext["commit_message"],
+		gitContext["commit_author_name"],
+		gitContext["commit_author_email"],
+		gitContext["commit_author_username"],
+		gitContext["pusher_name"],
+		gitContext["pusher_email"],
+		gitContext["check_run_id"],
+		groupID,
+		triggerEventIDSQL,
+		environment,
+		pipelineSource,
+		now,
+		now,
+		summary,
+	)
+	if err != nil {
+		log.Error().Err(err).Str("pipeline", identifier).Msg("Failed to record missing pipeline run")
+		return
+	}
+
+	a.broadcastNewRun(runID.String())
+}
+
 func (a *App) launchAndRunPipeline(
 	runID uuid.UUID,
 	pipeline models.Pipeline,
@@ -2910,6 +3035,33 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			a.notifyImmediateCheckFailure(owner, repo, checkRunID, commitSHA, summary)
+
+			if errors.Is(err, errPipelineNotFound) {
+				gitContextForRun := map[string]string{
+					"repo_owner":             owner,
+					"repo_name":              repo,
+					"clone_url":              cloneURL,
+					"ssh_url":                sshURL,
+					"ref":                    ref,
+					"target_ref":             targetRef,
+					"commit_sha":             commitSHA,
+					"commit_url":             commitURL,
+					"commit_message":         commitMessage,
+					"commit_author_name":     commitAuthorName,
+					"commit_author_email":    commitAuthorEmail,
+					"commit_author_username": commitAuthorUsername,
+					"pusher_name":            pusherName,
+					"pusher_email":           pusherEmail,
+					"check_run_id":           strconv.FormatInt(checkRunID, 10),
+					"trigger_event_id":       triggerEventID,
+				}
+				placeholderDef := fallbackDef
+				if !strings.HasSuffix(placeholderDef, "\n") {
+					placeholderDef += "\n"
+				}
+				placeholderDef += fmt.Sprintf("# %s\n", summary)
+				a.recordMissingPipelineRun(originalPath, "", []byte(placeholderDef), gitContextForRun, effectiveEnv, pipelineSourceForCheck, summary)
+			}
 			continue
 		}
 
@@ -3160,32 +3312,15 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		gitContext["trigger_event_id"] = id
 	}
 
-	var groupID sql.NullInt32
-	if repoName, ok := gitContext["repo_name"]; ok && repoName != "" {
-		repoOwner := gitContext["repo_owner"]
-		fullRepoName := fmt.Sprintf("%s/%s", repoOwner, repoName)
-		var existingID int32
-		err := a.db.QueryRow(context.Background(), "SELECT id FROM groups WHERE name = $1", fullRepoName).Scan(&existingID)
-		if err == pgx.ErrNoRows {
-			err = a.db.QueryRow(context.Background(), "SELECT id FROM groups WHERE name = $1", repoName).Scan(&existingID)
-			if err == nil {
-				log.Info().Str("old_name", repoName).Str("new_name", fullRepoName).Msg("Found matching folder, renaming to claim it for the repository.")
-				_, updateErr := a.db.Exec(context.Background(), "UPDATE groups SET name = $1 WHERE id = $2", fullRepoName, existingID)
-				if updateErr != nil {
-					log.Error().Err(updateErr).Msg("Failed to rename existing folder to claim it.")
-					existingID = 0
-				}
-			} else if err == pgx.ErrNoRows {
-				log.Info().Str("repo", fullRepoName).Msg("No existing folder found. Creating a new one at the root.")
-				err = a.db.QueryRow(context.Background(), `INSERT INTO groups (name, parent_id) VALUES ($1, NULL) RETURNING id`, fullRepoName).Scan(&existingID)
-			}
+	groupID, err := a.resolveGroupIDForRepo(gitContext["repo_owner"], gitContext["repo_name"])
+	if err != nil {
+		repoOwner := strings.TrimSpace(gitContext["repo_owner"])
+		repoName := strings.TrimSpace(gitContext["repo_name"])
+		repoFullName := repoName
+		if repoOwner != "" {
+			repoFullName = fmt.Sprintf("%s/%s", repoOwner, repoName)
 		}
-		if err != nil {
-			log.Error().Err(err).Str("repo", fullRepoName).Msg("Failed to find or create group for repository")
-		} else {
-			groupID.Int32 = existingID
-			groupID.Valid = true
-		}
+		log.Error().Err(err).Str("repo", repoFullName).Msg("Failed to find or create group for repository")
 	}
 
 	_, err = a.db.Exec(context.Background(),
