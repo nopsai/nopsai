@@ -3,21 +3,46 @@ document.addEventListener('DOMContentLoaded', () => {
     const API_BASE_URL = 'http://localhost:8080';
     const WS_URL = 'ws://localhost:8080/v1/ws';
 
+    const normalizeRunId = (runId) => typeof runId === 'string' ? runId.trim().toLowerCase() : '';
+
     // WebSocket Manager
     const wsManager = {
         socket: null,
+        activeRunSubscriptions: new Set(),
         connect() {
             if (this.socket && this.socket.readyState === WebSocket.OPEN) {
                 return;
             }
             this.socket = new WebSocket(WS_URL);
-            this.socket.onopen = () => console.log('WebSocket connected');
+            this.socket.onopen = () => {
+                console.log('WebSocket connected');
+                this.resubscribeAll();
+                const pipelineRunsModule = window.NopsAI.pages.pipelineruns;
+                if (pipelineRunsModule && typeof pipelineRunsModule.handleWsReconnect === 'function') {
+                    pipelineRunsModule.handleWsReconnect();
+                }
+            };
             this.socket.onmessage = (event) => this.handleMessage(event);
             this.socket.onclose = () => {
                 console.log('WebSocket disconnected. Reconnecting in 3s...');
                 setTimeout(() => this.connect(), 3000);
             };
             this.socket.onerror = (err) => console.error('WebSocket error:', err);
+        },
+        resubscribeAll() {
+            this.activeRunSubscriptions.forEach(runId => this.sendSubscribe(runId));
+        },
+        sendSubscribe(runId) {
+            try {
+                if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+                    this.socket.send(JSON.stringify({
+                        type: 'subscribe',
+                        payload: { runId }
+                    }));
+                }
+            } catch (error) {
+                console.error('Failed to send subscription', error);
+            }
         },
         handleMessage(event) {
             const message = JSON.parse(event.data);
@@ -44,12 +69,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         },
         subscribeToRun(runId) {
-            if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-                this.socket.send(JSON.stringify({
-                    type: 'subscribe',
-                    payload: { runId: runId }
-                }));
+            const normalized = normalizeRunId(runId);
+            if (!normalized) return;
+            if (!this.activeRunSubscriptions.has(normalized)) {
+                this.activeRunSubscriptions.add(normalized);
             }
+            this.sendSubscribe(normalized);
         }
     };
 
@@ -174,6 +199,8 @@ document.addEventListener('DOMContentLoaded', () => {
         currentGraphView: localStorage.getItem('graphView') || 'steps',
         currentPath: 'pipelineruns',
         pollingInterval: null,
+        currentRunTrackedIds: new Map(),
+        _runRefreshTimeout: null,
         _logsRaw: [],
         _logsSearchMatches: [],
         _logsSearchMatchIndex: -1,
