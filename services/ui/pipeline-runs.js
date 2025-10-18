@@ -574,6 +574,11 @@
         return `<div class="flex items-center gap-1.5 min-w-0">${[name, overrideIcon, includedBadge].filter(Boolean).join('')}</div>`;
     }
 
+    function normalizeRunId(value) {
+        if (typeof value !== 'string') return '';
+        return value.trim().toLowerCase();
+    }
+
     function getPipelineSteps(definition) {
         if (!definition || typeof definition !== 'object') return [];
         const steps = definition.steps;
@@ -590,6 +595,9 @@
         logsModule = context.logsModule;
         wsManager = context.wsManager; // Store wsManager
         refresh = context.refresh || (() => {});
+        if (!(state.currentRunTrackedIds instanceof Map)) {
+            state.currentRunTrackedIds = new Map();
+        }
         state.syncLogsHash = syncLogsHash;
         setupLogHelpers();
         bindDomEvents();
@@ -598,9 +606,15 @@
     }
 
 async function handleRealtimeUpdate(updatedRunId) {
-        // If the update is for the currently viewed run, re-fetch and re-render
-        if (state.currentRunData && state.currentRunData.run_info.run_id === updatedRunId) {
-            await fetchActiveRun(updatedRunId, true); // `true` to indicate it's a refresh
+        const normalizedUpdateId = normalizeRunId(updatedRunId);
+        const currentRunIdRaw = state.currentRunData?.run_info?.run_id || '';
+        const currentRunIdNormalized = normalizeRunId(currentRunIdRaw);
+        const trackedIds = (state.currentRunTrackedIds instanceof Map) ? state.currentRunTrackedIds : null;
+
+        if (normalizedUpdateId && currentRunIdNormalized && normalizedUpdateId === currentRunIdNormalized) {
+            await fetchActiveRun(currentRunIdRaw, true);
+        } else if (normalizedUpdateId && trackedIds && trackedIds.has(normalizedUpdateId) && currentRunIdRaw) {
+            await fetchActiveRun(currentRunIdRaw, true);
         }
 
         // Also refresh sidebar lists if they are visible
@@ -1000,7 +1014,6 @@ if (dx !== 0 || dy !== 0) {
 
         if (event.type === 'mouseover' && targetRunElement) {
             // --- Hovering over a RUN CARD or a SIDEBAR RUN LINK ---
-            const repoFullName = targetRunElement.dataset.repoFullName;
             const triggerGroupId = targetRunElement.dataset.triggerGroupId;
 
             const highlightedElements = new Set();
@@ -1022,17 +1035,69 @@ if (dx !== 0 || dy !== 0) {
                 }
             });
 
-            // Highlight the corresponding repository folder in the sidebar
-            if (repoFullName) {
-                let currentGroup = state.groups.find(g => g.name === repoFullName);
-                while (currentGroup) {
-                    const sidebarElement = document.querySelector(`#sidebar-nav li[data-group-id='${currentGroup.id}']`);
-                    if (sidebarElement) {
-                        sidebarElement.classList.add('sidebar-link-highlight');
-                    }
-                    currentGroup = currentGroup.parent_id ? state.groups.find(g => g.id === currentGroup.parent_id) : null;
-                }
+        }
+    }
+
+    function collectRelatedRunIds(runDetails) {
+        const ids = new Map();
+        if (!runDetails || typeof runDetails !== 'object') return ids;
+        const addId = (rawId) => {
+            const normalized = normalizeRunId(rawId);
+            if (normalized) ids.set(normalized, rawId);
+        };
+
+        addId(runDetails.run_info && runDetails.run_info.run_id);
+
+        const visitChildren = (children) => {
+            if (!Array.isArray(children)) return;
+            children.forEach(child => {
+                if (!child || typeof child !== 'object') return;
+                const childId = child.run_id || (child.run_info && child.run_info.run_id) || child.runId;
+                addId(childId);
+                if (Array.isArray(child.child_runs)) visitChildren(child.child_runs);
+            });
+        };
+
+        visitChildren(runDetails.child_runs);
+        return ids;
+    }
+
+    function updateTrackedRunSubscriptions(runDetails) {
+        const relatedIdsMap = collectRelatedRunIds(runDetails);
+        if (!(state.currentRunTrackedIds instanceof Map)) {
+            state.currentRunTrackedIds = new Map();
+        }
+        state.currentRunTrackedIds.clear();
+        relatedIdsMap.forEach((rawId, normalized) => {
+            state.currentRunTrackedIds.set(normalized, rawId);
+            if (wsManager && typeof wsManager.subscribeToRun === 'function') {
+                wsManager.subscribeToRun(rawId);
             }
+        });
+    }
+
+    function clearRunRefreshTimer() {
+        if (state._runRefreshTimeout) {
+            try { clearTimeout(state._runRefreshTimeout); } catch {}
+            state._runRefreshTimeout = null;
+        }
+    }
+
+    function scheduleRunRefresh(runDetails) {
+        clearRunRefreshTimer();
+        const runId = runDetails?.run_info?.run_id;
+        const isComplete = !!runDetails?.run_info?.is_complete;
+        if (!runId || isComplete) return;
+        try {
+            state._runRefreshTimeout = setTimeout(() => {
+                state._runRefreshTimeout = null;
+                const currentId = state.currentRunData?.run_info?.run_id;
+                if (currentId && normalizeRunId(currentId) === normalizeRunId(runId)) {
+                    fetchActiveRun(currentId, true);
+                }
+            }, 5000);
+        } catch (err) {
+            console.warn('Failed to schedule run refresh', err);
         }
     }
 
@@ -1044,9 +1109,7 @@ if (dx !== 0 || dy !== 0) {
         const runDetails = await fetchData(`/v1/runs/${runId}`);
         if (runDetails) {
             state.currentRunData = runDetails;
-            if (wsManager) {
-                wsManager.subscribeToRun(runId);
-            }
+            updateTrackedRunSubscriptions(runDetails);
             // Restore persisted Steps layout for this run (expanded, positions, scale)
             try {
                 const key = `nopsai_steps_layout:${runDetails.run_info?.run_id || ''}`;
@@ -1071,6 +1134,7 @@ if (dx !== 0 || dy !== 0) {
             if (action === 'steps' && stepName) {
                 showStepDetails(stepName);
             }
+            scheduleRunRefresh(runDetails);
         }
     }
 
@@ -3365,13 +3429,28 @@ async function renderModalForStep(runId, stepName, parentContext = null) {
         configContainer.innerHTML = configHTML;
 
         const taskGraphEl = document.getElementById('task-graph');
+        const showEmptyTaskGraph = (message) => {
+            if (!taskGraphEl) return;
+            taskGraphEl.dataset.stepName = stepName || '';
+            taskGraphEl.innerHTML = `<p class="text-[var(--text-secondary)] text-sm">${message}</p>`;
+        };
+
         if (stepDef?.include && stepDef.include.startsWith('pipeline:')) {
             const childRun = runDetails.child_runs.find(cr => cr.parent_step_name === stepName);
             if (childRun) {
-                const childRunDetails = await fetchData(`/v1/runs/${childRun.run_id}`);
-                if (childRunDetails) {
-                    renderTaskGraph(taskGraphEl, stepName, childRunDetails.steps, { runId: childRun.run_id, parentRunId: runId, parentStepName: stepName });
+                try {
+                    const childRunDetails = await fetchData(`/v1/runs/${childRun.run_id}`);
+                    if (childRunDetails && Array.isArray(childRunDetails.steps) && childRunDetails.steps.length > 0) {
+                        renderTaskGraph(taskGraphEl, stepName, childRunDetails.steps, { runId: childRun.run_id, parentRunId: runId, parentStepName: stepName });
+                    } else {
+                        showEmptyTaskGraph('This included pipeline has no tasks to display.');
+                    }
+                } catch (error) {
+                    console.error('Failed to load child run tasks graph', error);
+                    showEmptyTaskGraph('Unable to load tasks for this included pipeline.');
                 }
+            } else {
+                showEmptyTaskGraph('This included pipeline was skipped, so no tasks ran.');
             }
         } else {
             renderTaskGraph(taskGraphEl, stepName, step.tasks);
@@ -3522,11 +3601,17 @@ svgContent += `
         const info = parsePipelineRunsHash(hash);
         const { path, tab, groupSegments, runId, action, stepName, logSegments, query } = info;
 
-        if (!runId && state.currentRunData) {
+        if (!runId) {
             state.currentRunData = null;
             state.currentRunContext = null;
             state.expandedSteps = new Set();
             state.expandedStepPositions = new Map();
+            if (state.currentRunTrackedIds instanceof Map) {
+                state.currentRunTrackedIds.clear();
+            } else {
+                state.currentRunTrackedIds = new Map();
+            }
+            clearRunRefreshTimer();
         }
 
         resetMainView();
@@ -4329,6 +4414,27 @@ if (false && state.currentGraphView === 'tasks') {
             }
         }
         // --- FIX END ---
+
+        const newRunIdRaw = runData?.run_id || runData?.runId || '';
+        const parentRunIdRaw = runData?.parent_run_id || runData?.parentRunId || '';
+        const trackedIds = (state.currentRunTrackedIds instanceof Map) ? state.currentRunTrackedIds : null;
+        const currentRunId = state.currentRunData?.run_info?.run_id;
+        const parentNormalized = normalizeRunId(parentRunIdRaw);
+        const newRunNormalized = normalizeRunId(newRunIdRaw);
+
+        if (trackedIds && parentNormalized && trackedIds.has(parentNormalized) && newRunNormalized && currentRunId) {
+            trackedIds.set(newRunNormalized, newRunIdRaw);
+            if (wsManager && typeof wsManager.subscribeToRun === 'function') {
+                wsManager.subscribeToRun(newRunIdRaw);
+            }
+            await fetchActiveRun(currentRunId, true);
+        }
+    }
+
+    async function handleWsReconnect() {
+        if (state.currentRunData?.run_info?.run_id) {
+            await fetchActiveRun(state.currentRunData.run_info.run_id, true);
+        }
     }
 
     function setupSidebarDragAndDrop() {
@@ -4407,5 +4513,6 @@ if (false && state.currentGraphView === 'tasks') {
         handleRealtimeUpdate,
         handleRunSummaryUpdate,
         handleNewRunStarted,
+        handleWsReconnect,
     };
 })(window.NopsAI = window.NopsAI || {});
