@@ -48,11 +48,11 @@
             </header>
             <div id="page-content-wrapper" class="flex-1 overflow-auto">
                 <div data-page="pipelineruns" class="active h-full flex flex-col">
-                    <div class="px-6 pt-6 flex-shrink-0">
+                    <div class="px-6 pt-6 flex-shrink-0 tabs-nav-wrapper">
                         <div class="border-b border-[var(--border-primary)]">
-                            <nav class="-mb-px flex space-x-8" aria-label="Tabs">
-                                <a href="#/pipelineruns/main" data-tab="main" class="whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium">Main</a>
-                                <a href="#/pipelineruns/recent" data-tab="recent" class="whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium">Recent</a>
+                            <nav class="tabs-nav" aria-label="Pipeline run tabs" role="tablist">
+                                <a href="#/pipelineruns/main" data-tab="main" role="tab" aria-selected="true" class="tabs-nav__link tabs-nav__link--active" tabindex="0">Main</a>
+                                <a href="#/pipelineruns/recent" data-tab="recent" role="tab" aria-selected="false" class="tabs-nav__link" tabindex="-1">Recent</a>
                             </nav>
                         </div>
                     </div>

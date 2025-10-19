@@ -1837,6 +1837,10 @@ if (dx !== 0 || dy !== 0) {
                     <span>${branchDisplay}</span>
                 </div>
                 <div class="ml-auto flex items-center gap-3">
+                    <button id="rerun-run-btn" type="button" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                        <svg class="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 106.228 6.228" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 4v5h-5" /></svg>
+                        Rerun
+                    </button>
                     <a href="${buildRunHashWithExtras(runInfo, runContext, ['logs'])}" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-accent)]">
                         <svg class="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7" /></svg>
                         View Logs
@@ -1846,6 +1850,62 @@ if (dx !== 0 || dy !== 0) {
         </div>`;
 
     DOM.mainHeader.innerHTML = headerHTML;
+
+    const rerunBtn = document.getElementById('rerun-run-btn');
+    if (rerunBtn && runInfo?.run_id) {
+        rerunBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            if (rerunBtn.disabled) return;
+
+            if (!window.confirm('Rerun this pipeline run?')) {
+                return;
+            }
+
+            const originalHTML = rerunBtn.innerHTML;
+            rerunBtn.disabled = true;
+            rerunBtn.classList.add('opacity-70', 'cursor-not-allowed');
+            rerunBtn.innerHTML = 'Rerunning…';
+
+            try {
+                const result = await fetchData(`/v1/runs/${runInfo.run_id}/rerun`, { method: 'POST' });
+                if (!result) return;
+
+                let newRunId = null;
+                let newTriggerId = null;
+                if (typeof result === 'string') {
+                    const match = result.match(/[0-9a-fA-F-]{36}/);
+                    if (match) {
+                        newRunId = match[0];
+                    } else {
+                        alert(result);
+                    }
+                } else if (typeof result === 'object' && result !== null) {
+                    if (result.runId) {
+                        newRunId = result.runId;
+                    }
+                    if (result.triggerEventId) {
+                        newTriggerId = result.triggerEventId;
+                    }
+                    if (!newRunId && typeof result.message === 'string') {
+                        alert(result.message);
+                    }
+                }
+
+                if (newRunId) {
+                    const context = resolveRunContext(state.currentRunContext || null);
+                    await fetchActiveRun(newRunId);
+                    const runForHash = state.currentRunData?.run_info
+                        ? state.currentRunData.run_info
+                        : { ...runInfo, run_id: newRunId, trigger_event_id: newTriggerId || newRunId };
+                    window.location.hash = buildRunHash(runForHash, context);
+                }
+            } finally {
+                rerunBtn.disabled = false;
+                rerunBtn.classList.remove('opacity-70', 'cursor-not-allowed');
+                rerunBtn.innerHTML = originalHTML;
+            }
+        });
+    }
 
     document.getElementById('view-pipeline-definition-link').addEventListener('click', (e) => {
         e.preventDefault();
@@ -3713,12 +3773,12 @@ svgContent += `
     }
 
     function updateTabs(activeTab) {
+        if (!DOM.tabs) return;
         DOM.tabs.forEach(tab => {
             const isActive = (tab.dataset.tab === activeTab);
-            tab.classList.toggle('border-[var(--border-accent)]', isActive);
-            tab.classList.toggle('text-[var(--text-accent)]', isActive);
-            tab.classList.toggle('border-transparent', !isActive);
-            tab.classList.toggle('text-[var(--text-secondary)]', !isActive);
+            tab.classList.toggle('tabs-nav__link--active', isActive);
+            tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+            tab.setAttribute('tabindex', isActive ? '0' : '-1');
         });
     }
 
@@ -3820,31 +3880,44 @@ if (false && state.currentGraphView === 'tasks') {
 
     // Tabs navigation (Recent, Main, etc.) should update the hash lazily.
     if (DOM.tabs && DOM.tabs.length) {
+        const navigateToTab = (targetTab) => {
+            if (!targetTab) return;
+
+            const current = parsePipelineRunsHash(window.location.hash);
+            const sameTab = current.tab === targetTab;
+            const hasRunOpen = !!current.runId;
+
+            if (targetTab === 'recent') {
+                if (sameTab && !hasRunOpen) return;
+                window.location.hash = '#/pipelineruns/recent';
+                return;
+            }
+
+            if (targetTab === 'main') {
+                let segments = [];
+                if (sameTab && !hasRunOpen) {
+                    segments = [];
+                } else if (sameTab && hasRunOpen && Array.isArray(current.groupSegments) && current.groupSegments.length) {
+                    segments = current.groupSegments.slice();
+                } else if (state.selectedGroupPathSegments && state.selectedGroupPathSegments.length) {
+                    segments = state.selectedGroupPathSegments.slice();
+                }
+
+                const targetHash = segments.length ? `#/pipelineruns/main/${segments.join('/')}` : '#/pipelineruns/main';
+                window.location.hash = targetHash;
+            }
+        };
+
         DOM.tabs.forEach(tab => {
             tab.addEventListener('click', (e) => {
                 e.preventDefault();
-                const targetTab = tab.dataset.tab;
-                if (!targetTab) return;
+                navigateToTab(tab.dataset.tab);
+            });
 
-                const current = parsePipelineRunsHash(window.location.hash);
-                const sameTab = current.tab === targetTab;
-                const hasRunOpen = !!current.runId;
-
-                if (targetTab === 'recent') {
-                    if (sameTab && !hasRunOpen) return;
-                    window.location.hash = '#/pipelineruns/recent';
-                } else if (targetTab === 'main') {
-                    let segments = [];
-                    if (sameTab && !hasRunOpen) {
-                        segments = [];
-                    } else if (sameTab && hasRunOpen && Array.isArray(current.groupSegments) && current.groupSegments.length) {
-                        segments = current.groupSegments.slice();
-                    } else if (state.selectedGroupPathSegments && state.selectedGroupPathSegments.length) {
-                        segments = state.selectedGroupPathSegments.slice();
-                    }
-
-                    const targetHash = segments.length ? `#/pipelineruns/main/${segments.join('/')}` : '#/pipelineruns/main';
-                    window.location.hash = targetHash;
+            tab.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    navigateToTab(tab.dataset.tab);
                 }
             });
         });
