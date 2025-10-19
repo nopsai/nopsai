@@ -19,12 +19,15 @@
         running: { icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-blue-500 dark:text-blue-400', rectClass: 'stroke-blue-500 fill-blue-100 dark:fill-blue-500/10 animate-pulse' },
         pending: { icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-gray-500 dark:text-gray-400', rectClass: 'stroke-gray-500 fill-gray-100 dark:fill-gray-500/10' },
         skipped: { icon: 'M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-amber-500 dark:text-amber-400', rectClass: 'stroke-amber-500 fill-amber-100 dark:fill-amber-500/10' },
+        cancelled: { icon: 'M6 18L18 6M6 6l12 12', color: 'text-orange-500 dark:text-orange-400', rectClass: 'stroke-orange-500 fill-orange-100 dark:fill-orange-500/10' },
         'failure (ignored)': { icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z', color: 'text-amber-500 dark:text-amber-400', rectClass: 'stroke-amber-500 fill-amber-100 dark:fill-amber-500/10' },
     };
 
     const RUN_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const groupPathCache = new Map();
     const LOG_LEVEL_FILTER_KEYS = ['info', 'warn', 'error', 'debug'];
+
+    const TERMINAL_RUN_STATUSES = new Set(['success', 'failure', 'cancelled', 'failure (ignored)', 'skipped']);
 
     function escapeText(value) {
         if (value === null || value === undefined) return '';
@@ -1782,7 +1785,6 @@ if (dx !== 0 || dy !== 0) {
 
     const runContext = resolveRunContext(state.currentRunContext || null);
     state.currentRunContext = runContext;
-    const baseRunHash = buildRunHash(runInfo, runContext);
 
     const repoGroup = findGroupByName(`${runInfo.git_repo_owner}/${runInfo.git_repo_name}`);
     const repoSegments = repoGroup ? getGroupPathSegmentsById(repoGroup.id) : [];
@@ -1808,6 +1810,30 @@ if (dx !== 0 || dy !== 0) {
     const overrideIcon = runInfo.pipeline_source === 'database override'
         ? `<svg class="h-5 w-5 text-purple-500 ml-2" title="Overridden from database" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l4-4 4 4m0 6l-4 4-4-4"/></svg>`
         : '';
+
+    const normalizedStatus = (runInfo.status || '').trim().toLowerCase();
+    const isTerminalStatus = normalizedStatus ? TERMINAL_RUN_STATUSES.has(normalizedStatus) : false;
+    const completionFlag = runInfo.is_complete;
+    const flagTrue = completionFlag === true || completionFlag === 'true' || completionFlag === 1;
+    const hasCompletionFlag = completionFlag !== undefined && completionFlag !== null;
+    const finishedAtRaw = runInfo.finished_at;
+    const hasFinishedAt = finishedAtRaw !== undefined && finishedAtRaw !== null && String(finishedAtRaw).trim() !== '';
+
+    const shouldUseCompletionFlag = !normalizedStatus && hasCompletionFlag;
+    const isComplete = hasFinishedAt && (isTerminalStatus || (shouldUseCompletionFlag && flagTrue));
+    const primaryActionHTML = !isComplete
+        ? `<button id="run-primary-action-btn" data-action="cancel" type="button" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+                <svg class="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Cancel Run
+            </button>`
+        : `<button id="run-primary-action-btn" data-action="rerun" type="button" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                <svg class="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16.023 9.348h4.992m0 0V4.356m0 4.992L18 7.5M7.977 14.652H2.985m0 0v4.992m0-4.992L6 16.5M4.5 12a7.5 7.5 0 0112.69-5.31M19.5 12a7.5 7.5 0 01-12.69 5.31" />
+                </svg>
+                Rerun
+            </button>`;
 
     headerHTML += `
             <div class="flex flex-wrap items-baseline gap-x-3 min-w-0">
@@ -1837,12 +1863,7 @@ if (dx !== 0 || dy !== 0) {
                     <span>${branchDisplay}</span>
                 </div>
                 <div class="ml-auto flex items-center gap-3">
-                    <button id="rerun-run-btn" type="button" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-                        <svg class="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16.023 9.348h4.992m0 0V4.356m0 4.992L18 7.5M7.977 14.652H2.985m0 0v4.992m0-4.992L6 16.5M4.5 12a7.5 7.5 0 0112.69-5.31M19.5 12a7.5 7.5 0 01-12.69 5.31" />
-                        </svg>
-                        Rerun
-                    </button>
+                    ${primaryActionHTML}
                     <a href="${buildRunHashWithExtras(runInfo, runContext, ['logs'])}" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-accent)]">
                         <svg class="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7" /></svg>
                         View Logs
@@ -1853,60 +1874,86 @@ if (dx !== 0 || dy !== 0) {
 
     DOM.mainHeader.innerHTML = headerHTML;
 
-    const rerunBtn = document.getElementById('rerun-run-btn');
-    if (rerunBtn && runInfo?.run_id) {
-        rerunBtn.addEventListener('click', async (e) => {
-            e.preventDefault();
-            if (rerunBtn.disabled) return;
+    const actionBtn = document.getElementById('run-primary-action-btn');
+    if (actionBtn && runInfo?.run_id) {
+        const setLoadingState = (label) => {
+            actionBtn.disabled = true;
+            actionBtn.classList.add('opacity-70', 'cursor-not-allowed');
+            actionBtn.innerHTML = label;
+        };
+        const restoreState = (html) => {
+            if (!document.body.contains(actionBtn)) return;
+            actionBtn.disabled = false;
+            actionBtn.classList.remove('opacity-70', 'cursor-not-allowed');
+            actionBtn.innerHTML = html;
+        };
+        const actionType = actionBtn.dataset.action;
+        if (actionType === 'cancel') {
+            actionBtn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                if (actionBtn.disabled) return;
+                if (!window.confirm('Cancel this pipeline run?')) {
+                    return;
+                }
+                const originalHTML = actionBtn.innerHTML;
+                setLoadingState('Cancelling…');
+                try {
+                    await fetchData(`/v1/runs/${runInfo.run_id}/cancel`, { method: 'POST' });
+                    await fetchActiveRun(runInfo.run_id, true);
+                } finally {
+                    restoreState(originalHTML);
+                }
+            });
+        } else if (actionType === 'rerun') {
+            actionBtn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                if (actionBtn.disabled) return;
 
-            if (!window.confirm('Rerun this pipeline run?')) {
-                return;
-            }
-
-            const originalHTML = rerunBtn.innerHTML;
-            rerunBtn.disabled = true;
-            rerunBtn.classList.add('opacity-70', 'cursor-not-allowed');
-            rerunBtn.innerHTML = 'Rerunning…';
-
-            try {
-                const result = await fetchData(`/v1/runs/${runInfo.run_id}/rerun`, { method: 'POST' });
-                if (!result) return;
-
-                let newRunId = null;
-                let newTriggerId = null;
-                if (typeof result === 'string') {
-                    const match = result.match(/[0-9a-fA-F-]{36}/);
-                    if (match) {
-                        newRunId = match[0];
-                    } else {
-                        alert(result);
-                    }
-                } else if (typeof result === 'object' && result !== null) {
-                    if (result.runId) {
-                        newRunId = result.runId;
-                    }
-                    if (result.triggerEventId) {
-                        newTriggerId = result.triggerEventId;
-                    }
-                    if (!newRunId && typeof result.message === 'string') {
-                        alert(result.message);
-                    }
+                if (!window.confirm('Rerun this pipeline run?')) {
+                    return;
                 }
 
-                if (newRunId) {
-                    const context = resolveRunContext(state.currentRunContext || null);
-                    await fetchActiveRun(newRunId);
-                    const runForHash = state.currentRunData?.run_info
-                        ? state.currentRunData.run_info
-                        : { ...runInfo, run_id: newRunId, trigger_event_id: newTriggerId || newRunId };
-                    window.location.hash = buildRunHash(runForHash, context);
+                const originalHTML = actionBtn.innerHTML;
+                setLoadingState('Rerunning…');
+
+                try {
+                    const result = await fetchData(`/v1/runs/${runInfo.run_id}/rerun`, { method: 'POST' });
+                    if (!result) return;
+
+                    let newRunId = null;
+                    let newTriggerId = null;
+                    if (typeof result === 'string') {
+                        const match = result.match(/[0-9a-fA-F-]{36}/);
+                        if (match) {
+                            newRunId = match[0];
+                        } else {
+                            alert(result);
+                        }
+                    } else if (typeof result === 'object' && result !== null) {
+                        if (result.runId) {
+                            newRunId = result.runId;
+                        }
+                        if (result.triggerEventId) {
+                            newTriggerId = result.triggerEventId;
+                        }
+                        if (!newRunId && typeof result.message === 'string') {
+                            alert(result.message);
+                        }
+                    }
+
+                    if (newRunId) {
+                        const context = resolveRunContext(state.currentRunContext || null);
+                        await fetchActiveRun(newRunId);
+                        const runForHash = state.currentRunData?.run_info
+                            ? state.currentRunData.run_info
+                            : { ...runInfo, run_id: newRunId, trigger_event_id: newTriggerId || newRunId };
+                        window.location.hash = buildRunHash(runForHash, context);
+                    }
+                } finally {
+                    restoreState(originalHTML);
                 }
-            } finally {
-                rerunBtn.disabled = false;
-                rerunBtn.classList.remove('opacity-70', 'cursor-not-allowed');
-                rerunBtn.innerHTML = originalHTML;
-            }
-        });
+            });
+        }
     }
 
     document.getElementById('view-pipeline-definition-link').addEventListener('click', (e) => {
