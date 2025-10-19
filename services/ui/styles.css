@@ -20,6 +20,7 @@
     --border-primary: #e5e7eb;  /* gray-200 */
     --border-secondary: #d1d5db;  /* gray-300 */
     --border-accent: #6366f1;    /* indigo-500 */
+    --border-accent-focus-ring: rgba(99, 102, 241, 0.35);
     --border-input: #d1d5db;    /* gray-300 */
     --border-input-focus: #4f46e5; /* indigo-600 */
 
@@ -59,6 +60,7 @@ html.dark {
     --border-primary: #374151;  /* gray-700 */
     --border-secondary: #4b5563;  /* gray-600 */
     --border-accent: #818cf8;    /* indigo-400 */
+    --border-accent-focus-ring: rgba(129, 140, 248, 0.35);
     --border-input: #4b5563;    /* gray-600 */
     --border-input-focus: #818cf8; /* indigo-400 */
 
@@ -116,6 +118,49 @@ body {
 
 [data-page] { display: none; }
 [data-page].active { display: block; }
+
+.tabs-nav {
+  display: flex;
+  gap: 2rem;
+  margin-bottom: -1px;
+}
+
+.tabs-nav-wrapper {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: var(--bg-primary);
+  backdrop-filter: blur(2px);
+}
+
+.tabs-nav__link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem 0.25rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  border-bottom: 2px solid transparent;
+  transition: color 150ms ease, border-color 150ms ease;
+  outline: none;
+}
+
+.tabs-nav__link:hover {
+  color: var(--text-primary);
+}
+
+.tabs-nav__link:focus-visible {
+  color: var(--text-primary);
+  border-color: var(--border-accent);
+  box-shadow: 0 0 0 2px var(--border-accent-focus-ring);
+}
+
+.tabs-nav__link--active {
+  color: var(--text-accent);
+  border-color: var(--border-accent);
+}
 
 /* MODIFIED: graph-wrapper now handles both views cleanly */
 #graph-wrapper, #tasks-graph-wrapper { 
