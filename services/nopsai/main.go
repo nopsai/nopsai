@@ -38,6 +38,7 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/google/go-github/v53/github"
 	"github.com/google/uuid"
@@ -409,10 +410,11 @@ func (a *App) getRunListItem(runID string) (*RunListItem, error) {
 			run.IsComplete = true
 		} else {
 			run.Duration = time.Since(run.StartedAt).Round(time.Second).String()
-			run.IsComplete = false
+			run.IsComplete = isTerminalRunStatus(run.Status)
 		}
 	} else {
-		run.IsComplete = true
+		run.Duration = "0s"
+		run.IsComplete = isTerminalRunStatus(run.Status)
 	}
 
 	return &run, nil
@@ -1951,6 +1953,37 @@ func sanitizeInput(name string) string {
 	return nonAlphanumericRegex.ReplaceAllString(sanitized, "")
 }
 
+func isTerminalRunStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "success", "failure", "cancelled", "failure (ignored)":
+		return true
+	default:
+		return false
+	}
+}
+
+func buildAgentContainerName(pipelineName, repoName, triggerEventID, runID string) string {
+	sanitizedPipelineName := sanitizeInput(pipelineName)
+	sanitizedTriggerID := sanitizeInput(strings.TrimSpace(triggerEventID))
+	if sanitizedTriggerID == "" {
+		sanitizedTriggerID = "no-trigger"
+	} else if len(sanitizedTriggerID) > 8 {
+		sanitizedTriggerID = sanitizedTriggerID[:8]
+	}
+
+	shortRunID := runID
+	if len(shortRunID) > 8 {
+		shortRunID = shortRunID[:8]
+	}
+
+	if strings.TrimSpace(repoName) != "" {
+		sanitizedRepoName := sanitizeInput(repoName)
+		return fmt.Sprintf("agent-%s-%s-%s-%s", sanitizedRepoName, sanitizedPipelineName, sanitizedTriggerID, shortRunID)
+	}
+
+	return fmt.Sprintf("agent-%s-%s-%s", sanitizedPipelineName, sanitizedTriggerID, shortRunID)
+}
+
 func normalizePipelineVersion(version string) string {
 	sanitized := sanitizeInput(version)
 	if sanitized == "" {
@@ -2227,17 +2260,17 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	run.TriggerEventID = triggerEventID.String
 	if startedAt.Valid {
 		run.StartedAt = startedAt.Time
-	}
-	if startedAt.Valid {
 		if finishedAt.Valid {
 			run.FinishedAt = finishedAt.Time
 			run.Duration = run.FinishedAt.Sub(run.StartedAt).Round(time.Second).String()
 			run.IsComplete = true
 		} else {
 			run.Duration = time.Since(run.StartedAt).Round(time.Second).String()
+			run.IsComplete = isTerminalRunStatus(run.Status)
 		}
 	} else {
 		run.Duration = "0s"
+		run.IsComplete = isTerminalRunStatus(run.Status)
 	}
 
 	var parentRunInfo *ParentRunInfo
@@ -3582,6 +3615,85 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (a *App) handleCancelRun(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	runIDStr := r.PathValue("runID")
+	runUUID, err := uuid.Parse(runIDStr)
+	if err != nil {
+		http.Error(w, "Invalid run ID", http.StatusBadRequest)
+		return
+	}
+
+	var status string
+	var pipelineName, repoName, triggerEventID, repoOwner, commitSHA sql.NullString
+	var checkRunID sql.NullInt64
+
+	err = a.db.QueryRow(context.Background(), `
+		SELECT status, pipeline_name, git_repo_name, trigger_event_id, git_repo_owner, git_commit_sha, git_check_run_id
+		FROM pipeline_runs
+		WHERE run_id = $1`, runUUID).Scan(&status, &pipelineName, &repoName, &triggerEventID, &repoOwner, &commitSHA, &checkRunID)
+	if err == pgx.ErrNoRows {
+		http.Error(w, "Pipeline run not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		log.Error().Err(err).Str("run_id", runUUID.String()).Msg("Failed to load run for cancellation")
+		http.Error(w, "Failed to cancel run", http.StatusInternalServerError)
+		return
+	}
+
+	statusLower := strings.ToLower(strings.TrimSpace(status))
+	if statusLower == "success" || statusLower == "failure" || statusLower == "cancelled" {
+		http.Error(w, "Run has already completed", http.StatusBadRequest)
+		return
+	}
+
+	containerName := buildAgentContainerName(pipelineName.String, repoName.String, triggerEventID.String, runUUID.String())
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	stopTimeout := 10
+	if err := a.cli.ContainerStop(ctx, containerName, container.StopOptions{Timeout: &stopTimeout}); err != nil && !errdefs.IsNotFound(err) {
+		log.Warn().Err(err).Str("run_id", runUUID.String()).Str("container", containerName).Msg("Failed to stop agent container during cancellation")
+	}
+
+	if !a.cfg.AutoRemovalAgentContainer {
+		removeOpts := container.RemoveOptions{Force: true}
+		if err := a.cli.ContainerRemove(ctx, containerName, removeOpts); err != nil && !errdefs.IsNotFound(err) {
+			log.Warn().Err(err).Str("run_id", runUUID.String()).Str("container", containerName).Msg("Failed to remove agent container during cancellation")
+		}
+	}
+
+	if _, err := a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'cancelled', finished_at = NOW() WHERE run_id = $1", runUUID); err != nil {
+		log.Error().Err(err).Str("run_id", runUUID.String()).Msg("Failed to mark run as cancelled")
+		http.Error(w, "Failed to cancel run", http.StatusInternalServerError)
+		return
+	}
+
+	if _, err := a.db.Exec(context.Background(), "INSERT INTO pipeline_run_logs (run_id, line) VALUES ($1, $2)", runUUID, "Run cancelled by user."); err != nil {
+		log.Warn().Err(err).Str("run_id", runUUID.String()).Msg("Failed to record cancellation log line")
+	}
+
+	if checkRunID.Valid {
+		gitContext := map[string]string{
+			"repo_owner":   repoOwner.String,
+			"repo_name":    repoName.String,
+			"commit_sha":   commitSHA.String,
+			"check_run_id": strconv.FormatInt(checkRunID.Int64, 10),
+		}
+		a.notifyGitBotOfFinalStatus("cancelled", "", "", "Run cancelled by user.", gitContext)
+	}
+
+	a.broadcastRunUpdate(runUUID.String())
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
+}
+
 func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("runID")
 	stepName := r.PathValue("stepName")
@@ -3943,23 +4055,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 
 	repoName := gitContext["repo_name"]
 	triggerEventID := strings.TrimSpace(gitContext["trigger_event_id"])
-	sanitizedPipelineName := sanitizeInput(pipeline.Name)
-	shortRunID := runID[:8]
-
-	sanitizedTriggerID := sanitizeInput(triggerEventID)
-	if sanitizedTriggerID == "" {
-		sanitizedTriggerID = "no-trigger"
-	} else if len(sanitizedTriggerID) > 8 {
-		sanitizedTriggerID = sanitizedTriggerID[:8]
-	}
-
-	var agentContainerName string
-	if repoName != "" {
-		sanitizedRepoName := sanitizeInput(repoName)
-		agentContainerName = fmt.Sprintf("agent-%s-%s-%s-%s", sanitizedRepoName, sanitizedPipelineName, sanitizedTriggerID, shortRunID)
-	} else {
-		agentContainerName = fmt.Sprintf("agent-%s-%s-%s", sanitizedPipelineName, sanitizedTriggerID, shortRunID)
-	}
+	agentContainerName := buildAgentContainerName(pipeline.Name, repoName, triggerEventID, runID)
 
 	secretsJSON, err := json.Marshal(secrets)
 	if err != nil {
@@ -5020,6 +5116,7 @@ func main() {
 	mux.HandleFunc("GET /v1/runs/{runID}", app.handleGetRunDetails)
 	mux.HandleFunc("GET /v1/runs-by-check/{checkRunID}", app.handleGetRunByCheckID)
 	mux.HandleFunc("POST /v1/runs/{runID}/rerun", app.handleRerunPipeline)
+	mux.HandleFunc("POST /v1/runs/{runID}/cancel", app.handleCancelRun)
 	mux.HandleFunc("POST /v1/runs/{runID}/finalize", app.handleFinalizeRun)
 	mux.HandleFunc("POST /v1/runs/{runID}/steps/{stepName}/tasks/{taskName}", app.handleTaskUpdate)
 	mux.HandleFunc("GET /v1/runs/{runID}/logs", app.handleGetRunLogs)
