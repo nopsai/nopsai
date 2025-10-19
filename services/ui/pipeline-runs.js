@@ -1838,7 +1838,9 @@ if (dx !== 0 || dy !== 0) {
                 </div>
                 <div class="ml-auto flex items-center gap-3">
                     <button id="rerun-run-btn" type="button" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-                        <svg class="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 106.228 6.228" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 4v5h-5" /></svg>
+                        <svg class="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16.023 9.348h4.992m0 0V4.356m0 4.992L18 7.5M7.977 14.652H2.985m0 0v4.992m0-4.992L6 16.5M4.5 12a7.5 7.5 0 0112.69-5.31M19.5 12a7.5 7.5 0 01-12.69 5.31" />
+                        </svg>
                         Rerun
                     </button>
                     <a href="${buildRunHashWithExtras(runInfo, runContext, ['logs'])}" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-accent)]">
