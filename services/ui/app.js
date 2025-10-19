@@ -228,7 +228,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error(errorText || `HTTP error! Status: ${response.status}`);
             }
             if (response.status === 204) return null;
-            return await response.json();
+
+            const contentType = (response.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                return await response.json();
+            }
+            return await response.text();
         } catch (error) {
             console.error(`Fetch error for ${url}:`, error);
             alert(`Error: ${error.message}`);

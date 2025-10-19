@@ -3520,18 +3520,13 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	var triggerEventIDSQL sql.NullString
-	id := strings.TrimSpace(gitContext["trigger_event_id"])
-	if id == "" {
-		id = deriveTriggerEventID(gitContext)
+	newTriggerID := runID.String()
+	if newTriggerID == "" {
+		newTriggerID = uuid.New().String()
 	}
-	if id == "" {
-		id = runID.String()
-	}
-	if id != "" {
-		triggerEventIDSQL.String = id
-		triggerEventIDSQL.Valid = true
-		gitContext["trigger_event_id"] = id
-	}
+	triggerEventIDSQL.String = newTriggerID
+	triggerEventIDSQL.Valid = true
+	gitContext["trigger_event_id"] = newTriggerID
 
 	_, err = a.db.Exec(context.Background(),
 		`INSERT INTO pipeline_runs (run_id, pipeline_name, pipeline_path, pipeline_version, status, pipeline_definition,
@@ -3551,6 +3546,8 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to create rerun record", http.StatusInternalServerError)
 		return
 	}
+
+	a.broadcastNewRun(runID.String())
 
 	resolvedPipeline, err := a.resolveStepIncludes(&pipeline)
 	if err != nil {
@@ -3577,8 +3574,12 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 
 	a.launchAndRunPipeline(runID, *resolvedPipeline, resolvedPipelineDef, timeoutDuration, gitContext, "", environment.String)
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	w.Write([]byte("Pipeline rerun created successfully with ID: " + runID.String()))
+	json.NewEncoder(w).Encode(map[string]string{
+		"runId":          runID.String(),
+		"triggerEventId": newTriggerID,
+	})
 }
 
 func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
