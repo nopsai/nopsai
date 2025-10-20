@@ -44,6 +44,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -3708,6 +3709,91 @@ func (a *App) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
 }
 
+func (a *App) handleDeleteRun(w http.ResponseWriter, r *http.Request) {
+	runID := strings.TrimSpace(r.PathValue("runID"))
+	if runID == "" {
+		http.Error(w, "Run ID is required", http.StatusBadRequest)
+		return
+	}
+
+	if _, err := uuid.Parse(runID); err != nil {
+		http.Error(w, "Invalid run ID", http.StatusBadRequest)
+		return
+	}
+
+	commandTag, err := a.db.Exec(context.Background(), "DELETE FROM pipeline_runs WHERE run_id = $1", runID)
+	if err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to delete pipeline run")
+		http.Error(w, "Failed to delete pipeline run", http.StatusInternalServerError)
+		return
+	}
+
+	if commandTag.RowsAffected() == 0 {
+		http.Error(w, "Pipeline run not found", http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleDeleteRepoBranchRuns(w http.ResponseWriter, r *http.Request) {
+	repoOwner := strings.TrimSpace(r.PathValue("repoOwner"))
+	repoName := strings.TrimSpace(r.PathValue("repoName"))
+	branchParam := strings.TrimSpace(r.PathValue("branch"))
+
+	if repoOwner == "" || repoName == "" {
+		http.Error(w, "Repository owner and name are required", http.StatusBadRequest)
+		return
+	}
+	if branchParam == "" {
+		http.Error(w, "Branch name is required", http.StatusBadRequest)
+		return
+	}
+
+	branch := strings.Trim(branchParam, " ")
+	branch = strings.Trim(branch, "/")
+
+	var commandTag pgconn.CommandTag
+	var err error
+	branchLower := strings.ToLower(branch)
+
+	ctx := context.Background()
+
+	if branchLower == "others" {
+		commandTag, err = a.db.Exec(ctx,
+			"DELETE FROM pipeline_runs WHERE git_repo_owner = $1 AND git_repo_name = $2 AND (git_ref IS NULL OR git_ref = '')",
+			repoOwner, repoName,
+		)
+	} else {
+		normalized := branch
+		if strings.HasPrefix(normalized, "refs/") {
+			normalized = strings.TrimPrefix(normalized, "refs/heads/")
+		}
+		refWithPrefix := "refs/heads/" + normalized
+
+		commandTag, err = a.db.Exec(ctx,
+			"DELETE FROM pipeline_runs WHERE git_repo_owner = $1 AND git_repo_name = $2 AND (git_ref = $3 OR git_ref = $4)",
+			repoOwner, repoName, refWithPrefix, normalized,
+		)
+	}
+
+	if err != nil {
+		log.Error().Err(err).
+			Str("repo_owner", repoOwner).
+			Str("repo_name", repoName).
+			Str("branch", branch).Msg("Failed to delete pipeline runs for branch")
+		http.Error(w, "Failed to delete runs for branch", http.StatusInternalServerError)
+		return
+	}
+
+	if commandTag.RowsAffected() == 0 {
+		http.Error(w, "No pipeline runs found for the specified branch", http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("runID")
 	stepName := r.PathValue("stepName")
@@ -5130,12 +5216,14 @@ func main() {
 	mux.HandleFunc("POST /v1/run/{pipelineName...}", app.handleRunPipeline)
 	mux.HandleFunc("GET /v1/runs", app.handleListRuns)
 	mux.HandleFunc("GET /v1/runs/{runID}", app.handleGetRunDetails)
+	mux.HandleFunc("DELETE /v1/runs/{runID}", app.handleDeleteRun)
 	mux.HandleFunc("GET /v1/runs-by-check/{checkRunID}", app.handleGetRunByCheckID)
 	mux.HandleFunc("POST /v1/runs/{runID}/rerun", app.handleRerunPipeline)
 	mux.HandleFunc("POST /v1/runs/{runID}/cancel", app.handleCancelRun)
 	mux.HandleFunc("POST /v1/runs/{runID}/finalize", app.handleFinalizeRun)
 	mux.HandleFunc("POST /v1/runs/{runID}/steps/{stepName}/tasks/{taskName}", app.handleTaskUpdate)
 	mux.HandleFunc("GET /v1/runs/{runID}/logs", app.handleGetRunLogs)
+	mux.HandleFunc("DELETE /v1/repositories/{repoOwner}/{repoName}/branches/{branch...}", app.handleDeleteRepoBranchRuns)
 
 	server := &http.Server{
 		Addr:    cfg.NopsaiListenAddress,
