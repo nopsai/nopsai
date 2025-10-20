@@ -58,6 +58,15 @@
                                 <a href="#/pipelineruns/main" data-tab="main" role="tab" aria-selected="true" class="tabs-nav__link tabs-nav__link--active" tabindex="0">Main</a>
                                 <a href="#/pipelineruns/recent" data-tab="recent" role="tab" aria-selected="false" class="tabs-nav__link" tabindex="-1">Recent</a>
                             </nav>
+                            <div id="run-selection-bar" class="hidden mt-3">
+                                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-lg px-4 py-3 text-sm">
+                                    <span id="run-selection-count" class="text-[var(--text-primary)] font-medium">0 runs selected</span>
+                                    <div class="flex items-center gap-2">
+                                        <button id="run-selection-clear-btn" type="button" class="inline-flex items-center px-3 py-1.5 border border-[var(--border-primary)] rounded-md text-[var(--text-primary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-accent)] text-xs">Clear</button>
+                                        <button id="run-selection-delete-btn" type="button" class="inline-flex items-center px-3 py-1.5 border border-transparent rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 text-xs disabled:opacity-50 disabled:cursor-not-allowed">Delete Selected</button>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div id="main-content-runs" class="p-6 h-full">
