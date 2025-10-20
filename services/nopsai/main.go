@@ -448,6 +448,14 @@ func (a *App) broadcastRunUpdate(runID string) {
 		a.hub.broadcast <- message
 		// --- END ---
 
+		// Also send a targeted update for the run itself, to trigger a full refresh
+		// for anyone viewing its details page.
+		runUpdateMessage, _ := json.Marshal(WebSocketMessage{
+			Type:    "run_update",
+			Payload: map[string]string{"runId": runID},
+		})
+		a.hub.broadcastToRun(runID, runUpdateMessage)
+
 		// Also notify the parent run (if any) that one of its children has been updated,
 		// prompting a generic refresh of the parent's detail view.
 		if runListItem.ParentRunID != nil && *runListItem.ParentRunID != "" {
@@ -3447,22 +3455,28 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 				git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref, git_target_ref,
 				git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
 				git_commit_author_email, git_commit_author_username, git_pusher_name,
-				git_pusher_email, git_check_run_id, trigger_event_id
+				git_pusher_email, git_check_run_id, trigger_event_id, status
 			  FROM pipeline_runs WHERE run_id = $1`
 
 	var repoOwner, repoName, cloneURL, sshURL, ref, targetRef, commitSHA, commitURL, commitMessage,
 		commitAuthorName, commitAuthorEmail, commitAuthorUsername, pusherName, pusherEmail, triggerEventID sql.NullString
+	var originalStatus string
 	var checkRunID sql.NullInt64
 
 	err := a.db.QueryRow(context.Background(), query, originalRunID).Scan(
 		&pipelineDef, &pipelineName, &pipelinePathDB, &pipelineVersionDB, &timeoutAt, &environment,
 		&repoOwner, &repoName, &cloneURL, &sshURL, &ref, &targetRef, &commitSHA, &commitURL, &commitMessage,
-		&commitAuthorName, &commitAuthorEmail, &commitAuthorUsername, &pusherName, &pusherEmail, &checkRunID, &triggerEventID,
+		&commitAuthorName, &commitAuthorEmail, &commitAuthorUsername, &pusherName, &pusherEmail, &checkRunID, &triggerEventID, &originalStatus,
 	)
 
 	if err != nil {
 		log.Error().Err(err).Str("original_run_id", originalRunID).Msg("Failed to find original run to rerun")
 		http.Error(w, "Original pipeline run not found", http.StatusNotFound)
+		return
+	}
+
+	if !isTerminalRunStatus(originalStatus) {
+		http.Error(w, "Original pipeline run is still in progress; wait until it finishes before rerunning.", http.StatusConflict)
 		return
 	}
 
@@ -4068,7 +4082,6 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		fmt.Sprintf("RUN_ID=%s", runID),
 		fmt.Sprintf("PIPELINE_NAME=%s", pipeline.Name),
 		fmt.Sprintf("PIPELINE_VERSION=%s", pipeline.Version),
-		fmt.Sprintf("PIPELINE_TIMEOUT=%s", timeout.String()),
 		fmt.Sprintf("LLM_AGENT_ADDRESS=%s", a.cfg.AgentLlmAgentAddress),
 		fmt.Sprintf("NOPSAI_API_URL=%s", a.cfg.AgentNopsaiAPIURL),
 		fmt.Sprintf("LOG_LEVEL=%s", a.cfg.LogLevel),
@@ -4077,6 +4090,9 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		fmt.Sprintf("SHARED_VOLUME_NAME=%s", sharedVolumeName),
 		fmt.Sprintf("DOCKER_NETWORK_NAME=%s", a.cfg.DockerNetworkName),
 		fmt.Sprintf("NOPSAI_SECRETS=%s", base64.StdEncoding.EncodeToString(secretsJSON)),
+	}
+	if timeout > 0 {
+		envVars = append(envVars, fmt.Sprintf("PIPELINE_TIMEOUT=%s", timeout.String()))
 	}
 	if parentHistory != "" {
 		envVars = append(envVars, fmt.Sprintf("PARENT_EXECUTION_HISTORY=%s", parentHistory))
