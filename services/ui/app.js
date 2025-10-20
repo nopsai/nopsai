@@ -200,7 +200,6 @@ document.addEventListener('DOMContentLoaded', () => {
         currentPath: 'pipelineruns',
         pollingInterval: null,
         currentRunTrackedIds: new Map(),
-        _runRefreshTimeout: null,
         _logsRaw: [],
         _logsSearchMatches: [],
         _logsSearchMatchIndex: -1,

@@ -1079,31 +1079,6 @@ if (dx !== 0 || dy !== 0) {
         });
     }
 
-    function clearRunRefreshTimer() {
-        if (state._runRefreshTimeout) {
-            try { clearTimeout(state._runRefreshTimeout); } catch {}
-            state._runRefreshTimeout = null;
-        }
-    }
-
-    function scheduleRunRefresh(runDetails) {
-        clearRunRefreshTimer();
-        const runId = runDetails?.run_info?.run_id;
-        const isComplete = !!runDetails?.run_info?.is_complete;
-        if (!runId || isComplete) return;
-        try {
-            state._runRefreshTimeout = setTimeout(() => {
-                state._runRefreshTimeout = null;
-                const currentId = state.currentRunData?.run_info?.run_id;
-                if (currentId && normalizeRunId(currentId) === normalizeRunId(runId)) {
-                    fetchActiveRun(currentId, true);
-                }
-            }, 5000);
-        } catch (err) {
-            console.warn('Failed to schedule run refresh', err);
-        }
-    }
-
     async function fetchActiveRun(runId, isRefresh = false) {
         if (!runId) return;
         if (!isRefresh) {
@@ -1137,7 +1112,6 @@ if (dx !== 0 || dy !== 0) {
             if (action === 'steps' && stepName) {
                 showStepDetails(stepName);
             }
-            scheduleRunRefresh(runDetails);
         }
     }
 
@@ -1812,16 +1786,8 @@ if (dx !== 0 || dy !== 0) {
         : '';
 
     const normalizedStatus = (runInfo.status || '').trim().toLowerCase();
-    const isTerminalStatus = normalizedStatus ? TERMINAL_RUN_STATUSES.has(normalizedStatus) : false;
-    const completionFlag = runInfo.is_complete;
-    const flagTrue = completionFlag === true || completionFlag === 'true' || completionFlag === 1;
-    const hasCompletionFlag = completionFlag !== undefined && completionFlag !== null;
-    const finishedAtRaw = runInfo.finished_at;
-    const hasFinishedAt = finishedAtRaw !== undefined && finishedAtRaw !== null && String(finishedAtRaw).trim() !== '';
-
-    const shouldUseCompletionFlag = !normalizedStatus && hasCompletionFlag;
-    const isComplete = hasFinishedAt && (isTerminalStatus || (shouldUseCompletionFlag && flagTrue));
-    const primaryActionHTML = !isComplete
+    const isCancelable = normalizedStatus === 'pending' || normalizedStatus === 'running';
+    const primaryActionHTML = isCancelable
         ? `<button id="run-primary-action-btn" data-action="cancel" type="button" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
                 <svg class="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -1877,15 +1843,20 @@ if (dx !== 0 || dy !== 0) {
     const actionBtn = document.getElementById('run-primary-action-btn');
     if (actionBtn && runInfo?.run_id) {
         const setLoadingState = (label) => {
+            actionBtn.dataset.originalHtml = actionBtn.innerHTML;
             actionBtn.disabled = true;
             actionBtn.classList.add('opacity-70', 'cursor-not-allowed');
             actionBtn.innerHTML = label;
         };
-        const restoreState = (html) => {
+        const restoreState = () => {
             if (!document.body.contains(actionBtn)) return;
+            const originalHTML = actionBtn.dataset.originalHtml;
+            if (originalHTML) {
+                actionBtn.innerHTML = originalHTML;
+                delete actionBtn.dataset.originalHtml;
+            }
             actionBtn.disabled = false;
             actionBtn.classList.remove('opacity-70', 'cursor-not-allowed');
-            actionBtn.innerHTML = html;
         };
         const actionType = actionBtn.dataset.action;
         if (actionType === 'cancel') {
@@ -1895,13 +1866,12 @@ if (dx !== 0 || dy !== 0) {
                 if (!window.confirm('Cancel this pipeline run?')) {
                     return;
                 }
-                const originalHTML = actionBtn.innerHTML;
                 setLoadingState('Cancelling…');
                 try {
                     await fetchData(`/v1/runs/${runInfo.run_id}/cancel`, { method: 'POST' });
                     await fetchActiveRun(runInfo.run_id, true);
                 } finally {
-                    restoreState(originalHTML);
+                    restoreState();
                 }
             });
         } else if (actionType === 'rerun') {
@@ -1913,7 +1883,6 @@ if (dx !== 0 || dy !== 0) {
                     return;
                 }
 
-                const originalHTML = actionBtn.innerHTML;
                 setLoadingState('Rerunning…');
 
                 try {
@@ -1950,7 +1919,7 @@ if (dx !== 0 || dy !== 0) {
                         window.location.hash = buildRunHash(runForHash, context);
                     }
                 } finally {
-                    restoreState(originalHTML);
+                    restoreState();
                 }
             });
         }
@@ -3720,7 +3689,6 @@ svgContent += `
             } else {
                 state.currentRunTrackedIds = new Map();
             }
-            clearRunRefreshTimer();
         }
 
         resetMainView();
