@@ -53,6 +53,223 @@
         return source || 'N/A';
     }
 
+    const RUN_TOGGLE_BASE_CLASS = 'run-select-toggle inline-flex items-center justify-center h-5 w-5 rounded-full border focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors duration-150';
+
+    function parseRepoIdentifiers(fullName) {
+        if (typeof fullName !== 'string') return null;
+        const trimmed = fullName.trim();
+        if (!trimmed) return null;
+        const parts = trimmed.split('/');
+        if (parts.length < 2) return null;
+        const owner = parts[0].trim();
+        const repo = parts.slice(1).join('/').trim();
+        if (!owner || !repo) return null;
+        return { owner, repo };
+    }
+
+    function getRepoIdentifiersByGroupId(groupId) {
+        const group = getGroupById(Number(groupId));
+        if (!group || !group.name) return null;
+        return parseRepoIdentifiers(group.name);
+    }
+
+    function buildContextHashFromContext(context) {
+        const ctx = context || {};
+        const tab = ctx.tab || 'main';
+        if (tab === 'recent') {
+            return '#/pipelineruns/recent';
+        }
+        const segments = Array.isArray(ctx.groupSegments) ? ctx.groupSegments.filter(Boolean) : [];
+        if (segments.length) {
+            return `#/pipelineruns/main/${segments.join('/')}`;
+        }
+        return '#/pipelineruns/main';
+    }
+
+    async function refreshAfterMutation(hashOverride) {
+        const targetHash = hashOverride || window.location.hash || '#/pipelineruns/main';
+        if (hashOverride && window.location.hash !== hashOverride) {
+            window.location.hash = hashOverride;
+            return;
+        }
+        if (typeof refresh === 'function') {
+            await refresh(targetHash);
+        }
+        updateSelectionBar();
+    }
+
+    async function deleteBranchRunsForRepo(owner, repo, branch) {
+        if (!owner || !repo) {
+            alert('Unable to determine repository information for this branch.');
+            return false;
+        }
+        const branchLabel = branch || 'Others';
+        if (!window.confirm(`Delete all pipeline runs for ${owner}/${repo} (${branchLabel})? This cannot be undone.`)) {
+            return false;
+        }
+        const encodedOwner = encodeURIComponent(owner);
+        const encodedRepo = encodeURIComponent(repo);
+        const encodedBranch = branchLabel.split('/').map(part => encodeURIComponent(part)).join('/');
+        await deleteData(`/v1/repositories/${encodedOwner}/${encodedRepo}/branches/${encodedBranch}`);
+        clearSelectedRuns();
+        await refreshAfterMutation();
+        return true;
+    }
+
+    async function handleBranchDeleteButton(button) {
+        if (!button) return false;
+        const branch = button.dataset.branch || '';
+        if (!branch) {
+            alert('Unable to determine which branch to delete.');
+            return true;
+        }
+        let owner = button.dataset.owner || '';
+        let repo = button.dataset.repo || '';
+        let repoGroupId = button.dataset.repoGroupId;
+        if ((!owner || !repo) && !repoGroupId) {
+            const hostWithGroup = button.closest('[data-repo-group-id]');
+            if (hostWithGroup) repoGroupId = hostWithGroup.dataset.repoGroupId;
+        }
+        if ((!owner || !repo) && repoGroupId) {
+            const identifiers = getRepoIdentifiersByGroupId(repoGroupId);
+            if (identifiers) {
+                owner = owner || identifiers.owner;
+                repo = repo || identifiers.repo;
+            }
+        }
+        await deleteBranchRunsForRepo(owner, repo, branch);
+        return true;
+    }
+
+    function ensureRunSelectionSet() {
+        if (!(state.selectedRunIds instanceof Set)) {
+            state.selectedRunIds = new Set();
+        }
+        return state.selectedRunIds;
+    }
+
+    function clearSelectedRuns(options = {}) {
+        const selected = ensureRunSelectionSet();
+        if (selected.size === 0) return;
+        selected.clear();
+        document.querySelectorAll('.run-card[data-selected="true"]').forEach(card => {
+            card.classList.remove('ring-2', 'ring-indigo-500', 'border-transparent');
+            card.setAttribute('data-selected', 'false');
+        });
+        document.querySelectorAll('.run-select-toggle[aria-pressed="true"]').forEach(btn => {
+            setRunToggleState(btn, false);
+        });
+        if (!options.silent) updateSelectionBar();
+    }
+
+    function getRunToggleClasses(isSelected) {
+        return isSelected
+            ? `${RUN_TOGGLE_BASE_CLASS} bg-indigo-600 border-transparent text-white shadow-sm`
+            : `${RUN_TOGGLE_BASE_CLASS} border-[var(--border-primary)] bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]`;
+    }
+
+    function setRunToggleState(btn, isSelected) {
+        if (!btn) return;
+        btn.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+        btn.className = getRunToggleClasses(isSelected);
+    }
+
+    function updateRunCardSelectionStyles(runId, isSelected) {
+        if (!runId) return;
+        const cards = document.querySelectorAll('.run-card[data-run-id]');
+        cards.forEach(card => {
+            if ((card.dataset.runId || '') !== runId) return;
+            if (isSelected) {
+                card.classList.add('ring-2', 'ring-indigo-500', 'border-transparent');
+                card.setAttribute('data-selected', 'true');
+            } else {
+                card.classList.remove('ring-2', 'ring-indigo-500', 'border-transparent');
+                card.setAttribute('data-selected', 'false');
+            }
+        });
+
+        const buttons = document.querySelectorAll('.run-select-toggle[data-run-id]');
+        buttons.forEach(btn => {
+            if ((btn.dataset.runId || '') !== runId) return;
+            setRunToggleState(btn, isSelected);
+        });
+    }
+
+    function updateSelectionBar() {
+        const selected = ensureRunSelectionSet();
+        const count = selected.size;
+        if (!DOM.runSelectionBar) return;
+        const isDetailView = !!(state.currentRunData && state.currentRunData.run_info);
+        const isPipelinePage = state.currentPath === 'pipelineruns';
+        if (count > 0 && isPipelinePage && !isDetailView) {
+            DOM.runSelectionBar.classList.remove('hidden');
+            if (DOM.runSelectionCount) {
+                DOM.runSelectionCount.textContent = `${count} run${count === 1 ? '' : 's'} selected`;
+            }
+        } else {
+            DOM.runSelectionBar.classList.add('hidden');
+        }
+        if (DOM.runSelectionDeleteBtn) {
+            DOM.runSelectionDeleteBtn.disabled = count === 0;
+        }
+        if (DOM.runSelectionClearBtn) {
+            DOM.runSelectionClearBtn.disabled = count === 0;
+        }
+    }
+
+    function toggleRunSelection(runId) {
+        if (!runId) return;
+        const selected = ensureRunSelectionSet();
+        if (selected.has(runId)) {
+            selected.delete(runId);
+            updateRunCardSelectionStyles(runId, false);
+        } else {
+            selected.add(runId);
+            updateRunCardSelectionStyles(runId, true);
+        }
+        updateSelectionBar();
+    }
+
+    async function deleteSelectedRuns() {
+        const selected = ensureRunSelectionSet();
+        if (selected.size === 0) return;
+        if (!window.confirm(`Delete ${selected.size} selected pipeline run${selected.size === 1 ? '' : 's'}? This cannot be undone.`)) {
+            return;
+        }
+        if (DOM.runSelectionDeleteBtn) {
+            DOM.runSelectionDeleteBtn.disabled = true;
+        }
+        const ids = Array.from(selected);
+        try {
+            for (const id of ids) {
+                await deleteData(`/v1/runs/${encodeURIComponent(id)}`);
+            }
+            clearSelectedRuns({ silent: true });
+            updateSelectionBar();
+            await refreshAfterMutation();
+        } finally {
+            if (DOM.runSelectionDeleteBtn) {
+                const remaining = ensureRunSelectionSet();
+                DOM.runSelectionDeleteBtn.disabled = remaining.size === 0;
+            }
+        }
+    }
+
+    async function deleteRunById(runId, context) {
+        if (!runId) {
+            alert('Missing run identifier.');
+            return;
+        }
+        if (!window.confirm('Delete this pipeline run permanently? This action cannot be undone.')) {
+            return;
+        }
+        await deleteData(`/v1/runs/${encodeURIComponent(runId)}`);
+        const targetHash = buildContextHashFromContext(context);
+        clearSelectedRuns();
+        state.currentRunData = null;
+        await refreshAfterMutation(targetHash);
+    }
+
     function createDefaultLogLevelFilter() {
         return new Set(LOG_LEVEL_FILTER_KEYS);
     }
@@ -600,6 +817,18 @@
         refresh = context.refresh || (() => {});
         if (!(state.currentRunTrackedIds instanceof Map)) {
             state.currentRunTrackedIds = new Map();
+        }
+        ensureRunSelectionSet();
+        updateSelectionBar();
+        if (DOM.runSelectionClearBtn) {
+            DOM.runSelectionClearBtn.addEventListener('click', () => {
+                clearSelectedRuns();
+            });
+        }
+        if (DOM.runSelectionDeleteBtn) {
+            DOM.runSelectionDeleteBtn.addEventListener('click', async () => {
+                await deleteSelectedRuns();
+            });
         }
         state.syncLogsHash = syncLogsHash;
         setupLogHelpers();
@@ -1269,6 +1498,7 @@ if (dx !== 0 || dy !== 0) {
 
     function renderRepoChildren(container, runsByBranch, level, repoGroupId) {
         if (!container) return;
+        const repoInfo = getRepoIdentifiersByGroupId(repoGroupId);
         let html = `<ul class="pl-${level > 0 ? '4' : '0'} space-y-1">`;
         const sortedBranches = Object.keys(runsByBranch).sort();
 
@@ -1278,11 +1508,18 @@ if (dx !== 0 || dy !== 0) {
             const isExpanded = state.expandedGroups.has(branchId);
             const chevron = `<svg class="h-4 w-4 mr-1 text-[var(--text-secondary)] chevron ${isExpanded ? 'rotate-90' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>`;
 
-            html += `<li data-branch-id="${branchId}">
-                            <div class="flex items-center p-2 text-[var(--text-primary)] rounded-md group-header cursor-pointer">
-                                ${chevron}
-                                <svg class="h-4 w-4 mr-2 text-[var(--text-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                                <span>${branch}</span>
+            html += `<li data-branch-id="${branchId}" data-repo-group-id="${repoGroupId}">
+                            <div class="flex items-center justify-between p-2 text-[var(--text-primary)] rounded-md group-header cursor-pointer">
+                                <div class="flex items-center min-w-0">
+                                    ${chevron}
+                                    <svg class="h-4 w-4 mr-2 text-[var(--text-accent)] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                                    <span class="truncate">${escapeText(branch)}</span>
+                                </div>
+                                <div class="flex items-center gap-1 branch-actions">
+                                    <button type="button" class="branch-delete-btn inline-flex items-center justify-center h-6 w-6 rounded-full text-[var(--text-secondary)] hover:text-red-500 hover:bg-[var(--border-primary)] focus:outline-none" data-branch="${escapeAttribute(branch)}" data-repo-group-id="${repoGroupId}" ${repoInfo ? `data-owner="${escapeAttribute(repoInfo.owner)}" data-repo="${escapeAttribute(repoInfo.repo)}"` : ''} title="Delete branch">
+                                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5-3h4m1 3H7" /></svg>
+                                    </button>
+                                </div>
                             </div>
                             <div class="group-children">
                                 ${isExpanded ? renderRunLinks(runs, level + 1, repoGroupId) : ''}
@@ -1291,6 +1528,7 @@ if (dx !== 0 || dy !== 0) {
         });
         html += '</ul>';
         container.innerHTML = html;
+        updateSelectionBar();
     }
 
     function renderRunLinks(runs, level, groupId) {
@@ -1363,11 +1601,14 @@ if (dx !== 0 || dy !== 0) {
                     <div class="flex items-center min-w-0">
                         <svg class="h-5 w-5 mr-3 text-[var(--text-secondary)] chevron flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
                         <svg class="h-5 w-5 mr-3 text-[var(--text-accent)] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                        <span class="font-semibold text-lg text-[var(--text-primary)] truncate">${branch}</span>
+                        <span class="font-semibold text-lg text-[var(--text-primary)] truncate">${escapeText(branch)}</span>
                         <span class="ml-4 text-sm text-[var(--text-secondary)] hidden sm:inline">(${runs.length} runs)</span>
                     </div>
-                    <div class="flex items-center">
-                        <span class="text-sm text-[var(--text-secondary)] mr-3 hidden sm:block">Latest run: ${timeAgo(latestRun.started_at)}</span>
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm text-[var(--text-secondary)] mr-1 hidden sm:block">Latest run: ${timeAgo(latestRun.started_at)}</span>
+                        <button type="button" class="branch-delete-btn inline-flex items-center justify-center h-8 w-8 rounded-full text-[var(--text-secondary)] hover:text-red-500 hover:bg-[var(--border-primary)] focus:outline-none" data-branch="${escapeAttribute(branch)}" data-owner="${escapeAttribute(latestRun.git_repo_owner || '')}" data-repo="${escapeAttribute(latestRun.git_repo_name || '')}" title="Delete branch">
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5-3h4m1 3H7" /></svg>
+                        </button>
                         <svg class="h-6 w-6 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
                     </div>
                 </div>
@@ -1378,9 +1619,10 @@ if (dx !== 0 || dy !== 0) {
         });
         html += '</div>';
         DOM.mainGridContainer.innerHTML = html;
+        updateSelectionBar();
     }
 
-    function renderRunCardHTML(run) {
+    function renderRunCardHTML(run, isSelected = false) {
         const status = run.is_complete ? run.status : 'running';
         const config = statusConfig[status.toLowerCase()] || statusConfig.pending;
         const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
@@ -1423,9 +1665,14 @@ if (dx !== 0 || dy !== 0) {
                     <span class="truncate" title="Trigger Event ID">${escapeText(triggerCard.display)}</span>
                 </div>
             </div>
-             <div class="mt-4 pt-3 border-t border-[var(--border-primary)] flex items-center justify-between text-xs text-[var(--text-secondary)]">
-                <span class="font-medium">${run.is_complete ? 'Completed' : 'Started'}</span>
-                <span>${timeAgo(timeToDisplay)}</span>
+            <div class="mt-4 pt-3 border-t border-[var(--border-primary)] flex items-center justify-between text-xs text-[var(--text-secondary)]">
+                <div class="flex items-center gap-2">
+                    <svg class="h-3.5 w-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    <span class="truncate">${timeAgo(timeToDisplay)}</span>
+                </div>
+                <button type="button" class="${getRunToggleClasses(isSelected)}" data-run-id="${escapeAttribute(run.run_id)}" aria-pressed="${isSelected ? 'true' : 'false'}" title="${isSelected ? 'Deselect run' : 'Select run'}">
+                    <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                </button>
             </div>`;
     }
 
@@ -1494,12 +1741,21 @@ if (dx !== 0 || dy !== 0) {
             }
             el.dataset.runContext = encodeRunContext(resolvedContext);
             if (el.hasAttribute('data-href')) { // It's a run card
+                const runId = runData.run_id || '';
+                const isSelected = ensureRunSelectionSet().has(runId);
                 el.setAttribute('data-href', buildRunHash(runData, resolvedContext));
-                el.innerHTML = renderRunCardHTML(runData);
+                el.dataset.selected = isSelected ? 'true' : 'false';
+                el.innerHTML = renderRunCardHTML(runData, isSelected);
+                if (isSelected) {
+                    el.classList.add('ring-2', 'ring-indigo-500', 'border-transparent');
+                } else {
+                    el.classList.remove('ring-2', 'ring-indigo-500', 'border-transparent');
+                }
             } else if (el.tagName === 'LI') { // It's a sidebar item
                 el.innerHTML = renderSidebarRunLinkHTML(runData, resolvedContext);
             }
         });
+        updateRunCardSelectionStyles(runData.run_id || '', ensureRunSelectionSet().has(runData.run_id || ''));
     }
 
     // Update renderRunCard to use the new reusable function
@@ -1509,14 +1765,20 @@ if (dx !== 0 || dy !== 0) {
         const context = resolveRunContext(contextOverride);
         const runUrl = buildRunHash(run, context);
         const contextAttr = encodeRunContext(context);
+        const selected = ensureRunSelectionSet();
+        const runId = run.run_id || '';
+        const runIdAttr = escapeAttribute(runId);
+        const isSelected = selected.has(runId);
+        const selectedClasses = isSelected ? 'ring-2 ring-indigo-500 border-transparent' : '';
         return `
             <div data-href="${runUrl}"
-                data-run-id="${run.run_id}" 
+                data-run-id="${runIdAttr}" 
                 data-repo-full-name="${repoFullName}"${parentAttr}${getTriggerGroupAttr(run)}
                 data-run-context="${contextAttr}"
-                class="run-card block bg-[var(--bg-primary)] transition-all duration-200 rounded-lg p-4 flex flex-col justify-between cursor-pointer border border-[var(--border-primary)] shadow-sm"
+                data-selected="${isSelected ? 'true' : 'false'}"
+                class="run-card relative block bg-[var(--bg-primary)] transition-all duration-200 rounded-lg p-4 flex flex-col justify-between cursor-pointer border border-[var(--border-primary)] shadow-sm ${selectedClasses}"
             >
-                ${renderRunCardHTML(run)}
+                ${renderRunCardHTML(run, isSelected)}
             </div>`;
     }
 
@@ -1752,6 +2014,7 @@ if (dx !== 0 || dy !== 0) {
 // 
     function renderRunView(runDetails) {
     const runInfo = runDetails.run_info;
+    clearSelectedRuns();
     const branchDisplay = formatBranchDisplay(runInfo.git_ref, runInfo.git_target_ref, { html: true });
     const triggerRaw = (runInfo.trigger_event_id ?? '').toString().trim();
     const triggerDisplay = triggerRaw || 'N/A';
@@ -1801,6 +2064,10 @@ if (dx !== 0 || dy !== 0) {
                 Rerun
             </button>`;
 
+    const deleteRunIconHTML = `<button id="run-delete-btn" type="button" class="inline-flex items-center justify-center h-8 w-8 rounded-full text-[var(--text-secondary)] hover:text-red-500 hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500" title="Delete run">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5-3h4m1 3H7" /></svg>
+            </button>`;
+
     headerHTML += `
             <div class="flex flex-wrap items-baseline gap-x-3 min-w-0">
                 <a href="${repoLink}" class="text-xl font-semibold text-[var(--text-secondary)] hover:text-[var(--text-accent)] transition-colors truncate">${repoFullName}</a>
@@ -1828,12 +2095,13 @@ if (dx !== 0 || dy !== 0) {
                     <svg class="h-4 w-4 mr-1.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
                     <span>${branchDisplay}</span>
                 </div>
-                <div class="ml-auto flex items-center gap-3">
+                <div class="ml-auto flex items-center gap-2">
                     ${primaryActionHTML}
                     <a href="${buildRunHashWithExtras(runInfo, runContext, ['logs'])}" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-accent)]">
                         <svg class="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7" /></svg>
                         View Logs
                     </a>
+                    ${deleteRunIconHTML}
                 </div>
             </div>
         </div>`;
@@ -1923,6 +2191,22 @@ if (dx !== 0 || dy !== 0) {
                 }
             });
         }
+    }
+
+    const deleteRunBtn = document.getElementById('run-delete-btn');
+    if (deleteRunBtn && runInfo?.run_id) {
+        deleteRunBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            if (deleteRunBtn.disabled) return;
+            deleteRunBtn.disabled = true;
+            deleteRunBtn.classList.add('opacity-70', 'cursor-not-allowed');
+            try {
+                await deleteRunById(runInfo.run_id, state.currentRunContext);
+            } finally {
+                deleteRunBtn.disabled = false;
+                deleteRunBtn.classList.remove('opacity-70', 'cursor-not-allowed');
+            }
+        });
     }
 
     document.getElementById('view-pipeline-definition-link').addEventListener('click', (e) => {
@@ -3679,6 +3963,11 @@ svgContent += `
         const info = parsePipelineRunsHash(hash);
         const { path, tab, groupSegments, runId, action, stepName, logSegments, query } = info;
 
+        if (path !== 'pipelineruns') {
+            clearSelectedRuns({ silent: true });
+            updateSelectionBar();
+        }
+
         if (!runId) {
             state.currentRunData = null;
             state.currentRunContext = null;
@@ -4144,6 +4433,7 @@ if (false && state.currentGraphView === 'tasks') {
 
         if (DOM.mainGridContainer) {
             DOM.mainGridContainer.addEventListener('mousedown', e => {
+                if (e.target.closest('.run-select-toggle')) return;
                 const card = e.target.closest('[data-href]');
                 if (!card) return;
 
@@ -4187,7 +4477,15 @@ if (false && state.currentGraphView === 'tasks') {
                 document.addEventListener('mouseup', onMouseUp, { once: true });
             });
 
-            DOM.mainGridContainer.addEventListener('click', e => {
+            DOM.mainGridContainer.addEventListener('click', async e => {
+                const selectToggle = e.target.closest('.run-select-toggle');
+                if (selectToggle) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    toggleRunSelection(selectToggle.dataset.runId || '');
+                    return;
+                }
+
                 const card = e.target.closest('a[data-run-id]');
                 if (card && !e.ctrlKey && !e.metaKey && e.button === 0) {
                     e.preventDefault();
@@ -4196,6 +4494,14 @@ if (false && state.currentGraphView === 'tasks') {
                         state.currentRunContext = context;
                     }
                     window.location.hash = card.getAttribute('href');
+                }
+
+                const branchDeleteBtn = e.target.closest('.branch-delete-btn');
+                if (branchDeleteBtn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    await handleBranchDeleteButton(branchDeleteBtn);
+                    return;
                 }
 
                 const addCard = e.target.closest('#add-group-card');
@@ -4284,6 +4590,14 @@ if (false && state.currentGraphView === 'tasks') {
 
         if (DOM.sidebarNav) {
             DOM.sidebarNav.addEventListener('click', async (e) => {
+                const branchDeleteBtn = e.target.closest('.branch-delete-btn');
+                if (branchDeleteBtn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    await handleBranchDeleteButton(branchDeleteBtn);
+                    return;
+                }
+
                 const link = e.target.closest('a[href]');
                 const groupHeader = e.target.closest('.group-header');
 

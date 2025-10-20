@@ -179,6 +179,10 @@ document.addEventListener('DOMContentLoaded', () => {
         downloadLogsBtn: document.getElementById('download-logs-btn'),
         logsToggleAgent: document.getElementById('logs-toggle-agent'),
         logsToggleShort: document.getElementById('logs-toggle-short'),
+        runSelectionBar: document.getElementById('run-selection-bar'),
+        runSelectionCount: document.getElementById('run-selection-count'),
+        runSelectionDeleteBtn: document.getElementById('run-selection-delete-btn'),
+        runSelectionClearBtn: document.getElementById('run-selection-clear-btn'),
     };
 
     let state = {
@@ -217,6 +221,7 @@ document.addEventListener('DOMContentLoaded', () => {
         currentRunContext: null,
         _suppressNextRoute: false,
         _suppressRouteTimeout: null,
+        selectedRunIds: new Set(),
     };
 
     async function fetchData(url, options = {}) {
