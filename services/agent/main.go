@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"nopsai/pkg/models"
@@ -678,24 +679,39 @@ func run() int {
 		}
 	}()
 
+	var timeoutCtx context.Context
 	var timeoutCancel context.CancelFunc
+	var timeoutTriggered atomic.Bool
 	if pipelineTimeoutStr != "" {
 		timeout, err := time.ParseDuration(pipelineTimeoutStr)
 		if err != nil {
 			agentLog(runID, pipeline.Name).Error().Err(err).Msg("Invalid pipeline timeout duration")
-		} else {
-			var ctx context.Context
-			ctx, timeoutCancel = context.WithTimeout(context.Background(), timeout)
+		} else if timeout > 0 {
+			timeoutCtx, timeoutCancel = context.WithTimeout(context.Background(), timeout)
 			defer timeoutCancel()
-
-			go func() {
-				<-ctx.Done()
-				if ctx.Err() == context.DeadlineExceeded {
-					agentLog(runID, pipeline.Name).Error().Msg("Pipeline execution timed out. Cleaning up and exiting")
-					notifyFinalStatus(pipeline.Name, runID, "failure")
-				}
-			}()
 		}
+	}
+
+	if timeoutCtx != nil {
+		go func() {
+			<-timeoutCtx.Done()
+			if timeoutCtx.Err() == context.DeadlineExceeded {
+				if timeoutTriggered.CompareAndSwap(false, true) {
+					agentLog(runID, pipeline.Name).Error().Msg("Pipeline execution timed out. Cleaning up and exiting")
+					sessionMutex.Lock()
+					containers := make([]string, 0, len(sessionContainers))
+					for sessionName, containerID := range sessionContainers {
+						agentLog(runID, pipeline.Name).Info().Str("session", sessionName).Msg("Stopping session container due to timeout")
+						containers = append(containers, containerID)
+						delete(sessionContainers, sessionName)
+					}
+					sessionMutex.Unlock()
+					for _, containerID := range containers {
+						cleanup(cli, containerID, pipeline.Name, runID)
+					}
+				}
+			}
+		}()
 	}
 
 	history := new(strings.Builder)
@@ -722,6 +738,10 @@ func run() int {
 	}
 
 	for len(completedTasks) < totalTasks {
+		if timeoutTriggered.Load() {
+			pipelineFailed = true
+			break
+		}
 		runnableTasks := getNextRunnableTasks(&pipeline, completedTasks)
 		if len(runnableTasks) == 0 {
 			if !pipelineFailed && len(completedTasks) == totalTasks {
@@ -738,9 +758,19 @@ func run() int {
 		historyMutex := &sync.Mutex{}
 
 		for _, runnable := range runnableTasks {
+			if timeoutTriggered.Load() {
+				break
+			}
 			wg.Add(1)
 			go func(runnable *RunnableTask) {
 				defer wg.Done()
+				if timeoutTriggered.Load() {
+					if runnable.Step != nil && runnable.Task != nil {
+						updateTaskStatus(pipeline.Name, runID, runnable.Step.Name, runnable.Task.Name, "cancelled", 0, 0)
+					}
+					results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+					return
+				}
 
 				step := runnable.Step
 				task := runnable.Task
@@ -1151,6 +1181,11 @@ func run() int {
 			}
 		}
 
+		if timeoutTriggered.Load() {
+			pipelineFailed = true
+			break
+		}
+
 		if pipelineFailed {
 			break
 		}
@@ -1159,7 +1194,10 @@ func run() int {
 	syncWg.Wait()
 
 	finalStatus := "success"
-	if pipelineFailed {
+	if timeoutTriggered.Load() {
+		finalStatus = "failure"
+		agentLog(runID, pipeline.Name).Error().Msg("Pipeline timed out before completion")
+	} else if pipelineFailed {
 		finalStatus = "failure"
 		agentLog(runID, pipeline.Name).Error().Msg("Pipeline finished with failed tasks")
 	} else {
