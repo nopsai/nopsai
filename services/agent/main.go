@@ -9,12 +9,14 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"nopsai/pkg/models"
@@ -672,11 +674,78 @@ func run() int {
 	sessionContainers := make(map[string]string)
 	sessionMutex := &sync.Mutex{}
 
-	defer func() {
+	cleanupStepContainers := func(reason string) {
+		sessionMutex.Lock()
+		containers := make(map[string]string, len(sessionContainers))
 		for sessionName, containerID := range sessionContainers {
-			agentLog(runID, pipeline.Name).Info().Str("session", sessionName).Msg("Cleaning up session container")
+			containers[sessionName] = containerID
+			delete(sessionContainers, sessionName)
+		}
+		sessionMutex.Unlock()
+		for sessionName, containerID := range containers {
+			agentLog(runID, pipeline.Name).Info().Str("session", sessionName).Str("reason", reason).Msg("Cleaning up session container")
 			cleanup(cli, containerID, pipeline.Name, runID)
 		}
+	}
+
+	defer cleanupStepContainers("exit")
+
+	activeTasks := make(map[string]struct{})
+	activeTasksMutex := &sync.Mutex{}
+
+	addActiveTask := func(stepName, taskName string) {
+		activeTasksMutex.Lock()
+		activeTasks[stepName+"/"+taskName] = struct{}{}
+		activeTasksMutex.Unlock()
+	}
+
+	removeActiveTask := func(stepName, taskName string) {
+		activeTasksMutex.Lock()
+		delete(activeTasks, stepName+"/"+taskName)
+		activeTasksMutex.Unlock()
+	}
+
+	cancelActiveTasks := func(reason string) {
+		activeTasksMutex.Lock()
+		keys := make([]string, 0, len(activeTasks))
+		for key := range activeTasks {
+			keys = append(keys, key)
+		}
+		activeTasks = make(map[string]struct{})
+		activeTasksMutex.Unlock()
+		for _, key := range keys {
+			parts := strings.SplitN(key, "/", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			stepName, taskName := parts[0], parts[1]
+			stepLog(runID, pipeline.Name, stepName, taskName).Warn().Str("reason", reason).Msg("Marking task as cancelled")
+			updateTaskStatus(pipeline.Name, runID, stepName, taskName, "cancelled", 0, 0)
+		}
+	}
+
+	defer cancelActiveTasks("exit")
+
+	setTaskRunning := func(stepName, taskName string) {
+		updateTaskStatus(pipeline.Name, runID, stepName, taskName, "running", 0, 0)
+		addActiveTask(stepName, taskName)
+	}
+
+	finalizeTask := func(stepName, taskName, status string, exitCode int, llmDurationMs int64) {
+		updateTaskStatus(pipeline.Name, runID, stepName, taskName, status, exitCode, llmDurationMs)
+		removeActiveTask(stepName, taskName)
+	}
+
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGTERM, syscall.SIGINT)
+	defer signal.Stop(signalChan)
+
+	go func() {
+		sig := <-signalChan
+		agentLog(runID, pipeline.Name).Warn().Str("signal", sig.String()).Msg("Received termination signal")
+		cancelActiveTasks("signal")
+		cleanupStepContainers("signal")
+		os.Exit(0)
 	}()
 
 	var timeoutCtx context.Context
@@ -698,17 +767,8 @@ func run() int {
 			if timeoutCtx.Err() == context.DeadlineExceeded {
 				if timeoutTriggered.CompareAndSwap(false, true) {
 					agentLog(runID, pipeline.Name).Error().Msg("Pipeline execution timed out. Cleaning up and exiting")
-					sessionMutex.Lock()
-					containers := make([]string, 0, len(sessionContainers))
-					for sessionName, containerID := range sessionContainers {
-						agentLog(runID, pipeline.Name).Info().Str("session", sessionName).Msg("Stopping session container due to timeout")
-						containers = append(containers, containerID)
-						delete(sessionContainers, sessionName)
-					}
-					sessionMutex.Unlock()
-					for _, containerID := range containers {
-						cleanup(cli, containerID, pipeline.Name, runID)
-					}
+					cancelActiveTasks("timeout")
+					cleanupStepContainers("timeout")
 				}
 			}
 		}()
@@ -766,7 +826,7 @@ func run() int {
 				defer wg.Done()
 				if timeoutTriggered.Load() {
 					if runnable.Step != nil && runnable.Task != nil {
-						updateTaskStatus(pipeline.Name, runID, runnable.Step.Name, runnable.Task.Name, "cancelled", 0, 0)
+						finalizeTask(runnable.Step.Name, runnable.Task.Name, "cancelled", 0, 0)
 					}
 					results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 					return
@@ -818,7 +878,7 @@ func run() int {
 							tasksInStep = []models.Task{{Name: stepName}}
 						}
 						for _, t := range tasksInStep {
-							updateTaskStatus(pipeline.Name, runID, stepName, t.Name, "skipped", 0, 0)
+							finalizeTask(stepName, t.Name, "skipped", 0, 0)
 							// We send a success result so the main loop can correctly count this as "handled"
 							results <- TaskResult{Name: fmt.Sprintf("%s/%s", stepName, t.Name), Success: true, Skipped: true}
 						}
@@ -829,12 +889,12 @@ func run() int {
 				// --- CONDITION EVALUATION LOGIC END ---
 
 				if step.Include != "" {
-					updateTaskStatus(pipeline.Name, runID, stepName, stepName, "running", 0, 0)
+					setTaskRunning(stepName, stepName)
 
 					parts := strings.SplitN(step.Include, ":", 2)
 					if len(parts) != 2 || parts[0] != "pipeline" {
 						taskLogger.Error().Str("include", step.Include).Msg("Invalid include format")
-						updateTaskStatus(pipeline.Name, runID, stepName, stepName, "failure", 1, 0)
+						finalizeTask(stepName, stepName, "failure", 1, 0)
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
 					}
@@ -844,13 +904,13 @@ func run() int {
 					if err != nil {
 						if strings.Contains(err.Error(), "nopsai api returned non-200 status 404") {
 							taskLogger.Warn().Str("child_pipeline", childPipelineName).Msg("Child pipeline not found, marking as not found")
-							updateTaskStatus(pipeline.Name, runID, stepName, stepName, "not_found", 0, 0)
+							finalizeTask(stepName, stepName, "not_found", 0, 0)
 							results <- TaskResult{Name: runnable.GlobalKey, Success: false} // Treat as failure for dependency purposes
 							return
 						}
 
 						taskLogger.Error().Err(err).Msg("Failed to get child pipeline definition")
-						updateTaskStatus(pipeline.Name, runID, stepName, stepName, "failure", 1, 0)
+						finalizeTask(stepName, stepName, "failure", 1, 0)
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
 					}
@@ -861,7 +921,7 @@ func run() int {
 					childRunID, err := triggerPipeline(runID, pipelineName, step.Name, childPipelineName, childDef, historySnapshot)
 					if err != nil {
 						taskLogger.Error().Err(err).Msg("Failed to trigger child pipeline")
-						updateTaskStatus(pipeline.Name, runID, stepName, stepName, "failure", 1, 0)
+						finalizeTask(stepName, stepName, "failure", 1, 0)
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
 					}
@@ -873,7 +933,7 @@ func run() int {
 							finalStatus = "failure"
 						}
 						taskLogger.Info().Str("child_run_id", childRunID).Str("status", finalStatus).Msg("Child pipeline finished")
-						updateTaskStatus(pipeline.Name, runID, stepName, stepName, finalStatus, 0, 0)
+						finalizeTask(stepName, stepName, finalStatus, 0, 0)
 						if finalStatus == "failure" && step.Sync {
 							pipelineFailed = true
 						}
@@ -890,14 +950,14 @@ func run() int {
 					} else {
 						go monitorFunc()
 						// For non-sync, we mark it successful immediately to unblock dependencies.
-						updateTaskStatus(pipeline.Name, runID, stepName, stepName, "success", 0, 0)
+						finalizeTask(stepName, stepName, "success", 0, 0)
 						results <- TaskResult{Name: runnable.GlobalKey, Success: true}
 					}
 					return
 				}
 
 				var stepContainerID string
-				updateTaskStatus(pipeline.Name, runID, stepName, task.Name, "running", 0, 0)
+				setTaskRunning(stepName, task.Name)
 
 				var stepEnvVars []string
 				requiredEnvKeys := make(map[string]struct{})
@@ -940,7 +1000,7 @@ func run() int {
 					taskLogger.Info().Str("image", imageName).Msg("Creating new container for step")
 					if err := ensureImageExists(context.Background(), taskLogger, cli, imageName); err != nil {
 						taskLogger.Error().Err(err).Msg("Failed to ensure step image exists. Shutting down")
-						updateTaskStatus(pipeline.Name, runID, stepName, task.Name, "failure", 1, 0)
+						finalizeTask(stepName, task.Name, "failure", 1, 0)
 						sessionMutex.Unlock()
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
@@ -998,12 +1058,14 @@ func run() int {
 					}, nil, nil, stepContainerName)
 					if err != nil {
 						taskLogger.Error().Err(err).Msg("Failed to create step container")
+						finalizeTask(stepName, task.Name, "failure", 1, 0)
 						sessionMutex.Unlock()
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
 					}
 					if err := cli.ContainerStart(context.Background(), cont.ID, container.StartOptions{}); err != nil {
 						taskLogger.Error().Err(err).Msg("Failed to start step container")
+						finalizeTask(stepName, task.Name, "failure", 1, 0)
 						sessionMutex.Unlock()
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
@@ -1150,15 +1212,15 @@ func run() int {
 				historyMutex.Unlock()
 
 				if exitCode == 0 {
-					updateTaskStatus(pipeline.Name, runID, stepName, task.Name, "success", exitCode, llmDurationMs)
+					finalizeTask(stepName, task.Name, "success", exitCode, llmDurationMs)
 					results <- TaskResult{Name: runnable.GlobalKey, Success: true}
 				} else {
 					if task.IgnoreFailure {
-						updateTaskStatus(pipeline.Name, runID, stepName, task.Name, "failure (ignored)", exitCode, llmDurationMs)
+						finalizeTask(stepName, task.Name, "failure (ignored)", exitCode, llmDurationMs)
 						taskLogger.Warn().Msg("Task failed, but failure is ignored")
 						results <- TaskResult{Name: runnable.GlobalKey, Success: true}
 					} else {
-						updateTaskStatus(pipeline.Name, runID, stepName, task.Name, "failure", exitCode, llmDurationMs)
+						finalizeTask(stepName, task.Name, "failure", exitCode, llmDurationMs)
 						taskLogger.Error().Msg("Critical task failed")
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 					}
