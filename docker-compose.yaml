@@ -102,11 +102,7 @@ services:
     ports:
       - "5173:80"
     volumes:
-      - ./services/ui/index.html:/usr/share/nginx/html/index.html:ro
-      - ./services/ui/styles.css:/usr/share/nginx/html/styles.css:ro
-      - ./services/ui/app.js:/usr/share/nginx/html/app.js:ro
-      - ./services/ui/logs.js:/usr/share/nginx/html/logs.js:ro
-      - ./services/ui/pipeline-runs.js:/usr/share/nginx/html/pipeline-runs.js:ro
+      - ./services/ui/:/usr/share/nginx/html/:ro
     networks:
       - nopsai-net
     depends_on:
