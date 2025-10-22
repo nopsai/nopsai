@@ -1,24 +1,44 @@
-Of course, here is an analysis of the provided code, including probable bugs and potential improvements:
+## Platform Improvements Overview
 
-### **Probable Bugs**
+This document captures the current feature set and hardening work that has landed across the Nopsai stack. Use it as a quick orientation guide when exploring the services, deployment story, and day-to-day operations.
 
-Here are some of the probable bugs that exist in the code:
+### Core Orchestrator (`services/nopsai`)
+- **Real-time hub**: A dedicated WebSocket hub manages per-run subscriptions and global broadcasts (including the `new_run_started` toast feed) so the UI stays in sync without polling.
+- **Agent lifecycle management**: Launches agent containers on demand, wires them into the shared Docker network, mounts a per-run workspace volume, and tails container logs back into PostgreSQL and WebSocket streams.
+- **Secrets & environment resolution**: Derives scoped secrets and environment variables (global, environment-specific, repo-specific) and encrypts secrets at rest with the `NOPSAI_MASTER_KEY` before persisting them.
+- **Pipeline & trigger APIs**: Exposes CRUD endpoints for pipelines, reusable steps, trigger overrides, run groups, run logs, reruns, cancellations, and branch-level clean-up.
+- **Git-driven orchestration**: Receives Git events, ensures the config repository is synced (pipelines, steps, environments, triggers), and coordinates with the git-bot for GitHub check updates.
 
-* **Improper Closing of Response Body**: In `services/nopsai/main.go`, the `defer resp.Body.Close()` call is missing in the `handleRerunPipeline` function after an HTTP request is made. This will result in a resource leak.
-* **Missing `go-routine` for `timeoutCancel`**: In `services/agent/main.go`, the `timeoutCancel` function is called in a `go-routine`, but there is no mechanism to wait for the `go-routine` to complete before the function returns. This can lead to a race condition where the `timeoutCancel` function is not called before the main function exits.
-* **Race Condition in `handleStepStatusUpdate`**: In `services/git-bot/main.go`, the `checkRunStates` map is accessed and modified in the `handleStepStatusUpdate` function without any locking mechanism. This can lead to a race condition if multiple requests are received at the same time.
-* **Missing Validation for `pipeline.Name`**: In `services/nopsai/main.go`, the `pipeline.Name` is not validated to ensure that it does not contain any malicious characters. This could lead to a command injection vulnerability if the `pipeline.Name` is used in a shell command.
-* **Use of `insecure.NewCredentials()`**: In `services/agent/main.go`, the agent connects to the LLM agent using `insecure.NewCredentials()`. This means that the communication between the agent and the LLM agent is not encrypted, which could be a security risk.
+### Agent (`services/agent`)
+- **LLM-assisted execution**: Resolves natural-language goals via the LLM agent, while falling back to explicit scripts when provided.
+- **Task graph engine**: Understands nested step/task dependencies, honours per-task `depends_on`, and tracks partial progress so multiple independent tasks can run without blocking each other.
+- **Workspace sharing controls**: Shares a sanitised directory listing with the LLM, respecting `llm_content_ignore`, and honours both pipeline-level and task-level `llm_output_sharing` settings.
+- **Container orchestration**: Ensures required images exist, reuses warm containers per step, supports additional volume mounts, and injects scoped secrets/environment variables safely.
+- **Operational telemetry**: Masks secrets in command output, streams logs back to the server in real time, and reports granular task status (with exit codes and LLM latency) to the API.
 
-### **Potential Improvements**
+### LLM Agent (`services/llm-agent`)
+- **Gemini integration**: Translates execution context into structured prompts for Google Gemini, with separate flows for action generation and boolean condition evaluation.
+- **Structured actions**: Returns strongly-typed actions (`EXECUTE_COMMAND`, `REPLACE_FILE`, `RETURN_ANSWER`) that the agent can execute without further parsing.
+- **Config-driven runtime**: Loads service addresses, model configuration, and API keys from the shared config loader, keeping deployment knobs consistent.
 
-Here are some potential improvements for the code:
+### Git Bot (`services/git-bot`)
+- **Secure webhooks**: Verifies GitHub signatures, normalises incoming events, and forwards run intents to the core service.
+- **Rich check runs**: Maintains hierarchical check-run state (steps ↦ tasks), renders markdown trees, and updates GitHub with real-time summaries, rerun links, and failure context.
+- **Developer utilities**: Provides endpoints for repo access checks, file/directory content resolution, pipeline source retrieval, child check-run creation, and stale check-run cancellation.
 
-* **Use a Configuration Management Tool**: The configuration is currently hardcoded in the source code. Using a configuration management tool like `Viper` would allow the configuration to be managed in a separate file, which would make it easier to change the configuration without having to recompile the code.
-* **Use a Database Migration Tool**: The database schema is currently managed manually. Using a database migration tool like `Goose` or `Flyway` would allow the database schema to be managed in a more automated and controlled way.
-* **Use a Linter**: Using a linter like `golangci-lint` would help to identify potential issues with the code, such as unused variables, incorrect formatting, and potential bugs.
-* **Add Unit Tests**: The code currently does not have any unit tests. Adding unit tests would help to ensure that the code is working as expected and would make it easier to refactor the code in the future.
-* **Use a CI/CD Pipeline**: Using a CI/CD pipeline would automate the process of building, testing, and deploying the code. This would help to improve the quality of the code and would make it easier to release new versions of the application.
-* **Implement a More Robust Error Handling Strategy**: The code currently uses `log.Fatalf` to handle errors. This is not a very robust error handling strategy, as it will cause the application to exit immediately. A more robust error handling strategy would be to return errors from functions and to handle them at a higher level.
-* **Use a More Secure Method for Storing Secrets**: The secrets are currently stored in plain text in the configuration file. This is not a secure way to store secrets. A more secure method would be to use a secret management tool like `Vault` or `AWS Secrets Manager`.
-* **Use a More Modern Version of Go**: The `go.mod` file specifies that the code is using Go 1.23.0. There have been several new releases of Go since then. Using a more modern version of Go would provide access to new features and performance improvements.
+### Web UI (`services/ui`)
+- **Live dashboards**: Uses a resilient WebSocket client that auto-reconnects, resubscribes to open runs, and pushes toast notifications whenever new runs start.
+- **Run explorer**: Offers branch-aware run cards, group/folder organisation, inline branch clean-up, selection-driven bulk actions, and deep links that preserve UI state in the hash.
+- **Pipeline graph**: Visualises pipeline steps and intra-step tasks with pan/zoom support, expandable nodes, and live status colouring.
+- **Log experience**: Ships an on-demand log modal with level filters, agent-only toggle, structured/short views, search with navigation, clipboard/download helpers, and follow mode—all powered by WebSocket streaming.
+
+### Configuration & Deployment
+- **Single compose stack**: Docker Compose provisions Postgres, the Go services, the UI (served via nginx), plus build-only helper images (`base`, `agent`, `pipeline`).
+- **Shared network & volumes**: All services join `nopsai-net`; run workspaces use throwaway Docker volumes, and Postgres writes to a named volume for persistence.
+- **Unified config loader**: `config/config.go` reads YAML defaults and lets environment variables override per deployment, covering ports, service URLs, Gemini credentials, Docker preferences, and timeout knobs.
+
+### Feature Highlights
+- **Pipeline DSL**: Supports step includes, per-step containers, secret injection, volume mounts, multi-task steps, AI gating via `condition`, and fine-grained LLM sharing controls.
+- **Trigger routing**: `.nopsai/triggers.yaml` can target events by branch/tag globs, apply environment overrides, and fan out to multiple pipelines.
+- **Run lifecycle**: Manual kicks, reruns, cancellation, GitHub-driven runs, real-time summaries, and log history retention are all first-class.
+- **Auditability**: Every run stores its logs, history, and metadata in Postgres, giving operators a replayable record aligned with GitHub check results.
