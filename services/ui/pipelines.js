@@ -9,6 +9,9 @@
         runsCache: { fetchedAt: 0, runs: [] },
         activeFolderKey: '',
         sidebarExpanded: new Set(),
+        syncLogEntries: [],
+        syncInProgress: false,
+        lastSyncStatus: null,
         pendingDelete: null,
         isEditing: false,
         currentYaml: '',
@@ -196,6 +199,20 @@
 
     async function handleRoute(hash) {
         if (!context) return;
+
+        const { pipelineId, autoEdit } = parsePipelineRoute(hash);
+        if (pipelineId) {
+            const folderPath = getFolderPathForPipelineId(pipelineId);
+            if (folderPath) {
+                ensureSidebarExpansionForPath(folderPath);
+                state.activeFolderKey = folderPath;
+            }
+        } else {
+            state.activeFolderKey = '';
+            state.selectedId = null;
+            state.sidebarExpanded = new Set();
+        }
+
         const { DOM: globalDOM } = context;
         if (globalDOM.mainHeader) {
             globalDOM.mainHeader.textContent = 'Pipelines';
@@ -211,7 +228,6 @@
             await pipelineRunsModule.renderSidebarForRoute('pipelines');
         }
 
-        const { pipelineId, autoEdit } = parsePipelineRoute(hash);
         if (pipelineId) {
             await selectPipeline(pipelineId, { autoEdit });
         } else {
@@ -244,24 +260,27 @@
             button.classList.add('cursor-wait', 'opacity-70');
         }
 
+        state.syncLogEntries = [];
+        state.syncInProgress = true;
+        state.lastSyncStatus = 'loading';
         renderSyncStatusCard({
             status: 'loading',
             title: 'Syncing pipelines',
-            message: 'Fetching the latest pipeline definitions from the repository…',
+            message: 'Sync request sent. Waiting for the repository synchronization to finish…',
+            logs: state.syncLogEntries,
         });
 
         try {
-            const result = await context.fetchData('/v1/internal/config/sync', { method: 'POST' });
-            const normalized = normalizeSyncResult(result);
-            showToast('Pipelines synced from repository.', 'success');
-            renderSyncStatusCard({
-                status: 'success',
-                title: 'Sync complete',
-                message: normalized.message,
-                details: normalized.details,
-                raw: result,
-            });
-            await refreshPipelines(true);
+            const baseUrlRaw = (context && typeof context.apiBaseUrl === 'string') ? context.apiBaseUrl : '';
+            const baseUrl = baseUrlRaw.replace(/\/+$/, '');
+            const syncUrl = `${baseUrl}/v1/internal/config/sync`;
+
+            const response = await fetch(syncUrl, { method: 'POST' });
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(errorText || `Sync failed (${response.status})`);
+            }
+            showToast('Sync request accepted. Monitoring for completion…', 'info');
         } catch (error) {
             console.error('Failed to sync pipelines:', error);
             showToast('Sync failed. Please try again.', 'error');
@@ -270,7 +289,10 @@
                 title: 'Sync failed',
                 message: error?.message ? error.message : 'The sync request was not successful. Please check the server logs and try again.',
                 raw: error,
+                logs: state.syncLogEntries,
             });
+            state.syncInProgress = false;
+            state.lastSyncStatus = 'error';
         } finally {
             if (button) {
                 button.disabled = false;
@@ -360,6 +382,8 @@
         if (!detailsHtml && options.raw) {
             detailsHtml = formatSyncDetails(options.raw);
         }
+        const logs = Array.isArray(options.logs) ? options.logs : [];
+        const logsHtml = logs.length ? `<div class="pipeline-sync-log-wrap"><ul class="pipeline-sync-log">${logs.map(formatSyncLogEntry).join('')}</ul></div>` : '';
 
         let iconPath = 'M4 4.5v5h4.5m11-0.5v-5h-4.5m4.154 9.095A8.25 8.25 0 0112 20.25a8.25 8.25 0 01-7.654-5.095m0-6.31A8.25 8.25 0 0112 3.75a8.25 8.25 0 017.654 5.095';
         if (status === 'success') {
@@ -379,9 +403,146 @@
                     <h3>${escapeHtml(title)}</h3>
                     ${message ? `<p>${escapeHtml(message)}</p>` : ''}
                     ${detailsHtml}
+                    ${logsHtml}
                 </div>
             </div>`;
         container.classList.remove('hidden');
+    }
+
+    async function handleConfigSyncEvent(event) {
+        if (!event || typeof event !== 'object') return;
+
+        const { status: rawStatus, logs, log, message, details, resetLogs } = event;
+        let status = typeof rawStatus === 'string' ? rawStatus.toLowerCase() : '';
+        if (!status && event.stage) status = String(event.stage).toLowerCase();
+
+        if (resetLogs || status === 'started' || status === 'start') {
+            state.syncLogEntries = [];
+        }
+
+        const normalizedLogs = [];
+
+        if (Array.isArray(logs)) {
+            logs.forEach(item => {
+                const normalized = normalizeSyncLogItem(item);
+                if (normalized) {
+                    normalizedLogs.push(normalized);
+                    pushSyncLogEntry(normalized);
+                }
+            });
+        }
+
+        if (log) {
+            const normalized = normalizeSyncLogItem(log);
+            if (normalized) {
+                normalizedLogs.push(normalized);
+                pushSyncLogEntry(normalized);
+            }
+        }
+
+        let cardStatus = 'loading';
+        if (['completed', 'complete', 'success', 'succeeded', 'done'].includes(status)) {
+            cardStatus = 'success';
+        } else if (['failed', 'error', 'errored'].includes(status)) {
+            cardStatus = 'error';
+        } else {
+            cardStatus = 'loading';
+        }
+
+        const title = cardStatus === 'success'
+            ? 'Sync complete'
+            : cardStatus === 'error'
+                ? 'Sync failed'
+                : 'Sync in progress';
+
+        const defaultMessage = cardStatus === 'success'
+            ? 'Configuration synchronization from Git completed successfully.'
+            : cardStatus === 'error'
+                ? 'Configuration synchronization failed. Check the details below.'
+                : 'Synchronization is in progress…';
+
+        renderSyncStatusCard({
+            status: cardStatus,
+            title,
+            message: message || defaultMessage,
+            details,
+            raw: event,
+            logs: state.syncLogEntries,
+        });
+
+        if (cardStatus !== state.lastSyncStatus) {
+            state.lastSyncStatus = cardStatus;
+            if (cardStatus === 'success') {
+                state.syncInProgress = false;
+                showToast('Pipelines synced from repository.', 'success');
+                await refreshPipelines(true);
+            } else if (cardStatus === 'error') {
+                state.syncInProgress = false;
+                showToast(message || 'Pipeline synchronization failed.', 'error');
+            } else {
+                state.syncInProgress = true;
+            }
+        }
+    }
+
+    function formatSyncLogEntry(entry) {
+        if (!entry) return '';
+        if (typeof entry === 'string') {
+            entry = normalizeSyncLogItem(entry);
+            if (!entry) return '';
+        }
+
+        const parsed = entry.parsed && typeof entry.parsed === 'object' ? entry.parsed : null;
+        if (parsed) {
+            const iso = typeof parsed.time === 'string' ? parsed.time : (typeof parsed.timestamp === 'string' ? parsed.timestamp : null);
+            let timeDisplay = '';
+            if (iso) {
+                const date = new Date(iso);
+                if (!Number.isNaN(date.getTime())) {
+                    timeDisplay = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                }
+            }
+            const level = (parsed.level || 'info').toString().toUpperCase();
+            const message = parsed.message || '';
+            const { level: _l, message: _m, time: _t, timestamp: _ts, ...rest } = parsed;
+            const meta = Object.keys(rest).length ? `<details class="pipeline-sync-log-details"><summary>Details</summary><pre>${escapeHtml(JSON.stringify(rest, null, 2))}</pre></details>` : '';
+            return `<li>
+                <div class="sync-log-line">
+                    <span class="sync-log-time">${escapeHtml(timeDisplay)}</span>
+                    <span class="sync-log-level sync-log-level-${escapeHtml(level.toLowerCase())}">${escapeHtml(level)}</span>
+                    <span class="sync-log-message">${escapeHtml(message)}</span>
+                </div>
+                ${meta}
+            </li>`;
+        }
+        return `<li><div class="sync-log-line"><span class="sync-log-message">${escapeHtml(entry.raw || String(entry))}</span></div></li>`;
+    }
+
+    function normalizeSyncLogItem(item) {
+        if (item == null) return null;
+        if (typeof item === 'string') {
+            const trimmed = item.trim();
+            if (!trimmed) return null;
+            try {
+                const parsed = JSON.parse(trimmed);
+                return { raw: trimmed, parsed };
+            } catch {
+                return { raw: trimmed };
+            }
+        }
+        if (typeof item === 'object') {
+            if (item.raw || item.parsed) return item;
+            return { raw: JSON.stringify(item), parsed: item };
+        }
+        return { raw: String(item) };
+    }
+
+    function pushSyncLogEntry(entry) {
+        if (!entry) return;
+        if (!Array.isArray(state.syncLogEntries)) {
+            state.syncLogEntries = [];
+        }
+        state.syncLogEntries.push(entry);
     }
 
     async function preloadSummaries(pipelineIds) {
@@ -544,8 +705,6 @@ function formatPathLabel(path) {
         }
 
         const activeNode = resolveActiveFolderNode(tree);
-        const breadcrumbHtml = renderFolderBreadcrumb();
-
         const childNodes = activeNode.children
             ? Array.from(activeNode.children.values()).sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
             : [];
@@ -713,10 +872,22 @@ function formatPathLabel(path) {
             if (!(state.sidebarExpanded instanceof Set)) {
                 state.sidebarExpanded = new Set();
             }
+            let listNeedsRefresh = false;
             if (state.sidebarExpanded.has(folderPath)) {
                 state.sidebarExpanded.delete(folderPath);
+                if (state.activeFolderKey === folderPath) {
+                    const parentSegments = folderPath.split('/').filter(Boolean);
+                    parentSegments.pop();
+                    state.activeFolderKey = parentSegments.join('/');
+                    listNeedsRefresh = true;
+                }
             } else if (folderPath) {
                 state.sidebarExpanded.add(folderPath);
+                state.activeFolderKey = folderPath;
+                listNeedsRefresh = true;
+            }
+            if (listNeedsRefresh) {
+                renderPipelineList();
             }
             notifySidebarTreeUpdate();
             event.preventDefault();
@@ -771,31 +942,6 @@ function formatPathLabel(path) {
             node = node.children.get(segment);
         }
         return node;
-    }
-
-    function renderFolderBreadcrumb() {
-        const key = state.activeFolderKey || '';
-        const segments = key.split('/').filter(Boolean);
-        if (segments.length === 0) {
-            return `<nav class="pipeline-folder-breadcrumb" aria-label="Pipeline folders"><span class="pipeline-folder-crumb pipeline-folder-crumb--current">All Pipelines</span></nav>`;
-        }
-
-        let cumulative = '';
-        const parts = [
-            `<button type="button" class="pipeline-folder-crumb" data-folder-nav="">All Pipelines</button>`
-        ];
-
-        segments.forEach((segment, index) => {
-            cumulative = cumulative ? `${cumulative}/${segment}` : segment;
-            const label = formatPathLabel(segment);
-            if (index === segments.length - 1) {
-                parts.push(`<span class="pipeline-folder-crumb pipeline-folder-crumb--current">${escapeHtml(label)}</span>`);
-            } else {
-                parts.push(`<button type="button" class="pipeline-folder-crumb" data-folder-nav="${escapeHtml(cumulative)}">${escapeHtml(label)}</button>`);
-            }
-        });
-
-        return `<nav class="pipeline-folder-breadcrumb" aria-label="Pipeline folders">${parts.join('<span class="pipeline-folder-crumb-separator">/</span>')}</nav>`;
     }
 
     function renderFolderCard(node) {
@@ -1604,5 +1750,6 @@ function formatPathLabel(path) {
         refresh: () => refreshPipelines(true),
         renderSidebarForRoute,
         renderSidebarTree,
+        handleConfigSyncEvent,
     };
 })(window.NopsAI = window.NopsAI || {});

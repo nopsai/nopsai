@@ -66,6 +66,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (logsModule && typeof logsModule.appendLogLine === 'function') {
                     logsModule.appendLogLine(message.payload);
                 }
+            } else if (message.type === 'config_sync') {
+                const pipelinesModule = window.NopsAI.pages?.pipelines;
+                if (pipelinesModule && typeof pipelinesModule.handleConfigSyncEvent === 'function') {
+                    try {
+                        pipelinesModule.handleConfigSyncEvent(message.payload || message);
+                    } catch (err) {
+                        console.error('Failed to handle config sync event:', err);
+                    }
+                }
             }
         },
         subscribeToRun(runId) {
@@ -259,7 +268,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const logsModule = (window.NopsAI && window.NopsAI.logs) ? window.NopsAI.logs : null;
 
-    const context = { state, DOM, fetchData, postData, deleteData, wsManager, refresh: router, logsModule };
+    const context = { state, DOM, fetchData, postData, deleteData, wsManager, refresh: router, logsModule, apiBaseUrl: API_BASE_URL };
 
     const pageModules = (window.NopsAI && window.NopsAI.pages) ? window.NopsAI.pages : {};
     const pipelineRunsModule = pageModules.pipelineruns || null;
