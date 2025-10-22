@@ -276,28 +276,126 @@
             const syncUrl = `${baseUrl}/v1/internal/config/sync`;
 
             const response = await fetch(syncUrl, { method: 'POST' });
+
             if (!response.ok) {
                 const errorText = await response.text();
                 throw new Error(errorText || `Sync failed (${response.status})`);
             }
             showToast('Sync request accepted. Monitoring for completion…', 'info');
+
         } catch (error) {
-            console.error('Failed to sync pipelines:', error);
-            showToast('Sync failed. Please try again.', 'error');
+            console.error('Failed to *initiate* sync:', error);
+            showToast('Failed to initiate sync request. Please try again.', 'error');
             renderSyncStatusCard({
                 status: 'error',
                 title: 'Sync failed',
-                message: error?.message ? error.message : 'The sync request was not successful. Please check the server logs and try again.',
+                message: error?.message ? `Failed to send request: ${error.message}` : 'The sync request could not be sent. Please check server connectivity and try again.',
                 raw: error,
                 logs: state.syncLogEntries,
             });
             state.syncInProgress = false;
             state.lastSyncStatus = 'error';
-        } finally {
             if (button) {
                 button.disabled = false;
                 button.classList.remove('cursor-wait', 'opacity-70');
             }
+        }
+    }
+
+    async function handleConfigSyncEvent(event) {
+        if (!event || typeof event !== 'object') return;
+
+        const { status: rawStatus, logs, log, message, details, resetLogs } = event;
+
+        let status = typeof rawStatus === 'string' ? rawStatus.toLowerCase() : '';
+        if (!status && event.stage) status = String(event.stage).toLowerCase();
+
+        if (resetLogs || status === 'started' || status === 'start') {
+            state.syncLogEntries = [];
+        }
+
+        const normalizedLogs = [];
+
+        if (Array.isArray(logs)) {
+            logs.forEach(item => {
+                const normalized = normalizeSyncLogItem(item);
+                if (normalized) {
+                    normalizedLogs.push(normalized);
+                    pushSyncLogEntry(normalized);
+                }
+            });
+        }
+
+        if (log) {
+            const normalized = normalizeSyncLogItem(log);
+            if (normalized) {
+                normalizedLogs.push(normalized);
+                pushSyncLogEntry(normalized);
+            }
+        }
+
+        let cardStatus = 'loading';
+        if (['completed', 'complete', 'success', 'succeeded', 'done'].includes(status)) {
+            cardStatus = 'success';
+        } else if (['failed', 'error', 'errored'].includes(status)) {
+            cardStatus = 'error';
+        } else {
+            cardStatus = state.syncInProgress ? 'loading' : 'info'; // Fallback to 'info' if sync wasn't marked in progress
+        }
+
+        const title = cardStatus === 'success'
+            ? 'Sync complete'
+            : cardStatus === 'error'
+                ? 'Sync failed'
+                : 'Sync in progress';
+
+        const defaultMessage = cardStatus === 'success'
+            ? 'Configuration synchronization from Git completed successfully.'
+            : cardStatus === 'error'
+                ? 'Configuration synchronization failed. Check the details below.'
+                : 'Synchronization is in progress…';
+
+        renderSyncStatusCard({
+            status: cardStatus,
+            title: title,
+            message: message || defaultMessage,
+            details: details,
+            raw: event,
+            logs: state.syncLogEntries,
+        });
+
+        if (cardStatus !== state.lastSyncStatus) {
+            state.lastSyncStatus = cardStatus;
+            const button = DOM['pipelines-refresh-btn'];
+
+            if (cardStatus === 'success') {
+                state.syncInProgress = false;
+                showToast('Pipelines synced from repository.', 'success');
+                await refreshPipelines(true);
+                if (button) {
+                    button.disabled = false;
+                    button.classList.remove('cursor-wait', 'opacity-70');
+                }
+            } else if (cardStatus === 'error') {
+                state.syncInProgress = false;
+                showToast(message || 'Pipeline synchronization failed.', 'error');
+                if (button) {
+                    button.disabled = false;
+                    button.classList.remove('cursor-wait', 'opacity-70');
+                }
+            } else {
+                 state.syncInProgress = true;
+                 if (button) {
+                     button.disabled = true;
+                     button.classList.add('cursor-wait', 'opacity-70');
+                 }
+            }
+        } else if (cardStatus === 'loading') {
+             const button = DOM['pipelines-refresh-btn'];
+              if (button) {
+                 button.disabled = true;
+                 button.classList.add('cursor-wait', 'opacity-70');
+             }
         }
     }
 
@@ -369,23 +467,31 @@
     function renderSyncStatusCard(options) {
         const container = DOM['pipelines-sync-report'];
         if (!container) return;
+
         if (!options) {
             container.classList.add('hidden');
             container.innerHTML = '';
             return;
         }
 
-        const status = options.status || 'info';
-        const title = options.title || (status === 'success' ? 'Sync complete' : status === 'error' ? 'Sync failed' : 'Syncing pipelines');
+        const status = options.status || 'info'; // 'loading', 'success', 'error', or 'info' as fallback
+        const title = options.title ||
+                      (status === 'success' ? 'Sync complete' :
+                       status === 'error' ? 'Sync failed' :
+                       status === 'loading' ? 'Syncing pipelines' : 'Sync Status');
         const message = options.message || '';
-        let detailsHtml = formatSyncDetails(options.details);
-        if (!detailsHtml && options.raw) {
-            detailsHtml = formatSyncDetails(options.raw);
-        }
-        const logs = Array.isArray(options.logs) ? options.logs : [];
-        const logsHtml = logs.length ? `<div class="pipeline-sync-log-wrap"><ul class="pipeline-sync-log">${logs.map(formatSyncLogEntry).join('')}</ul></div>` : '';
 
-        let iconPath = 'M4 4.5v5h4.5m11-0.5v-5h-4.5m4.154 9.095A8.25 8.25 0 0112 20.25a8.25 8.25 0 01-7.654-5.095m0-6.31A8.25 8.25 0 0112 3.75a8.25 8.25 0 017.654 5.095';
+        let detailsHtml = formatSyncDetails(options.details);
+        if (!detailsHtml && options.raw && options.status === 'error') {
+             detailsHtml = formatSyncDetails(options.raw);
+        }
+
+        const logs = Array.isArray(options.logs) ? options.logs : [];
+        const logsHtml = logs.length
+            ? `<div class="pipeline-sync-log-wrap"><ul class="pipeline-sync-log">${logs.map(formatSyncLogEntry).join('')}</ul></div>`
+            : '';
+
+        let iconPath = 'M4 4.5v5h4.5m11-0.5v-5h-4.5m4.154 9.095A8.25 8.25 0 0112 20.25a8.25 8.25 0 01-7.654-5.095m0-6.31A8.25 8.25 0 0112 3.75a8.25 8.25 0 017.654 5.095'; // Refresh/loading icon
         if (status === 'success') {
             iconPath = 'M5 13l4 4L19 7';
         } else if (status === 'error') {
@@ -402,13 +508,136 @@
                 <div class="flex-1 min-w-0">
                     <h3>${escapeHtml(title)}</h3>
                     ${message ? `<p>${escapeHtml(message)}</p>` : ''}
-                    ${detailsHtml}
+                    ${detailsHtml || ''}
                     ${logsHtml}
                 </div>
             </div>`;
+
         container.classList.remove('hidden');
     }
 
+    function formatSyncLogEntry(entry) {
+        if (!entry) return '';
+
+        if (typeof entry === 'string') {
+            entry = normalizeSyncLogItem(entry);
+            if (!entry) return '';
+        }
+
+        const parsed = entry.parsed && typeof entry.parsed === 'object' ? entry.parsed : null;
+
+        if (parsed) {
+            const isoTime = typeof parsed.time === 'string' ? parsed.time : (typeof parsed.timestamp === 'string' ? parsed.timestamp : null);
+            let timeDisplay = '';
+            if (isoTime) {
+                const date = new Date(isoTime);
+                if (!Number.isNaN(date.getTime())) {
+                    timeDisplay = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                }
+            }
+
+            const level = (parsed.level || 'info').toString().toUpperCase();
+            const message = parsed.message || '';
+
+            const { level: _l, message: _m, time: _t, timestamp: _ts, ...rest } = parsed;
+
+            const meta = Object.keys(rest).length
+                ? `<details class="pipeline-sync-log-details">
+                       <summary>Details</summary>
+                       <pre>${escapeHtml(JSON.stringify(rest, null, 2))}</pre>
+                   </details>`
+                : '';
+
+            return `<li>
+                <div class="sync-log-line">
+                    <span class="sync-log-time">${escapeHtml(timeDisplay)}</span>
+                    <span class="sync-log-level sync-log-level-${escapeHtml(level.toLowerCase())}">${escapeHtml(level)}</span>
+                    <span class="sync-log-message">${escapeHtml(message)}</span>
+                </div>
+                ${meta}
+            </li>`;
+        }
+
+        return `<li><div class="sync-log-line"><span class="sync-log-message">${escapeHtml(entry.raw || String(entry))}</span></div></li>`;
+    }
+
+    function normalizeSyncLogItem(item) {
+        if (item == null) return null;
+
+        if (typeof item === 'string') {
+            const trimmed = item.trim();
+            if (!trimmed) return null;
+            try {
+                const parsed = JSON.parse(trimmed);
+                return { raw: trimmed, parsed };
+            } catch {
+                return { raw: trimmed };
+            }
+        }
+
+        if (typeof item === 'object') {
+             if (item.raw || item.parsed) return item;
+             return { raw: JSON.stringify(item), parsed: item };
+        }
+
+        return { raw: String(item) };
+    }
+
+    function pushSyncLogEntry(entry) {
+         if (!entry) return;
+         if (!Array.isArray(state.syncLogEntries)) {
+             state.syncLogEntries = [];
+         }
+         state.syncLogEntries.push(entry);
+     }
+
+    function formatSyncDetails(details) {
+        if (details == null) return '';
+
+        if (typeof details === 'string') {
+            return `<p>${escapeHtml(details)}</p>`;
+        }
+
+        if (Array.isArray(details)) {
+            const items = details.map(item => {
+                if (item == null) return '<li><span class="text-[var(--text-secondary)]">—</span></li>';
+                if (typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean') {
+                    return `<li>${escapeHtml(String(item))}</li>`;
+                }
+                return `<li><pre>${escapeHtml(JSON.stringify(item, null, 2))}</pre></li>`;
+            }).join('');
+            return `<ul class="sync-detail-list">${items}</ul>`;
+        }
+
+        if (typeof details === 'object') {
+            const entries = Object.entries(details);
+            if (!entries.length) return '';
+            const items = entries.map(([key, value]) => {
+                let valueHtml;
+                if (value == null) {
+                    valueHtml = '<span class="text-[var(--text-secondary)]">—</span>';
+                }
+                else if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+                    valueHtml = `<span>${escapeHtml(String(value))}</span>`;
+                }
+                else if (Array.isArray(value)) {
+                    if (value.every(item => typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean')) {
+                         valueHtml = `<span>${escapeHtml(value.join(', '))}</span>`;
+                    } else {
+                         valueHtml = `<pre>${escapeHtml(JSON.stringify(value, null, 2))}</pre>`;
+                    }
+                }
+                else {
+                    valueHtml = `<pre>${escapeHtml(JSON.stringify(value, null, 2))}</pre>`;
+                }
+                return `<li><strong>${escapeHtml(key)}:</strong> ${valueHtml}</li>`;
+            }).join('');
+            return `<ul class="sync-detail-list">${items}</ul>`;
+        }
+
+        return `<p>${escapeHtml(String(details))}</p>`;
+    }
+    
     async function handleConfigSyncEvent(event) {
         if (!event || typeof event !== 'object') return;
 
