@@ -93,13 +93,15 @@
                 <div data-page="pipelines" class="h-full flex flex-col">
                     <div class="px-6 pt-6 pb-4">
                         <div class="flex flex-wrap items-center justify-between gap-3">
-                            <div>
-                                <h2 class="text-2xl font-semibold text-[var(--text-primary)]">Pipelines</h2>
-                                <p id="pipelines-subtitle" class="text-sm text-[var(--text-secondary)]">Browse pipelines and inspect their definitions.</p>
+                            <div class="relative flex-1 min-w-[220px] max-w-xl order-2 sm:order-1">
+                                <input id="pipelines-search" type="search" placeholder="Search pipelines" class="pipelines-input w-full pl-11 pr-4 py-2 text-sm transition" />
+                                <svg class="w-4 h-4 text-[var(--text-secondary)] absolute left-4 top-1/2 -translate-y-1/2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M10 18a8 8 0 110-16 8 8 0 010 16z"/></svg>
                             </div>
-                            <div class="flex items-center gap-2">
-                                <button id="pipelines-refresh-btn" class="glass-button-subtle" title="Refresh pipelines">
-                                    <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.5 4.5v5h5m10 10v-5h-5m3.364-9.364A9 9 0 006.136 6.136m11.728 11.728A9 9 0 006.136 6.136"/></svg>
+                            <div class="flex items-center gap-2 flex-shrink-0 order-1 sm:order-2">
+                                <button id="pipelines-refresh-btn" class="glass-button-subtle text-[var(--text-accent)]" title="Sync pipelines from repo" aria-label="Sync pipelines from repo">
+                                    <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4.5v5h4.5m11-0.5v-5h-4.5m4.154 9.095A8.25 8.25 0 0112 20.25a8.25 8.25 0 01-7.654-5.095m0-6.31A8.25 8.25 0 0112 3.75a8.25 8.25 0 017.654 5.095" />
+                                    </svg>
                                 </button>
                                 <button id="pipelines-new-btn" class="glass-button-primary">
                                     <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
@@ -111,12 +113,7 @@
                                 </button>
                             </div>
                         </div>
-                        <div class="mt-4 flex flex-wrap items-center gap-3">
-                            <div class="relative flex-1 min-w-[220px] max-w-xl">
-                                <input id="pipelines-search" type="search" placeholder="Search pipelines" class="pipelines-input w-full pl-11 pr-4 py-2 text-sm transition" />
-                                <svg class="w-4 h-4 text-[var(--text-secondary)] absolute left-4 top-1/2 -translate-y-1/2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M10 18a8 8 0 110-16 8 8 0 010 16z"/></svg>
-                            </div>
-                        </div>
+                        <div id="pipelines-sync-report" class="mt-4 hidden"></div>
                     </div>
                     <div class="flex-1 overflow-auto px-6 pb-8">
                         <div id="pipelines-list-view" class="pipelines-view">

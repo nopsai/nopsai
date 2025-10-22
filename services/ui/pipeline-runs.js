@@ -1392,7 +1392,20 @@ if (dx !== 0 || dy !== 0) {
 
         DOM.sidebarNav.innerHTML = `<div class="space-y-1">${navHtml}</div>`;
 
-        if (activeRoute === 'pipelineruns') {
+        if (activeRoute === 'pipelines') {
+            DOM.sidebarNav.innerHTML += `<div class="px-2 mt-6 mb-2 flex items-center justify-between">
+                                            <h2 class="text-xs font-semibold tracking-wider text-[var(--text-secondary)] uppercase">All Pipelines</h2>
+                                        </div>
+                                        <div id="pipelines-sidebar-tree"></div>`;
+            const pipelinesModule = window.NopsAI.pages?.pipelines;
+            if (pipelinesModule && typeof pipelinesModule.renderSidebarTree === 'function') {
+                try {
+                    pipelinesModule.renderSidebarTree(document.getElementById('pipelines-sidebar-tree'));
+                } catch (error) {
+                    console.error('Failed to render pipelines sidebar tree:', error);
+                }
+            }
+        } else if (activeRoute === 'pipelineruns') {
             if (currentTab === 'recent') {
                 DOM.sidebarNav.innerHTML += `<h2 class="px-2 mt-6 mb-2 text-xs font-semibold tracking-wider text-[var(--text-secondary)] uppercase">Recent Runs</h2>
                                              <ul id="pipeline-runs-list" class="space-y-1"></ul>`;

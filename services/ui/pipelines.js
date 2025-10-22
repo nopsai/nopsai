@@ -8,6 +8,7 @@
         triggersIndex: new Map(),
         runsCache: { fetchedAt: 0, runs: [] },
         activeFolderKey: '',
+        sidebarExpanded: new Set(),
         pendingDelete: null,
         isEditing: false,
         currentYaml: '',
@@ -18,6 +19,26 @@
     let pipelineRunsModule = null;
 
     const TOAST_TIMEOUT = 4000;
+
+    function isPipelinesPageActive() {
+        const page = document.querySelector('[data-page="pipelines"]');
+        return !!(page && page.classList.contains('active'));
+    }
+
+    function notifySidebarTreeUpdate() {
+        if (!isPipelinesPageActive()) return;
+        if (!pipelineRunsModule || typeof pipelineRunsModule.renderSidebarForRoute !== 'function') {
+            return;
+        }
+        try {
+            const result = pipelineRunsModule.renderSidebarForRoute('pipelines');
+            if (result && typeof result.then === 'function') {
+                result.catch(err => console.error('Failed to refresh pipelines sidebar tree:', err));
+            }
+        } catch (error) {
+            console.error('Failed to refresh pipelines sidebar tree:', error);
+        }
+    }
 
     function init(ctx) {
         context = ctx;
@@ -34,7 +55,7 @@
             'pipeline-triggers', 'pipeline-recent-runs', 'pipelines-new-modal', 'pipelines-new-form',
             'pipelines-new-close', 'pipelines-new-cancel', 'pipelines-new-path', 'pipelines-new-name',
             'pipelines-delete-modal', 'pipelines-delete-message', 'pipelines-delete-confirm',
-            'pipelines-delete-cancel', 'pipelines-delete-close'
+            'pipelines-delete-cancel', 'pipelines-delete-close', 'pipelines-sync-report'
         ];
 
         ids.forEach(id => {
@@ -49,7 +70,9 @@
         }
 
         if (DOM['pipelines-refresh-btn']) {
-            DOM['pipelines-refresh-btn'].addEventListener('click', () => refreshPipelines(true));
+            DOM['pipelines-refresh-btn'].addEventListener('click', () => {
+                syncPipelinesFromRepo().catch(() => {});
+            });
         }
 
         if (DOM['pipelines-new-btn']) {
@@ -184,6 +207,10 @@
 
         await refreshPipelines();
 
+        if (pipelineRunsModule && typeof pipelineRunsModule.renderSidebarForRoute === 'function') {
+            await pipelineRunsModule.renderSidebarForRoute('pipelines');
+        }
+
         const { pipelineId, autoEdit } = parsePipelineRoute(hash);
         if (pipelineId) {
             await selectPipeline(pipelineId, { autoEdit });
@@ -202,6 +229,159 @@
 
         renderPipelineList();
         updateCounts();
+        notifySidebarTreeUpdate();
+    }
+
+    async function syncPipelinesFromRepo() {
+        if (!context || typeof context.fetchData !== 'function') {
+            await refreshPipelines(true);
+            return;
+        }
+
+        const button = DOM['pipelines-refresh-btn'];
+        if (button) {
+            button.disabled = true;
+            button.classList.add('cursor-wait', 'opacity-70');
+        }
+
+        renderSyncStatusCard({
+            status: 'loading',
+            title: 'Syncing pipelines',
+            message: 'Fetching the latest pipeline definitions from the repository…',
+        });
+
+        try {
+            const result = await context.fetchData('/v1/internal/config/sync', { method: 'POST' });
+            const normalized = normalizeSyncResult(result);
+            showToast('Pipelines synced from repository.', 'success');
+            renderSyncStatusCard({
+                status: 'success',
+                title: 'Sync complete',
+                message: normalized.message,
+                details: normalized.details,
+                raw: result,
+            });
+            await refreshPipelines(true);
+        } catch (error) {
+            console.error('Failed to sync pipelines:', error);
+            showToast('Sync failed. Please try again.', 'error');
+            renderSyncStatusCard({
+                status: 'error',
+                title: 'Sync failed',
+                message: error?.message ? error.message : 'The sync request was not successful. Please check the server logs and try again.',
+                raw: error,
+            });
+        } finally {
+            if (button) {
+                button.disabled = false;
+                button.classList.remove('cursor-wait', 'opacity-70');
+            }
+        }
+    }
+
+    function formatSyncDetails(details) {
+        if (!details) return '';
+        if (typeof details === 'string') {
+            return `<p>${escapeHtml(details)}</p>`;
+        }
+        if (Array.isArray(details)) {
+            const items = details.map(item => {
+                if (item == null) return '<li><span class="text-[var(--text-secondary)]">—</span></li>';
+                if (typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean') {
+                    return `<li>${escapeHtml(String(item))}</li>`;
+                }
+                return `<li><pre>${escapeHtml(JSON.stringify(item, null, 2))}</pre></li>`;
+            }).join('');
+            return `<ul class="sync-detail-list">${items}</ul>`;
+        }
+        if (typeof details === 'object') {
+            const entries = Object.entries(details);
+            if (!entries.length) return '';
+            const items = entries.map(([key, value]) => {
+                let valueHtml;
+                if (value == null) {
+                    valueHtml = '<span class="text-[var(--text-secondary)]">—</span>';
+                } else if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+                    valueHtml = `<span>${escapeHtml(String(value))}</span>`;
+                } else if (Array.isArray(value)) {
+                    if (value.every(item => typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean')) {
+                        valueHtml = `<span>${escapeHtml(value.join(', '))}</span>`;
+                    } else {
+                        valueHtml = `<pre>${escapeHtml(JSON.stringify(value, null, 2))}</pre>`;
+                    }
+                } else {
+                    valueHtml = `<pre>${escapeHtml(JSON.stringify(value, null, 2))}</pre>`;
+                }
+                return `<li><strong>${escapeHtml(key)}:</strong> ${valueHtml}</li>`;
+            }).join('');
+            return `<ul class="sync-detail-list">${items}</ul>`;
+        }
+        return `<p>${escapeHtml(String(details))}</p>`;
+    }
+
+    function normalizeSyncResult(result) {
+        if (result === null || result === undefined) {
+            return { message: 'Sync completed. No additional details were provided.' };
+        }
+        if (typeof result === 'string') {
+            return { message: result };
+        }
+        if (Array.isArray(result)) {
+            return {
+                message: 'Sync completed with the following updates:',
+                details: result,
+            };
+        }
+        if (typeof result === 'object') {
+            const { message, summary, status, ...rest } = result;
+            const primary = message || summary || status;
+            const details = Object.keys(rest).length ? rest : null;
+            return {
+                message: primary || 'Sync completed successfully.',
+                details,
+            };
+        }
+        return { message: 'Sync completed successfully.' };
+    }
+
+    function renderSyncStatusCard(options) {
+        const container = DOM['pipelines-sync-report'];
+        if (!container) return;
+        if (!options) {
+            container.classList.add('hidden');
+            container.innerHTML = '';
+            return;
+        }
+
+        const status = options.status || 'info';
+        const title = options.title || (status === 'success' ? 'Sync complete' : status === 'error' ? 'Sync failed' : 'Syncing pipelines');
+        const message = options.message || '';
+        let detailsHtml = formatSyncDetails(options.details);
+        if (!detailsHtml && options.raw) {
+            detailsHtml = formatSyncDetails(options.raw);
+        }
+
+        let iconPath = 'M4 4.5v5h4.5m11-0.5v-5h-4.5m4.154 9.095A8.25 8.25 0 0112 20.25a8.25 8.25 0 01-7.654-5.095m0-6.31A8.25 8.25 0 0112 3.75a8.25 8.25 0 017.654 5.095';
+        if (status === 'success') {
+            iconPath = 'M5 13l4 4L19 7';
+        } else if (status === 'error') {
+            iconPath = 'M12 9v4m0 4h.01M5.455 5.455l13.09 13.09';
+        }
+
+        container.innerHTML = `
+            <div class="pipeline-sync-card ${status}">
+                <div class="sync-icon">
+                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="${iconPath}" />
+                    </svg>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <h3>${escapeHtml(title)}</h3>
+                    ${message ? `<p>${escapeHtml(message)}</p>` : ''}
+                    ${detailsHtml}
+                </div>
+            </div>`;
+        container.classList.remove('hidden');
     }
 
     async function preloadSummaries(pipelineIds) {
@@ -310,7 +490,7 @@ function formatPathLabel(path) {
         if (DOM['pipelines-subtitle']) {
             DOM['pipelines-subtitle'].textContent = showDetail
                 ? 'Viewing pipeline definition and runtime insights.'
-                : 'Browse pipelines and inspect their definitions.';
+                : '';
         }
     }
 
@@ -318,6 +498,7 @@ function formatPathLabel(path) {
         state.selectedId = null;
         state.isEditing = false;
         setActiveView('list');
+        notifySidebarTreeUpdate();
     }
 
     async function selectPipeline(pipelineId, options = {}) {
@@ -329,8 +510,12 @@ function formatPathLabel(path) {
         }
 
         state.selectedId = pipelineId;
+        state.activeFolderKey = getFolderPathForPipelineId(pipelineId);
         state.currentYaml = entry?.yaml || '';
         state.isEditing = false;
+
+        ensureSidebarExpansionForPath(state.activeFolderKey);
+        notifySidebarTreeUpdate();
 
         renderPipelineDetail(entry);
         setActiveView('detail');
@@ -387,7 +572,178 @@ function formatPathLabel(path) {
             ? `${pipelinesHtml}${foldersHtml}`
             : `<div class="pipeline-folder-empty-state">No pipelines in this folder yet.</div>`;
 
-        DOM['pipelines-list-container'].innerHTML = `${breadcrumbHtml}${gridHtml}`;
+        DOM['pipelines-list-container'].innerHTML = gridHtml;
+    }
+
+    function getFolderPathForPipelineId(pipelineId) {
+        if (!pipelineId) return '';
+        const segments = pipelineId.split('/').filter(Boolean);
+        segments.pop();
+        return segments.join('/');
+    }
+
+    function getActiveSidebarFolder() {
+        const explicit = (state.activeFolderKey || '').trim();
+        if (explicit) return explicit;
+        return getFolderPathForPipelineId(state.selectedId || '');
+    }
+
+    function ensureSidebarExpansionForPath(path) {
+        if (!(state.sidebarExpanded instanceof Set)) {
+            state.sidebarExpanded = new Set();
+        }
+        const segments = (path || '').split('/').filter(Boolean);
+        let current = '';
+        segments.forEach(segment => {
+            current = current ? `${current}/${segment}` : segment;
+            state.sidebarExpanded.add(current);
+        });
+    }
+
+    function shouldExpandFolder(path, activeFolder, activePipelineFolder) {
+        if (!path) return true;
+        if (!(state.sidebarExpanded instanceof Set)) {
+            state.sidebarExpanded = new Set();
+        }
+        if (state.sidebarExpanded.has(path)) return true;
+        const hasActiveFolder = activeFolder && (activeFolder === path || activeFolder.startsWith(`${path}/`));
+        if (hasActiveFolder) return true;
+        const hasActivePipeline = activePipelineFolder && (activePipelineFolder === path || activePipelineFolder.startsWith(`${path}/`));
+        return hasActivePipeline;
+    }
+
+    function buildPipelineHash(identifier) {
+        const segments = (identifier || '').split('/').filter(Boolean).map(encodeURIComponent);
+        return segments.length ? `#/pipelines/${segments.join('/')}` : '#/pipelines';
+    }
+
+    function renderSidebarTreeNodes(node, level, activeFolder, activePipeline) {
+        const childEntries = node && node.children instanceof Map ? Array.from(node.children.entries()) : [];
+        const pipelineEntries = Array.isArray(node?.pipelines) ? node.pipelines.slice() : [];
+
+        if (!childEntries.length && pipelineEntries.length === 0) {
+            return '';
+        }
+
+        childEntries.sort((a, b) => {
+            const labelA = (a[0] || '').toLowerCase();
+            const labelB = (b[0] || '').toLowerCase();
+            return labelA.localeCompare(labelB);
+        });
+
+        pipelineEntries.sort((a, b) => {
+            const nameA = (a.meta?.name || a.id || '').toLowerCase();
+            const nameB = (b.meta?.name || b.id || '').toLowerCase();
+            return nameA.localeCompare(nameB);
+        });
+
+        let html = `<ul class="${level > 0 ? 'pl-4' : ''} space-y-1">`;
+
+        const activePipelineFolder = getFolderPathForPipelineId(activePipeline);
+
+        childEntries.forEach(([segment, childNode]) => {
+            const folderPath = (childNode && childNode.key) || segment || '';
+            const isExpanded = shouldExpandFolder(folderPath, activeFolder, activePipelineFolder);
+            if (isExpanded) ensureSidebarExpansionForPath(folderPath);
+            const isActiveFolder = !!folderPath && folderPath === activeFolder;
+            const folderLabel = formatPathLabel(childNode?.label || segment || '');
+            const childrenHtml = renderSidebarTreeNodes(childNode, level + 1, activeFolder, activePipeline);
+
+            html += `
+                <li data-pipeline-folder="${escapeAttribute(folderPath)}">
+                    <div class="flex items-center justify-between p-2 text-[var(--text-primary)] rounded-md pipeline-sidebar-folder-row ${isActiveFolder ? 'bg-[var(--bg-tertiary)]' : ''}">
+                        <button type="button" class="pipeline-sidebar-toggle mr-2 text-[var(--text-secondary)]" data-toggle-folder="${escapeAttribute(folderPath)}" aria-expanded="${isExpanded ? 'true' : 'false'}" aria-label="${escapeAttribute((isExpanded ? 'Collapse' : 'Expand') + ' ' + folderLabel)}">
+                            <svg class="h-4 w-4 chevron ${isExpanded ? 'rotate-90' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                        </button>
+                        <button type="button" class="pipeline-sidebar-folder flex items-center gap-2 flex-grow text-left" data-open-folder="${escapeAttribute(folderPath)}">
+                            <svg class="h-4 w-4 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                            <span class="truncate">${escapeHtml(folderLabel)}</span>
+                        </button>
+                    </div>
+                    <div class="pipeline-sidebar-children ${isExpanded ? '' : 'hidden'}" data-folder-children="${escapeAttribute(folderPath)}">
+                        ${childrenHtml}
+                    </div>
+                </li>`;
+        });
+
+        pipelineEntries.forEach(pipeline => {
+            const pipelineId = pipeline.id;
+            const pipelineName = pipeline.meta?.name || pipelineId.split('/').pop() || pipelineId;
+            const isActive = state.selectedId === pipelineId;
+            const pipelineHref = buildPipelineHash(pipelineId);
+            const parentFolder = getFolderPathForPipelineId(pipelineId);
+            html += `
+                <li data-pipeline-id="${escapeAttribute(pipelineId)}">
+                    <a href="${pipelineHref}" class="sidebar-link flex items-center p-2 text-[var(--text-primary)] rounded-md transition-colors duration-200 ${isActive ? 'active' : ''}" data-navigo data-pipeline-link="${escapeAttribute(pipelineId)}" data-parent-folder="${escapeAttribute(parentFolder)}">
+                        <svg class="h-4 w-4 mr-2 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 4h8l4 4v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2z"/></svg>
+                        <span class="truncate">${escapeHtml(pipelineName)}</span>
+                    </a>
+                </li>`;
+        });
+
+        html += '</ul>';
+        return html;
+    }
+
+    function renderSidebarTree(container) {
+        if (!container) return;
+        if (!(state.sidebarExpanded instanceof Set)) {
+            state.sidebarExpanded = new Set();
+        }
+
+        const activeFolder = getActiveSidebarFolder();
+        const activePipeline = state.selectedId || '';
+        ensureSidebarExpansionForPath(activeFolder);
+        ensureSidebarExpansionForPath(getFolderPathForPipelineId(activePipeline));
+
+        const tree = buildGroupedPipelines();
+        const treeHtml = renderSidebarTreeNodes(tree, 0, activeFolder, activePipeline);
+        container.innerHTML = treeHtml || `<p class="px-2 text-sm text-[var(--text-secondary)]">No pipelines available.</p>`;
+
+        if (!container.dataset.sidebarBound) {
+            container.addEventListener('click', handleSidebarTreeClick);
+            container.dataset.sidebarBound = 'true';
+        }
+    }
+
+    function handleSidebarTreeClick(event) {
+        const toggleBtn = event.target.closest('[data-toggle-folder]');
+        if (toggleBtn) {
+            const folderPath = toggleBtn.dataset.toggleFolder || '';
+            if (!(state.sidebarExpanded instanceof Set)) {
+                state.sidebarExpanded = new Set();
+            }
+            if (state.sidebarExpanded.has(folderPath)) {
+                state.sidebarExpanded.delete(folderPath);
+            } else if (folderPath) {
+                state.sidebarExpanded.add(folderPath);
+            }
+            notifySidebarTreeUpdate();
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+        }
+
+        const folderBtn = event.target.closest('[data-open-folder]');
+        if (folderBtn) {
+            const folderPath = folderBtn.dataset.openFolder || '';
+            state.activeFolderKey = folderPath;
+            state.selectedId = null;
+            ensureSidebarExpansionForPath(folderPath);
+            showListView();
+            renderPipelineList();
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+        }
+
+        const pipelineLink = event.target.closest('[data-pipeline-link]');
+        if (pipelineLink) {
+            const parentFolder = pipelineLink.dataset.parentFolder || '';
+            ensureSidebarExpansionForPath(parentFolder);
+            state.activeFolderKey = parentFolder;
+            // allow navigation to proceed naturally
+        }
     }
 
     function focusFirstListItem() {
@@ -821,6 +1177,7 @@ function formatPathLabel(path) {
         state.activeFolderKey = '';
         renderPipelineList();
         updateCounts();
+        notifySidebarTreeUpdate();
     }
 
     function handleListClick(event) {
@@ -840,6 +1197,8 @@ function formatPathLabel(path) {
             const folderKey = folderNav.getAttribute('data-folder-nav') || '';
             state.activeFolderKey = folderKey;
             renderPipelineList();
+            ensureSidebarExpansionForPath(folderKey);
+            notifySidebarTreeUpdate();
             return;
         }
 
@@ -848,6 +1207,8 @@ function formatPathLabel(path) {
             const folderKey = folderCard.getAttribute('data-folder-key') || '';
             state.activeFolderKey = folderKey;
             renderPipelineList();
+            ensureSidebarExpansionForPath(folderKey);
+            notifySidebarTreeUpdate();
             return;
         }
 
@@ -870,6 +1231,8 @@ function formatPathLabel(path) {
             const folderKey = folderNav.getAttribute('data-folder-nav') || '';
             state.activeFolderKey = folderKey;
             renderPipelineList();
+            ensureSidebarExpansionForPath(folderKey);
+            notifySidebarTreeUpdate();
             focusFirstListItem();
             return;
         }
@@ -880,6 +1243,8 @@ function formatPathLabel(path) {
             const folderKey = folderCard.getAttribute('data-folder-key') || '';
             state.activeFolderKey = folderKey;
             renderPipelineList();
+            ensureSidebarExpansionForPath(folderKey);
+            notifySidebarTreeUpdate();
             focusFirstListItem();
             return;
         }
@@ -1204,6 +1569,10 @@ function formatPathLabel(path) {
         })[c]);
     }
 
+    function escapeAttribute(value) {
+        return escapeHtml(value).replace(/"/g, '&quot;');
+    }
+
     function showToast(message, variant = 'info') {
         const container = document.getElementById('toast-container');
         if (!container) {
@@ -1222,8 +1591,10 @@ function formatPathLabel(path) {
     }
 
     function renderSidebarForRoute() {
-        // Navigation sidebar is rendered by the pipeline runs module; this function is a no-op
-        // and exists for interface symmetry with other pages.
+        const container = document.getElementById('pipelines-sidebar-tree');
+        if (container) {
+            renderSidebarTree(container);
+        }
     }
 
     global.pages = global.pages || {};
@@ -1232,5 +1603,6 @@ function formatPathLabel(path) {
         handleRoute,
         refresh: () => refreshPipelines(true),
         renderSidebarForRoute,
+        renderSidebarTree,
     };
 })(window.NopsAI = window.NopsAI || {});
