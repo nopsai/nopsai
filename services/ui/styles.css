@@ -1222,6 +1222,83 @@ html.dark .pipelines-input {
     color: var(--text-secondary);
 }
 
+.pipeline-sync-log-wrap {
+    margin-top: 0.65rem;
+    max-height: 220px;
+    overflow: auto;
+    border-radius: 0.75rem;
+    border: 1px solid var(--border-primary);
+    background: rgba(15,23,42,0.04);
+    padding: 0.65rem 0.75rem;
+}
+
+.pipeline-sync-log {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+}
+
+.pipeline-sync-log li {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.sync-log-line {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}
+
+.sync-log-time {
+    min-width: 3.5rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
+    color: rgba(148,163,184,0.85);
+}
+
+.sync-log-level {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2.4rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 9999px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--text-primary);
+    background: rgba(99,102,241,0.12);
+}
+
+.sync-log-level-info { background: rgba(59,130,246,0.18); color: #2563eb; }
+.sync-log-level-warn { background: rgba(251,191,36,0.22); color: #d97706; }
+.sync-log-level-error { background: rgba(248,113,113,0.22); color: #dc2626; }
+.sync-log-level-debug { background: rgba(148,163,184,0.22); color: #475569; }
+
+.sync-log-message {
+    flex: 1;
+    color: var(--text-primary);
+}
+
+.pipeline-sync-log-details summary {
+    cursor: pointer;
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+}
+
+.pipeline-sync-log-details pre {
+    margin-top: 0.4rem;
+    padding: 0.55rem;
+    background: rgba(15,23,42,0.06);
+    border-radius: 0.6rem;
+    font-size: 0.72rem;
+}
+
 .pipeline-folder-crumb {
     background: none;
     border: none;
