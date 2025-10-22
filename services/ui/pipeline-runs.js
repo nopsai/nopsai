@@ -1361,6 +1361,13 @@ if (dx !== 0 || dy !== 0) {
         DOM.tasksEmpty.classList.add('hidden');
         DOM.mainGridContainer.classList.add('hidden');
         if (DOM.pageContentWrapper) DOM.pageContentWrapper.classList.remove('no-scroll');
+
+        if (DOM.placeholder) {
+            const heading = DOM.placeholder.querySelector('h3');
+            const body = DOM.placeholder.querySelector('p');
+            if (heading) heading.textContent = 'Select a pipeline run';
+            if (body) body.textContent = 'Choose a run from the sidebar to view its progress.';
+        }
     }
 
     async function renderSidebar(activeRoute, currentTab) {
@@ -4918,5 +4925,8 @@ if (false && state.currentGraphView === 'tasks') {
         handleRunSummaryUpdate,
         handleNewRunStarted,
         handleWsReconnect,
+        renderSidebarForRoute: async (route) => {
+            await renderSidebar(route, state.currentTab || 'main');
+        },
     };
 })(window.NopsAI = window.NopsAI || {});

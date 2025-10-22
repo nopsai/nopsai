@@ -263,6 +263,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const pageModules = (window.NopsAI && window.NopsAI.pages) ? window.NopsAI.pages : {};
     const pipelineRunsModule = pageModules.pipelineruns || null;
+    const pipelinesModule = pageModules.pipelines || null;
 
     if (logsModule && typeof logsModule.init === 'function') {
         logsModule.init({ state, DOM, fetchData });
@@ -270,6 +271,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (pipelineRunsModule && typeof pipelineRunsModule.init === 'function') {
         pipelineRunsModule.init(context);
+    }
+
+    if (pipelinesModule && typeof pipelinesModule.init === 'function') {
+        pipelinesModule.init(context);
     }
 
     async function router(hashOverride) {
@@ -294,6 +299,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const path = parts[0] || 'pipelineruns';
 
         state.currentPath = path;
+
+        if (DOM.pageContentWrapper) {
+            DOM.pageContentWrapper.scrollTop = 0;
+        }
         if (DOM.pages && DOM.pages.length) {
             DOM.pages.forEach(page => {
                 page.classList.toggle('active', page.dataset.page === path);
@@ -302,6 +311,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (path === 'pipelineruns' && pipelineRunsModule && typeof pipelineRunsModule.handleRoute === 'function') {
             await pipelineRunsModule.handleRoute(hash, wsManager); // Pass wsManager
+            return;
+        }
+
+        if (path === 'pipelines' && pipelinesModule && typeof pipelinesModule.handleRoute === 'function') {
+            await pipelinesModule.handleRoute(hash);
+            if (DOM.mainHeader) {
+                DOM.mainHeader.textContent = 'Pipelines';
+            }
             return;
         }
 
