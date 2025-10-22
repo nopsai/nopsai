@@ -375,10 +375,16 @@ function formatPathLabel(path) {
             })
             .map(renderPipelineCard);
 
-        const cards = folderCards.concat(pipelineCards);
+        const pipelinesHtml = pipelineCards.length
+            ? `<div class="pipelines-card-grid pipelines-card-grid--pipelines">${pipelineCards.join('')}</div>`
+            : '';
 
-        const gridHtml = cards.length
-            ? `<div class="pipelines-card-grid">${cards.join('')}</div>`
+        const foldersHtml = folderCards.length
+            ? `<div class="pipelines-card-grid pipelines-card-grid--folders">${folderCards.join('')}</div>`
+            : '';
+
+        const gridHtml = pipelinesHtml || foldersHtml
+            ? `${pipelinesHtml}${foldersHtml}`
             : `<div class="pipeline-folder-empty-state">No pipelines in this folder yet.</div>`;
 
         DOM['pipelines-list-container'].innerHTML = `${breadcrumbHtml}${gridHtml}`;
@@ -440,17 +446,8 @@ function formatPathLabel(path) {
         const keyAttr = escapeHtml(node.key || '');
         const label = formatPathLabel(node.label || node.key || 'Folder');
         const totalPipelines = countPipelinesRecursive(node);
-        const directPipelines = (node.pipelines || []).length;
         const childCount = node.children ? node.children.size : 0;
-        const nestedPipelines = Math.max(totalPipelines - directPipelines, 0);
-        const summaryParts = [];
-        if (totalPipelines > 0) {
-            summaryParts.push(`${totalPipelines} pipeline${totalPipelines === 1 ? '' : 's'}`);
-        }
-        if (childCount > 0) {
-            summaryParts.push(`${childCount} folder${childCount === 1 ? '' : 's'}`);
-        }
-        const summary = summaryParts.join(' • ');
+        const description = getFolderDescription(node);
 
         return `
             <article class="pipeline-folder-card" data-folder-key="${keyAttr}" tabindex="0" role="button" aria-label="Open folder ${escapeHtml(label)}">
@@ -462,7 +459,7 @@ function formatPathLabel(path) {
                     </span>
                     <div class="pipeline-folder-info">
                         <h3 class="pipeline-folder-title" title="${escapeHtml(label)}">${escapeHtml(label)}</h3>
-                        ${summary ? `<p class="pipeline-folder-summary">${escapeHtml(summary)}</p>` : ''}
+                        <p class="pipeline-folder-description" title="${escapeHtml(description)}">${escapeHtml(description)}</p>
                     </div>
                     <span class="pipeline-folder-chevron" aria-hidden="true">
                         <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -472,19 +469,31 @@ function formatPathLabel(path) {
                 </div>
                 <div class="pipeline-folder-meta">
                     <div class="pipeline-folder-meta-row">
-                        <span class="pipeline-folder-meta-label">Direct pipelines</span>
-                        <span class="pipeline-folder-meta-value">${directPipelines}</span>
+                        <span class="pipeline-folder-meta-label">Pipelines:</span>
+                        <span class="pipeline-folder-meta-value">${totalPipelines}</span>
                     </div>
                     <div class="pipeline-folder-meta-row">
-                        <span class="pipeline-folder-meta-label">Subfolders</span>
+                        <span class="pipeline-folder-meta-label">Sub folders:</span>
                         <span class="pipeline-folder-meta-value">${childCount}</span>
                     </div>
-                    ${nestedPipelines ? `<div class="pipeline-folder-meta-row">
-                        <span class="pipeline-folder-meta-label">Nested pipelines</span>
-                        <span class="pipeline-folder-meta-value">${nestedPipelines}</span>
-                    </div>` : ''}
                 </div>
             </article>`;
+    }
+
+    function getFolderDescription(node) {
+        const direct = (node.pipelines || []).find(p => (p.meta?.description || '').trim());
+        if (direct && direct.meta) {
+            return direct.meta.description.trim();
+        }
+        if (node.children) {
+            for (const child of node.children.values()) {
+                const desc = getFolderDescription(child);
+                if (desc && desc !== 'No description provided') {
+                    return desc;
+                }
+            }
+        }
+        return 'No description provided';
     }
 
     function renderPipelineCard(pipeline) {
@@ -499,18 +508,11 @@ function formatPathLabel(path) {
         const source = escapeHtml(meta.source || 'Config Repository');
 
         return `
-            <article class="pipeline-card bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg shadow-sm transition-all duration-200 p-4 flex flex-col" data-pipeline-id="${idAttr}" tabindex="0" role="button" aria-label="Open pipeline ${escapeHtml(rawName)}">
+            <article class="pipeline-card bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg shadow-sm transition-all duration-200 p-3 flex flex-col" data-pipeline-id="${idAttr}" tabindex="0" role="button" aria-label="Open pipeline ${escapeHtml(rawName)}">
                 <div class="pipeline-card-header flex items-start justify-between gap-3">
-                    <div class="pipeline-card-info flex items-center gap-3 min-w-0">
-                        <span class="pipeline-card-icon">
-                            <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M4 4h5l2 3h9a1 1 0 011 1v10a2 2 0 01-2 2H5a1 1 0 01-1-1V4z" />
-                            </svg>
-                        </span>
-                        <div class="pipeline-card-text min-w-0">
-                            <h3 class="pipeline-card-title" title="${name}">${name}</h3>
-                            <p class="pipeline-card-path" title="${pathLabel}">${pathLabel}</p>
-                        </div>
+                    <div class="pipeline-card-text min-w-0">
+                        <h3 class="pipeline-card-title" title="${name}">${name}</h3>
+                        <p class="pipeline-card-path" title="${pathLabel}">${pathLabel}</p>
                     </div>
                     <button class="pipelines-delete-button" data-delete-pipeline="${idAttr}" title="Delete pipeline">
                         <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
