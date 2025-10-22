@@ -47,6 +47,7 @@ document.addEventListener('DOMContentLoaded', () => {
         handleMessage(event) {
             const message = JSON.parse(event.data);
             const pipelineRunsModule = window.NopsAI.pages.pipelineruns;
+            const pipelinesModule = window.NopsAI.pages?.pipelines; // Get pipelines module reference
             const logsModule = window.NopsAI.logs;
 
             if (message.type === 'run_update' && message.payload && message.payload.runId) {
@@ -58,7 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     pipelineRunsModule.handleRunSummaryUpdate(message.payload);
                 }
             } else if (message.type === 'new_run_started' && message.payload) {
-                showToast(message.payload);
+                showToast(message.payload); // Assumes showToast exists globally or is passed in context
                 if (pipelineRunsModule && typeof pipelineRunsModule.handleNewRunStarted === 'function') {
                     pipelineRunsModule.handleNewRunStarted(message.payload);
                 }
@@ -66,14 +67,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (logsModule && typeof logsModule.appendLogLine === 'function') {
                     logsModule.appendLogLine(message.payload);
                 }
-            } else if (message.type === 'config_sync') {
-                const pipelinesModule = window.NopsAI.pages?.pipelines;
+            } else if (message.type === 'config_sync') { // Add this block to handle the new event type
+                // Check if the pipelines module exists and has the handler function
                 if (pipelinesModule && typeof pipelinesModule.handleConfigSyncEvent === 'function') {
                     try {
+                        // Pass the payload (which contains status, details, message) to the handler
                         pipelinesModule.handleConfigSyncEvent(message.payload || message);
                     } catch (err) {
                         console.error('Failed to handle config sync event:', err);
+                        // Optionally show an error toast to the user
+                        if (typeof showToast === 'function') {
+                           showToast('Error processing configuration sync update.', 'error');
+                        }
                     }
+                } else {
+                     console.warn('Received config_sync event, but no handler found in pipelines module.');
                 }
             }
         },
