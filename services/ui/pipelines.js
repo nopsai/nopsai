@@ -1101,27 +1101,18 @@ function formatPathLabel(path) {
             if (!(state.sidebarExpanded instanceof Set)) {
                 state.sidebarExpanded = new Set();
             }
-            let listNeedsRefresh = false;
+
             if (state.sidebarExpanded.has(folderPath)) {
                 state.sidebarExpanded.delete(folderPath);
-                if (state.activeFolderKey === folderPath) {
-                    const parentSegments = folderPath.split('/').filter(Boolean);
-                    parentSegments.pop();
-                    state.activeFolderKey = parentSegments.join('/');
-                    listNeedsRefresh = true;
-                }
-            } else if (folderPath) {
+            } else if (folderPath) { // Only add actual paths, not the root ('')
                 state.sidebarExpanded.add(folderPath);
-                state.activeFolderKey = folderPath;
-                listNeedsRefresh = true;
             }
-            if (listNeedsRefresh) {
-                renderPipelineList();
-            }
-            notifySidebarTreeUpdate();
+
+            notifySidebarTreeUpdate(); // This redraws the sidebar with updated expanded/collapsed states
+
             event.preventDefault();
             event.stopPropagation();
-            return;
+            return; // Important: Don't fall through to other handlers
         }
 
         const folderBtn = event.target.closest('[data-open-folder]');
@@ -1132,6 +1123,7 @@ function formatPathLabel(path) {
             ensureSidebarExpansionForPath(folderPath);
             showListView();
             renderPipelineList();
+            notifySidebarTreeUpdate();
             event.preventDefault();
             event.stopPropagation();
             return;
