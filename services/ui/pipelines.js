@@ -186,47 +186,82 @@
     function parsePipelineRoute(hash) {
         const clean = (hash || window.location.hash || '').replace(/^#/, '').replace(/^\//, '');
         if (!clean) {
-            return { pipelineId: null };
+            return { path: 'pipelines', segments: [], pipelineId: null, isEdit: false };
         }
         const parts = clean.split('/');
         if (parts[0] !== 'pipelines') {
-            return { pipelineId: null };
+            return { path: parts[0], segments: [], pipelineId: null, isEdit: false };
         }
-        const isEdit = parts[parts.length - 1] === 'edit';
-        const rawSegments = parts.slice(1, isEdit ? -1 : undefined).map(decodeURIComponent).filter(Boolean);
-        return { pipelineId: rawSegments.join('/'), autoEdit: isEdit };
+
+        const segments = parts.slice(1).map(decodeURIComponent);
+        let pipelineId = null;
+        let isEdit = false;
+        let pathSegments = [];
+
+        if (segments.length > 0 && segments[segments.length - 1] === 'edit') {
+            isEdit = true;
+            segments.pop();
+        }
+
+        if (segments.length > 0 && !segments[segments.length - 1].includes('/')) {
+            const potentialId = segments.join('/');
+            if (state.pipelines.includes(potentialId)) {
+                pipelineId = potentialId;
+                pathSegments = segments;
+            } else if (segments.length > 1) {
+                pipelineId = segments.join('/');
+                pathSegments = segments.slice(0, -1);
+            } else {
+                pipelineId = segments[0];
+                pathSegments = [];
+            }
+            if (pipelineId && !state.pipelines.includes(pipelineId)){
+                pipelineId = null;
+                pathSegments = segments;
+            }
+
+        } else {
+            pathSegments = segments;
+        }
+
+        const folderKey = pathSegments.join('/');
+
+        return {
+            path: 'pipelines',
+            segments: segments,
+            pipelineId: pipelineId,
+            activeFolderKey: folderKey,
+            isEdit: isEdit
+        };
     }
 
     async function handleRoute(hash) {
         if (!context) return;
 
-        const { pipelineId, autoEdit } = parsePipelineRoute(hash);
-        if (pipelineId) {
-            const folderPath = getFolderPathForPipelineId(pipelineId);
-            if (folderPath) {
-                ensureSidebarExpansionForPath(folderPath);
-                state.activeFolderKey = folderPath;
-            }
-        } else {
-            state.activeFolderKey = '';
-            state.selectedId = null;
-            state.sidebarExpanded = new Set();
+        const routeInfo = parsePipelineRoute(hash);
+        const { pipelineId, activeFolderKey, isEdit } = routeInfo;
+
+        state.activeFolderKey = activeFolderKey || '';
+
+        const { DOM: globalDOM } = context;
+        if (globalDOM.mainHeader) {
+            globalDOM.mainHeader.innerHTML = 'Pipelines';
         }
+
+        ensureSidebarExpansionForPath(state.activeFolderKey);
 
         if (pipelineRunsModule && typeof pipelineRunsModule.renderSidebarForRoute === 'function') {
             await pipelineRunsModule.renderSidebarForRoute('pipelines');
         }
 
         await refreshPipelines();
-
-        if (pipelineRunsModule && typeof pipelineRunsModule.renderSidebarForRoute === 'function') {
-            await pipelineRunsModule.renderSidebarForRoute('pipelines');
-        }
+        renderSidebarForRoute();
 
         if (pipelineId) {
-            await selectPipeline(pipelineId, { autoEdit });
+            await selectPipeline(pipelineId, { autoEdit: isEdit });
         } else {
             showListView();
+            renderPipelineList();
         }
     }
 
@@ -883,6 +918,16 @@ function formatPathLabel(path) {
         state.selectedId = null;
         state.isEditing = false;
         setActiveView('list');
+
+        const expectedHash = buildFolderPathHash(state.activeFolderKey);
+        if (window.location.hash !== expectedHash) {
+            try {
+                history.replaceState(null, '', expectedHash);
+            } catch {
+                window.location.hash = expectedHash;
+            }
+        }
+
         notifySidebarTreeUpdate();
     }
 
@@ -890,16 +935,14 @@ function formatPathLabel(path) {
         const entry = await ensurePipelineSummary(pipelineId);
         if (!entry) {
             showToast(`Unable to load pipeline '${pipelineId}'.`, 'error');
-            showListView();
+            window.location.hash = buildFolderPathHash(state.activeFolderKey);
             return;
         }
 
         state.selectedId = pipelineId;
-        state.activeFolderKey = getFolderPathForPipelineId(pipelineId);
         state.currentYaml = entry?.yaml || '';
         state.isEditing = false;
 
-        ensureSidebarExpansionForPath(state.activeFolderKey);
         notifySidebarTreeUpdate();
 
         renderPipelineDetail(entry);
@@ -907,6 +950,15 @@ function formatPathLabel(path) {
 
         if (options.autoEdit) {
             enterEditMode();
+        } else {
+            const expectedHash = buildPipelineHash(pipelineId, false);
+            if (window.location.hash !== expectedHash) {
+                try {
+                    history.replaceState(null, '', expectedHash);
+                } catch {
+                    window.location.hash = expectedHash;
+                }
+            }
         }
     }
 
@@ -995,9 +1047,20 @@ function formatPathLabel(path) {
         return hasActivePipeline;
     }
 
-    function buildPipelineHash(identifier) {
+    function buildPipelineHash(identifier, isEdit = false) {
+        if (!identifier) return '#/pipelines';
         const segments = (identifier || '').split('/').filter(Boolean).map(encodeURIComponent);
-        return segments.length ? `#/pipelines/${segments.join('/')}` : '#/pipelines';
+        let hash = `#/pipelines/${segments.join('/')}`;
+        if (isEdit) {
+            hash += '/edit';
+        }
+        return hash;
+    }
+
+    function buildFolderPathHash(folderKey) {
+        if (!folderKey) return '#/pipelines';
+        const segments = (folderKey || '').split('/').filter(Boolean).map(encodeURIComponent);
+        return `#/pipelines/${segments.join('/')}`;
     }
 
     function renderSidebarTreeNodes(node, level, activeFolder, activePipeline) {
@@ -1113,23 +1176,22 @@ function formatPathLabel(path) {
         const folderBtn = event.target.closest('[data-open-folder]');
         if (folderBtn) {
             const folderPath = folderBtn.dataset.openFolder || '';
-            state.activeFolderKey = folderPath;
-            state.selectedId = null;
-            ensureSidebarExpansionForPath(folderPath);
-            showListView();
-            renderPipelineList();
-            notifySidebarTreeUpdate();
+            window.location.hash = buildFolderPathHash(folderPath);
             event.preventDefault();
             event.stopPropagation();
-            return;
+            return;s
         }
 
         const pipelineLink = event.target.closest('[data-pipeline-link]');
         if (pipelineLink) {
-            const parentFolder = pipelineLink.dataset.parentFolder || '';
-            ensureSidebarExpansionForPath(parentFolder);
-            state.activeFolderKey = parentFolder;
-            // allow navigation to proceed naturally
+            const pipelineId = pipelineLink.dataset.pipelineLink;
+            if (pipelineId) {
+                const parentFolder = pipelineLink.dataset.parentFolder || '';
+                ensureSidebarExpansionForPath(parentFolder);
+            } else {
+                event.preventDefault();
+            }
+            return;
         }
     }
 
@@ -1409,7 +1471,7 @@ function formatPathLabel(path) {
     }
 
     function enterEditMode() {
-        if (!state.selectedId) return;
+        if (!state.selectedId || state.isEditing) return;
         state.isEditing = true;
         if (DOM['yaml-view-actions']) DOM['yaml-view-actions'].classList.add('hidden');
         if (DOM['yaml-edit-actions']) DOM['yaml-edit-actions'].classList.remove('hidden');
@@ -1422,17 +1484,36 @@ function formatPathLabel(path) {
             DOM['pipeline-yaml-editor'].value = yamlContent;
             DOM['pipeline-yaml-editor'].focus();
         }
+        const expectedHash = buildPipelineHash(state.selectedId, true);
+        if (window.location.hash !== expectedHash) {
+            try {
+                history.replaceState(null, '', expectedHash);
+            } catch { window.location.hash = expectedHash; }
+        }
         handleValidation();
         updateLineNumbers();
+        if (DOM['pipeline-yaml-editor']) {
+            DOM['pipeline-yaml-editor'].focus();
+        }
     }
 
     function exitEditMode() {
+        if (!state.isEditing) return;
+
         state.isEditing = false;
         if (DOM['yaml-view-actions']) DOM['yaml-view-actions'].classList.remove('hidden');
         if (DOM['yaml-edit-actions']) DOM['yaml-edit-actions'].classList.add('hidden');
         if (DOM['pipeline-yaml-content']) DOM['pipeline-yaml-content'].classList.remove('hidden');
         if (DOM['editor-container']) DOM['editor-container'].classList.add('hidden');
         if (DOM['validation-status']) DOM['validation-status'].classList.add('hidden');
+        if (state.selectedId) {
+        const expectedHash = buildPipelineHash(state.selectedId, false);
+            if (window.location.hash !== expectedHash) {
+                try {
+                    history.replaceState(null, '', expectedHash);
+                } catch { window.location.hash = expectedHash; }
+            }
+        }
     }
 
     function updateLineNumbers() {
@@ -1507,6 +1588,7 @@ function formatPathLabel(path) {
         exitEditMode();
         renderPipelineDetail(entry);
         renderPipelineList();
+        notifySidebarTreeUpdate();
         showToast('Pipeline saved successfully.', 'success');
     }
 
@@ -1567,10 +1649,9 @@ function formatPathLabel(path) {
         const folderCard = event.target.closest('[data-folder-key]');
         if (folderCard) {
             const folderKey = folderCard.getAttribute('data-folder-key') || '';
-            state.activeFolderKey = folderKey;
-            renderPipelineList();
-            ensureSidebarExpansionForPath(folderKey);
-            notifySidebarTreeUpdate();
+            window.location.hash = buildFolderPathHash(folderKey);
+            event.preventDefault();
+            event.stopPropagation();
             return;
         }
 
@@ -1580,6 +1661,17 @@ function formatPathLabel(path) {
             if (pipelineId) {
                 window.location.hash = `#/pipelines/${pipelineId}`;
             }
+        }
+
+        const pipelineCard = event.target.closest('[data-pipeline-id]');
+        if (pipelineCard) {
+            const pipelineId = pipelineCard.getAttribute('data-pipeline-id');
+            if (pipelineId) {
+                window.location.hash = buildPipelineHash(pipelineId);
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            return;
         }
     }
 
@@ -1690,10 +1782,8 @@ function formatPathLabel(path) {
         state.pipelines.sort((a, b) => a.localeCompare(b));
 
         closeNewPipelineModal();
-        renderPipelineList();
-        updateCounts();
-        window.location.hash = `#/pipelines/${identifier}/edit`;
-        showToast('Draft pipeline created. Fill in the YAML and save when ready.', 'info');
+        window.location.hash = buildPipelineHash(identifier, true);
+        showToast('Draft pipeline created. Fill in the YAML and save when ready.', 'info');    
     }
 
     function buildDefaultPipelineYaml(name) {
@@ -1736,16 +1826,13 @@ function formatPathLabel(path) {
         state.pipelineCache.delete(pipelineId);
         state.pipelines = state.pipelines.filter(id => id !== pipelineId);
         if (state.selectedId === pipelineId) {
-            showListView();
-            try {
-                history.replaceState(null, '', '#/pipelines');
-            } catch {
-                window.location.hash = '#/pipelines';
-            }
+            window.location.hash = buildFolderPathHash(state.activeFolderKey);
+        } else {
+            renderPipelineList();
+            updateCounts();
+            notifySidebarTreeUpdate();
         }
         closeDeleteModal();
-        renderPipelineList();
-        updateCounts();
         showToast('Pipeline deleted.', 'success');
     }
 
