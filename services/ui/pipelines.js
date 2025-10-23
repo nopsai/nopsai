@@ -491,7 +491,7 @@
             ? `<div class="pipeline-sync-log-wrap"><ul class="pipeline-sync-log">${logs.map(formatSyncLogEntry).join('')}</ul></div>`
             : '';
 
-        let iconPath = 'M4 4.5v5h4.5m11-0.5v-5h-4.5m4.154 9.095A8.25 8.25 0 0112 20.25a8.25 8.25 0 01-7.654-5.095m0-6.31A8.25 8.25 0 0112 3.75a8.25 8.25 0 017.654 5.095'; // Refresh/loading icon
+        let iconPath = 'M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99'; // Refresh/loading icon
         if (status === 'success') {
             iconPath = 'M5 13l4 4L19 7';
         } else if (status === 'error') {

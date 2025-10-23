@@ -1442,6 +1442,15 @@ html.dark .glass-panel {
     border-bottom: 1px solid rgba(148,163,184,0.2);
 }
 
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+#pipelines-refresh-btn.syncing svg {
+    animation: spin 1s linear infinite;
+}
+
 .glass-panel-title {
     font-size: 0.95rem;
     font-weight: 600;
