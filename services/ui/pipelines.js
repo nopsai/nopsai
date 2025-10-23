@@ -1097,15 +1097,22 @@ function formatPathLabel(path) {
 
             html += `
                 <li data-pipeline-folder="${escapeAttribute(folderPath)}">
-                    <div class="flex items-center justify-between p-2 text-[var(--text-primary)] rounded-md pipeline-sidebar-folder-row ${isActiveFolder ? 'bg-[var(--bg-tertiary)]' : ''}">
-                        <button type="button" class="pipeline-sidebar-toggle mr-2 text-[var(--text-secondary)]" data-toggle-folder="${escapeAttribute(folderPath)}" aria-expanded="${isExpanded ? 'true' : 'false'}" aria-label="${escapeAttribute((isExpanded ? 'Collapse' : 'Expand') + ' ' + folderLabel)}">
-                            <svg class="h-4 w-4 chevron ${isExpanded ? 'rotate-90' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                        </button>
-                        <button type="button" class="pipeline-sidebar-folder flex items-center gap-2 flex-grow text-left" data-open-folder="${escapeAttribute(folderPath)}">
-                            <svg class="h-4 w-4 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
-                            <span class="truncate">${escapeHtml(folderLabel)}</span>
-                        </button>
+                    
+                    <div class="flex items-center justify-between p-1 text-[var(--text-primary)] rounded-md pipeline-sidebar-folder-row ${isActiveFolder ? 'bg-[var(--bg-tertiary)]' : ''} hover:bg-[var(--bg-tertiary)]">
+                        <div class="flex items-center flex-grow min-w-0"> 
+                            
+                            <button type="button" class="sidebar-toggle-btn flex items-center justify-center h-5 w-5 rounded mr-1 text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" data-toggle-folder="${escapeAttribute(folderPath)}" aria-expanded="${isExpanded ? 'true' : 'false'}" aria-label="${escapeAttribute((isExpanded ? 'Collapse' : 'Expand') + ' ' + folderLabel)}">
+                                <svg class="h-4 w-4 chevron ${isExpanded ? 'rotate-90' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                            </button>
+                            
+                            <button type="button" class="pipeline-sidebar-folder flex items-center gap-2 flex-grow text-left min-w-0 p-1 rounded hover:bg-[var(--bg-hover)]" data-open-folder="${escapeAttribute(folderPath)}">
+                                <svg class="h-4 w-4 text-[var(--text-secondary)] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                                <span class="truncate">${escapeHtml(folderLabel)}</span>
+                            </button>
+                        </div>
+                        
                     </div>
+                    
                     <div class="pipeline-sidebar-children ${isExpanded ? '' : 'hidden'}" data-folder-children="${escapeAttribute(folderPath)}">
                         ${childrenHtml}
                     </div>
@@ -1155,6 +1162,8 @@ function formatPathLabel(path) {
     function handleSidebarTreeClick(event) {
         const toggleBtn = event.target.closest('[data-toggle-folder]');
         if (toggleBtn) {
+            event.preventDefault();
+            event.stopPropagation();
             const folderPath = toggleBtn.dataset.toggleFolder || '';
             if (!(state.sidebarExpanded instanceof Set)) {
                 state.sidebarExpanded = new Set();
@@ -1167,29 +1176,27 @@ function formatPathLabel(path) {
             }
 
             notifySidebarTreeUpdate();
-
-            event.preventDefault();
-            event.stopPropagation();
             return;
         }
 
         const folderBtn = event.target.closest('[data-open-folder]');
         if (folderBtn) {
-            const folderPath = folderBtn.dataset.openFolder || '';
             window.location.hash = buildFolderPathHash(folderPath);
             event.preventDefault();
             event.stopPropagation();
-            return;s
+            const folderPath = folderBtn.dataset.openFolder || '';
+            window.location.hash = buildFolderPathHash(folderPath);
+            return;
         }
 
-        const pipelineLink = event.target.closest('[data-pipeline-link]');
+        const pipelineLink = event.target.closest('a[data-pipeline-link]');
         if (pipelineLink) {
             const pipelineId = pipelineLink.dataset.pipelineLink;
             if (pipelineId) {
-                const parentFolder = pipelineLink.dataset.parentFolder || '';
-                ensureSidebarExpansionForPath(parentFolder);
+                 const parentFolder = pipelineLink.dataset.parentFolder || '';
+                 ensureSidebarExpansionForPath(parentFolder);
             } else {
-                event.preventDefault();
+                 event.preventDefault();
             }
             return;
         }
