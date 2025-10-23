@@ -213,11 +213,6 @@
             state.sidebarExpanded = new Set();
         }
 
-        const { DOM: globalDOM } = context;
-        if (globalDOM.mainHeader) {
-            globalDOM.mainHeader.textContent = 'Pipelines';
-        }
-
         if (pipelineRunsModule && typeof pipelineRunsModule.renderSidebarForRoute === 'function') {
             await pipelineRunsModule.renderSidebarForRoute('pipelines');
         }

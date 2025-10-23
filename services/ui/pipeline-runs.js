@@ -837,16 +837,32 @@
         initialized = true;
     }
 
-async function handleRealtimeUpdate(updatedRunId) {
+    async function handleRealtimeUpdate(updatedRunId) {
         const normalizedUpdateId = normalizeRunId(updatedRunId);
         const currentRunIdRaw = state.currentRunData?.run_info?.run_id || '';
         const currentRunIdNormalized = normalizeRunId(currentRunIdRaw);
         const trackedIds = (state.currentRunTrackedIds instanceof Map) ? state.currentRunTrackedIds : null;
-
+        const currentHashInfo = parsePipelineRunsHash(window.location.hash);
+        // Only proceed with fetches that might update the main view
+        // IF we are currently showing a specific run detail page.
+        if (currentHashInfo.path !== 'pipelineruns' || !currentHashInfo.runId) {
+            // We are on a list view or another page, only update sidebar/lists
+            if (state.currentTab === 'recent') {
+                 const runs = await fetchData('/v1/runs');
+                 if (runs) renderSidebarPipelineRunsList(runs);
+            } else if (state.currentTab === 'main') {
+                await renderHierarchy(state.groups);
+            }
+            return; // Stop before potentially calling fetchActiveRun for the main view
+        }
         if (normalizedUpdateId && currentRunIdNormalized && normalizedUpdateId === currentRunIdNormalized) {
-            await fetchActiveRun(currentRunIdRaw, true);
+            if (currentHashInfo.runId === currentRunIdRaw) { // Double check hash
+                 await fetchActiveRun(currentRunIdRaw, true);
+             }
         } else if (normalizedUpdateId && trackedIds && trackedIds.has(normalizedUpdateId) && currentRunIdRaw) {
-            await fetchActiveRun(currentRunIdRaw, true);
+            if (currentHashInfo.runId === currentRunIdRaw) { // Double check hash
+                 await fetchActiveRun(currentRunIdRaw, true);
+            }
         }
 
         // Also refresh sidebar lists if they are visible
@@ -2033,6 +2049,20 @@ if (dx !== 0 || dy !== 0) {
     }
 // 
     function renderRunView(runDetails) {
+        const currentHashInfo = parsePipelineRunsHash(window.location.hash);
+        const expectedRunId = runDetails?.run_info?.run_id;
+
+        // Only update the header IF we are currently on a pipelinerun page
+        // AND the runId in the hash matches the runId we are trying to render.
+        if (currentHashInfo.path !== 'pipelineruns' || currentHashInfo.runId !== expectedRunId) {
+            console.warn("renderRunView aborted: View changed or Run ID mismatch.", {
+                currentPath: currentHashInfo.path,
+                currentHashRunId: currentHashInfo.runId,
+                renderingRunId: expectedRunId
+            });
+            // IMPORTANT: Stop the function here to prevent overwriting the header
+            return;
+        }
     const runInfo = runDetails.run_info;
     clearSelectedRuns();
     const branchDisplay = formatBranchDisplay(runInfo.git_ref, runInfo.git_target_ref, { html: true });
@@ -2126,7 +2156,12 @@ if (dx !== 0 || dy !== 0) {
             </div>
         </div>`;
 
-    DOM.mainHeader.innerHTML = headerHTML;
+    if (DOM.mainHeader) {
+            DOM.mainHeader.innerHTML = headerHTML;
+        } else {
+            console.error("DOM.mainHeader not found during renderRunView");
+            return; // Avoid errors if header element isn't there
+        }
 
     const actionBtn = document.getElementById('run-primary-action-btn');
     if (actionBtn && runInfo?.run_id) {
