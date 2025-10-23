@@ -3956,26 +3956,10 @@ svgContent += `
 
 
     function renderBreadcrumbs(groupId) {
-        const baseLink = `<a href="#/pipelineruns/main" class="text-[var(--text-secondary)] hover:text-[var(--text-accent)]">Main</a>`;
-        if (!groupId) {
-            DOM.mainHeader.innerHTML = `<div>${baseLink}</div>`;
-            return;
+        // Always set the header to "Pipeline Runs" regardless of the group ID
+        if (DOM.mainHeader) {
+            DOM.mainHeader.textContent = 'Pipeline Runs';
         }
-
-        const pathSegments = getGroupPathSegmentsById(groupId);
-        let html = baseLink;
-        const accumulated = [];
-
-        pathSegments.forEach(segment => {
-            accumulated.push(segment);
-            const group = findGroupByPathSegments(accumulated);
-            const displayName = group ? ((group.name || '').includes('/') ? group.name.split('/')[1] : group.name) : decodeURIComponent(segment);
-            html += ` <span class="mx-2 text-gray-400 dark:text-gray-500">/</span> <a href="#/pipelineruns/main/${accumulated.join('/')}">
-                        <span class="text-[var(--text-secondary)] hover:text-[var(--text-accent)]">${displayName}</span>
-                    </a>`;
-        });
-
-        DOM.mainHeader.innerHTML = `<div>${html}</div>`;
     }
 
     async function handleRoute(hashOverride) {

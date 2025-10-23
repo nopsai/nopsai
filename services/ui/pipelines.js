@@ -1104,15 +1104,15 @@ function formatPathLabel(path) {
 
             if (state.sidebarExpanded.has(folderPath)) {
                 state.sidebarExpanded.delete(folderPath);
-            } else if (folderPath) { // Only add actual paths, not the root ('')
+            } else if (folderPath) {
                 state.sidebarExpanded.add(folderPath);
             }
 
-            notifySidebarTreeUpdate(); // This redraws the sidebar with updated expanded/collapsed states
+            notifySidebarTreeUpdate();
 
             event.preventDefault();
             event.stopPropagation();
-            return; // Important: Don't fall through to other handlers
+            return;
         }
 
         const folderBtn = event.target.closest('[data-open-folder]');
