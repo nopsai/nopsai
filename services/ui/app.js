@@ -315,7 +315,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const parts = hash.replace(/^#/,'').replace(/^\//,'').split('/');
         const path = parts[0] || 'pipelineruns';
 
-        state.currentPath = path;
+        state.currentPath = path; // Update current path state
+
+        // --- FIX: Reset header before calling page handlers ---
+        if (DOM.mainHeader) {
+            // Clear absolutely everything inside the header element
+            DOM.mainHeader.innerHTML = '';
+            // Now, set the simple default text title. Text nodes are simple.
+            DOM.mainHeader.textContent = path.charAt(0).toUpperCase() + path.slice(1);
+        }
+        // --- End Fix ---
+
 
         if (DOM.pageContentWrapper) {
             DOM.pageContentWrapper.scrollTop = 0;
@@ -326,16 +336,15 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
+
         if (path === 'pipelineruns' && pipelineRunsModule && typeof pipelineRunsModule.handleRoute === 'function') {
-            await pipelineRunsModule.handleRoute(hash, wsManager); // Pass wsManager
+            await pipelineRunsModule.handleRoute(hash, wsManager); // This will set the detailed header if a runId is present
             return;
         }
 
         if (path === 'pipelines' && pipelinesModule && typeof pipelinesModule.handleRoute === 'function') {
-            await pipelinesModule.handleRoute(hash);
-            if (DOM.mainHeader) {
-                DOM.mainHeader.textContent = 'Pipelines';
-            }
+            await pipelinesModule.handleRoute(hash); // This module should now correctly set its header
+
             return;
         }
 
