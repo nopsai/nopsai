@@ -843,29 +843,26 @@
         const currentRunIdNormalized = normalizeRunId(currentRunIdRaw);
         const trackedIds = (state.currentRunTrackedIds instanceof Map) ? state.currentRunTrackedIds : null;
         const currentHashInfo = parsePipelineRunsHash(window.location.hash);
-        // Only proceed with fetches that might update the main view
-        // IF we are currently showing a specific run detail page.
+
         if (currentHashInfo.path !== 'pipelineruns' || !currentHashInfo.runId) {
-            // We are on a list view or another page, only update sidebar/lists
             if (state.currentTab === 'recent') {
                  const runs = await fetchData('/v1/runs');
                  if (runs) renderSidebarPipelineRunsList(runs);
             } else if (state.currentTab === 'main') {
                 await renderHierarchy(state.groups);
             }
-            return; // Stop before potentially calling fetchActiveRun for the main view
+            return;
         }
         if (normalizedUpdateId && currentRunIdNormalized && normalizedUpdateId === currentRunIdNormalized) {
-            if (currentHashInfo.runId === currentRunIdRaw) { // Double check hash
+            if (currentHashInfo.runId === currentRunIdRaw) {
                  await fetchActiveRun(currentRunIdRaw, true);
              }
         } else if (normalizedUpdateId && trackedIds && trackedIds.has(normalizedUpdateId) && currentRunIdRaw) {
-            if (currentHashInfo.runId === currentRunIdRaw) { // Double check hash
+            if (currentHashInfo.runId === currentRunIdRaw) {
                  await fetchActiveRun(currentRunIdRaw, true);
             }
         }
 
-        // Also refresh sidebar lists if they are visible
         if (state.currentTab === 'recent') {
              const runs = await fetchData('/v1/runs');
              if (runs) renderSidebarPipelineRunsList(runs);
