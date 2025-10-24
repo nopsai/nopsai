@@ -1656,15 +1656,25 @@ function formatPathLabel(path) {
         }
 
         DOM['pipeline-recent-runs'].innerHTML = runs.slice(0, 5).map(run => {
+            const pipelineName = run.pipeline_name || 'N/A';
+            const timeAgo = formatRelativeTime(run.started_at || run.startedAt);
+            const repoName = run.git_repo_name || 'N/A';
             const branch = run.git_ref ? run.git_ref.replace('refs/heads/', '') : 'manual';
+            // Construct the URL using the run_id
+            const runUrl = `#/pipelineruns/recent/${run.run_id}`; // Correct URL format
+
             return `
-                <div class="pipelines-run-row" title="Open run">
-                    <div>
-                        <p class="font-mono text-sm text-[var(--text-primary)]">${escapeHtml(run.git_commit_sha?.slice(0, 7) || '???')}</p>
-                        <p class="text-xs text-[var(--text-secondary)]">${escapeHtml(branch)}</p>
+                <a href="${runUrl}" class="pipelines-run-row block" title="Open run ${run.run_id.slice(0,8)}">
+                    <div class="flex items-baseline justify-between gap-2 mb-1">
+                        <span class="font-medium text-sm text-[var(--text-primary)] truncate">${escapeHtml(pipelineName)}</span>
+                        <span class="text-xs text-[var(--text-secondary)] flex-shrink-0">${timeAgo}</span>
                     </div>
-                    <span class="text-xs text-[var(--text-secondary)]">${formatRelativeTime(run.started_at || run.startedAt)}</span>
-                </div>`;
+                    <div class="text-xs text-[var(--text-secondary)] font-mono truncate" title="Repository: ${escapeHtml(repoName)}">${escapeHtml(repoName)}</div>
+                    <div class="text-xs text-[var(--text-link)] font-mono truncate mt-0.5" title="Branch: ${escapeHtml(branch)}">
+                        <svg class="inline-block h-3 w-3 mr-1 -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                        ${escapeHtml(branch)}
+                    </div>
+                </a>`;
         }).join('');
     }
 
