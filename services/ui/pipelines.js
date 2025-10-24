@@ -156,31 +156,6 @@
                 }
             });
         }
-
-        const themeToggle = document.getElementById('theme-toggle');
-        if (themeToggle) {
-            themeToggle.addEventListener('click', () => {
-                setTimeout(() => {
-                    configureMermaid();
-                    if (state.selectedId) {
-                        renderPipelineGraphFromYaml(state.pipelineCache.get(state.selectedId)?.yaml || '');
-                    }
-                }, 50);
-            });
-        }
-
-        configureMermaid();
-    }
-
-    function configureMermaid() {
-        if (!window.mermaid) return;
-        const theme = document.documentElement.classList.contains('dark') ? 'dark' : 'default';
-        window.mermaid.initialize({
-            startOnLoad: false,
-            theme,
-            securityLevel: 'loose',
-            fontFamily: 'Inter, sans-serif'
-        });
     }
 
     function parsePipelineRoute(hash) {
@@ -872,6 +847,131 @@ function extractMetaFromYaml(yaml, pipelineId) {
         };
     }
 
+    function calculateGraphLayout(items, container, nodeWidth, nodeHeight, hGap, vGap, isVertical = false) {
+        if (!items || items.length === 0) return { nodes: [], edges: [], width: 0, height: 0 };
+
+        const nodes = {};
+        const adj = {};
+        const itemNameKey = 'task_name' in items[0] ? 'task_name' : 'name';
+
+        items.forEach((item, index) => {
+            const name = item[itemNameKey];
+            nodes[name] = { ...item, id: name, level: -1, parents: new Set(), children: new Set() };
+            adj[name] = [];
+        });
+
+        items.forEach(item => {
+            const name = item[itemNameKey];
+            (item.depends_on || []).forEach(dep => {
+                if (nodes[dep] && nodes[name]) {
+                    adj[dep].push(name);
+                    nodes[name].parents.add(dep);
+                    nodes[dep].children.add(name);
+                }
+            });
+        });
+
+        let level = 0;
+        let queue = Object.values(nodes).filter(node => node.parents.size === 0);
+        let processedCount = 0;
+
+        while(queue.length > 0) {
+            const levelSize = queue.length;
+            for(let i=0; i < levelSize; i++){
+                const node = queue.shift();
+                node.level = level;
+                processedCount++;
+
+                (adj[node.id] || []).forEach(childId => {
+                    const childNode = nodes[childId];
+                    childNode.parents.delete(node.id);
+                    if (childNode.parents.size === 0) {
+                        queue.push(childNode);
+                    }
+                });
+            }
+            level++;
+        }
+
+        if (processedCount < Object.keys(nodes).length) {
+            console.warn("Cycle detected in graph, layout may be incorrect.");
+            Object.values(nodes).filter(n => n.level === -1).forEach(n => n.level = level);
+        }
+
+        const levels = [];
+        Object.values(nodes).forEach(node => {
+            if (!levels[node.level]) levels[node.level] = [];
+            levels[node.level].push(node);
+        });
+
+        let PADDING_X = 80;
+        let PADDING_Y = 136;
+        try {
+            const isTaskGraph = (itemNameKey === 'task_name');
+            const isMiniContainer = !!(container && container.classList && container.classList.contains('task-graph-mini-container'));
+            if (isTaskGraph) {
+                PADDING_X = isMiniContainer ? 12 : 24;
+                PADDING_Y = isMiniContainer ? 12 : 24;
+            }
+        } catch {}
+        let totalWidth, totalHeight;
+
+        if (isVertical) {
+            let maxNodesInLevel = 0;
+            levels.forEach(l => { if(l) maxNodesInLevel = Math.max(maxNodesInLevel, l.length); });
+            totalWidth = maxNodesInLevel * nodeWidth + (maxNodesInLevel > 1 ? (maxNodesInLevel - 1) * hGap : 0);
+            totalHeight = levels.length * nodeHeight + (levels.length > 1 ? (levels.length - 1) * vGap : 0);
+
+            levels.forEach((levelNodes, i) => {
+                if (!levelNodes) return;
+                const levelWidth = levelNodes.length * nodeWidth + (levelNodes.length > 1 ? (levelNodes.length - 1) * hGap : 0);
+                const xOffset = (totalWidth - levelWidth) / 2;
+                levelNodes.forEach((node, j) => {
+                    node.x = j * (nodeWidth + hGap) + xOffset + PADDING_X / 2;
+                    node.y = i * (nodeHeight + vGap) + PADDING_Y / 2;
+                });
+            });
+        } else {
+            let maxNodesInLevel = 0;
+            levels.forEach(l => { if(l) maxNodesInLevel = Math.max(maxNodesInLevel, l.length); });
+            totalWidth = levels.length * nodeWidth + (levels.length > 1 ? (levels.length - 1) * hGap : 0);
+            totalHeight = maxNodesInLevel * nodeHeight + (maxNodesInLevel > 1 ? (maxNodesInLevel - 1) * vGap : 0);
+
+            levels.forEach((levelNodes, i) => {
+                if (!levelNodes) return;
+                const levelHeight = levelNodes.length * nodeHeight + (levelNodes.length > 1 ? (levelNodes.length - 1) * vGap : 0);
+                const yOffset = (totalHeight - levelHeight) / 2;
+                levelNodes.forEach((node, j) => {
+                    node.x = i * (nodeWidth + hGap) + PADDING_X / 2;
+                    node.y = j * (nodeHeight + vGap) + yOffset + PADDING_Y / 2;
+                });
+            });
+        }
+
+        Object.values(nodes).forEach(node => {
+            node.width = nodeWidth;
+            node.height = nodeHeight;
+        });
+
+        const edges = [];
+        Object.values(nodes).forEach(item => {
+            (item.depends_on || []).forEach(dep => {
+                const fromNode = nodes[dep];
+                const toNode = nodes[item[itemNameKey]];
+                if (fromNode && toNode) {
+                    edges.push({ from: fromNode, to: toNode });
+                }
+            });
+        });
+
+        return {
+            nodes: Object.values(nodes),
+            edges,
+            width: totalWidth + PADDING_X,
+            height: totalHeight + PADDING_Y
+        };
+    }
+
 function parsePipelineIdentifier(identifier) {
     const trimmed = identifier.trim().replace(/^\/+|\/+$/g, '');
     if (!trimmed) {
@@ -1423,22 +1523,102 @@ function formatPathLabel(path) {
     }
 
     async function renderPipelineGraphFromYaml(yamlString) {
-        if (!DOM['pipeline-graph']) return;
+        const graphContainer = DOM['pipeline-graph'];
+        if (!graphContainer) return;
+
         if (!yamlString) {
-            DOM['pipeline-graph'].innerHTML = '<p class="text-sm text-[var(--text-secondary)]">No definition available.</p>';
+            graphContainer.innerHTML = '<p class="text-sm text-[var(--text-secondary)]">No definition available.</p>';
             return;
         }
 
+        const parsed = parseYamlSafely(yamlString);
+        if (!parsed || !Array.isArray(parsed.steps) || parsed.steps.length === 0) {
+            graphContainer.innerHTML = '<p class="text-sm text-[var(--text-secondary)]">No steps defined in pipeline.</p>';
+            return;
+        }
+
+        const steps = parsed.steps.map(s => ({
+            name: s.name || 'unnamed',
+            depends_on: s.depends_on || [],
+        }));
+
         try {
-            const graphDef = generateMermaidDefinition(yamlString);
-            const { svg } = await window.mermaid.render(`pipeline-graph-${Date.now()}`, graphDef);
-            DOM['pipeline-graph'].innerHTML = svg;
+            const isVerticalLayout = false;
+            const nodeWidth = isVerticalLayout ? 160 : 120;
+            const nodeHeight = isVerticalLayout ? 80 : 100;
+            const hGap = isVerticalLayout ? 40 : 90;
+            const vGap = isVerticalLayout ? 100 : 16;
+
+            const layout = calculateGraphLayout(steps, graphContainer, nodeWidth, nodeHeight, hGap, vGap, isVerticalLayout);
+
+            let svgContent = `<svg width="${layout.width}" height="${layout.height}" xmlns="http://www.w3.org/2000/svg" style="max-width: 100%; height: auto;">
+                <defs>
+                     <radialGradient id="glassyIconGradientPipelineDef" cx="40%" cy="35%" r="80%" fx="30%" fy="30%">
+                        <stop offset="0%" style="stop-color:rgba(254, 252, 232, 0.9)" /> <stop offset="50%" style="stop-color:rgba(250, 204, 21, 0.85)" /> <stop offset="100%" style="stop-color:rgba(217, 119, 6, 0.9)" /> </radialGradient>
+                     <filter id="softIconShadowPipelineDef" x="-40%" y="-40%" width="180%" height="180%">
+                        <feDropShadow dx="1" dy="3" stdDeviation="2.5" flood-color="#a16207" flood-opacity="0.25"/>
+                     </filter>
+                    <marker id="pipeline-def-arrowhead" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+                        <path d="M0,0 L8,4 L0,8 Q2.4,4 0,0 Z" class="fill-current text-gray-400 dark:text-gray-500" />
+                    </marker>
+                </defs>
+                <rect x="0" y="0" width="${layout.width}" height="${layout.height}" fill="transparent"></rect>`;
+
+            let svgEdges = '';
+            let svgNodes = '';
+
+            const pathBetween = (fromNode, toNode) => {
+                const iconRadius = 15; // Slightly larger radius for glassy effect
+                const arrowPad = 3;
+                const fromCx = fromNode.x + fromNode.width / 2;
+                const fromCy = fromNode.y + fromNode.height / 2;
+                const toCx = toNode.x + toNode.width / 2;
+                const toCy = toNode.y + toNode.height / 2;
+                let sx, sy, tx, ty;
+
+                if (isVerticalLayout) {
+                    sx = fromCx; sy = fromCy + iconRadius + arrowPad;
+                    tx = toCx; ty = toCy - iconRadius - arrowPad;
+                    const curveY = sy + (ty - sy) * 0.5;
+                    return `M ${sx} ${sy} C ${sx} ${curveY}, ${tx} ${curveY}, ${tx} ${ty}`;
+                } else {
+                    sx = fromCx + iconRadius + arrowPad; sy = fromCy;
+                    tx = toCx - iconRadius - arrowPad; ty = toCy;
+                    const curveX = sx + (tx - sx) * 0.5;
+                    return `M ${sx} ${sy} C ${curveX} ${sy}, ${curveX} ${ty}, ${tx} ${ty}`;
+                }
+            };
+
+            layout.edges.forEach(edge => {
+                const d = pathBetween(edge.from, edge.to);
+                svgEdges += `<path d="${d}" class="edge-path-halo" style="stroke-width: 5px; stroke-opacity: 0.8;"></path>`;
+                svgEdges += `<path d="${d}" class="edge-path" style="stroke: var(--border-secondary); stroke-width: 1.5px;" marker-end="url(#pipeline-def-arrowhead)"></path>`;
+            });
+
+            layout.nodes.forEach(node => {
+                const nodeCenterX = node.x + node.width / 2;
+                const nodeCenterY = node.y + node.height / 2;
+                const label = node.name || 'unnamed';
+
+                svgNodes += `
+                    <g class="graph-node graph-node-pipeline-def" data-step-name="${escapeAttribute(label)}">
+                         <circle cx="${nodeCenterX}" cy="${nodeCenterY}" r="15"
+                                 fill="url(#glassyIconGradientPipelineDef)"
+                                 stroke="rgba(202, 138, 4, 0.25)" stroke-width="0.5" /* Very subtle border */
+                                 filter="url(#softIconShadowPipelineDef)"
+                                 opacity="0.95"/> /* Slight transparency */
+                        <text x="${nodeCenterX}" y="${nodeCenterY + 40}" text-anchor="middle" class="pipeline-def-node-label">${escapeHtml(label)}</text>
+                        <text x="${nodeCenterX}" y="${nodeCenterY + 57}" text-anchor="middle" class="pipeline-def-node-sublabel">Defined</text>
+                    </g>`;
+            });
+
+            graphContainer.innerHTML = svgContent + svgEdges + svgNodes + `</svg>`;
+
         } catch (error) {
-            DOM['pipeline-graph'].innerHTML = '<p class="text-sm text-red-500">Unable to render dependency graph.</p>';
-            console.error('Mermaid render error', error);
+            graphContainer.innerHTML = '<p class="text-sm text-red-500">Unable to render dependency graph.</p>';
+            console.error('SVG Graph render error', error);
         }
     }
-
     async function renderTriggers(pipelineId) {
         if (!DOM['pipeline-triggers']) return;
         const triggers = await getTriggersForPipeline(pipelineId);
