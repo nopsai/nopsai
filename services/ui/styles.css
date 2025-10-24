@@ -1433,6 +1433,49 @@ html.dark .glass-panel {
     box-shadow: 0 28px 58px -28px rgba(15,23,42,0.85);
 }
 
+/* Styles for Pipeline Definition Graph */
+.graph-node-pipeline-def { /* Apply transition ONLY for filter/opacity now */
+    transition: filter 0.2s ease-out, opacity 0.2s ease-out;
+}
+
+.graph-node-pipeline-def circle { /* Keep individual transitions for filter/opacity */
+    transition: filter 0.2s ease-out, opacity 0.2s ease-out;
+}
+
+.graph-node-pipeline-def:hover { /* REMOVED transform: scale(...) */
+    /* Only filter/opacity changes remain below */
+}
+
+.graph-node-pipeline-def:hover circle { /* Apply filter/opacity changes to the circle */
+    filter: url(#softIconShadowPipelineDef) drop-shadow(0 4px 12px rgba(202, 138, 4, 0.45)); /* Softer, wider shadow */
+    opacity: 1; /* Fully opaque on hover */
+}
+
+.pipeline-def-node-label {
+    font-size: 0.8rem; /* 13px */
+    font-weight: 600;
+    fill: var(--text-primary);
+    pointer-events: none;
+    user-select: none;
+}
+
+.pipeline-def-node-sublabel {
+    font-size: 0.7rem; /* 11px */
+    fill: var(--text-secondary);
+    pointer-events: none;
+    user-select: none;
+}
+
+/* Adjust edge halo for definition view if needed */
+#pipeline-graph .edge-path-halo {
+  stroke-width: 5px;
+  stroke-opacity: 0.8;
+}
+
+#pipeline-graph .edge-path {
+  stroke: var(--border-secondary);
+  stroke-width: 1.5px;
+}
 .glass-panel-header {
     display: flex;
     align-items: center;
