@@ -1395,7 +1395,7 @@ if (dx !== 0 || dy !== 0) {
             { route: 'system', title: 'System', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
         ];
 
-        let navHtml = navConfig.map(item => {
+        let baseNavHtml = navConfig.map(item => {
             const isActive = activeRoute === item.route;
             return `<a href="#/${item.route}" class="sidebar-link flex items-center p-2 text-[var(--text-primary)] rounded-md transition-colors duration-200 group ${isActive ? 'active' : ''}" data-navigo>
                         <svg class="h-5 w-5 mr-3 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${item.icon}"/></svg>
@@ -1403,13 +1403,15 @@ if (dx !== 0 || dy !== 0) {
                     </a>`;
         }).join('');
 
-        DOM.sidebarNav.innerHTML = `<div class="space-y-1">${navHtml}</div>`;
+        DOM.sidebarBaseNav.innerHTML = `<div class="space-y-1">${baseNavHtml}</div>`;
 
+        let detailsNavHtml = '';
         if (activeRoute === 'pipelines') {
-            DOM.sidebarNav.innerHTML += `<div class="px-2 mt-6 mb-2 flex items-center justify-between">
-                                            <h2 class="text-xs font-semibold tracking-wider text-[var(--text-secondary)] uppercase">All Pipelines</h2>
-                                        </div>
-                                        <div id="pipelines-sidebar-tree"></div>`;
+            detailsNavHtml = `<div class="px-2 mt-2 mb-2 flex items-center justify-between">
+                                  <h2 class="text-xs font-semibold tracking-wider text-[var(--text-secondary)] uppercase">All Pipelines</h2>
+                              </div>
+                              <div id="pipelines-sidebar-tree"></div>`;
+            DOM.sidebarDetailsNav.innerHTML = detailsNavHtml;
             const pipelinesModule = window.NopsAI.pages?.pipelines;
             if (pipelinesModule && typeof pipelinesModule.renderSidebarTree === 'function') {
                 try {
@@ -1420,18 +1422,21 @@ if (dx !== 0 || dy !== 0) {
             }
         } else if (activeRoute === 'pipelineruns') {
             if (currentTab === 'recent') {
-                DOM.sidebarNav.innerHTML += `<h2 class="px-2 mt-6 mb-2 text-xs font-semibold tracking-wider text-[var(--text-secondary)] uppercase">Recent Runs</h2>
-                                             <ul id="pipeline-runs-list" class="space-y-1"></ul>`;
+                detailsNavHtml = `<h2 class="px-2 mt-2 mb-2 text-xs font-semibold tracking-wider text-[var(--text-secondary)] uppercase">Recent Runs</h2>
+                                  <ul id="pipeline-runs-list" class="space-y-1"></ul>`;
+                DOM.sidebarDetailsNav.innerHTML = detailsNavHtml;
                 fetchAllRuns();
             } else {
-                DOM.sidebarNav.innerHTML += `<div class="px-2 mt-6 mb-2 flex items-center justify-between">
-                                                <h2 class="text-xs font-semibold tracking-wider text-[var(--text-secondary)] uppercase">Main</h2>
-                                            </div>
-                                            <div id="main-hierarchy"></div>`;
-
+                detailsNavHtml = `<div class="px-2 mt-2 mb-2 flex items-center justify-between">
+                                      <h2 class="text-xs font-semibold tracking-wider text-[var(--text-secondary)] uppercase">Main</h2>
+                                  </div>
+                                  <div id="main-hierarchy"></div>`;
+                DOM.sidebarDetailsNav.innerHTML = detailsNavHtml;
                 state.repoLastRunCache.clear();
                 await renderHierarchy(state.groups);
             }
+        } else {
+            DOM.sidebarDetailsNav.innerHTML = '';
         }
     }
 

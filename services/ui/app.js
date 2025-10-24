@@ -147,7 +147,8 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const DOM = {
-        sidebarNav: document.getElementById('sidebar-nav'),
+        sidebarBaseNav: document.getElementById('sidebar-base-nav'),
+        sidebarDetailsNav: document.getElementById('sidebar-details-nav'),
         mainHeader: document.getElementById('main-header'),
         pages: document.querySelectorAll('[data-page]'),
         pageContentWrapper: document.getElementById('page-content-wrapper'),
