@@ -1175,28 +1175,39 @@ function formatPathLabel(path) {
                 state.sidebarExpanded.add(folderPath);
             }
 
-            notifySidebarTreeUpdate();
+            const container = document.getElementById('pipelines-sidebar-tree');
+            if (container) {
+                renderSidebarTree(container);
+            } else {
+                 console.error("Sidebar container 'pipelines-sidebar-tree' not found.");
+                 renderSidebarForRoute();
+            }
+
             return;
         }
+
 
         const folderBtn = event.target.closest('[data-open-folder]');
         if (folderBtn) {
-            window.location.hash = buildFolderPathHash(folderPath);
-            event.preventDefault();
-            event.stopPropagation();
             const folderPath = folderBtn.dataset.openFolder || '';
-            window.location.hash = buildFolderPathHash(folderPath);
+            if (!event.target.closest('[data-toggle-folder]')) {
+                event.preventDefault();
+                event.stopPropagation();
+                window.location.hash = buildFolderPathHash(folderPath);
+            }
             return;
         }
 
+        
         const pipelineLink = event.target.closest('a[data-pipeline-link]');
         if (pipelineLink) {
             const pipelineId = pipelineLink.dataset.pipelineLink;
             if (pipelineId) {
-                 const parentFolder = pipelineLink.dataset.parentFolder || '';
-                 ensureSidebarExpansionForPath(parentFolder);
-            } else {
-                 event.preventDefault();
+                const parentFolder = pipelineLink.dataset.parentFolder || '';
+                ensureSidebarExpansionForPath(parentFolder);
+                
+                const container = document.getElementById('pipelines-sidebar-tree');
+                if (container) renderSidebarTree(container);
             }
             return;
         }
