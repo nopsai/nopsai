@@ -296,6 +296,53 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function router(hashOverride) {
+        // --- Helper function (ensure this is available or copy from pipeline-runs.js) ---
+        const RUN_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        function parsePipelineRunsHash(hash) {
+            const raw = (hash || '').replace(/^#/, '');
+            const questionIndex = raw.indexOf('?');
+            const pathPart = questionIndex === -1 ? raw : raw.slice(0, questionIndex);
+            const queryPart = questionIndex === -1 ? '' : raw.slice(questionIndex + 1);
+            const normalizedPath = (pathPart || '').replace(/^\/?/, '');
+            const parts = normalizedPath ? normalizedPath.split('/').filter(Boolean) : [];
+            const searchParams = new URLSearchParams(queryPart || '');
+            const query = {};
+            searchParams.forEach((value, key) => {
+                query[key] = value;
+            });
+            const path = parts[0] || 'pipelineruns';
+            const tab = parts[1] || 'main';
+            const rest = parts.slice(2);
+
+            let runId = null;
+            let action = null;
+            let stepName = null;
+            let actionSegments = [];
+            let logSegments = [];
+            let groupSegments = rest;
+
+            const runIndex = rest.findIndex(seg => RUN_ID_REGEX.test(seg));
+            if (runIndex !== -1) {
+                runId = rest[runIndex];
+                groupSegments = rest.slice(0, runIndex);
+                actionSegments = rest.slice(runIndex + 1);
+                action = actionSegments[0] || null;
+                if (action === 'steps' && actionSegments[1]) {
+                    try {
+                        stepName = decodeURIComponent(actionSegments[1]);
+                    } catch {
+                        stepName = actionSegments[1];
+                    }
+                }
+                if (action === 'logs') {
+                    logSegments = actionSegments.slice(1);
+                }
+            }
+
+            return { path, tab, groupSegments, runId, action, stepName, actionSegments, logSegments, query };
+        }
+        // --- End Helper ---
+
         if (state._suppressNextRoute) {
             state._suppressNextRoute = false;
             if (state._suppressRouteTimeout) {
@@ -312,19 +359,48 @@ document.addEventListener('DOMContentLoaded', () => {
                 window.location.search = '';
             }
         }
-        const hash = hashOverride || window.location.hash || '#/pipelineruns/main';
-        const parts = hash.replace(/^#/,'').replace(/^\//,'').split('/');
-        const path = parts[0] || 'pipelineruns';
 
+        const hash = hashOverride || window.location.hash || '#/pipelineruns/main';
+        // Use the helper to get info about the TARGET route
+        const info = parsePipelineRunsHash(hash);
+        const { path, runId } = info; // 'path' is the new page, 'runId' exists if it's a run detail page
+
+        // --- ADDED/MODIFIED SCROLL MANAGEMENT BLOCK ---
+        // Check the state *before* updating state.currentPath
+        const wasOnRunDetail = state.currentPath === 'pipelineruns' && state.currentRunData?.run_info?.run_id;
+        const isNowOnRunDetail = path === 'pipelineruns' && runId;
+        const isNowOnPipelinesPage = path === 'pipelines'; // Check if navigating TO pipelines
+
+        // Manage the scroll lock on the main wrapper
+        if (DOM.pageContentWrapper) {
+            if (isNowOnRunDetail) {
+                // Navigating TO a run detail page that uses pan/zoom: ADD no-scroll
+                DOM.pageContentWrapper.classList.add('no-scroll');
+            } else if (wasOnRunDetail || isNowOnPipelinesPage) {
+                // Navigating AWAY from a run detail page OR TO the pipelines page: REMOVE no-scroll
+                DOM.pageContentWrapper.classList.remove('no-scroll');
+            }
+            // For other pages, ensure no-scroll is removed (if they need scrolling)
+            if (!isNowOnRunDetail) {
+                 DOM.pageContentWrapper.classList.remove('no-scroll');
+            }
+        }
+        // --- END SCROLL MANAGEMENT BLOCK ---
+
+        // Update the current path *after* checking the previous state
         state.currentPath = path;
 
+        // --- Standard router logic continues ---
         if (DOM.mainHeader) {
-            DOM.mainHeader.innerHTML = '';
+            DOM.mainHeader.innerHTML = ''; // Clear potentially complex HTML
             DOM.mainHeader.textContent = path.charAt(0).toUpperCase() + path.slice(1);
         }
 
         if (DOM.pageContentWrapper) {
-            DOM.pageContentWrapper.scrollTop = 0;
+            // Scroll to top unless we are staying on the same run detail page (e.g., opening/closing modal)
+            if (!wasOnRunDetail || !isNowOnRunDetail || state.currentRunData?.run_info?.run_id !== runId) {
+                DOM.pageContentWrapper.scrollTop = 0;
+            }
         }
         if (DOM.pages && DOM.pages.length) {
             DOM.pages.forEach(page => {
@@ -332,17 +408,26 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
+        // --- Call page-specific handlers ---
         if (path === 'pipelineruns' && pipelineRunsModule && typeof pipelineRunsModule.handleRoute === 'function') {
             await pipelineRunsModule.handleRoute(hash, wsManager);
+            // Re-apply no-scroll specifically if needed after module handling
+            if (runId && DOM.pageContentWrapper) {
+               DOM.pageContentWrapper.classList.add('no-scroll');
+            }
             return;
         }
 
         if (path === 'pipelines' && pipelinesModule && typeof pipelinesModule.handleRoute === 'function') {
+            // Ensure scroll IS possible on pipelines page (redundant check, but safe)
+             if (DOM.pageContentWrapper) {
+                 DOM.pageContentWrapper.classList.remove('no-scroll');
+             }
             await pipelinesModule.handleRoute(hash);
-
             return;
         }
 
+        // --- Fallback for other/placeholder pages ---
         if (DOM.placeholder) {
             DOM.placeholder.classList.remove('hidden');
             const heading = DOM.placeholder.querySelector('h3');
@@ -350,8 +435,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if (heading) heading.textContent = `Welcome to ${path}`;
             if (body) body.textContent = 'This page is under construction.';
         }
-        if (DOM.mainHeader) {
+        if (DOM.mainHeader && !DOM.mainHeader.textContent) { // Update header if not already set by specific logic
             DOM.mainHeader.textContent = path.charAt(0).toUpperCase() + path.slice(1);
+        }
+        // Ensure scrolling is possible for placeholder/other pages
+        if (DOM.pageContentWrapper) {
+            DOM.pageContentWrapper.classList.remove('no-scroll');
         }
     }
 
