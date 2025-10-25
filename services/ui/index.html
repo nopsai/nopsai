@@ -110,10 +110,6 @@
                                     <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                                     <span>New Pipeline</span>
                                 </button>
-                                <button id="pipelines-back-btn" class="glass-button-ghost hidden">
-                                    <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-                                    <span>Back to list</span>
-                                </button>
                             </div>
                         </div>
                         <div id="pipelines-sync-report" class="mt-4 hidden"></div>
@@ -128,15 +124,23 @@
                         </div>
                         <div id="pipelines-detail-view" class="pipelines-view hidden">
                             <div class="space-y-6">
-                                    <div class="glass-card p-6 space-y-3">
-                                        <h2 id="pipeline-detail-name" class="text-3xl font-bold text-[var(--text-primary)]"></h2>
-                                        <p id="pipeline-detail-description" class="text-sm text-[var(--text-secondary)]"></p>
-                                        <div class="flex flex-wrap gap-4 text-xs text-[var(--text-secondary)] font-mono">
-                                            <span>Path: <span id="pipeline-detail-path"></span></span>
-                                            <span>Version: <span id="pipeline-detail-version"></span></span>
-                                            <span>Source: <span id="pipeline-detail-source"></span></span>
+                                <div class="glass-card p-6">
+                                    <div class="flex items-center justify-between gap-4 w-full mb-3">
+                                        <h2 id="pipeline-detail-name" class="text-3xl font-bold text-[var(--text-primary)] truncate"></h2>
+                                        <div class="flex-shrink-0">
+                                            <button id="pipelines-back-btn" class="glass-button-ghost hidden">
+                                                <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                                                <span>Back to list</span>
+                                            </button>
                                         </div>
                                     </div>
+                                    <p id="pipeline-detail-description" class="text-sm text-[var(--text-secondary)] mb-3"></p>
+                                    <div class="flex flex-wrap gap-4 text-xs text-[var(--text-secondary)] font-mono">
+                                        <span>Path: <span id="pipeline-detail-path"></span></span>
+                                        <span>Version: <span id="pipeline-detail-version"></span></span>
+                                        <span>Source: <span id="pipeline-detail-source"></span></span>
+                                    </div>
+                                </div>
                                 <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
                                     <div class="space-y-6 xl:col-span-2">
                                         <div class="glass-card overflow-hidden">
