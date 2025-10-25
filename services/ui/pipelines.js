@@ -1567,14 +1567,13 @@ function formatPathLabel(path) {
             let svgNodes = '';
 
             const pathBetween = (fromNode, toNode) => {
-                const iconRadius = 5;
+                const iconRadius = 8;
                 const arrowPad = 3;
                 const fromCx = fromNode.x + fromNode.width / 2;
                 const fromCy = fromNode.y + fromNode.height / 2;
                 const toCx = toNode.x + toNode.width / 2;
                 const toCy = toNode.y + toNode.height / 2;
                 let sx, sy, tx, ty;
-
                 if (isVerticalLayout) {
                     sx = fromCx; sy = fromCy + iconRadius + arrowPad;
                     tx = toCx; ty = toCy - iconRadius - arrowPad;
@@ -1617,11 +1616,8 @@ function formatPathLabel(path) {
             if (svgElement && typeof Panzoom === 'function') {
 
                 if (graphContainer._panzoomInstance) {
-                    try {
-                        graphContainer._panzoomInstance.destroy();
-                    } catch {}
+                    try { graphContainer._panzoomInstance.destroy(); } catch {}
                     graphContainer._panzoomInstance = null;
-
                     if (graphContainer._wheelHandler) {
                          try { graphContainer.removeEventListener('wheel', graphContainer._wheelHandler); } catch {}
                          graphContainer._wheelHandler = null;
@@ -1643,8 +1639,11 @@ function formatPathLabel(path) {
                 graphContainer.addEventListener('dblclick', (e) => {
                      if (e.target.closest('svg') && graphContainer._panzoomInstance) {
                         graphContainer._panzoomInstance.reset({ animate: true });
+                        fitPipelineGraphToView(graphContainer, svgElement, layout);
                      }
                 });
+
+                fitPipelineGraphToView(graphContainer, svgElement, layout);
 
             } else if (typeof Panzoom !== 'function') {
                 console.error("Panzoom library not found.");
@@ -1655,6 +1654,36 @@ function formatPathLabel(path) {
             console.error('SVG Graph render error', error);
         }
     }
+
+    function fitPipelineGraphToView(container, element, layout) {
+        if (!container || !element || !layout || !container._panzoomInstance) return;
+        const parentRect = container.getBoundingClientRect();
+        const contentWidth = layout.width;
+        const contentHeight = layout.height;
+
+        if (!contentWidth || !contentHeight || !parentRect.width || !parentRect.height || parentRect.width <=0 || parentRect.height <= 0) return;
+
+        container._panzoomInstance.reset({ animate: false });
+
+        const fitPadding = 20;
+        const availableWidth = Math.max(1, parentRect.width - fitPadding * 2);
+        const availableHeight = Math.max(1, parentRect.height - fitPadding * 2);
+
+        const contentW = Math.max(1, contentWidth);
+        const contentH = Math.max(1, contentHeight);
+
+        const fitScaleX = availableWidth / contentW;
+        const fitScaleY = availableHeight / contentH;
+        const fitScale = Math.min(fitScaleX, fitScaleY);
+
+        const scale = Math.min(1, fitScale); 
+        const x = 0;
+        const y = (parentRect.height - contentH * scale) / 2;
+
+        container._panzoomInstance.zoom(scale, { animate: false });
+        container._panzoomInstance.pan(x + fitPadding, y, { animate: false });
+    }
+
     async function renderTriggers(pipelineId) {
         if (!DOM['pipeline-triggers']) return;
         const triggers = await getTriggersForPipeline(pipelineId);
