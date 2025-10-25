@@ -1551,7 +1551,7 @@ function formatPathLabel(path) {
 
             const layout = calculateGraphLayout(steps, graphContainer, nodeWidth, nodeHeight, hGap, vGap, isVerticalLayout);
 
-            let svgContent = `<svg width="${layout.width}" height="${layout.height}" xmlns="http://www.w3.org/2000/svg" style="max-width: 100%; height: auto;">
+            let svgContent = `<svg width="${layout.width}" height="${layout.height}" xmlns="http://www.w3.org/2000/svg" style="max-width: none; height: auto; display: block;">
                 <defs>
                      <radialGradient id="glassyIconGradientPipelineDef" cx="40%" cy="35%" r="80%" fx="30%" fy="30%">
                         <stop offset="0%" style="stop-color:rgba(254, 252, 232, 0.9)" /> <stop offset="50%" style="stop-color:rgba(250, 204, 21, 0.85)" /> <stop offset="100%" style="stop-color:rgba(217, 119, 6, 0.9)" /> </radialGradient>
@@ -1562,13 +1562,13 @@ function formatPathLabel(path) {
                         <path d="M0,0 L8,4 L0,8 Q2.4,4 0,0 Z" class="fill-current text-gray-400 dark:text-gray-500" />
                     </marker>
                 </defs>
-                <rect x="0" y="0" width="${layout.width}" height="${layout.height}" fill="transparent"></rect>`;
+                <rect x="0" y="0" width="${layout.width}" height="${layout.height}" fill="transparent" style="pointer-events:all"></rect>`;
 
             let svgEdges = '';
             let svgNodes = '';
 
             const pathBetween = (fromNode, toNode) => {
-                const iconRadius = 15; // Slightly larger radius for glassy effect
+                const iconRadius = 5;
                 const arrowPad = 3;
                 const fromCx = fromNode.x + fromNode.width / 2;
                 const fromCy = fromNode.y + fromNode.height / 2;
@@ -1602,17 +1602,54 @@ function formatPathLabel(path) {
 
                 svgNodes += `
                     <g class="graph-node graph-node-pipeline-def" data-step-name="${escapeAttribute(label)}">
-                         <circle cx="${nodeCenterX}" cy="${nodeCenterY}" r="15"
+                         <circle cx="${nodeCenterX}" cy="${nodeCenterY}" r="8"
                                  fill="url(#glassyIconGradientPipelineDef)"
-                                 stroke="rgba(202, 138, 4, 0.25)" stroke-width="0.5" /* Very subtle border */
+                                 stroke="rgba(202, 138, 4, 0.25)" stroke-width="0.5"
                                  filter="url(#softIconShadowPipelineDef)"
-                                 opacity="0.95"/> /* Slight transparency */
+                                 opacity="0.95"/>
                         <text x="${nodeCenterX}" y="${nodeCenterY + 40}" text-anchor="middle" class="pipeline-def-node-label">${escapeHtml(label)}</text>
                         <text x="${nodeCenterX}" y="${nodeCenterY + 57}" text-anchor="middle" class="pipeline-def-node-sublabel">Defined</text>
                     </g>`;
             });
 
             graphContainer.innerHTML = svgContent + svgEdges + svgNodes + `</svg>`;
+
+            const svgElement = graphContainer.querySelector('svg');
+            if (svgElement && typeof Panzoom === 'function') {
+
+                if (graphContainer._panzoomInstance) {
+                    try {
+                        graphContainer._panzoomInstance.destroy();
+                    } catch {}
+                    graphContainer._panzoomInstance = null;
+
+                    if (graphContainer._wheelHandler) {
+                         try { graphContainer.removeEventListener('wheel', graphContainer._wheelHandler); } catch {}
+                         graphContainer._wheelHandler = null;
+                    }
+                }
+
+                const panzoomInstance = Panzoom(svgElement, {
+                    canvas: true,
+                    maxScale: 3,
+                    minScale: 0.1,
+                    contain: 'outside'
+                });
+
+                graphContainer._panzoomInstance = panzoomInstance;
+                graphContainer._wheelHandler = panzoomInstance.zoomWithWheel;
+
+                graphContainer.addEventListener('wheel', graphContainer._wheelHandler, { passive: false });
+
+                graphContainer.addEventListener('dblclick', (e) => {
+                     if (e.target.closest('svg') && graphContainer._panzoomInstance) {
+                        graphContainer._panzoomInstance.reset({ animate: true });
+                     }
+                });
+
+            } else if (typeof Panzoom !== 'function') {
+                console.error("Panzoom library not found.");
+            }
 
         } catch (error) {
             graphContainer.innerHTML = '<p class="text-sm text-red-500">Unable to render dependency graph.</p>';
