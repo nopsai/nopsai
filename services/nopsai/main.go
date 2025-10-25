@@ -1942,20 +1942,19 @@ func (a *App) handleCreateOrUpdatePipeline(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	var genericYAML map[string]interface{}
-	if err := yaml.Unmarshal(pipelineDef, &genericYAML); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid YAML format: %v", err), http.StatusBadRequest)
-		return
-	}
-
-	if _, hasTriggersKey := genericYAML["triggers"]; hasTriggersKey {
-		http.Error(w, "Validation failed: The provided file appears to be a trigger manifest, not a pipeline. A pipeline must contain 'steps', not 'triggers'.", http.StatusBadRequest)
-		return
-	}
-
 	var pipeline models.Pipeline
-	if err := yaml.Unmarshal(pipelineDef, &pipeline); err != nil {
-		http.Error(w, fmt.Sprintf("Pipeline YAML is malformed: %v", err), http.StatusBadRequest)
+	decoder := yaml.NewDecoder(bytes.NewReader(pipelineDef))
+	decoder.KnownFields(true)
+
+	if err := decoder.Decode(&pipeline); err != nil {
+		var genericYAML map[string]interface{}
+		if err := yaml.Unmarshal(pipelineDef, &genericYAML); err == nil {
+			if _, hasTriggersKey := genericYAML["triggers"]; hasTriggersKey {
+				http.Error(w, "Validation failed: The provided file appears to be a trigger manifest, not a pipeline. A pipeline must contain 'steps', not 'triggers'.", http.StatusBadRequest)
+				return
+			}
+		}
+		http.Error(w, fmt.Sprintf("Pipeline YAML is malformed or contains unknown fields: %v", err), http.StatusBadRequest)
 		return
 	}
 
