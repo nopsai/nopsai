@@ -46,7 +46,6 @@
     function init(ctx) {
         context = ctx;
         pipelineRunsModule = (global.pages && global.pages.pipelineruns) ? global.pages.pipelineruns : null;
-
         const ids = [
             'pipelines-search', 'pipelines-list-view', 'pipelines-detail-view', 'pipelines-list-container',
             'pipelines-empty', 'pipelines-total-count', 'pipelines-filter-count', 'pipelines-refresh-btn',
@@ -58,7 +57,7 @@
             'pipeline-triggers', 'pipeline-recent-runs', 'pipelines-new-modal', 'pipelines-new-form',
             'pipelines-new-close', 'pipelines-new-cancel', 'pipelines-new-path', 'pipelines-new-name',
             'pipelines-delete-modal', 'pipelines-delete-message', 'pipelines-delete-confirm',
-            'pipelines-delete-cancel', 'pipelines-delete-close', 'pipelines-sync-report'
+            'pipelines-delete-cancel', 'pipelines-delete-close', 'pipelines-sync-report', 'pipelines-search-container'
         ];
 
         ids.forEach(id => {
@@ -997,6 +996,15 @@ function formatPathLabel(path) {
 
     function setActiveView(view) {
         const showDetail = view === 'detail';
+        if (DOM['pipelines-search-container']) {
+            DOM['pipelines-search-container'].classList.toggle('hidden', showDetail);
+        }
+        if (DOM['pipelines-new-btn']) {
+            DOM['pipelines-new-btn'].classList.toggle('hidden', showDetail);
+        }
+        if (DOM['pipelines-refresh-btn']) {
+            DOM['pipelines-refresh-btn'].classList.toggle('hidden', showDetail);
+        }
         if (DOM['pipelines-list-view']) {
             DOM['pipelines-list-view'].classList.toggle('hidden', showDetail);
         }
@@ -1600,13 +1608,15 @@ function formatPathLabel(path) {
 
                 svgNodes += `
                     <g class="graph-node graph-node-pipeline-def" data-step-name="${escapeAttribute(label)}">
-                         <circle cx="${nodeCenterX}" cy="${nodeCenterY}" r="8"
+                         {/* --- CHANGE r="15" to r="12" --- */}
+                         <circle cx="${nodeCenterX}" cy="${nodeCenterY}" r="12"
                                  fill="url(#glassyIconGradientPipelineDef)"
                                  stroke="rgba(202, 138, 4, 0.25)" stroke-width="0.5"
                                  filter="url(#softIconShadowPipelineDef)"
                                  opacity="0.95"/>
-                        <text x="${nodeCenterX}" y="${nodeCenterY + 40}" text-anchor="middle" class="pipeline-def-node-label">${escapeHtml(label)}</text>
-                        <text x="${nodeCenterX}" y="${nodeCenterY + 57}" text-anchor="middle" class="pipeline-def-node-sublabel">Defined</text>
+                        {/* Adjust text y offsets slightly if needed due to smaller circle */}
+                        <text x="${nodeCenterX}" y="${nodeCenterY + 35}" text-anchor="middle" class="pipeline-def-node-label">${escapeHtml(label)}</text>
+                        <text x="${nodeCenterX}" y="${nodeCenterY + 48}" text-anchor="middle" class="pipeline-def-node-sublabel">Defined</text>
                     </g>`;
             });
 
