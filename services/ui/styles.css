@@ -1442,13 +1442,9 @@ html.dark .glass-panel {
     transition: filter 0.2s ease-out, opacity 0.2s ease-out;
 }
 
-.graph-node-pipeline-def:hover { /* REMOVED transform: scale(...) */
-    /* Only filter/opacity changes remain below */
-}
-
 .graph-node-pipeline-def:hover circle { /* Apply filter/opacity changes to the circle */
     filter: url(#softIconShadowPipelineDef) drop-shadow(0 4px 12px rgba(202, 138, 4, 0.45)); /* Softer, wider shadow */
-    opacity: 1; /* Fully opaque on hover */
+    opacity: 1;
 }
 
 .pipeline-def-node-label {
