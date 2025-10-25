@@ -2046,9 +2046,56 @@ function formatPathLabel(path) {
 
     function validatePipelineYaml(yamlString) {
         if (!window.jsyaml) return { error: 'YAML parser is unavailable.' };
+
+        const knownPipelineKeys = new Set(['name', 'version', 'description', 'container_image', 'display_options', 'working_directory', 'environment', 'steps', 'timeout', 'llm_content_sharing', 'llm_output_sharing', 'llm_content_ignore']);
+        const knownStepKeys = new Set(['name', 'include', 'sync', 'image', 'secrets', 'volumes', 'environment', 'tasks', 'condition', 'goal', 'script', 'depends_on', 'ignore_failure', 'llm_output_sharing']);
+        const knownTaskKeys = new Set(['name', 'goal', 'script', 'depends_on', 'ignore_failure', 'llm_output_sharing']);
+        const knownDisplayOptionsKeys = new Set(['github_view']);
+
+        function findUnknownKeys(obj, knownKeys, path = '') {
+            if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+                return []; // Only check keys of objects
+            }
+            let unknown = [];
+            for (const key in obj) {
+                if (!knownKeys.has(key)) {
+                    unknown.push(path ? `${path}.${key}` : key);
+                }
+            }
+            return unknown;
+        }
+
+        function checkAllKeys(pipeline) {
+            let allUnknown = findUnknownKeys(pipeline, knownPipelineKeys);
+
+            if (pipeline.display_options) {
+                allUnknown = allUnknown.concat(findUnknownKeys(pipeline.display_options, knownDisplayOptionsKeys, 'display_options'));
+            }
+
+            if (Array.isArray(pipeline.steps)) {
+                pipeline.steps.forEach((step, index) => {
+                    const stepPath = `steps[${index}]`;
+                    allUnknown = allUnknown.concat(findUnknownKeys(step, knownStepKeys, stepPath));
+                    if (Array.isArray(step.tasks)) {
+                        step.tasks.forEach((task, taskIndex) => {
+                            const taskPath = `${stepPath}.tasks[${taskIndex}]`;
+                            allUnknown = allUnknown.concat(findUnknownKeys(task, knownTaskKeys, taskPath));
+                        });
+                    }
+                });
+            }
+            return allUnknown;
+        }
+
         try {
             const pipeline = window.jsyaml.load(yamlString);
             if (!pipeline) return { error: 'YAML is empty or invalid.' };
+            if (typeof pipeline !== 'object') return { error: 'YAML root must be an object.' }; // Added check
+
+            const unknownKeys = checkAllKeys(pipeline);
+            if (unknownKeys.length > 0) {
+                return { error: `Validation Error: Unknown field(s) found: ${unknownKeys.join(', ')}` };
+            }
             if (!pipeline.name) return { error: "Validation Error: 'name' is a required field." };
             const allowed = /^[a-zA-Z0-9_.-]+$/;
             if (!allowed.test(pipeline.name)) {
