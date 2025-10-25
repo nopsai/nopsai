@@ -1647,6 +1647,47 @@ function formatPathLabel(path) {
         }).join('');
     }
 
+    function formatTriggerEventInfo(id, options = {}) {
+        const opts = typeof options === 'object' && options !== null ? options : {};
+        const fallback = opts.fallback || 'N/A';
+        if (id === undefined || id === null) {
+            return { text: fallback, full: fallback };
+        }
+        const raw = String(id).trim();
+        if (!raw) {
+            return { text: fallback, full: fallback };
+        }
+        const limit = Number(opts.limit);
+        const hasLimit = Number.isFinite(limit) && limit > 0;
+        const text = hasLimit && raw.length > limit ? `${raw.slice(0, limit)}…` : raw;
+        return { text, full: raw };
+    }
+
+    function formatTriggerEventCardDisplay(id, options = {}) {
+        const info = formatTriggerEventInfo(id, options);
+        if (info.full === 'N/A') {
+            return {
+                display: info.text,
+                title: escapeAttribute(info.full),
+            };
+        }
+
+        const raw = info.full;
+        const display = raw.length > 8 ? raw.slice(0, 8) + '...' : raw;
+        return {
+            display: display,
+            title: escapeAttribute(raw),
+        };
+    }
+
+    function escapeAttribute(value) {
+        if (value === null || value === undefined) return '';
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
     async function renderRecentRuns(pipelineId) {
         if (!DOM['pipeline-recent-runs']) return;
         const runs = await getRecentRunsForPipeline(pipelineId);
@@ -1656,23 +1697,42 @@ function formatPathLabel(path) {
         }
 
         DOM['pipeline-recent-runs'].innerHTML = runs.slice(0, 5).map(run => {
-            const pipelineName = run.pipeline_name || 'N/A';
             const timeAgo = formatRelativeTime(run.started_at || run.startedAt);
             const repoName = run.git_repo_name || 'N/A';
             const branch = run.git_ref ? run.git_ref.replace('refs/heads/', '') : 'manual';
-            // Construct the URL using the run_id
-            const runUrl = `#/pipelineruns/recent/${run.run_id}`; // Correct URL format
+            const runUrl = `#/pipelineruns/recent/${run.run_id}`;
+            const shortRunId = (run.run_id || '...').slice(0, 8);
+            const triggerCard = formatTriggerEventCardDisplay(run.trigger_event_id, { fallback: 'Manual/Unknown' });
 
             return `
-                <a href="${runUrl}" class="pipelines-run-row block" title="Open run ${run.run_id.slice(0,8)}">
+                <a href="${runUrl}" class="pipelines-run-row block" title="Open run ${shortRunId}">
                     <div class="flex items-baseline justify-between gap-2 mb-1">
-                        <span class="font-medium text-sm text-[var(--text-primary)] truncate">${escapeHtml(pipelineName)}</span>
+                        
+                        
+                        <div class="flex items-center gap-2 font-mono text-sm text-[var(--text-primary)] truncate" title="Run ID: ${escapeAttribute(run.run_id || '')}">
+                            <svg class="h-3.5 w-3.5 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H5v-2H3v-2H1v-4a6 6 0 016-6h1.5" /></svg>
+                            <span>${escapeHtml(shortRunId)}</span>
+                        </div>
+                        
                         <span class="text-xs text-[var(--text-secondary)] flex-shrink-0">${timeAgo}</span>
                     </div>
-                    <div class="text-xs text-[var(--text-secondary)] font-mono truncate" title="Repository: ${escapeHtml(repoName)}">${escapeHtml(repoName)}</div>
-                    <div class="text-xs text-[var(--text-link)] font-mono truncate mt-0.5" title="Branch: ${escapeHtml(branch)}">
+                    
+                    
+                    <div class="text-xs text-[var(--text-secondary)] font-mono truncate" title="Repository: ${escapeAttribute(repoName)}">
+                         <svg class="inline-block h-3 w-3 mr-1 -mt-0.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                        ${escapeHtml(repoName)}
+                    </div>
+
+                    
+                    <div class="text-xs text-[var(--text-link)] font-mono truncate mt-0.5" title="Branch: ${escapeAttribute(branch)}">
                         <svg class="inline-block h-3 w-3 mr-1 -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
                         ${escapeHtml(branch)}
+                    </div>
+
+                    
+                    <div class="text-xs text-[var(--text-secondary)] font-mono truncate mt-0.5" title="Trigger Event ID: ${triggerCard.title}">
+                         <svg class="inline-block h-3 w-3 mr-1 -mt-0.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7a1 1 0 011-1h3.586a1 1 0 01.707.293l6.414 6.414a1 1 0 010 1.414l-4.586 4.586a1 1 0 01-1.414 0L7.293 13.707A1 1 0 017 13V9a1 1 0 011-1z" /></svg>
+                        ${escapeHtml(triggerCard.display)}
                     </div>
                 </a>`;
         }).join('');
