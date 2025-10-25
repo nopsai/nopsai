@@ -1481,6 +1481,10 @@ html.dark .glass-panel {
     border-bottom: 1px solid rgba(148,163,184,0.2);
 }
 
+html.dark .pipelines-graph {
+    background: rgba(15,23,42,0.45);
+}
+
 @keyframes spin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
