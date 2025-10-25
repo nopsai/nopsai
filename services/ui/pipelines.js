@@ -213,23 +213,22 @@
     async function handleRoute(hash) {
         if (!context) return;
 
-        const routeInfo = parsePipelineRoute(hash);
-        const { pipelineId, activeFolderKey, isEdit } = routeInfo;
-
-        state.activeFolderKey = activeFolderKey || '';
-
         const { DOM: globalDOM } = context;
         if (globalDOM.mainHeader) {
             globalDOM.mainHeader.innerHTML = 'Pipelines';
         }
 
+        await refreshPipelines();
+
+        const routeInfo = parsePipelineRoute(hash);
+        const { pipelineId, activeFolderKey, isEdit } = routeInfo;
+
+        state.activeFolderKey = activeFolderKey || '';
         ensureSidebarExpansionForPath(state.activeFolderKey);
 
         if (pipelineRunsModule && typeof pipelineRunsModule.renderSidebarForRoute === 'function') {
             await pipelineRunsModule.renderSidebarForRoute('pipelines');
         }
-
-        await refreshPipelines();
         renderSidebarForRoute();
 
         if (pipelineId) {
