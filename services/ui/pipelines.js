@@ -1558,7 +1558,7 @@ function formatPathLabel(path) {
 
             const layout = calculateGraphLayout(steps, graphContainer, nodeWidth, nodeHeight, hGap, vGap, isVerticalLayout);
 
-            let svgContent = `<svg width="${layout.width}" height="${layout.height}" xmlns="http://www.w3.org/2000/svg" style="max-width: none; height: auto; display: block;">
+            let svgContent = `<svg width="${layout.width}" height="${layout.height}" viewBox="0 0 ${layout.width} ${layout.height}" preserveAspectRatio="xMinYMin meet" xmlns="http://www.w3.org/2000/svg" style="max-width: none; height: auto; display: block;">
                 <defs>
                      <radialGradient id="glassyIconGradientPipelineDef" cx="40%" cy="35%" r="80%" fx="30%" fy="30%">
                         <stop offset="0%" style="stop-color:rgba(254, 252, 232, 0.9)" /> <stop offset="50%" style="stop-color:rgba(250, 204, 21, 0.85)" /> <stop offset="100%" style="stop-color:rgba(217, 119, 6, 0.9)" /> </radialGradient>
@@ -1687,11 +1687,11 @@ function formatPathLabel(path) {
         const fitScale = Math.min(fitScaleX, fitScaleY);
 
         const scale = Math.min(1, fitScale); 
-        const x = 0;
-        const y = (parentRect.height - contentH * scale) / 2;
+        const x = fitPadding;
+        const y = fitPadding;
 
         container._panzoomInstance.zoom(scale, { animate: false });
-        container._panzoomInstance.pan(x + fitPadding, y, { animate: false });
+        container._panzoomInstance.pan(x, y, { animate: false });
     }
 
     async function renderTriggers(pipelineId) {
@@ -1702,22 +1702,51 @@ function formatPathLabel(path) {
             return;
         }
 
-        DOM['pipeline-triggers'].innerHTML = triggers.map(trigger => {
-            const condition = trigger.branches?.length
-                ? `branches: ${trigger.branches.join(', ')}`
-                : trigger.skip_branches?.length
-                    ? `skip_branches: ${trigger.skip_branches.join(', ')}`
-                    : trigger.tags?.length
-                        ? `tags: ${trigger.tags.join(', ')}`
-                        : '';
-            const environment = trigger.environment ? `<span class="pipelines-tag">${escapeHtml(trigger.environment)}</span>` : '';
+        const renderField = (label, value) => `
+            <div class="flex items-start justify-between gap-3 text-xs">
+                <span class="text-[var(--text-secondary)]">${escapeHtml(label)}</span>
+                <span class="font-mono text-sm text-[var(--text-primary)] text-right">${escapeHtml(value || '—')}</span>
+            </div>
+        `;
+
+        DOM['pipeline-triggers'].innerHTML = triggers.map(item => {
+            const record = (item && typeof item === 'object' && 'trigger' in item)
+                ? item
+                : { trigger: item };
+            const trigger = record.trigger || {};
+            const repoSlug = record.repoSlug
+                || (record.repoOwner && record.repoName ? `${record.repoOwner}/${record.repoName}` : 'config repo');
+            const eventValue = trigger.on || 'event';
+            const environmentValue = trigger.environment || 'default';
+            const fields = [
+                { label: 'on:', value: eventValue },
+            ];
+
+            if (Array.isArray(trigger.branches) && trigger.branches.length) {
+                fields.push({ label: 'branches:', value: trigger.branches.join(', ') });
+            } else if (Array.isArray(trigger.skip_branches) && trigger.skip_branches.length) {
+                fields.push({ label: 'skip_branches:', value: trigger.skip_branches.join(', ') });
+            } else {
+                fields.push({ label: 'branches:', value: 'all branches' });
+            }
+
+            if (Array.isArray(trigger.tags) && trigger.tags.length) {
+                fields.push({ label: 'tags:', value: trigger.tags.join(', ') });
+            }
+
+            fields.push({ label: 'environment:', value: environmentValue });
+
+            const fieldsMarkup = fields.map(({ label, value }) => renderField(label, value)).join('');
+
             return `
-                <div class="pipelines-trigger-card">
-                    <div class="flex items-center justify-between gap-2">
-                        <span class="font-mono text-sm text-[var(--text-primary)]">on: ${escapeHtml(trigger.on || 'event')}</span>
-                        ${environment}
+                <div class="pipelines-trigger-card space-y-2">
+                    <div>
+                        <p class="text-xs uppercase tracking-wide text-[var(--text-secondary)]">Repo</p>
+                        <p class="font-mono text-sm text-[var(--text-primary)] break-words">${escapeHtml(repoSlug)}</p>
                     </div>
-                    ${condition ? `<p class="text-xs text-[var(--text-secondary)] mt-2">${escapeHtml(condition)}</p>` : ''}
+                    <div class="grid gap-1">
+                        ${fieldsMarkup}
+                    </div>
                 </div>`;
         }).join('');
     }
@@ -2356,7 +2385,12 @@ function formatPathLabel(path) {
                 pipelineEntries.forEach(entry => {
                     const path = typeof entry === 'string' ? entry : entry?.path;
                     if (normalizePipelineIdentifier(path) === pipelineId) {
-                        matches.push(trigger);
+                        matches.push({
+                            repoOwner: owner,
+                            repoName: name,
+                            repoSlug: `${owner}/${name}`,
+                            trigger,
+                        });
                     }
                 });
             });
