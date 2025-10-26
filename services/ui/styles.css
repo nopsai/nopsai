@@ -1482,7 +1482,8 @@ html.dark .glass-panel {
 
 #pipeline-graph svg {
     display: block;
-    max-width: 100%;
+    width: 100%;
+    height: auto;
 }
 .glass-panel-header {
     display: flex;

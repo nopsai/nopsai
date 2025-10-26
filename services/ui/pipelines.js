@@ -1558,7 +1558,7 @@ function formatPathLabel(path) {
 
             const layout = calculateGraphLayout(steps, graphContainer, nodeWidth, nodeHeight, hGap, vGap, isVerticalLayout);
 
-            let svgContent = `<svg width="${layout.width}" height="${layout.height}" viewBox="0 0 ${layout.width} ${layout.height}" preserveAspectRatio="xMinYMin meet" xmlns="http://www.w3.org/2000/svg" style="max-width: none; height: auto; display: block;">
+            let svgContent = `<svg width="100%" height="auto" viewBox="0 0 ${layout.width} ${layout.height}" preserveAspectRatio="xMinYMin meet" xmlns="http://www.w3.org/2000/svg" style="width: 100%; height: auto; display: block;">
                 <defs>
                      <radialGradient id="glassyIconGradientPipelineDef" cx="40%" cy="35%" r="80%" fx="30%" fy="30%">
                         <stop offset="0%" style="stop-color:rgba(254, 252, 232, 0.9)" /> <stop offset="50%" style="stop-color:rgba(250, 204, 21, 0.85)" /> <stop offset="100%" style="stop-color:rgba(217, 119, 6, 0.9)" /> </radialGradient>
@@ -1685,8 +1685,9 @@ function formatPathLabel(path) {
         const fitScaleX = availableWidth / contentW;
         const fitScaleY = availableHeight / contentH;
         const fitScale = Math.min(fitScaleX, fitScaleY);
+        const preferredScale = 0.1;
 
-        const scale = Math.min(1, fitScale); 
+        const scale = Math.min(fitScale, preferredScale);
         const x = fitPadding;
         const y = fitPadding;
 
