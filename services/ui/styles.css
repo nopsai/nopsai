@@ -1472,6 +1472,18 @@ html.dark .glass-panel {
   stroke: var(--border-secondary);
   stroke-width: 1.5px;
 }
+#pipeline-graph {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-start;
+    overflow: hidden;
+}
+
+#pipeline-graph svg {
+    display: block;
+    max-width: 100%;
+}
 .glass-panel-header {
     display: flex;
     align-items: center;
