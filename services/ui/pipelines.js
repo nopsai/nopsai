@@ -84,6 +84,10 @@
         ignore_failure: { values: ['true', 'false'], title: 'Boolean value' },
         sync: { values: ['true', 'false'], title: 'Boolean value' },
     };
+    const LIST_KEYS_WITH_NAME_TEMPLATE = new Set(['steps', 'tasks']);
+    const LIST_KEYS_SIMPLE = new Set([
+        'secrets', 'volumes', 'depends_on', 'artifacts', 'environment', 'llm_content_ignore',
+    ]);
 
     function isPipelinesPageActive() {
         const page = document.querySelector('[data-page="pipelines"]');
@@ -230,6 +234,8 @@
                         updateLineNumbers();
                         updateEditorSuggestions();
                     }
+                } else if (event.key === 'Enter') {
+                    handleEditorEnterKey(event);
                 } else if (event.key === 'Escape') {
                     hideEditorSuggestions();
                 }
@@ -2343,13 +2349,14 @@ function formatPathLabel(path) {
         if (typeof insertText !== 'string') {
             insertText = String(insertText ?? '');
         }
+        const prefixInsert = contextInfo.insertPrefix || '';
         let suffix = contextInfo.insertSuffix || '';
         if (item.overrideSuffix !== undefined) {
             suffix = item.overrideSuffix;
         } else if (suffix && after.trimStart().startsWith(':')) {
             suffix = '';
         }
-        const finalText = insertText + suffix;
+        const finalText = prefixInsert + insertText + suffix;
         textarea.value = before + finalText + after;
         const caret = rangeStart + finalText.length;
         textarea.selectionStart = textarea.selectionEnd = caret;
@@ -2368,6 +2375,59 @@ function formatPathLabel(path) {
         target.value = value.substring(0, start) + '  ' + value.substring(end);
         const caret = start + 2;
         target.selectionStart = target.selectionEnd = caret;
+    }
+
+    function handleEditorEnterKey(event) {
+        const textarea = event.target;
+        if (!textarea || typeof textarea.value !== 'string') {
+            return;
+        }
+
+        const start = textarea.selectionStart ?? 0;
+        const end = textarea.selectionEnd ?? start;
+        if (start === null || end === null) {
+            return;
+        }
+
+        event.preventDefault();
+
+        const value = textarea.value;
+        const lineInfo = getCurrentLineInfo(value, start);
+        const before = value.slice(0, start);
+        const after = value.slice(end);
+        const indentMatch = lineInfo.line.match(/^\s*/);
+        const currentIndent = indentMatch ? indentMatch[0] : '';
+        const trimmed = lineInfo.line.trim();
+        const parentBlock = findParentBlock(value.slice(0, lineInfo.start), ['steps', 'tasks'], lineInfo.indent);
+        let newIndent = currentIndent;
+        let listPrefix = '';
+
+        if (trimmed.startsWith('-')) {
+            newIndent = currentIndent;
+            listPrefix = /^-\s*name\b/i.test(trimmed) ? '- name: ' : '- ';
+        } else if (trimmed.endsWith(':')) {
+            newIndent = currentIndent + '  ';
+            const key = trimmed.slice(0, -1).trim();
+            if (LIST_KEYS_WITH_NAME_TEMPLATE.has(key)) {
+                listPrefix = '- name: ';
+            } else if (LIST_KEYS_SIMPLE.has(key) && !parentBlock) {
+                listPrefix = '- ';
+            }
+        } else {
+            if (parentBlock && LIST_KEYS_WITH_NAME_TEMPLATE.has(parentBlock)) {
+                newIndent = ' '.repeat(lineInfo.indent);
+                listPrefix = '- name: ';
+            }
+        }
+
+        const insertion = `\n${newIndent}${listPrefix}`;
+        textarea.value = before + insertion + after;
+        const caret = before.length + insertion.length;
+        textarea.selectionStart = textarea.selectionEnd = caret;
+        textarea.focus();
+        handleValidation();
+        updateLineNumbers();
+        updateEditorSuggestions();
     }
 
     function updateEditorSuggestions() {
@@ -2491,6 +2551,29 @@ function formatPathLabel(path) {
         if (parent !== 'environment') {
             return null;
         }
+
+        const local = lineInfo.line.slice(lineInfo.indent);
+        const trimmedLocal = local.trimStart();
+        if (trimmedLocal.startsWith('-')) {
+            const dashMatch = local.match(/^-\s*/);
+            const dashSegment = dashMatch ? dashMatch[0] : '-';
+            const valueStartLocal = lineInfo.indent + dashSegment.length;
+            const relativeText = lineInfo.line.slice(valueStartLocal, lineInfo.column);
+            const trimmedValue = relativeText.trim();
+            const relativeOffset = trimmedValue ? relativeText.indexOf(trimmedValue) : 0;
+            const rangeStart = lineInfo.start + valueStartLocal + relativeOffset;
+            const safeRangeEnd = Math.max(rangeStart, selectionEnd);
+            return {
+                type: 'environment',
+                title: 'Environment keys',
+                prefix: trimmedValue,
+                rangeStart,
+                rangeEnd: safeRangeEnd,
+                insertSuffix: '',
+                insertPrefix: dashSegment.endsWith(' ') ? '' : ' ',
+            };
+        }
+
         const colonIndex = lineInfo.line.indexOf(':', lineInfo.indent);
         const hasColon = colonIndex !== -1;
         const valueEnd = hasColon ? Math.min(colonIndex, lineInfo.column) : lineInfo.column;
@@ -2505,6 +2588,7 @@ function formatPathLabel(path) {
             rangeStart: lineInfo.start + lineInfo.indent,
             rangeEnd: safeRangeEnd,
             insertSuffix: hasColon ? '' : ': ',
+            insertPrefix: '',
         };
     }
 
@@ -2647,6 +2731,7 @@ function formatPathLabel(path) {
             rangeStart,
             rangeEnd: safeEnd,
             insertSuffix: '',
+            insertPrefix: dashMatch && /\s$/.test(dashMatch[0]) ? '' : ' ',
         };
     }
 
