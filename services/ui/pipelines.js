@@ -15,6 +15,16 @@
         pendingDelete: null,
         isEditing: false,
         currentYaml: '',
+        autocomplete: {
+            secrets: [],
+            environments: [],
+            reusableSteps: [],
+            fetchedAt: 0,
+            isLoading: false,
+            loadingPromise: null,
+        },
+        editorSuggestionContext: null,
+        beforeUnloadHandler: null,
     };
 
     const DOM = {};
@@ -22,6 +32,7 @@
     let pipelineRunsModule = null;
 
     const TOAST_TIMEOUT = 4000;
+    const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
 
     function isPipelinesPageActive() {
         const page = document.querySelector('[data-page="pipelines"]');
@@ -50,7 +61,7 @@
             'pipelines-search', 'pipelines-list-view', 'pipelines-detail-view', 'pipelines-list-container',
             'pipelines-empty', 'pipelines-total-count', 'pipelines-filter-count', 'pipelines-refresh-btn',
             'pipelines-new-btn', 'pipelines-back-btn', 'pipelines-subtitle', 'pipeline-detail-name',
-            'pipeline-detail-description', 'pipeline-detail-path', 'pipeline-detail-version', 'pipeline-copy-btn',
+            'pipeline-detail-description', 'pipeline-detail-path', 'pipeline-detail-version', 'pipeline-detail-source', 'pipeline-copy-btn',
             'pipeline-download-btn', 'pipeline-edit-btn', 'pipeline-save-btn', 'pipeline-cancel-btn',
             'pipeline-yaml-content', 'pipeline-yaml-editor', 'editor-container', 'line-numbers',
             'validation-status', 'yaml-view-actions', 'yaml-edit-actions', 'pipeline-graph',
@@ -137,11 +148,21 @@
             DOM['pipeline-yaml-editor'].addEventListener('input', () => {
                 handleValidation();
                 updateLineNumbers();
+                updateEditorSuggestions();
             });
             DOM['pipeline-yaml-editor'].addEventListener('scroll', () => {
                 if (DOM['line-numbers']) {
                     DOM['line-numbers'].scrollTop = DOM['pipeline-yaml-editor'].scrollTop;
                 }
+            });
+            DOM['pipeline-yaml-editor'].addEventListener('click', () => {
+                updateEditorSuggestions();
+            });
+            DOM['pipeline-yaml-editor'].addEventListener('keyup', (event) => {
+                if (event.key === 'Shift' || event.key === 'Control' || event.key === 'Alt' || event.key === 'Meta') {
+                    return;
+                }
+                updateEditorSuggestions();
             });
             DOM['pipeline-yaml-editor'].addEventListener('keydown', (event) => {
                 if (event.key === 'Tab') {
@@ -152,6 +173,9 @@
                     event.target.selectionStart = event.target.selectionEnd = start + 2;
                     handleValidation();
                     updateLineNumbers();
+                    updateEditorSuggestions();
+                } else if (event.key === 'Escape') {
+                    hideEditorSuggestions();
                 }
             });
         }
@@ -220,6 +244,17 @@
         await refreshPipelines();
 
         const routeInfo = parsePipelineRoute(hash);
+
+        if (state.isEditing) {
+            const samePipeline = routeInfo.pipelineId && routeInfo.pipelineId === state.selectedId;
+            const stayingInEdit = routeInfo.path === 'pipelines' && samePipeline && routeInfo.isEdit;
+            if (!stayingInEdit) {
+                if (editingPreventNavigation(hash)) {
+                    return;
+                }
+            }
+        }
+
         const { pipelineId, activeFolderKey, isEdit } = routeInfo;
 
         state.activeFolderKey = activeFolderKey || '';
@@ -783,6 +818,48 @@
         }
     }
 
+    async function preloadAutocompleteMetadata(force = false) {
+        if (!context || typeof context.fetchData !== 'function') return;
+        const now = Date.now();
+        if (!force && state.autocomplete.fetchedAt && (now - state.autocomplete.fetchedAt) < AUTOCOMPLETE_REFRESH_INTERVAL) {
+            return;
+        }
+        if (state.autocomplete.loadingPromise) {
+            return state.autocomplete.loadingPromise;
+        }
+
+        const promise = (async () => {
+            state.autocomplete.isLoading = true;
+            try {
+                const [secrets, envs, steps] = await Promise.all([
+                    context.fetchData('/v1/secrets'),
+                    context.fetchData('/v1/environments'),
+                    context.fetchData('/v1/steps'),
+                ]);
+                state.autocomplete.secrets = normalizeAutocompleteList(secrets);
+                state.autocomplete.environments = normalizeAutocompleteList(envs);
+                state.autocomplete.reusableSteps = normalizeAutocompleteList(steps);
+                state.autocomplete.fetchedAt = Date.now();
+            } catch (error) {
+                console.error('Failed to load autocomplete metadata for pipelines editor:', error);
+            } finally {
+                state.autocomplete.isLoading = false;
+                state.autocomplete.loadingPromise = null;
+                updateEditorSuggestions();
+            }
+        })();
+
+        state.autocomplete.loadingPromise = promise;
+        return promise;
+    }
+
+    function normalizeAutocompleteList(value) {
+        if (!Array.isArray(value)) return [];
+        return value
+            .map(item => typeof item === 'string' ? item.trim() : '')
+            .filter(Boolean);
+    }
+
     async function ensurePipelineSummary(pipelineId) {
         const cacheEntry = state.pipelineCache.get(pipelineId);
         if (cacheEntry && cacheEntry.meta && cacheEntry.yaml) {
@@ -1022,6 +1099,11 @@ function formatPathLabel(path) {
     }
 
     function showListView() {
+        if (state.isEditing) {
+            notifyEditingLock();
+            restoreEditingRoute();
+            return;
+        }
         state.selectedId = null;
         state.isEditing = false;
         setActiveView('list');
@@ -1039,6 +1121,11 @@ function formatPathLabel(path) {
     }
 
     async function selectPipeline(pipelineId, options = {}) {
+        if (state.isEditing && pipelineId !== state.selectedId) {
+            notifyEditingLock();
+            restoreEditingRoute();
+            return null;
+        }
         const entry = await ensurePipelineSummary(pipelineId);
         if (!entry) {
             showToast(`Unable to load pipeline '${pipelineId}'.`, 'error');
@@ -1296,6 +1383,13 @@ function formatPathLabel(path) {
 
         const folderBtn = event.target.closest('[data-open-folder]');
         if (folderBtn) {
+            if (state.isEditing) {
+                notifyEditingLock();
+                restoreEditingRoute();
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
             const folderPath = folderBtn.dataset.openFolder || '';
             if (!event.target.closest('[data-toggle-folder]')) {
                 event.preventDefault();
@@ -1308,6 +1402,13 @@ function formatPathLabel(path) {
         
         const pipelineLink = event.target.closest('a[data-pipeline-link]');
         if (pipelineLink) {
+            if (state.isEditing) {
+                notifyEditingLock();
+                restoreEditingRoute();
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
             const pipelineId = pipelineLink.dataset.pipelineLink;
             if (pipelineId) {
                 const parentFolder = pipelineLink.dataset.parentFolder || '';
@@ -1868,6 +1969,10 @@ function formatPathLabel(path) {
         if (DOM['pipeline-yaml-editor']) {
             DOM['pipeline-yaml-editor'].focus();
         }
+        bindBeforeUnload();
+        ensureEditorSuggestionPanel();
+        updateEditorSuggestions();
+        preloadAutocompleteMetadata().catch(() => {});
     }
 
     function exitEditMode() {
@@ -1887,6 +1992,90 @@ function formatPathLabel(path) {
                 } catch { window.location.hash = expectedHash; }
             }
         }
+        unbindBeforeUnload();
+        hideEditorSuggestions();
+    }
+
+    function bindBeforeUnload() {
+        if (state.beforeUnloadHandler) return;
+        const handler = (event) => {
+            if (!state.isEditing) return;
+            event.preventDefault();
+            event.returnValue = '';
+            return '';
+        };
+        state.beforeUnloadHandler = handler;
+        window.addEventListener('beforeunload', handler);
+    }
+
+    function unbindBeforeUnload() {
+        if (!state.beforeUnloadHandler) return;
+        try {
+            window.removeEventListener('beforeunload', state.beforeUnloadHandler);
+        } catch {}
+        state.beforeUnloadHandler = null;
+    }
+
+    function notifyEditingLock() {
+        showToast('Save or discard your changes before leaving edit mode.', 'error');
+    }
+
+    function editingPreventNavigation(targetHash) {
+        if (!state.isEditing) return false;
+        notifyEditingLock();
+        restoreEditingRoute(targetHash);
+        return true;
+    }
+
+    function restoreEditingRoute(targetHash) {
+        const currentHash = normalizeHashForCompare(typeof targetHash === 'string' ? targetHash : window.location.hash);
+        const expectedHash = normalizeHashForCompare(state.selectedId ? buildPipelineHash(state.selectedId, true) : '#/pipelines');
+        if (currentHash === expectedHash) {
+            return;
+        }
+        suppressNextRouteOnce();
+        const desiredHash = state.selectedId ? buildPipelineHash(state.selectedId, true) : '#/pipelines';
+        try {
+            const url = new URL(window.location.href);
+            url.hash = desiredHash.slice(1);
+            history.replaceState(null, '', url.toString());
+        } catch {
+            window.location.hash = desiredHash;
+        }
+    }
+
+    function suppressNextRouteOnce() {
+        if (!context || !context.state) return;
+        const appState = context.state;
+        appState._suppressNextRoute = true;
+        if (appState._suppressRouteTimeout) {
+            try { clearTimeout(appState._suppressRouteTimeout); } catch {}
+        }
+        try {
+            appState._suppressRouteTimeout = setTimeout(() => {
+                appState._suppressNextRoute = false;
+                appState._suppressRouteTimeout = null;
+            }, 100);
+        } catch {
+            appState._suppressNextRoute = false;
+        }
+    }
+
+    function normalizeHashForCompare(rawHash) {
+        let hash = rawHash;
+        if (!hash) {
+            hash = '#';
+        }
+        if (typeof hash !== 'string') {
+            hash = String(hash || '');
+        }
+        hash = hash.trim();
+        if (!hash.startsWith('#')) {
+            hash = hash.startsWith('/') ? `#${hash.slice(1)}` : `#${hash}`;
+        }
+        hash = hash.replace(/^#\/+/, '#/');
+        hash = hash.replace(/\/+$/g, '');
+        return hash || '#';
     }
 
     function updateLineNumbers() {
@@ -1927,6 +2116,373 @@ function formatPathLabel(path) {
             DOM['validation-status'].className = 'mt-2 text-xs text-green-500';
             if (DOM['pipeline-save-btn']) DOM['pipeline-save-btn'].disabled = false;
         }
+    }
+
+    function ensureEditorSuggestionPanel() {
+        if (DOM['pipeline-editor-suggestions'] || !DOM['editor-container']) return;
+        const panel = document.createElement('div');
+        panel.id = 'pipeline-editor-suggestions';
+        panel.className = 'pipeline-editor-suggestions hidden';
+        panel.innerHTML = `
+            <div class="pipeline-editor-suggestions__header">
+                <span id="pipeline-editor-suggestions-title">Suggestions</span>
+                <span class="pipeline-editor-suggestions__hint">Click to insert</span>
+            </div>
+            <div id="pipeline-editor-suggestions-body" class="pipeline-editor-suggestions__body"></div>`;
+        panel.addEventListener('click', handleSuggestionClick);
+        DOM['editor-container'].appendChild(panel);
+        DOM['pipeline-editor-suggestions'] = panel;
+        DOM['pipeline-editor-suggestions-title'] = panel.querySelector('#pipeline-editor-suggestions-title');
+        DOM['pipeline-editor-suggestions-body'] = panel.querySelector('#pipeline-editor-suggestions-body');
+    }
+
+    function hideEditorSuggestions() {
+        state.editorSuggestionContext = null;
+        if (DOM['pipeline-editor-suggestions']) {
+            DOM['pipeline-editor-suggestions'].classList.add('hidden');
+        }
+    }
+
+    function renderEditorSuggestions(payload) {
+        ensureEditorSuggestionPanel();
+        const panel = DOM['pipeline-editor-suggestions'];
+        const titleEl = DOM['pipeline-editor-suggestions-title'];
+        const bodyEl = DOM['pipeline-editor-suggestions-body'];
+        if (!panel || !titleEl || !bodyEl) return;
+
+        if (payload.loading) {
+            titleEl.textContent = payload.title || 'Suggestions';
+            bodyEl.innerHTML = '<div class="pipeline-editor-suggestions__empty">Loading suggestions…</div>';
+            panel.classList.remove('hidden');
+            return;
+        }
+
+        if (!payload.items || !payload.items.length) {
+            hideEditorSuggestions();
+            return;
+        }
+
+        titleEl.textContent = payload.title || 'Suggestions';
+        bodyEl.innerHTML = payload.items.map(item => `
+            <button type="button" class="pipeline-editor-suggestions__item" data-suggestion-value="${escapeAttribute(item.value)}">
+                <span class="pipeline-editor-suggestions__item-label">${escapeHtml(item.label || item.value)}</span>
+                ${item.hint ? `<span class="pipeline-editor-suggestions__item-hint">${escapeHtml(item.hint)}</span>` : ''}
+            </button>
+        `).join('');
+        panel.classList.remove('hidden');
+    }
+
+    function handleSuggestionClick(event) {
+        const target = event.target.closest('[data-suggestion-value]');
+        if (!target) return;
+        const value = target.getAttribute('data-suggestion-value');
+        if (!value) return;
+        applyEditorSuggestion(value);
+    }
+
+    function applyEditorSuggestion(value) {
+        if (!state.editorSuggestionContext || !DOM['pipeline-yaml-editor']) return;
+        const textarea = DOM['pipeline-yaml-editor'];
+        const textLength = textarea.value.length;
+        const rangeStart = Math.max(0, Math.min(state.editorSuggestionContext.rangeStart ?? textarea.selectionStart, textLength));
+        const rangeEnd = Math.max(rangeStart, Math.min(state.editorSuggestionContext.rangeEnd ?? textarea.selectionEnd, textLength));
+        const before = textarea.value.slice(0, rangeStart);
+        const after = textarea.value.slice(rangeEnd);
+        let suffix = state.editorSuggestionContext.insertSuffix || '';
+        if (suffix && after.trimStart().startsWith(':')) {
+            suffix = '';
+        }
+        textarea.value = before + value + suffix + after;
+        const caret = rangeStart + value.length + suffix.length;
+        textarea.selectionStart = textarea.selectionEnd = caret;
+        textarea.focus();
+        state.editorSuggestionContext = null;
+        handleValidation();
+        updateLineNumbers();
+        updateEditorSuggestions();
+    }
+
+    function updateEditorSuggestions() {
+        if (!state.isEditing || !DOM['pipeline-yaml-editor']) {
+            hideEditorSuggestions();
+            return;
+        }
+        ensureEditorSuggestionPanel();
+        const textarea = DOM['pipeline-yaml-editor'];
+        const text = textarea.value || '';
+        const selectionStart = Math.min(textarea.selectionStart, textarea.selectionEnd);
+        const selectionEnd = Math.max(textarea.selectionStart, textarea.selectionEnd);
+        const contextInfo = detectSuggestionContext(text, selectionStart, selectionEnd);
+        if (!contextInfo) {
+            hideEditorSuggestions();
+            return;
+        }
+
+        const requiresMetadata = contextInfo.type === 'secrets'
+            || contextInfo.type === 'environment'
+            || contextInfo.type === 'reusable-step';
+
+        if (requiresMetadata) {
+            const poolSize = contextInfo.type === 'secrets'
+                ? state.autocomplete.secrets.length
+                : contextInfo.type === 'environment'
+                    ? state.autocomplete.environments.length
+                    : state.autocomplete.reusableSteps.length;
+            if (!poolSize) {
+                preloadAutocompleteMetadata().catch(() => {});
+                state.editorSuggestionContext = contextInfo;
+                renderEditorSuggestions({ title: contextInfo.title, loading: true });
+                return;
+            }
+        }
+
+        const items = buildSuggestionItems(contextInfo, text);
+        if (!items.length) {
+            if (requiresMetadata && state.autocomplete.isLoading) {
+                state.editorSuggestionContext = contextInfo;
+                renderEditorSuggestions({ title: contextInfo.title, loading: true });
+            } else {
+                hideEditorSuggestions();
+            }
+            return;
+        }
+
+        state.editorSuggestionContext = contextInfo;
+        renderEditorSuggestions({ title: contextInfo.title, items });
+    }
+
+    function detectSuggestionContext(text, selectionStart, selectionEnd) {
+        if (typeof text !== 'string') return null;
+        const lineInfo = getCurrentLineInfo(text, selectionStart);
+        if (!lineInfo) return null;
+        const beforeLine = text.slice(0, lineInfo.start);
+        const trimmedLine = lineInfo.line.trim();
+        if (trimmedLine.startsWith('#')) {
+            return null;
+        }
+
+        const lineBeforeCaret = lineInfo.line.slice(0, lineInfo.column);
+
+        const reusable = detectReusableStepContext(lineInfo, lineBeforeCaret, selectionEnd);
+        if (reusable) {
+            return reusable;
+        }
+
+        const inlineDepends = detectInlineKeyContext(lineInfo, selectionEnd, 'depends_on');
+        if (inlineDepends) {
+            return { ...inlineDepends, type: 'depends_on', title: 'Depends on' };
+        }
+
+        const dependsList = detectListEntryContext(lineInfo, selectionEnd, beforeLine, 'depends_on');
+        if (dependsList) {
+            return { ...dependsList, type: 'depends_on', title: 'Depends on' };
+        }
+
+        const secretsList = detectListEntryContext(lineInfo, selectionEnd, beforeLine, 'secrets');
+        if (secretsList) {
+            return { ...secretsList, type: 'secrets', title: 'Secrets', insertSuffix: '' };
+        }
+
+        const environmentContext = detectEnvironmentContext(lineInfo, selectionEnd, beforeLine);
+        if (environmentContext) {
+            return environmentContext;
+        }
+
+        return null;
+    }
+
+    function detectReusableStepContext(lineInfo, lineBeforeCaret, selectionEnd) {
+        const match = lineBeforeCaret.match(/step:\s*"?([A-Za-z0-9_\/-]*)$/i);
+        if (!match) return null;
+        const segment = match[0];
+        const prefix = (match[1] || '').trim();
+        const matchIndex = lineBeforeCaret.lastIndexOf(segment);
+        if (matchIndex === -1) return null;
+        return {
+            type: 'reusable-step',
+            title: 'Reusable steps',
+            prefix,
+            rangeStart: lineInfo.start + matchIndex,
+            rangeEnd: selectionEnd,
+            insertSuffix: '',
+        };
+    }
+
+    function detectEnvironmentContext(lineInfo, selectionEnd, beforeLine) {
+        const parent = findParentBlock(beforeLine, ['environment'], lineInfo.indent);
+        if (parent !== 'environment') {
+            return null;
+        }
+        const colonIndex = lineInfo.line.indexOf(':', lineInfo.indent);
+        const hasColon = colonIndex !== -1;
+        const valueEnd = hasColon ? Math.min(colonIndex, lineInfo.column) : lineInfo.column;
+        const rawPrefix = lineInfo.line.slice(lineInfo.indent, valueEnd);
+        const prefix = rawPrefix.trim();
+        const computedRangeEnd = hasColon && colonIndex < selectionEnd ? lineInfo.start + colonIndex : selectionEnd;
+        const safeRangeEnd = Math.max(lineInfo.start + lineInfo.indent, computedRangeEnd);
+        return {
+            type: 'environment',
+            title: 'Environment keys',
+            prefix,
+            rangeStart: lineInfo.start + lineInfo.indent,
+            rangeEnd: safeRangeEnd,
+            insertSuffix: hasColon ? '' : ': ',
+        };
+    }
+
+    function detectInlineKeyContext(lineInfo, selectionEnd, keyName) {
+        const colonIndex = lineInfo.line.indexOf(':');
+        if (colonIndex === -1) return null;
+        const key = lineInfo.line.slice(0, colonIndex).trim();
+        if (key !== keyName || lineInfo.column <= colonIndex) return null;
+        const valueStartLocal = colonIndex + 1;
+        const whitespaceMatch = lineInfo.line.slice(valueStartLocal).match(/^\s*/);
+        const valueStart = valueStartLocal + (whitespaceMatch ? whitespaceMatch[0].length : 0);
+        const rangeStart = lineInfo.start + valueStart;
+        const safeEnd = Math.max(rangeStart, selectionEnd);
+        return {
+            prefix: lineInfo.line.slice(valueStart, lineInfo.column).trim(),
+            rangeStart,
+            rangeEnd: safeEnd,
+            insertSuffix: '',
+        };
+    }
+
+    function detectListEntryContext(lineInfo, selectionEnd, beforeLine, keyName) {
+        const trimmed = lineInfo.line.trimStart();
+        if (!trimmed.startsWith('-')) return null;
+        const parent = findParentBlock(beforeLine, [keyName], lineInfo.indent);
+        if (parent !== keyName) return null;
+        const dashMatch = lineInfo.line.match(/^(\s*-\s*)/);
+        const valueStart = dashMatch ? dashMatch[0].length : lineInfo.indent;
+        const rangeStart = lineInfo.start + valueStart;
+        const safeEnd = Math.max(rangeStart, selectionEnd);
+        return {
+            prefix: lineInfo.line.slice(valueStart, lineInfo.column).trim(),
+            rangeStart,
+            rangeEnd: safeEnd,
+            insertSuffix: '',
+        };
+    }
+
+    function findParentBlock(beforeText, targetKeys, currentIndent) {
+        if (!beforeText) return null;
+        const lines = beforeText.split('\n');
+        for (let i = lines.length - 1; i >= 0; i--) {
+            const rawLine = lines[i];
+            if (!rawLine) continue;
+            const trimmed = rawLine.trim();
+            if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('-')) {
+                continue;
+            }
+            if (!trimmed.endsWith(':')) {
+                continue;
+            }
+            const indent = rawLine.match(/^\s*/)[0].length;
+            if (indent >= currentIndent) {
+                continue;
+            }
+            const key = trimmed.slice(0, trimmed.indexOf(':')).trim();
+            if (targetKeys.includes(key)) {
+                return key;
+            }
+            return null;
+        }
+        return null;
+    }
+
+    function getCurrentLineInfo(text, index) {
+        const safeIndex = Math.max(0, Math.min(index, text.length));
+        const lineStart = text.lastIndexOf('\n', safeIndex - 1);
+        const start = lineStart === -1 ? 0 : lineStart + 1;
+        const lineEnd = text.indexOf('\n', safeIndex);
+        const end = lineEnd === -1 ? text.length : lineEnd;
+        const line = text.slice(start, end);
+        const indentMatch = line.match(/^\s*/);
+        return {
+            line,
+            start,
+            end,
+            column: safeIndex - start,
+            indent: indentMatch ? indentMatch[0].length : 0,
+        };
+    }
+
+    function buildSuggestionItems(contextInfo, text) {
+        const prefix = contextInfo.prefix || '';
+        if (contextInfo.type === 'depends_on') {
+            const steps = collectStepNamesFromYamlText(text).map(name => ({ value: name, label: name }));
+            return filterSuggestionPool(steps, prefix);
+        }
+        if (contextInfo.type === 'secrets') {
+            const secrets = state.autocomplete.secrets.map(name => ({ value: name, label: name }));
+            return filterSuggestionPool(secrets, prefix);
+        }
+        if (contextInfo.type === 'environment') {
+            const envs = state.autocomplete.environments.map(name => ({ value: name, label: name }));
+            return filterSuggestionPool(envs, prefix);
+        }
+        if (contextInfo.type === 'reusable-step') {
+            const steps = state.autocomplete.reusableSteps.map(name => ({
+                value: `step:${name}`,
+                label: `step:${name}`,
+                matchValue: name.toLowerCase(),
+            }));
+            return filterSuggestionPool(steps, prefix);
+        }
+        return [];
+    }
+
+    function filterSuggestionPool(pool, prefix, limit = 8) {
+        if (!Array.isArray(pool) || !pool.length) return [];
+        const seen = new Set();
+        const normalized = [];
+        pool.forEach(item => {
+            if (!item || !item.value) return;
+            if (seen.has(item.value)) return;
+            seen.add(item.value);
+            normalized.push(item);
+        });
+        const lowerPrefix = (prefix || '').toLowerCase();
+        if (!lowerPrefix) {
+            return normalized.slice(0, limit);
+        }
+        const starts = [];
+        const contains = [];
+        normalized.forEach(item => {
+            const key = (item.matchValue || item.label || item.value || '').toLowerCase();
+            if (!key) return;
+            if (key.startsWith(lowerPrefix)) {
+                starts.push(item);
+            } else if (key.includes(lowerPrefix)) {
+                contains.push(item);
+            }
+        });
+        return [...starts, ...contains].slice(0, limit);
+    }
+
+    function collectStepNamesFromYamlText(text) {
+        const names = new Set();
+        const parsed = parseYamlSafely(text);
+        if (parsed && Array.isArray(parsed.steps)) {
+            parsed.steps.forEach(step => {
+                const candidate = step && (step.name || step.task_name);
+                if (candidate) {
+                    names.add(String(candidate));
+                }
+            });
+        }
+        if (!names.size) {
+            const regex = /name:\s*([^\n]+)/gi;
+            let match;
+            while ((match = regex.exec(text))) {
+                const raw = (match[1] || '').trim().replace(/^['"]|['"]$/g, '');
+                if (raw) {
+                    names.add(raw);
+                }
+            }
+        }
+        return Array.from(names);
     }
 
     async function savePipelineChanges() {
@@ -1998,6 +2554,12 @@ function formatPathLabel(path) {
     }
 
     function handleListClick(event) {
+        if (state.isEditing) {
+            notifyEditingLock();
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+        }
         const deleteButton = event.target.closest('[data-delete-pipeline]');
         if (deleteButton) {
             const pipelineId = deleteButton.getAttribute('data-delete-pipeline');
@@ -2050,6 +2612,11 @@ function formatPathLabel(path) {
 
     function handleListKeydown(event) {
         if (event.defaultPrevented) return;
+        if (state.isEditing) {
+            notifyEditingLock();
+            event.preventDefault();
+            return;
+        }
         if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return;
 
         const folderNav = event.target.closest('[data-folder-nav]');
