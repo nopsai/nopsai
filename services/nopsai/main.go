@@ -580,6 +580,15 @@ func validatePipeline(pipeline *models.Pipeline) error {
 					return fmt.Errorf("duplicate task name '%s' found within step '%s'. Task names must be unique within a step", task.Name, step.Name)
 				}
 				stepToTaskNames[step.Name][task.Name] = true
+
+				hasGoal := strings.TrimSpace(task.Goal) != ""
+				hasScript := strings.TrimSpace(task.Script) != ""
+				if hasGoal && hasScript {
+					return fmt.Errorf("task '%s' in step '%s' cannot define both 'goal' and 'script'", task.Name, step.Name)
+				}
+				if !hasGoal && !hasScript {
+					return fmt.Errorf("task '%s' in step '%s' must define either 'goal' or 'script'", task.Name, step.Name)
+				}
 			}
 		} else if !isLegacyStep {
 			return fmt.Errorf("step '%s' must contain 'include', 'tasks', 'goal', or 'script'", step.Name)

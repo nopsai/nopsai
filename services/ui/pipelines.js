@@ -27,6 +27,7 @@
         editorSuggestionItems: [],
         editorSuggestionIndex: -1,
         editorCharWidth: null,
+        editorValidationErrors: [],
         beforeUnloadHandler: null,
     };
 
@@ -2043,6 +2044,8 @@ function formatPathLabel(path) {
 
         state.isEditing = false;
         hideEditorSuggestions();
+        state.editorValidationErrors = [];
+        updateLineNumbers();
         if (DOM['yaml-view-actions']) DOM['yaml-view-actions'].classList.remove('hidden');
         if (DOM['yaml-edit-actions']) DOM['yaml-edit-actions'].classList.add('hidden');
         if (DOM['pipeline-yaml-content']) DOM['pipeline-yaml-content'].classList.remove('hidden');
@@ -2145,14 +2148,26 @@ function formatPathLabel(path) {
     function updateLineNumbers() {
         if (!DOM['pipeline-yaml-editor'] || !DOM['line-numbers']) return;
         const lines = DOM['pipeline-yaml-editor'].value.split('\n');
-        DOM['line-numbers'].textContent = lines.map((_, idx) => idx + 1).join('\n');
-        DOM['line-numbers'].scrollTop = DOM['pipeline-yaml-editor'].scrollTop;
-    }
-
-    function updateLineNumbers() {
-        if (!DOM['pipeline-yaml-editor'] || !DOM['line-numbers']) return;
-        const lines = DOM['pipeline-yaml-editor'].value.split('\n');
-        DOM['line-numbers'].textContent = lines.map((_, idx) => idx + 1).join('\n');
+        const errorMap = new Map();
+        (state.editorValidationErrors || []).forEach(err => {
+            if (!err || typeof err.line !== 'number') return;
+            if (!errorMap.has(err.line)) {
+                errorMap.set(err.line, []);
+            }
+            errorMap.get(err.line).push(err.message);
+        });
+        DOM['line-numbers'].innerHTML = lines.map((_, idx) => {
+            const lineNumber = idx + 1;
+            const messages = errorMap.get(lineNumber);
+            const classes = ['line-number'];
+            if (messages && messages.length) {
+                classes.push('line-number--error');
+            }
+            const titleAttr = messages && messages.length
+                ? ` title="${escapeAttribute(messages.join('\n'))}"`
+                : '';
+            return `<div class="${classes.join(' ')}" data-line-number="${lineNumber}"${titleAttr}>${lineNumber}</div>`;
+        }).join('');
         DOM['line-numbers'].scrollTop = DOM['pipeline-yaml-editor'].scrollTop;
     }
 
@@ -2167,19 +2182,36 @@ function formatPathLabel(path) {
             </div>`).join('');
     }
 
-    function handleValidation() {
-        if (!DOM['pipeline-yaml-editor'] || !DOM['validation-status']) return;
-        const yamlString = DOM['pipeline-yaml-editor'].value;
-        const result = validatePipelineYaml(yamlString);
-        if (result && result.error) {
-            DOM['validation-status'].textContent = result.error;
-            DOM['validation-status'].className = 'mt-2 text-xs text-red-500';
+    function applyValidationResult(result) {
+        const errors = (result && Array.isArray(result.errors)) ? result.errors : [];
+        state.editorValidationErrors = errors;
+        updateLineNumbers();
+
+        if (!DOM['validation-status']) return;
+
+        if (errors.length) {
+            const items = errors.map(err => {
+                const lineLabel = err.line ? `<span class="validation-box__line">Line ${err.line}</span>` : '';
+                const message = `<div class="validation-box__message">${escapeHtml(err.message)}</div>`;
+                const example = buildValidationExample(err.message);
+                const exampleHtml = example ? `<pre class="validation-box__example"><code>${escapeHtml(example)}</code></pre>` : '';
+                return `<div class="validation-box__item">${lineLabel}${message}${exampleHtml}</div>`;
+            }).join('');
+            DOM['validation-status'].innerHTML = `<div class="validation-box__header">Validation issues</div>${items}`;
+            DOM['validation-status'].className = 'validation-box validation-box--error';
             if (DOM['pipeline-save-btn']) DOM['pipeline-save-btn'].disabled = true;
         } else {
-            DOM['validation-status'].textContent = '✅ Pipeline definition is valid.';
-            DOM['validation-status'].className = 'mt-2 text-xs text-green-500';
+            DOM['validation-status'].innerHTML = '<div class="validation-box__header">All good</div><div class="validation-box__message">Pipeline definition passes validation.</div>';
+            DOM['validation-status'].className = 'validation-box validation-box--success';
             if (DOM['pipeline-save-btn']) DOM['pipeline-save-btn'].disabled = false;
         }
+    }
+
+    function handleValidation() {
+        if (!DOM['pipeline-yaml-editor']) return;
+        const yamlString = DOM['pipeline-yaml-editor'].value;
+        const result = validatePipelineYaml(yamlString);
+        applyValidationResult(result);
     }
 
     function ensureEditorSuggestionOverlay() {
@@ -2402,9 +2434,17 @@ function formatPathLabel(path) {
         let newIndent = currentIndent;
         let listPrefix = '';
 
-        if (trimmed.startsWith('-')) {
+        if (/^-\s*name\s*:/i.test(trimmed)) {
+            newIndent = ' '.repeat(lineInfo.indent + 2);
+            listPrefix = '';
+        } else if (trimmed.startsWith('-')) {
             newIndent = currentIndent;
-            listPrefix = /^-\s*name\b/i.test(trimmed) ? '- name: ' : '- ';
+            const parent = findParentBlock(value.slice(0, lineInfo.start), ['steps', 'tasks'], lineInfo.indent);
+            if (parent && LIST_KEYS_WITH_NAME_TEMPLATE.has(parent)) {
+                listPrefix = '- name: ';
+            } else {
+                listPrefix = '- ';
+            }
         } else if (trimmed.endsWith(':')) {
             newIndent = currentIndent + '  ';
             const key = trimmed.slice(0, -1).trim();
@@ -2414,9 +2454,11 @@ function formatPathLabel(path) {
                 listPrefix = '- ';
             }
         } else {
-            if (parentBlock && LIST_KEYS_WITH_NAME_TEMPLATE.has(parentBlock)) {
+            if (parentBlock && LIST_KEYS_WITH_NAME_TEMPLATE.has(parentBlock) && trimmed === '') {
                 newIndent = ' '.repeat(lineInfo.indent);
                 listPrefix = '- name: ';
+            } else {
+                newIndent = currentIndent;
             }
         }
 
@@ -2521,7 +2563,7 @@ function formatPathLabel(path) {
             return valueContext;
         }
 
-        const directiveContext = detectDirectiveKeyContext(lineInfo, selectionEnd, beforeLine);
+        const directiveContext = detectDirectiveKeyContext(lineInfo, selectionEnd, beforeLine, text);
         if (directiveContext) {
             return directiveContext;
         }
@@ -2627,7 +2669,7 @@ function formatPathLabel(path) {
         };
     }
 
-    function detectDirectiveKeyContext(lineInfo, selectionEnd, beforeLine) {
+    function detectDirectiveKeyContext(lineInfo, selectionEnd, beforeLine, fullText) {
         const rawLine = lineInfo.line;
         if (!rawLine) return null;
         const trimmed = rawLine.trim();
@@ -2646,8 +2688,9 @@ function formatPathLabel(path) {
 
         if (trimmed.startsWith('-')) {
             const dashMatch = rawLine.match(/^(\s*-\s*)/);
-            if (!dashMatch) return null;
-            const valueStartLocal = dashMatch[0].length;
+            const dashSegment = dashMatch ? dashMatch[0] : '- ';
+            const valueStartLocal = dashSegment.length;
+            const valueSlice = rawLine.slice(valueStartLocal, lineInfo.column);
             rangeStart = lineInfo.start + valueStartLocal;
             const endIndex = colonIndex !== -1 ? Math.min(colonIndex, lineInfo.column) : lineInfo.column;
             prefix = rawLine.slice(valueStartLocal, endIndex).trim();
@@ -2687,6 +2730,7 @@ function formatPathLabel(path) {
                 ? 'Step directives'
                 : 'Task directives';
 
+        const blockInfo = collectExistingKeysForContext(fullText, lineInfo, type, parent);
         return {
             type,
             title,
@@ -2696,6 +2740,9 @@ function formatPathLabel(path) {
             insertSuffix: ': ',
             insertIndent,
             indent: lineInfo.indent,
+            existingKeys: blockInfo.keys,
+            blockInfo,
+            currentKey: prefix,
         };
     }
 
@@ -2733,6 +2780,98 @@ function formatPathLabel(path) {
             insertSuffix: '',
             insertPrefix: dashMatch && /\s$/.test(dashMatch[0]) ? '' : ' ',
         };
+    }
+
+    function getLineIndexForOffset(text, offset) {
+        if (!text || offset <= 0) return 0;
+        let count = 0;
+        for (let i = 0; i < offset && i < text.length; i++) {
+            if (text[i] === '\n') count++;
+        }
+        return count;
+    }
+
+    function collectExistingKeysForContext(text, lineInfo, type, parentKey) {
+        if (typeof text !== 'string') {
+            return { keys: new Set(), hasScript: false, hasGoal: false, hasTasks: false };
+        }
+        const lines = text.split('\n');
+        const lineIndex = getLineIndexForOffset(text, lineInfo.start);
+        if (type === 'pipeline-key') {
+            return collectPipelineLevelKeys(lines);
+        }
+        if (type === 'step-key' || type === 'task-key') {
+            return collectListItemKeys(lines, lineIndex);
+        }
+        return { keys: new Set() };
+    }
+
+    function collectPipelineLevelKeys(lines) {
+        const keys = new Set();
+        lines.forEach(line => {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('-')) return;
+            const indent = line.match(/^\s*/)[0].length;
+            if (indent !== 0) return;
+            const match = trimmed.match(/^([A-Za-z0-9_]+)\s*:/);
+            if (match) {
+                keys.add(match[1]);
+            }
+        });
+        return { keys };
+    }
+
+    function collectListItemKeys(lines, lineIndex) {
+        const keys = new Set();
+        let hasScript = false;
+        let hasGoal = false;
+        let hasTasks = false;
+        let hasInclude = false;
+        let start = lineIndex;
+        let baseIndent = null;
+
+        for (let i = lineIndex; i >= 0; i--) {
+            const raw = lines[i];
+            if (!raw || !raw.trim()) continue;
+            const indent = raw.match(/^\s*/)[0].length;
+            const trimmed = raw.trim();
+            if (trimmed.startsWith('-')) {
+                start = i;
+                baseIndent = indent;
+                break;
+            }
+            if (indent === 0) break;
+        }
+
+        if (baseIndent === null) {
+            return { keys, hasScript, hasGoal, hasTasks };
+        }
+
+        const listItemIndent = baseIndent;
+        for (let j = start; j < lines.length; j++) {
+            const raw = lines[j];
+            if (raw === undefined) break;
+            const trimmed = raw.trim();
+            const indent = raw.match(/^\s*/)[0].length;
+            if (j !== start) {
+                if (!trimmed) continue;
+                if (indent < listItemIndent) break;
+                if (indent === listItemIndent && trimmed.startsWith('-')) break;
+            }
+            const relativeIndent = indent - listItemIndent;
+            if (relativeIndent > 2) continue;
+            const match = trimmed.match(/^-?\s*([A-Za-z0-9_]+)\s*:/);
+            if (match) {
+                const key = match[1];
+                keys.add(key);
+                if (key === 'script') hasScript = true;
+                if (key === 'goal') hasGoal = true;
+                if (key === 'tasks') hasTasks = true;
+                if (key === 'include') hasInclude = true;
+            }
+        }
+
+        return { keys, hasScript, hasGoal, hasTasks, hasInclude };
     }
 
     function findParentBlock(beforeText, targetKeys, currentIndent) {
@@ -2850,7 +2989,51 @@ function formatPathLabel(path) {
 
     function buildDirectiveSuggestionItems(definitions, contextInfo) {
         if (!Array.isArray(definitions)) return [];
+        const existingKeys = contextInfo.existingKeys instanceof Set ? contextInfo.existingKeys : new Set(contextInfo.existingKeys || []);
+        const blockInfo = contextInfo.blockInfo || {};
+        const disallowed = new Set();
+
+        if (contextInfo.type === 'step-key') {
+            if (blockInfo.hasInclude) {
+                disallowed.add('tasks');
+                disallowed.add('goal');
+                disallowed.add('script');
+            }
+            if (blockInfo.hasTasks) {
+                disallowed.add('script');
+                disallowed.add('goal');
+                disallowed.add('include');
+            }
+            if (blockInfo.hasScript) {
+                disallowed.add('tasks');
+                disallowed.add('goal');
+                disallowed.add('include');
+            }
+            if (blockInfo.hasGoal) {
+                disallowed.add('tasks');
+                disallowed.add('script');
+                disallowed.add('include');
+            }
+        } else if (contextInfo.type === 'task-key') {
+            if (blockInfo.hasScript) {
+                disallowed.add('goal');
+            }
+            if (blockInfo.hasGoal) {
+                disallowed.add('script');
+            }
+        }
+
+        const prefixLower = (contextInfo.prefix || '').toLowerCase();
         return definitions.map(def => {
+            if (disallowed.has(def.key)) {
+                return null;
+            }
+            if (existingKeys.has(def.key)) {
+                const keyLower = def.key.toLowerCase();
+                if (!(prefixLower && keyLower.startsWith(prefixLower))) {
+                    return null;
+                }
+            }
             return {
                 value: def.key,
                 label: def.key,
@@ -2858,7 +3041,7 @@ function formatPathLabel(path) {
                 hint: def.hint || '',
                 overrideSuffix: '',
             };
-        });
+        }).filter(Boolean);
     }
 
     function collectStepNamesFromYamlText(text) {
@@ -2885,11 +3068,154 @@ function formatPathLabel(path) {
         return Array.from(names);
     }
 
+    const ARRAY_KEYS = new Set(['steps', 'tasks', 'environment', 'secrets', 'volumes', 'depends_on', 'artifacts', 'llm_content_ignore']);
+
+    const VALIDATION_EXAMPLES = [
+        {
+            pattern: /must contain 'include', 'tasks', 'goal', or 'script'/i,
+            example: `steps:\n  - name: setup\n    tasks:\n      - name: install\n        script: |\n          echo "Installing"`
+        },
+        {
+            pattern: /is an include step and cannot also contain tasks, goal, or script/i,
+            example: `steps:\n  - name: use-template\n    include: "step:path/to/reusable"`
+        },
+        {
+            pattern: /mixes tasks with goal\/script/i,
+            example: `steps:\n  - name: lint\n    tasks:\n      - name: run-lint\n        script: |\n          npm run lint`
+        },
+        {
+            pattern: /cannot define both 'goal' and 'script'/i,
+            example: `steps:\n  - name: summarize\n    goal: "Summarize the changes"`
+        },
+        {
+            pattern: /unknown field/i,
+            example: `steps:\n  - name: build\n    image: node:20\n    tasks:\n      - name: install\n        script: |\n          npm install`
+        },
+        {
+            pattern: /Pipeline name '.*' contains invalid characters/i,
+            example: `name: valid-name\nversion: "1.0"`
+        },
+        {
+            pattern: /Duplicate step name/i,
+            example: `steps:\n  - name: build\n    tasks: [...]\n  - name: test\n    tasks: [...]`
+        },
+        {
+            pattern: /At least one step is required/i,
+            example: `steps:\n  - name: build\n    tasks:\n      - name: compile\n        script: |\n          make`
+        },
+        {
+            pattern: /must define at least one task when using 'tasks'/i,
+            example: `steps:\n  - name: build\n    tasks:\n      - name: compile\n        script: |\n          make`
+        },
+        {
+            pattern: /'tasks' but the value is not an array/i,
+            example: `steps:\n  - name: build\n    tasks:\n      - name: compile\n        script: |\n          make`
+        },
+        {
+            pattern: /has an empty 'goal'/i,
+            example: `steps:\n  - name: summarize\n    goal: "Describe the changes for release notes"`
+        },
+        {
+            pattern: /has an empty 'script'/i,
+            example: `steps:\n  - name: build\n    script: |\n      npm run build`
+        },
+        {
+            pattern: /empty 'include'/i,
+            example: `steps:\n  - name: reuse\n    include: "step:path/to/reusable"`
+        },
+        {
+            pattern: /must define either 'goal' or 'script'/i,
+            example: `steps:\n  - name: lint\n    tasks:\n      - name: run-lint\n        script: |\n          npm run lint`
+        }
+    ];
+
+    function buildValidationExample(message) {
+        if (!message) return '';
+        for (const entry of VALIDATION_EXAMPLES) {
+            if (entry.pattern.test(message)) {
+                return entry.example;
+            }
+        }
+        return '';
+    }
+
+    function buildYamlPathIndex(yamlString) {
+        const index = new Map();
+        if (typeof yamlString !== 'string' || !yamlString.length) {
+            return index;
+        }
+        const lines = yamlString.split('\n');
+        const stack = [];
+
+        const pushContext = (indent, path, type) => {
+            stack.push({ indent, path, type, nextIndex: 0 });
+        };
+
+        const popToIndent = indent => {
+            while (stack.length && indent < stack[stack.length - 1].indent) {
+                stack.pop();
+            }
+        };
+
+        lines.forEach((line, idx) => {
+            const lineNumber = idx + 1;
+            const indentMatch = line.match(/^\s*/);
+            const indent = indentMatch ? indentMatch[0].length : 0;
+            const trimmed = line.trim();
+            popToIndent(indent);
+            if (!trimmed || trimmed.startsWith('#')) {
+                return;
+            }
+
+            if (trimmed.startsWith('-')) {
+                const parent = stack[stack.length - 1];
+                if (!parent || parent.type !== 'array') {
+                    return;
+                }
+                const itemIndex = parent.nextIndex++;
+                const itemPath = `${parent.path}[${itemIndex}]`;
+                index.set(itemPath, lineNumber);
+
+                const rest = trimmed.slice(1).trim();
+                const keyMatch = rest.match(/^([A-Za-z0-9_]+)\s*:/);
+                pushContext(indent + 2, itemPath, 'object');
+                if (keyMatch) {
+                    const key = keyMatch[1];
+                    index.set(`${itemPath}.${key}`, lineNumber);
+                    const endsWithColon = rest.endsWith(':');
+                    if (endsWithColon) {
+                        const isArrayKey = ARRAY_KEYS.has(key);
+                        pushContext(indent + 2, `${itemPath}.${key}`, isArrayKey ? 'array' : 'object');
+                    }
+                }
+                return;
+            }
+
+            const keyMatch = trimmed.match(/^([A-Za-z0-9_]+)\s*:/);
+            if (!keyMatch) {
+                return;
+            }
+            const key = keyMatch[1];
+            const parentPath = stack.length ? stack[stack.length - 1].path : '';
+            const currentPath = parentPath ? `${parentPath}.${key}` : key;
+            index.set(currentPath, lineNumber);
+
+            const endsWithColon = trimmed.endsWith(':');
+            if (endsWithColon) {
+                const isArrayKey = ARRAY_KEYS.has(key);
+                pushContext(indent + 2, currentPath, isArrayKey ? 'array' : 'object');
+            }
+        });
+
+        return index;
+    }
+
     async function savePipelineChanges() {
         if (!state.selectedId || !DOM['pipeline-yaml-editor']) return;
         const yamlString = DOM['pipeline-yaml-editor'].value;
         const validation = validatePipelineYaml(yamlString);
-        if (validation && validation.error) {
+        applyValidationResult(validation);
+        if (validation && Array.isArray(validation.errors) && validation.errors.length) {
             showToast('Resolve validation errors before saving.', 'error');
             return;
         }
@@ -3177,21 +3503,44 @@ function formatPathLabel(path) {
     }
 
     function validatePipelineYaml(yamlString) {
-        if (!window.jsyaml) return { error: 'YAML parser is unavailable.' };
+        if (!window.jsyaml) return { errors: [{ message: 'YAML parser is unavailable.' }] };
+
+        const pathIndex = buildYamlPathIndex(yamlString);
 
         const knownPipelineKeys = new Set(['name', 'version', 'description', 'container_image', 'display_options', 'working_directory', 'environment', 'steps', 'timeout', 'llm_content_sharing', 'llm_output_sharing', 'llm_content_ignore']);
         const knownStepKeys = new Set(['name', 'include', 'sync', 'image', 'secrets', 'volumes', 'environment', 'tasks', 'condition', 'goal', 'script', 'depends_on', 'ignore_failure', 'llm_output_sharing']);
         const knownTaskKeys = new Set(['name', 'goal', 'script', 'depends_on', 'ignore_failure', 'llm_output_sharing']);
         const knownDisplayOptionsKeys = new Set(['github_view']);
 
+        const createError = (message, pathHints = []) => {
+            let line = null;
+            for (const hint of pathHints) {
+                if (!hint) continue;
+                if (hint.startsWith('line:')) {
+                    const direct = Number(hint.slice(5));
+                    if (!Number.isNaN(direct) && direct > 0) {
+                        line = direct;
+                        break;
+                    }
+                    continue;
+                }
+                const candidate = pathIndex.get(hint);
+                if (typeof candidate === 'number') {
+                    line = candidate;
+                    break;
+                }
+            }
+            return { message, line };
+        };
+
         function findUnknownKeys(obj, knownKeys, path = '') {
             if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
-                return []; // Only check keys of objects
+                return [];
             }
-            let unknown = [];
+            const unknown = [];
             for (const key in obj) {
                 if (!knownKeys.has(key)) {
-                    unknown.push(path ? `${path}.${key}` : key);
+                    unknown.push({ path: path ? `${path}.${key}` : key, key });
                 }
             }
             return unknown;
@@ -3221,63 +3570,131 @@ function formatPathLabel(path) {
 
         try {
             const pipeline = window.jsyaml.load(yamlString);
-            if (!pipeline) return { error: 'YAML is empty or invalid.' };
-            if (typeof pipeline !== 'object') return { error: 'YAML root must be an object.' }; // Added check
+            if (!pipeline) return { errors: [createError('YAML is empty or invalid.', [''])] };
+            if (typeof pipeline !== 'object') return { errors: [createError('YAML root must be an object.', [''])] };
 
             const unknownKeys = checkAllKeys(pipeline);
             if (unknownKeys.length > 0) {
-                return { error: `Validation Error: Unknown field(s) found: ${unknownKeys.join(', ')}` };
+                return {
+                    errors: unknownKeys.map(item => createError(`Validation Error: Unknown field '${item.key}'.`, [item.path]))
+                };
             }
-            if (!pipeline.name) return { error: "Validation Error: 'name' is a required field." };
+            if (!pipeline.name) return { errors: [createError("Validation Error: 'name' is a required field.", ['name'])] };
             const allowed = /^[a-zA-Z0-9_.-]+$/;
             if (!allowed.test(pipeline.name)) {
-                return { error: `Validation Error: Pipeline name '${pipeline.name}' contains invalid characters.` };
+                return { errors: [createError(`Validation Error: Pipeline name '${pipeline.name}' contains invalid characters.`, ['name'])] };
             }
             if (pipeline.version && !allowed.test(pipeline.version)) {
-                return { error: `Validation Error: Pipeline version '${pipeline.version}' contains invalid characters.` };
+                return { errors: [createError(`Validation Error: Pipeline version '${pipeline.version}' contains invalid characters.`, ['version'])] };
             }
             if (!Array.isArray(pipeline.steps) || pipeline.steps.length === 0) {
-                return { error: "Validation Error: At least one step is required in 'steps'." };
+                return { errors: [createError("Validation Error: At least one step is required in 'steps'.", ['steps'])] };
             }
             const stepNames = new Set();
             const stepTaskMaps = new Map();
-            for (const step of pipeline.steps) {
+            for (let index = 0; index < pipeline.steps.length; index++) {
+                const step = pipeline.steps[index];
+                const stepPath = `steps[${index}]`;
                 if (!step || typeof step !== 'object') {
-                    return { error: 'Validation Error: A step is not a valid object.' };
+                    return { errors: [createError('Validation Error: A step is not a valid object.', [stepPath])] };
                 }
-                if (!step.name) return { error: 'Validation Error: All steps require a name.' };
+                if (!step.name) {
+                    return { errors: [createError('Validation Error: All steps require a name.', [`${stepPath}.name`, stepPath])] };
+                }
                 if (stepNames.has(step.name)) {
-                    return { error: `Validation Error: Duplicate step name '${step.name}' found.` };
+                    return { errors: [createError(`Validation Error: Duplicate step name '${step.name}' found.`, [`${stepPath}.name`, stepPath])] };
                 }
                 stepNames.add(step.name);
-                const isInclude = !!step.include;
+
+                const hasIncludeKey = Object.prototype.hasOwnProperty.call(step, 'include');
+                const includeValue = hasIncludeKey ? step.include : null;
+                const includeValid = typeof includeValue === 'string' && includeValue.trim().length > 0;
+                if (hasIncludeKey && !includeValid) {
+                    return { errors: [createError(`Validation Error: Step '${step.name}' has an empty 'include' value.`, [`${stepPath}.include`, stepPath])] };
+                }
+                const isInclude = includeValid;
+
+                const hasTasksKey = Object.prototype.hasOwnProperty.call(step, 'tasks');
+                if (hasTasksKey && !Array.isArray(step.tasks)) {
+                    return { errors: [createError(`Validation Error: Step '${step.name}' has 'tasks' but the value is not an array.`, [`${stepPath}.tasks`, stepPath])] };
+                }
                 const hasTasks = Array.isArray(step.tasks) && step.tasks.length > 0;
-                const hasLegacy = !!(step.goal || step.script);
-                if (!isInclude && !hasTasks && !hasLegacy) {
-                    return { error: `Validation Error: Step '${step.name}' must contain 'include', 'tasks', 'goal', or 'script'.` };
+                if (hasTasksKey && !hasTasks) {
+                    return { errors: [createError(`Validation Error: Step '${step.name}' must define at least one task when using 'tasks'.`, [`${stepPath}.tasks`, stepPath])] };
                 }
-                if (isInclude && (hasTasks || hasLegacy)) {
-                    return { error: `Validation Error: Step '${step.name}' is an include step and cannot also contain tasks, goal, or script.` };
+
+                const hasGoalKey = Object.prototype.hasOwnProperty.call(step, 'goal');
+                const goalValue = hasGoalKey ? step.goal : null;
+                const hasGoalContent = typeof goalValue === 'string' && goalValue.trim().length > 0;
+
+                const hasScriptKey = Object.prototype.hasOwnProperty.call(step, 'script');
+                const scriptValue = hasScriptKey ? step.script : null;
+                const hasScriptContent = typeof scriptValue === 'string' && scriptValue.trim().length > 0;
+
+                if (hasGoalKey && !hasGoalContent) {
+                    return { errors: [createError(`Validation Error: Step '${step.name}' has an empty 'goal'.`, [`${stepPath}.goal`, stepPath])] };
                 }
-                if (hasTasks && hasLegacy) {
-                    return { error: `Validation Error: Step '${step.name}' mixes tasks with goal/script.` };
+                if (hasScriptKey && !hasScriptContent) {
+                    return { errors: [createError(`Validation Error: Step '${step.name}' has an empty 'script'.`, [`${stepPath}.script`, stepPath])] };
                 }
+
+                if (hasGoalKey && hasScriptKey) {
+                    return { errors: [createError(`Validation Error: Step '${step.name}' cannot define both 'goal' and 'script'.`, [`${stepPath}.goal`, `${stepPath}.script`, stepPath])] };
+                }
+
+                const hasLegacyContent = hasGoalContent || hasScriptContent;
+
+                if (!isInclude && !hasTasks && !hasLegacyContent) {
+                    return { errors: [createError(`Validation Error: Step '${step.name}' must contain 'include', 'tasks', 'goal', or 'script'.`, [`${stepPath}.include`, `${stepPath}.tasks`, `${stepPath}.goal`, `${stepPath}.script`, stepPath])] };
+                }
+                if (isInclude && (hasTasksKey || hasGoalKey || hasScriptKey)) {
+                    return { errors: [createError(`Validation Error: Step '${step.name}' is an include step and cannot also contain tasks, goal, or script.`, [`${stepPath}.include`, `${stepPath}.tasks`, `${stepPath}.goal`, `${stepPath}.script`, stepPath])] };
+                }
+                if (hasTasks && (hasGoalKey || hasScriptKey)) {
+                    return { errors: [createError(`Validation Error: Step '${step.name}' mixes tasks with goal/script.`, [`${stepPath}.tasks`, `${stepPath}.goal`, `${stepPath}.script`, stepPath])] };
+                }
+
                 if (hasTasks) {
                     const taskNames = new Set();
-                    for (const task of step.tasks) {
+                    for (let taskIndex = 0; taskIndex < step.tasks.length; taskIndex++) {
+                        const task = step.tasks[taskIndex];
+                        const taskPath = `${stepPath}.tasks[${taskIndex}]`;
                         if (!task || typeof task !== 'object' || !task.name) {
-                            return { error: `Validation Error: A task in step '${step.name}' is missing its name.` };
+                            return { errors: [createError(`Validation Error: A task in step '${step.name}' is missing its name.`, [`${taskPath}.name`, taskPath])] };
                         }
                         if (taskNames.has(task.name)) {
-                            return { error: `Validation Error: Duplicate task name '${task.name}' in step '${step.name}'.` };
+                            return { errors: [createError(`Validation Error: Duplicate task name '${task.name}' in step '${step.name}'.`, [`${taskPath}.name`, taskPath])] };
                         }
                         taskNames.add(task.name);
+
+                        const taskHasGoalKey = Object.prototype.hasOwnProperty.call(task, 'goal');
+                        const taskGoalValue = taskHasGoalKey ? task.goal : null;
+                        const taskHasGoalContent = typeof taskGoalValue === 'string' && taskGoalValue.trim().length > 0;
+
+                        const taskHasScriptKey = Object.prototype.hasOwnProperty.call(task, 'script');
+                        const taskScriptValue = taskHasScriptKey ? task.script : null;
+                        const taskHasScriptContent = typeof taskScriptValue === 'string' && taskScriptValue.trim().length > 0;
+
+                        if (taskHasGoalKey && taskHasScriptKey) {
+                            return { errors: [createError(`Validation Error: Task '${task.name}' in step '${step.name}' cannot define both 'goal' and 'script'.`, [`${taskPath}.goal`, `${taskPath}.script`, taskPath])] };
+                        }
+                        if (taskHasGoalKey && !taskHasGoalContent) {
+                            return { errors: [createError(`Validation Error: Task '${task.name}' in step '${step.name}' has an empty 'goal'.`, [`${taskPath}.goal`, taskPath])] };
+                        }
+                        if (taskHasScriptKey && !taskHasScriptContent) {
+                            return { errors: [createError(`Validation Error: Task '${task.name}' in step '${step.name}' has an empty 'script'.`, [`${taskPath}.script`, taskPath])] };
+                        }
+                        if (!taskHasGoalContent && !taskHasScriptContent) {
+                            return { errors: [createError(`Validation Error: Task '${task.name}' in step '${step.name}' must define either 'goal' or 'script'.`, [`${taskPath}.goal`, `${taskPath}.script`, taskPath])] };
+                        }
                     }
-                    for (const task of step.tasks) {
+                    for (let taskIndex = 0; taskIndex < step.tasks.length; taskIndex++) {
+                        const task = step.tasks[taskIndex];
                         if (Array.isArray(task.depends_on)) {
                             for (const dep of task.depends_on) {
                                 if (!taskNames.has(dep)) {
-                                    return { error: `Validation Error: Task '${task.name}' in step '${step.name}' depends on unknown task '${dep}'.` };
+                                    const taskPath = `${stepPath}.tasks[${taskIndex}].depends_on`;
+                                    return { errors: [createError(`Validation Error: Task '${task.name}' in step '${step.name}' depends on unknown task '${dep}'.`, [taskPath])] };
                                 }
                             }
                         }
@@ -3286,11 +3703,12 @@ function formatPathLabel(path) {
                 }
             }
 
-            for (const step of pipeline.steps) {
+            for (let index = 0; index < pipeline.steps.length; index++) {
+                const step = pipeline.steps[index];
                 if (Array.isArray(step.depends_on)) {
                     for (const dep of step.depends_on) {
                         if (!stepNames.has(dep)) {
-                            return { error: `Validation Error: Step '${step.name}' depends on unknown step '${dep}'.` };
+                            return { errors: [createError(`Validation Error: Step '${step.name}' depends on unknown step '${dep}'.`, [`steps[${index}].depends_on`, `steps[${index}]`])] };
                         }
                     }
                 }
@@ -3298,7 +3716,10 @@ function formatPathLabel(path) {
 
             return null;
         } catch (error) {
-            return { error: `YAML Parsing Error: ${error.message}` };
+            if (error && error.mark && typeof error.mark.line === 'number') {
+                return { errors: [createError(`YAML Parsing Error: ${error.message}`, [`line:${error.mark.line + 1}`])] };
+            }
+            return { errors: [createError(`YAML Parsing Error: ${error.message}`)] };
         }
     }
 
