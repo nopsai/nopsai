@@ -24,15 +24,88 @@
             loadingPromise: null,
         },
         editorSuggestionContext: null,
+        editorSuggestionItems: [],
+        editorSuggestionIndex: -1,
+        editorCharWidth: null,
         beforeUnloadHandler: null,
     };
 
     const DOM = {};
     let context = null;
     let pipelineRunsModule = null;
+    let measurementCanvas = null;
 
     const TOAST_TIMEOUT = 4000;
     const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
+    const PIPELINE_DIRECTIVES = [
+        { key: 'name', hint: 'Pipeline display name', snippet: () => 'name: ' },
+        { key: 'version', hint: 'Pipeline schema version', snippet: () => 'version: "1.0"' },
+        { key: 'description', hint: 'Human readable summary', snippet: () => 'description: ""' },
+        { key: 'container_image', hint: 'Default container image', snippet: () => 'container_image: "ubuntu:latest"' },
+        { key: 'working_directory', hint: 'Default working directory', snippet: () => 'working_directory: "/tmp"' },
+        {
+            key: 'environment',
+            hint: 'Global environment variables',
+            snippet: ({ childIndent }) => `environment:\n${childIndent}- KEY=value`
+        },
+        {
+            key: 'steps',
+            hint: 'List pipeline steps',
+            snippet: ({ childIndent, grandChildIndent }) => `steps:\n${childIndent}- name: preparation\n${childIndent}  image: pipeline-image:latest\n${childIndent}  script: |\n${grandChildIndent}#!/bin/bash\n${grandChildIndent}echo "TODO"`
+        },
+        { key: 'timeout', hint: 'Pipeline timeout', snippet: () => 'timeout: "30m"' },
+        { key: 'llm_output_sharing', hint: 'Share LLM outputs across steps', snippet: () => 'llm_output_sharing: false' },
+        { key: 'llm_content_sharing', hint: 'Share LLM prompts across steps', snippet: () => 'llm_content_sharing: false' },
+        {
+            key: 'llm_content_ignore',
+            hint: 'Paths excluded from LLM context',
+            snippet: ({ childIndent }) => `llm_content_ignore:\n${childIndent}- path/to/ignore`
+        },
+        {
+            key: 'display_options',
+            hint: 'UI rendering preferences',
+            snippet: ({ childIndent }) => `display_options:\n${childIndent}github_view: "mermaid"`
+        },
+    ];
+    const STEP_DIRECTIVES = [
+        { key: 'name', hint: 'Step name', snippet: () => 'name: step-name' },
+        { key: 'include', hint: 'Include reusable step', snippet: () => 'include: "step:path/to/reusable"' },
+        { key: 'sync', hint: 'Run step synchronously', snippet: () => 'sync: false' },
+        { key: 'image', hint: 'Override container image', snippet: () => 'image: pipeline-image:latest' },
+        { key: 'secrets', hint: 'Step secrets', snippet: ({ childIndent }) => `secrets:\n${childIndent}- SECRET_NAME` },
+        { key: 'volumes', hint: 'Step volumes', snippet: ({ childIndent }) => `volumes:\n${childIndent}- "name:/mount/path"` },
+        { key: 'environment', hint: 'Step environment variables', snippet: ({ childIndent }) => `environment:\n${childIndent}KEY: value` },
+        {
+            key: 'tasks',
+            hint: 'Nested task list',
+            snippet: ({ childIndent, grandChildIndent }) => `tasks:\n${childIndent}- name: task-name\n${childIndent}  script: |\n${grandChildIndent}#!/bin/bash\n${grandChildIndent}echo "TODO"`
+        },
+        { key: 'condition', hint: 'Conditional execution', snippet: () => 'condition: "${{ always() }}"' },
+        { key: 'goal', hint: 'LLM goal prompt', snippet: () => 'goal: ""' },
+        {
+            key: 'script',
+            hint: 'Shell script body',
+            snippet: ({ childIndent }) => `script: |\n${childIndent}#!/bin/bash\n${childIndent}echo "TODO"`
+        },
+        { key: 'depends_on', hint: 'Upstream steps', snippet: ({ childIndent }) => `depends_on:\n${childIndent}- step-name` },
+        { key: 'ignore_failure', hint: 'Ignore failures', snippet: () => 'ignore_failure: false' },
+        { key: 'llm_output_sharing', hint: 'Share step LLM output', snippet: () => 'llm_output_sharing: false' },
+    ];
+    const TASK_DIRECTIVES = [
+        { key: 'name', hint: 'Task name', snippet: () => 'name: task-name' },
+        { key: 'goal', hint: 'Task goal prompt', snippet: () => 'goal: ""' },
+        {
+            key: 'script',
+            hint: 'Task script body',
+            snippet: ({ childIndent }) => `script: |\n${childIndent}#!/bin/bash\n${childIndent}echo "TODO"`
+        },
+        { key: 'depends_on', hint: 'Dependent tasks', snippet: ({ childIndent }) => `depends_on:\n${childIndent}- task-name` },
+        { key: 'ignore_failure', hint: 'Ignore task errors', snippet: () => 'ignore_failure: false' },
+        { key: 'llm_output_sharing', hint: 'Share task LLM output', snippet: () => 'llm_output_sharing: false' },
+    ];
+    const PIPELINE_DIRECTIVE_KEYS = PIPELINE_DIRECTIVES.map(item => item.key);
+    const STEP_DIRECTIVE_KEYS = STEP_DIRECTIVES.map(item => item.key);
+    const TASK_DIRECTIVE_KEYS = TASK_DIRECTIVES.map(item => item.key);
 
     function isPipelinesPageActive() {
         const page = document.querySelector('[data-page="pipelines"]');
@@ -154,6 +227,7 @@
                 if (DOM['line-numbers']) {
                     DOM['line-numbers'].scrollTop = DOM['pipeline-yaml-editor'].scrollTop;
                 }
+                updateInlineSuggestionPosition();
             });
             DOM['pipeline-yaml-editor'].addEventListener('click', () => {
                 updateEditorSuggestions();
@@ -166,14 +240,18 @@
             });
             DOM['pipeline-yaml-editor'].addEventListener('keydown', (event) => {
                 if (event.key === 'Tab') {
-                    event.preventDefault();
-                    const start = event.target.selectionStart;
-                    const end = event.target.selectionEnd;
-                    event.target.value = event.target.value.substring(0, start) + '  ' + event.target.value.substring(end);
-                    event.target.selectionStart = event.target.selectionEnd = start + 2;
-                    handleValidation();
-                    updateLineNumbers();
-                    updateEditorSuggestions();
+                    if (state.editorSuggestionItems.length && state.editorSuggestionContext) {
+                        event.preventDefault();
+                        const index = state.editorSuggestionIndex >= 0 ? state.editorSuggestionIndex : 0;
+                        const item = state.editorSuggestionItems[index] || state.editorSuggestionItems[0];
+                        applyEditorSuggestion(item);
+                    } else {
+                        event.preventDefault();
+                        insertEditorIndent(event.target);
+                        handleValidation();
+                        updateLineNumbers();
+                        updateEditorSuggestions();
+                    }
                 } else if (event.key === 'Escape') {
                     hideEditorSuggestions();
                 }
@@ -1659,7 +1737,7 @@ function formatPathLabel(path) {
 
             const layout = calculateGraphLayout(steps, graphContainer, nodeWidth, nodeHeight, hGap, vGap, isVerticalLayout);
 
-            let svgContent = `<svg width="100%" height="auto" viewBox="0 0 ${layout.width} ${layout.height}" preserveAspectRatio="xMinYMin meet" xmlns="http://www.w3.org/2000/svg" style="width: 100%; height: auto; display: block;">
+            let svgContent = `<svg width="100%" height="${layout.height}" viewBox="0 0 ${layout.width} ${layout.height}" preserveAspectRatio="xMinYMin meet" xmlns="http://www.w3.org/2000/svg" style="width: 100%; height: auto; display: block;">
                 <defs>
                      <radialGradient id="glassyIconGradientPipelineDef" cx="40%" cy="35%" r="80%" fx="30%" fy="30%">
                         <stop offset="0%" style="stop-color:rgba(254, 252, 232, 0.9)" /> <stop offset="50%" style="stop-color:rgba(250, 204, 21, 0.85)" /> <stop offset="100%" style="stop-color:rgba(217, 119, 6, 0.9)" /> </radialGradient>
@@ -1947,6 +2025,7 @@ function formatPathLabel(path) {
     function enterEditMode() {
         if (!state.selectedId || state.isEditing) return;
         state.isEditing = true;
+        state.editorCharWidth = null;
         if (DOM['yaml-view-actions']) DOM['yaml-view-actions'].classList.add('hidden');
         if (DOM['yaml-edit-actions']) DOM['yaml-edit-actions'].classList.remove('hidden');
         if (DOM['pipeline-yaml-content']) DOM['pipeline-yaml-content'].classList.add('hidden');
@@ -1970,7 +2049,7 @@ function formatPathLabel(path) {
             DOM['pipeline-yaml-editor'].focus();
         }
         bindBeforeUnload();
-        ensureEditorSuggestionPanel();
+        ensureEditorSuggestionOverlay();
         updateEditorSuggestions();
         preloadAutocompleteMetadata().catch(() => {});
     }
@@ -1979,6 +2058,7 @@ function formatPathLabel(path) {
         if (!state.isEditing) return;
 
         state.isEditing = false;
+        hideEditorSuggestions();
         if (DOM['yaml-view-actions']) DOM['yaml-view-actions'].classList.remove('hidden');
         if (DOM['yaml-edit-actions']) DOM['yaml-edit-actions'].classList.add('hidden');
         if (DOM['pipeline-yaml-content']) DOM['pipeline-yaml-content'].classList.remove('hidden');
@@ -2118,42 +2198,41 @@ function formatPathLabel(path) {
         }
     }
 
-    function ensureEditorSuggestionPanel() {
-        if (DOM['pipeline-editor-suggestions'] || !DOM['editor-container']) return;
-        const panel = document.createElement('div');
-        panel.id = 'pipeline-editor-suggestions';
-        panel.className = 'pipeline-editor-suggestions hidden';
-        panel.innerHTML = `
-            <div class="pipeline-editor-suggestions__header">
-                <span id="pipeline-editor-suggestions-title">Suggestions</span>
-                <span class="pipeline-editor-suggestions__hint">Click to insert</span>
-            </div>
-            <div id="pipeline-editor-suggestions-body" class="pipeline-editor-suggestions__body"></div>`;
-        panel.addEventListener('click', handleSuggestionClick);
-        DOM['editor-container'].appendChild(panel);
-        DOM['pipeline-editor-suggestions'] = panel;
-        DOM['pipeline-editor-suggestions-title'] = panel.querySelector('#pipeline-editor-suggestions-title');
-        DOM['pipeline-editor-suggestions-body'] = panel.querySelector('#pipeline-editor-suggestions-body');
+    function ensureEditorSuggestionOverlay() {
+        if (DOM['pipeline-editor-autocomplete'] || !DOM['editor-container']) return;
+        const overlay = document.createElement('div');
+        overlay.id = 'pipeline-editor-autocomplete';
+        overlay.className = 'pipeline-editor-autocomplete hidden';
+        const ghost = document.createElement('span');
+        ghost.className = 'pipeline-editor-autocomplete__ghost';
+        overlay.appendChild(ghost);
+        DOM['editor-container'].appendChild(overlay);
+        DOM['pipeline-editor-autocomplete'] = overlay;
+        DOM['pipeline-editor-autocomplete-ghost'] = ghost;
     }
 
     function hideEditorSuggestions() {
         state.editorSuggestionContext = null;
-        if (DOM['pipeline-editor-suggestions']) {
-            DOM['pipeline-editor-suggestions'].classList.add('hidden');
+        state.editorSuggestionItems = [];
+        state.editorSuggestionIndex = -1;
+        const overlay = DOM['pipeline-editor-autocomplete'];
+        if (overlay) {
+            overlay.classList.add('hidden');
+        }
+        if (DOM['pipeline-editor-autocomplete-ghost']) {
+            DOM['pipeline-editor-autocomplete-ghost'].textContent = '';
         }
     }
 
     function renderEditorSuggestions(payload) {
-        ensureEditorSuggestionPanel();
-        const panel = DOM['pipeline-editor-suggestions'];
-        const titleEl = DOM['pipeline-editor-suggestions-title'];
-        const bodyEl = DOM['pipeline-editor-suggestions-body'];
-        if (!panel || !titleEl || !bodyEl) return;
+        ensureEditorSuggestionOverlay();
+        const overlay = DOM['pipeline-editor-autocomplete'];
+        const ghostEl = DOM['pipeline-editor-autocomplete-ghost'];
+        const textarea = DOM['pipeline-yaml-editor'];
+        if (!overlay || !ghostEl || !textarea) return;
 
         if (payload.loading) {
-            titleEl.textContent = payload.title || 'Suggestions';
-            bodyEl.innerHTML = '<div class="pipeline-editor-suggestions__empty">Loading suggestions…</div>';
-            panel.classList.remove('hidden');
+            hideEditorSuggestions();
             return;
         }
 
@@ -2162,44 +2241,155 @@ function formatPathLabel(path) {
             return;
         }
 
-        titleEl.textContent = payload.title || 'Suggestions';
-        bodyEl.innerHTML = payload.items.map(item => `
-            <button type="button" class="pipeline-editor-suggestions__item" data-suggestion-value="${escapeAttribute(item.value)}">
-                <span class="pipeline-editor-suggestions__item-label">${escapeHtml(item.label || item.value)}</span>
-                ${item.hint ? `<span class="pipeline-editor-suggestions__item-hint">${escapeHtml(item.hint)}</span>` : ''}
-            </button>
-        `).join('');
-        panel.classList.remove('hidden');
+        state.editorSuggestionItems = payload.items.slice();
+        state.editorSuggestionIndex = 0;
+        const activeItem = state.editorSuggestionItems[0];
+        const preview = buildInlineSuggestionPreview(activeItem, state.editorSuggestionContext);
+        if (!preview) {
+            hideEditorSuggestions();
+            return;
+        }
+
+        ghostEl.textContent = preview;
+        overlay.classList.remove('hidden');
+        updateInlineSuggestionPosition();
     }
 
-    function handleSuggestionClick(event) {
-        const target = event.target.closest('[data-suggestion-value]');
-        if (!target) return;
-        const value = target.getAttribute('data-suggestion-value');
-        if (!value) return;
-        applyEditorSuggestion(value);
+    function buildInlineSuggestionPreview(item, contextInfo) {
+        if (!item) return '';
+        const prefix = (contextInfo && typeof contextInfo.prefix === 'string') ? contextInfo.prefix : '';
+        const snippetSource = item.value || item.snippet || '';
+        if (!snippetSource) return '';
+        const firstLine = String(snippetSource).split('\n')[0];
+        if (!firstLine) return '';
+
+        if (prefix) {
+            const lowerPrefix = prefix.toLowerCase();
+            const lowerLine = firstLine.toLowerCase();
+            if (lowerLine.startsWith(lowerPrefix)) {
+                return firstLine.slice(prefix.length);
+            }
+        }
+
+        if (prefix) {
+            return '';
+        }
+
+        return firstLine;
     }
 
-    function applyEditorSuggestion(value) {
-        if (!state.editorSuggestionContext || !DOM['pipeline-yaml-editor']) return;
+    function updateInlineSuggestionPosition() {
+        if (!DOM['pipeline-yaml-editor'] || !DOM['pipeline-editor-autocomplete'] || !state.editorSuggestionContext) return;
+        const textarea = DOM['pipeline-yaml-editor'];
+        const overlay = DOM['pipeline-editor-autocomplete'];
+        if (overlay.classList.contains('hidden')) return;
+
+        const caret = calculateCaretOffset(textarea);
+        if (!caret) return;
+
+        const textareaRect = textarea.getBoundingClientRect();
+        const containerRect = DOM['editor-container'] ? DOM['editor-container'].getBoundingClientRect() : textareaRect;
+        const left = textareaRect.left - containerRect.left + caret.left;
+        const top = textareaRect.top - containerRect.top + caret.top;
+
+        overlay.style.transform = `translate(${Math.max(0, left)}px, ${Math.max(0, top)}px)`;
+    }
+
+    function calculateCaretOffset(textarea) {
+        if (!textarea) return null;
+        const selectionStart = textarea.selectionStart;
+        if (typeof selectionStart !== 'number') return null;
+
+        const textBeforeCaret = textarea.value.slice(0, selectionStart);
+        const lines = textBeforeCaret.split('\n');
+        const currentLine = lines[lines.length - 1] || '';
+        const column = currentLine.length;
+        const style = window.getComputedStyle(textarea);
+        const lineHeight = getTextareaLineHeight(style);
+        const charWidth = getTextareaCharWidth(textarea, style);
+        const paddingLeft = parseFloat(style.paddingLeft) || 0;
+        const paddingTop = parseFloat(style.paddingTop) || 0;
+        const scrollLeft = textarea.scrollLeft || 0;
+        const scrollTop = textarea.scrollTop || 0;
+
+        return {
+            left: paddingLeft + column * charWidth - scrollLeft,
+            top: paddingTop + (lines.length - 1) * lineHeight - scrollTop,
+        };
+    }
+
+    function getTextareaLineHeight(style) {
+        const raw = style.lineHeight;
+        const parsed = parseFloat(raw);
+        if (!Number.isNaN(parsed) && parsed > 0) {
+            return parsed;
+        }
+        const fontSize = parseFloat(style.fontSize) || 16;
+        return fontSize * 1.5;
+    }
+
+    function getTextareaCharWidth(textarea, style) {
+        if (state.editorCharWidth) {
+            return state.editorCharWidth;
+        }
+        if (!measurementCanvas) {
+            measurementCanvas = document.createElement('canvas');
+        }
+        const context = measurementCanvas.getContext('2d');
+        if (context) {
+            const fontWeight = style.fontWeight || '400';
+            const fontSize = style.fontSize || '14px';
+            const fontFamily = style.fontFamily || 'monospace';
+            context.font = `${fontWeight} ${fontSize} ${fontFamily}`.trim();
+            const metrics = context.measureText('M');
+            if (metrics && metrics.width) {
+                state.editorCharWidth = metrics.width;
+                return metrics.width;
+            }
+        }
+        const fallbackSize = parseFloat(style.fontSize) || 12;
+        state.editorCharWidth = fallbackSize * 0.6;
+        return state.editorCharWidth;
+    }
+
+    function applyEditorSuggestion(item) {
+        if (!state.editorSuggestionContext || !DOM['pipeline-yaml-editor'] || !item) return;
+        const contextInfo = state.editorSuggestionContext;
         const textarea = DOM['pipeline-yaml-editor'];
         const textLength = textarea.value.length;
-        const rangeStart = Math.max(0, Math.min(state.editorSuggestionContext.rangeStart ?? textarea.selectionStart, textLength));
-        const rangeEnd = Math.max(rangeStart, Math.min(state.editorSuggestionContext.rangeEnd ?? textarea.selectionEnd, textLength));
+        const rangeStart = Math.max(0, Math.min(contextInfo.rangeStart ?? textarea.selectionStart, textLength));
+        const rangeEnd = Math.max(rangeStart, Math.min(contextInfo.rangeEnd ?? textarea.selectionEnd, textLength));
         const before = textarea.value.slice(0, rangeStart);
         const after = textarea.value.slice(rangeEnd);
-        let suffix = state.editorSuggestionContext.insertSuffix || '';
-        if (suffix && after.trimStart().startsWith(':')) {
+        let insertText = item.snippet ?? item.value;
+        if (typeof insertText !== 'string') {
+            insertText = String(insertText ?? '');
+        }
+        let suffix = contextInfo.insertSuffix || '';
+        if (item.overrideSuffix !== undefined) {
+            suffix = item.overrideSuffix;
+        } else if (suffix && after.trimStart().startsWith(':')) {
             suffix = '';
         }
-        textarea.value = before + value + suffix + after;
-        const caret = rangeStart + value.length + suffix.length;
+        const finalText = insertText + suffix;
+        textarea.value = before + finalText + after;
+        const caret = rangeStart + finalText.length;
         textarea.selectionStart = textarea.selectionEnd = caret;
         textarea.focus();
-        state.editorSuggestionContext = null;
+        hideEditorSuggestions();
         handleValidation();
         updateLineNumbers();
         updateEditorSuggestions();
+    }
+
+    function insertEditorIndent(target) {
+        if (!target || typeof target.value !== 'string') return;
+        const start = target.selectionStart ?? 0;
+        const end = target.selectionEnd ?? start;
+        const value = target.value;
+        target.value = value.substring(0, start) + '  ' + value.substring(end);
+        const caret = start + 2;
+        target.selectionStart = target.selectionEnd = caret;
     }
 
     function updateEditorSuggestions() {
@@ -2207,7 +2397,7 @@ function formatPathLabel(path) {
             hideEditorSuggestions();
             return;
         }
-        ensureEditorSuggestionPanel();
+        ensureEditorSuggestionOverlay();
         const textarea = DOM['pipeline-yaml-editor'];
         const text = textarea.value || '';
         const selectionStart = Math.min(textarea.selectionStart, textarea.selectionEnd);
@@ -2288,6 +2478,11 @@ function formatPathLabel(path) {
             return environmentContext;
         }
 
+        const directiveContext = detectDirectiveKeyContext(lineInfo, selectionEnd, beforeLine);
+        if (directiveContext) {
+            return directiveContext;
+        }
+
         return null;
     }
 
@@ -2327,6 +2522,78 @@ function formatPathLabel(path) {
             rangeStart: lineInfo.start + lineInfo.indent,
             rangeEnd: safeRangeEnd,
             insertSuffix: hasColon ? '' : ': ',
+        };
+    }
+
+    function detectDirectiveKeyContext(lineInfo, selectionEnd, beforeLine) {
+        const rawLine = lineInfo.line;
+        if (!rawLine) return null;
+        const trimmed = rawLine.trim();
+        if (!trimmed || trimmed.startsWith('#')) return null;
+
+        const colonIndex = rawLine.indexOf(':');
+        if (colonIndex !== -1 && lineInfo.column > colonIndex) {
+            return null;
+        }
+
+        let type = 'pipeline-key';
+        let rangeStart;
+        let rangeEnd;
+        let prefix;
+        let parent = findParentBlock(beforeLine, ['steps', 'tasks'], lineInfo.indent);
+
+        if (trimmed.startsWith('-')) {
+            const dashMatch = rawLine.match(/^(\s*-\s*)/);
+            if (!dashMatch) return null;
+            const valueStartLocal = dashMatch[0].length;
+            rangeStart = lineInfo.start + valueStartLocal;
+            const endIndex = colonIndex !== -1 ? Math.min(colonIndex, lineInfo.column) : lineInfo.column;
+            prefix = rawLine.slice(valueStartLocal, endIndex).trim();
+            parent = findParentBlock(beforeLine, ['steps', 'tasks'], lineInfo.indent);
+            if (parent === 'steps') {
+                type = 'step-key';
+            } else if (parent === 'tasks') {
+                type = 'task-key';
+            } else {
+                return null;
+            }
+        } else {
+            if (parent === 'steps') {
+                type = 'step-key';
+            } else if (parent === 'tasks') {
+                type = 'task-key';
+            } else {
+                type = 'pipeline-key';
+                if (lineInfo.indent !== 0) {
+                    return null;
+                }
+            }
+            rangeStart = lineInfo.start + lineInfo.indent;
+            const endIndex = colonIndex !== -1 ? Math.min(colonIndex, lineInfo.column) : lineInfo.column;
+            prefix = rawLine.slice(lineInfo.indent, endIndex).trim();
+        }
+
+        const colonBound = colonIndex !== -1 ? Math.min(colonIndex, lineInfo.column) : lineInfo.column;
+        rangeEnd = Math.max(rangeStart, lineInfo.start + colonBound);
+
+        const insertionColumn = Math.max(0, rangeStart - lineInfo.start);
+        const insertIndent = ' '.repeat(insertionColumn);
+
+        const title = type === 'pipeline-key'
+            ? 'Pipeline directives'
+            : type === 'step-key'
+                ? 'Step directives'
+                : 'Task directives';
+
+        return {
+            type,
+            title,
+            prefix,
+            rangeStart,
+            rangeEnd,
+            insertSuffix: ': ',
+            insertIndent,
+            indent: lineInfo.indent,
         };
     }
 
@@ -2430,6 +2697,15 @@ function formatPathLabel(path) {
             }));
             return filterSuggestionPool(steps, prefix);
         }
+        if (contextInfo.type === 'pipeline-key') {
+            return filterSuggestionPool(buildDirectiveSuggestionItems(PIPELINE_DIRECTIVES, contextInfo), prefix, 12);
+        }
+        if (contextInfo.type === 'step-key') {
+            return filterSuggestionPool(buildDirectiveSuggestionItems(STEP_DIRECTIVES, contextInfo), prefix, 12);
+        }
+        if (contextInfo.type === 'task-key') {
+            return filterSuggestionPool(buildDirectiveSuggestionItems(TASK_DIRECTIVES, contextInfo), prefix, 12);
+        }
         return [];
     }
 
@@ -2459,6 +2735,25 @@ function formatPathLabel(path) {
             }
         });
         return [...starts, ...contains].slice(0, limit);
+    }
+
+    function buildDirectiveSuggestionItems(definitions, contextInfo) {
+        if (!Array.isArray(definitions)) return [];
+        const insertIndent = contextInfo.insertIndent || '';
+        const childIndent = insertIndent + '  ';
+        const grandChildIndent = childIndent + '  ';
+        return definitions.map(def => {
+            const snippetBuilder = typeof def.snippet === 'function'
+                ? def.snippet({ insertIndent, childIndent, grandChildIndent })
+                : `${def.key}: `;
+            return {
+                value: def.key,
+                label: def.key,
+                snippet: snippetBuilder,
+                hint: def.hint || '',
+                overrideSuffix: '',
+            };
+        });
     }
 
     function collectStepNamesFromYamlText(text) {
