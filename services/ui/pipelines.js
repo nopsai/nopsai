@@ -38,74 +38,52 @@
     const TOAST_TIMEOUT = 4000;
     const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
     const PIPELINE_DIRECTIVES = [
-        { key: 'name', hint: 'Pipeline display name', snippet: () => 'name: ' },
-        { key: 'version', hint: 'Pipeline schema version', snippet: () => 'version: "1.0"' },
-        { key: 'description', hint: 'Human readable summary', snippet: () => 'description: ""' },
-        { key: 'container_image', hint: 'Default container image', snippet: () => 'container_image: "ubuntu:latest"' },
-        { key: 'working_directory', hint: 'Default working directory', snippet: () => 'working_directory: "/tmp"' },
-        {
-            key: 'environment',
-            hint: 'Global environment variables',
-            snippet: ({ childIndent }) => `environment:\n${childIndent}- KEY=value`
-        },
-        {
-            key: 'steps',
-            hint: 'List pipeline steps',
-            snippet: ({ childIndent, grandChildIndent }) => `steps:\n${childIndent}- name: preparation\n${childIndent}  image: pipeline-image:latest\n${childIndent}  script: |\n${grandChildIndent}#!/bin/bash\n${grandChildIndent}echo "TODO"`
-        },
-        { key: 'timeout', hint: 'Pipeline timeout', snippet: () => 'timeout: "30m"' },
-        { key: 'llm_output_sharing', hint: 'Share LLM outputs across steps', snippet: () => 'llm_output_sharing: false' },
-        { key: 'llm_content_sharing', hint: 'Share LLM prompts across steps', snippet: () => 'llm_content_sharing: false' },
-        {
-            key: 'llm_content_ignore',
-            hint: 'Paths excluded from LLM context',
-            snippet: ({ childIndent }) => `llm_content_ignore:\n${childIndent}- path/to/ignore`
-        },
-        {
-            key: 'display_options',
-            hint: 'UI rendering preferences',
-            snippet: ({ childIndent }) => `display_options:\n${childIndent}github_view: "mermaid"`
-        },
+        { key: 'name', hint: 'Pipeline display name' },
+        { key: 'version', hint: 'Pipeline schema version' },
+        { key: 'description', hint: 'Human readable summary' },
+        { key: 'container_image', hint: 'Default container image' },
+        { key: 'working_directory', hint: 'Default working directory' },
+        { key: 'environment', hint: 'Global environment variables' },
+        { key: 'steps', hint: 'List pipeline steps' },
+        { key: 'timeout', hint: 'Pipeline timeout' },
+        { key: 'llm_output_sharing', hint: 'Share LLM outputs across steps' },
+        { key: 'llm_content_sharing', hint: 'Share LLM prompts across steps' },
+        { key: 'llm_content_ignore', hint: 'Paths excluded from LLM context' },
+        { key: 'display_options', hint: 'UI rendering preferences' },
     ];
     const STEP_DIRECTIVES = [
-        { key: 'name', hint: 'Step name', snippet: () => 'name: step-name' },
-        { key: 'include', hint: 'Include reusable step', snippet: () => 'include: "step:path/to/reusable"' },
-        { key: 'sync', hint: 'Run step synchronously', snippet: () => 'sync: false' },
-        { key: 'image', hint: 'Override container image', snippet: () => 'image: pipeline-image:latest' },
-        { key: 'secrets', hint: 'Step secrets', snippet: ({ childIndent }) => `secrets:\n${childIndent}- SECRET_NAME` },
-        { key: 'volumes', hint: 'Step volumes', snippet: ({ childIndent }) => `volumes:\n${childIndent}- "name:/mount/path"` },
-        { key: 'environment', hint: 'Step environment variables', snippet: ({ childIndent }) => `environment:\n${childIndent}KEY: value` },
-        {
-            key: 'tasks',
-            hint: 'Nested task list',
-            snippet: ({ childIndent, grandChildIndent }) => `tasks:\n${childIndent}- name: task-name\n${childIndent}  script: |\n${grandChildIndent}#!/bin/bash\n${grandChildIndent}echo "TODO"`
-        },
-        { key: 'condition', hint: 'Conditional execution', snippet: () => 'condition: "${{ always() }}"' },
-        { key: 'goal', hint: 'LLM goal prompt', snippet: () => 'goal: ""' },
-        {
-            key: 'script',
-            hint: 'Shell script body',
-            snippet: ({ childIndent }) => `script: |\n${childIndent}#!/bin/bash\n${childIndent}echo "TODO"`
-        },
-        { key: 'depends_on', hint: 'Upstream steps', snippet: ({ childIndent }) => `depends_on:\n${childIndent}- step-name` },
-        { key: 'ignore_failure', hint: 'Ignore failures', snippet: () => 'ignore_failure: false' },
-        { key: 'llm_output_sharing', hint: 'Share step LLM output', snippet: () => 'llm_output_sharing: false' },
+        { key: 'name', hint: 'Step name' },
+        { key: 'include', hint: 'Include reusable step' },
+        { key: 'sync', hint: 'Run step synchronously' },
+        { key: 'image', hint: 'Override container image' },
+        { key: 'secrets', hint: 'Step secrets' },
+        { key: 'volumes', hint: 'Step volumes' },
+        { key: 'environment', hint: 'Step environment variables' },
+        { key: 'tasks', hint: 'Nested task list' },
+        { key: 'condition', hint: 'Conditional execution' },
+        { key: 'goal', hint: 'LLM goal prompt' },
+        { key: 'script', hint: 'Shell script body' },
+        { key: 'depends_on', hint: 'Upstream steps' },
+        { key: 'ignore_failure', hint: 'Ignore failures' },
+        { key: 'llm_output_sharing', hint: 'Share step LLM output' },
     ];
     const TASK_DIRECTIVES = [
-        { key: 'name', hint: 'Task name', snippet: () => 'name: task-name' },
-        { key: 'goal', hint: 'Task goal prompt', snippet: () => 'goal: ""' },
-        {
-            key: 'script',
-            hint: 'Task script body',
-            snippet: ({ childIndent }) => `script: |\n${childIndent}#!/bin/bash\n${childIndent}echo "TODO"`
-        },
-        { key: 'depends_on', hint: 'Dependent tasks', snippet: ({ childIndent }) => `depends_on:\n${childIndent}- task-name` },
-        { key: 'ignore_failure', hint: 'Ignore task errors', snippet: () => 'ignore_failure: false' },
-        { key: 'llm_output_sharing', hint: 'Share task LLM output', snippet: () => 'llm_output_sharing: false' },
+        { key: 'name', hint: 'Task name' },
+        { key: 'goal', hint: 'Task goal prompt' },
+        { key: 'script', hint: 'Task script body' },
+        { key: 'depends_on', hint: 'Dependent tasks' },
+        { key: 'ignore_failure', hint: 'Ignore task errors' },
+        { key: 'llm_output_sharing', hint: 'Share task LLM output' },
     ];
     const PIPELINE_DIRECTIVE_KEYS = PIPELINE_DIRECTIVES.map(item => item.key);
     const STEP_DIRECTIVE_KEYS = STEP_DIRECTIVES.map(item => item.key);
     const TASK_DIRECTIVE_KEYS = TASK_DIRECTIVES.map(item => item.key);
+    const DIRECTIVE_VALUE_METADATA = {
+        llm_output_sharing: { values: ['true', 'false'], title: 'Boolean value' },
+        llm_content_sharing: { values: ['true', 'false'], title: 'Boolean value' },
+        ignore_failure: { values: ['true', 'false'], title: 'Boolean value' },
+        sync: { values: ['true', 'false'], title: 'Boolean value' },
+    };
 
     function isPipelinesPageActive() {
         const page = document.querySelector('[data-page="pipelines"]');
@@ -2478,6 +2456,11 @@ function formatPathLabel(path) {
             return environmentContext;
         }
 
+        const valueContext = detectDirectiveValueContext(lineInfo, selectionEnd);
+        if (valueContext) {
+            return valueContext;
+        }
+
         const directiveContext = detectDirectiveKeyContext(lineInfo, selectionEnd, beforeLine);
         if (directiveContext) {
             return directiveContext;
@@ -2522,6 +2505,41 @@ function formatPathLabel(path) {
             rangeStart: lineInfo.start + lineInfo.indent,
             rangeEnd: safeRangeEnd,
             insertSuffix: hasColon ? '' : ': ',
+        };
+    }
+
+    function detectDirectiveValueContext(lineInfo, selectionEnd) {
+        const rawLine = lineInfo.line;
+        if (!rawLine) return null;
+        const colonIndex = rawLine.indexOf(':');
+        if (colonIndex === -1 || lineInfo.column <= colonIndex) {
+            return null;
+        }
+
+        const key = rawLine.slice(lineInfo.indent, colonIndex).trim();
+        if (!key || !DIRECTIVE_VALUE_METADATA[key]) {
+            return null;
+        }
+
+        const afterColon = rawLine.slice(colonIndex + 1);
+        const whitespaceMatch = afterColon.match(/^\s*/);
+        const whitespace = whitespaceMatch ? whitespaceMatch[0] : '';
+        const valueOffsetLocal = colonIndex + 1 + whitespace.length;
+        const currentValueSegment = rawLine.slice(valueOffsetLocal, lineInfo.column);
+        const trimmedValue = currentValueSegment.trim();
+        const relativeOffset = trimmedValue ? currentValueSegment.indexOf(trimmedValue) : 0;
+        const rangeStart = lineInfo.start + valueOffsetLocal + relativeOffset;
+        const safeRangeEnd = Math.max(rangeStart, selectionEnd);
+        const metadata = DIRECTIVE_VALUE_METADATA[key];
+
+        return {
+            type: 'directive-value',
+            title: metadata.title || 'Value',
+            key,
+            prefix: trimmedValue,
+            rangeStart,
+            rangeEnd: safeRangeEnd,
+            insertSuffix: '',
         };
     }
 
@@ -2697,6 +2715,14 @@ function formatPathLabel(path) {
             }));
             return filterSuggestionPool(steps, prefix);
         }
+        if (contextInfo.type === 'directive-value') {
+            const metadata = DIRECTIVE_VALUE_METADATA[contextInfo.key];
+            if (!metadata || !Array.isArray(metadata.values)) {
+                return [];
+            }
+            const values = metadata.values.map(value => ({ value, label: value }));
+            return filterSuggestionPool(values, prefix);
+        }
         if (contextInfo.type === 'pipeline-key') {
             return filterSuggestionPool(buildDirectiveSuggestionItems(PIPELINE_DIRECTIVES, contextInfo), prefix, 12);
         }
@@ -2739,17 +2765,11 @@ function formatPathLabel(path) {
 
     function buildDirectiveSuggestionItems(definitions, contextInfo) {
         if (!Array.isArray(definitions)) return [];
-        const insertIndent = contextInfo.insertIndent || '';
-        const childIndent = insertIndent + '  ';
-        const grandChildIndent = childIndent + '  ';
         return definitions.map(def => {
-            const snippetBuilder = typeof def.snippet === 'function'
-                ? def.snippet({ insertIndent, childIndent, grandChildIndent })
-                : `${def.key}: `;
             return {
                 value: def.key,
                 label: def.key,
-                snippet: snippetBuilder,
+                snippet: def.key,
                 hint: def.hint || '',
                 overrideSuffix: '',
             };
