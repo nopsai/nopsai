@@ -2255,7 +2255,7 @@ if (dx !== 0 || dy !== 0) {
     headerHTML += `
             <div class="flex flex-wrap items-baseline gap-x-3 min-w-0">
                 <a href="${repoLink}" class="text-xl font-semibold text-[var(--text-secondary)] hover:text-[var(--text-accent)] transition-colors truncate">${repoFullName}</a>
-                <a href="#" id="view-pipeline-definition-link" class="text-xl font-semibold text-[var(--text-primary)] hover:text-[var(--text-accent)] transition-colors truncate">${runInfo.pipeline_name}</a>
+                <span class="text-xl font-semibold text-[var(--text-primary)] truncate">${runInfo.pipeline_name}</span>
                 ${overrideIcon}
             </div>
             <div class="text-xs text-[var(--text-secondary)] mt-2 font-mono grid grid-cols-[auto,1fr] gap-x-4 w-full max-w-3xl">
@@ -2402,11 +2402,6 @@ if (dx !== 0 || dy !== 0) {
             }
         });
     }
-
-    document.getElementById('view-pipeline-definition-link').addEventListener('click', (e) => {
-        e.preventDefault();
-        showPipelineDefinitionModal(runDetails.pipeline_definition_yaml || runDetails.pipeline_definition);
-    });
 
     resetMainView();
     try { localStorage.setItem('graphView', 'steps'); } catch {}
