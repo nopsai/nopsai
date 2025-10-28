@@ -1629,12 +1629,14 @@ html.dark .pipelines-modal-card {
 }
 
 #pipelines-new-modal.show,
-#pipelines-delete-modal.show {
+#pipelines-delete-modal.show,
+#pipelines-clone-modal.show {
     opacity: 1;
 }
 
 #pipelines-new-modal.show .pipelines-modal-card,
-#pipelines-delete-modal.show .pipelines-modal-card {
+#pipelines-delete-modal.show .pipelines-modal-card,
+#pipelines-clone-modal.show .pipelines-modal-card {
     transform: scale(1);
     opacity: 1;
 }

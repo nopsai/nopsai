@@ -1437,8 +1437,8 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 	}
 
 	// Define SQL statements
-	const pipelineUpsert = `INSERT INTO pipelines (path, name, version, definition, updated_at) VALUES ($1, $2, $3, $4, NOW())
-		ON CONFLICT (path, name) DO UPDATE SET version = EXCLUDED.version, definition = EXCLUDED.definition, updated_at = NOW()`
+	const pipelineUpsert = `INSERT INTO pipelines (path, name, version, definition, source, updated_at) VALUES ($1, $2, $3, $4, 'git', NOW())
+		ON CONFLICT (path, name) DO UPDATE SET version = EXCLUDED.version, definition = EXCLUDED.definition, source = 'git', updated_at = NOW()`
 	const stepUpsert = `INSERT INTO steps (path, name, definition, updated_at) VALUES ($1, $2, $3, NOW())
 		ON CONFLICT (path, name) DO UPDATE SET definition = EXCLUDED.definition, updated_at = NOW()`
 	const envUpsert = `INSERT INTO environments (name, value, repository_name, environment, updated_at) VALUES ($1, $2, $3, $4, NOW())
@@ -1599,7 +1599,7 @@ type pipelineKey struct {
 }
 
 func loadExistingPipelineKeys(ctx context.Context, tx pgx.Tx) (map[string]pipelineKey, error) {
-	rows, err := tx.Query(ctx, "SELECT path, name FROM pipelines")
+	rows, err := tx.Query(ctx, "SELECT path, name FROM pipelines WHERE source = 'git'")
 	if err != nil {
 		return nil, err
 	}
@@ -1720,7 +1720,8 @@ func isYAMLFile(path string) bool {
 }
 
 func (a *App) handleListPipelines(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(context.Background(), "SELECT path, name FROM pipelines ORDER BY path ASC, name ASC")
+	includeSource := strings.EqualFold(r.URL.Query().Get("include_source"), "true")
+	rows, err := a.db.Query(context.Background(), "SELECT path, name, source FROM pipelines ORDER BY path ASC, name ASC")
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query pipelines from database")
 		http.Error(w, "Failed to retrieve pipelines", http.StatusInternalServerError)
@@ -1728,19 +1729,37 @@ func (a *App) handleListPipelines(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var pipelineNames []string
+	type pipelineListItem struct {
+		ID     string `json:"id"`
+		Source string `json:"source"`
+	}
+
+	var (
+		pipelineNames []string
+		pipelineItems []pipelineListItem
+	)
+
 	for rows.Next() {
-		var path, name string
-		if err := rows.Scan(&path, &name); err != nil {
+		var path, name, source string
+		if err := rows.Scan(&path, &name, &source); err != nil {
 			log.Error().Err(err).Msg("Failed to scan pipeline entry")
 			http.Error(w, "Failed to process pipelines", http.StatusInternalServerError)
 			return
 		}
-		pipelineNames = append(pipelineNames, buildPipelineIdentifier(path, name))
+		identifier := buildPipelineIdentifier(path, name)
+		if includeSource {
+			pipelineItems = append(pipelineItems, pipelineListItem{ID: identifier, Source: source})
+		} else {
+			pipelineNames = append(pipelineNames, identifier)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	if includeSource {
+		json.NewEncoder(w).Encode(pipelineItems)
+		return
+	}
 	json.NewEncoder(w).Encode(pipelineNames)
 }
 
@@ -1982,9 +2001,23 @@ func (a *App) handleCreateOrUpdatePipeline(w http.ResponseWriter, r *http.Reques
 
 	storedName := pipeline.Name
 	storedVersion := pipeline.Version
-	query := `INSERT INTO pipelines (path, name, version, definition, updated_at) VALUES ($1, $2, $3, $4, NOW())
-			  ON CONFLICT (path, name) DO UPDATE SET version = $3, definition = $4, updated_at = NOW()`
-	_, err = a.db.Exec(context.Background(), query, dbPath, storedName, storedVersion, string(pipelineDef))
+
+	var existingSource string
+	lookupErr := a.db.QueryRow(context.Background(), "SELECT source FROM pipelines WHERE path = $1 AND name = $2", dbPath, storedName).Scan(&existingSource)
+	if lookupErr != nil && lookupErr != pgx.ErrNoRows {
+		log.Error().Err(lookupErr).Msg("Failed to inspect existing pipeline source")
+		http.Error(w, "Failed to save pipeline", http.StatusInternalServerError)
+		return
+	}
+
+	desiredSource := "database"
+	if strings.EqualFold(existingSource, "git") {
+		desiredSource = existingSource
+	}
+
+	query := `INSERT INTO pipelines (path, name, version, definition, source, updated_at) VALUES ($1, $2, $3, $4, $5, NOW())
+			  ON CONFLICT (path, name) DO UPDATE SET version = $3, definition = $4, source = $5, updated_at = NOW()`
+	_, err = a.db.Exec(context.Background(), query, dbPath, storedName, storedVersion, string(pipelineDef), desiredSource)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to save pipeline to database")
 		http.Error(w, "Failed to save pipeline", http.StatusInternalServerError)
