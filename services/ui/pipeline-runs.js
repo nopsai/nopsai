@@ -53,7 +53,122 @@
         return source || 'N/A';
     }
 
+    function getPipelineIdentifierFromRun(run) {
+        if (!run || typeof run !== 'object') return '';
+        const rawName = typeof run.pipeline_name === 'string' ? run.pipeline_name.trim() : '';
+        const rawPath = typeof run.pipeline_path === 'string' ? run.pipeline_path.trim() : '';
+        if (!rawName) return '';
+        const cleanPath = rawPath.replace(/^\/+|\/+$/g, '');
+        return cleanPath ? `${cleanPath}/${rawName}` : rawName;
+    }
+
+    function buildPipelineHashFromIdentifier(identifier) {
+        const base = '#/pipelines';
+        if (!identifier) return base;
+        const segments = identifier
+            .split('/')
+            .map(segment => segment.trim())
+            .filter(Boolean);
+        if (!segments.length) return base;
+        const encoded = segments.map(part => encodeURIComponent(part));
+        return `${base}/${encoded.join('/')}`;
+    }
+
+    function buildPipelineHashFromRun(run) {
+        return buildPipelineHashFromIdentifier(getPipelineIdentifierFromRun(run));
+    }
+
     const RUN_TOGGLE_BASE_CLASS = 'run-select-toggle inline-flex items-center justify-center h-5 w-5 rounded-full border focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors duration-150';
+    const PIPELINE_BUTTON_BASE_CLASSES = 'run-view-pipeline-btn inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 transition-colors duration-150';
+    const PIPELINE_BUTTON_ACTIVE_CLASSES = `${PIPELINE_BUTTON_BASE_CLASSES} text-white bg-indigo-500 hover:bg-indigo-600 focus:ring-indigo-400`;
+    const PIPELINE_BUTTON_DISABLED_CLASSES = `${PIPELINE_BUTTON_BASE_CLASSES} text-[var(--text-secondary)] bg-[var(--border-primary)] cursor-not-allowed pointer-events-none focus:ring-[var(--border-primary)]`;
+
+    const pipelineExistenceCache = new Map();
+    let apiBaseUrl = '';
+
+    function normalizePipelineExistenceKey(identifier) {
+        return (identifier || '').trim().toLowerCase();
+    }
+
+    async function pipelineExistsInDatabase(identifier) {
+        const key = normalizePipelineExistenceKey(identifier);
+        if (!key) return false;
+        if (pipelineExistenceCache.has(key)) {
+            return pipelineExistenceCache.get(key);
+        }
+
+        const segments = identifier.split('/').map(segment => segment.trim()).filter(Boolean);
+        if (!segments.length) {
+            pipelineExistenceCache.set(key, false);
+            return false;
+        }
+
+        const encodedPath = segments.map(encodeURIComponent).join('/');
+        const fallbackOrigin = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : '';
+        const base = (apiBaseUrl || fallbackOrigin || '').replace(/\/+$/, '');
+
+        if (!/^https?:/i.test(base)) {
+            pipelineExistenceCache.set(key, false);
+            return false;
+        }
+
+        const url = `${base}/v1/pipelines/${encodedPath}`;
+
+        try {
+            let response = await fetch(url, { method: 'HEAD' });
+            if (response.status === 405 || response.status === 501) {
+                response = await fetch(url, { method: 'GET' });
+            }
+            if (response.ok) {
+                pipelineExistenceCache.set(key, true);
+                return true;
+            }
+            if (response.status === 404) {
+                pipelineExistenceCache.set(key, false);
+                return false;
+            }
+            pipelineExistenceCache.set(key, false);
+            return false;
+        } catch (error) {
+            if (console && typeof console.debug === 'function') {
+                console.debug('Skipping pipeline existence check (request failed)', { identifier, error });
+            }
+            pipelineExistenceCache.set(key, false);
+            return false;
+        }
+    }
+
+    function applyPipelineButtonState(button, exists) {
+        if (!button) return;
+        if (exists) {
+            button.className = PIPELINE_BUTTON_ACTIVE_CLASSES;
+            const href = button.dataset.pipelineHref || '#';
+            button.setAttribute('href', href);
+            button.setAttribute('aria-disabled', 'false');
+            button.setAttribute('tabindex', '0');
+            const activeTitle = button.dataset.activeTitle || button.getAttribute('title') || '';
+            if (activeTitle) button.setAttribute('title', activeTitle);
+        } else {
+            button.className = PIPELINE_BUTTON_DISABLED_CLASSES;
+            button.removeAttribute('href');
+            button.setAttribute('aria-disabled', 'true');
+            button.setAttribute('tabindex', '-1');
+            button.setAttribute('title', 'Pipeline definition not available in configuration repository');
+        }
+    }
+
+    async function updatePipelineButtonState(identifier) {
+        const button = document.getElementById('run-view-pipeline-link');
+        if (!button) return;
+        const expectedKey = normalizePipelineExistenceKey(identifier);
+        const buttonKey = normalizePipelineExistenceKey(button.dataset.pipelineId || '');
+        if (!expectedKey || expectedKey !== buttonKey) return;
+        const exists = await pipelineExistsInDatabase(identifier);
+        if (normalizePipelineExistenceKey(button.dataset.pipelineId || '') !== expectedKey) {
+            return; // Button was re-rendered before fetch completed
+        }
+        applyPipelineButtonState(button, exists);
+    }
 
     function parseRepoIdentifiers(fullName) {
         if (typeof fullName !== 'string') return null;
@@ -815,6 +930,7 @@
         logsModule = context.logsModule;
         wsManager = context.wsManager; // Store wsManager
         refresh = context.refresh || (() => {});
+        apiBaseUrl = typeof context.apiBaseUrl === 'string' ? context.apiBaseUrl.replace(/\/+$/, '') : '';
         if (!(state.currentRunTrackedIds instanceof Map)) {
             state.currentRunTrackedIds = new Map();
         }
@@ -1668,7 +1784,6 @@ if (dx !== 0 || dy !== 0) {
         const repoFullName = `${run.git_repo_owner}/${run.git_repo_name}`;
         const pipelineNameHTML = getPipelineNameHTML(run);
         const triggerCard = formatTriggerEventCardDisplay(run.trigger_event_id);
-
         return `
             <div>
                 <div class="flex items-start justify-between">
@@ -1782,6 +1897,12 @@ if (dx !== 0 || dy !== 0) {
                 const runId = runData.run_id || '';
                 const isSelected = ensureRunSelectionSet().has(runId);
                 el.setAttribute('data-href', buildRunHash(runData, resolvedContext));
+                const pipelineIdentifier = getPipelineIdentifierFromRun(runData);
+                if (pipelineIdentifier) {
+                    el.setAttribute('data-pipeline-id', pipelineIdentifier);
+                } else {
+                    el.removeAttribute('data-pipeline-id');
+                }
                 el.dataset.selected = isSelected ? 'true' : 'false';
                 el.innerHTML = renderRunCardHTML(runData, isSelected);
                 if (isSelected) {
@@ -1800,6 +1921,8 @@ if (dx !== 0 || dy !== 0) {
     function renderRunCard(run, contextOverride) {
         const repoFullName = `${run.git_repo_owner}/${run.git_repo_name}`;
         const parentAttr = run.parent_run_id ? ` data-parent-run-id="${run.parent_run_id}"` : '';
+        const pipelineIdentifier = getPipelineIdentifierFromRun(run);
+        const pipelineAttr = pipelineIdentifier ? ` data-pipeline-id="${escapeAttribute(pipelineIdentifier)}"` : '';
         const context = resolveRunContext(contextOverride);
         const runUrl = buildRunHash(run, context);
         const contextAttr = encodeRunContext(context);
@@ -1810,7 +1933,7 @@ if (dx !== 0 || dy !== 0) {
         const selectedClasses = isSelected ? 'ring-2 ring-indigo-500 border-transparent' : '';
         return `
             <div data-href="${runUrl}"
-                data-run-id="${runIdAttr}" 
+                data-run-id="${runIdAttr}"${pipelineAttr}
                 data-repo-full-name="${repoFullName}"${parentAttr}${getTriggerGroupAttr(run)}
                 data-run-context="${contextAttr}"
                 data-selected="${isSelected ? 'true' : 'false'}"
@@ -2071,6 +2194,8 @@ if (dx !== 0 || dy !== 0) {
     const triggerRaw = (runInfo.trigger_event_id ?? '').toString().trim();
     const triggerDisplay = triggerRaw || 'N/A';
     const repoFullName = runInfo.git_repo_owner ? `${runInfo.git_repo_owner} / ${runInfo.git_repo_name}` : runInfo.git_repo_name;
+    const pipelineIdentifier = getPipelineIdentifierFromRun(runInfo);
+    const pipelinePageLink = pipelineIdentifier ? buildPipelineHashFromRun(runInfo) : '';
 
     const runContext = resolveRunContext(state.currentRunContext || null);
     state.currentRunContext = runContext;
@@ -2116,6 +2241,13 @@ if (dx !== 0 || dy !== 0) {
                 Rerun
             </button>`;
 
+    const pipelineActionHTML = pipelineIdentifier
+        ? `<a id="run-view-pipeline-link" data-pipeline-id="${escapeAttribute(pipelineIdentifier)}" data-pipeline-href="${escapeAttribute(pipelinePageLink)}" data-active-title="View this pipeline in Pipelines tab" class="${PIPELINE_BUTTON_DISABLED_CLASSES}" aria-disabled="true" tabindex="-1" title="Checking pipeline availability…">
+                <svg class="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                View Pipeline
+            </a>`
+        : '';
+
     const deleteRunIconHTML = `<button id="run-delete-btn" type="button" class="inline-flex items-center justify-center h-8 w-8 rounded-full text-[var(--text-secondary)] hover:text-red-500 hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500" title="Delete run">
                 <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5-3h4m1 3H7" /></svg>
             </button>`;
@@ -2148,6 +2280,7 @@ if (dx !== 0 || dy !== 0) {
                     <span>${branchDisplay}</span>
                 </div>
                 <div class="ml-auto flex items-center gap-2">
+                    ${pipelineActionHTML}
                     ${primaryActionHTML}
                     <a href="${buildRunHashWithExtras(runInfo, runContext, ['logs'])}" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-accent)]">
                         <svg class="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7" /></svg>
@@ -2164,6 +2297,10 @@ if (dx !== 0 || dy !== 0) {
             console.error("DOM.mainHeader not found during renderRunView");
             return; // Avoid errors if header element isn't there
         }
+
+    if (pipelineIdentifier) {
+        updatePipelineButtonState(pipelineIdentifier);
+    }
 
     const actionBtn = document.getElementById('run-primary-action-btn');
     if (actionBtn && runInfo?.run_id) {
