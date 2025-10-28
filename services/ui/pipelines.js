@@ -1,6 +1,7 @@
 (function (global) {
     const state = {
         pipelines: [],
+        pipelineSources: new Map(),
         searchTerm: '',
         selectedId: null,
         drafts: new Set(),
@@ -15,6 +16,7 @@
         pendingDelete: null,
         isEditing: false,
         currentYaml: '',
+        cloneContext: null,
         autocomplete: {
             secrets: [],
             environments: [],
@@ -90,6 +92,76 @@
         'secrets', 'volumes', 'depends_on', 'artifacts', 'environment', 'llm_content_ignore',
     ]);
 
+    function resetPipelineSources() {
+        state.pipelineSources = new Map();
+    }
+
+    function normalizeSourceValue(raw) {
+        if (raw == null) return '';
+        const normalized = String(raw).trim().toLowerCase();
+        if (!normalized) return '';
+        if (normalized === 'git' || normalized === 'config' || normalized === 'config repository') return 'git';
+        if (normalized === 'database' || normalized === 'db') return 'database';
+        if (normalized === 'draft') return 'draft';
+        return '';
+    }
+
+    function setPipelineSource(identifier, source) {
+        if (!identifier) return;
+        if (!(state.pipelineSources instanceof Map)) {
+            state.pipelineSources = new Map();
+        }
+        const normalized = normalizeSourceValue(source);
+        if (normalized) {
+            state.pipelineSources.set(identifier, normalized);
+        } else {
+            state.pipelineSources.delete(identifier);
+        }
+    }
+
+    function getSourceLabel(sourceKey) {
+        switch (sourceKey) {
+            case 'git':
+                return 'Git';
+            case 'database':
+                return 'Database';
+            case 'draft':
+                return 'Draft';
+            default:
+                return '';
+        }
+    }
+
+    function resolvePipelineSource(pipelineId, fallback = '') {
+        if (state.drafts.has(pipelineId)) {
+            return 'Draft';
+        }
+        const storedKey = normalizeSourceValue(state.pipelineSources?.get(pipelineId));
+        if (storedKey) {
+            return getSourceLabel(storedKey);
+        }
+        const fallbackKey = normalizeSourceValue(fallback);
+        if (fallbackKey) {
+            return getSourceLabel(fallbackKey);
+        }
+        if (fallback) {
+            return fallback;
+        }
+        return 'Database';
+    }
+
+    function updateCachedPipelineSource(pipelineId) {
+        if (!pipelineId) return;
+        const cached = state.pipelineCache.get(pipelineId);
+        if (cached && cached.meta) {
+            cached.meta = {
+                ...cached.meta,
+                source: resolvePipelineSource(pipelineId, cached.meta.source),
+            };
+            state.pipelineCache.set(pipelineId, cached);
+        }
+    }
+
     function isPipelinesPageActive() {
         const page = document.querySelector('[data-page="pipelines"]');
         return !!(page && page.classList.contains('active'));
@@ -118,13 +190,14 @@
             'pipelines-empty', 'pipelines-total-count', 'pipelines-filter-count', 'pipelines-refresh-btn',
             'pipelines-new-btn', 'pipelines-back-btn', 'pipelines-subtitle', 'pipeline-detail-name',
             'pipeline-detail-description', 'pipeline-detail-path', 'pipeline-detail-version', 'pipeline-detail-source', 'pipeline-copy-btn',
-            'pipeline-download-btn', 'pipeline-edit-btn', 'pipeline-save-btn', 'pipeline-cancel-btn',
+            'pipeline-download-btn', 'pipeline-clone-btn', 'pipeline-edit-btn', 'pipeline-save-btn', 'pipeline-cancel-btn',
             'pipeline-yaml-content', 'pipeline-yaml-editor', 'editor-container', 'line-numbers',
             'validation-status', 'yaml-view-actions', 'yaml-edit-actions', 'pipeline-graph',
             'pipeline-triggers', 'pipeline-recent-runs', 'pipelines-new-modal', 'pipelines-new-form',
             'pipelines-new-close', 'pipelines-new-cancel', 'pipelines-new-path', 'pipelines-new-name',
             'pipelines-delete-modal', 'pipelines-delete-message', 'pipelines-delete-confirm',
-            'pipelines-delete-cancel', 'pipelines-delete-close', 'pipelines-sync-report', 'pipelines-search-container'
+            'pipelines-delete-cancel', 'pipelines-delete-close', 'pipelines-clone-modal', 'pipelines-clone-form',
+            'pipelines-clone-close', 'pipelines-clone-cancel', 'pipelines-clone-path', 'pipelines-clone-name', 'pipelines-clone-subtitle', 'pipelines-sync-report', 'pipelines-search-container'
         ];
 
         ids.forEach(id => {
@@ -198,6 +271,25 @@
         }
         if (DOM['pipeline-download-btn']) {
             DOM['pipeline-download-btn'].addEventListener('click', downloadPipelineYaml);
+        }
+        if (DOM['pipeline-clone-btn']) {
+            DOM['pipeline-clone-btn'].addEventListener('click', () => {
+                if (!state.selectedId) return;
+                openClonePipelineModal(state.selectedId).catch(error => {
+                    console.error('Failed to open clone modal', error);
+                    showToast('Unable to open clone modal. Please try again.', 'error');
+                });
+            });
+        }
+
+        if (DOM['pipelines-clone-close']) {
+            DOM['pipelines-clone-close'].addEventListener('click', closeClonePipelineModal);
+        }
+        if (DOM['pipelines-clone-cancel']) {
+            DOM['pipelines-clone-cancel'].addEventListener('click', closeClonePipelineModal);
+        }
+        if (DOM['pipelines-clone-form']) {
+            DOM['pipelines-clone-form'].addEventListener('submit', handleClonePipeline);
         }
 
         if (DOM['pipeline-yaml-editor']) {
@@ -336,11 +428,39 @@
         }
     }
 
+    function ingestPipelineListResponse(response) {
+        resetPipelineSources();
+        if (!Array.isArray(response)) {
+            state.pipelines = [];
+            return;
+        }
+
+        const firstItem = response[0];
+        if (firstItem && typeof firstItem === 'object' && !Array.isArray(firstItem)) {
+            const identifiers = [];
+            response.forEach(item => {
+                if (!item || typeof item !== 'object') return;
+                const identifier = item.id || item.identifier || item.pipeline || '';
+                if (!identifier) return;
+                identifiers.push(identifier);
+                setPipelineSource(identifier, item.source);
+                updateCachedPipelineSource(identifier);
+            });
+            state.pipelines = identifiers;
+        } else {
+            state.pipelines = response
+                .map(value => typeof value === 'string' ? value : String(value || ''))
+                .filter(Boolean);
+            state.pipelines.forEach(updateCachedPipelineSource);
+        }
+
+        state.pipelines.sort((a, b) => a.localeCompare(b));
+    }
+
     async function refreshPipelines(force = false) {
         if (!state.pipelines.length || force) {
-            const response = await context.fetchData('/v1/pipelines');
-            state.pipelines = Array.isArray(response) ? response.slice() : [];
-            state.pipelines.sort((a, b) => a.localeCompare(b));
+            const response = await context.fetchData('/v1/pipelines?include_source=true');
+            ingestPipelineListResponse(response);
             await preloadSummaries(state.pipelines);
         }
 
@@ -972,7 +1092,7 @@ function extractMetaFromYaml(yaml, pipelineId) {
                 description: '',
                 version: 'latest',
                 path: fallback.path,
-                source: 'Config Repository',
+                source: resolvePipelineSource(pipelineId, 'Config Repository'),
             };
         }
 
@@ -981,7 +1101,7 @@ function extractMetaFromYaml(yaml, pipelineId) {
             description: parsed.description || '',
             version: parsed.version || 'latest',
             path: fallback.path,
-            source: parsed.source || 'Config Repository',
+            source: resolvePipelineSource(pipelineId, parsed.source || 'Config Repository'),
         };
     }
 
@@ -1574,7 +1694,7 @@ function formatPathLabel(path) {
         const pathLabel = escapeHtml(rawPath);
         const description = escapeHtml(meta.description || 'No description provided.');
         const version = escapeHtml(meta.version || 'latest');
-        const source = escapeHtml(meta.source || 'Config Repository');
+        const source = escapeHtml(meta.source || 'Database');
 
         return `
             <article class="pipeline-card bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg shadow-sm transition-all duration-200 p-3 flex flex-col" data-pipeline-id="${idAttr}" tabindex="0" role="button" aria-label="Open pipeline ${escapeHtml(rawName)}">
@@ -1682,7 +1802,20 @@ function formatPathLabel(path) {
             DOM['pipeline-detail-version'].textContent = meta.version || 'latest';
         }
         if (DOM['pipeline-detail-source']) {
-            DOM['pipeline-detail-source'].textContent = meta.source || 'Config Repository';
+            DOM['pipeline-detail-source'].textContent = meta.source || 'Database';
+        }
+
+        const isGitSource = (meta.source || '').toLowerCase() === 'git';
+        if (DOM['pipeline-edit-btn']) {
+            DOM['pipeline-edit-btn'].classList.toggle('hidden', isGitSource);
+        }
+        if (DOM['pipeline-clone-btn']) {
+            DOM['pipeline-clone-btn'].classList.toggle('hidden', !isGitSource);
+            if (isGitSource) {
+                DOM['pipeline-clone-btn'].dataset.pipelineId = state.selectedId || '';
+            } else {
+                DOM['pipeline-clone-btn'].dataset.pipelineId = '';
+            }
         }
 
         renderYamlView(entry.yaml);
@@ -3239,6 +3372,10 @@ function formatPathLabel(path) {
             state.pipelineCache.set(state.selectedId, entry);
         }
 
+        state.drafts.delete(state.selectedId);
+        setPipelineSource(state.selectedId, 'database');
+        updateCachedPipelineSource(state.selectedId);
+
         state.currentYaml = yamlString;
         exitEditMode();
         renderPipelineDetail(entry);
@@ -3432,6 +3569,7 @@ function formatPathLabel(path) {
 
         const yaml = buildDefaultPipelineYaml(name);
         state.drafts.add(identifier);
+        setPipelineSource(identifier, 'draft');
         state.pipelineCache.set(identifier, {
             yaml,
             meta: {
@@ -3444,6 +3582,7 @@ function formatPathLabel(path) {
             isDraft: true,
             fetchedAt: Date.now(),
         });
+        updateCachedPipelineSource(identifier);
         state.pipelines.push(identifier);
         state.pipelines.sort((a, b) => a.localeCompare(b));
 
@@ -3454,6 +3593,132 @@ function formatPathLabel(path) {
 
     function buildDefaultPipelineYaml(name) {
         return `name: ${name}\nversion: latest\ndescription: Describe what this pipeline does.\ncontainer_image: alpine:3.19\nsteps:\n  - name: build\n    goal: |\n      Replace this with build instructions for ${name}.\n`;
+    }
+
+    function generateCloneName(originalName) {
+        const baseRaw = (originalName || 'pipeline').trim();
+        const sanitizedBase = baseRaw.replace(/[^A-Za-z0-9_.-]/g, '-').replace(/^-+|-+$/g, '') || 'pipeline';
+        let candidate = `${sanitizedBase}-copy`;
+        let counter = 2;
+        while (state.pipelines.includes(candidate)) {
+            candidate = `${sanitizedBase}-copy-${counter}`;
+            counter += 1;
+        }
+        return candidate;
+    }
+
+    function cloneYamlWithName(originalYaml, newName) {
+        let updated = originalYaml;
+        if (window.jsyaml && typeof window.jsyaml.load === 'function' && typeof window.jsyaml.dump === 'function') {
+            try {
+                const parsed = window.jsyaml.load(originalYaml);
+                if (parsed && typeof parsed === 'object') {
+                    parsed.name = newName;
+                    updated = window.jsyaml.dump(parsed, { lineWidth: 120, noRefs: true });
+                }
+            } catch (error) {
+                console.warn('Failed to reserialize cloned pipeline YAML with js-yaml', error);
+            }
+        }
+
+        if (!/^\s*name\s*:/m.test(updated)) {
+            return `name: ${newName}\n${updated}`;
+        }
+        return updated.replace(/(^\s*name\s*:\s*).*$/m, `$1${newName}`);
+    }
+
+    async function openClonePipelineModal(pipelineId) {
+        if (!pipelineId || !DOM['pipelines-clone-modal']) return;
+        const summary = await ensurePipelineSummary(pipelineId);
+        if (!summary || !summary.yaml) {
+            showToast('Unable to load pipeline definition for cloning.', 'error');
+            return;
+        }
+
+        const meta = summary.meta ? { ...summary.meta } : extractMetaFromYaml(summary.yaml, pipelineId);
+        state.cloneContext = {
+            sourceId: pipelineId,
+            yaml: summary.yaml,
+            meta,
+        };
+
+        if (DOM['pipelines-clone-path']) {
+            DOM['pipelines-clone-path'].value = meta.path || '';
+        }
+        if (DOM['pipelines-clone-name']) {
+            DOM['pipelines-clone-name'].value = generateCloneName(meta.name || pipelineId);
+        }
+        if (DOM['pipelines-clone-subtitle']) {
+            DOM['pipelines-clone-subtitle'].textContent = `Cloning from “${meta.name || pipelineId}”. Provide a new path and name.`;
+        }
+
+        DOM['pipelines-clone-modal'].classList.remove('hidden');
+        requestAnimationFrame(() => DOM['pipelines-clone-modal'].classList.add('show'));
+    }
+
+    function closeClonePipelineModal() {
+        if (!DOM['pipelines-clone-modal']) return;
+        state.cloneContext = null;
+        DOM['pipelines-clone-modal'].classList.remove('show');
+        setTimeout(() => {
+            DOM['pipelines-clone-modal'].classList.add('hidden');
+            if (DOM['pipelines-clone-form']) {
+                DOM['pipelines-clone-form'].reset();
+            }
+        }, 200);
+    }
+
+    async function handleClonePipeline(event) {
+        event.preventDefault();
+        if (!state.cloneContext) {
+            closeClonePipelineModal();
+            return;
+        }
+
+        const sourceMeta = state.cloneContext.meta || {};
+        const pathRaw = DOM['pipelines-clone-path'].value.trim().replace(/^\/+|\/+$/g, '');
+        const name = DOM['pipelines-clone-name'].value.trim();
+
+        if (!name) {
+            showToast('Pipeline name is required.', 'error');
+            return;
+        }
+        if (!/^[a-zA-Z0-9_.-]+$/.test(name)) {
+            showToast('Pipeline name can only contain letters, numbers, dots, underscores, and hyphens.', 'error');
+            return;
+        }
+
+        const identifier = pathRaw ? `${pathRaw}/${name}` : name;
+        if (state.pipelines.includes(identifier)) {
+            showToast('A pipeline with that identifier already exists.', 'error');
+            return;
+        }
+
+        const clonedYaml = cloneYamlWithName(state.cloneContext.yaml, name);
+
+        state.drafts.add(identifier);
+        setPipelineSource(identifier, 'draft');
+        const meta = {
+            ...sourceMeta,
+            name,
+            path: pathRaw,
+            source: 'Draft',
+        };
+
+        state.pipelineCache.set(identifier, {
+            yaml: clonedYaml,
+            meta,
+            isDraft: true,
+            fetchedAt: Date.now(),
+        });
+        updateCachedPipelineSource(identifier);
+
+        state.pipelines.push(identifier);
+        state.pipelines.sort((a, b) => a.localeCompare(b));
+
+        closeClonePipelineModal();
+        window.location.hash = buildPipelineHash(identifier, true);
+        showToast('Pipeline cloned. Review the draft and save when ready.', 'info');
     }
 
     function openDeleteModal(pipelineId) {
@@ -3489,6 +3754,9 @@ function formatPathLabel(path) {
         }
 
         state.drafts.delete(pipelineId);
+        if (state.pipelineSources instanceof Map) {
+            state.pipelineSources.delete(pipelineId);
+        }
         state.pipelineCache.delete(pipelineId);
         state.pipelines = state.pipelines.filter(id => id !== pipelineId);
         if (state.selectedId === pipelineId) {
