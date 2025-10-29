@@ -930,6 +930,9 @@
         logsModule = context.logsModule;
         wsManager = context.wsManager; // Store wsManager
         refresh = context.refresh || (() => {});
+        if (!DOM.sidebarNav && DOM.sidebarDetailsNav) {
+            DOM.sidebarNav = DOM.sidebarDetailsNav;
+        }
         apiBaseUrl = typeof context.apiBaseUrl === 'string' ? context.apiBaseUrl.replace(/\/+$/, '') : '';
         if (!(state.currentRunTrackedIds instanceof Map)) {
             state.currentRunTrackedIds = new Map();
