@@ -57,10 +57,16 @@
                 <div data-page="pipelineruns" class="active h-full flex flex-col">
                     <div class="px-6 pt-6 flex-shrink-0 tabs-nav-wrapper">
                         <div class="border-b border-[var(--border-primary)]">
-                            <nav class="tabs-nav" aria-label="Pipeline run tabs" role="tablist">
-                                <a href="#/pipelineruns/main" data-tab="main" role="tab" aria-selected="true" class="tabs-nav__link tabs-nav__link--active" tabindex="0">Main</a>
-                                <a href="#/pipelineruns/recent" data-tab="recent" role="tab" aria-selected="false" class="tabs-nav__link" tabindex="-1">Recent</a>
-                            </nav>
+                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                                <nav class="tabs-nav" aria-label="Pipeline run tabs" role="tablist">
+                                    <a href="#/pipelineruns/main" data-tab="main" role="tab" aria-selected="true" class="tabs-nav__link tabs-nav__link--active" tabindex="0">Main</a>
+                                    <a href="#/pipelineruns/recent" data-tab="recent" role="tab" aria-selected="false" class="tabs-nav__link" tabindex="-1">Recent</a>
+                                </nav>
+                                <div id="pipelineruns-search-container" class="relative w-full max-w-xs lg:max-w-sm lg:self-end">
+                                    <input id="pipelineruns-search" type="search" placeholder="Search runs" aria-label="Search runs" class="pipelines-input w-full pl-11 pr-4 py-2 text-sm" />
+                                    <svg class="w-4 h-4 text-[var(--text-secondary)] absolute left-4 top-1/2 -translate-y-1/2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M10 18a8 8 0 110-16 8 8 0 010 16z"/></svg>
+                                </div>
+                            </div>
                             <div id="run-selection-bar" class="hidden mt-3">
                                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-lg px-4 py-3 text-sm">
                                     <span id="run-selection-count" class="text-[var(--text-primary)] font-medium">0 runs selected</span>
