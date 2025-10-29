@@ -29,6 +29,8 @@
 
     const TERMINAL_RUN_STATUSES = new Set(['success', 'failure', 'cancelled', 'failure (ignored)', 'skipped']);
 
+    let searchRunsPromise = null;
+
     function escapeText(value) {
         if (value === null || value === undefined) return '';
         return String(value)
@@ -51,6 +53,27 @@
             return `${source || 'N/A'} ${arrow} ${target}`;
         }
         return source || 'N/A';
+    }
+
+    function runMatchesSearch(run, searchTermLower) {
+        if (!searchTermLower) return true;
+        if (!run || typeof run !== 'object') return false;
+        const candidates = [
+            run.pipeline_name,
+            run.pipeline_path,
+            run.pipeline_version,
+            run.git_repo_owner,
+            run.git_repo_name,
+            run.git_ref,
+            run.git_target_ref,
+            run.git_commit_sha,
+            run.git_commit_message,
+            run.git_pusher_name,
+            run.status,
+            run.environment,
+            run.trigger_event_id,
+        ];
+        return candidates.some(field => typeof field === 'string' && field.toLowerCase().includes(searchTermLower));
     }
 
     function getPipelineIdentifierFromRun(run) {
@@ -168,6 +191,27 @@
             return; // Button was re-rendered before fetch completed
         }
         applyPipelineButtonState(button, exists);
+    }
+
+    async function ensureSearchRunsLoaded() {
+        if (Array.isArray(state.searchRuns) && state.searchRuns.length && state.searchRunsFetchedAt && (Date.now() - state.searchRunsFetchedAt) < 60 * 1000) {
+            return state.searchRuns;
+        }
+        if (searchRunsPromise) return searchRunsPromise;
+        searchRunsPromise = fetchData('/v1/runs')
+            .then(runs => {
+                state.searchRuns = Array.isArray(runs) ? runs : [];
+                state.searchRunsFetchedAt = Date.now();
+                return state.searchRuns;
+            })
+            .catch(() => {
+                state.searchRuns = [];
+                return state.searchRuns;
+            })
+            .finally(() => {
+                searchRunsPromise = null;
+            });
+        return searchRunsPromise;
     }
 
     function parseRepoIdentifiers(fullName) {
@@ -933,6 +977,12 @@
         if (!DOM.sidebarNav && DOM.sidebarDetailsNav) {
             DOM.sidebarNav = DOM.sidebarDetailsNav;
         }
+        DOM.pipelineRunsSearch = document.getElementById('pipelineruns-search');
+        if (DOM.pipelineRunsSearch) {
+            DOM.pipelineRunsSearch.value = state.runSearchTerm || '';
+        }
+        if (!Array.isArray(state.recentRuns)) state.recentRuns = [];
+        if (!Array.isArray(state.searchRuns)) state.searchRuns = [];
         apiBaseUrl = typeof context.apiBaseUrl === 'string' ? context.apiBaseUrl.replace(/\/+$/, '') : '';
         if (!(state.currentRunTrackedIds instanceof Map)) {
             state.currentRunTrackedIds = new Map();
@@ -1353,7 +1403,18 @@ if (dx !== 0 || dy !== 0) {
 
     async function fetchAllRuns() {
         const runs = await fetchData('/v1/runs');
-        if (runs) renderSidebarPipelineRunsList(runs);
+        if (Array.isArray(runs)) {
+            state.recentRuns = runs;
+        } else {
+            state.recentRuns = [];
+        }
+        renderSidebarPipelineRunsList(state.recentRuns);
+        if (state.currentTab === 'recent') {
+            const hashInfo = parsePipelineRunsHash(window.location.hash);
+            if (!hashInfo.runId) {
+                renderMainGridContent(null, state.recentRuns, false);
+            }
+        }
     }
 
     async function fetchMainContent(groupId) {
@@ -1362,8 +1423,12 @@ if (dx !== 0 || dy !== 0) {
         const subgroups = state.groups.filter(g => normalizeParentId(g.parent_id) === normalizeParentId(groupId));
 
         if (hasRuns) {
+            state.currentRepoRunsByBranch = runsByBranch || {};
+            state.currentRepoGroupId = groupId || null;
             renderGroupedRuns(runsByBranch);
         } else {
+            state.currentRepoRunsByBranch = null;
+            state.currentRepoGroupId = null;
             renderMainGridContent(subgroups, null, true);
         }
     }
@@ -1503,9 +1568,13 @@ if (dx !== 0 || dy !== 0) {
     }
 
     async function renderSidebar(activeRoute, currentTab) {
+        if (DOM.pipelineRunsSearch) {
+            DOM.pipelineRunsSearch.value = state.runSearchTerm || '';
+        }
+
         const navConfig = [
             { route: 'pipelineruns', title: 'Pipeline Runs', icon: 'M4 4h16a1 1 0 011 1v14a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1zm4.5 3.5v9l7-4.5-7-4.5z' },
-            { route: 'pipelines', title: 'Pipelines', icon: 'M4 6a2 2 0 012-2h4l2 2h6a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm3 4h10m-10 4h6' },
+            { route: 'pipelines', title: 'Pipelines', icon: 'M9 17V7h2v10H9zm4-12h2v12h-2V5zm4 4h2v8h-2V9zM3 3h18v2H3V3z' },
             { route: 'secrets', title: 'Secrets', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
             { route: 'steps', title: 'Steps', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
             { route: 'environment', title: 'Environment', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
@@ -1711,12 +1780,16 @@ if (dx !== 0 || dy !== 0) {
     function renderSidebarPipelineRunsList(runs) {
         const listEl = document.getElementById('pipeline-runs-list');
         if (!listEl) return;
-         if (!runs || runs.length === 0) {
-             listEl.innerHTML = `<li><p class="p-2 text-[var(--text-secondary)] text-sm">No recent runs found.</p></li>`;
-             return;
-         }
+        const runsArray = Array.isArray(runs) ? runs : [];
+        const searchTerm = (state.runSearchTerm || '').trim().toLowerCase();
+        const filteredRuns = searchTerm ? runsArray.filter(run => runMatchesSearch(run, searchTerm)) : runsArray;
+        if (!filteredRuns.length) {
+            const message = searchTerm ? 'No runs match your search.' : 'No recent runs found.';
+            listEl.innerHTML = `<li><p class="p-2 text-[var(--text-secondary)] text-sm">${escapeText(message)}</p></li>`;
+            return;
+        }
         const context = { tab: 'recent' };
-        listEl.innerHTML = (runs || []).map(run => {
+        listEl.innerHTML = filteredRuns.map(run => {
             const repoFullName = `${run.git_repo_owner}/${run.git_repo_name}`;
             const contextAttr = encodeRunContext(context);
             return `<li data-run-id="${run.run_id}" data-repo-full-name="${repoFullName}"${run.parent_run_id ? ` data-parent-run-id="${run.parent_run_id}"` : ''}${getTriggerGroupAttr(run)} data-run-context="${contextAttr}">
@@ -1725,7 +1798,46 @@ if (dx !== 0 || dy !== 0) {
         }).join('');
     }
 
+    async function applyRunSearchFilter() {
+        if (DOM.pipelineRunsSearch && DOM.pipelineRunsSearch.value !== (state.runSearchTerm || '')) {
+            DOM.pipelineRunsSearch.value = state.runSearchTerm || '';
+        }
+
+        if (state.currentTab === 'recent') {
+            renderSidebarPipelineRunsList(state.recentRuns || []);
+            const hashInfo = parsePipelineRunsHash(window.location.hash);
+            if (hashInfo.runId) {
+                return;
+            }
+            renderMainGridContent(null, state.recentRuns || [], false);
+            return;
+        } else {
+            const hashInfo = parsePipelineRunsHash(window.location.hash);
+            if (hashInfo.runId) {
+                return;
+            }
+            if (state.runSearchTerm) {
+                await ensureSearchRunsLoaded();
+            }
+            if (state.selectedGroupId) {
+                if (state.currentRepoRunsByBranch && Object.keys(state.currentRepoRunsByBranch).length > 0) {
+                    renderGroupedRuns(state.currentRepoRunsByBranch);
+                } else {
+                    const subgroups = state.groups.filter(g => normalizeParentId(g.parent_id) === normalizeParentId(state.selectedGroupId));
+                    renderMainGridContent(subgroups, null, true);
+                }
+            } else {
+                const rootGroups = state.groups.filter(g => normalizeParentId(g.parent_id) === null);
+                state.currentRepoRunsByBranch = null;
+                state.currentRepoGroupId = null;
+                renderMainGridContent(rootGroups, null, true);
+            }
+        }
+    }
+
     function renderGroupedRuns(runsByBranch) {
+        state.currentRepoRunsByBranch = runsByBranch || {};
+        state.currentRepoGroupId = state.selectedGroupId || null;
         resetMainView();
         DOM.mainGridContainer.classList.remove('hidden');
 
@@ -1733,8 +1845,6 @@ if (dx !== 0 || dy !== 0) {
             DOM.mainGridContainer.innerHTML = `<p class="text-[var(--text-secondary)]">No pipeline runs found for this repository.</p>`;
             return;
         }
-
-        let html = '<div class="space-y-6">';
 
         const sortedBranches = Object.keys(runsByBranch).sort((a, b) => {
             const lastRunA = runsByBranch[a][0];
@@ -1750,10 +1860,28 @@ if (dx !== 0 || dy !== 0) {
             groupSegments: state.selectedGroupPathSegments,
         });
 
-        sortedBranches.forEach((branch, index) => {
-            const runs = runsByBranch[branch];
-            const latestRun = runs[0];
-            const config = statusConfig[(latestRun.is_complete ? latestRun.status : 'running').toLowerCase()] || statusConfig.pending;
+        const searchTerm = (state.runSearchTerm || '').trim().toLowerCase();
+        const filteredBranches = [];
+
+        sortedBranches.forEach(branch => {
+            const runs = runsByBranch[branch] || [];
+            const visibleRuns = searchTerm ? runs.filter(run => runMatchesSearch(run, searchTerm)) : runs;
+            if (!visibleRuns.length) return;
+            filteredBranches.push({ branch, runs: visibleRuns, latestRun: runs[0] });
+        });
+
+        if (filteredBranches.length === 0) {
+            const message = searchTerm ? 'No runs match your search in this repository.' : 'No pipeline runs found for this repository.';
+            DOM.mainGridContainer.innerHTML = `<p class="text-[var(--text-secondary)]">${escapeText(message)}</p>`;
+            return;
+        }
+
+        let html = '<div class="space-y-6">';
+
+        filteredBranches.forEach((entry, index) => {
+            const { branch, runs, latestRun: latestFromBranch } = entry;
+            const latestRun = latestFromBranch || runs[0];
+            const config = latestRun ? (statusConfig[(latestRun.is_complete ? latestRun.status : 'running').toLowerCase()] || statusConfig.pending) : statusConfig.pending;
             const isExpanded = index === 0; // Expand first branch by default
 
             html += `
@@ -1766,8 +1894,8 @@ if (dx !== 0 || dy !== 0) {
                         <span class="ml-4 text-sm text-[var(--text-secondary)] hidden sm:inline">(${runs.length} runs)</span>
                     </div>
                     <div class="flex items-center gap-2">
-                        <span class="text-sm text-[var(--text-secondary)] mr-1 hidden sm:block">Latest run: ${timeAgo(latestRun.started_at)}</span>
-                        <button type="button" class="branch-delete-btn inline-flex items-center justify-center h-8 w-8 rounded-full text-[var(--text-secondary)] hover:text-red-500 hover:bg-[var(--border-primary)] focus:outline-none" data-branch="${escapeAttribute(branch)}" data-owner="${escapeAttribute(latestRun.git_repo_owner || '')}" data-repo="${escapeAttribute(latestRun.git_repo_name || '')}" title="Delete branch">
+                        <span class="text-sm text-[var(--text-secondary)] mr-1 hidden sm:block">Latest run: ${latestRun ? timeAgo(latestRun.started_at) : 'N/A'}</span>
+                        <button type="button" class="branch-delete-btn inline-flex items-center justify-center h-8 w-8 rounded-full text-[var(--text-secondary)] hover:text-red-500 hover:bg-[var(--border-primary)] focus:outline-none" data-branch="${escapeAttribute(branch)}" data-owner="${escapeAttribute(latestRun?.git_repo_owner || '')}" data-repo="${escapeAttribute(latestRun?.git_repo_name || '')}" title="Delete branch">
                             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5-3h4m1 3H7" /></svg>
                         </button>
                         <svg class="h-6 w-6 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
@@ -1978,6 +2106,8 @@ if (dx !== 0 || dy !== 0) {
 
         await Promise.all(subgroupsWithDataPromises);
 
+        const searchTerm = (state.runSearchTerm || '').trim().toLowerCase();
+
         const childGroupMap = new Map();
         if (Array.isArray(state.groups)) {
             state.groups.forEach(childGroup => {
@@ -1989,6 +2119,28 @@ if (dx !== 0 || dy !== 0) {
             });
         }
 
+        const visibleSubgroups = !searchTerm ? (subgroups || []) : (subgroups || []).filter(group => (group.name || '').toLowerCase().includes(searchTerm));
+        let baseRuns = null;
+        if (Array.isArray(runs)) {
+            baseRuns = runs;
+        } else if (searchTerm && Array.isArray(state.searchRuns)) {
+            baseRuns = state.searchRuns;
+        }
+        let visibleRuns = baseRuns;
+        if (Array.isArray(visibleRuns) && searchTerm) {
+            visibleRuns = visibleRuns.filter(run => runMatchesSearch(run, searchTerm));
+        }
+
+        if (searchTerm && visibleSubgroups.length === 0 && (!Array.isArray(visibleRuns) || visibleRuns.length === 0)) {
+            DOM.mainGridContainer.innerHTML = `<p class="py-10 text-center text-sm text-[var(--text-secondary)]">No runs or folders match your search.</p>`;
+            return;
+        }
+
+        if (!searchTerm && !showAddButton && visibleSubgroups.length === 0 && (!Array.isArray(visibleRuns) || visibleRuns.length === 0)) {
+            DOM.mainGridContainer.innerHTML = `<p class="py-10 text-center text-sm text-[var(--text-secondary)]">No pipeline runs found.</p>`;
+            return;
+        }
+
         const contextForRuns = resolveRunContext({
             tab: state.currentTab || (runs ? 'recent' : 'main'),
             groupId: state.selectedGroupId,
@@ -1997,7 +2149,7 @@ if (dx !== 0 || dy !== 0) {
 
         let html = '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">';
 
-        (subgroups || []).forEach(group => {
+        visibleSubgroups.forEach(group => {
             const rawName = group?.name || '';
             const isRepo = rawName.includes('/');
             const displayName = isRepo ? rawName.split('/')[1] : rawName;
@@ -2102,11 +2254,11 @@ if (dx !== 0 || dy !== 0) {
                 </a>`;
         });
 
-        (runs || []).forEach(run => {
+        (Array.isArray(visibleRuns) ? visibleRuns : []).forEach(run => {
             html += renderRunCard(run, contextForRuns);
         });
 
-         if (showAddButton) {
+         if (showAddButton && !searchTerm) {
               html += `
                 <div id="add-group-card" class="relative group bg-[var(--bg-secondary)] p-4 rounded-md border-2 border-dashed border-[var(--border-secondary)] hover:border-[var(--border-accent)] hover:bg-[var(--bg-tertiary)] transition-colors duration-200 cursor-pointer flex items-center justify-center min-h-[120px]">
                     <div class="text-center">
@@ -4305,7 +4457,13 @@ svgContent += `
                 state.currentRunContext = null;
                 DOM.mainHeader.textContent = 'Recent Pipeline Runs';
                 const runs = await fetchData('/v1/runs');
-                renderMainGridContent(null, runs, false);
+                if (Array.isArray(runs)) {
+                    state.recentRuns = runs;
+                } else {
+                    state.recentRuns = [];
+                }
+                renderMainGridContent(null, state.recentRuns, false);
+                renderSidebarPipelineRunsList(state.recentRuns);
             } else { // main tab without specific run
                 state.currentRunContext = null;
                 const groupId = selectedGroupId;
@@ -4314,6 +4472,8 @@ svgContent += `
                     await fetchMainContent(groupId);
                 } else {
                     const rootGroups = state.groups.filter(g => normalizeParentId(g.parent_id) === null);
+                    state.currentRepoRunsByBranch = null;
+                    state.currentRepoGroupId = null;
                     renderMainGridContent(rootGroups, null, true);
                 }
             }
@@ -4556,6 +4716,15 @@ if (false && state.currentGraphView === 'tasks') {
       });
     }
     // No 'only selected' toggle; selecting none means show all
+
+    if (DOM.pipelineRunsSearch) {
+        DOM.pipelineRunsSearch.addEventListener('input', () => {
+            const nextValue = DOM.pipelineRunsSearch.value.trim();
+            if (state.runSearchTerm === nextValue) return;
+            state.runSearchTerm = nextValue;
+            applyRunSearchFilter();
+        });
+    }
     if (DOM.logsSearch) {
       DOM.logsSearch.addEventListener('input', (e) => {
         state.logsSearchText = e.target.value || '';
@@ -5054,7 +5223,13 @@ if (false && state.currentGraphView === 'tasks') {
             if (state.currentTab === 'recent') {
                 // If on the "Recent" tab, re-fetch all runs and re-render the main grid.
                 const runs = await fetchData('/v1/runs');
-                renderMainGridContent(null, runs, false);
+                if (Array.isArray(runs)) {
+                    state.recentRuns = runs;
+                } else {
+                    state.recentRuns = [];
+                }
+                renderMainGridContent(null, state.recentRuns, false);
+                renderSidebarPipelineRunsList(state.recentRuns);
             } else if (state.currentTab === 'main') {
                 // If on the "Main" tab, re-fetch the content for the currently selected group.
                 // This will show new branches or update the grouped run lists.
@@ -5063,6 +5238,8 @@ if (false && state.currentGraphView === 'tasks') {
                 } else {
                     // If at the root, re-render the top-level groups.
                     const rootGroups = state.groups.filter(g => normalizeParentId(g.parent_id) === null);
+                    state.currentRepoRunsByBranch = null;
+                    state.currentRepoGroupId = null;
                     renderMainGridContent(rootGroups, null, true);
                 }
             }

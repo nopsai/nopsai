@@ -240,6 +240,12 @@ document.addEventListener('DOMContentLoaded', () => {
         _suppressNextRoute: false,
         _suppressRouteTimeout: null,
         selectedRunIds: new Set(),
+        runSearchTerm: '',
+        recentRuns: [],
+        currentRepoRunsByBranch: null,
+        currentRepoGroupId: null,
+        searchRuns: [],
+        searchRunsFetchedAt: 0,
     };
 
     async function fetchData(url, options = {}) {
