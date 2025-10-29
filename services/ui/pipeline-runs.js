@@ -1504,8 +1504,8 @@ if (dx !== 0 || dy !== 0) {
 
     async function renderSidebar(activeRoute, currentTab) {
         const navConfig = [
-            { route: 'pipelineruns', title: 'Pipeline Runs', icon: 'M4 6h16M4 12h16M4 18h7' },
-            { route: 'pipelines', title: 'Pipelines', icon: 'M9 17V7h2v10H9zm4-12h2v12h-2V5zm4 4h2v8h-2V9zM3 3h18v2H3V3z' },
+            { route: 'pipelineruns', title: 'Pipeline Runs', icon: 'M4 4h16a1 1 0 011 1v14a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1zm4.5 3.5v9l7-4.5-7-4.5z' },
+            { route: 'pipelines', title: 'Pipelines', icon: 'M4 6a2 2 0 012-2h4l2 2h6a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm3 4h10m-10 4h6' },
             { route: 'secrets', title: 'Secrets', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
             { route: 'steps', title: 'Steps', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
             { route: 'environment', title: 'Environment', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
@@ -2054,10 +2054,6 @@ if (dx !== 0 || dy !== 0) {
                 return;
             }
 
-            const descriptionRaw = typeof group.description === 'string' ? group.description.trim() : '';
-            const descriptionFallback = descriptionRaw || 'No description provided.';
-            const safeDescriptionHtml = escapeText(descriptionFallback).replace(/\r?\n/g, '<br>');
-            const descriptionAttr = escapeAttribute(descriptionFallback);
             const childGroups = childGroupMap.get(group.id) || [];
             let applicationCount = 0;
             let subfolderCount = 0;
@@ -2093,7 +2089,6 @@ if (dx !== 0 || dy !== 0) {
                             </button>
                         </div>
                     </div>
-                    <p class="pipeline-folder-description" title="${descriptionAttr}">${safeDescriptionHtml}</p>
                     <div class="pipeline-folder-meta">
                         <div class="pipeline-folder-meta-row">
                             <span class="pipeline-folder-meta-label">Applications:</span>
