@@ -1505,7 +1505,7 @@ function formatPathLabel(path) {
             html += `
                 <li data-pipeline-id="${escapeAttribute(pipelineId)}">
                     <a href="${pipelineHref}" class="sidebar-link flex items-center p-2 text-[var(--text-primary)] rounded-md transition-colors duration-200 ${isActive ? 'active' : ''}" data-navigo data-pipeline-link="${escapeAttribute(pipelineId)}" data-parent-folder="${escapeAttribute(parentFolder)}">
-                        <svg class="h-4 w-4 mr-2 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 4h8l4 4v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2z"/></svg>
+                        <svg class="h-4 w-4 mr-2 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h4l2 2h6a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm3 4h10m-10 4h6"/></svg>
                         <span class="truncate">${escapeHtml(pipelineName)}</span>
                     </a>
                 </li>`;
@@ -1638,10 +1638,6 @@ function formatPathLabel(path) {
         const labelAttr = escapeAttribute(label);
         const totalPipelines = countPipelinesRecursive(node);
         const childCount = node.children ? node.children.size : 0;
-        const descriptionRaw = (getFolderDescription(node) || '').trim();
-        const descriptionFallback = descriptionRaw || 'No description provided.';
-        const descriptionSafeHtml = escapeHtml(descriptionFallback).replace(/\r?\n/g, '<br>');
-        const descriptionAttr = escapeAttribute(descriptionFallback);
 
         return `
             <article class="pipeline-folder-card" data-folder-key="${keyAttr}" tabindex="0" role="button" aria-label="Open folder ${labelSafe}">
@@ -1660,7 +1656,6 @@ function formatPathLabel(path) {
                         </span>
                     </div>
                 </div>
-                <p class="pipeline-folder-description" title="${descriptionAttr}">${descriptionSafeHtml}</p>
                 <div class="pipeline-folder-meta">
                     <div class="pipeline-folder-meta-row">
                         <span class="pipeline-folder-meta-label">Pipelines:</span>
