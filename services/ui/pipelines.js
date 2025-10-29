@@ -3754,7 +3754,8 @@ function formatPathLabel(path) {
         if (!isDraft) {
             const url = `/v1/pipelines/${pipelineId.split('/').map(encodeURIComponent).join('/')}`;
             const response = await context.fetchData(url, { method: 'DELETE' });
-            if (response === null) {
+            const status = typeof context.fetchData?.lastStatus === 'number' ? context.fetchData.lastStatus : null;
+            if (response === null && (status === null || status >= 400)) {
                 showToast('Failed to delete pipeline.', 'error');
                 return;
             }

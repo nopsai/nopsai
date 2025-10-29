@@ -245,6 +245,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function fetchData(url, options = {}) {
         try {
             const response = await fetch(API_BASE_URL + url, options);
+            fetchData.lastStatus = response.status;
             if (!response.ok) {
                 const errorText = await response.text();
                 throw new Error(errorText || `HTTP error! Status: ${response.status}`);
@@ -258,10 +259,15 @@ document.addEventListener('DOMContentLoaded', () => {
             return await response.text();
         } catch (error) {
             console.error(`Fetch error for ${url}:`, error);
+            fetchData.lastError = error;
+            fetchData.lastStatus = null;
             alert(`Error: ${error.message}`);
             return null;
         }
     }
+
+    fetchData.lastStatus = null;
+    fetchData.lastError = null;
 
     async function postData(url, data) {
         return await fetchData(url, {
