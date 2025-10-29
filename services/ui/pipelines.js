@@ -1634,28 +1634,33 @@ function formatPathLabel(path) {
     function renderFolderCard(node) {
         const keyAttr = escapeHtml(node.key || '');
         const label = formatPathLabel(node.label || node.key || 'Folder');
+        const labelSafe = escapeHtml(label);
+        const labelAttr = escapeAttribute(label);
         const totalPipelines = countPipelinesRecursive(node);
         const childCount = node.children ? node.children.size : 0;
-        const description = getFolderDescription(node);
+        const descriptionRaw = (getFolderDescription(node) || '').trim();
+        const descriptionFallback = descriptionRaw || 'No description provided.';
+        const descriptionSafeHtml = escapeHtml(descriptionFallback).replace(/\r?\n/g, '<br>');
+        const descriptionAttr = escapeAttribute(descriptionFallback);
 
         return `
-            <article class="pipeline-folder-card" data-folder-key="${keyAttr}" tabindex="0" role="button" aria-label="Open folder ${escapeHtml(label)}">
+            <article class="pipeline-folder-card" data-folder-key="${keyAttr}" tabindex="0" role="button" aria-label="Open folder ${labelSafe}">
                 <div class="pipeline-folder-card-header">
                     <span class="pipeline-folder-icon">
                         <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M3 7h5l2 2h9a2 2 0 012 2v7a2 2 0 01-2 2H3a2 2 0 01-2-2V9a2 2 0 012-2z" />
                         </svg>
                     </span>
-                    <div class="pipeline-folder-info">
-                        <h3 class="pipeline-folder-title" title="${escapeHtml(label)}">${escapeHtml(label)}</h3>
-                        <p class="pipeline-folder-description" title="${escapeHtml(description)}">${escapeHtml(description)}</p>
+                    <h3 class="pipeline-folder-title" title="${labelAttr}">${labelSafe}</h3>
+                    <div class="pipeline-folder-actions">
+                        <span class="pipeline-folder-chevron" aria-hidden="true">
+                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M9 5l7 7-7 7" />
+                            </svg>
+                        </span>
                     </div>
-                    <span class="pipeline-folder-chevron" aria-hidden="true">
-                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M9 5l7 7-7 7" />
-                        </svg>
-                    </span>
                 </div>
+                <p class="pipeline-folder-description" title="${descriptionAttr}">${descriptionSafeHtml}</p>
                 <div class="pipeline-folder-meta">
                     <div class="pipeline-folder-meta-row">
                         <span class="pipeline-folder-meta-label">Pipelines:</span>
@@ -1703,13 +1708,15 @@ function formatPathLabel(path) {
                         <h3 class="pipeline-card-title" title="${name}">${name}</h3>
                         <p class="pipeline-card-path" title="${pathLabel}">${pathLabel}</p>
                     </div>
-                    <button class="pipelines-delete-button" data-delete-pipeline="${idAttr}" title="Delete pipeline">
-                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6" />
-                            <path d="M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
-                            <path d="M4 7h16" />
-                        </svg>
-                    </button>
+                    <div class="pipeline-card-actions">
+                        <button class="pipelines-delete-button" data-delete-pipeline="${idAttr}" title="Delete pipeline">
+                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6" />
+                                <path d="M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                                <path d="M4 7h16" />
+                            </svg>
+                        </button>
+                    </div>
                 </div>
                 <p class="pipeline-card-description">${description}</p>
                 <div class="pipeline-card-meta">

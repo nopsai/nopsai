@@ -1619,12 +1619,16 @@ if (dx !== 0 || dy !== 0) {
                 ? `<svg class="h-4 w-4 mr-1 text-[var(--text-secondary)] chevron ${isExpanded ? 'rotate-90' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>` 
                 : `<div class="w-5 h-4 mr-1"></div>`;
 
+            const folderIconSvg = `<svg class="h-4 w-4 mr-2 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>`;
+            const repoIconSvg = `<svg class="h-4 w-4 mr-2 text-[var(--text-accent)] flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="8" cy="7" r="2" fill="currentColor" /><circle cx="8" cy="17" r="2" fill="currentColor" /><circle cx="16" cy="7" r="2" fill="currentColor" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 7h4M8 9v6a4 4 0 004 4h4"/></svg>`;
+            const iconSvg = isRepo ? repoIconSvg : folderIconSvg;
+
             html += `<li data-group-id="${group.id}" draggable="true">
                             <div class="flex items-center justify-between p-2 text-[var(--text-primary)] rounded-md group-header-container ${isActive ? 'bg-[var(--bg-tertiary)]' : ''}">
                                 <div class="flex items-center group-header flex-grow cursor-pointer ${isExpanded ? 'expanded' : ''}">
                                     ${chevron}
                                     <a href="${groupHref}" class="flex items-center flex-grow">
-                                        <svg class="h-4 w-4 mr-2 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                                        ${iconSvg}
                                         <span class="truncate">${displayName}</span>
                                     </a>
                                 </div>
@@ -1971,6 +1975,16 @@ if (dx !== 0 || dy !== 0) {
 
         await Promise.all(subgroupsWithDataPromises);
 
+        const childGroupMap = new Map();
+        if (Array.isArray(state.groups)) {
+            state.groups.forEach(childGroup => {
+                const parentKey = normalizeParentId(childGroup.parent_id);
+                if (!childGroupMap.has(parentKey)) {
+                    childGroupMap.set(parentKey, []);
+                }
+                childGroupMap.get(parentKey).push(childGroup);
+            });
+        }
 
         const contextForRuns = resolveRunContext({
             tab: state.currentTab || (runs ? 'recent' : 'main'),
@@ -1981,49 +1995,112 @@ if (dx !== 0 || dy !== 0) {
         let html = '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">';
 
         (subgroups || []).forEach(group => {
-            const isRepo = (group.name || '').includes('/');
-            const displayName = isRepo ? group.name.split('/')[1] : group.name;
-            const latestRun = isRepo ? state.repoLastRunCache.get(group.id) : null;
-            let latestRunInfo = '';
-            if (latestRun) {
-                const branchDisplay = formatBranchDisplay(latestRun.git_ref, latestRun.git_target_ref, { html: true });
-                const config = statusConfig[(latestRun.is_complete ? latestRun.status : 'running').toLowerCase()] || statusConfig.pending;
-                const timeToDisplay = latestRun.is_complete ? latestRun.finished_at : latestRun.started_at;
-                latestRunInfo = `
-                    <div class="mt-4 pt-3 border-t border-[var(--border-primary)] text-xs text-[var(--text-secondary)] font-mono space-y-1.5">
-                        <div class="flex items-center justify-between">
-                            <div class="flex items-center">
-                                <svg class="h-4 w-4 mr-2 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
-                                <span class="font-semibold text-sm text-[var(--text-primary)] truncate">${branchDisplay}</span>
-                            </div>
-                            <span class="text-xs text-[var(--text-secondary)] flex-shrink-0 ml-2">${timeAgo(timeToDisplay)}</span>
-                        </div>
-                        <div class="flex items-center">
-                            <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                            <span class="truncate">${(latestRun.git_commit_sha || '...').slice(0, 7)}</span>
-                        </div>
-                        <div class="flex items-center">
-                            <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-                            <span class="truncate">${latestRun.git_pusher_name || 'N/A'}</span>
-                        </div>
-                    </div>`;
-            }
-
-
+            const rawName = group?.name || '';
+            const isRepo = rawName.includes('/');
+            const displayName = isRepo ? rawName.split('/')[1] : rawName;
+            const safeDisplayName = escapeText(displayName);
+            const titleAttr = escapeAttribute(displayName);
             const groupSegments = getGroupPathSegmentsById(group.id);
             const groupHref = groupSegments.length ? `#/pipelineruns/main/${groupSegments.join('/')}` : '#/pipelineruns/main';
+
+            if (isRepo) {
+                const latestRun = state.repoLastRunCache ? state.repoLastRunCache.get(group.id) : null;
+                let latestRunInfo = '';
+                if (latestRun) {
+                    const branchDisplay = formatBranchDisplay(latestRun.git_ref, latestRun.git_target_ref, { html: true });
+                    const config = statusConfig[(latestRun.is_complete ? latestRun.status : 'running').toLowerCase()] || statusConfig.pending;
+                    const timeToDisplay = latestRun.is_complete ? latestRun.finished_at : latestRun.started_at;
+                    latestRunInfo = `
+                        <div class="mt-4 pt-3 border-t border-[var(--border-primary)] text-xs text-[var(--text-secondary)] font-mono space-y-1.5">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center">
+                                    <svg class="h-4 w-4 mr-2 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
+                                    <span class="font-semibold text-sm text-[var(--text-primary)] truncate">${branchDisplay}</span>
+                                </div>
+                                <span class="text-xs text-[var(--text-secondary)] flex-shrink-0 ml-2">${timeAgo(timeToDisplay)}</span>
+                            </div>
+                            <div class="flex items-center">
+                                <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                                <span class="truncate">${(latestRun.git_commit_sha || '...').slice(0, 7)}</span>
+                            </div>
+                            <div class="flex items-center">
+                                <svg class="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                                <span class="truncate">${latestRun.git_pusher_name || 'N/A'}</span>
+                            </div>
+                        </div>`;
+                }
+
+                html += `
+                    <a href="${groupHref}" draggable="true" class="relative group bg-[var(--bg-secondary)] p-4 rounded-md hover:bg-[var(--bg-tertiary)] transition-colors duration-200 group-card border border-[var(--border-primary)] hover:border-[var(--border-accent)] shadow-sm hover:shadow-lg flex flex-col justify-between" data-group-id="${group.id}">
+                        <div>
+                            <button class="delete-group-btn absolute top-2 right-2 text-[var(--text-secondary)] hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity z-10" data-group-id="${group.id}" data-group-name="${escapeAttribute(group.name)}" type="button">
+                                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            </button>
+                            <div class="flex items-center">
+                                <svg class="h-8 w-8 text-[var(--text-accent)] mr-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <circle cx="8" cy="7" r="2.2" fill="currentColor" />
+                                    <circle cx="8" cy="17" r="2.2" fill="currentColor" />
+                                    <circle cx="16" cy="7" r="2.2" fill="currentColor" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M10.2 7h3.8M8 9v6a4 4 0 004 4h4" />
+                                </svg>
+                                <span class="text-lg font-medium text-[var(--text-primary)] truncate" title="${titleAttr}">${safeDisplayName}</span>
+                            </div>
+                        </div>
+                        ${latestRunInfo}
+                    </a>`;
+                return;
+            }
+
+            const descriptionRaw = typeof group.description === 'string' ? group.description.trim() : '';
+            const descriptionFallback = descriptionRaw || 'No description provided.';
+            const safeDescriptionHtml = escapeText(descriptionFallback).replace(/\r?\n/g, '<br>');
+            const descriptionAttr = escapeAttribute(descriptionFallback);
+            const childGroups = childGroupMap.get(group.id) || [];
+            let applicationCount = 0;
+            let subfolderCount = 0;
+            childGroups.forEach(child => {
+                if ((child.name || '').includes('/')) {
+                    applicationCount += 1;
+                } else {
+                    subfolderCount += 1;
+                }
+            });
+
             html += `
-                <a href="${groupHref}" draggable="true" class="relative group bg-[var(--bg-secondary)] p-4 rounded-md hover:bg-[var(--bg-tertiary)] transition-colors duration-200 group-card border border-[var(--border-primary)] hover:border-[var(--border-accent)] shadow-sm hover:shadow-lg flex flex-col justify-between" data-group-id="${group.id}">
-                    <div>
-                        <button class="delete-group-btn absolute top-2 right-2 text-[var(--text-secondary)] hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity z-10" data-group-id="${group.id}" data-group-name="${group.name}">
-                            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                        </button>
-                        <div class="flex items-center">
-                            <svg class="h-8 w-8 text-[var(--text-accent)] mr-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
-                            <span class="text-lg font-medium text-[var(--text-primary)] truncate">${displayName}</span>
+                <a href="${groupHref}" draggable="true" class="pipeline-folder-card" data-group-id="${group.id}">
+                    <div class="pipeline-folder-card-header">
+                        <span class="pipeline-folder-icon">
+                            <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M3 7h5l2 2h9a2 2 0 012 2v7a2 2 0 01-2 2H3a2 2 0 01-2-2V9a2 2 0 012-2z" />
+                            </svg>
+                        </span>
+                        <h3 class="pipeline-folder-title" title="${titleAttr}">${safeDisplayName}</h3>
+                        <div class="pipeline-folder-actions">
+                            <span class="pipeline-folder-chevron" aria-hidden="true">
+                                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M9 5l7 7-7 7" />
+                                </svg>
+                            </span>
+                            <button class="pipelines-delete-button pipeline-folder-delete-btn delete-group-btn" data-group-id="${group.id}" data-group-name="${escapeAttribute(group.name)}" type="button" title="Delete folder">
+                                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6" />
+                                    <path d="M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                                    <path d="M4 7h16" />
+                                </svg>
+                            </button>
                         </div>
                     </div>
-                    ${latestRunInfo}
+                    <p class="pipeline-folder-description" title="${descriptionAttr}">${safeDescriptionHtml}</p>
+                    <div class="pipeline-folder-meta">
+                        <div class="pipeline-folder-meta-row">
+                            <span class="pipeline-folder-meta-label">Applications:</span>
+                            <span class="pipeline-folder-meta-value">${applicationCount}</span>
+                        </div>
+                        <div class="pipeline-folder-meta-row">
+                            <span class="pipeline-folder-meta-label">Sub folders:</span>
+                            <span class="pipeline-folder-meta-value">${subfolderCount}</span>
+                        </div>
+                    </div>
                 </a>`;
         });
 
@@ -4290,6 +4367,7 @@ svgContent += `
         const formData = new FormData(event.target);
         const parentId = formData.get('parent_id') ? parseInt(formData.get('parent_id'), 10) : null;
         const name = formData.get('name');
+        const description = (formData.get('description') || '').trim();
 
         const siblings = state.groups.filter(g => normalizeParentId(g.parent_id) === normalizeParentId(parentId));
         if (siblings.some(s => s.name === name)) {
@@ -4300,6 +4378,7 @@ svgContent += `
         const data = {
             name: name,
             parent_id: parentId,
+            description,
         };
         const newGroup = await postData('/v1/groups', data);
         if (newGroup) {

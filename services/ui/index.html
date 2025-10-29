@@ -263,6 +263,10 @@
                     <label for="group-name" class="block text-sm font-medium text-[var(--text-secondary)]">Folder Name</label>
                     <input type="text" id="group-name" name="name" class="mt-1 block w-full bg-[var(--bg-tertiary)] border border-[var(--border-input)] rounded-md shadow-sm py-2 px-3 text-[var(--text-primary)] focus:outline-none focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)] sm:text-sm" required>
                 </div>
+                <div>
+                    <label for="group-description" class="block text-sm font-medium text-[var(--text-secondary)]">Description <span class="text-[var(--text-secondary)] font-normal">(optional)</span></label>
+                    <textarea id="group-description" name="description" rows="3" class="mt-1 block w-full bg-[var(--bg-tertiary)] border border-[var(--border-input)] rounded-md shadow-sm py-2 px-3 text-[var(--text-primary)] focus:outline-none focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)] sm:text-sm" placeholder="Add a short summary for this folder"></textarea>
+                </div>
                 <input type="hidden" id="parent-id" name="parent_id">
                 <div class="flex justify-end pt-4">
                     <button type="button" id="cancel-add-group-btn" class="mr-2 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500">Cancel</button>
