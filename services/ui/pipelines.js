@@ -1163,7 +1163,7 @@ function extractMetaFromYaml(yaml, pipelineId) {
         });
 
         let PADDING_X = 80;
-        let PADDING_Y = 136;
+        let PADDING_Y = 80;
         try {
             const isTaskGraph = (itemNameKey === 'task_name');
             const isMiniContainer = !!(container && container.classList && container.classList.contains('task-graph-mini-container'));
@@ -1855,7 +1855,7 @@ function formatPathLabel(path) {
 
             const layout = calculateGraphLayout(steps, graphContainer, nodeWidth, nodeHeight, hGap, vGap, isVerticalLayout);
 
-            let svgContent = `<svg width="100%" height="${layout.height}" viewBox="0 0 ${layout.width} ${layout.height}" preserveAspectRatio="xMinYMin meet" xmlns="http://www.w3.org/2000/svg" style="width: 100%; height: auto; display: block;">
+            let svgContent = `<svg width="200" height="50" viewBox="0 0 ${layout.width} ${layout.height}" preserveAspectRatio="xMinYMin meet" xmlns="http://www.w3.org/2000/svg" style="width: 100%; height: auto; display: block;">
                 <defs>
                      <radialGradient id="glassyIconGradientPipelineDef" cx="40%" cy="35%" r="80%" fx="30%" fy="30%">
                         <stop offset="0%" style="stop-color:rgba(254, 252, 232, 0.9)" /> <stop offset="50%" style="stop-color:rgba(250, 204, 21, 0.85)" /> <stop offset="100%" style="stop-color:rgba(217, 119, 6, 0.9)" /> </radialGradient>
