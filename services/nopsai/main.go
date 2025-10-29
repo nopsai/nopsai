@@ -349,11 +349,12 @@ type FinalizeRequest struct {
 }
 
 type Group struct {
-	ID        int        `json:"id"`
-	Name      string     `json:"name"`
-	ParentID  *int       `json:"parent_id"`
-	Children  []Group    `json:"children"`
-	LastRunAt *time.Time `json:"last_run_at,omitempty"`
+	ID          int        `json:"id"`
+	Name        string     `json:"name"`
+	ParentID    *int       `json:"parent_id"`
+	Description string     `json:"description,omitempty"`
+	Children    []Group    `json:"children"`
+	LastRunAt   *time.Time `json:"last_run_at,omitempty"`
 }
 
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
@@ -4955,8 +4956,10 @@ func (a *App) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := `INSERT INTO groups (name, parent_id) VALUES ($1, $2) RETURNING id`
-	err := a.db.QueryRow(context.Background(), query, group.Name, group.ParentID).Scan(&group.ID)
+	group.Description = strings.TrimSpace(group.Description)
+
+	query := `INSERT INTO groups (name, parent_id, description) VALUES ($1, $2, $3) RETURNING id`
+	err := a.db.QueryRow(context.Background(), query, group.Name, group.ParentID, group.Description).Scan(&group.ID)
 	if err != nil {
 		if strings.Contains(err.Error(), "unique constraint") {
 			http.Error(w, "A folder or repository with this name already exists.", http.StatusConflict)
@@ -4973,7 +4976,7 @@ func (a *App) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleGetGroups(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(context.Background(), "SELECT id, name, parent_id FROM groups")
+	rows, err := a.db.Query(context.Background(), "SELECT id, name, parent_id, description FROM groups")
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query groups from database")
 		http.Error(w, "Failed to retrieve groups", http.StatusInternalServerError)
@@ -4987,7 +4990,8 @@ func (a *App) handleGetGroups(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var g Group
 		var parentID sql.NullInt32
-		if err := rows.Scan(&g.ID, &g.Name, &parentID); err != nil {
+		var description sql.NullString
+		if err := rows.Scan(&g.ID, &g.Name, &parentID, &description); err != nil {
 			log.Error().Err(err).Msg("Failed to scan group row")
 			http.Error(w, "Error processing groups", http.StatusInternalServerError)
 			return
@@ -4995,6 +4999,9 @@ func (a *App) handleGetGroups(w http.ResponseWriter, r *http.Request) {
 		if parentID.Valid {
 			pid := int(parentID.Int32)
 			g.ParentID = &pid
+		}
+		if description.Valid {
+			g.Description = description.String
 		}
 		allGroups = append(allGroups, g)
 	}
@@ -5049,8 +5056,10 @@ func (a *App) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := `UPDATE groups SET name = $1, parent_id = $2, updated_at = NOW() WHERE id = $3`
-	_, err = a.db.Exec(context.Background(), query, group.Name, group.ParentID, groupID)
+	group.Description = strings.TrimSpace(group.Description)
+
+	query := `UPDATE groups SET name = $1, parent_id = $2, description = $3, updated_at = NOW() WHERE id = $4`
+	_, err = a.db.Exec(context.Background(), query, group.Name, group.ParentID, group.Description, groupID)
 	if err != nil {
 		if strings.Contains(err.Error(), "unique constraint") {
 			http.Error(w, "A folder or repository with this name already exists.", http.StatusConflict)
