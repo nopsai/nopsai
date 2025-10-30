@@ -214,6 +214,117 @@
                     </div>
                 </div>
                     </div>
+                <div data-page="triggers" class="h-full flex flex-col hidden">
+                    <div class="px-6 pt-6 flex-shrink-0">
+                        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <div id="triggers-search-container" class="relative flex-1 min-w-[220px] max-w-xl">
+                                <input id="triggers-search" type="search" placeholder="Search triggers" class="pipelines-input w-full pl-11 pr-4 py-2 text-sm transition" />
+                                <svg class="w-4 h-4 text-[var(--text-secondary)] absolute left-4 top-1/2 -translate-y-1/2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M10 18a8 8 0 110-16 8 8 0 010 16z"/></svg>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <button id="triggers-new-btn" class="glass-button-primary">
+                                    <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                                    <span>New Trigger</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex-1 overflow-auto px-6 pb-8">
+                        <div id="triggers-list-view" class="pipelines-view">
+                            <div class="glass-card overflow-hidden flex flex-col">
+                                <div id="triggers-list-empty" class="p-6 text-center text-[var(--text-secondary)] hidden">
+                                    <p class="text-sm">No triggers to display.</p>
+                                </div>
+                                <div id="triggers-list" class="flex-1 overflow-auto p-4 triggers-list-container"></div>
+                            </div>
+                        </div>
+                        <div id="triggers-detail-view" class="pipelines-view hidden">
+                            <div id="triggers-detail" class="hidden space-y-6">
+                                <div class="glass-card p-6">
+                                    <div class="flex items-start justify-between gap-4 flex-wrap">
+                                        <div class="min-w-0">
+                                            <h2 id="triggers-detail-name" class="text-3xl font-bold text-[var(--text-primary)] truncate"></h2>
+                                        </div>
+                                        <button id="triggers-back-btn" class="glass-button-ghost hidden">
+                                            <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                                            <span>Back to list</span>
+                                        </button>
+                                    </div>
+                                    <div class="mt-4 flex flex-wrap gap-4 text-xs text-[var(--text-secondary)] font-mono">
+                                        <span>Source: <span id="triggers-detail-source"></span></span>
+                                    </div>
+                                    <div id="triggers-meta-chips" class="flex flex-wrap gap-2 mt-4"></div>
+                                    <div id="triggers-detail-meta" class="triggers-detail-meta"></div>
+                                </div>
+                                <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                                    <div class="space-y-6 xl:col-span-2">
+                                        <div class="glass-card overflow-hidden">
+                                            <div class="p-4 border-b border-[var(--border-primary)] flex items-center justify-between gap-4">
+                                                <h3 class="text-lg font-semibold text-[var(--text-primary)]">Trigger Definition (YAML)</h3>
+                                                <div id="triggers-detail-actions" class="flex items-center gap-2">
+                                                    <div id="triggers-view-actions" class="flex items-center gap-2">
+                                                        <button id="triggers-copy-btn" class="glass-button-ghost" title="Copy YAML">
+                                                            <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                                                        </button>
+                                                        <button id="triggers-download-btn" class="glass-button-ghost" title="Download YAML">
+                                                            <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                                                        </button>
+                                                        <button id="triggers-clone-btn" class="glass-button-primary hidden">
+                                                            <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7h-1V4a1 1 0 00-1-1H9a1 1 0 00-1 1v3H7a1 1 0 00-1 1v12a1 1 0 001 1h9a1 1 0 001-1V8a1 1 0 00-1-1zM9 4h5v3H9V4zm2.5 12a2.5 2.5 0 110-5 2.5 2.5 0 010 5z"/></svg>
+                                                            <span>Clone</span>
+                                                        </button>
+                                                        <button id="triggers-edit-btn" class="glass-button-primary">
+                                                            <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L13.196 5.232z"/></svg>
+                                                            <span>Edit</span>
+                                                        </button>
+                                                    </div>
+                                                    <div id="triggers-edit-actions" class="hidden items-center gap-2">
+                                                        <button id="triggers-cancel-btn" class="glass-button-ghost">Discard</button>
+                                                        <button id="triggers-save-btn" class="glass-button-primary">
+                                                            <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                                                            <span>Save</span>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="p-4 space-y-3">
+                                                <div id="triggers-yaml-content" class="yaml-view"></div>
+                                                <div id="triggers-editor-container" class="editor-container hidden">
+                                                    <pre id="triggers-line-numbers">1</pre>
+                                                    <textarea id="triggers-yaml-editor" spellcheck="false"></textarea>
+                                                </div>
+                                                <div id="triggers-validation-status" class="hidden text-xs text-[var(--text-secondary)]"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="space-y-6">
+                                        <div class="glass-card overflow-hidden">
+                                            <div class="p-4 border-b border-[var(--border-primary)] flex items-center justify-between">
+                                                <h3 class="text-lg font-semibold text-[var(--text-primary)]">Referenced Pipelines</h3>
+                                                <button id="triggers-open-first-pipeline" class="glass-button-ghost hidden">
+                                                    <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+                                                    <span>Open</span>
+                                                </button>
+                                            </div>
+                                            <div id="triggers-pipelines-empty" class="p-6 text-center text-[var(--text-secondary)] hidden">
+                                                <p class="text-sm">This trigger does not reference any pipelines.</p>
+                                            </div>
+                                            <div id="triggers-pipelines-list" class="p-4 space-y-2"></div>
+                                        </div>
+                                        <div class="glass-card overflow-hidden">
+                                            <div class="p-4 border-b border-[var(--border-primary)] flex items-center justify-between">
+                                                <h3 class="text-lg font-semibold text-[var(--text-primary)]">Recent Pipeline Runs</h3>
+                                            </div>
+                                            <div id="triggers-runs-empty" class="p-6 text-center text-[var(--text-secondary)] hidden">
+                                                <p class="text-sm">No recent runs found for this trigger.</p>
+                                            </div>
+                                            <div id="triggers-runs-list" class="p-4 space-y-3"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
 
@@ -221,7 +332,6 @@
                 <div data-page="steps" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Steps</h1><p class="text-[var(--text-secondary)]">UI for managing reusable steps is coming soon.</p></div></div>
                 <div data-page="environment" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Environment Variables</h1><p class="text-[var(--text-secondary)]">UI for managing environment variables is coming soon.</p></div></div>
                 <div data-page="monitoring" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Monitoring</h1><p class="text-[var(--text-secondary)]">Monitoring dashboards are coming soon.</p></div></div>
-                <div data-page="triggers" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Triggers</h1><p class="text-[var(--text-secondary)]">UI for managing triggers is coming soon.</p></div></div>
                 <div data-page="system" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">System</h1><p class="text-[var(--text-secondary)]">System administration and status page is coming soon.</p></div></div>
             </div>
         </main>
@@ -492,9 +602,92 @@
             </form>
         </div>
     </div>
+    <div id="triggers-new-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
+        <div class="pipelines-modal-card max-w-3xl">
+            <header class="pipelines-modal-header">
+                <div>
+                    <h2 class="text-lg font-semibold text-[var(--text-primary)]">Create Trigger</h2>
+                    <p class="text-sm text-[var(--text-secondary)]">Provide a repository slug and YAML definition containing one or more triggers.</p>
+                </div>
+                <button id="triggers-new-close" class="glass-button-ghost" title="Close">
+                    <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </header>
+            <form id="triggers-new-form" class="pipelines-modal-body space-y-4">
+                <div>
+                    <label for="triggers-new-repo" class="block text-sm font-medium text-[var(--text-secondary)]">Repository</label>
+                    <input type="text" id="triggers-new-repo" name="repository" required placeholder="owner/repository" pattern="[^/\s]+/[^/\s]+" class="pipelines-input w-full mt-1" />
+                    <p class="text-xs text-[var(--text-secondary)] mt-1">Repository slugs must be in the format <code>owner/name</code>.</p>
+                </div>
+                <div>
+                    <label for="triggers-new-yaml" class="block text-sm font-medium text-[var(--text-secondary)]">Trigger YAML</label>
+                    <textarea id="triggers-new-yaml" name="yaml" required class="w-full h-52 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)] resize-y" placeholder="triggers:\n  - on: push\n    branches: [main]\n    pipelines:\n      - path: default/build"></textarea>
+                    <p class="text-xs text-[var(--text-secondary)] mt-1">Each trigger must define an <code>on</code> condition and at least one pipeline path.</p>
+                </div>
+                <div class="flex items-center justify-end gap-2 pt-2">
+                    <button type="button" id="triggers-new-cancel" class="glass-button-ghost">Cancel</button>
+                    <button type="submit" class="glass-button-primary">
+                        <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5H7a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-6"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 13l3 3 7-7"/></svg>
+                        <span>Create Trigger</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <div id="triggers-delete-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
+        <div class="pipelines-modal-card max-w-md">
+            <header class="pipelines-modal-header">
+                <div>
+                    <h2 class="text-lg font-semibold text-[var(--text-primary)]">Delete Trigger</h2>
+                    <p class="text-sm text-[var(--text-secondary)]">This action removes the trigger from the database.</p>
+                </div>
+                <button id="triggers-delete-close" class="glass-button-ghost" title="Close">
+                    <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </header>
+            <div class="pipelines-modal-body space-y-4">
+                <p id="triggers-delete-message" class="text-sm text-[var(--text-secondary)]"></p>
+                <div class="flex items-center justify-end gap-2 pt-2">
+                    <button type="button" id="triggers-delete-cancel" class="glass-button-ghost">Cancel</button>
+                    <button type="button" id="triggers-delete-confirm" class="glass-button-danger">
+                        <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V7a2 2 0 00-2-2h-3.5a2 2 0 01-1.6-.8L12 3l-.9 1.2a2 2 0 01-1.6.8H6a2 2 0 00-2 2v10a2 2 0 002 2h8"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 15l2 2 4-4m2 4h6"/></svg>
+                        <span>Delete</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="triggers-clone-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
+        <div class="pipelines-modal-card max-w-lg">
+            <header class="pipelines-modal-header">
+                <div>
+                    <h2 class="text-lg font-semibold text-[var(--text-primary)]">Clone Trigger</h2>
+                    <p id="triggers-clone-subtitle" class="text-sm text-[var(--text-secondary)]"></p>
+                </div>
+                <button id="triggers-clone-close" class="glass-button-ghost" title="Close">
+                    <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </header>
+            <form id="triggers-clone-form" class="pipelines-modal-body space-y-4">
+                <div>
+                    <label for="triggers-clone-repo" class="block text-sm font-medium text-[var(--text-secondary)]">New Repository</label>
+                    <input type="text" id="triggers-clone-repo" name="repository" required placeholder="owner/new-repo" pattern="[^/\s]+/[^/\s]+" class="pipelines-input w-full mt-1" />
+                    <p class="text-xs text-[var(--text-secondary)] mt-1">A copy of the trigger definition will be saved for this repository.</p>
+                </div>
+                <div class="flex items-center justify-end gap-2 pt-2">
+                    <button type="button" id="triggers-clone-cancel" class="glass-button-ghost">Cancel</button>
+                    <button type="submit" class="glass-button-primary">
+                        <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5H7a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-6"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 13l3 3 7-7"/></svg>
+                        <span>Create Clone</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
     <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
     <script src="logs.js"></script>
+    <script src="triggers.js"></script>
     <script src="pipelines.js"></script>
     <script src="pipeline-runs.js"></script>
     <script src="app.js"></script>
