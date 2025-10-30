@@ -1608,6 +1608,20 @@ if (dx !== 0 || dy !== 0) {
                     console.error('Failed to render pipelines sidebar tree:', error);
                 }
             }
+        } else if (activeRoute === 'triggers') {
+            detailsNavHtml = `<div class="px-2 mt-2 mb-2 flex items-center justify-between">
+                                  <h2 class="text-xs font-semibold tracking-wider text-[var(--text-secondary)] uppercase">Triggers</h2>
+                              </div>
+                              <div id="triggers-sidebar-list" class="space-y-1"></div>`;
+            DOM.sidebarDetailsNav.innerHTML = detailsNavHtml;
+            const triggersModule = window.NopsAI.pages?.triggers;
+            if (triggersModule && typeof triggersModule.renderSidebarForRoute === 'function') {
+                try {
+                    triggersModule.renderSidebarForRoute();
+                } catch (error) {
+                    console.error('Failed to render triggers sidebar list:', error);
+                }
+            }
         } else if (activeRoute === 'pipelineruns') {
             if (currentTab === 'recent') {
                 detailsNavHtml = `<h2 class="px-2 mt-2 mb-2 text-xs font-semibold tracking-wider text-[var(--text-secondary)] uppercase">Recent Runs</h2>
