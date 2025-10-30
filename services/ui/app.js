@@ -294,6 +294,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const pageModules = (window.NopsAI && window.NopsAI.pages) ? window.NopsAI.pages : {};
     const pipelineRunsModule = pageModules.pipelineruns || null;
     const pipelinesModule = pageModules.pipelines || null;
+    const triggersModule = pageModules.triggers || null;
 
     if (logsModule && typeof logsModule.init === 'function') {
         logsModule.init({ state, DOM, fetchData });
@@ -305,6 +306,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (pipelinesModule && typeof pipelinesModule.init === 'function') {
         pipelinesModule.init(context);
+    }
+
+    if (triggersModule && typeof triggersModule.init === 'function') {
+        triggersModule.init(context);
     }
 
     async function router(hashOverride) {
@@ -436,6 +441,21 @@ document.addEventListener('DOMContentLoaded', () => {
                  DOM.pageContentWrapper.classList.remove('no-scroll');
              }
             await pipelinesModule.handleRoute(hash);
+            return;
+        }
+
+        if (path === 'triggers' && triggersModule && typeof triggersModule.handleRoute === 'function') {
+            if (DOM.pageContentWrapper) {
+                DOM.pageContentWrapper.classList.remove('no-scroll');
+            }
+            if (pipelineRunsModule && typeof pipelineRunsModule.renderSidebarForRoute === 'function') {
+                try {
+                    await pipelineRunsModule.renderSidebarForRoute('triggers');
+                } catch (error) {
+                    console.error('Failed to render triggers sidebar navigation:', error);
+                }
+            }
+            await triggersModule.handleRoute(hash);
             return;
         }
 
