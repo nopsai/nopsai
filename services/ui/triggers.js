@@ -1304,27 +1304,34 @@
 
     function updateLineNumbers(text) {
         if (!DOM['triggers-line-numbers']) return;
-        const lines = text.split('\n').length;
-        const content = Array.from({ length: lines }, (_, i) => i + 1).join('\n');
-        DOM['triggers-line-numbers'].textContent = content;
+        const lines = String(text ?? '').split('\n');
+        const html = lines.map((_, idx) => {
+            const lineNumber = idx + 1;
+            return `<div class="line-number" data-line-number="${lineNumber}">${lineNumber}</div>`;
+        }).join('');
+        DOM['triggers-line-numbers'].innerHTML = html || '<div class="line-number" data-line-number="1">1</div>';
     }
 
     function validateCurrentYaml() {
-        if (!DOM['triggers-yaml-editor'] || !DOM['triggers-validation-status']) return;
+        if (!DOM['triggers-yaml-editor'] || !DOM['triggers-validation-status']) return false;
         const value = DOM['triggers-yaml-editor'].value || '';
         try {
             const parsed = parseTriggerYaml(value);
             const summary = buildTriggerSummary(parsed);
             const message = `${summary.triggerCount} trigger${summary.triggerCount === 1 ? '' : 's'} · ${summary.pipelineCount} pipeline${summary.pipelineCount === 1 ? '' : 's'}`;
-            DOM['triggers-validation-status'].textContent = `Looks good: ${message}`;
-            DOM['triggers-validation-status'].classList.remove('hidden');
-            DOM['triggers-validation-status'].classList.remove('text-red-500');
-            DOM['triggers-validation-status'].classList.add('text-[var(--text-secondary)]');
+            DOM['triggers-validation-status'].className = 'validation-box validation-box--success';
+            DOM['triggers-validation-status'].innerHTML = `
+                <div class="validation-box__header">All good</div>
+                <div class="validation-box__message">${escapeHtml(message)}</div>
+            `.trim();
             return true;
         } catch (error) {
-            DOM['triggers-validation-status'].textContent = `Validation failed: ${error.message}`;
-            DOM['triggers-validation-status'].classList.remove('hidden');
-            DOM['triggers-validation-status'].classList.add('text-red-500');
+            const errorMessage = error && error.message ? String(error.message) : 'Unknown validation error';
+            DOM['triggers-validation-status'].className = 'validation-box validation-box--error';
+            DOM['triggers-validation-status'].innerHTML = `
+                <div class="validation-box__header">Validation failed</div>
+                <div class="validation-box__message">${escapeHtml(errorMessage)}</div>
+            `.trim();
             return false;
         }
     }

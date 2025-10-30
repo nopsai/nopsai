@@ -2108,7 +2108,8 @@ html.dark .triggers-sidebar-link--active {
 
 .editor-container.hidden { display: none; }
 
-#pipeline-yaml-editor {
+#pipeline-yaml-editor,
+#triggers-yaml-editor {
     flex: 1;
     padding: 1rem 1.25rem;
     border: none;
@@ -2157,7 +2158,8 @@ html.dark .pipeline-editor-autocomplete__ghost {
 
 .pipeline-yaml-content.hidden { display: none; }
 
-.line-numbers {
+#line-numbers,
+#triggers-line-numbers {
     padding: 1rem 0.75rem 1rem 0.5rem;
     font-size: 0.8rem;
     color: rgba(148,163,184,0.7);
