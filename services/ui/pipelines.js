@@ -39,6 +39,7 @@
     let measurementCanvas = null;
 
     const TOAST_TIMEOUT = 4000;
+    const MAX_RECENT_RUNS = 5;
     const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
     const PIPELINE_DIRECTIVES = [
         { key: 'name', hint: 'Pipeline display name' },
@@ -107,6 +108,17 @@
         return '';
     }
 
+    function normalizeTriggerSourceValue(raw) {
+        if (raw == null) return '';
+        const value = String(raw).trim().toLowerCase();
+        if (!value) return '';
+        if (value.includes('git') || value.includes('config repository') || value === 'repository') return 'git';
+        if (value.includes('draft')) return 'draft';
+        if (value.includes('local') || value.includes('repo file') || value.includes('repository file')) return 'local';
+        if (value.includes('database') || value === 'db') return 'database';
+        return value;
+    }
+
     function setPipelineSource(identifier, source) {
         if (!identifier) return;
         if (!(state.pipelineSources instanceof Map)) {
@@ -132,6 +144,20 @@
                 return 'Local';
             default:
                 return '';
+        }
+    }
+
+    function getTriggerSourceLabelForPipeline(sourceKey) {
+        switch (String(sourceKey || '').trim().toLowerCase()) {
+            case 'git':
+                return 'Git';
+            case 'draft':
+                return 'Draft';
+            case 'local':
+                return 'Local';
+            case 'database':
+            default:
+                return 'Database';
         }
     }
 
@@ -2005,53 +2031,88 @@ function formatPathLabel(path) {
             return;
         }
 
-        const renderField = (label, value) => `
-            <div class="flex items-start justify-between gap-3 text-xs">
-                <span class="text-[var(--text-secondary)]">${escapeHtml(label)}</span>
-                <span class="font-mono text-sm text-[var(--text-primary)] text-right">${escapeHtml(value || '—')}</span>
-            </div>
-        `;
-
-        DOM['pipeline-triggers'].innerHTML = triggers.map(item => {
-            const record = (item && typeof item === 'object' && 'trigger' in item)
-                ? item
-                : { trigger: item };
+        const html = `<ul class="triggers-pipeline-list ${triggers.length > 5 ? 'triggers-list-scroll' : ''}">${triggers.map(item => {
+            const record = (item && typeof item === 'object' && 'trigger' in item) ? item : { trigger: item };
             const trigger = record.trigger || {};
-            const repoSlug = record.repoSlug
-                || (record.repoOwner && record.repoName ? `${record.repoOwner}/${record.repoName}` : 'config repo');
-            const eventValue = trigger.on || 'event';
-            const environmentValue = trigger.environment || 'default';
-            const fields = [
-                { label: 'on:', value: eventValue },
-            ];
-
+            const repoSlug = record.repoSlug || (record.repoOwner && record.repoName ? `${record.repoOwner}/${record.repoName}` : 'Config repository');
+            const eventInfo = formatTriggerEventInfo(trigger.on, { fallback: 'N/A', limit: 32 });
+            let branchValue = 'All branches';
             if (Array.isArray(trigger.branches) && trigger.branches.length) {
-                fields.push({ label: 'branches:', value: trigger.branches.join(', ') });
+                branchValue = trigger.branches.join(', ');
             } else if (Array.isArray(trigger.skip_branches) && trigger.skip_branches.length) {
-                fields.push({ label: 'skip_branches:', value: trigger.skip_branches.join(', ') });
-            } else {
-                fields.push({ label: 'branches:', value: 'all branches' });
+                branchValue = `Skip: ${trigger.skip_branches.join(', ')}`;
             }
-
-            if (Array.isArray(trigger.tags) && trigger.tags.length) {
-                fields.push({ label: 'tags:', value: trigger.tags.join(', ') });
+            const tagsValue = Array.isArray(trigger.tags) && trigger.tags.length ? trigger.tags.join(', ') : '';
+            const environmentValue = trigger.environment || 'default';
+            const sourceLabel = getTriggerSourceLabelForPipeline(record.source || 'database');
+            const linkSlug = repoSlug.split('/').filter(Boolean).map(encodeURIComponent).join('/');
+            const rows = [
+                { label: 'Event:', value: eventInfo.full },
+                { label: 'Branches:', value: branchValue },
+                { label: 'Environment:', value: environmentValue },
+                { label: 'Source:', value: sourceLabel },
+            ];
+            if (tagsValue) {
+                rows.splice(3, 0, { label: 'Tags:', value: tagsValue });
             }
-
-            fields.push({ label: 'environment:', value: environmentValue });
-
-            const fieldsMarkup = fields.map(({ label, value }) => renderField(label, value)).join('');
+            const detailMarkup = rows.map(({ label, value }) => `
+                <dt class="triggers-detail-label">${escapeHtml(label)}</dt>
+                <dd class="triggers-detail-value" title="${escapeAttribute(value)}">${escapeHtml(value)}</dd>
+            `).join('');
 
             return `
-                <div class="pipelines-trigger-card space-y-2">
-                    <div>
-                        <p class="text-xs uppercase tracking-wide text-[var(--text-secondary)]">Repo</p>
-                        <p class="font-mono text-sm text-[var(--text-primary)] break-words">${escapeHtml(repoSlug)}</p>
+                <li class="triggers-pipeline-item">
+                    <a href="#/triggers/${linkSlug}" class="triggers-pipeline-link" title="Open trigger ${escapeAttribute(repoSlug)}">
+                        <span class="triggers-pipeline-name">${escapeHtml(repoSlug)}</span>
+                        <dl class="triggers-detail-grid triggers-pipeline-details">
+                            ${detailMarkup}
+                        </dl>
+                    </a>
+                </li>`;
+        }).join('')}</ul>`;
+
+        DOM['pipeline-triggers'].innerHTML = html;
+    }
+
+    function formatRunBranchRef(ref) {
+        if (!ref) return 'manual';
+        return String(ref).replace(/^refs\/heads\//, '');
+    }
+
+    function renderPipelineRunRow(run) {
+        const runId = run.run_id || run.runId || '';
+        const startedAt = run.started_at || run.startedAt;
+        const branch = formatRunBranchRef(run.git_ref || run.gitRef);
+        const status = (run.status || 'unknown').toLowerCase();
+        const statusLabel = status.toUpperCase();
+        const timeAgo = formatRelativeTime(startedAt);
+        const pipelineName = run.pipeline_name || run.pipelineName || 'pipeline';
+        const triggerEventId = run.trigger_event_id || run.triggerEventId || '';
+        const shortRunId = runId ? String(runId).slice(0, 8) : 'unknown';
+        const shortTriggerId = triggerEventId ? String(triggerEventId).slice(0, 8) : 'unknown';
+        const encodedRunId = runId ? encodeURIComponent(runId) : '';
+        const runUrl = runId ? `#/pipelineruns/recent/${encodedRunId}` : '#/pipelineruns/recent';
+
+        return `
+            <a href="${runUrl}" class="pipelines-run-row block" title="Open run ${escapeAttribute(runId || '')}">
+                <div class="triggers-run-row">
+                    <div class="triggers-run-row__line triggers-run-row__line--primary">
+                        <span class="triggers-run-row__pipeline" title="Pipeline: ${escapeAttribute(pipelineName)}">${escapeHtml(pipelineName)}</span>
+                        <span class="triggers-run-row__time">${escapeHtml(timeAgo)}</span>
                     </div>
-                    <div class="grid gap-1">
-                        ${fieldsMarkup}
+                    <div class="triggers-run-row__line triggers-run-row__line--status">
+                        <span class="triggers-run-row__status">${escapeHtml(statusLabel)}</span>
                     </div>
-                </div>`;
-        }).join('');
+                    <dl class="triggers-detail-grid triggers-run-details">
+                        <dt class="triggers-detail-label">Branch:</dt>
+                        <dd class="triggers-detail-value" title="${escapeAttribute(branch)}">${escapeHtml(branch)}</dd>
+                        <dt class="triggers-detail-label">Run ID:</dt>
+                        <dd class="triggers-detail-value" title="${escapeAttribute(runId || shortRunId)}">${escapeHtml(shortRunId)}</dd>
+                        <dt class="triggers-detail-label">Trigger ID:</dt>
+                        <dd class="triggers-detail-value" title="${escapeAttribute(triggerEventId || shortTriggerId)}">${escapeHtml(shortTriggerId)}</dd>
+                    </dl>
+                </div>
+            </a>`;
     }
 
     function formatTriggerEventInfo(id, options = {}) {
@@ -2070,23 +2131,6 @@ function formatPathLabel(path) {
         return { text, full: raw };
     }
 
-    function formatTriggerEventCardDisplay(id, options = {}) {
-        const info = formatTriggerEventInfo(id, options);
-        if (info.full === 'N/A') {
-            return {
-                display: info.text,
-                title: escapeAttribute(info.full),
-            };
-        }
-
-        const raw = info.full;
-        const display = raw.length > 8 ? raw.slice(0, 8) + '...' : raw;
-        return {
-            display: display,
-            title: escapeAttribute(raw),
-        };
-    }
-
     function escapeAttribute(value) {
         if (value === null || value === undefined) return '';
         return String(value)
@@ -2103,46 +2147,12 @@ function formatPathLabel(path) {
             return;
         }
 
-        DOM['pipeline-recent-runs'].innerHTML = runs.slice(0, 5).map(run => {
-            const timeAgo = formatRelativeTime(run.started_at || run.startedAt);
-            const repoName = run.git_repo_name || 'N/A';
-            const branch = run.git_ref ? run.git_ref.replace('refs/heads/', '') : 'manual';
-            const runUrl = `#/pipelineruns/recent/${run.run_id}`;
-            const shortRunId = (run.run_id || '...').slice(0, 8);
-            const triggerCard = formatTriggerEventCardDisplay(run.trigger_event_id, { fallback: 'Manual/Unknown' });
+        const sortedRuns = runs.slice().sort((a, b) => new Date(b.started_at || b.startedAt || 0) - new Date(a.started_at || a.startedAt || 0));
+        const listHtml = `<ul class="triggers-runs-list ${sortedRuns.length > MAX_RECENT_RUNS ? 'triggers-runs-scroll' : ''}">
+            ${sortedRuns.slice(0, MAX_RECENT_RUNS).map(run => `<li class="triggers-runs-item">${renderPipelineRunRow(run)}</li>`).join('')}
+        </ul>`;
 
-            return `
-                <a href="${runUrl}" class="pipelines-run-row block" title="Open run ${shortRunId}">
-                    <div class="flex items-baseline justify-between gap-2 mb-1">
-                        
-                        
-                        <div class="flex items-center gap-2 font-mono text-sm text-[var(--text-primary)] truncate" title="Run ID: ${escapeAttribute(run.run_id || '')}">
-                            <svg class="h-3.5 w-3.5 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H5v-2H3v-2H1v-4a6 6 0 016-6h1.5" /></svg>
-                            <span>${escapeHtml(shortRunId)}</span>
-                        </div>
-                        
-                        <span class="text-xs text-[var(--text-secondary)] flex-shrink-0">${timeAgo}</span>
-                    </div>
-                    
-                    
-                    <div class="text-xs text-[var(--text-secondary)] font-mono truncate" title="Repository: ${escapeAttribute(repoName)}">
-                         <svg class="inline-block h-3 w-3 mr-1 -mt-0.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
-                        ${escapeHtml(repoName)}
-                    </div>
-
-                    
-                    <div class="text-xs text-[var(--text-link)] font-mono truncate mt-0.5" title="Branch: ${escapeAttribute(branch)}">
-                        <svg class="inline-block h-3 w-3 mr-1 -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                        ${escapeHtml(branch)}
-                    </div>
-
-                    
-                    <div class="text-xs text-[var(--text-secondary)] font-mono truncate mt-0.5" title="Trigger Event ID: ${triggerCard.title}">
-                         <svg class="inline-block h-3 w-3 mr-1 -mt-0.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7a1 1 0 011-1h3.586a1 1 0 01.707.293l6.414 6.414a1 1 0 010 1.414l-4.586 4.586a1 1 0 01-1.414 0L7.293 13.707A1 1 0 017 13V9a1 1 0 011-1z" /></svg>
-                        ${escapeHtml(triggerCard.display)}
-                    </div>
-                </a>`;
-        }).join('');
+        DOM['pipeline-recent-runs'].innerHTML = listHtml;
     }
 
     function enterEditMode() {
@@ -4028,21 +4038,33 @@ function formatPathLabel(path) {
             return state.triggersIndex.get(pipelineId);
         }
 
-        const repos = await context.fetchData('/v1/overrides');
+        const repos = await context.fetchData('/v1/overrides?include_source=true');
         if (!Array.isArray(repos) || repos.length === 0) {
             state.triggersIndex.set(pipelineId, []);
             return [];
         }
 
         const matches = [];
-        for (const repo of repos) {
-            const [owner, name] = repo.split('/');
+        for (const entry of repos) {
+            let repoName = '';
+            let rawSource = '';
+            if (typeof entry === 'string') {
+                repoName = entry;
+                rawSource = 'database';
+            } else if (entry && typeof entry === 'object') {
+                repoName = entry.name || entry.repository_name || entry.slug || entry.repo || '';
+                rawSource = entry.source || '';
+            }
+            repoName = String(repoName || '').trim();
+            if (!repoName) continue;
+            const [owner, name] = repoName.split('/');
             if (!owner || !name) continue;
             const url = `/v1/overrides/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
             const yaml = await context.fetchData(url);
             if (typeof yaml !== 'string') continue;
             const manifest = parseYamlSafely(yaml);
             if (!manifest || !Array.isArray(manifest.triggers)) continue;
+            const normalizedSource = normalizeTriggerSourceValue(rawSource) || 'database';
             manifest.triggers.forEach(trigger => {
                 const pipelineEntries = Array.isArray(trigger.pipelines) ? trigger.pipelines : [];
                 pipelineEntries.forEach(entry => {
@@ -4052,6 +4074,7 @@ function formatPathLabel(path) {
                             repoOwner: owner,
                             repoName: name,
                             repoSlug: `${owner}/${name}`,
+                            source: normalizedSource,
                             trigger,
                         });
                     }

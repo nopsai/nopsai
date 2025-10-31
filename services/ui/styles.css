@@ -1802,37 +1802,7 @@ html.dark .pipelines-modal-card {
     color: var(--text-secondary);
 }
 
-.trigger-modal-footer {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 0.75rem;
-    padding-top: 0.5rem;
-}
 
-.trigger-pipeline-preview-body {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-}
-
-#triggers-pipeline-preview-content {
-    margin: 0;
-    padding: 1rem 1.2rem;
-    border-radius: 16px;
-    background: rgba(15,23,42,0.88);
-    color: #e0f2fe;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
-    font-size: 0.85rem;
-    max-height: 420px;
-    overflow: auto;
-    white-space: pre;
-}
-
-#triggers-pipeline-preview-empty {
-    color: var(--text-secondary);
-    font-size: 0.85rem;
-}
 
 .pipelines-card-run {
     border-radius: 16px;
@@ -2134,6 +2104,34 @@ html.dark .triggers-card--active {
     padding: 0.65rem 0.85rem;
 }
 
+.triggers-pipeline-link--static {
+    cursor: default;
+}
+
+.triggers-pipeline-item--local {
+    opacity: 0.7;
+    background: rgba(148,163,184,0.16);
+    border-style: dashed;
+}
+
+html.dark .triggers-pipeline-item--local {
+    background: rgba(30,41,59,0.5);
+}
+
+.triggers-pipeline-link--local {
+    cursor: default;
+    pointer-events: none;
+    color: var(--text-secondary);
+}
+
+.trigger-modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    padding-top: 0.5rem;
+}
+
 button.triggers-pipeline-link {
     width: 100%;
     text-align: left;
@@ -2197,11 +2195,28 @@ button.triggers-pipeline-link:focus-visible {
     padding-right: 0.3rem;
 }
 
+.triggers-list-scroll {
+    max-height: 220px;
+    overflow-y: auto;
+    padding-right: 0.3rem;
+}
+
 .triggers-pipelines-scroll::-webkit-scrollbar {
     width: 6px;
 }
 
 .triggers-pipelines-scroll::-webkit-scrollbar-thumb {
+    background: rgba(148,163,184,0.35);
+    border-radius: 999px;
+}
+
+.triggers-list-scroll::-webkit-scrollbar,
+#pipeline-recent-runs .triggers-runs-scroll::-webkit-scrollbar {
+    width: 6px;
+}
+
+.triggers-list-scroll::-webkit-scrollbar-thumb,
+#pipeline-recent-runs .triggers-runs-scroll::-webkit-scrollbar-thumb {
     background: rgba(148,163,184,0.35);
     border-radius: 999px;
 }
