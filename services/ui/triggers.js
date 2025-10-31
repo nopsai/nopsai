@@ -301,21 +301,6 @@
         }
     }
 
-    function handleTriggerPipelineListClick(event) {
-        const triggerButton = event.target.closest('[data-trigger-pipeline-preview]');
-        if (!triggerButton) {
-            return;
-        }
-        event.preventDefault();
-        event.stopPropagation();
-        const identifier = triggerButton.dataset.triggerPipelinePreview || '';
-        if (!identifier) return;
-        const name = triggerButton.dataset.triggerPipelineName || identifier.split('/').pop() || identifier;
-        const sourceKey = triggerButton.dataset.triggerPipelineSource || 'local';
-        const path = triggerButton.dataset.triggerPipelinePath || identifier;
-        openTriggerPipelinePreview({ identifier, name, sourceKey, path });
-    }
-
     function normalizeTriggerEventKey(value) {
         return String(value ?? '').trim().toLowerCase().replace(/\s+/g, '_');
     }
@@ -349,8 +334,7 @@
             'triggers-new-repo', 'triggers-new-yaml',
             'triggers-delete-modal', 'triggers-delete-message', 'triggers-delete-cancel', 'triggers-delete-confirm', 'triggers-delete-close',
             'triggers-clone-modal', 'triggers-clone-form', 'triggers-clone-cancel', 'triggers-clone-close', 'triggers-clone-repo', 'triggers-clone-subtitle',
-            'triggers-list-view', 'triggers-detail-view', 'triggers-back-btn',
-            'triggers-pipeline-preview-modal', 'triggers-pipeline-preview-title', 'triggers-pipeline-preview-content', 'triggers-pipeline-preview-empty', 'triggers-pipeline-preview-close'
+            'triggers-list-view', 'triggers-detail-view', 'triggers-back-btn'
         ];
 
         ids.forEach(id => {
@@ -520,86 +504,10 @@
         return promise;
     }
 
-    async function fetchPipelineYaml(identifier) {
-        if (!identifier || !context || typeof context.fetchData !== 'function') {
-            return null;
-        }
-        const id = normalizePipelineIdentifier(identifier);
-        if (!id) return null;
-        try {
-            const encodedId = id.split('/').map(encodeURIComponent).join('/');
-            const yaml = await context.fetchData(`/v1/pipelines/${encodedId}`);
-            if (typeof yaml === 'string') {
-                return yaml;
-            }
-        } catch (error) {
-            console.warn('Unable to fetch pipeline YAML for preview:', identifier, error);
-        }
-        return null;
-    }
-
-    function setTriggerPipelinePreviewState({ status, content = '', message = '' }) {
-        if (!DOM['triggers-pipeline-preview-content'] || !DOM['triggers-pipeline-preview-empty']) return;
-        if (status === 'loading') {
-            DOM['triggers-pipeline-preview-content'].textContent = 'Loading pipeline definition…';
-            DOM['triggers-pipeline-preview-content'].classList.remove('hidden');
-            DOM['triggers-pipeline-preview-empty'].classList.add('hidden');
-        } else if (status === 'success') {
-            DOM['triggers-pipeline-preview-content'].textContent = content || '';
-            DOM['triggers-pipeline-preview-content'].classList.remove('hidden');
-            DOM['triggers-pipeline-preview-empty'].classList.add('hidden');
-        } else {
-            DOM['triggers-pipeline-preview-empty'].innerHTML = message || 'Pipeline definition is not available. Check your repository for the latest version.';
-            DOM['triggers-pipeline-preview-empty'].classList.remove('hidden');
-            DOM['triggers-pipeline-preview-content'].classList.add('hidden');
-        }
-    }
-
-    async function openTriggerPipelinePreview(details) {
-        if (!DOM['triggers-pipeline-preview-modal']) return;
-        const { identifier = '', name = '', sourceKey = 'local', path = '' } = details || {};
-        if (DOM['triggers-pipeline-preview-title']) {
-            DOM['triggers-pipeline-preview-title'].textContent = name || identifier;
-        }
-        setTriggerPipelinePreviewState({ status: 'loading' });
-        openModal('triggers-pipeline-preview-modal');
-
-        const yaml = await fetchPipelineYaml(identifier);
-        if (typeof yaml === 'string' && yaml.trim()) {
-            setTriggerPipelinePreviewState({ status: 'success', content: yaml });
-            return;
-        }
-
-        let message = 'Pipeline definition is not available. Check your repository for the latest version.';
-        if (sourceKey === 'local') {
-            const suggestedPath = path ? `${path.replace(/^\//, '')}.yaml` : `${identifier}.yaml`;
-            message = `This pipeline is managed directly in your repository. Review the file (for example, <code>${escapeHtml(suggestedPath)}</code>) to access the latest definition.`;
-        }
-        setTriggerPipelinePreviewState({ status: 'empty', message });
-    }
-
-    function resetTriggerPipelinePreview() {
-        if (DOM['triggers-pipeline-preview-title']) {
-            DOM['triggers-pipeline-preview-title'].textContent = '';
-        }
-        if (DOM['triggers-pipeline-preview-content']) {
-            DOM['triggers-pipeline-preview-content'].textContent = '';
-            DOM['triggers-pipeline-preview-content'].classList.add('hidden');
-        }
-        if (DOM['triggers-pipeline-preview-empty']) {
-            DOM['triggers-pipeline-preview-empty'].textContent = '';
-            DOM['triggers-pipeline-preview-empty'].classList.add('hidden');
-        }
-    }
-
     function bindEvents() {
         if (DOM['triggers-list']) {
             DOM['triggers-list'].addEventListener('click', handleListClick);
             DOM['triggers-list'].addEventListener('keydown', handleListKeydown);
-        }
-
-        if (DOM['triggers-pipelines-list']) {
-            DOM['triggers-pipelines-list'].addEventListener('click', handleTriggerPipelineListClick);
         }
 
         if (DOM['triggers-back-btn']) {
@@ -660,10 +568,6 @@
 
         if (DOM['triggers-new-form']) {
             DOM['triggers-new-form'].addEventListener('submit', handleCreateTriggerSubmit);
-        }
-
-        if (DOM['triggers-pipeline-preview-close']) {
-            DOM['triggers-pipeline-preview-close'].addEventListener('click', () => closeModal('triggers-pipeline-preview-modal'));
         }
 
         if (DOM['triggers-delete-cancel']) {
@@ -1506,9 +1410,9 @@
             if (sourceKey === 'local') {
                 return `
                     <li class="triggers-pipeline-item triggers-pipeline-item--local" title="Local pipeline defined directly in repository">
-                        <span class="triggers-pipeline-link triggers-pipeline-link--local" aria-disabled="true">
+                        <div class="triggers-pipeline-link triggers-pipeline-link--static triggers-pipeline-link--local">
                             ${commonDetails}
-                        </span>
+                        </div>
                     </li>`;
             }
             const hash = buildPipelineHash(item.identifier);
@@ -2821,8 +2725,6 @@
         setTimeout(() => el.classList.add('hidden'), 300);
         if (id === 'triggers-new-modal') {
             updateNewTriggerBlueprint();
-        } else if (id === 'triggers-pipeline-preview-modal') {
-            resetTriggerPipelinePreview();
         }
     }
 
