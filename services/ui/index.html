@@ -243,15 +243,21 @@
                                 <div class="glass-card p-6">
                                     <div class="flex items-start justify-between gap-4 flex-wrap">
                                         <div class="min-w-0">
-                                            <h2 id="triggers-detail-name" class="text-3xl font-bold text-[var(--text-primary)] truncate"></h2>
+                                            <div class="triggers-detail-heading">
+                                                <span class="triggers-detail-icon" aria-hidden="true">
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                        <path d="M3 12h3l3 8l4-16l3 8h4" />
+                                                        <path d="M3 5h6" />
+                                                        <path d="M18 19h3" />
+                                                    </svg>
+                                                </span>
+                                                <h2 id="triggers-detail-name" class="text-3xl font-bold text-[var(--text-primary)] truncate"></h2>
+                                            </div>
                                         </div>
                                         <button id="triggers-back-btn" class="glass-button-ghost hidden">
                                             <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
                                             <span>Back to list</span>
                                         </button>
-                                    </div>
-                                    <div class="mt-4 flex flex-wrap gap-4 text-xs text-[var(--text-secondary)] font-mono">
-                                        <span>Source: <span id="triggers-detail-source"></span></span>
                                     </div>
                                     <div id="triggers-meta-chips" class="flex flex-wrap gap-2 mt-4"></div>
                                     <div id="triggers-detail-meta" class="triggers-detail-meta"></div>
@@ -603,32 +609,47 @@
         </div>
     </div>
     <div id="triggers-new-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
-        <div class="pipelines-modal-card max-w-3xl">
-            <header class="pipelines-modal-header">
-                <div>
-                    <h2 class="text-lg font-semibold text-[var(--text-primary)]">Create Trigger</h2>
-                    <p class="text-sm text-[var(--text-secondary)]">Provide a repository slug and YAML definition containing one or more triggers.</p>
+        <div class="pipelines-modal-card trigger-modal-card max-w-2xl">
+            <header class="pipelines-modal-header trigger-modal-header">
+                <div class="trigger-modal-heading">
+                    <span class="trigger-modal-icon" aria-hidden="true">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 12h3l3 8l4-16l3 8h4" />
+                            <path d="M3 5h6" />
+                            <path d="M18 19h3" />
+                        </svg>
+                    </span>
+                    <div class="min-w-0">
+                        <h2 class="text-lg font-semibold text-[var(--text-primary)]">Create Trigger</h2>
+                        <p class="text-sm text-[var(--text-secondary)]">We’ll scaffold a starter trigger you can refine right away.</p>
+                    </div>
                 </div>
                 <button id="triggers-new-close" class="glass-button-ghost" title="Close">
                     <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
             </header>
-            <form id="triggers-new-form" class="pipelines-modal-body space-y-4">
-                <div>
+            <form id="triggers-new-form" class="pipelines-modal-body trigger-modal-body">
+                <div class="trigger-modal-field-group">
                     <label for="triggers-new-repo" class="block text-sm font-medium text-[var(--text-secondary)]">Repository</label>
                     <input type="text" id="triggers-new-repo" name="repository" required placeholder="owner/repository" pattern="[^/\s]+/[^/\s]+" class="pipelines-input w-full mt-1" />
-                    <p class="text-xs text-[var(--text-secondary)] mt-1">Repository slugs must be in the format <code>owner/name</code>.</p>
+                    <p class="trigger-modal-hint">We’ll create the trigger at <code>owner/name</code> with a push event targeting <code>main</code>.</p>
                 </div>
-                <div>
-                    <label for="triggers-new-yaml" class="block text-sm font-medium text-[var(--text-secondary)]">Trigger YAML</label>
-                    <textarea id="triggers-new-yaml" name="yaml" required class="w-full h-52 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)] resize-y" placeholder="triggers:\n  - on: push\n    branches: [main]\n    pipelines:\n      - path: default/build"></textarea>
-                    <p class="text-xs text-[var(--text-secondary)] mt-1">Each trigger must define an <code>on</code> condition and at least one pipeline path.</p>
+                <div class="trigger-modal-summary" aria-live="polite">
+                    <div class="trigger-summary-item">
+                        <span class="trigger-summary-label">Event</span>
+                        <span class="trigger-summary-value">push &mdash; branch <code>main</code></span>
+                    </div>
+                    <div class="trigger-summary-item">
+                        <span class="trigger-summary-label">Pipeline</span>
+                        <span class="trigger-summary-value" id="triggers-new-summary-path">pipelines/sample-pipeline.yaml</span>
+                    </div>
                 </div>
-                <div class="flex items-center justify-end gap-2 pt-2">
+                <textarea id="triggers-new-yaml" name="yaml" class="hidden" aria-hidden="true"></textarea>
+                <div class="trigger-modal-footer">
                     <button type="button" id="triggers-new-cancel" class="glass-button-ghost">Cancel</button>
                     <button type="submit" class="glass-button-primary">
                         <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5H7a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-6"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 13l3 3 7-7"/></svg>
-                        <span>Create Trigger</span>
+                        <span>Create &amp; Edit</span>
                     </button>
                 </div>
             </form>

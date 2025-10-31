@@ -1579,14 +1579,19 @@ if (dx !== 0 || dy !== 0) {
             { route: 'steps', title: 'Steps', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
             { route: 'environment', title: 'Environment', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
             { route: 'monitoring', title: 'Monitoring', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
-            { route: 'triggers', title: 'Triggers', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
+            {
+                route: 'triggers',
+                title: 'Triggers',
+                iconMarkup: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12h3l3 8l4-16l3 8h4"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h6"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 19h3"/>'
+            },
             { route: 'system', title: 'System', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
         ];
 
         let baseNavHtml = navConfig.map(item => {
             const isActive = activeRoute === item.route;
+            const iconMarkup = item.iconMarkup || `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${item.icon}"/>`;
             return `<a href="#/${item.route}" class="sidebar-link flex items-center p-2 text-[var(--text-primary)] rounded-md transition-colors duration-200 group ${isActive ? 'active' : ''}" data-navigo>
-                        <svg class="h-5 w-5 mr-3 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${item.icon}"/></svg>
+                        <svg class="h-5 w-5 mr-3 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">${iconMarkup}</svg>
                         <span>${item.title}</span>
                     </a>`;
         }).join('');

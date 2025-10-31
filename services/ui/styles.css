@@ -933,6 +933,14 @@ html.dark .pipelines-input {
     gap: 0.6rem;
 }
 
+.pipeline-card-info {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.55rem;
+    min-width: 0;
+    flex: 1;
+}
+
 .pipeline-card-actions {
     display: flex;
     align-items: center;
@@ -957,6 +965,23 @@ html.dark .pipelines-input {
     gap: 0.18rem;
     min-width: 0;
     flex: 1;
+}
+
+.triggers-card-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.6rem;
+    background: rgba(59,130,246,0.12);
+    color: var(--text-accent);
+    flex-shrink: 0;
+}
+
+.triggers-card-icon svg {
+    width: 1.2rem;
+    height: 1.2rem;
 }
 
 .pipeline-card-title {
@@ -1586,7 +1611,7 @@ html.dark .pipelines-graph {
     padding: 1.25rem;
     background: rgba(15,23,42,0.88);
     color: #a5f3fc;
-    max-height: 420px;
+    max-height: 720px;
     overflow: auto;
     font-size: 0.85rem;
     line-height: 1.6;
@@ -1697,6 +1722,19 @@ html.dark .pipelines-modal-card {
     opacity: 1;
 }
 
+#triggers-new-modal.show,
+#triggers-delete-modal.show,
+#triggers-clone-modal.show {
+    opacity: 1;
+}
+
+#triggers-new-modal.show .pipelines-modal-card,
+#triggers-delete-modal.show .pipelines-modal-card,
+#triggers-clone-modal.show .pipelines-modal-card {
+    transform: scale(1);
+    opacity: 1;
+}
+
 .pipelines-modal-header {
     display: flex;
     justify-content: space-between;
@@ -1708,6 +1746,96 @@ html.dark .pipelines-modal-card {
 
 .pipelines-modal-body {
     padding: 1.4rem 1.6rem 1.6rem;
+}
+
+.trigger-modal-card {
+    overflow: hidden;
+}
+
+.trigger-modal-header {
+    align-items: center;
+    padding-bottom: 0;
+    border-bottom: none;
+}
+
+.trigger-modal-heading {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    min-width: 0;
+}
+
+.trigger-modal-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 3rem;
+    height: 3rem;
+    border-radius: 1rem;
+    background: linear-gradient(135deg, rgba(59,130,246,0.85), rgba(14,165,233,0.85));
+    color: #f8fafc;
+    flex-shrink: 0;
+    box-shadow: 0 10px 30px -18px rgba(14,165,233,0.6);
+}
+
+.trigger-modal-icon svg {
+    width: 1.4rem;
+    height: 1.4rem;
+}
+
+.trigger-modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    padding-top: 1rem;
+}
+
+.trigger-modal-field-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.trigger-modal-hint {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.trigger-modal-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 0.75rem 1rem;
+    padding: 1rem 1.2rem;
+    border-radius: 16px;
+    border: 1px solid rgba(148,163,184,0.3);
+    background: linear-gradient(135deg, rgba(59,130,246,0.08), rgba(14,165,233,0.08));
+}
+
+.trigger-summary-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.trigger-summary-label {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-secondary);
+}
+
+.trigger-summary-value {
+    font-size: 0.82rem;
+    color: var(--text-primary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
+}
+
+.trigger-modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    padding-top: 0.5rem;
 }
 
 .pipelines-card-run {
@@ -1921,30 +2049,66 @@ html.dark .triggers-card--active {
 }
 
 .triggers-detail-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem;
     margin-top: 0.75rem;
+}
+
+.triggers-meta-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.9rem 1rem;
     font-size: 0.75rem;
     color: var(--text-secondary);
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
 }
 
-.triggers-detail-meta-item {
+.triggers-meta-cell {
     display: flex;
-    align-items: baseline;
+    flex-direction: column;
+    gap: 0.18rem;
+    min-width: 0;
+}
+
+#triggers-detail-source-row {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
+    display: flex;
+    flex-wrap: wrap;
     gap: 0.35rem;
 }
 
-.triggers-detail-meta-label {
+.triggers-detail-source-label {
     text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-weight: 500;
-    color: var(--text-secondary);
+    letter-spacing: 0.06em;
+    font-weight: 600;
 }
 
-.triggers-detail-meta-value {
+.triggers-detail-source-value {
     color: var(--text-primary);
+}
+
+.triggers-detail-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+.triggers-detail-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 3rem;
+    height: 3rem;
+    border-radius: 1rem;
+    background: rgba(59,130,246,0.12);
+    color: var(--text-accent);
+    flex-shrink: 0;
+}
+
+.triggers-detail-icon svg {
+    width: 1.5rem;
+    height: 1.5rem;
 }
 
 
@@ -1968,7 +2132,7 @@ html.dark .triggers-card--active {
 .triggers-pipeline-link {
     display: flex;
     flex-direction: column;
-    gap: 0.2rem;
+    gap: 0.35rem;
     text-decoration: none;
     color: inherit;
     padding: 0.65rem 0.85rem;
@@ -1986,23 +2150,34 @@ html.dark .triggers-card--active {
     font-weight: 600;
 }
 
-.triggers-pipeline-path {
-    font-size: 0.75rem;
+.triggers-detail-grid {
+    margin: 0;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 0.45rem;
+    row-gap: 0.2rem;
+    font-size: 0.74rem;
     color: var(--text-secondary);
+}
+
+.triggers-detail-label {
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+}
+
+.triggers-detail-value {
+    margin: 0;
+    color: var(--text-primary);
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.triggers-pipeline-details {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
-}
-
-.triggers-pipeline-meta {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-    font-size: 0.7rem;
-    color: var(--text-secondary);
-}
-
-.triggers-pipeline-version,
-.triggers-pipeline-source {
-    display: block;
 }
 
 .triggers-pipelines-scroll {
@@ -2258,7 +2433,7 @@ html.dark .pipeline-editor-autocomplete__ghost {
     color: #a5f3fc;
     padding: 1.2rem;
     border-radius: 18px;
-    max-height: 420px;
+    max-height: 820px;
     overflow: auto;
     font-size: 0.85rem;
 }
@@ -2372,7 +2547,7 @@ html.dark .triggers-runs-item:focus-within {
 .triggers-run-row {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: 0.35rem;
 }
 
 .triggers-run-row__line {
@@ -2389,6 +2564,11 @@ html.dark .triggers-runs-item:focus-within {
     color: var(--text-primary);
 }
 
+.triggers-run-row__line--status {
+    justify-content: flex-start;
+    gap: 0.6rem;
+}
+
 .triggers-run-row__pipeline {
     min-width: 0;
     max-width: 70%;
@@ -2402,15 +2582,6 @@ html.dark .triggers-runs-item:focus-within {
     color: var(--text-secondary);
 }
 
-.triggers-run-row__branch {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
-    font-size: 0.7rem;
-    max-width: 70%;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
 .triggers-run-row__status {
     font-size: 0.72rem;
     font-weight: 600;
@@ -2418,14 +2589,14 @@ html.dark .triggers-runs-item:focus-within {
     color: var(--text-accent);
 }
 
-.triggers-run-row__meta {
-    font-size: 0.68rem;
-    color: var(--text-secondary);
+.triggers-run-details {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
+    font-size: 0.72rem;
 }
 
-.triggers-run-row__meta span {
-    color: var(--text-primary);
+.triggers-run-details .triggers-detail-label {
+    font-weight: 500;
+    letter-spacing: 0.03em;
 }
 .triggers-content {
     min-height: 0;
