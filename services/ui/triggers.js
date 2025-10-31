@@ -15,21 +15,98 @@
         pipelineSourceIndex: null,
         pipelineMetaCache: new Map(),
         pipelineMetaPromises: new Map(),
+        pipelineSourceIndexPromise: null,
         _prefetching: new Set(),
+        editorSuggestionContext: null,
+        editorSuggestionItems: [],
+        editorSuggestionIndex: -1,
+        editorCharWidth: null,
+        currentTriggerSummary: null,
     };
 
     const DOM = {};
     let context = null;
     let initialized = false;
+    let measurementCanvas = null;
 
     const RUNS_CACHE_TTL = 60 * 1000;
     const MAX_RUNS = 5;
+    const VALID_TRIGGER_EVENTS = new Map([
+        ['push', 'push'],
+        ['pull_request', 'pull_request'],
+        ['pull-request', 'pull_request'],
+    ]);
+    const TRIGGER_EVENT_OPTIONS = Array.from(new Set(VALID_TRIGGER_EVENTS.values()));
+    const TRIGGER_ROOT_DEFINITIONS = [
+        {
+            key: 'triggers',
+            hint: 'List of trigger rules',
+            snippet: 'triggers:\n  - on: \n    branches:\n      - \n    pipelines:\n      - ',
+        },
+    ];
+    const TRIGGER_FIELD_DEFINITIONS = [
+        { key: 'on', hint: 'Event type to run pipelines for', kind: 'scalar' },
+        { key: 'branches', hint: 'Only run for these branches', kind: 'list' },
+        { key: 'skip_branches', hint: 'Branches to exclude', kind: 'list' },
+        { key: 'tags', hint: 'Tags that should trigger runs', kind: 'list' },
+        { key: 'pipelines', hint: 'Pipelines to execute', kind: 'list' },
+        { key: 'environment', hint: 'Environment label for this trigger', kind: 'scalar' },
+    ];
+    const TRIGGER_LIST_FIELDS = new Set(['branches', 'skip_branches', 'tags', 'pipelines']);
+    const DEFAULT_PIPELINE_PATH = 'pipelines/sample-pipeline.yaml';
+
+    function sanitizePipelineFileName(value) {
+        const trimmed = String(value || '').trim();
+        const fallback = 'sample-pipeline';
+        if (!trimmed) return fallback;
+        const sanitized = trimmed.replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '');
+        return sanitized || fallback;
+    }
+
+    function deriveDefaultPipelinePath(repo) {
+        if (!repo) {
+            return DEFAULT_PIPELINE_PATH;
+        }
+        const parts = String(repo).split('/').filter(Boolean);
+        const candidate = parts[parts.length - 1] || '';
+        const fileName = sanitizePipelineFileName(candidate);
+        return `pipelines/${fileName}.yaml`;
+    }
+
+    function buildNewTriggerYaml(pipelinePath = DEFAULT_PIPELINE_PATH) {
+        const path = pipelinePath || DEFAULT_PIPELINE_PATH;
+        return `triggers:\n  - on: push\n    branches:\n      - main\n    pipelines:\n      - ${path}\n`;
+    }
+
+    function updateNewTriggerBlueprint() {
+        const repoInput = DOM['triggers-new-repo'];
+        const summaryPathEl = DOM['triggers-new-summary-path'];
+        const yamlInput = DOM['triggers-new-yaml'];
+        const repo = repoInput ? repoInput.value.trim() : '';
+        const pipelinePath = deriveDefaultPipelinePath(repo);
+        if (summaryPathEl) {
+            summaryPathEl.textContent = pipelinePath;
+        }
+        if (yamlInput) {
+            yamlInput.value = buildNewTriggerYaml(pipelinePath);
+        }
+    }
+
+    function normalizeTriggerEventKey(value) {
+        return String(value ?? '').trim().toLowerCase().replace(/\s+/g, '_');
+    }
+
+    function canonicalizeTriggerEvent(value) {
+        const key = normalizeTriggerEventKey(value);
+        return VALID_TRIGGER_EVENTS.get(key) || null;
+    }
 
     function init(ctx = {}) {
         if (initialized) return;
         context = ctx;
         cacheDom();
         bindEvents();
+        updateNewTriggerBlueprint();
         loadTriggers(true).catch(err => console.error('Failed to load triggers:', err));
         initialized = true;
     }
@@ -45,7 +122,7 @@
             'triggers-save-btn', 'triggers-cancel-btn', 'triggers-pipelines-empty', 'triggers-pipelines-list',
             'triggers-runs-empty', 'triggers-runs-list',
             'triggers-new-modal', 'triggers-new-form', 'triggers-new-cancel', 'triggers-new-close',
-            'triggers-new-repo', 'triggers-new-yaml',
+            'triggers-new-repo', 'triggers-new-yaml', 'triggers-new-summary-path',
             'triggers-delete-modal', 'triggers-delete-message', 'triggers-delete-cancel', 'triggers-delete-confirm', 'triggers-delete-close',
             'triggers-clone-modal', 'triggers-clone-form', 'triggers-clone-cancel', 'triggers-clone-close', 'triggers-clone-repo', 'triggers-clone-subtitle',
             'triggers-list-view', 'triggers-detail-view', 'triggers-back-btn'
@@ -120,25 +197,40 @@
         if (state.pipelineSourceIndex instanceof Map) {
             return state.pipelineSourceIndex;
         }
-        const map = new Map();
-        if (!context || typeof context.fetchData !== 'function') {
-            state.pipelineSourceIndex = map;
-            return map;
+        if (state.pipelineSourceIndexPromise) {
+            return state.pipelineSourceIndexPromise;
         }
-        const response = await context.fetchData('/v1/pipelines?include_source=true');
-        if (Array.isArray(response)) {
-            response.forEach(item => {
-                if (!item || typeof item !== 'object') return;
-                const id = normalizePipelineIdentifier(item.id || item.ID || item.identifier || item.pipeline || '');
-                if (!id) return;
-                const key = normalizePipelineSourceKey(item.source);
-                if (key) {
-                    map.set(id, key);
+        const promise = (async () => {
+            const map = new Map();
+            try {
+                if (!context || typeof context.fetchData !== 'function') {
+                    state.pipelineSourceIndex = map;
+                    return map;
                 }
-            });
-        }
-        state.pipelineSourceIndex = map;
-        return map;
+                const response = await context.fetchData('/v1/pipelines?include_source=true');
+                if (Array.isArray(response)) {
+                    response.forEach(item => {
+                        if (!item || typeof item !== 'object') return;
+                        const id = normalizePipelineIdentifier(item.id || item.ID || item.identifier || item.pipeline || '');
+                        if (!id) return;
+                        const key = normalizePipelineSourceKey(item.source);
+                        if (key) {
+                            map.set(id, key);
+                        }
+                    });
+                }
+                state.pipelineSourceIndex = map;
+                return map;
+            } catch (error) {
+                console.error('Failed to build pipeline source index:', error);
+                state.pipelineSourceIndex = map;
+                return map;
+            } finally {
+                state.pipelineSourceIndexPromise = null;
+            }
+        })();
+        state.pipelineSourceIndexPromise = promise;
+        return promise;
     }
 
     function extractPipelineVersion(yamlText) {
@@ -238,7 +330,20 @@
         }
 
         if (DOM['triggers-new-btn']) {
-            DOM['triggers-new-btn'].addEventListener('click', () => openModal('triggers-new-modal'));
+            DOM['triggers-new-btn'].addEventListener('click', () => {
+                if (DOM['triggers-new-form']) {
+                    DOM['triggers-new-form'].reset();
+                }
+                updateNewTriggerBlueprint();
+                openModal('triggers-new-modal');
+                if (DOM['triggers-new-repo']) {
+                    DOM['triggers-new-repo'].focus();
+                }
+            });
+        }
+
+        if (DOM['triggers-new-repo']) {
+            DOM['triggers-new-repo'].addEventListener('input', updateNewTriggerBlueprint);
         }
 
         if (DOM['triggers-new-cancel']) {
@@ -302,8 +407,22 @@
         }
 
         if (DOM['triggers-yaml-editor']) {
-            DOM['triggers-yaml-editor'].addEventListener('input', handleEditorInput);
-            DOM['triggers-yaml-editor'].addEventListener('scroll', syncEditorScroll);
+            const editor = DOM['triggers-yaml-editor'];
+            editor.addEventListener('input', handleEditorInput);
+            editor.addEventListener('scroll', () => {
+                syncEditorScroll();
+                updateTriggerInlineSuggestionPosition();
+            });
+            editor.addEventListener('click', () => {
+                updateTriggerEditorSuggestions();
+            });
+            editor.addEventListener('keyup', (event) => {
+                if (event.key === 'Shift' || event.key === 'Control' || event.key === 'Alt' || event.key === 'Meta') {
+                    return;
+                }
+                updateTriggerEditorSuggestions();
+            });
+            editor.addEventListener('keydown', handleTriggerEditorKeydown);
         }
 
         document.addEventListener('keydown', (event) => {
@@ -567,9 +686,18 @@
         return `
             <article class="pipeline-card triggers-card bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg shadow-sm transition-all duration-200 p-3 flex flex-col${isActive ? ' triggers-card--active' : ''}" data-trigger-slug="${escapeAttribute(slug)}" tabindex="0" role="button" aria-label="Open trigger ${escapeAttribute(slug)}">
                 <div class="pipeline-card-header flex items-start justify-between gap-3">
-                    <div class="pipeline-card-text min-w-0">
-                        <h3 class="pipeline-card-title" title="${escapeAttribute(name)}">${escapeHtml(name)}</h3>
-                        <p class="pipeline-card-path" title="${escapeAttribute(owner)}">${escapeHtml(owner)}</p>
+                    <div class="pipeline-card-info">
+                        <span class="triggers-card-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M3 12h3l3 8l4-16l3 8h4" />
+                                <path d="M3 5h6" />
+                                <path d="M18 19h3" />
+                            </svg>
+                        </span>
+                        <div class="pipeline-card-text min-w-0">
+                            <h3 class="pipeline-card-title" title="${escapeAttribute(name)}">${escapeHtml(name)}</h3>
+                            <p class="pipeline-card-path" title="${escapeAttribute(owner)}">${escapeHtml(owner)}</p>
+                        </div>
                     </div>
                     <div class="pipeline-card-actions">
                         <button class="pipelines-delete-button" type="button" data-trigger-delete="${escapeAttribute(slug)}" title="Delete trigger">
@@ -933,11 +1061,12 @@
         const sourceLabel = resolveTriggerSource(slug);
         if (DOM['triggers-detail-source']) {
             DOM['triggers-detail-source'].textContent = sourceLabel;
+            DOM['triggers-detail-source'].setAttribute('title', sourceLabel);
         }
 
         updateTriggerActionButtons(slug, sourceLabel);
         renderMetaChips(info.summary);
-        renderTriggerMeta(info.summary, slug);
+        renderTriggerMeta(info.summary, slug, sourceLabel);
         renderYamlView(info.yaml);
         await renderPipelinesList(info.summary);
         await renderRecentRuns(slug, info.summary);
@@ -954,7 +1083,7 @@
         DOM['triggers-meta-chips'].classList.add('hidden');
     }
 
-    function renderTriggerMeta(summary, slug) {
+    function renderTriggerMeta(summary, slug, sourceLabel = '') {
         if (!DOM['triggers-detail-meta']) return;
         const repo = slug || 'N/A';
         const triggerCount = summary?.triggerCount ?? 0;
@@ -963,21 +1092,34 @@
         const eventsLabel = summary?.events && summary.events.length
             ? summary.events.slice(0, 3).join(', ') + (summary.events.length > 3 ? '…' : '')
             : 'All events';
+        const fullEventsLabel = summary?.events && summary.events.length
+            ? summary.events.join(', ')
+            : eventsLabel;
+        const source = sourceLabel || resolveTriggerSource(slug);
 
         const items = [
             { label: 'Repository', value: repo },
+            { label: 'Source', value: source },
             { label: 'Rules', value: triggerCount },
             { label: 'Pipelines', value: pipelineCount },
             { label: 'Environments', value: envCount },
-            { label: 'Events', value: eventsLabel },
+            { label: 'Events', value: eventsLabel, title: fullEventsLabel },
         ];
 
-        DOM['triggers-detail-meta'].innerHTML = items.map(({ label, value }) => `
-            <span class="triggers-detail-meta-item">
-                <span class="triggers-detail-meta-label">${escapeHtml(label)}:</span>
-                <span class="triggers-detail-meta-value">${escapeHtml(String(value))}</span>
-            </span>
-        `).join('');
+        DOM['triggers-detail-meta'].innerHTML = `
+            <div class="triggers-meta-grid">
+                ${items.map(({ label, value, title }) => {
+                    const safeValue = escapeHtml(String(value ?? ''));
+                    const tooltip = title != null ? escapeAttribute(String(title)) : escapeAttribute(String(value ?? ''));
+                    return `
+                        <div class="triggers-meta-cell">
+                            <span class="triggers-detail-label">${escapeHtml(label)}:</span>
+                            <span class="triggers-detail-value" title="${tooltip}">${safeValue}</span>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        `;
     }
 
     function updateTriggerActionButtons(slug, sourceLabel) {
@@ -1038,17 +1180,21 @@
 
         const html = `<ul class="triggers-pipeline-list">${enriched.map(item => {
             const hash = buildPipelineHash(item.identifier);
-            const versionLabel = `Version: ${escapeHtml(item.meta?.version || 'latest')}`;
-            const sourceLabel = `Source: ${escapeHtml(item.meta?.source || getTriggerSourceLabel('database'))}`;
+            const versionValue = escapeHtml(item.meta?.version || 'latest');
+            const sourceValue = escapeHtml(item.meta?.source || getTriggerSourceLabel('database'));
+            const pathDisplay = item.pathLabel === 'root' ? '/' : `/${item.pathLabel}`;
             return `
                 <li class="triggers-pipeline-item">
                     <a href="${hash}" class="triggers-pipeline-link" title="Open ${escapeAttribute(item.display)}">
                         <span class="triggers-pipeline-name">${escapeHtml(item.display)}</span>
-                        <span class="triggers-pipeline-path">${escapeHtml(item.pathLabel)}</span>
-                        <span class="triggers-pipeline-meta">
-                            <span class="triggers-pipeline-version">${versionLabel}</span>
-                            <span class="triggers-pipeline-source">${sourceLabel}</span>
-                        </span>
+                        <dl class="triggers-detail-grid triggers-pipeline-details">
+                            <dt class="triggers-detail-label">Path:</dt>
+                            <dd class="triggers-detail-value" title="${escapeAttribute(pathDisplay)}">${escapeHtml(pathDisplay)}</dd>
+                            <dt class="triggers-detail-label">Version:</dt>
+                            <dd class="triggers-detail-value" title="${versionValue}">${versionValue}</dd>
+                            <dt class="triggers-detail-label">Source:</dt>
+                            <dd class="triggers-detail-value" title="${sourceValue}">${sourceValue}</dd>
+                        </dl>
                     </a>
                 </li>
             `;
@@ -1135,12 +1281,17 @@
                         <span class="triggers-run-row__pipeline" title="Pipeline: ${escapeAttribute(pipelineName)}">${escapeHtml(pipelineName)}</span>
                         <span class="triggers-run-row__time">${escapeHtml(timeAgo)}</span>
                     </div>
-                    <div class="triggers-run-row__line">
-                        <span class="triggers-run-row__branch" title="Branch">${escapeHtml(branch)}</span>
+                    <div class="triggers-run-row__line triggers-run-row__line--status">
                         <span class="triggers-run-row__status">${escapeHtml(statusLabel)}</span>
                     </div>
-                    <div class="triggers-run-row__meta">Run ID: <span>${escapeHtml(shortRunId)}</span></div>
-                    <div class="triggers-run-row__meta">Trigger ID: <span>${escapeHtml(shortTriggerId)}</span></div>
+                    <dl class="triggers-detail-grid triggers-run-details">
+                        <dt class="triggers-detail-label">Branch:</dt>
+                        <dd class="triggers-detail-value" title="${escapeAttribute(branch)}">${escapeHtml(branch)}</dd>
+                        <dt class="triggers-detail-label">Run ID:</dt>
+                        <dd class="triggers-detail-value" title="${escapeAttribute(runId || shortRunId)}">${escapeHtml(shortRunId)}</dd>
+                        <dt class="triggers-detail-label">Trigger ID:</dt>
+                        <dd class="triggers-detail-value" title="${escapeAttribute(triggerEventId || shortTriggerId)}">${escapeHtml(shortTriggerId)}</dd>
+                    </dl>
                 </div>
             </a>
         `;
@@ -1220,6 +1371,8 @@
 
         state.isEditing = true;
         state.currentYaml = info.yaml;
+        state.currentTriggerSummary = info.summary || null;
+        state.editorCharWidth = null;
 
         if (DOM['triggers-yaml-content']) {
             DOM['triggers-yaml-content'].classList.add('hidden');
@@ -1237,6 +1390,9 @@
             DOM['triggers-yaml-editor'].value = info.yaml;
             updateLineNumbers(info.yaml);
             validateCurrentYaml();
+            ensureTriggerEditorSuggestionOverlay();
+            updateTriggerEditorSuggestions();
+            updateTriggerInlineSuggestionPosition();
             DOM['triggers-yaml-editor'].focus();
         }
 
@@ -1253,6 +1409,9 @@
     function exitEditMode(discardChanges = false, { silent = false, updateHash } = {}) {
         if (!state.isEditing) return;
         state.isEditing = false;
+        hideTriggerEditorSuggestions();
+        state.editorCharWidth = null;
+        state.currentTriggerSummary = null;
         if (DOM['triggers-editor-container']) {
             DOM['triggers-editor-container'].classList.add('hidden');
         }
@@ -1266,8 +1425,11 @@
             DOM['triggers-edit-actions'].classList.add('hidden');
         }
         if (DOM['triggers-validation-status']) {
-            DOM['triggers-validation-status'].classList.add('hidden');
+            DOM['triggers-validation-status'].className = 'hidden text-xs text-[var(--text-secondary)]';
             DOM['triggers-validation-status'].textContent = '';
+        }
+        if (DOM['triggers-save-btn']) {
+            DOM['triggers-save-btn'].disabled = false;
         }
 
         if (!silent && discardChanges && state.selectedSlug) {
@@ -1295,11 +1457,14 @@
         const value = event.target.value;
         updateLineNumbers(value);
         validateCurrentYaml();
+        updateTriggerEditorSuggestions();
+        updateTriggerInlineSuggestionPosition();
     }
 
     function syncEditorScroll() {
         if (!DOM['triggers-line-numbers'] || !DOM['triggers-yaml-editor']) return;
         DOM['triggers-line-numbers'].scrollTop = DOM['triggers-yaml-editor'].scrollTop;
+        updateTriggerInlineSuggestionPosition();
     }
 
     function updateLineNumbers(text) {
@@ -1318,22 +1483,833 @@
         try {
             const parsed = parseTriggerYaml(value);
             const summary = buildTriggerSummary(parsed);
+            state.currentTriggerSummary = summary;
             const message = `${summary.triggerCount} trigger${summary.triggerCount === 1 ? '' : 's'} · ${summary.pipelineCount} pipeline${summary.pipelineCount === 1 ? '' : 's'}`;
             DOM['triggers-validation-status'].className = 'validation-box validation-box--success';
             DOM['triggers-validation-status'].innerHTML = `
                 <div class="validation-box__header">All good</div>
                 <div class="validation-box__message">${escapeHtml(message)}</div>
             `.trim();
+            if (DOM['triggers-save-btn']) {
+                DOM['triggers-save-btn'].disabled = false;
+            }
             return true;
         } catch (error) {
+            state.currentTriggerSummary = null;
             const errorMessage = error && error.message ? String(error.message) : 'Unknown validation error';
             DOM['triggers-validation-status'].className = 'validation-box validation-box--error';
             DOM['triggers-validation-status'].innerHTML = `
                 <div class="validation-box__header">Validation failed</div>
                 <div class="validation-box__message">${escapeHtml(errorMessage)}</div>
             `.trim();
+            if (DOM['triggers-save-btn']) {
+                DOM['triggers-save-btn'].disabled = true;
+            }
             return false;
         }
+    }
+
+    function handleTriggerEditorKeydown(event) {
+        if (!DOM['triggers-yaml-editor'] || !state.isEditing) return;
+        if (event.key === 'Tab') {
+            if (state.editorSuggestionItems.length && state.editorSuggestionContext) {
+                event.preventDefault();
+                const index = state.editorSuggestionIndex >= 0 ? state.editorSuggestionIndex : 0;
+                const item = state.editorSuggestionItems[index] || state.editorSuggestionItems[0];
+                applyTriggerEditorSuggestion(item);
+            } else {
+                event.preventDefault();
+                insertTriggerEditorIndent(event.target);
+                updateLineNumbers(event.target.value);
+                validateCurrentYaml();
+                updateTriggerEditorSuggestions();
+                updateTriggerInlineSuggestionPosition();
+            }
+        } else if (event.key === 'Enter') {
+            handleTriggerEditorEnterKey(event);
+        } else if (event.key === 'Escape') {
+            hideTriggerEditorSuggestions();
+        } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            if (!state.editorSuggestionItems.length) return;
+            event.preventDefault();
+            if (!DOM['triggers-editor-autocomplete-ghost']) return;
+            const direction = event.key === 'ArrowDown' ? 1 : -1;
+            const total = state.editorSuggestionItems.length;
+            let nextIndex = state.editorSuggestionIndex + direction;
+            if (nextIndex < 0) nextIndex = total - 1;
+            if (nextIndex >= total) nextIndex = 0;
+            state.editorSuggestionIndex = nextIndex;
+            const preview = buildTriggerInlineSuggestionPreview(state.editorSuggestionItems[nextIndex], state.editorSuggestionContext);
+            DOM['triggers-editor-autocomplete-ghost'].textContent = preview || '';
+        }
+    }
+
+    function insertTriggerEditorIndent(target) {
+        if (!target || typeof target.value !== 'string') return;
+        const start = target.selectionStart ?? 0;
+        const end = target.selectionEnd ?? start;
+        const value = target.value;
+        target.value = value.substring(0, start) + '  ' + value.substring(end);
+        const caret = start + 2;
+        target.selectionStart = target.selectionEnd = caret;
+    }
+
+    function handleTriggerEditorEnterKey(event) {
+        const textarea = event.target;
+        if (!textarea || typeof textarea.value !== 'string') return;
+        const start = textarea.selectionStart ?? 0;
+        const end = textarea.selectionEnd ?? start;
+        event.preventDefault();
+        const value = textarea.value;
+        const lineInfo = getCurrentLineInfo(value, start);
+        const line = lineInfo ? lineInfo.line : '';
+        const indentMatch = line.match(/^\s*/);
+        const currentIndent = indentMatch ? indentMatch[0] : '';
+        const trimmed = line.trim();
+        let newIndent = currentIndent;
+
+        if (trimmed.startsWith('-')) {
+            const endsWithColon = trimmed.endsWith(':');
+            const hasColon = trimmed.includes(':');
+            if (endsWithColon) {
+                newIndent = currentIndent + '  ';
+            } else if (hasColon) {
+                newIndent = ' '.repeat(lineInfo.indent + 2);
+            } else {
+                const parentIndent = Math.max(0, lineInfo.indent - 2);
+                newIndent = ' '.repeat(parentIndent);
+            }
+        } else if (trimmed.endsWith(':')) {
+            newIndent = currentIndent + '  ';
+        }
+
+        const insertion = `\n${newIndent}`;
+        textarea.value = value.slice(0, start) + insertion + value.slice(end);
+        const caret = start + insertion.length;
+        textarea.selectionStart = textarea.selectionEnd = caret;
+        textarea.focus();
+        updateLineNumbers(textarea.value);
+        validateCurrentYaml();
+        updateTriggerEditorSuggestions();
+        updateTriggerInlineSuggestionPosition();
+    }
+
+    function ensureTriggerEditorSuggestionOverlay() {
+        if (DOM['triggers-editor-autocomplete'] || !DOM['triggers-editor-container']) return;
+        const overlay = document.createElement('div');
+        overlay.id = 'triggers-editor-autocomplete';
+        overlay.className = 'pipeline-editor-autocomplete hidden';
+        const ghost = document.createElement('span');
+        ghost.className = 'pipeline-editor-autocomplete__ghost';
+        overlay.appendChild(ghost);
+        DOM['triggers-editor-container'].appendChild(overlay);
+        DOM['triggers-editor-autocomplete'] = overlay;
+        DOM['triggers-editor-autocomplete-ghost'] = ghost;
+    }
+
+    function hideTriggerEditorSuggestions() {
+        state.editorSuggestionContext = null;
+        state.editorSuggestionItems = [];
+        state.editorSuggestionIndex = -1;
+        const overlay = DOM['triggers-editor-autocomplete'];
+        if (overlay) {
+            overlay.classList.add('hidden');
+        }
+        if (DOM['triggers-editor-autocomplete-ghost']) {
+            DOM['triggers-editor-autocomplete-ghost'].textContent = '';
+        }
+    }
+
+    function updateTriggerEditorSuggestions() {
+        if (!state.isEditing || !DOM['triggers-yaml-editor']) {
+            hideTriggerEditorSuggestions();
+            return;
+        }
+
+        ensureTriggerEditorSuggestionOverlay();
+
+        const textarea = DOM['triggers-yaml-editor'];
+        const text = textarea.value || '';
+        const selectionStart = Math.min(textarea.selectionStart ?? 0, textarea.selectionEnd ?? 0);
+        const selectionEnd = Math.max(textarea.selectionStart ?? 0, textarea.selectionEnd ?? 0);
+        const contextInfo = detectTriggerSuggestionContext(text, selectionStart, selectionEnd);
+
+        if (!contextInfo) {
+            hideTriggerEditorSuggestions();
+            return;
+        }
+
+        if (contextInfo.type === 'pipeline-value') {
+            if (!(state.pipelineSourceIndex instanceof Map) || !state.pipelineSourceIndex.size) {
+                ensurePipelineSourceIndex().then(() => {
+                    updateTriggerEditorSuggestions();
+                }).catch(() => {
+                    hideTriggerEditorSuggestions();
+                });
+                return;
+            }
+        }
+
+        const items = buildTriggerSuggestionItems(contextInfo, text);
+        if (!items.length) {
+            hideTriggerEditorSuggestions();
+            return;
+        }
+
+        state.editorSuggestionContext = contextInfo;
+        renderTriggerEditorSuggestions({ items });
+    }
+
+    function renderTriggerEditorSuggestions(payload) {
+        ensureTriggerEditorSuggestionOverlay();
+        const overlay = DOM['triggers-editor-autocomplete'];
+        const ghostEl = DOM['triggers-editor-autocomplete-ghost'];
+        const textarea = DOM['triggers-yaml-editor'];
+        if (!overlay || !ghostEl || !textarea) return;
+
+        if (!payload || !payload.items || !payload.items.length) {
+            hideTriggerEditorSuggestions();
+            return;
+        }
+
+        state.editorSuggestionItems = payload.items.slice();
+        state.editorSuggestionIndex = 0;
+        const activeItem = state.editorSuggestionItems[0];
+        const preview = buildTriggerInlineSuggestionPreview(activeItem, state.editorSuggestionContext);
+        if (!preview) {
+            hideTriggerEditorSuggestions();
+            return;
+        }
+
+        ghostEl.textContent = preview;
+        overlay.classList.remove('hidden');
+        updateTriggerInlineSuggestionPosition();
+    }
+
+    function buildTriggerInlineSuggestionPreview(item, contextInfo) {
+        if (!item) return '';
+        const prefix = (contextInfo && typeof contextInfo.prefix === 'string') ? contextInfo.prefix : '';
+        const snippetSource = item.value || item.snippet || '';
+        if (!snippetSource) return '';
+        const firstLine = String(snippetSource).split('\n')[0];
+        if (!firstLine) return '';
+
+        if (prefix) {
+            const lowerPrefix = prefix.toLowerCase();
+            const lowerLine = firstLine.toLowerCase();
+            if (lowerLine.startsWith(lowerPrefix)) {
+                return firstLine.slice(prefix.length);
+            }
+        }
+
+        if (prefix) {
+            return '';
+        }
+
+        return firstLine;
+    }
+
+    function updateTriggerInlineSuggestionPosition() {
+        if (!DOM['triggers-yaml-editor'] || !DOM['triggers-editor-autocomplete'] || !state.editorSuggestionContext) return;
+        const textarea = DOM['triggers-yaml-editor'];
+        const overlay = DOM['triggers-editor-autocomplete'];
+        if (overlay.classList.contains('hidden')) return;
+
+        const caret = calculateTriggerCaretOffset(textarea);
+        if (!caret) return;
+
+        const textareaRect = textarea.getBoundingClientRect();
+        const containerRect = DOM['triggers-editor-container'] ? DOM['triggers-editor-container'].getBoundingClientRect() : textareaRect;
+        const left = textareaRect.left - containerRect.left + caret.left;
+        const top = textareaRect.top - containerRect.top + caret.top;
+
+        overlay.style.transform = `translate(${Math.max(0, left)}px, ${Math.max(0, top)}px)`;
+    }
+
+    function calculateTriggerCaretOffset(textarea) {
+        if (!textarea) return null;
+        const selectionStart = textarea.selectionStart;
+        if (typeof selectionStart !== 'number') return null;
+
+        const textBeforeCaret = textarea.value.slice(0, selectionStart);
+        const lines = textBeforeCaret.split('\n');
+        const currentLine = lines[lines.length - 1] || '';
+        const column = currentLine.length;
+        const style = window.getComputedStyle(textarea);
+        const lineHeight = getTriggerTextareaLineHeight(style);
+        const charWidth = getTriggerTextareaCharWidth(textarea, style);
+        const paddingLeft = parseFloat(style.paddingLeft) || 0;
+        const paddingTop = parseFloat(style.paddingTop) || 0;
+        const scrollLeft = textarea.scrollLeft || 0;
+        const scrollTop = textarea.scrollTop || 0;
+
+        return {
+            left: paddingLeft + column * charWidth - scrollLeft,
+            top: paddingTop + (lines.length - 1) * lineHeight - scrollTop,
+        };
+    }
+
+    function getTriggerTextareaLineHeight(style) {
+        const raw = style.lineHeight;
+        const parsed = parseFloat(raw);
+        if (!Number.isNaN(parsed) && parsed > 0) {
+            return parsed;
+        }
+        const fontSize = parseFloat(style.fontSize) || 16;
+        return fontSize * 1.5;
+    }
+
+    function getTriggerTextareaCharWidth(textarea, style) {
+        if (state.editorCharWidth) {
+            return state.editorCharWidth;
+        }
+        if (!measurementCanvas) {
+            measurementCanvas = document.createElement('canvas');
+        }
+        const context2d = measurementCanvas.getContext('2d');
+        if (context2d) {
+            const fontWeight = style.fontWeight || '400';
+            const fontSize = style.fontSize || '14px';
+            const fontFamily = style.fontFamily || 'monospace';
+            context2d.font = `${fontWeight} ${fontSize} ${fontFamily}`.trim();
+            const metrics = context2d.measureText('M');
+            if (metrics && metrics.width) {
+                state.editorCharWidth = metrics.width;
+                return metrics.width;
+            }
+        }
+        const fallbackSize = parseFloat(style.fontSize) || 12;
+        state.editorCharWidth = fallbackSize * 0.6;
+        return state.editorCharWidth;
+    }
+
+    function applyTriggerEditorSuggestion(item) {
+        if (!state.editorSuggestionContext || !DOM['triggers-yaml-editor'] || !item) return;
+        const contextInfo = state.editorSuggestionContext;
+        const textarea = DOM['triggers-yaml-editor'];
+        const textLength = textarea.value.length;
+        const rangeStart = Math.max(0, Math.min(contextInfo.rangeStart ?? textarea.selectionStart, textLength));
+        const rangeEnd = Math.max(rangeStart, Math.min(contextInfo.rangeEnd ?? textarea.selectionEnd, textLength));
+        const before = textarea.value.slice(0, rangeStart);
+        const after = textarea.value.slice(rangeEnd);
+        let insertText = item.snippet ?? item.value ?? '';
+        if (typeof insertText !== 'string') {
+            insertText = String(insertText ?? '');
+        }
+        const prefixInsert = contextInfo.insertPrefix || '';
+        let suffixInsert = contextInfo.insertSuffix || '';
+        if (item.overrideSuffix !== undefined) {
+            suffixInsert = item.overrideSuffix;
+        }
+        const finalText = prefixInsert + insertText + suffixInsert;
+        textarea.value = before + finalText + after;
+        const caret = rangeStart + finalText.length;
+        textarea.selectionStart = textarea.selectionEnd = caret;
+        textarea.focus();
+        hideTriggerEditorSuggestions();
+        updateLineNumbers(textarea.value);
+        validateCurrentYaml();
+        updateTriggerEditorSuggestions();
+        updateTriggerInlineSuggestionPosition();
+    }
+
+    function detectTriggerSuggestionContext(text, selectionStart, selectionEnd) {
+        if (typeof text !== 'string') return null;
+        const lineInfo = getCurrentLineInfo(text, selectionStart);
+        if (!lineInfo) return null;
+        const trimmedLine = lineInfo.line.trim();
+        if (trimmedLine.startsWith('#')) {
+            return null;
+        }
+        const beforeLine = text.slice(0, lineInfo.start);
+        const parent = findParentBlock(beforeLine, ['triggers', 'branches', 'skip_branches', 'tags', 'pipelines'], lineInfo.indent);
+        const insideTriggers = parent === 'triggers' || (parent === null && trimmedLine.startsWith('-'));
+
+        const inlineContext = detectInlineKeyValueContext(lineInfo, selectionEnd);
+        if (inlineContext && insideTriggers) {
+            if (inlineContext.key === 'on') {
+                return { ...inlineContext, type: 'event-value', title: 'Trigger events' };
+            }
+            if (inlineContext.key === 'environment') {
+                return { ...inlineContext, type: 'environment-value', title: 'Environment names' };
+            }
+            if (inlineContext.key === 'pipelines') {
+                return { ...inlineContext, type: 'pipeline-value', title: 'Pipelines' };
+            }
+            if (inlineContext.key === 'branches') {
+                return { ...inlineContext, type: 'branch-value', title: 'Branches' };
+            }
+            if (inlineContext.key === 'skip_branches') {
+                return { ...inlineContext, type: 'skip-branch-value', title: 'Skip branches' };
+            }
+            if (inlineContext.key === 'tags') {
+                return { ...inlineContext, type: 'tag-value', title: 'Tags' };
+            }
+        }
+
+        const listContext = detectTriggerListEntryContext(lineInfo, selectionEnd, beforeLine);
+        if (listContext) {
+            return listContext;
+        }
+
+        const lines = text.split('\n');
+        const lineIndex = getLineIndexForOffset(text, lineInfo.start);
+        const entryInfo = collectCurrentTriggerEntryInfo(lines, lineIndex);
+        const existingKeys = collectExistingKeysForTriggerEntry(lines, entryInfo);
+        const keyContext = detectTriggerKeyContext(lineInfo, selectionEnd, entryInfo, insideTriggers, existingKeys);
+        if (keyContext) {
+            return keyContext;
+        }
+
+        const rootContext = detectTriggerRootKeyContext(lineInfo, selectionEnd);
+        if (rootContext) {
+            return rootContext;
+        }
+
+        return null;
+    }
+
+    function detectInlineKeyValueContext(lineInfo, selectionEnd) {
+        const colonIndex = lineInfo.line.indexOf(':');
+        if (colonIndex === -1 || lineInfo.column <= colonIndex) {
+            return null;
+        }
+        const keySegment = lineInfo.line.slice(lineInfo.indent, colonIndex);
+        let key = keySegment.trim();
+        if (key.startsWith('-')) {
+            key = key.replace(/^-+\s*/, '').trim();
+        }
+        if (!key) return null;
+
+        const afterColon = lineInfo.line.slice(colonIndex + 1, lineInfo.column);
+        const whitespaceMatch = afterColon.match(/^\s*/);
+        const whitespace = whitespaceMatch ? whitespaceMatch[0] : '';
+        const valueSegment = afterColon.slice(whitespace.length);
+        const trimmedValue = valueSegment.trim();
+        const offsetWithinValue = trimmedValue ? valueSegment.indexOf(trimmedValue) : valueSegment.length;
+        const rangeStart = lineInfo.start + colonIndex + 1 + whitespace.length + offsetWithinValue;
+        const safeEnd = Math.max(rangeStart, selectionEnd);
+
+        return {
+            key,
+            prefix: trimmedValue,
+            rangeStart,
+            rangeEnd: safeEnd,
+            insertPrefix: whitespace ? '' : ' ',
+            insertSuffix: '',
+        };
+    }
+
+    function detectTriggerListEntryContext(lineInfo, selectionEnd, beforeLine) {
+        const trimmed = lineInfo.line.trimStart();
+        if (!trimmed.startsWith('-')) return null;
+        const parent = findParentBlock(beforeLine, ['branches', 'skip_branches', 'tags', 'pipelines'], lineInfo.indent);
+        if (!parent) return null;
+        if (!TRIGGER_LIST_FIELDS.has(parent)) return null;
+        const dashMatch = lineInfo.line.match(/^(\s*-\s*)/);
+        const valueStart = dashMatch ? dashMatch[0].length : lineInfo.indent;
+        const rangeStart = lineInfo.start + valueStart;
+        const safeEnd = Math.max(rangeStart, selectionEnd);
+        const baseContext = {
+            prefix: lineInfo.line.slice(valueStart, lineInfo.column).trim(),
+            rangeStart,
+            rangeEnd: safeEnd,
+            insertSuffix: '',
+            insertPrefix: dashMatch && /\s$/.test(dashMatch[0]) ? '' : ' ',
+        };
+        if (parent === 'pipelines') {
+            return { ...baseContext, type: 'pipeline-value', title: 'Pipelines' };
+        }
+        if (parent === 'tags') {
+            return { ...baseContext, type: 'tag-value', title: 'Tags' };
+        }
+        if (parent === 'skip_branches') {
+            return { ...baseContext, type: 'skip-branch-value', title: 'Skip branches' };
+        }
+        return { ...baseContext, type: 'branch-value', title: 'Branches' };
+    }
+
+    function detectTriggerKeyContext(lineInfo, selectionEnd, entryInfo, insideTriggers, existingKeys) {
+        if (!insideTriggers) return null;
+        const segment = lineInfo.line.slice(lineInfo.indent, lineInfo.column);
+        if (!segment || segment.includes(':')) return null;
+        const match = segment.match(/^-?\s*([A-Za-z_][A-Za-z0-9_]*)?$/);
+        if (!match) return null;
+        const prefix = match[1] || '';
+        const prefixLocalIndex = segment.lastIndexOf(prefix);
+        const dashMatch = segment.match(/^(-\s*)/);
+        const dashLength = dashMatch ? dashMatch[0].length : 0;
+        const baseIndent = entryInfo && typeof entryInfo.indent === 'number'
+            ? entryInfo.indent
+            : lineInfo.indent;
+        let keyIndent = baseIndent + 2;
+        if (dashMatch) {
+            keyIndent = lineInfo.indent + dashLength;
+        }
+        const prefixOffset = Math.max(prefixLocalIndex, 0);
+        const baseRangeIndent = Math.min(lineInfo.indent, keyIndent);
+        const rangeStart = lineInfo.start + baseRangeIndent + prefixOffset;
+        const needsSpaceAfterDash = dashMatch ? !dashMatch[0].endsWith(' ') : false;
+        const requiredPrefixSpaces = Math.max(0, keyIndent - lineInfo.indent - (dashMatch ? dashLength : 0));
+
+        return {
+            type: 'trigger-key',
+            title: 'Trigger fields',
+            prefix,
+            rangeStart,
+            rangeEnd: Math.max(rangeStart, selectionEnd),
+            insertPrefix: dashMatch
+                ? (needsSpaceAfterDash ? ' ' : '')
+                : ' '.repeat(requiredPrefixSpaces),
+            insertSuffix: '',
+            keyIndent,
+            existingKeys,
+            entryInfo,
+        };
+    }
+
+    function detectTriggerRootKeyContext(lineInfo, selectionEnd) {
+        if (lineInfo.indent !== 0) return null;
+        if (lineInfo.line.includes(':')) return null;
+        const segment = lineInfo.line.slice(0, lineInfo.column);
+        const match = segment.match(/([A-Za-z_][A-Za-z0-9_]*)$/);
+        const prefix = match ? match[1] : segment.trim();
+        if (prefix == null) return null;
+        const prefixStart = match ? lineInfo.column - prefix.length : lineInfo.column;
+        const rangeStart = lineInfo.start + prefixStart;
+        return {
+            type: 'root-key',
+            title: 'Manifest keys',
+            prefix,
+            rangeStart,
+            rangeEnd: Math.max(rangeStart, selectionEnd),
+            insertPrefix: '',
+            insertSuffix: '',
+            keyIndent: 0,
+        };
+    }
+
+    function buildTriggerSuggestionItems(contextInfo, text) {
+        const prefix = contextInfo.prefix || '';
+        switch (contextInfo.type) {
+            case 'root-key':
+                return filterSuggestionPool(buildTriggerRootSuggestionItems(contextInfo), prefix, 4);
+            case 'trigger-key':
+                return filterSuggestionPool(buildTriggerKeySuggestionItems(contextInfo), prefix, 8);
+            case 'event-value': {
+                const events = new Set(TRIGGER_EVENT_OPTIONS);
+                gatherTriggerSummaries().forEach(summary => {
+                    (summary.events || []).forEach(value => {
+                        const canonical = canonicalizeTriggerEvent(value);
+                        if (canonical) {
+                            events.add(canonical);
+                        }
+                    });
+                });
+                const items = Array.from(events)
+                    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+                    .map(value => ({ value, label: value }));
+                return filterSuggestionPool(items, prefix, 8);
+            }
+            case 'environment-value': {
+                const environments = collectKnownEnvironmentValues();
+                const items = environments.map(value => ({ value, label: value }));
+                return filterSuggestionPool(items, prefix, 8);
+            }
+            case 'pipeline-value': {
+                const pipelines = collectKnownPipelineValues();
+                const items = pipelines.map(value => ({ value, label: value }));
+                return filterSuggestionPool(items, prefix, 8);
+            }
+            case 'branch-value': {
+                const branches = collectKnownBranchValues();
+                const items = branches.map(value => ({ value, label: value }));
+                return filterSuggestionPool(items, prefix, 8);
+            }
+            case 'skip-branch-value': {
+                const branches = collectKnownSkipBranchValues();
+                const items = branches.map(value => ({ value, label: value }));
+                return filterSuggestionPool(items, prefix, 8);
+            }
+            case 'tag-value': {
+                const tags = collectKnownTagValues();
+                const items = tags.map(value => ({ value, label: value }));
+                return filterSuggestionPool(items, prefix, 8);
+            }
+            default:
+                return [];
+        }
+    }
+
+    function buildTriggerRootSuggestionItems(contextInfo) {
+        return TRIGGER_ROOT_DEFINITIONS.map(def => ({
+            value: def.key,
+            label: def.key,
+            snippet: def.snippet || `${def.key}: `,
+            hint: def.hint || '',
+        }));
+    }
+
+    function buildTriggerKeySuggestionItems(contextInfo) {
+        const existingKeys = contextInfo.existingKeys instanceof Set ? contextInfo.existingKeys : new Set(contextInfo.existingKeys || []);
+        const keyIndent = Math.max(0, contextInfo.keyIndent || 0);
+        const childIndent = ' '.repeat(keyIndent + 2);
+        return TRIGGER_FIELD_DEFINITIONS.map(def => {
+            const keyLower = def.key.toLowerCase();
+            const prefixLower = (contextInfo.prefix || '').toLowerCase();
+            if (existingKeys.has(def.key) && !(prefixLower && keyLower.startsWith(prefixLower))) {
+                return null;
+            }
+            let snippet;
+            if (def.kind === 'list') {
+                snippet = `${def.key}:\n${childIndent}- `;
+            } else {
+                snippet = `${def.key}: `;
+            }
+            return {
+                value: def.key,
+                label: def.key,
+                snippet,
+                hint: def.hint || '',
+            };
+        }).filter(Boolean);
+    }
+
+    function filterSuggestionPool(pool, prefix, limit = 8) {
+        if (!Array.isArray(pool) || !pool.length) return [];
+        const seen = new Set();
+        const normalized = [];
+        pool.forEach(item => {
+            if (!item || !item.value) return;
+            if (seen.has(item.value)) return;
+            seen.add(item.value);
+            normalized.push(item);
+        });
+        const lowerPrefix = (prefix || '').toLowerCase();
+        if (!lowerPrefix) {
+            return normalized.slice(0, limit);
+        }
+        const starts = [];
+        const contains = [];
+        normalized.forEach(item => {
+            const key = (item.matchValue || item.label || item.value || '').toLowerCase();
+            if (!key) return;
+            if (key.startsWith(lowerPrefix)) {
+                starts.push(item);
+            } else if (key.includes(lowerPrefix)) {
+                contains.push(item);
+            }
+        });
+        return [...starts, ...contains].slice(0, limit);
+    }
+
+    function findParentKeyForLine(lines, startIndex, currentIndent) {
+        for (let i = startIndex - 1; i >= 0; i--) {
+            const candidate = lines[i];
+            if (candidate === undefined) continue;
+            const trimmed = candidate.trim();
+            if (!trimmed || trimmed.startsWith('#')) continue;
+            const indent = candidate.match(/^\s*/)[0].length;
+            if (indent >= currentIndent) continue;
+            let normalized = trimmed;
+            if (normalized.startsWith('-')) {
+                normalized = normalized.slice(1).trim();
+            }
+            if (!normalized.endsWith(':')) continue;
+            const colonIndex = normalized.indexOf(':');
+            if (colonIndex === -1) continue;
+            const key = normalized.slice(0, colonIndex).trim();
+            if (key) return key;
+        }
+        return null;
+    }
+
+    function collectCurrentTriggerEntryInfo(lines, lineIndex) {
+        for (let i = lineIndex; i >= 0; i--) {
+            const raw = lines[i];
+            if (raw === undefined) continue;
+            const trimmed = raw.trim();
+            if (!trimmed || trimmed.startsWith('#')) continue;
+            const indent = raw.match(/^\s*/)[0].length;
+            if (trimmed.startsWith('-')) {
+                const parentKey = findParentKeyForLine(lines, i, indent);
+                if (parentKey === 'triggers') {
+                    return { startIndex: i, indent, parentKey };
+                }
+                continue;
+            }
+            if (indent === 0 && trimmed.endsWith(':') && trimmed.slice(0, trimmed.indexOf(':')).trim() === 'triggers') {
+                break;
+            }
+        }
+        return null;
+    }
+
+    function collectExistingKeysForTriggerEntry(lines, entryInfo) {
+        const keys = new Set();
+        if (!entryInfo || entryInfo.startIndex == null || entryInfo.parentKey !== 'triggers') {
+            return keys;
+        }
+        const baseIndent = entryInfo.indent;
+        const firstLine = lines[entryInfo.startIndex] || '';
+        const firstTrimmed = firstLine.trim();
+        if (firstTrimmed.startsWith('-')) {
+            const afterDash = firstTrimmed.slice(1).trim();
+            const colonIndex = afterDash.indexOf(':');
+            if (colonIndex !== -1) {
+                const key = afterDash.slice(0, colonIndex).trim();
+                if (key) keys.add(key);
+            }
+        }
+        for (let i = entryInfo.startIndex + 1; i < lines.length; i++) {
+            const raw = lines[i];
+            if (raw === undefined) break;
+            const trimmed = raw.trim();
+            if (!trimmed || trimmed.startsWith('#')) continue;
+            const indent = raw.match(/^\s*/)[0].length;
+            if (indent < baseIndent) break;
+            if (indent === baseIndent && trimmed.startsWith('-')) break;
+            const normalized = trimmed.startsWith('- ') ? trimmed.slice(2) : trimmed;
+            const colonIndex = normalized.indexOf(':');
+            if (colonIndex !== -1) {
+                const key = normalized.slice(0, colonIndex).trim();
+                if (key) keys.add(key);
+            }
+        }
+        return keys;
+    }
+
+    function collectKnownPipelineValues() {
+        if (!(state.pipelineSourceIndex instanceof Map) || !state.pipelineSourceIndex.size) {
+            return [];
+        }
+
+        const available = new Set();
+        state.pipelineSourceIndex.forEach((_, key) => {
+            const normalized = normalizePipelineIdentifier(key);
+            if (normalized) {
+                available.add(normalized);
+            }
+        });
+
+        if (!available.size) {
+            return [];
+        }
+
+        const suggestions = new Set(available);
+        gatherTriggerSummaries().forEach(summary => {
+            (summary.pipelines || []).forEach(item => {
+                const candidate = typeof item === 'string' ? item : item && item.identifier;
+                const normalized = normalizePipelineIdentifier(candidate || '');
+                if (normalized && available.has(normalized)) {
+                    suggestions.add(normalized);
+                }
+            });
+        });
+
+        return Array.from(suggestions).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    }
+
+    function collectKnownBranchValues() {
+        const set = new Set();
+        gatherTriggerSummaries().forEach(summary => {
+            (summary.branches || []).forEach(value => set.add(String(value)));
+        });
+        return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    }
+
+    function collectKnownSkipBranchValues() {
+        const set = new Set();
+        gatherTriggerSummaries().forEach(summary => {
+            (summary.skipBranches || []).forEach(value => set.add(String(value)));
+        });
+        return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    }
+
+    function collectKnownTagValues() {
+        const set = new Set();
+        gatherTriggerSummaries().forEach(summary => {
+            (summary.tags || []).forEach(value => set.add(String(value)));
+        });
+        return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    }
+
+    function collectKnownEnvironmentValues() {
+        const set = new Set();
+        gatherTriggerSummaries().forEach(summary => {
+            (summary.environments || []).forEach(value => set.add(String(value)));
+        });
+        return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    }
+
+    function gatherTriggerSummaries() {
+        const summaries = [];
+        if (state.currentTriggerSummary) {
+            summaries.push(state.currentTriggerSummary);
+        }
+        if (state.triggerCache instanceof Map) {
+            state.triggerCache.forEach(info => {
+                if (info && info.summary) {
+                    summaries.push(info.summary);
+                }
+            });
+        }
+        return summaries;
+    }
+
+    function getLineIndexForOffset(text, offset) {
+        if (!text || offset <= 0) return 0;
+        let count = 0;
+        for (let i = 0; i < offset && i < text.length; i++) {
+            if (text[i] === '\n') count++;
+        }
+        return count;
+    }
+
+    function getCurrentLineInfo(text, index) {
+        const safeIndex = Math.max(0, Math.min(index, text.length));
+        const lineStart = text.lastIndexOf('\n', safeIndex - 1);
+        const start = lineStart === -1 ? 0 : lineStart + 1;
+        const lineEnd = text.indexOf('\n', safeIndex);
+        const end = lineEnd === -1 ? text.length : lineEnd;
+        const line = text.slice(start, end);
+        const indentMatch = line.match(/^\s*/);
+        return {
+            line,
+            start,
+            end,
+            column: safeIndex - start,
+            indent: indentMatch ? indentMatch[0].length : 0,
+        };
+    }
+
+    function findParentBlock(beforeText, targetKeys, currentIndent) {
+        if (!beforeText) return null;
+        const lines = beforeText.split('\n');
+        for (let i = lines.length - 1; i >= 0; i--) {
+            const rawLine = lines[i];
+            if (rawLine === undefined) continue;
+            const trimmed = rawLine.trim();
+            if (!trimmed || trimmed.startsWith('#')) {
+                continue;
+            }
+            const indent = rawLine.match(/^\s*/)[0].length;
+            if (indent >= currentIndent) {
+                continue;
+            }
+            let normalized = trimmed;
+            if (normalized.startsWith('-')) {
+                normalized = normalized.slice(1).trim();
+            }
+            if (!normalized.endsWith(':')) {
+                continue;
+            }
+            const key = normalized.slice(0, normalized.indexOf(':')).trim();
+            if (targetKeys.includes(key)) {
+                return key;
+            }
+        }
+        return null;
     }
 
     async function handleSaveTrigger() {
@@ -1454,25 +2430,35 @@
     async function handleCreateTriggerSubmit(event) {
         event.preventDefault();
         const repoInput = DOM['triggers-new-repo'];
-        const yamlInput = DOM['triggers-new-yaml'];
-        if (!repoInput || !yamlInput) return;
+        if (!repoInput) return;
 
         const repo = (repoInput.value || '').trim();
-        const yaml = (yamlInput.value || '').trim();
-        if (!repo || !yaml) {
-            showToast('Repository and YAML are required.', 'error');
+        if (!repo) {
+            showToast('Repository is required.', 'error');
             return;
         }
+
+        let owner;
+        let name;
+        try {
+            [owner, name] = splitSlug(repo);
+        } catch (error) {
+            showToast(error.message, 'error');
+            return;
+        }
+
+        const pipelinePath = deriveDefaultPipelinePath(repo);
+        const yaml = buildNewTriggerYaml(pipelinePath);
 
         try {
             parseTriggerYaml(yaml);
         } catch (error) {
-            showToast(`Invalid YAML: ${error.message}`, 'error');
+            console.error('Generated trigger template failed validation:', error);
+            showToast('Failed to prepare trigger template.', 'error');
             return;
         }
 
         try {
-            const [owner, name] = splitSlug(repo);
             await context.fetchData(`/v1/overrides/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/x-yaml' },
@@ -1481,10 +2467,13 @@
 
             closeModal('triggers-new-modal');
             repoInput.value = '';
-            yamlInput.value = '';
+            if (DOM['triggers-new-form']) {
+                DOM['triggers-new-form'].reset();
+            }
+            updateNewTriggerBlueprint();
             showToast(`Created trigger ${repo}.`, 'success');
             await loadTriggers(true);
-            navigateToSlug(repo);
+            navigateToSlug(repo, 'edit');
         } catch (error) {
             console.error('Failed to create trigger:', error);
             showToast('Failed to create trigger.', 'error');
@@ -1494,15 +2483,25 @@
     function openModal(id) {
         const el = DOM[id];
         if (!el) return;
+        if (id === 'triggers-new-modal') {
+            updateNewTriggerBlueprint();
+        }
         el.classList.remove('hidden');
-        requestAnimationFrame(() => el.classList.add('opacity-100'));
+        requestAnimationFrame(() => {
+            el.classList.add('show');
+            el.classList.add('opacity-100');
+        });
     }
 
     function closeModal(id) {
         const el = DOM[id];
         if (!el) return;
         el.classList.remove('opacity-100');
-        setTimeout(() => el.classList.add('hidden'), 200);
+        el.classList.remove('show');
+        setTimeout(() => el.classList.add('hidden'), 300);
+        if (id === 'triggers-new-modal') {
+            updateNewTriggerBlueprint();
+        }
     }
 
     async function handleRoute(hash) {
@@ -1588,14 +2587,21 @@
         const pipelineIdentifiers = [];
         const events = new Set();
         const branches = new Set();
+        const skipBranches = new Set();
         const tags = new Set();
         const environments = new Set();
 
         triggers.forEach(trigger => {
             if (trigger?.on) {
-                events.add(String(trigger.on));
+                const canonicalEvent = canonicalizeTriggerEvent(trigger.on);
+                if (canonicalEvent) {
+                    events.add(canonicalEvent);
+                } else {
+                    events.add(String(trigger.on));
+                }
             }
             (trigger?.branches || []).forEach(branch => branches.add(String(branch)));
+            (trigger?.skip_branches || trigger?.skipBranches || []).forEach(branch => skipBranches.add(String(branch)));
             (trigger?.tags || []).forEach(tag => tags.add(String(tag)));
             if (trigger?.environment) environments.add(String(trigger.environment));
 
@@ -1621,6 +2627,7 @@
             pipelines: pipelineIdentifiers,
             events: Array.from(events).sort(),
             branches: Array.from(branches).sort(),
+            skipBranches: Array.from(skipBranches).sort(),
             tags: Array.from(tags).sort(),
             environments: Array.from(environments).sort(),
         };
