@@ -2115,6 +2115,33 @@ function formatPathLabel(path) {
             </a>`;
     }
 
+    function adjustPipelineRunsScrollHeight(listEl, attempt = 0) {
+        requestAnimationFrame(() => {
+            const items = Array.from(listEl.children).slice(0, MAX_RECENT_RUNS);
+            if (!items.length) {
+                listEl.style.removeProperty('max-height');
+                return;
+            }
+
+            const totalItemsHeight = items.reduce((sum, item) => sum + item.offsetHeight, 0);
+            const computedStyles = getComputedStyle(listEl);
+            const rowGap = parseFloat(computedStyles.rowGap) || 0;
+            const totalGapHeight = rowGap * Math.max(items.length - 1, 0);
+            const maxHeight = Math.ceil(totalItemsHeight + totalGapHeight);
+
+            if (maxHeight <= 0) {
+                if (attempt < 5) {
+                    setTimeout(() => adjustPipelineRunsScrollHeight(listEl, attempt + 1), 60);
+                } else {
+                    listEl.style.removeProperty('max-height');
+                }
+                return;
+            }
+
+            listEl.style.maxHeight = `${maxHeight}px`;
+        });
+    }
+
     function formatTriggerEventInfo(id, options = {}) {
         const opts = typeof options === 'object' && options !== null ? options : {};
         const fallback = opts.fallback || 'N/A';
@@ -2148,11 +2175,22 @@ function formatPathLabel(path) {
         }
 
         const sortedRuns = runs.slice().sort((a, b) => new Date(b.started_at || b.startedAt || 0) - new Date(a.started_at || a.startedAt || 0));
-        const listHtml = `<ul class="triggers-runs-list ${sortedRuns.length > MAX_RECENT_RUNS ? 'triggers-runs-scroll' : ''}">
-            ${sortedRuns.slice(0, MAX_RECENT_RUNS).map(run => `<li class="triggers-runs-item">${renderPipelineRunRow(run)}</li>`).join('')}
+        const shouldScroll = sortedRuns.length > MAX_RECENT_RUNS;
+        const listHtml = `<ul class="triggers-runs-list ${shouldScroll ? 'triggers-runs-scroll' : ''}">
+            ${sortedRuns.map(run => `<li class="triggers-runs-item">${renderPipelineRunRow(run)}</li>`).join('')}
         </ul>`;
 
         DOM['pipeline-recent-runs'].innerHTML = listHtml;
+
+        const listElement = DOM['pipeline-recent-runs'].querySelector('.triggers-runs-list');
+        if (!listElement) return;
+
+        if (shouldScroll) {
+            listElement.style.removeProperty('max-height');
+            adjustPipelineRunsScrollHeight(listElement);
+        } else {
+            listElement.style.removeProperty('max-height');
+        }
     }
 
     function enterEditMode() {
