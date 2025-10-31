@@ -12,6 +12,7 @@
         runsCache: { fetchedAt: 0, runs: [] },
         pendingDeleteSlug: null,
         triggerSources: new Map(),
+        sidebarExpanded: new Set(),
         pipelineSourceIndex: null,
         pipelineMetaCache: new Map(),
         pipelineMetaPromises: new Map(),
@@ -78,18 +79,241 @@
         return `triggers:\n  - on: push\n    branches:\n      - main\n    pipelines:\n      - ${path}\n`;
     }
 
+    function parseTriggerOverrideList(items) {
+        const slugs = [];
+        const sourceMap = new Map();
+        if (!Array.isArray(items)) {
+            return { slugs, sourceMap };
+        }
+        items.forEach(item => {
+            if (item == null) return;
+            let slug = '';
+            let source = '';
+            if (typeof item === 'string') {
+                slug = item;
+                source = 'database';
+            } else if (typeof item === 'object') {
+                slug = item.repository_name || item.name || item.slug || item.repo || item.id || '';
+                source = item.source || '';
+            }
+            slug = String(slug || '').trim();
+            if (!slug) return;
+            slugs.push(slug);
+            if (source) {
+                sourceMap.set(slug, normalizePipelineSourceKey(source));
+            }
+        });
+        return { slugs, sourceMap };
+    }
+
     function updateNewTriggerBlueprint() {
         const repoInput = DOM['triggers-new-repo'];
-        const summaryPathEl = DOM['triggers-new-summary-path'];
         const yamlInput = DOM['triggers-new-yaml'];
         const repo = repoInput ? repoInput.value.trim() : '';
         const pipelinePath = deriveDefaultPipelinePath(repo);
-        if (summaryPathEl) {
-            summaryPathEl.textContent = pipelinePath;
-        }
         if (yamlInput) {
             yamlInput.value = buildNewTriggerYaml(pipelinePath);
         }
+    }
+
+    function formatTriggerFolderLabel(label) {
+        const str = String(label || '').trim();
+        if (!str) return 'Folder';
+        return str.replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    }
+
+    function getActiveTriggerSidebarFolder() {
+        const explicit = (state.activeFolderKey || '').trim();
+        if (explicit) return explicit;
+        return getFolderKeyForSlug(state.selectedSlug || '');
+    }
+
+    function ensureTriggerSidebarExpansionForPath(path) {
+        if (!path) return;
+        if (!(state.sidebarExpanded instanceof Set)) {
+            state.sidebarExpanded = new Set();
+        }
+        const segments = String(path).split('/').filter(Boolean);
+        let current = '';
+        segments.forEach(segment => {
+            current = current ? `${current}/${segment}` : segment;
+            state.sidebarExpanded.add(current);
+        });
+    }
+
+    function shouldExpandTriggerFolder(path, activeFolder, activeTriggerFolder) {
+        if (!path) return true;
+        if (!(state.sidebarExpanded instanceof Set)) {
+            state.sidebarExpanded = new Set();
+        }
+        if (state.sidebarExpanded.has(path)) {
+            return true;
+        }
+        const hasActiveFolder = activeFolder && (activeFolder === path || activeFolder.startsWith(`${path}/`));
+        if (hasActiveFolder) return true;
+        const hasActiveTrigger = activeTriggerFolder && (activeTriggerFolder === path || activeTriggerFolder.startsWith(`${path}/`));
+        return hasActiveTrigger;
+    }
+
+    function renderTriggerSidebarTreeNodes(node, level, activeFolder, activeTrigger) {
+        const childEntries = node && node.children instanceof Map ? Array.from(node.children.entries()) : [];
+        const triggerEntries = Array.isArray(node?.triggers) ? node.triggers.slice() : [];
+
+        if (!childEntries.length && !triggerEntries.length) {
+            return '';
+        }
+
+        childEntries.sort((a, b) => (a[0] || '').localeCompare(b[0] || '', undefined, { sensitivity: 'base' }));
+        triggerEntries.sort((a, b) => (a.name || a.slug || '').localeCompare(b.name || b.slug || '', undefined, { sensitivity: 'base' }));
+
+        let html = `<ul class="${level > 0 ? 'pl-4' : ''} space-y-1">`;
+        const activeTriggerFolder = getFolderKeyForSlug(activeTrigger || '');
+
+        childEntries.forEach(([segment, childNode]) => {
+            const folderPath = (childNode && childNode.key) || segment || '';
+            const isExpanded = shouldExpandTriggerFolder(folderPath, activeFolder, activeTriggerFolder);
+            if (isExpanded) ensureTriggerSidebarExpansionForPath(folderPath);
+            const isActiveFolder = !!folderPath && folderPath === activeFolder;
+            const folderLabel = formatTriggerFolderLabel(childNode?.label || segment || 'Folder');
+            const childrenHtml = renderTriggerSidebarTreeNodes(childNode, level + 1, activeFolder, activeTrigger);
+
+            html += `
+                <li data-trigger-folder-node="${escapeAttribute(folderPath)}">
+                    <div class="flex items-center justify-between p-1 text-[var(--text-primary)] rounded-md pipeline-sidebar-folder-row ${isActiveFolder ? 'bg-[var(--bg-tertiary)]' : ''} hover:bg-[var(--bg-tertiary)]">
+                        <div class="flex items-center flex-grow min-w-0">
+                            <button type="button" class="sidebar-toggle-btn flex items-center justify-center h-5 w-5 rounded mr-1 text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" data-trigger-toggle-folder="${escapeAttribute(folderPath)}" aria-expanded="${isExpanded ? 'true' : 'false'}" aria-label="${escapeAttribute((isExpanded ? 'Collapse' : 'Expand') + ' ' + folderLabel)}">
+                                <svg class="h-4 w-4 chevron ${isExpanded ? 'rotate-90' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                            </button>
+                            <button type="button" class="pipeline-sidebar-folder flex items-center gap-2 flex-grow text-left min-w-0 p-1 rounded hover:bg-[var(--bg-hover)]" data-trigger-open-folder="${escapeAttribute(folderPath)}">
+                                <svg class="h-4 w-4 text-[var(--text-secondary)] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                                <span class="truncate">${escapeHtml(folderLabel)}</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="pipeline-sidebar-children ${isExpanded ? '' : 'hidden'}" data-trigger-folder-children="${escapeAttribute(folderPath)}">
+                        ${childrenHtml}
+                    </div>
+                </li>`;
+        });
+
+        triggerEntries.forEach(entry => {
+            const slug = entry.slug;
+            if (!slug) return;
+            const triggerName = entry.name || slug.split('/').pop() || slug;
+            const isActive = state.selectedSlug === slug;
+            const triggerHref = buildTriggerHash(slug);
+            html += `
+                <li data-trigger-sidebar-item="${escapeAttribute(slug)}">
+                    <a href="${triggerHref}" class="sidebar-link flex items-center p-2 text-[var(--text-primary)] rounded-md transition-colors duration-200 ${isActive ? 'active' : ''}" data-trigger-sidebar-slug="${escapeAttribute(slug)}">
+                        <svg class="h-4 w-4 mr-2 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12h3l3 8l4-16l3 8h4"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h6"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 19h3"/></svg>
+                        <span class="truncate">${escapeHtml(triggerName)}</span>
+                    </a>
+                </li>`;
+        });
+
+        html += '</ul>';
+        return html;
+    }
+
+    function renderTriggerSidebarTree(container) {
+        if (!container) return;
+        if (!state.triggerTree) {
+            state.triggerTree = buildTriggerTree(state.triggers || []);
+        }
+        if (!(state.sidebarExpanded instanceof Set)) {
+            state.sidebarExpanded = new Set();
+        }
+
+        const activeFolder = getActiveTriggerSidebarFolder();
+        const activeTrigger = state.selectedSlug || '';
+        ensureTriggerSidebarExpansionForPath(activeFolder);
+        ensureTriggerSidebarExpansionForPath(getFolderKeyForSlug(activeTrigger));
+
+        const treeHtml = renderTriggerSidebarTreeNodes(state.triggerTree, 0, activeFolder, activeTrigger);
+        container.innerHTML = treeHtml || `<p class="px-2 text-sm text-[var(--text-secondary)]">No triggers available.</p>`;
+
+        if (!container.dataset.triggerSidebarBound) {
+            container.addEventListener('click', handleTriggerSidebarClick);
+            container.dataset.triggerSidebarBound = 'true';
+        }
+
+        updateSidebarHighlight();
+    }
+
+    function handleTriggerSidebarClick(event) {
+        const toggleBtn = event.target.closest('[data-trigger-toggle-folder]');
+        if (toggleBtn) {
+            event.preventDefault();
+            event.stopPropagation();
+            const folderPath = toggleBtn.dataset.triggerToggleFolder || '';
+            if (!(state.sidebarExpanded instanceof Set)) {
+                state.sidebarExpanded = new Set();
+            }
+            if (state.sidebarExpanded.has(folderPath)) {
+                state.sidebarExpanded.delete(folderPath);
+            } else if (folderPath) {
+                state.sidebarExpanded.add(folderPath);
+            }
+            const container = document.getElementById('triggers-sidebar-tree');
+            if (container) {
+                renderTriggerSidebarTree(container);
+            }
+            return;
+        }
+
+        const folderBtn = event.target.closest('[data-trigger-open-folder]');
+        if (folderBtn) {
+            event.preventDefault();
+            event.stopPropagation();
+            const folderPath = folderBtn.dataset.triggerOpenFolder || '';
+            if (state.isEditing) {
+                const proceed = confirm('Discard unsaved changes?');
+                if (!proceed) {
+                    return;
+                }
+                exitEditMode(true, { updateHash: false });
+            }
+            const hash = buildTriggerFolderHash(folderPath);
+            if (window.location.hash !== hash) {
+                window.location.hash = hash;
+            } else {
+                handleRoute(hash);
+            }
+            return;
+        }
+
+        const triggerLink = event.target.closest('[data-trigger-sidebar-slug]');
+        if (triggerLink) {
+            const slug = triggerLink.dataset.triggerSidebarSlug || '';
+            if (!slug) return;
+            if (state.isEditing && slug !== state.selectedSlug) {
+                const proceed = confirm('Discard unsaved changes?');
+                if (!proceed) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    return;
+                }
+                exitEditMode(true, { updateHash: false });
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            navigateToSlug(slug);
+        }
+    }
+
+    function handleTriggerPipelineListClick(event) {
+        const triggerButton = event.target.closest('[data-trigger-pipeline-preview]');
+        if (!triggerButton) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        const identifier = triggerButton.dataset.triggerPipelinePreview || '';
+        if (!identifier) return;
+        const name = triggerButton.dataset.triggerPipelineName || identifier.split('/').pop() || identifier;
+        const sourceKey = triggerButton.dataset.triggerPipelineSource || 'local';
+        const path = triggerButton.dataset.triggerPipelinePath || identifier;
+        openTriggerPipelinePreview({ identifier, name, sourceKey, path });
     }
 
     function normalizeTriggerEventKey(value) {
@@ -122,10 +346,11 @@
             'triggers-save-btn', 'triggers-cancel-btn', 'triggers-pipelines-empty', 'triggers-pipelines-list',
             'triggers-runs-empty', 'triggers-runs-list',
             'triggers-new-modal', 'triggers-new-form', 'triggers-new-cancel', 'triggers-new-close',
-            'triggers-new-repo', 'triggers-new-yaml', 'triggers-new-summary-path',
+            'triggers-new-repo', 'triggers-new-yaml',
             'triggers-delete-modal', 'triggers-delete-message', 'triggers-delete-cancel', 'triggers-delete-confirm', 'triggers-delete-close',
             'triggers-clone-modal', 'triggers-clone-form', 'triggers-clone-cancel', 'triggers-clone-close', 'triggers-clone-repo', 'triggers-clone-subtitle',
-            'triggers-list-view', 'triggers-detail-view', 'triggers-back-btn'
+            'triggers-list-view', 'triggers-detail-view', 'triggers-back-btn',
+            'triggers-pipeline-preview-modal', 'triggers-pipeline-preview-title', 'triggers-pipeline-preview-content', 'triggers-pipeline-preview-empty', 'triggers-pipeline-preview-close'
         ];
 
         ids.forEach(id => {
@@ -133,20 +358,17 @@
         });
     }
 
-    function rebuildTriggerSources(slugs) {
+    function rebuildTriggerSources(slugs, sourceOverrides) {
         const previous = state.triggerSources instanceof Map ? state.triggerSources : new Map();
+        const overrides = sourceOverrides instanceof Map ? sourceOverrides : new Map();
         const map = new Map();
         if (Array.isArray(slugs)) {
             slugs.forEach(slug => {
-                if (!slug) return;
-                const normalizedSlug = String(slug).trim();
+                const normalizedSlug = String(slug || '').trim();
                 if (!normalizedSlug) return;
-                const existing = previous.get(normalizedSlug);
-                if (existing) {
-                    map.set(normalizedSlug, existing);
-                } else {
-                    map.set(normalizedSlug, 'database');
-                }
+                let source = overrides.get(normalizedSlug) || previous.get(normalizedSlug) || 'database';
+                source = normalizePipelineSourceKey(source) || 'database';
+                map.set(normalizedSlug, source);
             });
         }
         state.triggerSources = map;
@@ -166,6 +388,8 @@
                 return 'Git';
             case 'draft':
                 return 'Draft';
+            case 'local':
+                return 'Local';
             case 'database':
             default:
                 return 'Database';
@@ -187,8 +411,9 @@
         if (value == null) return '';
         const key = String(value).trim().toLowerCase();
         if (!key) return '';
-        if (key.includes('git')) return 'git';
+        if (key.includes('git') || key.includes('config repository') || key === 'repository') return 'git';
         if (key.includes('draft')) return 'draft';
+        if (key.includes('local') || key.includes('repo file') || key.includes('repository file')) return 'local';
         if (key.includes('database') || key === 'db') return 'database';
         return key;
     }
@@ -249,7 +474,9 @@
 
     async function ensurePipelineMeta(identifier) {
         const id = normalizePipelineIdentifier(identifier);
-        if (!id) return { version: 'latest', source: getTriggerSourceLabel('database') };
+        if (!id) {
+            return { version: 'latest', source: getTriggerSourceLabel('database'), sourceKey: 'database' };
+        }
 
         if (state.pipelineMetaCache.has(id)) {
             return state.pipelineMetaCache.get(id);
@@ -266,15 +493,16 @@
                 sourceKey = state.pipelineSourceIndex.get(id) || '';
             }
             if (!sourceKey) {
-                sourceKey = 'git';
+                sourceKey = 'local';
                 if (state.pipelineSourceIndex instanceof Map && !state.pipelineSourceIndex.has(id)) {
                     state.pipelineSourceIndex.set(id, sourceKey);
                 }
             }
-            const sourceLabel = getTriggerSourceLabel(sourceKey) || getTriggerSourceLabel('database');
+            const normalizedSourceKey = normalizePipelineSourceKey(sourceKey) || 'database';
+            const sourceLabel = getTriggerSourceLabel(normalizedSourceKey) || getTriggerSourceLabel('database');
 
             let version = 'latest';
-            if (sourceKey !== 'git' && context && typeof context.fetchData === 'function') {
+            if (normalizedSourceKey === 'database' && context && typeof context.fetchData === 'function') {
                 const encodedId = id.split('/').map(encodeURIComponent).join('/');
                 const yaml = await context.fetchData(`/v1/pipelines/${encodedId}`);
                 if (typeof yaml === 'string') {
@@ -282,7 +510,7 @@
                 }
             }
 
-            const meta = { version, source: sourceLabel };
+            const meta = { version, source: sourceLabel, sourceKey: normalizedSourceKey };
             state.pipelineMetaCache.set(id, meta);
             state.pipelineMetaPromises.delete(id);
             return meta;
@@ -292,10 +520,86 @@
         return promise;
     }
 
+    async function fetchPipelineYaml(identifier) {
+        if (!identifier || !context || typeof context.fetchData !== 'function') {
+            return null;
+        }
+        const id = normalizePipelineIdentifier(identifier);
+        if (!id) return null;
+        try {
+            const encodedId = id.split('/').map(encodeURIComponent).join('/');
+            const yaml = await context.fetchData(`/v1/pipelines/${encodedId}`);
+            if (typeof yaml === 'string') {
+                return yaml;
+            }
+        } catch (error) {
+            console.warn('Unable to fetch pipeline YAML for preview:', identifier, error);
+        }
+        return null;
+    }
+
+    function setTriggerPipelinePreviewState({ status, content = '', message = '' }) {
+        if (!DOM['triggers-pipeline-preview-content'] || !DOM['triggers-pipeline-preview-empty']) return;
+        if (status === 'loading') {
+            DOM['triggers-pipeline-preview-content'].textContent = 'Loading pipeline definition…';
+            DOM['triggers-pipeline-preview-content'].classList.remove('hidden');
+            DOM['triggers-pipeline-preview-empty'].classList.add('hidden');
+        } else if (status === 'success') {
+            DOM['triggers-pipeline-preview-content'].textContent = content || '';
+            DOM['triggers-pipeline-preview-content'].classList.remove('hidden');
+            DOM['triggers-pipeline-preview-empty'].classList.add('hidden');
+        } else {
+            DOM['triggers-pipeline-preview-empty'].innerHTML = message || 'Pipeline definition is not available. Check your repository for the latest version.';
+            DOM['triggers-pipeline-preview-empty'].classList.remove('hidden');
+            DOM['triggers-pipeline-preview-content'].classList.add('hidden');
+        }
+    }
+
+    async function openTriggerPipelinePreview(details) {
+        if (!DOM['triggers-pipeline-preview-modal']) return;
+        const { identifier = '', name = '', sourceKey = 'local', path = '' } = details || {};
+        if (DOM['triggers-pipeline-preview-title']) {
+            DOM['triggers-pipeline-preview-title'].textContent = name || identifier;
+        }
+        setTriggerPipelinePreviewState({ status: 'loading' });
+        openModal('triggers-pipeline-preview-modal');
+
+        const yaml = await fetchPipelineYaml(identifier);
+        if (typeof yaml === 'string' && yaml.trim()) {
+            setTriggerPipelinePreviewState({ status: 'success', content: yaml });
+            return;
+        }
+
+        let message = 'Pipeline definition is not available. Check your repository for the latest version.';
+        if (sourceKey === 'local') {
+            const suggestedPath = path ? `${path.replace(/^\//, '')}.yaml` : `${identifier}.yaml`;
+            message = `This pipeline is managed directly in your repository. Review the file (for example, <code>${escapeHtml(suggestedPath)}</code>) to access the latest definition.`;
+        }
+        setTriggerPipelinePreviewState({ status: 'empty', message });
+    }
+
+    function resetTriggerPipelinePreview() {
+        if (DOM['triggers-pipeline-preview-title']) {
+            DOM['triggers-pipeline-preview-title'].textContent = '';
+        }
+        if (DOM['triggers-pipeline-preview-content']) {
+            DOM['triggers-pipeline-preview-content'].textContent = '';
+            DOM['triggers-pipeline-preview-content'].classList.add('hidden');
+        }
+        if (DOM['triggers-pipeline-preview-empty']) {
+            DOM['triggers-pipeline-preview-empty'].textContent = '';
+            DOM['triggers-pipeline-preview-empty'].classList.add('hidden');
+        }
+    }
+
     function bindEvents() {
         if (DOM['triggers-list']) {
             DOM['triggers-list'].addEventListener('click', handleListClick);
             DOM['triggers-list'].addEventListener('keydown', handleListKeydown);
+        }
+
+        if (DOM['triggers-pipelines-list']) {
+            DOM['triggers-pipelines-list'].addEventListener('click', handleTriggerPipelineListClick);
         }
 
         if (DOM['triggers-back-btn']) {
@@ -356,6 +660,10 @@
 
         if (DOM['triggers-new-form']) {
             DOM['triggers-new-form'].addEventListener('submit', handleCreateTriggerSubmit);
+        }
+
+        if (DOM['triggers-pipeline-preview-close']) {
+            DOM['triggers-pipeline-preview-close'].addEventListener('click', () => closeModal('triggers-pipeline-preview-modal'));
         }
 
         if (DOM['triggers-delete-cancel']) {
@@ -449,14 +757,15 @@
         }
 
         try {
-            const slugs = await context.fetchData('/v1/overrides');
-            if (Array.isArray(slugs)) {
+            const response = await context.fetchData('/v1/overrides?include_source=true');
+            if (Array.isArray(response)) {
+                const { slugs, sourceMap } = parseTriggerOverrideList(response);
                 state.triggers = slugs
                     .map(slug => String(slug || '').trim())
                     .filter(Boolean)
                     .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
                 state.triggerTree = buildTriggerTree(state.triggers);
-                rebuildTriggerSources(state.triggers);
+                rebuildTriggerSources(state.triggers, sourceMap);
                 ensureActiveFolderKey();
                 if (!state.triggers.includes(state.selectedSlug)) {
                     state.selectedSlug = null;
@@ -871,6 +1180,7 @@
         }
         const node = getFolderNodeByKey(state.triggerTree, normalized);
         state.activeFolderKey = node ? normalized : '';
+        ensureTriggerSidebarExpansionForPath(state.activeFolderKey);
         if (options.render !== false) {
             renderTriggerCollection();
         }
@@ -1179,25 +1489,35 @@
         }));
 
         const html = `<ul class="triggers-pipeline-list">${enriched.map(item => {
-            const hash = buildPipelineHash(item.identifier);
             const versionValue = escapeHtml(item.meta?.version || 'latest');
+            const sourceKey = String(item.meta?.sourceKey || '').toLowerCase();
             const sourceValue = escapeHtml(item.meta?.source || getTriggerSourceLabel('database'));
             const pathDisplay = item.pathLabel === 'root' ? '/' : `/${item.pathLabel}`;
+            const commonDetails = `
+                <span class="triggers-pipeline-name">${escapeHtml(item.display)}</span>
+                <dl class="triggers-detail-grid triggers-pipeline-details">
+                    <dt class="triggers-detail-label">Path:</dt>
+                    <dd class="triggers-detail-value" title="${escapeAttribute(pathDisplay)}">${escapeHtml(pathDisplay)}</dd>
+                    <dt class="triggers-detail-label">Version:</dt>
+                    <dd class="triggers-detail-value" title="${versionValue}">${versionValue}</dd>
+                    <dt class="triggers-detail-label">Source:</dt>
+                    <dd class="triggers-detail-value" title="${sourceValue}">${sourceValue}</dd>
+                </dl>`;
+            if (sourceKey === 'local') {
+                return `
+                    <li class="triggers-pipeline-item triggers-pipeline-item--local" title="Local pipeline defined directly in repository">
+                        <span class="triggers-pipeline-link triggers-pipeline-link--local" aria-disabled="true">
+                            ${commonDetails}
+                        </span>
+                    </li>`;
+            }
+            const hash = buildPipelineHash(item.identifier);
             return `
                 <li class="triggers-pipeline-item">
                     <a href="${hash}" class="triggers-pipeline-link" title="Open ${escapeAttribute(item.display)}">
-                        <span class="triggers-pipeline-name">${escapeHtml(item.display)}</span>
-                        <dl class="triggers-detail-grid triggers-pipeline-details">
-                            <dt class="triggers-detail-label">Path:</dt>
-                            <dd class="triggers-detail-value" title="${escapeAttribute(pathDisplay)}">${escapeHtml(pathDisplay)}</dd>
-                            <dt class="triggers-detail-label">Version:</dt>
-                            <dd class="triggers-detail-value" title="${versionValue}">${versionValue}</dd>
-                            <dt class="triggers-detail-label">Source:</dt>
-                            <dd class="triggers-detail-value" title="${sourceValue}">${sourceValue}</dd>
-                        </dl>
+                        ${commonDetails}
                     </a>
-                </li>
-            `;
+                </li>`;
         }).join('')}</ul>`;
 
         const listEl = DOM['triggers-pipelines-list'];
@@ -2501,6 +2821,8 @@
         setTimeout(() => el.classList.add('hidden'), 300);
         if (id === 'triggers-new-modal') {
             updateNewTriggerBlueprint();
+        } else if (id === 'triggers-pipeline-preview-modal') {
+            resetTriggerPipelinePreview();
         }
     }
 
@@ -2677,43 +2999,29 @@
     async function renderSidebarList(container) {
         if (!container) return;
         await loadTriggers();
-        populateSidebarContainer(container);
+        if (!state.triggerTree) {
+            state.triggerTree = buildTriggerTree(state.triggers || []);
+        }
+        renderTriggerSidebarTree(container);
     }
 
     function updateSidebarHighlight() {
-        const container = document.getElementById('triggers-sidebar-list');
+        const container = document.getElementById('triggers-sidebar-tree');
         if (!container) return;
         container.querySelectorAll('[data-trigger-sidebar-slug]').forEach(link => {
             const slug = link.getAttribute('data-trigger-sidebar-slug');
-            link.classList.toggle('triggers-sidebar-link--active', slug === state.selectedSlug);
+            if (slug === state.selectedSlug) {
+                link.classList.add('active');
+            } else {
+                link.classList.remove('active');
+            }
         });
     }
 
-    function populateSidebarContainer(container) {
-        if (!container) return;
-        if (!state.triggers.length) {
-            container.innerHTML = '<p class="triggers-sidebar-empty">No triggers found</p>';
-            return;
-        }
-
-        const html = state.triggers.map(slug => {
-            const isActive = slug === state.selectedSlug;
-            const hash = buildTriggerHash(slug);
-            return `
-                <a href="${hash}" class="triggers-sidebar-link ${isActive ? 'triggers-sidebar-link--active' : ''}" data-trigger-sidebar-slug="${escapeAttribute(slug)}">
-                    ${escapeHtml(slug)}
-                </a>
-            `;
-        }).join('');
-
-        container.innerHTML = html;
-        updateSidebarHighlight();
-    }
-
     function refreshSidebarListFromState() {
-        const container = document.getElementById('triggers-sidebar-list');
+        const container = document.getElementById('triggers-sidebar-tree');
         if (container) {
-            populateSidebarContainer(container);
+            renderTriggerSidebarTree(container);
         }
     }
 
@@ -2765,7 +3073,7 @@
         handleRoute,
         refresh: () => loadTriggers(true),
         renderSidebarForRoute: async () => {
-            const container = document.getElementById('triggers-sidebar-list');
+            const container = document.getElementById('triggers-sidebar-tree');
             await renderSidebarList(container);
         },
     };

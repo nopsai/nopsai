@@ -100,9 +100,10 @@
         if (raw == null) return '';
         const normalized = String(raw).trim().toLowerCase();
         if (!normalized) return '';
-        if (normalized === 'git' || normalized === 'config' || normalized === 'config repository') return 'git';
+        if (normalized === 'git' || normalized === 'config' || normalized === 'config repository' || normalized === 'repository') return 'git';
         if (normalized === 'database' || normalized === 'db') return 'database';
         if (normalized === 'draft') return 'draft';
+        if (normalized === 'local' || normalized.includes('repo file') || normalized.includes('repository file')) return 'local';
         return '';
     }
 
@@ -127,6 +128,8 @@
                 return 'Database';
             case 'draft':
                 return 'Draft';
+            case 'local':
+                return 'Local';
             default:
                 return '';
         }
