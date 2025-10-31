@@ -1444,8 +1444,8 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 		ON CONFLICT (path, name) DO UPDATE SET definition = EXCLUDED.definition, updated_at = NOW()`
 	const envUpsert = `INSERT INTO environments (name, value, repository_name, environment, updated_at) VALUES ($1, $2, $3, $4, NOW())
 		ON CONFLICT (name, repository_name, environment) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
-	const triggerUpsert = `INSERT INTO triggers (repository_name, trigger_definition) VALUES ($1, $2)
-		ON CONFLICT (repository_name) DO UPDATE SET trigger_definition = EXCLUDED.trigger_definition` // Corrected conflict target
+	const triggerUpsert = `INSERT INTO triggers (repository_name, trigger_definition, source) VALUES ($1, $2, 'git')
+		ON CONFLICT (repository_name) DO UPDATE SET trigger_definition = EXCLUDED.trigger_definition, source = 'git'`
 
 	// Upsert Pipelines
 	for key, stored := range pipelines {
@@ -1766,7 +1766,18 @@ func (a *App) handleListPipelines(w http.ResponseWriter, r *http.Request) {
 
 // handleListTriggerOverrides retrieves the names of all repositories with active trigger overrides.
 func (a *App) handleListTriggerOverrides(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(context.Background(), "SELECT repository_name FROM triggers ORDER BY repository_name ASC")
+	includeSource := strings.EqualFold(r.URL.Query().Get("include_source"), "true")
+
+	var (
+		rows pgx.Rows
+		err  error
+	)
+
+	if includeSource {
+		rows, err = a.db.Query(context.Background(), "SELECT repository_name, source FROM triggers ORDER BY repository_name ASC")
+	} else {
+		rows, err = a.db.Query(context.Background(), "SELECT repository_name FROM triggers ORDER BY repository_name ASC")
+	}
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query trigger overrides from database")
 		http.Error(w, "Failed to retrieve trigger overrides", http.StatusInternalServerError)
@@ -1774,19 +1785,55 @@ func (a *App) handleListTriggerOverrides(w http.ResponseWriter, r *http.Request)
 	}
 	defer rows.Close()
 
-	var repoNames []string
+	type triggerOverrideItem struct {
+		Name   string `json:"name"`
+		Source string `json:"source"`
+	}
+
+	var (
+		repoNames []string
+		items     []triggerOverrideItem
+	)
+
 	for rows.Next() {
 		var name string
-		if err := rows.Scan(&name); err != nil {
-			log.Error().Err(err).Msg("Failed to scan repository name")
-			http.Error(w, "Failed to process trigger overrides", http.StatusInternalServerError)
-			return
+		var source string
+		if includeSource {
+			if err := rows.Scan(&name, &source); err != nil {
+				log.Error().Err(err).Msg("Failed to scan trigger override entry")
+				http.Error(w, "Failed to process trigger overrides", http.StatusInternalServerError)
+				return
+			}
+			source = strings.TrimSpace(strings.ToLower(source))
+			switch {
+			case source == "" || source == "db" || source == "database":
+				source = "database"
+			case strings.Contains(source, "git"):
+				source = "git"
+			case strings.Contains(source, "draft"):
+				source = "draft"
+			case strings.Contains(source, "local") || strings.Contains(source, "repo file") || strings.Contains(source, "repository file"):
+				source = "local"
+			default:
+				source = "database"
+			}
+			items = append(items, triggerOverrideItem{Name: name, Source: source})
+		} else {
+			if err := rows.Scan(&name); err != nil {
+				log.Error().Err(err).Msg("Failed to scan repository name")
+				http.Error(w, "Failed to process trigger overrides", http.StatusInternalServerError)
+				return
+			}
+			repoNames = append(repoNames, name)
 		}
-		repoNames = append(repoNames, name)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	if includeSource {
+		json.NewEncoder(w).Encode(items)
+		return
+	}
 	json.NewEncoder(w).Encode(repoNames)
 }
 
@@ -1923,9 +1970,22 @@ func (a *App) handleCreateOrUpdateTriggerOverride(w http.ResponseWriter, r *http
 		return
 	}
 
-	query := `INSERT INTO triggers (repository_name, trigger_definition) VALUES ($1, $2)
-			  ON CONFLICT (repository_name) DO UPDATE SET trigger_definition = $2`
-	_, err = a.db.Exec(context.Background(), query, fullName, string(triggerDef))
+	var existingSource string
+	lookupErr := a.db.QueryRow(context.Background(), "SELECT source FROM triggers WHERE repository_name = $1", fullName).Scan(&existingSource)
+	if lookupErr != nil && lookupErr != pgx.ErrNoRows {
+		log.Error().Err(lookupErr).Msg("Failed to inspect existing trigger source")
+		http.Error(w, "Failed to save trigger override", http.StatusInternalServerError)
+		return
+	}
+
+	desiredSource := "database"
+	if strings.EqualFold(existingSource, "git") {
+		desiredSource = existingSource
+	}
+
+	query := `INSERT INTO triggers (repository_name, trigger_definition, source) VALUES ($1, $2, $3)
+			  ON CONFLICT (repository_name) DO UPDATE SET trigger_definition = $2, source = $3`
+	_, err = a.db.Exec(context.Background(), query, fullName, string(triggerDef), desiredSource)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to save trigger override")
 		http.Error(w, "Failed to save trigger override", http.StatusInternalServerError)
@@ -4620,7 +4680,7 @@ func (a *App) fetchTriggerManifest(owner, repo, commitSHA string) (models.Manife
 	if err := yaml.Unmarshal([]byte(content), &manifest); err != nil {
 		return manifest, "", err
 	}
-	return manifest, "repository", nil
+	return manifest, "git", nil
 }
 
 func (a *App) requestGitBotFile(owner, repo, ref, path string, notFoundErr error) (string, error) {

@@ -72,6 +72,7 @@ CREATE TABLE triggers (
     id SERIAL PRIMARY KEY,
     repository_name VARCHAR(255) UNIQUE NOT NULL,
     trigger_definition TEXT NOT NULL,
+    source VARCHAR(32) NOT NULL DEFAULT 'database',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

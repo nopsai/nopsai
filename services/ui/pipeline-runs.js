@@ -1617,14 +1617,14 @@ if (dx !== 0 || dy !== 0) {
             detailsNavHtml = `<div class="px-2 mt-2 mb-2 flex items-center justify-between">
                                   <h2 class="text-xs font-semibold tracking-wider text-[var(--text-secondary)] uppercase">Triggers</h2>
                               </div>
-                              <div id="triggers-sidebar-list" class="space-y-1"></div>`;
+                              <div id="triggers-sidebar-tree"></div>`;
             DOM.sidebarDetailsNav.innerHTML = detailsNavHtml;
             const triggersModule = window.NopsAI.pages?.triggers;
             if (triggersModule && typeof triggersModule.renderSidebarForRoute === 'function') {
                 try {
                     triggersModule.renderSidebarForRoute();
                 } catch (error) {
-                    console.error('Failed to render triggers sidebar list:', error);
+                    console.error('Failed to render triggers sidebar tree:', error);
                 }
             }
         } else if (activeRoute === 'pipelineruns') {
