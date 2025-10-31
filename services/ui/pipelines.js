@@ -40,6 +40,7 @@
 
     const TOAST_TIMEOUT = 4000;
     const MAX_RECENT_RUNS = 5;
+    const MAX_VISIBLE_TRIGGER_CARDS = 5;
     const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
     const PIPELINE_DIRECTIVES = [
         { key: 'name', hint: 'Pipeline display name' },
@@ -2031,7 +2032,8 @@ function formatPathLabel(path) {
             return;
         }
 
-        const html = `<ul class="triggers-pipeline-list ${triggers.length > 5 ? 'triggers-list-scroll' : ''}">${triggers.map(item => {
+        const shouldScroll = triggers.length > MAX_VISIBLE_TRIGGER_CARDS;
+        const html = `<ul class="triggers-pipeline-list ${shouldScroll ? 'triggers-list-scroll' : ''}">${triggers.map(item => {
             const record = (item && typeof item === 'object' && 'trigger' in item) ? item : { trigger: item };
             const trigger = record.trigger || {};
             const repoSlug = record.repoSlug || (record.repoOwner && record.repoName ? `${record.repoOwner}/${record.repoName}` : 'Config repository');
@@ -2072,6 +2074,16 @@ function formatPathLabel(path) {
         }).join('')}</ul>`;
 
         DOM['pipeline-triggers'].innerHTML = html;
+
+        const listElement = DOM['pipeline-triggers'].querySelector('.triggers-pipeline-list');
+        if (!listElement) return;
+
+        if (shouldScroll) {
+            listElement.style.removeProperty('max-height');
+            adjustPipelineTriggerScrollHeight(listElement);
+        } else {
+            listElement.style.removeProperty('max-height');
+        }
     }
 
     function formatRunBranchRef(ref) {
@@ -2132,6 +2144,33 @@ function formatPathLabel(path) {
             if (maxHeight <= 0) {
                 if (attempt < 5) {
                     setTimeout(() => adjustPipelineRunsScrollHeight(listEl, attempt + 1), 60);
+                } else {
+                    listEl.style.removeProperty('max-height');
+                }
+                return;
+            }
+
+            listEl.style.maxHeight = `${maxHeight}px`;
+        });
+    }
+
+    function adjustPipelineTriggerScrollHeight(listEl, attempt = 0) {
+        requestAnimationFrame(() => {
+            const items = Array.from(listEl.children).slice(0, MAX_VISIBLE_TRIGGER_CARDS);
+            if (!items.length) {
+                listEl.style.removeProperty('max-height');
+                return;
+            }
+
+            const totalItemsHeight = items.reduce((sum, item) => sum + item.offsetHeight, 0);
+            const computedStyles = getComputedStyle(listEl);
+            const rowGap = parseFloat(computedStyles.rowGap) || 0;
+            const totalGapHeight = rowGap * Math.max(items.length - 1, 0);
+            const maxHeight = Math.ceil(totalItemsHeight + totalGapHeight);
+
+            if (maxHeight <= 0) {
+                if (attempt < 5) {
+                    setTimeout(() => adjustPipelineTriggerScrollHeight(listEl, attempt + 1), 60);
                 } else {
                     listEl.style.removeProperty('max-height');
                 }
