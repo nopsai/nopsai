@@ -373,6 +373,20 @@
             </div>
         </div>
     </div>
+    <div id="triggers-pipeline-preview-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
+        <div class="pipelines-modal-card max-w-3xl">
+            <header class="pipelines-modal-header">
+                <h2 id="triggers-pipeline-preview-title" class="text-lg font-semibold text-[var(--text-primary)] truncate"></h2>
+                <button id="triggers-pipeline-preview-close" class="glass-button-ghost" title="Close">
+                    <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </header>
+            <div class="pipelines-modal-body trigger-pipeline-preview-body">
+                <pre id="triggers-pipeline-preview-content" class="hidden"></pre>
+                <div id="triggers-pipeline-preview-empty" class="hidden"></div>
+            </div>
+        </div>
+    </div>
 
     <div id="add-group-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
         <div class="bg-[var(--bg-secondary)] rounded-lg shadow-2xl w-full max-w-md">
@@ -632,17 +646,7 @@
                 <div class="trigger-modal-field-group">
                     <label for="triggers-new-repo" class="block text-sm font-medium text-[var(--text-secondary)]">Repository</label>
                     <input type="text" id="triggers-new-repo" name="repository" required placeholder="owner/repository" pattern="[^/\s]+/[^/\s]+" class="pipelines-input w-full mt-1" />
-                    <p class="trigger-modal-hint">We’ll create the trigger at <code>owner/name</code> with a push event targeting <code>main</code>.</p>
-                </div>
-                <div class="trigger-modal-summary" aria-live="polite">
-                    <div class="trigger-summary-item">
-                        <span class="trigger-summary-label">Event</span>
-                        <span class="trigger-summary-value">push &mdash; branch <code>main</code></span>
-                    </div>
-                    <div class="trigger-summary-item">
-                        <span class="trigger-summary-label">Pipeline</span>
-                        <span class="trigger-summary-value" id="triggers-new-summary-path">pipelines/sample-pipeline.yaml</span>
-                    </div>
+                    <p class="trigger-modal-hint">A starter trigger will run on push events to <code>main</code> and reference a matching pipeline file.</p>
                 </div>
                 <textarea id="triggers-new-yaml" name="yaml" class="hidden" aria-hidden="true"></textarea>
                 <div class="trigger-modal-footer">
