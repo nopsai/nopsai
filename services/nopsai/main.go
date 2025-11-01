@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -334,6 +335,10 @@ type SecretRequest struct {
 
 type EnvRequest struct {
 	Value string `json:"value"`
+}
+
+type EnvironmentScope struct {
+	Environment string `json:"environment"`
 }
 
 type PipelineRequest struct {
@@ -680,7 +685,20 @@ func (a *App) handleListGeneralEnvs(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
+	nameSet := make(map[string]struct{})
 	var names []string
+
+	addName := func(value string) {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			return
+		}
+		if _, exists := nameSet[trimmed]; exists {
+			return
+		}
+		nameSet[trimmed] = struct{}{}
+		names = append(names, trimmed)
+	}
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
@@ -688,12 +706,109 @@ func (a *App) handleListGeneralEnvs(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to process environments", http.StatusInternalServerError)
 			return
 		}
-		names = append(names, name)
+		addName(name)
 	}
+
+	// Include repository-scoped environment names as owner/repo/NAME entries
+	rows.Close()
+	if env != "" {
+		rows, err = a.db.Query(context.Background(), "SELECT repository_name, name FROM environments WHERE repository_name IS NOT NULL AND environment = $1 ORDER BY repository_name ASC, name ASC", env)
+	} else {
+		rows, err = a.db.Query(context.Background(), "SELECT repository_name, name FROM environments WHERE repository_name IS NOT NULL AND environment IS NULL ORDER BY repository_name ASC, name ASC")
+	}
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to query repository environments from database")
+		http.Error(w, "Failed to retrieve environments", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var repoName, varName string
+		if err := rows.Scan(&repoName, &varName); err != nil {
+			log.Error().Err(err).Msg("Failed to scan repository environment name")
+			http.Error(w, "Failed to process environments", http.StatusInternalServerError)
+			return
+		}
+		repo := strings.TrimSpace(repoName)
+		name := strings.TrimSpace(varName)
+		if repo == "" || name == "" {
+			continue
+		}
+		addName(repo + "/" + name)
+	}
+
+	sort.Slice(names, func(i, j int) bool {
+		return strings.ToLower(names[i]) < strings.ToLower(names[j])
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(names)
+}
+
+func (a *App) handleListEnvironmentScopes(w http.ResponseWriter, r *http.Request) {
+	ctx := context.Background()
+	rows, err := a.db.Query(ctx, "SELECT DISTINCT environment FROM environments WHERE repository_name IS NULL")
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to query environment scopes from database")
+		http.Error(w, "Failed to retrieve environment scopes", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	scopeSet := make(map[string]struct{})
+	scopeSet[""] = struct{}{}
+
+	for rows.Next() {
+		var env sql.NullString
+		if err := rows.Scan(&env); err != nil {
+			log.Error().Err(err).Msg("Failed to scan environment scope")
+			http.Error(w, "Failed to process environment scopes", http.StatusInternalServerError)
+			return
+		}
+		value := ""
+		if env.Valid {
+			value = strings.TrimSpace(env.String)
+		}
+		scopeSet[value] = struct{}{}
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Error().Err(err).Msg("Failed during environment scope iteration")
+		http.Error(w, "Failed to process environment scopes", http.StatusInternalServerError)
+		return
+	}
+
+	scopes := make([]string, 0, len(scopeSet))
+	for value := range scopeSet {
+		scopes = append(scopes, value)
+	}
+
+	sort.Slice(scopes, func(i, j int) bool {
+		ai, aj := scopes[i], scopes[j]
+		if ai == "" && aj == "" {
+			return false
+		}
+		if ai == "" {
+			return true
+		}
+		if aj == "" {
+			return false
+		}
+		return strings.ToLower(ai) < strings.ToLower(aj)
+	})
+
+	result := make([]EnvironmentScope, 0, len(scopes))
+	for _, value := range scopes {
+		result = append(result, EnvironmentScope{Environment: value})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		log.Error().Err(err).Msg("Failed to encode environment scopes response")
+	}
 }
 
 func (a *App) handleCreateOrUpdateGeneralEnv(w http.ResponseWriter, r *http.Request) {
@@ -5362,6 +5477,7 @@ func main() {
 	mux.HandleFunc("DELETE /v1/repositories/{repoOwner}/{repoName}/secrets/{secretName}", app.handleDeleteRepoSecret)
 	mux.HandleFunc("GET /v1/repositories/{repoOwner}/{repoName}/branches", app.handleListRepoBranches)
 	mux.HandleFunc("GET /v1/environments", app.handleListGeneralEnvs)
+	mux.HandleFunc("GET /v1/environments/scopes", app.handleListEnvironmentScopes)
 	mux.HandleFunc("PUT /v1/environments/{envName}", app.handleCreateOrUpdateGeneralEnv)
 	mux.HandleFunc("DELETE /v1/environments/{envName}", app.handleDeleteGeneralEnv)
 	mux.HandleFunc("GET /v1/repositories/{repoOwner}/{repoName}/environments", app.handleListRepoEnvs)

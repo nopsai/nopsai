@@ -336,7 +336,99 @@
 
                 <div data-page="secrets" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Secrets</h1><p class="text-[var(--text-secondary)]">UI for managing secrets is coming soon.</p></div></div>
                 <div data-page="steps" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Steps</h1><p class="text-[var(--text-secondary)]">UI for managing reusable steps is coming soon.</p></div></div>
-                <div data-page="environment" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Environment Variables</h1><p class="text-[var(--text-secondary)]">UI for managing environment variables is coming soon.</p></div></div>
+                <div data-page="environment" class="h-full flex flex-col hidden">
+                    <div class="px-6 pt-6 flex-shrink-0">
+                        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <div id="environment-search-container" class="relative flex-1 min-w-[220px] max-w-xl">
+                                <input id="environment-search" type="search" placeholder="Search environment scopes" class="pipelines-input w-full pl-11 pr-10 py-2 text-sm transition" />
+                                <svg class="w-4 h-4 text-[var(--text-secondary)] absolute left-4 top-1/2 -translate-y-1/2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M10 18a8 8 0 110-16 8 8 0 010 16z"/></svg>
+                                <button id="environment-clear-search" type="button" class="hidden absolute inset-y-0 right-3 flex items-center text-[var(--text-secondary)] hover:text-[var(--text-primary)]" aria-label="Clear search">
+                                    <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                </button>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <button id="environment-create-btn" class="glass-button-primary">
+                                    <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                                    <span>New Variable</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex-1 overflow-auto px-6 pb-8">
+                        <div id="environment-list-view" class="pipelines-view">
+                            <div class="glass-card overflow-hidden">
+                                <div id="environment-list-empty" class="p-6 text-center text-[var(--text-secondary)] hidden">
+                                    <p class="text-sm">No environment scopes available yet.</p>
+                                </div>
+                                <div id="environment-list" class="p-4 space-y-6"></div>
+                            </div>
+                        </div>
+                        <div id="environment-detail-view" class="pipelines-view hidden">
+                            <div class="hidden space-y-6" id="environment-detail">
+                                <div class="glass-card p-6 space-y-4">
+                                    <div class="flex items-start justify-between gap-4 flex-wrap">
+                                        <div>
+                                            <div class="flex items-center gap-3">
+                                                <h2 id="environment-detail-title" class="text-2xl font-semibold text-[var(--text-primary)] truncate"></h2>
+                                                <span id="environment-detail-chip" class="px-3 py-1 text-xs font-semibold uppercase rounded-full bg-[var(--bg-tertiary)] text-[var(--text-secondary)]"></span>
+                                            </div>
+                                            <p class="text-sm text-[var(--text-secondary)] mt-1">Variables defined for this environment scope.</p>
+                                        </div>
+                                        <button id="environment-back-btn" class="glass-button-ghost">
+                                            <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                                            <span>Back to overview</span>
+                                        </button>
+                                    </div>
+                                    <div class="grid gap-6 lg:grid-cols-[260px,1fr]">
+                                        <div class="space-y-4">
+                                            <div class="glass-card bg-[var(--bg-secondary)] p-4">
+                                                <div class="flex items-center justify-between mb-3">
+                                                    <h3 class="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wide">Variables</h3>
+                                                </div>
+                                                <div id="environment-variable-empty" class="text-sm text-[var(--text-secondary)]">No variables configured yet.</div>
+                                                <div id="environment-variable-list" class="space-y-1 max-h-[320px] overflow-auto"></div>
+                                            </div>
+                                            <div class="glass-card bg-[var(--bg-secondary)] p-4">
+                                                <h3 class="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wide mb-3">Scope Overview</h3>
+                                                <dl id="environment-scope-stats" class="grid grid-cols-2 gap-3 text-sm"></dl>
+                                            </div>
+                                        </div>
+                                        <div class="space-y-4">
+                                            <div class="glass-card bg-[var(--bg-secondary)] overflow-hidden">
+                                                <div class="flex items-start justify-between p-4 border-b border-[var(--border-primary)]">
+                                                    <div>
+                                                        <h3 class="text-lg font-semibold text-[var(--text-primary)]" id="environment-variable-title"></h3>
+                                                        <p id="environment-variable-subtitle" class="text-sm text-[var(--text-secondary)]">Select a variable to inspect details.</p>
+                                                    </div>
+                                                    <div id="environment-variable-actions" class="flex items-center gap-2 hidden">
+                                                        <button class="glass-button-ghost" data-environment-edit>
+                                                            <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L13.196 5.232z"/></svg>
+                                                            <span>Edit</span>
+                                                        </button>
+                                                        <button class="glass-button-danger" data-environment-delete>
+                                                            <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V5a1 1 0 00-1-1h-4a1 1 0 00-1 1v2m-4 0h14"/></svg>
+                                                            <span>Delete</span>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <div class="p-4 space-y-4">
+                                                    <div>
+                                                        <h4 class="font-semibold text-[var(--text-primary)] mb-2 text-sm uppercase tracking-wide">Related Pipelines</h4>
+                                                        <div id="environment-variable-pipelines" class="space-y-2"></div>
+                                                    </div>
+                                                    <div>
+                                                        <h4 class="font-semibold text-[var(--text-primary)] mb-2 text-sm uppercase tracking-wide">Triggers in Scope</h4>
+                                                        <div id="environment-variable-triggers" class="space-y-2"></div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 <div data-page="monitoring" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Monitoring</h1><p class="text-[var(--text-secondary)]">Monitoring dashboards are coming soon.</p></div></div>
                 <div data-page="system" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">System</h1><p class="text-[var(--text-secondary)]">System administration and status page is coming soon.</p></div></div>
             </div>
@@ -695,9 +787,65 @@
             </form>
         </div>
     </div>
+    <div id="environment-edit-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
+        <div class="pipelines-modal-card max-w-lg">
+            <header class="pipelines-modal-header">
+                <div>
+                    <h2 class="text-lg font-semibold text-[var(--text-primary)]">Create Variable</h2>
+                    <p id="environment-edit-scope" class="text-sm text-[var(--text-secondary)]">Scope: default</p>
+                </div>
+                <button type="button" class="glass-button-ghost" data-cancel>
+                    <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </header>
+            <form id="environment-edit-form" class="pipelines-modal-body space-y-4">
+                <div>
+                    <label for="environment-edit-name" class="block text-sm font-medium text-[var(--text-secondary)]">Variable Name</label>
+                    <input type="text" id="environment-edit-name" name="name" required placeholder="DATABASE_URL" class="pipelines-input w-full mt-1" pattern="[A-Za-z0-9_.-]+" />
+                    <p class="text-xs text-[var(--text-secondary)] mt-1">Names may contain letters, numbers, underscores, dots, and hyphens.</p>
+                </div>
+                <div>
+                    <label for="environment-edit-value" class="block text-sm font-medium text-[var(--text-secondary)]">Value</label>
+                    <textarea id="environment-edit-value" name="value" rows="4" class="pipelines-input w-full mt-1" placeholder="Provide the value stored for this scope"></textarea>
+                    <p class="text-xs text-[var(--text-secondary)] mt-1">Values overwrite any existing entry for this scope.</p>
+                </div>
+                <div class="flex items-center justify-end gap-2 pt-2">
+                    <button type="button" class="glass-button-ghost" data-cancel>Cancel</button>
+                    <button id="environment-edit-submit" type="submit" class="glass-button-primary">
+                        <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        <span>Save</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <div id="environment-delete-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
+        <div class="pipelines-modal-card max-w-md">
+            <header class="pipelines-modal-header">
+                <div>
+                    <h2 class="text-lg font-semibold text-[var(--text-primary)]">Delete Variable</h2>
+                    <p class="text-sm text-[var(--text-secondary)]">This removes the variable from the selected environment scope.</p>
+                </div>
+                <button type="button" class="glass-button-ghost" data-cancel>
+                    <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </header>
+            <div class="pipelines-modal-body space-y-4">
+                <p id="environment-delete-message" class="text-sm text-[var(--text-secondary)]"></p>
+                <div class="flex items-center justify-end gap-2 pt-2">
+                    <button type="button" class="glass-button-ghost" data-cancel>Cancel</button>
+                    <button type="button" id="environment-confirm-delete-btn" class="glass-button-danger">
+                        <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V5a1 1 0 00-1-1h-4a1 1 0 00-1 1v2m-4 0h14"/></svg>
+                        <span>Delete</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
     <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
     <script src="logs.js"></script>
+    <script src="environments.js"></script>
     <script src="triggers.js"></script>
     <script src="pipelines.js"></script>
     <script src="pipeline-runs.js"></script>

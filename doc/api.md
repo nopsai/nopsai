@@ -62,6 +62,7 @@ curl -X PUT -d '{"value":"repo"}' \
 curl "http://localhost:8080/v1/environments?env=prod"
 ```
 
+- The list endpoint now returns both global variables (e.g. `DATABASE_URL`) and repository-scoped entries in the form `owner/repo/NAME`.
 - Duplicate keys inside the same scope are rejected during config sync.
 - The config repo may define environments in `environments/<scope>/env.yaml`; the sync endpoint imports them automatically.
 
