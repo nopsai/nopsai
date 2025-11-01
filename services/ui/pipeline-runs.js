@@ -1577,7 +1577,11 @@ if (dx !== 0 || dy !== 0) {
             { route: 'pipelines', title: 'Pipelines', icon: 'M9 17V7h2v10H9zm4-12h2v12h-2V5zm4 4h2v8h-2V9zM3 3h18v2H3V3z' },
             { route: 'secrets', title: 'Secrets', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
             { route: 'steps', title: 'Steps', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
-            { route: 'environment', title: 'Environment', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
+            {
+                route: 'environment',
+                title: 'Environments',
+                iconMarkup: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3a9 9 0 100 18 9 9 0 000-18z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.6 9h16.8M3.6 15h16.8M12 3a15 15 0 010 18M12 3a15 15 0 000 18"/>'
+            },
             { route: 'monitoring', title: 'Monitoring', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
             {
                 route: 'triggers',
@@ -1625,6 +1629,20 @@ if (dx !== 0 || dy !== 0) {
                     triggersModule.renderSidebarForRoute();
                 } catch (error) {
                     console.error('Failed to render triggers sidebar tree:', error);
+                }
+            }
+        } else if (activeRoute === 'environment') {
+            detailsNavHtml = `<div class="px-2 mt-2 mb-2 flex items-center justify-between">
+                                  <h2 class="text-xs font-semibold tracking-wider text-[var(--text-secondary)] uppercase">Environments</h2>
+                              </div>
+                              <div id="environment-sidebar-tree"></div>`;
+            DOM.sidebarDetailsNav.innerHTML = detailsNavHtml;
+            const environmentModule = window.NopsAI.pages?.environment;
+            if (environmentModule && typeof environmentModule.renderSidebarForRoute === 'function') {
+                try {
+                    environmentModule.renderSidebarForRoute();
+                } catch (error) {
+                    console.error('Failed to render environment sidebar tree:', error);
                 }
             }
         } else if (activeRoute === 'pipelineruns') {
