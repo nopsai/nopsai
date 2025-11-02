@@ -341,6 +341,11 @@ type EnvironmentScope struct {
 	Environment string `json:"environment"`
 }
 
+type EnvValueResponse struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
 type PipelineRequest struct {
 	Definition string `json:"definition"`
 }
@@ -858,6 +863,33 @@ func (a *App) handleDeleteGeneralEnv(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (a *App) handleGetGeneralEnvValue(w http.ResponseWriter, r *http.Request) {
+	envName := r.PathValue("envName")
+	env := r.URL.Query().Get("env")
+	var value string
+	var err error
+
+	if env != "" {
+		err = a.db.QueryRow(context.Background(), "SELECT value FROM environments WHERE name = $1 AND repository_name IS NULL AND environment = $2", envName, env).Scan(&value)
+	} else {
+		err = a.db.QueryRow(context.Background(), "SELECT value FROM environments WHERE name = $1 AND repository_name IS NULL AND environment IS NULL", envName).Scan(&value)
+	}
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			http.Error(w, "Environment variable not found", http.StatusNotFound)
+			return
+		}
+		log.Error().Err(err).Msg("Failed to fetch environment value")
+		http.Error(w, "Failed to retrieve environment", http.StatusInternalServerError)
+		return
+	}
+
+	response := EnvValueResponse{Name: envName, Value: value}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
 func (a *App) handleListRepoEnvs(w http.ResponseWriter, r *http.Request) {
 	repoOwner := r.PathValue("repoOwner")
 	repoName := r.PathValue("repoName")
@@ -946,6 +978,36 @@ func (a *App) handleDeleteRepoEnv(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleGetRepoEnvValue(w http.ResponseWriter, r *http.Request) {
+	repoOwner := r.PathValue("repoOwner")
+	repoName := r.PathValue("repoName")
+	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
+	envName := r.PathValue("envName")
+	env := r.URL.Query().Get("env")
+	var value string
+	var err error
+
+	if env != "" {
+		err = a.db.QueryRow(context.Background(), "SELECT value FROM environments WHERE name = $1 AND repository_name = $2 AND environment = $3", envName, fullName, env).Scan(&value)
+	} else {
+		err = a.db.QueryRow(context.Background(), "SELECT value FROM environments WHERE name = $1 AND repository_name = $2 AND environment IS NULL", envName, fullName).Scan(&value)
+	}
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			http.Error(w, "Environment variable not found", http.StatusNotFound)
+			return
+		}
+		log.Error().Err(err).Msg("Failed to fetch repository environment value")
+		http.Error(w, "Failed to retrieve environment", http.StatusInternalServerError)
+		return
+	}
+
+	response := EnvValueResponse{Name: envName, Value: value}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 func (a *App) prepareEnvironmentForPipeline(pipeline models.Pipeline, gitContext map[string]string, environment string) (map[string]string, error) {
@@ -5478,9 +5540,11 @@ func main() {
 	mux.HandleFunc("GET /v1/repositories/{repoOwner}/{repoName}/branches", app.handleListRepoBranches)
 	mux.HandleFunc("GET /v1/environments", app.handleListGeneralEnvs)
 	mux.HandleFunc("GET /v1/environments/scopes", app.handleListEnvironmentScopes)
+	mux.HandleFunc("GET /v1/environments/{envName}", app.handleGetGeneralEnvValue)
 	mux.HandleFunc("PUT /v1/environments/{envName}", app.handleCreateOrUpdateGeneralEnv)
 	mux.HandleFunc("DELETE /v1/environments/{envName}", app.handleDeleteGeneralEnv)
 	mux.HandleFunc("GET /v1/repositories/{repoOwner}/{repoName}/environments", app.handleListRepoEnvs)
+	mux.HandleFunc("GET /v1/repositories/{repoOwner}/{repoName}/environments/{envName}", app.handleGetRepoEnvValue)
 	mux.HandleFunc("PUT /v1/repositories/{repoOwner}/{repoName}/environments/{envName}", app.handleCreateOrUpdateRepoEnv)
 	mux.HandleFunc("DELETE /v1/repositories/{repoOwner}/{repoName}/environments/{envName}", app.handleDeleteRepoEnv)
 	mux.HandleFunc("POST /v1/run", app.handleRunPipeline)

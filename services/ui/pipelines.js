@@ -1670,7 +1670,7 @@ function formatPathLabel(path) {
         const childCount = node.children ? node.children.size : 0;
 
         return `
-            <article class="pipeline-folder-card" data-folder-key="${keyAttr}" tabindex="0" role="button" aria-label="Open folder ${labelSafe}">
+            <article class="pipeline-folder-card border border-[var(--border-primary)]" data-folder-key="${keyAttr}" tabindex="0" role="button" aria-label="Open folder ${labelSafe}">
                 <div class="pipeline-folder-card-header">
                     <span class="pipeline-folder-icon">
                         <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

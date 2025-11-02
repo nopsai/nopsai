@@ -12,11 +12,15 @@
         sidebarExpanded: new Set(),
         pipelineEnvIndex: new Map(),
         pipelineMetadata: new Map(),
+        pipelineMetaSeeds: new Map(),
         pipelineEnvIndexReady: false,
         pipelineEnvIndexPromise: null,
         triggersByEnv: new Map(),
         pipelinesByEnv: new Map(),
         scopeLoadPromise: null,
+        envValues: new Map(),
+        envValuePromises: new Map(),
+        expandedVariable: null,
     };
 
     const DOM = {};
@@ -40,9 +44,9 @@
         const ids = [
             'environment-search', 'environment-search-container', 'environment-clear-search', 'environment-list', 'environment-list-empty',
             'environment-list-view', 'environment-detail-view', 'environment-detail', 'environment-back-btn',
-            'environment-detail-title', 'environment-detail-chip', 'environment-variable-list', 'environment-variable-empty',
+            'environment-detail-title', 'environment-variable-list', 'environment-variable-empty',
             'environment-variable-title', 'environment-variable-subtitle', 'environment-variable-pipelines',
-            'environment-variable-triggers', 'environment-variable-actions', 'environment-create-btn', 'environment-sidebar-tree', 'environment-scope-stats',
+            'environment-variable-triggers', 'environment-create-btn', 'environment-sidebar-tree',
             'environment-edit-modal', 'environment-edit-form', 'environment-edit-name', 'environment-edit-value',
             'environment-edit-scope', 'environment-edit-submit', 'environment-delete-modal', 'environment-delete-message',
             'environment-confirm-delete-btn'
@@ -609,7 +613,7 @@
         const ariaLabel = escapeAttribute(displayPath);
 
         return `
-            <article class="pipeline-folder-card" data-environment-folder="${keyAttr}" tabindex="0" role="button" aria-label="Open folder ${ariaLabel}">
+            <article class="pipeline-folder-card border border-[var(--border-primary)]" data-environment-folder="${keyAttr}" tabindex="0" role="button" aria-label="Open folder ${ariaLabel}">
                 <div class="pipeline-folder-card-header">
                     <span class="pipeline-folder-icon">
                         <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h5l2 2h9a2 2 0 012 2v7a2 2 0 01-2 2H3a2 2 0 01-2-2V9a2 2 0 012-2z"/></svg>
@@ -644,37 +648,14 @@
         const pipelineCount = Array.isArray(scope.pipelines) ? scope.pipelines.length : 0;
 
         return `
-            <article class="pipeline-card triggers-card bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg transition-all duration-200 p-3 flex flex-col${isActive ? ' triggers-card--active' : ''}" data-environment-scope="${escapeAttribute(scope.key)}" tabindex="0" role="button" aria-label="Open environment ${escapeAttribute(fullPath)}">
-                <div class="pipeline-card-header flex items-start justify-between gap-3">
-                    <div class="pipeline-card-info">
-                        <span class="triggers-card-icon" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M12 2a10 10 0 100 20 10 10 0 000-20z" />
-                                <path d="M2 12h20" />
-                                <path d="M12 2c3.5 4 3.5 16 0 20" />
-                                <path d="M12 2c-3.5 4-3.5 16 0 20" />
-                            </svg>
-                        </span>
-                        <div class="pipeline-card-text min-w-0">
-                            <h3 class="pipeline-card-title" title="${escapeAttribute(fullPath)}">${escapeHtml(title)}</h3>
-                            <p class="pipeline-card-path" title="${escapeAttribute(parentPath)}">${escapeHtml(parentPath)}</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="pipeline-card-meta">
-                    <div class="pipeline-card-meta-row">
-                        <span class="pipeline-card-meta-label">Variables</span>
-                        <span class="pipeline-card-meta-value">${variableCount}</span>
-                    </div>
-                    <div class="pipeline-card-meta-row">
-                        <span class="pipeline-card-meta-label">Triggers</span>
-                        <span class="pipeline-card-meta-value">${triggerCount}</span>
-                    </div>
-                    <div class="pipeline-card-meta-row">
-                        <span class="pipeline-card-meta-label">Pipelines</span>
-                        <span class="pipeline-card-meta-value">${pipelineCount}</span>
-                    </div>
-                </div>
+            <article class="env-scope-card${isActive ? ' env-scope-card--active' : ''}" data-environment-scope="${escapeAttribute(scope.key)}" tabindex="0" role="button" aria-label="Open environment ${escapeAttribute(fullPath)}">
+                <div class="env-scope-card__badge">${escapeHtml(parentPath)}</div>
+                <h3 class="env-scope-card__title">${escapeHtml(title)}</h3>
+                <dl class="env-scope-card__meta">
+                    <div><dt>Variables</dt><dd>${variableCount}</dd></div>
+                    <div><dt>Triggers</dt><dd>${triggerCount}</dd></div>
+                    <div><dt>Pipelines</dt><dd>${pipelineCount}</dd></div>
+                </dl>
             </article>`;
     }
 
@@ -718,7 +699,7 @@
         list.querySelectorAll('[data-environment-scope]').forEach(card => {
             const key = card.getAttribute('data-environment-scope');
             const shouldHighlight = isListVisible && key === state.selectedScopeKey;
-            card.classList.toggle('triggers-card--active', shouldHighlight);
+            card.classList.toggle('env-scope-card--active', shouldHighlight);
         });
     }
 
@@ -740,16 +721,18 @@
         }
     }
 
-    function resetEnvironmentSelection(options = {}) {
+function resetEnvironmentSelection(options = {}) {
         if (state.selectedScopeKey) {
             state.selectedScopeKey = null;
         }
         state.selectedVariable = null;
+        state.expandedVariable = null;
         clearVariableDetail();
         if (options.showList !== false) {
             showListView();
         }
         highlightActiveEnvironmentCard();
+        updateVariableItemStates();
     }
 
     function handleEnvironmentListClick(event) {
@@ -1083,12 +1066,14 @@
         if (!scope) {
             state.selectedScopeKey = null;
             state.activeFolderKey = '';
+            state.expandedVariable = null;
             renderSidebarTree();
             showListView();
             return;
         }
 
         state.selectedScopeKey = scope.key;
+        state.expandedVariable = null;
         const envPath = normalizeEnvironmentLabel(scope.env || '');
         const folderKey = getEnvironmentFolderKey(envPath);
         setActiveFolder(folderKey, { ensure: true, refreshList: false });
@@ -1160,12 +1145,8 @@
         if (DOM['environment-detail-title']) {
             DOM['environment-detail-title'].textContent = scope.env ? `/${scope.env}` : '/';
         }
-        if (DOM['environment-detail-chip']) {
-            DOM['environment-detail-chip'].textContent = scope.env ? `/${scope.env}` : '/';
-        }
 
         renderVariableList(scope);
-        renderScopeStats(scope);
 
         if (scope.variables.length) {
             const preferredVariable = scope.variables.includes(state.selectedVariable) ? state.selectedVariable : scope.variables[0];
@@ -1173,21 +1154,6 @@
         } else {
             clearVariableDetail();
         }
-    }
-
-    function renderScopeStats(scope) {
-        if (!DOM['environment-scope-stats']) return;
-        const variablesCount = scope.variables.length;
-        const triggersCount = scope.triggerCount || 0;
-        DOM['environment-scope-stats'].innerHTML = `
-            <div>
-                <dt class="text-[var(--text-secondary)] text-xs uppercase tracking-wide">Variables</dt>
-                <dd class="text-base font-semibold text-[var(--text-primary)]">${variablesCount}</dd>
-            </div>
-            <div>
-                <dt class="text-[var(--text-secondary)] text-xs uppercase tracking-wide">Triggers</dt>
-                <dd class="text-base font-semibold text-[var(--text-primary)]">${triggersCount}</dd>
-            </div>`;
     }
 
     function renderVariableList(scope) {
@@ -1202,12 +1168,18 @@
 
         if (DOM['environment-variable-empty']) DOM['environment-variable-empty'].classList.add('hidden');
 
-        container.innerHTML = scope.variables.map(name => {
-            const isActive = name === state.selectedVariable;
-            return `<button type="button" class="w-full text-left px-3 py-2 rounded-md text-sm transition ${isActive ? 'bg-[var(--bg-hover)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'}" data-environment-variable="${escapeAttribute(name)}">
-                <span class="block truncate">${escapeHtml(name)}</span>
-            </button>`;
-        }).join('');
+        const grouped = groupVariablesByRepository(scope.variables);
+        const sections = [];
+
+        if (grouped.global.length) {
+            sections.push(renderVariableSection('', grouped.global, { scopeKey: scope.key }));
+        }
+
+        grouped.repositories.forEach(entry => {
+            sections.push(renderVariableSection(entry.repo, entry.variables, { scopeKey: scope.key }));
+        });
+
+        container.innerHTML = sections.join('');
 
         container.querySelectorAll('[data-environment-variable]').forEach(button => {
             button.addEventListener('click', () => {
@@ -1215,6 +1187,121 @@
                 selectVariable(name);
             });
         });
+
+        container.querySelectorAll('[data-env-variable-show]').forEach(button => {
+            button.addEventListener('click', async event => {
+                event.preventDefault();
+                event.stopPropagation();
+                const item = button.closest('[data-env-variable-item]');
+                if (!item) return;
+                const variableName = item.getAttribute('data-env-variable-full');
+                const scopeKey = item.getAttribute('data-env-variable-scope') || scope.key;
+                if (state.selectedVariable !== variableName) {
+                    await selectVariable(variableName, { silent: true, skipHash: true });
+                }
+                await toggleVariableValue(scopeKey, variableName, item, button);
+            });
+        });
+
+        container.querySelectorAll('[data-env-variable-action]').forEach(button => {
+            button.addEventListener('click', async event => {
+                event.preventDefault();
+                event.stopPropagation();
+                const action = button.getAttribute('data-env-variable-action');
+                const item = button.closest('[data-env-variable-item]');
+                if (!item) return;
+                const variableName = item.getAttribute('data-env-variable-full');
+                const scopeKey = item.getAttribute('data-env-variable-scope') || scope.key;
+                if (!variableName) return;
+                const scopeRef = state.scopeMap.get(scopeKey) || state.scopeMap.get(state.selectedScopeKey || DEFAULT_SCOPE_KEY);
+                if (!scopeRef) return;
+
+                if (state.selectedVariable !== variableName) {
+                    await selectVariable(variableName, { silent: true, skipHash: true });
+                }
+
+                switch (action) {
+                    case 'edit':
+                        openEditModal('update', { scopeKey: scopeRef.key, name: variableName });
+                        break;
+                    case 'delete':
+                        openDeleteModal(scopeRef, variableName);
+                        break;
+                    default:
+                        break;
+                }
+            });
+        });
+
+        highlightActiveVariable(state.selectedVariable);
+        updateVariableItemStates();
+        updateVariableItemStates();
+    }
+
+    function groupVariablesByRepository(variables) {
+        const global = [];
+        const repoMap = new Map();
+
+        variables.forEach(name => {
+            const trimmed = String(name || '').trim();
+            if (!trimmed) return;
+            const parts = trimmed.split('/');
+            if (parts.length === 3) {
+                const repo = `${parts[0]}/${parts[1]}`;
+                const varName = parts[2];
+                if (!repoMap.has(repo)) {
+                    repoMap.set(repo, []);
+                }
+                repoMap.get(repo).push({ full: trimmed, display: varName });
+            } else {
+                global.push({ full: trimmed, display: trimmed });
+            }
+        });
+
+        global.sort((a, b) => a.display.localeCompare(b.display, undefined, { sensitivity: 'base' }));
+
+        const repositories = Array.from(repoMap.entries())
+            .map(([repo, vars]) => ({
+                repo,
+                variables: vars.sort((a, b) => a.display.localeCompare(b.display, undefined, { sensitivity: 'base' })),
+            }))
+            .sort((a, b) => a.repo.localeCompare(b.repo, undefined, { sensitivity: 'base' }));
+
+        return { global, repositories };
+    }
+
+    function renderVariableSection(title, items, options = {}) {
+        if (!Array.isArray(items) || !items.length) return '';
+        const scopeKey = options.scopeKey || '';
+        const groups = items.map(item => {
+            const isExpanded = state.expandedVariable === item.full;
+            const isActive = item.full === state.selectedVariable;
+            return `
+                <div class="env-variable-item${isActive ? ' env-variable-item--active' : ''}${isExpanded ? ' env-variable-item--expanded' : ''}" data-env-variable-item data-env-variable-full="${escapeAttribute(item.full)}" data-env-variable-scope="${escapeAttribute(scopeKey)}">
+                    <button type="button" class="env-variable-btn${isActive ? ' env-variable-btn--active' : ''}" data-environment-variable="${escapeAttribute(item.full)}">
+                        <span class="truncate">${escapeHtml(item.display)}</span>
+                    </button>
+                    <div class="env-variable-inline-actions">
+                        <button type="button" class="env-inline-icon" data-env-variable-show>
+                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+                        </button>
+                        <button type="button" class="env-inline-icon" data-env-variable-action="edit">
+                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 113 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
+                        </button>
+                        <button type="button" class="env-inline-icon env-inline-icon--danger" data-env-variable-action="delete">
+                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6l1-3h4l1 3"/></svg>
+                        </button>
+                    </div>
+                    <div class="env-variable-value" data-env-variable-value></div>
+                </div>`;
+        }).join('');
+
+        const heading = title ? `<h4>${escapeHtml(title)}</h4>` : '';
+
+        return `<section class="env-variable-section">
+            ${heading}
+            <div class="env-variable-buttons">${groups}</div>
+        </section>`;
     }
 
     async function selectVariable(name, options = {}) {
@@ -1245,12 +1332,148 @@
     function highlightActiveVariable(name) {
         const container = DOM['environment-variable-list'];
         if (!container) return;
-        container.querySelectorAll('[data-environment-variable]').forEach(button => {
-            const isActive = button.getAttribute('data-environment-variable') === name;
-            button.classList.toggle('bg-[var(--bg-hover)]', isActive);
-            button.classList.toggle('text-[var(--text-primary)]', isActive);
+        container.querySelectorAll('[data-env-variable-item]').forEach(item => {
+            const button = item.querySelector('[data-environment-variable]');
+            const value = button ? button.getAttribute('data-environment-variable') : null;
+            const isActive = value === name && !!name;
+            item.classList.toggle('env-variable-item--active', isActive);
+            if (button) {
+                button.classList.toggle('env-variable-btn--active', isActive);
+            }
+        });
+        updateVariableItemStates();
+    }
+    function updateVariableItemStates() {
+        const container = DOM['environment-variable-list'];
+        if (!container) return;
+        container.querySelectorAll('[data-env-variable-item]').forEach(item => {
+            const variableFull = item.getAttribute('data-env-variable-full');
+            const scopeKey = item.getAttribute('data-env-variable-scope') || '';
+            const scopeRef = state.scopeMap.get(scopeKey) || state.scopeMap.get(state.selectedScopeKey || DEFAULT_SCOPE_KEY) || null;
+            const envLabel = scopeRef?.env || '';
+            const cacheKey = makeEnvValueCacheKey(variableFull, envLabel);
+            const value = state.envValues.get(cacheKey) || '';
+            const isExpanded = state.expandedVariable === variableFull;
+            const showButton = item.querySelector('[data-env-variable-show]');
+            const valueContainer = item.querySelector('[data-env-variable-value]');
+
+            item.classList.toggle('env-variable-item--expanded', isExpanded);
+            if (showButton) {
+                showButton.setAttribute('aria-label', isExpanded ? 'Hide value' : 'Show value');
+                const isLoading = showButton.dataset.loading === 'true';
+                showButton.classList.toggle('loading', isLoading);
+                showButton.classList.toggle('env-inline-icon--active', isExpanded);
+                showButton.disabled = isLoading;
+            }
+            if (valueContainer) {
+                const displayValue = value ? value : '(empty)';
+                if (isExpanded) {
+                    valueContainer.textContent = displayValue;
+                    valueContainer.setAttribute('title', displayValue);
+                } else {
+                    valueContainer.textContent = '';
+                    valueContainer.removeAttribute('title');
+                }
+            }
         });
     }
+
+    async function toggleVariableValue(scopeKey, variableName, item, button) {
+        const scopeRef = state.scopeMap.get(scopeKey) || state.scopeMap.get(state.selectedScopeKey || DEFAULT_SCOPE_KEY) || null;
+        if (!scopeRef) return;
+
+        if (state.expandedVariable === variableName) {
+            state.expandedVariable = null;
+            updateVariableItemStates();
+            return;
+        }
+
+        const cacheKey = makeEnvValueCacheKey(variableName, scopeRef.env || '');
+        let value = state.envValues.get(cacheKey);
+        if (value == null) {
+            try {
+                button.dataset.loading = 'true';
+                button.classList.add('loading');
+                button.disabled = true;
+                value = await fetchVariableValue(scopeRef, variableName);
+                state.envValues.set(cacheKey, value ?? '');
+            } catch (error) {
+                console.error('Failed to fetch environment value:', error);
+                if (typeof showToast === 'function') {
+                    showToast('Failed to load variable value.', 'error');
+                }
+            } finally {
+                button.disabled = false;
+                button.dataset.loading = 'false';
+                button.classList.remove('loading');
+            }
+        }
+
+        state.expandedVariable = variableName;
+        updateVariableItemStates();
+    }
+
+    async function fetchVariableValue(scope, variableName) {
+        if (!context || typeof context.fetchData !== 'function') return '';
+        const identity = parseVariableIdentity(variableName);
+        const envLabel = scope?.env || '';
+        const cacheKey = makeEnvValueCacheKey(variableName, envLabel);
+
+        if (state.envValues.has(cacheKey)) {
+            return state.envValues.get(cacheKey);
+        }
+        if (state.envValuePromises.has(cacheKey)) {
+            return state.envValuePromises.get(cacheKey);
+        }
+
+        let url = '';
+        if (identity.repoOwner && identity.repoName) {
+            url = `/v1/repositories/${encodeURIComponent(identity.repoOwner)}/${encodeURIComponent(identity.repoName)}/environments/${encodeURIComponent(identity.name)}`;
+        } else {
+            url = `/v1/environments/${encodeURIComponent(identity.name)}`;
+        }
+        if (envLabel) {
+            url += `?env=${encodeURIComponent(envLabel)}`;
+        }
+
+        const promise = (async () => {
+            try {
+                const result = await context.fetchData(url);
+                if (result && typeof result === 'object' && result.value != null) {
+                    return String(result.value);
+                }
+                if (typeof result === 'string') {
+                    return result;
+                }
+                return '';
+            } catch (error) {
+                console.error('Failed to retrieve environment value:', error);
+                return '';
+            } finally {
+                state.envValuePromises.delete(cacheKey);
+            }
+        })();
+
+        state.envValuePromises.set(cacheKey, promise);
+        const value = await promise;
+        state.envValues.set(cacheKey, value);
+        return value;
+    }
+
+    function parseVariableIdentity(variableName) {
+        const parts = String(variableName || '').split('/').filter(Boolean);
+        if (parts.length === 3) {
+            return { repoOwner: parts[0], repoName: parts[1], name: parts[2] };
+        }
+        return { repoOwner: null, repoName: null, name: variableName };
+    }
+
+    function makeEnvValueCacheKey(variableName, envLabel) {
+        return `${envLabel || ''}::${variableName}`;
+    }
+
+
+
 
     async function ensurePipelineEnvIndex() {
         if (state.pipelineEnvIndexReady) return;
@@ -1269,7 +1492,8 @@
                     if (typeof yaml !== 'string') continue;
                     const details = parseYaml(yaml);
                     const vars = extractEnvironmentVariables(details);
-                    const meta = buildPipelineMeta(identifier, details);
+                    const seed = state.pipelineMetaSeeds instanceof Map ? state.pipelineMetaSeeds.get(identifier) : null;
+                    const meta = buildPipelineMeta(identifier, details, seed);
                     state.pipelineMetadata.set(identifier, meta);
                     vars.forEach(variable => {
                         const key = variable.trim();
@@ -1293,18 +1517,50 @@
     }
 
     function normalizePipelineList(response) {
-        if (!Array.isArray(response)) return [];
+        const seeds = new Map();
+        if (!Array.isArray(response)) {
+            state.pipelineMetaSeeds = seeds;
+            return [];
+        }
+
         const identifiers = [];
         response.forEach(item => {
             if (!item) return;
+            let identifier = '';
             if (typeof item === 'string') {
-                identifiers.push(normalizePipelineIdentifier(item));
+                const rawValue = item.trim();
+                identifier = normalizePipelineIdentifier(rawValue);
+                if (identifier && !seeds.has(identifier)) {
+                    seeds.set(identifier, {
+                        path: rawValue.replace(/^\/+/, ''),
+                        version: '',
+                        source: '',
+                    });
+                }
             } else if (typeof item === 'object') {
-                const identifier = item.id || item.identifier || item.pipeline || '';
-                if (identifier) identifiers.push(normalizePipelineIdentifier(identifier));
+                const rawIdentifier = item.id || item.identifier || item.pipeline || '';
+                identifier = normalizePipelineIdentifier(rawIdentifier);
+                if (identifier) {
+                    const rawPath = typeof item.path === 'string' && item.path.trim()
+                        ? item.path.trim()
+                        : (typeof item.file === 'string' && item.file.trim() ? item.file.trim() : '');
+                    const versionValue = item.version != null ? String(item.version).trim() : '';
+                    const sourceValue = item.source != null ? String(item.source).trim() : '';
+                    seeds.set(identifier, {
+                        path: rawPath.replace(/^\/+/, ''),
+                        version: versionValue,
+                        source: sourceValue,
+                    });
+                }
+            }
+
+            if (identifier) {
+                identifiers.push(identifier);
             }
         });
-        return Array.from(new Set(identifiers.filter(Boolean))).sort((a, b) => a.localeCompare(b));
+
+        state.pipelineMetaSeeds = seeds;
+        return Array.from(new Set(identifiers.filter(Boolean))).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
     }
 
     function extractEnvironmentVariables(details) {
@@ -1315,75 +1571,160 @@
         return [];
     }
 
-    function buildPipelineMeta(identifier, details) {
-        const segments = identifier.split('/');
-        const name = details?.name || segments[segments.length - 1] || identifier;
+    function buildPipelineMeta(identifier, details, seed = {}) {
+        const normalizedId = String(identifier || '').trim();
+        const fallback = parsePipelineIdentifier(normalizedId);
+        const name = details?.name || fallback.name || normalizedId;
         const description = details?.description || '';
-        return { identifier, name, description };
+        const seedPath = typeof seed?.path === 'string' ? seed.path.trim() : '';
+        const normalizedPath = seedPath ? seedPath.replace(/^\/+/, '') : fallback.path;
+        const detailVersion = details?.version != null ? String(details.version).trim() : '';
+        const seedVersion = typeof seed?.version === 'string' ? seed.version.trim() : '';
+        const version = detailVersion || seedVersion || 'latest';
+        const source = formatPipelineSource(details?.source || seed?.source);
+
+        return {
+            identifier: normalizedId,
+            name,
+            description,
+            path: normalizedPath,
+            version,
+            source,
+        };
+    }
+
+    function parsePipelineIdentifier(identifier) {
+        const trimmed = String(identifier || '').trim().replace(/^\/+|\/+$/g, '');
+        if (!trimmed) {
+            return { path: '', name: '' };
+        }
+        const parts = trimmed.split('/');
+        const name = parts.pop() || '';
+        const path = parts.join('/');
+        return { path, name };
+    }
+
+    function formatPipelineSource(value) {
+        const raw = String(value || '').trim();
+        const normalized = raw.toLowerCase();
+        switch (normalized) {
+            case 'git':
+                return 'Git';
+            case 'draft':
+                return 'Draft';
+            case 'local':
+                return 'Local';
+            case 'database':
+                return 'Database';
+            case 'config repository':
+            case '':
+                return 'Config Repository';
+            default:
+                return raw || 'Config Repository';
+        }
     }
 
     function renderVariableDetail(scope, name) {
         if (!DOM['environment-variable-title']) return;
         DOM['environment-variable-title'].textContent = name;
         if (DOM['environment-variable-subtitle']) {
-            DOM['environment-variable-subtitle'].textContent = scope.env ? `Environment scope: /${scope.env}` : 'Environment scope: /';
-        }
-
-        if (DOM['environment-variable-actions']) {
-            DOM['environment-variable-actions'].classList.remove('hidden');
-            const editBtn = DOM['environment-variable-actions'].querySelector('[data-environment-edit]');
-            const deleteBtn = DOM['environment-variable-actions'].querySelector('[data-environment-delete]');
-            if (editBtn) {
-                editBtn.onclick = () => openEditModal('update', { scopeKey: scope.key, name });
-            }
-            if (deleteBtn) {
-                deleteBtn.onclick = () => openDeleteModal(scope, name);
-            }
+            DOM['environment-variable-subtitle'].textContent = 'Linked pipelines and triggers for this variable.';
         }
 
         const pipelineEntries = Array.from(state.pipelineEnvIndex.get(name) || []);
-        if (DOM['environment-variable-pipelines']) {
-            DOM['environment-variable-pipelines'].innerHTML = pipelineEntries.length
-                ? pipelineEntries.map(identifier => renderPipelineDetail(identifier)).join('')
-                : '<p class="text-sm text-[var(--text-secondary)]">No pipelines declare this variable.</p>';
-        }
+        renderRelatedCollection('environment-variable-pipelines', pipelineEntries.map(renderPipelineDetail), 'No pipelines declare this variable.');
 
         const relatedTriggers = scope.triggers;
-        if (DOM['environment-variable-triggers']) {
-            DOM['environment-variable-triggers'].innerHTML = relatedTriggers.length
-                ? relatedTriggers.map(trigger => renderTriggerDetail(trigger)).join('')
-                : '<p class="text-sm text-[var(--text-secondary)]">No triggers reference this scope.</p>';
-        }
+        renderRelatedCollection('environment-variable-triggers', relatedTriggers.map(renderTriggerDetail), 'No triggers reference this scope.');
     }
 
     function renderPipelineDetail(identifier) {
         const meta = state.pipelineMetadata.get(identifier);
         const title = meta?.name || identifier;
-        const description = meta?.description ? `<p class="text-xs text-[var(--text-secondary)] truncate">${escapeHtml(meta.description)}</p>` : '';
+        const description = meta?.description ? escapeHtml(meta.description) : '';
+        const pathDisplay = formatPipelinePath(meta?.path);
+        const versionDisplay = meta?.version ? String(meta.version) : 'latest';
+        const sourceDisplay = meta?.source || 'Config Repository';
         const href = `#/pipelines/${identifier.split('/').map(encodeURIComponent).join('/')}`;
-        return `<a href="${escapeAttribute(href)}" class="block rounded-md border border-[var(--border-primary)] p-3 hover:border-[var(--border-accent)] hover:bg-[var(--bg-tertiary)] transition">
-            <div class="text-sm font-medium text-[var(--text-primary)] truncate">${escapeHtml(title)}</div>
-            ${description}
+        const descriptionBlock = description ? `<p class="env-related-card__description">${description}</p>` : '';
+        const metaRows = [
+            { label: 'version', value: versionDisplay },
+            { label: 'source', value: sourceDisplay },
+        ];
+        const metaBlock = metaRows.map(row => `
+            <div class="env-related-card__meta-row">
+                <span class="env-related-card__meta-label">${escapeHtml(row.label)}:</span>
+                <span class="env-related-card__meta-value">${escapeHtml(row.value)}</span>
+            </div>
+        `).join('');
+        return `<a href="${escapeAttribute(href)}" class="env-related-card">
+            <div>
+                <h5 class="env-related-card__title">${escapeHtml(title)}</h5>
+                <p class="env-related-card__path">${escapeHtml(pathDisplay)}</p>
+            </div>
+            ${descriptionBlock}
+            <div class="env-related-card__meta">${metaBlock}</div>
         </a>`;
+    }
+
+    function formatPipelinePath(path) {
+        if (!path) return '/';
+        const normalized = String(path).replace(/^\/+/, '');
+        return `/${normalized}`;
     }
 
     function renderTriggerDetail(trigger) {
         const href = `#/triggers/${trigger.slug.split('/').map(encodeURIComponent).join('/')}`;
         const branches = Array.isArray(trigger.branches) && trigger.branches.length ? trigger.branches.join(', ') : 'All branches';
-        return `<a href="${escapeAttribute(href)}" class="block rounded-md border border-[var(--border-primary)] p-3 hover:border-[var(--border-accent)] hover:bg-[var(--bg-tertiary)] transition">
-            <div class="text-sm font-medium text-[var(--text-primary)] truncate">${escapeHtml(trigger.slug)}</div>
-            <p class="text-xs text-[var(--text-secondary)]">Event: ${escapeHtml(trigger.event || 'custom')}</p>
-            <p class="text-xs text-[var(--text-secondary)] truncate">Branches: ${escapeHtml(branches)}</p>
+        const pipelineCount = Array.isArray(trigger.pipelines) ? trigger.pipelines.length : 0;
+        const pipelineSummary = pipelineCount ? `${pipelineCount} pipeline${pipelineCount === 1 ? '' : 's'}` : 'No pipelines linked';
+        const scopeLabel = trigger.environment ? `/${trigger.environment}` : '/';
+        const metaRows = [
+            { label: 'event', value: trigger.event || 'custom' },
+            { label: 'branches', value: branches },
+            { label: 'pipelines', value: pipelineSummary },
+        ];
+        const metaBlock = metaRows.map(row => `
+            <div class="env-related-card__meta-row">
+                <span class="env-related-card__meta-label">${escapeHtml(row.label)}:</span>
+                <span class="env-related-card__meta-value">${escapeHtml(row.value)}</span>
+            </div>
+        `).join('');
+        return `<a href="${escapeAttribute(href)}" class="env-related-card">
+            <div>
+                <h5 class="env-related-card__title">${escapeHtml(trigger.slug)}</h5>
+                <p class="env-related-card__path">${escapeHtml(scopeLabel)}</p>
+            </div>
+            <div class="env-related-card__meta">${metaBlock}</div>
         </a>`;
+    }
+
+    function renderRelatedCollection(elementId, items, emptyText) {
+        const container = document.getElementById(elementId);
+        if (!container) return;
+        if (!container.classList.contains('env-related-list')) {
+            container.classList.add('env-related-list');
+        }
+        container.dataset.empty = emptyText;
+        if (items && items.length) {
+            container.innerHTML = items.join('');
+        } else {
+            container.innerHTML = '';
+        }
     }
 
     function clearVariableDetail() {
         state.selectedVariable = null;
         if (DOM['environment-variable-title']) DOM['environment-variable-title'].textContent = '';
-        if (DOM['environment-variable-subtitle']) DOM['environment-variable-subtitle'].textContent = 'Select a variable to see details.';
-        if (DOM['environment-variable-pipelines']) DOM['environment-variable-pipelines'].innerHTML = '';
-        if (DOM['environment-variable-triggers']) DOM['environment-variable-triggers'].innerHTML = '';
-        if (DOM['environment-variable-actions']) DOM['environment-variable-actions'].classList.add('hidden');
+        if (DOM['environment-variable-subtitle']) DOM['environment-variable-subtitle'].textContent = 'Select a variable to inspect details.';
+        if (DOM['environment-variable-pipelines']) {
+            DOM['environment-variable-pipelines'].innerHTML = '';
+            DOM['environment-variable-pipelines'].dataset.empty = 'No pipelines declare this variable.';
+        }
+        if (DOM['environment-variable-triggers']) {
+            DOM['environment-variable-triggers'].innerHTML = '';
+            DOM['environment-variable-triggers'].dataset.empty = 'No triggers reference this scope.';
+        }
     }
 
     function openEditModal(mode, options = {}) {

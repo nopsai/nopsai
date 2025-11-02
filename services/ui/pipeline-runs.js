@@ -2255,7 +2255,7 @@ if (dx !== 0 || dy !== 0) {
             });
 
             html += `
-                <a href="${groupHref}" draggable="true" class="pipeline-folder-card" data-group-id="${group.id}">
+                <a href="${groupHref}" draggable="true" class="pipeline-folder-card border border-[var(--border-primary)]" data-group-id="${group.id}">
                     <div class="pipeline-folder-card-header">
                         <span class="pipeline-folder-icon">
                             <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
