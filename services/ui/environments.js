@@ -105,13 +105,22 @@
             if (!force) {
                 return;
             }
-        } else if (!force && state.scopes.length) {
+        } else if (!force && state.scopes.length && state.scopes.every(s => s.fetched)) {
             return;
         }
 
         state.scopeLoadPromise = (async () => {
             await ensureScopesLoaded();
             await loadTriggerSummaries();
+            
+            const variableLoadPromises = [];
+            if (state.scopeMap instanceof Map) {
+                state.scopeMap.forEach(scope => {
+                    variableLoadPromises.push(ensureScopeVariablesLoaded(scope, force));
+                });
+            }
+            await Promise.all(variableLoadPromises);
+
             filterScopes();
             renderScopeCollection();
             renderSidebarTree();
@@ -555,11 +564,11 @@
         if (DOM['environment-list-empty']) {
             if (showEmpty) {
                 if (isSearching && searchTerm) {
-                    DOM['environment-list-empty'].innerHTML = `<p class="text-sm">No environment scopes matched "${escapeHtml(searchTerm)}".</p>`;
+                    DOM['environment-list-empty'].innerHTML = `<p class="text-sm">No envs matched "${escapeHtml(searchTerm)}".</p>`;
                 } else if (state.activeFolderKey) {
-                    DOM['environment-list-empty'].innerHTML = '<p class="text-sm">No environment scopes in this folder.</p>';
+                    DOM['environment-list-empty'].innerHTML = '<p class="text-sm">No envs in this folder.</p>';
                 } else {
-                    DOM['environment-list-empty'].innerHTML = '<p class="text-sm">No environment scopes found. Sync your configuration repository to import them.</p>';
+                    DOM['environment-list-empty'].innerHTML = '<p class="text-sm">No envs found. Sync your configuration repository to import them.</p>';
                 }
             }
             DOM['environment-list-empty'].classList.toggle('hidden', !showEmpty);
@@ -624,7 +633,7 @@
                     </div>
                 </div>
                 <div class="pipeline-folder-meta">
-                    <div class="pipeline-folder-meta-row"><span class="pipeline-folder-meta-label">Scopes:</span><span class="pipeline-folder-meta-value">${totalScopes}</span></div>
+                    <div class="pipeline-folder-meta-row"><span class="pipeline-folder-meta-label">Envs:</span><span class="pipeline-folder-meta-value">${totalScopes}</span></div>
                     <div class="pipeline-folder-meta-row"><span class="pipeline-folder-meta-label">Sub folders:</span><span class="pipeline-folder-meta-value">${childCount}</span></div>
                 </div>
             </article>`;
@@ -648,14 +657,44 @@
         const pipelineCount = Array.isArray(scope.pipelines) ? scope.pipelines.length : 0;
 
         return `
-            <article class="env-scope-card${isActive ? ' env-scope-card--active' : ''}" data-environment-scope="${escapeAttribute(scope.key)}" tabindex="0" role="button" aria-label="Open environment ${escapeAttribute(fullPath)}">
-                <div class="env-scope-card__badge">${escapeHtml(parentPath)}</div>
-                <h3 class="env-scope-card__title">${escapeHtml(title)}</h3>
-                <dl class="env-scope-card__meta">
-                    <div><dt>Variables</dt><dd>${variableCount}</dd></div>
-                    <div><dt>Triggers</dt><dd>${triggerCount}</dd></div>
-                    <div><dt>Pipelines</dt><dd>${pipelineCount}</dd></div>
-                </dl>
+            <article class="pipeline-card triggers-card bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg shadow-sm transition-all duration-200 p-3 flex flex-col${isActive ? ' triggers-card--active' : ''}" data-environment-scope="${escapeAttribute(scope.key)}" tabindex="0" role="button" aria-label="Open environment ${escapeAttribute(fullPath)}">
+                <div class="pipeline-card-header flex items-start justify-between gap-3">
+                    <div class="pipeline-card-info">
+                        <span class="triggers-card-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 3a9 9 0 100 18 9 9 0 000-18z"/>
+                                <path d="M3.6 9h16.8M3.6 15h16.8M12 3a15 15 0 010 18M12 3a15 15 0 000 18"/>
+                            </svg>
+                        </span>
+                        <div class="pipeline-card-text min-w-0">
+                            <h3 class="pipeline-card-title" title="${escapeAttribute(title)}">${escapeHtml(title)}</h3>
+                            <p class="pipeline-card-path" title="${escapeAttribute(parentPath)}">${escapeHtml(parentPath)}</p>
+                        </div>
+                    </div>
+                    <div class="pipeline-card-actions">
+                        <button class="pipelines-delete-button" type="button" data-environment-delete="${escapeAttribute(scope.key)}" title="Delete environment scope">
+                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6" />
+                                <path d="M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                                <path d="M4 7h16" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="pipeline-card-meta">
+                    <div class="pipeline-card-meta-row">
+                        <span class="pipeline-card-meta-label">Variables</span>
+                        <span class="pipeline-card-meta-value" title="${variableCount} variables">${variableCount}</span>
+                    </div>
+                    <div class="pipeline-card-meta-row">
+                        <span class="pipeline-card-meta-label">Triggers</span>
+                        <span class="pipeline-card-meta-value" title="${triggerCount} triggers">${triggerCount}</span>
+                    </div>
+                    <div class="pipeline-card-meta-row">
+                        <span class="pipeline-card-meta-label">Pipelines</span>
+                        <span class="pipeline-card-meta-value" title="${pipelineCount} pipelines">${pipelineCount}</span>
+                    </div>
+                </div>
             </article>`;
     }
 
