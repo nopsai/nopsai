@@ -4204,7 +4204,7 @@ async function renderModalForStep(runId, stepName, parentContext = null) {
         }
         if (stepDef?.environment && Object.keys(stepDef.environment).length > 0) {
             const envList = Object.entries(stepDef.environment).map(([k, v]) => `<li class="step-config-row"><span class="step-config-label">${escapeHtml(k)}:</span><span class="step-config-value">${escapeHtml(v)}</span></li>`).join('');
-            configHTML += `<div class="step-config-list"><h4>Environment</h4><ul>${envList}</ul></div>`;
+            configHTML += `<div class="step-config-list"><h4>Environments</h4><ul>${envList}</ul></div>`;
         }
         addConfigRow('Ignore Failure', boolBadge(!!stepDef?.ignore_failure));
         addConfigRow('Sync', boolBadge(!!step.sync));

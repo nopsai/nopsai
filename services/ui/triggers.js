@@ -868,7 +868,7 @@
         const labelDisplay = escapeHtml(label);
 
         return `
-            <article class="pipeline-folder-card" data-trigger-folder="${keyAttr}" tabindex="0" role="button" aria-label="Open folder ${labelAttr}">
+            <article class="pipeline-folder-card border border-[var(--border-primary)]" data-trigger-folder="${keyAttr}" tabindex="0" role="button" aria-label="Open folder ${labelAttr}">
                 <div class="pipeline-folder-card-header">
                     <span class="pipeline-folder-icon">
                         <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h5l2 2h9a2 2 0 012 2v7a2 2 0 01-2 2H3a2 2 0 01-2-2V9a2 2 0 012-2z"/></svg>
