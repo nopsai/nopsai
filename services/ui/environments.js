@@ -815,7 +815,7 @@ function resetEnvironmentSelection(options = {}) {
     }
 
     function renderSidebarTree() {
-        const container = DOM['environment-sidebar-tree'];
+        const container = document.getElementById('environment-sidebar-tree');
         if (!container) return;
 
         const tree = state.scopeTree || buildEnvironmentTree(state.scopes);
@@ -827,23 +827,12 @@ function resetEnvironmentSelection(options = {}) {
 
         let html = '<ul class="space-y-1">';
 
-        rootScopes.forEach(scope => {
-            html += renderSidebarScopeEntry(scope);
+        childNodes.forEach(child => {
+            html += renderSidebarFolderNode(child, 0);
         });
 
-        childNodes.forEach(child => {
-            const hasNestedFolders = child.children instanceof Map && child.children.size > 0;
-            const childScopes = Array.isArray(child.scopes) ? child.scopes.slice() : [];
-
-            if (!hasNestedFolders && childScopes.length) {
-                childScopes.sort((a, b) => (a.env || '').localeCompare(b.env || '', undefined, { sensitivity: 'base' }));
-                childScopes.forEach(scope => {
-                    html += renderSidebarScopeEntry(scope);
-                });
-                return;
-            }
-
-            html += renderSidebarFolderNode(child, 0);
+        rootScopes.forEach(scope => {
+            html += renderSidebarScopeEntry(scope);
         });
 
         html += '</ul>';
@@ -882,7 +871,7 @@ function resetEnvironmentSelection(options = {}) {
     function renderSidebarFolderNode(node, level) {
         if (!node) return '';
         const folderPath = node.key || '';
-        const folderLabel = formatEnvironmentFolderLabel(folderPath);
+        const folderLabel = formatEnvironmentFolderLabel(node.label);
         const isExpanded = shouldExpandFolder(folderPath);
         if (isExpanded) {
             ensureSidebarExpansionForPath(folderPath);
@@ -933,23 +922,12 @@ function resetEnvironmentSelection(options = {}) {
 
         let html = `<ul class="${level > 0 ? 'pl-4' : ''} space-y-1">`;
 
-        scopeEntries.forEach(scope => {
-            html += renderSidebarScopeEntry(scope);
+        childEntries.forEach(child => {
+            html += renderSidebarFolderNode(child, level);
         });
 
-        childEntries.forEach(child => {
-            const hasNestedFolders = child.children instanceof Map && child.children.size > 0;
-            const childScopes = Array.isArray(child.scopes) ? child.scopes.slice() : [];
-
-            if (!hasNestedFolders && childScopes.length) {
-                childScopes.sort((a, b) => (a.env || '').localeCompare(b.env || '', undefined, { sensitivity: 'base' }));
-                childScopes.forEach(scope => {
-                    html += renderSidebarScopeEntry(scope);
-                });
-                return;
-            }
-
-            html += renderSidebarFolderNode(child, level);
+        scopeEntries.forEach(scope => {
+            html += renderSidebarScopeEntry(scope);
         });
 
         html += '</ul>';
@@ -958,7 +936,7 @@ function resetEnvironmentSelection(options = {}) {
 
     function renderSidebarScopeEntry(scope) {
         const isActive = scope.key === state.selectedScopeKey;
-        const pathLabel = scope?.env ? `/${scope.env}` : '/';
+        const pathLabel = scope?.env === '' ? 'envs' : 'envs';
         return `<li>
             <button type="button" class="w-full text-left px-3 py-1.5 rounded-md text-sm transition ${isActive ? 'bg-[var(--bg-hover)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'}" data-environment-sidebar-scope="${escapeAttribute(scope.key)}">
                 <span class="block truncate">${escapeHtml(pathLabel)}</span>
@@ -968,8 +946,8 @@ function resetEnvironmentSelection(options = {}) {
 
     function formatEnvironmentFolderLabel(label) {
         const str = String(label || '').trim();
-        if (!str) return '/';
-        return `/${str.replace(/^\/+/, '')}`;
+        if (!str) return 'Folder';
+        return str.replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     }
 
     function ensureSidebarExpansionForPath(path) {
