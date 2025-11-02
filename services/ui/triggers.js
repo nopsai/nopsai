@@ -1301,8 +1301,9 @@
         if (!DOM['triggers-detail-meta']) return;
         const repo = slug || 'N/A';
         const triggerCount = summary?.triggerCount ?? 0;
-        const pipelineCount = summary?.pipelineCount ?? 0;
-        const envCount = Array.isArray(summary?.environments) ? summary.environments.length : 0;
+        
+        const environments = Array.isArray(summary?.environments) ? summary.environments : [];
+        
         const eventsLabel = summary?.events && summary.events.length
             ? summary.events.slice(0, 3).join(', ') + (summary.events.length > 3 ? '…' : '')
             : 'All events';
@@ -1315,25 +1316,48 @@
             { label: 'Repository', value: repo },
             { label: 'Source', value: source },
             { label: 'Rules', value: triggerCount },
-            { label: 'Pipelines', value: pipelineCount },
-            { label: 'Environments', value: envCount },
             { label: 'Events', value: eventsLabel, title: fullEventsLabel },
         ];
 
-        DOM['triggers-detail-meta'].innerHTML = `
-            <div class="triggers-meta-grid">
-                ${items.map(({ label, value, title }) => {
-                    const safeValue = escapeHtml(String(value ?? ''));
-                    const tooltip = title != null ? escapeAttribute(String(title)) : escapeAttribute(String(value ?? ''));
-                    return `
-                        <div class="triggers-meta-cell">
-                            <span class="triggers-detail-label">${escapeHtml(label)}:</span>
-                            <span class="triggers-detail-value" title="${tooltip}">${safeValue}</span>
-                        </div>
-                    `;
-                }).join('')}
-            </div>
+        const encodeEnvSegment = (envLabel) => {
+            const label = String(envLabel || '').trim();
+            return label ? encodeURIComponent(label) : 'default';
+        };
+
+        let envHtml = '';
+        if (environments.length > 0) {
+            envHtml = environments.map(env => {
+                const label = env === '' ? 'Default Scope' : `/${env}`;
+                const href = `#/environment/${encodeEnvSegment(env)}`;
+                // Use the 'pipelines-tag' class to make it look like a clickable chip
+                return `<a href="${href}" class="pipelines-tag font-semibold transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-accent)]" style="text-decoration: none;">${escapeHtml(label)}</a>`;
+            }).join('');
+        } else {
+            const href = `#/environment/default`;
+            envHtml = `<a href="${href}" class="pipelines-tag font-semibold transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-accent)]" style="text-decoration: none;">Default Scope</a>`;
+        }
+
+        let html = `<dl class="triggers-detail-grid">`;
+
+        html += items.map(({ label, value, title }) => {
+            const safeValue = escapeHtml(String(value ?? ''));
+            const tooltip = title != null ? escapeAttribute(String(title)) : escapeAttribute(String(value ?? ''));
+            return `
+                <dt class="triggers-detail-label">${escapeHtml(label)}:</dt>
+                <dd class="triggers-detail-value" title="${tooltip}">${safeValue}</dd>
+            `;
+        }).join('');
+
+        // Add the Environments row, allowing the chips to wrap
+        html += `
+            <dt class="triggers-detail-label" style="align-self: flex-start; margin-top: 4px;">Environments:</dt>
+            <dd class="triggers-detail-value flex flex-wrap gap-1.5" style="white-space: normal;">
+                ${envHtml}
+            </dd>
         `;
+
+        html += `</dl>`;
+        DOM['triggers-detail-meta'].innerHTML = html;
     }
 
     function updateTriggerActionButtons(slug, sourceLabel) {
