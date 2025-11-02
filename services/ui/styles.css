@@ -1,7 +1,7 @@
 :root {
     /* Light Theme Color Palette - REFINED */
     --bg-primary: #ffffff;      /* white - Page background */
-    --bg-secondary: #f9fafb;    /* gray-50 - Softer content background for cards/modals */
+    --bg-secondary: #fdfdfd;    /* gray-50 - Softer content background for cards/modals */
     --bg-tertiary: #f3f4f6;    /* gray-100 */
     --bg-hover: #e0e7ff;      /* indigo-100 */
     --bg-active: #c7d2fe;      /* indigo-200 */
