@@ -1837,9 +1837,38 @@ html.dark .pipelines-modal-card {
     display: flex;
     flex-direction: column;
     gap: 14px;
-    max-height: 360px;
+    max-height: 520px;
     overflow-y: auto;
     padding-right: 6px;
+}
+
+.env-variable-detail-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.env-variable-detail-name {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.env-variable-detail-titles {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.env-variable-detail-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
 }
 
 .env-variable-list::-webkit-scrollbar {
@@ -1863,6 +1892,14 @@ html.dark .pipelines-modal-card {
     display: flex;
     flex-direction: column;
     gap: 6px;
+}
+
+.env-variable-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
 }
 
 .env-variable-item {
@@ -1915,8 +1952,45 @@ html.dark .pipelines-modal-card {
 }
 
 .env-variable-item--expanded .env-variable-value {
+    display: block;
+    margin-left: 0;
+    margin-top: 6px;
+    width: 100%;
+    flex-basis: 100%;
+}
+
+.env-variable-source-pill {
     display: inline-flex;
-    margin-left: 8px;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+    border-radius: 9999px;
+    padding: 2px 8px;
+    background: rgba(148, 163, 184, 0.18);
+    color: var(--text-secondary);
+}
+
+.env-variable-source-pill--database {
+    background: rgba(16, 185, 129, 0.12);
+    color: #047857;
+}
+
+.env-variable-source-pill--git {
+    background: rgba(99, 102, 241, 0.18);
+    color: #4338ca;
+}
+
+.env-variable-source-pill--draft {
+    background: rgba(248, 113, 113, 0.18);
+    color: #b91c1c;
+}
+
+.env-variable-source-pill--local {
+    background: rgba(14, 165, 233, 0.18);
+    color: #0369a1;
 }
 
 .env-variable-item--expanded .env-card-empty {

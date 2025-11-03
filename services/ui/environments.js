@@ -11,6 +11,7 @@
         activeFolderKey: '',
         sidebarExpanded: new Set(),
         pipelineEnvIndex: new Map(),
+        envSources: new Map(),
         pipelineMetadata: new Map(),
         pipelineMetaSeeds: new Map(),
         pipelineEnvIndexReady: false,
@@ -47,14 +48,17 @@
             'environment-detail-title', 'environment-variable-list', 'environment-variable-empty',
             'environment-variable-subtitle', 'environment-variable-pipelines',
             'environment-variable-triggers', 'environment-create-btn', 'environment-sidebar-tree',
-            'environment-edit-modal', 'environment-edit-form', 'environment-edit-name', 'environment-edit-value',
+            'environment-edit-modal', 'environment-edit-form', 'environment-edit-name', 'environment-edit-repo', 'environment-edit-value',
             'environment-edit-scope', 'environment-edit-submit', 'environment-delete-modal', 'environment-delete-message',
-            'environment-confirm-delete-btn'
+            'environment-confirm-delete-btn', 'environment-variable-detail-label', 'environment-variable-detail-source',
+            'environment-variable-detail-updated', 'environment-variable-detail-created'
         ];
 
         ids.forEach(id => {
             DOM[id] = document.getElementById(id);
         });
+
+        DOM['environment-repo-options'] = document.getElementById('environment-repo-options');
     }
 
     function attachEventListeners() {
@@ -264,6 +268,7 @@
             label,
             description,
             variables: [],
+            variableMeta: new Map(),
             fetched: false,
             fetching: false,
             fetchPromise: null,
@@ -377,6 +382,74 @@
             console.error('Failed to parse YAML for environment trigger summary:', error);
             return null;
         }
+    }
+
+    function normalizeEnvironmentSourceKey(value) {
+        if (value == null) return 'database';
+        const key = String(value).trim().toLowerCase();
+        if (!key) return 'database';
+        if (key.includes('git')) return 'git';
+        if (key.includes('draft')) return 'draft';
+        if (key.includes('local')) return 'local';
+        return 'database';
+    }
+
+    function formatEnvironmentSourceLabel(key) {
+        switch (normalizeEnvironmentSourceKey(key)) {
+            case 'git':
+                return 'Git';
+            case 'draft':
+                return 'Draft';
+            case 'local':
+                return 'Local';
+            case 'database':
+            default:
+                return 'Database';
+        }
+    }
+
+    function getEnvironmentMetadata(name, scopeRef) {
+        if (!name) return null;
+        let scope = scopeRef;
+        if (typeof scope === 'string') {
+            scope = state.scopeMap?.get(scope);
+        }
+        if (scope && scope.variableMeta instanceof Map && scope.variableMeta.has(name)) {
+            return scope.variableMeta.get(name);
+        }
+        const envKey = makeEnvValueCacheKey(name, scope?.env || '');
+        if (state.envSources instanceof Map && state.envSources.has(envKey)) {
+            return state.envSources.get(envKey);
+        }
+        return null;
+    }
+
+    function getEnvironmentSourceForVariable(name, scopeRef) {
+        const meta = getEnvironmentMetadata(name, scopeRef);
+        return meta?.source || 'database';
+    }
+
+    function isEnvironmentSourceEditable(key) {
+        return normalizeEnvironmentSourceKey(key) !== 'git';
+    }
+
+    function formatRelativeTime(value) {
+        const date = value instanceof Date ? value : new Date(value);
+        const timestamp = date.getTime();
+        if (Number.isNaN(timestamp)) return '';
+        const delta = (Date.now() - timestamp) / 1000;
+        if (delta < 60) return 'just now';
+        if (delta < 3600) return `${Math.floor(delta / 60)}m ago`;
+        if (delta < 86400) return `${Math.floor(delta / 3600)}h ago`;
+        return `${Math.floor(delta / 86400)}d ago`;
+    }
+
+    function formatDisplayTimestamp(value) {
+        if (!value) return '';
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return value;
+        const relative = formatRelativeTime(date);
+        return relative ? `${date.toLocaleString()} (${relative})` : date.toLocaleString();
     }
 
     function registerTriggerForScope({ slug, trigger, owner, name }) {
@@ -1120,12 +1193,50 @@ function resetEnvironmentSelection(options = {}) {
         }
         if (!context || typeof context.fetchData !== 'function') return [];
 
-        const url = scope.env ? `/v1/environments?env=${encodeURIComponent(scope.env)}` : '/v1/environments';
+        const baseUrl = scope.env ? `/v1/environments?env=${encodeURIComponent(scope.env)}` : '/v1/environments';
+        const url = baseUrl.includes('?') ? `${baseUrl}&include_source=true` : `${baseUrl}?include_source=true`;
         scope.fetching = true;
         scope.fetchPromise = (async () => {
             try {
                 const result = await context.fetchData(url);
-                const names = Array.isArray(result) ? result.map(item => String(item || '').trim()).filter(Boolean) : [];
+                const entries = Array.isArray(result) ? result : [];
+                const normalizedEntries = entries.map(item => {
+                    if (typeof item === 'string') {
+                        return { name: String(item || '').trim(), source: 'database', createdAt: '', updatedAt: '' };
+                    }
+                    if (item && typeof item === 'object') {
+                        return {
+                            name: String(item.name || '').trim(),
+                            source: normalizeEnvironmentSourceKey(item.source || 'database'),
+                            createdAt: item.created_at || item.createdAt || '',
+                            updatedAt: item.updated_at || item.updatedAt || '',
+                        };
+                    }
+                    return { name: '', source: 'database', createdAt: '', updatedAt: '' };
+                }).filter(entry => entry.name);
+
+                const globalMeta = state.envSources instanceof Map ? state.envSources : new Map();
+                state.envSources = globalMeta;
+                if (!(scope.variableMeta instanceof Map)) {
+                    scope.variableMeta = new Map();
+                }
+                if (scope.variableMeta instanceof Map) {
+                    scope.variableMeta.forEach((_, varName) => {
+                        globalMeta.delete(makeEnvValueCacheKey(varName, scope.env || ''));
+                    });
+                    scope.variableMeta.clear();
+                }
+
+                const names = normalizedEntries.map(entry => {
+                    const meta = {
+                        source: entry.source,
+                        createdAt: entry.createdAt,
+                        updatedAt: entry.updatedAt,
+                    };
+                    scope.variableMeta.set(entry.name, meta);
+                    globalMeta.set(makeEnvValueCacheKey(entry.name, scope.env || ''), meta);
+                    return entry.name;
+                });
                 names.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
                 scope.variables = names;
                 scope.fetched = true;
@@ -1183,15 +1294,12 @@ function resetEnvironmentSelection(options = {}) {
         const container = DOM['environment-variable-list'];
         if (!container) return;
 
-        if (!scope.variables.length) {
-            if (DOM['environment-variable-empty']) DOM['environment-variable-empty'].classList.remove('hidden');
-            container.innerHTML = '';
-            return;
+        const hasVariables = Array.isArray(scope.variables) && scope.variables.length > 0;
+        if (DOM['environment-variable-empty']) {
+            DOM['environment-variable-empty'].classList.toggle('hidden', hasVariables);
         }
 
-        if (DOM['environment-variable-empty']) DOM['environment-variable-empty'].classList.add('hidden');
-
-        const grouped = groupVariablesByRepository(scope.variables);
+        const grouped = groupVariablesByRepository(hasVariables ? scope.variables : []);
         const sections = [];
 
         if (grouped.global.length) {
@@ -1202,7 +1310,9 @@ function resetEnvironmentSelection(options = {}) {
             sections.push(renderVariableSection(entry.repo, entry.variables, { scopeKey: scope.key }));
         });
 
-        container.innerHTML = sections.join('');
+        let html = sections.join('');
+        html += renderAddVariableCard(scope);
+        container.innerHTML = html;
 
         container.querySelectorAll('[data-environment-variable]').forEach(button => {
             button.addEventListener('click', () => {
@@ -1256,6 +1366,39 @@ function resetEnvironmentSelection(options = {}) {
             });
         });
 
+        container.querySelectorAll('[data-env-variable-clone]').forEach(button => {
+            button.addEventListener('click', async event => {
+                event.preventDefault();
+                event.stopPropagation();
+                const item = button.closest('[data-env-variable-item]');
+                if (!item) return;
+                const variableName = item.getAttribute('data-env-variable-full');
+                const scopeKey = item.getAttribute('data-env-variable-scope') || scope.key;
+                if (!variableName) return;
+                await cloneEnvironmentVariable(scopeKey, variableName);
+            });
+        });
+
+        container.querySelectorAll('[data-add-environment-variable]').forEach(card => {
+            const scopeKey = card.getAttribute('data-scope-key') || scope.key || DEFAULT_SCOPE_KEY;
+            const repoAttr = card.getAttribute('data-repo-slug') || '';
+            const normalizedRepo = normalizeRepositorySlug(repoAttr);
+            const handleOpen = () => openEditModal('create', normalizedRepo ? { scopeKey, repository: normalizedRepo } : { scopeKey });
+
+            card.addEventListener('click', event => {
+                event.preventDefault();
+                event.stopPropagation();
+                handleOpen();
+            });
+
+            card.addEventListener('keydown', event => {
+                if (event.defaultPrevented) return;
+                if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return;
+                event.preventDefault();
+                handleOpen();
+            });
+        });
+
         highlightActiveVariable(state.selectedVariable);
         updateVariableItemStates();
         updateVariableItemStates();
@@ -1293,27 +1436,90 @@ function resetEnvironmentSelection(options = {}) {
         return { global, repositories };
     }
 
+    function normalizeRepositorySlug(raw) {
+        if (typeof raw !== 'string') return '';
+        const trimmed = raw.trim().replace(/^\/+|\/+$/g, '');
+        if (!trimmed) return '';
+        const segments = trimmed.split('/').filter(Boolean);
+        if (segments.length !== 2) return '';
+        const [owner, repo] = segments;
+        if (!owner || !repo || /\s/.test(owner) || /\s/.test(repo)) return '';
+        return `${owner}/${repo}`;
+    }
+
+    function collectKnownRepositorySlugs(extraSlug = '') {
+        const repos = new Set();
+
+        if (state.scopeMap instanceof Map) {
+            state.scopeMap.forEach(scope => {
+                (scope.variables || []).forEach(variable => {
+                    const identity = parseVariableIdentity(variable);
+                    if (identity.repoOwner && identity.repoName) {
+                        repos.add(`${identity.repoOwner}/${identity.repoName}`);
+                    }
+                });
+                (scope.triggers || []).forEach(trigger => {
+                    if (!trigger) return;
+                    const [owner, repo] = splitSlug(trigger.slug || '');
+                    if (owner && repo) {
+                        repos.add(`${owner}/${repo}`);
+                    }
+                });
+            });
+        }
+
+        if (extraSlug) {
+            const normalized = normalizeRepositorySlug(extraSlug);
+            if (normalized) repos.add(normalized);
+        }
+
+        return Array.from(repos).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    }
+
+    function populateEnvironmentRepoSuggestions(preselect = '') {
+        const datalist = DOM['environment-repo-options'];
+        if (!datalist) return;
+        const entries = collectKnownRepositorySlugs(preselect);
+        datalist.innerHTML = entries.map(slug => `<option value="${escapeAttribute(slug)}"></option>`).join('');
+    }
+
     function renderVariableSection(title, items, options = {}) {
         if (!Array.isArray(items) || !items.length) return '';
         const scopeKey = options.scopeKey || '';
+        const scopeRef = state.scopeMap.get(scopeKey) || state.scopeMap.get(state.selectedScopeKey || DEFAULT_SCOPE_KEY);
+
         const groups = items.map(item => {
             const isExpanded = state.expandedVariable === item.full;
             const isActive = item.full === state.selectedVariable;
+            const sourceKey = getEnvironmentSourceForVariable(item.full, scopeRef);
+            const sourceLabel = formatEnvironmentSourceLabel(sourceKey);
+            const isEditable = isEnvironmentSourceEditable(sourceKey);
+            const identity = parseVariableIdentity(item.full);
+
             return `
                 <div class="env-variable-item${isActive ? ' env-variable-item--active' : ''}${isExpanded ? ' env-variable-item--expanded' : ''}" data-env-variable-item data-env-variable-full="${escapeAttribute(item.full)}" data-env-variable-scope="${escapeAttribute(scopeKey)}">
-                    <button type="button" class="env-variable-btn${isActive ? ' env-variable-btn--active' : ''}" data-environment-variable="${escapeAttribute(item.full)}">
-                        <span class="truncate">${escapeHtml(item.display)}</span>
-                    </button>
+                    <div class="env-variable-info">
+                        <button type="button" class="env-variable-btn${isActive ? ' env-variable-btn--active' : ''}" data-environment-variable="${escapeAttribute(item.full)}">
+                            <span class="truncate">${escapeHtml(item.display)}</span>
+                        </button>
+                        <span class="env-variable-source-pill env-variable-source-pill--${sourceKey}">${escapeHtml(sourceLabel)}</span>
+                    </div>
                     <div class="env-variable-inline-actions">
-                        <button type="button" class="env-inline-icon" data-env-variable-show>
+                        <button type="button" class="env-inline-icon" data-env-variable-show title="Show value">
                             <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
                         </button>
-                        <button type="button" class="env-inline-icon" data-env-variable-action="edit">
+                        ${isEditable ? `
+                        <button type="button" class="env-inline-icon" data-env-variable-action="edit" title="Edit variable">
                             <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 113 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
                         </button>
-                        <button type="button" class="env-inline-icon env-inline-icon--danger" data-env-variable-action="delete">
+                        <button type="button" class="env-inline-icon env-inline-icon--danger" data-env-variable-action="delete" title="Delete variable">
                             <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6l1-3h4l1 3"/></svg>
                         </button>
+                        ` : `
+                        <button type="button" class="env-inline-icon" data-env-variable-clone="${escapeAttribute(item.full)}" title="Clone from config">
+                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2"/><path d="M9 7h5a2 2 0 012 2v9a2 2 0 01-2 2H9a2 2 0 01-2-2V9a2 2 0 012-2z"/><path d="M9 7V5a2 2 0 012-2h7"/></svg>
+                        </button>
+                        `}
                     </div>
                     <div class="env-variable-value" data-env-variable-value></div>
                 </div>`;
@@ -1325,6 +1531,28 @@ function resetEnvironmentSelection(options = {}) {
             ${heading}
             <div class="env-variable-buttons">${groups}</div>
         </section>`;
+    }
+
+    function renderAddVariableCard(scope) {
+        if (!scope) return '';
+        const scopeKey = scope.key || DEFAULT_SCOPE_KEY;
+        const scopeLabel = scope.env ? `/${scope.env}` : '/';
+        const ariaLabel = escapeAttribute(`Create new variable for ${scopeLabel}`);
+
+        return `
+            <section class="env-variable-section env-variable-section--add">
+                <div class="env-variable-buttons">
+                    <div class="env-variable-add-card relative group bg-[var(--bg-secondary)] p-4 rounded-lg border-2 border-dashed border-[var(--border-secondary)] hover:border-[var(--border-accent)] hover:bg-[var(--bg-tertiary)] transition-colors duration-200 cursor-pointer flex items-center justify-center min-h-[120px] w-full" data-add-environment-variable data-scope-key="${escapeAttribute(scopeKey)}" tabindex="0" role="button" aria-label="${ariaLabel}">
+                        <div class="text-center">
+                            <svg class="mx-auto h-8 w-8 text-[var(--text-secondary)] group-hover:text-[var(--text-accent)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                            </svg>
+                            <p class="mt-2 text-sm font-medium text-[var(--text-secondary)] group-hover:text-[var(--text-accent)]">New Variable</p>
+                            <p class="text-xs text-[var(--text-secondary)] opacity-80">Add to ${escapeHtml(scopeLabel)}</p>
+                        </div>
+                    </div>
+                </div>
+            </section>`;
     }
 
     async function selectVariable(name, options = {}) {
@@ -1460,17 +1688,20 @@ function resetEnvironmentSelection(options = {}) {
         }
 
         const promise = (async () => {
+            const { status, data, error } = await fetchEnvironmentResource(url);
             try {
-                const result = await context.fetchData(url);
-                if (result && typeof result === 'object' && result.value != null) {
-                    return String(result.value);
+                if (status === 404) {
+                    return '';
                 }
-                if (typeof result === 'string') {
-                    return result;
+                if (error) {
+                    throw error;
                 }
-                return '';
-            } catch (error) {
-                console.error('Failed to retrieve environment value:', error);
+                if (data && typeof data === 'object' && data.value != null) {
+                    return String(data.value);
+                }
+                if (typeof data === 'string') {
+                    return data;
+                }
                 return '';
             } finally {
                 state.envValuePromises.delete(cacheKey);
@@ -1493,6 +1724,33 @@ function resetEnvironmentSelection(options = {}) {
 
     function makeEnvValueCacheKey(variableName, envLabel) {
         return `${envLabel || ''}::${variableName}`;
+    }
+
+
+
+
+    async function fetchEnvironmentResource(url, options = {}) {
+        const base = (context && typeof context.apiBaseUrl === 'string') ? context.apiBaseUrl : '';
+        const target = `${base || ''}${url}`;
+        try {
+            const response = await fetch(target, options);
+            if (response.status === 404) {
+                return { status: 404, data: null };
+            }
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(errorText || `HTTP ${response.status}`);
+            }
+            if (response.status === 204) {
+                return { status: 204, data: null };
+            }
+            const contentType = (response.headers.get('content-type') || '').toLowerCase();
+            const data = contentType.includes('application/json') ? await response.json() : await response.text();
+            return { status: response.status, data };
+        } catch (error) {
+            console.error('Environment fetch failed', { url: target, error });
+            return { status: 0, data: null, error };
+        }
     }
 
 
@@ -1648,7 +1906,7 @@ function resetEnvironmentSelection(options = {}) {
     }
 
     function renderVariableDetail(scope, name) {
-
+        updateVariableDetailMeta(name, scope);
         const pipelineEntries = Array.from(state.pipelineEnvIndex.get(name) || []);
         renderRelatedCollection('environment-variable-pipelines', pipelineEntries.map(renderPipelineDetail), 'No pipelines declare this variable.');
 
@@ -1742,6 +2000,98 @@ function resetEnvironmentSelection(options = {}) {
             DOM['environment-variable-triggers'].innerHTML = '';
             DOM['environment-variable-triggers'].dataset.empty = 'No triggers reference this scope.';
         }
+        if (DOM['environment-variable-detail-label']) {
+            DOM['environment-variable-detail-label'].textContent = 'Select a variable to inspect details.';
+        }
+        if (DOM['environment-variable-detail-source']) {
+            DOM['environment-variable-detail-source'].classList.add('hidden');
+            DOM['environment-variable-detail-source'].textContent = '';
+        }
+    }
+
+    function updateVariableDetailMeta(name, scope) {
+        const labelEl = DOM['environment-variable-detail-label'];
+        const sourceEl = DOM['environment-variable-detail-source'];
+        const updatedEl = DOM['environment-variable-detail-updated'];
+        const createdEl = DOM['environment-variable-detail-created'];
+        if (!labelEl || !sourceEl || !updatedEl || !createdEl) return;
+
+        if (!name) {
+            labelEl.textContent = 'Select a variable to inspect details.';
+            sourceEl.classList.add('hidden');
+            sourceEl.textContent = '';
+            updatedEl.textContent = '';
+            updatedEl.classList.add('hidden');
+            createdEl.textContent = '';
+            createdEl.classList.add('hidden');
+            return;
+        }
+
+        const meta = getEnvironmentMetadata(name, scope);
+        labelEl.textContent = name;
+
+        if (meta?.source) {
+            const sourceKey = meta.source;
+            sourceEl.textContent = formatEnvironmentSourceLabel(sourceKey);
+            sourceEl.className = `env-variable-source-pill env-variable-source-pill--${sourceKey}`;
+            sourceEl.classList.remove('hidden');
+        } else {
+            sourceEl.textContent = '';
+            sourceEl.className = 'env-variable-source-pill env-variable-source-pill--database hidden';
+        }
+
+        if (meta?.updatedAt) {
+            updatedEl.textContent = `Updated ${formatDisplayTimestamp(meta.updatedAt)}`;
+            updatedEl.classList.remove('hidden');
+        } else {
+            updatedEl.textContent = '';
+            updatedEl.classList.add('hidden');
+        }
+
+        if (meta?.createdAt) {
+            createdEl.textContent = `Created ${formatDisplayTimestamp(meta.createdAt)}`;
+            createdEl.classList.remove('hidden');
+        } else {
+            createdEl.textContent = '';
+            createdEl.classList.add('hidden');
+        }
+    }
+
+    async function cloneEnvironmentVariable(scopeKey, variableName) {
+        const scope = state.scopeMap.get(scopeKey) || state.scopeMap.get(state.selectedScopeKey || DEFAULT_SCOPE_KEY);
+        if (!scope) return;
+        const identity = parseVariableIdentity(variableName);
+        const repoSlug = identity.repoOwner && identity.repoName ? `${identity.repoOwner}/${identity.repoName}` : '';
+        const baseName = identity.name || variableName;
+        const suggestion = suggestEnvironmentCloneName(scope, repoSlug, baseName);
+        let seedValue = '';
+        try {
+            seedValue = await fetchVariableValue(scope, variableName);
+        } catch (error) {
+            console.warn('Unable to prefill cloned environment value', error);
+        }
+        openEditModal('create', {
+            scopeKey: scope.key,
+            repository: repoSlug,
+            nameSuggestion: suggestion,
+            valuePreset: seedValue,
+        });
+    }
+
+    function suggestEnvironmentCloneName(scope, repoSlug, baseName) {
+        const sanitizedBase = String(baseName || 'variable')
+            .trim()
+            .replace(/[^A-Za-z0-9_.-]+/g, '-')
+            .replace(/^-+|-+$/g, '') || 'variable';
+        const normalizedRepo = repoSlug || '';
+        const existing = new Set((scope.variables || []).map(name => name.toLowerCase()));
+        const buildFull = candidate => (normalizedRepo ? `${normalizedRepo}/${candidate}` : candidate).toLowerCase();
+        let candidate = `${sanitizedBase}_copy`;
+        let counter = 2;
+        while (existing.has(buildFull(candidate))) {
+            candidate = `${sanitizedBase}_copy_${counter++}`;
+        }
+        return candidate;
     }
 
     function openEditModal(mode, options = {}) {
@@ -1757,12 +2107,38 @@ function resetEnvironmentSelection(options = {}) {
             DOM['environment-edit-scope'].textContent = scope.env ? `Scope: /${scope.env}` : 'Scope: /';
         }
 
+        const identity = parseVariableIdentity(options.name || '');
+        const existingRepoSlug = identity.repoOwner && identity.repoName ? `${identity.repoOwner}/${identity.repoName}` : '';
+        const requestedRepoSlug = normalizeRepositorySlug(options.repository || options.repoSlug || '') || existingRepoSlug;
+        populateEnvironmentRepoSuggestions(requestedRepoSlug);
+
         if (DOM['environment-edit-name']) {
-            DOM['environment-edit-name'].value = mode === 'update' ? options.name || '' : '';
+            let baseName = '';
+            if (mode === 'update') {
+                baseName = identity.repoOwner && identity.repoName ? identity.name : (options.name || '');
+            } else {
+                baseName = typeof options.nameSuggestion === 'string' ? options.nameSuggestion : '';
+            }
+            DOM['environment-edit-name'].value = baseName;
             DOM['environment-edit-name'].readOnly = mode === 'update';
         }
+        if (DOM['environment-edit-repo']) {
+            const input = DOM['environment-edit-repo'];
+            if (mode === 'update') {
+                input.value = existingRepoSlug;
+                input.disabled = true;
+                input.setAttribute('aria-disabled', 'true');
+            } else {
+                input.disabled = false;
+                input.removeAttribute('aria-disabled');
+                input.value = requestedRepoSlug;
+            }
+        }
         if (DOM['environment-edit-value']) {
-            DOM['environment-edit-value'].value = '';
+            const preset = mode === 'create' && typeof options.valuePreset === 'string'
+                ? options.valuePreset
+                : '';
+            DOM['environment-edit-value'].value = preset;
         }
         if (DOM['environment-edit-form']) {
             DOM['environment-edit-form'].dataset.mode = mode;
@@ -1783,9 +2159,55 @@ function resetEnvironmentSelection(options = {}) {
         const form = event.currentTarget;
         const mode = form.dataset.mode || 'create';
         const scopeKey = form.dataset.scopeKey || DEFAULT_SCOPE_KEY;
-        const variableName = form.dataset.variableName || DOM['environment-edit-name']?.value.trim();
+        const nameInputValue = DOM['environment-edit-name']?.value.trim() || '';
+        const repoInput = DOM['environment-edit-repo'];
         const value = DOM['environment-edit-value']?.value || '';
-        if (!variableName) {
+
+        let repoSlug = '';
+        if (repoInput && !repoInput.disabled) {
+            repoSlug = repoInput.value.trim();
+            if (repoSlug) {
+                repoSlug = normalizeRepositorySlug(repoSlug);
+                if (!repoSlug) {
+                    showToast('Repository must use the “owner/repository” format.', 'error');
+                    return;
+                }
+            }
+        }
+
+        let variableName = form.dataset.variableName || '';
+        let targetRepoOwner = '';
+        let targetRepoName = '';
+        let targetVarName = '';
+
+        if (mode === 'update') {
+            const identity = parseVariableIdentity(variableName || nameInputValue);
+            targetVarName = identity.name || nameInputValue;
+            targetRepoOwner = identity.repoOwner || '';
+            targetRepoName = identity.repoName || '';
+            if (targetRepoOwner && targetRepoName) {
+                repoSlug = `${targetRepoOwner}/${targetRepoName}`;
+            }
+            variableName = identity.repoOwner && identity.repoName
+                ? `${identity.repoOwner}/${identity.repoName}/${targetVarName}`
+                : targetVarName;
+        } else {
+            if (!nameInputValue) {
+                showToast('Variable name is required.', 'error');
+                return;
+            }
+            if (repoSlug && nameInputValue.includes('/')) {
+                showToast('Variable name should not include “/” when a repository is selected.', 'error');
+                return;
+            }
+            targetVarName = nameInputValue;
+            if (repoSlug) {
+                [targetRepoOwner, targetRepoName] = repoSlug.split('/');
+            }
+            variableName = repoSlug ? `${repoSlug}/${nameInputValue}` : nameInputValue;
+        }
+
+        if (!variableName || !targetVarName) {
             showToast('Variable name is required.', 'error');
             return;
         }
@@ -1799,7 +2221,12 @@ function resetEnvironmentSelection(options = {}) {
             return;
         }
 
-        const urlBase = `/v1/environments/${encodeURIComponent(variableName)}`;
+        let urlBase = '';
+        if (targetRepoOwner && targetRepoName) {
+            urlBase = `/v1/repositories/${encodeURIComponent(targetRepoOwner)}/${encodeURIComponent(targetRepoName)}/environments/${encodeURIComponent(targetVarName)}`;
+        } else {
+            urlBase = `/v1/environments/${encodeURIComponent(targetVarName)}`;
+        }
         const url = scope.env ? `${urlBase}?env=${encodeURIComponent(scope.env)}` : urlBase;
 
         try {
@@ -1809,6 +2236,11 @@ function resetEnvironmentSelection(options = {}) {
                 body: JSON.stringify({ value }),
             });
             showToast(mode === 'update' ? 'Variable value updated.' : 'Variable created.', 'success');
+            const cacheKey = makeEnvValueCacheKey(variableName, scope.env || '');
+            state.envValues.delete(cacheKey);
+            if (state.envValuePromises instanceof Map) {
+                state.envValuePromises.delete(cacheKey);
+            }
             closeModal('environment-edit-modal');
             await ensureScopeVariablesLoaded(scope, true);
             renderScopeDetail(scope);
@@ -1822,8 +2254,12 @@ function resetEnvironmentSelection(options = {}) {
     }
 
     function openDeleteModal(scope, name) {
+        const identity = parseVariableIdentity(name || '');
+        const displayName = identity.repoOwner && identity.repoName
+            ? `${identity.repoOwner}/${identity.repoName}/${identity.name}`
+            : identity.name || name;
         if (DOM['environment-delete-message']) {
-            DOM['environment-delete-message'].textContent = `Remove “${name}” from ${scope.env ? `/${scope.env}` : '/'} scope?`;
+            DOM['environment-delete-message'].textContent = `Remove “${displayName}” from ${scope.env ? `/${scope.env}` : '/'} scope?`;
         }
         if (DOM['environment-confirm-delete-btn']) {
             DOM['environment-confirm-delete-btn'].dataset.scopeKey = scope.key;
@@ -1841,7 +2277,17 @@ function resetEnvironmentSelection(options = {}) {
         const scope = state.scopeMap.get(scopeKey);
         if (!scope || !name) return;
 
-        const urlBase = `/v1/environments/${encodeURIComponent(name)}`;
+        const identity = parseVariableIdentity(name);
+        const repoOwner = identity.repoOwner || '';
+        const repoName = identity.repoName || '';
+        const baseName = identity.name || name;
+
+        let urlBase = '';
+        if (repoOwner && repoName) {
+            urlBase = `/v1/repositories/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/environments/${encodeURIComponent(baseName)}`;
+        } else {
+            urlBase = `/v1/environments/${encodeURIComponent(baseName)}`;
+        }
         const url = scope.env ? `${urlBase}?env=${encodeURIComponent(scope.env)}` : urlBase;
 
         try {
