@@ -506,6 +506,7 @@
 
         const searchTerm = (state.searchTerm || '').trim();
         const isSearching = state.isSearching && !!searchTerm;
+        const showAddCard = !isSearching;
         const hasSelection = !!state.selectedScopeKey;
 
         if (isSearching) {
@@ -548,7 +549,11 @@
 
             const scopes = Array.isArray(node?.scopes) ? node.scopes.slice() : [];
             scopes.sort((a, b) => (a.env || '').localeCompare(b.env || '', undefined, { sensitivity: 'base' }));
+            const addCardScopeKey = resolveAddCardScopeKey(node, scopes);
             const scopeCards = scopes.map(renderEnvironmentCard);
+            if (showAddCard) {
+                scopeCards.push(renderAddEnvironmentCard(addCardScopeKey));
+            }
             if (scopeCards.length) {
                 html += `<div class="pipelines-card-grid pipelines-card-grid--pipelines">${scopeCards.join('')}</div>`;
             }
@@ -691,6 +696,35 @@
             </article>`;
     }
 
+    function renderAddEnvironmentCard(scopeKey) {
+        const keyAttr = scopeKey ? escapeAttribute(scopeKey) : '';
+        const scopeAttr = keyAttr ? ` data-scope-key="${keyAttr}"` : '';
+        return `
+            <div class="add-environment-card relative group bg-[var(--bg-secondary)] p-4 rounded-lg border-2 border-dashed border-[var(--border-secondary)] hover:border-[var(--border-accent)] hover:bg-[var(--bg-tertiary)] transition-colors duration-200 cursor-pointer flex items-center justify-center min-h-[200px]" data-add-environment-card${scopeAttr} tabindex="0" role="button" aria-label="Create new variable">
+                <div class="text-center">
+                    <svg class="mx-auto h-10 w-10 text-[var(--text-secondary)] group-hover:text-[var(--text-accent)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                    </svg>
+                    <p class="mt-3 text-sm font-medium text-[var(--text-secondary)] group-hover:text-[var(--text-accent)]">New Variable</p>
+                </div>
+            </div>`;
+    }
+
+    function resolveAddCardScopeKey(node, scopes) {
+        if (Array.isArray(scopes) && scopes.length) {
+            const primary = scopes[0];
+            if (primary && primary.key) {
+                return primary.key;
+            }
+        }
+        const folderPath = node?.key || '';
+        const candidateKey = buildScopeKey(folderPath);
+        if (state.scopeMap instanceof Map && state.scopeMap.has(candidateKey)) {
+            return candidateKey;
+        }
+        return DEFAULT_SCOPE_KEY;
+    }
+
     function renderEnvironmentSearchSummary(count, term) {
         const safeTerm = escapeHtml(term);
         return `<div class="triggers-search-summary">Showing ${count} result${count === 1 ? '' : 's'} for "${safeTerm}"</div>`;
@@ -740,6 +774,16 @@ function resetEnvironmentSelection(options = {}) {
     }
 
     function handleEnvironmentListClick(event) {
+        const addCard = event.target.closest('[data-add-environment-card]');
+        if (addCard) {
+            event.preventDefault();
+            const scopeKey = addCard.getAttribute('data-scope-key') || '';
+            const options = scopeKey ? { scopeKey } : {};
+            openEditModal('create', options);
+            event.stopPropagation();
+            return;
+        }
+
         const folderCard = event.target.closest('[data-environment-folder]');
         if (folderCard) {
             event.preventDefault();
@@ -766,6 +810,16 @@ function resetEnvironmentSelection(options = {}) {
         if (event.defaultPrevented) return;
         if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return;
 
+        const addCard = event.target.closest('[data-add-environment-card]');
+        if (addCard && addCard === document.activeElement) {
+            event.preventDefault();
+            const scopeKey = addCard.getAttribute('data-scope-key') || '';
+            const options = scopeKey ? { scopeKey } : {};
+            openEditModal('create', options);
+            event.stopPropagation();
+            return;
+        }
+
         const folderCard = event.target.closest('[data-environment-folder]');
         if (folderCard && folderCard === document.activeElement) {
             event.preventDefault();
@@ -791,7 +845,7 @@ function resetEnvironmentSelection(options = {}) {
     function focusFirstEnvironmentCard() {
         const list = DOM['environment-list'];
         if (!list) return;
-        const first = list.querySelector('[data-environment-folder], [data-environment-scope]');
+        const first = list.querySelector('[data-environment-folder], [data-environment-scope], [data-add-environment-card]');
         if (first && typeof first.focus === 'function') {
             first.focus();
         }

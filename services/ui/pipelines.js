@@ -1373,14 +1373,17 @@ function formatPathLabel(path) {
         if (!DOM['pipelines-list-container']) return;
         const tree = buildGroupedPipelines();
         const hasAnyContent = (tree.children && tree.children.size > 0) || (tree.pipelines && tree.pipelines.length > 0);
+        const showAddCard = !state.searchTerm.trim();
 
         if (!hasAnyContent) {
             state.activeFolderKey = '';
-            if (DOM['pipelines-empty']) {
-                DOM['pipelines-empty'].classList.remove('hidden');
+            if (!showAddCard) {
+                if (DOM['pipelines-empty']) {
+                    DOM['pipelines-empty'].classList.remove('hidden');
+                }
+                DOM['pipelines-list-container'].innerHTML = '';
+                return;
             }
-            DOM['pipelines-list-container'].innerHTML = '';
-            return;
         }
 
         if (DOM['pipelines-empty']) {
@@ -1401,6 +1404,10 @@ function formatPathLabel(path) {
                 return nameA.localeCompare(nameB);
             })
             .map(renderPipelineCard);
+
+        if (showAddCard) {
+            pipelineCards.push(renderAddPipelineCard());
+        }
 
         const pipelinesHtml = pipelineCards.length
             ? `<div class="pipelines-card-grid pipelines-card-grid--pipelines">${pipelineCards.join('')}</div>`
@@ -1636,7 +1643,7 @@ function formatPathLabel(path) {
 
     function focusFirstListItem() {
         if (!DOM['pipelines-list-container']) return;
-        const next = DOM['pipelines-list-container'].querySelector('[data-folder-key], [data-pipeline-id]');
+        const next = DOM['pipelines-list-container'].querySelector('[data-folder-key], [data-pipeline-id], [data-add-pipeline-card]');
         if (next instanceof HTMLElement) {
             next.focus();
         }
@@ -1755,6 +1762,18 @@ function formatPathLabel(path) {
                     </div>
                 </div>
             </article>`;
+    }
+
+    function renderAddPipelineCard() {
+        return `
+            <div class="add-pipeline-card relative group bg-[var(--bg-secondary)] p-4 rounded-lg border-2 border-dashed border-[var(--border-secondary)] hover:border-[var(--border-accent)] hover:bg-[var(--bg-tertiary)] transition-colors duration-200 cursor-pointer flex items-center justify-center min-h-[200px]" data-add-pipeline-card tabindex="0" role="button" aria-label="Create new pipeline">
+                <div class="text-center">
+                    <svg class="mx-auto h-10 w-10 text-[var(--text-secondary)] group-hover:text-[var(--text-accent)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                    </svg>
+                    <p class="mt-3 text-sm font-medium text-[var(--text-secondary)] group-hover:text-[var(--text-accent)]">New Pipeline</p>
+                </div>
+            </div>`;
     }
 
     function countPipelinesRecursive(node) {
@@ -3526,6 +3545,14 @@ function formatPathLabel(path) {
             return;
         }
 
+        const addCard = event.target.closest('[data-add-pipeline-card]');
+        if (addCard) {
+            openNewPipelineModal();
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+        }
+
         const folderNav = event.target.closest('[data-folder-nav]');
         if (folderNav) {
             const folderKey = folderNav.getAttribute('data-folder-nav') || '';
@@ -3573,6 +3600,13 @@ function formatPathLabel(path) {
             return;
         }
         if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return;
+
+        const addCard = event.target.closest('[data-add-pipeline-card]');
+        if (addCard && addCard === document.activeElement) {
+            event.preventDefault();
+            openNewPipelineModal();
+            return;
+        }
 
         const folderNav = event.target.closest('[data-folder-nav]');
         if (folderNav && folderNav === document.activeElement) {
