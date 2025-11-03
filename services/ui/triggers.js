@@ -116,6 +116,29 @@
         }
     }
 
+    function openCreateTriggerModal(options = {}) {
+        if (DOM['triggers-new-form']) {
+            DOM['triggers-new-form'].reset();
+        }
+
+        const repoValue = typeof options.repository === 'string' ? options.repository : '';
+        if (DOM['triggers-new-repo']) {
+            DOM['triggers-new-repo'].value = repoValue;
+        }
+
+        updateNewTriggerBlueprint();
+        openModal('triggers-new-modal');
+
+        if (DOM['triggers-new-repo']) {
+            DOM['triggers-new-repo'].focus();
+            const input = DOM['triggers-new-repo'];
+            if (repoValue && typeof input.setSelectionRange === 'function') {
+                const length = input.value.length;
+                input.setSelectionRange(length, length);
+            }
+        }
+    }
+
     function formatTriggerFolderLabel(label) {
         const str = String(label || '').trim();
         if (!str) return 'Folder';
@@ -542,16 +565,7 @@
         }
 
         if (DOM['triggers-new-btn']) {
-            DOM['triggers-new-btn'].addEventListener('click', () => {
-                if (DOM['triggers-new-form']) {
-                    DOM['triggers-new-form'].reset();
-                }
-                updateNewTriggerBlueprint();
-                openModal('triggers-new-modal');
-                if (DOM['triggers-new-repo']) {
-                    DOM['triggers-new-repo'].focus();
-                }
-            });
+            DOM['triggers-new-btn'].addEventListener('click', () => openCreateTriggerModal());
         }
 
         if (DOM['triggers-new-repo']) {
@@ -749,6 +763,7 @@
 
         const searchTerm = (state.searchTerm || '').trim();
         const isSearching = !!searchTerm;
+        const showAddCard = !isSearching;
         const hasSelection = !!state.selectedSlug;
 
         if (isSearching) {
@@ -790,14 +805,19 @@
             const triggerEntries = Array.isArray(activeNode?.triggers) ? activeNode.triggers.slice() : [];
             if (triggerEntries.length) {
                 triggerEntries.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
-                const cards = triggerEntries.map(entry => renderTriggerCard(entry.slug));
-                if (cards.length) {
-                    html += `<div class="pipelines-card-grid pipelines-card-grid--pipelines">${cards.join('')}</div>`;
-                }
+            }
+            const triggerCards = triggerEntries.map(entry => renderTriggerCard(entry.slug));
+            if (showAddCard) {
+                triggerCards.push(renderAddTriggerCard());
+            }
+            if (triggerCards.length) {
+                html += `<div class="pipelines-card-grid pipelines-card-grid--pipelines">${triggerCards.join('')}</div>`;
             }
 
-            if (!activeNode?.children?.size && !(activeNode?.triggers && activeNode.triggers.length)) {
-                showEmpty = true;
+            const hasFolders = !!(activeNode?.children && activeNode.children.size);
+            const hasRealTriggers = triggerEntries.length > 0;
+            if (!hasFolders && !hasRealTriggers) {
+                showEmpty = !showAddCard;
             }
         }
 
@@ -931,6 +951,18 @@
             </article>`;
     }
 
+    function renderAddTriggerCard() {
+        return `
+            <div class="add-trigger-card relative group bg-[var(--bg-secondary)] p-4 rounded-lg border-2 border-dashed border-[var(--border-secondary)] hover:border-[var(--border-accent)] hover:bg-[var(--bg-tertiary)] transition-colors duration-200 cursor-pointer flex items-center justify-center min-h-[200px]" data-add-trigger-card tabindex="0" role="button" aria-label="Create new trigger">
+                <div class="text-center">
+                    <svg class="mx-auto h-10 w-10 text-[var(--text-secondary)] group-hover:text-[var(--text-accent)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                    </svg>
+                    <p class="mt-3 text-sm font-medium text-[var(--text-secondary)] group-hover:text-[var(--text-accent)]">New Trigger</p>
+                </div>
+            </div>`;
+    }
+
     function highlightActiveListItem() {
         if (!DOM['triggers-list']) return;
         DOM['triggers-list'].querySelectorAll('[data-trigger-slug]').forEach(card => {
@@ -941,6 +973,23 @@
     }
 
     function handleListClick(event) {
+        const addCard = event.target.closest('[data-add-trigger-card]');
+        if (addCard) {
+            if (state.isEditing) {
+                const proceed = confirm('Discard unsaved changes?');
+                if (!proceed) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    return;
+                }
+                exitEditMode(true, { updateHash: false });
+            }
+            openCreateTriggerModal();
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+        }
+
         const deleteButton = event.target.closest('[data-trigger-delete]');
         if (deleteButton) {
             const slug = deleteButton.getAttribute('data-trigger-delete') || '';
@@ -1015,6 +1064,18 @@
         if (event.defaultPrevented) return;
         if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return;
 
+        const addCard = event.target.closest('[data-add-trigger-card]');
+        if (addCard && addCard === document.activeElement) {
+            event.preventDefault();
+            if (state.isEditing) {
+                const proceed = confirm('Discard unsaved changes?');
+                if (!proceed) return;
+                exitEditMode(true, { updateHash: false });
+            }
+            openCreateTriggerModal();
+            return;
+        }
+
         const targetNav = event.target.closest('[data-trigger-folder-nav]');
         if (targetNav && targetNav === document.activeElement) {
             event.preventDefault();
@@ -1071,7 +1132,7 @@
     function focusFirstTriggerCard() {
         const list = DOM['triggers-list'];
         if (!list) return;
-        const first = list.querySelector('[data-trigger-folder], [data-trigger-slug]');
+        const first = list.querySelector('[data-trigger-folder], [data-trigger-slug], [data-add-trigger-card]');
         if (first && typeof first.focus === 'function') {
             first.focus();
         }
