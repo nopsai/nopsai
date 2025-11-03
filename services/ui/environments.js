@@ -45,7 +45,7 @@
             'environment-search', 'environment-search-container', 'environment-clear-search', 'environment-list', 'environment-list-empty',
             'environment-list-view', 'environment-detail-view', 'environment-detail', 'environment-back-btn',
             'environment-detail-title', 'environment-variable-list', 'environment-variable-empty',
-            'environment-variable-title', 'environment-variable-subtitle', 'environment-variable-pipelines',
+            'environment-variable-subtitle', 'environment-variable-pipelines',
             'environment-variable-triggers', 'environment-create-btn', 'environment-sidebar-tree',
             'environment-edit-modal', 'environment-edit-form', 'environment-edit-name', 'environment-edit-value',
             'environment-edit-scope', 'environment-edit-submit', 'environment-delete-modal', 'environment-delete-message',
@@ -539,8 +539,6 @@
             const tree = state.scopeTree || buildEnvironmentTree(state.scopes);
             const node = getEnvironmentTreeNode(activeFolder) || tree;
 
-            html += renderEnvironmentBreadcrumbs(activeFolder);
-
             const childNodes = node?.children instanceof Map ? Array.from(node.children.values()) : [];
             childNodes.sort((a, b) => (a.key || '').localeCompare(b.key || '', undefined, { sensitivity: 'base' }));
             const folderCards = childNodes.map(renderEnvironmentFolderCard).filter(Boolean);
@@ -654,7 +652,6 @@
         const { title, parentPath, fullPath } = describeEnvironmentScope(scope);
         const variableCount = Array.isArray(scope.variables) ? scope.variables.length : 0;
         const triggerCount = scope.triggerCount || 0;
-        const pipelineCount = Array.isArray(scope.pipelines) ? scope.pipelines.length : 0;
 
         return `
             <article class="pipeline-card triggers-card bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg shadow-sm transition-all duration-200 p-3 flex flex-col${isActive ? ' triggers-card--active' : ''}" data-environment-scope="${escapeAttribute(scope.key)}" tabindex="0" role="button" aria-label="Open environment ${escapeAttribute(fullPath)}">
@@ -690,10 +687,6 @@
                         <span class="pipeline-card-meta-label">Triggers</span>
                         <span class="pipeline-card-meta-value" title="${triggerCount} triggers">${triggerCount}</span>
                     </div>
-                    <div class="pipeline-card-meta-row">
-                        <span class="pipeline-card-meta-label">Pipelines</span>
-                        <span class="pipeline-card-meta-value" title="${pipelineCount} pipelines">${pipelineCount}</span>
-                    </div>
                 </div>
             </article>`;
     }
@@ -701,34 +694,6 @@
     function renderEnvironmentSearchSummary(count, term) {
         const safeTerm = escapeHtml(term);
         return `<div class="triggers-search-summary">Showing ${count} result${count === 1 ? '' : 's'} for "${safeTerm}"</div>`;
-    }
-
-    function buildEnvironmentBreadcrumbs(folderKey) {
-        const crumbs = [{ label: 'All environments', key: '' }];
-        const normalized = normalizeEnvironmentLabel(folderKey || '');
-        if (!normalized) {
-            return crumbs;
-        }
-        const segments = normalized.split('/').filter(Boolean);
-        let path = '';
-        segments.forEach(segment => {
-            path = path ? `${path}/${segment}` : segment;
-            crumbs.push({ label: segment, key: path });
-        });
-        return crumbs;
-    }
-
-    function renderEnvironmentBreadcrumbs(folderKey) {
-        const crumbs = buildEnvironmentBreadcrumbs(folderKey);
-        if (!crumbs.length) return '';
-        const items = crumbs.map((crumb, index) => {
-            const isCurrent = index === crumbs.length - 1;
-            if (isCurrent) {
-                return `<span class="pipeline-folder-crumb pipeline-folder-crumb--current">${escapeHtml(crumb.label)}</span>`;
-            }
-            return `<button type="button" class="pipeline-folder-crumb" data-environment-nav="${escapeAttribute(crumb.key)}">${escapeHtml(crumb.label)}</button><span class="pipeline-folder-crumb-separator" aria-hidden="true">/</span>`;
-        }).join('');
-        return `<nav class="pipeline-folder-breadcrumb" aria-label="Environment folders">${items}</nav>`;
     }
 
     function highlightActiveEnvironmentCard() {
@@ -775,16 +740,6 @@ function resetEnvironmentSelection(options = {}) {
     }
 
     function handleEnvironmentListClick(event) {
-        const breadcrumb = event.target.closest('[data-environment-nav]');
-        if (breadcrumb) {
-            event.preventDefault();
-            const key = breadcrumb.getAttribute('data-environment-nav') || '';
-            resetEnvironmentSelection({ showList: true });
-            navigateToFolder(key);
-            event.stopPropagation();
-            return;
-        }
-
         const folderCard = event.target.closest('[data-environment-folder]');
         if (folderCard) {
             event.preventDefault();
@@ -810,17 +765,6 @@ function resetEnvironmentSelection(options = {}) {
     function handleEnvironmentListKeydown(event) {
         if (event.defaultPrevented) return;
         if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return;
-
-        const breadcrumb = event.target.closest('[data-environment-nav]');
-        if (breadcrumb && breadcrumb === document.activeElement) {
-            event.preventDefault();
-            const key = breadcrumb.getAttribute('data-environment-nav') || '';
-            resetEnvironmentSelection({ showList: true });
-            navigateToFolder(key);
-            focusFirstEnvironmentCard();
-            event.stopPropagation();
-            return;
-        }
 
         const folderCard = event.target.closest('[data-environment-folder]');
         if (folderCard && folderCard === document.activeElement) {
@@ -974,11 +918,19 @@ function resetEnvironmentSelection(options = {}) {
     }
 
     function renderSidebarScopeEntry(scope) {
+        if (!scope) return '';
         const isActive = scope.key === state.selectedScopeKey;
-        const pathLabel = scope?.env === '' ? 'envs' : 'envs';
+        const { title, fullPath } = describeEnvironmentScope(scope);
+        const displayLabel = scope.label || title || 'Default';
+        const displayPath = fullPath || '/';
+
         return `<li>
-            <button type="button" class="w-full text-left px-3 py-1.5 rounded-md text-sm transition ${isActive ? 'bg-[var(--bg-hover)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'}" data-environment-sidebar-scope="${escapeAttribute(scope.key)}">
-                <span class="block truncate">${escapeHtml(pathLabel)}</span>
+            <button type="button" class="w-full flex items-center gap-2 text-left px-3 py-1.5 rounded-md text-sm transition ${isActive ? 'bg-[var(--bg-hover)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'}" data-environment-sidebar-scope="${escapeAttribute(scope.key)}" title="${escapeAttribute(displayPath)}" aria-label="Open environment ${escapeAttribute(displayPath)}">
+                <svg class="h-4 w-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 3a9 9 0 100 18 9 9 0 000-18z" />
+                    <path d="M3.6 9h16.8M3.6 15h16.8M12 3a15 15 0 010 18M12 3a15 15 0 000 18" />
+                </svg>
+                <span class="truncate">${escapeHtml(displayLabel)}</span>
             </button>
         </li>`;
     }
@@ -1642,11 +1594,6 @@ function resetEnvironmentSelection(options = {}) {
     }
 
     function renderVariableDetail(scope, name) {
-        if (!DOM['environment-variable-title']) return;
-        DOM['environment-variable-title'].textContent = name;
-        if (DOM['environment-variable-subtitle']) {
-            DOM['environment-variable-subtitle'].textContent = 'Linked pipelines and triggers for this variable.';
-        }
 
         const pipelineEntries = Array.from(state.pipelineEnvIndex.get(name) || []);
         renderRelatedCollection('environment-variable-pipelines', pipelineEntries.map(renderPipelineDetail), 'No pipelines declare this variable.');
@@ -1732,7 +1679,6 @@ function resetEnvironmentSelection(options = {}) {
 
     function clearVariableDetail() {
         state.selectedVariable = null;
-        if (DOM['environment-variable-title']) DOM['environment-variable-title'].textContent = '';
         if (DOM['environment-variable-subtitle']) DOM['environment-variable-subtitle'].textContent = 'Select a variable to inspect details.';
         if (DOM['environment-variable-pipelines']) {
             DOM['environment-variable-pipelines'].innerHTML = '';
