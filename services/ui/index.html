@@ -368,7 +368,16 @@
                                             </section>
                                         </aside>
                                         <section class="env-main-card">
-
+                                            <div class="env-variable-detail-header">
+                                                <div class="env-variable-detail-titles">
+                                                    <p id="environment-variable-detail-label" class="env-variable-detail-name">Select a variable to inspect details.</p>
+                                                    <div class="env-variable-detail-meta">
+                                                        <span id="environment-variable-detail-updated" class="hidden"></span>
+                                                        <span id="environment-variable-detail-created" class="hidden"></span>
+                                                    </div>
+                                                </div>
+                                                <span id="environment-variable-detail-source" class="env-variable-source-pill hidden"></span>
+                                            </div>
                                             <div class="env-main-content">
                                                 <section>
                                                     <h4>Related Pipelines</h4>
@@ -587,7 +596,7 @@
                 </div>
                 <div>
                     <label for="pipelines-new-name" class="block text-sm font-medium text-[var(--text-secondary)]">Pipeline Name</label>
-                    <input type="text" id="pipelines-new-name" name="name" required placeholder="build-and-test" class="pipelines-input w-full mt-1" pattern="[A-Za-z0-9_.-]+" />
+                    <input type="text" id="pipelines-new-name" name="name" required placeholder="build-and-test" class="pipelines-input w-full mt-1" pattern="[A-Za-z0-9_.\-]+" />
                     <p class="text-xs text-[var(--text-secondary)] mt-1">Names may contain letters, numbers, underscores, dots, and hyphens.</p>
                 </div>
                 <div class="flex items-center justify-end gap-2 pt-2">
@@ -644,7 +653,7 @@
                 </div>
                 <div>
                     <label for="pipelines-clone-name" class="block text-sm font-medium text-[var(--text-secondary)]">Pipeline Name</label>
-                    <input type="text" id="pipelines-clone-name" name="name" required placeholder="build-and-test-copy" class="pipelines-input w-full mt-1" pattern="[A-Za-z0-9_.-]+" />
+                    <input type="text" id="pipelines-clone-name" name="name" required placeholder="build-and-test-copy" class="pipelines-input w-full mt-1" pattern="[A-Za-z0-9_.\-]+" />
                     <p class="text-xs text-[var(--text-secondary)] mt-1">Names may contain letters, numbers, underscores, dots, and hyphens.</p>
                 </div>
                 <div class="flex items-center justify-end gap-2 pt-2">
@@ -758,8 +767,14 @@
             <form id="environment-edit-form" class="pipelines-modal-body space-y-4">
                 <div>
                     <label for="environment-edit-name" class="block text-sm font-medium text-[var(--text-secondary)]">Variable Name</label>
-                    <input type="text" id="environment-edit-name" name="name" required placeholder="DATABASE_URL" class="pipelines-input w-full mt-1" pattern="[A-Za-z0-9_.-]+" />
+                    <input type="text" id="environment-edit-name" name="name" required placeholder="DATABASE_URL" class="pipelines-input w-full mt-1" pattern="[A-Za-z0-9_.\-]+" />
                     <p class="text-xs text-[var(--text-secondary)] mt-1">Names may contain letters, numbers, underscores, dots, and hyphens.</p>
+                </div>
+                <div>
+                    <label for="environment-edit-repo" class="block text-sm font-medium text-[var(--text-secondary)]">Repository (optional)</label>
+                    <input type="text" id="environment-edit-repo" name="repository" placeholder="owner/repository" class="pipelines-input w-full mt-1" list="environment-repo-options" pattern="[^/\s]+/[^/\s]+" />
+                    <datalist id="environment-repo-options"></datalist>
+                    <p class="text-xs text-[var(--text-secondary)] mt-1">Provide a repository slug to scope the variable to a specific project.</p>
                 </div>
                 <div>
                     <label for="environment-edit-value" class="block text-sm font-medium text-[var(--text-secondary)]">Value</label>

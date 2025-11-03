@@ -115,6 +115,7 @@ CREATE TABLE environments (
     value TEXT NOT NULL,
     repository_name VARCHAR(255),
     environment VARCHAR(255),
+    source VARCHAR(32) NOT NULL DEFAULT 'database',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE NULLS NOT DISTINCT (name, repository_name, environment)

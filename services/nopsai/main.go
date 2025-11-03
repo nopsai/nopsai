@@ -674,15 +674,22 @@ func (a *App) decrypt(text string) (string, error) {
 
 func (a *App) handleListGeneralEnvs(w http.ResponseWriter, r *http.Request) {
 	env := r.URL.Query().Get("env")
+	includeSource := strings.EqualFold(r.URL.Query().Get("include_source"), "true")
 	var rows pgx.Rows
 	var err error
 
+	queryGeneral := "SELECT name, COALESCE(source, 'database'), created_at, updated_at FROM environments WHERE repository_name IS NULL AND %s ORDER BY name ASC"
+	queryRepo := "SELECT repository_name, name, COALESCE(source, 'database'), created_at, updated_at FROM environments WHERE repository_name IS NOT NULL AND %s ORDER BY repository_name ASC, name ASC"
+
+	ctx := context.Background()
+	condition := "environment IS NULL"
+	args := []interface{}{}
 	if env != "" {
-		rows, err = a.db.Query(context.Background(), "SELECT name FROM environments WHERE repository_name IS NULL AND environment = $1 ORDER BY name ASC", env)
-	} else {
-		rows, err = a.db.Query(context.Background(), "SELECT name FROM environments WHERE repository_name IS NULL AND environment IS NULL ORDER BY name ASC")
+		condition = "environment = $1"
+		args = append(args, env)
 	}
 
+	rows, err = a.db.Query(ctx, fmt.Sprintf(queryGeneral, condition), args...)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query general environments from database")
 		http.Error(w, "Failed to retrieve environments", http.StatusInternalServerError)
@@ -690,11 +697,19 @@ func (a *App) handleListGeneralEnvs(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
+	type envListItem struct {
+		Name      string `json:"name"`
+		Source    string `json:"source"`
+		CreatedAt string `json:"created_at,omitempty"`
+		UpdatedAt string `json:"updated_at,omitempty"`
+	}
+
 	nameSet := make(map[string]struct{})
 	var names []string
+	var items []envListItem
 
-	addName := func(value string) {
-		trimmed := strings.TrimSpace(value)
+	addEntry := func(name, source string, createdAt, updatedAt time.Time) {
+		trimmed := strings.TrimSpace(name)
 		if trimmed == "" {
 			return
 		}
@@ -702,25 +717,38 @@ func (a *App) handleListGeneralEnvs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		nameSet[trimmed] = struct{}{}
-		names = append(names, trimmed)
+		if includeSource {
+			items = append(items, envListItem{
+				Name:      trimmed,
+				Source:    normalizeEnvSourceKey(source),
+				CreatedAt: createdAt.Format(time.RFC3339),
+				UpdatedAt: updatedAt.Format(time.RFC3339),
+			})
+		} else {
+			names = append(names, trimmed)
+		}
 	}
+
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+		var name, source string
+		var createdAt, updatedAt time.Time
+		if err := rows.Scan(&name, &source, &createdAt, &updatedAt); err != nil {
 			log.Error().Err(err).Msg("Failed to scan environment name")
 			http.Error(w, "Failed to process environments", http.StatusInternalServerError)
 			return
 		}
-		addName(name)
+		addEntry(name, source, createdAt, updatedAt)
 	}
 
-	// Include repository-scoped environment names as owner/repo/NAME entries
 	rows.Close()
+	repoCondition := "environment IS NULL"
+	repoArgs := []interface{}{}
 	if env != "" {
-		rows, err = a.db.Query(context.Background(), "SELECT repository_name, name FROM environments WHERE repository_name IS NOT NULL AND environment = $1 ORDER BY repository_name ASC, name ASC", env)
-	} else {
-		rows, err = a.db.Query(context.Background(), "SELECT repository_name, name FROM environments WHERE repository_name IS NOT NULL AND environment IS NULL ORDER BY repository_name ASC, name ASC")
+		repoCondition = "environment = $1"
+		repoArgs = append(repoArgs, env)
 	}
+
+	rows, err = a.db.Query(ctx, fmt.Sprintf(queryRepo, repoCondition), repoArgs...)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query repository environments from database")
 		http.Error(w, "Failed to retrieve environments", http.StatusInternalServerError)
@@ -729,8 +757,9 @@ func (a *App) handleListGeneralEnvs(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	for rows.Next() {
-		var repoName, varName string
-		if err := rows.Scan(&repoName, &varName); err != nil {
+		var repoName, varName, source string
+		var createdAt, updatedAt time.Time
+		if err := rows.Scan(&repoName, &varName, &source, &createdAt, &updatedAt); err != nil {
 			log.Error().Err(err).Msg("Failed to scan repository environment name")
 			http.Error(w, "Failed to process environments", http.StatusInternalServerError)
 			return
@@ -740,15 +769,22 @@ func (a *App) handleListGeneralEnvs(w http.ResponseWriter, r *http.Request) {
 		if repo == "" || name == "" {
 			continue
 		}
-		addName(repo + "/" + name)
+		addEntry(repo+"/"+name, source, createdAt, updatedAt)
 	}
 
 	sort.Slice(names, func(i, j int) bool {
 		return strings.ToLower(names[i]) < strings.ToLower(names[j])
 	})
+	sort.Slice(items, func(i, j int) bool {
+		return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	if includeSource {
+		json.NewEncoder(w).Encode(items)
+		return
+	}
 	json.NewEncoder(w).Encode(names)
 }
 
@@ -827,12 +863,12 @@ func (a *App) handleCreateOrUpdateGeneralEnv(w http.ResponseWriter, r *http.Requ
 
 	var err error
 	if env != "" {
-		query := `INSERT INTO environments (name, value, repository_name, environment, updated_at) VALUES ($1, $2, NULL, $3, NOW())
-				  ON CONFLICT (name, repository_name, environment) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
+		query := `INSERT INTO environments (name, value, repository_name, environment, source, updated_at) VALUES ($1, $2, NULL, $3, 'database', NOW())
+				  ON CONFLICT (name, repository_name, environment) DO UPDATE SET value = EXCLUDED.value, source = 'database', updated_at = NOW()`
 		_, err = a.db.Exec(context.Background(), query, envName, req.Value, env)
 	} else {
-		query := `INSERT INTO environments (name, value, repository_name, environment, updated_at) VALUES ($1, $2, NULL, NULL, NOW())
-				  ON CONFLICT (name, repository_name, environment) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
+		query := `INSERT INTO environments (name, value, repository_name, environment, source, updated_at) VALUES ($1, $2, NULL, NULL, 'database', NOW())
+				  ON CONFLICT (name, repository_name, environment) DO UPDATE SET value = EXCLUDED.value, source = 'database', updated_at = NOW()`
 		_, err = a.db.Exec(context.Background(), query, envName, req.Value)
 	}
 
@@ -941,12 +977,12 @@ func (a *App) handleCreateOrUpdateRepoEnv(w http.ResponseWriter, r *http.Request
 
 	var err error
 	if env != "" {
-		query := `INSERT INTO environments (name, value, repository_name, environment, updated_at) VALUES ($1, $2, $3, $4, NOW())
-				  ON CONFLICT (name, repository_name, environment) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
+		query := `INSERT INTO environments (name, value, repository_name, environment, source, updated_at) VALUES ($1, $2, $3, $4, 'database', NOW())
+				  ON CONFLICT (name, repository_name, environment) DO UPDATE SET value = EXCLUDED.value, source = 'database', updated_at = NOW()`
 		_, err = a.db.Exec(context.Background(), query, envName, req.Value, fullName, env)
 	} else {
-		query := `INSERT INTO environments (name, value, repository_name, environment, updated_at) VALUES ($1, $2, $3, NULL, NOW())
-				  ON CONFLICT (name, repository_name, environment) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
+		query := `INSERT INTO environments (name, value, repository_name, environment, source, updated_at) VALUES ($1, $2, $3, NULL, 'database', NOW())
+				  ON CONFLICT (name, repository_name, environment) DO UPDATE SET value = EXCLUDED.value, source = 'database', updated_at = NOW()`
 		_, err = a.db.Exec(context.Background(), query, envName, req.Value, fullName)
 	}
 
@@ -1619,8 +1655,8 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 		ON CONFLICT (path, name) DO UPDATE SET version = EXCLUDED.version, definition = EXCLUDED.definition, source = 'git', updated_at = NOW()`
 	const stepUpsert = `INSERT INTO steps (path, name, definition, updated_at) VALUES ($1, $2, $3, NOW())
 		ON CONFLICT (path, name) DO UPDATE SET definition = EXCLUDED.definition, updated_at = NOW()`
-	const envUpsert = `INSERT INTO environments (name, value, repository_name, environment, updated_at) VALUES ($1, $2, $3, $4, NOW())
-		ON CONFLICT (name, repository_name, environment) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
+	const envUpsert = `INSERT INTO environments (name, value, repository_name, environment, source, updated_at) VALUES ($1, $2, $3, $4, 'git', NOW())
+		ON CONFLICT (name, repository_name, environment) DO UPDATE SET value = EXCLUDED.value, source = 'git', updated_at = NOW()`
 	const triggerUpsert = `INSERT INTO triggers (repository_name, trigger_definition, source) VALUES ($1, $2, 'git')
 		ON CONFLICT (repository_name) DO UPDATE SET trigger_definition = EXCLUDED.trigger_definition, source = 'git'`
 
@@ -1890,6 +1926,20 @@ func loadExistingRepoEnvs(ctx context.Context, tx pgx.Tx) (map[repoEnvKey]struct
 	}
 
 	return result, nil
+}
+
+func normalizeEnvSourceKey(value string) string {
+	key := strings.TrimSpace(strings.ToLower(value))
+	switch {
+	case strings.Contains(key, "git"):
+		return "git"
+	case strings.Contains(key, "draft"):
+		return "draft"
+	case strings.Contains(key, "local"):
+		return "local"
+	default:
+		return "database"
+	}
 }
 
 func isYAMLFile(path string) bool {
