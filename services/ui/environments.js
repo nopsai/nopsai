@@ -12,6 +12,7 @@
         sidebarExpanded: new Set(),
         pipelineEnvIndex: new Map(),
         envSources: new Map(),
+        pendingEnvironmentParent: '',
         pipelineMetadata: new Map(),
         pipelineMetaSeeds: new Map(),
         pipelineEnvIndexReady: false,
@@ -29,6 +30,8 @@
     let initialized = false;
 
     const DEFAULT_SCOPE_KEY = buildScopeKey('');
+    const SAMPLE_ENVIRONMENT_VARIABLE = 'sample_variable';
+    const SAMPLE_ENVIRONMENT_VALUE = 'Replace with your %ENV% environment value.';
 
     function init(ctx) {
         if (initialized && context === ctx) {
@@ -46,19 +49,21 @@
             'environment-search', 'environment-search-container', 'environment-clear-search', 'environment-list', 'environment-list-empty',
             'environment-list-view', 'environment-detail-view', 'environment-detail', 'environment-back-btn',
             'environment-detail-title', 'environment-variable-list', 'environment-variable-empty',
-            'environment-variable-subtitle', 'environment-variable-pipelines',
-            'environment-variable-triggers', 'environment-create-btn', 'environment-sidebar-tree',
-            'environment-edit-modal', 'environment-edit-form', 'environment-edit-name', 'environment-edit-repo', 'environment-edit-value',
-            'environment-edit-scope', 'environment-edit-submit', 'environment-delete-modal', 'environment-delete-message',
-            'environment-confirm-delete-btn', 'environment-variable-detail-label', 'environment-variable-detail-source',
-            'environment-variable-detail-updated', 'environment-variable-detail-created'
-        ];
+        'environment-variable-subtitle', 'environment-variable-pipelines',
+        'environment-variable-triggers', 'environment-create-btn', 'environment-sidebar-tree',
+        'environment-edit-modal', 'environment-edit-form', 'environment-edit-name', 'environment-edit-repo', 'environment-edit-value',
+        'environment-edit-scope', 'environment-edit-submit', 'environment-delete-modal', 'environment-delete-message',
+        'environment-confirm-delete-btn', 'environment-variable-detail-label', 'environment-variable-detail-source',
+        'environment-variable-detail-updated', 'environment-variable-detail-created',
+        'environment-new-modal', 'environment-new-form', 'environment-new-name', 'environment-new-parent', 'environment-new-cancel', 'environment-new-close'
+    ];
 
         ids.forEach(id => {
             DOM[id] = document.getElementById(id);
         });
 
         DOM['environment-repo-options'] = document.getElementById('environment-repo-options');
+        DOM['environment-create-inline'] = document.getElementById('environment-create-inline');
     }
 
     function attachEventListeners() {
@@ -77,8 +82,25 @@
         if (DOM['environment-create-btn']) {
             DOM['environment-create-btn'].addEventListener('click', () => openEditModal('create'));
         }
+        if (DOM['environment-create-inline']) {
+            DOM['environment-create-inline'].addEventListener('click', (event) => {
+                event.preventDefault();
+                const scopeKey = state.selectedScopeKey
+                    || (state.activeFolderKey ? buildScopeKey(state.activeFolderKey) : DEFAULT_SCOPE_KEY);
+                openNewEnvironmentModal(scopeKey);
+            });
+        }
+        if (DOM['environment-new-cancel']) {
+            DOM['environment-new-cancel'].addEventListener('click', hideNewEnvironmentModal);
+        }
+        if (DOM['environment-new-close']) {
+            DOM['environment-new-close'].addEventListener('click', hideNewEnvironmentModal);
+        }
         if (DOM['environment-edit-form']) {
             DOM['environment-edit-form'].addEventListener('submit', handleSubmitVariable);
+        }
+        if (DOM['environment-new-form']) {
+            DOM['environment-new-form'].addEventListener('submit', handleCreateEnvironment);
         }
         const cancelEditBtn = DOM['environment-edit-modal']?.querySelector('[data-cancel]');
         if (cancelEditBtn) {
@@ -99,6 +121,7 @@
             if (event.key === 'Escape') {
                 closeModal('environment-edit-modal');
                 closeModal('environment-delete-modal');
+                hideNewEnvironmentModal();
             }
         });
     }
@@ -178,6 +201,7 @@
             scope.fetchPromise = null;
             scope.variables = Array.isArray(scope.variables) ? scope.variables : [];
             scope.fetched = !!scope.fetched;
+            scope.variableMeta = scope.variableMeta instanceof Map ? scope.variableMeta : new Map();
 
             nextMap.set(key, scope);
             nextList.push(scope);
@@ -622,9 +646,9 @@
 
             const scopes = Array.isArray(node?.scopes) ? node.scopes.slice() : [];
             scopes.sort((a, b) => (a.env || '').localeCompare(b.env || '', undefined, { sensitivity: 'base' }));
-            const addCardScopeKey = resolveAddCardScopeKey(node, scopes);
+            const addCardScopeKey = showAddCard ? resolveAddCardScopeKey(node, scopes) : null;
             const scopeCards = scopes.map(renderEnvironmentCard);
-            if (showAddCard) {
+            if (showAddCard && addCardScopeKey) {
                 scopeCards.push(renderAddEnvironmentCard(addCardScopeKey));
             }
             if (scopeCards.length) {
@@ -770,15 +794,15 @@
     }
 
     function renderAddEnvironmentCard(scopeKey) {
-        const keyAttr = scopeKey ? escapeAttribute(scopeKey) : '';
-        const scopeAttr = keyAttr ? ` data-scope-key="${keyAttr}"` : '';
+        const ariaLabel = escapeAttribute('Create new environment folder');
+        const scopeAttr = scopeKey ? ` data-scope-key="${escapeAttribute(scopeKey)}"` : '';
         return `
-            <div class="add-environment-card relative group bg-[var(--bg-secondary)] p-4 rounded-lg border-2 border-dashed border-[var(--border-secondary)] hover:border-[var(--border-accent)] hover:bg-[var(--bg-tertiary)] transition-colors duration-200 cursor-pointer flex items-center justify-center min-h-[200px]" data-add-environment-card${scopeAttr} tabindex="0" role="button" aria-label="Create new variable">
+            <div class="add-environment-card relative group bg-[var(--bg-secondary)] p-4 rounded-lg border-2 border-dashed border-[var(--border-secondary)] hover:border-[var(--border-accent)] hover:bg-[var(--bg-tertiary)] transition-colors duration-200 cursor-pointer flex items-center justify-center min-h-[200px]" data-add-environment-card${scopeAttr} tabindex="0" role="button" aria-label="${ariaLabel}">
                 <div class="text-center">
                     <svg class="mx-auto h-10 w-10 text-[var(--text-secondary)] group-hover:text-[var(--text-accent)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                     </svg>
-                    <p class="mt-3 text-sm font-medium text-[var(--text-secondary)] group-hover:text-[var(--text-accent)]">New Variable</p>
+                    <p class="mt-3 text-sm font-medium text-[var(--text-secondary)] group-hover:text-[var(--text-accent)]">New Environment</p>
                 </div>
             </div>`;
     }
@@ -796,6 +820,22 @@
             return candidateKey;
         }
         return DEFAULT_SCOPE_KEY;
+    }
+
+    function scopeKeyToLabel(scopeKey) {
+        if (!scopeKey) return '';
+        if (scopeKey.startsWith('env:')) {
+            return scopeKey.slice(4);
+        }
+        return scopeKey;
+    }
+
+    function sanitizeEnvironmentSegments(raw) {
+        if (!raw) return [];
+        return String(raw)
+            .split('/')
+            .map(part => part.trim().replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, ''))
+            .filter(Boolean);
     }
 
     function renderEnvironmentSearchSummary(count, term) {
@@ -851,8 +891,16 @@ function resetEnvironmentSelection(options = {}) {
         if (addCard) {
             event.preventDefault();
             const scopeKey = addCard.getAttribute('data-scope-key') || '';
-            const options = scopeKey ? { scopeKey } : {};
-            openEditModal('create', options);
+            openNewEnvironmentModal(scopeKey);
+            event.stopPropagation();
+            return;
+        }
+
+        const deleteButton = event.target.closest('[data-environment-delete]');
+        if (deleteButton) {
+            event.preventDefault();
+            const scopeKey = deleteButton.getAttribute('data-environment-delete') || '';
+            openDeleteEnvironmentModal(scopeKey);
             event.stopPropagation();
             return;
         }
@@ -887,8 +935,16 @@ function resetEnvironmentSelection(options = {}) {
         if (addCard && addCard === document.activeElement) {
             event.preventDefault();
             const scopeKey = addCard.getAttribute('data-scope-key') || '';
-            const options = scopeKey ? { scopeKey } : {};
-            openEditModal('create', options);
+            openNewEnvironmentModal(scopeKey);
+            event.stopPropagation();
+            return;
+        }
+
+        const deleteButton = event.target.closest('[data-environment-delete]');
+        if (deleteButton && deleteButton === document.activeElement) {
+            event.preventDefault();
+            const scopeKey = deleteButton.getAttribute('data-environment-delete') || '';
+            openDeleteEnvironmentModal(scopeKey);
             event.stopPropagation();
             return;
         }
@@ -1310,9 +1366,7 @@ function resetEnvironmentSelection(options = {}) {
             sections.push(renderVariableSection(entry.repo, entry.variables, { scopeKey: scope.key }));
         });
 
-        let html = sections.join('');
-        html += renderAddVariableCard(scope);
-        container.innerHTML = html;
+        container.innerHTML = sections.join('');
 
         container.querySelectorAll('[data-environment-variable]').forEach(button => {
             button.addEventListener('click', () => {
@@ -1358,7 +1412,7 @@ function resetEnvironmentSelection(options = {}) {
                         openEditModal('update', { scopeKey: scopeRef.key, name: variableName });
                         break;
                     case 'delete':
-                        openDeleteModal(scopeRef, variableName);
+                        openDeleteVariableModal(scopeRef, variableName);
                         break;
                     default:
                         break;
@@ -1379,11 +1433,9 @@ function resetEnvironmentSelection(options = {}) {
             });
         });
 
-        container.querySelectorAll('[data-add-environment-variable]').forEach(card => {
+        container.querySelectorAll('[data-add-environment-card]').forEach(card => {
             const scopeKey = card.getAttribute('data-scope-key') || scope.key || DEFAULT_SCOPE_KEY;
-            const repoAttr = card.getAttribute('data-repo-slug') || '';
-            const normalizedRepo = normalizeRepositorySlug(repoAttr);
-            const handleOpen = () => openEditModal('create', normalizedRepo ? { scopeKey, repository: normalizedRepo } : { scopeKey });
+            const handleOpen = () => openNewEnvironmentModal(scopeKey);
 
             card.addEventListener('click', event => {
                 event.preventDefault();
@@ -1398,6 +1450,7 @@ function resetEnvironmentSelection(options = {}) {
                 handleOpen();
             });
         });
+
 
         highlightActiveVariable(state.selectedVariable);
         updateVariableItemStates();
@@ -1502,7 +1555,6 @@ function resetEnvironmentSelection(options = {}) {
                         <button type="button" class="env-variable-btn${isActive ? ' env-variable-btn--active' : ''}" data-environment-variable="${escapeAttribute(item.full)}">
                             <span class="truncate">${escapeHtml(item.display)}</span>
                         </button>
-                        <span class="env-variable-source-pill env-variable-source-pill--${sourceKey}">${escapeHtml(sourceLabel)}</span>
                     </div>
                     <div class="env-variable-inline-actions">
                         <button type="button" class="env-inline-icon" data-env-variable-show title="Show value">
@@ -1531,28 +1583,6 @@ function resetEnvironmentSelection(options = {}) {
             ${heading}
             <div class="env-variable-buttons">${groups}</div>
         </section>`;
-    }
-
-    function renderAddVariableCard(scope) {
-        if (!scope) return '';
-        const scopeKey = scope.key || DEFAULT_SCOPE_KEY;
-        const scopeLabel = scope.env ? `/${scope.env}` : '/';
-        const ariaLabel = escapeAttribute(`Create new variable for ${scopeLabel}`);
-
-        return `
-            <section class="env-variable-section env-variable-section--add">
-                <div class="env-variable-buttons">
-                    <div class="env-variable-add-card relative group bg-[var(--bg-secondary)] p-4 rounded-lg border-2 border-dashed border-[var(--border-secondary)] hover:border-[var(--border-accent)] hover:bg-[var(--bg-tertiary)] transition-colors duration-200 cursor-pointer flex items-center justify-center min-h-[120px] w-full" data-add-environment-variable data-scope-key="${escapeAttribute(scopeKey)}" tabindex="0" role="button" aria-label="${ariaLabel}">
-                        <div class="text-center">
-                            <svg class="mx-auto h-8 w-8 text-[var(--text-secondary)] group-hover:text-[var(--text-accent)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                            </svg>
-                            <p class="mt-2 text-sm font-medium text-[var(--text-secondary)] group-hover:text-[var(--text-accent)]">New Variable</p>
-                            <p class="text-xs text-[var(--text-secondary)] opacity-80">Add to ${escapeHtml(scopeLabel)}</p>
-                        </div>
-                    </div>
-                </div>
-            </section>`;
     }
 
     async function selectVariable(name, options = {}) {
@@ -2003,10 +2033,20 @@ function resetEnvironmentSelection(options = {}) {
         if (DOM['environment-variable-detail-label']) {
             DOM['environment-variable-detail-label'].textContent = 'Select a variable to inspect details.';
         }
-        if (DOM['environment-variable-detail-source']) {
-            DOM['environment-variable-detail-source'].classList.add('hidden');
-            DOM['environment-variable-detail-source'].textContent = '';
-        }
+        ['environment-variable-detail-source', 'environment-variable-detail-updated', 'environment-variable-detail-created'].forEach(id => {
+            const container = DOM[id];
+            if (!container) return;
+            const valueEl = container.querySelector('.env-variable-detail-meta-value');
+            if (valueEl) {
+                valueEl.textContent = '';
+                valueEl.className = valueEl.className
+                    .split(' ')
+                    .filter(cls => !cls.startsWith('env-variable-source-pill'))
+                    .join(' ')
+                    .trim() || 'env-variable-detail-meta-value';
+            }
+            container.classList.add('hidden');
+        });
     }
 
     function updateVariableDetailMeta(name, scope) {
@@ -2015,44 +2055,57 @@ function resetEnvironmentSelection(options = {}) {
         const updatedEl = DOM['environment-variable-detail-updated'];
         const createdEl = DOM['environment-variable-detail-created'];
         if (!labelEl || !sourceEl || !updatedEl || !createdEl) return;
+        const sourceValueEl = sourceEl.querySelector('.env-variable-detail-meta-value');
+        const updatedValueEl = updatedEl.querySelector('.env-variable-detail-meta-value');
+        const createdValueEl = createdEl.querySelector('.env-variable-detail-meta-value');
 
         if (!name) {
             labelEl.textContent = 'Select a variable to inspect details.';
-            sourceEl.classList.add('hidden');
-            sourceEl.textContent = '';
-            updatedEl.textContent = '';
-            updatedEl.classList.add('hidden');
-            createdEl.textContent = '';
-            createdEl.classList.add('hidden');
+            [
+                [sourceEl, sourceValueEl],
+                [updatedEl, updatedValueEl],
+                [createdEl, createdValueEl],
+            ].forEach(([container, valueEl]) => {
+                if (valueEl) {
+                    valueEl.textContent = '';
+                    valueEl.className = valueEl.className
+                        .split(' ')
+                        .filter(cls => !cls.startsWith('env-variable-source-pill'))
+                        .join(' ')
+                        .trim() || 'env-variable-detail-meta-value';
+                }
+                container.classList.add('hidden');
+            });
             return;
         }
 
         const meta = getEnvironmentMetadata(name, scope);
         labelEl.textContent = name;
 
-        if (meta?.source) {
+        if (sourceValueEl && meta?.source) {
             const sourceKey = meta.source;
-            sourceEl.textContent = formatEnvironmentSourceLabel(sourceKey);
-            sourceEl.className = `env-variable-source-pill env-variable-source-pill--${sourceKey}`;
+            sourceValueEl.textContent = formatEnvironmentSourceLabel(sourceKey);
+            sourceValueEl.className = `env-variable-detail-meta-value env-variable-source-pill env-variable-source-pill--${sourceKey}`;
             sourceEl.classList.remove('hidden');
-        } else {
-            sourceEl.textContent = '';
-            sourceEl.className = 'env-variable-source-pill env-variable-source-pill--database hidden';
+        } else if (sourceValueEl) {
+            sourceValueEl.textContent = '';
+            sourceValueEl.className = 'env-variable-detail-meta-value';
+            sourceEl.classList.add('hidden');
         }
 
-        if (meta?.updatedAt) {
-            updatedEl.textContent = `Updated ${formatDisplayTimestamp(meta.updatedAt)}`;
+        if (updatedValueEl && meta?.updatedAt) {
+            updatedValueEl.textContent = formatDisplayTimestamp(meta.updatedAt);
             updatedEl.classList.remove('hidden');
-        } else {
-            updatedEl.textContent = '';
+        } else if (updatedValueEl) {
+            updatedValueEl.textContent = '';
             updatedEl.classList.add('hidden');
         }
 
-        if (meta?.createdAt) {
-            createdEl.textContent = `Created ${formatDisplayTimestamp(meta.createdAt)}`;
+        if (createdValueEl && meta?.createdAt) {
+            createdValueEl.textContent = formatDisplayTimestamp(meta.createdAt);
             createdEl.classList.remove('hidden');
-        } else {
-            createdEl.textContent = '';
+        } else if (createdValueEl) {
+            createdValueEl.textContent = '';
             createdEl.classList.add('hidden');
         }
     }
@@ -2076,6 +2129,90 @@ function resetEnvironmentSelection(options = {}) {
             nameSuggestion: suggestion,
             valuePreset: seedValue,
         });
+    }
+
+    function openNewEnvironmentModal(baseScopeKey = '') {
+        const parentLabel = scopeKeyToLabel(baseScopeKey) || normalizeEnvironmentLabel(state.activeFolderKey || '');
+        state.pendingEnvironmentParent = parentLabel;
+        if (DOM['environment-new-parent']) {
+            DOM['environment-new-parent'].textContent = parentLabel ? `Parent: /${parentLabel}` : 'Parent: /';
+        }
+        if (DOM['environment-new-name']) {
+            DOM['environment-new-name'].value = '';
+            setTimeout(() => DOM['environment-new-name']?.focus(), 0);
+        }
+        openModal('environment-new-modal');
+    }
+
+    function hideNewEnvironmentModal() {
+        state.pendingEnvironmentParent = '';
+        if (DOM['environment-new-form']) {
+            DOM['environment-new-form'].reset();
+        }
+        closeModal('environment-new-modal');
+    }
+
+    async function handleCreateEnvironment(event) {
+        event.preventDefault();
+        if (!context || typeof context.fetchData !== 'function') return;
+
+        const parentLabel = state.pendingEnvironmentParent || '';
+        const inputEl = DOM['environment-new-name'];
+        const rawInput = inputEl ? inputEl.value : '';
+        const segments = sanitizeEnvironmentSegments(rawInput);
+        if (!segments.length) {
+            showToast('Environment name is required.', 'error');
+            return;
+        }
+
+        const parentSegments = sanitizeEnvironmentSegments(parentLabel);
+        const combinedSegments = parentSegments.concat(segments);
+        const envLabel = combinedSegments.join('/');
+        const normalizedLabel = normalizeEnvironmentLabel(envLabel);
+
+        if (!normalizedLabel) {
+            showToast('Environment name is required.', 'error');
+            return;
+        }
+
+        const newScopeKey = buildScopeKey(normalizedLabel);
+        if (state.scopeMap.has(newScopeKey)) {
+            showToast(`Environment '/${normalizedLabel}' already exists.`, 'error');
+            return;
+        }
+
+        const urlBase = `/v1/environments/${encodeURIComponent(SAMPLE_ENVIRONMENT_VARIABLE)}`;
+        const sampleValue = SAMPLE_ENVIRONMENT_VALUE.replace('%ENV%', normalizedLabel || 'default');
+        const url = normalizedLabel
+            ? `${urlBase}?env=${encodeURIComponent(normalizedLabel)}`
+            : urlBase;
+
+        try {
+            await context.fetchData(url, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ value: sampleValue }),
+            });
+            showToast(`Environment '/${normalizedLabel}' created.`, 'success');
+        } catch (error) {
+            console.error('Failed to create environment', error);
+            showToast('Failed to create environment.', 'error');
+            return;
+        }
+
+        hideNewEnvironmentModal();
+
+        await preloadData(true);
+
+        state.activeFolderKey = parentLabel;
+        ensureSidebarExpansionForPath(parentLabel);
+
+        if (state.scopeMap.has(newScopeKey)) {
+            await selectScope(newScopeKey, { forceReload: true, skipHash: false });
+            selectVariable(SAMPLE_ENVIRONMENT_VARIABLE, { silent: true, skipHash: true });
+        } else {
+            renderScopeCollection();
+        }
     }
 
     function suggestEnvironmentCloneName(scope, repoSlug, baseName) {
@@ -2253,7 +2390,7 @@ function resetEnvironmentSelection(options = {}) {
         }
     }
 
-    function openDeleteModal(scope, name) {
+    function openDeleteVariableModal(scope, name) {
         const identity = parseVariableIdentity(name || '');
         const displayName = identity.repoOwner && identity.repoName
             ? `${identity.repoOwner}/${identity.repoName}/${identity.name}`
@@ -2262,20 +2399,32 @@ function resetEnvironmentSelection(options = {}) {
             DOM['environment-delete-message'].textContent = `Remove “${displayName}” from ${scope.env ? `/${scope.env}` : '/'} scope?`;
         }
         if (DOM['environment-confirm-delete-btn']) {
-            DOM['environment-confirm-delete-btn'].dataset.scopeKey = scope.key;
-            DOM['environment-confirm-delete-btn'].dataset.variableName = name;
+            const btn = DOM['environment-confirm-delete-btn'];
+            btn.dataset.scopeKey = scope.key;
+            btn.dataset.variableName = name;
+            btn.dataset.deleteMode = 'variable';
         }
         openModal('environment-delete-modal');
     }
 
-    async function handleConfirmDelete() {
-        if (!context || typeof context.deleteData !== 'function') return;
-        const button = DOM['environment-confirm-delete-btn'];
-        if (!button) return;
-        const scopeKey = button.dataset.scopeKey;
-        const name = button.dataset.variableName;
+    function openDeleteEnvironmentModal(scopeKey) {
         const scope = state.scopeMap.get(scopeKey);
-        if (!scope || !name) return;
+        if (!scope) return;
+        const label = scope.env ? `/${scope.env}` : '/';
+        if (DOM['environment-delete-message']) {
+            DOM['environment-delete-message'].textContent = `Delete environment “${label}”? All variables within this scope will be removed.`;
+        }
+        if (DOM['environment-confirm-delete-btn']) {
+            const btn = DOM['environment-confirm-delete-btn'];
+            btn.dataset.scopeKey = scope.key;
+            btn.dataset.variableName = '';
+            btn.dataset.deleteMode = 'environment';
+        }
+        openModal('environment-delete-modal');
+    }
+
+    async function deleteEnvironmentVariable(scope, name) {
+        if (!scope || !name) return false;
 
         const identity = parseVariableIdentity(name);
         const repoOwner = identity.repoOwner || '';
@@ -2292,15 +2441,89 @@ function resetEnvironmentSelection(options = {}) {
 
         try {
             await context.deleteData(url);
-            showToast('Variable removed.', 'success');
-            closeModal('environment-delete-modal');
-            await ensureScopeVariablesLoaded(scope, true);
-            renderScopeDetail(scope);
-            renderScopeCollection();
-            renderSidebarTree();
+            const cacheKey = makeEnvValueCacheKey(name, scope.env || '');
+            state.envValues.delete(cacheKey);
+            if (state.envValuePromises instanceof Map) {
+                state.envValuePromises.delete(cacheKey);
+            }
+            return true;
         } catch (error) {
             console.error('Failed to delete environment variable:', error);
             showToast('Failed to delete variable.', 'error');
+            return false;
+        }
+    }
+
+    async function deleteEnvironmentScope(scope) {
+        if (!scope) return;
+
+        const variables = Array.isArray(scope.variables) ? scope.variables.slice() : [];
+        for (const name of variables) {
+            await deleteEnvironmentVariable(scope, name);
+        }
+
+        state.scopeMap.delete(scope.key);
+        state.scopes = Array.isArray(state.scopes) ? state.scopes.filter(item => item.key !== scope.key) : [];
+
+        const envLabel = normalizeEnvironmentLabel(scope.env || '');
+        const parentSegments = sanitizeEnvironmentSegments(envLabel);
+        parentSegments.pop();
+        const parentLabel = parentSegments.join('/');
+        state.activeFolderKey = parentLabel;
+
+        if (state.selectedScopeKey === scope.key) {
+            state.selectedScopeKey = null;
+            clearVariableDetail();
+            showListView();
+        }
+
+        const targetHash = parentLabel ? buildEnvironmentFolderHash(parentLabel) : '#/environment';
+        try {
+            history.replaceState(null, '', targetHash);
+        } catch {
+            window.location.hash = targetHash;
+        }
+
+        await preloadData(true);
+
+        renderScopeCollection();
+        renderSidebarTree();
+        showToast(`Environment '/${envLabel || ''}' deleted.`, 'success');
+    }
+
+    async function handleConfirmDelete() {
+        const button = DOM['environment-confirm-delete-btn'];
+        if (!button) return;
+        const scopeKey = button.dataset.scopeKey;
+        const scope = state.scopeMap.get(scopeKey);
+        if (!scope) {
+            closeModal('environment-delete-modal');
+            return;
+        }
+
+        const mode = button.dataset.deleteMode || 'variable';
+
+        if (mode === 'environment') {
+            closeModal('environment-delete-modal');
+            await deleteEnvironmentScope(scope);
+            return;
+        }
+
+        const name = button.dataset.variableName;
+        if (!name) {
+            closeModal('environment-delete-modal');
+            return;
+        }
+
+        const success = await deleteEnvironmentVariable(scope, name);
+        if (success) {
+            closeModal('environment-delete-modal');
+            await ensureScopeVariablesLoaded(scope, true);
+            renderScopeDetail(scope);
+            selectVariable(name, { silent: true, skipHash: true });
+            renderScopeCollection();
+            renderSidebarTree();
+            showToast('Variable removed.', 'success');
         }
     }
 

@@ -360,8 +360,15 @@
                                     <div class="env-detail-body">
                                         <aside class="env-sidebar">
                                             <section class="env-card env-variable-panel">
-                                                <header>
-                                                    <h3>Variables</h3>
+                                                <header style="padding-bottom: 5px;">
+                                                    <button id="environment-create-inline" type="button" class="env-variable-header-btn" aria-label="Create variable">
+                                                        <span class="env-variable-header-label">Variables</span>
+                                                        <span class="env-variable-header-plus" aria-hidden="true">
+                                                            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                <path d="M12 5v14M5 12h14" />
+                                                            </svg>
+                                                        </span>
+                                                    </button>
                                                 </header>
                                                 <div id="environment-variable-empty" class="env-card-empty">No variables configured yet.</div>
                                                 <div id="environment-variable-list" class="env-variable-list"></div>
@@ -372,11 +379,20 @@
                                                 <div class="env-variable-detail-titles">
                                                     <p id="environment-variable-detail-label" class="env-variable-detail-name">Select a variable to inspect details.</p>
                                                     <div class="env-variable-detail-meta">
-                                                        <span id="environment-variable-detail-updated" class="hidden"></span>
-                                                        <span id="environment-variable-detail-created" class="hidden"></span>
+                                                        <div id="environment-variable-detail-source" class="env-variable-detail-meta-item hidden">
+                                                            <span class="env-variable-detail-meta-label">Source</span>
+                                                            <span class="env-variable-detail-meta-value env-variable-source-pill"></span>
+                                                        </div>
+                                                        <div id="environment-variable-detail-updated" class="env-variable-detail-meta-item hidden">
+                                                            <span class="env-variable-detail-meta-label">Updated</span>
+                                                            <span class="env-variable-detail-meta-value"></span>
+                                                        </div>
+                                                        <div id="environment-variable-detail-created" class="env-variable-detail-meta-item hidden">
+                                                            <span class="env-variable-detail-meta-label">Created</span>
+                                                            <span class="env-variable-detail-meta-value"></span>
+                                                        </div>
                                                     </div>
                                                 </div>
-                                                <span id="environment-variable-detail-source" class="env-variable-source-pill hidden"></span>
                                             </div>
                                             <div class="env-main-content">
                                                 <section>
@@ -786,6 +802,37 @@
                     <button id="environment-edit-submit" type="submit" class="glass-button-primary">
                         <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                         <span>Save</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <div id="environment-new-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
+        <div class="pipelines-modal-card max-w-md">
+            <header class="pipelines-modal-header">
+                <div>
+                    <h2 class="text-lg font-semibold text-[var(--text-primary)]">Create Environment</h2>
+                    <p id="environment-new-parent" class="text-sm text-[var(--text-secondary)]">Parent: /</p>
+                </div>
+                <button type="button" class="glass-button-ghost" id="environment-new-close">
+                    <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </header>
+            <form id="environment-new-form" class="pipelines-modal-body space-y-4">
+                <div>
+                    <label for="environment-new-name" class="block text-sm font-medium text-[var(--text-secondary)]">Environment Name</label>
+                    <input type="text" id="environment-new-name" name="name" required placeholder="e.g. dev" class="pipelines-input w-full mt-1" />
+                    <p class="text-xs text-[var(--text-secondary)] mt-1">Only letters, numbers, dots, underscores, and hyphens are allowed. Use slashes for nested folders.</p>
+                </div>
+                <div class="space-y-2 bg-[var(--bg-tertiary)] rounded-md p-3 text-xs text-[var(--text-secondary)]">
+                    <p class="font-medium text-[var(--text-primary)]">Sample Variable</p>
+                    <p>Each new environment starts with `<code>sample_variable</code>` seeded as a reminder. Update or remove it after creating the environment.</p>
+                </div>
+                <div class="flex items-center justify-end gap-2 pt-2">
+                    <button type="button" class="glass-button-ghost" id="environment-new-cancel">Cancel</button>
+                    <button type="submit" class="glass-button-primary">
+                        <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        <span>Create Environment</span>
                     </button>
                 </div>
             </form>
