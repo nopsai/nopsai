@@ -133,16 +133,6 @@ body {
   margin-bottom: -1px;
 }
 
-#pipelineruns-search-container {
-  margin-bottom: 0.25rem;
-}
-
-@media (min-width: 1024px) {
-  #pipelineruns-search-container {
-    margin-bottom: -1px;
-  }
-}
-
 .tabs-nav-wrapper {
   position: sticky;
   top: 0;

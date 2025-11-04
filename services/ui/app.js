@@ -201,6 +201,9 @@ document.addEventListener('DOMContentLoaded', () => {
         runSelectionCount: document.getElementById('run-selection-count'),
         runSelectionDeleteBtn: document.getElementById('run-selection-delete-btn'),
         runSelectionClearBtn: document.getElementById('run-selection-clear-btn'),
+        pipelineRunsSearchContainer: document.getElementById('pipelineruns-search-container'),
+        pipelineRunsActions: document.getElementById('pipelineruns-actions'),
+        pipelineRunsNewFolderBtn: document.getElementById('pipelineruns-new-folder-btn'),
     };
 
     let state = {
