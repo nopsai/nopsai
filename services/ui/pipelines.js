@@ -192,6 +192,19 @@
         }
     }
 
+    function isGitManagedPipeline(pipelineId, fallbackSource = '') {
+        if (!pipelineId) return false;
+        if (state.pipelineSources instanceof Map && state.pipelineSources.has(pipelineId)) {
+            return normalizeSourceValue(state.pipelineSources.get(pipelineId)) === 'git';
+        }
+        const fallbackKey = normalizeSourceValue(fallbackSource);
+        if (fallbackKey) {
+            return fallbackKey === 'git';
+        }
+        const label = resolvePipelineSource(pipelineId, fallbackSource);
+        return normalizeSourceValue(label) === 'git';
+    }
+
     function isPipelinesPageActive() {
         const page = document.querySelector('[data-page="pipelines"]');
         return !!(page && page.classList.contains('active'));
@@ -364,6 +377,8 @@
                 }
             });
         }
+
+        updatePipelineNewButtonVisibility();
     }
 
     function parsePipelineRoute(hash) {
@@ -1289,9 +1304,6 @@ function formatPathLabel(path) {
         if (DOM['pipelines-search-container']) {
             DOM['pipelines-search-container'].classList.toggle('hidden', showDetail);
         }
-        if (DOM['pipelines-new-btn']) {
-            DOM['pipelines-new-btn'].classList.toggle('hidden', showDetail);
-        }
         if (DOM['pipelines-refresh-btn']) {
             DOM['pipelines-refresh-btn'].classList.toggle('hidden', showDetail);
         }
@@ -1309,6 +1321,26 @@ function formatPathLabel(path) {
                 ? 'Viewing pipeline definition and runtime insights.'
                 : '';
         }
+        updatePipelineNewButtonVisibility({ showDetail });
+    }
+
+    function isPipelineDetailVisible() {
+        if (DOM['pipelines-detail-view']) {
+            return !DOM['pipelines-detail-view'].classList.contains('hidden');
+        }
+        return !!state.selectedId;
+    }
+
+    function updatePipelineNewButtonVisibility(options = {}) {
+        const button = DOM['pipelines-new-btn'];
+        if (!button) return;
+        const isSearching = Object.prototype.hasOwnProperty.call(options, 'isSearching')
+            ? !!options.isSearching
+            : !!state.searchTerm.trim();
+        const showDetail = Object.prototype.hasOwnProperty.call(options, 'showDetail')
+            ? !!options.showDetail
+            : isPipelineDetailVisible();
+        button.classList.toggle('hidden', isSearching || showDetail);
     }
 
     function showListView() {
@@ -1373,17 +1405,16 @@ function formatPathLabel(path) {
         if (!DOM['pipelines-list-container']) return;
         const tree = buildGroupedPipelines();
         const hasAnyContent = (tree.children && tree.children.size > 0) || (tree.pipelines && tree.pipelines.length > 0);
-        const showAddCard = !state.searchTerm.trim();
+        const isSearching = !!state.searchTerm.trim();
 
         if (!hasAnyContent) {
             state.activeFolderKey = '';
-            if (!showAddCard) {
-                if (DOM['pipelines-empty']) {
-                    DOM['pipelines-empty'].classList.remove('hidden');
-                }
-                DOM['pipelines-list-container'].innerHTML = '';
-                return;
+            if (DOM['pipelines-empty']) {
+                DOM['pipelines-empty'].classList.remove('hidden');
             }
+            DOM['pipelines-list-container'].innerHTML = '';
+            updatePipelineNewButtonVisibility();
+            return;
         }
 
         if (DOM['pipelines-empty']) {
@@ -1405,10 +1436,6 @@ function formatPathLabel(path) {
             })
             .map(renderPipelineCard);
 
-        if (showAddCard) {
-            pipelineCards.push(renderAddPipelineCard());
-        }
-
         const pipelinesHtml = pipelineCards.length
             ? `<div class="pipelines-card-grid pipelines-card-grid--pipelines">${pipelineCards.join('')}</div>`
             : '';
@@ -1422,6 +1449,7 @@ function formatPathLabel(path) {
             : `<div class="pipeline-folder-empty-state">No pipelines in this folder yet.</div>`;
 
         DOM['pipelines-list-container'].innerHTML = gridHtml;
+        updatePipelineNewButtonVisibility({ isSearching });
     }
 
     function getFolderPathForPipelineId(pipelineId) {
@@ -1643,7 +1671,7 @@ function formatPathLabel(path) {
 
     function focusFirstListItem() {
         if (!DOM['pipelines-list-container']) return;
-        const next = DOM['pipelines-list-container'].querySelector('[data-folder-key], [data-pipeline-id], [data-add-pipeline-card]');
+        const next = DOM['pipelines-list-container'].querySelector('[data-folder-key], [data-pipeline-id]');
         if (next instanceof HTMLElement) {
             next.focus();
         }
@@ -1730,8 +1758,28 @@ function formatPathLabel(path) {
         const name = escapeHtml(rawName);
         const pathLabel = escapeHtml(rawPath);
         const description = escapeHtml(meta.description || 'No description provided.');
-        const version = escapeHtml(meta.version || 'latest');
-        const source = escapeHtml(meta.source || 'Database');
+        const versionLabel = String(meta.version || 'latest');
+        const resolvedSourceLabel = resolvePipelineSource(pipeline.id, meta.source || '') || 'Database';
+        const sourceKey = normalizeSourceValue(resolvedSourceLabel || meta.source || '');
+        const isGitManaged = sourceKey === 'git';
+        const deleteTitle = isGitManaged
+            ? 'This pipeline is managed via Git. Clone it to customize.'
+            : 'Delete pipeline';
+        const deleteButtonHtml = isGitManaged
+            ? `<button class="pipelines-delete-button" type="button" disabled aria-disabled="true" title="${escapeAttribute(deleteTitle)}">
+                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6" />
+                                <path d="M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                                <path d="M4 7h16" />
+                            </svg>
+                        </button>`
+            : `<button class="pipelines-delete-button" type="button" data-delete-pipeline="${idAttr}" title="${escapeAttribute(deleteTitle)}">
+                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6" />
+                                <path d="M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                                <path d="M4 7h16" />
+                            </svg>
+                        </button>`;
 
         return `
             <article class="pipeline-card bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg shadow-sm transition-all duration-200 p-3 flex flex-col" data-pipeline-id="${idAttr}" tabindex="0" role="button" aria-label="Open pipeline ${escapeHtml(rawName)}">
@@ -1741,39 +1789,21 @@ function formatPathLabel(path) {
                         <p class="pipeline-card-path" title="${pathLabel}">${pathLabel}</p>
                     </div>
                     <div class="pipeline-card-actions">
-                        <button class="pipelines-delete-button" data-delete-pipeline="${idAttr}" title="Delete pipeline">
-                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6" />
-                                <path d="M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
-                                <path d="M4 7h16" />
-                            </svg>
-                        </button>
+                        ${deleteButtonHtml}
                     </div>
                 </div>
                 <p class="pipeline-card-description">${description}</p>
                 <div class="pipeline-card-meta">
                     <div class="pipeline-card-meta-row">
                         <span class="pipeline-card-meta-label">Version</span>
-                        <span class="pipeline-card-meta-value" title="${version}">${version}</span>
+                        <span class="pipeline-card-meta-value" title="${escapeAttribute(versionLabel)}">${escapeHtml(versionLabel)}</span>
                     </div>
                     <div class="pipeline-card-meta-row">
                         <span class="pipeline-card-meta-label">Source</span>
-                        <span class="pipeline-card-meta-value" title="${source}">${source}</span>
+                        <span class="pipeline-card-meta-value" title="${escapeAttribute(resolvedSourceLabel)}">${escapeHtml(resolvedSourceLabel)}</span>
                     </div>
                 </div>
             </article>`;
-    }
-
-    function renderAddPipelineCard() {
-        return `
-            <div class="add-pipeline-card relative group bg-[var(--bg-secondary)] p-4 rounded-lg border-2 border-dashed border-[var(--border-secondary)] hover:border-[var(--border-accent)] hover:bg-[var(--bg-tertiary)] transition-colors duration-200 cursor-pointer flex items-center justify-center min-h-[200px]" data-add-pipeline-card tabindex="0" role="button" aria-label="Create new pipeline">
-                <div class="text-center">
-                    <svg class="mx-auto h-10 w-10 text-[var(--text-secondary)] group-hover:text-[var(--text-accent)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                    </svg>
-                    <p class="mt-3 text-sm font-medium text-[var(--text-secondary)] group-hover:text-[var(--text-accent)]">New Pipeline</p>
-                </div>
-            </div>`;
     }
 
     function countPipelinesRecursive(node) {
@@ -1846,17 +1876,25 @@ function formatPathLabel(path) {
         if (DOM['pipeline-detail-description']) {
             DOM['pipeline-detail-description'].textContent = meta.description || 'No description provided.';
         }
+        const pathLabel = formatPathLabel(meta.path);
+        const versionLabel = String(meta.version || 'latest');
+        const sourceLabel = resolvePipelineSource(state.selectedId, meta.source || '') || 'Database';
+        const normalizedSourceKey = normalizeSourceValue(sourceLabel || meta.source || '');
+
         if (DOM['pipeline-detail-path']) {
-            DOM['pipeline-detail-path'].textContent = formatPathLabel(meta.path);
+            DOM['pipeline-detail-path'].textContent = pathLabel;
+            DOM['pipeline-detail-path'].setAttribute('title', pathLabel);
         }
         if (DOM['pipeline-detail-version']) {
-            DOM['pipeline-detail-version'].textContent = meta.version || 'latest';
+            DOM['pipeline-detail-version'].textContent = versionLabel;
+            DOM['pipeline-detail-version'].setAttribute('title', versionLabel);
         }
         if (DOM['pipeline-detail-source']) {
-            DOM['pipeline-detail-source'].textContent = meta.source || 'Database';
+            DOM['pipeline-detail-source'].textContent = sourceLabel;
+            DOM['pipeline-detail-source'].setAttribute('title', sourceLabel);
         }
 
-        const isGitSource = (meta.source || '').toLowerCase() === 'git';
+        const isGitSource = normalizedSourceKey === 'git';
         if (DOM['pipeline-edit-btn']) {
             DOM['pipeline-edit-btn'].classList.toggle('hidden', isGitSource);
         }
@@ -3545,14 +3583,6 @@ function formatPathLabel(path) {
             return;
         }
 
-        const addCard = event.target.closest('[data-add-pipeline-card]');
-        if (addCard) {
-            openNewPipelineModal();
-            event.preventDefault();
-            event.stopPropagation();
-            return;
-        }
-
         const folderNav = event.target.closest('[data-folder-nav]');
         if (folderNav) {
             const folderKey = folderNav.getAttribute('data-folder-nav') || '';
@@ -3600,13 +3630,6 @@ function formatPathLabel(path) {
             return;
         }
         if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return;
-
-        const addCard = event.target.closest('[data-add-pipeline-card]');
-        if (addCard && addCard === document.activeElement) {
-            event.preventDefault();
-            openNewPipelineModal();
-            return;
-        }
 
         const folderNav = event.target.closest('[data-folder-nav]');
         if (folderNav && folderNav === document.activeElement) {
@@ -3848,6 +3871,10 @@ function formatPathLabel(path) {
     }
 
     function openDeleteModal(pipelineId) {
+        if (isGitManagedPipeline(pipelineId, state.pipelineCache.get(pipelineId)?.meta?.source || '')) {
+            showToast('This pipeline is managed via Git. Clone it to customize instead of deleting.', 'info');
+            return;
+        }
         state.pendingDelete = pipelineId;
         if (DOM['pipelines-delete-message']) {
             DOM['pipelines-delete-message'].textContent = `Delete pipeline '${pipelineId}'? This action cannot be undone.`;
@@ -3868,6 +3895,11 @@ function formatPathLabel(path) {
     async function confirmDeletePipeline() {
         const pipelineId = state.pendingDelete;
         if (!pipelineId) return;
+        if (isGitManagedPipeline(pipelineId, state.pipelineCache.get(pipelineId)?.meta?.source || '')) {
+            showToast('This pipeline is managed via Git and cannot be deleted here.', 'error');
+            closeDeleteModal();
+            return;
+        }
 
         const isDraft = state.drafts.has(pipelineId);
         if (!isDraft) {
