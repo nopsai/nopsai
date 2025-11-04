@@ -1436,6 +1436,17 @@ html.dark .pipelines-input {
     color: rgba(248,113,113,1);
 }
 
+.pipelines-delete-button[disabled],
+.pipelines-delete-button[aria-disabled="true"] {
+    color: rgba(148,163,184,0.65);
+    cursor: not-allowed;
+}
+
+.pipelines-delete-button[disabled]:hover,
+.pipelines-delete-button[aria-disabled="true"]:hover {
+    color: rgba(148,163,184,0.65);
+}
+
 .pipelines-empty {
     text-align: center;
     padding: 1.5rem;
@@ -2875,6 +2886,36 @@ button.triggers-pipeline-link:focus-visible {
 }
 
 .triggers-detail-value {
+    margin: 0;
+    color: var(--text-primary);
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pipeline-detail-meta {
+    margin-top: 0.75rem;
+}
+
+.pipeline-detail-grid {
+    margin: 0;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 0.45rem;
+    row-gap: 0.2rem;
+    font-size: 0.74rem;
+    color: var(--text-secondary);
+}
+
+.pipeline-detail-label {
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+}
+
+.pipeline-detail-value {
     margin: 0;
     color: var(--text-primary);
     min-width: 0;
