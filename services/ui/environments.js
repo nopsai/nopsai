@@ -49,8 +49,8 @@
             'environment-search', 'environment-search-container', 'environment-clear-search', 'environment-list', 'environment-list-empty',
             'environment-list-view', 'environment-detail-view', 'environment-detail', 'environment-back-btn',
             'environment-detail-title', 'environment-variable-list', 'environment-variable-empty',
-        'environment-variable-subtitle', 'environment-variable-pipelines',
-        'environment-variable-triggers', 'environment-create-btn', 'environment-sidebar-tree',
+            'environment-variable-subtitle', 'environment-variable-pipelines',
+        'environment-variable-triggers', 'environment-create-btn', 'environment-create-environment', 'environment-sidebar-tree',
         'environment-edit-modal', 'environment-edit-form', 'environment-edit-name', 'environment-edit-repo', 'environment-edit-value',
         'environment-edit-scope', 'environment-edit-submit', 'environment-delete-modal', 'environment-delete-message',
         'environment-confirm-delete-btn', 'environment-variable-detail-label', 'environment-variable-detail-source',
@@ -81,6 +81,12 @@
         }
         if (DOM['environment-create-btn']) {
             DOM['environment-create-btn'].addEventListener('click', () => openEditModal('create'));
+        }
+        if (DOM['environment-create-environment']) {
+            DOM['environment-create-environment'].addEventListener('click', () => {
+                const scopeKey = determineCreateEnvironmentScopeKey();
+                openNewEnvironmentModal(scopeKey);
+            });
         }
         if (DOM['environment-create-inline']) {
             DOM['environment-create-inline'].addEventListener('click', (event) => {
@@ -457,6 +463,12 @@
         return normalizeEnvironmentSourceKey(key) !== 'git';
     }
 
+    function scopeHasGitManagedVariables(scope) {
+        if (!scope) return false;
+        const variables = Array.isArray(scope.variables) ? scope.variables : [];
+        return variables.some(name => normalizeEnvironmentSourceKey(getEnvironmentSourceForVariable(name, scope)) === 'git');
+    }
+
     function formatRelativeTime(value) {
         const date = value instanceof Date ? value : new Date(value);
         const timestamp = date.getTime();
@@ -603,7 +615,6 @@
 
         const searchTerm = (state.searchTerm || '').trim();
         const isSearching = state.isSearching && !!searchTerm;
-        const showAddCard = !isSearching;
         const hasSelection = !!state.selectedScopeKey;
 
         if (isSearching) {
@@ -639,18 +650,13 @@
 
             const childNodes = node?.children instanceof Map ? Array.from(node.children.values()) : [];
             childNodes.sort((a, b) => (a.key || '').localeCompare(b.key || '', undefined, { sensitivity: 'base' }));
+            const scopes = Array.isArray(node?.scopes) ? node.scopes.slice() : [];
+            scopes.sort((a, b) => (a.env || '').localeCompare(b.env || '', undefined, { sensitivity: 'base' }));
             const folderCards = childNodes.map(renderEnvironmentFolderCard).filter(Boolean);
             if (folderCards.length) {
                 html += `<div class="pipelines-card-grid pipelines-card-grid--pipelines">${folderCards.join('')}</div>`;
             }
-
-            const scopes = Array.isArray(node?.scopes) ? node.scopes.slice() : [];
-            scopes.sort((a, b) => (a.env || '').localeCompare(b.env || '', undefined, { sensitivity: 'base' }));
-            const addCardScopeKey = showAddCard ? resolveAddCardScopeKey(node, scopes) : null;
             const scopeCards = scopes.map(renderEnvironmentCard);
-            if (showAddCard && addCardScopeKey) {
-                scopeCards.push(renderAddEnvironmentCard(addCardScopeKey));
-            }
             if (scopeCards.length) {
                 html += `<div class="pipelines-card-grid pipelines-card-grid--pipelines">${scopeCards.join('')}</div>`;
             }
@@ -661,6 +667,7 @@
         }
 
         container.innerHTML = html;
+        updateCreateEnvironmentButton({ isSearching });
         if (DOM['environment-list-empty']) {
             if (showEmpty) {
                 if (isSearching && searchTerm) {
@@ -675,6 +682,31 @@
         }
 
         highlightActiveEnvironmentCard();
+    }
+
+    function updateCreateEnvironmentButton(options = {}) {
+        const { isSearching = false } = options;
+        const button = DOM['environment-create-environment'];
+        if (!button) return;
+        const parentLabel = getCreateEnvironmentParentLabel();
+        const scopeKey = buildScopeKey(parentLabel);
+        button.dataset.scopeKey = scopeKey;
+        const targetPath = parentLabel ? `/${parentLabel}` : '/';
+        button.setAttribute('title', `Create environment under ${targetPath}`);
+        const shouldHide = !!isSearching || !!state.selectedScopeKey;
+        button.classList.toggle('hidden', shouldHide);
+    }
+
+    function determineCreateEnvironmentScopeKey() {
+        const button = DOM['environment-create-environment'];
+        if (button?.dataset?.scopeKey) {
+            return button.dataset.scopeKey;
+        }
+        return buildScopeKey(getCreateEnvironmentParentLabel());
+    }
+
+    function getCreateEnvironmentParentLabel() {
+        return normalizeEnvironmentLabel(state.activeFolderKey || '');
     }
 
     function ensureActiveFolderKey() {
@@ -754,6 +786,25 @@
         const { title, parentPath, fullPath } = describeEnvironmentScope(scope);
         const variableCount = Array.isArray(scope.variables) ? scope.variables.length : 0;
         const triggerCount = scope.triggerCount || 0;
+        const deletionAllowed = !scopeHasGitManagedVariables(scope);
+        const deleteTitle = deletionAllowed
+            ? 'Delete environment scope'
+            : 'Environment is managed via Git. Delete is disabled.';
+        const deleteButton = deletionAllowed
+            ? `<button class="pipelines-delete-button" type="button" data-environment-delete="${escapeAttribute(scope.key)}" title="${escapeAttribute(deleteTitle)}">
+                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6" />
+                                <path d="M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                                <path d="M4 7h16" />
+                            </svg>
+                        </button>`
+            : `<button class="pipelines-delete-button" type="button" disabled aria-disabled="true" title="${escapeAttribute(deleteTitle)}">
+                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6" />
+                                <path d="M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                                <path d="M4 7h16" />
+                            </svg>
+                        </button>`;
 
         return `
             <article class="pipeline-card triggers-card bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg shadow-sm transition-all duration-200 p-3 flex flex-col${isActive ? ' triggers-card--active' : ''}" data-environment-scope="${escapeAttribute(scope.key)}" tabindex="0" role="button" aria-label="Open environment ${escapeAttribute(fullPath)}">
@@ -771,13 +822,7 @@
                         </div>
                     </div>
                     <div class="pipeline-card-actions">
-                        <button class="pipelines-delete-button" type="button" data-environment-delete="${escapeAttribute(scope.key)}" title="Delete environment scope">
-                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6" />
-                                <path d="M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
-                                <path d="M4 7h16" />
-                            </svg>
-                        </button>
+                        ${deleteButton}
                     </div>
                 </div>
                 <div class="pipeline-card-meta">
@@ -791,35 +836,6 @@
                     </div>
                 </div>
             </article>`;
-    }
-
-    function renderAddEnvironmentCard(scopeKey) {
-        const ariaLabel = escapeAttribute('Create new environment folder');
-        const scopeAttr = scopeKey ? ` data-scope-key="${escapeAttribute(scopeKey)}"` : '';
-        return `
-            <div class="add-environment-card relative group bg-[var(--bg-secondary)] p-4 rounded-lg border-2 border-dashed border-[var(--border-secondary)] hover:border-[var(--border-accent)] hover:bg-[var(--bg-tertiary)] transition-colors duration-200 cursor-pointer flex items-center justify-center min-h-[200px]" data-add-environment-card${scopeAttr} tabindex="0" role="button" aria-label="${ariaLabel}">
-                <div class="text-center">
-                    <svg class="mx-auto h-10 w-10 text-[var(--text-secondary)] group-hover:text-[var(--text-accent)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                    </svg>
-                    <p class="mt-3 text-sm font-medium text-[var(--text-secondary)] group-hover:text-[var(--text-accent)]">New Environment</p>
-                </div>
-            </div>`;
-    }
-
-    function resolveAddCardScopeKey(node, scopes) {
-        if (Array.isArray(scopes) && scopes.length) {
-            const primary = scopes[0];
-            if (primary && primary.key) {
-                return primary.key;
-            }
-        }
-        const folderPath = node?.key || '';
-        const candidateKey = buildScopeKey(folderPath);
-        if (state.scopeMap instanceof Map && state.scopeMap.has(candidateKey)) {
-            return candidateKey;
-        }
-        return DEFAULT_SCOPE_KEY;
     }
 
     function scopeKeyToLabel(scopeKey) {
@@ -887,15 +903,6 @@ function resetEnvironmentSelection(options = {}) {
     }
 
     function handleEnvironmentListClick(event) {
-        const addCard = event.target.closest('[data-add-environment-card]');
-        if (addCard) {
-            event.preventDefault();
-            const scopeKey = addCard.getAttribute('data-scope-key') || '';
-            openNewEnvironmentModal(scopeKey);
-            event.stopPropagation();
-            return;
-        }
-
         const deleteButton = event.target.closest('[data-environment-delete]');
         if (deleteButton) {
             event.preventDefault();
@@ -931,15 +938,6 @@ function resetEnvironmentSelection(options = {}) {
         if (event.defaultPrevented) return;
         if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return;
 
-        const addCard = event.target.closest('[data-add-environment-card]');
-        if (addCard && addCard === document.activeElement) {
-            event.preventDefault();
-            const scopeKey = addCard.getAttribute('data-scope-key') || '';
-            openNewEnvironmentModal(scopeKey);
-            event.stopPropagation();
-            return;
-        }
-
         const deleteButton = event.target.closest('[data-environment-delete]');
         if (deleteButton && deleteButton === document.activeElement) {
             event.preventDefault();
@@ -974,7 +972,7 @@ function resetEnvironmentSelection(options = {}) {
     function focusFirstEnvironmentCard() {
         const list = DOM['environment-list'];
         if (!list) return;
-        const first = list.querySelector('[data-environment-folder], [data-environment-scope], [data-add-environment-card]');
+        const first = list.querySelector('[data-environment-folder], [data-environment-scope]');
         if (first && typeof first.focus === 'function') {
             first.focus();
         }
@@ -1318,6 +1316,7 @@ function resetEnvironmentSelection(options = {}) {
         if (DOM['environment-back-btn']) DOM['environment-back-btn'].classList.add('hidden');
         if (DOM['environment-search-container']) DOM['environment-search-container'].classList.remove('hidden');
         if (DOM['environment-create-btn']) DOM['environment-create-btn'].classList.remove('hidden');
+        updateCreateEnvironmentButton({ isSearching: state.isSearching && !!(state.searchTerm || '').trim() });
     }
 
     function showDetailView() {
@@ -1326,6 +1325,7 @@ function resetEnvironmentSelection(options = {}) {
         if (DOM['environment-back-btn']) DOM['environment-back-btn'].classList.remove('hidden');
         if (DOM['environment-search-container']) DOM['environment-search-container'].classList.add('hidden');
         if (DOM['environment-create-btn']) DOM['environment-create-btn'].classList.add('hidden');
+        updateCreateEnvironmentButton({ isSearching: false });
     }
 
     function renderScopeDetail(scope) {
@@ -1432,25 +1432,6 @@ function resetEnvironmentSelection(options = {}) {
                 await cloneEnvironmentVariable(scopeKey, variableName);
             });
         });
-
-        container.querySelectorAll('[data-add-environment-card]').forEach(card => {
-            const scopeKey = card.getAttribute('data-scope-key') || scope.key || DEFAULT_SCOPE_KEY;
-            const handleOpen = () => openNewEnvironmentModal(scopeKey);
-
-            card.addEventListener('click', event => {
-                event.preventDefault();
-                event.stopPropagation();
-                handleOpen();
-            });
-
-            card.addEventListener('keydown', event => {
-                if (event.defaultPrevented) return;
-                if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return;
-                event.preventDefault();
-                handleOpen();
-            });
-        });
-
 
         highlightActiveVariable(state.selectedVariable);
         updateVariableItemStates();
@@ -1562,14 +1543,18 @@ function resetEnvironmentSelection(options = {}) {
                         </button>
                         ${isEditable ? `
                         <button type="button" class="env-inline-icon" data-env-variable-action="edit" title="Edit variable">
-                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 113 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
+                            <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L13.196 5.232z" />
+                            </svg>
                         </button>
                         <button type="button" class="env-inline-icon env-inline-icon--danger" data-env-variable-action="delete" title="Delete variable">
                             <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6l1-3h4l1 3"/></svg>
                         </button>
                         ` : `
-                        <button type="button" class="env-inline-icon" data-env-variable-clone="${escapeAttribute(item.full)}" title="Clone from config">
-                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2"/><path d="M9 7h5a2 2 0 012 2v9a2 2 0 01-2 2H9a2 2 0 01-2-2V9a2 2 0 012-2z"/><path d="M9 7V5a2 2 0 012-2h7"/></svg>
+                        <button type="button" class="env-inline-icon" data-env-variable-clone="${escapeAttribute(item.full)}" title="Clone">
+                            <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
+                                <path d="M16 7h-1V4a1 1 0 00-1-1H9a1 1 0 00-1 1v3H7a1 1 0 00-1 1v12a1 1 0 001 1h9a1 1 0 001-1V8a1 1 0 00-1-1zM9 4h5v3H9V4zm2.5 12a2.5 2.5 0 110-5 2.5 2.5 0 010 5z" />
+                            </svg>
                         </button>
                         `}
                     </div>
@@ -2410,6 +2395,10 @@ function resetEnvironmentSelection(options = {}) {
     function openDeleteEnvironmentModal(scopeKey) {
         const scope = state.scopeMap.get(scopeKey);
         if (!scope) return;
+        if (scopeHasGitManagedVariables(scope)) {
+            showToast('This environment is managed via Git and cannot be deleted here. Clone it in your repository instead.', 'info');
+            return;
+        }
         const label = scope.env ? `/${scope.env}` : '/';
         if (DOM['environment-delete-message']) {
             DOM['environment-delete-message'].textContent = `Delete environment “${label}”? All variables within this scope will be removed.`;
@@ -2504,6 +2493,11 @@ function resetEnvironmentSelection(options = {}) {
         const mode = button.dataset.deleteMode || 'variable';
 
         if (mode === 'environment') {
+            if (scopeHasGitManagedVariables(scope)) {
+                showToast('This environment is managed via Git and cannot be deleted here.', 'error');
+                closeModal('environment-delete-modal');
+                return;
+            }
             closeModal('environment-delete-modal');
             await deleteEnvironmentScope(scope);
             return;

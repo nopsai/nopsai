@@ -139,6 +139,11 @@
         }
     }
 
+    function getActiveTriggerFolderPrefix() {
+        const key = normalizeFolderKey(state.activeFolderKey || '');
+        return key ? `${key}/` : '';
+    }
+
     function formatTriggerFolderLabel(label) {
         const str = String(label || '').trim();
         if (!str) return 'Folder';
@@ -414,6 +419,10 @@
         return getTriggerSourceLabel('git');
     }
 
+    function isTriggerGitManaged(slug) {
+        return getTriggerSourceKey(slug) === 'git';
+    }
+
     function normalizePipelineSourceKey(value) {
         if (value == null) return '';
         const key = String(value).trim().toLowerCase();
@@ -565,7 +574,10 @@
         }
 
         if (DOM['triggers-new-btn']) {
-            DOM['triggers-new-btn'].addEventListener('click', () => openCreateTriggerModal());
+            DOM['triggers-new-btn'].addEventListener('click', () => {
+                const prefix = getActiveTriggerFolderPrefix();
+                openCreateTriggerModal({ repository: prefix });
+            });
         }
 
         if (DOM['triggers-new-repo']) {
@@ -658,6 +670,8 @@
                 closeModal('triggers-clone-modal');
             }
         });
+
+        updateTriggerNewButtonVisibility();
     }
 
     async function loadTriggers(force = false) {
@@ -763,7 +777,6 @@
 
         const searchTerm = (state.searchTerm || '').trim();
         const isSearching = !!searchTerm;
-        const showAddCard = !isSearching;
         const hasSelection = !!state.selectedSlug;
 
         if (isSearching) {
@@ -807,9 +820,6 @@
                 triggerEntries.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
             }
             const triggerCards = triggerEntries.map(entry => renderTriggerCard(entry.slug));
-            if (showAddCard) {
-                triggerCards.push(renderAddTriggerCard());
-            }
             if (triggerCards.length) {
                 html += `<div class="pipelines-card-grid pipelines-card-grid--pipelines">${triggerCards.join('')}</div>`;
             }
@@ -817,7 +827,7 @@
             const hasFolders = !!(activeNode?.children && activeNode.children.size);
             const hasRealTriggers = triggerEntries.length > 0;
             if (!hasFolders && !hasRealTriggers) {
-                showEmpty = !showAddCard;
+                showEmpty = true;
             }
         }
 
@@ -835,6 +845,7 @@
             DOM['triggers-list-empty'].classList.toggle('hidden', !showEmpty);
         }
         highlightActiveListItem();
+        updateTriggerNewButtonVisibility({ isSearching });
     }
 
     function showDetailView(show) {
@@ -850,9 +861,26 @@
         if (DOM['triggers-search-container']) {
             DOM['triggers-search-container'].classList.toggle('hidden', show);
         }
-        if (DOM['triggers-new-btn']) {
-            DOM['triggers-new-btn'].classList.toggle('hidden', show);
+        updateTriggerNewButtonVisibility({ showDetail: show });
+    }
+
+    function isTriggerDetailVisible() {
+        if (DOM['triggers-detail-view']) {
+            return !DOM['triggers-detail-view'].classList.contains('hidden');
         }
+        return !!state.selectedSlug;
+    }
+
+    function updateTriggerNewButtonVisibility(options = {}) {
+        const button = DOM['triggers-new-btn'];
+        if (!button) return;
+        const isSearching = Object.prototype.hasOwnProperty.call(options, 'isSearching')
+            ? !!options.isSearching
+            : !!(state.searchTerm || '').trim();
+        const showDetail = Object.prototype.hasOwnProperty.call(options, 'showDetail')
+            ? !!options.showDetail
+            : isTriggerDetailVisible();
+        button.classList.toggle('hidden', isSearching || showDetail);
     }
 
     function renderSearchSummary(count, term) {
@@ -911,10 +939,29 @@
             prefetchTriggerSummary(slug);
         }
         const sourceLabel = resolveTriggerSource(slug);
+        const isGitManaged = isTriggerGitManaged(slug);
         const parts = slug.split('/').filter(Boolean);
         const name = parts.pop() || slug;
         const owner = parts.join('/') || 'root';
         const isActive = slug === state.selectedSlug;
+        const deleteTitle = isGitManaged
+            ? 'This trigger is managed via Git. Clone it to customize.'
+            : 'Delete trigger';
+        const deleteButton = isGitManaged
+            ? `<button class="pipelines-delete-button" type="button" disabled aria-disabled="true" title="${escapeAttribute(deleteTitle)}">
+                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6" />
+                                <path d="M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                                <path d="M4 7h16" />
+                            </svg>
+                        </button>`
+            : `<button class="pipelines-delete-button" type="button" data-trigger-delete="${escapeAttribute(slug)}" title="${escapeAttribute(deleteTitle)}">
+                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6" />
+                                <path d="M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                                <path d="M4 7h16" />
+                            </svg>
+                        </button>`;
 
         return `
             <article class="pipeline-card triggers-card bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg shadow-sm transition-all duration-200 p-3 flex flex-col${isActive ? ' triggers-card--active' : ''}" data-trigger-slug="${escapeAttribute(slug)}" tabindex="0" role="button" aria-label="Open trigger ${escapeAttribute(slug)}">
@@ -933,13 +980,7 @@
                         </div>
                     </div>
                     <div class="pipeline-card-actions">
-                        <button class="pipelines-delete-button" type="button" data-trigger-delete="${escapeAttribute(slug)}" title="Delete trigger">
-                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6" />
-                                <path d="M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
-                                <path d="M4 7h16" />
-                            </svg>
-                        </button>
+                        ${deleteButton}
                     </div>
                 </div>
                 <div class="pipeline-card-meta">
@@ -949,18 +990,6 @@
                     </div>
                 </div>
             </article>`;
-    }
-
-    function renderAddTriggerCard() {
-        return `
-            <div class="add-trigger-card relative group bg-[var(--bg-secondary)] p-4 rounded-lg border-2 border-dashed border-[var(--border-secondary)] hover:border-[var(--border-accent)] hover:bg-[var(--bg-tertiary)] transition-colors duration-200 cursor-pointer flex items-center justify-center min-h-[200px]" data-add-trigger-card tabindex="0" role="button" aria-label="Create new trigger">
-                <div class="text-center">
-                    <svg class="mx-auto h-10 w-10 text-[var(--text-secondary)] group-hover:text-[var(--text-accent)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                    </svg>
-                    <p class="mt-3 text-sm font-medium text-[var(--text-secondary)] group-hover:text-[var(--text-accent)]">New Trigger</p>
-                </div>
-            </div>`;
     }
 
     function highlightActiveListItem() {
@@ -973,23 +1002,6 @@
     }
 
     function handleListClick(event) {
-        const addCard = event.target.closest('[data-add-trigger-card]');
-        if (addCard) {
-            if (state.isEditing) {
-                const proceed = confirm('Discard unsaved changes?');
-                if (!proceed) {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    return;
-                }
-                exitEditMode(true, { updateHash: false });
-            }
-            openCreateTriggerModal();
-            event.preventDefault();
-            event.stopPropagation();
-            return;
-        }
-
         const deleteButton = event.target.closest('[data-trigger-delete]');
         if (deleteButton) {
             const slug = deleteButton.getAttribute('data-trigger-delete') || '';
@@ -1064,18 +1076,6 @@
         if (event.defaultPrevented) return;
         if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return;
 
-        const addCard = event.target.closest('[data-add-trigger-card]');
-        if (addCard && addCard === document.activeElement) {
-            event.preventDefault();
-            if (state.isEditing) {
-                const proceed = confirm('Discard unsaved changes?');
-                if (!proceed) return;
-                exitEditMode(true, { updateHash: false });
-            }
-            openCreateTriggerModal();
-            return;
-        }
-
         const targetNav = event.target.closest('[data-trigger-folder-nav]');
         if (targetNav && targetNav === document.activeElement) {
             event.preventDefault();
@@ -1132,7 +1132,7 @@
     function focusFirstTriggerCard() {
         const list = DOM['triggers-list'];
         if (!list) return;
-        const first = list.querySelector('[data-trigger-folder], [data-trigger-slug], [data-add-trigger-card]');
+        const first = list.querySelector('[data-trigger-folder], [data-trigger-slug]');
         if (first && typeof first.focus === 'function') {
             first.focus();
         }
@@ -2667,6 +2667,10 @@
     function promptTriggerDelete(slug) {
         const target = slug || state.selectedSlug;
         if (!target) return;
+        if (isTriggerGitManaged(target)) {
+            showToast('This trigger is managed via Git. Clone it to customize instead of deleting.', 'info');
+            return;
+        }
         state.pendingDeleteSlug = target;
         if (DOM['triggers-delete-message']) {
             DOM['triggers-delete-message'].innerHTML = `Are you sure you want to delete the trigger <strong>${escapeHtml(target)}</strong>?`;
@@ -2677,6 +2681,12 @@
     async function handleDeleteConfirm() {
         if (!state.pendingDeleteSlug) return;
         const slug = state.pendingDeleteSlug;
+        if (isTriggerGitManaged(slug)) {
+            showToast('This trigger is managed via Git and cannot be deleted here.', 'error');
+            closeModal('triggers-delete-modal');
+            state.pendingDeleteSlug = null;
+            return;
+        }
         const [owner, name] = splitSlug(slug);
         try {
             await context.deleteData(`/v1/overrides/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`);
