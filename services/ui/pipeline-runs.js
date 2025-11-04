@@ -193,6 +193,27 @@
         applyPipelineButtonState(button, exists);
     }
 
+    function setRunToolbarVisibility(visible) {
+        if (!DOM) return;
+        if (DOM.pipelineRunsSearchContainer) {
+            DOM.pipelineRunsSearchContainer.classList.toggle('hidden', !visible);
+        }
+        if (DOM.pipelineRunsActions) {
+            DOM.pipelineRunsActions.classList.toggle('hidden', !visible);
+        }
+    }
+
+    function setNewFolderButtonEnabled(enabled) {
+        if (!DOM) return;
+        if (!DOM.pipelineRunsNewFolderBtn) return;
+        DOM.pipelineRunsNewFolderBtn.classList.toggle('hidden', !enabled);
+        DOM.pipelineRunsNewFolderBtn.disabled = !enabled;
+        DOM.pipelineRunsNewFolderBtn.setAttribute('aria-disabled', enabled ? 'false' : 'true');
+        if (DOM.pipelineRunsActions) {
+            DOM.pipelineRunsActions.style.display = enabled ? '' : 'none';
+        }
+    }
+
     async function ensureSearchRunsLoaded() {
         if (Array.isArray(state.searchRuns) && state.searchRuns.length && state.searchRunsFetchedAt && (Date.now() - state.searchRunsFetchedAt) < 60 * 1000) {
             return state.searchRuns;
@@ -978,8 +999,16 @@
             DOM.sidebarNav = DOM.sidebarDetailsNav;
         }
         DOM.pipelineRunsSearch = document.getElementById('pipelineruns-search');
+        DOM.pipelineRunsSearchContainer = DOM.pipelineRunsSearchContainer || document.getElementById('pipelineruns-search-container');
+        DOM.pipelineRunsActions = DOM.pipelineRunsActions || document.getElementById('pipelineruns-actions');
+        DOM.pipelineRunsNewFolderBtn = DOM.pipelineRunsNewFolderBtn || document.getElementById('pipelineruns-new-folder-btn');
         if (DOM.pipelineRunsSearch) {
             DOM.pipelineRunsSearch.value = state.runSearchTerm || '';
+        }
+        if (DOM.pipelineRunsNewFolderBtn) {
+            DOM.pipelineRunsNewFolderBtn.addEventListener('click', () => {
+                showAddGroupModal(state.selectedGroupId || null);
+            });
         }
         if (!Array.isArray(state.recentRuns)) state.recentRuns = [];
         if (!Array.isArray(state.searchRuns)) state.searchRuns = [];
@@ -1877,6 +1906,8 @@ if (dx !== 0 || dy !== 0) {
         state.currentRepoGroupId = state.selectedGroupId || null;
         resetMainView();
         DOM.mainGridContainer.classList.remove('hidden');
+        setRunToolbarVisibility(true);
+        setNewFolderButtonEnabled(false);
 
         if (!runsByBranch || Object.keys(runsByBranch).length === 0) {
             DOM.mainGridContainer.innerHTML = `<p class="text-[var(--text-secondary)]">No pipeline runs found for this repository.</p>`;
@@ -2116,10 +2147,14 @@ if (dx !== 0 || dy !== 0) {
     }
 
     async function renderMainGridContent(subgroups, runs, showAddButton = false) {
-         resetMainView();
-         DOM.mainGridContainer.classList.remove('hidden');
+        resetMainView();
+        DOM.mainGridContainer.classList.remove('hidden');
 
-         // Pre-fetch latest run info for all subgroups if not in cache
+        const searchTerm = (state.runSearchTerm || '').trim().toLowerCase();
+        setRunToolbarVisibility(true);
+        setNewFolderButtonEnabled(showAddButton && !searchTerm);
+
+        // Pre-fetch latest run info for all subgroups if not in cache
         const subgroupsWithDataPromises = (subgroups || []).map(async (group) => {
             const isRepo = (group.name || '').includes('/');
             if (isRepo && (!state.repoLastRunCache || !state.repoLastRunCache.has(group.id))) {
@@ -2142,8 +2177,6 @@ if (dx !== 0 || dy !== 0) {
         });
 
         await Promise.all(subgroupsWithDataPromises);
-
-        const searchTerm = (state.runSearchTerm || '').trim().toLowerCase();
 
         const childGroupMap = new Map();
         if (Array.isArray(state.groups)) {
@@ -2295,15 +2328,6 @@ if (dx !== 0 || dy !== 0) {
             html += renderRunCard(run, contextForRuns);
         });
 
-         if (showAddButton && !searchTerm) {
-              html += `
-                <div id="add-group-card" class="relative group bg-[var(--bg-secondary)] p-4 rounded-md border-2 border-dashed border-[var(--border-secondary)] hover:border-[var(--border-accent)] hover:bg-[var(--bg-tertiary)] transition-colors duration-200 cursor-pointer flex items-center justify-center min-h-[120px]">
-                    <div class="text-center">
-                       <svg class="mx-auto h-8 w-8 text-[var(--text-secondary)] group-hover:text-[var(--text-accent)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
-                       <p class="mt-2 text-sm font-medium text-[var(--text-secondary)] group-hover:text-[var(--text-accent)]">New Folder</p>
-                    </div>
-                </div>`;
-        }
         html += '</div>';
         DOM.mainGridContainer.innerHTML = html;
     }
@@ -2436,7 +2460,6 @@ if (dx !== 0 || dy !== 0) {
             height: totalHeight + PADDING_Y
         };
     }
-// 
     function renderRunView(runDetails) {
         const currentHashInfo = parsePipelineRunsHash(window.location.hash);
         const expectedRunId = runDetails?.run_info?.run_id;
@@ -2452,38 +2475,40 @@ if (dx !== 0 || dy !== 0) {
             // IMPORTANT: Stop the function here to prevent overwriting the header
             return;
         }
-    const runInfo = runDetails.run_info;
-    clearSelectedRuns();
-    const branchDisplay = formatBranchDisplay(runInfo.git_ref, runInfo.git_target_ref, { html: true });
-    const triggerRaw = (runInfo.trigger_event_id ?? '').toString().trim();
-    const triggerDisplay = triggerRaw || 'N/A';
-    const repoFullName = runInfo.git_repo_owner ? `${runInfo.git_repo_owner} / ${runInfo.git_repo_name}` : runInfo.git_repo_name;
-    const pipelineIdentifier = getPipelineIdentifierFromRun(runInfo);
-    const pipelinePageLink = pipelineIdentifier ? buildPipelineHashFromRun(runInfo) : '';
+        setRunToolbarVisibility(false);
+        setNewFolderButtonEnabled(false);
+        const runInfo = runDetails.run_info;
+        clearSelectedRuns();
+        const branchDisplay = formatBranchDisplay(runInfo.git_ref, runInfo.git_target_ref, { html: true });
+        const triggerRaw = (runInfo.trigger_event_id ?? '').toString().trim();
+        const triggerDisplay = triggerRaw || 'N/A';
+        const repoFullName = runInfo.git_repo_owner ? `${runInfo.git_repo_owner} / ${runInfo.git_repo_name}` : runInfo.git_repo_name;
+        const pipelineIdentifier = getPipelineIdentifierFromRun(runInfo);
+        const pipelinePageLink = pipelineIdentifier ? buildPipelineHashFromRun(runInfo) : '';
 
-    const runContext = resolveRunContext(state.currentRunContext || null);
-    state.currentRunContext = runContext;
+        const runContext = resolveRunContext(state.currentRunContext || null);
+        state.currentRunContext = runContext;
 
-    const repoGroup = findGroupByName(`${runInfo.git_repo_owner}/${runInfo.git_repo_name}`);
-    const repoSegments = repoGroup ? getGroupPathSegmentsById(repoGroup.id) : [];
-    const repoLink = repoSegments.length ? `#/pipelineruns/main/${repoSegments.join('/')}` : '#/pipelineruns/main';
+        const repoGroup = findGroupByName(`${runInfo.git_repo_owner}/${runInfo.git_repo_name}`);
+        const repoSegments = repoGroup ? getGroupPathSegmentsById(repoGroup.id) : [];
+        const repoLink = repoSegments.length ? `#/pipelineruns/main/${repoSegments.join('/')}` : '#/pipelineruns/main';
 
-    let headerHTML = `<div class="w-full min-w-0">`;
+        let headerHTML = `<div class="w-full min-w-0">`;
 
-    if (runDetails.parent_run_info) {
-        const parentRunLink = buildRunHash({
-            run_id: runDetails.parent_run_info.run_id,
-            git_repo_owner: runInfo.git_repo_owner,
-            git_repo_name: runInfo.git_repo_name,
-        }, runContext);
-        headerHTML += `
-            <div class="mb-2">
-                <a href="${parentRunLink}" class="text-sm text-[var(--text-link)] hover:underline">
-                    &larr; Back to parent: ${runDetails.parent_run_info.pipeline_name}
-                </a>
-            </div>
-        `;
-    }
+        if (runDetails.parent_run_info) {
+            const parentRunLink = buildRunHash({
+                run_id: runDetails.parent_run_info.run_id,
+                git_repo_owner: runInfo.git_repo_owner,
+                git_repo_name: runInfo.git_repo_name,
+            }, runContext);
+            headerHTML += `
+                <div class="mb-2">
+                    <a href="${parentRunLink}" class="text-sm text-[var(--text-link)] hover:underline">
+                        &larr; Back to parent: ${runDetails.parent_run_info.pipeline_name}
+                    </a>
+                </div>
+            `;
+        }
 
     const overrideIcon = runInfo.pipeline_source === 'database override'
         ? `<svg class="h-5 w-5 text-purple-500 ml-2" title="Overridden from database" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l4-4 4 4m0 6l-4 4-4-4"/></svg>`
@@ -4957,12 +4982,6 @@ if (false && state.currentGraphView === 'tasks') {
                     e.preventDefault();
                     e.stopPropagation();
                     await handleBranchDeleteButton(branchDeleteBtn);
-                    return;
-                }
-
-                const addCard = e.target.closest('#add-group-card');
-                if (addCard) {
-                    showAddGroupModal(state.selectedGroupId);
                     return;
                 }
 
