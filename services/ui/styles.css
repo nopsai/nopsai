@@ -1729,12 +1729,14 @@ html.dark .pipelines-modal-card {
 }
 
 #environment-edit-modal.show,
-#environment-delete-modal.show {
+#environment-delete-modal.show,
+#environment-new-modal.show {
     opacity: 1;
 }
 
 #environment-edit-modal.show .pipelines-modal-card,
-#environment-delete-modal.show .pipelines-modal-card {
+#environment-delete-modal.show .pipelines-modal-card,
+#environment-new-modal.show .pipelines-modal-card {
     transform: scale(1);
     opacity: 1;
 }
@@ -1844,7 +1846,7 @@ html.dark .pipelines-modal-card {
 
 .env-variable-detail-header {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
     gap: 0.75rem;
     margin-bottom: 0.75rem;
@@ -1865,10 +1867,29 @@ html.dark .pipelines-modal-card {
 
 .env-variable-detail-meta {
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
     gap: 0.35rem;
-    font-size: 0.75rem;
+}
+
+.env-variable-detail-meta-item {
+    display: grid;
+    grid-template-columns: 70px 1fr;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.76rem;
     color: var(--text-secondary);
+}
+
+.env-variable-detail-meta-label {
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+}
+
+.env-variable-detail-meta-value {
+    color: var(--text-primary);
+    font-weight: 500;
 }
 
 .env-variable-list::-webkit-scrollbar {
@@ -1902,18 +1923,102 @@ html.dark .pipelines-modal-card {
     min-width: 0;
 }
 
+.env-variable-panel header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+}
+
+.env-variable-header-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    margin: 0;
+    padding: 6px 14px 6px 16px;
+    border: none;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #4338ca, #6366f1);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+    color: #f9fafb;
+    font-size: 0.85rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    justify-content: space-between;
+    transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
+}
+
+.env-variable-header-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(99, 102, 241, 0.35);
+}
+
+.env-variable-header-label {
+    margin: 0;
+    flex: 1;
+}
+
+.env-variable-header-plus {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: rgba(249, 250, 251, 0.2);
+    color: #f9fafb;
+}
+
+.env-variable-header-plus svg {
+    transform: translateY(0.4px);
+}
+
+.env-variable-add-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 9999px;
+    margin-left: auto;
+    border: none;
+    background: linear-gradient(135deg, #4338ca, #6366f1);
+    color: #f9fafb;
+    transition: all 0.18s ease;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+}
+
+.env-variable-add-btn svg {
+    transform: translateY(0.5px);
+}
+
+.env-variable-add-btn:hover {
+    box-shadow: 0 6px 18px rgba(99, 102, 241, 0.3);
+    transform: translateY(-1px);
+}
+
 .env-variable-item {
     display: flex;
     align-items: center;
     gap: 12px;
     flex-wrap: wrap;
-    padding: 6px 10px;
+    padding: 4px 10px;
     border-radius: 12px;
     transition: background 0.2s ease;
+    border: 1px solid transparent;
 }
 
-.env-variable-item--active,
-.env-variable-item--expanded {
+
+.env-variable-item--active {
+    background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(129,140,248,0.24));
+    border: 1px solid rgba(99, 102, 241, 0.35);
+    box-shadow: 0 6px 16px rgba(79, 70, 229, 0.18);
+}
+
+.env-variable-item--expanded:not(.env-variable-item--active) {
     background: var(--bg-tertiary);
 }
 
@@ -1930,13 +2035,24 @@ html.dark .pipelines-modal-card {
     transition: color 0.2s ease;
 }
 
+
 .env-variable-btn span {
     font-size: 0.82rem;
 }
 
 .env-variable-btn:hover,
 .env-variable-btn--active {
-    color: var(--text-primary);
+    color: rgba(49, 46, 129, 0.95);
+    font-weight: 600;
+}
+
+html.dark .env-variable-btn {
+    color: rgba(209, 213, 219, 0.9);
+}
+
+html.dark .env-variable-btn:hover,
+html.dark .env-variable-btn--active {
+    color: #c7d2fe;
 }
 
 .env-variable-value {
