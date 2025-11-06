@@ -759,7 +759,7 @@
                     <span class="pipeline-folder-icon">
                         <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h5l2 2h9a2 2 0 012 2v7a2 2 0 01-2 2H3a2 2 0 01-2-2V9a2 2 0 012-2z"/></svg>
                     </span>
-                    <h3 class="pipeline-folder-title" title="${escapeAttribute(displayPath)}">${escapeHtml(label)}</h3>
+                    <h3 class="pipeline-folder-title">${escapeHtml(label)}</h3>
                     <div class="pipeline-folder-actions">
                         <span class="pipeline-folder-chevron" aria-hidden="true"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></span>
                     </div>
@@ -817,8 +817,8 @@
                             </svg>
                         </span>
                         <div class="pipeline-card-text min-w-0">
-                            <h3 class="pipeline-card-title" title="${escapeAttribute(title)}">${escapeHtml(title)}</h3>
-                            <p class="pipeline-card-path" title="${escapeAttribute(parentPath)}">${escapeHtml(parentPath)}</p>
+                            <h3 class="pipeline-card-title">${escapeHtml(title)}</h3>
+                            <p class="pipeline-card-path">${escapeHtml(parentPath)}</p>
                         </div>
                     </div>
                     <div class="pipeline-card-actions">
@@ -828,11 +828,11 @@
                 <div class="pipeline-card-meta">
                     <div class="pipeline-card-meta-row">
                         <span class="pipeline-card-meta-label">Variables</span>
-                        <span class="pipeline-card-meta-value" title="${variableCount} variables">${variableCount}</span>
+                        <span class="pipeline-card-meta-value">${variableCount}</span>
                     </div>
                     <div class="pipeline-card-meta-row">
                         <span class="pipeline-card-meta-label">Triggers</span>
-                        <span class="pipeline-card-meta-value" title="${triggerCount} triggers">${triggerCount}</span>
+                        <span class="pipeline-card-meta-value">${triggerCount}</span>
                     </div>
                 </div>
             </article>`;
@@ -1106,7 +1106,7 @@ function resetEnvironmentSelection(options = {}) {
         const displayPath = fullPath || '/';
 
         return `<li>
-            <button type="button" class="w-full flex items-center gap-2 text-left px-3 py-1.5 rounded-md text-sm transition ${isActive ? 'bg-[var(--bg-hover)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'}" data-environment-sidebar-scope="${escapeAttribute(scope.key)}" title="${escapeAttribute(displayPath)}" aria-label="Open environment ${escapeAttribute(displayPath)}">
+            <button type="button" class="w-full flex items-center gap-2 text-left px-3 py-1.5 rounded-md text-sm transition ${isActive ? 'bg-[var(--bg-hover)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'}" data-environment-sidebar-scope="${escapeAttribute(scope.key)}" aria-label="Open environment ${escapeAttribute(displayPath)}">
                 <svg class="h-4 w-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M12 3a9 9 0 100 18 9 9 0 000-18z" />
                     <path d="M3.6 9h16.8M3.6 15h16.8M12 3a15 15 0 010 18M12 3a15 15 0 000 18" />

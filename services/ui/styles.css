@@ -1703,6 +1703,13 @@ html.dark .pipelines-modal-card {
     border-color: rgba(71,85,105,0.35);
 }
 
+.modal-panel {
+    width: 100%;
+    transform: scale(0.96);
+    opacity: 0;
+    transition: transform 0.25s ease, opacity 0.25s ease;
+}
+
 #pipelines-new-modal.show,
 #pipelines-delete-modal.show,
 #pipelines-clone-modal.show {
@@ -1711,7 +1718,8 @@ html.dark .pipelines-modal-card {
 
 #pipelines-new-modal.show .pipelines-modal-card,
 #pipelines-delete-modal.show .pipelines-modal-card,
-#pipelines-clone-modal.show .pipelines-modal-card {
+#pipelines-clone-modal.show .pipelines-modal-card,
+#pipelines-new-modal.show .modal-panel {
     transform: scale(1);
     opacity: 1;
 }
@@ -1724,7 +1732,8 @@ html.dark .pipelines-modal-card {
 
 #triggers-new-modal.show .pipelines-modal-card,
 #triggers-delete-modal.show .pipelines-modal-card,
-#triggers-clone-modal.show .pipelines-modal-card {
+#triggers-clone-modal.show .pipelines-modal-card,
+#triggers-new-modal.show .modal-panel {
     transform: scale(1);
     opacity: 1;
 }
@@ -1737,7 +1746,8 @@ html.dark .pipelines-modal-card {
 
 #environment-edit-modal.show .pipelines-modal-card,
 #environment-delete-modal.show .pipelines-modal-card,
-#environment-new-modal.show .pipelines-modal-card {
+#environment-new-modal.show .pipelines-modal-card,
+#environment-new-modal.show .modal-panel {
     transform: scale(1);
     opacity: 1;
 }

@@ -1700,7 +1700,6 @@ function formatPathLabel(path) {
         const keyAttr = escapeHtml(node.key || '');
         const label = formatPathLabel(node.label || node.key || 'Folder');
         const labelSafe = escapeHtml(label);
-        const labelAttr = escapeAttribute(label);
         const totalPipelines = countPipelinesRecursive(node);
         const childCount = node.children ? node.children.size : 0;
 
@@ -1712,7 +1711,7 @@ function formatPathLabel(path) {
                             <path d="M3 7h5l2 2h9a2 2 0 012 2v7a2 2 0 01-2 2H3a2 2 0 01-2-2V9a2 2 0 012-2z" />
                         </svg>
                     </span>
-                    <h3 class="pipeline-folder-title" title="${labelAttr}">${labelSafe}</h3>
+                    <h3 class="pipeline-folder-title">${labelSafe}</h3>
                     <div class="pipeline-folder-actions">
                         <span class="pipeline-folder-chevron" aria-hidden="true">
                             <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1785,8 +1784,8 @@ function formatPathLabel(path) {
             <article class="pipeline-card bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg shadow-sm transition-all duration-200 p-3 flex flex-col" data-pipeline-id="${idAttr}" tabindex="0" role="button" aria-label="Open pipeline ${escapeHtml(rawName)}">
                 <div class="pipeline-card-header flex items-start justify-between gap-3">
                     <div class="pipeline-card-text min-w-0">
-                        <h3 class="pipeline-card-title" title="${name}">${name}</h3>
-                        <p class="pipeline-card-path" title="${pathLabel}">${pathLabel}</p>
+                        <h3 class="pipeline-card-title">${name}</h3>
+                        <p class="pipeline-card-path">${pathLabel}</p>
                     </div>
                     <div class="pipeline-card-actions">
                         ${deleteButtonHtml}
@@ -1796,11 +1795,11 @@ function formatPathLabel(path) {
                 <div class="pipeline-card-meta">
                     <div class="pipeline-card-meta-row">
                         <span class="pipeline-card-meta-label">Version</span>
-                        <span class="pipeline-card-meta-value" title="${escapeAttribute(versionLabel)}">${escapeHtml(versionLabel)}</span>
+                        <span class="pipeline-card-meta-value">${escapeHtml(versionLabel)}</span>
                     </div>
                     <div class="pipeline-card-meta-row">
                         <span class="pipeline-card-meta-label">Source</span>
-                        <span class="pipeline-card-meta-value" title="${escapeAttribute(resolvedSourceLabel)}">${escapeHtml(resolvedSourceLabel)}</span>
+                        <span class="pipeline-card-meta-value">${escapeHtml(resolvedSourceLabel)}</span>
                     </div>
                 </div>
             </article>`;
@@ -1883,15 +1882,12 @@ function formatPathLabel(path) {
 
         if (DOM['pipeline-detail-path']) {
             DOM['pipeline-detail-path'].textContent = pathLabel;
-            DOM['pipeline-detail-path'].setAttribute('title', pathLabel);
         }
         if (DOM['pipeline-detail-version']) {
             DOM['pipeline-detail-version'].textContent = versionLabel;
-            DOM['pipeline-detail-version'].setAttribute('title', versionLabel);
         }
         if (DOM['pipeline-detail-source']) {
             DOM['pipeline-detail-source'].textContent = sourceLabel;
-            DOM['pipeline-detail-source'].setAttribute('title', sourceLabel);
         }
 
         const isGitSource = normalizedSourceKey === 'git';
@@ -2116,7 +2112,7 @@ function formatPathLabel(path) {
             }
             const detailMarkup = rows.map(({ label, value }) => `
                 <dt class="triggers-detail-label">${escapeHtml(label)}</dt>
-                <dd class="triggers-detail-value" title="${escapeAttribute(value)}">${escapeHtml(value)}</dd>
+                <dd class="triggers-detail-value">${escapeHtml(value)}</dd>
             `).join('');
 
             return `
@@ -2166,7 +2162,7 @@ function formatPathLabel(path) {
             <a href="${runUrl}" class="pipelines-run-row block" title="Open run ${escapeAttribute(runId || '')}">
                 <div class="triggers-run-row">
                     <div class="triggers-run-row__line triggers-run-row__line--primary">
-                        <span class="triggers-run-row__pipeline" title="Pipeline: ${escapeAttribute(pipelineName)}">${escapeHtml(pipelineName)}</span>
+                        <span class="triggers-run-row__pipeline">${escapeHtml(pipelineName)}</span>
                         <span class="triggers-run-row__time">${escapeHtml(timeAgo)}</span>
                     </div>
                     <div class="triggers-run-row__line triggers-run-row__line--status">
@@ -2174,11 +2170,11 @@ function formatPathLabel(path) {
                     </div>
                     <dl class="triggers-detail-grid triggers-run-details">
                         <dt class="triggers-detail-label">Branch:</dt>
-                        <dd class="triggers-detail-value" title="${escapeAttribute(branch)}">${escapeHtml(branch)}</dd>
+                        <dd class="triggers-detail-value">${escapeHtml(branch)}</dd>
                         <dt class="triggers-detail-label">Run ID:</dt>
-                        <dd class="triggers-detail-value" title="${escapeAttribute(runId || shortRunId)}">${escapeHtml(shortRunId)}</dd>
+                        <dd class="triggers-detail-value">${escapeHtml(shortRunId)}</dd>
                         <dt class="triggers-detail-label">Trigger ID:</dt>
-                        <dd class="triggers-detail-value" title="${escapeAttribute(triggerEventId || shortTriggerId)}">${escapeHtml(shortTriggerId)}</dd>
+                        <dd class="triggers-detail-value">${escapeHtml(shortTriggerId)}</dd>
                     </dl>
                 </div>
             </a>`;
