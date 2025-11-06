@@ -64,6 +64,10 @@ type DisplayOptions struct {
 }
 
 // Task is an individual command or goal within a PipelineStep.
+//
+// **Validation Note**: A Task must define EITHER 'goal' OR 'script', but not both.
+// This mutual exclusivity is enforced by the application-layer validation
+// (e.g., in services/nopsai/main.go::validatePipeline), not at the YAML unmarshaling level.
 type Task struct {
 	Name             string   `yaml:"name" json:"name"`
 	Goal             string   `yaml:"goal" json:"goal"`
@@ -74,6 +78,11 @@ type Task struct {
 }
 
 // PipelineStep is a single logical step within a pipeline definition.
+//
+// **Validation Note**: A PipelineStep must define EITHER 'include', 'tasks', 'goal', OR 'script',
+// but not more than one.
+// This mutual exclusivity is enforced by the application-layer validation
+// (e.g., in services/nopsai/main.go::validatePipeline), not at the YAML unmarshaling level.
 type PipelineStep struct {
 	Name        string            `yaml:"name" json:"name"`
 	Include     string            `yaml:"include,omitempty" json:"include,omitempty"`
