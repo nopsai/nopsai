@@ -1776,12 +1776,20 @@ html.dark .pipelines-modal-card {
 .env-suggestion-panel {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
-    padding: 1.5rem;
-    border-radius: 1rem;
-    border: 1px solid var(--border-primary);
-    background: var(--bg-tertiary);
+    gap: 0.42rem;
+    padding: 0.82rem 0.9rem;
+    border-radius: 0.7rem;
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    background: linear-gradient(150deg, rgba(255, 255, 255, 0.7) 0%, rgba(241, 245, 249, 0.48) 100%);
+    backdrop-filter: blur(12px);
+    box-shadow: 0 16px 34px -28px rgba(15, 23, 42, 0.35);
     min-width: 0;
+}
+
+html.dark .env-suggestion-panel {
+    background: linear-gradient(150deg, rgba(15, 23, 42, 0.76) 0%, rgba(30, 41, 59, 0.56) 100%);
+    border-color: rgba(129, 140, 248, 0.2);
+    box-shadow: 0 18px 40px -30px rgba(2, 6, 23, 0.65);
 }
 
 .env-suggestion-heading {
@@ -1791,53 +1799,60 @@ html.dark .pipelines-modal-card {
 }
 
 .env-suggestion-kicker {
-    font-size: 0.65rem;
-    text-transform: uppercase;
-    letter-spacing: 0.18em;
-    color: var(--text-secondary);
     margin: 0;
+    font-size: 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.22em;
+    color: var(--text-secondary);
 }
 
 .env-suggestion-title {
     margin: 0;
-    font-size: 1.05rem;
+    font-size: 0.7rem;
     font-weight: 600;
     color: var(--text-primary);
+    letter-spacing: 0.01em;
 }
 
 .env-suggestion-subtitle {
     margin: 0;
-    font-size: 0.85rem;
+    font-size: 0.52rem;
     color: var(--text-secondary);
 }
 
 .env-suggestion-body {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0.38rem;
 }
 
 .env-suggestion-list {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
-    max-height: 360px;
+    gap: 0.38rem;
+    max-height: 260px;
     overflow-y: auto;
-    padding-right: 0.4rem;
+    padding-right: 0.2rem;
 }
 
 .env-suggestion-item {
-    border: 1px solid var(--border-primary);
-    border-radius: 0.9rem;
-    padding: 0.85rem 1rem;
-    background: var(--bg-secondary);
-    box-shadow: 0 12px 32px -28px rgba(15, 23, 42, 0.65);
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    border-radius: 0.6rem;
+    padding: 0.5rem 0.6rem;
+    background: rgba(255, 255, 255, 0.42);
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    backdrop-filter: blur(10px);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+html.dark .env-suggestion-item {
+    background: rgba(30, 41, 59, 0.5);
+    border-color: rgba(129, 140, 248, 0.22);
 }
 
 .env-suggestion-item--active {
-    border-color: var(--border-accent);
-    box-shadow: 0 18px 40px -32px rgba(99, 102, 241, 0.55);
+    border-color: rgba(99, 102, 241, 0.36);
+    box-shadow: 0 12px 28px -26px rgba(99, 102, 241, 0.38);
+    transform: translateY(-1px);
 }
 
 .env-suggestion-env {
@@ -1849,13 +1864,14 @@ html.dark .pipelines-modal-card {
 }
 
 .env-suggestion-env-label {
-    font-size: 0.9rem;
+    font-size: 0.58rem;
     font-weight: 600;
     color: var(--text-primary);
+    letter-spacing: 0.02em;
 }
 
 .env-suggestion-env-count {
-    font-size: 0.75rem;
+    font-size: 0.48rem;
     font-weight: 500;
     color: var(--text-secondary);
 }
@@ -1863,45 +1879,57 @@ html.dark .pipelines-modal-card {
 .env-suggestion-variables {
     display: flex;
     flex-direction: column;
-    gap: 0.35rem;
+    gap: 0.32rem;
 }
 
 .env-suggestion-pill {
     display: flex;
     align-items: center;
-    border-radius: 9999px;
-    padding: 0.2rem 0.65rem;
-    font-size: 0.75rem;
-    font-weight: 500;
-    color: var(--text-secondary);
-    background: rgba(99, 102, 241, 0.08);
-    width: 100%;
     justify-content: space-between;
+    gap: 0.4rem;
+    border-radius: 0.55rem;
+    padding: 0.36rem 0.52rem;
+    font-size: 0.54rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.44);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    transition: transform 0.18s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+
+html.dark .env-suggestion-pill {
+    background: rgba(30, 41, 59, 0.52);
+    border-color: rgba(129, 140, 248, 0.24);
+    color: var(--text-primary);
 }
 
 .env-suggestion-pill--action {
     border: none;
     cursor: pointer;
-    background: rgba(99, 102, 241, 0.14);
-    color: var(--text-primary);
     font: inherit;
-    transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+    background: rgba(99, 102, 241, 0.14);
+    border: 1px solid transparent;
+}
+
+html.dark .env-suggestion-pill--action {
+    background: rgba(99, 102, 241, 0.18);
+    border-color: rgba(129, 140, 248, 0.28);
 }
 
 .env-suggestion-hint {
-    font-size: 0.7rem;
+    font-size: 0.48rem;
     color: var(--text-secondary);
-    margin-left: 0.75rem;
+    margin-left: 0.42rem;
 }
 
 .env-suggestion-pill--action:hover {
-    background: rgba(99, 102, 241, 0.24);
-    color: var(--text-primary);
-    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.2);
+    background: rgba(99, 102, 241, 0.2);
+    box-shadow: 0 8px 20px -18px rgba(99, 102, 241, 0.4);
+    transform: translateY(-1px);
 }
 
 .env-suggestion-pill--action:focus-visible {
-    outline: 2px solid var(--border-accent);
+    outline: 2px solid rgba(99, 102, 241, 0.36);
     outline-offset: 2px;
 }
 
@@ -1911,17 +1939,24 @@ html.dark .pipelines-modal-card {
     color: var(--text-secondary);
     width: auto;
     align-self: flex-start;
+    font-size: 0.5rem;
+    padding: 0.3rem 0.5rem;
+}
+
+html.dark .env-suggestion-pill--more {
+    border-color: rgba(129, 140, 248, 0.36);
+    color: rgba(226, 232, 240, 0.66);
 }
 
 .env-suggestion-empty {
-    font-size: 0.85rem;
+    font-size: 0.52rem;
     color: var(--text-secondary);
     margin: 0;
 }
 
 .env-suggestion-footnote {
     margin: 0;
-    font-size: 0.75rem;
+    font-size: 0.5rem;
     color: var(--text-secondary);
 }
 
@@ -1959,6 +1994,24 @@ html.dark .pipelines-modal-card {
     .pipeline-suggestion-panel {
         max-width: 320px;
     }
+}
+
+.pipeline-suggestion-panel-placeholder {
+    visibility: hidden;
+}
+
+.pipeline-suggestion-overlay-host {
+    position: relative;
+}
+
+.pipeline-suggestion-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 1000;
+    box-shadow: 0 12px 40px rgba(15, 23, 42, 0.35);
+    border-radius: 16px;
+    overflow: hidden;
 }
 
 /* Environment Detail Modern UI */
@@ -3279,7 +3332,7 @@ html.dark .triggers-sidebar-link--active {
     font-size: 0.85rem;
     line-height: 1.6;
     white-space: pre;
-    z-index: 3;
+    z-index: 999;
     top: 0;
     left: 0;
 }
