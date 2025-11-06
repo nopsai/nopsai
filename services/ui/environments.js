@@ -55,7 +55,8 @@
         'environment-edit-scope', 'environment-edit-submit', 'environment-delete-modal', 'environment-delete-message',
         'environment-confirm-delete-btn', 'environment-variable-detail-label', 'environment-variable-detail-source',
         'environment-variable-detail-updated', 'environment-variable-detail-created',
-        'environment-new-modal', 'environment-new-form', 'environment-new-name', 'environment-new-parent', 'environment-new-cancel', 'environment-new-close'
+        'environment-new-modal', 'environment-new-form', 'environment-new-name', 'environment-new-parent', 'environment-new-cancel', 'environment-new-close',
+        'environment-suggestion-panel', 'environment-suggestion-list', 'environment-suggestion-empty'
     ];
 
         ids.forEach(id => {
@@ -95,6 +96,9 @@
                     || (state.activeFolderKey ? buildScopeKey(state.activeFolderKey) : DEFAULT_SCOPE_KEY);
                 openNewEnvironmentModal(scopeKey);
             });
+        }
+        if (DOM['environment-suggestion-panel']) {
+            DOM['environment-suggestion-panel'].addEventListener('click', handleEnvironmentSuggestionClick);
         }
         if (DOM['environment-new-cancel']) {
             DOM['environment-new-cancel'].addEventListener('click', hideNewEnvironmentModal);
@@ -1030,6 +1034,8 @@ function resetEnvironmentSelection(options = {}) {
                 event.stopPropagation();
             });
         });
+
+        renderEnvironmentSuggestions();
     }
 
     function renderSidebarFolderNode(node, level) {
@@ -1096,6 +1102,89 @@ function resetEnvironmentSelection(options = {}) {
 
         html += '</ul>';
         return html;
+    }
+
+    function renderEnvironmentSuggestions(activeScopeKey = state.selectedScopeKey || DEFAULT_SCOPE_KEY) {
+        const panel = DOM['environment-suggestion-panel'];
+        const list = DOM['environment-suggestion-list'];
+        const emptyState = DOM['environment-suggestion-empty'];
+        if (!panel || !list || !emptyState) {
+            return;
+        }
+
+        const suggestions = [];
+        if (state.scopeMap instanceof Map) {
+            state.scopeMap.forEach(scope => {
+                const variables = Array.isArray(scope.variables) ? scope.variables.filter(Boolean) : [];
+                if (!variables.length) return;
+                suggestions.push({
+                    key: scope.key,
+                    label: scope.env ? `/${scope.env}` : '/ (default)',
+                    count: variables.length,
+                    preview: variables.slice(0, 5),
+                });
+            });
+        }
+
+        if (!suggestions.length) {
+            list.innerHTML = '';
+            emptyState.classList.remove('hidden');
+            return;
+        }
+
+        emptyState.classList.add('hidden');
+        const normalizedActive = activeScopeKey || DEFAULT_SCOPE_KEY;
+
+        suggestions.sort((a, b) => (a.label || '').localeCompare(b.label || '', undefined, { sensitivity: 'base' }));
+
+        list.innerHTML = suggestions.map(entry => {
+            const pills = entry.preview.map(name => {
+                const valueAttr = escapeAttribute(name);
+                const scopeAttr = escapeAttribute(entry.key);
+                return `<button type="button" class="env-suggestion-pill env-suggestion-pill--action" data-env-suggestion-value="${valueAttr}" data-env-suggestion-scope="${scopeAttr}">${escapeHtml(name)}</button>`;
+            });
+            const remaining = entry.count - entry.preview.length;
+            if (remaining > 0) {
+                pills.push(`<span class="env-suggestion-pill env-suggestion-pill--more">+${remaining} more</span>`);
+            }
+            const countLabel = `${entry.count} ${entry.count === 1 ? 'variable' : 'variables'}`;
+            const activeClass = entry.key === normalizedActive ? ' env-suggestion-item--active' : '';
+            return `
+                <article class="env-suggestion-item${activeClass}">
+                    <div class="env-suggestion-env">
+                        <span class="env-suggestion-env-label">${escapeHtml(entry.label)}</span>
+                        <span class="env-suggestion-env-count">${escapeHtml(countLabel)}</span>
+                    </div>
+                    <div class="env-suggestion-variables">${pills.join('')}</div>
+                </article>
+            `;
+        }).join('');
+    }
+
+    function handleEnvironmentSuggestionClick(event) {
+        const button = event.target.closest('[data-env-suggestion-value]');
+        if (!button) return;
+        if (!DOM['environment-edit-modal'] || DOM['environment-edit-modal'].classList.contains('hidden')) {
+            return;
+        }
+        const variableValue = button.getAttribute('data-env-suggestion-value') || '';
+        if (!variableValue) return;
+        event.preventDefault();
+        const identity = parseVariableIdentity(variableValue);
+        const nameInput = DOM['environment-edit-name'];
+        if (nameInput && !nameInput.readOnly) {
+            nameInput.value = identity.name || variableValue;
+            try {
+                const caret = nameInput.value.length;
+                nameInput.setSelectionRange(caret, caret);
+            } catch {}
+        }
+        const repoInput = DOM['environment-edit-repo'];
+        if (repoInput && !repoInput.disabled) {
+            const repoSlug = identity.repoOwner && identity.repoName ? `${identity.repoOwner}/${identity.repoName}` : '';
+            repoInput.value = repoSlug;
+        }
+        nameInput?.focus();
     }
 
     function renderSidebarScopeEntry(scope) {
@@ -2271,6 +2360,7 @@ function resetEnvironmentSelection(options = {}) {
             DOM['environment-edit-submit'].textContent = mode === 'update' ? 'Save Value' : 'Create Variable';
         }
 
+        renderEnvironmentSuggestions(scope.key);
         openModal('environment-edit-modal');
     }
 

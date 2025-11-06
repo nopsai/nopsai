@@ -31,6 +31,12 @@
         editorCharWidth: null,
         editorValidationErrors: [],
         beforeUnloadHandler: null,
+        environmentSuggestions: [],
+        environmentSuggestionCache: new Map(),
+        environmentSuggestionPromise: null,
+        environmentSuggestionLoadedAt: 0,
+        environmentSuggestionActiveKey: null,
+        showEnvironmentSuggestionPanel: false,
     };
 
     const DOM = {};
@@ -240,7 +246,8 @@
             'pipelines-new-close', 'pipelines-new-cancel', 'pipelines-new-path', 'pipelines-new-name',
             'pipelines-delete-modal', 'pipelines-delete-message', 'pipelines-delete-confirm',
             'pipelines-delete-cancel', 'pipelines-delete-close', 'pipelines-clone-modal', 'pipelines-clone-form',
-            'pipelines-clone-close', 'pipelines-clone-cancel', 'pipelines-clone-path', 'pipelines-clone-name', 'pipelines-clone-subtitle', 'pipelines-sync-report', 'pipelines-search-container'
+            'pipelines-clone-close', 'pipelines-clone-cancel', 'pipelines-clone-path', 'pipelines-clone-name', 'pipelines-clone-subtitle', 'pipelines-sync-report', 'pipelines-search-container',
+            'pipeline-editor-wrapper', 'pipeline-suggestion-panel', 'pipeline-suggestion-list', 'pipeline-suggestion-empty'
         ];
 
         ids.forEach(id => {
@@ -323,6 +330,9 @@
                     showToast('Unable to open clone modal. Please try again.', 'error');
                 });
             });
+        }
+        if (DOM['pipeline-suggestion-panel']) {
+            DOM['pipeline-suggestion-panel'].addEventListener('click', handlePipelineSuggestionClick);
         }
 
         if (DOM['pipelines-clone-close']) {
@@ -2285,6 +2295,238 @@ function formatPathLabel(path) {
         }
     }
 
+    function renderPipelineEnvironmentSuggestions() {
+        const panel = DOM['pipeline-suggestion-panel'];
+        const list = DOM['pipeline-suggestion-list'];
+        const emptyState = DOM['pipeline-suggestion-empty'];
+        if (!panel || !list || !emptyState) return;
+
+        if (!state.isEditing || !state.showEnvironmentSuggestionPanel) {
+            updatePipelineSuggestionPanelVisibility();
+            return;
+        }
+
+        updatePipelineSuggestionPanelVisibility();
+
+        if (state.environmentSuggestionPromise && !state.environmentSuggestions.length) {
+            emptyState.textContent = 'Loading environment variables…';
+            emptyState.classList.remove('hidden');
+            list.innerHTML = '';
+            return;
+        }
+
+        if (!state.environmentSuggestions.length) {
+            emptyState.textContent = 'No environment variables available yet.';
+            emptyState.classList.remove('hidden');
+            list.innerHTML = '';
+            return;
+        }
+
+        emptyState.classList.add('hidden');
+        const activeKey = state.environmentSuggestionActiveKey;
+        const cards = state.environmentSuggestions.map(entry => {
+            const pills = entry.preview.map(name => {
+                const valueAttr = escapeAttribute(name);
+                return `<button type="button" class="env-suggestion-pill env-suggestion-pill--action" data-pipeline-suggestion="${valueAttr}">${escapeHtml(name)}</button>`;
+            });
+            const remaining = entry.count - entry.preview.length;
+            if (remaining > 0) {
+                pills.push(`<span class="env-suggestion-pill env-suggestion-pill--more">+${remaining} more</span>`);
+            }
+            const countLabel = `${entry.count} ${entry.count === 1 ? 'variable' : 'variables'}`;
+            const activeClass = activeKey && entry.key === activeKey ? ' env-suggestion-item--active' : '';
+            return `
+                <article class="env-suggestion-item${activeClass}">
+                    <div class="env-suggestion-env">
+                        <span class="env-suggestion-env-label">${escapeHtml(entry.label)}</span>
+                        <span class="env-suggestion-env-count">${escapeHtml(countLabel)}</span>
+                    </div>
+                    <div class="env-suggestion-variables">${pills.join('')}</div>
+                </article>
+            `;
+        });
+        list.innerHTML = cards.join('');
+    }
+
+    function updatePipelineSuggestionPanelVisibility() {
+        const shouldShow = state.isEditing && state.showEnvironmentSuggestionPanel;
+        if (DOM['pipeline-suggestion-panel']) {
+            DOM['pipeline-suggestion-panel'].classList.toggle('hidden', !shouldShow);
+        }
+    }
+
+    function handlePipelineSuggestionClick(event) {
+        const button = event.target.closest('[data-pipeline-suggestion]');
+        if (!button) return;
+        const variableName = button.getAttribute('data-pipeline-suggestion') || '';
+        if (!variableName) return;
+        event.preventDefault();
+        insertPipelineSuggestionValue(variableName);
+    }
+
+    function insertPipelineSuggestionValue(value) {
+        if (!state.isEditing || !DOM['pipeline-yaml-editor']) {
+            showToast('Enter edit mode to insert environment variables.', 'info');
+            return;
+        }
+        const textarea = DOM['pipeline-yaml-editor'];
+        const start = textarea.selectionStart ?? textarea.value.length;
+        const end = textarea.selectionEnd ?? start;
+        const before = textarea.value.slice(0, start);
+        const after = textarea.value.slice(end);
+        const identity = parseEnvironmentVariableIdentity(value);
+        const insertion = identity.name || value;
+        textarea.value = before + insertion + after;
+        const caret = start + insertion.length;
+        textarea.selectionStart = textarea.selectionEnd = caret;
+        textarea.focus();
+        handleValidation();
+        updateLineNumbers();
+        updateEditorSuggestions();
+    }
+
+    function setPipelineSuggestionPanelActive(active) {
+        const next = !!active && state.isEditing;
+        if (state.showEnvironmentSuggestionPanel === next) {
+            updatePipelineSuggestionPanelVisibility();
+            return;
+        }
+        state.showEnvironmentSuggestionPanel = next;
+        updatePipelineSuggestionPanelVisibility();
+        if (next) {
+            renderPipelineEnvironmentSuggestions();
+        }
+    }
+
+    function parseEnvironmentVariableIdentity(rawValue) {
+        const parts = String(rawValue || '').split('/').filter(Boolean);
+        if (parts.length === 3) {
+            return { repoOwner: parts[0], repoName: parts[1], name: parts[2] };
+        }
+        return { repoOwner: null, repoName: null, name: String(rawValue || '') };
+    }
+
+    async function ensureEnvironmentSuggestionData(force = false) {
+        if (!context || typeof context.fetchData !== 'function') {
+            return [];
+        }
+        if (!force && state.environmentSuggestions.length) {
+            return state.environmentSuggestions;
+        }
+        if (state.environmentSuggestionPromise) {
+            return state.environmentSuggestionPromise;
+        }
+
+        const promise = (async () => {
+            const labels = await fetchEnvironmentScopeLabels();
+            const summaries = [];
+            for (const label of labels) {
+                const variables = await fetchEnvironmentVariablesForLabel(label, force);
+                summaries.push({
+                    key: buildEnvironmentScopeKey(label),
+                    label: label ? `/${label}` : '/ (default)',
+                    count: variables.length,
+                    preview: variables.slice(0, 5),
+                });
+            }
+            state.environmentSuggestions = summaries;
+            state.environmentSuggestionLoadedAt = Date.now();
+            return summaries;
+        })();
+
+        state.environmentSuggestionPromise = promise;
+        try {
+            const result = await promise;
+            renderPipelineEnvironmentSuggestions();
+            return result;
+        } catch (error) {
+            console.error('Failed to load environment suggestions for pipelines editor:', error);
+            state.environmentSuggestions = [];
+            renderPipelineEnvironmentSuggestions();
+            throw error;
+        } finally {
+            state.environmentSuggestionPromise = null;
+        }
+    }
+
+    async function fetchEnvironmentScopeLabels() {
+        const labels = new Set(['']);
+        if (!context || typeof context.fetchData !== 'function') {
+            return Array.from(labels);
+        }
+        try {
+            const response = await context.fetchData('/v1/environments/scopes');
+            if (Array.isArray(response)) {
+                response.forEach(entry => {
+                    const normalized = normalizeEnvironmentScopeLabel(entry);
+                    if (normalized !== null && normalized !== undefined) {
+                        labels.add(normalized);
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('Failed to fetch environment scope list for suggestions:', error);
+        }
+        return Array.from(labels).sort((a, b) => {
+            if (a === b) return 0;
+            if (a === '') return -1;
+            if (b === '') return 1;
+            return a.localeCompare(b, undefined, { sensitivity: 'base' });
+        });
+    }
+
+    function normalizeEnvironmentScopeLabel(entry) {
+        if (entry == null) {
+            return '';
+        }
+        if (typeof entry === 'string') {
+            return String(entry).trim().replace(/^\/+|\/+$/g, '');
+        }
+        if (typeof entry === 'object') {
+            const value = entry.environment ?? entry.env ?? entry.name ?? entry.value ?? '';
+            return String(value || '').trim().replace(/^\/+|\/+$/g, '');
+        }
+        return '';
+    }
+
+    function buildEnvironmentScopeKey(label) {
+        return `env:${label || ''}`;
+    }
+
+    async function fetchEnvironmentVariablesForLabel(label, force = false) {
+        const normalized = typeof label === 'string' ? label : '';
+        if (!force && state.environmentSuggestionCache instanceof Map && state.environmentSuggestionCache.has(normalized)) {
+            return state.environmentSuggestionCache.get(normalized);
+        }
+        if (!context || typeof context.fetchData !== 'function') {
+            return [];
+        }
+
+        const baseUrl = normalized ? `/v1/environments?env=${encodeURIComponent(normalized)}` : '/v1/environments';
+        const url = baseUrl.includes('?') ? `${baseUrl}&include_source=true` : `${baseUrl}?include_source=true`;
+        try {
+            const response = await context.fetchData(url);
+            const entries = Array.isArray(response) ? response : [];
+            const variables = entries.map(item => {
+                if (typeof item === 'string') {
+                    return item.trim();
+                }
+                if (item && typeof item === 'object' && item.name) {
+                    return String(item.name).trim();
+                }
+                return '';
+            }).filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+            if (!(state.environmentSuggestionCache instanceof Map)) {
+                state.environmentSuggestionCache = new Map();
+            }
+            state.environmentSuggestionCache.set(normalized, variables);
+            return variables;
+        } catch (error) {
+            console.error(`Failed to load environment variables for '/${normalized || ''}':`, error);
+            return [];
+        }
+    }
+
     function enterEditMode() {
         if (!state.selectedId || state.isEditing) return;
         state.isEditing = true;
@@ -2292,6 +2534,7 @@ function formatPathLabel(path) {
         if (DOM['yaml-view-actions']) DOM['yaml-view-actions'].classList.add('hidden');
         if (DOM['yaml-edit-actions']) DOM['yaml-edit-actions'].classList.remove('hidden');
         if (DOM['pipeline-yaml-content']) DOM['pipeline-yaml-content'].classList.add('hidden');
+        if (DOM['pipeline-editor-wrapper']) DOM['pipeline-editor-wrapper'].classList.remove('hidden');
         if (DOM['editor-container']) DOM['editor-container'].classList.remove('hidden');
         if (DOM['validation-status']) DOM['validation-status'].classList.remove('hidden');
         if (DOM['pipeline-yaml-editor']) {
@@ -2300,6 +2543,7 @@ function formatPathLabel(path) {
             DOM['pipeline-yaml-editor'].value = yamlContent;
             DOM['pipeline-yaml-editor'].focus();
         }
+        setPipelineSuggestionPanelActive(false);
         const expectedHash = buildPipelineHash(state.selectedId, true);
         if (window.location.hash !== expectedHash) {
             try {
@@ -2315,6 +2559,8 @@ function formatPathLabel(path) {
         ensureEditorSuggestionOverlay();
         updateEditorSuggestions();
         preloadAutocompleteMetadata().catch(() => {});
+        renderPipelineEnvironmentSuggestions();
+        ensureEnvironmentSuggestionData().catch(error => console.error('Failed to load environment suggestions:', error));
     }
 
     function exitEditMode() {
@@ -2327,8 +2573,10 @@ function formatPathLabel(path) {
         if (DOM['yaml-view-actions']) DOM['yaml-view-actions'].classList.remove('hidden');
         if (DOM['yaml-edit-actions']) DOM['yaml-edit-actions'].classList.add('hidden');
         if (DOM['pipeline-yaml-content']) DOM['pipeline-yaml-content'].classList.remove('hidden');
+        if (DOM['pipeline-editor-wrapper']) DOM['pipeline-editor-wrapper'].classList.add('hidden');
         if (DOM['editor-container']) DOM['editor-container'].classList.add('hidden');
         if (DOM['validation-status']) DOM['validation-status'].classList.add('hidden');
+        setPipelineSuggestionPanelActive(false);
         if (state.selectedId) {
         const expectedHash = buildPipelineHash(state.selectedId, false);
             if (window.location.hash !== expectedHash) {
@@ -2752,6 +3000,7 @@ function formatPathLabel(path) {
 
     function updateEditorSuggestions() {
         if (!state.isEditing || !DOM['pipeline-yaml-editor']) {
+            setPipelineSuggestionPanelActive(false);
             hideEditorSuggestions();
             return;
         }
@@ -2762,9 +3011,12 @@ function formatPathLabel(path) {
         const selectionEnd = Math.max(textarea.selectionStart, textarea.selectionEnd);
         const contextInfo = detectSuggestionContext(text, selectionStart, selectionEnd);
         if (!contextInfo) {
+            setPipelineSuggestionPanelActive(false);
             hideEditorSuggestions();
             return;
         }
+
+        setPipelineSuggestionPanelActive(contextInfo.type === 'environment');
 
         const requiresMetadata = contextInfo.type === 'secrets'
             || contextInfo.type === 'environment'
