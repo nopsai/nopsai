@@ -10,6 +10,13 @@ triggers:
       - general/include-pipeline
     environment: prod
 
+  - on: push
+    tags:
+      - 'v*'
+    pipelines: 
+      - main-pipeline.yaml
+    environment: prod
+
   # Trigger for pushes to any feature branch
   - on: push
     skip_branches:
