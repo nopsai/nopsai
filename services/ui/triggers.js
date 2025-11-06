@@ -912,16 +912,15 @@
         const childCount = node.children ? node.children.size : 0;
         const label = node.label || node.key || 'Folder';
         const keyAttr = escapeAttribute(node.key || '');
-        const labelAttr = escapeAttribute(label);
         const labelDisplay = escapeHtml(label);
 
         return `
-            <article class="pipeline-folder-card border border-[var(--border-primary)]" data-trigger-folder="${keyAttr}" tabindex="0" role="button" aria-label="Open folder ${labelAttr}">
+            <article class="pipeline-folder-card border border-[var(--border-primary)]" data-trigger-folder="${keyAttr}" tabindex="0" role="button" aria-label="Open folder ${escapeAttribute(label)}">
                 <div class="pipeline-folder-card-header">
                     <span class="pipeline-folder-icon">
                         <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h5l2 2h9a2 2 0 012 2v7a2 2 0 01-2 2H3a2 2 0 01-2-2V9a2 2 0 012-2z"/></svg>
                     </span>
-                    <h3 class="pipeline-folder-title" title="${labelAttr}">${labelDisplay}</h3>
+                    <h3 class="pipeline-folder-title">${labelDisplay}</h3>
                     <div class="pipeline-folder-actions">
                         <span class="pipeline-folder-chevron" aria-hidden="true"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></span>
                     </div>
@@ -975,8 +974,8 @@
                             </svg>
                         </span>
                         <div class="pipeline-card-text min-w-0">
-                            <h3 class="pipeline-card-title" title="${escapeAttribute(name)}">${escapeHtml(name)}</h3>
-                            <p class="pipeline-card-path" title="${escapeAttribute(owner)}">${escapeHtml(owner)}</p>
+                            <h3 class="pipeline-card-title">${escapeHtml(name)}</h3>
+                            <p class="pipeline-card-path">${escapeHtml(owner)}</p>
                         </div>
                     </div>
                     <div class="pipeline-card-actions">
@@ -986,7 +985,7 @@
                 <div class="pipeline-card-meta">
                     <div class="pipeline-card-meta-row">
                         <span class="pipeline-card-meta-label">Source</span>
-                        <span class="pipeline-card-meta-value" title="${escapeAttribute(sourceLabel)}">${escapeHtml(sourceLabel)}</span>
+                        <span class="pipeline-card-meta-value">${escapeHtml(sourceLabel)}</span>
                     </div>
                 </div>
             </article>`;
@@ -1400,12 +1399,11 @@
 
         let html = `<dl class="triggers-detail-grid">`;
 
-        html += items.map(({ label, value, title }) => {
+        html += items.map(({ label, value }) => {
             const safeValue = escapeHtml(String(value ?? ''));
-            const tooltip = title != null ? escapeAttribute(String(title)) : escapeAttribute(String(value ?? ''));
             return `
                 <dt class="triggers-detail-label">${escapeHtml(label)}:</dt>
-                <dd class="triggers-detail-value" title="${tooltip}">${safeValue}</dd>
+                <dd class="triggers-detail-value">${safeValue}</dd>
             `;
         }).join('');
 
@@ -1486,11 +1484,11 @@
                 <span class="triggers-pipeline-name">${escapeHtml(item.display)}</span>
                 <dl class="triggers-detail-grid triggers-pipeline-details">
                     <dt class="triggers-detail-label">Path:</dt>
-                    <dd class="triggers-detail-value" title="${escapeAttribute(pathDisplay)}">${escapeHtml(pathDisplay)}</dd>
+                    <dd class="triggers-detail-value">${escapeHtml(pathDisplay)}</dd>
                     <dt class="triggers-detail-label">Version:</dt>
-                    <dd class="triggers-detail-value" title="${versionValue}">${versionValue}</dd>
+                    <dd class="triggers-detail-value">${versionValue}</dd>
                     <dt class="triggers-detail-label">Source:</dt>
-                    <dd class="triggers-detail-value" title="${sourceValue}">${sourceValue}</dd>
+                    <dd class="triggers-detail-value">${sourceValue}</dd>
                 </dl>`;
             if (sourceKey === 'local') {
                 return `
