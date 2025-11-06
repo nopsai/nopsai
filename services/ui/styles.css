@@ -1888,6 +1888,12 @@ html.dark .pipelines-modal-card {
     transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
 }
 
+.env-suggestion-hint {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    margin-left: 0.75rem;
+}
+
 .env-suggestion-pill--action:hover {
     background: rgba(99, 102, 241, 0.24);
     color: var(--text-primary);
