@@ -195,9 +195,25 @@
                                             </div>
                                             <div class="p-4 space-y-3">
                                                 <div id="pipeline-yaml-content" class="yaml-view"></div>
-                                                <div id="editor-container" class="editor-container hidden">
-                                                    <pre id="line-numbers">1</pre>
-                                                    <textarea id="pipeline-yaml-editor" spellcheck="false"></textarea>
+                                                <div id="pipeline-editor-wrapper" class="pipeline-editor-wrapper hidden">
+                                                    <div id="editor-container" class="editor-container hidden">
+                                                        <pre id="line-numbers">1</pre>
+                                                        <textarea id="pipeline-yaml-editor" spellcheck="false"></textarea>
+                                                    </div>
+                                                    <section id="pipeline-suggestion-panel" class="env-suggestion-panel pipeline-suggestion-panel" aria-live="polite">
+                                                        <div class="env-suggestion-heading">
+                                                            <div>
+                                                                <p class="env-suggestion-kicker">Need a reference?</p>
+                                                                <h3 class="env-suggestion-title">Environment variables by scope</h3>
+                                                            </div>
+                                                            <p class="env-suggestion-subtitle">Compare existing environment variables while editing your pipeline.</p>
+                                                        </div>
+                                                        <div class="env-suggestion-body">
+                                                            <p id="pipeline-suggestion-empty" class="env-suggestion-empty">Loading environment variables…</p>
+                                                            <div id="pipeline-suggestion-list" class="env-suggestion-list"></div>
+                                                            <p class="env-suggestion-footnote">Click any variable to insert it into the pipeline definition.</p>
+                                                        </div>
+                                                    </section>
                                                 </div>
                                                 <div id="validation-status" class="mt-2 text-xs text-[var(--text-secondary)] hidden"></div>
                                             </div>
@@ -803,7 +819,7 @@
         </div>
     </div>
     <div id="environment-edit-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
-        <div class="pipelines-modal-card max-w-lg">
+        <div class="pipelines-modal-card max-w-4xl w-full">
             <header class="pipelines-modal-header">
                 <div>
                     <h2 class="text-lg font-semibold text-[var(--text-primary)]">Create Variable</h2>
@@ -813,31 +829,47 @@
                     <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
             </header>
-            <form id="environment-edit-form" class="pipelines-modal-body space-y-4">
-                <div>
-                    <label for="environment-edit-name" class="block text-sm font-medium text-[var(--text-secondary)]">Variable Name</label>
-                    <input type="text" id="environment-edit-name" name="name" required placeholder="DATABASE_URL" class="pipelines-input w-full mt-1" pattern="[A-Za-z0-9_.\-]+" />
-                    <p class="text-xs text-[var(--text-secondary)] mt-1">Names may contain letters, numbers, underscores, dots, and hyphens.</p>
-                </div>
-                <div>
-                    <label for="environment-edit-repo" class="block text-sm font-medium text-[var(--text-secondary)]">Repository (optional)</label>
-                    <input type="text" id="environment-edit-repo" name="repository" placeholder="owner/repository" class="pipelines-input w-full mt-1" list="environment-repo-options" pattern="[^/\s]+/[^/\s]+" />
-                    <datalist id="environment-repo-options"></datalist>
-                    <p class="text-xs text-[var(--text-secondary)] mt-1">Provide a repository slug to scope the variable to a specific project.</p>
-                </div>
-                <div>
-                    <label for="environment-edit-value" class="block text-sm font-medium text-[var(--text-secondary)]">Value</label>
-                    <textarea id="environment-edit-value" name="value" rows="4" class="pipelines-input w-full mt-1" placeholder="Provide the value stored for this scope"></textarea>
-                    <p class="text-xs text-[var(--text-secondary)] mt-1">Values overwrite any existing entry for this scope.</p>
-                </div>
-                <div class="flex items-center justify-end gap-2 pt-2">
-                    <button type="button" class="glass-button-ghost" data-cancel>Cancel</button>
-                    <button id="environment-edit-submit" type="submit" class="glass-button-primary">
-                        <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-                        <span>Save</span>
-                    </button>
-                </div>
-            </form>
+            <div class="pipelines-modal-body env-edit-modal-body">
+                <form id="environment-edit-form" class="env-edit-form space-y-4">
+                    <div>
+                        <label for="environment-edit-name" class="block text-sm font-medium text-[var(--text-secondary)]">Variable Name</label>
+                        <input type="text" id="environment-edit-name" name="name" required placeholder="DATABASE_URL" class="pipelines-input w-full mt-1" pattern="[A-Za-z0-9_.\-]+" />
+                        <p class="text-xs text-[var(--text-secondary)] mt-1">Names may contain letters, numbers, underscores, dots, and hyphens.</p>
+                    </div>
+                    <div>
+                        <label for="environment-edit-repo" class="block text-sm font-medium text-[var(--text-secondary)]">Repository (optional)</label>
+                        <input type="text" id="environment-edit-repo" name="repository" placeholder="owner/repository" class="pipelines-input w-full mt-1" list="environment-repo-options" pattern="[^/\s]+/[^/\s]+" />
+                        <datalist id="environment-repo-options"></datalist>
+                        <p class="text-xs text-[var(--text-secondary)] mt-1">Provide a repository slug to scope the variable to a specific project.</p>
+                    </div>
+                    <div>
+                        <label for="environment-edit-value" class="block text-sm font-medium text-[var(--text-secondary)]">Value</label>
+                        <textarea id="environment-edit-value" name="value" rows="4" class="pipelines-input w-full mt-1" placeholder="Provide the value stored for this scope"></textarea>
+                        <p class="text-xs text-[var(--text-secondary)] mt-1">Values overwrite any existing entry for this scope.</p>
+                    </div>
+                    <div class="flex items-center justify-end gap-2 pt-2">
+                        <button type="button" class="glass-button-ghost" data-cancel>Cancel</button>
+                        <button id="environment-edit-submit" type="submit" class="glass-button-primary">
+                            <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                            <span>Save</span>
+                        </button>
+                    </div>
+                </form>
+                <section id="environment-suggestion-panel" class="env-suggestion-panel" aria-live="polite">
+                    <div class="env-suggestion-heading">
+                        <div>
+                            <p class="env-suggestion-kicker">Need a reference?</p>
+                            <h3 class="env-suggestion-title">Environment variable suggestions</h3>
+                        </div>
+                        <p class="env-suggestion-subtitle">See where variables already exist before saving changes.</p>
+                    </div>
+                    <div class="env-suggestion-body">
+                        <p id="environment-suggestion-empty" class="env-suggestion-empty">No variables have been defined yet.</p>
+                        <div id="environment-suggestion-list" class="env-suggestion-list"></div>
+                        <p class="env-suggestion-footnote">Click a variable to prefill the creation form.</p>
+                    </div>
+                </section>
+            </div>
         </div>
     </div>
     <div id="environment-new-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
