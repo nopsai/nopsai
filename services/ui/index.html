@@ -627,32 +627,32 @@
     </div>
 
     <div id="pipelines-new-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
-        <div class="pipelines-modal-card">
-            <header class="pipelines-modal-header">
+        <div class="modal-panel w-full max-w-xl bg-[var(--bg-secondary)] rounded-lg shadow-2xl">
+            <div class="flex items-center justify-between p-4 border-b border-[var(--border-primary)]">
                 <div>
-                    <h2 class="text-lg font-semibold text-[var(--text-primary)]">Create Pipeline</h2>
+                    <h2 class="text-xl font-semibold text-[var(--text-primary)]">Create Pipeline</h2>
                     <p class="text-sm text-[var(--text-secondary)]">Choose a repository path and pipeline name. You can edit the YAML after creation.</p>
                 </div>
-                <button id="pipelines-new-close" class="glass-button-ghost" title="Close">
-                    <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                <button id="pipelines-new-close" class="text-[var(--text-secondary)] hover:text-[var(--text-primary)]" title="Close">
+                    <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
-            </header>
-            <form id="pipelines-new-form" class="pipelines-modal-body space-y-4">
+            </div>
+            <form id="pipelines-new-form" class="p-6 space-y-4">
                 <div>
                     <label for="pipelines-new-path" class="block text-sm font-medium text-[var(--text-secondary)]">Pipeline Path</label>
-                    <input type="text" id="pipelines-new-path" name="path" required placeholder="team-1/dev" class="pipelines-input w-full mt-1" />
+                    <input type="text" id="pipelines-new-path" name="path" required placeholder="team-1/dev" class="mt-1 block w-full bg-[var(--bg-tertiary)] border border-[var(--border-input)] rounded-md shadow-sm py-2 px-3 text-[var(--text-primary)] focus:outline-none focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)] sm:text-sm" />
                     <p class="text-xs text-[var(--text-secondary)] mt-1">Use folder-style paths to keep pipelines organised. Leave blank for root.</p>
                 </div>
                 <div>
                     <label for="pipelines-new-name" class="block text-sm font-medium text-[var(--text-secondary)]">Pipeline Name</label>
-                    <input type="text" id="pipelines-new-name" name="name" required placeholder="build-and-test" class="pipelines-input w-full mt-1" pattern="[A-Za-z0-9_.\-]+" />
+                    <input type="text" id="pipelines-new-name" name="name" required placeholder="build-and-test" pattern="[A-Za-z0-9_.\-]+" class="mt-1 block w-full bg-[var(--bg-tertiary)] border border-[var(--border-input)] rounded-md shadow-sm py-2 px-3 text-[var(--text-primary)] focus:outline-none focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)] sm:text-sm" />
                     <p class="text-xs text-[var(--text-secondary)] mt-1">Names may contain letters, numbers, underscores, dots, and hyphens.</p>
                 </div>
-                <div class="flex items-center justify-end gap-2 pt-2">
-                    <button type="button" id="pipelines-new-cancel" class="glass-button-ghost">Cancel</button>
-                    <button type="submit" class="glass-button-primary">
+                <div class="flex justify-end pt-4">
+                    <button type="button" id="pipelines-new-cancel" class="mr-2 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500">Cancel</button>
+                    <button type="submit" class="inline-flex items-center justify-center gap-2 py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
                         <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                        <span>Create & Edit</span>
+                        <span>Create &amp; Edit</span>
                     </button>
                 </div>
             </form>
@@ -716,35 +716,35 @@
         </div>
     </div>
     <div id="triggers-new-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
-        <div class="pipelines-modal-card trigger-modal-card max-w-2xl">
-            <header class="pipelines-modal-header trigger-modal-header">
-                <div class="trigger-modal-heading">
-                    <span class="trigger-modal-icon" aria-hidden="true">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <div class="modal-panel w-full max-w-2xl bg-[var(--bg-secondary)] rounded-lg shadow-2xl trigger-modal-card">
+            <div class="flex items-center justify-between p-4 border-b border-[var(--border-primary)]">
+                <div class="flex items-center gap-4 min-w-0">
+                    <span class="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-indigo-500/90 text-white shadow-lg" aria-hidden="true">
+                        <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M3 12h3l3 8l4-16l3 8h4" />
                             <path d="M3 5h6" />
                             <path d="M18 19h3" />
                         </svg>
                     </span>
                     <div class="min-w-0">
-                        <h2 class="text-lg font-semibold text-[var(--text-primary)]">Create Trigger</h2>
+                        <h2 class="text-xl font-semibold text-[var(--text-primary)] truncate">Create Trigger</h2>
                         <p class="text-sm text-[var(--text-secondary)]">We’ll scaffold a starter trigger you can refine right away.</p>
                     </div>
                 </div>
-                <button id="triggers-new-close" class="glass-button-ghost" title="Close">
-                    <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                <button id="triggers-new-close" class="text-[var(--text-secondary)] hover:text-[var(--text-primary)]" title="Close">
+                    <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
-            </header>
-            <form id="triggers-new-form" class="pipelines-modal-body trigger-modal-body">
-                <div class="trigger-modal-field-group">
+            </div>
+            <form id="triggers-new-form" class="p-6 space-y-6">
+                <div class="space-y-2">
                     <label for="triggers-new-repo" class="block text-sm font-medium text-[var(--text-secondary)]">Repository</label>
-                    <input type="text" id="triggers-new-repo" name="repository" required placeholder="owner/repository" pattern="[^/\s]+/[^/\s]+" class="pipelines-input w-full mt-1" />
-                    <p class="trigger-modal-hint">A starter trigger will run on push events to <code>main</code> and reference a matching pipeline file.</p>
+                    <input type="text" id="triggers-new-repo" name="repository" required placeholder="owner/repository" pattern="[^/\s]+/[^/\s]+" class="mt-1 block w-full bg-[var(--bg-tertiary)] border border-[var(--border-input)] rounded-md shadow-sm py-2 px-3 text-[var(--text-primary)] focus:outline-none focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)] sm:text-sm" />
+                    <p class="text-xs text-[var(--text-secondary)]">A starter trigger will run on push events to <code>main</code> and reference a matching pipeline file.</p>
                 </div>
                 <textarea id="triggers-new-yaml" name="yaml" class="hidden" aria-hidden="true"></textarea>
-                <div class="trigger-modal-footer">
-                    <button type="button" id="triggers-new-cancel" class="glass-button-ghost">Cancel</button>
-                    <button type="submit" class="glass-button-primary">
+                <div class="flex justify-end pt-4">
+                    <button type="button" id="triggers-new-cancel" class="mr-2 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500">Cancel</button>
+                    <button type="submit" class="inline-flex items-center justify-center gap-2 py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
                         <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5H7a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-6"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 13l3 3 7-7"/></svg>
                         <span>Create &amp; Edit</span>
                     </button>
@@ -841,29 +841,29 @@
         </div>
     </div>
     <div id="environment-new-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
-        <div class="pipelines-modal-card max-w-md">
-            <header class="pipelines-modal-header">
+        <div class="modal-panel w-full max-w-md bg-[var(--bg-secondary)] rounded-lg shadow-2xl">
+            <div class="flex items-center justify-between p-4 border-b border-[var(--border-primary)]">
                 <div>
-                    <h2 class="text-lg font-semibold text-[var(--text-primary)]">Create Environment</h2>
+                    <h2 class="text-xl font-semibold text-[var(--text-primary)]">Create Environment</h2>
                     <p id="environment-new-parent" class="text-sm text-[var(--text-secondary)]">Parent: /</p>
                 </div>
-                <button type="button" class="glass-button-ghost" id="environment-new-close">
-                    <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                <button type="button" class="text-[var(--text-secondary)] hover:text-[var(--text-primary)]" id="environment-new-close">
+                    <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
-            </header>
-            <form id="environment-new-form" class="pipelines-modal-body space-y-4">
+            </div>
+            <form id="environment-new-form" class="p-6 space-y-4">
                 <div>
                     <label for="environment-new-name" class="block text-sm font-medium text-[var(--text-secondary)]">Environment Name</label>
-                    <input type="text" id="environment-new-name" name="name" required placeholder="e.g. dev" class="pipelines-input w-full mt-1" />
+                    <input type="text" id="environment-new-name" name="name" required placeholder="e.g. dev" class="mt-1 block w-full bg-[var(--bg-tertiary)] border border-[var(--border-input)] rounded-md shadow-sm py-2 px-3 text-[var(--text-primary)] focus:outline-none focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)] sm:text-sm" />
                     <p class="text-xs text-[var(--text-secondary)] mt-1">Only letters, numbers, dots, underscores, and hyphens are allowed. Use slashes for nested folders.</p>
                 </div>
                 <div class="space-y-2 bg-[var(--bg-tertiary)] rounded-md p-3 text-xs text-[var(--text-secondary)]">
                     <p class="font-medium text-[var(--text-primary)]">Sample Variable</p>
                     <p>Each new environment starts with `<code>sample_variable</code>` seeded as a reminder. Update or remove it after creating the environment.</p>
                 </div>
-                <div class="flex items-center justify-end gap-2 pt-2">
-                    <button type="button" class="glass-button-ghost" id="environment-new-cancel">Cancel</button>
-                    <button type="submit" class="glass-button-primary">
+                <div class="flex justify-end pt-4">
+                    <button type="button" class="mr-2 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500" id="environment-new-cancel">Cancel</button>
+                    <button type="submit" class="inline-flex items-center justify-center gap-2 py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
                         <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                         <span>Create Environment</span>
                     </button>
