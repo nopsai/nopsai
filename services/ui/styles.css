@@ -31,6 +31,7 @@
     --run-highlight-outline: rgba(245, 158, 11, 0.7); /* amber-500 */
     --run-highlight-shadow: rgba(245, 158, 11, 0.3);
     --run-highlight-background: rgba(245, 158, 11, 0.12);
+    --app-header-height: 4.5rem;
 
     /* Icon badge colors (lighter) */
     --icon-info-bg: #818cf8;      /* indigo-400 */
@@ -3379,7 +3380,8 @@ html.dark .triggers-sidebar-link--active {
 .editor-container.hidden { display: none; }
 
 #pipeline-yaml-editor,
-#triggers-yaml-editor {
+#triggers-yaml-editor,
+#step-yaml-editor {
     flex: 1;
     padding: 1rem 1.25rem;
     border: none;
@@ -3415,7 +3417,8 @@ html.dark .pipeline-editor-autocomplete__ghost {
     color: rgba(148,163,184,0.4);
 }
 
-#pipeline-yaml-content {
+#pipeline-yaml-content,
+#step-yaml-content {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
     background: rgba(15,23,42,0.92);
     color: #a5f3fc;
@@ -3426,10 +3429,12 @@ html.dark .pipeline-editor-autocomplete__ghost {
     font-size: 0.85rem;
 }
 
+#step-yaml-content.hidden,
 .pipeline-yaml-content.hidden { display: none; }
 
 #line-numbers,
-#triggers-line-numbers {
+#triggers-line-numbers,
+#step-line-numbers {
     padding: 1rem 0.75rem 1rem 0.5rem;
     font-size: 0.8rem;
     color: rgba(148,163,184,0.7);
@@ -3457,7 +3462,7 @@ html.dark .pipeline-editor-autocomplete__ghost {
 
 .validation-box {
     position: absolute;
-    top: 1rem;
+    top: calc(var(--app-header-height) + 1rem);
     right: 1rem;
     min-width: 220px;
     max-width: 320px;

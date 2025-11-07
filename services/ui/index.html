@@ -240,14 +240,6 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div class="glass-card overflow-hidden">
-                                    <div class="p-4 border-b border-[var(--border-primary)]">
-                                        <h3 class="text-lg font-semibold text-[var(--text-primary)]">Used in Pipelines</h3>
-                                    </div>
-                                    <div id="step-usage-content" class="p-4 space-y-3">
-                                        <p id="step-usage-empty" class="text-sm text-[var(--text-secondary)]">This step is not referenced by any pipeline.</p>
-                                    </div>
-                                </div>
                             </div>
                         </div>
                     </div>
@@ -333,14 +325,36 @@
                                     </div>
                                     <div class="p-4 space-y-3">
                                         <div id="step-yaml-content" class="yaml-view"></div>
-                                        <div id="step-editor-wrapper" class="pipeline-editor-wrapper hidden">
-                                            <div id="step-editor-container" class="editor-container hidden">
-                                                <pre id="step-line-numbers">1</pre>
-                                                <textarea id="step-yaml-editor" spellcheck="false"></textarea>
+                                            <div id="step-editor-wrapper" class="pipeline-editor-wrapper hidden">
+                                                <div id="step-editor-container" class="editor-container hidden">
+                                                    <pre id="step-line-numbers">1</pre>
+                                                    <textarea id="step-yaml-editor" spellcheck="false"></textarea>
+                                                </div>
+                                                <section id="step-suggestion-panel" class="env-suggestion-panel pipeline-suggestion-panel hidden" aria-live="polite">
+                                                    <div class="env-suggestion-heading">
+                                                        <div>
+                                                            <p class="env-suggestion-kicker">Need a reference?</p>
+                                                            <h3 id="step-suggestion-title" class="env-suggestion-title">Environment variables by scope</h3>
+                                                        </div>
+                                                        <p id="step-suggestion-subtitle" class="env-suggestion-subtitle">Insert variables without leaving the editor.</p>
+                                                    </div>
+                                                    <div class="env-suggestion-body">
+                                                        <p id="step-suggestion-empty" class="env-suggestion-empty">Loading environment variables…</p>
+                                                        <div id="step-suggestion-list" class="env-suggestion-list"></div>
+                                                        <p id="step-suggestion-footnote" class="env-suggestion-footnote">Click any variable to insert it into the step definition.</p>
+                                                    </div>
+                                                </section>
                                             </div>
+                                            <div id="step-validation-status" class="mt-2 text-xs text-[var(--text-secondary)] hidden"></div>
                                         </div>
-                                        <div id="step-validation-status" class="mt-2 text-xs text-[var(--text-secondary)] hidden"></div>
-                                    </div>
+                                </div>
+                            </div>
+                            <div class="glass-card overflow-hidden">
+                                <div class="p-4 border-b border-[var(--border-primary)]">
+                                    <h3 class="text-lg font-semibold text-[var(--text-primary)]">Used in Pipelines</h3>
+                                </div>
+                                <div id="step-usage-content" class="p-4 space-y-3">
+                                    <p id="step-usage-empty" class="text-sm text-[var(--text-secondary)]">This step is not referenced by any pipeline.</p>
                                 </div>
                             </div>
                         </div>
