@@ -97,6 +97,7 @@ curl -X DELETE http://localhost:8080/v1/pipelines/team-1/dev/main-pipeline
 
 ```bash
 curl http://localhost:8080/v1/steps                     # list
+curl http://localhost:8080/v1/steps?include_source=true # list with metadata
 curl http://localhost:8080/v1/steps/shared/utilities/archive-step
 
 curl -X PUT \
@@ -108,6 +109,7 @@ curl -X DELETE http://localhost:8080/v1/steps/shared/utilities/archive-step
 ```
 
 - Reusable steps can be referenced from pipelines through the `include:` directive.
+- When `include_source=true` each item includes `identifier`, `path`, `name`, `source`, and `updated_at`, allowing the UI to distinguish Git-managed definitions from database overrides.
 
 ---
 
