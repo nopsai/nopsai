@@ -297,6 +297,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const pageModules = (window.NopsAI && window.NopsAI.pages) ? window.NopsAI.pages : {};
     const pipelineRunsModule = pageModules.pipelineruns || null;
     const pipelinesModule = pageModules.pipelines || null;
+    const stepsModule = pageModules.steps || null;
     const triggersModule = pageModules.triggers || null;
     const environmentModule = pageModules.environment || null;
 
@@ -310,6 +311,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (pipelinesModule && typeof pipelinesModule.init === 'function') {
         pipelinesModule.init(context);
+    }
+
+    if (stepsModule && typeof stepsModule.init === 'function') {
+        stepsModule.init(context);
     }
 
     if (triggersModule && typeof triggersModule.init === 'function') {
@@ -449,6 +454,21 @@ document.addEventListener('DOMContentLoaded', () => {
                  DOM.pageContentWrapper.classList.remove('no-scroll');
              }
             await pipelinesModule.handleRoute(hash);
+            return;
+        }
+
+        if (path === 'steps' && stepsModule && typeof stepsModule.handleRoute === 'function') {
+            if (DOM.pageContentWrapper) {
+                DOM.pageContentWrapper.classList.remove('no-scroll');
+            }
+            if (pipelineRunsModule && typeof pipelineRunsModule.renderSidebarForRoute === 'function') {
+                try {
+                    await pipelineRunsModule.renderSidebarForRoute('steps');
+                } catch (error) {
+                    console.error('Failed to render steps sidebar navigation:', error);
+                }
+            }
+            await stepsModule.handleRoute(hash);
             return;
         }
 

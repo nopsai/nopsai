@@ -240,11 +240,113 @@
                                         </div>
                                     </div>
                                 </div>
+                                <div class="glass-card overflow-hidden">
+                                    <div class="p-4 border-b border-[var(--border-primary)]">
+                                        <h3 class="text-lg font-semibold text-[var(--text-primary)]">Used in Pipelines</h3>
+                                    </div>
+                                    <div id="step-usage-content" class="p-4 space-y-3">
+                                        <p id="step-usage-empty" class="text-sm text-[var(--text-secondary)]">This step is not referenced by any pipeline.</p>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
-                    
+
+                <div data-page="steps" class="h-full flex flex-col hidden">
+                    <div class="px-6 pt-6 pb-4">
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <div id="steps-search-container" class="relative flex-1 min-w-[220px] max-w-xl order-2 sm:order-1">
+                                <input id="steps-search" type="search" placeholder="Search steps" class="pipelines-input w-full pl-11 pr-4 py-2 text-sm transition" />
+                                <svg class="w-4 h-4 text-[var(--text-secondary)] absolute left-4 top-1/2 -translate-y-1/2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M10 18a8 8 0 110-16 8 8 0 010 16z"/></svg>
+                            </div>
+                            <div class="flex items-center gap-2 flex-shrink-0 order-1 sm:order-2">
+                                <button id="steps-new-btn" type="button" class="glass-button-subtle" aria-label="Create new step">
+                                    <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14M5 12h14" /></svg>
+                                    <span>New Step</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex-1 overflow-auto px-6 pb-8 triggers-content">
+                        <div id="steps-list-view" class="pipelines-view">
+                            <div id="steps-list-container" class="pipelines-list-container"></div>
+                            <div id="steps-empty" class="pipelines-empty hidden">
+                                <h3 class="text-base font-semibold text-[var(--text-primary)]">No steps found</h3>
+                                <p class="text-sm text-[var(--text-secondary)]">Create a new reusable step or adjust your filters.</p>
+                            </div>
+                        </div>
+                        <div id="steps-detail-view" class="pipelines-view hidden">
+                            <div class="space-y-6">
+                                <div class="glass-card p-6">
+                                    <div class="flex items-center justify-between gap-4 w-full mb-3">
+                                        <h2 id="step-detail-name" class="text-3xl font-bold text-[var(--text-primary)] truncate"></h2>
+                                        <div class="flex-shrink-0">
+                                            <button id="steps-back-btn" class="glass-button-ghost hidden">
+                                                <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                                                <span>Back to list</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <p id="step-detail-description" class="text-sm text-[var(--text-secondary)] mb-3"></p>
+                                    <div class="pipeline-detail-meta">
+                                        <dl class="pipeline-detail-grid">
+                                            <dt class="pipeline-detail-label">Identifier:</dt>
+                                            <dd class="pipeline-detail-value" id="step-detail-identifier"></dd>
+                                            <dt class="pipeline-detail-label">Path:</dt>
+                                            <dd class="pipeline-detail-value" id="step-detail-path"></dd>
+	                                        <dt class="pipeline-detail-label">Source:</dt>
+	                                        <dd class="pipeline-detail-value" id="step-detail-source"></dd>
+                                            <dt class="pipeline-detail-label">Last Updated:</dt>
+                                            <dd class="pipeline-detail-value" id="step-detail-updated"></dd>
+                                        </dl>
+                                    </div>
+                                </div>
+                                <div class="glass-card overflow-hidden">
+                                    <div class="flex flex-wrap items-center justify-between gap-3 p-4 border-b border-[var(--border-primary)]">
+                                        <h3 class="text-lg font-semibold text-[var(--text-primary)]">Step Definition (YAML)</h3>
+                                        <div class="flex items-center gap-2 flex-wrap">
+                                            <div id="step-view-actions" class="flex items-center gap-2">
+                                                <button id="step-copy-btn" class="glass-button-ghost" title="Copy YAML">
+                                                    <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                                                </button>
+                                                <button id="step-download-btn" class="glass-button-ghost" title="Download YAML">
+                                                    <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                                                </button>
+                                                <button id="step-edit-btn" class="glass-button-primary hidden">
+                                                    <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L13.196 5.232z"/></svg>
+                                                    <span>Edit</span>
+                                                </button>
+                                                <button id="step-clone-btn" class="glass-button-primary hidden">
+                                                    <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7h-1V4a1 1 0 00-1-1H9a1 1 0 00-1 1v3H7a1 1 0 00-1 1v12a1 1 0 001 1h9a1 1 0 001-1V8a1 1 0 00-1-1zM9 4h5v3H9V4zm2.5 12a2.5 2.5 0 110-5 2.5 2.5 0 010 5z"/></svg>
+                                                    <span>Clone</span>
+                                                </button>
+                                            </div>
+                                            <div id="step-edit-actions" class="hidden items-center gap-2">
+                                                <button id="step-cancel-btn" class="glass-button-ghost">Discard</button>
+                                                <button id="step-save-btn" class="glass-button-primary">
+                                                    <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                                                    <span>Save</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="p-4 space-y-3">
+                                        <div id="step-yaml-content" class="yaml-view"></div>
+                                        <div id="step-editor-wrapper" class="pipeline-editor-wrapper hidden">
+                                            <div id="step-editor-container" class="editor-container hidden">
+                                                <pre id="step-line-numbers">1</pre>
+                                                <textarea id="step-yaml-editor" spellcheck="false"></textarea>
+                                            </div>
+                                        </div>
+                                        <div id="step-validation-status" class="mt-2 text-xs text-[var(--text-secondary)] hidden"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div data-page="triggers" class="h-full flex flex-col hidden">
                     <div class="px-6 pt-6 flex-shrink-0">
                         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -367,7 +469,6 @@
                 </div>
 
                 <div data-page="secrets" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Secrets</h1><p class="text-[var(--text-secondary)]">UI for managing secrets is coming soon.</p></div></div>
-                <div data-page="steps" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Steps</h1><p class="text-[var(--text-secondary)]">UI for managing reusable steps is coming soon.</p></div></div>
                 <div data-page="environment" class="h-full flex flex-col hidden">
                     <div class="px-6 pt-6 flex-shrink-0">
                         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -620,6 +721,93 @@
     </div>
   </div>
 </div>
+
+    <div id="steps-new-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
+        <div class="modal-panel w-full max-w-xl bg-[var(--bg-secondary)] rounded-lg shadow-2xl">
+            <div class="flex items-center justify-between p-4 border-b border-[var(--border-primary)]">
+                <div>
+                    <h2 class="text-xl font-semibold text-[var(--text-primary)]">Create Step</h2>
+                    <p class="text-sm text-[var(--text-secondary)]">Choose a storage path and step name. You can edit the YAML after creation.</p>
+                </div>
+                <button id="steps-new-close" class="text-[var(--text-secondary)] hover:text-[var(--text-primary)]" title="Close">
+                    <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <form id="steps-new-form" class="p-6 space-y-4">
+                <div>
+                    <label for="steps-new-path" class="block text-sm font-medium text-[var(--text-secondary)]">Step Path</label>
+                    <input type="text" id="steps-new-path" name="path" required placeholder="library/shared" class="mt-1 block w-full bg-[var(--bg-tertiary)] border border-[var(--border-input)] rounded-md shadow-sm py-2 px-3 text-[var(--text-primary)] focus:outline-none focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)] sm:text-sm" />
+                    <p class="text-xs text-[var(--text-secondary)] mt-1">Use folder-style paths to organise reusable steps. Leave blank for root.</p>
+                </div>
+                <div>
+                    <label for="steps-new-name" class="block text-sm font-medium text-[var(--text-secondary)]">Step Name</label>
+                    <input type="text" id="steps-new-name" name="name" required placeholder="checkout" pattern="[A-Za-z0-9_.\-]+" class="mt-1 block w-full bg-[var(--bg-tertiary)] border border-[var(--border-input)] rounded-md shadow-sm py-2 px-3 text-[var(--text-primary)] focus:outline-none focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)] sm:text-sm" />
+                    <p class="text-xs text-[var(--text-secondary)] mt-1">Names may contain letters, numbers, underscores, dots, and hyphens.</p>
+                </div>
+                <div class="flex justify-end pt-4">
+                    <button type="button" id="steps-new-cancel" class="mr-2 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500">Cancel</button>
+                    <button type="submit" class="inline-flex items-center justify-center gap-2 py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                        <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                        <span>Create &amp; Edit</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="steps-delete-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
+        <div class="pipelines-modal-card max-w-md">
+            <header class="pipelines-modal-header">
+                <div>
+                    <h2 class="text-lg font-semibold text-[var(--text-primary)]">Delete Step</h2>
+                    <p class="text-sm text-[var(--text-secondary)]">This action cannot be undone.</p>
+                </div>
+                <button id="steps-delete-close" class="glass-button-ghost" title="Close">
+                    <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </header>
+            <div class="pipelines-modal-body space-y-4">
+                <p id="steps-delete-message" class="text-sm text-[var(--text-secondary)]"></p>
+                <div class="flex items-center justify-end gap-2">
+                    <button id="steps-delete-cancel" class="glass-button-ghost">Cancel</button>
+                    <button id="steps-delete-confirm" class="glass-button-danger">
+                        <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3"/></svg>
+                        <span>Delete</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="steps-clone-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
+        <div class="pipelines-modal-card">
+            <header class="pipelines-modal-header">
+                <div>
+                    <h2 class="text-lg font-semibold text-[var(--text-primary)]">Clone Step</h2>
+                    <p id="steps-clone-subtitle" class="text-sm text-[var(--text-secondary)]">Provide a new path and name for the cloned step.</p>
+                </div>
+                <button id="steps-clone-close" class="glass-button-ghost" title="Close">
+                    <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </header>
+            <form id="steps-clone-form" class="pipelines-modal-body space-y-4">
+                <div>
+                    <label for="steps-clone-path" class="block text-sm font-medium text-[var(--text-secondary)]">Step Path</label>
+                    <input type="text" id="steps-clone-path" name="path" placeholder="library/shared" class="pipelines-input w-full mt-1" />
+                    <p class="text-xs text-[var(--text-secondary)] mt-1">Use folder-style paths to organise cloned steps. Leave blank for root.</p>
+                </div>
+                <div>
+                    <label for="steps-clone-name" class="block text-sm font-medium text-[var(--text-secondary)]">Step Name</label>
+                    <input type="text" id="steps-clone-name" name="name" required pattern="[A-Za-z0-9_.\-]+" class="pipelines-input w-full mt-1" />
+                    <p class="text-xs text-[var(--text-secondary)] mt-1">Names may contain letters, numbers, underscores, dots, and hyphens.</p>
+                </div>
+                <div class="flex items-center justify-end gap-2">
+                    <button type="button" id="steps-clone-cancel" class="glass-button-ghost">Cancel</button>
+                    <button type="submit" class="glass-button-primary">Clone</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <div id="pipeline-definition-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
         <div id="pipeline-definition-modal-content" class="bg-[var(--bg-secondary)] rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col transform scale-95 transition-transform duration-300">
@@ -931,6 +1119,7 @@
     <script src="logs.js"></script>
     <script src="environments.js"></script>
     <script src="triggers.js"></script>
+    <script src="steps.js"></script>
     <script src="pipelines.js"></script>
     <script src="pipeline-runs.js"></script>
     <script src="app.js"></script>

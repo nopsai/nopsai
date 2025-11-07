@@ -1660,6 +1660,20 @@ if (dx !== 0 || dy !== 0) {
                     console.error('Failed to render triggers sidebar tree:', error);
                 }
             }
+        } else if (activeRoute === 'steps') {
+            detailsNavHtml = `<div class="px-2 mt-2 mb-2 flex items-center justify-between">
+                                  <h2 class="text-xs font-semibold tracking-wider text-[var(--text-secondary)] uppercase">Steps Library</h2>
+                              </div>
+                              <div id="steps-sidebar-tree"></div>`;
+            DOM.sidebarDetailsNav.innerHTML = detailsNavHtml;
+            const stepsModule = window.NopsAI.pages?.steps;
+            if (stepsModule && typeof stepsModule.renderSidebarTree === 'function') {
+                try {
+                    stepsModule.renderSidebarTree(document.getElementById('steps-sidebar-tree'));
+                } catch (error) {
+                    console.error('Failed to render steps sidebar tree:', error);
+                }
+            }
         } else if (activeRoute === 'environment') {
             detailsNavHtml = `<div class="px-2 mt-2 mb-2 flex items-center justify-between">
                                   <h2 class="text-xs font-semibold tracking-wider text-[var(--text-secondary)] uppercase">Environments</h2>
