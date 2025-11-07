@@ -1653,8 +1653,8 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 	// Define SQL statements
 	const pipelineUpsert = `INSERT INTO pipelines (path, name, version, definition, source, updated_at) VALUES ($1, $2, $3, $4, 'git', NOW())
 		ON CONFLICT (path, name) DO UPDATE SET version = EXCLUDED.version, definition = EXCLUDED.definition, source = 'git', updated_at = NOW()`
-	const stepUpsert = `INSERT INTO steps (path, name, definition, updated_at) VALUES ($1, $2, $3, NOW())
-		ON CONFLICT (path, name) DO UPDATE SET definition = EXCLUDED.definition, updated_at = NOW()`
+	const stepUpsert = `INSERT INTO steps (path, name, definition, source, updated_at) VALUES ($1, $2, $3, 'git', NOW())
+		ON CONFLICT (path, name) DO UPDATE SET definition = EXCLUDED.definition, source = 'git', updated_at = NOW()`
 	const envUpsert = `INSERT INTO environments (name, value, repository_name, environment, source, updated_at) VALUES ($1, $2, $3, $4, 'git', NOW())
 		ON CONFLICT (name, repository_name, environment) DO UPDATE SET value = EXCLUDED.value, source = 'git', updated_at = NOW()`
 	const triggerUpsert = `INSERT INTO triggers (repository_name, trigger_definition, source) VALUES ($1, $2, 'git')
@@ -4281,13 +4281,58 @@ func (a *App) resolveStepIncludes(pipeline *models.Pipeline) (*models.Pipeline, 
 }
 
 func (a *App) handleListReusableSteps(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(context.Background(), "SELECT path, name FROM steps ORDER BY path ASC, name ASC")
+	includeSource := strings.EqualFold(r.URL.Query().Get("include_source"), "true")
+	ctx := context.Background()
+
+	var (
+		rows pgx.Rows
+		err  error
+	)
+
+	if includeSource {
+		rows, err = a.db.Query(ctx, "SELECT path, name, COALESCE(source, 'database'), updated_at FROM steps ORDER BY path ASC, name ASC")
+	} else {
+		rows, err = a.db.Query(ctx, "SELECT path, name FROM steps ORDER BY path ASC, name ASC")
+	}
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query reusable steps from database")
 		http.Error(w, "Failed to retrieve reusable steps", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if includeSource {
+		type stepListItem struct {
+			Identifier string    `json:"identifier"`
+			Path       string    `json:"path"`
+			Name       string    `json:"name"`
+			Source     string    `json:"source"`
+			UpdatedAt  time.Time `json:"updated_at"`
+		}
+
+		var items []stepListItem
+		for rows.Next() {
+			var path, name, source string
+			var updatedAt time.Time
+			if err := rows.Scan(&path, &name, &source, &updatedAt); err != nil {
+				log.Error().Err(err).Msg("Failed to scan reusable step entry")
+				http.Error(w, "Failed to process reusable steps", http.StatusInternalServerError)
+				return
+			}
+			items = append(items, stepListItem{
+				Identifier: buildStepIdentifier(path, name),
+				Path:       path,
+				Name:       name,
+				Source:     source,
+				UpdatedAt:  updatedAt,
+			})
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(items)
+		return
+	}
 
 	var stepNames []string
 	for rows.Next() {
@@ -4300,13 +4345,33 @@ func (a *App) handleListReusableSteps(w http.ResponseWriter, r *http.Request) {
 		stepNames = append(stepNames, buildStepIdentifier(path, name))
 	}
 
-	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(stepNames)
 }
 
-func (a *App) handleGetReusableStep(w http.ResponseWriter, r *http.Request) {
-	identifier := r.PathValue("stepName")
+func (a *App) handleGetStepRoute(w http.ResponseWriter, r *http.Request) {
+	raw := strings.TrimSpace(r.PathValue("stepPath"))
+	if raw == "" {
+		http.Error(w, "Step identifier is required", http.StatusBadRequest)
+		return
+	}
+
+	normalized := strings.Trim(raw, "/")
+	if strings.HasSuffix(normalized, "/usage") {
+		trimmed := strings.TrimSuffix(normalized, "/usage")
+		trimmed = strings.Trim(trimmed, "/")
+		if trimmed == "" {
+			http.Error(w, "Invalid step identifier", http.StatusBadRequest)
+			return
+		}
+		a.respondStepUsage(w, trimmed)
+		return
+	}
+
+	a.respondStepDefinition(w, normalized)
+}
+
+func (a *App) respondStepDefinition(w http.ResponseWriter, identifier string) {
 	pathPart, namePart, _, err := splitStepIdentifier(identifier)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -4324,6 +4389,92 @@ func (a *App) handleGetReusableStep(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/x-yaml")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(stepDef))
+}
+
+func (a *App) respondStepUsage(w http.ResponseWriter, identifier string) {
+	pathPart, namePart, _, err := splitStepIdentifier(identifier)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	targetKey := buildStepIdentifier(pathPart, namePart)
+	ctx := context.Background()
+	rows, err := a.db.Query(ctx, "SELECT path, name, definition, COALESCE(source, 'database') FROM pipelines")
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to query pipelines for step usage")
+		http.Error(w, "Failed to load step usage", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	type usageItem struct {
+		Identifier  string `json:"identifier"`
+		Name        string `json:"name"`
+		Path        string `json:"path"`
+		Source      string `json:"source"`
+		Description string `json:"description,omitempty"`
+	}
+
+	var usage []usageItem
+	for rows.Next() {
+		var (
+			pipelinePath string
+			pipelineName string
+			definition   string
+			source       string
+		)
+		if err := rows.Scan(&pipelinePath, &pipelineName, &definition, &source); err != nil {
+			log.Error().Err(err).Msg("Failed to scan pipeline row for step usage")
+			continue
+		}
+
+		var pipeline models.Pipeline
+		if err := yaml.Unmarshal([]byte(definition), &pipeline); err != nil {
+			log.Error().Err(err).Str("pipeline", buildPipelineIdentifier(pipelinePath, pipelineName)).Msg("Failed to parse pipeline definition for usage lookup")
+			continue
+		}
+
+		if pipelineIncludesStep(&pipeline, targetKey, namePart) {
+			usage = append(usage, usageItem{
+				Identifier:  buildPipelineIdentifier(pipelinePath, pipelineName),
+				Name:        pipelineName,
+				Path:        pipelinePath,
+				Source:      source,
+				Description: pipeline.Description,
+			})
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Error().Err(err).Msg("Pipeline iteration failed for step usage")
+		// continue with whatever we collected
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(usage)
+}
+
+func pipelineIncludesStep(pipeline *models.Pipeline, targetIdentifier, targetName string) bool {
+	if pipeline == nil {
+		return false
+	}
+	targetKey := strings.TrimSpace(targetIdentifier)
+	targetName = strings.TrimSpace(targetName)
+	for _, step := range pipeline.Steps {
+		includeValue := strings.TrimSpace(step.Include)
+		if includeValue == "" {
+			continue
+		}
+		if strings.EqualFold(includeValue, targetKey) {
+			return true
+		}
+		if targetName != "" && strings.EqualFold(includeValue, targetName) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *App) handleCreateOrUpdateReusableStep(w http.ResponseWriter, r *http.Request) {
@@ -4367,8 +4518,8 @@ func (a *App) handleCreateOrUpdateReusableStep(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	query := `INSERT INTO steps (path, name, definition, updated_at) VALUES ($1, $2, $3, NOW())
-			  ON CONFLICT (path, name) DO UPDATE SET definition = $3, updated_at = NOW()`
+	query := `INSERT INTO steps (path, name, definition, source, updated_at) VALUES ($1, $2, $3, 'database', NOW())
+			  ON CONFLICT (path, name) DO UPDATE SET definition = $3, source = 'database', updated_at = NOW()`
 	_, err = a.db.Exec(context.Background(), query, dbPath, storedName, string(stepDef))
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to save reusable step to database")
@@ -5573,7 +5724,7 @@ func main() {
 	mux.HandleFunc("PUT /v1/pipelines/{pipelineName...}", app.handleCreateOrUpdatePipeline)
 	mux.HandleFunc("DELETE /v1/pipelines/{pipelineName...}", app.handleDeletePipeline)
 	mux.HandleFunc("GET /v1/steps", app.handleListReusableSteps)
-	mux.HandleFunc("GET /v1/steps/{stepName...}", app.handleGetReusableStep)
+	mux.HandleFunc("GET /v1/steps/{stepPath...}", app.handleGetStepRoute)
 	mux.HandleFunc("PUT /v1/steps/{stepName...}", app.handleCreateOrUpdateReusableStep)
 	mux.HandleFunc("DELETE /v1/steps/{stepName...}", app.handleDeleteReusableStep)
 	mux.HandleFunc("GET /v1/overrides", app.handleListTriggerOverrides)

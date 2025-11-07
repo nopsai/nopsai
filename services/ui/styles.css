@@ -1712,14 +1712,19 @@ html.dark .pipelines-modal-card {
 
 #pipelines-new-modal.show,
 #pipelines-delete-modal.show,
-#pipelines-clone-modal.show {
+#pipelines-clone-modal.show,
+#steps-new-modal.show,
+#steps-delete-modal.show {
     opacity: 1;
 }
 
 #pipelines-new-modal.show .pipelines-modal-card,
 #pipelines-delete-modal.show .pipelines-modal-card,
 #pipelines-clone-modal.show .pipelines-modal-card,
-#pipelines-new-modal.show .modal-panel {
+#pipelines-new-modal.show .modal-panel,
+#steps-new-modal.show .pipelines-modal-card,
+#steps-delete-modal.show .pipelines-modal-card,
+#steps-new-modal.show .modal-panel {
     transform: scale(1);
     opacity: 1;
 }
