@@ -42,7 +42,7 @@
         editorSuggestionAnimationFrame: null,
         suggestionPanelFloating: false,
         suggestionPanelOriginalParent: null,
-        suggestionPanelPlaceholder: null,
+        suggestionPanelOriginalNextSibling: null,
         suggestionPanelOverlayContainer: null,
     };
 
@@ -3287,13 +3287,11 @@ function formatPathLabel(path) {
         if (!panel) return;
         const parent = panel.parentNode;
         if (!parent) return;
-        const placeholder = document.createElement('div');
-        placeholder.className = 'pipeline-suggestion-panel-placeholder';
-        const panelWidth = panel.offsetWidth || 320;
-        placeholder.style.width = `${panelWidth}px`;
-        placeholder.style.flexShrink = '0';
-        placeholder.style.minHeight = '1px';
-        parent.replaceChild(placeholder, panel);
+        const panelWidth = panel.offsetWidth || 260;
+        const nextSibling = panel.nextSibling;
+        state.suggestionPanelOriginalParent = parent;
+        state.suggestionPanelOriginalNextSibling = nextSibling;
+        parent.removeChild(panel);
         const container = document.getElementById('page-content-wrapper') || document.body;
         if (container && container.classList) {
             container.classList.add('pipeline-suggestion-overlay-host');
@@ -3304,8 +3302,6 @@ function formatPathLabel(path) {
         panel.style.left = '0px';
         panel.style.top = '0px';
         panel.style.transform = '';
-        state.suggestionPanelOriginalParent = parent;
-        state.suggestionPanelPlaceholder = placeholder;
         state.suggestionPanelOverlayContainer = container;
         state.suggestionPanelFloating = true;
         updateFloatingSuggestionPanelPosition();
@@ -3317,11 +3313,17 @@ function formatPathLabel(path) {
         const panel = DOM['pipeline-suggestion-panel'];
         if (!panel) return;
         panel.classList.remove('pipeline-suggestion-overlay');
-        if (state.suggestionPanelOriginalParent && state.suggestionPanelPlaceholder) {
-            state.suggestionPanelOriginalParent.replaceChild(panel, state.suggestionPanelPlaceholder);
+        const originalParent = state.suggestionPanelOriginalParent;
+        const referenceNode = state.suggestionPanelOriginalNextSibling;
+        if (originalParent) {
+            if (referenceNode && referenceNode.parentNode === originalParent) {
+                originalParent.insertBefore(panel, referenceNode);
+            } else {
+                originalParent.appendChild(panel);
+            }
         }
         state.suggestionPanelOriginalParent = null;
-        state.suggestionPanelPlaceholder = null;
+        state.suggestionPanelOriginalNextSibling = null;
         if (state.suggestionPanelOverlayContainer && state.suggestionPanelOverlayContainer.classList) {
             state.suggestionPanelOverlayContainer.classList.remove('pipeline-suggestion-overlay-host');
         }
@@ -3344,16 +3346,13 @@ function formatPathLabel(path) {
             return;
         }
 
-        const caret = calculateCaretOffset(textarea);
         const textareaRect = textarea.getBoundingClientRect();
-        if (!caret || !textareaRect) return;
+        if (!textareaRect) return;
         const containerRect = container.getBoundingClientRect();
-        const caretRelativeLeft = textareaRect.left + caret.left - containerRect.left + container.scrollLeft;
         const textareaRight = textareaRect.right - containerRect.left + container.scrollLeft;
-        const caretRelativeTop = textareaRect.top + caret.top - containerRect.top + container.scrollTop;
 
         const padding = 24;
-        const baseWidth = panel.dataset.baseWidth ? parseFloat(panel.dataset.baseWidth) : panel.offsetWidth || 320;
+        const baseWidth = panel.dataset.baseWidth ? parseFloat(panel.dataset.baseWidth) : panel.offsetWidth || 260;
         const containerWidth = container.clientWidth || (window.innerWidth ?? baseWidth + padding * 2);
         const targetLeft = textareaRight + padding;
         const maxLeft = container.scrollLeft + containerWidth - baseWidth - padding;
@@ -3372,8 +3371,7 @@ function formatPathLabel(path) {
         }
         const minTop = Math.max(viewportTop, anchorTop);
 
-        let finalTop = caretRelativeTop - panelHeight / 2;
-        if (finalTop < minTop) finalTop = minTop;
+        let finalTop = anchorTop;
         if (finalTop + panelHeight > viewportBottom) {
             finalTop = Math.max(minTop, viewportBottom - panelHeight);
         }
