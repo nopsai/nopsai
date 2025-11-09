@@ -33,6 +33,18 @@
     --run-highlight-background: rgba(245, 158, 11, 0.12);
     --app-header-height: 4.5rem;
 
+    --yaml-base-color: #e0f2fe;
+    --yaml-key-color: #c084fc;
+    --yaml-string-color: #34d399;
+    --yaml-number-color: #fcd34d;
+    --yaml-boolean-color: #fb7185;
+    --yaml-comment-color: #94a3b8;
+    --yaml-scalar-color: #fef3c7;
+    --yaml-operator-color: #fbbf24;
+    --yaml-type-color: #38bdf8;
+    --yaml-punctuation-color: #fcd34d;
+    --yaml-indent-color: rgba(148,163,184,0.45);
+
     /* Icon badge colors (lighter) */
     --icon-info-bg: #818cf8;      /* indigo-400 */
     --icon-collapse-bg: #94a3b8;  /* slate-400 */
@@ -76,6 +88,18 @@ html.dark {
     --icon-info-bg: #4f46e5;      /* indigo-600 */
     --icon-collapse-bg: #475569;  /* slate-600 */
     /* --icon-glyph inherits white */
+
+    --yaml-base-color: #e0f2fe;
+    --yaml-key-color: #a5b4fc;
+    --yaml-string-color: #6ee7b7;
+    --yaml-number-color: #fde68a;
+    --yaml-boolean-color: #f9a8d4;
+    --yaml-comment-color: #cbd5f5;
+    --yaml-scalar-color: #fef3c7;
+    --yaml-operator-color: #fcd34d;
+    --yaml-type-color: #93c5fd;
+    --yaml-punctuation-color: #fde68a;
+    --yaml-indent-color: rgba(148,163,184,0.5);
 }
 
 body {  
@@ -3379,6 +3403,40 @@ html.dark .triggers-sidebar-link--active {
 
 .editor-container.hidden { display: none; }
 
+.yaml-editor-stage {
+    position: relative;
+    flex: 1;
+    min-height: 420px;
+}
+
+.yaml-editor-highlight {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 1;
+    background: transparent;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
+    font-size: 0.85rem;
+    line-height: 1.6;
+}
+
+.yaml-editor-highlight__content {
+    margin: 0;
+    padding: 1rem 1.25rem;
+    font: inherit;
+    color: var(--yaml-base-color);
+    white-space: pre-wrap;
+    word-break: break-word;
+    min-height: 100%;
+    transform: translate3d(0, 0, 0);
+}
+
+.yaml-editor-stage textarea {
+    position: relative;
+    z-index: 2;
+}
+
 #pipeline-yaml-editor,
 #triggers-yaml-editor,
 #step-yaml-editor {
@@ -3393,6 +3451,20 @@ html.dark .triggers-sidebar-link--active {
     font-size: 0.85rem;
     line-height: 1.6;
     outline: none;
+}
+
+.yaml-editor-stage--with-highlight textarea {
+    color: transparent;
+    caret-color: var(--text-accent);
+    -webkit-text-fill-color: transparent;
+}
+
+.yaml-editor-stage--with-highlight textarea::selection {
+    background: rgba(79,70,229,0.25);
+}
+
+.yaml-editor-stage--with-highlight textarea::-moz-selection {
+    background: rgba(79,70,229,0.25);
 }
 
 .pipeline-editor-autocomplete {
@@ -3529,7 +3601,7 @@ html.dark .pipeline-editor-autocomplete__ghost {
 .yaml-view {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
     background: rgba(15,23,42,0.9);
-    color: #a5f3fc;
+    color: var(--yaml-base-color);
     padding: 1.2rem;
     border-radius: 18px;
     max-height: 820px;
@@ -3557,6 +3629,43 @@ html.dark .pipeline-editor-autocomplete__ghost {
     white-space: pre;
     word-break: break-word;
     color: inherit;
+}
+.yaml-token {
+    white-space: pre;
+}
+.yaml-token--indent,
+.yaml-token--ws {
+    color: var(--yaml-indent-color);
+}
+.yaml-token--key {
+    color: var(--yaml-key-color);
+}
+.yaml-token--punctuation,
+.yaml-token--dash {
+    color: var(--yaml-punctuation-color);
+}
+.yaml-token--string {
+    color: var(--yaml-string-color);
+}
+.yaml-token--number {
+    color: var(--yaml-number-color);
+}
+.yaml-token--boolean {
+    color: var(--yaml-boolean-color);
+}
+.yaml-token--scalar,
+.yaml-token--value {
+    color: var(--yaml-scalar-color);
+}
+.yaml-token--operator {
+    color: var(--yaml-operator-color);
+}
+.yaml-token--type {
+    color: var(--yaml-type-color);
+}
+.yaml-token--comment {
+    color: var(--yaml-comment-color);
+    font-style: italic;
 }
 .pipelines-toast {
     opacity: 0;

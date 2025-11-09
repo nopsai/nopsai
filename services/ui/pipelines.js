@@ -247,7 +247,7 @@
             'pipelines-new-btn', 'pipelines-back-btn', 'pipelines-subtitle', 'pipeline-detail-name',
             'pipeline-detail-description', 'pipeline-detail-path', 'pipeline-detail-version', 'pipeline-detail-source', 'pipeline-copy-btn',
             'pipeline-download-btn', 'pipeline-clone-btn', 'pipeline-edit-btn', 'pipeline-save-btn', 'pipeline-cancel-btn',
-            'pipeline-yaml-content', 'pipeline-yaml-editor', 'editor-container', 'line-numbers',
+            'pipeline-yaml-content', 'pipeline-yaml-stage', 'pipeline-yaml-highlight', 'pipeline-yaml-editor', 'editor-container', 'line-numbers',
             'validation-status', 'yaml-view-actions', 'yaml-edit-actions', 'pipeline-graph',
             'pipeline-triggers', 'pipeline-recent-runs', 'pipelines-new-modal', 'pipelines-new-form',
             'pipelines-new-close', 'pipelines-new-cancel', 'pipelines-new-path', 'pipelines-new-name',
@@ -362,6 +362,7 @@
                 if (DOM['line-numbers']) {
                     DOM['line-numbers'].scrollTop = DOM['pipeline-yaml-editor'].scrollTop;
                 }
+                syncPipelineHighlightScroll();
                 updateInlineSuggestionPosition();
             });
             DOM['pipeline-yaml-editor'].addEventListener('click', () => {
@@ -2850,6 +2851,7 @@ function formatPathLabel(path) {
             const yamlContent = cacheEntry?.yaml ?? state.currentYaml ?? '';
             DOM['pipeline-yaml-editor'].value = yamlContent;
             DOM['pipeline-yaml-editor'].focus();
+            updatePipelineEditorHighlight();
         }
         setPipelineSuggestionPanelMode(null);
         const expectedHash = buildPipelineHash(state.selectedId, true);
@@ -2980,36 +2982,71 @@ function formatPathLabel(path) {
     }
 
     function updateLineNumbers() {
-        if (!DOM['pipeline-yaml-editor'] || !DOM['line-numbers']) return;
-        const lines = DOM['pipeline-yaml-editor'].value.split('\n');
-        const errorMap = new Map();
-        (state.editorValidationErrors || []).forEach(err => {
-            if (!err || typeof err.line !== 'number') return;
-            if (!errorMap.has(err.line)) {
-                errorMap.set(err.line, []);
-            }
-            errorMap.get(err.line).push(err.message);
-        });
-        DOM['line-numbers'].innerHTML = lines.map((_, idx) => {
-            const lineNumber = idx + 1;
-            const messages = errorMap.get(lineNumber);
-            const classes = ['line-number'];
-            if (messages && messages.length) {
-                classes.push('line-number--error');
-            }
-            const titleAttr = messages && messages.length
-                ? ` title="${escapeAttribute(messages.join('\n'))}"`
-                : '';
-            return `<div class="${classes.join(' ')}" data-line-number="${lineNumber}"${titleAttr}>${lineNumber}</div>`;
-        }).join('');
-        DOM['line-numbers'].scrollTop = DOM['pipeline-yaml-editor'].scrollTop;
+        if (!DOM['pipeline-yaml-editor']) return;
+        if (DOM['line-numbers']) {
+            const lines = DOM['pipeline-yaml-editor'].value.split('\n');
+            const errorMap = new Map();
+            (state.editorValidationErrors || []).forEach(err => {
+                if (!err || typeof err.line !== 'number') return;
+                if (!errorMap.has(err.line)) {
+                    errorMap.set(err.line, []);
+                }
+                errorMap.get(err.line).push(err.message);
+            });
+            DOM['line-numbers'].innerHTML = lines.map((_, idx) => {
+                const lineNumber = idx + 1;
+                const messages = errorMap.get(lineNumber);
+                const classes = ['line-number'];
+                if (messages && messages.length) {
+                    classes.push('line-number--error');
+                }
+                const titleAttr = messages && messages.length
+                    ? ` title="${escapeAttribute(messages.join('\n'))}"`
+                    : '';
+                return `<div class="${classes.join(' ')}" data-line-number="${lineNumber}"${titleAttr}>${lineNumber}</div>`;
+            }).join('');
+            DOM['line-numbers'].scrollTop = DOM['pipeline-yaml-editor'].scrollTop;
+        }
+    }
+
+    function updatePipelineEditorHighlight() {
+        if (!DOM['pipeline-yaml-highlight'] || !DOM['pipeline-yaml-editor']) return;
+        const renderer = global.yaml && typeof global.yaml.renderTokens === 'function'
+            ? global.yaml.renderTokens
+            : null;
+        const stage = DOM['pipeline-yaml-stage'];
+        if (!renderer) {
+            if (stage) stage.classList.remove('yaml-editor-stage--with-highlight');
+            DOM['pipeline-yaml-highlight'].textContent = DOM['pipeline-yaml-editor'].value || '';
+            return;
+        }
+        DOM['pipeline-yaml-highlight'].innerHTML = renderer(DOM['pipeline-yaml-editor'].value || '', escapeHtml) || '&nbsp;';
+        if (stage) stage.classList.add('yaml-editor-stage--with-highlight');
+        syncPipelineHighlightScroll();
+    }
+
+    function syncPipelineHighlightScroll() {
+        if (!DOM['pipeline-yaml-highlight'] || !DOM['pipeline-yaml-editor']) return;
+        const editor = DOM['pipeline-yaml-editor'];
+        const x = editor.scrollLeft || 0;
+        const y = editor.scrollTop || 0;
+        DOM['pipeline-yaml-highlight'].style.transform = `translate(${-x}px, ${-y}px)`;
     }
 
     function renderYamlView(yamlString) {
         const target = DOM['pipeline-yaml-content'];
         if (!target) return;
+        const renderer = global.yaml && typeof global.yaml.renderLines === 'function'
+            ? global.yaml.renderLines
+            : null;
+        target.innerHTML = renderer
+            ? renderer(yamlString, escapeHtml)
+            : buildPlainYamlLines(yamlString);
+    }
+
+    function buildPlainYamlLines(yamlString) {
         const lines = (yamlString || '').split('\n');
-        target.innerHTML = lines.map((line, idx) => `
+        return lines.map((line, idx) => `
             <div class="yaml-line">
                 <span class="yaml-line-number">${idx + 1}</span>
                 <span class="yaml-line-text">${escapeHtml(line)}</span>
@@ -3043,6 +3080,7 @@ function formatPathLabel(path) {
 
     function handleValidation() {
         if (!DOM['pipeline-yaml-editor']) return;
+        updatePipelineEditorHighlight();
         const yamlString = DOM['pipeline-yaml-editor'].value;
         const result = validatePipelineYaml(yamlString);
         applyValidationResult(result);
