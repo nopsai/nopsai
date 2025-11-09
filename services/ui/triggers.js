@@ -353,7 +353,7 @@
             'triggers-search-container', 'triggers-search', 'triggers-clear-search', 'triggers-new-btn',
             'triggers-list', 'triggers-list-empty', 'triggers-detail', 'triggers-detail-name',
             'triggers-detail-source', 'triggers-detail-meta', 'triggers-meta-chips', 'triggers-yaml-content',
-            'triggers-editor-container', 'triggers-line-numbers', 'triggers-yaml-stage', 'triggers-yaml-highlight', 'triggers-yaml-editor',
+            'triggers-editor-wrapper', 'triggers-editor-container', 'triggers-line-numbers', 'triggers-yaml-stage', 'triggers-yaml-highlight', 'triggers-yaml-editor',
             'triggers-validation-status', 'triggers-edit-btn', 'triggers-copy-btn', 'triggers-download-btn',
             'triggers-clone-btn', 'triggers-view-actions', 'triggers-edit-actions',
             'triggers-save-btn', 'triggers-cancel-btn', 'triggers-pipelines-empty', 'triggers-pipelines-list',
@@ -1692,6 +1692,9 @@
         if (DOM['triggers-yaml-content']) {
             DOM['triggers-yaml-content'].classList.add('hidden');
         }
+        if (DOM['triggers-editor-wrapper']) {
+            DOM['triggers-editor-wrapper'].classList.remove('hidden');
+        }
         if (DOM['triggers-editor-container']) {
             DOM['triggers-editor-container'].classList.remove('hidden');
         }
@@ -1730,6 +1733,9 @@
         state.currentTriggerSummary = null;
         if (DOM['triggers-editor-container']) {
             DOM['triggers-editor-container'].classList.add('hidden');
+        }
+        if (DOM['triggers-editor-wrapper']) {
+            DOM['triggers-editor-wrapper'].classList.add('hidden');
         }
         if (DOM['triggers-yaml-content']) {
             DOM['triggers-yaml-content'].classList.remove('hidden');

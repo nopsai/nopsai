@@ -63,6 +63,11 @@
         stepSuggestionMode: null,
         stepSuggestionContext: null,
         stepValidationErrors: [],
+        stepSuggestionPanelFloating: false,
+        stepSuggestionPanelOriginalParent: null,
+        stepSuggestionPanelOriginalNextSibling: null,
+        stepSuggestionPanelOverlayContainer: null,
+        stepSuggestionPanelAnimationFrame: null,
     };
 
     const DOM = {};
@@ -80,6 +85,121 @@
         if (value.includes('local')) return 'local';
         if (value.includes('database') || value.includes('db')) return 'database';
         return value;
+    }
+
+    function enableStepSuggestionOverlay() {
+        if (state.stepSuggestionPanelFloating) return;
+        const panel = DOM['step-suggestion-panel'];
+        if (!panel) return;
+        const parent = panel.parentNode;
+        if (!parent) return;
+        const baseWidth = panel.offsetWidth || 260;
+        const nextSibling = panel.nextSibling;
+        state.stepSuggestionPanelOriginalParent = parent;
+        state.stepSuggestionPanelOriginalNextSibling = nextSibling;
+        parent.removeChild(panel);
+        const container = document.getElementById('page-content-wrapper') || document.body;
+        if (container && container.classList) {
+            container.classList.add('step-suggestion-overlay-host');
+        }
+        container.appendChild(panel);
+        panel.classList.add('pipeline-suggestion-overlay');
+        panel.dataset.baseWidth = String(baseWidth);
+        panel.style.left = '0px';
+        panel.style.top = '0px';
+        panel.style.transform = '';
+        state.stepSuggestionPanelOverlayContainer = container;
+        state.stepSuggestionPanelFloating = true;
+        updateStepSuggestionOverlayPosition();
+        startStepSuggestionOverlayTracking();
+    }
+
+    function disableStepSuggestionOverlay() {
+        if (!state.stepSuggestionPanelFloating) return;
+        const panel = DOM['step-suggestion-panel'];
+        if (!panel) return;
+        panel.classList.remove('pipeline-suggestion-overlay');
+        const originalParent = state.stepSuggestionPanelOriginalParent;
+        const referenceNode = state.stepSuggestionPanelOriginalNextSibling;
+        if (originalParent) {
+            if (referenceNode && referenceNode.parentNode === originalParent) {
+                originalParent.insertBefore(panel, referenceNode);
+            } else {
+                originalParent.appendChild(panel);
+            }
+        }
+        state.stepSuggestionPanelOriginalParent = null;
+        state.stepSuggestionPanelOriginalNextSibling = null;
+        if (state.stepSuggestionPanelOverlayContainer && state.stepSuggestionPanelOverlayContainer.classList) {
+            state.stepSuggestionPanelOverlayContainer.classList.remove('step-suggestion-overlay-host');
+        }
+        state.stepSuggestionPanelOverlayContainer = null;
+        state.stepSuggestionPanelFloating = false;
+        panel.style.transform = '';
+        panel.style.left = '';
+        panel.style.top = '';
+        panel.style.width = '';
+        panel.style.maxHeight = '';
+        stopStepSuggestionOverlayTracking();
+    }
+
+    function updateStepSuggestionOverlayPosition() {
+        if (!state.stepSuggestionPanelFloating) return;
+        const panel = DOM['step-suggestion-panel'];
+        const textarea = DOM['step-yaml-editor'];
+        const container = state.stepSuggestionPanelOverlayContainer || document.getElementById('page-content-wrapper') || document.body;
+        if (!panel || panel.classList.contains('hidden') || !textarea || !container) {
+            return;
+        }
+        const textareaRect = textarea.getBoundingClientRect();
+        if (!textareaRect) return;
+        const containerRect = container.getBoundingClientRect();
+        const textareaRight = textareaRect.right - containerRect.left + container.scrollLeft;
+        const padding = 24;
+        const baseWidth = panel.dataset.baseWidth ? parseFloat(panel.dataset.baseWidth) : panel.offsetWidth || 260;
+        const containerWidth = container.clientWidth || (window.innerWidth ?? baseWidth + padding * 2);
+        const targetLeft = textareaRight + padding;
+        const maxLeft = container.scrollLeft + containerWidth - baseWidth - padding;
+        const minLeft = container.scrollLeft + padding;
+        const finalLeft = Math.max(minLeft, Math.min(targetLeft, maxLeft));
+
+        const panelHeight = panel.offsetHeight || 0;
+        const viewportTop = container.scrollTop + padding;
+        const viewportBottom = container.scrollTop + (container.clientHeight || window.innerHeight || (panelHeight + padding * 2)) - padding;
+        const actions = DOM['step-edit-actions'];
+        let anchorTop = textareaRect.top - containerRect.top + container.scrollTop;
+        if (actions && !actions.classList.contains('hidden')) {
+            const actionsRect = actions.getBoundingClientRect();
+            anchorTop = Math.max(anchorTop, actionsRect.bottom - containerRect.top + container.scrollTop + 12);
+        }
+        const minTop = Math.max(viewportTop, anchorTop);
+        let finalTop = anchorTop;
+        if (finalTop + panelHeight > viewportBottom) {
+            finalTop = Math.max(minTop, viewportBottom - panelHeight);
+        }
+
+        panel.style.transform = '';
+        panel.style.left = `${finalLeft}px`;
+        panel.style.top = `${finalTop}px`;
+        panel.style.width = `${baseWidth}px`;
+        panel.style.maxHeight = `${Math.max(240, viewportBottom - viewportTop)}px`;
+    }
+
+    function startStepSuggestionOverlayTracking() {
+        if (state.stepSuggestionPanelAnimationFrame != null) return;
+        const tick = () => {
+            state.stepSuggestionPanelAnimationFrame = window.requestAnimationFrame(() => {
+                updateStepSuggestionOverlayPosition();
+                tick();
+            });
+        };
+        tick();
+    }
+
+    function stopStepSuggestionOverlayTracking() {
+        if (state.stepSuggestionPanelAnimationFrame == null) return;
+        window.cancelAnimationFrame(state.stepSuggestionPanelAnimationFrame);
+        state.stepSuggestionPanelAnimationFrame = null;
     }
 
     function formatSourceLabel(sourceKey) {
@@ -1303,12 +1423,15 @@
         if (!panel) return;
         const mode = state.stepSuggestionMode;
         const shouldShow = state.isEditing && !!mode;
-        panel.classList.toggle('hidden', !shouldShow);
-
         if (!shouldShow) {
+            panel.classList.add('hidden');
+            disableStepSuggestionOverlay();
             renderStepSuggestionSections();
             return;
         }
+
+        panel.classList.remove('hidden');
+        enableStepSuggestionOverlay();
 
         const loads = [];
         if (mode === 'environment') {
@@ -1504,6 +1627,7 @@
             list.innerHTML = '';
             emptyState.textContent = 'Enter edit mode to view suggestions.';
             emptyState.classList.remove('hidden');
+            updateStepSuggestionOverlayPosition();
             return;
         }
 
@@ -1518,10 +1642,12 @@
                 list.innerHTML = '';
                 emptyState.textContent = state.environmentSuggestionPromise ? 'Loading environment variables…' : 'No environment variables available yet.';
                 emptyState.classList.remove('hidden');
+                updateStepSuggestionOverlayPosition();
                 return;
             }
             emptyState.classList.add('hidden');
             list.innerHTML = envSections.join('');
+            updateStepSuggestionOverlayPosition();
             return;
         }
 
@@ -1536,10 +1662,12 @@
                 list.innerHTML = '';
                 emptyState.textContent = state.secretSuggestionPromise ? 'Loading secrets…' : 'No secrets available yet.';
                 emptyState.classList.remove('hidden');
+                updateStepSuggestionOverlayPosition();
                 return;
             }
             emptyState.classList.add('hidden');
             list.innerHTML = secretSection;
+            updateStepSuggestionOverlayPosition();
             return;
         }
 
@@ -1557,10 +1685,12 @@
             list.innerHTML = '';
             emptyState.textContent = 'No directive suggestions available here.';
             emptyState.classList.remove('hidden');
+            updateStepSuggestionOverlayPosition();
             return;
         }
         emptyState.classList.add('hidden');
         list.innerHTML = directiveSection;
+        updateStepSuggestionOverlayPosition();
     }
 
     function setStepSuggestionPanelCopy(copy = {}) {

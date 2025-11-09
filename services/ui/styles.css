@@ -2073,10 +2073,12 @@ html.dark .env-suggestion-footnote {
 
 .pipeline-editor-wrapper .editor-container {
     flex: 1 1 auto;
+    width: 100%;
 }
 
 .pipeline-suggestion-panel {
     flex-shrink: 0;
+    width: min(260px, 100%);
 }
 
 @media (min-width: 1100px) {
@@ -2086,15 +2088,12 @@ html.dark .env-suggestion-footnote {
     }
 
     .pipeline-suggestion-panel {
-        max-width: 320px;
+        max-width: 260px;
     }
 }
 
-.pipeline-suggestion-panel-placeholder {
-    visibility: hidden;
-}
-
-.pipeline-suggestion-overlay-host {
+.pipeline-suggestion-overlay-host,
+.step-suggestion-overlay-host {
     position: relative;
 }
 
@@ -3406,7 +3405,7 @@ html.dark .triggers-sidebar-link--active {
 .yaml-editor-stage {
     position: relative;
     flex: 1;
-    min-height: 420px;
+    min-height: 520px;
 }
 
 .yaml-editor-highlight {
@@ -3445,7 +3444,9 @@ html.dark .triggers-sidebar-link--active {
     border: none;
     background: transparent;
     color: #e2e8f0;
-    min-height: 420px;
+    min-height: 520px;
+    width: 100%;
+    display: block;
     resize: vertical;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
     font-size: 0.85rem;
@@ -3490,19 +3491,21 @@ html.dark .pipeline-editor-autocomplete__ghost {
 }
 
 #pipeline-yaml-content,
-#step-yaml-content {
+#step-yaml-content,
+#triggers-yaml-content {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
     background: rgba(15,23,42,0.92);
     color: #a5f3fc;
     padding: 1.2rem;
     border-radius: 18px;
-    max-height: 420px;
+    max-height: 520px;
     overflow: auto;
     font-size: 0.85rem;
 }
 
+#pipeline-yaml-content.hidden,
 #step-yaml-content.hidden,
-.pipeline-yaml-content.hidden { display: none; }
+#triggers-yaml-content.hidden { display: none; }
 
 #line-numbers,
 #triggers-line-numbers,
