@@ -25,6 +25,13 @@
         { key: 'llm_output_sharing', hint: 'Share task LLM output' },
     ];
 
+    const STEP_ALLOWED_KEYS = new Set([
+        ...STEP_DIRECTIVES.map(def => def.key),
+        'artifacts',
+        'description',
+    ]);
+    const TASK_ALLOWED_KEYS = new Set(TASK_DIRECTIVES.map(def => def.key));
+
     const STEP_LIST_KEYS_WITH_NAME_TEMPLATE = new Set(['tasks']);
     const STEP_LIST_KEYS_SIMPLE = new Set(['secrets', 'volumes', 'depends_on', 'environment', 'artifacts']);
 
@@ -1040,6 +1047,7 @@
             textarea.selectionStart = textarea.selectionEnd = start + 2;
             updateLineNumbers();
             updateValidationStatus();
+            updateStepEditorHighlight();
             updateStepEditorSuggestions();
         }
     }
@@ -2020,6 +2028,15 @@
             const lineForMode = () => lineForKey('include') ?? lineForKey('tasks') ?? lineForKey('goal') ?? lineForKey('script') ?? 1;
             const tasksLine = lineForKey('tasks') ?? 1;
 
+            const invalidStepKey = Object.keys(parsed).find(key => !STEP_ALLOWED_KEYS.has(key));
+            if (invalidStepKey) {
+                return {
+                    ok: false,
+                    message: `Unknown step directive '${invalidStepKey}'. Remove or replace it with a supported key.`,
+                    line: lineForKey(invalidStepKey) ?? 1,
+                };
+            }
+
             const name = typeof parsed.name === 'string' ? parsed.name.trim() : '';
             if (!name) {
                 return { ok: false, message: "Step YAML must include a 'name' field.", line: lineForKey('name') ?? 1 };
@@ -2075,6 +2092,16 @@
                     }
                     if (!taskGoal && !taskScript) {
                         return { ok: false, message: `Task '${taskName}' must define either 'goal' or 'script'.`, line: lineForTask(taskName, tasksLine) };
+                    }
+
+                    const invalidTaskKey = Object.keys(taskObj).find(key => !TASK_ALLOWED_KEYS.has(key));
+                    if (invalidTaskKey) {
+                        const fallbackLine = lineForTask(taskName, tasksLine);
+                        return {
+                            ok: false,
+                            message: `Task '${taskName}' contains unknown directive '${invalidTaskKey}'.`,
+                            line: lineForKey(invalidTaskKey, fallbackLine) ?? fallbackLine ?? tasksLine,
+                        };
                     }
                 }
 
