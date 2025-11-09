@@ -153,7 +153,7 @@
             'step-detail-name', 'step-detail-description', 'step-detail-identifier', 'step-detail-path',
             'step-detail-source', 'step-detail-updated', 'step-view-actions', 'step-edit-actions', 'step-copy-btn', 'step-download-btn',
             'step-edit-btn', 'step-clone-btn', 'step-save-btn', 'step-cancel-btn', 'step-yaml-content',
-            'step-editor-wrapper', 'step-editor-container', 'step-line-numbers', 'step-yaml-editor',
+            'step-editor-wrapper', 'step-editor-container', 'step-line-numbers', 'step-yaml-stage', 'step-yaml-highlight', 'step-yaml-editor',
             'step-validation-status', 'step-usage-content', 'step-usage-empty',
             'step-suggestion-panel', 'step-suggestion-list', 'step-suggestion-empty',
             'step-suggestion-title', 'step-suggestion-subtitle', 'step-suggestion-footnote'
@@ -251,6 +251,7 @@
                 updateLineNumbers();
                 updateValidationStatus();
                 updateStepEditorSuggestions();
+                updateStepEditorHighlight();
             });
             editor.addEventListener('scroll', syncLineNumbersScroll);
             editor.addEventListener('keydown', handleEditorKeydown);
@@ -819,6 +820,7 @@
         DOM['step-yaml-editor'].value = state.currentYaml;
         updateLineNumbers();
         updateValidationStatus();
+        updateStepEditorHighlight();
         DOM['step-yaml-editor'].focus();
         DOM['step-yaml-editor'].setSelectionRange(state.currentYaml.length, state.currentYaml.length);
         updateStepEditorSuggestions();
@@ -852,6 +854,7 @@
         if (resetEditor && DOM['step-yaml-editor']) {
             DOM['step-yaml-editor'].value = state.currentYaml;
             updateLineNumbers();
+            updateStepEditorHighlight();
         }
 
         if (wasEditing && !suppressHash && state.selectedId) {
@@ -957,39 +960,68 @@
     }
 
     function updateLineNumbers() {
-        if (!DOM['step-line-numbers'] || !DOM['step-yaml-editor']) return;
-        const value = DOM['step-yaml-editor'].value || '';
-        const lines = value.split('\n');
-        const errorMap = new Map();
-        (state.stepValidationErrors || []).forEach(err => {
-            if (!err || typeof err.line !== 'number') return;
-            const lineNumber = normalizeLineNumber(err.line);
-            if (!lineNumber) return;
-            if (!errorMap.has(lineNumber)) {
-                errorMap.set(lineNumber, []);
-            }
-            if (err.message) {
-                errorMap.get(lineNumber).push(err.message);
-            }
-        });
-        DOM['step-line-numbers'].innerHTML = lines.map((_, idx) => {
-            const lineNumber = idx + 1;
-            const messages = errorMap.get(lineNumber);
-            const classes = ['line-number'];
-            if (messages && messages.length) {
-                classes.push('line-number--error');
-            }
-            const titleAttr = messages && messages.length
-                ? ` title="${escapeAttribute(messages.join('\n'))}"`
-                : '';
-            return `<div class="${classes.join(' ')}" data-line-number="${lineNumber}"${titleAttr}>${lineNumber}</div>`;
-        }).join('');
-        DOM['step-line-numbers'].scrollTop = DOM['step-yaml-editor'].scrollTop;
+        if (!DOM['step-yaml-editor']) return;
+        if (DOM['step-line-numbers']) {
+            const value = DOM['step-yaml-editor'].value || '';
+            const lines = value.split('\n');
+            const errorMap = new Map();
+            (state.stepValidationErrors || []).forEach(err => {
+                if (!err || typeof err.line !== 'number') return;
+                const lineNumber = normalizeLineNumber(err.line);
+                if (!lineNumber) return;
+                if (!errorMap.has(lineNumber)) {
+                    errorMap.set(lineNumber, []);
+                }
+                if (err.message) {
+                    errorMap.get(lineNumber).push(err.message);
+                }
+            });
+            DOM['step-line-numbers'].innerHTML = lines.map((_, idx) => {
+                const lineNumber = idx + 1;
+                const messages = errorMap.get(lineNumber);
+                const classes = ['line-number'];
+                if (messages && messages.length) {
+                    classes.push('line-number--error');
+                }
+                const titleAttr = messages && messages.length
+                    ? ` title="${escapeAttribute(messages.join('\n'))}"`
+                    : '';
+                return `<div class="${classes.join(' ')}" data-line-number="${lineNumber}"${titleAttr}>${lineNumber}</div>`;
+            }).join('');
+            DOM['step-line-numbers'].scrollTop = DOM['step-yaml-editor'].scrollTop;
+        }
     }
 
     function syncLineNumbersScroll() {
-        if (!DOM['step-line-numbers'] || !DOM['step-yaml-editor']) return;
-        DOM['step-line-numbers'].scrollTop = DOM['step-yaml-editor'].scrollTop;
+        if (DOM['step-line-numbers'] && DOM['step-yaml-editor']) {
+            DOM['step-line-numbers'].scrollTop = DOM['step-yaml-editor'].scrollTop;
+        }
+        syncStepHighlightScroll();
+    }
+
+    function updateStepEditorHighlight() {
+        if (!DOM['step-yaml-highlight'] || !DOM['step-yaml-editor']) return;
+        const renderer = global.yaml && typeof global.yaml.renderTokens === 'function'
+            ? global.yaml.renderTokens
+            : null;
+        const stage = DOM['step-yaml-stage'];
+        if (!renderer) {
+            if (stage) stage.classList.remove('yaml-editor-stage--with-highlight');
+            DOM['step-yaml-highlight'].textContent = DOM['step-yaml-editor'].value || '';
+            return;
+        }
+        const html = renderer(DOM['step-yaml-editor'].value || '', escapeHtml);
+        DOM['step-yaml-highlight'].innerHTML = html || '&nbsp;';
+        if (stage) stage.classList.add('yaml-editor-stage--with-highlight');
+        syncStepHighlightScroll();
+    }
+
+    function syncStepHighlightScroll() {
+        if (!DOM['step-yaml-highlight'] || !DOM['step-yaml-editor']) return;
+        const editor = DOM['step-yaml-editor'];
+        const x = editor.scrollLeft || 0;
+        const y = editor.scrollTop || 0;
+        DOM['step-yaml-highlight'].style.transform = `translate(${-x}px, ${-y}px)`;
     }
 
     function handleEditorKeydown(event) {
@@ -1069,6 +1101,7 @@
         textarea.focus();
         updateLineNumbers();
         updateValidationStatus();
+        updateStepEditorHighlight();
         updateStepEditorSuggestions();
     }
 
@@ -1172,8 +1205,17 @@
     function renderYamlView(yamlString) {
         const target = DOM['step-yaml-content'];
         if (!target) return;
+        const renderer = global.yaml && typeof global.yaml.renderLines === 'function'
+            ? global.yaml.renderLines
+            : null;
+        target.innerHTML = renderer
+            ? renderer(yamlString, escapeHtml)
+            : buildPlainYamlLines(yamlString);
+    }
+
+    function buildPlainYamlLines(yamlString) {
         const lines = (yamlString || '').split('\n');
-        target.innerHTML = lines.map((line, idx) => `
+        return lines.map((line, idx) => `
             <div class="yaml-line">
                 <span class="yaml-line-number">${idx + 1}</span>
                 <span class="yaml-line-text">${escapeHtml(line)}</span>
@@ -1736,6 +1778,7 @@
         textarea.focus();
         updateLineNumbers();
         updateValidationStatus();
+        updateStepEditorHighlight();
     }
 
     function updateStepEditorSuggestions() {
