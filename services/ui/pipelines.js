@@ -254,7 +254,8 @@
             'pipelines-delete-modal', 'pipelines-delete-message', 'pipelines-delete-confirm',
             'pipelines-delete-cancel', 'pipelines-delete-close', 'pipelines-clone-modal', 'pipelines-clone-form',
             'pipelines-clone-close', 'pipelines-clone-cancel', 'pipelines-clone-path', 'pipelines-clone-name', 'pipelines-clone-subtitle', 'pipelines-sync-report', 'pipelines-search-container',
-            'pipeline-editor-wrapper', 'pipeline-suggestion-panel', 'pipeline-suggestion-list', 'pipeline-suggestion-empty'
+            'pipeline-editor-wrapper', 'pipeline-suggestion-panel', 'pipeline-suggestion-list', 'pipeline-suggestion-empty',
+            'pipeline-includes'
         ];
 
         ids.forEach(id => {
@@ -1936,6 +1937,7 @@ function formatPathLabel(path) {
         renderPipelineGraphFromYaml(entry.yaml);
         renderTriggers(state.selectedId);
         renderRecentRuns(state.selectedId);
+        renderPipelineIncludes(entry.yaml);
     }
 
     async function renderPipelineGraphFromYaml(yamlString) {
@@ -3077,13 +3079,69 @@ function formatPathLabel(path) {
             if (DOM['pipeline-save-btn']) DOM['pipeline-save-btn'].disabled = false;
         }
     }
+    function renderPipelineIncludes(yamlString) {
+        const container = DOM['pipeline-includes'];
+        if (!container) return;
 
+        const parsed = parseYamlSafely(yamlString);
+        if (!parsed || !Array.isArray(parsed.steps) || parsed.steps.length === 0) {
+            container.innerHTML = '<p class="text-sm text-[var(--text-secondary)]">No steps defined.</p>';
+            return;
+        }
+
+        const includes = new Set();
+        parsed.steps.forEach(step => {
+            if (step && typeof step.include === 'string' && step.include.trim()) {
+                includes.add(step.include.trim());
+            }
+        });
+
+        if (includes.size === 0) {
+            container.innerHTML = '<p class="text-sm text-[var(--text-secondary)]">No included dependencies found.</p>';
+            return;
+        }
+
+        const items = Array.from(includes).sort();
+        const html = `<ul class="triggers-pipeline-list">${items.map(item => {
+            const isPipeline = item.startsWith('pipeline:');
+            const isStep = item.startsWith('step:');
+            let identifier = item;
+            let icon = '<svg class="h-4 w-4 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l4-4 4 4m0 6l-4 4-4-4" /></svg>';
+            let href = '#';
+            let title = `Dependency: ${escapeHtml(item)}`;
+            
+            if (isPipeline) {
+                identifier = item.substring('pipeline:'.length);
+                href = `#/pipelines/${identifier.split('/').map(encodeURIComponent).join('/')}`;
+                title = `Open pipeline ${escapeHtml(identifier)}`;
+                icon = '<svg class="h-4 w-4 text-[var(--text-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h4l2 2h6a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm3 4h10m-10 4h6"/></svg>';
+            } else if (isStep) {
+                identifier = item.substring('step:'.length);
+                href = `#/steps/${identifier.split('/').map(encodeURIComponent).join('/')}`;
+                title = `Open step ${escapeHtml(identifier)}`;
+                icon = '<svg class="h-4 w-4 text-[var(--text-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7h2v10H9zm4-12h2v12h-2V5zm4 4h2v8h-2V9zM3 3h18v2H3V3z"/></svg>';
+            }
+
+            return `
+                <li class="triggers-pipeline-item">
+                    <a href="${href}" class="triggers-pipeline-link" title="${title}">
+                        <div class="flex items-center gap-2">
+                            ${icon}
+                            <span class="triggers-pipeline-name">${escapeHtml(item)}</span>
+                        </div>
+                    </a>
+                </li>`;
+        }).join('')}</ul>`;
+
+        container.innerHTML = html;
+    }
     function handleValidation() {
         if (!DOM['pipeline-yaml-editor']) return;
         updatePipelineEditorHighlight();
         const yamlString = DOM['pipeline-yaml-editor'].value;
         const result = validatePipelineYaml(yamlString);
         applyValidationResult(result);
+        renderPipelineIncludes(yamlString);
     }
 
     function ensureEditorSuggestionOverlay() {
