@@ -198,7 +198,12 @@
                                                 <div id="pipeline-editor-wrapper" class="pipeline-editor-wrapper hidden">
                                                     <div id="editor-container" class="editor-container hidden">
                                                         <pre id="line-numbers">1</pre>
-                                                        <textarea id="pipeline-yaml-editor" spellcheck="false"></textarea>
+                                                        <div id="pipeline-yaml-stage" class="yaml-editor-stage">
+                                                            <div class="yaml-editor-highlight" aria-hidden="true">
+                                                                <pre id="pipeline-yaml-highlight" class="yaml-editor-highlight__content"></pre>
+                                                            </div>
+                                                            <textarea id="pipeline-yaml-editor" spellcheck="false"></textarea>
+                                                        </div>
                                                     </div>
                                                     <section id="pipeline-suggestion-panel" class="env-suggestion-panel pipeline-suggestion-panel" aria-live="polite">
                                                         <div class="env-suggestion-heading">
@@ -330,7 +335,12 @@
                                                     <div id="step-editor-wrapper" class="pipeline-editor-wrapper hidden">
                                                         <div id="step-editor-container" class="editor-container hidden">
                                                             <pre id="step-line-numbers">1</pre>
-                                                            <textarea id="step-yaml-editor" spellcheck="false"></textarea>
+                                                            <div id="step-yaml-stage" class="yaml-editor-stage">
+                                                                <div class="yaml-editor-highlight" aria-hidden="true">
+                                                                    <pre id="step-yaml-highlight" class="yaml-editor-highlight__content"></pre>
+                                                                </div>
+                                                                <textarea id="step-yaml-editor" spellcheck="false"></textarea>
+                                                            </div>
                                                         </div>
                                                         <section id="step-suggestion-panel" class="env-suggestion-panel pipeline-suggestion-panel hidden" aria-live="polite">
                                                             <div class="env-suggestion-heading">
@@ -452,7 +462,12 @@
                                                 <div id="triggers-yaml-content" class="yaml-view"></div>
                                                 <div id="triggers-editor-container" class="editor-container hidden">
                                                     <pre id="triggers-line-numbers">1</pre>
-                                                    <textarea id="triggers-yaml-editor" spellcheck="false"></textarea>
+                                                    <div id="triggers-yaml-stage" class="yaml-editor-stage">
+                                                        <div class="yaml-editor-highlight" aria-hidden="true">
+                                                            <pre id="triggers-yaml-highlight" class="yaml-editor-highlight__content"></pre>
+                                                        </div>
+                                                        <textarea id="triggers-yaml-editor" spellcheck="false"></textarea>
+                                                    </div>
                                                 </div>
                                                 <div id="triggers-validation-status" class="hidden text-xs text-[var(--text-secondary)]"></div>
                                             </div>
@@ -1136,6 +1151,7 @@
     </div>
     <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <script src="yaml-highlight.js"></script>
     <script src="logs.js"></script>
     <script src="environments.js"></script>
     <script src="triggers.js"></script>

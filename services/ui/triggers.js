@@ -353,7 +353,7 @@
             'triggers-search-container', 'triggers-search', 'triggers-clear-search', 'triggers-new-btn',
             'triggers-list', 'triggers-list-empty', 'triggers-detail', 'triggers-detail-name',
             'triggers-detail-source', 'triggers-detail-meta', 'triggers-meta-chips', 'triggers-yaml-content',
-            'triggers-editor-container', 'triggers-line-numbers', 'triggers-yaml-editor',
+            'triggers-editor-container', 'triggers-line-numbers', 'triggers-yaml-stage', 'triggers-yaml-highlight', 'triggers-yaml-editor',
             'triggers-validation-status', 'triggers-edit-btn', 'triggers-copy-btn', 'triggers-download-btn',
             'triggers-clone-btn', 'triggers-view-actions', 'triggers-edit-actions',
             'triggers-save-btn', 'triggers-cancel-btn', 'triggers-pipelines-empty', 'triggers-pipelines-list',
@@ -1434,13 +1434,12 @@
     function renderYamlView(yaml) {
         const target = DOM['triggers-yaml-content'];
         if (target) {
-            const lines = (yaml || '').split('\n');
-            target.innerHTML = lines.map((line, index) => `
-                <div class="yaml-line">
-                    <span class="yaml-line-number">${index + 1}</span>
-                    <span class="yaml-line-text">${escapeHtml(line)}</span>
-                </div>
-            `).join('');
+            const renderer = global.yaml && typeof global.yaml.renderLines === 'function'
+                ? global.yaml.renderLines
+                : null;
+            target.innerHTML = renderer
+                ? renderer(yaml, escapeHtml)
+                : buildPlainYamlLines(yaml);
         }
         if (DOM['triggers-editor-container']) {
             DOM['triggers-editor-container'].classList.add('hidden');
@@ -1452,6 +1451,15 @@
             DOM['triggers-validation-status'].classList.add('hidden');
             DOM['triggers-validation-status'].textContent = '';
         }
+    }
+
+    function buildPlainYamlLines(yamlString) {
+        const lines = (yamlString || '').split('\n');
+        return lines.map((line, idx) => `
+            <div class="yaml-line">
+                <span class="yaml-line-number">${idx + 1}</span>
+                <span class="yaml-line-text">${escapeHtml(line)}</span>
+            </div>`).join('');
     }
 
     async function renderPipelinesList(summary) {
@@ -1696,6 +1704,7 @@
         if (DOM['triggers-yaml-editor']) {
             DOM['triggers-yaml-editor'].value = info.yaml;
             updateLineNumbers(info.yaml);
+            updateTriggerEditorHighlight();
             validateCurrentYaml();
             ensureTriggerEditorSuggestionOverlay();
             updateTriggerEditorSuggestions();
@@ -1763,25 +1772,52 @@
     function handleEditorInput(event) {
         const value = event.target.value;
         updateLineNumbers(value);
+        updateTriggerEditorHighlight();
         validateCurrentYaml();
         updateTriggerEditorSuggestions();
         updateTriggerInlineSuggestionPosition();
     }
 
     function syncEditorScroll() {
-        if (!DOM['triggers-line-numbers'] || !DOM['triggers-yaml-editor']) return;
-        DOM['triggers-line-numbers'].scrollTop = DOM['triggers-yaml-editor'].scrollTop;
+        if (DOM['triggers-line-numbers'] && DOM['triggers-yaml-editor']) {
+            DOM['triggers-line-numbers'].scrollTop = DOM['triggers-yaml-editor'].scrollTop;
+        }
+        syncTriggerHighlightScroll();
         updateTriggerInlineSuggestionPosition();
     }
 
     function updateLineNumbers(text) {
         if (!DOM['triggers-line-numbers']) return;
-        const lines = String(text ?? '').split('\n');
+        const lines = String(text ?? DOM['triggers-yaml-editor']?.value ?? '').split('\n');
         const html = lines.map((_, idx) => {
             const lineNumber = idx + 1;
             return `<div class="line-number" data-line-number="${lineNumber}">${lineNumber}</div>`;
         }).join('');
         DOM['triggers-line-numbers'].innerHTML = html || '<div class="line-number" data-line-number="1">1</div>';
+    }
+
+    function updateTriggerEditorHighlight() {
+        if (!DOM['triggers-yaml-highlight'] || !DOM['triggers-yaml-editor']) return;
+        const renderer = global.yaml && typeof global.yaml.renderTokens === 'function'
+            ? global.yaml.renderTokens
+            : null;
+        const stage = DOM['triggers-yaml-stage'];
+        if (!renderer) {
+            if (stage) stage.classList.remove('yaml-editor-stage--with-highlight');
+            DOM['triggers-yaml-highlight'].textContent = DOM['triggers-yaml-editor'].value || '';
+            return;
+        }
+        DOM['triggers-yaml-highlight'].innerHTML = renderer(DOM['triggers-yaml-editor'].value || '', escapeHtml) || '&nbsp;';
+        if (stage) stage.classList.add('yaml-editor-stage--with-highlight');
+        syncTriggerHighlightScroll();
+    }
+
+    function syncTriggerHighlightScroll() {
+        if (!DOM['triggers-yaml-highlight'] || !DOM['triggers-yaml-editor']) return;
+        const editor = DOM['triggers-yaml-editor'];
+        const x = editor.scrollLeft || 0;
+        const y = editor.scrollTop || 0;
+        DOM['triggers-yaml-highlight'].style.transform = `translate(${-x}px, ${-y}px)`;
     }
 
     function validateCurrentYaml() {
@@ -1859,6 +1895,7 @@
         target.value = value.substring(0, start) + '  ' + value.substring(end);
         const caret = start + 2;
         target.selectionStart = target.selectionEnd = caret;
+        updateTriggerEditorHighlight();
     }
 
     function handleTriggerEditorEnterKey(event) {
@@ -1896,6 +1933,7 @@
         textarea.selectionStart = textarea.selectionEnd = caret;
         textarea.focus();
         updateLineNumbers(textarea.value);
+        updateTriggerEditorHighlight();
         validateCurrentYaml();
         updateTriggerEditorSuggestions();
         updateTriggerInlineSuggestionPosition();
@@ -2115,6 +2153,7 @@
         textarea.focus();
         hideTriggerEditorSuggestions();
         updateLineNumbers(textarea.value);
+        updateTriggerEditorHighlight();
         validateCurrentYaml();
         updateTriggerEditorSuggestions();
         updateTriggerInlineSuggestionPosition();
