@@ -1448,6 +1448,8 @@
         if (!list || !emptyState) return;
 
         const mode = state.stepSuggestionMode;
+        const contextInfo = state.stepSuggestionContext || null;
+        const parsedStep = getActiveStepYamlObject();
         if (!state.isEditing || !mode) {
             list.innerHTML = '';
             emptyState.textContent = 'Enter edit mode to view suggestions.';
@@ -1497,7 +1499,9 @@
             subtitle: 'Available keys for this section.',
             footnote: 'Click a directive to insert it at the cursor position.',
         });
-        const definitions = isTaskMode ? TASK_DIRECTIVES : STEP_DIRECTIVES;
+        const definitions = isTaskMode
+            ? filterTaskDirectives(TASK_DIRECTIVES, parsedStep, contextInfo)
+            : filterStepDirectives(STEP_DIRECTIVES, parsedStep);
         const directiveSection = buildStepDirectiveSection(isTaskMode ? 'Task directives' : 'Step directives', definitions);
         if (!directiveSection) {
             list.innerHTML = '';
@@ -1592,6 +1596,86 @@
                     </div>
                     <div class="env-suggestion-variables">${pills}${moreBadge}</div>
                 </article>`;
+        });
+    }
+
+    function getActiveStepYamlObject() {
+        if (!state.isEditing || !DOM['step-yaml-editor']) {
+            return null;
+        }
+        if (!window.jsyaml || typeof window.jsyaml.load !== 'function') {
+            return null;
+        }
+        const yaml = DOM['step-yaml-editor'].value || '';
+        if (!yaml.trim()) {
+            return null;
+        }
+        try {
+            const parsed = window.jsyaml.load(yaml);
+            return parsed && typeof parsed === 'object' ? parsed : null;
+        } catch {
+            return null;
+        }
+    }
+
+    function hasMeaningfulValue(entity, key) {
+        if (!entity || typeof entity !== 'object') return false;
+        return Object.prototype.hasOwnProperty.call(entity, key);
+    }
+
+    function filterStepDirectives(definitions, parsedStep) {
+        if (!Array.isArray(definitions) || !definitions.length) return [];
+        if (!parsedStep || typeof parsedStep !== 'object') {
+            return definitions;
+        }
+
+        const hasInclude = hasMeaningfulValue(parsedStep, 'include');
+        const hasTasks = hasMeaningfulValue(parsedStep, 'tasks');
+        const hasGoal = hasMeaningfulValue(parsedStep, 'goal');
+        const hasScript = hasMeaningfulValue(parsedStep, 'script');
+
+        return definitions.filter(def => {
+            const key = def?.key;
+            if (!key) return false;
+            if (key === 'include') {
+                return !hasInclude && !hasTasks && !hasGoal && !hasScript;
+            }
+            if (key === 'tasks') {
+                return !hasTasks && !hasInclude && !hasGoal && !hasScript;
+            }
+            if (key === 'goal') {
+                return !hasGoal && !hasInclude && !hasTasks && !hasScript;
+            }
+            if (key === 'script') {
+                return !hasScript && !hasInclude && !hasTasks && !hasGoal;
+            }
+            return !hasMeaningfulValue(parsedStep, key);
+        });
+    }
+
+    function filterTaskDirectives(definitions, parsedStep, context = {}) {
+        if (!Array.isArray(definitions) || !definitions.length) return [];
+        if (!parsedStep || typeof parsedStep !== 'object') {
+            return definitions;
+        }
+        const tasks = Array.isArray(parsedStep.tasks) ? parsedStep.tasks : [];
+        const requestedIndex = typeof context.taskIndex === 'number'
+            ? context.taskIndex
+            : (tasks.length ? 0 : -1);
+        const currentTask = (requestedIndex >= 0 && requestedIndex < tasks.length)
+            ? (tasks[requestedIndex] && typeof tasks[requestedIndex] === 'object' ? tasks[requestedIndex] : null)
+            : null;
+
+        return definitions.filter(def => {
+            const key = def?.key;
+            if (!key) return false;
+            if (key === 'goal') {
+                return !hasMeaningfulValue(currentTask, 'goal') && !hasMeaningfulValue(currentTask, 'script');
+            }
+            if (key === 'script') {
+                return !hasMeaningfulValue(currentTask, 'goal') && !hasMeaningfulValue(currentTask, 'script');
+            }
+            return !hasMeaningfulValue(currentTask, key);
         });
     }
 
@@ -1701,16 +1785,17 @@
             return { mode: 'secrets', key: 'secrets' };
         }
 
-        const taskParent = findNearestParentKey(beforeText, ['tasks'], lineInfo.indent);
-        if (taskParent === 'tasks') {
-            return { mode: 'directive-task', key: 'tasks' };
+        const taskParent = findNearestParentKey(beforeText, ['tasks'], lineInfo.indent, { withMeta: true });
+        if (taskParent && taskParent.key === 'tasks') {
+            const taskIndex = resolveTaskIndex(beforeText, taskParent, lineInfo);
+            return { mode: 'directive-task', key: 'tasks', taskIndex };
         }
 
         return { mode: 'directive', key: 'step' };
     }
 
-    function findNearestParentKey(beforeText, targetKeys, currentIndent) {
-        if (!beforeText) return null;
+    function findNearestParentKey(beforeText, targetKeys, currentIndent, options = {}) {
+        if (!beforeText) return options.withMeta ? null : null;
         const lines = beforeText.split('\n');
         for (let i = lines.length - 1; i >= 0; i -= 1) {
             const rawLine = lines[i];
@@ -1729,11 +1814,60 @@
             }
             const key = trimmed.slice(0, trimmed.indexOf(':')).trim();
             if (!targetKeys || targetKeys.includes(key)) {
+                if (options.withMeta) {
+                    return { key, indent };
+                }
                 return key;
             }
-            return null;
+            return options.withMeta ? null : null;
         }
-        return null;
+        return options.withMeta ? null : null;
+    }
+
+    function resolveTaskIndex(beforeText, taskParentInfo, currentLineInfo) {
+        if (!taskParentInfo) {
+            return 0;
+        }
+        const parentIndent = typeof taskParentInfo.indent === 'number' ? taskParentInfo.indent : 0;
+        const entryIndent = parentIndent + 2;
+        const lines = beforeText ? beforeText.split('\n') : [];
+        let inTasksBlock = false;
+        let currentIndex = -1;
+
+        for (let i = 0; i < lines.length; i += 1) {
+            const line = lines[i];
+            if (!line) continue;
+            const indent = line.match(/^\s*/)?.[0].length ?? 0;
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+
+            if (!inTasksBlock) {
+                if (indent === parentIndent && trimmed.startsWith('tasks:')) {
+                    inTasksBlock = true;
+                }
+                continue;
+            }
+
+            if (indent <= parentIndent && trimmed.endsWith(':')) {
+                if (!trimmed.startsWith('tasks:')) {
+                    break;
+                }
+                continue;
+            }
+
+            if (indent === entryIndent && trimmed.startsWith('-')) {
+                currentIndex += 1;
+            }
+        }
+
+        if (currentLineInfo && currentLineInfo.indent === entryIndent) {
+            const currentTrimmed = (currentLineInfo.line || '').trim();
+            if (currentTrimmed.startsWith('-')) {
+                currentIndex += 1;
+            }
+        }
+
+        return currentIndex >= 0 ? currentIndex : 0;
     }
 
     function getCurrentLineInfo(text, index) {
