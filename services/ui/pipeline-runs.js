@@ -12,6 +12,8 @@
     let renderLogsWithFilters = () => {};
     let updateLogsStepList = () => {};
     let wsManager;
+    let lastMainGridRender = null;
+    const runViewToggle = { container: null, gridBtn: null, listBtn: null };
 
     const statusConfig = {
         success: { icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-green-500 dark:text-green-400', rectClass: 'stroke-green-500 fill-green-100 dark:fill-green-500/10' },
@@ -112,6 +114,89 @@
         const safeVariant = variant || 'list';
         const extra = extraClasses ? ` ${extraClasses}` : '';
         return `<span class="step-logo step-logo--${safeVariant}${extra}" aria-hidden="true">${svgMarkup}</span>`;
+    }
+
+    function getRunViewMode() {
+        return (state && state.runViewMode === 'list') ? 'list' : 'grid';
+    }
+
+    function persistRunViewMode(mode) {
+        try {
+            localStorage.setItem('pipelinerunsViewMode', mode);
+        } catch (error) {
+            console.debug('Unable to persist pipeline run view mode', error);
+        }
+    }
+
+    function updateRunViewToggleButtons() {
+        const mode = getRunViewMode();
+        const isGrid = mode !== 'list';
+        const gridBtn = runViewToggle.gridBtn;
+        const listBtn = runViewToggle.listBtn;
+        if (gridBtn) {
+            gridBtn.classList.toggle('runs-view-toggle__btn--active', isGrid);
+            gridBtn.setAttribute('aria-pressed', isGrid ? 'true' : 'false');
+        }
+        if (listBtn) {
+            listBtn.classList.toggle('runs-view-toggle__btn--active', !isGrid);
+            listBtn.setAttribute('aria-pressed', !isGrid ? 'true' : 'false');
+        }
+    }
+
+    function refreshMainGridView() {
+        if (!lastMainGridRender) return;
+        renderMainGridContent(lastMainGridRender.subgroups, lastMainGridRender.runs, lastMainGridRender.showAddButton);
+    }
+
+    function setRunViewMode(mode) {
+        const normalized = mode === 'list' ? 'list' : 'grid';
+        if (state.runViewMode === normalized) return;
+        state.runViewMode = normalized;
+        persistRunViewMode(normalized);
+        updateRunViewToggleButtons();
+        refreshMainGridView();
+    }
+
+    function ensureRunViewToggle() {
+        const container = runViewToggle.container
+            || (DOM && DOM.runViewToggleContainer)
+            || document.getElementById('run-view-toggle-container');
+        if (!container) return;
+        runViewToggle.container = container;
+        if (!container.dataset.runViewToggleRendered) {
+            container.innerHTML = `
+                <div class="runs-view-toggle" role="group" aria-label="Pipeline run layout">
+                    <button type="button" class="runs-view-toggle__btn" data-view-mode="grid" aria-pressed="true" title="Grid view">
+                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="4" y="4" width="7" height="7"></rect>
+                            <rect x="13" y="4" width="7" height="7"></rect>
+                            <rect x="4" y="13" width="7" height="7"></rect>
+                            <rect x="13" y="13" width="7" height="7"></rect>
+                        </svg>
+                    </button>
+                    <button type="button" class="runs-view-toggle__btn" data-view-mode="list" aria-pressed="false" title="List view">
+                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 7h16" />
+                            <path d="M4 12h16" />
+                            <path d="M4 17h16" />
+                        </svg>
+                    </button>
+                </div>`;
+            container.dataset.runViewToggleRendered = 'true';
+            runViewToggle.gridBtn = container.querySelector('[data-view-mode="grid"]');
+            runViewToggle.listBtn = container.querySelector('[data-view-mode="list"]');
+            if (runViewToggle.gridBtn) {
+                runViewToggle.gridBtn.addEventListener('click', () => setRunViewMode('grid'));
+            }
+            if (runViewToggle.listBtn) {
+                runViewToggle.listBtn.addEventListener('click', () => setRunViewMode('list'));
+            }
+        } else {
+            runViewToggle.gridBtn = container.querySelector('[data-view-mode="grid"]');
+            runViewToggle.listBtn = container.querySelector('[data-view-mode="list"]');
+        }
+        container.classList.remove('hidden');
+        updateRunViewToggleButtons();
     }
 
     const SIDEBAR_ICON_SVGS = {
@@ -1027,6 +1112,11 @@
         DOM.pipelineRunsSearchContainer = DOM.pipelineRunsSearchContainer || document.getElementById('pipelineruns-search-container');
         DOM.pipelineRunsActions = DOM.pipelineRunsActions || document.getElementById('pipelineruns-actions');
         DOM.pipelineRunsNewFolderBtn = DOM.pipelineRunsNewFolderBtn || document.getElementById('pipelineruns-new-folder-btn');
+        runViewToggle.container = DOM.runViewToggleContainer || document.getElementById('run-view-toggle-container');
+        if (!state.runViewMode) {
+            state.runViewMode = 'grid';
+        }
+        ensureRunViewToggle();
         if (DOM.pipelineRunsSearch) {
             DOM.pipelineRunsSearch.value = state.runSearchTerm || '';
         }
@@ -2003,9 +2093,9 @@ if (dx !== 0 || dy !== 0) {
                         <svg class="h-6 w-6 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
                     </div>
                 </div>
-                <div class="branch-runs p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4" style="${isExpanded ? 'max-height: 2000px;' : ''}">
-                    ${runs.map(run => renderRunCard(run, context)).join('')}
-                </div>
+                <div class="branch-runs p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" style="${isExpanded ? 'max-height: 2000px;' : ''}">
+                ${runs.map(run => renderRunCard(run, context, { viewMode: getRunViewMode() })).join('')}
+            </div>
             </div>`;
         });
         html += '</div>';
@@ -2067,6 +2157,53 @@ if (dx !== 0 || dy !== 0) {
                     <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
                 </button>
             </div>`;
+    }
+
+    function renderRunListRowHTML(run, isSelected = false) {
+        const status = run.is_complete ? run.status : 'running';
+        const config = statusConfig[status.toLowerCase()] || statusConfig.pending;
+        const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
+        const branchDisplay = formatBranchDisplay(run.git_ref, run.git_target_ref, { html: true });
+        const pipelineNameHTML = getPipelineNameHTML(run);
+        const commit = escapeText((run.git_commit_sha || '...').slice(0, 8));
+        const runIdShort = escapeText((run.run_id || '...').slice(0, 8));
+        const triggerCard = formatTriggerEventCardDisplay(run.trigger_event_id);
+        const triggerDisplay = escapeText(triggerCard.display || 'N/A');
+        const updatedDisplay = timeAgo(timeToDisplay);
+        return `
+            <div class="run-list-info">
+                <span class="run-list-status ${config.color}" aria-hidden="true">
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
+                </span>
+                <div class="run-list-titles">
+                    <div class="run-list-title">${pipelineNameHTML}</div>
+                    <div class="run-list-sub">${branchDisplay}</div>
+                </div>
+            </div>
+            <div class="run-list-meta">
+                <span class="run-list-meta-item">
+                    <span class="run-list-meta-label">Commit</span>
+                    <span class="run-list-meta-value">${commit}</span>
+                </span>
+                <span class="run-list-meta-item">
+                    <span class="run-list-meta-label">Run ID</span>
+                    <span class="run-list-meta-value">${runIdShort}</span>
+                </span>
+                <span class="run-list-meta-item">
+                    <span class="run-list-meta-label">Trigger</span>
+                    <span class="run-list-meta-value">${triggerDisplay}</span>
+                </span>
+                <span class="run-list-meta-item">
+                    <span class="run-list-meta-label">Updated</span>
+                    <span class="run-list-meta-value">${updatedDisplay}</span>
+                </span>
+            </div>
+            <div class="run-list-actions">
+                <button type="button" class="${getRunToggleClasses(isSelected)}" data-run-id="${escapeAttribute(run.run_id)}" aria-pressed="${isSelected ? 'true' : 'false'}" title="${isSelected ? 'Deselect run' : 'Select run'}">
+                    <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                </button>
+            </div>
+        `;
     }
 
     function renderSidebarRunLinkHTML(run, contextOverride) {
@@ -2134,22 +2271,9 @@ if (dx !== 0 || dy !== 0) {
             }
             el.dataset.runContext = encodeRunContext(resolvedContext);
             if (el.hasAttribute('data-href')) { // It's a run card
-                const runId = runData.run_id || '';
-                const isSelected = ensureRunSelectionSet().has(runId);
-                el.setAttribute('data-href', buildRunHash(runData, resolvedContext));
-                const pipelineIdentifier = getPipelineIdentifierFromRun(runData);
-                if (pipelineIdentifier) {
-                    el.setAttribute('data-pipeline-id', pipelineIdentifier);
-                } else {
-                    el.removeAttribute('data-pipeline-id');
-                }
-                el.dataset.selected = isSelected ? 'true' : 'false';
-                el.innerHTML = renderRunCardHTML(runData, isSelected);
-                if (isSelected) {
-                    el.classList.add('ring-2', 'ring-indigo-500', 'border-transparent');
-                } else {
-                    el.classList.remove('ring-2', 'ring-indigo-500', 'border-transparent');
-                }
+                const viewModeAttr = el.dataset.viewMode === 'list' ? 'list' : 'grid';
+                const newMarkup = renderRunCard(runData, resolvedContext, { viewMode: viewModeAttr });
+                replaceRunCardElement(el, newMarkup);
             } else if (el.tagName === 'LI') { // It's a sidebar item
                 el.innerHTML = renderSidebarRunLinkHTML(runData, resolvedContext);
             }
@@ -2158,7 +2282,7 @@ if (dx !== 0 || dy !== 0) {
     }
 
     // Update renderRunCard to use the new reusable function
-    function renderRunCard(run, contextOverride) {
+    function renderRunCard(run, contextOverride, options = {}) {
         const repoFullName = `${run.git_repo_owner}/${run.git_repo_name}`;
         const parentAttr = run.parent_run_id ? ` data-parent-run-id="${run.parent_run_id}"` : '';
         const pipelineIdentifier = getPipelineIdentifierFromRun(run);
@@ -2171,21 +2295,44 @@ if (dx !== 0 || dy !== 0) {
         const runIdAttr = escapeAttribute(runId);
         const isSelected = selected.has(runId);
         const selectedClasses = isSelected ? 'ring-2 ring-indigo-500 border-transparent' : '';
+        const viewMode = (options && options.viewMode === 'list') ? 'list' : 'grid';
+        const isListView = viewMode === 'list';
+        const baseClasses = `run-card relative block rounded-lg bg-[var(--bg-primary)] transition-all duration-200 cursor-pointer border border-[var(--border-primary)] shadow-sm ${selectedClasses}`;
+        const layoutClasses = isListView
+            ? 'run-card--list'
+            : 'run-card--grid p-4 flex flex-col justify-between';
+        const content = isListView ? renderRunListRowHTML(run, isSelected) : renderRunCardHTML(run, isSelected);
         return `
             <div data-href="${runUrl}"
                 data-run-id="${runIdAttr}"${pipelineAttr}
                 data-repo-full-name="${repoFullName}"${parentAttr}${getTriggerGroupAttr(run)}
                 data-run-context="${contextAttr}"
+                data-view-mode="${viewMode}"
                 data-selected="${isSelected ? 'true' : 'false'}"
-                class="run-card relative block bg-[var(--bg-primary)] transition-all duration-200 rounded-lg p-4 flex flex-col justify-between cursor-pointer border border-[var(--border-primary)] shadow-sm ${selectedClasses}"
+                class="${baseClasses} ${layoutClasses}"
             >
-                ${renderRunCardHTML(run, isSelected)}
+                ${content}
             </div>`;
     }
 
+    function replaceRunCardElement(oldEl, html) {
+        if (!oldEl || !oldEl.parentNode) return;
+        const temp = document.createElement('div');
+        temp.innerHTML = html.trim();
+        const newEl = temp.firstElementChild;
+        if (newEl) {
+            oldEl.parentNode.replaceChild(newEl, oldEl);
+        }
+    }
+
     async function renderMainGridContent(subgroups, runs, showAddButton = false) {
+        lastMainGridRender = { subgroups, runs, showAddButton };
+        const container = DOM.mainGridContainer;
+        if (!container) return;
+        const isListView = getRunViewMode() === 'list';
+        ensureRunViewToggle();
         resetMainView();
-        DOM.mainGridContainer.classList.remove('hidden');
+        container.classList.remove('hidden');
 
         const searchTerm = (state.runSearchTerm || '').trim().toLowerCase();
         setRunToolbarVisibility(true);
@@ -2239,12 +2386,12 @@ if (dx !== 0 || dy !== 0) {
         }
 
         if (searchTerm && visibleSubgroups.length === 0 && (!Array.isArray(visibleRuns) || visibleRuns.length === 0)) {
-            DOM.mainGridContainer.innerHTML = `<p class="py-10 text-center text-sm text-[var(--text-secondary)]">No runs or folders match your search.</p>`;
+            container.innerHTML = `<p class="py-10 text-center text-sm text-[var(--text-secondary)]">No runs or folders match your search.</p>`;
             return;
         }
 
         if (!searchTerm && !showAddButton && visibleSubgroups.length === 0 && (!Array.isArray(visibleRuns) || visibleRuns.length === 0)) {
-            DOM.mainGridContainer.innerHTML = `<p class="py-10 text-center text-sm text-[var(--text-secondary)]">No pipeline runs found.</p>`;
+            container.innerHTML = `<p class="py-10 text-center text-sm text-[var(--text-secondary)]">No pipeline runs found.</p>`;
             return;
         }
 
@@ -2254,7 +2401,8 @@ if (dx !== 0 || dy !== 0) {
             groupSegments: state.selectedGroupPathSegments,
         });
 
-        let html = '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">';
+        const wrapperClass = 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4';
+        let html = `<div class="${wrapperClass}">`;
 
         visibleSubgroups.forEach(group => {
             const rawName = group?.name || '';
@@ -2362,11 +2510,11 @@ if (dx !== 0 || dy !== 0) {
         });
 
         (Array.isArray(visibleRuns) ? visibleRuns : []).forEach(run => {
-            html += renderRunCard(run, contextForRuns);
+            html += renderRunCard(run, contextForRuns, { viewMode: isListView ? 'list' : 'grid' });
         });
 
         html += '</div>';
-        DOM.mainGridContainer.innerHTML = html;
+        container.innerHTML = html;
     }
 
     function calculateGraphLayout(items, container, nodeWidth, nodeHeight, hGap, vGap, isVertical = false) {

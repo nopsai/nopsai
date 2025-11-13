@@ -204,7 +204,17 @@ document.addEventListener('DOMContentLoaded', () => {
         pipelineRunsSearchContainer: document.getElementById('pipelineruns-search-container'),
         pipelineRunsActions: document.getElementById('pipelineruns-actions'),
         pipelineRunsNewFolderBtn: document.getElementById('pipelineruns-new-folder-btn'),
+        runViewToggleContainer: document.getElementById('run-view-toggle-container'),
     };
+    let savedRunViewMode = 'grid';
+    try {
+        const storedView = localStorage.getItem('pipelinerunsViewMode');
+        if (storedView === 'list') {
+            savedRunViewMode = 'list';
+        }
+    } catch (error) {
+        savedRunViewMode = 'grid';
+    }
 
     let state = {
         pollingInterval: null, // This will be removed
@@ -249,6 +259,7 @@ document.addEventListener('DOMContentLoaded', () => {
         currentRepoGroupId: null,
         searchRuns: [],
         searchRunsFetchedAt: 0,
+        runViewMode: savedRunViewMode,
     };
 
     async function fetchData(url, options = {}) {
