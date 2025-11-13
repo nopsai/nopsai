@@ -232,6 +232,9 @@ body {
     background-color: var(--bg-active);
     box-shadow: inset 3px 0 0 0 var(--border-accent);
 }
+.sidebar-logo {
+    flex-shrink: 0;
+}
 .drop-target-highlight {
     background-color: hsla(242, 59%, 65%, 0.3) !important;
     outline: 2px dashed var(--border-accent);
@@ -390,6 +393,94 @@ html.dark .themed-bg-blur {
     display: flex;
     align-items: center;
     justify-content: center;
+}
+.step-logo {
+    width: 40px;
+    height: 40px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #475569, #1f2937);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.35);
+    text-shadow: 0 2px 8px rgba(15, 23, 42, 0.45);
+}
+html.dark .step-logo {
+    border-color: rgba(148, 163, 184, 0.25);
+    box-shadow: 0 12px 24px rgba(2, 6, 23, 0.65);
+}
+.step-logo svg {
+    width: 20px;
+    height: 20px;
+}
+.step-logo--card {
+    width: 36px;
+    height: 36px;
+}
+.step-logo--detail {
+    width: 48px;
+    height: 48px;
+}
+.step-logo--menu {
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+}
+.step-logo--list {
+    width: 24px;
+    height: 24px;
+    border-radius: 8px;
+}
+.step-logo--sidebar {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+}
+.step-logo--menu svg,
+.step-logo--list svg,
+.step-logo--sidebar svg {
+    width: 16px;
+    height: 16px;
+}
+.step-logo--brand {
+    background: linear-gradient(135deg, #7c3aed, #4f46e5);
+    box-shadow: 0 12px 26px rgba(79, 70, 229, 0.5);
+}
+.step-logo--pipelineruns {
+    background: linear-gradient(135deg, #38bdf8, #2563eb);
+    box-shadow: 0 12px 26px rgba(37, 99, 235, 0.45);
+}
+.step-logo--pipelines {
+    background: linear-gradient(135deg, #4ade80, #16a34a);
+    box-shadow: 0 12px 26px rgba(22, 163, 74, 0.35);
+}
+.step-logo--steps {
+    background: linear-gradient(135deg, #c084fc, #a855f7);
+    box-shadow: 0 12px 26px rgba(168, 85, 247, 0.45);
+}
+.step-logo--secrets {
+    background: linear-gradient(135deg, #fcd34d, #f97316);
+    box-shadow: 0 12px 26px rgba(249, 115, 22, 0.35);
+    color: #1f2937;
+}
+.step-logo--environment {
+    background: linear-gradient(135deg, #34d399, #0d9488);
+    box-shadow: 0 12px 26px rgba(13, 148, 136, 0.4);
+}
+.step-logo--triggers {
+    background: linear-gradient(135deg, #fb7185, #f43f5e);
+    box-shadow: 0 12px 26px rgba(244, 63, 94, 0.45);
+}
+.step-logo--monitoring {
+    background: linear-gradient(135deg, #a5b4fc, #6366f1);
+    box-shadow: 0 12px 26px rgba(99, 102, 241, 0.35);
+}
+.step-logo--system {
+    background: linear-gradient(135deg, #cbd5f5, #64748b);
+    box-shadow: 0 12px 26px rgba(100, 116, 139, 0.35);
 }
 .mini-task-node rect {
     stroke: var(--border-secondary);
@@ -1112,12 +1203,6 @@ html.dark .pipelines-input {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 2rem;
-    height: 2rem;
-    border-radius: 0;
-    background: transparent;
-    color: var(--text-accent);
-    flex-shrink: 0;
 }
 
 .pipeline-folder-info {

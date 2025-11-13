@@ -3101,12 +3101,19 @@ function formatPathLabel(path) {
             return;
         }
 
+        const renderStepLogo = global.NopsAI && global.NopsAI.ui && global.NopsAI.ui.renderStepLogo;
+        const buildBadge = (svgMarkup, variant = 'list', logoClass = '') => {
+            if (typeof renderStepLogo === 'function') {
+                return renderStepLogo(variant, logoClass, svgMarkup);
+            }
+            return svgMarkup;
+        };
         const items = Array.from(includes).sort();
         const html = `<ul class="triggers-pipeline-list">${items.map(item => {
             const isPipeline = item.startsWith('pipeline:');
             const isStep = item.startsWith('step:');
             let identifier = item;
-            let icon = '<svg class="h-4 w-4 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l4-4 4 4m0 6l-4 4-4-4" /></svg>';
+            let icon = buildBadge('<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l4-4 4 4m0 6l-4 4-4-4" /></svg>', 'list', 'step-logo--system');
             let href = '#';
             let title = `Dependency: ${escapeHtml(item)}`;
             
@@ -3114,12 +3121,12 @@ function formatPathLabel(path) {
                 identifier = item.substring('pipeline:'.length);
                 href = `#/pipelines/${identifier.split('/').map(encodeURIComponent).join('/')}`;
                 title = `Open pipeline ${escapeHtml(identifier)}`;
-                icon = '<svg class="h-4 w-4 text-[var(--text-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h4l2 2h6a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm3 4h10m-10 4h6"/></svg>';
+                icon = buildBadge('<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h10"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 17h10"/><circle cx="7" cy="7" r="1.5" fill="currentColor" stroke="none"/><circle cx="17" cy="7" r="1.5" fill="currentColor" stroke="none"/><circle cx="7" cy="17" r="1.5" fill="currentColor" stroke="none"/><circle cx="17" cy="17" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/></svg>', 'list', 'step-logo--pipelines');
             } else if (isStep) {
                 identifier = item.substring('step:'.length);
                 href = `#/steps/${identifier.split('/').map(encodeURIComponent).join('/')}`;
                 title = `Open step ${escapeHtml(identifier)}`;
-                icon = '<svg class="h-4 w-4 text-[var(--text-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7h2v10H9zm4-12h2v12h-2V5zm4 4h2v8h-2V9zM3 3h18v2H3V3z"/></svg>';
+                icon = buildBadge('<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 10l6-3 6 3-6 3-6-3z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 14l6 3 6-3"/></svg>', 'list', 'step-logo--steps');
             }
 
             return `
