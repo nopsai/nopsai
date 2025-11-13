@@ -311,13 +311,14 @@ func (a *GitBotApp) renderMermaidGraph(state *CheckRunState) string {
 	builder.WriteString("\n    %% --- Node Definitions ---\n")
 	nodeCounter := 0
 	for _, step := range pipeline.Steps {
-		tasksInStep := state.Steps[step.Name]
+		stepName := step.GetName()
+		tasksInStep := state.Steps[stepName]
 
 		// Create invisible start and end nodes for each step to act as hubs
-		stepStartNodes[step.Name] = fmt.Sprintf("S%d_start", nodeCounter)
-		stepEndNodes[step.Name] = fmt.Sprintf("S%d_end", nodeCounter)
-		builder.WriteString(fmt.Sprintf("    %s(( )); style %s fill:none,stroke:none,width:0,height:0\n", stepStartNodes[step.Name], stepStartNodes[step.Name]))
-		builder.WriteString(fmt.Sprintf("    %s(( )); style %s fill:none,stroke:none,width:0,height:0\n", stepEndNodes[step.Name], stepEndNodes[step.Name]))
+		stepStartNodes[stepName] = fmt.Sprintf("S%d_start", nodeCounter)
+		stepEndNodes[stepName] = fmt.Sprintf("S%d_end", nodeCounter)
+		builder.WriteString(fmt.Sprintf("    %s(( )); style %s fill:none,stroke:none,width:0,height:0\n", stepStartNodes[stepName], stepStartNodes[stepName]))
+		builder.WriteString(fmt.Sprintf("    %s(( )); style %s fill:none,stroke:none,width:0,height:0\n", stepEndNodes[stepName], stepEndNodes[stepName]))
 
 		for taskName, task := range tasksInStep {
 			nodeID := fmt.Sprintf("T%d", nodeCounter)
@@ -351,7 +352,8 @@ func (a *GitBotApp) renderMermaidGraph(state *CheckRunState) string {
 	// 2. Define all dependency links
 	builder.WriteString("\n    %% --- Link Definitions ---\n")
 	for _, step := range pipeline.Steps {
-		tasksInStep := state.Steps[step.Name]
+		stepName := step.GetName()
+		tasksInStep := state.Steps[stepName]
 		internalDependencies := make(map[string]bool)
 
 		// 2a. Link internal tasks (tasks that depend on other tasks in the same step)
@@ -369,7 +371,7 @@ func (a *GitBotApp) renderMermaidGraph(state *CheckRunState) string {
 		// 2b. Link the step's invisible start node to all of its initial tasks
 		for taskName := range tasksInStep {
 			if !internalDependencies[taskName] {
-				builder.WriteString(fmt.Sprintf("    %s --> %s\n", stepStartNodes[step.Name], taskToNodeID[taskName]))
+				builder.WriteString(fmt.Sprintf("    %s --> %s\n", stepStartNodes[stepName], taskToNodeID[taskName]))
 			}
 		}
 
@@ -382,14 +384,14 @@ func (a *GitBotApp) renderMermaidGraph(state *CheckRunState) string {
 		}
 		for taskName := range tasksInStep {
 			if !allTaskDeps[taskName] {
-				builder.WriteString(fmt.Sprintf("    %s --> %s\n", taskToNodeID[taskName], stepEndNodes[step.Name]))
+				builder.WriteString(fmt.Sprintf("    %s --> %s\n", taskToNodeID[taskName], stepEndNodes[stepName]))
 			}
 		}
 
 		// 2d. Link the invisible end node of dependency steps to the invisible start node of this step
-		if len(step.DependsOn) > 0 {
-			for _, depStepName := range step.DependsOn {
-				builder.WriteString(fmt.Sprintf("    %s --> %s\n", stepEndNodes[depStepName], stepStartNodes[step.Name]))
+		if len(step.GetDependsOn()) > 0 {
+			for _, depStepName := range step.GetDependsOn() {
+				builder.WriteString(fmt.Sprintf("    %s --> %s\n", stepEndNodes[depStepName], stepStartNodes[stepName]))
 			}
 		}
 	}
@@ -560,10 +562,10 @@ func (a *GitBotApp) initializeCheckRunState(checkRunID int64, owner, repo, pipel
 
 	totalTasks := 0
 	for _, step := range pipeline.Steps {
-		if step.Include != "" {
+		if step.GetInclude() != "" {
 			totalTasks++
-		} else if len(step.Tasks) > 0 {
-			totalTasks += len(step.Tasks)
+		} else if tasks := step.GetTasks(); len(tasks) > 0 {
+			totalTasks += len(tasks)
 		} else {
 			totalTasks++
 		}
@@ -571,17 +573,18 @@ func (a *GitBotApp) initializeCheckRunState(checkRunID int64, owner, repo, pipel
 
 	taskIndex := 1
 	for _, step := range pipeline.Steps {
-		initialState.StepOrder = append(initialState.StepOrder, step.Name)
-		initialState.Steps[step.Name] = make(map[string]TaskStatusUpdate)
+		stepName := step.GetName()
+		initialState.StepOrder = append(initialState.StepOrder, stepName)
+		initialState.Steps[stepName] = make(map[string]TaskStatusUpdate)
 
-		if step.Include != "" {
-			initialState.Steps[step.Name][step.Name] = TaskStatusUpdate{
-				StepName:   step.Name,
-				TaskName:   step.Name,
+		if step.GetInclude() != "" {
+			initialState.Steps[stepName][stepName] = TaskStatusUpdate{
+				StepName:   stepName,
+				TaskName:   stepName,
 				TaskStatus: "pending",
 				TaskIndex:  taskIndex,
 				TotalTasks: totalTasks,
-				DependsOn:  step.DependsOn,
+				DependsOn:  step.GetDependsOn(),
 				RepoOwner:  owner,
 				RepoName:   repo,
 			}
@@ -589,10 +592,10 @@ func (a *GitBotApp) initializeCheckRunState(checkRunID int64, owner, repo, pipel
 			continue
 		}
 
-		if len(step.Tasks) > 0 {
-			for _, task := range step.Tasks {
-				initialState.Steps[step.Name][task.Name] = TaskStatusUpdate{
-					StepName:   step.Name,
+		if tasks := step.GetTasks(); len(tasks) > 0 {
+			for _, task := range tasks {
+				initialState.Steps[stepName][task.Name] = TaskStatusUpdate{
+					StepName:   stepName,
 					TaskName:   task.Name,
 					TaskStatus: "pending",
 					TaskIndex:  taskIndex,
@@ -604,13 +607,13 @@ func (a *GitBotApp) initializeCheckRunState(checkRunID int64, owner, repo, pipel
 				taskIndex++
 			}
 		} else {
-			initialState.Steps[step.Name][step.Name] = TaskStatusUpdate{
-				StepName:   step.Name,
-				TaskName:   step.Name,
+			initialState.Steps[stepName][stepName] = TaskStatusUpdate{
+				StepName:   stepName,
+				TaskName:   stepName,
 				TaskStatus: "pending",
 				TaskIndex:  taskIndex,
 				TotalTasks: totalTasks,
-				DependsOn:  step.DependsOn,
+				DependsOn:  step.GetDependsOn(),
 				RepoOwner:  owner,
 				RepoName:   repo,
 			}

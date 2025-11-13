@@ -550,7 +550,7 @@ func validatePipeline(pipeline *models.Pipeline) error {
 	} else if !regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`).MatchString(pipeline.Version) {
 		return fmt.Errorf("pipeline version can only contain alphanumeric characters, underscores, dots, and hyphens")
 	}
-	if pipeline.ContainerImage == "" && len(pipeline.Steps) > 0 && pipeline.Steps[0].Image == "" {
+	if pipeline.ContainerImage == "" && len(pipeline.Steps) > 0 && pipeline.Steps[0].GetImage() == "" {
 		return fmt.Errorf("'container_image' is a required field if steps don't have their own image")
 	}
 	if len(pipeline.Steps) == 0 {
@@ -562,65 +562,69 @@ func validatePipeline(pipeline *models.Pipeline) error {
 
 	// First pass: Collect all step and task names
 	for _, step := range pipeline.Steps {
-		if step.Name == "" {
+		stepName := step.GetName()
+		if stepName == "" {
 			return fmt.Errorf("a step is missing its required 'name' field")
 		}
-		if allStepNames[step.Name] {
-			return fmt.Errorf("duplicate step name '%s' found. Step names must be unique", step.Name)
+		if allStepNames[stepName] {
+			return fmt.Errorf("duplicate step name '%s' found. Step names must be unique", stepName)
 		}
-		allStepNames[step.Name] = true
-		stepToTaskNames[step.Name] = make(map[string]bool)
+		allStepNames[stepName] = true
+		stepToTaskNames[stepName] = make(map[string]bool)
 
-		isIncludeStep := step.Include != ""
-		isTaskStep := len(step.Tasks) > 0
-		isLegacyStep := step.Goal != "" || step.Script != ""
+		isIncludeStep := step.GetInclude() != ""
+		tasks := step.GetTasks()
+		isTaskStep := len(tasks) > 0
+		isLegacyStep := strings.TrimSpace(step.GetGoal()) != "" || strings.TrimSpace(step.GetScript()) != ""
 
 		if isIncludeStep {
 			if isTaskStep || isLegacyStep {
-				return fmt.Errorf("step '%s' is an 'include' step and cannot also contain 'tasks', 'goal', or 'script'", step.Name)
+				return fmt.Errorf("step '%s' is an 'include' step and cannot also contain 'tasks', 'goal', or 'script'", stepName)
 			}
 		} else if isTaskStep {
 			if isLegacyStep {
-				return fmt.Errorf("step '%s' has tasks and should not also contain 'goal' or 'script'", step.Name)
+				return fmt.Errorf("step '%s' has tasks and should not also contain 'goal' or 'script'", stepName)
 			}
-			for _, task := range step.Tasks {
+			for _, task := range tasks {
 				if task.Name == "" {
-					return fmt.Errorf("a task in step '%s' is missing its required 'name' field", step.Name)
+					return fmt.Errorf("a task in step '%s' is missing its required 'name' field", stepName)
 				}
-				if stepToTaskNames[step.Name][task.Name] {
-					return fmt.Errorf("duplicate task name '%s' found within step '%s'. Task names must be unique within a step", task.Name, step.Name)
+				if stepToTaskNames[stepName][task.Name] {
+					return fmt.Errorf("duplicate task name '%s' found within step '%s'. Task names must be unique within a step", task.Name, stepName)
 				}
-				stepToTaskNames[step.Name][task.Name] = true
+				stepToTaskNames[stepName][task.Name] = true
 
 				hasGoal := strings.TrimSpace(task.Goal) != ""
 				hasScript := strings.TrimSpace(task.Script) != ""
 				if hasGoal && hasScript {
-					return fmt.Errorf("task '%s' in step '%s' cannot define both 'goal' and 'script'", task.Name, step.Name)
+					return fmt.Errorf("task '%s' in step '%s' cannot define both 'goal' and 'script'", task.Name, stepName)
 				}
 				if !hasGoal && !hasScript {
-					return fmt.Errorf("task '%s' in step '%s' must define either 'goal' or 'script'", task.Name, step.Name)
+					return fmt.Errorf("task '%s' in step '%s' must define either 'goal' or 'script'", task.Name, stepName)
 				}
 			}
 		} else if !isLegacyStep {
-			return fmt.Errorf("step '%s' must contain 'include', 'tasks', 'goal', or 'script'", step.Name)
+			return fmt.Errorf("step '%s' must contain 'include', 'tasks', 'goal', or 'script'", stepName)
 		}
 	}
 
 	// Second pass: Validate dependencies based on the corrected rules
 	for _, step := range pipeline.Steps {
+		stepName := step.GetName()
 		// Rule: A step can only depend on other steps.
-		for _, depName := range step.DependsOn {
+		for _, depName := range step.GetDependsOn() {
 			if !allStepNames[depName] {
-				return fmt.Errorf("step '%s' has an undefined dependency: '%s'", step.Name, depName)
+				return fmt.Errorf("step '%s' has an undefined dependency: '%s'", stepName, depName)
 			}
 		}
 
 		// Rule: If a step has tasks, those tasks can only depend on other tasks within the SAME step.
-		if len(step.Tasks) > 0 {
-			for _, task := range step.Tasks {
+		tasks := step.GetTasks()
+		if len(tasks) > 0 {
+			for _, task := range tasks {
 				for _, depName := range task.DependsOn {
-					if !stepToTaskNames[step.Name][depName] {
-						return fmt.Errorf("task '%s' in step '%s' has an invalid dependency: '%s'. Tasks can only depend on other tasks within the same step", task.Name, step.Name, depName)
+					if !stepToTaskNames[stepName][depName] {
+						return fmt.Errorf("task '%s' in step '%s' has an invalid dependency: '%s'. Tasks can only depend on other tasks within the same step", task.Name, stepName, depName)
 					}
 				}
 			}
@@ -1328,7 +1332,7 @@ func (a *App) handleDeleteRepoSecret(w http.ResponseWriter, r *http.Request) {
 func (a *App) prepareSecretsForPipeline(pipeline models.Pipeline, gitContext map[string]string, environment string) (map[string]string, error) {
 	requiredSecrets := make(map[string]struct{})
 	for _, step := range pipeline.Steps {
-		for _, secretName := range step.Secrets {
+		for _, secretName := range step.GetSecrets() {
 			requiredSecrets[secretName] = struct{}{}
 		}
 	}
@@ -1509,7 +1513,8 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 		if err := yaml.Unmarshal([]byte(content), &step); err != nil {
 			return nil, fmt.Errorf("failed to parse reusable step '%s': %w", normalized, err)
 		}
-		if step.Name == "" {
+		stepName := step.GetName()
+		if stepName == "" {
 			return nil, fmt.Errorf("reusable step '%s' is missing the required 'name' field", normalized)
 		}
 
@@ -1517,11 +1522,11 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 		if err != nil {
 			return nil, fmt.Errorf("invalid reusable step path '%s': %w", normalized, err)
 		}
-		if step.Name != fileBase {
-			return nil, fmt.Errorf("reusable step '%s' name '%s' must match file name '%s'", normalized, step.Name, fileBase)
+		if stepName != fileBase {
+			return nil, fmt.Errorf("reusable step '%s' name '%s' must match file name '%s'", normalized, stepName, fileBase)
 		}
 
-		key := buildStepIdentifier(stepPath, step.Name)
+		key := buildStepIdentifier(stepPath, stepName)
 		if _, exists := steps[key]; exists {
 			return nil, fmt.Errorf("duplicate reusable step '%s' detected in config repository", key)
 		}
@@ -1529,7 +1534,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 		steps[key] = storedStep{
 			definition: content,
 			path:       stepPath,
-			name:       step.Name,
+			name:       stepName,
 		}
 	}
 
@@ -2757,7 +2762,8 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 
 	steps := make([]StepDetail, 0) // Initialize as an empty slice
 	for _, pStep := range resolvedPipeline.Steps {
-		stepTasks := tasksByStep[pStep.Name]
+		stepName := pStep.GetName()
+		stepTasks := tasksByStep[stepName]
 
 		status := "pending"
 		var stepDuration time.Duration
@@ -2796,24 +2802,24 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		originalPStep, _ := findStepByName(originalPipeline.Steps, pStep.Name)
+		originalPStep, _ := findStepByName(originalPipeline.Steps, stepName)
 
 		config := StepConfiguration{
-			Image:            pStep.Image,
-			Include:          originalPStep.Include,
-			Sync:             pStep.Sync,
-			Secrets:          pStep.Secrets,
-			Volumes:          pStep.Volumes,
-			Environment:      pStep.Environment,
-			IgnoreFailure:    pStep.IgnoreFailure,
-			LlmOutputSharing: pStep.LlmOutputSharing,
-			Tasks:            pStep.Tasks,
+			Image:            pStep.GetImage(),
+			Include:          originalPStep.GetInclude(),
+			Sync:             pStep.GetSync(),
+			Secrets:          pStep.GetSecrets(),
+			Volumes:          pStep.GetVolumes(),
+			Environment:      pStep.GetEnvironment(),
+			IgnoreFailure:    pStep.GetIgnoreFailure(),
+			LlmOutputSharing: pStep.GetLlmOutputSharing(),
+			Tasks:            pStep.GetTasks(),
 		}
 
 		steps = append(steps, StepDetail{
-			Name:          pStep.Name,
+			Name:          stepName,
 			Status:        status,
-			DependsOn:     pStep.DependsOn,
+			DependsOn:     pStep.GetDependsOn(),
 			Tasks:         stepTasks,
 			Duration:      stepDuration.Round(time.Second).String(),
 			Configuration: config,
@@ -3001,34 +3007,35 @@ func (a *App) launchAndRunPipeline(
 	defer tx.Rollback(context.Background())
 
 	for _, step := range pipeline.Steps {
-		if step.Include != "" {
+		stepName := step.GetName()
+		if step.GetInclude() != "" {
 			_, err := tx.Exec(context.Background(),
 				"INSERT INTO task_runs (task_id, run_id, step_name, task_name, status, task_index) VALUES (gen_random_uuid(), $1, $2, $3, 'pending', $4)",
-				runID, step.Name, step.Name, 1,
+				runID, stepName, stepName, 1,
 			)
 			if err != nil {
-				log.Error().Err(err).Msgf("Failed to insert 'include' step %s as a task", step.Name)
+				log.Error().Err(err).Msgf("Failed to insert 'include' step %s as a task", stepName)
 				// Don't need to call updateRunRecordWithFailure here as the transaction will be rolled back
 				return
 			}
-		} else if len(step.Tasks) > 0 {
-			for i, task := range step.Tasks {
+		} else if tasks := step.GetTasks(); len(tasks) > 0 {
+			for i, task := range tasks {
 				_, err := tx.Exec(context.Background(),
 					"INSERT INTO task_runs (task_id, run_id, step_name, task_name, status, task_index) VALUES (gen_random_uuid(), $1, $2, $3, 'pending', $4)",
-					runID, step.Name, task.Name, i+1,
+					runID, stepName, task.Name, i+1,
 				)
 				if err != nil {
-					log.Error().Err(err).Msgf("Failed to insert task %s for step %s", task.Name, step.Name)
+					log.Error().Err(err).Msgf("Failed to insert task %s for step %s", task.Name, stepName)
 					return
 				}
 			}
 		} else { // Legacy step
 			_, err := tx.Exec(context.Background(),
 				"INSERT INTO task_runs (task_id, run_id, step_name, task_name, status, task_index) VALUES (gen_random_uuid(), $1, $2, $3, 'pending', $4)",
-				runID, step.Name, step.Name, 1,
+				runID, stepName, stepName, 1,
 			)
 			if err != nil {
-				log.Error().Err(err).Msgf("Failed to insert step %s as a task", step.Name)
+				log.Error().Err(err).Msgf("Failed to insert step %s as a task", stepName)
 				return
 			}
 		}
@@ -3045,7 +3052,7 @@ func (a *App) launchAndRunPipeline(
 
 func findStepByName(steps []models.PipelineStep, name string) (models.PipelineStep, bool) {
 	for _, step := range steps {
-		if step.Name == name {
+		if step.GetName() == name {
 			return step, true
 		}
 	}
@@ -4229,13 +4236,14 @@ func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 func (a *App) resolveStepIncludes(pipeline *models.Pipeline) (*models.Pipeline, error) {
 	var finalSteps []models.PipelineStep
 	for _, step := range pipeline.Steps {
-		if !strings.HasPrefix(step.Include, "step:") {
+		includeValue := step.GetInclude()
+		if !strings.HasPrefix(includeValue, "step:") {
 			finalSteps = append(finalSteps, step)
 			continue
 		}
 
 		// Handle step include
-		includeIdentifier := strings.TrimPrefix(step.Include, "step:")
+		includeIdentifier := strings.TrimPrefix(includeValue, "step:")
 		stepPath, includeName, _, err := splitStepIdentifier(includeIdentifier)
 		if err != nil {
 			return nil, fmt.Errorf("invalid reusable step identifier '%s': %w", includeIdentifier, err)
@@ -4253,24 +4261,24 @@ func (a *App) resolveStepIncludes(pipeline *models.Pipeline) (*models.Pipeline, 
 		}
 
 		// 1. Overwrite the name (for UI consistency)
-		includedStep.Name = step.Name
+		includedStep.SetName(step.GetName())
 
 		// 2. Transfer metadata from the placeholder
-		includedStep.DependsOn = step.DependsOn
-		includedStep.IgnoreFailure = step.IgnoreFailure
-		if step.LlmOutputSharing != nil {
-			includedStep.LlmOutputSharing = step.LlmOutputSharing
+		includedStep.SetDependsOn(step.GetDependsOn())
+		includedStep.SetIgnoreFailure(step.GetIgnoreFailure())
+		if llm := step.GetLlmOutputSharing(); llm != nil {
+			includedStep.SetLlmOutputSharing(llm)
 		}
 
 		// 3. Overwrite specific fields if they are defined in the pipeline
-		if len(step.Volumes) > 0 {
-			includedStep.Volumes = step.Volumes
+		if vols := step.GetVolumes(); len(vols) > 0 {
+			includedStep.SetVolumes(vols)
 		}
-		if len(step.Secrets) > 0 {
-			includedStep.Secrets = step.Secrets
+		if secrets := step.GetSecrets(); len(secrets) > 0 {
+			includedStep.SetSecrets(secrets)
 		}
-		if len(step.Environment) > 0 {
-			includedStep.Environment = step.Environment
+		if env := step.GetEnvironment(); len(env) > 0 {
+			includedStep.SetEnvironment(env)
 		}
 
 		finalSteps = append(finalSteps, includedStep)
@@ -4463,9 +4471,16 @@ func pipelineIncludesStep(pipeline *models.Pipeline, targetIdentifier, targetNam
 	targetKey := strings.TrimSpace(targetIdentifier)
 	targetName = strings.TrimSpace(targetName)
 	for _, step := range pipeline.Steps {
-		includeValue := strings.TrimSpace(step.Include)
+		includeValue := strings.TrimSpace(step.GetInclude())
 		if includeValue == "" {
 			continue
+		}
+		lower := strings.ToLower(includeValue)
+		if strings.HasPrefix(lower, "pipeline:") {
+			continue
+		}
+		if strings.HasPrefix(lower, "step:") {
+			includeValue = strings.TrimSpace(includeValue[len("step:"):])
 		}
 		if strings.EqualFold(includeValue, targetKey) {
 			return true
@@ -4506,12 +4521,13 @@ func (a *App) handleCreateOrUpdateReusableStep(w http.ResponseWriter, r *http.Re
 	}
 
 	// Basic validation for a reusable step
-	if step.Name == "" {
+	stepName := step.GetName()
+	if stepName == "" {
 		http.Error(w, "Validation failed: a reusable step must have a 'name' field in its definition.", http.StatusBadRequest)
 		return
 	}
 
-	storedName := step.Name
+	storedName := stepName
 	if expectedName != "" && expectedName != storedName {
 		errorMsg := fmt.Sprintf("Validation failed: the step name in the URL ('%s') must match the 'name' field in the YAML ('%s').", expectedName, storedName)
 		http.Error(w, errorMsg, http.StatusBadRequest)
@@ -4894,8 +4910,8 @@ func (a *App) notifyGitBotOfTaskStatus(runID, stepName, taskName, taskStatus str
 	if pipelineDef.Valid {
 		if err := yaml.Unmarshal([]byte(pipelineDef.String), &pipeline); err == nil {
 			for _, step := range pipeline.Steps {
-				if step.Name == stepName {
-					for _, task := range step.Tasks {
+				if step.GetName() == stepName {
+					for _, task := range step.GetTasks() {
 						if task.Name == taskName {
 							dependsOn = task.DependsOn
 							break
