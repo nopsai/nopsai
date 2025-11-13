@@ -1105,38 +1105,184 @@ func (a *App) prepareEnvironmentForPipeline(pipeline models.Pipeline, gitContext
 
 func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
 	env := r.URL.Query().Get("env")
-	var rows pgx.Rows
-	var err error
+	includeSource := strings.EqualFold(r.URL.Query().Get("include_source"), "true")
+	ctx := context.Background()
 
-	if env != "" {
-		query := "SELECT name FROM secrets WHERE repository_name IS NULL AND environment = $1 ORDER BY name ASC"
-		rows, err = a.db.Query(context.Background(), query, env)
-	} else {
-		query := "SELECT name FROM secrets WHERE repository_name IS NULL AND environment IS NULL ORDER BY name ASC"
-		rows, err = a.db.Query(context.Background(), query)
+	type secretListItem struct {
+		Name      string `json:"name"`
+		Source    string `json:"source"`
+		CreatedAt string `json:"created_at,omitempty"`
+		UpdatedAt string `json:"updated_at,omitempty"`
 	}
 
+	const defaultSecretSource = "database"
+	nameSet := make(map[string]struct{})
+	var names []string
+	var items []secretListItem
+
+	addEntry := func(name string, createdAt, updatedAt time.Time) {
+		trimmed := strings.TrimSpace(name)
+		if trimmed == "" {
+			return
+		}
+		if _, exists := nameSet[trimmed]; exists {
+			return
+		}
+		nameSet[trimmed] = struct{}{}
+		if includeSource {
+			items = append(items, secretListItem{
+				Name:      trimmed,
+				Source:    defaultSecretSource,
+				CreatedAt: createdAt.Format(time.RFC3339),
+				UpdatedAt: updatedAt.Format(time.RFC3339),
+			})
+		} else {
+			names = append(names, trimmed)
+		}
+	}
+
+	condition := "environment IS NULL"
+	args := []interface{}{}
+	if env != "" {
+		condition = "environment = $1"
+		args = append(args, env)
+	}
+
+	generalQuery := fmt.Sprintf("SELECT name, created_at, updated_at FROM secrets WHERE repository_name IS NULL AND %s ORDER BY name ASC", condition)
+	rows, err := a.db.Query(ctx, generalQuery, args...)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query general secrets from database")
 		http.Error(w, "Failed to retrieve secrets", http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
-
-	var secretNames []string
 	for rows.Next() {
 		var name string
-		if err := rows.Scan(&name); err != nil {
-			log.Error().Err(err).Msg("Failed to scan secret name")
+		var createdAt, updatedAt time.Time
+		if scanErr := rows.Scan(&name, &createdAt, &updatedAt); scanErr != nil {
+			rows.Close()
+			log.Error().Err(scanErr).Msg("Failed to scan secret name")
 			http.Error(w, "Failed to process secrets", http.StatusInternalServerError)
 			return
 		}
-		secretNames = append(secretNames, name)
+		addEntry(name, createdAt, updatedAt)
+	}
+	rows.Close()
+
+	repoCondition := "environment IS NULL"
+	repoArgs := []interface{}{}
+	if env != "" {
+		repoCondition = "environment = $1"
+		repoArgs = append(repoArgs, env)
+	}
+	repoQuery := fmt.Sprintf("SELECT repository_name, name, created_at, updated_at FROM secrets WHERE repository_name IS NOT NULL AND %s ORDER BY repository_name ASC, name ASC", repoCondition)
+	rows, err = a.db.Query(ctx, repoQuery, repoArgs...)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to query repository secrets from database")
+		http.Error(w, "Failed to retrieve secrets", http.StatusInternalServerError)
+		return
+	}
+	for rows.Next() {
+		var repoName, secretName string
+		var createdAt, updatedAt time.Time
+		if scanErr := rows.Scan(&repoName, &secretName, &createdAt, &updatedAt); scanErr != nil {
+			rows.Close()
+			log.Error().Err(scanErr).Msg("Failed to scan repository secret")
+			http.Error(w, "Failed to process secrets", http.StatusInternalServerError)
+			return
+		}
+		repo := strings.TrimSpace(repoName)
+		name := strings.TrimSpace(secretName)
+		if repo == "" || name == "" {
+			continue
+		}
+		addEntry(repo+"/"+name, createdAt, updatedAt)
+	}
+	rows.Close()
+
+	if includeSource {
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(items); err != nil {
+			log.Warn().Err(err).Msg("Failed to encode secret response")
+		}
+		return
 	}
 
+	sort.Slice(names, func(i, j int) bool {
+		return strings.ToLower(names[i]) < strings.ToLower(names[j])
+	})
+
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(secretNames)
+	if err := json.NewEncoder(w).Encode(names); err != nil {
+		log.Warn().Err(err).Msg("Failed to encode secret response")
+	}
+}
+
+type SecretScopeSummary struct {
+	Environment string `json:"environment"`
+	SecretCount int    `json:"secret_count"`
+}
+
+func (a *App) handleListSecretScopes(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.db.Query(context.Background(), `
+		SELECT COALESCE(environment, '') AS env_value, COUNT(*) AS secret_count
+		FROM secrets
+		GROUP BY env_value
+		ORDER BY env_value NULLS FIRST`)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to query secret scopes from database")
+		http.Error(w, "Failed to retrieve secret scopes", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	scopeCounts := make(map[string]int)
+	scopeCounts[""] = 0
+
+	for rows.Next() {
+		var env sql.NullString
+		var count int
+		if scanErr := rows.Scan(&env, &count); scanErr != nil {
+			log.Error().Err(scanErr).Msg("Failed to scan secret scope row")
+			http.Error(w, "Failed to process secret scopes", http.StatusInternalServerError)
+			return
+		}
+		envValue := ""
+		if env.Valid {
+			envValue = strings.TrimSpace(env.String)
+		}
+		scopeCounts[envValue] += count
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Error().Err(err).Msg("Failed during secret scope iteration")
+		http.Error(w, "Failed to process secret scopes", http.StatusInternalServerError)
+		return
+	}
+
+	scopes := make([]SecretScopeSummary, 0, len(scopeCounts))
+	for envValue, count := range scopeCounts {
+		scopes = append(scopes, SecretScopeSummary{Environment: envValue, SecretCount: count})
+	}
+
+	sort.Slice(scopes, func(i, j int) bool {
+		aEnv := scopes[i].Environment
+		bEnv := scopes[j].Environment
+		if aEnv == "" && bEnv == "" {
+			return false
+		}
+		if aEnv == "" {
+			return true
+		}
+		if bEnv == "" {
+			return false
+		}
+		return strings.ToLower(aEnv) < strings.ToLower(bEnv)
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(scopes); err != nil {
+		log.Warn().Err(err).Msg("Failed to encode secret scopes response")
+	}
 }
 
 func (a *App) handleGetGeneralSecretValue(w http.ResponseWriter, r *http.Request) {
@@ -5748,6 +5894,7 @@ func main() {
 	mux.HandleFunc("PUT /v1/overrides/{repoOwner}/{repoName}", app.handleCreateOrUpdateTriggerOverride)
 	mux.HandleFunc("DELETE /v1/overrides/{repoOwner}/{repoName}", app.handleDeleteTriggerOverride)
 	mux.HandleFunc("GET /v1/secrets", app.handleListGeneralSecrets)
+	mux.HandleFunc("GET /v1/secrets/scopes", app.handleListSecretScopes)
 	mux.HandleFunc("GET /v1/secrets/{secretName}", app.handleGetGeneralSecretValue)
 	mux.HandleFunc("PUT /v1/secrets/{secretName}", app.handleCreateOrUpdateGeneralSecret)
 	mux.HandleFunc("DELETE /v1/secrets/{secretName}", app.handleDeleteGeneralSecret)

@@ -529,7 +529,103 @@
                     </div>
                 </div>
 
-                <div data-page="secrets" class="h-full"><div class="p-6"><h1 class="text-2xl font-bold mb-4">Manage Secrets</h1><p class="text-[var(--text-secondary)]">UI for managing secrets is coming soon.</p></div></div>
+                <div data-page="secrets" class="h-full flex flex-col hidden">
+                    <div class="px-6 pt-6 flex-shrink-0">
+                        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <div id="secret-search-container" class="relative flex-1 min-w-[220px] max-w-xl">
+                                <input id="secret-search" type="search" placeholder="Search secrets" class="pipelines-input w-full pl-11 pr-10 py-2 text-sm transition" />
+                                <svg class="w-4 h-4 text-[var(--text-secondary)] absolute left-4 top-1/2 -translate-y-1/2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M10 18a8 8 0 110-16 8 8 0 010 16z"/></svg>
+                                <button id="secret-clear-search" type="button" class="hidden absolute inset-y-0 right-3 flex items-center text-[var(--text-secondary)] hover:text-[var(--text-primary)]" aria-label="Clear search">
+                                    <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                </button>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <button id="secret-create-btn" type="button" class="glass-button-subtle" aria-label="Create new secret">
+                                    <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14M5 12h14" />
+                                    </svg>
+                                    <span>New Secret</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex-1 overflow-auto px-6 pb-8">
+                        <div id="secret-list-view" class="pipelines-view">
+                            <div class="glass-card overflow-hidden">
+                                <div id="secret-list-empty" class="p-6 text-center text-[var(--text-secondary)] hidden">
+                                    <p class="text-sm">No secret folders yet. Create a secret to add one.</p>
+                                </div>
+                                <div id="secret-list" class="p-4 space-y-6"></div>
+                            </div>
+                        </div>
+                        <div id="secret-detail-view" class="pipelines-view hidden">
+                            <div id="secret-detail" class="hidden">
+                                <div class="env-detail-shell">
+                                    <div class="env-detail-header">
+                                        <div>
+                                            <p class="text-xs font-semibold tracking-wide text-[var(--text-secondary)] uppercase">Secret scope</p>
+                                            <h2 id="secret-detail-title" class="text-2xl font-semibold text-[var(--text-primary)]">/</h2>
+                                        </div>
+                                        <button id="secret-back-btn" class="glass-button-ghost hidden" style="position: absolute; right: 0;">
+                                            <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                                            <span>Back</span>
+                                        </button>
+                                    </div>
+                                    <div class="env-detail-body">
+                                        <aside class="env-sidebar">
+                                            <section class="env-card env-variable-panel">
+                                                <header style="padding-bottom: 5px;">
+                                                    <button id="secret-create-inline" type="button" class="env-variable-header-btn" aria-label="Create secret">
+                                                        <span class="env-variable-header-label">Secrets</span>
+                                                        <span class="env-variable-header-plus" aria-hidden="true">
+                                                            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                <path d="M12 5v14M5 12h14" />
+                                                            </svg>
+                                                        </span>
+                                                    </button>
+                                                </header>
+                                                <div id="secret-variable-empty" class="env-card-empty">No secrets stored for this scope yet.</div>
+                                                <div id="secret-variable-list" class="env-variable-list"></div>
+                                            </section>
+                                        </aside>
+                                        <section class="env-main-card">
+                                            <div class="env-variable-detail-header">
+                                                <div class="env-variable-detail-titles">
+                                                    <p id="secret-variable-detail-label" class="env-variable-detail-name">Select a secret to inspect details.</p>
+                                                    <p id="secret-variable-subtitle" class="text-sm text-[var(--text-secondary)]">Select a secret to inspect details.</p>
+                                                    <div class="env-variable-detail-meta">
+                                                        <div id="secret-variable-detail-source" class="env-variable-detail-meta-item hidden">
+                                                            <span class="env-variable-detail-meta-label">Source</span>
+                                                            <span class="env-variable-detail-meta-value env-variable-source-pill"></span>
+                                                        </div>
+                                                        <div id="secret-variable-detail-updated" class="env-variable-detail-meta-item hidden">
+                                                            <span class="env-variable-detail-meta-label">Updated</span>
+                                                            <span class="env-variable-detail-meta-value"></span>
+                                                        </div>
+                                                        <div id="secret-variable-detail-created" class="env-variable-detail-meta-item hidden">
+                                                            <span class="env-variable-detail-meta-label">Created</span>
+                                                            <span class="env-variable-detail-meta-value"></span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="env-main-content">
+                                                <section>
+                                                    <h4>Referenced Pipelines</h4>
+                                                    <div id="secret-variable-pipelines" class="env-related-list" data-empty="No pipelines declare this secret."></div>
+                                                </section>
+                                                <section>
+                                                    <h4>Related Triggers</h4>
+                                                    <div id="secret-variable-triggers" class="env-related-list" data-empty="No triggers reference this scope."></div>
+                                                </section>
+                                            </div>
+                                        </section>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 <div data-page="environment" class="h-full flex flex-col hidden">
                     <div class="px-6 pt-6 flex-shrink-0">
                         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -1065,6 +1161,83 @@
             </form>
         </div>
     </div>
+    <div id="secret-edit-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
+        <div class="pipelines-modal-card max-w-4xl w-full">
+            <header class="pipelines-modal-header">
+                <div>
+                    <h2 class="text-lg font-semibold text-[var(--text-primary)]">Create Secret</h2>
+                    <p id="secret-edit-scope" class="text-sm text-[var(--text-secondary)]">Scope: /</p>
+                </div>
+                <button type="button" class="glass-button-ghost" data-cancel>
+                    <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </header>
+            <div class="pipelines-modal-body env-edit-modal-body">
+                <form id="secret-edit-form" class="env-edit-form space-y-4">
+                    <div>
+                        <label for="secret-edit-name" class="block text-sm font-medium text-[var(--text-secondary)]">Secret Name</label>
+                        <input type="text" id="secret-edit-name" name="name" required placeholder="owner/repo/API_KEY or API_KEY" class="pipelines-input w-full mt-1" pattern="[A-Za-z0-9_.\-/]+" title="Letters, numbers, dots, underscores, hyphens, and slashes are allowed." />
+                        <p class="text-xs text-[var(--text-secondary)] mt-1">Provide the secret key. Include a repository prefix to target a repo-specific secret.</p>
+                    </div>
+                    <div>
+                        <label for="secret-edit-repo" class="block text-sm font-medium text-[var(--text-secondary)]">Repository (optional)</label>
+                        <input type="text" id="secret-edit-repo" name="repository" placeholder="owner/repository" class="pipelines-input w-full mt-1" list="secret-repo-options" pattern="[^/\s]+/[^/\s]+" />
+                        <datalist id="secret-repo-options"></datalist>
+                        <p class="text-xs text-[var(--text-secondary)] mt-1">Use this to scope secrets without typing the owner/repo prefix in the name.</p>
+                    </div>
+                    <div>
+                        <label for="secret-edit-value" class="block text-sm font-medium text-[var(--text-secondary)]">Value</label>
+                        <textarea id="secret-edit-value" name="value" rows="4" class="pipelines-input w-full mt-1" placeholder="Secret values are encrypted and never shown in plain text."></textarea>
+                        <p class="text-xs text-[var(--text-secondary)] mt-1">Leave blank when editing to keep the current value.</p>
+                    </div>
+                    <div class="flex items-center justify-end gap-2 pt-2">
+                        <button type="button" class="glass-button-ghost" data-cancel>Cancel</button>
+                        <button id="secret-edit-submit" type="submit" class="glass-button-primary">
+                            <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                            <span>Save Secret</span>
+                        </button>
+                    </div>
+                </form>
+                <section id="secret-suggestion-panel" class="env-suggestion-panel" aria-live="polite">
+                    <div class="env-suggestion-heading">
+                        <div>
+                            <p class="env-suggestion-kicker">Need inspiration?</p>
+                            <h3 class="env-suggestion-title">Existing secrets</h3>
+                        </div>
+                        <p class="env-suggestion-subtitle">Review available names before creating or updating values.</p>
+                    </div>
+                    <div class="env-suggestion-body">
+                        <p id="secret-suggestion-empty" class="env-suggestion-empty">No secrets have been created yet.</p>
+                        <div id="secret-suggestion-list" class="env-suggestion-list"></div>
+                        <p class="env-suggestion-footnote">Click a secret to prefill the form.</p>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+    <div id="secret-delete-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
+        <div class="pipelines-modal-card max-w-md">
+            <header class="pipelines-modal-header">
+                <div>
+                    <h2 class="text-lg font-semibold text-[var(--text-primary)]">Delete Secret</h2>
+                    <p class="text-sm text-[var(--text-secondary)]">Removing a secret disconnects it from the selected scope.</p>
+                </div>
+                <button type="button" class="glass-button-ghost" data-cancel>
+                    <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </header>
+            <div class="pipelines-modal-body space-y-4">
+                <p id="secret-delete-message" class="text-sm text-[var(--text-secondary)]"></p>
+                <div class="flex items-center justify-end gap-2 pt-2">
+                    <button type="button" class="glass-button-ghost" data-cancel>Cancel</button>
+                    <button type="button" id="secret-confirm-delete-btn" class="glass-button-danger">
+                        <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V5a1 1 0 00-1-1h-4a1 1 0 00-1 1v2m-4 0h14"/></svg>
+                        <span>Delete</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
     <div id="environment-edit-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
         <div class="pipelines-modal-card max-w-4xl w-full">
             <header class="pipelines-modal-header">
@@ -1177,6 +1350,7 @@
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
     <script src="yaml-highlight.js"></script>
     <script src="logs.js"></script>
+    <script src="secrets.js"></script>
     <script src="environments.js"></script>
     <script src="triggers.js"></script>
     <script src="steps.js"></script>

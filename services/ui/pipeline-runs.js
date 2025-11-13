@@ -1805,6 +1805,20 @@ if (dx !== 0 || dy !== 0) {
                     console.error('Failed to render steps sidebar tree:', error);
                 }
             }
+        } else if (activeRoute === 'secrets') {
+            detailsNavHtml = `<div class="px-2 mt-2 mb-2 flex items-center justify-between">
+                                  <h2 class="text-xs font-semibold tracking-wider text-[var(--text-secondary)] uppercase">Secrets</h2>
+                              </div>
+                              <div id="secrets-sidebar-tree"></div>`;
+            DOM.sidebarDetailsNav.innerHTML = detailsNavHtml;
+            const secretsModule = window.NopsAI.pages?.secrets;
+            if (secretsModule && typeof secretsModule.renderSidebarForRoute === 'function') {
+                try {
+                    secretsModule.renderSidebarForRoute();
+                } catch (error) {
+                    console.error('Failed to render secrets sidebar tree:', error);
+                }
+            }
         } else if (activeRoute === 'environment') {
             detailsNavHtml = `<div class="px-2 mt-2 mb-2 flex items-center justify-between">
                                   <h2 class="text-xs font-semibold tracking-wider text-[var(--text-secondary)] uppercase">Environments</h2>
