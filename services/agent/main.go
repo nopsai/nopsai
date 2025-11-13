@@ -271,10 +271,12 @@ func getNextRunnableTasks(pipeline *models.Pipeline, completedTasks map[string]b
 	completedStepTaskCounts := make(map[string]int)
 
 	for _, step := range pipeline.Steps {
-		if len(step.Tasks) > 0 {
-			stepTaskCounts[step.Name] = len(step.Tasks)
+		stepName := step.GetName()
+		tasks := step.GetTasks()
+		if len(tasks) > 0 {
+			stepTaskCounts[stepName] = len(tasks)
 		} else { // Legacy or include step is treated as a single task
-			stepTaskCounts[step.Name] = 1
+			stepTaskCounts[stepName] = 1
 		}
 	}
 
@@ -293,10 +295,11 @@ func getNextRunnableTasks(pipeline *models.Pipeline, completedTasks map[string]b
 	// 2. Find runnable tasks
 	for i := range pipeline.Steps {
 		step := &pipeline.Steps[i]
+		stepName := step.GetName()
 
 		// 2a. First, check if the step's own dependencies are met
 		stepDependenciesMet := true
-		for _, depStepName := range step.DependsOn {
+		for _, depStepName := range step.GetDependsOn() {
 			if !completedSteps[depStepName] {
 				stepDependenciesMet = false
 				break
@@ -308,21 +311,21 @@ func getNextRunnableTasks(pipeline *models.Pipeline, completedTasks map[string]b
 
 		// 2b. If step dependencies are met, check the tasks within the step
 		tasksToCheck := []*models.Task{}
-		if len(step.Tasks) > 0 {
-			for j := range step.Tasks {
-				tasksToCheck = append(tasksToCheck, &step.Tasks[j])
+		if taskStep, ok := step.AsTaskStep(); ok && len(taskStep.Tasks) > 0 {
+			for j := range taskStep.Tasks {
+				tasksToCheck = append(tasksToCheck, &taskStep.Tasks[j])
 			}
 		} else { // Legacy or include step
 			tasksToCheck = append(tasksToCheck, &models.Task{
-				Name:      step.Name,
-				Goal:      step.Goal,
-				Script:    step.Script,
+				Name:      stepName,
+				Goal:      step.GetGoal(),
+				Script:    step.GetScript(),
 				DependsOn: []string{}, // Legacy step dependencies are handled at the step level
 			})
 		}
 
 		for _, task := range tasksToCheck {
-			globalKey := fmt.Sprintf("%s/%s", step.Name, task.Name)
+			globalKey := fmt.Sprintf("%s/%s", stepName, task.Name)
 			if _, done := completedTasks[globalKey]; done {
 				continue
 			}
@@ -330,7 +333,7 @@ func getNextRunnableTasks(pipeline *models.Pipeline, completedTasks map[string]b
 			// 2c. Check the task's internal dependencies (which are other tasks in the same step)
 			taskDependenciesMet := true
 			for _, depTaskName := range task.DependsOn {
-				depGlobalKey := fmt.Sprintf("%s/%s", step.Name, depTaskName)
+				depGlobalKey := fmt.Sprintf("%s/%s", stepName, depTaskName)
 				if !completedTasks[depGlobalKey] {
 					taskDependenciesMet = false
 					break
@@ -790,8 +793,8 @@ func run() int {
 
 	totalTasks := 0
 	for _, step := range pipeline.Steps {
-		if len(step.Tasks) > 0 {
-			totalTasks += len(step.Tasks)
+		if tasks := step.GetTasks(); len(tasks) > 0 {
+			totalTasks += len(tasks)
 		} else {
 			totalTasks++
 		}
@@ -826,7 +829,7 @@ func run() int {
 				defer wg.Done()
 				if timeoutTriggered.Load() {
 					if runnable.Step != nil && runnable.Task != nil {
-						finalizeTask(runnable.Step.Name, runnable.Task.Name, "cancelled", 0, 0)
+						finalizeTask(runnable.Step.GetName(), runnable.Task.Name, "cancelled", 0, 0)
 					}
 					results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 					return
@@ -834,12 +837,13 @@ func run() int {
 
 				step := runnable.Step
 				task := runnable.Task
-				stepName := step.Name
+				stepName := step.GetName()
 				taskLogger := stepLog(runID, pipeline.Name, stepName, task.Name)
 
 				// --- CONDITION EVALUATION LOGIC START ---
-				if step.Condition != "" {
-					taskLogger.Info().Msgf("Evaluating condition for step '%s': \"%s\"", stepName, step.Condition)
+				condition := strings.TrimSpace(step.GetCondition())
+				if condition != "" {
+					taskLogger.Info().Msgf("Evaluating condition for step '%s': \"%s\"", stepName, condition)
 
 					historyMutex.Lock()
 					historySnapshot := history.String()
@@ -854,7 +858,7 @@ func run() int {
 					}
 
 					req := &proto.ConditionRequest{
-						Goal:        step.Condition,
+						Goal:        condition,
 						History:     historySnapshot,
 						Environment: envMap,
 					}
@@ -873,7 +877,7 @@ func run() int {
 					if !resp.Result {
 						taskLogger.Info().Msg("Condition evaluated to false. Skipping all tasks in this step.")
 						// Mark all tasks in this step as skipped and completed
-						tasksInStep := step.Tasks
+						tasksInStep := step.GetTasks()
 						if len(tasksInStep) == 0 { // For legacy/include steps
 							tasksInStep = []models.Task{{Name: stepName}}
 						}
@@ -888,12 +892,13 @@ func run() int {
 				}
 				// --- CONDITION EVALUATION LOGIC END ---
 
-				if step.Include != "" {
+				includeTarget := strings.TrimSpace(step.GetInclude())
+				if includeTarget != "" {
 					setTaskRunning(stepName, stepName)
 
-					parts := strings.SplitN(step.Include, ":", 2)
+					parts := strings.SplitN(includeTarget, ":", 2)
 					if len(parts) != 2 || parts[0] != "pipeline" {
-						taskLogger.Error().Str("include", step.Include).Msg("Invalid include format")
+						taskLogger.Error().Str("include", includeTarget).Msg("Invalid include format")
 						finalizeTask(stepName, stepName, "failure", 1, 0)
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
@@ -918,7 +923,7 @@ func run() int {
 					historyMutex.Lock()
 					historySnapshot := history.String()
 					historyMutex.Unlock()
-					childRunID, err := triggerPipeline(runID, pipelineName, step.Name, childPipelineName, childDef, historySnapshot)
+					childRunID, err := triggerPipeline(runID, pipelineName, stepName, childPipelineName, childDef, historySnapshot)
 					if err != nil {
 						taskLogger.Error().Err(err).Msg("Failed to trigger child pipeline")
 						finalizeTask(stepName, stepName, "failure", 1, 0)
@@ -934,12 +939,12 @@ func run() int {
 						}
 						taskLogger.Info().Str("child_run_id", childRunID).Str("status", finalStatus).Msg("Child pipeline finished")
 						finalizeTask(stepName, stepName, finalStatus, 0, 0)
-						if finalStatus == "failure" && step.Sync {
+						if finalStatus == "failure" && step.GetSync() {
 							pipelineFailed = true
 						}
 					}
 
-					if step.Sync {
+					if step.GetSync() {
 						syncWg.Add(1)
 						go func() {
 							defer syncWg.Done()
@@ -979,8 +984,9 @@ func run() int {
 					}
 				}
 
-				if len(step.Secrets) > 0 && len(secrets) > 0 {
-					for _, secretName := range step.Secrets {
+				stepSecrets := step.GetSecrets()
+				if len(stepSecrets) > 0 && len(secrets) > 0 {
+					for _, secretName := range stepSecrets {
 						if secretValue, ok := secrets[secretName]; ok {
 							stepEnvVars = append(stepEnvVars, fmt.Sprintf("%s=%s", secretName, secretValue))
 						} else {
@@ -989,7 +995,7 @@ func run() int {
 					}
 				}
 
-				imageName := step.Image
+				imageName := step.GetImage()
 				if imageName == "" {
 					imageName = pipeline.ContainerImage
 				}
@@ -1007,8 +1013,8 @@ func run() int {
 					}
 
 					binds := []string{fmt.Sprintf("%s:/workspace", sharedVolumeName)}
-					if len(step.Volumes) > 0 {
-						for _, vol := range step.Volumes {
+					if stepVolumes := step.GetVolumes(); len(stepVolumes) > 0 {
+						for _, vol := range stepVolumes {
 							parts := strings.Split(vol, ":")
 							if len(parts) != 2 {
 								taskLogger.Error().Str("volume", vol).Msg("Invalid volume format. Must be 'volume-name:mount-path'. Skipping")
@@ -1085,7 +1091,7 @@ func run() int {
 
 				goalText := strings.TrimSpace(task.Goal)
 				if goalText == "" {
-					goalText = strings.TrimSpace(step.Goal)
+					goalText = strings.TrimSpace(step.GetGoal())
 				}
 
 				if task.Script != "" {

@@ -1739,7 +1739,8 @@ html.dark .pipelines-modal-card {
 #pipelines-delete-modal.show,
 #pipelines-clone-modal.show,
 #steps-new-modal.show,
-#steps-delete-modal.show {
+#steps-delete-modal.show,
+#steps-clone-modal.show {
     opacity: 1;
 }
 
@@ -1749,6 +1750,7 @@ html.dark .pipelines-modal-card {
 #pipelines-new-modal.show .modal-panel,
 #steps-new-modal.show .pipelines-modal-card,
 #steps-delete-modal.show .pipelines-modal-card,
+#steps-clone-modal.show .pipelines-modal-card,
 #steps-new-modal.show .modal-panel {
     transform: scale(1);
     opacity: 1;
