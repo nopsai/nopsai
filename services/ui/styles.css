@@ -395,93 +395,47 @@ html.dark .themed-bg-blur {
     justify-content: center;
 }
 .step-logo {
-    width: 40px;
-    height: 40px;
-    border-radius: 14px;
-    background: linear-gradient(135deg, #475569, #1f2937);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    color: #fff;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.35);
-    text-shadow: 0 2px 8px rgba(15, 23, 42, 0.45);
-}
-html.dark .step-logo {
-    border-color: rgba(148, 163, 184, 0.25);
-    box-shadow: 0 12px 24px rgba(2, 6, 23, 0.65);
+    background: none;
+    border: 0;
+    box-shadow: none;
+    border-radius: 0;
+    text-shadow: none;
+    color: inherit;
 }
 .step-logo svg {
-    width: 20px;
-    height: 20px;
+    width: 1rem;
+    height: 1rem;
 }
-.step-logo--card {
-    width: 36px;
-    height: 36px;
+.step-logo--card svg {
+    width: 1.2rem;
+    height: 1.2rem;
 }
-.step-logo--detail {
-    width: 48px;
-    height: 48px;
+.step-logo--detail svg {
+    width: 1.6rem;
+    height: 1.6rem;
 }
-.step-logo--menu {
-    width: 32px;
-    height: 32px;
-    border-radius: 10px;
+.step-logo--menu svg {
+    width: 1.2rem;
+    height: 1.2rem;
 }
-.step-logo--list {
-    width: 24px;
-    height: 24px;
-    border-radius: 8px;
-}
-.step-logo--sidebar {
-    width: 28px;
-    height: 28px;
-    border-radius: 8px;
-}
-.step-logo--menu svg,
 .step-logo--list svg,
 .step-logo--sidebar svg {
-    width: 16px;
-    height: 16px;
+    width: 1.75rem;
+    height: 1.75rem;
 }
-.step-logo--brand {
-    background: linear-gradient(135deg, #7c3aed, #4f46e5);
-    box-shadow: 0 12px 26px rgba(79, 70, 229, 0.5);
-}
-.step-logo--pipelineruns {
-    background: linear-gradient(135deg, #38bdf8, #2563eb);
-    box-shadow: 0 12px 26px rgba(37, 99, 235, 0.45);
-}
-.step-logo--pipelines {
-    background: linear-gradient(135deg, #4ade80, #16a34a);
-    box-shadow: 0 12px 26px rgba(22, 163, 74, 0.35);
-}
-.step-logo--steps {
-    background: linear-gradient(135deg, #c084fc, #a855f7);
-    box-shadow: 0 12px 26px rgba(168, 85, 247, 0.45);
-}
-.step-logo--secrets {
-    background: linear-gradient(135deg, #fcd34d, #f97316);
-    box-shadow: 0 12px 26px rgba(249, 115, 22, 0.35);
-    color: #1f2937;
-}
-.step-logo--environment {
-    background: linear-gradient(135deg, #34d399, #0d9488);
-    box-shadow: 0 12px 26px rgba(13, 148, 136, 0.4);
-}
-.step-logo--triggers {
-    background: linear-gradient(135deg, #fb7185, #f43f5e);
-    box-shadow: 0 12px 26px rgba(244, 63, 94, 0.45);
-}
-.step-logo--monitoring {
-    background: linear-gradient(135deg, #a5b4fc, #6366f1);
-    box-shadow: 0 12px 26px rgba(99, 102, 241, 0.35);
-}
-.step-logo--system {
-    background: linear-gradient(135deg, #cbd5f5, #64748b);
-    box-shadow: 0 12px 26px rgba(100, 116, 139, 0.35);
-}
+.step-logo--brand { color: #7c3aed; }
+.step-logo--pipelineruns { color: #2563eb; }
+.step-logo--pipelines { color: #16a34a; }
+.step-logo--steps { color: #a855f7; }
+.step-logo--secrets { color: #f97316; }
+.step-logo--environment { color: #0d9488; }
+.step-logo--triggers { color: #f43f5e; }
+.step-logo--monitoring { color: #6366f1; }
+.step-logo--system { color: #64748b; }
 .mini-task-node rect {
     stroke: var(--border-secondary);
     stroke-width: 1.5px;

@@ -1,4 +1,5 @@
 (function (global) {
+    const PIPELINES_CARD_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10" /><path d="M7 17h10" /><circle cx="7" cy="7" r="1.6" fill="currentColor" stroke="none" /><circle cx="17" cy="7" r="1.6" fill="currentColor" stroke="none" /><circle cx="7" cy="17" r="1.6" fill="currentColor" stroke="none" /><circle cx="17" cy="17" r="1.6" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" /></svg>`;
     const state = {
         pipelines: [],
         pipelineSources: new Map(),
@@ -1598,7 +1599,7 @@ function formatPathLabel(path) {
             html += `
                 <li data-pipeline-id="${escapeAttribute(pipelineId)}">
                     <a href="${pipelineHref}" class="sidebar-link flex items-center p-2 text-[var(--text-primary)] rounded-md transition-colors duration-200 ${isActive ? 'active' : ''}" data-navigo data-pipeline-link="${escapeAttribute(pipelineId)}" data-parent-folder="${escapeAttribute(parentFolder)}">
-                        <svg class="h-4 w-4 mr-2 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h4l2 2h6a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm3 4h10m-10 4h6"/></svg>
+                        <svg class="h-4 w-4 mr-2 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h10"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 17h10"/><circle cx="7" cy="7" r="1.5" fill="currentColor" stroke="none"/><circle cx="17" cy="7" r="1.5" fill="currentColor" stroke="none"/><circle cx="7" cy="17" r="1.5" fill="currentColor" stroke="none"/><circle cx="17" cy="17" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/></svg>
                         <span class="truncate">${escapeHtml(pipelineName)}</span>
                     </a>
                 </li>`;
@@ -1811,9 +1812,12 @@ function formatPathLabel(path) {
         return `
             <article class="pipeline-card bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg shadow-sm transition-all duration-200 p-3 flex flex-col" data-pipeline-id="${idAttr}" tabindex="0" role="button" aria-label="Open pipeline ${escapeHtml(rawName)}">
                 <div class="pipeline-card-header flex items-start justify-between gap-3">
-                    <div class="pipeline-card-text min-w-0">
-                        <h3 class="pipeline-card-title">${name}</h3>
-                        <p class="pipeline-card-path">${pathLabel}</p>
+                    <div class="flex items-start gap-3 min-w-0">
+                        <span class="step-logo step-logo--card step-logo--pipelines" aria-hidden="true">${PIPELINES_CARD_ICON_SVG}</span>
+                        <div class="pipeline-card-text min-w-0">
+                            <h3 class="pipeline-card-title">${name}</h3>
+                            <p class="pipeline-card-path">${pathLabel}</p>
+                        </div>
                     </div>
                     <div class="pipeline-card-actions">
                         ${deleteButtonHtml}
