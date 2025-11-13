@@ -266,6 +266,18 @@ body {
     background-color: inherit !important;
 }
 
+.run-status-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.run-status-icon svg {
+    width: 1rem;
+    height: 1rem;
+}
+
 .run-card--grid {
     display: flex;
     flex-direction: column;
@@ -323,26 +335,18 @@ body {
 
 .run-list-info {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 1rem;
     min-width: 0;
 }
 
-.run-list-status {
-    width: 2.25rem;
-    height: 2.25rem;
-    border-radius: 9999px;
-    background: var(--bg-tertiary);
+.run-list-icon {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    color: inherit;
-}
-
-.run-list-status svg {
-    width: 1.2rem;
-    height: 1.2rem;
+    margin-right: 0.75rem;
+    margin-top: 0.15rem;
 }
 
 .run-list-titles {

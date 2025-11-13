@@ -99,11 +99,11 @@
         return `${base}/${encoded.join('/')}`;
     }
 
-    function buildPipelineHashFromRun(run) {
-        return buildPipelineHashFromIdentifier(getPipelineIdentifierFromRun(run));
-    }
+function buildPipelineHashFromRun(run) {
+    return buildPipelineHashFromIdentifier(getPipelineIdentifierFromRun(run));
+}
 
-    function buildSidebarLogo(svgMarkup, variant = 'list', logoClass = '') {
+function buildSidebarLogo(svgMarkup, variant = 'list', logoClass = '') {
         const renderer = (typeof window !== 'undefined' && window.NopsAI && window.NopsAI.ui)
             ? window.NopsAI.ui.renderStepLogo
             : null;
@@ -111,9 +111,18 @@
         if (typeof renderer === 'function') {
             return renderer(variant, extraClasses, svgMarkup);
         }
-        const safeVariant = variant || 'list';
-        const extra = extraClasses ? ` ${extraClasses}` : '';
-        return `<span class="step-logo step-logo--${safeVariant}${extra}" aria-hidden="true">${svgMarkup}</span>`;
+    const safeVariant = variant || 'list';
+    const extra = extraClasses ? ` ${extraClasses}` : '';
+    return `<span class="step-logo step-logo--${safeVariant}${extra}" aria-hidden="true">${svgMarkup}</span>`;
+}
+
+    function buildRunStatusIcon(runLike) {
+        if (!runLike) {
+            return '<span class="run-status-icon text-gray-400" aria-hidden="true"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></span>';
+        }
+        const statusKey = runLike.is_complete ? runLike.status : 'running';
+        const config = statusConfig[(statusKey || '').toLowerCase()] || statusConfig.pending;
+        return `<span class="run-status-icon ${config.color}" aria-hidden="true"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg></span>`;
     }
 
     function getRunViewMode() {
@@ -157,10 +166,17 @@
         refreshMainGridView();
     }
 
+    function getRunViewToggleContainer() {
+        if (runViewToggle.container) return runViewToggle.container;
+        const container = (DOM && DOM.runViewToggleContainer) || document.getElementById('run-view-toggle-container');
+        if (container) {
+            runViewToggle.container = container;
+        }
+        return container;
+    }
+
     function ensureRunViewToggle() {
-        const container = runViewToggle.container
-            || (DOM && DOM.runViewToggleContainer)
-            || document.getElementById('run-view-toggle-container');
+        const container = runViewToggle.container || getRunViewToggleContainer();
         if (!container) return;
         runViewToggle.container = container;
         if (!container.dataset.runViewToggleRendered) {
@@ -197,6 +213,13 @@
         }
         container.classList.remove('hidden');
         updateRunViewToggleButtons();
+    }
+
+    function hideRunViewToggle() {
+        const container = getRunViewToggleContainer();
+        if (container) {
+            container.classList.add('hidden');
+        }
     }
 
     const SIDEBAR_ICON_SVGS = {
@@ -2104,23 +2127,17 @@ if (dx !== 0 || dy !== 0) {
     }
 
     function renderRunCardHTML(run, isSelected = false) {
-        const status = run.is_complete ? run.status : 'running';
-        const config = statusConfig[status.toLowerCase()] || statusConfig.pending;
         const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
         const branchDisplay = formatBranchDisplay(run.git_ref, run.git_target_ref, { html: true });
         const repoFullName = `${run.git_repo_owner}/${run.git_repo_name}`;
         const pipelineNameHTML = getPipelineNameHTML(run);
         const triggerCard = formatTriggerEventCardDisplay(run.trigger_event_id);
+        const statusIcon = buildRunStatusIcon(run);
+        const pipelineTitleHTML = `<div class="flex items-center gap-2 min-w-0">${statusIcon}<div class="flex-1 min-w-0">${pipelineNameHTML}</div></div>`;
         return `
             <div>
                 <div class="flex items-start justify-between">
-                    <div class="flex items-start gap-3 flex-1 min-w-0 pr-4">
-                        <span class="step-logo step-logo--card step-logo--pipelineruns" aria-hidden="true">${SIDEBAR_ICON_SVGS.pipelineruns}</span>
-                        <div class="flex-1 min-w-0">${pipelineNameHTML}</div>
-                    </div>
-                    <div class="flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center ${config.color}">
-                        <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
-                    </div>
+                    <div class="flex-1 min-w-0 pr-4">${pipelineTitleHTML}</div>
                 </div>
                 <p class="text-sm text-[var(--text-secondary)] items-center mt-1">
                    ${run.git_repo_name}
@@ -2160,8 +2177,6 @@ if (dx !== 0 || dy !== 0) {
     }
 
     function renderRunListRowHTML(run, isSelected = false) {
-        const status = run.is_complete ? run.status : 'running';
-        const config = statusConfig[status.toLowerCase()] || statusConfig.pending;
         const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
         const branchDisplay = formatBranchDisplay(run.git_ref, run.git_target_ref, { html: true });
         const pipelineNameHTML = getPipelineNameHTML(run);
@@ -2170,11 +2185,10 @@ if (dx !== 0 || dy !== 0) {
         const triggerCard = formatTriggerEventCardDisplay(run.trigger_event_id);
         const triggerDisplay = escapeText(triggerCard.display || 'N/A');
         const updatedDisplay = timeAgo(timeToDisplay);
+        const statusIcon = buildRunStatusIcon(run);
         return `
             <div class="run-list-info">
-                <span class="run-list-status ${config.color}" aria-hidden="true">
-                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
-                </span>
+                <span class="run-list-icon" aria-hidden="true">${statusIcon}</span>
                 <div class="run-list-titles">
                     <div class="run-list-title">${pipelineNameHTML}</div>
                     <div class="run-list-sub">${branchDisplay}</div>
@@ -2664,6 +2678,7 @@ if (dx !== 0 || dy !== 0) {
         setNewFolderButtonEnabled(false);
         const runInfo = runDetails.run_info;
         clearSelectedRuns();
+        hideRunViewToggle();
         const branchDisplay = formatBranchDisplay(runInfo.git_ref, runInfo.git_target_ref, { html: true });
         const triggerRaw = (runInfo.trigger_event_id ?? '').toString().trim();
         const triggerDisplay = triggerRaw || 'N/A';
@@ -2698,6 +2713,7 @@ if (dx !== 0 || dy !== 0) {
     const overrideIcon = runInfo.pipeline_source === 'database override'
         ? `<svg class="h-5 w-5 text-purple-500 ml-2" title="Overridden from database" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l4-4 4 4m0 6l-4 4-4-4"/></svg>`
         : '';
+    const statusIconHtml = buildRunStatusIcon(runInfo);
 
     const normalizedStatus = (runInfo.status || '').trim().toLowerCase();
     const isCancelable = normalizedStatus === 'pending' || normalizedStatus === 'running';
@@ -2729,7 +2745,10 @@ if (dx !== 0 || dy !== 0) {
     headerHTML += `
             <div class="flex flex-wrap items-baseline gap-x-3 min-w-0">
                 <a href="${repoLink}" class="text-xl font-semibold text-[var(--text-secondary)] hover:text-[var(--text-accent)] transition-colors truncate">${repoFullName}</a>
-                <span class="text-xl font-semibold text-[var(--text-primary)] truncate">${runInfo.pipeline_name}</span>
+                <span class="flex items-center gap-2 text-xl font-semibold text-[var(--text-primary)] truncate">
+                    ${statusIconHtml}
+                    <span class="truncate">${runInfo.pipeline_name}</span>
+                </span>
                 ${overrideIcon}
             </div>
             <div class="text-xs text-[var(--text-secondary)] mt-2 font-mono grid grid-cols-[auto,1fr] gap-x-4 w-full max-w-3xl">
