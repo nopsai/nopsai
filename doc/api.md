@@ -21,8 +21,11 @@ curl -X POST http://localhost:8080/v1/internal/config/sync
 Secrets are encrypted at rest using the master key. They can be scoped globally, per environment, or per repository.
 
 ```bash
-# List global secrets (optional ?env=scope)
-curl "http://localhost:8080/v1/secrets?env=prod"
+# List secrets (add ?env=scope and ?include_source=true for metadata)
+curl "http://localhost:8080/v1/secrets?env=prod&include_source=true"
+
+# Discover environments that currently hold secrets
+curl http://localhost:8080/v1/secrets/scopes
 
 # Upsert a global secret (optionally scoped to an environment)
 curl -X PUT \
@@ -41,6 +44,8 @@ curl -X PUT \
 ```
 
 - Repository endpoints also accept `?env=` to target scoped environments.
+- Repository-scoped entries returned by `GET /v1/secrets` are prefixed with `owner/repo/SECRET`, so the UI can group them under the same environment scope as global secrets.
+- `GET /v1/secrets/scopes` reports only environment scopes (default, prod, etc.) to mirror the Environments page.
 - Secrets resolve in the following order: repo+env → repo → global+env → global.
 
 ---

@@ -310,6 +310,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const pipelinesModule = pageModules.pipelines || null;
     const stepsModule = pageModules.steps || null;
     const triggersModule = pageModules.triggers || null;
+    const secretsModule = pageModules.secrets || null;
     const environmentModule = pageModules.environment || null;
 
     if (logsModule && typeof logsModule.init === 'function') {
@@ -330,6 +331,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (triggersModule && typeof triggersModule.init === 'function') {
         triggersModule.init(context);
+    }
+
+    if (secretsModule && typeof secretsModule.init === 'function') {
+        secretsModule.init(context);
     }
 
     if (environmentModule && typeof environmentModule.init === 'function') {
@@ -495,6 +500,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             await triggersModule.handleRoute(hash);
+            return;
+        }
+
+        if (path === 'secrets' && secretsModule && typeof secretsModule.handleRoute === 'function') {
+            if (DOM.pageContentWrapper) {
+                DOM.pageContentWrapper.classList.remove('no-scroll');
+            }
+            if (pipelineRunsModule && typeof pipelineRunsModule.renderSidebarForRoute === 'function') {
+                try {
+                    await pipelineRunsModule.renderSidebarForRoute('secrets');
+                } catch (error) {
+                    console.error('Failed to render secrets sidebar navigation:', error);
+                }
+            }
+            await secretsModule.handleRoute(hash);
             return;
         }
 

@@ -28,7 +28,7 @@
     let context = null;
     let initialized = false;
 
-    const DEFAULT_SCOPE_KEY = buildScopeKey('');
+    const DEFAULT_SCOPE_KEY = buildScopeKey('', '');
 
     function init(ctx) {
         if (initialized && context === ctx) {
@@ -77,13 +77,15 @@
             });
         }
         if (DOM['secret-create-btn']) {
-            DOM['secret-create-btn'].addEventListener('click', () => openEditModal('create'));
+            DOM['secret-create-btn'].addEventListener('click', () => {
+                const scopeKey = state.selectedScopeKey || DEFAULT_SCOPE_KEY;
+                openEditModal('create', { scopeKey });
+            });
         }
         if (DOM['secret-create-inline']) {
             DOM['secret-create-inline'].addEventListener('click', (event) => {
                 event.preventDefault();
-                const scopeKey = state.selectedScopeKey
-                    || (state.activeFolderKey ? buildScopeKey(state.activeFolderKey) : DEFAULT_SCOPE_KEY);
+                const scopeKey = state.selectedScopeKey || DEFAULT_SCOPE_KEY;
                 openEditModal('create', { scopeKey });
             });
         }
@@ -153,48 +155,40 @@
     async function ensureScopesLoaded() {
         const previousMap = state.scopeMap instanceof Map ? state.scopeMap : new Map();
         const previousExpanded = state.sidebarExpanded instanceof Set ? new Set(state.sidebarExpanded) : new Set(['']);
-        const labels = new Set();
-
-        previousMap.forEach(scope => {
-            labels.add(normalizeScopeLabel(scope?.scopeName || ''));
-        });
-
-        const fetchedScopes = await fetchEnvironmentScopes();
-        fetchedScopes.forEach(entry => {
-            const label = normalizeScopeEntry(entry);
-            if (label !== null) {
-                labels.add(label);
-            }
-        });
-
-        if (!labels.size || !labels.has('')) {
-            labels.add('');
-        }
-
-        const sortedLabels = Array.from(labels).sort(compareScopeLabels);
+        const fetchedScopes = await fetchSecretScopes();
 
         const nextMap = new Map();
         const nextList = [];
 
-        sortedLabels.forEach(scopeLabel => {
-            const key = buildScopeKey(scopeLabel);
+        fetchedScopes.forEach(entry => {
+            const envLabel = normalizeScopeLabel(entry?.environment || '');
+            const key = buildScopeKey(envLabel);
             const existing = previousMap.get(key);
-            const scope = existing || createScopeRecord(scopeLabel);
+            const scope = existing || createScopeRecord(envLabel);
 
-            scope.scopeName = scopeLabel;
-            scope.label = scopeLabel ? scopeLabel : 'Default Scope';
-            scope.description = scopeLabel ? `Secrets scoped to “/${scopeLabel}”` : 'Fallback secrets shared across all environments';
+            scope.scopeName = envLabel;
+            scope.folderPath = buildSecretFolderPath(envLabel);
+            scope.label = envLabel ? envLabel.split('/').pop() : 'Default Scope';
+            scope.description = envLabel ? `Secrets scoped to “/${envLabel}”` : 'Fallback secrets shared across all environments';
             scope.triggers = [];
             scope.triggerCount = 0;
             scope.pipelineSet = new Set();
             scope.pipelines = [];
             scope.fetchPromise = null;
             scope.secrets = Array.isArray(scope.secrets) ? scope.secrets : [];
-            scope.fetched = !!scope.fetched;
+            scope.fetched = !!scope.fetched && scope.secrets.length > 0;
             scope.secretMeta = scope.secretMeta instanceof Map ? scope.secretMeta : new Map();
+            scope.secretCountHint = typeof entry?.secret_count === 'number' ? entry.secret_count : scope.secretCountHint || 0;
+            scope.isVirtual = false;
 
             nextMap.set(key, scope);
             nextList.push(scope);
+        });
+
+        nextList.sort((a, b) => {
+            const folderCompare = (a.folderPath || '').localeCompare(b.folderPath || '', undefined, { sensitivity: 'base' });
+            if (folderCompare !== 0) return folderCompare;
+            return (a.label || '').localeCompare(b.label || '', undefined, { sensitivity: 'base' });
         });
 
         state.scopeMap = nextMap;
@@ -205,41 +199,27 @@
         state.sidebarExpanded.add('');
         state.triggersByEnv = new Map();
         state.pipelinesByEnv = new Map();
+
+        if (!state.scopeMap.has(DEFAULT_SCOPE_KEY)) {
+            const defaultScope = createScopeRecord('');
+            defaultScope.isVirtual = true;
+            state.scopeMap.set(DEFAULT_SCOPE_KEY, defaultScope);
+        }
+
         ensureActiveFolderKey();
     }
 
-    async function fetchEnvironmentScopes() {
+    async function fetchSecretScopes() {
         if (!context || typeof context.fetchData !== 'function') return [];
         try {
-            const response = await context.fetchData('/v1/environments/scopes');
+            const response = await context.fetchData('/v1/secrets/scopes');
             if (Array.isArray(response)) {
                 return response;
             }
         } catch (error) {
-            console.error('Failed to retrieve environment scopes list:', error);
+            console.error('Failed to retrieve secret scopes list:', error);
         }
         return [];
-    }
-
-    function normalizeScopeEntry(entry) {
-        if (entry == null) {
-            return '';
-        }
-        if (typeof entry === 'string') {
-            return normalizeScopeLabel(entry);
-        }
-        if (typeof entry === 'object') {
-            const value = entry.environment ?? entry.env ?? entry.name ?? entry.value ?? '';
-            return normalizeScopeLabel(value);
-        }
-        return '';
-    }
-
-    function compareScopeLabels(a, b) {
-        if (a === b) return 0;
-        if (a === '') return -1;
-        if (b === '') return 1;
-        return a.localeCompare(b, undefined, { sensitivity: 'base' });
     }
 
     function buildSecretTree(scopes) {
@@ -249,12 +229,12 @@
         }
 
         scopes.forEach(scope => {
-            const scopeLabel = normalizeScopeLabel(scope?.scopeName || '');
-            if (!scopeLabel) {
+            const folderPath = normalizeScopeLabel(scope?.folderPath || '');
+            if (!folderPath) {
                 root.scopes.push(scope);
                 return;
             }
-            const parts = scopeLabel.split('/').filter(Boolean);
+            const parts = folderPath.split('/').filter(Boolean);
             let node = root;
             let path = '';
             parts.forEach(part => {
@@ -273,13 +253,46 @@
         return root;
     }
 
+    function syncScopeVisibility(scope) {
+        if (!scope || scope.isVirtual && scope.secrets.length === 0) {
+            return;
+        }
+        const index = Array.isArray(state.scopes)
+            ? state.scopes.findIndex(entry => entry.key === scope.key)
+            : -1;
+
+        if (scope.secrets.length === 0) {
+            scope.isVirtual = true;
+            if (index !== -1) {
+                state.scopes.splice(index, 1);
+            }
+        } else {
+            scope.isVirtual = false;
+            if (index === -1) {
+                state.scopes.push(scope);
+            }
+        }
+
+        state.scopes.sort((a, b) => {
+            const folderCompare = (a.folderPath || '').localeCompare(b.folderPath || '', undefined, { sensitivity: 'base' });
+            if (folderCompare !== 0) return folderCompare;
+            return (a.label || '').localeCompare(b.label || '', undefined, { sensitivity: 'base' });
+        });
+
+        state.filteredScopes = state.scopes.slice();
+        state.scopeTree = buildSecretTree(state.scopes);
+    }
+
     function createScopeRecord(scopeLabel) {
-        const label = scopeLabel ? scopeLabel : 'Default Scope';
-        const description = scopeLabel ? `Secrets scoped to “/${scopeLabel}”` : 'Fallback secrets shared across all environments';
+        const normalizedEnv = normalizeScopeLabel(scopeLabel || '');
+        const folderPath = buildSecretFolderPath(normalizedEnv);
+        const label = normalizedEnv ? normalizedEnv.split('/').pop() : 'Default Scope';
+        const description = normalizedEnv ? `Secrets scoped to “/${normalizedEnv}”` : 'Fallback secrets shared across all environments';
         return {
-            key: buildScopeKey(scopeLabel),
-            scopeName: scopeLabel,
+            key: buildScopeKey(normalizedEnv),
+            scopeName: normalizedEnv,
             label,
+            folderPath,
             description,
             secrets: [],
             secretMeta: new Map(),
@@ -290,11 +303,21 @@
             triggerCount: 0,
             pipelineSet: new Set(),
             pipelines: [],
+            secretCountHint: 0,
+            isVirtual: false,
         };
     }
 
     function buildScopeKey(scopeLabel) {
-        return `env:${scopeLabel || ''}`;
+        const envPart = normalizeScopeLabel(scopeLabel || '');
+        return `env:${envPart}`;
+    }
+
+    function buildSecretFolderPath(scopeLabel) {
+        const envSegments = normalizeScopeLabel(scopeLabel || '')
+            .split('/')
+            .filter(Boolean);
+        return envSegments.join('/');
     }
 
     function encodeScopeSegment(scopeLabel) {
@@ -475,11 +498,9 @@
     function registerTriggerForSecretScope({ slug, trigger, owner, name }) {
         const scopeLabel = normalizeScopeLabel(trigger?.environment);
         const scopeKey = buildScopeKey(scopeLabel);
-        let scope = state.scopeMap.get(scopeKey);
+        const scope = state.scopeMap.get(scopeKey);
         if (!scope) {
-            scope = createScopeRecord(scopeLabel);
-            state.scopeMap.set(scopeKey, scope);
-            state.scopes.push(scope);
+            return;
         }
 
         if (!(scope.pipelineSet instanceof Set)) {
@@ -583,6 +604,7 @@
             if (scope.label.toLowerCase().includes(term)) return true;
             if (scope.description.toLowerCase().includes(term)) return true;
             if (scope.scopeName && scope.scopeName.toLowerCase().includes(term)) return true;
+            if (scope.folderPath && scope.folderPath.toLowerCase().includes(term)) return true;
             return false;
         });
         toggleClearButton(true);
@@ -655,11 +677,11 @@
         if (DOM['secret-list-empty']) {
             if (showEmpty) {
                 if (isSearching && searchTerm) {
-                    DOM['secret-list-empty'].innerHTML = `<p class="text-sm">No scopes matched "${escapeHtml(searchTerm)}".</p>`;
+                    DOM['secret-list-empty'].innerHTML = `<p class="text-sm">No secret folders matched "${escapeHtml(searchTerm)}".</p>`;
                 } else if (state.activeFolderKey) {
-                    DOM['secret-list-empty'].innerHTML = '<p class="text-sm">No secret scopes in this folder.</p>';
+                    DOM['secret-list-empty'].innerHTML = '<p class="text-sm">No secret folders or scopes inside this path.</p>';
                 } else {
-                    DOM['secret-list-empty'].innerHTML = '<p class="text-sm">No secret scopes found. Go to Environments to create one.</p>';
+                    DOM['secret-list-empty'].innerHTML = '<p class="text-sm">No secret folders yet. Create a secret to add one.</p>';
                 }
             }
             DOM['secret-list-empty'].classList.toggle('hidden', !showEmpty);
@@ -727,7 +749,7 @@
         const totalScopes = countSecretScopesRecursive(node);
         const childCount = node.children instanceof Map ? node.children.size : 0;
         const displayPath = node.key ? `/${node.key}` : '/';
-        const label = node.label || node.key || 'Folder';
+        const label = formatSecretFolderLabel(node.label || node.key || 'Folder');
         const keyAttr = escapeAttribute(node.key || '');
         const ariaLabel = escapeAttribute(displayPath);
 
@@ -751,9 +773,9 @@
 
     function describeSecretScope(scope) {
         const scopeLabel = normalizeScopeLabel(scope?.scopeName || '');
-        const segments = scopeLabel.split('/').filter(Boolean);
-        const title = segments.length ? segments[segments.length - 1] : 'Default';
-        const parentPath = segments.length > 1 ? `/${segments.slice(0, -1).join('/')}` : '/';
+        const envSegments = scopeLabel.split('/').filter(Boolean);
+        const title = envSegments.length ? envSegments[envSegments.length - 1] : 'Default';
+        const parentPath = envSegments.length > 1 ? `/${envSegments.slice(0, -1).join('/')}` : '/';
         const fullPath = scopeLabel ? `/${scopeLabel}` : '/';
         return { title, parentPath, fullPath };
     }
@@ -762,9 +784,9 @@
         if (!scope) return '';
         const isActive = scope.key === state.selectedScopeKey;
         const { title, parentPath, fullPath } = describeSecretScope(scope);
-        const secretCount = Array.isArray(scope.secrets) ? scope.secrets.length : 0;
+        const secretCount = scope.secretCountHint || (Array.isArray(scope.secrets) ? scope.secrets.length : 0);
         const triggerCount = scope.triggerCount || 0;
-        
+
         return `
             <article class="pipeline-card triggers-card bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg shadow-sm transition-all duration-200 p-3 flex flex-col${isActive ? ' triggers-card--active' : ''}" data-secret-scope="${escapeAttribute(scope.key)}" tabindex="0" role="button" aria-label="Open secret scope ${escapeAttribute(fullPath)}">
                 <div class="pipeline-card-header flex items-start justify-between gap-3">
@@ -779,8 +801,7 @@
                             <p class="pipeline-card-path">${escapeHtml(parentPath)}</p>
                         </div>
                     </div>
-                    <div class="pipeline-card-actions">
-                    </div>
+                    <div class="pipeline-card-actions text-right"></div>
                 </div>
                 <div class="pipeline-card-meta">
                     <div class="pipeline-card-meta-row">
@@ -884,6 +905,7 @@
             event.preventDefault();
             const key = scopeCard.getAttribute('data-secret-scope');
             if (key) {
+                Promise.resolve().then(() => selectScope(key, { silent: true, skipHash: true })).catch(err => console.error('Failed to open scope', err));
                 navigateToScope(key);
             }
             event.stopPropagation();
@@ -920,6 +942,7 @@
             event.preventDefault();
             const key = scopeCard.getAttribute('data-secret-scope');
             if (key) {
+                Promise.resolve().then(() => selectScope(key, { silent: true, skipHash: true })).catch(err => console.error('Failed to open scope', err));
                 navigateToScope(key);
             }
             event.stopPropagation();
@@ -1083,11 +1106,13 @@
         const suggestions = [];
         if (state.scopeMap instanceof Map) {
             state.scopeMap.forEach(scope => {
+                if (scope?.isVirtual) return;
                 const secrets = Array.isArray(scope.secrets) ? scope.secrets.filter(Boolean) : [];
                 if (!secrets.length) return;
+                const scopeLabel = scope.scopeName ? `/${scope.scopeName}` : '/ (default)';
                 suggestions.push({
                     key: scope.key,
-                    label: scope.scopeName ? `/${scope.scopeName}` : '/ (default)',
+                    label: scopeLabel,
                     count: secrets.length,
                     preview: secrets.slice(0, 5),
                 });
@@ -1109,7 +1134,9 @@
             const pills = entry.preview.map(name => {
                 const valueAttr = escapeAttribute(name);
                 const scopeAttr = escapeAttribute(entry.key);
-                return `<button type="button" class="env-suggestion-pill env-suggestion-pill--action" data-secret-suggestion-value="${valueAttr}" data-secret-suggestion-scope="${scopeAttr}">${escapeHtml(name)}</button>`;
+                const identity = parseSecretIdentity(name);
+                const displayName = identity.repoOwner && identity.repoName ? identity.name : name;
+                return `<button type="button" class="env-suggestion-pill env-suggestion-pill--action" data-secret-suggestion-value="${valueAttr}" data-secret-suggestion-scope="${scopeAttr}">${escapeHtml(displayName)}</button>`;
             });
             const remaining = entry.count - entry.preview.length;
             if (remaining > 0) {
@@ -1194,17 +1221,17 @@
         });
     }
 
-    function getSelectedSecretScopeLabel() {
+    function getSelectedScopeFolderPath() {
         if (!state.selectedScopeKey) return '';
         const scope = state.scopeMap instanceof Map ? state.scopeMap.get(state.selectedScopeKey) : null;
-        return scope?.scopeName || '';
+        return normalizeScopeLabel(scope?.folderPath || '');
     }
 
-    function getSecretFolderKey(scopeLabel) {
-        const normalized = normalizeScopeLabel(scopeLabel || '');
-        if (!normalized) return '';
-        const segments = normalized.split('/').filter(Boolean);
-        if (segments.length <= 1) return '';
+    function getScopeParentFolderPath(scope) {
+        const folderPath = normalizeScopeLabel(scope?.folderPath || '');
+        if (!folderPath) return '';
+        const segments = folderPath.split('/').filter(Boolean);
+        if (!segments.length) return '';
         segments.pop();
         return segments.join('/');
     }
@@ -1222,8 +1249,8 @@
         if (active && (active === normalized || active.startsWith(`${normalized}/`))) {
             return true;
         }
-        const selectedEnv = getSelectedSecretScopeLabel();
-        if (selectedEnv && (selectedEnv === normalized || selectedEnv.startsWith(`${normalized}/`))) {
+        const selectedFolder = getSelectedScopeFolderPath();
+        if (selectedFolder && (selectedFolder === normalized || selectedFolder.startsWith(`${normalized}/`))) {
             return true;
         }
         return false;
@@ -1280,8 +1307,7 @@
 
         state.selectedScopeKey = scope.key;
         state.expandedSecret = null;
-        const scopePath = normalizeScopeLabel(scope.scopeName || '');
-        const folderKey = getSecretFolderKey(scopePath);
+        const folderKey = getScopeParentFolderPath(scope);
         setActiveFolder(folderKey, { ensure: true, refreshList: false });
         showSecretDetailView();
         await ensureScopeSecretsLoaded(scope, options.forceReload);
@@ -1350,10 +1376,12 @@
                 names.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
                 scope.secrets = names;
                 scope.fetched = true;
+                scope.secretCountHint = names.length;
                 return names;
             } catch (error) {
                 console.error('Failed to load secrets for scope', scope.scopeName, error);
                 scope.secrets = [];
+                scope.secretCountHint = 0;
                 return [];
             } finally {
                 scope.fetching = false;
@@ -1390,6 +1418,9 @@
 
         if (DOM['secret-detail-title']) {
             DOM['secret-detail-title'].textContent = scope.scopeName ? `/${scope.scopeName}` : '/';
+        }
+        if (DOM['secret-variable-subtitle']) {
+            DOM['secret-variable-subtitle'].textContent = scope.scopeName ? `Environment · /${scope.scopeName}` : 'Global fallback secrets';
         }
 
         renderSecretList(scope);
@@ -2197,7 +2228,8 @@
         }
 
         if (DOM['secret-edit-scope']) {
-            DOM['secret-edit-scope'].textContent = scope.scopeName ? `Scope: /${scope.scopeName}` : 'Scope: /';
+            const scopeLabel = scope.scopeName ? `/${scope.scopeName}` : '/';
+            DOM['secret-edit-scope'].textContent = `Scope: ${scopeLabel}`;
         }
 
         const identity = parseSecretIdentity(options.name || '');
@@ -2348,6 +2380,7 @@
             }
             closeModal('secret-edit-modal');
             await ensureScopeSecretsLoaded(scope, true);
+            syncScopeVisibility(scope);
             renderScopeDetail(scope);
             selectSecret(secretName, { silent: true, skipHash: true });
             renderScopeCollection();
@@ -2364,7 +2397,8 @@
             ? `${identity.repoOwner}/${identity.repoName}/${identity.name}`
             : identity.name || name;
         if (DOM['secret-delete-message']) {
-            DOM['secret-delete-message'].textContent = `Remove “${displayName}” from ${scope.scopeName ? `/${scope.scopeName}` : '/'} scope?`;
+            const scopeLabel = scope.scopeName ? `/${scope.scopeName}` : '/';
+            DOM['secret-delete-message'].textContent = `Remove “${displayName}” from ${scopeLabel} scope?`;
         }
         if (DOM['secret-confirm-delete-btn']) {
             const btn = DOM['secret-confirm-delete-btn'];
@@ -2441,6 +2475,7 @@
         if (success) {
             closeModal('secret-delete-modal');
             await ensureScopeSecretsLoaded(scope, true);
+            syncScopeVisibility(scope);
             renderScopeDetail(scope);
             selectSecret(name, { silent: true, skipHash: true });
             renderScopeCollection();
