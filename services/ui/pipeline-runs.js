@@ -2024,7 +2024,10 @@ if (dx !== 0 || dy !== 0) {
         return `
             <div>
                 <div class="flex items-start justify-between">
-                    <div class="flex-1 min-w-0 pr-4">${pipelineNameHTML}</div>
+                    <div class="flex items-start gap-3 flex-1 min-w-0 pr-4">
+                        <span class="step-logo step-logo--card step-logo--pipelineruns" aria-hidden="true">${SIDEBAR_ICON_SVGS.pipelineruns}</span>
+                        <div class="flex-1 min-w-0">${pipelineNameHTML}</div>
+                    </div>
                     <div class="flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center ${config.color}">
                         <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
                     </div>
