@@ -233,7 +233,7 @@
             html += `
                 <li data-trigger-sidebar-item="${escapeAttribute(slug)}">
                     <a href="${triggerHref}" class="sidebar-link flex items-center p-2 text-[var(--text-primary)] rounded-md transition-colors duration-200 ${isActive ? 'active' : ''}" data-trigger-sidebar-slug="${escapeAttribute(slug)}">
-                        <svg class="h-4 w-4 mr-2 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12h3l3 8l4-16l3 8h4"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h6"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 19h3"/></svg>
+                        <svg class="h-4 w-4 mr-2 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 3L6 14h6l-2 7 9-13h-6z"/></svg>
                         <span class="truncate">${escapeHtml(triggerName)}</span>
                     </a>
                 </li>`;
@@ -968,9 +968,7 @@
                     <div class="pipeline-card-info">
                         <span class="triggers-card-icon" aria-hidden="true">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M3 12h3l3 8l4-16l3 8h4" />
-                                <path d="M3 5h6" />
-                                <path d="M18 19h3" />
+                                <path d="M13 3L6 14h6l-2 7 9-13h-6z" />
                             </svg>
                         </span>
                         <div class="pipeline-card-text min-w-0">
