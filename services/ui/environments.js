@@ -94,7 +94,7 @@
                 event.preventDefault();
                 const scopeKey = state.selectedScopeKey
                     || (state.activeFolderKey ? buildScopeKey(state.activeFolderKey) : DEFAULT_SCOPE_KEY);
-                openNewEnvironmentModal(scopeKey);
+                openEditModal('create', { scopeKey: scopeKey });
             });
         }
         if (DOM['environment-suggestion-panel']) {
@@ -112,9 +112,11 @@
         if (DOM['environment-new-form']) {
             DOM['environment-new-form'].addEventListener('submit', handleCreateEnvironment);
         }
-        const cancelEditBtn = DOM['environment-edit-modal']?.querySelector('[data-cancel]');
-        if (cancelEditBtn) {
-            cancelEditBtn.addEventListener('click', () => closeModal('environment-edit-modal'));
+        const cancelEditBtns = DOM['environment-edit-modal']?.querySelectorAll('[data-cancel]');
+        if (cancelEditBtns) {
+            cancelEditBtns.forEach(btn => {
+                btn.addEventListener('click', () => closeModal('environment-edit-modal'));
+            });
         }
         if (DOM['environment-confirm-delete-btn']) {
             DOM['environment-confirm-delete-btn'].addEventListener('click', handleConfirmDelete);
