@@ -101,6 +101,31 @@
         return buildPipelineHashFromIdentifier(getPipelineIdentifierFromRun(run));
     }
 
+    function buildSidebarLogo(svgMarkup, variant = 'list', logoClass = '') {
+        const renderer = (typeof window !== 'undefined' && window.NopsAI && window.NopsAI.ui)
+            ? window.NopsAI.ui.renderStepLogo
+            : null;
+        const extraClasses = ['sidebar-logo', logoClass].filter(Boolean).join(' ').trim();
+        if (typeof renderer === 'function') {
+            return renderer(variant, extraClasses, svgMarkup);
+        }
+        const safeVariant = variant || 'list';
+        const extra = extraClasses ? ` ${extraClasses}` : '';
+        return `<span class="step-logo step-logo--${safeVariant}${extra}" aria-hidden="true">${svgMarkup}</span>`;
+    }
+
+    const SIDEBAR_ICON_SVGS = {
+        pipelineruns: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="14" rx="3"></rect><path d="M11 9l4 3-4 3V9z" fill="currentColor" stroke="none"></path></svg>`,
+        pipelines: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10"></path><path d="M7 17h10"></path><circle cx="7" cy="7" r="1.6" fill="currentColor" stroke="none"></circle><circle cx="17" cy="7" r="1.6" fill="currentColor" stroke="none"></circle><circle cx="7" cy="17" r="1.6" fill="currentColor" stroke="none"></circle><circle cx="17" cy="17" r="1.6" fill="currentColor" stroke="none"></circle><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"></circle></svg>`,
+        steps: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 10l6-3 6 3-6 3-6-3z"></path><path d="M6 14l6 3 6-3"></path><path d="M6 18l6 3 6-3"></path></svg>`,
+        secrets: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 11V8a4 4 0 118 0v3"></path><rect x="6" y="11" width="12" height="9" rx="2"></rect><path d="M12 15v2"></path></svg>`,
+        environment: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 100 18 9 9 0 000-18z"></path><path d="M3.6 9h16.8M3.6 15h16.8M12 3a15 15 0 010 18M12 3a15 15 0 000 18"></path></svg>`,
+        triggers: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3L6 14h6l-2 7 9-13h-6z"></path></svg>`,
+        monitoring: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h2l2.5-6 4 12 3-8H20"></path></svg>`,
+        system: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path></svg>`,
+        branch: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2"></circle><circle cx="17" cy="7" r="2"></circle><circle cx="17" cy="19" r="2"></circle><path d="M6 7v10a3 3 0 003 3h5"></path><path d="M17 9v6"></path></svg>`
+    };
+
     const RUN_TOGGLE_BASE_CLASS = 'run-select-toggle inline-flex items-center justify-center h-5 w-5 rounded-full border focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors duration-150';
     const PIPELINE_BUTTON_BASE_CLASSES = 'run-view-pipeline-btn inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 transition-colors duration-150';
     const PIPELINE_BUTTON_ACTIVE_CLASSES = `${PIPELINE_BUTTON_BASE_CLASSES} text-white bg-indigo-500 hover:bg-indigo-600 focus:ring-indigo-400`;
@@ -1602,29 +1627,22 @@ if (dx !== 0 || dy !== 0) {
         }
 
         const navConfig = [
-            { route: 'pipelineruns', title: 'Pipeline Runs', icon: 'M4 4h16a1 1 0 011 1v14a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1zm4.5 3.5v9l7-4.5-7-4.5z' },
-            { route: 'pipelines', title: 'Pipelines', icon: 'M9 17V7h2v10H9zm4-12h2v12h-2V5zm4 4h2v8h-2V9zM3 3h18v2H3V3z' },
-            { route: 'secrets', title: 'Secrets', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
-            { route: 'steps', title: 'Steps', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
-            {
-                route: 'environment',
-                title: 'Environments',
-                iconMarkup: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3a9 9 0 100 18 9 9 0 000-18z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.6 9h16.8M3.6 15h16.8M12 3a15 15 0 010 18M12 3a15 15 0 000 18"/>'
-            },
-            { route: 'monitoring', title: 'Monitoring', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
-            {
-                route: 'triggers',
-                title: 'Triggers',
-                iconMarkup: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12h3l3 8l4-16l3 8h4"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h6"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 19h3"/>'
-            },
-            { route: 'system', title: 'System', icon: 'M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4' },
+            { route: 'pipelineruns', title: 'Pipeline Runs', iconSvg: SIDEBAR_ICON_SVGS.pipelineruns, logoClass: 'step-logo--pipelineruns' },
+            { route: 'pipelines', title: 'Pipelines', iconSvg: SIDEBAR_ICON_SVGS.pipelines, logoClass: 'step-logo--pipelines' },
+            { route: 'steps', title: 'Steps', iconSvg: SIDEBAR_ICON_SVGS.steps, logoClass: 'step-logo--steps' },
+            { route: 'secrets', title: 'Secrets', iconSvg: SIDEBAR_ICON_SVGS.secrets, logoClass: 'step-logo--secrets' },
+            { route: 'environment', title: 'Environments', iconSvg: SIDEBAR_ICON_SVGS.environment, logoClass: 'step-logo--environment' },
+            { route: 'monitoring', title: 'Monitoring', iconSvg: SIDEBAR_ICON_SVGS.monitoring, logoClass: 'step-logo--monitoring' },
+            { route: 'triggers', title: 'Triggers', iconSvg: SIDEBAR_ICON_SVGS.triggers, logoClass: 'step-logo--triggers' },
+            { route: 'system', title: 'System', iconSvg: SIDEBAR_ICON_SVGS.system, logoClass: 'step-logo--system' },
         ];
 
         let baseNavHtml = navConfig.map(item => {
             const isActive = activeRoute === item.route;
-            const iconMarkup = item.iconMarkup || `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${item.icon}"/>`;
-            return `<a href="#/${item.route}" class="sidebar-link flex items-center p-2 text-[var(--text-primary)] rounded-md transition-colors duration-200 group ${isActive ? 'active' : ''}" data-navigo>
-                        <svg class="h-5 w-5 mr-3 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">${iconMarkup}</svg>
+            const iconSvg = item.iconSvg || `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>`;
+            const iconHtml = buildSidebarLogo(iconSvg, 'menu', item.logoClass || '');
+            return `<a href="#/${item.route}" class="sidebar-link flex items-center gap-3 p-2 text-[var(--text-primary)] rounded-md transition-colors duration-200 group ${isActive ? 'active' : ''}" data-navigo>
+                        ${iconHtml}
                         <span>${item.title}</span>
                     </a>`;
         }).join('');
@@ -1772,15 +1790,15 @@ if (dx !== 0 || dy !== 0) {
                 : `<div class="w-5 h-4 mr-1"></div>`;
 
             const folderIconSvg = `<svg class="h-4 w-4 mr-2 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>`;
-            const repoIconSvg = `<svg class="h-4 w-4 mr-2 text-[var(--text-accent)] flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="8" cy="7" r="2" fill="currentColor" /><circle cx="8" cy="17" r="2" fill="currentColor" /><circle cx="16" cy="7" r="2" fill="currentColor" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 7h4M8 9v6a4 4 0 004 4h4"/></svg>`;
-            const iconSvg = isRepo ? repoIconSvg : folderIconSvg;
+            const repoIconSvg = `<svg class="h-4 w-4 mr-2 text-[var(--text-accent)] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="8" cy="7" r="2" fill="currentColor" /><circle cx="8" cy="17" r="2" fill="currentColor" /><circle cx="16" cy="7" r="2" fill="currentColor" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 7h4"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9v6a4 4 0 004 4h4"/></svg>`;
+            const iconHtml = isRepo ? repoIconSvg : folderIconSvg;
 
             html += `<li data-group-id="${group.id}" draggable="true">
                             <div class="flex items-center justify-between p-2 text-[var(--text-primary)] rounded-md group-header-container ${isActive ? 'bg-[var(--bg-tertiary)]' : ''}">
                                 <div class="flex items-center group-header flex-grow cursor-pointer ${isExpanded ? 'expanded' : ''}">
                                     ${chevron}
                                     <a href="${groupHref}" class="flex items-center flex-grow">
-                                        ${iconSvg}
+                                        ${iconHtml}
                                         <span class="truncate">${displayName}</span>
                                     </a>
                                 </div>
@@ -1818,11 +1836,13 @@ if (dx !== 0 || dy !== 0) {
             const isExpanded = state.expandedGroups.has(branchId);
             const chevron = `<svg class="h-4 w-4 mr-1 text-[var(--text-secondary)] chevron ${isExpanded ? 'rotate-90' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>`;
 
+            const branchIconHtml = `<svg class="h-4 w-4 mr-2 text-[var(--text-accent)] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>`;
+
             html += `<li data-branch-id="${branchId}" data-repo-group-id="${repoGroupId}">
                             <div class="flex items-center justify-between p-2 text-[var(--text-primary)] rounded-md group-header cursor-pointer">
                                 <div class="flex items-center min-w-0">
                                     ${chevron}
-                                    <svg class="h-4 w-4 mr-2 text-[var(--text-accent)] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                                    ${branchIconHtml}
                                     <span class="truncate">${escapeText(branch)}</span>
                                 </div>
                                 <div class="flex items-center gap-1 branch-actions">

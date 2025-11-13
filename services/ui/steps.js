@@ -73,6 +73,25 @@
     const DOM = {};
     let context = null;
 
+    const STEP_LOGO_SVG = `
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 10l6-3 6 3-6 3-6-3z"></path>
+            <path d="M6 14l6 3 6-3"></path>
+            <path d="M6 18l6 3 6-3"></path>
+        </svg>`;
+
+    function buildStepLogo(variant = '', extraClass = '', innerSvg) {
+        const variantClass = variant ? ` step-logo--${variant}` : '';
+        const extra = extraClass ? ` ${extraClass}` : '';
+        const content = innerSvg || STEP_LOGO_SVG;
+        return `<span class="step-logo${variantClass}${extra}" aria-hidden="true">${content}</span>`;
+    }
+
+    global.NopsAI = global.NopsAI || {};
+    global.NopsAI.ui = global.NopsAI.ui || {};
+    global.NopsAI.ui.renderStepLogo = buildStepLogo;
+    global.NopsAI.ui.stepLogoSvg = STEP_LOGO_SVG;
+
     const TOAST_TIMEOUT = 4000;
     const STEP_ENV_REFRESH_MS = 2 * 60 * 1000;
 
@@ -782,9 +801,12 @@
         return `
             <article class="pipeline-card bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg shadow-sm transition-all duration-200 p-3 flex flex-col ${isActive ? 'ring-2 ring-indigo-500 border-indigo-400' : ''}" data-step-id="${idAttr}" tabindex="0" role="button" aria-label="Open step ${escapeHtml(entry.displayName)}">
                 <div class="pipeline-card-header flex items-start justify-between gap-3">
-                    <div class="pipeline-card-text min-w-0">
-                        <h3 class="pipeline-card-title">${escapeHtml(entry.displayName)}</h3>
-                        <p class="pipeline-card-path">${escapeHtml(folderPath)}</p>
+                    <div class="flex items-center gap-3 min-w-0">
+                        ${buildStepLogo('card', 'step-logo--steps')}
+                        <div class="pipeline-card-text min-w-0">
+                            <h3 class="pipeline-card-title">${escapeHtml(entry.displayName)}</h3>
+                            <p class="pipeline-card-path">${escapeHtml(folderPath)}</p>
+                        </div>
                     </div>
                     <div class="pipeline-card-actions">
                         ${deleteButtonHtml}
@@ -840,8 +862,8 @@
             const isActive = activeStep === entry.id;
             html += `
                 <li>
-                    <a href="${buildStepHash(entry.id)}" class="sidebar-link flex items-center p-2 text-[var(--text-primary)] rounded-md transition-colors duration-200 ${isActive ? 'active' : ''}" data-step-link="${escapeAttribute(entry.id)}">
-                        <svg class="h-4 w-4 mr-2 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h4l2 2h6a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm3 4h10m-10 4h6"/></svg>
+                    <a href="${buildStepHash(entry.id)}" class="sidebar-link flex items-center gap-2 p-2 text-[var(--text-primary)] rounded-md transition-colors duration-200 ${isActive ? 'active' : ''}" data-step-link="${escapeAttribute(entry.id)}">
+                        ${buildStepLogo('sidebar', 'step-logo--steps')}
                         <span class="truncate">${escapeHtml(entry.displayName)}</span>
                     </a>
                 </li>`;
