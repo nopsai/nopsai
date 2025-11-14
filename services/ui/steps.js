@@ -6,7 +6,7 @@
         { key: 'image', hint: 'Override container image' },
         { key: 'secrets', hint: 'Step secrets' },
         { key: 'volumes', hint: 'Mount volumes' },
-        { key: 'environment', hint: 'Step environment variables' },
+        { key: 'environment', hint: 'Step scope variables' },
         { key: 'tasks', hint: 'Nested tasks list' },
         { key: 'condition', hint: 'Conditional execution' },
         { key: 'goal', hint: 'LLM goal prompt' },
@@ -984,7 +984,7 @@
         }
         bindBeforeUnload();
         updateStepSuggestionPanelVisibility(true);
-        ensureStepEnvironmentSuggestions().catch(err => console.error('Failed to load environment suggestions:', err));
+        ensureStepEnvironmentSuggestions().catch(err => console.error('Failed to load scope suggestions:', err));
         ensureStepSecretSuggestions().catch(err => console.error('Failed to load secrets suggestions:', err));
     }
 
@@ -1532,7 +1532,7 @@
                 });
             }
         } catch (error) {
-            console.error('Failed to fetch environment scope list for step editor:', error);
+            console.error('Failed to fetch scope list for step editor:', error);
         }
         return Array.from(labels).sort((a, b) => {
             if (a === b) return 0;
@@ -1593,7 +1593,7 @@
             state.environmentSuggestionCache.set(normalized, variables);
             return variables;
         } catch (error) {
-            console.error(`Failed to load environment variables for '/${normalized || ''}'`, error);
+            console.error(`Failed to load scope variables for '/${normalized || ''}'`, error);
             return [];
         }
     }
@@ -1657,14 +1657,14 @@
 
         if (mode === 'environment') {
             setStepSuggestionPanelCopy({
-                title: 'Environment variables',
+                title: 'Scope variables',
                 subtitle: 'Select a variable name to insert it.',
                 footnote: 'Variables resolve based on the selected scope when the step runs.',
             });
             const envSections = buildEnvironmentSuggestionSections(state.environmentSuggestions);
             if (!envSections.length) {
                 list.innerHTML = '';
-                emptyState.textContent = state.environmentSuggestionPromise ? 'Loading environment variables…' : 'No environment variables available yet.';
+                emptyState.textContent = state.environmentSuggestionPromise ? 'Loading scope variables…' : 'No scope variables available yet.';
                 emptyState.classList.remove('hidden');
                 updateStepSuggestionOverlayPosition();
                 return;
@@ -1679,7 +1679,7 @@
             setStepSuggestionPanelCopy({
                 title: 'Secrets',
                 subtitle: 'Insert the secret name into the step definition.',
-                footnote: 'Secrets are resolved based on environment scope.',
+                footnote: 'Secrets are resolved based on scope selection.',
             });
             const secretSection = buildStepSecretSection(state.secretSuggestions);
             if (!secretSection) {
@@ -1777,7 +1777,7 @@
     function buildEnvironmentSuggestionSections(summaries = []) {
         if (!summaries.length) {
             if (state.environmentSuggestionPromise) {
-                return [`<article class="env-suggestion-item"><div class="env-suggestion-env"><span class="env-suggestion-env-label">Environment variables</span></div><div class="env-suggestion-variables"><span class="env-suggestion-pill env-suggestion-pill--more">Loading variables…</span></div></article>`];
+                return [`<article class="env-suggestion-item"><div class="env-suggestion-env"><span class="env-suggestion-env-label">Scope variables</span></div><div class="env-suggestion-variables"><span class="env-suggestion-pill env-suggestion-pill--more">Loading variables…</span></div></article>`];
             }
             return [];
         }
