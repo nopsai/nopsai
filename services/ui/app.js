@@ -310,8 +310,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const pipelinesModule = pageModules.pipelines || null;
     const stepsModule = pageModules.steps || null;
     const triggersModule = pageModules.triggers || null;
-    const secretsModule = pageModules.secrets || null;
-    const environmentModule = pageModules.environment || null;
+    const scopesModule = pageModules.scopes || null;
 
     if (logsModule && typeof logsModule.init === 'function') {
         logsModule.init({ state, DOM, fetchData });
@@ -333,12 +332,8 @@ document.addEventListener('DOMContentLoaded', () => {
         triggersModule.init(context);
     }
 
-    if (secretsModule && typeof secretsModule.init === 'function') {
-        secretsModule.init(context);
-    }
-
-    if (environmentModule && typeof environmentModule.init === 'function') {
-        environmentModule.init(context);
+    if (scopesModule && typeof scopesModule.init === 'function') {
+        scopesModule.init(context);
     }
 
     async function router(hashOverride) {
@@ -503,33 +498,18 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        if (path === 'secrets' && secretsModule && typeof secretsModule.handleRoute === 'function') {
+        if (path === 'scopes' && scopesModule && typeof scopesModule.handleRoute === 'function') {
             if (DOM.pageContentWrapper) {
                 DOM.pageContentWrapper.classList.remove('no-scroll');
             }
             if (pipelineRunsModule && typeof pipelineRunsModule.renderSidebarForRoute === 'function') {
                 try {
-                    await pipelineRunsModule.renderSidebarForRoute('secrets');
+                    await pipelineRunsModule.renderSidebarForRoute('scopes');
                 } catch (error) {
-                    console.error('Failed to render secrets sidebar navigation:', error);
+                    console.error('Failed to render scopes sidebar navigation:', error);
                 }
             }
-            await secretsModule.handleRoute(hash);
-            return;
-        }
-
-        if (path === 'environment' && environmentModule && typeof environmentModule.handleRoute === 'function') {
-            if (DOM.pageContentWrapper) {
-                DOM.pageContentWrapper.classList.remove('no-scroll');
-            }
-            if (pipelineRunsModule && typeof pipelineRunsModule.renderSidebarForRoute === 'function') {
-                try {
-                    await pipelineRunsModule.renderSidebarForRoute('environment');
-                } catch (error) {
-                    console.error('Failed to render environment sidebar navigation:', error);
-                }
-            }
-            await environmentModule.handleRoute(hash);
+            await scopesModule.handleRoute(hash);
             return;
         }
 

@@ -226,8 +226,7 @@ function buildSidebarLogo(svgMarkup, variant = 'list', logoClass = '') {
         pipelineruns: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="14" rx="3"></rect><path d="M11 9l4 3-4 3V9z" fill="currentColor" stroke="none"></path></svg>`,
         pipelines: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10"></path><path d="M7 17h10"></path><circle cx="7" cy="7" r="1.6" fill="currentColor" stroke="none"></circle><circle cx="17" cy="7" r="1.6" fill="currentColor" stroke="none"></circle><circle cx="7" cy="17" r="1.6" fill="currentColor" stroke="none"></circle><circle cx="17" cy="17" r="1.6" fill="currentColor" stroke="none"></circle><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"></circle></svg>`,
         steps: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 10l6-3 6 3-6 3-6-3z"></path><path d="M6 14l6 3 6-3"></path><path d="M6 18l6 3 6-3"></path></svg>`,
-        secrets: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 11V8a4 4 0 118 0v3"></path><rect x="6" y="11" width="12" height="9" rx="2"></rect><path d="M12 15v2"></path></svg>`,
-        environment: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 100 18 9 9 0 000-18z"></path><path d="M3.6 9h16.8M3.6 15h16.8M12 3a15 15 0 010 18M12 3a15 15 0 000 18"></path></svg>`,
+        scopes: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l8 4-8 4-8-4 8-4z"></path><path d="M4 12l8 4 8-4"></path><path d="M4 16l8 4 8-4"></path></svg>`,
         triggers: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3L6 14h6l-2 7 9-13h-6z"></path></svg>`,
         monitoring: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h2l2.5-6 4 12 3-8H20"></path></svg>`,
         system: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path></svg>`,
@@ -1743,8 +1742,7 @@ if (dx !== 0 || dy !== 0) {
             { route: 'pipelineruns', title: 'Pipeline Runs', iconSvg: SIDEBAR_ICON_SVGS.pipelineruns, logoClass: 'step-logo--pipelineruns' },
             { route: 'pipelines', title: 'Pipelines', iconSvg: SIDEBAR_ICON_SVGS.pipelines, logoClass: 'step-logo--pipelines' },
             { route: 'steps', title: 'Steps', iconSvg: SIDEBAR_ICON_SVGS.steps, logoClass: 'step-logo--steps' },
-            { route: 'secrets', title: 'Secrets', iconSvg: SIDEBAR_ICON_SVGS.secrets, logoClass: 'step-logo--secrets' },
-            { route: 'environment', title: 'Environments', iconSvg: SIDEBAR_ICON_SVGS.environment, logoClass: 'step-logo--environment' },
+            { route: 'scopes', title: 'Scopes', iconSvg: SIDEBAR_ICON_SVGS.scopes, logoClass: 'step-logo--scopes' },
             { route: 'monitoring', title: 'Monitoring', iconSvg: SIDEBAR_ICON_SVGS.monitoring, logoClass: 'step-logo--monitoring' },
             { route: 'triggers', title: 'Triggers', iconSvg: SIDEBAR_ICON_SVGS.triggers, logoClass: 'step-logo--triggers' },
             { route: 'system', title: 'System', iconSvg: SIDEBAR_ICON_SVGS.system, logoClass: 'step-logo--system' },
@@ -1805,32 +1803,18 @@ if (dx !== 0 || dy !== 0) {
                     console.error('Failed to render steps sidebar tree:', error);
                 }
             }
-        } else if (activeRoute === 'secrets') {
+        } else if (activeRoute === 'scopes') {
             detailsNavHtml = `<div class="px-2 mt-2 mb-2 flex items-center justify-between">
-                                  <h2 class="text-xs font-semibold tracking-wider text-[var(--text-secondary)] uppercase">Secrets</h2>
+                                  <h2 class="text-xs font-semibold tracking-wider text-[var(--text-secondary)] uppercase">Scopes</h2>
                               </div>
-                              <div id="secrets-sidebar-tree"></div>`;
+                              <div id="scopes-sidebar-tree"></div>`;
             DOM.sidebarDetailsNav.innerHTML = detailsNavHtml;
-            const secretsModule = window.NopsAI.pages?.secrets;
-            if (secretsModule && typeof secretsModule.renderSidebarForRoute === 'function') {
+            const scopesModule = window.NopsAI.pages?.scopes;
+            if (scopesModule && typeof scopesModule.renderSidebarForRoute === 'function') {
                 try {
-                    secretsModule.renderSidebarForRoute();
+                    scopesModule.renderSidebarForRoute();
                 } catch (error) {
-                    console.error('Failed to render secrets sidebar tree:', error);
-                }
-            }
-        } else if (activeRoute === 'environment') {
-            detailsNavHtml = `<div class="px-2 mt-2 mb-2 flex items-center justify-between">
-                                  <h2 class="text-xs font-semibold tracking-wider text-[var(--text-secondary)] uppercase">Environments</h2>
-                              </div>
-                              <div id="environment-sidebar-tree"></div>`;
-            DOM.sidebarDetailsNav.innerHTML = detailsNavHtml;
-            const environmentModule = window.NopsAI.pages?.environment;
-            if (environmentModule && typeof environmentModule.renderSidebarForRoute === 'function') {
-                try {
-                    environmentModule.renderSidebarForRoute();
-                } catch (error) {
-                    console.error('Failed to render environment sidebar tree:', error);
+                    console.error('Failed to render scopes sidebar tree:', error);
                 }
             }
         } else if (activeRoute === 'pipelineruns') {
@@ -4447,7 +4431,7 @@ async function renderModalForStep(runId, stepName, parentContext = null) {
         }
         if (stepDef?.environment && Object.keys(stepDef.environment).length > 0) {
             const envList = Object.entries(stepDef.environment).map(([k, v]) => `<li class="step-config-row"><span class="step-config-label">${escapeHtml(k)}:</span><span class="step-config-value">${escapeHtml(v)}</span></li>`).join('');
-            configHTML += `<div class="step-config-list"><h4>Environments</h4><ul>${envList}</ul></div>`;
+            configHTML += `<div class="step-config-list"><h4>Scope Variables</h4><ul>${envList}</ul></div>`;
         }
         addConfigRow('Ignore Failure', boolBadge(!!stepDef?.ignore_failure));
         addConfigRow('Sync', boolBadge(!!step.sync));
