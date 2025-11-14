@@ -1125,7 +1125,7 @@
                     errorMap.get(lineNumber).push(err.message);
                 }
             });
-            DOM['step-line-numbers'].innerHTML = lines.map((_, idx) => {
+            const numbersHtml = lines.map((_, idx) => {
                 const lineNumber = idx + 1;
                 const messages = errorMap.get(lineNumber);
                 const classes = ['line-number'];
@@ -1137,13 +1137,15 @@
                     : '';
                 return `<div class="${classes.join(' ')}" data-line-number="${lineNumber}"${titleAttr}>${lineNumber}</div>`;
             }).join('');
-            DOM['step-line-numbers'].scrollTop = DOM['step-yaml-editor'].scrollTop;
+            DOM['step-line-numbers'].innerHTML = `<div class="line-number-track">${numbersHtml}</div>`;
+            syncLineNumbersScroll();
         }
     }
 
     function syncLineNumbersScroll() {
         if (DOM['step-line-numbers'] && DOM['step-yaml-editor']) {
-            DOM['step-line-numbers'].scrollTop = DOM['step-yaml-editor'].scrollTop;
+            const offset = DOM['step-yaml-editor'].scrollTop || 0;
+            DOM['step-line-numbers'].style.setProperty('--line-number-scroll', `${offset}px`);
         }
         syncStepHighlightScroll();
     }

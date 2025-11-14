@@ -562,10 +562,6 @@
                             <div id="secret-detail" class="hidden">
                                 <div class="env-detail-shell">
                                     <div class="env-detail-header">
-                                        <div>
-                                            <p class="text-xs font-semibold tracking-wide text-[var(--text-secondary)] uppercase">Secret scope</p>
-                                            <h2 id="secret-detail-title" class="text-2xl font-semibold text-[var(--text-primary)]">/</h2>
-                                        </div>
                                         <button id="secret-back-btn" class="glass-button-ghost hidden" style="position: absolute; right: 0;">
                                             <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
                                             <span>Back</span>
@@ -584,7 +580,6 @@
                                                         </span>
                                                     </button>
                                                 </header>
-                                                <div id="secret-variable-empty" class="env-card-empty">No secrets stored for this scope yet.</div>
                                                 <div id="secret-variable-list" class="env-variable-list"></div>
                                             </section>
                                         </aside>
@@ -592,7 +587,6 @@
                                             <div class="env-variable-detail-header">
                                                 <div class="env-variable-detail-titles">
                                                     <p id="secret-variable-detail-label" class="env-variable-detail-name">Select a secret to inspect details.</p>
-                                                    <p id="secret-variable-subtitle" class="text-sm text-[var(--text-secondary)]">Select a secret to inspect details.</p>
                                                     <div class="env-variable-detail-meta">
                                                         <div id="secret-variable-detail-source" class="env-variable-detail-meta-item hidden">
                                                             <span class="env-variable-detail-meta-label">Source</span>

@@ -361,9 +361,7 @@
                 updateEditorSuggestions();
             });
             DOM['pipeline-yaml-editor'].addEventListener('scroll', () => {
-                if (DOM['line-numbers']) {
-                    DOM['line-numbers'].scrollTop = DOM['pipeline-yaml-editor'].scrollTop;
-                }
+                syncPipelineLineNumberScroll();
                 syncPipelineHighlightScroll();
                 updateInlineSuggestionPosition();
             });
@@ -2988,31 +2986,36 @@ function formatPathLabel(path) {
     }
 
     function updateLineNumbers() {
-        if (!DOM['pipeline-yaml-editor']) return;
-        if (DOM['line-numbers']) {
-            const lines = DOM['pipeline-yaml-editor'].value.split('\n');
-            const errorMap = new Map();
-            (state.editorValidationErrors || []).forEach(err => {
-                if (!err || typeof err.line !== 'number') return;
-                if (!errorMap.has(err.line)) {
-                    errorMap.set(err.line, []);
-                }
-                errorMap.get(err.line).push(err.message);
-            });
-            DOM['line-numbers'].innerHTML = lines.map((_, idx) => {
-                const lineNumber = idx + 1;
-                const messages = errorMap.get(lineNumber);
-                const classes = ['line-number'];
-                if (messages && messages.length) {
-                    classes.push('line-number--error');
-                }
-                const titleAttr = messages && messages.length
-                    ? ` title="${escapeAttribute(messages.join('\n'))}"`
-                    : '';
-                return `<div class="${classes.join(' ')}" data-line-number="${lineNumber}"${titleAttr}>${lineNumber}</div>`;
-            }).join('');
-            DOM['line-numbers'].scrollTop = DOM['pipeline-yaml-editor'].scrollTop;
-        }
+        if (!DOM['pipeline-yaml-editor'] || !DOM['line-numbers']) return;
+        const lines = DOM['pipeline-yaml-editor'].value.split('\n');
+        const errorMap = new Map();
+        (state.editorValidationErrors || []).forEach(err => {
+            if (!err || typeof err.line !== 'number') return;
+            if (!errorMap.has(err.line)) {
+                errorMap.set(err.line, []);
+            }
+            errorMap.get(err.line).push(err.message);
+        });
+        const numbersHtml = lines.map((_, idx) => {
+            const lineNumber = idx + 1;
+            const messages = errorMap.get(lineNumber);
+            const classes = ['line-number'];
+            if (messages && messages.length) {
+                classes.push('line-number--error');
+            }
+            const titleAttr = messages && messages.length
+                ? ` title="${escapeAttribute(messages.join('\n'))}"`
+                : '';
+            return `<div class="${classes.join(' ')}" data-line-number="${lineNumber}"${titleAttr}>${lineNumber}</div>`;
+        }).join('');
+        DOM['line-numbers'].innerHTML = `<div class="line-number-track">${numbersHtml}</div>`;
+        syncPipelineLineNumberScroll();
+    }
+
+    function syncPipelineLineNumberScroll() {
+        if (!DOM['line-numbers'] || !DOM['pipeline-yaml-editor']) return;
+        const offset = DOM['pipeline-yaml-editor'].scrollTop || 0;
+        DOM['line-numbers'].style.setProperty('--line-number-scroll', `${offset}px`);
     }
 
     function updatePipelineEditorHighlight() {
