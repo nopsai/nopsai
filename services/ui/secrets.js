@@ -19,9 +19,6 @@
         triggersByEnv: new Map(),
         pipelinesByEnv: new Map(),
         scopeLoadPromise: null,
-        secretValues: new Map(),
-        secretValuePromises: new Map(),
-        expandedSecret: null,
     };
 
     const DOM = {};
@@ -871,7 +868,6 @@
             state.selectedScopeKey = null;
         }
         state.selectedSecret = null;
-        state.expandedSecret = null;
         clearSecretDetail();
         if (options.showList !== false) {
             showSecretListView();
@@ -1299,14 +1295,12 @@
         if (!scope) {
             state.selectedScopeKey = null;
             state.activeFolderKey = '';
-            state.expandedSecret = null;
             renderSidebarTree();
             showSecretListView();
             return;
         }
 
         state.selectedScopeKey = scope.key;
-        state.expandedSecret = null;
         const folderKey = getScopeParentFolderPath(scope);
         setActiveFolder(folderKey, { ensure: true, refreshList: false });
         showSecretDetailView();
@@ -1459,21 +1453,6 @@
             });
         });
 
-        container.querySelectorAll('[data-secret-variable-show]').forEach(button => {
-            button.addEventListener('click', async event => {
-                event.preventDefault();
-                event.stopPropagation();
-                const item = button.closest('[data-secret-variable-item]');
-                if (!item) return;
-                const secretName = item.getAttribute('data-secret-variable-full');
-                const scopeKey = item.getAttribute('data-secret-variable-scope') || scope.key;
-                if (state.selectedSecret !== secretName) {
-                    await selectSecret(secretName, { silent: true, skipHash: true });
-                }
-                await toggleSecretValue(scopeKey, secretName, item, button);
-            });
-        });
-
         container.querySelectorAll('[data-secret-variable-action]').forEach(button => {
             button.addEventListener('click', async event => {
                 event.preventDefault();
@@ -1606,22 +1585,18 @@
         const scopeRef = state.scopeMap.get(scopeKey) || state.scopeMap.get(state.selectedScopeKey || DEFAULT_SCOPE_KEY);
 
         const groups = items.map(item => {
-            const isExpanded = state.expandedSecret === item.full;
             const isActive = item.full === state.selectedSecret;
             const sourceKey = getSecretSourceForSecret(item.full, scopeRef);
             const isEditable = isSecretSourceEditable(sourceKey);
 
             return `
-                <div class="env-variable-item${isActive ? ' env-variable-item--active' : ''}${isExpanded ? ' env-variable-item--expanded' : ''}" data-secret-variable-item data-secret-variable-full="${escapeAttribute(item.full)}" data-secret-variable-scope="${escapeAttribute(scopeKey)}">
+                <div class="env-variable-item${isActive ? ' env-variable-item--active' : ''}" data-secret-variable-item data-secret-variable-full="${escapeAttribute(item.full)}" data-secret-variable-scope="${escapeAttribute(scopeKey)}">
                     <div class="env-variable-info">
                         <button type="button" class="env-variable-btn${isActive ? ' env-variable-btn--active' : ''}" data-secret-variable="${escapeAttribute(item.full)}">
                             <span class="truncate">${escapeHtml(item.display)}</span>
                         </button>
                     </div>
                     <div class="env-variable-inline-actions">
-                        <button type="button" class="env-inline-icon" data-secret-variable-show title="Show value">
-                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
-                        </button>
                         ${isEditable ? `
                         <button type="button" class="env-inline-icon" data-secret-variable-action="edit" title="Edit secret">
                             <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1696,119 +1671,9 @@
         if (!container) return;
         container.querySelectorAll('[data-secret-variable-item]').forEach(item => {
             const secretFull = item.getAttribute('data-secret-variable-full');
-            const scopeKey = item.getAttribute('data-secret-variable-scope') || '';
-            const scopeRef = state.scopeMap.get(scopeKey) || state.scopeMap.get(state.selectedScopeKey || DEFAULT_SCOPE_KEY) || null;
-            const scopeLabel = scopeRef?.scopeName || '';
-            const cacheKey = makeSecretValueCacheKey(secretFull, scopeLabel);
-            const value = state.secretValues.get(cacheKey); // Secrets are never shown, only a placeholder
-            const isExpanded = state.expandedSecret === secretFull;
-            const showButton = item.querySelector('[data-secret-variable-show]');
+            const isActive = secretFull === state.selectedSecret;
             const valueContainer = item.querySelector('[data-secret-variable-value]');
-
-            item.classList.toggle('env-variable-item--expanded', isExpanded);
-            if (showButton) {
-                showButton.setAttribute('aria-label', isExpanded ? 'Hide value' : 'Show value');
-                const isLoading = showButton.dataset.loading === 'true';
-                showButton.classList.toggle('loading', isLoading);
-                showButton.classList.toggle('env-inline-icon--active', isExpanded);
-                showButton.disabled = isLoading;
-            }
-            if (valueContainer) {
-                const displayValue = value ? '********' : '(empty)';
-                if (isExpanded) {
-                    valueContainer.textContent = displayValue;
-                    valueContainer.setAttribute('title', displayValue);
-                } else {
-                    valueContainer.textContent = '';
-                    valueContainer.removeAttribute('title');
-                }
-            }
         });
-    }
-
-    async function toggleSecretValue(scopeKey, secretName, item, button) {
-        const scopeRef = state.scopeMap.get(scopeKey) || state.scopeMap.get(state.selectedScopeKey || DEFAULT_SCOPE_KEY) || null;
-        if (!scopeRef) return;
-
-        if (state.expandedSecret === secretName) {
-            state.expandedSecret = null;
-            updateSecretItemStates();
-            return;
-        }
-
-        const cacheKey = makeSecretValueCacheKey(secretName, scopeRef.scopeName || '');
-        let value = state.secretValues.get(cacheKey);
-        if (value == null) {
-            try {
-                button.dataset.loading = 'true';
-                button.classList.add('loading');
-                button.disabled = true;
-                value = await fetchSecretValue(scopeRef, secretName);
-                state.secretValues.set(cacheKey, value ?? '');
-            } catch (error) {
-                console.error('Failed to fetch secret value:', error);
-                if (typeof showToast === 'function') {
-                    showToast('Failed to load secret value.', 'error');
-                }
-            } finally {
-                button.disabled = false;
-                button.dataset.loading = 'false';
-                button.classList.remove('loading');
-            }
-        }
-
-        state.expandedSecret = secretName;
-        updateSecretItemStates();
-    }
-
-    async function fetchSecretValue(scope, secretName) {
-        if (!context || typeof context.fetchData !== 'function') return '';
-        const identity = parseSecretIdentity(secretName);
-        const scopeLabel = scope?.scopeName || '';
-        const cacheKey = makeSecretValueCacheKey(secretName, scopeLabel);
-
-        if (state.secretValues.has(cacheKey)) {
-            return state.secretValues.get(cacheKey);
-        }
-        if (state.secretValuePromises.has(cacheKey)) {
-            return state.secretValuePromises.get(cacheKey);
-        }
-
-        let url = '';
-        if (identity.repoOwner && identity.repoName) {
-            url = `/v1/repositories/${encodeURIComponent(identity.repoOwner)}/${encodeURIComponent(identity.repoName)}/secrets/${encodeURIComponent(identity.name)}`;
-        } else {
-            url = `/v1/secrets/${encodeURIComponent(identity.name)}`;
-        }
-        if (scopeLabel) {
-            url += `?env=${encodeURIComponent(scopeLabel)}`;
-        }
-
-        const promise = (async () => {
-            const { status, data, error } = await fetchSecretResource(url);
-            try {
-                if (status === 404) {
-                    return '';
-                }
-                if (error) {
-                    throw error;
-                }
-                if (data && typeof data === 'object' && data.value != null) {
-                    return String(data.value);
-                }
-                if (typeof data === 'string') {
-                    return data;
-                }
-                return '';
-            } finally {
-                state.secretValuePromises.delete(cacheKey);
-            }
-        })();
-
-        state.secretValuePromises.set(cacheKey, promise);
-        const value = await promise;
-        state.secretValues.set(cacheKey, value);
-        return value;
     }
 
     function parseSecretIdentity(secretName) {
@@ -2184,17 +2049,10 @@
         const repoSlug = identity.repoOwner && identity.repoName ? `${identity.repoOwner}/${identity.repoName}` : '';
         const baseName = identity.name || secretName;
         const suggestion = suggestSecretCloneName(scope, repoSlug, baseName);
-        let seedValue = '';
-        try {
-            seedValue = await fetchSecretValue(scope, secretName);
-        } catch (error) {
-            console.warn('Unable to prefill cloned secret value', error);
-        }
         openEditModal('create', {
             scopeKey: scope.key,
             repository: repoSlug,
             nameSuggestion: suggestion,
-            valuePreset: seedValue,
         });
     }
     
@@ -2370,11 +2228,6 @@
                 body: JSON.stringify({ value }),
             });
             showToast(mode === 'update' ? 'Secret value updated.' : 'Secret created.', 'success');
-            const cacheKey = makeSecretValueCacheKey(secretName, scope.scopeName || '');
-            state.secretValues.delete(cacheKey);
-            if (state.secretValuePromises instanceof Map) {
-                state.secretValuePromises.delete(cacheKey);
-            }
             closeModal('secret-edit-modal');
             await ensureScopeSecretsLoaded(scope, true);
             syncScopeVisibility(scope);
@@ -2430,11 +2283,6 @@
 
         try {
             await context.deleteData(url);
-            const cacheKey = makeSecretValueCacheKey(name, scope.scopeName || '');
-            state.secretValues.delete(cacheKey);
-            if (state.secretValuePromises instanceof Map) {
-                state.secretValuePromises.delete(cacheKey);
-            }
             return true;
         } catch (error) {
             console.error('Failed to delete secret:', error);
