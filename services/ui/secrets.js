@@ -38,6 +38,8 @@
     const DEFAULT_SCOPE_KEY = buildScopeKey('', '');
     const SAMPLE_SCOPE_VARIABLE = 'sample_variable';
     const SAMPLE_SCOPE_VALUE = 'Replace with your %SCOPE% scope value.';
+    const SAMPLE_SCOPE_SECRET = 'sample_secret';
+    const SAMPLE_SCOPE_SECRET_VALUE = 'Replace with your %SCOPE% secret value.';
 
     function init(ctx) {
         if (initialized && context === ctx) {
@@ -57,13 +59,13 @@
             'secret-list-view', 'secret-detail-view', 'secret-detail', 'secret-back-btn',
             'secret-detail-title', 'secret-variable-list', 'secret-variable-empty',
             'secret-variable-pipelines',
-            'secret-variable-triggers', 'secret-create-btn',
+            'secret-variable-triggers', 'scope-create-btn',
             'secret-edit-modal', 'secret-edit-form', 'secret-edit-name', 'secret-edit-repo', 'secret-edit-value',
             'secret-edit-scope', 'secret-edit-submit', 'secret-delete-modal', 'secret-delete-message',
             'secret-confirm-delete-btn', 'secret-variable-detail-label', 'secret-variable-detail-source',
             'secret-variable-detail-updated', 'secret-variable-detail-created',
             'secret-suggestion-panel', 'secret-suggestion-list', 'secret-suggestion-empty',
-            'environment-create-btn', 'environment-create-environment', 'environment-variable-list', 'environment-variable-empty',
+            'environment-variable-list', 'environment-variable-empty',
             'environment-variable-pipelines', 'environment-variable-triggers',
             'environment-edit-modal', 'environment-edit-form', 'environment-edit-name', 'environment-edit-repo', 'environment-edit-value',
             'environment-edit-scope', 'environment-edit-submit', 'environment-delete-modal', 'environment-delete-message',
@@ -96,10 +98,12 @@
                 window.location.hash = '#/scopes';
             });
         }
-        if (DOM['secret-create-btn']) {
-            DOM['secret-create-btn'].addEventListener('click', () => {
+        if (DOM['scope-create-btn']) {
+            DOM['scope-create-btn'].addEventListener('click', () => {
                 const scopeKey = state.selectedScopeKey || DEFAULT_SCOPE_KEY;
-                openEditModal('create', { scopeKey });
+                const scope = state.scopeMap instanceof Map ? state.scopeMap.get(scopeKey) : null;
+                const parentPath = getScopeParentFolderPath(scope) || state.activeFolderKey || '';
+                openNewScopeModal(parentPath);
             });
         }
         if (DOM['secret-create-inline']) {
@@ -130,25 +134,11 @@
             DOM['secret-list'].addEventListener('click', handleSecretListClick);
             DOM['secret-list'].addEventListener('keydown', handleSecretListKeydown);
         }
-        if (DOM['environment-create-btn']) {
-            DOM['environment-create-btn'].addEventListener('click', () => {
-                const scopeKey = state.selectedScopeKey || DEFAULT_SCOPE_KEY;
-                openVariableEditModal('create', { scopeKey });
-            });
-        }
         if (DOM['environment-create-inline']) {
             DOM['environment-create-inline'].addEventListener('click', event => {
                 event.preventDefault();
                 const scopeKey = state.selectedScopeKey || DEFAULT_SCOPE_KEY;
                 openVariableEditModal('create', { scopeKey });
-            });
-        }
-        if (DOM['environment-create-environment']) {
-            DOM['environment-create-environment'].addEventListener('click', () => {
-                const scopeKey = state.selectedScopeKey || DEFAULT_SCOPE_KEY;
-                const scope = state.scopeMap.get(scopeKey);
-                const parentPath = getScopeParentFolderPath(scope) || state.activeFolderKey || '';
-                openNewScopeModal(parentPath);
             });
         }
         if (DOM['environment-edit-form']) {
@@ -815,7 +805,7 @@
         }
 
         container.innerHTML = html;
-        updateCreateSecretButtonVisibility({ isSearching });
+        updateCreateScopeButtonVisibility({ isSearching });
         if (DOM['secret-list-empty']) {
             if (showEmpty) {
                 if (isSearching && searchTerm) {
@@ -823,7 +813,7 @@
                 } else if (state.activeFolderKey) {
                     DOM['secret-list-empty'].innerHTML = '<p class="text-sm">No scope folders or scopes inside this path.</p>';
                 } else {
-                    DOM['secret-list-empty'].innerHTML = '<p class="text-sm">No scope folders yet. Add a variable or secret to create one.</p>';
+                    DOM['secret-list-empty'].innerHTML = '<p class="text-sm">No scope folders yet. Create a scope to add one.</p>';
                 }
             }
             DOM['secret-list-empty'].classList.toggle('hidden', !showEmpty);
@@ -832,8 +822,8 @@
         highlightActiveSecretCard();
     }
 
-    function updateCreateSecretButtonVisibility(options = {}) {
-        const button = DOM['secret-create-btn'];
+    function updateCreateScopeButtonVisibility(options = {}) {
+        const button = DOM['scope-create-btn'];
         if (!button) return;
         const isSearching = Object.prototype.hasOwnProperty.call(options, 'isSearching')
             ? !!options.isSearching
@@ -901,7 +891,10 @@
                     <span class="pipeline-folder-icon">
                         <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h5l2 2h9a2 2 0 012 2v7a2 2 0 01-2 2H3a2 2 0 01-2-2V9a2 2 0 012-2z"/></svg>
                     </span>
-                    <h3 class="pipeline-folder-title">${escapeHtml(label)}</h3>
+                    <div class="pipeline-folder-text min-w-0">
+                        <h3 class="pipeline-folder-title">${escapeHtml(label)}</h3>
+                        <p class="pipeline-folder-path text-xs text-[var(--text-secondary)] truncate">${escapeHtml(displayPath)}</p>
+                    </div>
                     <div class="pipeline-folder-actions">
                         <span class="pipeline-folder-chevron" aria-hidden="true"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></span>
                     </div>
@@ -943,51 +936,45 @@ function renderScopeCategoryCard(scope, category) {
     const isVariables = category === 'variables';
     const activeCategory = getSelectedScopeCategory();
     const isActive = scope.key === state.selectedScopeKey && activeCategory === category;
-        const { title, parentPath, fullPath } = describeSecretScope(scope);
-        const variableCount = typeof scope.variableCountHint === 'number'
-            ? scope.variableCountHint
-            : (Array.isArray(scope.variables) ? scope.variables.length : 0);
-        const secretCount = typeof scope.secretCountHint === 'number'
-            ? scope.secretCountHint
-            : (Array.isArray(scope.secrets) ? scope.secrets.length : 0);
-        const triggerCount = scope.triggerCount || 0;
-        const pipelineCount = Array.isArray(scope.pipelines) ? scope.pipelines.length : 0;
+    const { title, fullPath } = describeSecretScope(scope);
+    const variableCount = typeof scope.variableCountHint === 'number'
+        ? scope.variableCountHint
+        : (Array.isArray(scope.variables) ? scope.variables.length : 0);
+    const secretCount = typeof scope.secretCountHint === 'number'
+        ? scope.secretCountHint
+        : (Array.isArray(scope.secrets) ? scope.secrets.length : 0);
+    const triggerCount = scope.triggerCount || 0;
     const typeLabel = isVariables ? 'Variables' : 'Secrets';
     const typeIcon = buildScopeCategoryIcon(category, 'h-6 w-6');
-        const typeCount = isVariables ? variableCount : secretCount;
-        if (!typeCount) {
-            return '';
-        }
-        const ariaLabel = `Open ${typeLabel.toLowerCase()} for scope ${fullPath || '/'}`;
+    const typeCount = isVariables ? variableCount : secretCount;
+    const ariaLabel = `Open ${typeLabel.toLowerCase()} for scope ${fullPath || '/'}`;
 
-        const metaRows = [
-            { label: typeLabel, value: typeCount },
-            { label: 'Pipelines', value: pipelineCount },
-            { label: 'Triggers', value: triggerCount }
-        ];
+    const metaRows = [
+        { label: typeLabel, value: typeCount },
+        { label: 'Triggers', value: triggerCount }
+    ];
 
-        return `
-            <article class="pipeline-card triggers-card scope-card env-scope-card bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg shadow-sm transition-all duration-200 p-3 flex flex-col${isActive ? ' triggers-card--active env-scope-card--active' : ''} scope-card--${category}" data-secret-scope="${escapeAttribute(scope.key)}" data-secret-scope-type="${category}" tabindex="0" role="button" aria-label="${escapeAttribute(ariaLabel)}">
-                <div class="pipeline-card-header flex items-start justify-between gap-3">
-                    <div class="pipeline-card-info">
-                        <span class="triggers-card-icon" aria-hidden="true">${typeIcon}</span>
-                        <div class="pipeline-card-text min-w-0">
-                            <h3 class="pipeline-card-title">${escapeHtml(title)}</h3>
-                            <p class="pipeline-card-path">${escapeHtml(parentPath)}</p>
-                        </div>
+    return `
+        <article class="pipeline-card triggers-card scope-card env-scope-card bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg shadow-sm transition-all duration-200 p-3 flex flex-col${isActive ? ' triggers-card--active env-scope-card--active' : ''} scope-card--${category}" data-secret-scope="${escapeAttribute(scope.key)}" data-secret-scope-type="${category}" tabindex="0" role="button" aria-label="${escapeAttribute(ariaLabel)}">
+            <div class="pipeline-card-header flex items-start justify-between gap-3">
+                <div class="pipeline-card-info">
+                    <span class="triggers-card-icon" aria-hidden="true">${typeIcon}</span>
+                    <div class="pipeline-card-text min-w-0">
+                        <h3 class="pipeline-card-title">${escapeHtml(title)}</h3>
                     </div>
-                    <span class="scope-type-badge scope-type-badge--${category}">${typeLabel}</span>
                 </div>
-                <div class="pipeline-card-meta">
-                    ${metaRows.map(row => `
-                        <div class="pipeline-card-meta-row">
-                            <span class="pipeline-card-meta-label">${escapeHtml(row.label)}</span>
-                            <span class="pipeline-card-meta-value">${escapeHtml(String(row.value))}</span>
-                        </div>
-                    `).join('')}
-                </div>
-            </article>`;
-    }
+                <span class="scope-type-badge scope-type-badge--${category}">${typeLabel}</span>
+            </div>
+            <div class="pipeline-card-meta">
+                ${metaRows.map(row => `
+                    <div class="pipeline-card-meta-row">
+                        <span class="pipeline-card-meta-label">${escapeHtml(row.label)}</span>
+                        <span class="pipeline-card-meta-value">${escapeHtml(String(row.value))}</span>
+                    </div>
+                `).join('')}
+            </div>
+        </article>`;
+}
 
     function scopeKeyToLabel(scopeKey) {
         if (!scopeKey) return '';
@@ -1703,8 +1690,8 @@ function renderScopeCategoryCard(scope, category) {
         if (DOM['secret-detail-view']) DOM['secret-detail-view'].classList.add('hidden');
         if (DOM['secret-back-btn']) DOM['secret-back-btn'].classList.add('hidden');
         if (DOM['secret-search-container']) DOM['secret-search-container'].classList.remove('hidden');
-        if (DOM['secret-create-btn']) DOM['secret-create-btn'].classList.remove('hidden');
-        updateCreateSecretButtonVisibility({ isSearching: state.isSearching && !!(state.searchTerm || '').trim() });
+        if (DOM['scope-create-btn']) DOM['scope-create-btn'].classList.remove('hidden');
+        updateCreateScopeButtonVisibility({ isSearching: state.isSearching && !!(state.searchTerm || '').trim() });
     }
 
     function showSecretDetailView() {
@@ -1712,8 +1699,8 @@ function renderScopeCategoryCard(scope, category) {
         if (DOM['secret-detail-view']) DOM['secret-detail-view'].classList.remove('hidden');
         if (DOM['secret-back-btn']) DOM['secret-back-btn'].classList.remove('hidden');
         if (DOM['secret-search-container']) DOM['secret-search-container'].classList.add('hidden');
-        if (DOM['secret-create-btn']) DOM['secret-create-btn'].classList.add('hidden');
-        updateCreateSecretButtonVisibility({ isSearching: false });
+        if (DOM['scope-create-btn']) DOM['scope-create-btn'].classList.add('hidden');
+        updateCreateScopeButtonVisibility({ isSearching: false });
         setSelectedScopeCategory(state.selectedScopeCategory || 'secrets');
     }
 
@@ -1960,7 +1947,6 @@ function renderScopeCategoryCard(scope, category) {
                         <button type="button" class="env-variable-btn${isActive ? ' env-variable-btn--active' : ''}" data-environment-variable="${escapeAttribute(item.full)}">
                             <span class="truncate">${escapeHtml(item.display)}</span>
                         </button>
-                        <span class="env-variable-source-pill" title="${escapeAttribute(sourceLabel)}">${escapeHtml(sourceLabel)}</span>
                     </div>
                     <div class="env-variable-inline-actions">
                         <button type="button" class="env-inline-icon" data-env-variable-show title="Show value">
@@ -2708,18 +2694,18 @@ function renderScopeCategoryCard(scope, category) {
             return;
         }
 
-        const urlBase = `/v1/environments/${encodeURIComponent(SAMPLE_SCOPE_VARIABLE)}`;
-        const sampleValue = SAMPLE_SCOPE_VALUE.replace('%SCOPE%', normalizedLabel || 'default');
-        const url = normalizedLabel
-            ? `${urlBase}?env=${encodeURIComponent(normalizedLabel)}`
-            : urlBase;
+        const scopeChain = [];
+        combinedSegments.forEach((_, index) => {
+            const partial = normalizeScopeLabel(combinedSegments.slice(0, index + 1).join('/'));
+            if (partial) {
+                scopeChain.push(partial);
+            }
+        });
 
         try {
-            await context.fetchData(url, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ value: sampleValue }),
-            });
+            for (const path of scopeChain) {
+                await createSampleEntriesForScope(path);
+            }
             showToast(`Scope '/${normalizedLabel}' created.`, 'success');
         } catch (error) {
             console.error('Failed to create scope', error);
@@ -2737,9 +2723,51 @@ function renderScopeCategoryCard(scope, category) {
         if (state.scopeMap.has(newScopeKey)) {
             await selectScope(newScopeKey, { forceReload: true, skipHash: false });
             selectVariable(SAMPLE_SCOPE_VARIABLE, { silent: true, skipHash: true });
+            selectSecret(SAMPLE_SCOPE_SECRET, { silent: true, skipHash: true });
         } else {
             renderScopeCollection();
         }
+    }
+
+    async function createSampleEntriesForScope(normalizedLabel) {
+        if (!context || typeof context.fetchData !== 'function') return;
+        const safeLabel = normalizeScopeLabel(normalizedLabel || '');
+        const scopeKey = buildScopeKey(safeLabel);
+        const scope = state.scopeMap.get(scopeKey);
+        const hasSampleVariable = Array.isArray(scope?.variables) && scope.variables.includes(SAMPLE_SCOPE_VARIABLE);
+        const hasSampleSecret = Array.isArray(scope?.secrets) && scope.secrets.includes(SAMPLE_SCOPE_SECRET);
+        const needsVariable = !hasSampleVariable;
+        const needsSecret = !hasSampleSecret;
+        if (!needsVariable && !needsSecret) {
+            return;
+        }
+
+        const tasks = [];
+        if (needsVariable) {
+            const variableUrlBase = `/v1/environments/${encodeURIComponent(SAMPLE_SCOPE_VARIABLE)}`;
+            const sampleValue = SAMPLE_SCOPE_VALUE.replace('%SCOPE%', safeLabel || 'default');
+            const variableUrl = safeLabel
+                ? `${variableUrlBase}?env=${encodeURIComponent(safeLabel)}`
+                : variableUrlBase;
+            tasks.push(context.fetchData(variableUrl, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ value: sampleValue }),
+            }));
+        }
+        if (needsSecret) {
+            const secretUrlBase = `/v1/secrets/${encodeURIComponent(SAMPLE_SCOPE_SECRET)}`;
+            const sampleSecretValue = SAMPLE_SCOPE_SECRET_VALUE.replace('%SCOPE%', safeLabel || 'default');
+            const secretUrl = safeLabel
+                ? `${secretUrlBase}?env=${encodeURIComponent(safeLabel)}`
+                : secretUrlBase;
+            tasks.push(context.fetchData(secretUrl, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ value: sampleSecretValue }),
+            }));
+        }
+        await Promise.all(tasks);
     }
 
     function sanitizeScopeSegments(raw) {
