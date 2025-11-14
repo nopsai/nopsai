@@ -9,6 +9,7 @@
         selectedScopeKey: null,
         selectedSecret: null,
         selectedVariable: null,
+        selectedScopeCategory: 'secrets',
         activeFolderKey: '',
         sidebarExpanded: new Set(),
         pipelineSecretIndex: new Map(),
@@ -44,6 +45,7 @@
         }
         context = ctx;
         mapDomReferences();
+        setSelectedScopeCategory(state.selectedScopeCategory || 'secrets');
         attachEventListeners();
         initialized = true;
         preloadData().catch(error => console.error('Failed to preload secret scopes:', error));
@@ -781,7 +783,7 @@
                 const cards = results
                     .slice()
                     .sort((a, b) => (a.scopeName || '').localeCompare(b.scopeName || '', undefined, { sensitivity: 'base' }))
-                    .map(renderSecretCard);
+                    .reduce((acc, scope) => acc.concat(renderScopeCategoryCards(scope)), []);
                 if (cards.length) {
                     html += `<div class="pipelines-card-grid pipelines-card-grid--pipelines">${cards.join('')}</div>`;
                 }
@@ -802,7 +804,7 @@
             if (folderCards.length) {
                 html += `<div class="pipelines-card-grid pipelines-card-grid--pipelines">${folderCards.join('')}</div>`;
             }
-            const scopeCards = scopes.map(renderSecretCard);
+            const scopeCards = scopes.reduce((acc, scopeEntry) => acc.concat(renderScopeCategoryCards(scopeEntry)), []);
             if (scopeCards.length) {
                 html += `<div class="pipelines-card-grid pipelines-card-grid--pipelines">${scopeCards.join('')}</div>`;
             }
@@ -920,9 +922,27 @@
         return { title, parentPath, fullPath };
     }
 
-    function renderSecretCard(scope) {
-        if (!scope) return '';
-        const isActive = scope.key === state.selectedScopeKey;
+function renderScopeCategoryCards(scope) {
+    if (!scope) return [];
+    return [
+        renderScopeCategoryCard(scope, 'variables'),
+        renderScopeCategoryCard(scope, 'secrets')
+    ].filter(Boolean);
+}
+
+function buildScopeCategoryIcon(category, className = '') {
+    const classes = ['scope-category-icon', className].filter(Boolean).join(' ').trim();
+    if (category === 'variables') {
+        return `<svg class="${classes}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><circle cx="9" cy="7" r="2" fill="currentColor" stroke="none"/><path d="M4 12h16"/><circle cx="15" cy="12" r="2" fill="currentColor" stroke="none"/><path d="M4 17h16"/><circle cx="7" cy="17" r="2" fill="currentColor" stroke="none"/></svg>`;
+    }
+    return `<svg class="${classes}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M17 11V8a5 5 0 00-10 0v3"></path><path d="M12 16v2"></path></svg>`;
+}
+
+function renderScopeCategoryCard(scope, category) {
+    if (!scope) return '';
+    const isVariables = category === 'variables';
+    const activeCategory = getSelectedScopeCategory();
+    const isActive = scope.key === state.selectedScopeKey && activeCategory === category;
         const { title, parentPath, fullPath } = describeSecretScope(scope);
         const variableCount = typeof scope.variableCountHint === 'number'
             ? scope.variableCountHint
@@ -931,45 +951,37 @@
             ? scope.secretCountHint
             : (Array.isArray(scope.secrets) ? scope.secrets.length : 0);
         const triggerCount = scope.triggerCount || 0;
-        const typeBadges = [];
-        if (scope.hasVariableSources || variableCount > 0) {
-            typeBadges.push('<span class="scope-type-badge scope-type-badge--variables">Variables</span>');
-        }
-        if (scope.hasSecretSources || secretCount > 0) {
-            typeBadges.push('<span class="scope-type-badge scope-type-badge--secrets">Secrets</span>');
-        }
-        const badgeMarkup = typeBadges.length ? `<div class="scope-type-badges">${typeBadges.join('')}</div>` : '';
+        const pipelineCount = Array.isArray(scope.pipelines) ? scope.pipelines.length : 0;
+    const typeLabel = isVariables ? 'Variables' : 'Secrets';
+    const typeIcon = buildScopeCategoryIcon(category, 'h-6 w-6');
+        const typeCount = isVariables ? variableCount : secretCount;
+        const ariaLabel = `Open ${typeLabel.toLowerCase()} for scope ${fullPath || '/'}`;
+
+        const metaRows = [
+            { label: typeLabel, value: typeCount },
+            { label: 'Pipelines', value: pipelineCount },
+            { label: 'Triggers', value: triggerCount }
+        ];
 
         return `
-            <article class="pipeline-card triggers-card bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg shadow-sm transition-all duration-200 p-3 flex flex-col${isActive ? ' triggers-card--active' : ''}" data-secret-scope="${escapeAttribute(scope.key)}" tabindex="0" role="button" aria-label="Open secret scope ${escapeAttribute(fullPath)}">
+            <article class="pipeline-card triggers-card scope-card env-scope-card bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg shadow-sm transition-all duration-200 p-3 flex flex-col${isActive ? ' triggers-card--active env-scope-card--active' : ''} scope-card--${category}" data-secret-scope="${escapeAttribute(scope.key)}" data-secret-scope-type="${category}" tabindex="0" role="button" aria-label="${escapeAttribute(ariaLabel)}">
                 <div class="pipeline-card-header flex items-start justify-between gap-3">
                     <div class="pipeline-card-info">
-                        <span class="triggers-card-icon" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4" />
-                            </svg>
-                        </span>
+                        <span class="triggers-card-icon" aria-hidden="true">${typeIcon}</span>
                         <div class="pipeline-card-text min-w-0">
                             <h3 class="pipeline-card-title">${escapeHtml(title)}</h3>
                             <p class="pipeline-card-path">${escapeHtml(parentPath)}</p>
                         </div>
                     </div>
-                    <div class="pipeline-card-actions text-right"></div>
+                    <span class="scope-type-badge scope-type-badge--${category}">${typeLabel}</span>
                 </div>
-                ${badgeMarkup}
                 <div class="pipeline-card-meta">
-                    <div class="pipeline-card-meta-row">
-                        <span class="pipeline-card-meta-label">Variables</span>
-                        <span class="pipeline-card-meta-value">${variableCount}</span>
-                    </div>
-                    <div class="pipeline-card-meta-row">
-                        <span class="pipeline-card-meta-label">Secrets</span>
-                        <span class="pipeline-card-meta-value">${secretCount}</span>
-                    </div>
-                    <div class="pipeline-card-meta-row">
-                        <span class="pipeline-card-meta-label">Triggers</span>
-                        <span class="pipeline-card-meta-value">${triggerCount}</span>
-                    </div>
+                    ${metaRows.map(row => `
+                        <div class="pipeline-card-meta-row">
+                            <span class="pipeline-card-meta-label">${escapeHtml(row.label)}</span>
+                            <span class="pipeline-card-meta-value">${escapeHtml(String(row.value))}</span>
+                        </div>
+                    `).join('')}
                 </div>
             </article>`;
     }
@@ -992,16 +1004,18 @@
 
     function renderSecretSearchSummary(count, term) {
         const safeTerm = escapeHtml(term);
-        return `<div class="triggers-search-summary">Showing ${count} result${count === 1 ? '' : 's'} for "${safeTerm}"</div>`;
+        return `<div class="triggers-search-summary">Showing ${count} scope${count === 1 ? '' : 's'} for "${safeTerm}"</div>`;
     }
 
     function highlightActiveSecretCard() {
         const list = DOM['secret-list'];
         if (!list) return;
         const isListVisible = !DOM['secret-list-view'] || !DOM['secret-list-view'].classList.contains('hidden');
+        const activeCategory = getSelectedScopeCategory();
         list.querySelectorAll('[data-secret-scope]').forEach(card => {
             const key = card.getAttribute('data-secret-scope');
-            const shouldHighlight = isListVisible && key === state.selectedScopeKey;
+            const cardCategory = card.getAttribute('data-secret-scope-type') || 'secrets';
+            const shouldHighlight = isListVisible && key === state.selectedScopeKey && cardCategory === activeCategory;
             card.classList.toggle('env-scope-card--active', shouldHighlight);
         });
     }
@@ -1031,6 +1045,7 @@
         state.selectedSecret = null;
         state.selectedVariable = null;
         state.expandedVariable = null;
+        setSelectedScopeCategory('secrets');
         clearSecretDetail();
         clearVariableDetail();
         if (options.showList !== false) {
@@ -1065,8 +1080,10 @@
         if (scopeCard) {
             event.preventDefault();
             const key = scopeCard.getAttribute('data-secret-scope');
+            const category = scopeCard.getAttribute('data-secret-scope-type') || 'secrets';
             if (key) {
-                Promise.resolve().then(() => selectScope(key, { silent: true, skipHash: true })).catch(err => console.error('Failed to open scope', err));
+                setSelectedScopeCategory(category);
+                Promise.resolve().then(() => selectScope(key, { silent: true, skipHash: true, category })).catch(err => console.error('Failed to open scope', err));
                 navigateToScope(key);
             }
             event.stopPropagation();
@@ -1102,8 +1119,10 @@
         if (scopeCard && scopeCard === document.activeElement) {
             event.preventDefault();
             const key = scopeCard.getAttribute('data-secret-scope');
+            const category = scopeCard.getAttribute('data-secret-scope-type') || 'secrets';
             if (key) {
-                Promise.resolve().then(() => selectScope(key, { silent: true, skipHash: true })).catch(err => console.error('Failed to open scope', err));
+                setSelectedScopeCategory(category);
+                Promise.resolve().then(() => selectScope(key, { silent: true, skipHash: true, category })).catch(err => console.error('Failed to open scope', err));
                 navigateToScope(key);
             }
             event.stopPropagation();
@@ -1119,21 +1138,18 @@
         }
     }
 
-    function renderSidebarTree() {
-        const container = document.getElementById('secrets-sidebar-tree');
-        if (!container) {
-            // If the main sidebar isn't for secrets, try to render in the environment one
-            // This is a bit of a hack, but matches the user's intent of "same functionality"
-            // A better solution would be a shared sidebar module.
-            const envContainer = document.getElementById('environment-sidebar-tree');
-            if (envContainer) {
-                 renderSidebarTreeNodes(envContainer);
-            }
-            return;
-        }
+    function getSidebarContainer() {
+        return document.getElementById('scopes-sidebar-tree')
+            || document.getElementById('secrets-sidebar-tree')
+            || document.getElementById('environment-sidebar-tree');
+    }
+
+    function renderSidebarTree(targetContainer) {
+        const container = targetContainer || getSidebarContainer();
+        if (!container) return;
         renderSidebarTreeNodes(container);
     }
-    
+
     function renderSidebarTreeNodes(container) {
         if (!container) return;
 
@@ -1397,6 +1413,19 @@
         return segments.join('/');
     }
 
+    function getSelectedScopeCategory() {
+        return state.selectedScopeCategory === 'variables' ? 'variables' : 'secrets';
+    }
+
+    function setSelectedScopeCategory(category) {
+        const normalized = category === 'variables' ? 'variables' : 'secrets';
+        state.selectedScopeCategory = normalized;
+        const detail = DOM['secret-detail'];
+        if (detail) {
+            detail.dataset.scopeCategory = normalized;
+        }
+    }
+
     function shouldExpandFolder(path) {
         const normalized = normalizeScopeLabel(path || '');
         if (!normalized) return true;
@@ -1457,6 +1486,11 @@
     }
 
     async function selectScope(scopeKey, options = {}) {
+        if (options.category) {
+            setSelectedScopeCategory(options.category);
+        } else if (!state.selectedScopeCategory) {
+            setSelectedScopeCategory('secrets');
+        }
         const scope = state.scopeMap.get(scopeKey);
         if (!scope) {
             state.selectedScopeKey = null;
@@ -1652,6 +1686,7 @@
         if (DOM['secret-search-container']) DOM['secret-search-container'].classList.add('hidden');
         if (DOM['secret-create-btn']) DOM['secret-create-btn'].classList.add('hidden');
         updateCreateSecretButtonVisibility({ isSearching: false });
+        setSelectedScopeCategory(state.selectedScopeCategory || 'secrets');
     }
 
     function renderScopeDetail(scope) {
@@ -1990,6 +2025,7 @@
             return;
         }
 
+        setSelectedScopeCategory('variables');
         state.selectedVariable = name;
         highlightActiveVariable(name);
         await ensurePipelineEnvIndex();
@@ -2746,6 +2782,7 @@
             return;
         }
 
+        setSelectedScopeCategory('secrets');
         state.selectedSecret = name;
         highlightActiveSecret(name);
         await ensurePipelineSecretIndex();
@@ -3647,7 +3684,8 @@
         const scopeExists = !info.folderMode && !isRootPath && state.scopeMap.has(scopeKey);
 
         if (scopeExists) {
-            await selectScope(scopeKey, { silent: true, skipHash: true });
+            const targetCategory = info.variableName ? 'variables' : 'secrets';
+            await selectScope(scopeKey, { silent: true, skipHash: true, category: targetCategory });
             if (info.variableName) {
                 await selectVariable(info.variableName, { silent: true, skipHash: true });
             } else if (info.secretName) {
