@@ -219,7 +219,7 @@
                                                         <div class="env-suggestion-heading">
                                                             <div>
                                                                 <p class="env-suggestion-kicker">Need a reference?</p>
-                                                                <h3 id="pipeline-suggestion-title" class="env-suggestion-title">Environment variables by scope</h3>
+                                                                <h3 id="pipeline-suggestion-title" class="env-suggestion-title">Variables by scope</h3>
                                                             </div>
                                                             <p id="pipeline-suggestion-subtitle" class="env-suggestion-subtitle">Compare existing environment variables while editing your pipeline.</p>
                                                         </div>
@@ -372,7 +372,7 @@
                                                             <div class="env-suggestion-heading">
                                                                 <div>
                                                                     <p class="env-suggestion-kicker">Need a reference?</p>
-                                                                    <h3 id="step-suggestion-title" class="env-suggestion-title">Environment variables by scope</h3>
+                                                                    <h3 id="step-suggestion-title" class="env-suggestion-title">Variables by scope</h3>
                                                                 </div>
                                                                 <p id="step-suggestion-subtitle" class="env-suggestion-subtitle">Insert variables without leaving the editor.</p>
                                                             </div>
@@ -529,18 +529,30 @@
                     </div>
                 </div>
 
-                <div data-page="secrets" class="h-full flex flex-col hidden">
+                <div data-page="scopes" class="h-full flex flex-col hidden">
                     <div class="px-6 pt-6 flex-shrink-0">
                         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                             <div id="secret-search-container" class="relative flex-1 min-w-[220px] max-w-xl">
-                                <input id="secret-search" type="search" placeholder="Search secrets" class="pipelines-input w-full pl-11 pr-10 py-2 text-sm transition" />
+                                <input id="secret-search" type="search" placeholder="Search scopes" class="pipelines-input w-full pl-11 pr-10 py-2 text-sm transition" />
                                 <svg class="w-4 h-4 text-[var(--text-secondary)] absolute left-4 top-1/2 -translate-y-1/2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M10 18a8 8 0 110-16 8 8 0 010 16z"/></svg>
                                 <button id="secret-clear-search" type="button" class="hidden absolute inset-y-0 right-3 flex items-center text-[var(--text-secondary)] hover:text-[var(--text-primary)]" aria-label="Clear search">
                                     <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                                 </button>
                             </div>
-                            <div class="flex items-center gap-2">
-                                <button id="secret-create-btn" type="button" class="glass-button-subtle" aria-label="Create new secret">
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <button id="environment-create-environment" type="button" class="glass-button-ghost" aria-label="Create new scope">
+                                    <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14M5 12h14" />
+                                    </svg>
+                                    <span>New Scope</span>
+                                </button>
+                                <button id="environment-create-btn" type="button" class="glass-button-subtle" aria-label="Create new variable">
+                                    <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14M5 12h14" />
+                                    </svg>
+                                    <span>New Variable</span>
+                                </button>
+                                <button id="secret-create-btn" type="button" class="glass-button-primary" aria-label="Create new secret">
                                     <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14M5 12h14" />
                                     </svg>
@@ -553,7 +565,7 @@
                         <div id="secret-list-view" class="pipelines-view">
                             <div class="glass-card overflow-hidden">
                                 <div id="secret-list-empty" class="p-6 text-center text-[var(--text-secondary)] hidden">
-                                    <p class="text-sm">No secret folders yet. Create a secret to add one.</p>
+                                    <p class="text-sm">No scope folders yet. Add a variable or secret to create one.</p>
                                 </div>
                                 <div id="secret-list" class="p-4 space-y-6"></div>
                             </div>
@@ -563,97 +575,6 @@
                                 <div class="env-detail-shell">
                                     <div class="env-detail-header">
                                         <button id="secret-back-btn" class="glass-button-ghost hidden" style="position: absolute; right: 0;">
-                                            <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-                                            <span>Back</span>
-                                        </button>
-                                    </div>
-                                    <div class="env-detail-body">
-                                        <aside class="env-sidebar">
-                                            <section class="env-card env-variable-panel">
-                                                <header style="padding-bottom: 5px;">
-                                                    <button id="secret-create-inline" type="button" class="env-variable-header-btn" aria-label="Create secret">
-                                                        <span class="env-variable-header-label">Secrets</span>
-                                                        <span class="env-variable-header-plus" aria-hidden="true">
-                                                            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                                <path d="M12 5v14M5 12h14" />
-                                                            </svg>
-                                                        </span>
-                                                    </button>
-                                                </header>
-                                                <div id="secret-variable-list" class="env-variable-list"></div>
-                                            </section>
-                                        </aside>
-                                        <section class="env-main-card">
-                                            <div class="env-variable-detail-header">
-                                                <div class="env-variable-detail-titles">
-                                                    <p id="secret-variable-detail-label" class="env-variable-detail-name">Select a secret to inspect details.</p>
-                                                    <div class="env-variable-detail-meta">
-                                                        <div id="secret-variable-detail-source" class="env-variable-detail-meta-item hidden">
-                                                            <span class="env-variable-detail-meta-label">Source</span>
-                                                            <span class="env-variable-detail-meta-value env-variable-source-pill"></span>
-                                                        </div>
-                                                        <div id="secret-variable-detail-updated" class="env-variable-detail-meta-item hidden">
-                                                            <span class="env-variable-detail-meta-label">Updated</span>
-                                                            <span class="env-variable-detail-meta-value"></span>
-                                                        </div>
-                                                        <div id="secret-variable-detail-created" class="env-variable-detail-meta-item hidden">
-                                                            <span class="env-variable-detail-meta-label">Created</span>
-                                                            <span class="env-variable-detail-meta-value"></span>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div class="env-main-content">
-                                                <section>
-                                                    <h4>Referenced Pipelines</h4>
-                                                    <div id="secret-variable-pipelines" class="env-related-list" data-empty="No pipelines declare this secret."></div>
-                                                </section>
-                                                <section>
-                                                    <h4>Related Triggers</h4>
-                                                    <div id="secret-variable-triggers" class="env-related-list" data-empty="No triggers reference this scope."></div>
-                                                </section>
-                                            </div>
-                                        </section>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div data-page="environment" class="h-full flex flex-col hidden">
-                    <div class="px-6 pt-6 flex-shrink-0">
-                        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                            <div id="environment-search-container" class="relative flex-1 min-w-[220px] max-w-xl">
-                                <input id="environment-search" type="search" placeholder="Search envs" class="pipelines-input w-full pl-11 pr-10 py-2 text-sm transition" />
-                                <svg class="w-4 h-4 text-[var(--text-secondary)] absolute left-4 top-1/2 -translate-y-1/2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M10 18a8 8 0 110-16 8 8 0 010 16z"/></svg>
-                                <button id="environment-clear-search" type="button" class="hidden absolute inset-y-0 right-3 flex items-center text-[var(--text-secondary)] hover:text-[var(--text-primary)]" aria-label="Clear search">
-                                    <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                                </button>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <button id="environment-create-environment" type="button" class="glass-button-subtle" aria-label="Create new environment">
-                                    <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14M5 12h14" />
-                                    </svg>
-                                    <span>New Environment</span>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="flex-1 overflow-auto px-6 pb-8">
-                        <div id="environment-list-view" class="pipelines-view">
-                            <div class="glass-card overflow-hidden">
-                                <div id="environment-list-empty" class="p-6 text-center text-[var(--text-secondary)] hidden">
-                                    <p class="text-sm">No environment scopes available yet.</p>
-                                </div>
-                                <div id="environment-list" class="p-4 space-y-6"></div>
-                            </div>
-                        </div>
-                        <div id="environment-detail-view" class="pipelines-view hidden">
-                            <div id="environment-detail" class="hidden">
-                                <div class="env-detail-shell">
-                                    <div class="env-detail-header">
-                                        <button id="environment-back-btn" class="glass-button-ghost hidden" style="position: absolute; right: 0;">
                                             <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
                                             <span>Back</span>
                                         </button>
@@ -674,36 +595,85 @@
                                                 <div id="environment-variable-empty" class="env-card-empty">No variables configured yet.</div>
                                                 <div id="environment-variable-list" class="env-variable-list"></div>
                                             </section>
+                                            <section class="env-card env-variable-panel">
+                                                <header style="padding-bottom: 5px;">
+                                                    <button id="secret-create-inline" type="button" class="env-variable-header-btn" aria-label="Create secret">
+                                                        <span class="env-variable-header-label">Secrets</span>
+                                                        <span class="env-variable-header-plus" aria-hidden="true">
+                                                            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                <path d="M12 5v14M5 12h14" />
+                                                            </svg>
+                                                        </span>
+                                                    </button>
+                                                </header>
+                                                <div id="secret-variable-empty" class="env-card-empty">No secrets configured yet.</div>
+                                                <div id="secret-variable-list" class="env-variable-list"></div>
+                                            </section>
                                         </aside>
                                         <section class="env-main-card">
-                                            <div class="env-variable-detail-header">
-                                                <div class="env-variable-detail-titles">
-                                                    <p id="environment-variable-detail-label" class="env-variable-detail-name">Select a variable to inspect details.</p>
-                                                    <div class="env-variable-detail-meta">
-                                                        <div id="environment-variable-detail-source" class="env-variable-detail-meta-item hidden">
-                                                            <span class="env-variable-detail-meta-label">Source</span>
-                                                            <span class="env-variable-detail-meta-value env-variable-source-pill"></span>
-                                                        </div>
-                                                        <div id="environment-variable-detail-updated" class="env-variable-detail-meta-item hidden">
-                                                            <span class="env-variable-detail-meta-label">Updated</span>
-                                                            <span class="env-variable-detail-meta-value"></span>
-                                                        </div>
-                                                        <div id="environment-variable-detail-created" class="env-variable-detail-meta-item hidden">
-                                                            <span class="env-variable-detail-meta-label">Created</span>
-                                                            <span class="env-variable-detail-meta-value"></span>
+                                            <div class="scope-detail-stack space-y-8">
+                                                <article class="scope-detail-panel">
+                                                    <div class="env-variable-detail-header">
+                                                        <div class="env-variable-detail-titles">
+                                                            <p id="environment-variable-detail-label" class="env-variable-detail-name">Select a variable to inspect details.</p>
+                                                            <div class="env-variable-detail-meta">
+                                                                <div id="environment-variable-detail-source" class="env-variable-detail-meta-item hidden">
+                                                                    <span class="env-variable-detail-meta-label">Source</span>
+                                                                    <span class="env-variable-detail-meta-value env-variable-source-pill"></span>
+                                                                </div>
+                                                                <div id="environment-variable-detail-updated" class="env-variable-detail-meta-item hidden">
+                                                                    <span class="env-variable-detail-meta-label">Updated</span>
+                                                                    <span class="env-variable-detail-meta-value"></span>
+                                                                </div>
+                                                                <div id="environment-variable-detail-created" class="env-variable-detail-meta-item hidden">
+                                                                    <span class="env-variable-detail-meta-label">Created</span>
+                                                                    <span class="env-variable-detail-meta-value"></span>
+                                                                </div>
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                </div>
-                                            </div>
-                                            <div class="env-main-content">
-                                                <section>
-                                                    <h4>Related Pipelines</h4>
-                                                    <div id="environment-variable-pipelines" class="env-related-list" data-empty="No pipelines declare this variable."></div>
-                                                </section>
-                                                <section>
-                                                    <h4>Related Triggers</h4>
-                                                    <div id="environment-variable-triggers" class="env-related-list" data-empty="No triggers reference this scope."></div>
-                                                </section>
+                                                    <div class="env-main-content">
+                                                        <section>
+                                                            <h4>Related Pipelines</h4>
+                                                            <div id="environment-variable-pipelines" class="env-related-list" data-empty="No pipelines declare this variable."></div>
+                                                        </section>
+                                                        <section>
+                                                            <h4>Related Triggers</h4>
+                                                            <div id="environment-variable-triggers" class="env-related-list" data-empty="No triggers reference this scope."></div>
+                                                        </section>
+                                                    </div>
+                                                </article>
+                                                <article class="scope-detail-panel">
+                                                    <div class="env-variable-detail-header">
+                                                        <div class="env-variable-detail-titles">
+                                                            <p id="secret-variable-detail-label" class="env-variable-detail-name">Select a secret to inspect details.</p>
+                                                            <div class="env-variable-detail-meta">
+                                                                <div id="secret-variable-detail-source" class="env-variable-detail-meta-item hidden">
+                                                                    <span class="env-variable-detail-meta-label">Source</span>
+                                                                    <span class="env-variable-detail-meta-value env-variable-source-pill"></span>
+                                                                </div>
+                                                                <div id="secret-variable-detail-updated" class="env-variable-detail-meta-item hidden">
+                                                                    <span class="env-variable-detail-meta-label">Updated</span>
+                                                                    <span class="env-variable-detail-meta-value"></span>
+                                                                </div>
+                                                                <div id="secret-variable-detail-created" class="env-variable-detail-meta-item hidden">
+                                                                    <span class="env-variable-detail-meta-label">Created</span>
+                                                                    <span class="env-variable-detail-meta-value"></span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="env-main-content">
+                                                        <section>
+                                                            <h4>Referenced Pipelines</h4>
+                                                            <div id="secret-variable-pipelines" class="env-related-list" data-empty="No pipelines declare this secret."></div>
+                                                        </section>
+                                                        <section>
+                                                            <h4>Related Triggers</h4>
+                                                            <div id="secret-variable-triggers" class="env-related-list" data-empty="No triggers reference this scope."></div>
+                                                        </section>
+                                                    </div>
+                                                </article>
                                             </div>
                                         </section>
                                     </div>
@@ -1273,7 +1243,7 @@
                     <div class="env-suggestion-heading">
                         <div>
                             <p class="env-suggestion-kicker">Need a reference?</p>
-                            <h3 class="env-suggestion-title">Environment variable suggestions</h3>
+                            <h3 class="env-suggestion-title">Scope variable suggestions</h3>
                         </div>
                         <p class="env-suggestion-subtitle">See where variables already exist before saving changes.</p>
                     </div>
@@ -1290,7 +1260,7 @@
         <div class="modal-panel w-full max-w-md bg-[var(--bg-secondary)] rounded-lg shadow-2xl">
             <div class="flex items-center justify-between p-4 border-b border-[var(--border-primary)]">
                 <div>
-                    <h2 class="text-xl font-semibold text-[var(--text-primary)]">Create Environment</h2>
+                    <h2 class="text-xl font-semibold text-[var(--text-primary)]">Create Scope</h2>
                     <p id="environment-new-parent" class="text-sm text-[var(--text-secondary)]">Parent: /</p>
                 </div>
                 <button type="button" class="text-[var(--text-secondary)] hover:text-[var(--text-primary)]" id="environment-new-close">
@@ -1299,7 +1269,7 @@
             </div>
             <form id="environment-new-form" class="p-6 space-y-4">
                 <div>
-                    <label for="environment-new-name" class="block text-sm font-medium text-[var(--text-secondary)]">Environment Name</label>
+                    <label for="environment-new-name" class="block text-sm font-medium text-[var(--text-secondary)]">Scope Name</label>
                     <input type="text" id="environment-new-name" name="name" required placeholder="e.g. dev" class="mt-1 block w-full bg-[var(--bg-tertiary)] border border-[var(--border-input)] rounded-md shadow-sm py-2 px-3 text-[var(--text-primary)] focus:outline-none focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)] sm:text-sm" />
                     <p class="text-xs text-[var(--text-secondary)] mt-1">Only letters, numbers, dots, underscores, and hyphens are allowed. Use slashes for nested folders.</p>
                 </div>
@@ -1311,7 +1281,7 @@
                     <button type="button" class="mr-2 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500" id="environment-new-cancel">Cancel</button>
                     <button type="submit" class="inline-flex items-center justify-center gap-2 py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
                         <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-                        <span>Create Environment</span>
+                        <span>Create Scope</span>
                     </button>
                 </div>
             </form>
@@ -1345,7 +1315,6 @@
     <script src="yaml-highlight.js"></script>
     <script src="logs.js"></script>
     <script src="secrets.js"></script>
-    <script src="environments.js"></script>
     <script src="triggers.js"></script>
     <script src="steps.js"></script>
     <script src="pipelines.js"></script>

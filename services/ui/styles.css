@@ -567,8 +567,7 @@ html.dark .themed-bg-blur {
 .step-logo--pipelineruns { color: #2563eb; }
 .step-logo--pipelines { color: #16a34a; }
 .step-logo--steps { color: #a855f7; }
-.step-logo--secrets { color: #f97316; }
-.step-logo--environment { color: #0d9488; }
+.step-logo--scopes { color: #0ea5e9; }
 .step-logo--triggers { color: #f43f5e; }
 .step-logo--monitoring { color: #6366f1; }
 .step-logo--system { color: #64748b; }
@@ -1236,6 +1235,32 @@ html.dark .pipelines-input {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.scope-type-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin: 0.5rem 0 0.25rem;
+}
+
+.scope-type-badge {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.1rem 0.55rem;
+    border-radius: 999px;
+    background-color: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
+.scope-type-badge--variables {
+    background-color: rgba(14, 165, 233, 0.15);
+    color: #0ea5e9;
+}
+
+.scope-type-badge--secrets {
+    background-color: rgba(249, 115, 22, 0.15);
+    color: #f97316;
 }
 
 .pipeline-folder-card {

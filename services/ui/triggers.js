@@ -51,7 +51,7 @@
         { key: 'skip_branches', hint: 'Branches to exclude', kind: 'list' },
         { key: 'tags', hint: 'Tags that should trigger runs', kind: 'list' },
         { key: 'pipelines', hint: 'Pipelines to execute', kind: 'list' },
-        { key: 'environment', hint: 'Environment label for this trigger', kind: 'scalar' },
+        { key: 'environment', hint: 'Scope label for this trigger', kind: 'scalar' },
     ];
     const TRIGGER_LIST_FIELDS = new Set(['branches', 'skip_branches', 'tags', 'pipelines']);
     const DEFAULT_PIPELINE_PATH = 'pipelines/sample-pipeline.yaml';
@@ -1385,12 +1385,12 @@
         if (environments.length > 0) {
             envHtml = environments.map(env => {
                 const label = env === '' ? 'Default Scope' : `/${env}`;
-                const href = `#/environment/${encodeEnvSegment(env)}`;
+                const href = `#/scopes/${encodeEnvSegment(env)}`;
                 // Use the 'pipelines-tag' class to make it look like a clickable chip
                 return `<a href="${href}" class="pipelines-tag font-semibold transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-accent)]" style="text-decoration: none;">${escapeHtml(label)}</a>`;
             }).join('');
         } else {
-            const href = `#/environment/default`;
+            const href = `#/scopes/default`;
             envHtml = `<a href="${href}" class="pipelines-tag font-semibold transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-accent)]" style="text-decoration: none;">Default Scope</a>`;
         }
 
@@ -1404,9 +1404,9 @@
             `;
         }).join('');
 
-        // Add the Environments row, allowing the chips to wrap
+        // Add the scopes row, allowing the chips to wrap
         html += `
-            <dt class="triggers-detail-label" style="align-self: flex-start; margin-top: 4px;">Environments:</dt>
+            <dt class="triggers-detail-label" style="align-self: flex-start; margin-top: 4px;">Scopes:</dt>
             <dd class="triggers-detail-value flex flex-wrap gap-1.5" style="white-space: normal;">
                 ${envHtml}
             </dd>
@@ -2183,7 +2183,7 @@
                 return { ...inlineContext, type: 'event-value', title: 'Trigger events' };
             }
             if (inlineContext.key === 'environment') {
-                return { ...inlineContext, type: 'environment-value', title: 'Environment names' };
+                return { ...inlineContext, type: 'environment-value', title: 'Scope names' };
             }
             if (inlineContext.key === 'pipelines') {
                 return { ...inlineContext, type: 'pipeline-value', title: 'Pipelines' };
