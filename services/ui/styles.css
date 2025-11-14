@@ -2993,6 +2993,41 @@ html.dark .env-related-card__meta-value {
     color: rgba(226,232,240,0.92);
 }
 
+.scope-card {
+    position: relative;
+    overflow: hidden;
+}
+
+.scope-card--variables {
+    border-color: rgba(14, 165, 233, 0.35);
+}
+
+.scope-card--variables:hover,
+.scope-card--variables.env-scope-card--active {
+    border-color: rgba(14, 165, 233, 0.7);
+    box-shadow: 0 14px 30px rgba(14, 165, 233, 0.15);
+}
+
+.scope-card--secrets {
+    border-color: rgba(249, 115, 22, 0.35);
+}
+
+.scope-card--secrets:hover,
+.scope-card--secrets.env-scope-card--active {
+    border-color: rgba(249, 115, 22, 0.7);
+    box-shadow: 0 14px 30px rgba(249, 115, 22, 0.15);
+}
+
+#secret-detail[data-scope-category="variables"] .env-variable-panel:last-child,
+#secret-detail[data-scope-category="variables"] .scope-detail-stack .scope-detail-panel:last-child {
+    display: none;
+}
+
+#secret-detail[data-scope-category="secrets"] .env-variable-panel:first-child,
+#secret-detail[data-scope-category="secrets"] .scope-detail-stack .scope-detail-panel:first-child {
+    display: none;
+}
+
 @media (max-width: 1024px) {
     .env-detail-body {
         grid-template-columns: 1fr;
