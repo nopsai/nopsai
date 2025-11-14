@@ -955,6 +955,9 @@ function renderScopeCategoryCard(scope, category) {
     const typeLabel = isVariables ? 'Variables' : 'Secrets';
     const typeIcon = buildScopeCategoryIcon(category, 'h-6 w-6');
         const typeCount = isVariables ? variableCount : secretCount;
+        if (!typeCount) {
+            return '';
+        }
         const ariaLabel = `Open ${typeLabel.toLowerCase()} for scope ${fullPath || '/'}`;
 
         const metaRows = [
@@ -1084,7 +1087,7 @@ function renderScopeCategoryCard(scope, category) {
             if (key) {
                 setSelectedScopeCategory(category);
                 Promise.resolve().then(() => selectScope(key, { silent: true, skipHash: true, category })).catch(err => console.error('Failed to open scope', err));
-                navigateToScope(key);
+                navigateToScope(key, null, null, { category });
             }
             event.stopPropagation();
             return;
@@ -1123,7 +1126,7 @@ function renderScopeCategoryCard(scope, category) {
             if (key) {
                 setSelectedScopeCategory(category);
                 Promise.resolve().then(() => selectScope(key, { silent: true, skipHash: true, category })).catch(err => console.error('Failed to open scope', err));
-                navigateToScope(key);
+                navigateToScope(key, null, null, { category });
             }
             event.stopPropagation();
         }
@@ -1195,8 +1198,11 @@ function renderScopeCategoryCard(scope, category) {
             button.addEventListener('click', event => {
                 event.preventDefault();
                 const key = button.getAttribute('data-secret-sidebar-scope');
+                const category = button.getAttribute('data-secret-sidebar-category') || 'secrets';
                 if (key) {
-                    navigateToScope(key);
+                    setSelectedScopeCategory(category);
+                    Promise.resolve().then(() => selectScope(key, { silent: true, skipHash: true, category })).catch(err => console.error('Failed to open scope', err));
+                    navigateToScope(key, null, null, { category });
                 }
                 event.stopPropagation();
             });
@@ -1361,19 +1367,27 @@ function renderScopeCategoryCard(scope, category) {
 
     function renderSidebarScopeEntry(scope) {
         if (!scope) return '';
-        const isActive = scope.key === state.selectedScopeKey;
+        const categories = ['variables', 'secrets'];
         const { title, fullPath } = describeSecretScope(scope);
         const displayLabel = scope.label || title || 'Default';
         const displayPath = fullPath || '/';
+        const activeCategory = getSelectedScopeCategory();
 
-        return `<li>
-            <button type="button" class="w-full flex items-center gap-2 text-left px-3 py-1.5 rounded-md text-sm transition ${isActive ? 'bg-[var(--bg-hover)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'}" data-secret-sidebar-scope="${escapeAttribute(scope.key)}" aria-label="Open secret scope ${escapeAttribute(displayPath)}">
-                <svg class="h-4 w-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                     <path d="M12 15l-3.3-3.3a4.7 4.7 0 116.6 0L12 15zm0 0l-1.4-1.4" />
-                </svg>
-                <span class="truncate">${escapeHtml(displayLabel)}</span>
-            </button>
-        </li>`;
+        return categories.map(category => {
+            const isActive = scope.key === state.selectedScopeKey && activeCategory === category;
+            const icon = buildScopeCategoryIcon(category, 'h-4 w-4 flex-shrink-0');
+            const badge = category === 'variables' ? 'Vars' : 'Secrets';
+            const ariaLabel = `Open ${category} for ${displayPath}`;
+            return `<li>
+                <button type="button" class="w-full flex items-center justify-between gap-2 text-left px-3 py-1.5 rounded-md text-sm transition ${isActive ? 'bg-[var(--bg-hover)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'}" data-secret-sidebar-scope="${escapeAttribute(scope.key)}" data-secret-sidebar-category="${category}" aria-label="${escapeAttribute(ariaLabel)}">
+                    <span class="flex items-center gap-2 min-w-0">
+                        ${icon}
+                        <span class="truncate">${escapeHtml(displayLabel)}</span>
+                    </span>
+                    <span class="text-xs uppercase tracking-wide text-[var(--text-secondary)]">${badge}</span>
+                </button>
+            </li>`;
+        }).join('');
     }
 
     function formatSecretFolderLabel(label) {
@@ -1473,16 +1487,30 @@ function renderScopeCategoryCard(scope, category) {
         }
     }
 
-    function navigateToScope(scopeKey, secretName = null, variableName = null) {
+    function buildScopeHash(scope, { category = null, secretName = null, variableName = null } = {}) {
+        if (!scope) return '#/scopes';
+        const envSegment = encodeScopeSegment(scope?.scopeName || '');
+        let suffix = '';
+        if (secretName) {
+            suffix = `/secrets/${encodeURIComponent(secretName)}`;
+        } else if (variableName) {
+            suffix = `/variables/${encodeURIComponent(variableName)}`;
+        } else if (category === 'variables') {
+            suffix = '/variables';
+        } else if (category === 'secrets') {
+            suffix = '/secrets';
+        }
+        return `#/scopes/${envSegment}${suffix}`;
+    }
+
+    function navigateToScope(scopeKey, secretName = null, variableName = null, options = {}) {
         const scope = state.scopeMap.get(scopeKey) || state.scopeMap.get(DEFAULT_SCOPE_KEY);
         if (!scope) {
             window.location.hash = '#/scopes';
             return;
         }
-        const envSegment = encodeScopeSegment(scope?.scopeName || '');
-        const secretSegment = secretName ? `/secrets/${encodeURIComponent(secretName)}` : '';
-        const variableSegment = !secretSegment && variableName ? `/variables/${encodeURIComponent(variableName)}` : '';
-        window.location.hash = `#/scopes/${envSegment}${secretSegment || variableSegment}`;
+        const hash = buildScopeHash(scope, { category: options.category, secretName, variableName });
+        window.location.hash = hash;
     }
 
     async function selectScope(scopeKey, options = {}) {
@@ -1512,7 +1540,7 @@ function renderScopeCategoryCard(scope, category) {
         highlightActiveSecretCard();
 
         if (!options.silent && !options.skipHash) {
-            navigateToScope(scope.key);
+            navigateToScope(scope.key, null, null, { category: getSelectedScopeCategory() });
         }
     }
 
@@ -1700,7 +1728,7 @@ function renderScopeCategoryCard(scope, category) {
         renderVariableList(scope);
         if (scope.variables && scope.variables.length) {
             const preferredVariable = scope.variables.includes(state.selectedVariable) ? state.selectedVariable : scope.variables[0];
-            selectVariable(preferredVariable, { silent: true });
+            selectVariable(preferredVariable, { silent: true, disableCategorySwitch: true });
         } else {
             clearVariableDetail();
         }
@@ -1709,7 +1737,7 @@ function renderScopeCategoryCard(scope, category) {
 
         if (scope.secrets.length) {
             const preferredSecret = scope.secrets.includes(state.selectedSecret) ? state.selectedSecret : scope.secrets[0];
-            selectSecret(preferredSecret, { silent: true });
+            selectSecret(preferredSecret, { silent: true, disableCategorySwitch: true });
         } else {
             clearSecretDetail();
         }
@@ -2025,7 +2053,9 @@ function renderScopeCategoryCard(scope, category) {
             return;
         }
 
-        setSelectedScopeCategory('variables');
+        if (!options.disableCategorySwitch) {
+            setSelectedScopeCategory('variables');
+        }
         state.selectedVariable = name;
         highlightActiveVariable(name);
         await ensurePipelineEnvIndex();
@@ -2782,7 +2812,9 @@ function renderScopeCategoryCard(scope, category) {
             return;
         }
 
-        setSelectedScopeCategory('secrets');
+        if (!options.disableCategorySwitch) {
+            setSelectedScopeCategory('secrets');
+        }
         state.selectedSecret = name;
         highlightActiveSecret(name);
         await ensurePipelineSecretIndex();
@@ -3684,7 +3716,7 @@ function renderScopeCategoryCard(scope, category) {
         const scopeExists = !info.folderMode && !isRootPath && state.scopeMap.has(scopeKey);
 
         if (scopeExists) {
-            const targetCategory = info.variableName ? 'variables' : 'secrets';
+            const targetCategory = info.category || (info.variableName ? 'variables' : 'secrets');
             await selectScope(scopeKey, { silent: true, skipHash: true, category: targetCategory });
             if (info.variableName) {
                 await selectVariable(info.variableName, { silent: true, skipHash: true });
@@ -3714,15 +3746,25 @@ function renderScopeCategoryCard(scope, category) {
         const decodedSegments = segments.map((segment, index) => decodeSecretSegment(segment, index, folderMode));
         let secretName = null;
         let variableName = null;
+        let category = null;
         let envSegments = decodedSegments.slice();
+        if (!folderMode && envSegments.length) {
+            const last = envSegments[envSegments.length - 1];
+            if (last === 'secrets' || last === 'variables') {
+                category = last;
+                envSegments = envSegments.slice(0, -1);
+            }
+        }
         if (!folderMode && envSegments.length >= 2) {
             const tailFirst = envSegments[envSegments.length - 2];
             if (tailFirst === 'secrets') {
                 secretName = envSegments[envSegments.length - 1];
                 envSegments = envSegments.slice(0, -2);
+                category = 'secrets';
             } else if (tailFirst === 'variables') {
                 variableName = envSegments[envSegments.length - 1];
                 envSegments = envSegments.slice(0, -2);
+                category = 'variables';
             }
         }
 
@@ -3733,6 +3775,7 @@ function renderScopeCategoryCard(scope, category) {
             envPath,
             secretName,
             variableName,
+            category,
             folderMode,
             isDefaultScope,
         };
