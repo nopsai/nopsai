@@ -2502,6 +2502,19 @@ html.dark .env-suggestion-footnote {
     width: 100%;
 }
 
+.env-variable-header-title {
+    width: 100%;
+    padding: 6px 14px 6px 16px;
+    border-radius: 12px;
+    background: rgba(99, 102, 241, 0.08);
+    border: 1px solid rgba(99, 102, 241, 0.18);
+    text-transform: uppercase;
+    font-size: 0.85rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: var(--text-secondary);
+}
+
 .env-variable-header-btn {
     display: inline-flex;
     align-items: center;
