@@ -451,7 +451,15 @@
     }
 
     function encodeScopeSegment(scopeLabel) {
-        return scopeLabel ? encodeURIComponent(scopeLabel) : 'default';
+        const normalized = normalizeScopeLabel(scopeLabel || '');
+        if (!normalized) {
+            return 'default';
+        }
+        return normalized
+            .split('/')
+            .filter(Boolean)
+            .map(encodeURIComponent)
+            .join('/');
     }
 
     function decodeSecretSegment(segment, index, folderMode) {
@@ -1016,7 +1024,8 @@ function renderScopeCategoryCard(scope, category) {
             return '#/scopes';
         }
         const segments = normalized.split('/').filter(Boolean).map(encodeURIComponent);
-        return `#/scopes/folder/${segments.join('/')}`;
+        const path = segments.join('/');
+        return path ? `#/scopes/${path}` : '#/scopes';
     }
 
     function navigateToFolder(folderKey) {
@@ -1305,7 +1314,9 @@ function renderScopeCategoryCard(scope, category) {
                 const valueAttr = escapeAttribute(name);
                 const scopeAttr = escapeAttribute(entry.key);
                 const identity = parseSecretIdentity(name);
-                const displayName = identity.repoOwner && identity.repoName ? identity.name : name;
+                const repoSlug = identity.repoOwner && identity.repoName ? `${identity.repoOwner}/${identity.repoName}` : '';
+                const displayBase = identity.name || name;
+                const displayName = repoSlug ? `${repoSlug}/${displayBase}` : displayBase;
                 return `<button type="button" class="env-suggestion-pill env-suggestion-pill--action" data-secret-suggestion-value="${valueAttr}" data-secret-suggestion-scope="${scopeAttr}">${escapeHtml(displayName)}</button>`;
             });
             const remaining = entry.count - entry.preview.length;
@@ -3794,6 +3805,10 @@ function renderScopeCategoryCard(scope, category) {
                 envSegments = envSegments.slice(0, -2);
                 category = 'variables';
             }
+        }
+
+        if (!folderMode && !category && !secretName && !variableName) {
+            folderMode = true;
         }
 
         const envPath = envSegments.filter(Boolean).join('/');
