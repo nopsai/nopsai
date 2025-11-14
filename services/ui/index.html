@@ -540,23 +540,11 @@
                                 </button>
                             </div>
                             <div class="flex items-center gap-2 flex-wrap">
-                                <button id="environment-create-environment" type="button" class="glass-button-ghost" aria-label="Create new scope">
+                                <button id="scope-create-btn" type="button" class="glass-button-primary" aria-label="Create new scope">
                                     <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14M5 12h14" />
                                     </svg>
                                     <span>New Scope</span>
-                                </button>
-                                <button id="environment-create-btn" type="button" class="glass-button-subtle" aria-label="Create new variable">
-                                    <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14M5 12h14" />
-                                    </svg>
-                                    <span>New Variable</span>
-                                </button>
-                                <button id="secret-create-btn" type="button" class="glass-button-primary" aria-label="Create new secret">
-                                    <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14M5 12h14" />
-                                    </svg>
-                                    <span>New Secret</span>
                                 </button>
                             </div>
                         </div>
@@ -565,7 +553,7 @@
                         <div id="secret-list-view" class="pipelines-view">
                             <div class="glass-card overflow-hidden">
                                 <div id="secret-list-empty" class="p-6 text-center text-[var(--text-secondary)] hidden">
-                                    <p class="text-sm">No scope folders yet. Add a variable or secret to create one.</p>
+                                    <p class="text-sm">No scope folders yet. Create a scope to add one.</p>
                                 </div>
                                 <div id="secret-list" class="p-4 space-y-6"></div>
                             </div>
@@ -606,7 +594,6 @@
                                                         </span>
                                                     </button>
                                                 </header>
-                                                <div id="secret-variable-empty" class="env-card-empty">No secrets configured yet.</div>
                                                 <div id="secret-variable-list" class="env-variable-list"></div>
                                             </section>
                                         </aside>
