@@ -1376,23 +1376,34 @@
             { label: 'Events', value: eventsLabel, title: fullEventsLabel },
         ];
 
+        const normalizeEnvLabel = (envLabel) => String(envLabel ?? '').trim();
         const encodeEnvSegment = (envLabel) => {
-            const label = String(envLabel || '').trim();
+            const label = normalizeEnvLabel(envLabel);
             return label ? encodeURIComponent(label) : 'default';
         };
 
         let envHtml = '';
-        if (environments.length > 0) {
-            envHtml = environments.map(env => {
-                const label = env === '' ? 'Default Scope' : `/${env}`;
-                const href = `#/scopes/${encodeEnvSegment(env)}`;
-                // Use the 'pipelines-tag' class to make it look like a clickable chip
-                return `<a href="${href}" class="pipelines-tag font-semibold transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-accent)]" style="text-decoration: none;">${escapeHtml(label)}</a>`;
-            }).join('');
-        } else {
-            const href = `#/scopes/default`;
-            envHtml = `<a href="${href}" class="pipelines-tag font-semibold transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-accent)]" style="text-decoration: none;">Default Scope</a>`;
+        const normalizedEnvs = Array.isArray(environments)
+            ? environments.map(env => normalizeEnvLabel(env))
+            : [];
+        const hasDefaultScope = normalizedEnvs.some(label => !label);
+        const scopedEnvs = normalizedEnvs.filter(label => !!label);
+
+        const chips = [];
+        if (hasDefaultScope) {
+            const href = '#/scopes/default';
+            chips.push(`<a href="${href}" class="pipelines-tag font-semibold transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-accent)]" style="text-decoration: none;">Default Scope</a>`);
         }
+        scopedEnvs.forEach(env => {
+            const href = `#/scopes/${encodeEnvSegment(env)}`;
+            const label = `/${env}`;
+            chips.push(`<a href="${href}" class="pipelines-tag font-semibold transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-accent)]" style="text-decoration: none;">${escapeHtml(label)}</a>`);
+        });
+        if (!chips.length) {
+            const href = '#/scopes/default';
+            chips.push(`<a href="${href}" class="pipelines-tag font-semibold transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-accent)]" style="text-decoration: none;">Default Scope</a>`);
+        }
+        envHtml = chips.join('');
 
         let html = `<dl class="triggers-detail-grid">`;
 
@@ -2952,6 +2963,7 @@
         const skipBranches = new Set();
         const tags = new Set();
         const environments = new Set();
+        let hasDefaultScope = false;
 
         triggers.forEach(trigger => {
             if (trigger?.on) {
@@ -2965,7 +2977,11 @@
             (trigger?.branches || []).forEach(branch => branches.add(String(branch)));
             (trigger?.skip_branches || trigger?.skipBranches || []).forEach(branch => skipBranches.add(String(branch)));
             (trigger?.tags || []).forEach(tag => tags.add(String(tag)));
-            if (trigger?.environment) environments.add(String(trigger.environment));
+            if (trigger?.environment && String(trigger.environment).trim()) {
+                environments.add(String(trigger.environment).trim());
+            } else {
+                hasDefaultScope = true;
+            }
 
             const pipelines = Array.isArray(trigger?.pipelines) ? trigger.pipelines : [];
             pipelines.forEach(entry => {
@@ -2983,6 +2999,10 @@
             });
         });
 
+        if (hasDefaultScope) {
+            environments.add('');
+        }
+
         return {
             triggerCount: triggers.length,
             pipelineCount: pipelineIdentifiers.length,
@@ -2991,7 +3011,7 @@
             branches: Array.from(branches).sort(),
             skipBranches: Array.from(skipBranches).sort(),
             tags: Array.from(tags).sort(),
-            environments: Array.from(environments).sort(),
+            environments: Array.from(environments).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })),
         };
     }
 

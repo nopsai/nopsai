@@ -2773,9 +2773,23 @@ html.dark .env-variable-btn--active {
     color: rgba(248,113,113,1);
 }
 
+.scope-detail-stack {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    gap: 24px;
+}
+
+.scope-detail-panel {
+    display: flex;
+    flex-direction: column;
+}
+
 .env-main-content {
     display: grid;
     gap: 18px;
+    margin-top: 28px;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    align-items: start;
 }
 
 .env-main-content section h4 {
@@ -2787,16 +2801,20 @@ html.dark .env-variable-btn--active {
 }
 
 .env-related-list {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-    gap: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
     min-height: 40px;
+    max-height: 520px;
+    overflow-y: auto;
+    padding-right: 4px;
+    scrollbar-gutter: stable;
 }
 
 .env-related-card {
     display: block;
-    padding: 14px 16px;
-    border-radius: 14px;
+    padding: 10px 12px;
+    border-radius: 10px;
     border: 1px solid var(--border-primary);
     background: var(--bg-secondary);
     color: var(--text-primary);
@@ -2813,7 +2831,7 @@ html.dark .env-variable-btn--active {
 }
 
 .env-related-card__title {
-    font-size: 0.95rem;
+    font-size: 0.85rem;
     font-weight: 600;
     color: var(--text-primary);
     margin: 0;
@@ -2828,22 +2846,22 @@ html.dark .env-variable-btn--active {
 }
 
 .env-related-card__description {
-    font-size: 0.8rem;
+    font-size: 0.72rem;
     color: var(--text-secondary);
-    margin-top: 10px;
-    line-height: 1.45;
+    margin-top: 6px;
+    line-height: 1.35;
 }
 
 .env-related-card__meta {
     display: grid;
-    gap: 8px;
-    margin-top: 12px;
+    gap: 4px;
+    margin-top: 8px;
 }
 
 .env-related-card__meta-row {
     display: grid;
-    grid-template-columns: minmax(100px, auto) 1fr;
-    column-gap: 12px;
+    grid-template-columns: minmax(80px, auto) 1fr;
+    column-gap: 8px;
     align-items: baseline;
 }
 
@@ -2920,6 +2938,10 @@ html.dark .env-related-card__meta-value {
 
     .env-main-card {
         padding: 20px;
+    }
+
+    .scope-detail-stack {
+        grid-template-columns: 1fr;
     }
 }
 
