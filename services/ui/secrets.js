@@ -46,7 +46,7 @@
             'secret-search', 'secret-search-container', 'secret-clear-search', 'secret-list', 'secret-list-empty',
             'secret-list-view', 'secret-detail-view', 'secret-detail', 'secret-back-btn',
             'secret-detail-title', 'secret-variable-list', 'secret-variable-empty',
-            'secret-variable-subtitle', 'secret-variable-pipelines',
+            'secret-variable-pipelines',
             'secret-variable-triggers', 'secret-create-btn',
             'secret-edit-modal', 'secret-edit-form', 'secret-edit-name', 'secret-edit-repo', 'secret-edit-value',
             'secret-edit-scope', 'secret-edit-submit', 'secret-delete-modal', 'secret-delete-message',
@@ -1419,9 +1419,6 @@
         if (DOM['secret-detail-title']) {
             DOM['secret-detail-title'].textContent = scope.scopeName ? `/${scope.scopeName}` : '/';
         }
-        if (DOM['secret-variable-subtitle']) {
-            DOM['secret-variable-subtitle'].textContent = scope.scopeName ? `Environment · /${scope.scopeName}` : 'Global fallback secrets';
-        }
 
         renderSecretList(scope);
 
@@ -2092,7 +2089,6 @@
 
     function clearSecretDetail() {
         state.selectedSecret = null;
-        if (DOM['secret-variable-subtitle']) DOM['secret-variable-subtitle'].textContent = 'Select a secret to inspect details.';
         if (DOM['secret-variable-pipelines']) {
             DOM['secret-variable-pipelines'].innerHTML = '';
             DOM['secret-variable-pipelines'].dataset.empty = 'No pipelines declare this secret.';
@@ -2219,7 +2215,8 @@
     }
 
     function openEditModal(mode, options = {}) {
-        const scope = state.scopeMap.get(options.scopeKey || state.selectedScopeKey || DEFAULT_SCOPE_KEY);
+        const scopeKey = options.scopeKey || state.selectedScopeKey || DEFAULT_SCOPE_KEY;
+        const scope = state.scopeMap.get(scopeKey);
         if (!scope) return;
 
         const header = DOM['secret-edit-modal']?.querySelector('h2');
@@ -2272,7 +2269,7 @@
         }
         if (DOM['secret-edit-form']) {
             DOM['secret-edit-form'].dataset.mode = mode;
-            DOM['secret-edit-form'].dataset.scopeKey = scope.key;
+            DOM['secret-edit-form'].dataset.scopeKey = scopeKey;
             DOM['secret-edit-form'].dataset.secretName = options.name || '';
         }
         if (DOM['secret-edit-submit']) {

@@ -1915,7 +1915,9 @@ html.dark .pipelines-modal-card {
 #pipelines-clone-modal.show,
 #steps-new-modal.show,
 #steps-delete-modal.show,
-#steps-clone-modal.show {
+#steps-clone-modal.show,
+#secret-edit-modal.show,
+#secret-delete-modal.show {
     opacity: 1;
 }
 
@@ -1926,7 +1928,9 @@ html.dark .pipelines-modal-card {
 #steps-new-modal.show .pipelines-modal-card,
 #steps-delete-modal.show .pipelines-modal-card,
 #steps-clone-modal.show .pipelines-modal-card,
-#steps-new-modal.show .modal-panel {
+#steps-new-modal.show .modal-panel,
+#secret-edit-modal.show .pipelines-modal-card,
+#secret-delete-modal.show .pipelines-modal-card {
     transform: scale(1);
     opacity: 1;
 }
@@ -3687,22 +3691,37 @@ html.dark .pipeline-editor-autocomplete__ghost {
 #line-numbers,
 #triggers-line-numbers,
 #step-line-numbers {
+    --line-number-scroll: 0px;
     padding: 1rem 0.75rem 1rem 0.5rem;
-    font-size: 0.8rem;
+    margin: 0;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
     color: rgba(148,163,184,0.7);
     user-select: none;
     background: rgba(15,23,42,0.75);
+    flex: 0 0 auto;
+    overflow: hidden;
+    height: 100%;
+    position: relative;
+}
+
+#line-numbers .line-number-track,
+#triggers-line-numbers .line-number-track,
+#step-line-numbers .line-number-track {
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    gap: 0.1rem;
+    gap: 0;
+    transform: translateY(calc(-1 * var(--line-number-scroll)));
+    will-change: transform;
 }
 
 .line-number {
     width: 100%;
     text-align: right;
     padding-right: 0.2rem;
-    line-height: 1.6;
+    line-height: inherit;
     border-radius: 6px;
     transition: background-color 120ms ease, color 120ms ease;
 }

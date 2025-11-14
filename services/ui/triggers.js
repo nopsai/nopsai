@@ -649,7 +649,6 @@
             editor.addEventListener('input', handleEditorInput);
             editor.addEventListener('scroll', () => {
                 syncEditorScroll();
-                updateTriggerInlineSuggestionPosition();
             });
             editor.addEventListener('click', () => {
                 updateTriggerEditorSuggestions();
@@ -1784,7 +1783,8 @@
 
     function syncEditorScroll() {
         if (DOM['triggers-line-numbers'] && DOM['triggers-yaml-editor']) {
-            DOM['triggers-line-numbers'].scrollTop = DOM['triggers-yaml-editor'].scrollTop;
+            const offset = DOM['triggers-yaml-editor'].scrollTop || 0;
+            DOM['triggers-line-numbers'].style.setProperty('--line-number-scroll', `${offset}px`);
         }
         syncTriggerHighlightScroll();
         updateTriggerInlineSuggestionPosition();
@@ -1797,7 +1797,9 @@
             const lineNumber = idx + 1;
             return `<div class="line-number" data-line-number="${lineNumber}">${lineNumber}</div>`;
         }).join('');
-        DOM['triggers-line-numbers'].innerHTML = html || '<div class="line-number" data-line-number="1">1</div>';
+        const track = html || '<div class="line-number" data-line-number="1">1</div>';
+        DOM['triggers-line-numbers'].innerHTML = `<div class="line-number-track">${track}</div>`;
+        syncEditorScroll();
     }
 
     function updateTriggerEditorHighlight() {
