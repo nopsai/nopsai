@@ -221,10 +221,10 @@
                                                                 <p class="env-suggestion-kicker">Need a reference?</p>
                                                                 <h3 id="pipeline-suggestion-title" class="env-suggestion-title">Variables by scope</h3>
                                                             </div>
-                                                            <p id="pipeline-suggestion-subtitle" class="env-suggestion-subtitle">Compare existing environment variables while editing your pipeline.</p>
+                                                            <p id="pipeline-suggestion-subtitle" class="env-suggestion-subtitle">Compare existing scope variables while editing your pipeline.</p>
                                                         </div>
                                                         <div class="env-suggestion-body">
-                                                            <p id="pipeline-suggestion-empty" class="env-suggestion-empty">Loading environment variables…</p>
+                                                            <p id="pipeline-suggestion-empty" class="env-suggestion-empty">Loading scope variables…</p>
                                                             <div id="pipeline-suggestion-list" class="env-suggestion-list"></div>
                                                             <p id="pipeline-suggestion-footnote" class="env-suggestion-footnote">Click any variable to insert it into the pipeline definition.</p>
                                                         </div>
@@ -377,7 +377,7 @@
                                                                 <p id="step-suggestion-subtitle" class="env-suggestion-subtitle">Insert variables without leaving the editor.</p>
                                                             </div>
                                                             <div class="env-suggestion-body">
-                                                                <p id="step-suggestion-empty" class="env-suggestion-empty">Loading environment variables…</p>
+                                                                <p id="step-suggestion-empty" class="env-suggestion-empty">Loading scope variables…</p>
                                                                 <div id="step-suggestion-list" class="env-suggestion-list"></div>
                                                                 <p id="step-suggestion-footnote" class="env-suggestion-footnote">Click any variable to insert it into the step definition.</p>
                                                             </div>
@@ -571,7 +571,7 @@
                                         <aside class="env-sidebar">
                                             <section class="env-card env-variable-panel">
                                                 <header style="padding-bottom: 5px;">
-                                                    <button id="environment-create-inline" type="button" class="env-variable-header-btn" aria-label="Create variable">
+                                                    <button id="variable-create-inline" type="button" class="env-variable-header-btn" aria-label="Create variable">
                                                         <span class="env-variable-header-label">Variables</span>
                                                         <span class="env-variable-header-plus" aria-hidden="true">
                                                             <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -580,8 +580,8 @@
                                                         </span>
                                                     </button>
                                                 </header>
-                                                <div id="environment-variable-empty" class="env-card-empty">No variables configured yet.</div>
-                                                <div id="environment-variable-list" class="env-variable-list"></div>
+                                                <div id="variable-empty" class="env-card-empty">No variables configured yet.</div>
+                                                <div id="variable-list" class="env-variable-list"></div>
                                             </section>
                                             <section class="env-card env-variable-panel">
                                                 <header style="padding-bottom: 5px;">
@@ -602,17 +602,17 @@
                                                 <article class="scope-detail-panel">
                                                     <div class="env-variable-detail-header">
                                                         <div class="env-variable-detail-titles">
-                                                            <p id="environment-variable-detail-label" class="env-variable-detail-name">Select a variable to inspect details.</p>
+                                                            <p id="variable-detail-label" class="env-variable-detail-name">Select a variable to inspect details.</p>
                                                             <div class="env-variable-detail-meta">
-                                                                <div id="environment-variable-detail-source" class="env-variable-detail-meta-item hidden">
+                                                                <div id="variable-detail-source" class="env-variable-detail-meta-item hidden">
                                                                     <span class="env-variable-detail-meta-label">Source</span>
                                                                     <span class="env-variable-detail-meta-value env-variable-source-pill"></span>
                                                                 </div>
-                                                                <div id="environment-variable-detail-updated" class="env-variable-detail-meta-item hidden">
+                                                                <div id="variable-detail-updated" class="env-variable-detail-meta-item hidden">
                                                                     <span class="env-variable-detail-meta-label">Updated</span>
                                                                     <span class="env-variable-detail-meta-value"></span>
                                                                 </div>
-                                                                <div id="environment-variable-detail-created" class="env-variable-detail-meta-item hidden">
+                                                                <div id="variable-detail-created" class="env-variable-detail-meta-item hidden">
                                                                     <span class="env-variable-detail-meta-label">Created</span>
                                                                     <span class="env-variable-detail-meta-value"></span>
                                                                 </div>
@@ -622,11 +622,11 @@
                                                     <div class="env-main-content">
                                                         <section>
                                                             <h4>Related Pipelines</h4>
-                                                            <div id="environment-variable-pipelines" class="env-related-list" data-empty="No pipelines declare this variable."></div>
+                                                            <div id="variable-pipelines" class="env-related-list" data-empty="No pipelines declare this variable."></div>
                                                         </section>
                                                         <section>
                                                             <h4>Related Triggers</h4>
-                                                            <div id="environment-variable-triggers" class="env-related-list" data-empty="No triggers reference this scope."></div>
+                                                            <div id="variable-triggers" class="env-related-list" data-empty="No triggers reference this scope."></div>
                                                         </section>
                                                     </div>
                                                 </article>
@@ -1189,44 +1189,44 @@
             </div>
         </div>
     </div>
-    <div id="environment-edit-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
+    <div id="variable-edit-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
         <div class="pipelines-modal-card max-w-4xl w-full">
             <header class="pipelines-modal-header">
                 <div>
                     <h2 class="text-lg font-semibold text-[var(--text-primary)]">Create Variable</h2>
-                    <p id="environment-edit-scope" class="text-sm text-[var(--text-secondary)]">Scope: default</p>
+                    <p id="variable-edit-scope" class="text-sm text-[var(--text-secondary)]">Scope: default</p>
                 </div>
                 <button type="button" class="glass-button-ghost" data-cancel>
                     <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
             </header>
             <div class="pipelines-modal-body env-edit-modal-body">
-                <form id="environment-edit-form" class="env-edit-form space-y-4">
+                <form id="variable-edit-form" class="env-edit-form space-y-4">
                     <div>
-                        <label for="environment-edit-name" class="block text-sm font-medium text-[var(--text-secondary)]">Variable Name</label>
-                        <input type="text" id="environment-edit-name" name="name" required placeholder="DATABASE_URL" class="pipelines-input w-full mt-1" pattern="[A-Za-z0-9_.\-]+" />
+                        <label for="variable-edit-name" class="block text-sm font-medium text-[var(--text-secondary)]">Variable Name</label>
+                        <input type="text" id="variable-edit-name" name="name" required placeholder="DATABASE_URL" class="pipelines-input w-full mt-1" pattern="[A-Za-z0-9_.\-]+" />
                         <p class="text-xs text-[var(--text-secondary)] mt-1">Names may contain letters, numbers, underscores, dots, and hyphens.</p>
                     </div>
                     <div>
-                        <label for="environment-edit-repo" class="block text-sm font-medium text-[var(--text-secondary)]">Repository (optional)</label>
-                        <input type="text" id="environment-edit-repo" name="repository" placeholder="owner/repository" class="pipelines-input w-full mt-1" list="environment-repo-options" pattern="[^/\s]+/[^/\s]+" />
-                        <datalist id="environment-repo-options"></datalist>
+                        <label for="variable-edit-repo" class="block text-sm font-medium text-[var(--text-secondary)]">Repository (optional)</label>
+                        <input type="text" id="variable-edit-repo" name="repository" placeholder="owner/repository" class="pipelines-input w-full mt-1" list="variable-repo-options" pattern="[^/\s]+/[^/\s]+" />
+                        <datalist id="variable-repo-options"></datalist>
                         <p class="text-xs text-[var(--text-secondary)] mt-1">Provide a repository slug to scope the variable to a specific project.</p>
                     </div>
                     <div>
-                        <label for="environment-edit-value" class="block text-sm font-medium text-[var(--text-secondary)]">Value</label>
-                        <textarea id="environment-edit-value" name="value" rows="4" class="pipelines-input w-full mt-1" placeholder="Provide the value stored for this scope"></textarea>
+                        <label for="variable-edit-value" class="block text-sm font-medium text-[var(--text-secondary)]">Value</label>
+                        <textarea id="variable-edit-value" name="value" rows="4" class="pipelines-input w-full mt-1" placeholder="Provide the value stored for this scope"></textarea>
                         <p class="text-xs text-[var(--text-secondary)] mt-1">Values overwrite any existing entry for this scope.</p>
                     </div>
                     <div class="flex items-center justify-end gap-2 pt-2">
                         <button type="button" class="glass-button-ghost" data-cancel>Cancel</button>
-                        <button id="environment-edit-submit" type="submit" class="glass-button-primary">
+                        <button id="variable-edit-submit" type="submit" class="glass-button-primary">
                             <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                             <span>Save</span>
                         </button>
                     </div>
                 </form>
-                <section id="environment-suggestion-panel" class="env-suggestion-panel" aria-live="polite">
+                <section id="variable-suggestion-panel" class="env-suggestion-panel" aria-live="polite">
                     <div class="env-suggestion-heading">
                         <div>
                             <p class="env-suggestion-kicker">Need a reference?</p>
@@ -1235,37 +1235,37 @@
                         <p class="env-suggestion-subtitle">See where variables already exist before saving changes.</p>
                     </div>
                     <div class="env-suggestion-body">
-                        <p id="environment-suggestion-empty" class="env-suggestion-empty">No variables have been defined yet.</p>
-                        <div id="environment-suggestion-list" class="env-suggestion-list"></div>
+                        <p id="variable-suggestion-empty" class="env-suggestion-empty">No variables have been defined yet.</p>
+                        <div id="variable-suggestion-list" class="env-suggestion-list"></div>
                         <p class="env-suggestion-footnote">Click a variable to prefill the creation form.</p>
                     </div>
                 </section>
             </div>
         </div>
     </div>
-    <div id="environment-new-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
+    <div id="scope-new-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
         <div class="modal-panel w-full max-w-md bg-[var(--bg-secondary)] rounded-lg shadow-2xl">
             <div class="flex items-center justify-between p-4 border-b border-[var(--border-primary)]">
                 <div>
                     <h2 class="text-xl font-semibold text-[var(--text-primary)]">Create Scope</h2>
-                    <p id="environment-new-parent" class="text-sm text-[var(--text-secondary)]">Parent: /</p>
+                    <p id="scope-new-parent" class="text-sm text-[var(--text-secondary)]">Parent: /</p>
                 </div>
-                <button type="button" class="text-[var(--text-secondary)] hover:text-[var(--text-primary)]" id="environment-new-close">
+                <button type="button" class="text-[var(--text-secondary)] hover:text-[var(--text-primary)]" id="scope-new-close">
                     <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
             </div>
-            <form id="environment-new-form" class="p-6 space-y-4">
+            <form id="scope-new-form" class="p-6 space-y-4">
                 <div>
-                    <label for="environment-new-name" class="block text-sm font-medium text-[var(--text-secondary)]">Scope Name</label>
-                    <input type="text" id="environment-new-name" name="name" required placeholder="e.g. dev" class="mt-1 block w-full bg-[var(--bg-tertiary)] border border-[var(--border-input)] rounded-md shadow-sm py-2 px-3 text-[var(--text-primary)] focus:outline-none focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)] sm:text-sm" />
+                    <label for="scope-new-name" class="block text-sm font-medium text-[var(--text-secondary)]">Scope Name</label>
+                    <input type="text" id="scope-new-name" name="name" required placeholder="e.g. dev" class="mt-1 block w-full bg-[var(--bg-tertiary)] border border-[var(--border-input)] rounded-md shadow-sm py-2 px-3 text-[var(--text-primary)] focus:outline-none focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)] sm:text-sm" />
                     <p class="text-xs text-[var(--text-secondary)] mt-1">Only letters, numbers, dots, underscores, and hyphens are allowed. Use slashes for nested folders.</p>
                 </div>
                 <div class="space-y-2 bg-[var(--bg-tertiary)] rounded-md p-3 text-xs text-[var(--text-secondary)]">
                     <p class="font-medium text-[var(--text-primary)]">Sample Variable</p>
-                    <p>Each new environment starts with `<code>sample_variable</code>` seeded as a reminder. Update or remove it after creating the environment.</p>
+                    <p>Each new scope starts with `<code>sample_variable</code>` seeded as a reminder. Update or remove it after creating the scope.</p>
                 </div>
                 <div class="flex justify-end pt-4">
-                    <button type="button" class="mr-2 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500" id="environment-new-cancel">Cancel</button>
+                    <button type="button" class="mr-2 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500" id="scope-new-cancel">Cancel</button>
                     <button type="submit" class="inline-flex items-center justify-center gap-2 py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
                         <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                         <span>Create Scope</span>
@@ -1274,22 +1274,22 @@
             </form>
         </div>
     </div>
-    <div id="environment-delete-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
+    <div id="variable-delete-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
         <div class="pipelines-modal-card max-w-md">
             <header class="pipelines-modal-header">
                 <div>
                     <h2 class="text-lg font-semibold text-[var(--text-primary)]">Delete Variable</h2>
-                    <p class="text-sm text-[var(--text-secondary)]">This removes the variable from the selected environment scope.</p>
+                    <p class="text-sm text-[var(--text-secondary)]">This removes the variable from the selected scope.</p>
                 </div>
                 <button type="button" class="glass-button-ghost" data-cancel>
                     <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
             </header>
             <div class="pipelines-modal-body space-y-4">
-                <p id="environment-delete-message" class="text-sm text-[var(--text-secondary)]"></p>
+                <p id="variable-delete-message" class="text-sm text-[var(--text-secondary)]"></p>
                 <div class="flex items-center justify-end gap-2 pt-2">
                     <button type="button" class="glass-button-ghost" data-cancel>Cancel</button>
-                    <button type="button" id="environment-confirm-delete-btn" class="glass-button-danger">
+                    <button type="button" id="variable-confirm-delete-btn" class="glass-button-danger">
                         <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V5a1 1 0 00-1-1h-4a1 1 0 00-1 1v2m-4 0h14"/></svg>
                         <span>Delete</span>
                     </button>
