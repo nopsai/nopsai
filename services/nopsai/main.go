@@ -1567,6 +1567,8 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 		"environments_deleted": 0,
 		"triggers_synced":      0,
 		"triggers_deleted":     0,
+		"run_groups_created":   0,
+		"run_groups_updated":   0,
 	}
 
 	if a.cfg.ConfigRepoURL == "" {
@@ -1596,6 +1598,24 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 	environmentFiles, err := a.requestGitBotDirectory(owner, repo, "environments")
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch environment definitions: %w", err)
+	}
+	pipelineRunFiles, err := a.requestGitBotDirectory(owner, repo, "pipelineruns")
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch pipeline run structure definitions: %w", err)
+	}
+
+	var pipelineRunStructure map[string]*pipelineRunStructureNode
+	for path, content := range pipelineRunFiles {
+		normalized := filepath.ToSlash(path)
+		rel := strings.TrimPrefix(normalized, "pipelineruns/")
+		if rel == "structure.yaml" || rel == "structure.yml" {
+			parsed, err := parsePipelineRunStructure(content)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse pipeline run structure '%s': %w", normalized, err)
+			}
+			pipelineRunStructure = parsed
+			break
+		}
 	}
 
 	type storedPipeline struct {
@@ -1915,6 +1935,12 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 		}
 	}
 
+	if len(pipelineRunStructure) > 0 {
+		if err := a.syncPipelineRunGroups(ctx, tx, pipelineRunStructure, details); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("failed to commit configuration synchronization transaction: %w", err)
 	}
@@ -1931,6 +1957,8 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 		Int("environments_deleted", details["environments_deleted"]).
 		Int("triggers_synced", details["triggers_synced"]).
 		Int("triggers_deleted", details["triggers_deleted"]).
+		Int("run_groups_created", details["run_groups_created"]).
+		Int("run_groups_updated", details["run_groups_updated"]).
 		Msg("Configuration synchronization from Git completed")
 
 	return details, nil
@@ -2077,6 +2105,283 @@ func loadExistingRepoEnvs(ctx context.Context, tx pgx.Tx) (map[repoEnvKey]struct
 	}
 
 	return result, nil
+}
+
+type pipelineRunStructureNode struct {
+	Description string
+	Repos       []string
+	Children    map[string]*pipelineRunStructureNode
+}
+
+type groupRecord struct {
+	ID          int
+	ParentID    *int
+	Description string
+}
+
+func parsePipelineRunStructure(content string) (map[string]*pipelineRunStructureNode, error) {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		return map[string]*pipelineRunStructureNode{}, nil
+	}
+
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal([]byte(content), &raw); err != nil {
+		return nil, err
+	}
+	result := make(map[string]*pipelineRunStructureNode, len(raw))
+	for name, value := range raw {
+		normalized, err := normalizeStructureName(name)
+		if err != nil {
+			return nil, err
+		}
+		if _, exists := result[normalized]; exists {
+			return nil, fmt.Errorf("duplicate folder '%s' in pipelinerun structure", normalized)
+		}
+		node, err := decodePipelineRunStructureNode(value)
+		if err != nil {
+			return nil, fmt.Errorf("folder '%s': %w", normalized, err)
+		}
+		result[normalized] = node
+	}
+	return result, nil
+}
+
+func decodePipelineRunStructureNode(value interface{}) (*pipelineRunStructureNode, error) {
+	node := &pipelineRunStructureNode{Children: map[string]*pipelineRunStructureNode{}}
+	if value == nil {
+		return node, nil
+	}
+
+	switch typed := value.(type) {
+	case string:
+		node.Description = strings.TrimSpace(typed)
+		return node, nil
+	case map[string]interface{}:
+		return decodePipelineRunStructureMap(node, typed)
+	default:
+		return nil, fmt.Errorf("expected mapping or description for folder, got %T", value)
+	}
+}
+
+func decodePipelineRunStructureMap(node *pipelineRunStructureNode, childMap map[string]interface{}) (*pipelineRunStructureNode, error) {
+
+	for key, raw := range childMap {
+		switch key {
+		case "repos":
+			repos, err := parseStructureRepoList(raw)
+			if err != nil {
+				return nil, err
+			}
+			node.Repos = repos
+		case "description":
+			if raw == nil {
+				node.Description = ""
+				continue
+			}
+			text, ok := raw.(string)
+			if !ok {
+				return nil, fmt.Errorf("description must be a string, got %T", raw)
+			}
+			node.Description = strings.TrimSpace(text)
+		default:
+			childName, err := normalizeStructureName(key)
+			if err != nil {
+				return nil, err
+			}
+			if _, exists := node.Children[childName]; exists {
+				return nil, fmt.Errorf("duplicate folder '%s' detected", childName)
+			}
+			childNode, err := decodePipelineRunStructureNode(raw)
+			if err != nil {
+				return nil, fmt.Errorf("folder '%s': %w", childName, err)
+			}
+			node.Children[childName] = childNode
+		}
+	}
+
+	return node, nil
+}
+
+func parseStructureRepoList(value interface{}) ([]string, error) {
+	if value == nil {
+		return nil, nil
+	}
+	items, ok := value.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("repos must be defined as a list, got %T", value)
+	}
+	var repos []string
+	for idx, raw := range items {
+		if raw == nil {
+			continue
+		}
+		text, ok := raw.(string)
+		if !ok {
+			return nil, fmt.Errorf("repos entry %d must be a string, got %T", idx, raw)
+		}
+		repo := strings.TrimSpace(text)
+		if repo == "" {
+			continue
+		}
+		repos = append(repos, repo)
+	}
+	return repos, nil
+}
+
+func normalizeStructureName(name string) (string, error) {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return "", fmt.Errorf("pipelinerun structure contains an empty folder or repository name")
+	}
+	return trimmed, nil
+}
+
+func loadExistingGroupRecords(ctx context.Context, tx pgx.Tx) (map[string]*groupRecord, error) {
+	rows, err := tx.Query(ctx, "SELECT id, name, parent_id, description FROM groups")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]*groupRecord)
+	for rows.Next() {
+		var (
+			id          int
+			name        string
+			parentID    sql.NullInt32
+			description sql.NullString
+		)
+		if err := rows.Scan(&id, &name, &parentID, &description); err != nil {
+			return nil, err
+		}
+		key, err := normalizeStructureName(name)
+		if err != nil {
+			return nil, err
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("duplicate group name '%s' detected in database", key)
+		}
+		result[key] = &groupRecord{
+			ID:          id,
+			ParentID:    pointerFromNullInt(parentID),
+			Description: strings.TrimSpace(description.String),
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func pointerFromNullInt(value sql.NullInt32) *int {
+	if !value.Valid {
+		return nil
+	}
+	v := int(value.Int32)
+	return &v
+}
+
+func copyIntPointer(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	v := *value
+	return &v
+}
+
+func parentPointersEqual(a, b *int) bool {
+	switch {
+	case a == nil && b == nil:
+		return true
+	case a != nil && b != nil:
+		return *a == *b
+	default:
+		return false
+	}
+}
+
+func (a *App) syncPipelineRunGroups(ctx context.Context, tx pgx.Tx, structure map[string]*pipelineRunStructureNode, details map[string]int) error {
+	if len(structure) == 0 {
+		return nil
+	}
+
+	existingGroups, err := loadExistingGroupRecords(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("failed to load existing pipeline run folders: %w", err)
+	}
+
+	var ensureGroup func(name string, parentID *int, description string) (int, error)
+	ensureGroup = func(name string, parentID *int, description string) (int, error) {
+		normalized, err := normalizeStructureName(name)
+		if err != nil {
+			return 0, err
+		}
+		description = strings.TrimSpace(description)
+		if record, ok := existingGroups[normalized]; ok {
+			parentChanged := !parentPointersEqual(record.ParentID, parentID)
+			descChanged := strings.TrimSpace(record.Description) != description
+			if parentChanged || descChanged {
+				if _, err := tx.Exec(ctx, "UPDATE groups SET parent_id = $1, description = $2, updated_at = NOW() WHERE id = $3", parentID, description, record.ID); err != nil {
+					return 0, fmt.Errorf("failed to update folder '%s': %w", normalized, err)
+				}
+				record.ParentID = copyIntPointer(parentID)
+				record.Description = description
+				details["run_groups_updated"]++
+			}
+			return record.ID, nil
+		}
+
+		var newID int
+		if err := tx.QueryRow(ctx, "INSERT INTO groups (name, parent_id, description) VALUES ($1, $2, $3) RETURNING id", normalized, parentID, description).Scan(&newID); err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+				refreshed, loadErr := loadExistingGroupRecords(ctx, tx)
+				if loadErr != nil {
+					return 0, fmt.Errorf("failed to reload folders after conflict: %w", loadErr)
+				}
+				existingGroups = refreshed
+				if _, ok := existingGroups[normalized]; ok {
+					return ensureGroup(normalized, parentID, description)
+				}
+			}
+			return 0, fmt.Errorf("failed to create folder '%s': %w", normalized, err)
+		}
+		existingGroups[normalized] = &groupRecord{ID: newID, ParentID: copyIntPointer(parentID), Description: description}
+		details["run_groups_created"]++
+		return newID, nil
+	}
+
+	var applyNode func(name string, node *pipelineRunStructureNode, parentID *int) error
+	applyNode = func(name string, node *pipelineRunStructureNode, parentID *int) error {
+		groupID, err := ensureGroup(name, parentID, node.Description)
+		if err != nil {
+			return err
+		}
+		for _, repoName := range node.Repos {
+			if _, err := ensureGroup(repoName, &groupID, ""); err != nil {
+				return err
+			}
+		}
+		for childName, childNode := range node.Children {
+			if err := applyNode(childName, childNode, &groupID); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	for name, node := range structure {
+		if node == nil {
+			node = &pipelineRunStructureNode{Children: map[string]*pipelineRunStructureNode{}}
+		}
+		if err := applyNode(name, node, nil); err != nil {
+			return fmt.Errorf("failed to sync folder '%s': %w", name, err)
+		}
+	}
+
+	return nil
 }
 
 func normalizeEnvSourceKey(value string) string {

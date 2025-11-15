@@ -25,6 +25,78 @@
         'failure (ignored)': { icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z', color: 'text-amber-500 dark:text-amber-400', rectClass: 'stroke-amber-500 fill-amber-100 dark:fill-amber-500/10' },
     };
 
+    const BRANCH_STATUS_PRIORITIES = ['failure', 'failure (ignored)', 'cancelled', 'running', 'pending', 'skipped', 'success'];
+
+    function normalizeRunStatus(run) {
+        if (!run) return 'pending';
+        const rawStatus = run.is_complete ? run.status : 'running';
+        if (typeof rawStatus !== 'string' || !rawStatus) {
+            return 'pending';
+        }
+        const normalized = rawStatus.toLowerCase();
+        return statusConfig[normalized] ? normalized : 'pending';
+    }
+
+    function getStatusPriority(statusKey) {
+        const normalized = typeof statusKey === 'string' ? statusKey.toLowerCase() : 'pending';
+        const index = BRANCH_STATUS_PRIORITIES.indexOf(normalized);
+        return index === -1 ? BRANCH_STATUS_PRIORITIES.length : index;
+    }
+
+    function summarizeLatestTriggerStatus(runs) {
+        if (!Array.isArray(runs) || runs.length === 0) {
+            return null;
+        }
+
+        const latestRun = runs.reduce((current, candidate) => {
+            if (!candidate) return current;
+            if (!current) return candidate;
+            const currentTime = current.started_at ? new Date(current.started_at).getTime() : 0;
+            const candidateTime = candidate.started_at ? new Date(candidate.started_at).getTime() : 0;
+            return candidateTime > currentTime ? candidate : current;
+        }, null);
+
+        if (!latestRun) {
+            return null;
+        }
+
+        const latestTriggerId = latestRun.trigger_event_id || latestRun.triggerEventId || null;
+        if (!latestTriggerId) {
+            return {
+                triggerId: null,
+                status: normalizeRunStatus(latestRun),
+                referenceRun: latestRun,
+                runs: [latestRun],
+            };
+        }
+
+        const relatedRuns = runs.filter(run => {
+            const triggerId = run ? (run.trigger_event_id || run.triggerEventId || null) : null;
+            return triggerId === latestTriggerId;
+        });
+
+        const aggregatedStatus = relatedRuns.reduce((current, run) => {
+            const statusKey = normalizeRunStatus(run);
+            if (!current) return statusKey;
+            return getStatusPriority(statusKey) < getStatusPriority(current) ? statusKey : current;
+        }, null) || normalizeRunStatus(latestRun);
+
+        const referenceRun = relatedRuns.reduce((current, candidate) => {
+            if (!candidate) return current;
+            if (!current) return candidate;
+            const currentTime = current.started_at ? new Date(current.started_at).getTime() : 0;
+            const candidateTime = candidate.started_at ? new Date(candidate.started_at).getTime() : 0;
+            return candidateTime > currentTime ? candidate : current;
+        }, null) || latestRun;
+
+        return {
+            triggerId: latestTriggerId,
+            status: aggregatedStatus,
+            referenceRun,
+            runs: relatedRuns,
+        };
+    }
+
     const RUN_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const groupPathCache = new Map();
     const LOG_LEVEL_FILTER_KEYS = ['info', 'warn', 'error', 'debug'];
@@ -1900,17 +1972,23 @@ if (dx !== 0 || dy !== 0) {
                 ? `<svg class="h-4 w-4 mr-1 text-[var(--text-secondary)] chevron ${isExpanded ? 'rotate-90' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>` 
                 : `<div class="w-5 h-4 mr-1"></div>`;
 
-            const folderIconSvg = `<svg class="h-4 w-4 mr-2 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>`;
-            const repoIconSvg = `<svg class="h-4 w-4 mr-2 text-[var(--text-accent)] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="8" cy="7" r="2" fill="currentColor" /><circle cx="8" cy="17" r="2" fill="currentColor" /><circle cx="16" cy="7" r="2" fill="currentColor" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 7h4"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9v6a4 4 0 004 4h4"/></svg>`;
+            const folderIconSvg = `<svg class="h-4 w-4 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>`;
+            const repoIconSvg = `<svg class="h-4 w-4 text-[var(--text-accent)] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="8" cy="7" r="2" fill="currentColor" /><circle cx="8" cy="17" r="2" fill="currentColor" /><circle cx="16" cy="7" r="2" fill="currentColor" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 7h4"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9v6a4 4 0 004 4h4"/></svg>`;
             const iconHtml = isRepo ? repoIconSvg : folderIconSvg;
+            const descriptionText = (group.description || '').trim();
+            const descriptionHtml = descriptionText ? `<span class="group-tree-description truncate">${escapeText(descriptionText)}</span>` : '';
+            const linkTitleAttr = escapeAttribute(descriptionText ? `${displayName} — ${descriptionText}` : displayName);
 
             html += `<li data-group-id="${group.id}" draggable="true">
                             <div class="flex items-center justify-between p-2 text-[var(--text-primary)] rounded-md group-header-container ${isActive ? 'bg-[var(--bg-tertiary)]' : ''}">
                                 <div class="flex items-center group-header flex-grow cursor-pointer ${isExpanded ? 'expanded' : ''}">
                                     ${chevron}
-                                    <a href="${groupHref}" class="flex items-center flex-grow">
+                                    <a href="${groupHref}" class="flex items-center flex-grow gap-2" title="${linkTitleAttr}">
                                         ${iconHtml}
-                                        <span class="truncate">${displayName}</span>
+                                        <span class="flex flex-col leading-tight min-w-0">
+                                            <span class="truncate">${escapeText(displayName)}</span>
+                                            ${descriptionHtml}
+                                        </span>
                                     </a>
                                 </div>
                                 <button class="delete-group-btn text-[var(--text-secondary)] hover:text-red-500 opacity-0 transition-opacity" data-group-id="${group.id}" data-group-name="${group.name}"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
@@ -2080,7 +2158,14 @@ if (dx !== 0 || dy !== 0) {
             const runs = runsByBranch[branch] || [];
             const visibleRuns = searchTerm ? runs.filter(run => runMatchesSearch(run, searchTerm)) : runs;
             if (!visibleRuns.length) return;
-            filteredBranches.push({ branch, runs: visibleRuns, latestRun: runs[0] });
+            const latestSummary = summarizeLatestTriggerStatus(runs);
+            const fallbackRun = runs[0];
+            filteredBranches.push({
+                branch,
+                runs: visibleRuns,
+                latestRun: latestSummary?.referenceRun || fallbackRun,
+                latestStatus: latestSummary?.status || normalizeRunStatus(fallbackRun),
+            });
         });
 
         if (filteredBranches.length === 0) {
@@ -2092,9 +2177,10 @@ if (dx !== 0 || dy !== 0) {
         let html = '<div class="space-y-6">';
 
         filteredBranches.forEach((entry, index) => {
-            const { branch, runs, latestRun: latestFromBranch } = entry;
+            const { branch, runs, latestRun: latestFromBranch, latestStatus } = entry;
             const latestRun = latestFromBranch || runs[0];
-            const config = latestRun ? (statusConfig[(latestRun.is_complete ? latestRun.status : 'running').toLowerCase()] || statusConfig.pending) : statusConfig.pending;
+            const statusKey = latestStatus || normalizeRunStatus(latestRun);
+            const config = statusKey ? (statusConfig[statusKey] || statusConfig.pending) : statusConfig.pending;
             const isExpanded = index === 0; // Expand first branch by default
 
             html += `
@@ -2422,6 +2508,10 @@ if (dx !== 0 || dy !== 0) {
             const displayName = isRepo ? rawName.split('/')[1] : rawName;
             const safeDisplayName = escapeText(displayName);
             const titleAttr = escapeAttribute(displayName);
+            const descriptionText = (group.description || '').trim();
+            const hasDescription = descriptionText.length > 0;
+            const safeDescription = hasDescription ? escapeText(descriptionText) : '';
+            const descriptionAttr = hasDescription ? escapeAttribute(descriptionText) : '';
             const groupSegments = getGroupPathSegmentsById(group.id);
             const groupHref = groupSegments.length ? `#/pipelineruns/main/${groupSegments.join('/')}` : '#/pipelineruns/main';
 
@@ -2508,6 +2598,7 @@ if (dx !== 0 || dy !== 0) {
                             </button>
                         </div>
                     </div>
+                    ${hasDescription ? `<p class="pipeline-folder-description" title="${descriptionAttr}">${safeDescription}</p>` : ''}
                     <div class="pipeline-folder-meta">
                         <div class="pipeline-folder-meta-row">
                             <span class="pipeline-folder-meta-label">Applications:</span>
