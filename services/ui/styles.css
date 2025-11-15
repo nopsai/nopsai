@@ -1979,16 +1979,16 @@ html.dark .pipelines-modal-card {
     opacity: 1;
 }
 
-#environment-edit-modal.show,
-#environment-delete-modal.show,
-#environment-new-modal.show {
+#variable-edit-modal.show,
+#variable-delete-modal.show,
+#scope-new-modal.show {
     opacity: 1;
 }
 
-#environment-edit-modal.show .pipelines-modal-card,
-#environment-delete-modal.show .pipelines-modal-card,
-#environment-new-modal.show .pipelines-modal-card,
-#environment-new-modal.show .modal-panel {
+#variable-edit-modal.show .pipelines-modal-card,
+#variable-delete-modal.show .pipelines-modal-card,
+#scope-new-modal.show .pipelines-modal-card,
+#scope-new-modal.show .modal-panel {
     transform: scale(1);
     opacity: 1;
 }

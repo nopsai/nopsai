@@ -44,32 +44,32 @@ curl -X PUT \
 ```
 
 - Repository endpoints also accept `?env=` to target scoped environments.
-- Repository-scoped entries returned by `GET /v1/secrets` are prefixed with `owner/repo/SECRET`, so the UI can group them under the same environment scope as global secrets.
-- `GET /v1/secrets/scopes` reports only environment scopes (default, prod, etc.) to mirror the Environments page.
+- Repository-scoped entries returned by `GET /v1/secrets` are prefixed with `owner/repo/SECRET`, so the UI can group them under the same scope as global secrets.
+- `GET /v1/secrets/scopes` reports only scopes (default, prod, etc.) to mirror the Scopes page.
 - Secrets resolve in the following order: repo+env → repo → global+env → global.
 
 ---
 
-## Environments
+## Scope Variables
 
-Environment values mirror the scoping rules used for secrets.
+Scope variables mirror the scoping rules used for secrets.
 
 ```bash
-# Global environment value
+# Global scope variable
 curl -X PUT -d '{"value":"general"}' \
   "http://localhost:8080/v1/environments/TEST_ENV"
 
-# Repository environment value
+# Repository scope variable
 curl -X PUT -d '{"value":"repo"}' \
   "http://localhost:8080/v1/repositories/hosein-yousefii/test-app/environments/TEST_ENV"
 
-# Fetch scoped environment variables
+# Fetch scoped variables
 curl "http://localhost:8080/v1/environments?env=prod"
 ```
 
 - The list endpoint now returns both global variables (e.g. `DATABASE_URL`) and repository-scoped entries in the form `owner/repo/NAME`.
 - Duplicate keys inside the same scope are rejected during config sync.
-- The config repo may define environments in `environments/<scope>/env.yaml`; the sync endpoint imports them automatically.
+- The config repo may define scope folders under `environments/<scope>/env.yaml`; the sync endpoint imports them automatically.
 
 ---
 

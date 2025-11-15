@@ -14,20 +14,20 @@
         sidebarExpanded: new Set(),
         pipelineSecretIndex: new Map(),
         secretSources: new Map(),
-        pipelineEnvIndex: new Map(),
-        envSources: new Map(),
-        envValues: new Map(),
-        envValuePromises: new Map(),
+        pipelineVariableIndex: new Map(),
+        variableSources: new Map(),
+        variableValues: new Map(),
+        variableValuePromises: new Map(),
         pipelineMetadata: new Map(),
         pipelineMetaSeeds: new Map(),
         pipelineSecretIndexReady: false,
         pipelineSecretIndexPromise: null,
-        pipelineEnvIndexReady: false,
-        pipelineEnvIndexPromise: null,
+        pipelineVariableIndexReady: false,
+        pipelineVariableIndexPromise: null,
         expandedVariable: null,
-        pendingEnvironmentParent: '',
-        triggersByEnv: new Map(),
-        pipelinesByEnv: new Map(),
+        pendingScopeParent: '',
+        triggersByScope: new Map(),
+        pipelinesByScope: new Map(),
         scopeLoadPromise: null,
     };
 
@@ -65,14 +65,14 @@
             'secret-confirm-delete-btn', 'secret-variable-detail-label', 'secret-variable-detail-source',
             'secret-variable-detail-updated', 'secret-variable-detail-created',
             'secret-suggestion-panel', 'secret-suggestion-list', 'secret-suggestion-empty',
-            'environment-variable-list', 'environment-variable-empty',
-            'environment-variable-pipelines', 'environment-variable-triggers',
-            'environment-edit-modal', 'environment-edit-form', 'environment-edit-name', 'environment-edit-repo', 'environment-edit-value',
-            'environment-edit-scope', 'environment-edit-submit', 'environment-delete-modal', 'environment-delete-message',
-            'environment-confirm-delete-btn', 'environment-variable-detail-label', 'environment-variable-detail-source',
-            'environment-variable-detail-updated', 'environment-variable-detail-created',
-            'environment-new-modal', 'environment-new-form', 'environment-new-name', 'environment-new-parent', 'environment-new-cancel', 'environment-new-close',
-            'environment-suggestion-panel', 'environment-suggestion-list', 'environment-suggestion-empty'
+            'variable-list', 'variable-empty',
+            'variable-pipelines', 'variable-triggers',
+            'variable-edit-modal', 'variable-edit-form', 'variable-edit-name', 'variable-edit-repo', 'variable-edit-value',
+            'variable-edit-scope', 'variable-edit-submit', 'variable-delete-modal', 'variable-delete-message',
+            'variable-confirm-delete-btn', 'variable-detail-label', 'variable-detail-source',
+            'variable-detail-updated', 'variable-detail-created',
+            'scope-new-modal', 'scope-new-form', 'scope-new-name', 'scope-new-parent', 'scope-new-cancel', 'scope-new-close',
+            'variable-suggestion-panel', 'variable-suggestion-list', 'variable-suggestion-empty'
         ];
 
         ids.forEach(id => {
@@ -81,8 +81,8 @@
 
         DOM['secret-repo-options'] = document.getElementById('secret-repo-options');
         DOM['secret-create-inline'] = document.getElementById('secret-create-inline');
-        DOM['environment-repo-options'] = document.getElementById('environment-repo-options');
-        DOM['environment-create-inline'] = document.getElementById('environment-create-inline');
+        DOM['variable-repo-options'] = document.getElementById('variable-repo-options');
+        DOM['variable-create-inline'] = document.getElementById('variable-create-inline');
     }
 
     function attachEventListeners() {
@@ -134,45 +134,45 @@
             DOM['secret-list'].addEventListener('click', handleSecretListClick);
             DOM['secret-list'].addEventListener('keydown', handleSecretListKeydown);
         }
-        if (DOM['environment-create-inline']) {
-            DOM['environment-create-inline'].addEventListener('click', event => {
+        if (DOM['variable-create-inline']) {
+            DOM['variable-create-inline'].addEventListener('click', event => {
                 event.preventDefault();
                 const scopeKey = state.selectedScopeKey || DEFAULT_SCOPE_KEY;
                 openVariableEditModal('create', { scopeKey });
             });
         }
-        if (DOM['environment-edit-form']) {
-            DOM['environment-edit-form'].addEventListener('submit', handleSubmitVariable);
+        if (DOM['variable-edit-form']) {
+            DOM['variable-edit-form'].addEventListener('submit', handleSubmitVariable);
         }
-        const cancelVariableEditBtn = DOM['environment-edit-modal']?.querySelector('[data-cancel]');
+        const cancelVariableEditBtn = DOM['variable-edit-modal']?.querySelector('[data-cancel]');
         if (cancelVariableEditBtn) {
-            cancelVariableEditBtn.addEventListener('click', () => closeModal('environment-edit-modal'));
+            cancelVariableEditBtn.addEventListener('click', () => closeModal('variable-edit-modal'));
         }
-        if (DOM['environment-confirm-delete-btn']) {
-            DOM['environment-confirm-delete-btn'].addEventListener('click', handleConfirmVariableDelete);
+        if (DOM['variable-confirm-delete-btn']) {
+            DOM['variable-confirm-delete-btn'].addEventListener('click', handleConfirmVariableDelete);
         }
-        const cancelVariableDeleteBtn = DOM['environment-delete-modal']?.querySelector('[data-cancel]');
+        const cancelVariableDeleteBtn = DOM['variable-delete-modal']?.querySelector('[data-cancel]');
         if (cancelVariableDeleteBtn) {
-            cancelVariableDeleteBtn.addEventListener('click', () => closeModal('environment-delete-modal'));
+            cancelVariableDeleteBtn.addEventListener('click', () => closeModal('variable-delete-modal'));
         }
-        if (DOM['environment-new-form']) {
-            DOM['environment-new-form'].addEventListener('submit', handleCreateScope);
+        if (DOM['scope-new-form']) {
+            DOM['scope-new-form'].addEventListener('submit', handleCreateScope);
         }
-        if (DOM['environment-new-cancel']) {
-            DOM['environment-new-cancel'].addEventListener('click', hideNewScopeModal);
+        if (DOM['scope-new-cancel']) {
+            DOM['scope-new-cancel'].addEventListener('click', hideNewScopeModal);
         }
-        if (DOM['environment-new-close']) {
-            DOM['environment-new-close'].addEventListener('click', hideNewScopeModal);
+        if (DOM['scope-new-close']) {
+            DOM['scope-new-close'].addEventListener('click', hideNewScopeModal);
         }
-        if (DOM['environment-suggestion-panel']) {
-            DOM['environment-suggestion-panel'].addEventListener('click', handleEnvironmentSuggestionClick);
+        if (DOM['variable-suggestion-panel']) {
+            DOM['variable-suggestion-panel'].addEventListener('click', handleVariableSuggestionClick);
         }
         document.addEventListener('keydown', event => {
             if (event.key === 'Escape') {
                 closeModal('secret-edit-modal');
                 closeModal('secret-delete-modal');
-                closeModal('environment-edit-modal');
-                closeModal('environment-delete-modal');
+                closeModal('variable-edit-modal');
+                closeModal('variable-delete-modal');
                 hideNewScopeModal();
             }
         });
@@ -287,8 +287,8 @@
         state.scopeTree = buildSecretTree(nextList);
         state.sidebarExpanded = previousExpanded.size ? previousExpanded : new Set(['']);
         state.sidebarExpanded.add('');
-        state.triggersByEnv = new Map();
-        state.pipelinesByEnv = new Map();
+        state.triggersByScope = new Map();
+        state.pipelinesByScope = new Map();
 
         if (!state.scopeMap.has(DEFAULT_SCOPE_KEY)) {
             const defaultScope = createScopeRecord('');
@@ -485,8 +485,8 @@
             state.scopeMap = new Map();
         }
 
-        state.triggersByEnv = new Map();
-        state.pipelinesByEnv = new Map();
+        state.triggersByScope = new Map();
+        state.pipelinesByScope = new Map();
 
         state.scopeMap.forEach(scope => {
             scope.triggers = [];
@@ -666,13 +666,13 @@
         scope.triggerCount = scope.triggers.length;
         scope.pipelines = Array.from(scope.pipelineSet).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
 
-        const envTriggers = state.triggersByEnv.get(scopeLabel) || [];
-        envTriggers.push(triggerDescriptor);
-        state.triggersByEnv.set(scopeLabel, envTriggers);
+        const scopeTriggers = state.triggersByScope.get(scopeLabel) || [];
+        scopeTriggers.push(triggerDescriptor);
+        state.triggersByScope.set(scopeLabel, scopeTriggers);
 
-        const envPipelines = state.pipelinesByEnv.get(scopeLabel) || new Set();
-        pipelines.forEach(identifier => envPipelines.add(identifier));
-        state.pipelinesByEnv.set(scopeLabel, envPipelines);
+        const scopePipelines = state.pipelinesByScope.get(scopeLabel) || new Set();
+        pipelines.forEach(identifier => scopePipelines.add(identifier));
+        state.pipelinesByScope.set(scopeLabel, scopePipelines);
     }
 
     function normalizeScopeLabel(value) {
@@ -1139,8 +1139,7 @@ function renderScopeCategoryCard(scope, category) {
 
     function getSidebarContainer() {
         return document.getElementById('scopes-sidebar-tree')
-            || document.getElementById('secrets-sidebar-tree')
-            || document.getElementById('environment-sidebar-tree');
+            || document.getElementById('secrets-sidebar-tree');
     }
 
     function renderSidebarTree(targetContainer) {
@@ -1226,7 +1225,7 @@ function renderScopeCategoryCard(scope, category) {
 
         let innerHtml = '';
         if (children.length || scopes.length) {
-            innerHtml += `<div class="environment-sidebar-children ${isExpanded ? '' : 'hidden'}" data-secret-folder-children="${escapeAttribute(folderPath)}">`;
+            innerHtml += `<div class="scope-sidebar-children ${isExpanded ? '' : 'hidden'}" data-secret-folder-children="${escapeAttribute(folderPath)}">`;
             innerHtml += renderSidebarTreeNodesList(node, level + 1);
             innerHtml += '</div>';
         }
@@ -1644,7 +1643,7 @@ function renderScopeCategoryCard(scope, category) {
                     if (item && typeof item === 'object') {
                         return {
                             name: String(item.name || '').trim(),
-                            source: normalizeEnvironmentSourceKey(item.source || 'database'),
+                            source: normalizeVariableSourceKey(item.source || 'database'),
                             createdAt: item.created_at || item.createdAt || '',
                             updatedAt: item.updated_at || item.updatedAt || '',
                         };
@@ -1652,8 +1651,8 @@ function renderScopeCategoryCard(scope, category) {
                     return { name: '', source: 'database', createdAt: '', updatedAt: '' };
                 }).filter(entry => entry.name);
 
-                const globalMeta = state.envSources instanceof Map ? state.envSources : new Map();
-                state.envSources = globalMeta;
+                const globalMeta = state.variableSources instanceof Map ? state.variableSources : new Map();
+                state.variableSources = globalMeta;
                 if (!(scope.variableMeta instanceof Map)) {
                     scope.variableMeta = new Map();
                 }
@@ -1668,7 +1667,7 @@ function renderScopeCategoryCard(scope, category) {
                         updatedAt: entry.updatedAt,
                     };
                     scope.variableMeta.set(entry.name, meta);
-                    const cacheKey = makeEnvValueCacheKey(entry.name, scope.scopeName || '');
+                    const cacheKey = makeScopeValueCacheKey(entry.name, scope.scopeName || '');
                     globalMeta.set(cacheKey, meta);
                     return entry.name;
                 });
@@ -1818,12 +1817,12 @@ function renderScopeCategoryCard(scope, category) {
     }
 
     function renderVariableList(scope) {
-        const container = DOM['environment-variable-list'];
+        const container = DOM['variable-list'];
         if (!container) return;
 
         const hasVariables = Array.isArray(scope.variables) && scope.variables.length > 0;
-        if (DOM['environment-variable-empty']) {
-            DOM['environment-variable-empty'].classList.toggle('hidden', hasVariables);
+        if (DOM['variable-empty']) {
+            DOM['variable-empty'].classList.toggle('hidden', hasVariables);
         }
 
         const grouped = groupVariablesByRepository(hasVariables ? scope.variables : []);
@@ -1839,21 +1838,21 @@ function renderScopeCategoryCard(scope, category) {
 
         container.innerHTML = sections.join('');
 
-        container.querySelectorAll('[data-environment-variable]').forEach(button => {
+        container.querySelectorAll('[data-variable-name]').forEach(button => {
             button.addEventListener('click', () => {
-                const name = button.getAttribute('data-environment-variable');
+                const name = button.getAttribute('data-variable-name');
                 selectVariable(name);
             });
         });
 
-        container.querySelectorAll('[data-env-variable-show]').forEach(button => {
+        container.querySelectorAll('[data-scope-variable-show]').forEach(button => {
             button.addEventListener('click', async event => {
                 event.preventDefault();
                 event.stopPropagation();
-                const item = button.closest('[data-env-variable-item]');
+                const item = button.closest('[data-scope-variable-item]');
                 if (!item) return;
-                const variableName = item.getAttribute('data-env-variable-full');
-                const scopeKey = item.getAttribute('data-env-variable-scope') || scope.key;
+                const variableName = item.getAttribute('data-scope-variable-full');
+                const scopeKey = item.getAttribute('data-scope-variable-scope') || scope.key;
                 if (state.selectedVariable !== variableName) {
                     await selectVariable(variableName, { silent: true, skipHash: true });
                 }
@@ -1861,15 +1860,15 @@ function renderScopeCategoryCard(scope, category) {
             });
         });
 
-        container.querySelectorAll('[data-env-variable-action]').forEach(button => {
+        container.querySelectorAll('[data-scope-variable-action]').forEach(button => {
             button.addEventListener('click', async event => {
                 event.preventDefault();
                 event.stopPropagation();
-                const action = button.getAttribute('data-env-variable-action');
-                const item = button.closest('[data-env-variable-item]');
+                const action = button.getAttribute('data-scope-variable-action');
+                const item = button.closest('[data-scope-variable-item]');
                 if (!item) return;
-                const variableName = item.getAttribute('data-env-variable-full');
-                const scopeKey = item.getAttribute('data-env-variable-scope') || scope.key;
+                const variableName = item.getAttribute('data-scope-variable-full');
+                const scopeKey = item.getAttribute('data-scope-variable-scope') || scope.key;
                 if (!variableName) return;
                 const scopeRef = state.scopeMap.get(scopeKey) || state.scopeMap.get(state.selectedScopeKey || DEFAULT_SCOPE_KEY);
                 if (!scopeRef) return;
@@ -1891,16 +1890,16 @@ function renderScopeCategoryCard(scope, category) {
             });
         });
 
-        container.querySelectorAll('[data-env-variable-clone]').forEach(button => {
+        container.querySelectorAll('[data-scope-variable-clone]').forEach(button => {
             button.addEventListener('click', async event => {
                 event.preventDefault();
                 event.stopPropagation();
-                const item = button.closest('[data-env-variable-item]');
+                const item = button.closest('[data-scope-variable-item]');
                 if (!item) return;
-                const variableName = item.getAttribute('data-env-variable-full');
-                const scopeKey = item.getAttribute('data-env-variable-scope') || scope.key;
+                const variableName = item.getAttribute('data-scope-variable-full');
+                const scopeKey = item.getAttribute('data-scope-variable-scope') || scope.key;
                 if (!variableName) return;
-                await cloneEnvironmentVariable(scopeKey, variableName);
+                await cloneVariable(scopeKey, variableName);
             });
         });
 
@@ -1948,39 +1947,38 @@ function renderScopeCategoryCard(scope, category) {
         const groups = items.map(item => {
             const isExpanded = state.expandedVariable === item.full;
             const isActive = item.full === state.selectedVariable;
-            const sourceKey = getEnvironmentSourceForVariable(item.full, scopeRef);
-            const sourceLabel = formatEnvironmentSourceLabel(sourceKey);
-            const isEditable = isEnvironmentSourceEditable(sourceKey);
+            const sourceKey = getVariableSourceForEntry(item.full, scopeRef);
+            const isEditable = isVariableSourceEditable(sourceKey);
 
             return `
-                <div class="env-variable-item${isActive ? ' env-variable-item--active' : ''}${isExpanded ? ' env-variable-item--expanded' : ''}" data-env-variable-item data-env-variable-full="${escapeAttribute(item.full)}" data-env-variable-scope="${escapeAttribute(scopeKey)}">
+                <div class="env-variable-item${isActive ? ' env-variable-item--active' : ''}${isExpanded ? ' env-variable-item--expanded' : ''}" data-scope-variable-item data-scope-variable-full="${escapeAttribute(item.full)}" data-scope-variable-scope="${escapeAttribute(scopeKey)}">
                     <div class="env-variable-info">
-                        <button type="button" class="env-variable-btn${isActive ? ' env-variable-btn--active' : ''}" data-environment-variable="${escapeAttribute(item.full)}">
+                        <button type="button" class="env-variable-btn${isActive ? ' env-variable-btn--active' : ''}" data-variable-name="${escapeAttribute(item.full)}">
                             <span class="truncate">${escapeHtml(item.display)}</span>
                         </button>
                     </div>
                     <div class="env-variable-inline-actions">
-                        <button type="button" class="env-inline-icon" data-env-variable-show title="Show value">
+                        <button type="button" class="env-inline-icon" data-scope-variable-show title="Show value">
                             <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
                         </button>
                         ${isEditable ? `
-                        <button type="button" class="env-inline-icon" data-env-variable-action="edit" title="Edit variable">
+                        <button type="button" class="env-inline-icon" data-scope-variable-action="edit" title="Edit variable">
                             <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L13.196 5.232z" />
                             </svg>
                         </button>
-                        <button type="button" class="env-inline-icon env-inline-icon--danger" data-env-variable-action="delete" title="Delete variable">
+                        <button type="button" class="env-inline-icon env-inline-icon--danger" data-scope-variable-action="delete" title="Delete variable">
                             <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6l1-3h4l1 3"/></svg>
                         </button>
                         ` : `
-                        <button type="button" class="env-inline-icon" data-env-variable-clone="${escapeAttribute(item.full)}" title="Clone">
+                        <button type="button" class="env-inline-icon" data-scope-variable-clone="${escapeAttribute(item.full)}" title="Clone">
                             <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
                                 <path d="M16 7h-1V4a1 1 0 00-1-1H9a1 1 0 00-1 1v3H7a1 1 0 00-1 1v12a1 1 0 001 1h9a1 1 0 001-1V8a1 1 0 00-1-1zM9 4h5v3H9V4zm2.5 12a2.5 2.5 0 110-5 2.5 2.5 0 010 5z" />
                             </svg>
                         </button>
                         `}
                     </div>
-                    <div class="env-variable-value" data-env-variable-value></div>
+                    <div class="env-variable-value" data-scope-variable-value></div>
                 </div>`;
         }).join('');
 
@@ -1992,12 +1990,12 @@ function renderScopeCategoryCard(scope, category) {
         </section>`;
     }
 
-    function normalizeEnvironmentSourceKey(key) {
+    function normalizeVariableSourceKey(key) {
         return String(key || '').trim().toLowerCase();
     }
 
-    function formatEnvironmentSourceLabel(key) {
-        switch (normalizeEnvironmentSourceKey(key)) {
+    function formatVariableSourceLabel(key) {
+        switch (normalizeVariableSourceKey(key)) {
             case 'git':
                 return 'Git';
             case 'draft':
@@ -2010,7 +2008,7 @@ function renderScopeCategoryCard(scope, category) {
         }
     }
 
-    function getEnvironmentMetadata(name, scopeRef) {
+    function getVariableMetadata(name, scopeRef) {
         if (!name) return null;
         let scope = scopeRef;
         if (typeof scope === 'string') {
@@ -2019,20 +2017,20 @@ function renderScopeCategoryCard(scope, category) {
         if (scope && scope.variableMeta instanceof Map && scope.variableMeta.has(name)) {
             return scope.variableMeta.get(name);
         }
-        const envKey = makeEnvValueCacheKey(name, scope?.scopeName || '');
-        if (state.envSources instanceof Map && state.envSources.has(envKey)) {
-            return state.envSources.get(envKey);
+        const cacheKey = makeScopeValueCacheKey(name, scope?.scopeName || '');
+        if (state.variableSources instanceof Map && state.variableSources.has(cacheKey)) {
+            return state.variableSources.get(cacheKey);
         }
         return null;
     }
 
-    function getEnvironmentSourceForVariable(name, scopeRef) {
-        const meta = getEnvironmentMetadata(name, scopeRef);
+    function getVariableSourceForEntry(name, scopeRef) {
+        const meta = getVariableMetadata(name, scopeRef);
         return meta?.source || 'database';
     }
 
-    function isEnvironmentSourceEditable(key) {
-        return normalizeEnvironmentSourceKey(key) !== 'git';
+    function isVariableSourceEditable(key) {
+        return normalizeVariableSourceKey(key) !== 'git';
     }
 
     async function selectVariable(name, options = {}) {
@@ -2055,7 +2053,7 @@ function renderScopeCategoryCard(scope, category) {
         }
         state.selectedVariable = name;
         highlightActiveVariable(name);
-        await ensurePipelineEnvIndex();
+        await ensurePipelineVariableIndex();
         renderVariableDetail(scope, name);
 
         if (!options.silent && !options.skipHash) {
@@ -2064,11 +2062,11 @@ function renderScopeCategoryCard(scope, category) {
     }
 
     function highlightActiveVariable(name) {
-        const container = DOM['environment-variable-list'];
+        const container = DOM['variable-list'];
         if (!container) return;
-        container.querySelectorAll('[data-env-variable-item]').forEach(item => {
-            const button = item.querySelector('[data-environment-variable]');
-            const value = button ? button.getAttribute('data-environment-variable') : null;
+        container.querySelectorAll('[data-scope-variable-item]').forEach(item => {
+            const button = item.querySelector('[data-variable-name]');
+            const value = button ? button.getAttribute('data-variable-name') : null;
             const isActive = value === name && !!name;
             item.classList.toggle('env-variable-item--active', isActive);
             if (button) {
@@ -2079,18 +2077,18 @@ function renderScopeCategoryCard(scope, category) {
     }
 
     function updateVariableItemStates() {
-        const container = DOM['environment-variable-list'];
+        const container = DOM['variable-list'];
         if (!container) return;
-        container.querySelectorAll('[data-env-variable-item]').forEach(item => {
-            const variableFull = item.getAttribute('data-env-variable-full');
-            const scopeKey = item.getAttribute('data-env-variable-scope') || '';
+        container.querySelectorAll('[data-scope-variable-item]').forEach(item => {
+            const variableFull = item.getAttribute('data-scope-variable-full');
+            const scopeKey = item.getAttribute('data-scope-variable-scope') || '';
             const scopeRef = state.scopeMap.get(scopeKey) || state.scopeMap.get(state.selectedScopeKey || DEFAULT_SCOPE_KEY) || null;
             const envLabel = scopeRef?.scopeName || '';
-            const cacheKey = makeEnvValueCacheKey(variableFull, envLabel);
-            const value = state.envValues.get(cacheKey) || '';
+            const cacheKey = makeScopeValueCacheKey(variableFull, envLabel);
+            const value = state.variableValues.get(cacheKey) || '';
             const isExpanded = state.expandedVariable === variableFull;
-            const showButton = item.querySelector('[data-env-variable-show]');
-            const valueContainer = item.querySelector('[data-env-variable-value]');
+            const showButton = item.querySelector('[data-scope-variable-show]');
+            const valueContainer = item.querySelector('[data-scope-variable-value]');
 
             item.classList.toggle('env-variable-item--expanded', isExpanded);
             if (showButton) {
@@ -2123,15 +2121,15 @@ function renderScopeCategoryCard(scope, category) {
             return;
         }
 
-        const cacheKey = makeEnvValueCacheKey(variableName, scopeRef.scopeName || '');
-        let value = state.envValues.get(cacheKey);
+        const cacheKey = makeScopeValueCacheKey(variableName, scopeRef.scopeName || '');
+        let value = state.variableValues.get(cacheKey);
         if (value == null) {
             try {
                 button.dataset.loading = 'true';
                 button.classList.add('loading');
                 button.disabled = true;
                 value = await fetchVariableValue(scopeRef, variableName);
-                state.envValues.set(cacheKey, value ?? '');
+                state.variableValues.set(cacheKey, value ?? '');
             } catch (error) {
                 console.error('Failed to fetch scope variable value:', error);
                 showToast('Failed to load variable value.', 'error');
@@ -2150,13 +2148,13 @@ function renderScopeCategoryCard(scope, category) {
         if (!context || typeof context.fetchData !== 'function') return '';
         const identity = parseVariableIdentity(variableName);
         const envLabel = scope?.scopeName || '';
-        const cacheKey = makeEnvValueCacheKey(variableName, envLabel);
+        const cacheKey = makeScopeValueCacheKey(variableName, envLabel);
 
-        if (state.envValues.has(cacheKey)) {
-            return state.envValues.get(cacheKey);
+        if (state.variableValues.has(cacheKey)) {
+            return state.variableValues.get(cacheKey);
         }
-        if (state.envValuePromises.has(cacheKey)) {
-            return state.envValuePromises.get(cacheKey);
+        if (state.variableValuePromises.has(cacheKey)) {
+            return state.variableValuePromises.get(cacheKey);
         }
 
         let url = '';
@@ -2170,7 +2168,7 @@ function renderScopeCategoryCard(scope, category) {
         }
 
         const promise = (async () => {
-            const { status, data, error } = await fetchEnvironmentResource(url);
+            const { status, data, error } = await fetchVariableResource(url);
             try {
                 if (status === 404) {
                     return '';
@@ -2186,13 +2184,13 @@ function renderScopeCategoryCard(scope, category) {
                 }
                 return '';
             } finally {
-                state.envValuePromises.delete(cacheKey);
+                state.variableValuePromises.delete(cacheKey);
             }
         })();
 
-        state.envValuePromises.set(cacheKey, promise);
+        state.variableValuePromises.set(cacheKey, promise);
         const value = await promise;
-        state.envValues.set(cacheKey, value);
+        state.variableValues.set(cacheKey, value);
         return value;
     }
 
@@ -2208,7 +2206,7 @@ function renderScopeCategoryCard(scope, category) {
         return { repoOwner: '', repoName: '', name: parts[0] || '' };
     }
 
-    function makeEnvValueCacheKey(variableName, envLabel) {
+    function makeScopeValueCacheKey(variableName, envLabel) {
         return `${variableName}@@${envLabel || ''}`;
     }
 
@@ -2320,17 +2318,17 @@ function renderScopeCategoryCard(scope, category) {
         return Array.from(repos).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
     }
 
-    function populateEnvironmentRepoSuggestions(preselect = '') {
-        const datalist = DOM['environment-repo-options'];
+    function populateVariableRepoSuggestions(preselect = '') {
+        const datalist = DOM['variable-repo-options'];
         if (!datalist) return;
         const entries = collectVariableKnownRepositorySlugs(preselect);
         datalist.innerHTML = entries.map(slug => `<option value="${escapeAttribute(slug)}"></option>`).join('');
     }
 
-    function renderEnvironmentSuggestions(activeScopeKey = state.selectedScopeKey || DEFAULT_SCOPE_KEY) {
-        const panel = DOM['environment-suggestion-panel'];
-        const list = DOM['environment-suggestion-list'];
-        const emptyState = DOM['environment-suggestion-empty'];
+    function renderVariableSuggestions(activeScopeKey = state.selectedScopeKey || DEFAULT_SCOPE_KEY) {
+        const panel = DOM['variable-suggestion-panel'];
+        const list = DOM['variable-suggestion-list'];
+        const emptyState = DOM['variable-suggestion-empty'];
         if (!panel || !list || !emptyState) {
             return;
         }
@@ -2384,17 +2382,17 @@ function renderScopeCategoryCard(scope, category) {
         }).join('');
     }
 
-    function handleEnvironmentSuggestionClick(event) {
+    function handleVariableSuggestionClick(event) {
         const button = event.target.closest('[data-env-suggestion-value]');
         if (!button) return;
-        if (!DOM['environment-edit-modal'] || DOM['environment-edit-modal'].classList.contains('hidden')) {
+        if (!DOM['variable-edit-modal'] || DOM['variable-edit-modal'].classList.contains('hidden')) {
             return;
         }
         const variableValue = button.getAttribute('data-env-suggestion-value') || '';
         if (!variableValue) return;
         event.preventDefault();
         const identity = parseVariableIdentity(variableValue);
-        const nameInput = DOM['environment-edit-name'];
+        const nameInput = DOM['variable-edit-name'];
         if (nameInput && !nameInput.readOnly) {
             nameInput.value = identity.name || variableValue;
             try {
@@ -2402,7 +2400,7 @@ function renderScopeCategoryCard(scope, category) {
                 nameInput.setSelectionRange(caret, caret);
             } catch {}
         }
-        const repoInput = DOM['environment-edit-repo'];
+        const repoInput = DOM['variable-edit-repo'];
         if (repoInput && !repoInput.disabled) {
             const repoSlug = identity.repoOwner && identity.repoName ? `${identity.repoOwner}/${identity.repoName}` : '';
             repoInput.value = repoSlug;
@@ -2410,7 +2408,7 @@ function renderScopeCategoryCard(scope, category) {
         nameInput?.focus();
     }
 
-    function suggestEnvironmentCloneName(scope, repoSlug, baseName) {
+    function suggestVariableCloneName(scope, repoSlug, baseName) {
         const sanitizedBase = String(baseName || 'variable')
             .trim()
             .replace(/[^A-Za-z0-9_.-]+/g, '-')
@@ -2430,32 +2428,32 @@ function renderScopeCategoryCard(scope, category) {
         const scope = state.scopeMap.get(options.scopeKey || state.selectedScopeKey || DEFAULT_SCOPE_KEY);
         if (!scope) return;
 
-        const header = DOM['environment-edit-modal']?.querySelector('h2');
+        const header = DOM['variable-edit-modal']?.querySelector('h2');
         if (header) {
             header.textContent = mode === 'update' ? 'Update Variable' : 'Create Variable';
         }
 
-        if (DOM['environment-edit-scope']) {
-            DOM['environment-edit-scope'].textContent = scope.scopeName ? `Scope: /${scope.scopeName}` : 'Scope: /';
+        if (DOM['variable-edit-scope']) {
+            DOM['variable-edit-scope'].textContent = scope.scopeName ? `Scope: /${scope.scopeName}` : 'Scope: /';
         }
 
         const identity = parseVariableIdentity(options.name || '');
         const existingRepoSlug = identity.repoOwner && identity.repoName ? `${identity.repoOwner}/${identity.repoName}` : '';
         const requestedRepoSlug = normalizeRepositorySlug(options.repository || options.repoSlug || '') || existingRepoSlug;
-        populateEnvironmentRepoSuggestions(requestedRepoSlug);
+        populateVariableRepoSuggestions(requestedRepoSlug);
 
-        if (DOM['environment-edit-name']) {
+        if (DOM['variable-edit-name']) {
             let baseName = '';
             if (mode === 'update') {
                 baseName = identity.repoOwner && identity.repoName ? identity.name : (options.name || '');
             } else {
                 baseName = typeof options.nameSuggestion === 'string' ? options.nameSuggestion : '';
             }
-            DOM['environment-edit-name'].value = baseName;
-            DOM['environment-edit-name'].readOnly = mode === 'update';
+            DOM['variable-edit-name'].value = baseName;
+            DOM['variable-edit-name'].readOnly = mode === 'update';
         }
-        if (DOM['environment-edit-repo']) {
-            const input = DOM['environment-edit-repo'];
+        if (DOM['variable-edit-repo']) {
+            const input = DOM['variable-edit-repo'];
             if (mode === 'update') {
                 input.value = existingRepoSlug;
                 input.disabled = true;
@@ -2466,23 +2464,23 @@ function renderScopeCategoryCard(scope, category) {
                 input.value = requestedRepoSlug;
             }
         }
-        if (DOM['environment-edit-value']) {
+        if (DOM['variable-edit-value']) {
             const preset = mode === 'create' && typeof options.valuePreset === 'string'
                 ? options.valuePreset
                 : '';
-            DOM['environment-edit-value'].value = preset;
+            DOM['variable-edit-value'].value = preset;
         }
-        if (DOM['environment-edit-form']) {
-            DOM['environment-edit-form'].dataset.mode = mode;
-            DOM['environment-edit-form'].dataset.scopeKey = scope.key;
-            DOM['environment-edit-form'].dataset.variableName = options.name || '';
+        if (DOM['variable-edit-form']) {
+            DOM['variable-edit-form'].dataset.mode = mode;
+            DOM['variable-edit-form'].dataset.scopeKey = scope.key;
+            DOM['variable-edit-form'].dataset.variableName = options.name || '';
         }
-        if (DOM['environment-edit-submit']) {
-            DOM['environment-edit-submit'].textContent = mode === 'update' ? 'Save Value' : 'Create Variable';
+        if (DOM['variable-edit-submit']) {
+            DOM['variable-edit-submit'].textContent = mode === 'update' ? 'Save Value' : 'Create Variable';
         }
 
-        renderEnvironmentSuggestions(scope.key);
-        openModal('environment-edit-modal');
+        renderVariableSuggestions(scope.key);
+        openModal('variable-edit-modal');
     }
 
     async function handleSubmitVariable(event) {
@@ -2492,9 +2490,9 @@ function renderScopeCategoryCard(scope, category) {
         const form = event.currentTarget;
         const mode = form.dataset.mode || 'create';
         const scopeKey = form.dataset.scopeKey || DEFAULT_SCOPE_KEY;
-        const nameInputValue = DOM['environment-edit-name']?.value.trim() || '';
-        const repoInput = DOM['environment-edit-repo'];
-        const value = DOM['environment-edit-value']?.value || '';
+        const nameInputValue = DOM['variable-edit-name']?.value.trim() || '';
+        const repoInput = DOM['variable-edit-repo'];
+        const value = DOM['variable-edit-value']?.value || '';
 
         let repoSlug = '';
         if (repoInput && !repoInput.disabled) {
@@ -2569,7 +2567,7 @@ function renderScopeCategoryCard(scope, category) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ value, source: repoSlug ? 'git' : undefined }),
             });
-            closeModal('environment-edit-modal');
+            closeModal('variable-edit-modal');
             await ensureScopeVariablesLoaded(scope, true);
             renderScopeDetail(scope);
             selectVariable(variableName, { silent: true, skipHash: true });
@@ -2583,35 +2581,35 @@ function renderScopeCategoryCard(scope, category) {
     }
 
     function openDeleteVariableModal(scope, name) {
-        if (!DOM['environment-delete-modal']) return;
-        const message = DOM['environment-delete-message'];
+        if (!DOM['variable-delete-modal']) return;
+        const message = DOM['variable-delete-message'];
         if (message) {
             const scopeLabel = scope?.scopeName ? `/${scope.scopeName}` : '/';
             message.innerHTML = `Remove <strong>${escapeHtml(name)}</strong> from <strong>${escapeHtml(scopeLabel)}</strong>?`;
         }
-        const confirmBtn = DOM['environment-confirm-delete-btn'];
+        const confirmBtn = DOM['variable-confirm-delete-btn'];
         if (confirmBtn) {
             confirmBtn.dataset.scopeKey = scope?.key || '';
             confirmBtn.dataset.deleteMode = 'variable';
             confirmBtn.dataset.variableName = name;
         }
-        openModal('environment-delete-modal');
+        openModal('variable-delete-modal');
     }
 
     async function handleConfirmVariableDelete() {
-        const button = DOM['environment-confirm-delete-btn'];
+        const button = DOM['variable-confirm-delete-btn'];
         if (!button) return;
         const scopeKey = button.dataset.scopeKey;
         const variableName = button.dataset.variableName;
         const scope = state.scopeMap.get(scopeKey);
         if (!scope || !variableName) {
-            closeModal('environment-delete-modal');
+            closeModal('variable-delete-modal');
             return;
         }
 
-        const success = await deleteEnvironmentVariable(scope, variableName);
+        const success = await deleteVariable(scope, variableName);
         if (success) {
-            closeModal('environment-delete-modal');
+            closeModal('variable-delete-modal');
             await ensureScopeVariablesLoaded(scope, true);
             renderScopeDetail(scope);
             selectVariable(variableName, { silent: true, skipHash: true });
@@ -2621,12 +2619,12 @@ function renderScopeCategoryCard(scope, category) {
         }
     }
 
-    async function cloneEnvironmentVariable(scopeKey, variableName) {
+    async function cloneVariable(scopeKey, variableName) {
         const scope = state.scopeMap.get(scopeKey);
         if (!scope) return;
         const identity = parseVariableIdentity(variableName);
         const repoSlug = identity.repoOwner && identity.repoName ? `${identity.repoOwner}/${identity.repoName}` : '';
-        const suggestion = suggestEnvironmentCloneName(scope, repoSlug, identity.name || variableName);
+        const suggestion = suggestVariableCloneName(scope, repoSlug, identity.name || variableName);
         openVariableEditModal('create', {
             scopeKey: scope.key,
             repoSlug,
@@ -2635,7 +2633,7 @@ function renderScopeCategoryCard(scope, category) {
         });
     }
 
-    async function deleteEnvironmentVariable(scope, name) {
+    async function deleteVariable(scope, name) {
         if (!context || typeof context.fetchData !== 'function') return false;
         const identity = parseVariableIdentity(name);
         const envLabel = scope?.scopeName || '';
@@ -2658,30 +2656,30 @@ function renderScopeCategoryCard(scope, category) {
     }
 
     function openNewScopeModal(parentPath = '') {
-        const modal = DOM['environment-new-modal'];
+        const modal = DOM['scope-new-modal'];
         if (!modal) return;
-        state.pendingEnvironmentParent = normalizeScopeLabel(parentPath || '');
-        if (DOM['environment-new-parent']) {
-            DOM['environment-new-parent'].textContent = state.pendingEnvironmentParent ? `/${state.pendingEnvironmentParent}` : '/';
+        state.pendingScopeParent = normalizeScopeLabel(parentPath || '');
+        if (DOM['scope-new-parent']) {
+            DOM['scope-new-parent'].textContent = state.pendingScopeParent ? `/${state.pendingScopeParent}` : '/';
         }
-        if (DOM['environment-new-name']) {
-            DOM['environment-new-name'].value = '';
-            DOM['environment-new-name'].focus();
+        if (DOM['scope-new-name']) {
+            DOM['scope-new-name'].value = '';
+            DOM['scope-new-name'].focus();
         }
-        openModal('environment-new-modal');
+        openModal('scope-new-modal');
     }
 
     function hideNewScopeModal() {
-        closeModal('environment-new-modal');
-        state.pendingEnvironmentParent = '';
+        closeModal('scope-new-modal');
+        state.pendingScopeParent = '';
     }
 
     async function handleCreateScope(event) {
         event.preventDefault();
         if (!context || typeof context.fetchData !== 'function') return;
 
-        const parentLabel = state.pendingEnvironmentParent || '';
-        const inputEl = DOM['environment-new-name'];
+        const parentLabel = state.pendingScopeParent || '';
+        const inputEl = DOM['scope-new-name'];
         const rawInput = inputEl ? inputEl.value : '';
         const segments = sanitizeScopeSegments(rawInput);
         if (!segments.length) {
@@ -2925,7 +2923,7 @@ function renderScopeCategoryCard(scope, category) {
         }
     }
 
-    async function fetchEnvironmentResource(url, options = {}) {
+    async function fetchVariableResource(url, options = {}) {
         const base = (context && typeof context.apiBaseUrl === 'string') ? context.apiBaseUrl : '';
         const target = `${base || ''}${url}`;
         try {
@@ -2988,14 +2986,14 @@ function renderScopeCategoryCard(scope, category) {
         }
     }
 
-    async function ensurePipelineEnvIndex() {
-        if (state.pipelineEnvIndexReady) return;
-        if (state.pipelineEnvIndexPromise) {
-            await state.pipelineEnvIndexPromise;
+    async function ensurePipelineVariableIndex() {
+        if (state.pipelineVariableIndexReady) return;
+        if (state.pipelineVariableIndexPromise) {
+            await state.pipelineVariableIndexPromise;
             return;
         }
 
-        state.pipelineEnvIndexPromise = (async () => {
+        state.pipelineVariableIndexPromise = (async () => {
             if (!context || typeof context.fetchData !== 'function') return;
             try {
                 const response = await context.fetchData('/v1/pipelines?include_source=true');
@@ -3004,28 +3002,28 @@ function renderScopeCategoryCard(scope, category) {
                     const yaml = await context.fetchData(`/v1/pipelines/${identifier.split('/').map(encodeURIComponent).join('/')}`);
                     if (typeof yaml !== 'string') continue;
                     const details = parseYaml(yaml);
-                    const vars = extractEnvironmentVariables(details);
+                    const vars = extractScopeVariables(details);
                     const seed = state.pipelineMetaSeeds instanceof Map ? state.pipelineMetaSeeds.get(identifier) : null;
                     const meta = buildPipelineMeta(identifier, details, seed);
                     state.pipelineMetadata.set(identifier, meta);
                     vars.forEach(variable => {
                         const key = variable.trim();
                         if (!key) return;
-                        const entries = state.pipelineEnvIndex.get(key) || new Set();
+                        const entries = state.pipelineVariableIndex.get(key) || new Set();
                         entries.add(identifier);
-                        state.pipelineEnvIndex.set(key, entries);
+                        state.pipelineVariableIndex.set(key, entries);
                     });
                 }
-                state.pipelineEnvIndexReady = true;
+                state.pipelineVariableIndexReady = true;
             } catch (error) {
-                console.error('Failed to build pipeline environment index:', error);
+                console.error('Failed to build pipeline variable index:', error);
             }
         })();
 
         try {
-            await state.pipelineEnvIndexPromise;
+            await state.pipelineVariableIndexPromise;
         } finally {
-            state.pipelineEnvIndexPromise = null;
+            state.pipelineVariableIndexPromise = null;
         }
     }
 
@@ -3091,20 +3089,32 @@ function renderScopeCategoryCard(scope, category) {
         return Array.from(secrets);
     }
 
-    function extractEnvironmentVariables(details) {
-        if (!details || !Array.isArray(details.steps)) return [];
+    function extractScopeVariables(details) {
+        if (!details || typeof details !== 'object') return [];
         const variables = new Set();
-        details.steps.forEach(step => {
-            if (step && step.environment && typeof step.environment === 'object') {
-                Object.keys(step.environment).forEach(key => {
-                    if (!key) return;
-                    const value = step.environment[key];
-                    if (value && typeof value === 'string') {
-                        variables.add(value.trim());
-                    }
-                });
-            }
-        });
+
+        function collectFromEnvironment(env) {
+            if (!env || typeof env !== 'object') return;
+            Object.keys(env).forEach(key => {
+                if (!key) return;
+                const value = env[key];
+                if (value && typeof value === 'string') {
+                    variables.add(value.trim());
+                }
+            });
+        }
+
+        collectFromEnvironment(details.environment);
+
+        if (Array.isArray(details.steps)) {
+            details.steps.forEach(step => {
+                collectFromEnvironment(step?.environment);
+                if (Array.isArray(step?.tasks)) {
+                    step.tasks.forEach(task => collectFromEnvironment(task?.environment));
+                }
+            });
+        }
+
         return Array.from(variables);
     }
 
@@ -3163,11 +3173,11 @@ function renderScopeCategoryCard(scope, category) {
 
     function renderVariableDetail(scope, name) {
         updateVariableDetailMeta(name, scope);
-        const pipelineEntries = Array.from(state.pipelineEnvIndex.get(name) || []);
-        renderRelatedCollection('environment-variable-pipelines', pipelineEntries.map(renderPipelineDetail), 'No pipelines declare this variable.');
+        const pipelineEntries = Array.from(state.pipelineVariableIndex.get(name) || []);
+        renderRelatedCollection('variable-pipelines', pipelineEntries.map(renderPipelineDetail), 'No pipelines declare this variable.');
 
         const relatedTriggers = scope.triggers;
-        renderRelatedCollection('environment-variable-triggers', relatedTriggers.map(renderTriggerDetail), 'No triggers reference this scope.');
+        renderRelatedCollection('variable-triggers', relatedTriggers.map(renderTriggerDetail), 'No triggers reference this scope.');
     }
 
     function renderSecretDetail(scope, name) {
@@ -3257,18 +3267,18 @@ function renderScopeCategoryCard(scope, category) {
     function clearVariableDetail() {
         state.selectedVariable = null;
         state.expandedVariable = null;
-        if (DOM['environment-variable-pipelines']) {
-            DOM['environment-variable-pipelines'].innerHTML = '';
-            DOM['environment-variable-pipelines'].dataset.empty = 'No pipelines declare this variable.';
+        if (DOM['variable-pipelines']) {
+            DOM['variable-pipelines'].innerHTML = '';
+            DOM['variable-pipelines'].dataset.empty = 'No pipelines declare this variable.';
         }
-        if (DOM['environment-variable-triggers']) {
-            DOM['environment-variable-triggers'].innerHTML = '';
-            DOM['environment-variable-triggers'].dataset.empty = 'No triggers reference this scope.';
+        if (DOM['variable-triggers']) {
+            DOM['variable-triggers'].innerHTML = '';
+            DOM['variable-triggers'].dataset.empty = 'No triggers reference this scope.';
         }
-        if (DOM['environment-variable-detail-label']) {
-            DOM['environment-variable-detail-label'].textContent = 'Select a variable to inspect details.';
+        if (DOM['variable-detail-label']) {
+            DOM['variable-detail-label'].textContent = 'Select a variable to inspect details.';
         }
-        ['environment-variable-detail-source', 'environment-variable-detail-updated', 'environment-variable-detail-created'].forEach(id => {
+        ['variable-detail-source', 'variable-detail-updated', 'variable-detail-created'].forEach(id => {
             const container = DOM[id];
             if (!container) return;
             const valueEl = container.querySelector('.env-variable-detail-meta-value');
@@ -3314,10 +3324,10 @@ function renderScopeCategoryCard(scope, category) {
     }
 
     function updateVariableDetailMeta(name, scope) {
-        const labelEl = DOM['environment-variable-detail-label'];
-        const sourceEl = DOM['environment-variable-detail-source'];
-        const updatedEl = DOM['environment-variable-detail-updated'];
-        const createdEl = DOM['environment-variable-detail-created'];
+        const labelEl = DOM['variable-detail-label'];
+        const sourceEl = DOM['variable-detail-source'];
+        const updatedEl = DOM['variable-detail-updated'];
+        const createdEl = DOM['variable-detail-created'];
         if (!labelEl || !sourceEl || !updatedEl || !createdEl) return;
         const sourceValueEl = sourceEl.querySelector('.env-variable-detail-meta-value');
         const updatedValueEl = updatedEl.querySelector('.env-variable-detail-meta-value');
@@ -3343,12 +3353,12 @@ function renderScopeCategoryCard(scope, category) {
             return;
         }
 
-        const meta = getEnvironmentMetadata(name, scope);
+        const meta = getVariableMetadata(name, scope);
         labelEl.textContent = name;
 
         if (sourceValueEl && meta?.source) {
             const sourceKey = meta.source;
-            sourceValueEl.textContent = formatEnvironmentSourceLabel(sourceKey);
+            sourceValueEl.textContent = formatVariableSourceLabel(sourceKey);
             sourceValueEl.className = `env-variable-detail-meta-value env-variable-source-pill env-variable-source-pill--${sourceKey}`;
             sourceEl.classList.remove('hidden');
         } else if (sourceValueEl) {
@@ -3696,7 +3706,7 @@ function renderScopeCategoryCard(scope, category) {
 
         const mode = button.dataset.deleteMode || 'variable';
 
-        if (mode === 'environment') {
+        if (mode === 'scope') {
             // Deleting scopes from the Secrets page is disallowed.
             showToast('Secret scopes are managed from the Scopes page.', 'info');
             closeModal('secret-delete-modal');
