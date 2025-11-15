@@ -98,6 +98,36 @@ curl -X DELETE http://localhost:8080/v1/pipelines/team-1/dev/main-pipeline
 
 ---
 
+## Pipeline Run Structure
+
+- The GitOps config repository can now define the folder and repository hierarchy for the Pipeline Runs UI via `pipelineruns/structure.yaml`.
+- Each top-level key is a folder. Nest folders by adding child keys, and assign repositories under a folder with a `repos:` list.
+- Repository entries should use the same `owner/repo` strings that appear in triggers and run metadata.
+- Example:
+
+```yaml
+general:
+  description: General workflows
+team-1:
+  description: Description for team-1 folder
+  repos:
+    - hosein-yousefii/general-app
+  dev:
+    description: This is new
+    repos:
+      - hosein-yousefii/test-app
+      - hosein-yousefii/t-app
+team-2:
+  bank:
+    description: Handles bank-facing apps
+    repos:
+      - hosein-yousefii/all-app
+```
+
+- Running `POST /v1/internal/config/sync` now ingests this file, creating or updating the folders in the `groups` table and assigning repositories to their Git-defined parents. Existing manual folders not referenced in the file are left untouched.
+
+---
+
 ## Reusable Steps
 
 ```bash

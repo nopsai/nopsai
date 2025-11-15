@@ -226,6 +226,11 @@ body {
 .group-header-container:hover .delete-group-btn, .group-card:hover .delete-group-btn { opacity: 1; }
 .chevron { transition: transform 0.2s ease-in-out; }
 .expanded .chevron { transform: rotate(90deg); }
+.group-tree-description {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    line-height: 1.1;
+}
 .branch-runs { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-in-out; }
 .sidebar-no-transition { transition: none !important; }
 .sidebar-link.active {
@@ -3702,7 +3707,8 @@ html.dark .triggers-sidebar-link--active {
     font: inherit;
     color: var(--yaml-base-color);
     white-space: pre-wrap;
-    word-break: break-word;
+    word-break: normal;
+    overflow-wrap: break-word;
     min-height: 100%;
     transform: translate3d(0, 0, 0);
 }
@@ -3925,7 +3931,7 @@ html.dark .pipeline-editor-autocomplete__ghost {
     color: inherit;
 }
 .yaml-token {
-    white-space: pre;
+    white-space: inherit;
 }
 .yaml-token--indent,
 .yaml-token--ws {
