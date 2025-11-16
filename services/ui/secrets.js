@@ -229,7 +229,7 @@
         };
 
         secretScopes.forEach(entry => {
-            const envLabel = normalizeScopeLabel(entry?.environment || '');
+            const envLabel = normalizeScopeLabel(entry?.scope ?? entry?.environment ?? '');
             const meta = ensureMeta(envLabel);
             if (typeof entry?.secret_count === 'number') {
                 meta.secretCountHint = entry.secret_count;
@@ -315,14 +315,14 @@
     async function fetchEnvironmentScopeLabels() {
         if (!context || typeof context.fetchData !== 'function') return [];
         try {
-            const response = await context.fetchData('/v1/environments/scopes');
+            const response = await context.fetchData('/v1/variables/scopes');
             if (Array.isArray(response)) {
                 return response
                     .map(entry => normalizeEnvironmentScopeEntry(entry))
                     .filter(label => label !== null);
             }
         } catch (error) {
-            console.error('Failed to retrieve environment scope list:', error);
+            console.error('Failed to retrieve scope list:', error);
         }
         return [];
     }
@@ -335,7 +335,7 @@
             return normalizeScopeLabel(entry);
         }
         if (typeof entry === 'object') {
-            const value = entry.environment ?? entry.env ?? entry.name ?? entry.value ?? '';
+            const value = entry.scope ?? entry.environment ?? entry.env ?? entry.name ?? entry.value ?? '';
             return normalizeScopeLabel(value);
         }
         return '';
@@ -1630,7 +1630,7 @@ function renderScopeCategoryCard(scope, category) {
         }
         if (!context || typeof context.fetchData !== 'function') return [];
 
-        const baseUrl = scope.scopeName ? `/v1/environments?env=${encodeURIComponent(scope.scopeName)}` : '/v1/environments';
+        const baseUrl = scope.scopeName ? `/v1/variables?env=${encodeURIComponent(scope.scopeName)}` : '/v1/variables';
         const url = baseUrl.includes('?') ? `${baseUrl}&include_source=true` : `${baseUrl}?include_source=true`;
         scope.variableFetchPromise = (async () => {
             try {
@@ -2159,9 +2159,9 @@ function renderScopeCategoryCard(scope, category) {
 
         let url = '';
         if (identity.repoOwner && identity.repoName) {
-            url = `/v1/repositories/${encodeURIComponent(identity.repoOwner)}/${encodeURIComponent(identity.repoName)}/environments/${encodeURIComponent(identity.name)}`;
+            url = `/v1/repositories/${encodeURIComponent(identity.repoOwner)}/${encodeURIComponent(identity.repoName)}/variables/${encodeURIComponent(identity.name)}`;
         } else {
-            url = `/v1/environments/${encodeURIComponent(identity.name)}`;
+            url = `/v1/variables/${encodeURIComponent(identity.name)}`;
         }
         if (envLabel) {
             url += `?env=${encodeURIComponent(envLabel)}`;
@@ -2554,9 +2554,9 @@ function renderScopeCategoryCard(scope, category) {
 
         let urlBase = '';
         if (targetRepoOwner && targetRepoName) {
-            urlBase = `/v1/repositories/${encodeURIComponent(targetRepoOwner)}/${encodeURIComponent(targetRepoName)}/environments/${encodeURIComponent(targetVarName)}`;
+            urlBase = `/v1/repositories/${encodeURIComponent(targetRepoOwner)}/${encodeURIComponent(targetRepoName)}/variables/${encodeURIComponent(targetVarName)}`;
         } else {
-            urlBase = `/v1/environments/${encodeURIComponent(targetVarName)}`;
+            urlBase = `/v1/variables/${encodeURIComponent(targetVarName)}`;
         }
         const envLabel = scope.scopeName || '';
         const url = envLabel ? `${urlBase}?env=${encodeURIComponent(envLabel)}` : urlBase;
@@ -2639,9 +2639,9 @@ function renderScopeCategoryCard(scope, category) {
         const envLabel = scope?.scopeName || '';
         let urlBase = '';
         if (identity.repoOwner && identity.repoName) {
-            urlBase = `/v1/repositories/${encodeURIComponent(identity.repoOwner)}/${encodeURIComponent(identity.repoName)}/environments/${encodeURIComponent(identity.name)}`;
+            urlBase = `/v1/repositories/${encodeURIComponent(identity.repoOwner)}/${encodeURIComponent(identity.repoName)}/variables/${encodeURIComponent(identity.name)}`;
         } else {
-            urlBase = `/v1/environments/${encodeURIComponent(identity.name)}`;
+            urlBase = `/v1/variables/${encodeURIComponent(identity.name)}`;
         }
         const url = envLabel ? `${urlBase}?env=${encodeURIComponent(envLabel)}` : urlBase;
 
@@ -2753,7 +2753,7 @@ function renderScopeCategoryCard(scope, category) {
 
         const tasks = [];
         if (needsVariable) {
-            const variableUrlBase = `/v1/environments/${encodeURIComponent(SAMPLE_SCOPE_VARIABLE)}`;
+            const variableUrlBase = `/v1/variables/${encodeURIComponent(SAMPLE_SCOPE_VARIABLE)}`;
             const sampleValue = SAMPLE_SCOPE_VALUE.replace('%SCOPE%', safeLabel || 'default');
             const variableUrl = safeLabel
                 ? `${variableUrlBase}?env=${encodeURIComponent(safeLabel)}`

@@ -39,7 +39,7 @@ CREATE TABLE pipeline_runs (
     git_pusher_email VARCHAR(255),
     git_check_run_id BIGINT,
     group_id INTEGER REFERENCES groups(id) ON DELETE SET NULL,
-    environment VARCHAR(255),
+    scope VARCHAR(255),
     failure_reason TEXT
 );
 
@@ -103,23 +103,23 @@ CREATE TABLE secrets (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     value TEXT NOT NULL,
-    environment VARCHAR(255),
+    scope VARCHAR(255),
     repository_name VARCHAR(255),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE NULLS NOT DISTINCT (name, repository_name, environment)
+    UNIQUE NULLS NOT DISTINCT (name, repository_name, scope)
 );
 
-CREATE TABLE environments (
+CREATE TABLE variables (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     value TEXT NOT NULL,
     repository_name VARCHAR(255),
-    environment VARCHAR(255),
+    scope VARCHAR(255),
     source VARCHAR(32) NOT NULL DEFAULT 'database',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE NULLS NOT DISTINCT (name, repository_name, environment)
+    UNIQUE NULLS NOT DISTINCT (name, repository_name, scope)
 );
 CREATE TABLE pipeline_run_logs (
     id SERIAL PRIMARY KEY,

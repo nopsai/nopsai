@@ -333,15 +333,16 @@ type SecretRequest struct {
 	Value string `json:"value"`
 }
 
-type EnvRequest struct {
+type VariableRequest struct {
 	Value string `json:"value"`
 }
 
-type EnvironmentScope struct {
-	Environment string `json:"environment"`
+type ScopeResponse struct {
+	Scope       string `json:"scope"`
+	Environment string `json:"environment,omitempty"`
 }
 
-type EnvValueResponse struct {
+type VariableValueResponse struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
 }
@@ -676,32 +677,32 @@ func (a *App) decrypt(text string) (string, error) {
 	return string(plaintext), nil
 }
 
-func (a *App) handleListGeneralEnvs(w http.ResponseWriter, r *http.Request) {
-	env := r.URL.Query().Get("env")
+func (a *App) handleListGeneralVariables(w http.ResponseWriter, r *http.Request) {
+	scope := r.URL.Query().Get("env")
 	includeSource := strings.EqualFold(r.URL.Query().Get("include_source"), "true")
 	var rows pgx.Rows
 	var err error
 
-	queryGeneral := "SELECT name, COALESCE(source, 'database'), created_at, updated_at FROM environments WHERE repository_name IS NULL AND %s ORDER BY name ASC"
-	queryRepo := "SELECT repository_name, name, COALESCE(source, 'database'), created_at, updated_at FROM environments WHERE repository_name IS NOT NULL AND %s ORDER BY repository_name ASC, name ASC"
+	queryGeneral := "SELECT name, COALESCE(source, 'database'), created_at, updated_at FROM variables WHERE repository_name IS NULL AND %s ORDER BY name ASC"
+	queryRepo := "SELECT repository_name, name, COALESCE(source, 'database'), created_at, updated_at FROM variables WHERE repository_name IS NOT NULL AND %s ORDER BY repository_name ASC, name ASC"
 
 	ctx := context.Background()
-	condition := "environment IS NULL"
+	condition := "scope IS NULL"
 	args := []interface{}{}
-	if env != "" {
-		condition = "environment = $1"
-		args = append(args, env)
+	if scope != "" {
+		condition = "scope = $1"
+		args = append(args, scope)
 	}
 
 	rows, err = a.db.Query(ctx, fmt.Sprintf(queryGeneral, condition), args...)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to query general environments from database")
-		http.Error(w, "Failed to retrieve environments", http.StatusInternalServerError)
+		log.Error().Err(err).Msg("Failed to query general variables from database")
+		http.Error(w, "Failed to retrieve variables", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
 
-	type envListItem struct {
+	type variableListItem struct {
 		Name      string `json:"name"`
 		Source    string `json:"source"`
 		CreatedAt string `json:"created_at,omitempty"`
@@ -710,7 +711,7 @@ func (a *App) handleListGeneralEnvs(w http.ResponseWriter, r *http.Request) {
 
 	nameSet := make(map[string]struct{})
 	var names []string
-	var items []envListItem
+	var items []variableListItem
 
 	addEntry := func(name, source string, createdAt, updatedAt time.Time) {
 		trimmed := strings.TrimSpace(name)
@@ -722,9 +723,9 @@ func (a *App) handleListGeneralEnvs(w http.ResponseWriter, r *http.Request) {
 		}
 		nameSet[trimmed] = struct{}{}
 		if includeSource {
-			items = append(items, envListItem{
+			items = append(items, variableListItem{
 				Name:      trimmed,
-				Source:    normalizeEnvSourceKey(source),
+				Source:    normalizeVariableSourceKey(source),
 				CreatedAt: createdAt.Format(time.RFC3339),
 				UpdatedAt: updatedAt.Format(time.RFC3339),
 			})
@@ -737,25 +738,25 @@ func (a *App) handleListGeneralEnvs(w http.ResponseWriter, r *http.Request) {
 		var name, source string
 		var createdAt, updatedAt time.Time
 		if err := rows.Scan(&name, &source, &createdAt, &updatedAt); err != nil {
-			log.Error().Err(err).Msg("Failed to scan environment name")
-			http.Error(w, "Failed to process environments", http.StatusInternalServerError)
+			log.Error().Err(err).Msg("Failed to scan variable name")
+			http.Error(w, "Failed to process variables", http.StatusInternalServerError)
 			return
 		}
 		addEntry(name, source, createdAt, updatedAt)
 	}
 
 	rows.Close()
-	repoCondition := "environment IS NULL"
+	repoCondition := "scope IS NULL"
 	repoArgs := []interface{}{}
-	if env != "" {
-		repoCondition = "environment = $1"
-		repoArgs = append(repoArgs, env)
+	if scope != "" {
+		repoCondition = "scope = $1"
+		repoArgs = append(repoArgs, scope)
 	}
 
 	rows, err = a.db.Query(ctx, fmt.Sprintf(queryRepo, repoCondition), repoArgs...)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to query repository environments from database")
-		http.Error(w, "Failed to retrieve environments", http.StatusInternalServerError)
+		log.Error().Err(err).Msg("Failed to query repository variables from database")
+		http.Error(w, "Failed to retrieve variables", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -764,8 +765,8 @@ func (a *App) handleListGeneralEnvs(w http.ResponseWriter, r *http.Request) {
 		var repoName, varName, source string
 		var createdAt, updatedAt time.Time
 		if err := rows.Scan(&repoName, &varName, &source, &createdAt, &updatedAt); err != nil {
-			log.Error().Err(err).Msg("Failed to scan repository environment name")
-			http.Error(w, "Failed to process environments", http.StatusInternalServerError)
+			log.Error().Err(err).Msg("Failed to scan repository variable name")
+			http.Error(w, "Failed to process variables", http.StatusInternalServerError)
 			return
 		}
 		repo := strings.TrimSpace(repoName)
@@ -792,12 +793,12 @@ func (a *App) handleListGeneralEnvs(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(names)
 }
 
-func (a *App) handleListEnvironmentScopes(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleListVariableScopes(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
-	rows, err := a.db.Query(ctx, "SELECT DISTINCT environment FROM environments WHERE repository_name IS NULL")
+	rows, err := a.db.Query(ctx, "SELECT DISTINCT scope FROM variables WHERE repository_name IS NULL")
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to query environment scopes from database")
-		http.Error(w, "Failed to retrieve environment scopes", http.StatusInternalServerError)
+		log.Error().Err(err).Msg("Failed to query scope list from database")
+		http.Error(w, "Failed to retrieve scopes", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -808,8 +809,8 @@ func (a *App) handleListEnvironmentScopes(w http.ResponseWriter, r *http.Request
 	for rows.Next() {
 		var env sql.NullString
 		if err := rows.Scan(&env); err != nil {
-			log.Error().Err(err).Msg("Failed to scan environment scope")
-			http.Error(w, "Failed to process environment scopes", http.StatusInternalServerError)
+			log.Error().Err(err).Msg("Failed to scan scope name")
+			http.Error(w, "Failed to process scopes", http.StatusInternalServerError)
 			return
 		}
 		value := ""
@@ -820,8 +821,8 @@ func (a *App) handleListEnvironmentScopes(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := rows.Err(); err != nil {
-		log.Error().Err(err).Msg("Failed during environment scope iteration")
-		http.Error(w, "Failed to process environment scopes", http.StatusInternalServerError)
+		log.Error().Err(err).Msg("Failed during scope iteration")
+		http.Error(w, "Failed to process scopes", http.StatusInternalServerError)
 		return
 	}
 
@@ -844,109 +845,109 @@ func (a *App) handleListEnvironmentScopes(w http.ResponseWriter, r *http.Request
 		return strings.ToLower(ai) < strings.ToLower(aj)
 	})
 
-	result := make([]EnvironmentScope, 0, len(scopes))
+	result := make([]ScopeResponse, 0, len(scopes))
 	for _, value := range scopes {
-		result = append(result, EnvironmentScope{Environment: value})
+		result = append(result, ScopeResponse{Scope: value, Environment: value})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(result); err != nil {
-		log.Error().Err(err).Msg("Failed to encode environment scopes response")
+		log.Error().Err(err).Msg("Failed to encode scope response")
 	}
 }
 
-func (a *App) handleCreateOrUpdateGeneralEnv(w http.ResponseWriter, r *http.Request) {
-	envName := r.PathValue("envName")
-	env := r.URL.Query().Get("env")
-	var req EnvRequest
+func (a *App) handleCreateOrUpdateGeneralVariable(w http.ResponseWriter, r *http.Request) {
+	variableName := r.PathValue("variableName")
+	scope := r.URL.Query().Get("env")
+	var req VariableRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	var err error
-	if env != "" {
-		query := `INSERT INTO environments (name, value, repository_name, environment, source, updated_at) VALUES ($1, $2, NULL, $3, 'database', NOW())
-				  ON CONFLICT (name, repository_name, environment) DO UPDATE SET value = EXCLUDED.value, source = 'database', updated_at = NOW()`
-		_, err = a.db.Exec(context.Background(), query, envName, req.Value, env)
+	if scope != "" {
+		query := `INSERT INTO variables (name, value, repository_name, scope, source, updated_at) VALUES ($1, $2, NULL, $3, 'database', NOW())
+				  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, source = 'database', updated_at = NOW()`
+		_, err = a.db.Exec(context.Background(), query, variableName, req.Value, scope)
 	} else {
-		query := `INSERT INTO environments (name, value, repository_name, environment, source, updated_at) VALUES ($1, $2, NULL, NULL, 'database', NOW())
-				  ON CONFLICT (name, repository_name, environment) DO UPDATE SET value = EXCLUDED.value, source = 'database', updated_at = NOW()`
-		_, err = a.db.Exec(context.Background(), query, envName, req.Value)
+		query := `INSERT INTO variables (name, value, repository_name, scope, source, updated_at) VALUES ($1, $2, NULL, NULL, 'database', NOW())
+				  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, source = 'database', updated_at = NOW()`
+		_, err = a.db.Exec(context.Background(), query, variableName, req.Value)
 	}
 
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to save general environment to database")
-		http.Error(w, "Failed to save environment", http.StatusInternalServerError)
+		log.Error().Err(err).Msg("Failed to save variable to database")
+		http.Error(w, "Failed to save variable", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
 }
 
-func (a *App) handleDeleteGeneralEnv(w http.ResponseWriter, r *http.Request) {
-	envName := r.PathValue("envName")
-	env := r.URL.Query().Get("env")
+func (a *App) handleDeleteGeneralVariable(w http.ResponseWriter, r *http.Request) {
+	variableName := r.PathValue("variableName")
+	scope := r.URL.Query().Get("env")
 	var err error
 
-	if env != "" {
-		_, err = a.db.Exec(context.Background(), "DELETE FROM environments WHERE name = $1 AND repository_name IS NULL AND environment = $2", envName, env)
+	if scope != "" {
+		_, err = a.db.Exec(context.Background(), "DELETE FROM variables WHERE name = $1 AND repository_name IS NULL AND scope = $2", variableName, scope)
 	} else {
-		_, err = a.db.Exec(context.Background(), "DELETE FROM environments WHERE name = $1 AND repository_name IS NULL AND environment IS NULL", envName)
+		_, err = a.db.Exec(context.Background(), "DELETE FROM variables WHERE name = $1 AND repository_name IS NULL AND scope IS NULL", variableName)
 	}
 
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to delete general environment from database")
-		http.Error(w, "Failed to delete environment", http.StatusInternalServerError)
+		log.Error().Err(err).Msg("Failed to delete variable from database")
+		http.Error(w, "Failed to delete variable", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (a *App) handleGetGeneralEnvValue(w http.ResponseWriter, r *http.Request) {
-	envName := r.PathValue("envName")
-	env := r.URL.Query().Get("env")
+func (a *App) handleGetGeneralVariableValue(w http.ResponseWriter, r *http.Request) {
+	variableName := r.PathValue("variableName")
+	scope := r.URL.Query().Get("env")
 	var value string
 	var err error
 
-	if env != "" {
-		err = a.db.QueryRow(context.Background(), "SELECT value FROM environments WHERE name = $1 AND repository_name IS NULL AND environment = $2", envName, env).Scan(&value)
+	if scope != "" {
+		err = a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name IS NULL AND scope = $2", variableName, scope).Scan(&value)
 	} else {
-		err = a.db.QueryRow(context.Background(), "SELECT value FROM environments WHERE name = $1 AND repository_name IS NULL AND environment IS NULL", envName).Scan(&value)
+		err = a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name IS NULL AND scope IS NULL", variableName).Scan(&value)
 	}
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			http.Error(w, "Environment variable not found", http.StatusNotFound)
+			http.Error(w, "Variable not found", http.StatusNotFound)
 			return
 		}
-		log.Error().Err(err).Msg("Failed to fetch environment value")
-		http.Error(w, "Failed to retrieve environment", http.StatusInternalServerError)
+		log.Error().Err(err).Msg("Failed to fetch variable value")
+		http.Error(w, "Failed to retrieve variable", http.StatusInternalServerError)
 		return
 	}
 
-	response := EnvValueResponse{Name: envName, Value: value}
+	response := VariableValueResponse{Name: variableName, Value: value}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
 
-func (a *App) handleListRepoEnvs(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleListRepoVariables(w http.ResponseWriter, r *http.Request) {
 	repoOwner := r.PathValue("repoOwner")
 	repoName := r.PathValue("repoName")
 	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
-	env := r.URL.Query().Get("env")
+	scope := r.URL.Query().Get("env")
 	var rows pgx.Rows
 	var err error
 
-	if env != "" {
-		rows, err = a.db.Query(context.Background(), "SELECT name FROM environments WHERE repository_name = $1 AND environment = $2 ORDER BY name ASC", fullName, env)
+	if scope != "" {
+		rows, err = a.db.Query(context.Background(), "SELECT name FROM variables WHERE repository_name = $1 AND scope = $2 ORDER BY name ASC", fullName, scope)
 	} else {
-		rows, err = a.db.Query(context.Background(), "SELECT name FROM environments WHERE repository_name = $1 AND environment IS NULL ORDER BY name ASC", fullName)
+		rows, err = a.db.Query(context.Background(), "SELECT name FROM variables WHERE repository_name = $1 AND scope IS NULL ORDER BY name ASC", fullName)
 	}
 
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to query repo environments from database")
-		http.Error(w, "Failed to retrieve environments", http.StatusInternalServerError)
+		log.Error().Err(err).Msg("Failed to query repository variables from database")
+		http.Error(w, "Failed to retrieve variables", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -955,8 +956,8 @@ func (a *App) handleListRepoEnvs(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
-			log.Error().Err(err).Msg("Failed to scan environment name")
-			http.Error(w, "Failed to process environments", http.StatusInternalServerError)
+			log.Error().Err(err).Msg("Failed to scan variable name")
+			http.Error(w, "Failed to process variables", http.StatusInternalServerError)
 			return
 		}
 		names = append(names, name)
@@ -967,90 +968,90 @@ func (a *App) handleListRepoEnvs(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(names)
 }
 
-func (a *App) handleCreateOrUpdateRepoEnv(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleCreateOrUpdateRepoVariable(w http.ResponseWriter, r *http.Request) {
 	repoOwner := r.PathValue("repoOwner")
 	repoName := r.PathValue("repoName")
 	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
-	envName := r.PathValue("envName")
-	env := r.URL.Query().Get("env")
-	var req EnvRequest
+	variableName := r.PathValue("variableName")
+	scope := r.URL.Query().Get("env")
+	var req VariableRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	var err error
-	if env != "" {
-		query := `INSERT INTO environments (name, value, repository_name, environment, source, updated_at) VALUES ($1, $2, $3, $4, 'database', NOW())
-				  ON CONFLICT (name, repository_name, environment) DO UPDATE SET value = EXCLUDED.value, source = 'database', updated_at = NOW()`
-		_, err = a.db.Exec(context.Background(), query, envName, req.Value, fullName, env)
+	if scope != "" {
+		query := `INSERT INTO variables (name, value, repository_name, scope, source, updated_at) VALUES ($1, $2, $3, $4, 'database', NOW())
+				  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, source = 'database', updated_at = NOW()`
+		_, err = a.db.Exec(context.Background(), query, variableName, req.Value, fullName, scope)
 	} else {
-		query := `INSERT INTO environments (name, value, repository_name, environment, source, updated_at) VALUES ($1, $2, $3, NULL, 'database', NOW())
-				  ON CONFLICT (name, repository_name, environment) DO UPDATE SET value = EXCLUDED.value, source = 'database', updated_at = NOW()`
-		_, err = a.db.Exec(context.Background(), query, envName, req.Value, fullName)
+		query := `INSERT INTO variables (name, value, repository_name, scope, source, updated_at) VALUES ($1, $2, $3, NULL, 'database', NOW())
+				  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, source = 'database', updated_at = NOW()`
+		_, err = a.db.Exec(context.Background(), query, variableName, req.Value, fullName)
 	}
 
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to save repo environment to database")
-		http.Error(w, "Failed to save environment", http.StatusInternalServerError)
+		log.Error().Err(err).Msg("Failed to save repository variable to database")
+		http.Error(w, "Failed to save variable", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
 }
 
-func (a *App) handleDeleteRepoEnv(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleDeleteRepoVariable(w http.ResponseWriter, r *http.Request) {
 	repoOwner := r.PathValue("repoOwner")
 	repoName := r.PathValue("repoName")
 	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
-	envName := r.PathValue("envName")
-	env := r.URL.Query().Get("env")
+	variableName := r.PathValue("variableName")
+	scope := r.URL.Query().Get("env")
 	var err error
 
-	if env != "" {
-		_, err = a.db.Exec(context.Background(), "DELETE FROM environments WHERE name = $1 AND repository_name = $2 AND environment = $3", envName, fullName, env)
+	if scope != "" {
+		_, err = a.db.Exec(context.Background(), "DELETE FROM variables WHERE name = $1 AND repository_name = $2 AND scope = $3", variableName, fullName, scope)
 	} else {
-		_, err = a.db.Exec(context.Background(), "DELETE FROM environments WHERE name = $1 AND repository_name = $2 AND environment IS NULL", envName, fullName)
+		_, err = a.db.Exec(context.Background(), "DELETE FROM variables WHERE name = $1 AND repository_name = $2 AND scope IS NULL", variableName, fullName)
 	}
 
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to delete repo environment from database")
-		http.Error(w, "Failed to delete environment", http.StatusInternalServerError)
+		log.Error().Err(err).Msg("Failed to delete repository variable from database")
+		http.Error(w, "Failed to delete variable", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (a *App) handleGetRepoEnvValue(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleGetRepoVariableValue(w http.ResponseWriter, r *http.Request) {
 	repoOwner := r.PathValue("repoOwner")
 	repoName := r.PathValue("repoName")
 	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
-	envName := r.PathValue("envName")
-	env := r.URL.Query().Get("env")
+	variableName := r.PathValue("variableName")
+	scope := r.URL.Query().Get("env")
 	var value string
 	var err error
 
-	if env != "" {
-		err = a.db.QueryRow(context.Background(), "SELECT value FROM environments WHERE name = $1 AND repository_name = $2 AND environment = $3", envName, fullName, env).Scan(&value)
+	if scope != "" {
+		err = a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name = $2 AND scope = $3", variableName, fullName, scope).Scan(&value)
 	} else {
-		err = a.db.QueryRow(context.Background(), "SELECT value FROM environments WHERE name = $1 AND repository_name = $2 AND environment IS NULL", envName, fullName).Scan(&value)
+		err = a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name = $2 AND scope IS NULL", variableName, fullName).Scan(&value)
 	}
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			http.Error(w, "Environment variable not found", http.StatusNotFound)
+			http.Error(w, "Variable not found", http.StatusNotFound)
 			return
 		}
-		log.Error().Err(err).Msg("Failed to fetch repository environment value")
-		http.Error(w, "Failed to retrieve environment", http.StatusInternalServerError)
+		log.Error().Err(err).Msg("Failed to fetch repository variable value")
+		http.Error(w, "Failed to retrieve variable", http.StatusInternalServerError)
 		return
 	}
 
-	response := EnvValueResponse{Name: envName, Value: value}
+	response := VariableValueResponse{Name: variableName, Value: value}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
 
-func (a *App) prepareEnvironmentForPipeline(pipeline models.Pipeline, gitContext map[string]string, environment string) (map[string]string, error) {
+func (a *App) prepareEnvironmentForPipeline(pipeline models.Pipeline, gitContext map[string]string, scope string) (map[string]string, error) {
 	finalEnv := make(map[string]string)
 	repoFullName := fmt.Sprintf("%s/%s", gitContext["repo_owner"], gitContext["repo_name"])
 
@@ -1062,31 +1063,31 @@ func (a *App) prepareEnvironmentForPipeline(pipeline models.Pipeline, gitContext
 		var err error
 		found := false
 
-		if environment != "" {
+		if scope != "" {
 			// Precedence: 1. Repo/Env -> 2. General/Env
-			err = a.db.QueryRow(context.Background(), "SELECT value FROM environments WHERE name = $1 AND repository_name = $2 AND environment = $3", varName, repoFullName, environment).Scan(&value)
+			err = a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name = $2 AND scope = $3", varName, repoFullName, scope).Scan(&value)
 			if err == nil {
 				found = true
 			}
 			if !found {
-				err = a.db.QueryRow(context.Background(), "SELECT value FROM environments WHERE name = $1 AND repository_name IS NULL AND environment = $2", varName, environment).Scan(&value)
+				err = a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name IS NULL AND scope = $2", varName, scope).Scan(&value)
 				if err == nil {
 					found = true
 				}
 			}
 
 			if !found {
-				return nil, fmt.Errorf("pipeline aborted: required environment variable '%s' not found for environment '%s'", varName, environment)
+				return nil, fmt.Errorf("pipeline aborted: required scope variable '%s' not found for scope '%s'", varName, scope)
 			}
 
 		} else {
 			// Precedence: 1. Repo/No-Env -> 2. General/No-Env
-			err = a.db.QueryRow(context.Background(), "SELECT value FROM environments WHERE name = $1 AND repository_name = $2 AND environment IS NULL", varName, repoFullName).Scan(&value)
+			err = a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name = $2 AND scope IS NULL", varName, repoFullName).Scan(&value)
 			if err == nil {
 				found = true
 			}
 			if !found {
-				err = a.db.QueryRow(context.Background(), "SELECT value FROM environments WHERE name = $1 AND repository_name IS NULL AND environment IS NULL", varName).Scan(&value)
+				err = a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name IS NULL AND scope IS NULL", varName).Scan(&value)
 				if err == nil {
 					found = true
 				}
@@ -1094,7 +1095,7 @@ func (a *App) prepareEnvironmentForPipeline(pipeline models.Pipeline, gitContext
 		}
 
 		if !found {
-			return nil, fmt.Errorf("pipeline aborted: required environment variable '%s' not found in the default scope", varName)
+			return nil, fmt.Errorf("pipeline aborted: required scope variable '%s' not found in the default scope", varName)
 		}
 
 		finalEnv[varName] = value
@@ -1141,10 +1142,10 @@ func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	condition := "environment IS NULL"
+	condition := "scope IS NULL"
 	args := []interface{}{}
 	if env != "" {
-		condition = "environment = $1"
+		condition = "scope = $1"
 		args = append(args, env)
 	}
 
@@ -1168,10 +1169,10 @@ func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
 	}
 	rows.Close()
 
-	repoCondition := "environment IS NULL"
+	repoCondition := "scope IS NULL"
 	repoArgs := []interface{}{}
 	if env != "" {
-		repoCondition = "environment = $1"
+		repoCondition = "scope = $1"
 		repoArgs = append(repoArgs, env)
 	}
 	repoQuery := fmt.Sprintf("SELECT repository_name, name, created_at, updated_at FROM secrets WHERE repository_name IS NOT NULL AND %s ORDER BY repository_name ASC, name ASC", repoCondition)
@@ -1218,16 +1219,17 @@ func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
 }
 
 type SecretScopeSummary struct {
-	Environment string `json:"environment"`
+	Scope       string `json:"scope"`
+	Environment string `json:"environment,omitempty"`
 	SecretCount int    `json:"secret_count"`
 }
 
 func (a *App) handleListSecretScopes(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query(context.Background(), `
-		SELECT COALESCE(environment, '') AS env_value, COUNT(*) AS secret_count
+		SELECT COALESCE(scope, '') AS scope_value, COUNT(*) AS secret_count
 		FROM secrets
-		GROUP BY env_value
-		ORDER BY env_value NULLS FIRST`)
+		GROUP BY scope_value
+		ORDER BY scope_value NULLS FIRST`)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query secret scopes from database")
 		http.Error(w, "Failed to retrieve secret scopes", http.StatusInternalServerError)
@@ -1261,12 +1263,12 @@ func (a *App) handleListSecretScopes(w http.ResponseWriter, r *http.Request) {
 
 	scopes := make([]SecretScopeSummary, 0, len(scopeCounts))
 	for envValue, count := range scopeCounts {
-		scopes = append(scopes, SecretScopeSummary{Environment: envValue, SecretCount: count})
+		scopes = append(scopes, SecretScopeSummary{Scope: envValue, Environment: envValue, SecretCount: count})
 	}
 
 	sort.Slice(scopes, func(i, j int) bool {
-		aEnv := scopes[i].Environment
-		bEnv := scopes[j].Environment
+		aEnv := scopes[i].Scope
+		bEnv := scopes[j].Scope
 		if aEnv == "" && bEnv == "" {
 			return false
 		}
@@ -1296,10 +1298,10 @@ func (a *App) handleGetGeneralSecretValue(w http.ResponseWriter, r *http.Request
 	var query string
 	var args []any
 	if env != "" {
-		query = "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL AND environment = $2"
+		query = "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL AND scope = $2"
 		args = []any{secretName, env}
 	} else {
-		query = "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL AND environment IS NULL"
+		query = "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL AND scope IS NULL"
 		args = []any{secretName}
 	}
 
@@ -1343,12 +1345,12 @@ func (a *App) handleCreateOrUpdateGeneralSecret(w http.ResponseWriter, r *http.R
 	}
 
 	if env != "" {
-		query := `INSERT INTO secrets (name, value, repository_name, environment, updated_at) VALUES ($1, $2, NULL, $3, NOW())
-				  ON CONFLICT (name, repository_name, environment) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
+		query := `INSERT INTO secrets (name, value, repository_name, scope, updated_at) VALUES ($1, $2, NULL, $3, NOW())
+				  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
 		_, err = a.db.Exec(context.Background(), query, secretName, encryptedValue, env)
 	} else {
-		query := `INSERT INTO secrets (name, value, repository_name, environment, updated_at) VALUES ($1, $2, NULL, NULL, NOW())
-				  ON CONFLICT (name, repository_name, environment) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
+		query := `INSERT INTO secrets (name, value, repository_name, scope, updated_at) VALUES ($1, $2, NULL, NULL, NOW())
+				  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
 		_, err = a.db.Exec(context.Background(), query, secretName, encryptedValue)
 	}
 
@@ -1366,9 +1368,9 @@ func (a *App) handleDeleteGeneralSecret(w http.ResponseWriter, r *http.Request) 
 	var err error
 
 	if env != "" {
-		_, err = a.db.Exec(context.Background(), "DELETE FROM secrets WHERE name = $1 AND repository_name IS NULL AND environment = $2", secretName, env)
+		_, err = a.db.Exec(context.Background(), "DELETE FROM secrets WHERE name = $1 AND repository_name IS NULL AND scope = $2", secretName, env)
 	} else {
-		_, err = a.db.Exec(context.Background(), "DELETE FROM secrets WHERE name = $1 AND repository_name IS NULL AND environment IS NULL", secretName)
+		_, err = a.db.Exec(context.Background(), "DELETE FROM secrets WHERE name = $1 AND repository_name IS NULL AND scope IS NULL", secretName)
 	}
 
 	if err != nil {
@@ -1388,9 +1390,9 @@ func (a *App) handleListRepoSecrets(w http.ResponseWriter, r *http.Request) {
 	var err error
 
 	if env != "" {
-		rows, err = a.db.Query(context.Background(), "SELECT name FROM secrets WHERE repository_name = $1 AND environment = $2 ORDER BY name ASC", fullName, env)
+		rows, err = a.db.Query(context.Background(), "SELECT name FROM secrets WHERE repository_name = $1 AND scope = $2 ORDER BY name ASC", fullName, env)
 	} else {
-		rows, err = a.db.Query(context.Background(), "SELECT name FROM secrets WHERE repository_name = $1 AND environment IS NULL ORDER BY name ASC", fullName)
+		rows, err = a.db.Query(context.Background(), "SELECT name FROM secrets WHERE repository_name = $1 AND scope IS NULL ORDER BY name ASC", fullName)
 	}
 
 	if err != nil {
@@ -1436,12 +1438,12 @@ func (a *App) handleCreateOrUpdateRepoSecret(w http.ResponseWriter, r *http.Requ
 	}
 
 	if env != "" {
-		query := `INSERT INTO secrets (name, value, repository_name, environment, updated_at) VALUES ($1, $2, $3, $4, NOW())
-				  ON CONFLICT (name, repository_name, environment) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
+		query := `INSERT INTO secrets (name, value, repository_name, scope, updated_at) VALUES ($1, $2, $3, $4, NOW())
+				  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
 		_, err = a.db.Exec(context.Background(), query, secretName, encryptedValue, fullName, env)
 	} else {
-		query := `INSERT INTO secrets (name, value, repository_name, environment, updated_at) VALUES ($1, $2, $3, NULL, NOW())
-				  ON CONFLICT (name, repository_name, environment) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
+		query := `INSERT INTO secrets (name, value, repository_name, scope, updated_at) VALUES ($1, $2, $3, NULL, NOW())
+				  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
 		_, err = a.db.Exec(context.Background(), query, secretName, encryptedValue, fullName)
 	}
 
@@ -1462,9 +1464,9 @@ func (a *App) handleDeleteRepoSecret(w http.ResponseWriter, r *http.Request) {
 	var err error
 
 	if env != "" {
-		_, err = a.db.Exec(context.Background(), "DELETE FROM secrets WHERE name = $1 AND repository_name = $2 AND environment = $3", secretName, fullName, env)
+		_, err = a.db.Exec(context.Background(), "DELETE FROM secrets WHERE name = $1 AND repository_name = $2 AND scope = $3", secretName, fullName, env)
 	} else {
-		_, err = a.db.Exec(context.Background(), "DELETE FROM secrets WHERE name = $1 AND repository_name = $2 AND environment IS NULL", secretName, fullName)
+		_, err = a.db.Exec(context.Background(), "DELETE FROM secrets WHERE name = $1 AND repository_name = $2 AND scope IS NULL", secretName, fullName)
 	}
 
 	if err != nil {
@@ -1475,7 +1477,7 @@ func (a *App) handleDeleteRepoSecret(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (a *App) prepareSecretsForPipeline(pipeline models.Pipeline, gitContext map[string]string, environment string) (map[string]string, error) {
+func (a *App) prepareSecretsForPipeline(pipeline models.Pipeline, gitContext map[string]string, scope string) (map[string]string, error) {
 	requiredSecrets := make(map[string]struct{})
 	for _, step := range pipeline.Steps {
 		for _, secretName := range step.GetSecrets() {
@@ -1491,13 +1493,13 @@ func (a *App) prepareSecretsForPipeline(pipeline models.Pipeline, gitContext map
 	repoFullName := fmt.Sprintf("%s/%s", gitContext["repo_owner"], gitContext["repo_name"])
 
 	for secretName := range requiredSecrets {
-		encryptedValue, found, err := a.findEncryptedSecret(secretName, repoFullName, environment)
+		encryptedValue, found, err := a.findEncryptedSecret(secretName, repoFullName, scope)
 		if err != nil {
 			return nil, fmt.Errorf("pipeline aborted: failed to resolve secret '%s': %w", secretName, err)
 		}
 		if !found {
-			if environment != "" {
-				return nil, fmt.Errorf("pipeline aborted: required secret '%s' not found for environment '%s'", secretName, environment)
+			if scope != "" {
+				return nil, fmt.Errorf("pipeline aborted: required secret '%s' not found for scope '%s'", secretName, scope)
 			}
 			return nil, fmt.Errorf("pipeline aborted: required secret '%s' not found in the default scope", secretName)
 		}
@@ -1558,17 +1560,17 @@ func (a *App) handleConfigSync(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, error) {
 	details := map[string]int{
-		"pipelines_synced":     0,
-		"pipelines_deleted":    0,
-		"steps_synced":         0,
-		"steps_deleted":        0,
-		"general_envs_synced":  0,
-		"repo_envs_synced":     0,
-		"environments_deleted": 0,
-		"triggers_synced":      0,
-		"triggers_deleted":     0,
-		"run_groups_created":   0,
-		"run_groups_updated":   0,
+		"pipelines_synced":    0,
+		"pipelines_deleted":   0,
+		"steps_synced":        0,
+		"steps_deleted":       0,
+		"general_vars_synced": 0,
+		"repo_vars_synced":    0,
+		"variables_deleted":   0,
+		"triggers_synced":     0,
+		"triggers_deleted":    0,
+		"run_groups_created":  0,
+		"run_groups_updated":  0,
 	}
 
 	if a.cfg.ConfigRepoURL == "" {
@@ -1810,11 +1812,11 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 	}
 	existingGeneralEnvs, err := loadExistingGeneralEnvs(ctx, tx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load existing environments: %w", err)
+		return nil, fmt.Errorf("failed to load existing variables: %w", err)
 	}
 	existingRepoEnvs, err := loadExistingRepoEnvs(ctx, tx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load existing repository environments: %w", err)
+		return nil, fmt.Errorf("failed to load existing repository variables: %w", err)
 	}
 	existingTriggers, err := loadExistingNames(ctx, tx, "SELECT repository_name FROM triggers")
 	if err != nil {
@@ -1826,8 +1828,8 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 		ON CONFLICT (path, name) DO UPDATE SET version = EXCLUDED.version, definition = EXCLUDED.definition, source = 'git', updated_at = NOW()`
 	const stepUpsert = `INSERT INTO steps (path, name, definition, source, updated_at) VALUES ($1, $2, $3, 'git', NOW())
 		ON CONFLICT (path, name) DO UPDATE SET definition = EXCLUDED.definition, source = 'git', updated_at = NOW()`
-	const envUpsert = `INSERT INTO environments (name, value, repository_name, environment, source, updated_at) VALUES ($1, $2, $3, $4, 'git', NOW())
-		ON CONFLICT (name, repository_name, environment) DO UPDATE SET value = EXCLUDED.value, source = 'git', updated_at = NOW()`
+	const envUpsert = `INSERT INTO variables (name, value, repository_name, scope, source, updated_at) VALUES ($1, $2, $3, $4, 'git', NOW())
+		ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, source = 'git', updated_at = NOW()`
 	const triggerUpsert = `INSERT INTO triggers (repository_name, trigger_definition, source) VALUES ($1, $2, 'git')
 		ON CONFLICT (repository_name) DO UPDATE SET trigger_definition = EXCLUDED.trigger_definition, source = 'git'`
 
@@ -1874,9 +1876,9 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 			envParam = key.envPath
 		}
 		if _, err := tx.Exec(ctx, envUpsert, key.name, value, nil, envParam); err != nil {
-			return nil, fmt.Errorf("failed to upsert environment '%s' for scope '%s': %w", key.name, key.envPath, err)
+			return nil, fmt.Errorf("failed to upsert variable '%s' for scope '%s': %w", key.name, key.envPath, err)
 		}
-		details["general_envs_synced"]++
+		details["general_vars_synced"]++
 	}
 
 	// Upsert Repo Envs
@@ -1886,9 +1888,9 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 			envParam = key.envPath
 		}
 		if _, err := tx.Exec(ctx, envUpsert, key.name, value, key.repo, envParam); err != nil {
-			return nil, fmt.Errorf("failed to upsert repository environment '%s' for repo '%s' scope '%s': %w", key.name, key.repo, key.envPath, err)
+			return nil, fmt.Errorf("failed to upsert repository variable '%s' for repo '%s' scope '%s': %w", key.name, key.repo, key.envPath, err)
 		}
-		details["repo_envs_synced"]++
+		details["repo_vars_synced"]++
 	}
 
 	// Delete General Envs
@@ -1898,10 +1900,10 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 			if key.envPath != "" {
 				envParam = key.envPath
 			}
-			if _, err := tx.Exec(ctx, "DELETE FROM environments WHERE repository_name IS NULL AND name = $1 AND environment IS NOT DISTINCT FROM $2", key.name, envParam); err != nil {
-				return nil, fmt.Errorf("failed to delete environment '%s' for scope '%s': %w", key.name, key.envPath, err)
+			if _, err := tx.Exec(ctx, "DELETE FROM variables WHERE repository_name IS NULL AND name = $1 AND scope IS NOT DISTINCT FROM $2", key.name, envParam); err != nil {
+				return nil, fmt.Errorf("failed to delete variable '%s' for scope '%s': %w", key.name, key.envPath, err)
 			}
-			details["environments_deleted"]++
+			details["variables_deleted"]++
 		}
 	}
 
@@ -1912,10 +1914,10 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 			if key.envPath != "" {
 				envParam = key.envPath
 			}
-			if _, err := tx.Exec(ctx, "DELETE FROM environments WHERE repository_name = $1 AND name = $2 AND environment IS NOT DISTINCT FROM $3", key.repo, key.name, envParam); err != nil {
-				return nil, fmt.Errorf("failed to delete repository environment '%s' for repo '%s' scope '%s': %w", key.name, key.repo, key.envPath, err)
+			if _, err := tx.Exec(ctx, "DELETE FROM variables WHERE repository_name = $1 AND name = $2 AND scope IS NOT DISTINCT FROM $3", key.repo, key.name, envParam); err != nil {
+				return nil, fmt.Errorf("failed to delete repository variable '%s' for repo '%s' scope '%s': %w", key.name, key.repo, key.envPath, err)
 			}
-			details["environments_deleted"]++
+			details["variables_deleted"]++
 		}
 	}
 
@@ -1952,9 +1954,9 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 		Int("pipelines_deleted", details["pipelines_deleted"]).
 		Int("steps_synced", details["steps_synced"]).
 		Int("steps_deleted", details["steps_deleted"]).
-		Int("general_envs_synced", details["general_envs_synced"]).
-		Int("repo_envs_synced", details["repo_envs_synced"]).
-		Int("environments_deleted", details["environments_deleted"]).
+		Int("general_vars_synced", details["general_vars_synced"]).
+		Int("repo_vars_synced", details["repo_vars_synced"]).
+		Int("variables_deleted", details["variables_deleted"]).
 		Int("triggers_synced", details["triggers_synced"]).
 		Int("triggers_deleted", details["triggers_deleted"]).
 		Int("run_groups_created", details["run_groups_created"]).
@@ -2054,7 +2056,7 @@ type repoEnvKey struct {
 }
 
 func loadExistingGeneralEnvs(ctx context.Context, tx pgx.Tx) (map[generalEnvKey]struct{}, error) {
-	rows, err := tx.Query(ctx, "SELECT name, environment FROM environments WHERE repository_name IS NULL")
+	rows, err := tx.Query(ctx, "SELECT name, scope FROM variables WHERE repository_name IS NULL")
 	if err != nil {
 		return nil, err
 	}
@@ -2081,7 +2083,7 @@ func loadExistingGeneralEnvs(ctx context.Context, tx pgx.Tx) (map[generalEnvKey]
 }
 
 func loadExistingRepoEnvs(ctx context.Context, tx pgx.Tx) (map[repoEnvKey]struct{}, error) {
-	rows, err := tx.Query(ctx, "SELECT name, repository_name, environment FROM environments WHERE repository_name IS NOT NULL")
+	rows, err := tx.Query(ctx, "SELECT name, repository_name, scope FROM variables WHERE repository_name IS NOT NULL")
 	if err != nil {
 		return nil, err
 	}
@@ -2384,7 +2386,7 @@ func (a *App) syncPipelineRunGroups(ctx context.Context, tx pgx.Tx, structure ma
 	return nil
 }
 
-func normalizeEnvSourceKey(value string) string {
+func normalizeVariableSourceKey(value string) string {
 	key := strings.TrimSpace(strings.ToLower(value))
 	switch {
 	case strings.Contains(key, "git"):
@@ -3358,7 +3360,7 @@ func (a *App) resolveGroupIDForRepo(repoOwner, repoName string) (sql.NullInt32, 
 	return groupID, nil
 }
 
-func (a *App) recordMissingPipelineRun(identifier string, pipelineVersion string, pipelineDef []byte, gitContext map[string]string, environment, pipelineSource, summary string) {
+func (a *App) recordMissingPipelineRun(identifier string, pipelineVersion string, pipelineDef []byte, gitContext map[string]string, scopeValue, pipelineSource, summary string) {
 	runID := uuid.New()
 	pathPart, namePart, _, err := splitPipelineIdentifier(identifier)
 	if err != nil {
@@ -3399,7 +3401,7 @@ func (a *App) recordMissingPipelineRun(identifier string, pipelineVersion string
 			git_ref, git_target_ref, git_commit_sha, git_commit_url, git_commit_message,
 			git_commit_author_name, git_commit_author_email, git_commit_author_username,
 			git_pusher_name, git_pusher_email, git_check_run_id, group_id, trigger_event_id,
-			environment, pipeline_source, started_at, finished_at, failure_reason
+			scope, pipeline_source, started_at, finished_at, failure_reason
 		) VALUES (
 			$1, $2, $3, $4, 'failure', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
 			$15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27
@@ -3426,7 +3428,7 @@ func (a *App) recordMissingPipelineRun(identifier string, pipelineVersion string
 		gitContext["check_run_id"],
 		groupID,
 		triggerEventIDSQL,
-		environment,
+		scopeValue,
 		pipelineSource,
 		now,
 		now,
@@ -3447,7 +3449,7 @@ func (a *App) launchAndRunPipeline(
 	timeoutDuration time.Duration,
 	gitContext map[string]string,
 	parentHistory string,
-	environment string,
+	scope string,
 ) {
 	tx, err := a.db.Begin(context.Background())
 	if err != nil {
@@ -3498,7 +3500,7 @@ func (a *App) launchAndRunPipeline(
 		return
 	}
 
-	go a.launchAgent(runID.String(), pipeline, pipelineDef, timeoutDuration, gitContext, parentHistory, environment)
+	go a.launchAgent(runID.String(), pipeline, pipelineDef, timeoutDuration, gitContext, parentHistory, scope)
 }
 
 func findStepByName(steps []models.PipelineStep, name string) (models.PipelineStep, bool) {
@@ -4039,7 +4041,10 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 
 	parentRunID := r.Header.Get("X-Nopsai-Parent-Run-ID")
 	parentHistory := r.Header.Get("X-Nopsai-Parent-History")
-	environment := r.Header.Get("X-Nopsai-Environment")
+	scope := r.Header.Get("X-Nopsai-Scope")
+	if scope == "" {
+		scope = r.Header.Get("X-Nopsai-Environment")
+	}
 	parentStepName := r.Header.Get("X-Nopsai-Parent-Step-Name")
 	pipelineSource := r.Header.Get("X-Nopsai-Pipeline-Source")
 	pipelineNameFromPath := r.PathValue("pipelineName")
@@ -4202,13 +4207,13 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref, git_target_ref,
 			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
 			git_commit_author_email, git_commit_author_username, git_pusher_name,
-			git_pusher_email, git_check_run_id, group_id, parent_step_name, trigger_event_id, environment, pipeline_source)
+			git_pusher_email, git_check_run_id, group_id, parent_step_name, trigger_event_id, scope, pipeline_source)
 			VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)`,
 		runID, parentRunIDSQL, pipeline.Name, pipelinePathForRun, pipeline.Version, string(pipelineDef),
 		gitContext["repo_owner"], gitContext["repo_name"], gitContext["clone_url"], gitContext["ssh_url"], gitContext["ref"], gitContext["target_ref"],
 		gitContext["commit_sha"], gitContext["commit_url"], gitContext["commit_message"], gitContext["commit_author_name"],
 		gitContext["commit_author_email"], gitContext["commit_author_username"], gitContext["pusher_name"],
-		gitContext["pusher_email"], gitContext["check_run_id"], groupID, parentStepNameSQL, triggerEventIDSQL, environment, pipelineSource,
+		gitContext["pusher_email"], gitContext["check_run_id"], groupID, parentStepNameSQL, triggerEventIDSQL, scope, pipelineSource,
 	)
 
 	if err != nil {
@@ -4265,7 +4270,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	a.launchAndRunPipeline(runID, *resolvedPipeline, resolvedPipelineDef, timeoutDuration, gitContext, parentHistory, environment)
+	a.launchAndRunPipeline(runID, *resolvedPipeline, resolvedPipelineDef, timeoutDuration, gitContext, parentHistory, scope)
 
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte("Pipeline run created successfully with ID: " + runID.String()))
@@ -4279,12 +4284,12 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 
 	originalRunID := r.PathValue("runID")
 
-	var pipelineDef, pipelineName, pipelinePathDB, pipelineVersionDB, environment sql.NullString
+	var pipelineDef, pipelineName, pipelinePathDB, pipelineVersionDB, scope sql.NullString
 	var gitContext = make(map[string]string)
 	var timeoutAt sql.NullTime
 
 	query := `SELECT
-				pipeline_definition, pipeline_name, pipeline_path, pipeline_version, timeout_at, environment,
+				pipeline_definition, pipeline_name, pipeline_path, pipeline_version, timeout_at, scope,
 				git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref, git_target_ref,
 				git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
 				git_commit_author_email, git_commit_author_username, git_pusher_name,
@@ -4297,7 +4302,7 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	var checkRunID sql.NullInt64
 
 	err := a.db.QueryRow(context.Background(), query, originalRunID).Scan(
-		&pipelineDef, &pipelineName, &pipelinePathDB, &pipelineVersionDB, &timeoutAt, &environment,
+		&pipelineDef, &pipelineName, &pipelinePathDB, &pipelineVersionDB, &timeoutAt, &scope,
 		&repoOwner, &repoName, &cloneURL, &sshURL, &ref, &targetRef, &commitSHA, &commitURL, &commitMessage,
 		&commitAuthorName, &commitAuthorEmail, &commitAuthorUsername, &pusherName, &pusherEmail, &checkRunID, &triggerEventID, &originalStatus,
 	)
@@ -4413,13 +4418,13 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref, git_target_ref,
 			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
 			git_commit_author_email, git_commit_author_username, git_pusher_name,
-			git_pusher_email, git_check_run_id, group_id, trigger_event_id, environment)
+			git_pusher_email, git_check_run_id, group_id, trigger_event_id, scope)
 			VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)`,
 		runID, pipeline.Name, pipelinePathDB.String, pipeline.Version, pipelineDef.String,
 		gitContext["repo_owner"], gitContext["repo_name"], gitContext["clone_url"], gitContext["ssh_url"], gitContext["ref"], gitContext["target_ref"],
 		gitContext["commit_sha"], gitContext["commit_url"], gitContext["commit_message"], gitContext["commit_author_name"],
 		gitContext["commit_author_email"], gitContext["commit_author_username"], gitContext["pusher_name"],
-		gitContext["pusher_email"], gitContext["check_run_id"], groupID, triggerEventIDSQL, environment.String,
+		gitContext["pusher_email"], gitContext["check_run_id"], groupID, triggerEventIDSQL, scope.String,
 	)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to insert initial record for rerun")
@@ -4452,7 +4457,7 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a.launchAndRunPipeline(runID, *resolvedPipeline, resolvedPipelineDef, timeoutDuration, gitContext, "", environment.String)
+	a.launchAndRunPipeline(runID, *resolvedPipeline, resolvedPipelineDef, timeoutDuration, gitContext, "", scope.String)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -5097,10 +5102,10 @@ func (a *App) handleGetRunByCheckID(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"run_id": runID})
 }
 
-func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []byte, timeout time.Duration, gitContext map[string]string, parentHistory string, environment string) {
+func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []byte, timeout time.Duration, gitContext map[string]string, parentHistory string, scope string) {
 	ctx := context.Background()
 
-	secrets, err := a.prepareSecretsForPipeline(pipeline, gitContext, environment)
+	secrets, err := a.prepareSecretsForPipeline(pipeline, gitContext, scope)
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to prepare secrets for pipeline")
 		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", err.Error(), runID)
@@ -5110,9 +5115,9 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		return
 	}
 
-	finalEnv, err := a.prepareEnvironmentForPipeline(pipeline, gitContext, environment)
+	finalEnv, err := a.prepareEnvironmentForPipeline(pipeline, gitContext, scope)
 	if err != nil {
-		log.Error().Err(err).Str("run_id", runID).Msg("Failed to prepare environment variables for pipeline")
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to prepare scope variables for pipeline")
 		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", err.Error(), runID)
 		if gitContext["repo_owner"] != "" {
 			a.notifyGitBotOfFinalStatus("failure", "", "", err.Error(), gitContext)
@@ -5175,8 +5180,8 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	if parentHistory != "" {
 		envVars = append(envVars, fmt.Sprintf("PARENT_EXECUTION_HISTORY=%s", parentHistory))
 	}
-	if environment != "" {
-		envVars = append(envVars, fmt.Sprintf("ENVIRONMENT=%s", environment))
+	if scope != "" {
+		envVars = append(envVars, fmt.Sprintf("SCOPE=%s", scope))
 	}
 
 	for key, value := range finalEnv {
@@ -5404,11 +5409,11 @@ func (a *App) notifyGitBotOfTaskStatus(runID, stepName, taskName, taskStatus str
 	}
 }
 
-func (a *App) findEncryptedSecret(secretName, repoFullName, environment string) (string, bool, error) {
+func (a *App) findEncryptedSecret(secretName, repoFullName, scope string) (string, bool, error) {
 	var encryptedValue string
 
-	if environment != "" {
-		err := a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name = $2 AND environment = $3", secretName, repoFullName, environment).Scan(&encryptedValue)
+	if scope != "" {
+		err := a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name = $2 AND scope = $3", secretName, repoFullName, scope).Scan(&encryptedValue)
 		if err == nil {
 			return encryptedValue, true, nil
 		}
@@ -5416,7 +5421,7 @@ func (a *App) findEncryptedSecret(secretName, repoFullName, environment string) 
 			return "", false, err
 		}
 
-		err = a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL AND environment = $2", secretName, environment).Scan(&encryptedValue)
+		err = a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL AND scope = $2", secretName, scope).Scan(&encryptedValue)
 		if err == nil {
 			return encryptedValue, true, nil
 		}
@@ -5426,7 +5431,7 @@ func (a *App) findEncryptedSecret(secretName, repoFullName, environment string) 
 		return "", false, err
 	}
 
-	err := a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name = $2 AND environment IS NULL", secretName, repoFullName).Scan(&encryptedValue)
+	err := a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name = $2 AND scope IS NULL", secretName, repoFullName).Scan(&encryptedValue)
 	if err == nil {
 		return encryptedValue, true, nil
 	}
@@ -5434,7 +5439,7 @@ func (a *App) findEncryptedSecret(secretName, repoFullName, environment string) 
 		return "", false, err
 	}
 
-	err = a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL AND environment IS NULL", secretName).Scan(&encryptedValue)
+	err = a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL AND scope IS NULL", secretName).Scan(&encryptedValue)
 	if err == nil {
 		return encryptedValue, true, nil
 	}
@@ -6207,15 +6212,15 @@ func main() {
 	mux.HandleFunc("PUT /v1/repositories/{repoOwner}/{repoName}/secrets/{secretName}", app.handleCreateOrUpdateRepoSecret)
 	mux.HandleFunc("DELETE /v1/repositories/{repoOwner}/{repoName}/secrets/{secretName}", app.handleDeleteRepoSecret)
 	mux.HandleFunc("GET /v1/repositories/{repoOwner}/{repoName}/branches", app.handleListRepoBranches)
-	mux.HandleFunc("GET /v1/environments", app.handleListGeneralEnvs)
-	mux.HandleFunc("GET /v1/environments/scopes", app.handleListEnvironmentScopes)
-	mux.HandleFunc("GET /v1/environments/{envName}", app.handleGetGeneralEnvValue)
-	mux.HandleFunc("PUT /v1/environments/{envName}", app.handleCreateOrUpdateGeneralEnv)
-	mux.HandleFunc("DELETE /v1/environments/{envName}", app.handleDeleteGeneralEnv)
-	mux.HandleFunc("GET /v1/repositories/{repoOwner}/{repoName}/environments", app.handleListRepoEnvs)
-	mux.HandleFunc("GET /v1/repositories/{repoOwner}/{repoName}/environments/{envName}", app.handleGetRepoEnvValue)
-	mux.HandleFunc("PUT /v1/repositories/{repoOwner}/{repoName}/environments/{envName}", app.handleCreateOrUpdateRepoEnv)
-	mux.HandleFunc("DELETE /v1/repositories/{repoOwner}/{repoName}/environments/{envName}", app.handleDeleteRepoEnv)
+	mux.HandleFunc("GET /v1/variables", app.handleListGeneralVariables)
+	mux.HandleFunc("GET /v1/variables/scopes", app.handleListVariableScopes)
+	mux.HandleFunc("GET /v1/variables/{variableName}", app.handleGetGeneralVariableValue)
+	mux.HandleFunc("PUT /v1/variables/{variableName}", app.handleCreateOrUpdateGeneralVariable)
+	mux.HandleFunc("DELETE /v1/variables/{variableName}", app.handleDeleteGeneralVariable)
+	mux.HandleFunc("GET /v1/repositories/{repoOwner}/{repoName}/variables", app.handleListRepoVariables)
+	mux.HandleFunc("GET /v1/repositories/{repoOwner}/{repoName}/variables/{variableName}", app.handleGetRepoVariableValue)
+	mux.HandleFunc("PUT /v1/repositories/{repoOwner}/{repoName}/variables/{variableName}", app.handleCreateOrUpdateRepoVariable)
+	mux.HandleFunc("DELETE /v1/repositories/{repoOwner}/{repoName}/variables/{variableName}", app.handleDeleteRepoVariable)
 	mux.HandleFunc("POST /v1/run", app.handleRunPipeline)
 	mux.HandleFunc("POST /v1/run/{pipelineName...}", app.handleRunPipeline)
 	mux.HandleFunc("GET /v1/runs", app.handleListRuns)

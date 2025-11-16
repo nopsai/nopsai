@@ -57,14 +57,14 @@ Scope variables mirror the scoping rules used for secrets.
 ```bash
 # Global scope variable
 curl -X PUT -d '{"value":"general"}' \
-  "http://localhost:8080/v1/environments/TEST_ENV"
+  "http://localhost:8080/v1/variables/TEST_ENV"
 
 # Repository scope variable
 curl -X PUT -d '{"value":"repo"}' \
-  "http://localhost:8080/v1/repositories/hosein-yousefii/test-app/environments/TEST_ENV"
+  "http://localhost:8080/v1/repositories/hosein-yousefii/test-app/variables/TEST_ENV"
 
 # Fetch scoped variables
-curl "http://localhost:8080/v1/environments?env=prod"
+curl "http://localhost:8080/v1/variables?env=prod"
 ```
 
 - The list endpoint now returns both global variables (e.g. `DATABASE_URL`) and repository-scoped entries in the form `owner/repo/NAME`.
