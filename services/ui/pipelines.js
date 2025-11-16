@@ -2129,13 +2129,13 @@ function formatPathLabel(path) {
                 branchValue = `Skip: ${trigger.skip_branches.join(', ')}`;
             }
             const tagsValue = Array.isArray(trigger.tags) && trigger.tags.length ? trigger.tags.join(', ') : '';
-            const environmentValue = trigger.environment || 'default';
+            const scopeValue = (trigger.scope || '').trim() || 'default';
             const sourceLabel = getTriggerSourceLabelForPipeline(record.source || 'database');
             const linkSlug = repoSlug.split('/').filter(Boolean).map(encodeURIComponent).join('/');
             const rows = [
                 { label: 'Event:', value: eventInfo.full },
                 { label: 'Branches:', value: branchValue },
-                { label: 'Environment:', value: environmentValue },
+                { label: 'Scope:', value: scopeValue },
                 { label: 'Source:', value: sourceLabel },
             ];
             if (tagsValue) {
@@ -2796,7 +2796,7 @@ function formatPathLabel(path) {
             return String(entry).trim().replace(/^\/+|\/+$/g, '');
         }
         if (typeof entry === 'object') {
-            const value = entry.scope ?? entry.environment ?? entry.env ?? entry.name ?? entry.value ?? '';
+            const value = entry.scope ?? entry.env ?? entry.name ?? entry.value ?? '';
             return String(value || '').trim().replace(/^\/+|\/+$/g, '');
         }
         return '';

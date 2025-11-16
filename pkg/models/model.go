@@ -19,7 +19,7 @@ type Trigger struct {
 	SkipBranches []string         `yaml:"skip_branches,omitempty" json:"skip_branches,omitempty"`
 	Tags         []string         `yaml:"tags,omitempty" json:"tags,omitempty"`
 	Pipelines    []PipelineSource `yaml:"pipelines" json:"pipelines"`
-	Environment  string           `yaml:"environment,omitempty" json:"environment,omitempty"`
+	Scope        string           `yaml:"scope,omitempty" json:"scope,omitempty"`
 }
 
 // PipelineSource defines a single pipeline to be run from a local path or stored definition.

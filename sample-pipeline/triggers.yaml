@@ -8,14 +8,14 @@ triggers:
     pipelines:
       - main-pipeline.yaml
       - general/include-pipeline
-    environment: prod
+    scope: prod
 
   - on: push
     tags:
       - 'v*'
     pipelines: 
       - main-pipeline.yaml
-    environment: prod
+    scope: prod
 
   # Trigger for pushes to any feature branch
   - on: push

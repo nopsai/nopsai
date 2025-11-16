@@ -229,7 +229,7 @@
         };
 
         secretScopes.forEach(entry => {
-            const envLabel = normalizeScopeLabel(entry?.scope ?? entry?.environment ?? '');
+            const envLabel = normalizeScopeLabel(entry?.scope ?? '');
             const meta = ensureMeta(envLabel);
             if (typeof entry?.secret_count === 'number') {
                 meta.secretCountHint = entry.secret_count;
@@ -335,7 +335,7 @@
             return normalizeScopeLabel(entry);
         }
         if (typeof entry === 'object') {
-            const value = entry.scope ?? entry.environment ?? entry.env ?? entry.name ?? entry.value ?? '';
+            const value = entry.scope ?? entry.env ?? entry.name ?? entry.value ?? '';
             return normalizeScopeLabel(value);
         }
         return '';
@@ -634,7 +634,8 @@
     }
 
     function registerTriggerForSecretScope({ slug, trigger, owner, name }) {
-        const scopeLabel = normalizeScopeLabel(trigger?.environment);
+        const scopeValue = trigger?.scope;
+        const scopeLabel = normalizeScopeLabel(scopeValue);
         const scopeKey = buildScopeKey(scopeLabel);
         const scope = state.scopeMap.get(scopeKey);
         if (!scope) {
@@ -654,7 +655,7 @@
 
         const triggerDescriptor = {
             slug: repoSlug,
-            environment: scopeLabel,
+            scope: scopeLabel,
             pipelines,
             event: canonicalizeEvent(trigger?.on),
             branches: Array.isArray(trigger?.branches) ? trigger.branches : [],
@@ -3229,7 +3230,7 @@ function renderScopeCategoryCard(scope, category) {
         const branches = Array.isArray(trigger.branches) && trigger.branches.length ? trigger.branches.join(', ') : 'All branches';
         const pipelineCount = Array.isArray(trigger.pipelines) ? trigger.pipelines.length : 0;
         const pipelineSummary = pipelineCount ? `${pipelineCount} pipeline${pipelineCount === 1 ? '' : 's'}` : 'No pipelines linked';
-        const scopeLabel = trigger.environment ? `/${trigger.environment}` : '/';
+        const scopeLabel = trigger.scope ? `/${trigger.scope}` : '/';
         const metaRows = [
             { label: 'event', value: trigger.event || 'custom' },
             { label: 'branches', value: branches },
