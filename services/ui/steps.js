@@ -1558,7 +1558,7 @@
             return entry.trim().replace(/^\/+|\/+$/g, '');
         }
         if (typeof entry === 'object') {
-            const value = entry.scope ?? entry.environment ?? entry.env ?? entry.name ?? entry.value ?? '';
+            const value = entry.scope ?? entry.env ?? entry.name ?? entry.value ?? '';
             return String(value || '').trim().replace(/^\/+|\/+$/g, '');
         }
         return '';

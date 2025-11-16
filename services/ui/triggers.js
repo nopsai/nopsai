@@ -23,6 +23,12 @@
         editorSuggestionIndex: -1,
         editorCharWidth: null,
         currentTriggerSummary: null,
+        triggerSuggestionPanelMode: null,
+        triggerPanelContext: null,
+        triggerDirectiveType: null,
+        scopeSuggestions: [],
+        scopeSuggestionPromise: null,
+        lastEditorSelection: null,
     };
 
     const DOM = {};
@@ -51,10 +57,12 @@
         { key: 'skip_branches', hint: 'Branches to exclude', kind: 'list' },
         { key: 'tags', hint: 'Tags that should trigger runs', kind: 'list' },
         { key: 'pipelines', hint: 'Pipelines to execute', kind: 'list' },
-        { key: 'environment', hint: 'Scope label for this trigger', kind: 'scalar' },
+        { key: 'scope', hint: 'Scope label for this trigger', kind: 'scalar' },
     ];
     const TRIGGER_LIST_FIELDS = new Set(['branches', 'skip_branches', 'tags', 'pipelines']);
     const DEFAULT_PIPELINE_PATH = 'pipelines/sample-pipeline.yaml';
+    const MAX_TRIGGER_PIPELINE_SUGGESTIONS = 12;
+    const MAX_TRIGGER_SCOPE_SUGGESTIONS = 12;
 
     function sanitizePipelineFileName(value) {
         const trimmed = String(value || '').trim();
@@ -362,7 +370,9 @@
             'triggers-new-repo', 'triggers-new-yaml',
             'triggers-delete-modal', 'triggers-delete-message', 'triggers-delete-cancel', 'triggers-delete-confirm', 'triggers-delete-close',
             'triggers-clone-modal', 'triggers-clone-form', 'triggers-clone-cancel', 'triggers-clone-close', 'triggers-clone-repo', 'triggers-clone-subtitle',
-            'triggers-list-view', 'triggers-detail-view', 'triggers-back-btn'
+            'triggers-list-view', 'triggers-detail-view', 'triggers-back-btn',
+            'triggers-suggestion-panel', 'triggers-suggestion-title', 'triggers-suggestion-subtitle',
+            'triggers-suggestion-empty', 'triggers-suggestion-list', 'triggers-suggestion-footnote'
         ];
 
         ids.forEach(id => {
@@ -660,6 +670,10 @@
                 updateTriggerEditorSuggestions();
             });
             editor.addEventListener('keydown', handleTriggerEditorKeydown);
+        }
+
+        if (DOM['triggers-suggestion-panel']) {
+            DOM['triggers-suggestion-panel'].addEventListener('click', handleTriggerSuggestionClick);
         }
 
         document.addEventListener('keydown', (event) => {
@@ -1359,7 +1373,7 @@
         const repo = slug || 'N/A';
         const triggerCount = summary?.triggerCount ?? 0;
         
-        const scopeList = summary?.scopes ?? summary?.environments;
+        const scopeList = summary?.scopes;
         const scopes = Array.isArray(scopeList) ? scopeList : [];
         
         const eventsLabel = summary?.events && summary.events.length
@@ -1697,6 +1711,8 @@
         state.currentYaml = info.yaml;
         state.currentTriggerSummary = info.summary || null;
         state.editorCharWidth = null;
+        state.lastEditorSelection = null;
+        setTriggerSuggestionPanelMode(null);
 
         if (DOM['triggers-yaml-content']) {
             DOM['triggers-yaml-content'].classList.add('hidden');
@@ -1740,6 +1756,8 @@
         hideTriggerEditorSuggestions();
         state.editorCharWidth = null;
         state.currentTriggerSummary = null;
+        state.lastEditorSelection = null;
+        setTriggerSuggestionPanelMode(null);
         if (DOM['triggers-editor-container']) {
             DOM['triggers-editor-container'].classList.add('hidden');
         }
@@ -1985,6 +2003,7 @@
 
     function updateTriggerEditorSuggestions() {
         if (!state.isEditing || !DOM['triggers-yaml-editor']) {
+            setTriggerSuggestionPanelMode(null);
             hideTriggerEditorSuggestions();
             return;
         }
@@ -1993,18 +2012,37 @@
 
         const textarea = DOM['triggers-yaml-editor'];
         const text = textarea.value || '';
-        const selectionStart = Math.min(textarea.selectionStart ?? 0, textarea.selectionEnd ?? 0);
-        const selectionEnd = Math.max(textarea.selectionStart ?? 0, textarea.selectionEnd ?? 0);
+        const rawSelectionStart = textarea.selectionStart ?? 0;
+        const rawSelectionEnd = textarea.selectionEnd ?? rawSelectionStart;
+        state.lastEditorSelection = { start: rawSelectionStart, end: rawSelectionEnd };
+        const selectionStart = Math.min(rawSelectionStart, rawSelectionEnd);
+        const selectionEnd = Math.max(rawSelectionStart, rawSelectionEnd);
         const contextInfo = detectTriggerSuggestionContext(text, selectionStart, selectionEnd);
 
         if (!contextInfo) {
+            setTriggerSuggestionPanelMode(null);
             hideTriggerEditorSuggestions();
             return;
         }
 
+        let panelMode = null;
+        let panelOptions = { context: contextInfo };
+        if (contextInfo.type === 'pipeline-value') {
+            panelMode = 'pipeline';
+        } else if (contextInfo.type === 'scope-value') {
+            panelMode = 'scope';
+        } else if (contextInfo.type === 'trigger-key' || contextInfo.type === 'root-key') {
+            panelMode = 'directive';
+            panelOptions.directiveType = contextInfo.type;
+        }
+        setTriggerSuggestionPanelMode(panelMode, panelOptions);
+
         if (contextInfo.type === 'pipeline-value') {
             if (!(state.pipelineSourceIndex instanceof Map) || !state.pipelineSourceIndex.size) {
                 ensurePipelineSourceIndex().then(() => {
+                    if (state.triggerSuggestionPanelMode === 'pipeline') {
+                        renderTriggerPipelineSuggestions();
+                    }
                     updateTriggerEditorSuggestions();
                 }).catch(() => {
                     hideTriggerEditorSuggestions();
@@ -2177,6 +2215,334 @@
         updateTriggerInlineSuggestionPosition();
     }
 
+    function setTriggerSuggestionPanelMode(mode, options = {}) {
+        const normalized = (mode === 'pipeline' || mode === 'scope' || mode === 'directive') ? mode : null;
+        state.triggerSuggestionPanelMode = normalized;
+        state.triggerPanelContext = normalized ? options.context || null : null;
+        state.triggerDirectiveType = normalized === 'directive' ? options.directiveType || 'trigger-key' : null;
+        updateTriggerSuggestionPanelVisibility();
+        if (!normalized) {
+            return;
+        }
+        if (normalized === 'pipeline') {
+            renderTriggerPipelineSuggestions();
+        } else if (normalized === 'scope') {
+            renderTriggerScopeSuggestions();
+        } else if (normalized === 'directive') {
+            renderTriggerDirectiveSuggestions(state.triggerDirectiveType || 'trigger-key');
+        }
+    }
+
+    function updateTriggerSuggestionPanelVisibility() {
+        const panel = DOM['triggers-suggestion-panel'];
+        if (!panel) return;
+        const shouldShow = state.isEditing && !!state.triggerSuggestionPanelMode;
+        panel.classList.toggle('hidden', !shouldShow);
+    }
+
+    function setTriggerSuggestionPanelCopy(copy = {}) {
+        const titleEl = DOM['triggers-suggestion-title'];
+        const subtitleEl = DOM['triggers-suggestion-subtitle'];
+        const footnoteEl = DOM['triggers-suggestion-footnote'];
+        if (titleEl && copy.title) titleEl.textContent = copy.title;
+        if (subtitleEl && copy.subtitle) subtitleEl.textContent = copy.subtitle;
+        if (footnoteEl && copy.footnote) footnoteEl.textContent = copy.footnote;
+    }
+
+    function renderTriggerPipelineSuggestions() {
+        if (state.triggerSuggestionPanelMode !== 'pipeline') return;
+        const list = DOM['triggers-suggestion-list'];
+        const emptyState = DOM['triggers-suggestion-empty'];
+        if (!list || !emptyState) return;
+
+        setTriggerSuggestionPanelCopy({
+            title: 'Available pipelines',
+            subtitle: 'Click to insert a pipeline path into the trigger.',
+            footnote: 'Ensure the cursor is within the pipelines list before inserting.',
+        });
+
+        if (!(state.pipelineSourceIndex instanceof Map) || !state.pipelineSourceIndex.size) {
+            emptyState.textContent = state.pipelineSourceIndexPromise ? 'Loading pipelines…' : 'No pipelines discovered yet.';
+            emptyState.classList.remove('hidden');
+            list.innerHTML = '';
+            if (!state.pipelineSourceIndexPromise) {
+                ensurePipelineSourceIndex().then(() => {
+                    if (state.triggerSuggestionPanelMode === 'pipeline') {
+                        renderTriggerPipelineSuggestions();
+                    }
+                }).catch(error => {
+                    console.error('Failed to load pipeline suggestions:', error);
+                });
+            }
+            return;
+        }
+
+        const entries = Array.from(state.pipelineSourceIndex.keys())
+            .filter(Boolean)
+            .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+
+        if (!entries.length) {
+            emptyState.textContent = 'No pipelines available yet.';
+            emptyState.classList.remove('hidden');
+            list.innerHTML = '';
+            return;
+        }
+
+        emptyState.classList.add('hidden');
+        const buttons = entries.slice(0, MAX_TRIGGER_PIPELINE_SUGGESTIONS).map(identifier => {
+            const label = identifier || 'pipeline';
+            return `
+                <button type="button" class="env-suggestion-pill env-suggestion-pill--action" data-trigger-pipeline="${escapeAttribute(identifier)}">
+                    <span>${escapeHtml(label)}</span>
+                </button>`;
+        });
+        const remaining = entries.length - Math.min(entries.length, MAX_TRIGGER_PIPELINE_SUGGESTIONS);
+        if (remaining > 0) {
+            buttons.push(`<span class="env-suggestion-pill env-suggestion-pill--more">+${remaining} more</span>`);
+        }
+
+        list.innerHTML = `
+            <article class="env-suggestion-item">
+                <div class="env-suggestion-env">
+                    <span class="env-suggestion-env-label">Pipelines</span>
+                    <span class="env-suggestion-env-count">${escapeHtml(`${entries.length} ${entries.length === 1 ? 'item' : 'items'}`)}</span>
+                </div>
+                <div class="env-suggestion-variables">${buttons.join('')}</div>
+            </article>`;
+    }
+
+    function renderTriggerScopeSuggestions() {
+        if (state.triggerSuggestionPanelMode !== 'scope') return;
+        const list = DOM['triggers-suggestion-list'];
+        const emptyState = DOM['triggers-suggestion-empty'];
+        if (!list || !emptyState) return;
+
+        setTriggerSuggestionPanelCopy({
+            title: 'Known scopes',
+            subtitle: 'Insert a scope name for this trigger.',
+            footnote: 'Scopes come from your secrets/variables catalogue.',
+        });
+
+        if (!state.scopeSuggestions.length && !state.scopeSuggestionPromise) {
+            ensureTriggerScopeSuggestions().then(() => {
+                if (state.triggerSuggestionPanelMode === 'scope') {
+                    renderTriggerScopeSuggestions();
+                }
+            }).catch(error => console.error('Failed to load scope suggestions:', error));
+        }
+
+        if (!state.scopeSuggestions.length) {
+            emptyState.textContent = state.scopeSuggestionPromise ? 'Loading scopes…' : 'No scopes available yet.';
+            emptyState.classList.remove('hidden');
+            list.innerHTML = '';
+            return;
+        }
+
+        emptyState.classList.add('hidden');
+        const entries = state.scopeSuggestions.slice(0, MAX_TRIGGER_SCOPE_SUGGESTIONS);
+        const buttons = entries.map(scope => {
+            return `
+                <button type="button" class="env-suggestion-pill env-suggestion-pill--action" data-trigger-scope="${escapeAttribute(scope)}">
+                    <span>${escapeHtml(formatScopeSuggestionLabel(scope))}</span>
+                </button>`;
+        });
+        const remaining = state.scopeSuggestions.length - entries.length;
+        if (remaining > 0) {
+            buttons.push(`<span class="env-suggestion-pill env-suggestion-pill--more">+${remaining} more</span>`);
+        }
+
+        list.innerHTML = `
+            <article class="env-suggestion-item">
+                <div class="env-suggestion-env">
+                    <span class="env-suggestion-env-label">Scopes</span>
+                    <span class="env-suggestion-env-count">${escapeHtml(`${state.scopeSuggestions.length} ${state.scopeSuggestions.length === 1 ? 'item' : 'items'}`)}</span>
+                </div>
+                <div class="env-suggestion-variables">${buttons.join('')}</div>
+            </article>`;
+    }
+
+    function renderTriggerDirectiveSuggestions(type = 'trigger-key') {
+        if (state.triggerSuggestionPanelMode !== 'directive') return;
+        const list = DOM['triggers-suggestion-list'];
+        const emptyState = DOM['triggers-suggestion-empty'];
+        if (!list || !emptyState) return;
+
+        const defs = type === 'root-key' ? TRIGGER_ROOT_DEFINITIONS : TRIGGER_FIELD_DEFINITIONS;
+        setTriggerSuggestionPanelCopy({
+            title: type === 'root-key' ? 'Manifest directives' : 'Trigger directives',
+            subtitle: type === 'root-key'
+                ? 'Keys allowed at the root of the manifest.'
+                : 'Fields that can be used inside a trigger entry.',
+            footnote: 'Click a directive to insert it at the cursor.',
+        });
+
+        if (!defs.length) {
+            emptyState.textContent = 'No directives available here.';
+            emptyState.classList.remove('hidden');
+            list.innerHTML = '';
+            return;
+        }
+
+        emptyState.classList.add('hidden');
+        const childIndent = state.triggerPanelContext && typeof state.triggerPanelContext.keyIndent === 'number'
+            ? ' '.repeat(state.triggerPanelContext.keyIndent + 2)
+            : '  ';
+        const buttons = defs.map(def => {
+            let snippet = def.snippet;
+            if (!snippet) {
+                snippet = def.kind === 'list' ? `${def.key}:\n${childIndent}- ` : `${def.key}: `;
+            }
+            return `
+                <button type="button" class="env-suggestion-pill env-suggestion-pill--action" data-trigger-directive="${escapeAttribute(def.key)}" data-trigger-directive-snippet="${encodeURIComponent(snippet)}">
+                    <span>${escapeHtml(def.key)}</span>
+                    ${def.hint ? `<span class="env-suggestion-hint">${escapeHtml(def.hint)}</span>` : ''}
+                </button>`;
+        });
+
+        list.innerHTML = `
+            <article class="env-suggestion-item">
+                <div class="env-suggestion-variables">${buttons.join('')}</div>
+            </article>`;
+    }
+
+    function handleTriggerSuggestionClick(event) {
+        const pipelineBtn = event.target.closest('[data-trigger-pipeline]');
+        if (pipelineBtn) {
+            event.preventDefault();
+            insertTriggerPipelineValue(pipelineBtn.getAttribute('data-trigger-pipeline') || '');
+            return;
+        }
+        const scopeBtn = event.target.closest('[data-trigger-scope]');
+        if (scopeBtn) {
+            event.preventDefault();
+            insertTriggerScopeValue(scopeBtn.getAttribute('data-trigger-scope') ?? '');
+            return;
+        }
+        const directiveBtn = event.target.closest('[data-trigger-directive]');
+        if (directiveBtn) {
+            event.preventDefault();
+            insertTriggerDirectiveSnippet(decodeURIComponent(directiveBtn.getAttribute('data-trigger-directive-snippet') || ''));
+            return;
+        }
+    }
+
+    function insertTriggerPipelineValue(value) {
+        if (!state.isEditing || !DOM['triggers-yaml-editor']) {
+            showToast('Enter edit mode to insert pipelines.', 'info');
+            return;
+        }
+        if (!state.triggerPanelContext || state.triggerPanelContext.type !== 'pipeline-value') {
+            showToast('Place the cursor inside the pipelines list to insert a pipeline.', 'info');
+            focusTriggerEditor();
+            return;
+        }
+        focusTriggerEditor();
+        state.editorSuggestionContext = state.triggerPanelContext;
+        applyTriggerEditorSuggestion({ value });
+    }
+
+    function insertTriggerScopeValue(value) {
+        if (!state.isEditing || !DOM['triggers-yaml-editor']) {
+            showToast('Enter edit mode to insert scopes.', 'info');
+            return;
+        }
+        if (!state.triggerPanelContext || state.triggerPanelContext.type !== 'scope-value') {
+            showToast('Place the cursor on a scope field to insert a scope.', 'info');
+            focusTriggerEditor();
+            return;
+        }
+        focusTriggerEditor();
+        state.editorSuggestionContext = state.triggerPanelContext;
+        applyTriggerEditorSuggestion({ value });
+    }
+
+    function insertTriggerDirectiveSnippet(snippet) {
+        if (!state.isEditing || !DOM['triggers-yaml-editor']) {
+            showToast('Enter edit mode to insert directives.', 'info');
+            return;
+        }
+        const contextInfo = state.triggerPanelContext;
+        if (!contextInfo || (contextInfo.type !== 'trigger-key' && contextInfo.type !== 'root-key')) {
+            showToast('Click within the trigger or manifest block before inserting directives.', 'info');
+            focusTriggerEditor();
+            return;
+        }
+        focusTriggerEditor();
+        state.editorSuggestionContext = contextInfo;
+        applyTriggerEditorSuggestion({ snippet });
+    }
+
+    function focusTriggerEditor() {
+        const textarea = DOM['triggers-yaml-editor'];
+        if (!textarea) return;
+        textarea.focus();
+        const selection = state.lastEditorSelection;
+        if (!selection) return;
+        const max = textarea.value.length;
+        const start = Math.max(0, Math.min(selection.start ?? max, max));
+        const end = Math.max(start, Math.min(selection.end ?? start, max));
+        textarea.selectionStart = start;
+        textarea.selectionEnd = end;
+    }
+
+    function ensureTriggerScopeSuggestions(force = false) {
+        if (!context || typeof context.fetchData !== 'function') {
+            state.scopeSuggestions = [''];
+            return Promise.resolve(state.scopeSuggestions);
+        }
+        if (!force && state.scopeSuggestionPromise) {
+            return state.scopeSuggestionPromise;
+        }
+        const promise = (async () => {
+            try {
+                const response = await context.fetchData('/v1/variables/scopes');
+                const set = new Set(['']);
+                if (Array.isArray(response)) {
+                    response.forEach(entry => {
+                        const value = normalizeScopeSuggestionEntry(entry);
+                        if (value !== null) {
+                            set.add(value);
+                        }
+                    });
+                }
+                const list = Array.from(set).sort((a, b) => {
+                    if (!a && !b) return 0;
+                    if (!a) return -1;
+                    if (!b) return 1;
+                    return a.localeCompare(b, undefined, { sensitivity: 'base' });
+                });
+                state.scopeSuggestions = list;
+                return list;
+            } catch (error) {
+                console.error('Failed to fetch scope suggestions:', error);
+                return state.scopeSuggestions;
+            } finally {
+                state.scopeSuggestionPromise = null;
+            }
+        })();
+        state.scopeSuggestionPromise = promise;
+        return promise;
+    }
+
+    function normalizeScopeSuggestionEntry(entry) {
+        if (entry == null) {
+            return '';
+        }
+        if (typeof entry === 'string') {
+            return entry.trim();
+        }
+        if (typeof entry === 'object') {
+            const value = entry.scope ?? entry.environment ?? entry.env ?? entry.name ?? entry.value ?? '';
+            return String(value || '').trim();
+        }
+        return '';
+    }
+
+    function formatScopeSuggestionLabel(value) {
+        const trimmed = String(value || '').trim();
+        return trimmed ? `/${trimmed}` : 'Default Scope';
+    }
+
     function detectTriggerSuggestionContext(text, selectionStart, selectionEnd) {
         if (typeof text !== 'string') return null;
         const lineInfo = getCurrentLineInfo(text, selectionStart);
@@ -2194,7 +2560,7 @@
             if (inlineContext.key === 'on') {
                 return { ...inlineContext, type: 'event-value', title: 'Trigger events' };
             }
-            if (inlineContext.key === 'environment') {
+            if (inlineContext.key === 'scope') {
                 return { ...inlineContext, type: 'scope-value', title: 'Scope names' };
             }
             if (inlineContext.key === 'pipelines') {
@@ -2601,7 +2967,7 @@
     function collectKnownScopeValues() {
         const set = new Set();
         gatherTriggerSummaries().forEach(summary => {
-            const scopeValues = summary.scopes || summary.environments || [];
+            const scopeValues = summary.scopes || [];
             scopeValues.forEach(value => set.add(String(value)));
         });
         return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
@@ -2954,6 +3320,14 @@
         if (!Array.isArray(manifest.triggers) || manifest.triggers.length === 0) {
             throw new Error('Manifest must contain a non-empty "triggers" array');
         }
+        manifest.triggers.forEach((trigger, index) => {
+            if (!trigger || typeof trigger !== 'object') {
+                throw new Error(`Trigger #${index + 1} must be an object.`);
+            }
+            if (Object.prototype.hasOwnProperty.call(trigger, 'environment')) {
+                throw new Error(`Trigger #${index + 1} uses deprecated 'environment'. Rename it to 'scope'.`);
+            }
+        });
         return manifest;
     }
 
@@ -2979,8 +3353,9 @@
             (trigger?.branches || []).forEach(branch => branches.add(String(branch)));
             (trigger?.skip_branches || trigger?.skipBranches || []).forEach(branch => skipBranches.add(String(branch)));
             (trigger?.tags || []).forEach(tag => tags.add(String(tag)));
-            if (trigger?.environment && String(trigger.environment).trim()) {
-                scopeNames.add(String(trigger.environment).trim());
+            const rawScope = trigger?.scope;
+            if (rawScope && String(rawScope).trim()) {
+                scopeNames.add(String(rawScope).trim());
             } else {
                 hasDefaultScope = true;
             }
@@ -3016,7 +3391,6 @@
             skipBranches: Array.from(skipBranches).sort(),
             tags: Array.from(tags).sort(),
             scopes: scopeList,
-            environments: scopeList,
         };
     }
 

@@ -39,6 +39,6 @@ This document captures the current feature set and hardening work that has lande
 
 ### Feature Highlights
 - **Pipeline DSL**: Supports step includes, per-step containers, secret injection, volume mounts, multi-task steps, AI gating via `condition`, and fine-grained LLM sharing controls.
-- **Trigger routing**: `.nopsai/triggers.yaml` can target events by branch/tag globs, apply environment overrides, and fan out to multiple pipelines.
+- **Trigger routing**: `.nopsai/triggers.yaml` can target events by branch/tag globs, apply scope overrides, and fan out to multiple pipelines.
 - **Run lifecycle**: Manual kicks, reruns, cancellation, GitHub-driven runs, real-time summaries, and log history retention are all first-class.
 - **Auditability**: Every run stores its logs, history, and metadata in Postgres, giving operators a replayable record aligned with GitHub check results.

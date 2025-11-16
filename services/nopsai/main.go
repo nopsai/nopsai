@@ -338,8 +338,7 @@ type VariableRequest struct {
 }
 
 type ScopeResponse struct {
-	Scope       string `json:"scope"`
-	Environment string `json:"environment,omitempty"`
+	Scope string `json:"scope"`
 }
 
 type VariableValueResponse struct {
@@ -847,7 +846,7 @@ func (a *App) handleListVariableScopes(w http.ResponseWriter, r *http.Request) {
 
 	result := make([]ScopeResponse, 0, len(scopes))
 	for _, value := range scopes {
-		result = append(result, ScopeResponse{Scope: value, Environment: value})
+		result = append(result, ScopeResponse{Scope: value})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1220,7 +1219,6 @@ func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
 
 type SecretScopeSummary struct {
 	Scope       string `json:"scope"`
-	Environment string `json:"environment,omitempty"`
 	SecretCount int    `json:"secret_count"`
 }
 
@@ -1263,7 +1261,7 @@ func (a *App) handleListSecretScopes(w http.ResponseWriter, r *http.Request) {
 
 	scopes := make([]SecretScopeSummary, 0, len(scopeCounts))
 	for envValue, count := range scopeCounts {
-		scopes = append(scopes, SecretScopeSummary{Scope: envValue, Environment: envValue, SecretCount: count})
+		scopes = append(scopes, SecretScopeSummary{Scope: envValue, SecretCount: count})
 	}
 
 	sort.Slice(scopes, func(i, j int) bool {
@@ -3828,7 +3826,7 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pipelines, baseEnvironment := findPipelinesForEvent(manifest, eventType, ref)
+	pipelines, baseScope := findPipelinesForEvent(manifest, eventType, ref)
 	if len(pipelines) == 0 {
 		log.Info().Str("repo", repoFullName).Str("ref", ref).Msg("No pipelines matched event.")
 		w.WriteHeader(http.StatusOK)
@@ -3839,7 +3837,7 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 	anyTriggered := false
 	for _, p := range pipelines {
 		originalPath := p.Path
-		effectiveEnv := baseEnvironment
+		effectiveScope := baseScope
 
 		if strings.HasPrefix(p.Path, "http://") || strings.HasPrefix(p.Path, "https://") {
 			errMsg := fmt.Sprintf("Remote pipeline URLs are not supported (entry: %s)", p.Path)
@@ -3936,7 +3934,7 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 					placeholderDef += "\n"
 				}
 				placeholderDef += fmt.Sprintf("# %s\n", summary)
-				a.recordMissingPipelineRun(originalPath, "", []byte(placeholderDef), gitContextForRun, effectiveEnv, pipelineSourceForCheck, summary)
+				a.recordMissingPipelineRun(originalPath, "", []byte(placeholderDef), gitContextForRun, effectiveScope, pipelineSourceForCheck, summary)
 			}
 			continue
 		}
@@ -3978,7 +3976,7 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 			"X-Git-Check-Run-ID":           strconv.FormatInt(checkRunID, 10),
 			"X-Git-Ref":                    ref,
 			"X-Git-Target-Ref":             targetRef,
-			"X-Nopsai-Environment":         effectiveEnv,
+			"X-Nopsai-Scope":               effectiveScope,
 			"X-Nopsai-Pipeline-Path":       dbPath,
 			"X-Git-Clone-URL":              cloneURL,
 			"X-Git-SSH-URL":                sshURL,
@@ -4042,9 +4040,6 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	parentRunID := r.Header.Get("X-Nopsai-Parent-Run-ID")
 	parentHistory := r.Header.Get("X-Nopsai-Parent-History")
 	scope := r.Header.Get("X-Nopsai-Scope")
-	if scope == "" {
-		scope = r.Header.Get("X-Nopsai-Environment")
-	}
 	parentStepName := r.Header.Get("X-Nopsai-Parent-Step-Name")
 	pipelineSource := r.Header.Get("X-Nopsai-Pipeline-Source")
 	pipelineNameFromPath := r.PathValue("pipelineName")
@@ -5468,23 +5463,23 @@ func findPipelinesForEvent(manifest models.Manifest, eventType, ref string) ([]m
 					if branchMatchesAnyPattern(branchName, trigger.SkipBranches) {
 						continue
 					}
-					return trigger.Pipelines, trigger.Environment
-				}
-			} else if strings.HasPrefix(ref, "refs/tags/") {
-				tagName := strings.TrimPrefix(ref, "refs/tags/")
-				for _, pattern := range trigger.Tags {
-					if matchBranchPattern(pattern, tagName) {
-						return trigger.Pipelines, trigger.Environment
-					}
+					return trigger.Pipelines, trigger.Scope
+			}
+		} else if strings.HasPrefix(ref, "refs/tags/") {
+			tagName := strings.TrimPrefix(ref, "refs/tags/")
+			for _, pattern := range trigger.Tags {
+				if matchBranchPattern(pattern, tagName) {
+					return trigger.Pipelines, trigger.Scope
 				}
 			}
 		}
-
-		if eventType == "pull_request" {
-			// This logic is now correctly isolated to only pull_request events
-			return trigger.Pipelines, trigger.Environment
-		}
 	}
+
+	if eventType == "pull_request" {
+		// This logic is now correctly isolated to only pull_request events
+		return trigger.Pipelines, trigger.Scope
+	}
+}
 	return nil, ""
 }
 

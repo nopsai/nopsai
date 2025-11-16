@@ -33,18 +33,18 @@ Nopsai features a powerful, hierarchical system for managing both secrets and pl
 
 * **Self-Hosted & Secure**: Nopsai includes a built-in, self-hosted management system. Secrets are stored encrypted (using AES-256-GCM) in its database, while environment variables are stored in plaintext.
 * **Four-Layer Hierarchy**: The system uses a strict, four-layer hierarchy to resolve the value of any required variable, ensuring that specific contexts always override general ones. The layers are:
-    1.  Repository-specific, for a specific environment (e.g., `prod` secret for `my-org/my-repo`).
-    2.  General, for a specific environment (e.g., a global `prod` secret).
-    3.  Repository-specific, with no environment.
-    4.  General, with no environment.
-* **Strict Environmental Scoping**: Environments are treated as isolated scopes. A trigger for a specific environment (e.g., `prod`) will **only** resolve variables tagged for that environment. It will **never** fall back to a non-environmental variable, preventing accidental configuration leaks. If a required variable is not found for the specified environment, the pipeline will fail immediately.
+    1.  Repository-specific, for a specific scope (e.g., `prod` secret for `my-org/my-repo`).
+    2.  General, for a specific scope (e.g., a global `prod` secret).
+    3.  Repository-specific, with no scope (falls back to the default scope).
+    4.  General, with no scope.
+* **Strict Scope Isolation**: Scopes are treated as isolated contexts. A trigger for a specific scope (e.g., `prod`) will **only** resolve variables tagged for that scope. It will **never** fall back to an unscoped value, preventing accidental configuration leaks. If a required variable is not found for the specified scope, the pipeline will fail immediately.
 * **Scoped Injection**: A step must explicitly declare which secrets it needs via a `secrets` block. The agent will only inject the requested secrets into that specific step's environment.
 * **Log Masking**: The agent automatically redacts secret values from all logs, preventing accidental exposure.
 
 ---
 ### GitHub Integration & Overrides
 
-* **Git-Based Triggers**: Pipelines are triggered by standard Git events like `push` and `pull_request` based on rules defined in a `.nopsai/triggers.yaml` file. This file is also where you specify the `environment` for a given trigger.
+* **Git-Based Triggers**: Pipelines are triggered by standard Git events like `push` and `pull_request` based on rules defined in a `.nopsai/triggers.yaml` file. This file is also where you specify the `scope` for a given trigger.
 * **Configurable UI Views**: You can choose how pipeline status is displayed in the GitHub UI with accurately rendered dependency graphs using `display_options`:
     * **`flat`**: A clean, simple list of steps.
     * **`tree`**: A detailed, correctly ordered dependency tree showing the execution hierarchy.

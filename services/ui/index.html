@@ -494,6 +494,20 @@
                                                             <textarea id="triggers-yaml-editor" spellcheck="false"></textarea>
                                                         </div>
                                                     </div>
+                                                    <section id="triggers-suggestion-panel" class="env-suggestion-panel pipeline-suggestion-panel hidden" aria-live="polite">
+                                                        <div class="env-suggestion-heading">
+                                                            <div>
+                                                                <p class="env-suggestion-kicker">Need a reference?</p>
+                                                                <h3 id="triggers-suggestion-title" class="env-suggestion-title">Trigger helpers</h3>
+                                                            </div>
+                                                            <p id="triggers-suggestion-subtitle" class="env-suggestion-subtitle">Browse pipelines, scopes, and directive keys.</p>
+                                                        </div>
+                                                        <div class="env-suggestion-body">
+                                                            <p id="triggers-suggestion-empty" class="env-suggestion-empty">Start typing in the editor to see suggestions.</p>
+                                                            <div id="triggers-suggestion-list" class="env-suggestion-list"></div>
+                                                            <p id="triggers-suggestion-footnote" class="env-suggestion-footnote">Click any suggestion to insert it into the trigger.</p>
+                                                        </div>
+                                                    </section>
                                                 </div>
                                                 <div id="triggers-validation-status" class="mt-2 text-xs text-[var(--text-secondary)] hidden"></div>
                                             </div>

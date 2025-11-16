@@ -163,7 +163,7 @@ curl -X DELETE http://localhost:8080/v1/overrides/hosein-yousefii/test-app
 ```
 
 - Overrides let you replace or augment the config-repo trigger manifest for a given repository.
-- The payload mirrors the `.nopsai/triggers.yaml` schema (event, branches, skip branches, tags, pipelines, environment).
+- The payload mirrors the `.nopsai/triggers.yaml` schema (event, branches, skip branches, tags, pipelines, scope).
 
 ---
 

@@ -477,9 +477,9 @@ func triggerPipeline(parentRunID, parentPipelineName, parentStepName, pipelineId
 		req.Header.Set("X-Nopsai-Parent-History", encodedHistory)
 	}
 
-	environment := os.Getenv("ENVIRONMENT")
-	if environment != "" {
-		req.Header.Set("X-Nopsai-Environment", environment)
+	scope := os.Getenv("SCOPE")
+	if scope != "" {
+		req.Header.Set("X-Nopsai-Scope", scope)
 	}
 
 	if triggerEventID := os.Getenv("GIT_TRIGGER_EVENT_ID"); triggerEventID != "" {
@@ -979,7 +979,7 @@ func run() int {
 						}
 					}
 
-					if strings.HasPrefix(e, "GIT_") || strings.HasPrefix(e, "ENVIRONMENT=") {
+			if strings.HasPrefix(e, "GIT_") || strings.HasPrefix(e, "SCOPE=") {
 						stepEnvVars = append(stepEnvVars, e)
 					}
 				}
