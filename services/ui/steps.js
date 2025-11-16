@@ -53,10 +53,10 @@
         usageCache: new Map(),
         usagePromises: new Map(),
         beforeUnloadHandler: null,
-        environmentSuggestions: [],
-        environmentSuggestionCache: new Map(),
-        environmentSuggestionPromise: null,
-        environmentSuggestionLoadedAt: 0,
+        scopeVariableSuggestions: [],
+        scopeVariableSuggestionCache: new Map(),
+        scopeVariableSuggestionPromise: null,
+        scopeVariableSuggestionLoadedAt: 0,
         secretSuggestions: [],
         secretSuggestionPromise: null,
         secretSuggestionLoadedAt: 0,
@@ -93,7 +93,7 @@
     global.NopsAI.ui.stepLogoSvg = STEP_LOGO_SVG;
 
     const TOAST_TIMEOUT = 4000;
-    const STEP_ENV_REFRESH_MS = 2 * 60 * 1000;
+    const STEP_SUGGESTION_REFRESH_MS = 2 * 60 * 1000;
 
     function normalizeSourceValue(raw) {
         if (raw == null) return 'database';
@@ -984,7 +984,7 @@
         }
         bindBeforeUnload();
         updateStepSuggestionPanelVisibility(true);
-        ensureStepEnvironmentSuggestions().catch(err => console.error('Failed to load scope suggestions:', err));
+        ensureScopeVariableSuggestions().catch(err => console.error('Failed to load scope suggestions:', err));
         ensureStepSecretSuggestions().catch(err => console.error('Failed to load secrets suggestions:', err));
     }
 
@@ -1459,12 +1459,12 @@
 
         const loads = [];
         if (mode === 'environment') {
-            const needsEnvReload = forceLoad || !state.environmentSuggestions.length || (Date.now() - state.environmentSuggestionLoadedAt) > STEP_ENV_REFRESH_MS;
+            const needsEnvReload = forceLoad || !state.scopeVariableSuggestions.length || (Date.now() - state.scopeVariableSuggestionLoadedAt) > STEP_SUGGESTION_REFRESH_MS;
             if (needsEnvReload) {
-                loads.push(ensureStepEnvironmentSuggestions(forceLoad));
+                loads.push(ensureScopeVariableSuggestions(forceLoad));
             }
         } else if (mode === 'secrets') {
-            const needsSecretReload = forceLoad || !state.secretSuggestions.length || (Date.now() - state.secretSuggestionLoadedAt) > STEP_ENV_REFRESH_MS;
+            const needsSecretReload = forceLoad || !state.secretSuggestions.length || (Date.now() - state.secretSuggestionLoadedAt) > STEP_SUGGESTION_REFRESH_MS;
             if (needsSecretReload) {
                 loads.push(ensureStepSecretSuggestions(forceLoad));
             }
@@ -1479,53 +1479,53 @@
         }
     }
 
-    async function ensureStepEnvironmentSuggestions(force = false) {
+    async function ensureScopeVariableSuggestions(force = false) {
         if (!context || typeof context.fetchData !== 'function') {
             return [];
         }
-        if (!force && state.environmentSuggestions.length && (Date.now() - state.environmentSuggestionLoadedAt) < STEP_ENV_REFRESH_MS) {
-            return state.environmentSuggestions;
+        if (!force && state.scopeVariableSuggestions.length && (Date.now() - state.scopeVariableSuggestionLoadedAt) < STEP_SUGGESTION_REFRESH_MS) {
+            return state.scopeVariableSuggestions;
         }
-        if (!force && state.environmentSuggestionPromise) {
-            return state.environmentSuggestionPromise;
+        if (!force && state.scopeVariableSuggestionPromise) {
+            return state.scopeVariableSuggestionPromise;
         }
 
         const promise = (async () => {
-            const labels = await fetchStepEnvironmentScopeLabels();
+            const labels = await fetchScopeVariableLabels();
             const summaries = [];
             for (const label of labels) {
-                const variables = await fetchStepEnvironmentVariablesForLabel(label, force);
+                const variables = await fetchScopeVariablesForLabel(label, force);
                 summaries.push({
-                    key: buildEnvironmentScopeKey(label),
-                    label: formatEnvironmentScopeLabel(label),
+                    key: buildScopeVariableScopeKey(label),
+                    label: formatScopeVariableScopeLabel(label),
                     count: variables.length,
                     preview: variables.slice(0, 6),
                 });
             }
-            state.environmentSuggestions = summaries;
-            state.environmentSuggestionLoadedAt = Date.now();
+            state.scopeVariableSuggestions = summaries;
+            state.scopeVariableSuggestionLoadedAt = Date.now();
             renderStepSuggestionSections();
             return summaries;
         })();
 
-        state.environmentSuggestionPromise = promise;
+        state.scopeVariableSuggestionPromise = promise;
         try {
             return await promise;
         } finally {
-            state.environmentSuggestionPromise = null;
+            state.scopeVariableSuggestionPromise = null;
         }
     }
 
-    async function fetchStepEnvironmentScopeLabels() {
+    async function fetchScopeVariableLabels() {
         const labels = new Set(['']);
         if (!context || typeof context.fetchData !== 'function') {
             return Array.from(labels);
         }
         try {
-            const response = await context.fetchData('/v1/environments/scopes');
+            const response = await context.fetchData('/v1/variables/scopes');
             if (Array.isArray(response)) {
                 response.forEach(entry => {
-                    const normalized = normalizeEnvironmentScopeLabel(entry);
+                    const normalized = normalizeScopeVariableLabel(entry);
                     if (normalized !== null && normalized !== undefined) {
                         labels.add(normalized);
                     }
@@ -1542,38 +1542,38 @@
         });
     }
 
-    function formatEnvironmentScopeLabel(label) {
+    function formatScopeVariableScopeLabel(label) {
         const trimmed = (label || '').trim();
         return trimmed ? `/${trimmed}` : '/ (default)';
     }
 
-    function buildEnvironmentScopeKey(label) {
+    function buildScopeVariableScopeKey(label) {
         const trimmed = (label || '').trim();
         return trimmed || '__default__';
     }
 
-    function normalizeEnvironmentScopeLabel(entry) {
+    function normalizeScopeVariableLabel(entry) {
         if (entry == null) return '';
         if (typeof entry === 'string') {
             return entry.trim().replace(/^\/+|\/+$/g, '');
         }
         if (typeof entry === 'object') {
-            const value = entry.environment ?? entry.env ?? entry.name ?? entry.value ?? '';
+            const value = entry.scope ?? entry.environment ?? entry.env ?? entry.name ?? entry.value ?? '';
             return String(value || '').trim().replace(/^\/+|\/+$/g, '');
         }
         return '';
     }
 
-    async function fetchStepEnvironmentVariablesForLabel(label, force = false) {
+    async function fetchScopeVariablesForLabel(label, force = false) {
         const normalized = typeof label === 'string' ? label : '';
-        if (!force && state.environmentSuggestionCache instanceof Map && state.environmentSuggestionCache.has(normalized)) {
-            return state.environmentSuggestionCache.get(normalized);
+        if (!force && state.scopeVariableSuggestionCache instanceof Map && state.scopeVariableSuggestionCache.has(normalized)) {
+            return state.scopeVariableSuggestionCache.get(normalized);
         }
         if (!context || typeof context.fetchData !== 'function') {
             return [];
         }
 
-        const baseUrl = normalized ? `/v1/environments?env=${encodeURIComponent(normalized)}` : '/v1/environments';
+        const baseUrl = normalized ? `/v1/variables?env=${encodeURIComponent(normalized)}` : '/v1/variables';
         const url = baseUrl.includes('?') ? `${baseUrl}&include_source=true` : `${baseUrl}?include_source=true`;
         try {
             const response = await context.fetchData(url);
@@ -1587,10 +1587,10 @@
                 }
                 return '';
             }).filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-            if (!(state.environmentSuggestionCache instanceof Map)) {
-                state.environmentSuggestionCache = new Map();
+            if (!(state.scopeVariableSuggestionCache instanceof Map)) {
+                state.scopeVariableSuggestionCache = new Map();
             }
-            state.environmentSuggestionCache.set(normalized, variables);
+            state.scopeVariableSuggestionCache.set(normalized, variables);
             return variables;
         } catch (error) {
             console.error(`Failed to load scope variables for '/${normalized || ''}'`, error);
@@ -1602,7 +1602,7 @@
         if (!context || typeof context.fetchData !== 'function') {
             return [];
         }
-        if (!force && state.secretSuggestions.length && (Date.now() - state.secretSuggestionLoadedAt) < STEP_ENV_REFRESH_MS) {
+        if (!force && state.secretSuggestions.length && (Date.now() - state.secretSuggestionLoadedAt) < STEP_SUGGESTION_REFRESH_MS) {
             return state.secretSuggestions;
         }
         if (!force && state.secretSuggestionPromise) {
@@ -1661,10 +1661,10 @@
                 subtitle: 'Select a variable name to insert it.',
                 footnote: 'Variables resolve based on the selected scope when the step runs.',
             });
-            const envSections = buildEnvironmentSuggestionSections(state.environmentSuggestions);
+            const envSections = buildScopeVariableSuggestionSections(state.scopeVariableSuggestions);
             if (!envSections.length) {
                 list.innerHTML = '';
-                emptyState.textContent = state.environmentSuggestionPromise ? 'Loading scope variables…' : 'No scope variables available yet.';
+                emptyState.textContent = state.scopeVariableSuggestionPromise ? 'Loading scope variables…' : 'No scope variables available yet.';
                 emptyState.classList.remove('hidden');
                 updateStepSuggestionOverlayPosition();
                 return;
@@ -1774,9 +1774,9 @@
             </article>`;
     }
 
-    function buildEnvironmentSuggestionSections(summaries = []) {
+    function buildScopeVariableSuggestionSections(summaries = []) {
         if (!summaries.length) {
-            if (state.environmentSuggestionPromise) {
+            if (state.scopeVariableSuggestionPromise) {
                 return [`<article class="env-suggestion-item"><div class="env-suggestion-env"><span class="env-suggestion-env-label">Scope variables</span></div><div class="env-suggestion-variables"><span class="env-suggestion-pill env-suggestion-pill--more">Loading variables…</span></div></article>`];
             }
             return [];
