@@ -1083,7 +1083,7 @@
             try {
                 const [secrets, envs, steps] = await Promise.all([
                     context.fetchData('/v1/secrets'),
-                    context.fetchData('/v1/environments'),
+                    context.fetchData('/v1/variables'),
                     context.fetchData('/v1/steps'),
                 ]);
                 state.autocomplete.secrets = normalizeAutocompleteList(secrets);
@@ -2768,7 +2768,7 @@ function formatPathLabel(path) {
             return Array.from(labels);
         }
         try {
-            const response = await context.fetchData('/v1/environments/scopes');
+            const response = await context.fetchData('/v1/variables/scopes');
             if (Array.isArray(response)) {
                 response.forEach(entry => {
                     const normalized = normalizeEnvironmentScopeLabel(entry);
@@ -2796,7 +2796,7 @@ function formatPathLabel(path) {
             return String(entry).trim().replace(/^\/+|\/+$/g, '');
         }
         if (typeof entry === 'object') {
-            const value = entry.environment ?? entry.env ?? entry.name ?? entry.value ?? '';
+            const value = entry.scope ?? entry.environment ?? entry.env ?? entry.name ?? entry.value ?? '';
             return String(value || '').trim().replace(/^\/+|\/+$/g, '');
         }
         return '';
@@ -2815,7 +2815,7 @@ function formatPathLabel(path) {
             return [];
         }
 
-        const baseUrl = normalized ? `/v1/environments?env=${encodeURIComponent(normalized)}` : '/v1/environments';
+        const baseUrl = normalized ? `/v1/variables?env=${encodeURIComponent(normalized)}` : '/v1/variables';
         const url = baseUrl.includes('?') ? `${baseUrl}&include_source=true` : `${baseUrl}?include_source=true`;
         try {
             const response = await context.fetchData(url);

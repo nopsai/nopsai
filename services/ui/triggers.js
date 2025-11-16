@@ -1359,7 +1359,8 @@
         const repo = slug || 'N/A';
         const triggerCount = summary?.triggerCount ?? 0;
         
-        const environments = Array.isArray(summary?.environments) ? summary.environments : [];
+        const scopeList = summary?.scopes ?? summary?.environments;
+        const scopes = Array.isArray(scopeList) ? scopeList : [];
         
         const eventsLabel = summary?.events && summary.events.length
             ? summary.events.slice(0, 3).join(', ') + (summary.events.length > 3 ? '…' : '')
@@ -1376,27 +1377,27 @@
             { label: 'Events', value: eventsLabel, title: fullEventsLabel },
         ];
 
-        const normalizeEnvLabel = (envLabel) => String(envLabel ?? '').trim();
-        const encodeEnvSegment = (envLabel) => {
-            const label = normalizeEnvLabel(envLabel);
+        const normalizeScopeLabel = (scopeLabel) => String(scopeLabel ?? '').trim();
+        const encodeScopeSegment = (scopeLabel) => {
+            const label = normalizeScopeLabel(scopeLabel);
             return label ? encodeURIComponent(label) : 'default';
         };
 
         let envHtml = '';
-        const normalizedEnvs = Array.isArray(environments)
-            ? environments.map(env => normalizeEnvLabel(env))
+        const normalizedScopes = Array.isArray(scopes)
+            ? scopes.map(scope => normalizeScopeLabel(scope))
             : [];
-        const hasDefaultScope = normalizedEnvs.some(label => !label);
-        const scopedEnvs = normalizedEnvs.filter(label => !!label);
+        const hasDefaultScope = normalizedScopes.some(label => !label);
+        const scopedEnvs = normalizedScopes.filter(label => !!label);
 
         const chips = [];
         if (hasDefaultScope) {
             const href = '#/scopes/default';
             chips.push(`<a href="${href}" class="pipelines-tag font-semibold transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-accent)]" style="text-decoration: none;">Default Scope</a>`);
         }
-        scopedEnvs.forEach(env => {
-            const href = `#/scopes/${encodeEnvSegment(env)}`;
-            const label = `/${env}`;
+        scopedEnvs.forEach(scope => {
+            const href = `#/scopes/${encodeScopeSegment(scope)}`;
+            const label = `/${scope}`;
             chips.push(`<a href="${href}" class="pipelines-tag font-semibold transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-accent)]" style="text-decoration: none;">${escapeHtml(label)}</a>`);
         });
         if (!chips.length) {
@@ -2194,7 +2195,7 @@
                 return { ...inlineContext, type: 'event-value', title: 'Trigger events' };
             }
             if (inlineContext.key === 'environment') {
-                return { ...inlineContext, type: 'environment-value', title: 'Scope names' };
+                return { ...inlineContext, type: 'scope-value', title: 'Scope names' };
             }
             if (inlineContext.key === 'pipelines') {
                 return { ...inlineContext, type: 'pipeline-value', title: 'Pipelines' };
@@ -2374,9 +2375,9 @@
                     .map(value => ({ value, label: value }));
                 return filterSuggestionPool(items, prefix, 8);
             }
-            case 'environment-value': {
-                const environments = collectKnownEnvironmentValues();
-                const items = environments.map(value => ({ value, label: value }));
+            case 'scope-value': {
+                const scopes = collectKnownScopeValues();
+                const items = scopes.map(value => ({ value, label: value }));
                 return filterSuggestionPool(items, prefix, 8);
             }
             case 'pipeline-value': {
@@ -2597,10 +2598,11 @@
         return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
     }
 
-    function collectKnownEnvironmentValues() {
+    function collectKnownScopeValues() {
         const set = new Set();
         gatherTriggerSummaries().forEach(summary => {
-            (summary.environments || []).forEach(value => set.add(String(value)));
+            const scopeValues = summary.scopes || summary.environments || [];
+            scopeValues.forEach(value => set.add(String(value)));
         });
         return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
     }
@@ -2962,7 +2964,7 @@
         const branches = new Set();
         const skipBranches = new Set();
         const tags = new Set();
-        const environments = new Set();
+        const scopeNames = new Set();
         let hasDefaultScope = false;
 
         triggers.forEach(trigger => {
@@ -2978,7 +2980,7 @@
             (trigger?.skip_branches || trigger?.skipBranches || []).forEach(branch => skipBranches.add(String(branch)));
             (trigger?.tags || []).forEach(tag => tags.add(String(tag)));
             if (trigger?.environment && String(trigger.environment).trim()) {
-                environments.add(String(trigger.environment).trim());
+                scopeNames.add(String(trigger.environment).trim());
             } else {
                 hasDefaultScope = true;
             }
@@ -3000,8 +3002,10 @@
         });
 
         if (hasDefaultScope) {
-            environments.add('');
+            scopeNames.add('');
         }
+
+        const scopeList = Array.from(scopeNames).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
 
         return {
             triggerCount: triggers.length,
@@ -3011,7 +3015,8 @@
             branches: Array.from(branches).sort(),
             skipBranches: Array.from(skipBranches).sort(),
             tags: Array.from(tags).sort(),
-            environments: Array.from(environments).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })),
+            scopes: scopeList,
+            environments: scopeList,
         };
     }
 
