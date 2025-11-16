@@ -74,7 +74,7 @@ All services run inside the shared `nopsai-net` Docker network. The agent launch
 - **Definition**: Pipelines live beneath `.nopsai/` and declare `name`, `version`, `description`, `container_image`, optional `timeout`, `display_options`, and `llm_*` flags.
 - **Steps**: Each step can provide nested `tasks`, `goal`, `script`, `condition`, `depends_on`, `secrets`, `volumes`, `environment`, `include`, and per-step container overrides.
 - **Tasks**: Multi-task steps execute within the same container; tasks may depend on siblings via `depends_on` and inherit or override LLM sharing behaviour.
-- **Triggers**: `.nopsai/triggers.yaml` maps Git events to pipelines with branch/tag globs, skip lists, and environment selection.
+- **Triggers**: `.nopsai/triggers.yaml` maps Git events to pipelines with branch/tag globs, skip lists, and scope selection.
   - **Important Note**: Within a single `on: push` rule, you cannot use `branches` and `tags` together. The system checks for *either* a branch push or a tag push, not both. To trigger on both, you must define **separate rules**:
     ```yaml
     triggers:
