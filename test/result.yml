@@ -1,0 +1,252 @@
+==============================================
+           PERFORMANCE TEST REPORT
+==============================================
+
+--- Individual Family Reports ---
+
+------------------ [ Family 1 ] ------------------
+  Total Family Duration: 111 seconds
+  Trigger->Run Delay:    7 seconds
+  Pipelines in this family:
+    - ID: b02dea8d   | Duration: 12s   | Status: success    | Name: include-pipeline (ROOT)
+    - ID: 2d6b89a7   | Duration: 101s  | Status: success    | Name: main-pipeline (ROOT)
+    - ID: 804dbe33   | Duration: 6s    | Status: success    | Name: include-pipeline (CHILD)
+
+------------------ [ Family 2 ] ------------------
+  Total Family Duration: 115 seconds
+  Trigger->Run Delay:    6 seconds
+  Pipelines in this family:
+    - ID: 36136b5e   | Duration: 19s   | Status: success    | Name: include-pipeline (ROOT)
+    - ID: 07248caa   | Duration: 107s  | Status: success    | Name: main-pipeline (ROOT)
+    - ID: d66c5e80   | Duration: 6s    | Status: success    | Name: include-pipeline (CHILD)
+
+------------------ [ Family 3 ] ------------------
+  Total Family Duration: 101 seconds
+  Trigger->Run Delay:    8 seconds
+  Pipelines in this family:
+    - ID: e6c83d27   | Duration: 19s   | Status: success    | Name: include-pipeline (ROOT)
+    - ID: d4cb2480   | Duration: 90s   | Status: success    | Name: main-pipeline (ROOT)
+    - ID: 40d5c2d8   | Duration: 7s    | Status: success    | Name: include-pipeline (CHILD)
+
+------------------ [ Family 4 ] ------------------
+  Total Family Duration: 95 seconds
+  Trigger->Run Delay:    6 seconds
+  Pipelines in this family:
+    - ID: eb6b86e0   | Duration: 22s   | Status: success    | Name: include-pipeline (ROOT)
+    - ID: c7f47693   | Duration: 85s   | Status: success    | Name: main-pipeline (ROOT)
+    - ID: 968bbdee   | Duration: 7s    | Status: success    | Name: include-pipeline (CHILD)
+
+------------------ [ Family 5 ] ------------------
+  Total Family Duration: 117 seconds
+  Trigger->Run Delay:    7 seconds
+  Pipelines in this family:
+    - ID: 114ecfdc   | Duration: 18s   | Status: success    | Name: include-pipeline (ROOT)
+    - ID: 95c5f16a   | Duration: 108s  | Status: success    | Name: main-pipeline (ROOT)
+    - ID: 60e1dcd3   | Duration: 7s    | Status: success    | Name: include-pipeline (CHILD)
+
+------------------ [ Family 6 ] ------------------
+  Total Family Duration: 79 seconds
+  Trigger->Run Delay:    6 seconds
+  Pipelines in this family:
+    - ID: 537dcf26   | Duration: 14s   | Status: success    | Name: include-pipeline (ROOT)
+    - ID: 615557c2   | Duration: 64s   | Status: failure    | Name: main-pipeline (ROOT)
+    - ID: 122e4c58   | Duration: 14s   | Status: success    | Name: include-pipeline (CHILD)
+
+------------------ [ Family 7 ] ------------------
+  Total Family Duration: 105 seconds
+  Trigger->Run Delay:    6 seconds
+  Pipelines in this family:
+    - ID: ace3bd37   | Duration: 18s   | Status: success    | Name: include-pipeline (ROOT)
+    - ID: de5898bc   | Duration: 95s   | Status: success    | Name: main-pipeline (ROOT)
+    - ID: b102d226   | Duration: 7s    | Status: success    | Name: include-pipeline (CHILD)
+
+------------------ [ Family 8 ] ------------------
+  Total Family Duration: 79 seconds
+  Trigger->Run Delay:    6 seconds
+  Pipelines in this family:
+    - ID: 31bae545   | Duration: 16s   | Status: success    | Name: include-pipeline (ROOT)
+    - ID: 1a56341d   | Duration: 71s   | Status: success    | Name: main-pipeline (ROOT)
+    - ID: 143131a3   | Duration: 10s   | Status: success    | Name: include-pipeline (CHILD)
+
+------------------ [ Family 9 ] ------------------
+  Total Family Duration: 80 seconds
+  Trigger->Run Delay:    6 seconds
+  Pipelines in this family:
+    - ID: 6d346e07   | Duration: 16s   | Status: success    | Name: include-pipeline (ROOT)
+    - ID: aa02fb7a   | Duration: 71s   | Status: success    | Name: main-pipeline (ROOT)
+    - ID: ec8fb3e0   | Duration: 7s    | Status: success    | Name: include-pipeline (CHILD)
+
+------------------ [ Family 10 ] ------------------
+  Total Family Duration: 100 seconds
+  Trigger->Run Delay:    6 seconds
+  Pipelines in this family:
+    - ID: 42f79dba   | Duration: 17s   | Status: success    | Name: include-pipeline (ROOT)
+    - ID: eafb6992   | Duration: 91s   | Status: success    | Name: main-pipeline (ROOT)
+    - ID: 3b016192   | Duration: 6s    | Status: success    | Name: include-pipeline (CHILD)
+
+==============================================
+           AGGREGATE SUMMARY
+==============================================
+Total Families Triggered:   10
+Total Pipelines Executed: 30
+Overall Test Duration:      117 seconds (Wall clock time)
+
+--- Pipeline Stats (All Runs) ---
+Total Duration:    1131 seconds (Sum of all individual run durations)
+Average Duration:  37.70 seconds
+
+--- Family Stats (All Triggers) ---
+Total Duration:    982 seconds (Sum of all family-watch times)
+Average Duration:  98.20 seconds (Avg. time from trigger to last child completion)
+
+--- Trigger Stats ---
+Total Delay:       64 seconds (Sum of all trigger->run-appear delays)
+Average Delay:     6.40 seconds (Avg. time from webhook sent to run in API)
+
+==============================================
+
+
+
+
+==============================================
+           PERFORMANCE TEST REPORT
+==============================================
+
+--- Individual Family Reports ---
+
+------------------ [ Family 1 ] ------------------
+  Total Family Duration: 86 seconds
+  Trigger->Run Delay:    2 seconds
+  Pipelines in this family:
+    - ID: 4bae21c4   | Duration: 20s   | Status: success    | Name: include-pipeline (ROOT)
+    - ID: 17982c8e   | Duration: 84s   | Status: success    | Name: main-pipeline (ROOT)
+    - ID: a5c27ccb   | Duration: 9s    | Status: success    | Name: include-pipeline (CHILD)
+
+------------------ [ Family 2 ] ------------------
+  Total Family Duration: 81 seconds
+  Trigger->Run Delay:    2 seconds
+  Pipelines in this family:
+    - ID: 8ac83cb0   | Duration: 16s   | Status: success    | Name: include-pipeline (ROOT)
+    - ID: ec4fdeb0   | Duration: 75s   | Status: success    | Name: main-pipeline (ROOT)
+    - ID: 3bf03673   | Duration: 7s    | Status: success    | Name: include-pipeline (CHILD)
+
+------------------ [ Family 3 ] ------------------
+  Total Family Duration: 24 seconds
+  Trigger->Run Delay:    2 seconds
+  Pipelines in this family:
+    - ID: 297ad256   | Duration: 17s   | Status: success    | Name: include-pipeline (ROOT)
+    - ID: 4dd6da0d   | Duration: 13s   | Status: failure    | Name: main-pipeline (ROOT)
+
+------------------ [ Family 4 ] ------------------
+  Total Family Duration: 71 seconds
+  Trigger->Run Delay:    2 seconds
+  Pipelines in this family:
+    - ID: a273250e   | Duration: 23s   | Status: failure    | Name: include-pipeline (ROOT)
+    - ID: 8923637f   | Duration: 67s   | Status: success    | Name: main-pipeline (ROOT)
+    - ID: 210731f1   | Duration: 7s    | Status: success    | Name: include-pipeline (CHILD)
+
+------------------ [ Family 5 ] ------------------
+  Total Family Duration: 71 seconds
+  Trigger->Run Delay:    2 seconds
+  Pipelines in this family:
+    - ID: 639284de   | Duration: 17s   | Status: success    | Name: include-pipeline (ROOT)
+    - ID: ddd8d19e   | Duration: 64s   | Status: success    | Name: main-pipeline (ROOT)
+    - ID: 396cd0f8   | Duration: 7s    | Status: success    | Name: include-pipeline (CHILD)
+
+------------------ [ Family 6 ] ------------------
+  Total Family Duration: 91 seconds
+  Trigger->Run Delay:    2 seconds
+  Pipelines in this family:
+    - ID: edbe9227   | Duration: 16s   | Status: success    | Name: include-pipeline (ROOT)
+    - ID: 3490499b   | Duration: 85s   | Status: success    | Name: main-pipeline (ROOT)
+    - ID: 7abb2f2a   | Duration: 6s    | Status: success    | Name: include-pipeline (CHILD)
+
+------------------ [ Family 7 ] ------------------
+  Total Family Duration: 86 seconds
+  Trigger->Run Delay:    2 seconds
+  Pipelines in this family:
+    - ID: c3ea3bec   | Duration: 20s   | Status: success    | Name: include-pipeline (ROOT)
+    - ID: 35ba3e5e   | Duration: 81s   | Status: failure    | Name: main-pipeline (ROOT)
+    - ID: f22d3683   | Duration: 7s    | Status: success    | Name: include-pipeline (CHILD)
+
+------------------ [ Family 8 ] ------------------
+  Total Family Duration: 123 seconds
+  Trigger->Run Delay:    4 seconds
+  Pipelines in this family:
+    - ID: 1a51ae74   | Duration: 16s   | Status: success    | Name: include-pipeline (ROOT)
+    - ID: e3f8e6ba   | Duration: 120s  | Status: success    | Name: main-pipeline (ROOT)
+    - ID: 11f308e9   | Duration: 6s    | Status: success    | Name: include-pipeline (CHILD)
+
+------------------ [ Family 9 ] ------------------
+  Total Family Duration: 91 seconds
+  Trigger->Run Delay:    2 seconds
+  Pipelines in this family:
+    - ID: cdf7e206   | Duration: 14s   | Status: success    | Name: include-pipeline (ROOT)
+    - ID: cbf284ca   | Duration: 85s   | Status: success    | Name: main-pipeline (ROOT)
+    - ID: ae8a3a1c   | Duration: 7s    | Status: success    | Name: include-pipeline (CHILD)
+
+------------------ [ Family 10 ] ------------------
+  Total Family Duration: 18 seconds
+  Trigger->Run Delay:    2 seconds
+  Pipelines in this family:
+    - ID: 0edb653d   | Duration: 14s   | Status: failure    | Name: include-pipeline (ROOT)
+    - ID: aed1a705   | Duration: 12s   | Status: failure    | Name: main-pipeline (ROOT)
+
+==============================================
+           AGGREGATE SUMMARY
+==============================================
+Total Families Triggered:   10
+Total Pipelines Executed: 28
+Overall Test Duration:      123 seconds (Wall clock time)
+
+--- Pipeline Stats (All Runs) ---
+Total Duration:    915 seconds (Sum of all individual run durations)
+Average Duration:  32.68 seconds
+
+--- Family Stats (All Triggers) ---
+Total Duration:    742 seconds (Sum of all family-watch times)
+Average Duration:  74.20 seconds (Avg. time from trigger to last child completion)
+
+--- Trigger Stats ---
+Total Delay:       22 seconds (Sum of all trigger->run-appear delays)
+Average Delay:     2.20 seconds (Avg. time from webhook sent to run in API)
+
+==============================================
+
+
+
+
+==============================================
+           PERFORMANCE TEST REPORT
+==============================================
+
+--- Individual Family Reports ---
+
+------------------ [ Family 1 ] ------------------
+  Total Family Duration: 34 seconds
+  Trigger->Run Delay:    3 seconds
+  Pipelines in this family:
+    - ID: a07425fa   | Duration: 16s   | Status: failure    | Name: include-pipeline (ROOT)
+    - ID: 0f87f80e   | Duration: 29s   | Status: success    | Name: main-pipeline (ROOT)
+    - ID: de0f1fc1   | Duration: 7s    | Status: success    | Name: include-pipeline (CHILD)
+
+==============================================
+           AGGREGATE SUMMARY
+==============================================
+Total Families Triggered:   1
+Total Pipelines Executed: 3
+Overall Test Duration:      34 seconds (Wall clock time)
+
+--- Pipeline Stats (All Runs) ---
+Total Duration:    52 seconds (Sum of all individual run durations)
+Average Duration:  17.33 seconds
+
+--- Family Stats (All Triggers) ---
+Total Duration:    34 seconds (Sum of all family-watch times)
+Average Duration:  34.00 seconds (Avg. time from trigger to last child completion)
+
+--- Trigger Stats ---
+Total Delay:       3 seconds (Sum of all trigger->run-appear delays)
+Average Delay:     3.00 seconds (Avg. time from webhook sent to run in API)
+
+==============================================
