@@ -67,6 +67,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (logsModule && typeof logsModule.appendLogLine === 'function') {
                     logsModule.appendLogLine(message.payload);
                 }
+            } else if (message.type === 'log_batch') {
+                if (logsModule && typeof logsModule.appendLogLine === 'function' && Array.isArray(message.payload)) {
+                    message.payload.forEach(line => logsModule.appendLogLine(line));
+                }
             } else if (message.type === 'config_sync') { // Add this block to handle the new event type
                 // Check if the pipelines module exists and has the handler function
                 if (pipelinesModule && typeof pipelinesModule.handleConfigSyncEvent === 'function') {
@@ -77,11 +81,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         console.error('Failed to handle config sync event:', err);
                         // Optionally show an error toast to the user
                         if (typeof showToast === 'function') {
-                           showToast('Error processing configuration sync update.', 'error');
+                            showToast('Error processing configuration sync update.', 'error');
                         }
                     }
                 } else {
-                     console.warn('Received config_sync event, but no handler found in pipelines module.');
+                    console.warn('Received config_sync event, but no handler found in pipelines module.');
                 }
             }
         },
@@ -104,7 +108,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const toast = document.createElement('div');
         toast.className = 'pointer-events-auto w-full max-w-sm overflow-hidden rounded-lg bg-[var(--bg-secondary)] shadow-lg ring-1 ring-black ring-opacity-5 transition-transform transform translate-x-full duration-300 ease-in-out';
-        
+
         const repoName = runData.git_repo_owner && runData.git_repo_name
             ? `${runData.git_repo_owner}/${runData.git_repo_name}`
             : (runData.git_repo_name || 'N/A');
@@ -130,16 +134,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             </div>
         `;
-        
+
         const closeButton = toast.querySelector('button');
         const closeToast = () => {
             toast.classList.add('translate-x-full', 'opacity-0');
             setTimeout(() => toast.remove(), 300);
         };
         closeButton.addEventListener('click', closeToast);
-        
+
         container.appendChild(toast);
-        
+
         // Animate in
         setTimeout(() => toast.classList.remove('translate-x-full'), 10);
         // Auto-dismiss after 5 seconds
@@ -246,7 +250,7 @@ document.addEventListener('DOMContentLoaded', () => {
         logsWrap: true,
         logsShowTimestamps: true,
         logsStructured: true,
-        logsLevelFilter: new Set(['info','warn','error','debug']),
+        logsLevelFilter: new Set(['info', 'warn', 'error', 'debug']),
         logsShortView: false,
         logsAgentOnly: false,
         currentRunContext: null,
@@ -423,7 +427,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             // For other pages, ensure no-scroll is removed (if they need scrolling)
             if (!isNowOnRunDetail) {
-                 DOM.pageContentWrapper.classList.remove('no-scroll');
+                DOM.pageContentWrapper.classList.remove('no-scroll');
             }
         }
         // --- END SCROLL MANAGEMENT BLOCK ---
@@ -454,16 +458,16 @@ document.addEventListener('DOMContentLoaded', () => {
             await pipelineRunsModule.handleRoute(hash, wsManager);
             // Re-apply no-scroll specifically if needed after module handling
             if (runId && DOM.pageContentWrapper) {
-               DOM.pageContentWrapper.classList.add('no-scroll');
+                DOM.pageContentWrapper.classList.add('no-scroll');
             }
             return;
         }
 
         if (path === 'pipelines' && pipelinesModule && typeof pipelinesModule.handleRoute === 'function') {
             // Ensure scroll IS possible on pipelines page (redundant check, but safe)
-             if (DOM.pageContentWrapper) {
-                 DOM.pageContentWrapper.classList.remove('no-scroll');
-             }
+            if (DOM.pageContentWrapper) {
+                DOM.pageContentWrapper.classList.remove('no-scroll');
+            }
             await pipelinesModule.handleRoute(hash);
             return;
         }
@@ -530,7 +534,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-   (() => {
+    (() => {
         const themeToggleDarkIcon = document.getElementById('theme-toggle-dark-icon');
         const themeToggleLightIcon = document.getElementById('theme-toggle-light-icon');
         const themeToggleButton = document.getElementById('theme-toggle');
@@ -560,9 +564,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             applyTheme();
         });
-   })();
+    })();
 
-   (() => {
+    (() => {
         const resizer = document.getElementById('modal-resizer');
         const container = document.getElementById('modal-grid-container');
 
@@ -605,9 +609,9 @@ document.addEventListener('DOMContentLoaded', () => {
             document.addEventListener('mousemove', mouseMoveHandler);
             document.addEventListener('mouseup', mouseUpHandler, { once: true });
         });
-   })();
+    })();
 
-   (() => {
+    (() => {
         const sidebar = document.getElementById('sidebar');
         const resizer = document.getElementById('sidebar-resizer');
         if (!sidebar || !resizer) return;
@@ -649,7 +653,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.addEventListener('mousemove', mouseMoveHandler);
             document.addEventListener('mouseup', mouseUpHandler, { once: true });
         });
-   })();
+    })();
 
 
     router();
