@@ -415,7 +415,8 @@ func cleanup(cli *client.Client, containerID, pipelineName, runID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := cli.ContainerStop(ctx, containerID, container.StopOptions{}); err != nil {
+	timeout := 1 // 1 second timeout for stop
+	if err := cli.ContainerStop(ctx, containerID, container.StopOptions{Timeout: &timeout}); err != nil {
 		agentLog(runID, pipelineName).Error().Err(err).Msg("Failed to stop pipeline container")
 	}
 
@@ -863,9 +864,14 @@ func run() int {
 						Environment: envMap,
 					}
 
-					ctx, cancel := context.WithTimeout(context.Background(), llmAgentTimeout)
-					resp, err := llmClient.EvaluateCondition(ctx, req)
-					cancel()
+					var resp *proto.ConditionResponse
+					err = withRetry(func() error {
+						ctx, cancel := context.WithTimeout(context.Background(), llmAgentTimeout)
+						defer cancel()
+						var e error
+						resp, e = llmClient.EvaluateCondition(ctx, req)
+						return e
+					}, 3, 1*time.Second)
 
 					if err != nil {
 						taskLogger.Error().Err(err).Msg("Failed to evaluate condition from LLM agent. Skipping step.")
@@ -979,7 +985,7 @@ func run() int {
 						}
 					}
 
-			if strings.HasPrefix(e, "GIT_") || strings.HasPrefix(e, "SCOPE=") {
+					if strings.HasPrefix(e, "GIT_") || strings.HasPrefix(e, "SCOPE=") {
 						stepEnvVars = append(stepEnvVars, e)
 					}
 				}
@@ -1161,9 +1167,13 @@ func run() int {
 						Environment:      envMap,
 					}
 
-					ctx, cancel := context.WithTimeout(context.Background(), llmAgentTimeout)
-					action, err = llmClient.GetAction(ctx, req)
-					cancel()
+					err = withRetry(func() error {
+						ctx, cancel := context.WithTimeout(context.Background(), llmAgentTimeout)
+						defer cancel()
+						var e error
+						action, e = llmClient.GetAction(ctx, req)
+						return e
+					}, 3, 1*time.Second)
 					if err != nil {
 						taskLogger.Error().Err(err).Msg("Failed to get action from LLM agent. Shutting down")
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
@@ -1184,7 +1194,20 @@ func run() int {
 					Logger()
 				debugLogger.Debug().Msgf("Executing action: %s", actionStr)
 
-				stdout, stderr, exitCode := executeAction(cli, stepContainerID, action, stepEnvVars)
+				var stdout, stderr string
+				var exitCode int
+
+				// Retry logic for potential race conditions (e.g. filesystem locks)
+				for attempt := 0; attempt < 10; attempt++ {
+					stdout, stderr, exitCode = executeAction(cli, stepContainerID, action, stepEnvVars)
+					if exitCode == 0 {
+						break
+					}
+					// Check for common race condition errors in stderr/stdout?
+					// For now, retry all non-zero exits as robust fallback.
+					time.Sleep(time.Duration(attempt*100) * time.Millisecond)
+				}
+
 				status := "success"
 				output := stdout
 				if exitCode != 0 {
@@ -1294,4 +1317,17 @@ func maskSecrets(output string, secrets map[string]string) string {
 
 func main() {
 	os.Exit(run())
+}
+
+func withRetry(op func() error, attempts int, initialBackoff time.Duration) error {
+	var err error
+	for i := 0; i < attempts; i++ {
+		if i > 0 {
+			time.Sleep(initialBackoff * time.Duration(1<<uint(i-1)))
+		}
+		if err = op(); err == nil {
+			return nil
+		}
+	}
+	return err
 }

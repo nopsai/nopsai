@@ -4128,38 +4128,6 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if parentRunID != "" {
-		parentPipelineName := r.Header.Get("X-Nopsai-Parent-Pipeline-Name")
-		gitbotURL := fmt.Sprintf("%s/v1/checks/create-child", a.cfg.NopsaiGitBotAPIURL)
-
-		payload := map[string]string{
-			"owner":               gitContext["repo_owner"],
-			"repo":                gitContext["repo_name"],
-			"ref":                 gitContext["commit_sha"],
-			"parent_name":         parentPipelineName,
-			"include_name":        pipeline.Name,
-			"pipeline_definition": string(pipelineDef),
-		}
-		body, _ := json.Marshal(payload)
-
-		resp, err := http.Post(gitbotURL, "application/json", bytes.NewBuffer(body))
-		if err != nil || resp.StatusCode != http.StatusOK {
-			log.Error().Err(err).Msg("Failed to request new check run from git-bot")
-			http.Error(w, "Failed to create GitHub check for included pipeline", http.StatusInternalServerError)
-			return
-		}
-
-		var respData map[string]int64
-		if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil {
-			log.Error().Err(err).Msg("Failed to decode git-bot response for new check run")
-			http.Error(w, "Failed to decode git-bot response", http.StatusInternalServerError)
-			return
-		}
-		resp.Body.Close()
-
-		gitContext["check_run_id"] = strconv.FormatInt(respData["check_run_id"], 10)
-	}
-
 	runID := uuid.New()
 
 	var parentRunIDSQL sql.NullString
@@ -4216,6 +4184,51 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to create run record", http.StatusInternalServerError)
 		a.notifyGitBotOfFinalStatus("failure", "", "", "Failed to create initial run record in DB", gitContext)
 		return
+	}
+
+	if parentRunID != "" {
+		parentPipelineName := r.Header.Get("X-Nopsai-Parent-Pipeline-Name")
+		gitbotURL := fmt.Sprintf("%s/v1/checks/create-child", a.cfg.NopsaiGitBotAPIURL)
+
+		payload := map[string]string{
+			"owner":               gitContext["repo_owner"],
+			"repo":                gitContext["repo_name"],
+			"ref":                 gitContext["commit_sha"],
+			"parent_name":         parentPipelineName,
+			"include_name":        pipeline.Name,
+			"pipeline_definition": string(pipelineDef),
+		}
+
+		// Run git-bot notification in background and update DB with the new check_run_id
+		go func(rID string) {
+			body, _ := json.Marshal(payload)
+			resp, err := http.Post(gitbotURL, "application/json", bytes.NewBuffer(body))
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to request new check run from git-bot (async)")
+				return
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				log.Error().Int("status", resp.StatusCode).Msg("Git-bot returned non-OK status for child check run (async)")
+				return
+			}
+
+			var respData map[string]int64
+			if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil {
+				log.Error().Err(err).Msg("Failed to decode git-bot response (async)")
+				return
+			}
+
+			checkRunID := respData["check_run_id"]
+			// Update the record with the obtained check_run_id
+			_, err = a.db.Exec(context.Background(), "UPDATE pipeline_runs SET git_check_run_id = $1 WHERE run_id = $2", checkRunID, rID)
+			if err != nil {
+				log.Error().Err(err).Str("run_id", rID).Int64("check_run_id", checkRunID).Msg("Failed to update pipeline run with check_run_id (async)")
+			} else {
+				log.Info().Str("run_id", rID).Int64("check_run_id", checkRunID).Msg("Updated pipeline run with check_run_id (async)")
+			}
+		}(runID.String())
 	}
 
 	a.broadcastNewRun(runID.String())
@@ -5064,7 +5077,8 @@ func (a *App) handleFinalizeRun(w http.ResponseWriter, r *http.Request) {
 	a.broadcastRunUpdate(runID) // Broadcast the final update
 
 	if gitContext["repo_owner"] != "" {
-		a.notifyGitBotOfFinalStatus(finalStatus, failedStep, failedTask, "", gitContext)
+		// Run git-bot notification in background to prevent agent hang
+		go a.notifyGitBotOfFinalStatus(finalStatus, failedStep, failedTask, "", gitContext)
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -5236,6 +5250,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	}
 
 	// --- LOG STREAMING MODIFICATION ---
+	// --- LOG STREAMING MODIFICATION ---
 	go func() {
 		logCtx := context.Background()
 		logReader, err := a.cli.ContainerLogs(logCtx, resp.ID, container.LogsOptions{ShowStdout: true, ShowStderr: true, Follow: true, Timestamps: true})
@@ -5254,38 +5269,83 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 			}
 		}()
 
-		scanner := bufio.NewScanner(r)
-		for scanner.Scan() {
-			line := scanner.Text()
+		// Channel to feed the batcher
+		logChan := make(chan string, 100)
 
-			// Also insert into DB for historical storage
-			_, dbErr := a.db.Exec(context.Background(),
-				"INSERT INTO pipeline_run_logs (run_id, line) VALUES ($1, $2)",
-				runID, line)
-			if dbErr != nil {
-				log.Error().Err(dbErr).Str("run_id", runID).Msg("Failed to insert log line into DB")
+		// Scanner runs in a separate goroutine to avoid blocking the ticker
+		go func() {
+			defer close(logChan)
+			scanner := bufio.NewScanner(r)
+			for scanner.Scan() {
+				logChan <- scanner.Text()
+			}
+			if err := scanner.Err(); err != nil {
+				log.Error().Err(err).Str("run_id", runID).Msg("Error reading from log pipe")
+			}
+		}()
+
+		const batchSize = 50
+		const batchTimeout = 500 * time.Millisecond
+
+		var batchLines []string
+		ticker := time.NewTicker(batchTimeout)
+		defer ticker.Stop()
+
+		flushBatch := func(lines []string) {
+			if len(lines) == 0 {
+				return
 			}
 
-			// Create the WebSocket message
-			logLine := LogLine{
-				Timestamp: time.Now(),
-				Line:      line,
+			// 1. Bulk Insert into DB using pgx.Batch
+			dbBatch := &pgx.Batch{}
+			for _, line := range lines {
+				dbBatch.Queue("INSERT INTO pipeline_run_logs (run_id, line) VALUES ($1, $2)", runID, line)
 			}
+
+			// Send the batch
+			br := a.db.SendBatch(context.Background(), dbBatch)
+			// Close reads all results and closes the batch. It returns the first error if any.
+			if err := br.Close(); err != nil {
+				log.Error().Err(err).Str("run_id", runID).Msg("Failed to flush log batch to DB")
+			}
+
+			// 2. WebSocket Broadcast
+			var logPayload []LogLine
+			now := time.Now()
+			for _, line := range lines {
+				logPayload = append(logPayload, LogLine{Timestamp: now, Line: line})
+			}
+
 			message, err := json.Marshal(WebSocketMessage{
-				Type:    "log_line",
-				Payload: logLine,
+				Type:    "log_batch",
+				Payload: logPayload,
 			})
 
-			if err != nil {
-				log.Error().Err(err).Msg("Failed to marshal log line for WebSocket")
-				continue
+			if err == nil {
+				a.hub.broadcastToRun(runID, message)
+			} else {
+				log.Error().Err(err).Msg("Failed to marshal log batch")
 			}
-
-			// Broadcast the message
-			a.hub.broadcastToRun(runID, message)
 		}
-		if err := scanner.Err(); err != nil {
-			log.Error().Err(err).Str("run_id", runID).Msg("Error reading from log pipe")
+
+		for {
+			select {
+			case line, ok := <-logChan:
+				if !ok {
+					flushBatch(batchLines)
+					return
+				}
+				batchLines = append(batchLines, line)
+				if len(batchLines) >= batchSize {
+					flushBatch(batchLines)
+					batchLines = nil
+				}
+			case <-ticker.C:
+				if len(batchLines) > 0 {
+					flushBatch(batchLines)
+					batchLines = nil
+				}
+			}
 		}
 	}()
 	// --- END MODIFICATION ---
@@ -5464,22 +5524,22 @@ func findPipelinesForEvent(manifest models.Manifest, eventType, ref string) ([]m
 						continue
 					}
 					return trigger.Pipelines, trigger.Scope
-			}
-		} else if strings.HasPrefix(ref, "refs/tags/") {
-			tagName := strings.TrimPrefix(ref, "refs/tags/")
-			for _, pattern := range trigger.Tags {
-				if matchBranchPattern(pattern, tagName) {
-					return trigger.Pipelines, trigger.Scope
+				}
+			} else if strings.HasPrefix(ref, "refs/tags/") {
+				tagName := strings.TrimPrefix(ref, "refs/tags/")
+				for _, pattern := range trigger.Tags {
+					if matchBranchPattern(pattern, tagName) {
+						return trigger.Pipelines, trigger.Scope
+					}
 				}
 			}
 		}
-	}
 
-	if eventType == "pull_request" {
-		// This logic is now correctly isolated to only pull_request events
-		return trigger.Pipelines, trigger.Scope
+		if eventType == "pull_request" {
+			// This logic is now correctly isolated to only pull_request events
+			return trigger.Pipelines, trigger.Scope
+		}
 	}
-}
 	return nil, ""
 }
 
@@ -6164,7 +6224,13 @@ func main() {
 	hub := newHub()
 	go hub.run()
 
-	app := &App{db: dbpool, cfg: cfg, cli: cli, encKey: key[:], hub: hub}
+	app := &App{
+		db:     dbpool,
+		cfg:    cfg,
+		cli:    cli,
+		encKey: key[:],
+		hub:    hub,
+	}
 
 	mux := http.NewServeMux()
 
