@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # --- Configuration ---
-NUM_RUNS=1
+NUM_RUNS=10
 NOPSAI_API_URL="http://localhost:8080"
 WEBHOOK_URL="http://localhost:8081/webhook"
 PAYLOAD_FILE="../doc/sample-git-event.json"
