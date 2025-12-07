@@ -4,17 +4,15 @@ log_format: "json" # Options: "console", "json"
 # database_url: "postgres://nopsai_user:yoursecurepassword@nopsai-db:5432/nopsai_db"
 # agent_image: "nopsai-agent:latest"
 
-# # --- LLM Configuration ---
+# # --- LLM Configuration (agents call Gemini directly) ---
 # gemini_api_key: "AIzaSyCdyZBcvjWrroxGem8l0ER62WNPlg8s7xU"
 # gemini_model: "gemini-2.5-flash"
 
 # # --- Service Addresses ---
 # nopsai_listen_address: "0.0.0.0:8080"
-# llm_agent_listen_address: "0.0.0.0:50051"
 # git_bot_listen_address: "0.0.0.0:8081"
 
 # # Connection addresses use Docker's service discovery
-# agent_llm_agent_address: "nopsai-llm-agent:50051"
 # agent_nopsai_api_url: "http://nopsai:8080"
 # git_bot_nopsai_api_url: "http://nopsai:8080"
 # nopsai_git_bot_api_url: "http://nopsai-git-bot:8081"

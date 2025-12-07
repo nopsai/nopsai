@@ -30,8 +30,6 @@ import (
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"gopkg.in/yaml.v3"
 )
 
@@ -600,13 +598,14 @@ func run() int {
 	runID := os.Getenv("RUN_ID")
 	pipelineName := os.Getenv("PIPELINE_NAME")
 	triggerEventID := os.Getenv("GIT_TRIGGER_EVENT_ID")
-	llmAgentAddress := os.Getenv("LLM_AGENT_ADDRESS")
+	geminiAPIKey := os.Getenv("GEMINI_API_KEY")
+	geminiModel := os.Getenv("GEMINI_MODEL")
 	pipelineDefBase64 := os.Getenv("PIPELINE_DEFINITION")
 	parentHistoryBase64 := os.Getenv("PARENT_EXECUTION_HISTORY")
 	sharedVolumeName := os.Getenv("SHARED_VOLUME_NAME")
 	pipelineTimeoutStr := os.Getenv("PIPELINE_TIMEOUT")
 	dockerNetworkName := os.Getenv("DOCKER_NETWORK_NAME")
-	llmAgentTimeoutStr := os.Getenv("LLM_AGENT_TIMEOUT")
+	llmTimeoutStr := os.Getenv("LLM_AGENT_TIMEOUT")
 	secretsBase64 := os.Getenv("NOPSAI_SECRETS")
 
 	var secrets map[string]string
@@ -621,17 +620,21 @@ func run() int {
 		}
 	}
 
-	if llmAgentTimeoutStr == "" {
-		llmAgentTimeoutStr = "2m"
+	if llmTimeoutStr == "" {
+		llmTimeoutStr = "2m"
 	}
-	llmAgentTimeout, err := time.ParseDuration(llmAgentTimeoutStr)
+	llmTimeout, err := time.ParseDuration(llmTimeoutStr)
 	if err != nil {
-		agentLog(runID, pipelineName).Error().Err(err).Msg("Invalid LLM agent timeout duration")
+		agentLog(runID, pipelineName).Error().Err(err).Msg("Invalid LLM timeout duration")
 		return 1
 	}
 
-	if runID == "" || llmAgentAddress == "" || pipelineDefBase64 == "" || pipelineName == "" || sharedVolumeName == "" {
+	if runID == "" || pipelineDefBase64 == "" || pipelineName == "" || sharedVolumeName == "" {
 		agentLog(runID, pipelineName).Error().Msg("Missing one or more required environment variables")
+		return 1
+	}
+	if geminiAPIKey == "" || geminiModel == "" {
+		agentLog(runID, pipelineName).Error().Msg("Missing GEMINI_API_KEY or GEMINI_MODEL")
 		return 1
 	}
 
@@ -650,23 +653,8 @@ func run() int {
 		triggerEventID = "N/A"
 	}
 	agentLog(runID, pipeline.Name).Info().Str("trigger_event_id", triggerEventID).Msg("Pipeline execution starting")
-	agentLog(runID, pipeline.Name).Info().Str("llm_agent", llmAgentAddress).Msg("Agent starting and connecting to LLM agent")
-
-	var conn *grpc.ClientConn
-	for i := 0; i < 5; i++ {
-		conn, err = grpc.NewClient(llmAgentAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
-		if err == nil {
-			break
-		}
-		agentLog(runID, pipeline.Name).Warn().Err(err).Msg("Did not connect to LLM agent. Retrying in 2 seconds")
-		time.Sleep(2 * time.Second)
-	}
-	if err != nil {
-		agentLog(runID, pipeline.Name).Error().Err(err).Msg("Failed to connect to LLM agent after multiple retries")
-		return 1
-	}
-	defer conn.Close()
-	llmClient := proto.NewLLMServiceClient(conn)
+	agentLog(runID, pipeline.Name).Info().Str("gemini_model", geminiModel).Msg("Agent starting with embedded LLM client")
+	llmClient := NewLLMClient(geminiAPIKey, geminiModel)
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -840,6 +828,7 @@ func run() int {
 				task := runnable.Task
 				stepName := step.GetName()
 				taskLogger := stepLog(runID, pipeline.Name, stepName, task.Name)
+				var llmDurationMs int64
 
 				// --- CONDITION EVALUATION LOGIC START ---
 				condition := strings.TrimSpace(step.GetCondition())
@@ -865,16 +854,18 @@ func run() int {
 					}
 
 					var resp *proto.ConditionResponse
+					conditionStart := time.Now()
 					err = withRetry(func() error {
-						ctx, cancel := context.WithTimeout(context.Background(), llmAgentTimeout)
+						ctx, cancel := context.WithTimeout(context.Background(), llmTimeout)
 						defer cancel()
 						var e error
 						resp, e = llmClient.EvaluateCondition(ctx, req)
 						return e
 					}, 3, 1*time.Second)
+					llmDurationMs = time.Since(conditionStart).Milliseconds()
 
 					if err != nil {
-						taskLogger.Error().Err(err).Msg("Failed to evaluate condition from LLM agent. Skipping step.")
+						taskLogger.Error().Err(err).Msg("Failed to evaluate condition from LLM. Skipping step.")
 						pipelineFailed = true // Mark failure to stop pipeline
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
@@ -888,7 +879,7 @@ func run() int {
 							tasksInStep = []models.Task{{Name: stepName}}
 						}
 						for _, t := range tasksInStep {
-							finalizeTask(stepName, t.Name, "skipped", 0, 0)
+							finalizeTask(stepName, t.Name, "skipped", 0, llmDurationMs)
 							// We send a success result so the main loop can correctly count this as "handled"
 							results <- TaskResult{Name: fmt.Sprintf("%s/%s", stepName, t.Name), Success: true, Skipped: true}
 						}
@@ -905,7 +896,7 @@ func run() int {
 					parts := strings.SplitN(includeTarget, ":", 2)
 					if len(parts) != 2 || parts[0] != "pipeline" {
 						taskLogger.Error().Str("include", includeTarget).Msg("Invalid include format")
-						finalizeTask(stepName, stepName, "failure", 1, 0)
+						finalizeTask(stepName, stepName, "failure", 1, llmDurationMs)
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
 					}
@@ -915,13 +906,13 @@ func run() int {
 					if err != nil {
 						if strings.Contains(err.Error(), "nopsai api returned non-200 status 404") {
 							taskLogger.Warn().Str("child_pipeline", childPipelineName).Msg("Child pipeline not found, marking as not found")
-							finalizeTask(stepName, stepName, "not_found", 0, 0)
+							finalizeTask(stepName, stepName, "not_found", 0, llmDurationMs)
 							results <- TaskResult{Name: runnable.GlobalKey, Success: false} // Treat as failure for dependency purposes
 							return
 						}
 
 						taskLogger.Error().Err(err).Msg("Failed to get child pipeline definition")
-						finalizeTask(stepName, stepName, "failure", 1, 0)
+						finalizeTask(stepName, stepName, "failure", 1, llmDurationMs)
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
 					}
@@ -932,7 +923,7 @@ func run() int {
 					childRunID, err := triggerPipeline(runID, pipelineName, stepName, childPipelineName, childDef, historySnapshot)
 					if err != nil {
 						taskLogger.Error().Err(err).Msg("Failed to trigger child pipeline")
-						finalizeTask(stepName, stepName, "failure", 1, 0)
+						finalizeTask(stepName, stepName, "failure", 1, llmDurationMs)
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
 					}
@@ -944,7 +935,7 @@ func run() int {
 							finalStatus = "failure"
 						}
 						taskLogger.Info().Str("child_run_id", childRunID).Str("status", finalStatus).Msg("Child pipeline finished")
-						finalizeTask(stepName, stepName, finalStatus, 0, 0)
+						finalizeTask(stepName, stepName, finalStatus, 0, llmDurationMs)
 						if finalStatus == "failure" && step.GetSync() {
 							pipelineFailed = true
 						}
@@ -961,7 +952,7 @@ func run() int {
 					} else {
 						go monitorFunc()
 						// For non-sync, we mark it successful immediately to unblock dependencies.
-						finalizeTask(stepName, stepName, "success", 0, 0)
+						finalizeTask(stepName, stepName, "success", 0, llmDurationMs)
 						results <- TaskResult{Name: runnable.GlobalKey, Success: true}
 					}
 					return
@@ -1012,7 +1003,7 @@ func run() int {
 					taskLogger.Info().Str("image", imageName).Msg("Creating new container for step")
 					if err := ensureImageExists(context.Background(), taskLogger, cli, imageName); err != nil {
 						taskLogger.Error().Err(err).Msg("Failed to ensure step image exists. Shutting down")
-						finalizeTask(stepName, task.Name, "failure", 1, 0)
+						finalizeTask(stepName, task.Name, "failure", 1, llmDurationMs)
 						sessionMutex.Unlock()
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
@@ -1070,14 +1061,14 @@ func run() int {
 					}, nil, nil, stepContainerName)
 					if err != nil {
 						taskLogger.Error().Err(err).Msg("Failed to create step container")
-						finalizeTask(stepName, task.Name, "failure", 1, 0)
+						finalizeTask(stepName, task.Name, "failure", 1, llmDurationMs)
 						sessionMutex.Unlock()
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
 					}
 					if err := cli.ContainerStart(context.Background(), cont.ID, container.StartOptions{}); err != nil {
 						taskLogger.Error().Err(err).Msg("Failed to start step container")
-						finalizeTask(stepName, task.Name, "failure", 1, 0)
+						finalizeTask(stepName, task.Name, "failure", 1, llmDurationMs)
 						sessionMutex.Unlock()
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
@@ -1093,7 +1084,6 @@ func run() int {
 				var action *proto.Action
 				var actionStr string
 				var historyGoal string
-				var llmDurationMs int64
 
 				goalText := strings.TrimSpace(task.Goal)
 				if goalText == "" {
@@ -1127,7 +1117,7 @@ func run() int {
 						taskLogger.Debug().Msg("Content sharing is ENABLED for this pipeline. Scanning directory")
 						directoryListing = getDirectoryListing(taskLogger, "/workspace", pipeline.LlmContentIgnore)
 						if len(directoryListing) == 0 {
-							taskLogger.Debug().Msg("Sharing directory listing metadata with LLM agent (empty)")
+							taskLogger.Debug().Msg("Sharing directory listing metadata with LLM (empty)")
 						} else {
 							fileNames := make([]string, 0, len(directoryListing))
 							for name := range directoryListing {
@@ -1142,7 +1132,7 @@ func run() int {
 							if len(fileNames) > maxLoggedFiles {
 								evt = evt.Int("directory_file_remaining", len(fileNames)-maxLoggedFiles)
 							}
-							evt.Msg("Sharing directory listing metadata with LLM agent")
+							evt.Msg("Sharing directory listing metadata with LLM")
 						}
 					} else {
 						taskLogger.Debug().Msg("Content sharing is DISABLED for this pipeline. Skipping directory scan")
@@ -1167,15 +1157,17 @@ func run() int {
 						Environment:      envMap,
 					}
 
+					actionStart := time.Now()
 					err = withRetry(func() error {
-						ctx, cancel := context.WithTimeout(context.Background(), llmAgentTimeout)
+						ctx, cancel := context.WithTimeout(context.Background(), llmTimeout)
 						defer cancel()
 						var e error
 						action, e = llmClient.GetAction(ctx, req)
 						return e
 					}, 3, 1*time.Second)
+					llmDurationMs = time.Since(actionStart).Milliseconds()
 					if err != nil {
-						taskLogger.Error().Err(err).Msg("Failed to get action from LLM agent. Shutting down")
+						taskLogger.Error().Err(err).Msg("Failed to get action from LLM. Shutting down")
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
 					}

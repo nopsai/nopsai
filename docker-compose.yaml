@@ -39,25 +39,6 @@ services:
     networks:
       - nopsai-net
 
-  llm-agent:
-    container_name: nopsai-llm-agent
-    image: nopsai-llm-agent
-    build:
-      context: .
-      dockerfile: container/Dockerfile.llm-agent
-    restart: always
-    ports:
-      - "50051:50051"
-    depends_on:
-      db:
-        condition: service_healthy
-      base:
-        condition: service_completed_successfully
-    env_file:
-      - .env
-    networks:
-      - nopsai-net
-
   nopsai:
     container_name: nopsai
     image: nopsai
