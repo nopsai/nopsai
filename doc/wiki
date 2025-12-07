@@ -14,13 +14,12 @@ Nopsai turns natural-language automation goals into deterministic CI/CD runs. In
 | Component | Highlights |
 |-----------|------------|
 | **Core API (`services/nopsai`)** | REST and WebSocket surface, pipeline/run lifecycle management, Docker agent orchestration, encrypted secret store, config repo syncing, run grouping, and log archival. |
-| **Agent (`services/agent`)** | Executes pipelines inside disposable containers, resolves AI goals, enforces step/task dependencies, masks secrets, and streams granular telemetry to the API. |
-| **LLM Agent (`services/llm-agent`)** | gRPC bridge to Google Gemini that produces strongly-typed actions or boolean decisions from execution context. |
+| **Agent (`services/agent`)** | Executes pipelines inside disposable containers, resolves AI goals with the embedded Gemini client, enforces step/task dependencies, masks secrets, and streams granular telemetry to the API. |
 | **Git Bot (`services/git-bot`)** | GitHub App webhook handler, rich check-run author, repository data helper, and liaison between Git events and the core orchestrator. |
 | **Web UI (`services/ui`)** | Vanilla JS single-page app that consumes REST + WebSocket feeds to present live dashboards, graphs, logs, grouping, and management tooling. |
 | **PostgreSQL (`nopsai-db`)** | Durable store for pipelines, reusable steps, triggers, encrypted secrets, environment variables, run metadata, and full log history. |
 
-All services run inside the shared `nopsai-net` Docker network. The agent launches additional per-step containers on the same network so they can reach the LLM agent, git-bot, and any ambient dependencies while keeping each run isolated.
+All services run inside the shared `nopsai-net` Docker network. The agent launches additional per-step containers on the same network so they can reach git-bot and any ambient dependencies while keeping each run isolated.
 ---
 
 ## Service Deep Dive
@@ -33,14 +32,10 @@ All services run inside the shared `nopsai-net` Docker network. The agent launch
 - Syncs pipelines, steps, triggers, and environment definitions from the Git-backed config repository via `/v1/internal/config/sync` or automatically when new commits land.
 ### Agent (`services/agent`)
 - Parses pipeline manifests, expands includes, and builds a dependency graph across steps and nested tasks.
-- Supports both scripted tasks and LLM-generated goals, with optional natural-language `condition` checks resolved through the LLM agent.
+- Supports both scripted tasks and LLM-generated goals, with optional natural-language `condition` checks resolved through the embedded Gemini client.
 - Shares a curated directory listing (respecting `llm_content_ignore`) with the LLM, and honours `llm_output_sharing` at pipeline and task granularity.
 - Reuses warm step containers, provisions ad-hoc volume mounts, ensures referenced images exist, and injects secrets safely into the environment.
 - Streams stdout/stderr in real time, masks secret values before logging, reports status/exit codes/LLM durations per task, and finalises runs through the API.
-### LLM Agent (`services/llm-agent`)
-- Accepts execution context via gRPC, builds rich prompts that include environment variables, workspace snapshots, execution history, and the requested goal.
-- Calls Google Gemini to obtain structured actions (`EXECUTE_COMMAND`, `REPLACE_FILE`, `RETURN_ANSWER`) or to evaluate boolean conditions for pipeline gating.
-- Reads runtime configuration (listen addresses, Gemini credentials, logging) from the shared YAML+environment loader, keeping deployment knobs consistent across services.
 ### Git Bot (`services/git-bot`)
 - Validates incoming GitHub webhook signatures, normalises events, and posts run requests to the core API.
 - Manages hierarchical check-run state where steps own tasks; renders Markdown summaries or Mermaid diagrams and updates GitHub in real time with progress, failure context, and rerun hooks.
@@ -60,7 +55,7 @@ All services run inside the shared `nopsai-net` Docker network. The agent launch
     ```bash
     docker-compose up --build -d
     ```
-    This command builds the shared `base` image, produces service images (`nopsai`, `git-bot`, `llm-agent`, `agent`, `pipeline`), launches Postgres with `db/init.sql`, and serves the UI on `http://localhost:5173` via nginx.
+    This command builds the shared `base` image, produces service images (`nopsai`, `git-bot`, `agent`, `pipeline`), launches Postgres with `db/init.sql`, and serves the UI on `http://localhost:5173` via nginx.
 4.  **Initial sync**: Seed pipelines, steps, environments, and triggers from the config repo with:
     ```bash
     curl -X POST http://localhost:8080/v1/internal/config/sync

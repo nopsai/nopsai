@@ -10,16 +10,11 @@ This document captures the current feature set and hardening work that has lande
 - **Git-driven orchestration**: Receives Git events, ensures the config repository is synced (pipelines, steps, environments, triggers), and coordinates with the git-bot for GitHub check updates.
 
 ### Agent (`services/agent`)
-- **LLM-assisted execution**: Resolves natural-language goals via the LLM agent, while falling back to explicit scripts when provided.
+- **LLM-assisted execution**: Resolves natural-language goals via the embedded Gemini client, while falling back to explicit scripts when provided.
 - **Task graph engine**: Understands nested step/task dependencies, honours per-task `depends_on`, and tracks partial progress so multiple independent tasks can run without blocking each other.
 - **Workspace sharing controls**: Shares a sanitised directory listing with the LLM, respecting `llm_content_ignore`, and honours both pipeline-level and task-level `llm_output_sharing` settings.
 - **Container orchestration**: Ensures required images exist, reuses warm containers per step, supports additional volume mounts, and injects scoped secrets/environment variables safely.
 - **Operational telemetry**: Masks secrets in command output, streams logs back to the server in real time, and reports granular task status (with exit codes and LLM latency) to the API.
-
-### LLM Agent (`services/llm-agent`)
-- **Gemini integration**: Translates execution context into structured prompts for Google Gemini, with separate flows for action generation and boolean condition evaluation.
-- **Structured actions**: Returns strongly-typed actions (`EXECUTE_COMMAND`, `REPLACE_FILE`, `RETURN_ANSWER`) that the agent can execute without further parsing.
-- **Config-driven runtime**: Loads service addresses, model configuration, and API keys from the shared config loader, keeping deployment knobs consistent.
 
 ### Git Bot (`services/git-bot`)
 - **Secure webhooks**: Verifies GitHub signatures, normalises incoming events, and forwards run intents to the core service.
