@@ -1167,9 +1167,17 @@ func run() int {
 					}, 3, 1*time.Second)
 					llmDurationMs = time.Since(actionStart).Milliseconds()
 					if err != nil {
-						taskLogger.Error().Err(err).Msg("Failed to get action from LLM. Shutting down")
-						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
-						return
+						// One more best-effort retry to increase durability.
+						taskLogger.Warn().Err(err).Msg("GetAction failed after retries; attempting one final retry")
+						ctx, cancel := context.WithTimeout(context.Background(), llmTimeout)
+						action, err = llmClient.GetAction(ctx, req)
+						cancel()
+						llmDurationMs = time.Since(actionStart).Milliseconds()
+						if err != nil {
+							taskLogger.Error().Err(err).Msg("Failed to get action from LLM. Shutting down")
+							results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+							return
+						}
 					}
 
 					if cmd := action.GetCommandAction(); cmd != nil {
