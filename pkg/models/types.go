@@ -1,0 +1,124 @@
+package models
+
+import (
+	"time"
+)
+
+type LogLine struct {
+	Timestamp time.Time `json:"timestamp"`
+	Line      string    `json:"line"`
+}
+
+type RunListItem struct {
+	RunID           string    `json:"run_id"`
+	PipelineName    string    `json:"pipeline_name"`
+	PipelinePath    string    `json:"pipeline_path"`
+	PipelineVersion string    `json:"pipeline_version"`
+	PipelineSource  string    `json:"pipeline_source,omitempty"`
+	Status          string    `json:"status"`
+	GitCommitSHA    string    `json:"git_commit_sha"`
+	GitRepoName     string    `json:"git_repo_name"`
+	GitRepoOwner    string    `json:"git_repo_owner"`
+	GitRef          string    `json:"git_ref"`
+	GitTargetRef    string    `json:"git_target_ref"`
+	StartedAt       time.Time `json:"started_at"`
+	FinishedAt      time.Time `json:"finished_at"`
+	Duration        string    `json:"duration"`
+	IsComplete      bool      `json:"is_complete"`
+	ParentRunID     *string   `json:"parent_run_id"`
+	TriggerEventID  string    `json:"trigger_event_id,omitempty"`
+	GitPusherName   string    `json:"git_pusher_name"`
+	ParentStepName  string    `json:"parent_step_name,omitempty"`
+	FailureReason   string    `json:"failure_reason,omitempty"`
+}
+
+type StepConfiguration struct {
+	Image            string            `json:"image,omitempty"`
+	Include          string            `json:"include,omitempty"`
+	Sync             bool              `json:"sync"`
+	Secrets          []string          `json:"secrets,omitempty"`
+	Volumes          []string          `json:"volumes,omitempty"`
+	Environment      map[string]string `json:"environment,omitempty"`
+	IgnoreFailure    bool              `json:"ignore_failure"`
+	LlmOutputSharing *bool             `json:"llm_output_sharing,omitempty"`
+	Tasks            []Task            `json:"tasks,omitempty"`
+}
+
+type StepDetail struct {
+	Name          string            `json:"name"`
+	Status        string            `json:"status"`
+	DependsOn     []string          `json:"depends_on"`
+	Tasks         []TaskDetail      `json:"tasks"`
+	Duration      string            `json:"duration"`
+	Configuration StepConfiguration `json:"configuration"`
+}
+
+type TaskDetail struct {
+	TaskID     string    `json:"task_id"`
+	StepName   string    `json:"step_name"`
+	TaskName   string    `json:"task_name"`
+	Status     string    `json:"status"`
+	ExitCode   *int      `json:"exit_code"`
+	StartedAt  time.Time `json:"started_at"`
+	FinishedAt time.Time `json:"finished_at"`
+	TaskIndex  int       `json:"task_index"`
+}
+
+type ParentRunInfo struct {
+	RunID           string `json:"run_id"`
+	PipelineName    string `json:"pipeline_name"`
+	PipelinePath    string `json:"pipeline_path"`
+	PipelineVersion string `json:"pipeline_version"`
+}
+
+type RunDetail struct {
+	RunInfo                RunListItem    `json:"run_info"`
+	Steps                  []StepDetail   `json:"steps"`
+	PipelineDefinition     Pipeline       `json:"pipeline_definition"`
+	PipelineDefinitionYAML string         `json:"pipeline_definition_yaml"`
+	ChildRuns              []RunListItem  `json:"child_runs"`
+	ParentRunInfo          *ParentRunInfo `json:"parent_run_info,omitempty"`
+}
+
+type StepStatusUpdate struct {
+	Status   string `json:"status"`
+	ExitCode int    `json:"exit_code"`
+}
+
+type SecretRequest struct {
+	Value string `json:"value"`
+}
+
+type VariableRequest struct {
+	Value string `json:"value"`
+}
+
+type ScopeResponse struct {
+	Scope string `json:"scope"`
+}
+
+type VariableValueResponse struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+type PipelineRequest struct {
+	Definition string `json:"definition"`
+}
+
+type TriggerOverrideRequest struct {
+	TriggerDefinition string `json:"trigger_definition"`
+}
+
+type FinalizeRequest struct {
+	Status string `json:"status"`
+}
+
+type Group struct {
+	ID          int        `json:"id"`
+	Name        string     `json:"name"`
+	ParentID    *int       `json:"parent_id"`
+	Description string     `json:"description,omitempty"`
+	Children    []Group    `json:"children"`
+	LastRunAt   *time.Time `json:"last_run_at,omitempty"`
+}

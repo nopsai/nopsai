@@ -50,6 +50,9 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
+
+	"nopsai/services/nopsai/pkg/store"
+	"nopsai/services/nopsai/pkg/validation"
 )
 
 // WebSocket Hub implementation
@@ -234,137 +237,38 @@ func (a *App) serveWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 }
 
 type App struct {
-	db     *pgxpool.Pool
-	cfg    *config.Config
-	cli    *client.Client
-	encKey []byte
-	hub    *Hub
+	db         *pgxpool.Pool
+	cfg        *config.Config
+	cli        *client.Client
+	encKey     []byte
+	hub        *Hub
+	httpClient *http.Client
+	store      store.Store
 }
 
-type LogLine struct {
-	Timestamp time.Time `json:"timestamp"`
-	Line      string    `json:"line"`
-}
+type LogLine = models.LogLine
+type RunListItem = models.RunListItem
+type StepConfiguration = models.StepConfiguration
+type StepDetail = models.StepDetail
+type TaskDetail = models.TaskDetail
+type ParentRunInfo = models.ParentRunInfo
+type RunDetail = models.RunDetail
+type StepStatusUpdate = models.StepStatusUpdate
+type SecretRequest = models.SecretRequest
+type VariableRequest = models.VariableRequest
+type ScopeResponse = models.ScopeResponse
+type VariableValueResponse = models.VariableValueResponse
+type PipelineRequest = models.PipelineRequest
+type TriggerOverrideRequest = models.TriggerOverrideRequest
+type FinalizeRequest = models.FinalizeRequest
+type Group = models.Group
 
-type RunListItem struct {
-	RunID           string    `json:"run_id"`
-	PipelineName    string    `json:"pipeline_name"`
-	PipelinePath    string    `json:"pipeline_path"`
-	PipelineVersion string    `json:"pipeline_version"`
-	PipelineSource  string    `json:"pipeline_source,omitempty"`
-	Status          string    `json:"status"`
-	GitCommitSHA    string    `json:"git_commit_sha"`
-	GitRepoName     string    `json:"git_repo_name"`
-	GitRepoOwner    string    `json:"git_repo_owner"`
-	GitRef          string    `json:"git_ref"`
-	GitTargetRef    string    `json:"git_target_ref"`
-	StartedAt       time.Time `json:"started_at"`
-	FinishedAt      time.Time `json:"finished_at"`
-	Duration        string    `json:"duration"`
-	IsComplete      bool      `json:"is_complete"`
-	ParentRunID     *string   `json:"parent_run_id"`
-	TriggerEventID  string    `json:"trigger_event_id,omitempty"`
-	GitPusherName   string    `json:"git_pusher_name"`
-	ParentStepName  string    `json:"parent_step_name,omitempty"`
-	FailureReason   string    `json:"failure_reason,omitempty"`
-}
-
-type StepConfiguration struct {
-	Image            string            `json:"image,omitempty"`
-	Include          string            `json:"include,omitempty"`
-	Sync             bool              `json:"sync"`
-	Secrets          []string          `json:"secrets,omitempty"`
-	Volumes          []string          `json:"volumes,omitempty"`
-	Environment      map[string]string `json:"environment,omitempty"`
-	IgnoreFailure    bool              `json:"ignore_failure"`
-	LlmOutputSharing *bool             `json:"llm_output_sharing,omitempty"`
-	Tasks            []models.Task     `json:"tasks,omitempty"`
-}
-
-type StepDetail struct {
-	Name          string            `json:"name"`
-	Status        string            `json:"status"`
-	DependsOn     []string          `json:"depends_on"`
-	Tasks         []TaskDetail      `json:"tasks"`
-	Duration      string            `json:"duration"`
-	Configuration StepConfiguration `json:"configuration"`
-}
-
-type TaskDetail struct {
-	TaskID     string    `json:"task_id"`
-	StepName   string    `json:"step_name"`
-	TaskName   string    `json:"task_name"`
-	Status     string    `json:"status"`
-	ExitCode   *int      `json:"exit_code"`
-	StartedAt  time.Time `json:"started_at"`
-	FinishedAt time.Time `json:"finished_at"`
-	TaskIndex  int       `json:"task_index"`
-}
-
-type ParentRunInfo struct {
-	RunID           string `json:"run_id"`
-	PipelineName    string `json:"pipeline_name"`
-	PipelinePath    string `json:"pipeline_path"`
-	PipelineVersion string `json:"pipeline_version"`
-}
-
-type RunDetail struct {
-	RunInfo                RunListItem     `json:"run_info"`
-	Steps                  []StepDetail    `json:"steps"`
-	PipelineDefinition     models.Pipeline `json:"pipeline_definition"`
-	PipelineDefinitionYAML string          `json:"pipeline_definition_yaml"`
-	ChildRuns              []RunListItem   `json:"child_runs"`
-	ParentRunInfo          *ParentRunInfo  `json:"parent_run_info,omitempty"`
-}
-
+// Keep these local for now if not in models
 type suiteCheckRunResponse struct {
 	CheckRunID         int64  `json:"check_run_id"`
 	HeadSHA            string `json:"head_sha"`
 	PullRequestHeadRef string `json:"pull_request_head_ref,omitempty"`
 	HeadBranch         string `json:"head_branch,omitempty"`
-}
-
-type StepStatusUpdate struct {
-	Status   string `json:"status"`
-	ExitCode int    `json:"exit_code"`
-}
-
-type SecretRequest struct {
-	Value string `json:"value"`
-}
-
-type VariableRequest struct {
-	Value string `json:"value"`
-}
-
-type ScopeResponse struct {
-	Scope string `json:"scope"`
-}
-
-type VariableValueResponse struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
-}
-
-type PipelineRequest struct {
-	Definition string `json:"definition"`
-}
-
-type TriggerOverrideRequest struct {
-	TriggerDefinition string `json:"trigger_definition"`
-}
-
-type FinalizeRequest struct {
-	Status string `json:"status"`
-}
-
-type Group struct {
-	ID          int        `json:"id"`
-	Name        string     `json:"name"`
-	ParentID    *int       `json:"parent_id"`
-	Description string     `json:"description,omitempty"`
-	Children    []Group    `json:"children"`
-	LastRunAt   *time.Time `json:"last_run_at,omitempty"`
 }
 
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
@@ -385,55 +289,7 @@ func deriveTriggerEventID(gitContext map[string]string) string {
 
 // This new helper function fetches and builds a RunListItem for a given run ID.
 func (a *App) getRunListItem(runID string) (*RunListItem, error) {
-	var run RunListItem
-	var startedAt, finishedAt sql.NullTime
-	var commitSHA, repoOwner, repoName, pusherName, gitRef, gitTargetRef, pipelineSource, pipelineVersion, pipelinePath, triggerEventID sql.NullString
-
-	query := `
-        SELECT
-		    run_id, pipeline_name, pipeline_path, pipeline_version, status, COALESCE(git_commit_sha, ''),
-            COALESCE(git_repo_owner, ''), COALESCE(git_repo_name, ''), started_at, finished_at,
-			parent_run_id, COALESCE(git_pusher_name, ''), COALESCE(git_ref, ''), COALESCE(git_target_ref, ''),
-			COALESCE(pipeline_source, ''), COALESCE(trigger_event_id, '')
-        FROM pipeline_runs
-        WHERE run_id = $1
-    `
-	err := a.db.QueryRow(context.Background(), query, runID).Scan(
-		&run.RunID, &run.PipelineName, &pipelinePath, &pipelineVersion, &run.Status, &commitSHA,
-		&repoOwner, &repoName, &startedAt, &finishedAt, &run.ParentRunID, &pusherName, &gitRef, &gitTargetRef, &pipelineSource, &triggerEventID,
-	)
-
-	if err != nil {
-		return nil, err
-	}
-
-	run.PipelinePath = pipelinePath.String
-	run.GitCommitSHA = commitSHA.String
-	run.PipelineVersion = normalizePipelineVersion(pipelineVersion.String)
-	run.GitRepoOwner = repoOwner.String
-	run.GitRepoName = repoName.String
-	run.GitPusherName = pusherName.String
-	run.GitRef = gitRef.String
-	run.GitTargetRef = gitTargetRef.String
-	run.PipelineSource = pipelineSource.String
-	run.TriggerEventID = triggerEventID.String
-
-	if startedAt.Valid {
-		run.StartedAt = startedAt.Time
-		if finishedAt.Valid {
-			run.FinishedAt = finishedAt.Time
-			run.Duration = run.FinishedAt.Sub(run.StartedAt).Round(time.Second).String()
-			run.IsComplete = true
-		} else {
-			run.Duration = time.Since(run.StartedAt).Round(time.Second).String()
-			run.IsComplete = isTerminalRunStatus(run.Status)
-		}
-	} else {
-		run.Duration = "0s"
-		run.IsComplete = isTerminalRunStatus(run.Status)
-	}
-
-	return &run, nil
+	return a.store.GetRunListItem(context.Background(), runID)
 }
 
 // The broadcast function is updated to send a more specific 'run_summary_update' message
@@ -539,99 +395,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 }
 
 func validatePipeline(pipeline *models.Pipeline) error {
-	if pipeline.Name == "" {
-		return fmt.Errorf("'name' is a required field")
-	}
-	if !regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`).MatchString(pipeline.Name) {
-		return fmt.Errorf("pipeline name can only contain alphanumeric characters, underscores, dots, and hyphens")
-	}
-	if pipeline.Version == "" {
-		pipeline.Version = "latest"
-	} else if !regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`).MatchString(pipeline.Version) {
-		return fmt.Errorf("pipeline version can only contain alphanumeric characters, underscores, dots, and hyphens")
-	}
-	if pipeline.ContainerImage == "" && len(pipeline.Steps) > 0 && pipeline.Steps[0].GetImage() == "" {
-		return fmt.Errorf("'container_image' is a required field if steps don't have their own image")
-	}
-	if len(pipeline.Steps) == 0 {
-		return fmt.Errorf("at least one step is required")
-	}
-
-	allStepNames := make(map[string]bool)
-	stepToTaskNames := make(map[string]map[string]bool)
-
-	// First pass: Collect all step and task names
-	for _, step := range pipeline.Steps {
-		stepName := step.GetName()
-		if stepName == "" {
-			return fmt.Errorf("a step is missing its required 'name' field")
-		}
-		if allStepNames[stepName] {
-			return fmt.Errorf("duplicate step name '%s' found. Step names must be unique", stepName)
-		}
-		allStepNames[stepName] = true
-		stepToTaskNames[stepName] = make(map[string]bool)
-
-		isIncludeStep := step.GetInclude() != ""
-		tasks := step.GetTasks()
-		isTaskStep := len(tasks) > 0
-		isLegacyStep := strings.TrimSpace(step.GetGoal()) != "" || strings.TrimSpace(step.GetScript()) != ""
-
-		if isIncludeStep {
-			if isTaskStep || isLegacyStep {
-				return fmt.Errorf("step '%s' is an 'include' step and cannot also contain 'tasks', 'goal', or 'script'", stepName)
-			}
-		} else if isTaskStep {
-			if isLegacyStep {
-				return fmt.Errorf("step '%s' has tasks and should not also contain 'goal' or 'script'", stepName)
-			}
-			for _, task := range tasks {
-				if task.Name == "" {
-					return fmt.Errorf("a task in step '%s' is missing its required 'name' field", stepName)
-				}
-				if stepToTaskNames[stepName][task.Name] {
-					return fmt.Errorf("duplicate task name '%s' found within step '%s'. Task names must be unique within a step", task.Name, stepName)
-				}
-				stepToTaskNames[stepName][task.Name] = true
-
-				hasGoal := strings.TrimSpace(task.Goal) != ""
-				hasScript := strings.TrimSpace(task.Script) != ""
-				if hasGoal && hasScript {
-					return fmt.Errorf("task '%s' in step '%s' cannot define both 'goal' and 'script'", task.Name, stepName)
-				}
-				if !hasGoal && !hasScript {
-					return fmt.Errorf("task '%s' in step '%s' must define either 'goal' or 'script'", task.Name, stepName)
-				}
-			}
-		} else if !isLegacyStep {
-			return fmt.Errorf("step '%s' must contain 'include', 'tasks', 'goal', or 'script'", stepName)
-		}
-	}
-
-	// Second pass: Validate dependencies based on the corrected rules
-	for _, step := range pipeline.Steps {
-		stepName := step.GetName()
-		// Rule: A step can only depend on other steps.
-		for _, depName := range step.GetDependsOn() {
-			if !allStepNames[depName] {
-				return fmt.Errorf("step '%s' has an undefined dependency: '%s'", stepName, depName)
-			}
-		}
-
-		// Rule: If a step has tasks, those tasks can only depend on other tasks within the SAME step.
-		tasks := step.GetTasks()
-		if len(tasks) > 0 {
-			for _, task := range tasks {
-				for _, depName := range task.DependsOn {
-					if !stepToTaskNames[stepName][depName] {
-						return fmt.Errorf("task '%s' in step '%s' has an invalid dependency: '%s'. Tasks can only depend on other tasks within the same step", task.Name, stepName, depName)
-					}
-				}
-			}
-		}
-	}
-
-	return nil
+	return validation.ValidatePipeline(pipeline)
 }
 
 func (a *App) encrypt(text string) (string, error) {
@@ -3902,6 +3666,7 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 			}
 
 			fallbackDef := fmt.Sprintf("name: %s\nsteps: []", identifier)
+			var createErr error
 			checkRunID, createErr := a.createGitHubCheckRun(owner, repo, commitSHA, []byte(fallbackDef), pipelineSourceForCheck)
 			if createErr != nil {
 				log.Error().Err(createErr).Str("pipeline", identifier).Msg("Failed to create check run after pipeline retrieval error")
@@ -3952,28 +3717,16 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		var checkRunID int64
+		var checkRunIDStr string
 		if isRerun && rerunCheckRun != nil {
-			checkRunID = rerunCheckRun.GetID()
-			if err := a.initializeGitHubCheckRun(owner, repo, checkRunID, pipelineYAML, pipeline.Name); err != nil {
-				log.Error().Err(err).Int64("check_run_id", checkRunID).Msg("Failed to initialize rerun check run")
-				http.Error(w, "Failed to initialize check run", http.StatusInternalServerError)
-				return
-			}
-		} else {
-			checkRunID, err = a.createGitHubCheckRun(owner, repo, commitSHA, pipelineYAML, pipelineSourceForCheck)
-			if err != nil {
-				log.Error().Err(err).Msg("Failed to create check run")
-				http.Error(w, "Failed to create check run", http.StatusInternalServerError)
-				return
-			}
+			checkRunIDStr = strconv.FormatInt(rerunCheckRun.GetID(), 10)
 		}
 
 		headers := map[string]string{
 			"X-Git-Repo-Owner":             owner,
 			"X-Git-Repo-Name":              repo,
 			"X-Git-Commit-SHA":             commitSHA,
-			"X-Git-Check-Run-ID":           strconv.FormatInt(checkRunID, 10),
+			"X-Git-Check-Run-ID":           checkRunIDStr,
 			"X-Git-Ref":                    ref,
 			"X-Git-Target-Ref":             targetRef,
 			"X-Nopsai-Scope":               effectiveScope,
@@ -4016,7 +3769,11 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 
 		if result.StatusCode != http.StatusCreated {
 			summary := fmt.Sprintf("Failed to trigger Nopsai pipeline. The nopsai service responded with status %d.\n\nError: %s", result.StatusCode, strings.TrimSpace(string(responseBody)))
-			a.notifyImmediateCheckFailure(owner, repo, checkRunID, commitSHA, summary)
+			if checkRunIDStr != "" {
+				if parsedID, err := strconv.ParseInt(checkRunIDStr, 10, 64); err == nil {
+					a.notifyImmediateCheckFailure(owner, repo, parsedID, commitSHA, summary)
+				}
+			}
 			continue
 		}
 
@@ -4153,6 +3910,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		triggerEventIDSQL.Valid = true
 		gitContext["trigger_event_id"] = id
 	}
+	gitContext["run_id"] = runID.String()
 
 	groupID, err := a.resolveGroupIDForRepo(gitContext["repo_owner"], gitContext["repo_name"])
 	if err != nil {
@@ -4202,7 +3960,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		// Run git-bot notification in background and update DB with the new check_run_id
 		go func(rID string) {
 			body, _ := json.Marshal(payload)
-			resp, err := http.Post(gitbotURL, "application/json", bytes.NewBuffer(body))
+			resp, err := a.postJSON(gitbotURL, body)
 			if err != nil {
 				log.Error().Err(err).Msg("Failed to request new check run from git-bot (async)")
 				return
@@ -4254,6 +4012,9 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		a.updateRunRecordWithFailure(runID, errMsg, gitContext)
 		return
 	}
+
+	// Create or initialize GitHub check run without blocking the trigger path.
+	a.ensureCheckRunAsync(runID, *resolvedPipeline, resolvedPipelineDef, gitContext, pipelineSource, rerunCommitSHA != "")
 
 	timeoutStr := resolvedPipeline.Timeout
 	if timeoutStr == "" {
@@ -5383,6 +5144,14 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 
 func (a *App) notifyGitBotOfFinalStatus(status, failedStep, failedTask, summary string, gitContext map[string]string) {
 	checkRunID, _ := strconv.ParseInt(gitContext["check_run_id"], 10, 64)
+	if checkRunID == 0 {
+		if runID := strings.TrimSpace(gitContext["run_id"]); runID != "" {
+			_ = a.db.QueryRow(context.Background(), "SELECT git_check_run_id FROM pipeline_runs WHERE run_id = $1", runID).Scan(&checkRunID)
+		}
+	}
+	if checkRunID == 0 {
+		return
+	}
 	gitBotURL := fmt.Sprintf("%s/v1/run/status", a.cfg.NopsaiGitBotAPIURL)
 	payload := map[string]interface{}{
 		"status":       status,
@@ -5396,7 +5165,7 @@ func (a *App) notifyGitBotOfFinalStatus(status, failedStep, failedTask, summary 
 	}
 	body, _ := json.Marshal(payload)
 
-	resp, err := http.Post(gitBotURL, "application/json", bytes.NewBuffer(body))
+	resp, err := a.postJSON(gitBotURL, body)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to notify git-bot of final status")
 		return
@@ -5466,7 +5235,7 @@ func (a *App) notifyGitBotOfTaskStatus(runID, stepName, taskName, taskStatus str
 	}
 	body, _ := json.Marshal(payload)
 
-	resp, err := http.Post(gitBotURL, "application/json", bytes.NewBuffer(body))
+	resp, err := a.postJSON(gitBotURL, body)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to notify git-bot of task status")
 		return
@@ -5602,6 +5371,14 @@ func (a *App) fetchTriggerManifest(owner, repo, commitSHA string) (models.Manife
 	return manifest, "git", nil
 }
 
+func (a *App) postJSON(url string, body []byte) (*http.Response, error) {
+	client := a.httpClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	return client.Post(url, "application/json", bytes.NewBuffer(body))
+}
+
 func (a *App) requestGitBotFile(owner, repo, ref, path string, notFoundErr error) (string, error) {
 	payload := map[string]string{
 		"owner": owner,
@@ -5612,7 +5389,7 @@ func (a *App) requestGitBotFile(owner, repo, ref, path string, notFoundErr error
 	body, _ := json.Marshal(payload)
 
 	url := fmt.Sprintf("%s/v1/github/file", a.cfg.NopsaiGitBotAPIURL)
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	resp, err := a.postJSON(url, body)
 	if err != nil {
 		return "", err
 	}
@@ -5644,7 +5421,7 @@ func (a *App) requestGitBotDirectory(owner, repo, path string) (map[string]strin
 	body, _ := json.Marshal(payload)
 
 	url := fmt.Sprintf("%s/v1/github/contents", a.cfg.NopsaiGitBotAPIURL)
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	resp, err := a.postJSON(url, body)
 	if err != nil {
 		return nil, err
 	}
@@ -5679,7 +5456,7 @@ func (a *App) branchHasOpenPullRequest(owner, repo, branch string) (bool, error)
 	body, _ := json.Marshal(payload)
 
 	url := fmt.Sprintf("%s/v1/github/branch/has-open-pr", a.cfg.NopsaiGitBotAPIURL)
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	resp, err := a.postJSON(url, body)
 	if err != nil {
 		return false, err
 	}
@@ -5707,7 +5484,7 @@ func (a *App) ensureConfigRepoAccessible(owner, repo string) error {
 	body, _ := json.Marshal(payload)
 
 	url := fmt.Sprintf("%s/v1/github/repo/access", a.cfg.NopsaiGitBotAPIURL)
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	resp, err := a.postJSON(url, body)
 	if err != nil {
 		return fmt.Errorf("failed to verify config repository access: %w", err)
 	}
@@ -5756,7 +5533,7 @@ func (a *App) requestGitBotPipeline(owner, repo, ref string, source models.Pipel
 	body, _ := json.Marshal(payload)
 
 	url := fmt.Sprintf("%s/v1/github/pipeline", a.cfg.NopsaiGitBotAPIURL)
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	resp, err := a.postJSON(url, body)
 	if err != nil {
 		return nil, err
 	}
@@ -5789,7 +5566,7 @@ func (a *App) findSuiteCheckRun(owner, repo string, suiteID int64, commitSHA str
 	body, _ := json.Marshal(payload)
 
 	url := fmt.Sprintf("%s/v1/checks/find-suite-run", a.cfg.NopsaiGitBotAPIURL)
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	resp, err := a.postJSON(url, body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to request suite check run from git-bot: %w", err)
 	}
@@ -5821,7 +5598,7 @@ func (a *App) createGitHubCheckRun(owner, repo, ref string, pipelineDef []byte, 
 	body, _ := json.Marshal(payload)
 
 	url := fmt.Sprintf("%s/v1/checks/create", a.cfg.NopsaiGitBotAPIURL)
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	resp, err := a.postJSON(url, body)
 	if err != nil {
 		return 0, err
 	}
@@ -5841,6 +5618,48 @@ func (a *App) createGitHubCheckRun(owner, repo, ref string, pipelineDef []byte, 
 	return out.CheckRunID, nil
 }
 
+func (a *App) ensureCheckRunAsync(runID uuid.UUID, pipeline models.Pipeline, resolvedPipelineDef []byte, gitCtx map[string]string, pipelineSource string, isRerun bool) {
+	owner := strings.TrimSpace(gitCtx["repo_owner"])
+	repo := strings.TrimSpace(gitCtx["repo_name"])
+	commitSHA := strings.TrimSpace(gitCtx["commit_sha"])
+	checkRunIDStr := strings.TrimSpace(gitCtx["check_run_id"])
+	if owner == "" || repo == "" || commitSHA == "" {
+		return
+	}
+
+	go func() {
+		ctx := context.Background()
+		if checkRunIDStr != "" {
+			checkRunID, err := strconv.ParseInt(checkRunIDStr, 10, 64)
+			if err != nil {
+				log.Warn().Err(err).Str("check_run_id", checkRunIDStr).Msg("Invalid check run ID provided; skipping initialization")
+				return
+			}
+			if isRerun {
+				if err := a.initializeGitHubCheckRun(owner, repo, checkRunID, resolvedPipelineDef, pipeline.Name); err != nil {
+					log.Error().Err(err).Int64("check_run_id", checkRunID).Msg("Failed to initialize rerun check run (async)")
+				}
+			}
+			if _, err := a.db.Exec(ctx, "UPDATE pipeline_runs SET git_check_run_id = $1 WHERE run_id = $2", checkRunID, runID); err != nil {
+				log.Error().Err(err).Str("run_id", runID.String()).Int64("check_run_id", checkRunID).Msg("Failed to persist provided check run ID (async)")
+			}
+			return
+		}
+
+		checkRunID, err := a.createGitHubCheckRun(owner, repo, commitSHA, resolvedPipelineDef, pipelineSource)
+		if err != nil {
+			log.Error().Err(err).Str("run_id", runID.String()).Msg("Failed to create check run (async)")
+			return
+		}
+
+		if _, err := a.db.Exec(ctx, "UPDATE pipeline_runs SET git_check_run_id = $1 WHERE run_id = $2", checkRunID, runID); err != nil {
+			log.Error().Err(err).Str("run_id", runID.String()).Int64("check_run_id", checkRunID).Msg("Failed to persist check run ID (async)")
+		} else {
+			log.Info().Str("run_id", runID.String()).Int64("check_run_id", checkRunID).Msg("Attached check run to pipeline run (async)")
+		}
+	}()
+}
+
 func (a *App) initializeGitHubCheckRun(owner, repo string, checkRunID int64, pipelineDef []byte, pipelineName string) error {
 	payload := map[string]interface{}{
 		"owner":               owner,
@@ -5852,7 +5671,7 @@ func (a *App) initializeGitHubCheckRun(owner, repo string, checkRunID int64, pip
 	body, _ := json.Marshal(payload)
 
 	url := fmt.Sprintf("%s/v1/checks/initialize", a.cfg.NopsaiGitBotAPIURL)
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	resp, err := a.postJSON(url, body)
 	if err != nil {
 		return err
 	}
@@ -5877,7 +5696,7 @@ func (a *App) cancelStaleCheckRuns(owner, repo, beforeSHA string) {
 	body, _ := json.Marshal(payload)
 
 	url := fmt.Sprintf("%s/v1/checks/cancel-stale", a.cfg.NopsaiGitBotAPIURL)
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	resp, err := a.postJSON(url, body)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to request stale check run cancellation")
 		return
@@ -6239,11 +6058,13 @@ func main() {
 	go hub.run()
 
 	app := &App{
-		db:     dbpool,
-		cfg:    cfg,
-		cli:    cli,
-		encKey: key[:],
-		hub:    hub,
+		db:         dbpool,
+		cfg:        cfg,
+		cli:        cli,
+		encKey:     key[:],
+		hub:        hub,
+		httpClient: &http.Client{Timeout: 10 * time.Second},
+		store:      store.NewPGStore(dbpool),
 	}
 
 	mux := http.NewServeMux()
