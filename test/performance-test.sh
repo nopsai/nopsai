@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # --- Configuration ---
-NUM_RUNS=10
+NUM_RUNS=$1
 NOPSAI_API_URL="http://localhost:8080"
 WEBHOOK_URL="http://localhost:8081/webhook"
 PAYLOAD_FILE="../doc/sample-git-event.json"
@@ -215,6 +215,7 @@ pids=()
 for (( i=1; i<=$NUM_RUNS; i++ )); do
   run_and_watch_family "$i" "$TMP_DIR/run_$i.log" &
   pids+=($!)
+  sleep 1s
 done
 
 # 6. Wait for all background jobs (the watchers) to complete

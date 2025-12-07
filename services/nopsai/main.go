@@ -5134,6 +5134,16 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		return
 	}
 
+	if strings.TrimSpace(a.cfg.GeminiAPIKey) == "" || strings.TrimSpace(a.cfg.GeminiModel) == "" {
+		reason := "Gemini configuration missing (GEMINI_API_KEY / GEMINI_MODEL)"
+		log.Error().Str("run_id", runID).Msg(reason)
+		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", reason, runID)
+		if gitContext["repo_owner"] != "" {
+			a.notifyGitBotOfFinalStatus("failure", "", "", reason, gitContext)
+		}
+		return
+	}
+
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Error creating Docker client")
@@ -5174,7 +5184,8 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		fmt.Sprintf("RUN_ID=%s", runID),
 		fmt.Sprintf("PIPELINE_NAME=%s", pipeline.Name),
 		fmt.Sprintf("PIPELINE_VERSION=%s", pipeline.Version),
-		fmt.Sprintf("LLM_AGENT_ADDRESS=%s", a.cfg.AgentLlmAgentAddress),
+		fmt.Sprintf("GEMINI_API_KEY=%s", a.cfg.GeminiAPIKey),
+		fmt.Sprintf("GEMINI_MODEL=%s", a.cfg.GeminiModel),
 		fmt.Sprintf("NOPSAI_API_URL=%s", a.cfg.AgentNopsaiAPIURL),
 		fmt.Sprintf("LOG_LEVEL=%s", a.cfg.LogLevel),
 		fmt.Sprintf("LOG_FORMAT=%s", a.cfg.LogFormat),
@@ -5185,6 +5196,9 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	}
 	if timeout > 0 {
 		envVars = append(envVars, fmt.Sprintf("PIPELINE_TIMEOUT=%s", timeout.String()))
+	}
+	if a.cfg.LLMAgentTimeout != "" {
+		envVars = append(envVars, fmt.Sprintf("LLM_AGENT_TIMEOUT=%s", a.cfg.LLMAgentTimeout))
 	}
 	if parentHistory != "" {
 		envVars = append(envVars, fmt.Sprintf("PARENT_EXECUTION_HISTORY=%s", parentHistory))
