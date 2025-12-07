@@ -32,6 +32,7 @@ import (
 type GitBotApp struct {
 	cfg            *config.Config
 	ghClient       *github.Client
+	httpClient     *http.Client
 	webhookSecret  string
 	checkRunStates map[int64]*CheckRunState
 	stateLock      sync.Mutex
@@ -653,7 +654,12 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Header.Set("X-Nopsai-Forwarded-By", "git-bot")
 
-	resp, err := http.DefaultClient.Do(req)
+	client := a.httpClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to forward event to nopsai")
 		http.Error(w, "Failed to forward event", http.StatusBadGateway)
@@ -1383,11 +1389,17 @@ func main() {
 	}
 
 	installationTransport := ghinstallation.NewFromAppsTransport(itr, installationID)
-	ghClient := github.NewClient(&http.Client{Transport: installationTransport})
+	githubHTTPClient := &http.Client{
+		Transport: installationTransport,
+		Timeout:   15 * time.Second,
+	}
+	ghClient := github.NewClient(githubHTTPClient)
+	httpClient := &http.Client{Timeout: 10 * time.Second}
 
 	app := &GitBotApp{
 		cfg:            cfg,
 		ghClient:       ghClient,
+		httpClient:     httpClient,
 		webhookSecret:  cfg.GitHubWebhookSecret,
 		checkRunStates: make(map[int64]*CheckRunState),
 		githubAppID:    appID,
