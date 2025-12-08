@@ -217,7 +217,7 @@
         const previousMap = state.scopeMap instanceof Map ? state.scopeMap : new Map();
         const previousExpanded = state.sidebarExpanded instanceof Set ? new Set(state.sidebarExpanded) : new Set(['']);
         const secretScopes = await fetchSecretScopes();
-        const variableScopes = await fetchEnvironmentScopeLabels();
+        const variableScopes = await fetchVariableScopeLabels();
 
         const scopeMeta = new Map();
         const ensureMeta = (label) => {
@@ -312,13 +312,13 @@
         return [];
     }
 
-    async function fetchEnvironmentScopeLabels() {
+    async function fetchVariableScopeLabels() {
         if (!context || typeof context.fetchData !== 'function') return [];
         try {
             const response = await context.fetchData('/v1/variables/scopes');
             if (Array.isArray(response)) {
                 return response
-                    .map(entry => normalizeEnvironmentScopeEntry(entry))
+                    .map(entry => normalizeVariableScopeEntry(entry))
                     .filter(label => label !== null);
             }
         } catch (error) {
@@ -327,7 +327,7 @@
         return [];
     }
 
-    function normalizeEnvironmentScopeEntry(entry) {
+    function normalizeVariableScopeEntry(entry) {
         if (entry == null) {
             return '';
         }
@@ -3094,24 +3094,34 @@ function renderScopeCategoryCard(scope, category) {
         if (!details || typeof details !== 'object') return [];
         const variables = new Set();
 
-        function collectFromEnvironment(env) {
-            if (!env || typeof env !== 'object') return;
-            Object.keys(env).forEach(key => {
-                if (!key) return;
-                const value = env[key];
-                if (value && typeof value === 'string') {
+        function collectFromVariables(env) {
+            if (!env) return;
+            if (Array.isArray(env)) {
+                env.forEach(item => {
+                    if (typeof item === 'string' && item.trim()) {
+                        variables.add(item.trim());
+                    }
+                });
+                return;
+            }
+            if (typeof env !== 'object') return;
+            Object.entries(env).forEach(([key, value]) => {
+                if (typeof key === 'string' && key.trim()) {
+                    variables.add(key.trim());
+                }
+                if (typeof value === 'string' && value.trim()) {
                     variables.add(value.trim());
                 }
             });
         }
 
-        collectFromEnvironment(details.environment);
+        collectFromVariables(details.variables);
 
         if (Array.isArray(details.steps)) {
             details.steps.forEach(step => {
-                collectFromEnvironment(step?.environment);
+                collectFromVariables(step?.variables);
                 if (Array.isArray(step?.tasks)) {
-                    step.tasks.forEach(task => collectFromEnvironment(task?.environment));
+                    step.tasks.forEach(task => collectFromVariables(task?.variables));
                 }
             });
         }

@@ -20,7 +20,7 @@
         cloneContext: null,
         autocomplete: {
             secrets: [],
-            environments: [],
+            variables: [],
             reusableSteps: [],
             fetchedAt: 0,
             isLoading: false,
@@ -31,11 +31,11 @@
         editorSuggestionIndex: -1,
         editorValidationErrors: [],
         beforeUnloadHandler: null,
-        environmentSuggestions: [],
-        environmentSuggestionCache: new Map(),
-        environmentSuggestionPromise: null,
-        environmentSuggestionLoadedAt: 0,
-        environmentSuggestionActiveKey: null,
+        variableSuggestions: [],
+        variableSuggestionCache: new Map(),
+        variableSuggestionPromise: null,
+        variableSuggestionLoadedAt: 0,
+        variableSuggestionActiveKey: null,
         editorPanelMode: null,
         editorPanelContext: null,
         lastEditorSelection: null,
@@ -62,7 +62,7 @@
         { key: 'description', hint: 'Human readable summary' },
         { key: 'container_image', hint: 'Default container image' },
         { key: 'working_directory', hint: 'Default working directory' },
-        { key: 'environment', hint: 'Global environment variables' },
+        { key: 'variables', hint: 'Global variables' },
         { key: 'steps', hint: 'List pipeline steps' },
         { key: 'timeout', hint: 'Pipeline timeout' },
         { key: 'llm_output_sharing', hint: 'Share LLM outputs across steps' },
@@ -77,7 +77,7 @@
         { key: 'image', hint: 'Override container image' },
         { key: 'secrets', hint: 'Step secrets' },
         { key: 'volumes', hint: 'Step volumes' },
-        { key: 'environment', hint: 'Step environment variables' },
+        { key: 'variables', hint: 'Step variables' },
         { key: 'tasks', hint: 'Nested task list' },
         { key: 'condition', hint: 'Conditional execution' },
         { key: 'goal', hint: 'LLM goal prompt' },
@@ -105,7 +105,7 @@
     };
     const LIST_KEYS_WITH_NAME_TEMPLATE = new Set(['steps', 'tasks']);
     const LIST_KEYS_SIMPLE = new Set([
-        'secrets', 'volumes', 'depends_on', 'artifacts', 'environment', 'llm_content_ignore',
+        'secrets', 'volumes', 'depends_on', 'artifacts', 'variables', 'llm_content_ignore',
     ]);
 
     function resetPipelineSources() {
@@ -1081,13 +1081,13 @@
         const promise = (async () => {
             state.autocomplete.isLoading = true;
             try {
-                const [secrets, envs, steps] = await Promise.all([
+                const [secrets, vars, steps] = await Promise.all([
                     context.fetchData('/v1/secrets'),
                     context.fetchData('/v1/variables'),
                     context.fetchData('/v1/steps'),
                 ]);
                 state.autocomplete.secrets = normalizeAutocompleteList(secrets);
-                state.autocomplete.environments = normalizeAutocompleteList(envs);
+                state.autocomplete.variables = normalizeAutocompleteList(vars);
                 state.autocomplete.reusableSteps = normalizeAutocompleteList(steps);
                 state.autocomplete.fetchedAt = Date.now();
             } catch (error) {
@@ -2316,40 +2316,40 @@ function formatPathLabel(path) {
         }
     }
 
-    function renderPipelineEnvironmentSuggestions() {
+    function renderPipelineVariableSuggestions() {
         const panel = DOM['pipeline-suggestion-panel'];
         const list = DOM['pipeline-suggestion-list'];
         const emptyState = DOM['pipeline-suggestion-empty'];
         if (!panel || !list || !emptyState) return;
 
-        if (!state.isEditing || state.editorPanelMode !== 'environment') {
+        if (!state.isEditing || state.editorPanelMode !== 'variables') {
             return;
         }
 
         updatePipelineSuggestionPanelVisibility();
         setPipelineSuggestionPanelCopy({
-            title: 'Environment variables by scope',
-            subtitle: 'Compare existing environment variables while editing your pipeline.',
+            title: 'Variables by scope',
+            subtitle: 'Compare existing variables while editing your pipeline.',
             footnote: 'Click any variable to insert it into the pipeline definition.',
         });
 
-        if (state.environmentSuggestionPromise && !state.environmentSuggestions.length) {
-            emptyState.textContent = 'Loading environment variables…';
+        if (state.variableSuggestionPromise && !state.variableSuggestions.length) {
+            emptyState.textContent = 'Loading variables…';
             emptyState.classList.remove('hidden');
             list.innerHTML = '';
             return;
         }
 
-        if (!state.environmentSuggestions.length) {
-            emptyState.textContent = 'No environment variables available yet.';
+        if (!state.variableSuggestions.length) {
+            emptyState.textContent = 'No variables available yet.';
             emptyState.classList.remove('hidden');
             list.innerHTML = '';
             return;
         }
 
         emptyState.classList.add('hidden');
-        const activeKey = state.environmentSuggestionActiveKey;
-        const cards = state.environmentSuggestions.map(entry => {
+        const activeKey = state.variableSuggestionActiveKey;
+        const cards = state.variableSuggestions.map(entry => {
             const pills = entry.preview.map(name => {
                 const valueAttr = escapeAttribute(name);
                 return `<button type="button" class="env-suggestion-pill env-suggestion-pill--action" data-pipeline-suggestion="${valueAttr}">${escapeHtml(name)}</button>`;
@@ -2550,7 +2550,7 @@ function formatPathLabel(path) {
 
     function insertPipelineSuggestionValue(value) {
         if (!state.isEditing || !DOM['pipeline-yaml-editor']) {
-            showToast('Enter edit mode to insert environment variables.', 'info');
+            showToast('Enter edit mode to insert variables.', 'info');
             return;
         }
         const textarea = DOM['pipeline-yaml-editor'];
@@ -2559,7 +2559,7 @@ function formatPathLabel(path) {
         const end = textarea.selectionEnd ?? start;
         const before = textarea.value.slice(0, start);
         const after = textarea.value.slice(end);
-        const identity = parseEnvironmentVariableIdentity(value);
+        const identity = parseVariableIdentity(value);
         const insertion = identity.name || value;
         textarea.value = before + insertion + after;
         const caret = start + insertion.length;
@@ -2625,17 +2625,17 @@ function formatPathLabel(path) {
     }
 
     function setPipelineSuggestionPanelMode(mode, options = {}) {
-        const normalized = (mode === 'environment' || mode === 'directive' || mode === 'include' || mode === 'secrets') ? mode : null;
+        const normalized = (mode === 'variables' || mode === 'directive' || mode === 'include' || mode === 'secrets') ? mode : null;
         state.editorPanelMode = normalized;
         state.editorPanelContext = normalized ? { ...(options || {}) } : null;
         updatePipelineSuggestionPanelVisibility();
         if (!normalized) {
             return;
         }
-        if (normalized === 'environment') {
-            renderPipelineEnvironmentSuggestions();
-            if (!state.environmentSuggestions.length && !state.environmentSuggestionPromise) {
-                ensureEnvironmentSuggestionData().catch(error => console.error('Failed to preload environment suggestions:', error));
+        if (normalized === 'variables') {
+            renderPipelineVariableSuggestions();
+            if (!state.variableSuggestions.length && !state.variableSuggestionPromise) {
+                ensureVariableSuggestionData().catch(error => console.error('Failed to preload variable suggestions:', error));
             }
         } else if (normalized === 'secrets') {
             renderPipelineSecretSuggestions();
@@ -2711,7 +2711,7 @@ function formatPathLabel(path) {
         }
     }
 
-    function parseEnvironmentVariableIdentity(rawValue) {
+    function parseVariableIdentity(rawValue) {
         const parts = String(rawValue || '').split('/').filter(Boolean);
         if (parts.length === 3) {
             return { repoOwner: parts[0], repoName: parts[1], name: parts[2] };
@@ -2719,50 +2719,50 @@ function formatPathLabel(path) {
         return { repoOwner: null, repoName: null, name: String(rawValue || '') };
     }
 
-    async function ensureEnvironmentSuggestionData(force = false) {
+    async function ensureVariableSuggestionData(force = false) {
         if (!context || typeof context.fetchData !== 'function') {
             return [];
         }
-        if (!force && state.environmentSuggestions.length) {
-            return state.environmentSuggestions;
+        if (!force && state.variableSuggestions.length) {
+            return state.variableSuggestions;
         }
-        if (state.environmentSuggestionPromise) {
-            return state.environmentSuggestionPromise;
+        if (state.variableSuggestionPromise) {
+            return state.variableSuggestionPromise;
         }
 
         const promise = (async () => {
-            const labels = await fetchEnvironmentScopeLabels();
+            const labels = await fetchVariableScopeLabels();
             const summaries = [];
             for (const label of labels) {
-                const variables = await fetchEnvironmentVariablesForLabel(label, force);
+                const variables = await fetchVariablesForLabel(label, force);
                 summaries.push({
-                    key: buildEnvironmentScopeKey(label),
+                    key: buildVariableScopeKey(label),
                     label: label ? `/${label}` : '/ (default)',
                     count: variables.length,
                     preview: variables.slice(0, 5),
                 });
             }
-            state.environmentSuggestions = summaries;
-            state.environmentSuggestionLoadedAt = Date.now();
+            state.variableSuggestions = summaries;
+            state.variableSuggestionLoadedAt = Date.now();
             return summaries;
         })();
 
-        state.environmentSuggestionPromise = promise;
+        state.variableSuggestionPromise = promise;
         try {
             const result = await promise;
-            renderPipelineEnvironmentSuggestions();
+            renderPipelineVariableSuggestions();
             return result;
         } catch (error) {
-            console.error('Failed to load environment suggestions for pipelines editor:', error);
-            state.environmentSuggestions = [];
-            renderPipelineEnvironmentSuggestions();
+            console.error('Failed to load variable suggestions for pipelines editor:', error);
+            state.variableSuggestions = [];
+            renderPipelineVariableSuggestions();
             throw error;
         } finally {
-            state.environmentSuggestionPromise = null;
+            state.variableSuggestionPromise = null;
         }
     }
 
-    async function fetchEnvironmentScopeLabels() {
+    async function fetchVariableScopeLabels() {
         const labels = new Set(['']);
         if (!context || typeof context.fetchData !== 'function') {
             return Array.from(labels);
@@ -2771,14 +2771,14 @@ function formatPathLabel(path) {
             const response = await context.fetchData('/v1/variables/scopes');
             if (Array.isArray(response)) {
                 response.forEach(entry => {
-                    const normalized = normalizeEnvironmentScopeLabel(entry);
+                    const normalized = normalizeVariableScopeLabel(entry);
                     if (normalized !== null && normalized !== undefined) {
                         labels.add(normalized);
                     }
                 });
             }
         } catch (error) {
-            console.error('Failed to fetch environment scope list for suggestions:', error);
+            console.error('Failed to fetch variable scope list for suggestions:', error);
         }
         return Array.from(labels).sort((a, b) => {
             if (a === b) return 0;
@@ -2788,7 +2788,7 @@ function formatPathLabel(path) {
         });
     }
 
-    function normalizeEnvironmentScopeLabel(entry) {
+    function normalizeVariableScopeLabel(entry) {
         if (entry == null) {
             return '';
         }
@@ -2802,14 +2802,14 @@ function formatPathLabel(path) {
         return '';
     }
 
-    function buildEnvironmentScopeKey(label) {
+    function buildVariableScopeKey(label) {
         return `env:${label || ''}`;
     }
 
-    async function fetchEnvironmentVariablesForLabel(label, force = false) {
+    async function fetchVariablesForLabel(label, force = false) {
         const normalized = typeof label === 'string' ? label : '';
-        if (!force && state.environmentSuggestionCache instanceof Map && state.environmentSuggestionCache.has(normalized)) {
-            return state.environmentSuggestionCache.get(normalized);
+        if (!force && state.variableSuggestionCache instanceof Map && state.variableSuggestionCache.has(normalized)) {
+            return state.variableSuggestionCache.get(normalized);
         }
         if (!context || typeof context.fetchData !== 'function') {
             return [];
@@ -2829,13 +2829,13 @@ function formatPathLabel(path) {
                 }
                 return '';
             }).filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-            if (!(state.environmentSuggestionCache instanceof Map)) {
-                state.environmentSuggestionCache = new Map();
+            if (!(state.variableSuggestionCache instanceof Map)) {
+                state.variableSuggestionCache = new Map();
             }
-            state.environmentSuggestionCache.set(normalized, variables);
+            state.variableSuggestionCache.set(normalized, variables);
             return variables;
         } catch (error) {
-            console.error(`Failed to load environment variables for '/${normalized || ''}':`, error);
+            console.error(`Failed to load variables for '/${normalized || ''}':`, error);
             return [];
         }
     }
@@ -2873,7 +2873,7 @@ function formatPathLabel(path) {
         ensureEditorSuggestionOverlay();
         updateEditorSuggestions();
         preloadAutocompleteMetadata().catch(() => {});
-        ensureEnvironmentSuggestionData().catch(error => console.error('Failed to load environment suggestions:', error));
+        ensureVariableSuggestionData().catch(error => console.error('Failed to load variable suggestions:', error));
     }
 
     function exitEditMode() {
@@ -3578,8 +3578,8 @@ function formatPathLabel(path) {
             return;
         }
 
-        if (contextInfo.type === 'environment') {
-            setPipelineSuggestionPanelMode('environment');
+        if (contextInfo.type === 'variables') {
+            setPipelineSuggestionPanelMode('variables');
         } else if (contextInfo.type === 'secrets') {
             setPipelineSuggestionPanelMode('secrets');
         } else if (contextInfo.type === 'include') {
@@ -3591,7 +3591,7 @@ function formatPathLabel(path) {
         }
 
         const requiresMetadata = contextInfo.type === 'secrets'
-            || contextInfo.type === 'environment'
+            || contextInfo.type === 'variables'
             || contextInfo.type === 'reusable-step'
             || contextInfo.type === 'include';
 
@@ -3599,8 +3599,8 @@ function formatPathLabel(path) {
             let poolSize;
             if (contextInfo.type === 'secrets') {
                 poolSize = state.autocomplete.secrets.length;
-            } else if (contextInfo.type === 'environment') {
-                poolSize = state.autocomplete.environments.length;
+            } else if (contextInfo.type === 'variables') {
+                poolSize = state.autocomplete.variables.length;
             } else if (contextInfo.type === 'reusable-step') {
                 poolSize = state.autocomplete.reusableSteps.length;
             } else {
@@ -3663,9 +3663,9 @@ function formatPathLabel(path) {
             return { ...secretsList, type: 'secrets', title: 'Secrets', insertSuffix: '' };
         }
 
-        const environmentContext = detectEnvironmentContext(lineInfo, selectionEnd, beforeLine);
-        if (environmentContext) {
-            return environmentContext;
+        const variableContext = detectVariableContext(lineInfo, selectionEnd, beforeLine);
+        if (variableContext) {
+            return variableContext;
         }
 
         const valueContext = detectDirectiveValueContext(lineInfo, selectionEnd);
@@ -3698,9 +3698,9 @@ function formatPathLabel(path) {
         };
     }
 
-    function detectEnvironmentContext(lineInfo, selectionEnd, beforeLine) {
-        const parent = findParentBlock(beforeLine, ['environment'], lineInfo.indent);
-        if (parent !== 'environment') {
+    function detectVariableContext(lineInfo, selectionEnd, beforeLine) {
+        const parent = findParentBlock(beforeLine, ['variables'], lineInfo.indent);
+        if (parent !== 'variables') {
             return null;
         }
 
@@ -3716,8 +3716,8 @@ function formatPathLabel(path) {
             const rangeStart = lineInfo.start + valueStartLocal + relativeOffset;
             const safeRangeEnd = Math.max(rangeStart, selectionEnd);
             return {
-                type: 'environment',
-                title: 'Environment keys',
+                type: 'variables',
+                title: 'Variables',
                 prefix: trimmedValue,
                 rangeStart,
                 rangeEnd: safeRangeEnd,
@@ -3734,8 +3734,8 @@ function formatPathLabel(path) {
         const computedRangeEnd = hasColon && colonIndex < selectionEnd ? lineInfo.start + colonIndex : selectionEnd;
         const safeRangeEnd = Math.max(lineInfo.start + lineInfo.indent, computedRangeEnd);
         return {
-            type: 'environment',
-            title: 'Environment keys',
+            type: 'variables',
+            title: 'Variables',
             prefix,
             rangeStart: lineInfo.start + lineInfo.indent,
             rangeEnd: safeRangeEnd,
@@ -4107,8 +4107,8 @@ function formatPathLabel(path) {
             const secrets = state.autocomplete.secrets.map(name => ({ value: name, label: name }));
             return filterSuggestionPool(secrets, prefix);
         }
-        if (contextInfo.type === 'environment') {
-            const envs = state.autocomplete.environments.map(name => ({ value: name, label: name }));
+        if (contextInfo.type === 'variables') {
+            const envs = state.autocomplete.variables.map(name => ({ value: name, label: name }));
             return filterSuggestionPool(envs, prefix);
         }
         if (contextInfo.type === 'reusable-step') {
@@ -4266,7 +4266,7 @@ function formatPathLabel(path) {
         return Array.from(names);
     }
 
-    const ARRAY_KEYS = new Set(['steps', 'tasks', 'environment', 'secrets', 'volumes', 'depends_on', 'artifacts', 'llm_content_ignore']);
+    const ARRAY_KEYS = new Set(['steps', 'tasks', 'variables', 'secrets', 'volumes', 'depends_on', 'artifacts', 'llm_content_ignore']);
 
     const VALIDATION_EXAMPLES = [
         {
@@ -4658,7 +4658,7 @@ function formatPathLabel(path) {
     }
 
     function buildDefaultPipelineYaml(name) {
-        return `name: ${name}\nversion: latest\ndescription: Describe what this pipeline does.\ncontainer_image: alpine:3.19\nsteps:\n  - name: build\n    goal: |\n      Replace this with build instructions for ${name}.\n`;
+        return `name: ${name}\nversion: latest\ndescription: Describe what this pipeline does.\ncontainer_image: alpine:3.19\nvariables:\n  - SAMPLE_VAR\nsteps:\n  - name: build\n    goal: |\n      Replace this with build instructions for ${name}.\n`;
     }
 
     function generateCloneName(originalName) {
@@ -4853,8 +4853,8 @@ function formatPathLabel(path) {
 
         const pathIndex = buildYamlPathIndex(yamlString);
 
-        const knownPipelineKeys = new Set(['name', 'version', 'description', 'container_image', 'display_options', 'working_directory', 'environment', 'steps', 'timeout', 'llm_content_sharing', 'llm_output_sharing', 'llm_content_ignore']);
-        const knownStepKeys = new Set(['name', 'include', 'sync', 'image', 'secrets', 'volumes', 'environment', 'tasks', 'condition', 'goal', 'script', 'depends_on', 'ignore_failure', 'llm_output_sharing']);
+        const knownPipelineKeys = new Set(['name', 'version', 'description', 'container_image', 'display_options', 'working_directory', 'variables', 'steps', 'timeout', 'llm_content_sharing', 'llm_output_sharing', 'llm_content_ignore']);
+        const knownStepKeys = new Set(['name', 'include', 'sync', 'image', 'secrets', 'volumes', 'variables', 'tasks', 'condition', 'goal', 'script', 'depends_on', 'ignore_failure', 'llm_output_sharing']);
         const knownTaskKeys = new Set(['name', 'goal', 'script', 'depends_on', 'ignore_failure', 'llm_output_sharing']);
         const knownDisplayOptionsKeys = new Set(['github_view']);
 
@@ -4894,7 +4894,6 @@ function formatPathLabel(path) {
 
         function checkAllKeys(pipeline) {
             let allUnknown = findUnknownKeys(pipeline, knownPipelineKeys);
-
             if (pipeline.display_options) {
                 allUnknown = allUnknown.concat(findUnknownKeys(pipeline.display_options, knownDisplayOptionsKeys, 'display_options'));
             }
@@ -4921,9 +4920,7 @@ function formatPathLabel(path) {
 
             const unknownKeys = checkAllKeys(pipeline);
             if (unknownKeys.length > 0) {
-                return {
-                    errors: unknownKeys.map(item => createError(`Validation Error: Unknown field '${item.key}'.`, [item.path]))
-                };
+                return { errors: unknownKeys.map(item => createError(`Validation Error: Unknown field '${item.key}'.`, [item.path])) };
             }
             if (!pipeline.name) return { errors: [createError("Validation Error: 'name' is a required field.", ['name'])] };
             const allowed = /^[a-zA-Z0-9_.-]+$/;

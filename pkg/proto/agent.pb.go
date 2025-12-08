@@ -26,7 +26,7 @@ type ConditionRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Goal          string                 `protobuf:"bytes,1,opt,name=goal,proto3" json:"goal,omitempty"`
 	History       string                 `protobuf:"bytes,2,opt,name=history,proto3" json:"history,omitempty"`
-	Environment   map[string]string      `protobuf:"bytes,3,rep,name=environment,proto3" json:"environment,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Variables     map[string]string      `protobuf:"bytes,3,rep,name=variables,proto3" json:"variables,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -75,9 +75,9 @@ func (x *ConditionRequest) GetHistory() string {
 	return ""
 }
 
-func (x *ConditionRequest) GetEnvironment() map[string]string {
+func (x *ConditionRequest) GetVariables() map[string]string {
 	if x != nil {
-		return x.Environment
+		return x.Variables
 	}
 	return nil
 }
@@ -133,7 +133,7 @@ type GetActionRequest struct {
 	Goal             string                 `protobuf:"bytes,1,opt,name=goal,proto3" json:"goal,omitempty"`
 	History          string                 `protobuf:"bytes,2,opt,name=history,proto3" json:"history,omitempty"`
 	DirectoryListing map[string]string      `protobuf:"bytes,3,rep,name=directory_listing,json=directoryListing,proto3" json:"directory_listing,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Environment      map[string]string      `protobuf:"bytes,4,rep,name=environment,proto3" json:"environment,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Variables        map[string]string      `protobuf:"bytes,4,rep,name=variables,proto3" json:"variables,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -189,9 +189,9 @@ func (x *GetActionRequest) GetDirectoryListing() map[string]string {
 	return nil
 }
 
-func (x *GetActionRequest) GetEnvironment() map[string]string {
+func (x *GetActionRequest) GetVariables() map[string]string {
 	if x != nil {
-		return x.Environment
+		return x.Variables
 	}
 	return nil
 }
@@ -447,25 +447,25 @@ var File_pkg_proto_agent_proto protoreflect.FileDescriptor
 
 const file_pkg_proto_agent_proto_rawDesc = "" +
 	"\n" +
-	"\x15pkg/proto/agent.proto\x12\x05proto\"\xcc\x01\n" +
+	"\x15pkg/proto/agent.proto\x12\x05proto\"\xc4\x01\n" +
 	"\x10ConditionRequest\x12\x12\n" +
 	"\x04goal\x18\x01 \x01(\tR\x04goal\x12\x18\n" +
-	"\ahistory\x18\x02 \x01(\tR\ahistory\x12J\n" +
-	"\venvironment\x18\x03 \x03(\v2(.proto.ConditionRequest.EnvironmentEntryR\venvironment\x1a>\n" +
-	"\x10EnvironmentEntry\x12\x10\n" +
+	"\ahistory\x18\x02 \x01(\tR\ahistory\x12D\n" +
+	"\tvariables\x18\x03 \x03(\v2&.proto.ConditionRequest.VariablesEntryR\tvariables\x1a<\n" +
+	"\x0eVariablesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"+\n" +
 	"\x11ConditionResponse\x12\x16\n" +
-	"\x06result\x18\x01 \x01(\bR\x06result\"\xed\x02\n" +
+	"\x06result\x18\x01 \x01(\bR\x06result\"\xe5\x02\n" +
 	"\x10GetActionRequest\x12\x12\n" +
 	"\x04goal\x18\x01 \x01(\tR\x04goal\x12\x18\n" +
 	"\ahistory\x18\x02 \x01(\tR\ahistory\x12Z\n" +
-	"\x11directory_listing\x18\x03 \x03(\v2-.proto.GetActionRequest.DirectoryListingEntryR\x10directoryListing\x12J\n" +
-	"\venvironment\x18\x04 \x03(\v2(.proto.GetActionRequest.EnvironmentEntryR\venvironment\x1aC\n" +
+	"\x11directory_listing\x18\x03 \x03(\v2-.proto.GetActionRequest.DirectoryListingEntryR\x10directoryListing\x12D\n" +
+	"\tvariables\x18\x04 \x03(\v2&.proto.GetActionRequest.VariablesEntryR\tvariables\x1aC\n" +
 	"\x15DirectoryListingEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a>\n" +
-	"\x10EnvironmentEntry\x12\x10\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a<\n" +
+	"\x0eVariablesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd8\x01\n" +
 	"\x06Action\x12\x12\n" +
@@ -509,14 +509,14 @@ var file_pkg_proto_agent_proto_goTypes = []any{
 	(*CommandAction)(nil),     // 4: proto.CommandAction
 	(*FileAction)(nil),        // 5: proto.FileAction
 	(*AnswerAction)(nil),      // 6: proto.AnswerAction
-	nil,                       // 7: proto.ConditionRequest.EnvironmentEntry
+	nil,                       // 7: proto.ConditionRequest.VariablesEntry
 	nil,                       // 8: proto.GetActionRequest.DirectoryListingEntry
-	nil,                       // 9: proto.GetActionRequest.EnvironmentEntry
+	nil,                       // 9: proto.GetActionRequest.VariablesEntry
 }
 var file_pkg_proto_agent_proto_depIdxs = []int32{
-	7, // 0: proto.ConditionRequest.environment:type_name -> proto.ConditionRequest.EnvironmentEntry
+	7, // 0: proto.ConditionRequest.variables:type_name -> proto.ConditionRequest.VariablesEntry
 	8, // 1: proto.GetActionRequest.directory_listing:type_name -> proto.GetActionRequest.DirectoryListingEntry
-	9, // 2: proto.GetActionRequest.environment:type_name -> proto.GetActionRequest.EnvironmentEntry
+	9, // 2: proto.GetActionRequest.variables:type_name -> proto.GetActionRequest.VariablesEntry
 	4, // 3: proto.Action.command_action:type_name -> proto.CommandAction
 	5, // 4: proto.Action.file_action:type_name -> proto.FileAction
 	6, // 5: proto.Action.answer_action:type_name -> proto.AnswerAction

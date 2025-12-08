@@ -839,18 +839,18 @@ func run() int {
 					historySnapshot := history.String()
 					historyMutex.Unlock()
 
-					envMap := make(map[string]string)
+					varMap := make(map[string]string)
 					for _, e := range os.Environ() {
 						parts := strings.SplitN(e, "=", 2)
 						if len(parts) == 2 {
-							envMap[parts[0]] = parts[1]
+							varMap[parts[0]] = parts[1]
 						}
 					}
 
 					req := &proto.ConditionRequest{
-						Goal:        condition,
-						History:     historySnapshot,
-						Environment: envMap,
+						Goal:      condition,
+						History:   historySnapshot,
+						Variables: varMap,
 					}
 
 					var resp *proto.ConditionResponse
@@ -963,7 +963,7 @@ func run() int {
 
 				var stepEnvVars []string
 				requiredEnvKeys := make(map[string]struct{})
-				for _, key := range pipeline.Environment {
+				for _, key := range pipeline.Variables {
 					requiredEnvKeys[key] = struct{}{}
 				}
 
@@ -1142,11 +1142,11 @@ func run() int {
 					historySnapshot := history.String()
 					historyMutex.Unlock()
 
-					envMap := make(map[string]string)
+					varMap := make(map[string]string)
 					for _, e := range stepEnvVars {
 						parts := strings.SplitN(e, "=", 2)
 						if len(parts) == 2 {
-							envMap[parts[0]] = parts[1]
+							varMap[parts[0]] = parts[1]
 						}
 					}
 
@@ -1154,7 +1154,7 @@ func run() int {
 						Goal:             goalText,
 						History:          historySnapshot,
 						DirectoryListing: directoryListing,
-						Environment:      envMap,
+						Variables:        varMap,
 					}
 
 					actionStart := time.Now()
