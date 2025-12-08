@@ -85,6 +85,16 @@
         DOM['variable-create-inline'] = document.getElementById('variable-create-inline');
     }
 
+    function bindModalCancelButtons(modalId, handler) {
+        const modal = DOM[modalId] || document.getElementById(modalId);
+        if (!modal) {
+            return;
+        }
+        modal.querySelectorAll('[data-cancel]').forEach(button => {
+            button.addEventListener('click', handler);
+        });
+    }
+
     function attachEventListeners() {
         if (DOM['secret-search']) {
             DOM['secret-search'].addEventListener('input', handleSearchInput);
@@ -119,17 +129,11 @@
         if (DOM['secret-edit-form']) {
             DOM['secret-edit-form'].addEventListener('submit', handleSubmitSecret);
         }
-        const cancelEditBtn = DOM['secret-edit-modal']?.querySelector('[data-cancel]');
-        if (cancelEditBtn) {
-            cancelEditBtn.addEventListener('click', () => closeModal('secret-edit-modal'));
-        }
+        bindModalCancelButtons('secret-edit-modal', () => closeModal('secret-edit-modal'));
         if (DOM['secret-confirm-delete-btn']) {
             DOM['secret-confirm-delete-btn'].addEventListener('click', handleConfirmDelete);
         }
-        const cancelDeleteBtn = DOM['secret-delete-modal']?.querySelector('[data-cancel]');
-        if (cancelDeleteBtn) {
-            cancelDeleteBtn.addEventListener('click', () => closeModal('secret-delete-modal'));
-        }
+        bindModalCancelButtons('secret-delete-modal', () => closeModal('secret-delete-modal'));
         if (DOM['secret-list']) {
             DOM['secret-list'].addEventListener('click', handleSecretListClick);
             DOM['secret-list'].addEventListener('keydown', handleSecretListKeydown);
@@ -144,17 +148,11 @@
         if (DOM['variable-edit-form']) {
             DOM['variable-edit-form'].addEventListener('submit', handleSubmitVariable);
         }
-        const cancelVariableEditBtn = DOM['variable-edit-modal']?.querySelector('[data-cancel]');
-        if (cancelVariableEditBtn) {
-            cancelVariableEditBtn.addEventListener('click', () => closeModal('variable-edit-modal'));
-        }
+        bindModalCancelButtons('variable-edit-modal', () => closeModal('variable-edit-modal'));
         if (DOM['variable-confirm-delete-btn']) {
             DOM['variable-confirm-delete-btn'].addEventListener('click', handleConfirmVariableDelete);
         }
-        const cancelVariableDeleteBtn = DOM['variable-delete-modal']?.querySelector('[data-cancel]');
-        if (cancelVariableDeleteBtn) {
-            cancelVariableDeleteBtn.addEventListener('click', () => closeModal('variable-delete-modal'));
-        }
+        bindModalCancelButtons('variable-delete-modal', () => closeModal('variable-delete-modal'));
         if (DOM['scope-new-form']) {
             DOM['scope-new-form'].addEventListener('submit', handleCreateScope);
         }
