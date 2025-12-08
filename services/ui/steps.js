@@ -6,7 +6,7 @@
         { key: 'image', hint: 'Override container image' },
         { key: 'secrets', hint: 'Step secrets' },
         { key: 'volumes', hint: 'Mount volumes' },
-        { key: 'environment', hint: 'Step scope variables' },
+        { key: 'variables', hint: 'Step scope variables' },
         { key: 'tasks', hint: 'Nested tasks list' },
         { key: 'condition', hint: 'Conditional execution' },
         { key: 'goal', hint: 'LLM goal prompt' },
@@ -33,7 +33,7 @@
     const TASK_ALLOWED_KEYS = new Set(TASK_DIRECTIVES.map(def => def.key));
 
     const STEP_LIST_KEYS_WITH_NAME_TEMPLATE = new Set(['tasks']);
-    const STEP_LIST_KEYS_SIMPLE = new Set(['secrets', 'volumes', 'depends_on', 'environment', 'artifacts']);
+    const STEP_LIST_KEYS_SIMPLE = new Set(['secrets', 'volumes', 'depends_on', 'variables', 'artifacts']);
 
     const state = {
         steps: [],
@@ -1458,7 +1458,7 @@
         enableStepSuggestionOverlay();
 
         const loads = [];
-        if (mode === 'environment') {
+        if (mode === 'variables') {
             const needsEnvReload = forceLoad || !state.scopeVariableSuggestions.length || (Date.now() - state.scopeVariableSuggestionLoadedAt) > STEP_SUGGESTION_REFRESH_MS;
             if (needsEnvReload) {
                 loads.push(ensureScopeVariableSuggestions(forceLoad));
@@ -1655,7 +1655,7 @@
             return;
         }
 
-        if (mode === 'environment') {
+        if (mode === 'variables') {
             setStepSuggestionPanelCopy({
                 title: 'Scope variables',
                 subtitle: 'Select a variable name to insert it.',
@@ -1982,8 +1982,8 @@
         const beforeText = text.slice(0, lineInfo.start);
         const trimmedLine = lineInfo.line.trim();
 
-        if (trimmedLine.startsWith('environment:') || findNearestParentKey(beforeText, ['environment'], lineInfo.indent) === 'environment') {
-            return { mode: 'environment', key: 'environment' };
+        if (trimmedLine.startsWith('variables:') || findNearestParentKey(beforeText, ['variables'], lineInfo.indent) === 'variables') {
+            return { mode: 'variables', key: 'variables' };
         }
 
         if (trimmedLine.startsWith('secrets:') || findNearestParentKey(beforeText, ['secrets'], lineInfo.indent) === 'secrets') {
@@ -2190,7 +2190,6 @@
                     line: lineForKey(invalidStepKey) ?? 1,
                 };
             }
-
             const name = typeof parsed.name === 'string' ? parsed.name.trim() : '';
             if (!name) {
                 return { ok: false, message: "Step YAML must include a 'name' field.", line: lineForKey('name') ?? 1 };
@@ -2353,7 +2352,7 @@
     }
 
     function buildDefaultStepYaml(name) {
-        return `name: ${name}\ngoal: |\n  Describe what ${name} should accomplish.\nscript: |\n  echo "Implement ${name}"\n`;
+        return `name: ${name}\nvariables:\n  SAMPLE_VAR: "example-value"\ngoal: |\n  Describe what ${name} should accomplish.\nscript: |\n  echo "Implement ${name}"\n`;
     }
 
     function handleCreateStep(event) {

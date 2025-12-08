@@ -38,7 +38,7 @@ type StepConfiguration struct {
 	Sync             bool              `json:"sync"`
 	Secrets          []string          `json:"secrets,omitempty"`
 	Volumes          []string          `json:"volumes,omitempty"`
-	Environment      map[string]string `json:"environment,omitempty"`
+	Variables        map[string]string `json:"variables,omitempty"`
 	IgnoreFailure    bool              `json:"ignore_failure"`
 	LlmOutputSharing *bool             `json:"llm_output_sharing,omitempty"`
 	Tasks            []Task            `json:"tasks,omitempty"`

@@ -7,9 +7,9 @@ display_options:
 container_image: "pipeline-image:latest"
 working_directory: "/tmp/test"
 timeout: "20m"
-environment:
-  API_VERSION: "v1"
-  DOCKER_HOST: "tcp://192.168.1.16:2375"
+variables:
+  - API_VERSION
+  - DOCKER_HOST
 steps:
   - name: git-clone
     script: |
