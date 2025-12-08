@@ -814,12 +814,12 @@ func (a *App) handleGetRepoVariableValue(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(response)
 }
 
-func (a *App) prepareEnvironmentForPipeline(pipeline models.Pipeline, gitContext map[string]string, scope string) (map[string]string, error) {
-	finalEnv := make(map[string]string)
+func (a *App) prepareVariablesForPipeline(pipeline models.Pipeline, gitContext map[string]string, scope string) (map[string]string, error) {
+	finalVars := make(map[string]string)
 	repoFullName := fmt.Sprintf("%s/%s", gitContext["repo_owner"], gitContext["repo_name"])
 
-	// The 'environment' block from the YAML is now a list of required variable names.
-	requiredVars := pipeline.Environment
+	// The 'variables' block in the YAML is a list of required variable names.
+	requiredVars := pipeline.Variables
 
 	for _, varName := range requiredVars {
 		var value string
@@ -861,10 +861,10 @@ func (a *App) prepareEnvironmentForPipeline(pipeline models.Pipeline, gitContext
 			return nil, fmt.Errorf("pipeline aborted: required scope variable '%s' not found in the default scope", varName)
 		}
 
-		finalEnv[varName] = value
+		finalVars[varName] = value
 	}
 
-	return finalEnv, nil
+	return finalVars, nil
 }
 
 func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
@@ -1323,18 +1323,15 @@ func (a *App) handleConfigSync(w http.ResponseWriter, r *http.Request) {
 func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, error) {
 	details := map[string]int{
 		"pipelines_synced":    0,
-		"pipelines_deleted":   0,
 		"steps_synced":        0,
-		"steps_deleted":       0,
 		"general_vars_synced": 0,
 		"repo_vars_synced":    0,
-		"variables_deleted":   0,
 		"triggers_synced":     0,
-		"triggers_deleted":    0,
 		"run_groups_created":  0,
 		"run_groups_updated":  0,
 	}
 
+	// Git sync is additive: we upsert matching records and leave any DB-only entries untouched.
 	if a.cfg.ConfigRepoURL == "" {
 		return nil, fmt.Errorf("CONFIG_REPO_URL is not configured")
 	}
@@ -1564,27 +1561,6 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 	defer tx.Rollback(ctx)
 
 	// Load existing keys from DB
-	existingPipelines, err := loadExistingPipelineKeys(ctx, tx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load existing pipelines: %w", err)
-	}
-	existingSteps, err := loadExistingStepKeys(ctx, tx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load existing reusable steps: %w", err)
-	}
-	existingGeneralEnvs, err := loadExistingGeneralEnvs(ctx, tx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load existing variables: %w", err)
-	}
-	existingRepoEnvs, err := loadExistingRepoEnvs(ctx, tx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load existing repository variables: %w", err)
-	}
-	existingTriggers, err := loadExistingNames(ctx, tx, "SELECT repository_name FROM triggers")
-	if err != nil {
-		return nil, fmt.Errorf("failed to load existing trigger overrides: %w", err)
-	}
-
 	// Define SQL statements
 	const pipelineUpsert = `INSERT INTO pipelines (path, name, version, definition, source, updated_at) VALUES ($1, $2, $3, $4, 'git', NOW())
 		ON CONFLICT (path, name) DO UPDATE SET version = EXCLUDED.version, definition = EXCLUDED.definition, source = 'git', updated_at = NOW()`
@@ -1603,32 +1579,12 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 		details["pipelines_synced"]++
 	}
 
-	// Delete Pipelines
-	for key, info := range existingPipelines {
-		if _, ok := pipelines[key]; !ok {
-			if _, err := tx.Exec(ctx, "DELETE FROM pipelines WHERE path = $1 AND name = $2", info.path, info.name); err != nil {
-				return nil, fmt.Errorf("failed to delete pipeline '%s': %w", key, err)
-			}
-			details["pipelines_deleted"]++
-		}
-	}
-
 	// Upsert Steps
 	for key, stored := range steps {
 		if _, err := tx.Exec(ctx, stepUpsert, stored.path, stored.name, stored.definition); err != nil {
 			return nil, fmt.Errorf("failed to upsert reusable step '%s': %w", key, err)
 		}
 		details["steps_synced"]++
-	}
-
-	// Delete Steps
-	for key, info := range existingSteps {
-		if _, ok := steps[key]; !ok {
-			if _, err := tx.Exec(ctx, "DELETE FROM steps WHERE path = $1 AND name = $2", info.path, info.name); err != nil {
-				return nil, fmt.Errorf("failed to delete reusable step '%s': %w", key, err)
-			}
-			details["steps_deleted"]++
-		}
 	}
 
 	// Upsert General Envs
@@ -1655,48 +1611,11 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 		details["repo_vars_synced"]++
 	}
 
-	// Delete General Envs
-	for key := range existingGeneralEnvs {
-		if _, ok := generalEnvs[key]; !ok {
-			var envParam interface{}
-			if key.envPath != "" {
-				envParam = key.envPath
-			}
-			if _, err := tx.Exec(ctx, "DELETE FROM variables WHERE repository_name IS NULL AND name = $1 AND scope IS NOT DISTINCT FROM $2", key.name, envParam); err != nil {
-				return nil, fmt.Errorf("failed to delete variable '%s' for scope '%s': %w", key.name, key.envPath, err)
-			}
-			details["variables_deleted"]++
-		}
-	}
-
-	// Delete Repo Envs
-	for key := range existingRepoEnvs {
-		if _, ok := repoEnvs[key]; !ok {
-			var envParam interface{}
-			if key.envPath != "" {
-				envParam = key.envPath
-			}
-			if _, err := tx.Exec(ctx, "DELETE FROM variables WHERE repository_name = $1 AND name = $2 AND scope IS NOT DISTINCT FROM $3", key.repo, key.name, envParam); err != nil {
-				return nil, fmt.Errorf("failed to delete repository variable '%s' for repo '%s' scope '%s': %w", key.name, key.repo, key.envPath, err)
-			}
-			details["variables_deleted"]++
-		}
-	}
-
 	for repoName, definition := range triggers {
 		if _, err := tx.Exec(ctx, triggerUpsert, repoName, definition); err != nil {
 			return nil, fmt.Errorf("failed to upsert trigger override '%s': %w", repoName, err)
 		}
 		details["triggers_synced"]++
-	}
-
-	for repoName := range existingTriggers {
-		if _, ok := triggers[repoName]; !ok {
-			if _, err := tx.Exec(ctx, "DELETE FROM triggers WHERE repository_name = $1", repoName); err != nil {
-				return nil, fmt.Errorf("failed to delete trigger override '%s': %w", repoName, err)
-			}
-			details["triggers_deleted"]++
-		}
 	}
 
 	if len(pipelineRunStructure) > 0 {
@@ -1713,97 +1632,15 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 		Str("repo_owner", owner).
 		Str("repo_name", repo).
 		Int("pipelines_synced", details["pipelines_synced"]).
-		Int("pipelines_deleted", details["pipelines_deleted"]).
 		Int("steps_synced", details["steps_synced"]).
-		Int("steps_deleted", details["steps_deleted"]).
 		Int("general_vars_synced", details["general_vars_synced"]).
 		Int("repo_vars_synced", details["repo_vars_synced"]).
-		Int("variables_deleted", details["variables_deleted"]).
 		Int("triggers_synced", details["triggers_synced"]).
-		Int("triggers_deleted", details["triggers_deleted"]).
 		Int("run_groups_created", details["run_groups_created"]).
 		Int("run_groups_updated", details["run_groups_updated"]).
 		Msg("Configuration synchronization from Git completed")
 
 	return details, nil
-}
-
-func loadExistingNames(ctx context.Context, tx pgx.Tx, query string) (map[string]struct{}, error) {
-	rows, err := tx.Query(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	result := make(map[string]struct{})
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			return nil, err
-		}
-		result[name] = struct{}{}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return result, nil
-}
-
-type pipelineKey struct {
-	path string
-	name string
-}
-
-func loadExistingPipelineKeys(ctx context.Context, tx pgx.Tx) (map[string]pipelineKey, error) {
-	rows, err := tx.Query(ctx, "SELECT path, name FROM pipelines WHERE source = 'git'")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	result := make(map[string]pipelineKey)
-	for rows.Next() {
-		var path, name string
-		if err := rows.Scan(&path, &name); err != nil {
-			return nil, err
-		}
-		key := buildPipelineIdentifier(path, name)
-		result[key] = pipelineKey{path: path, name: name}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return result, nil
-}
-
-type stepKey struct {
-	path string
-	name string
-}
-
-func loadExistingStepKeys(ctx context.Context, tx pgx.Tx) (map[string]stepKey, error) {
-	rows, err := tx.Query(ctx, "SELECT path, name FROM steps")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	result := make(map[string]stepKey)
-	for rows.Next() {
-		var path, name string
-		if err := rows.Scan(&path, &name); err != nil {
-			return nil, err
-		}
-		key := buildStepIdentifier(path, name)
-		result[key] = stepKey{path: path, name: name}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return result, nil
 }
 
 type generalEnvKey struct {
@@ -1815,60 +1652,6 @@ type repoEnvKey struct {
 	repo    string
 	envPath string
 	name    string
-}
-
-func loadExistingGeneralEnvs(ctx context.Context, tx pgx.Tx) (map[generalEnvKey]struct{}, error) {
-	rows, err := tx.Query(ctx, "SELECT name, scope FROM variables WHERE repository_name IS NULL")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	result := make(map[generalEnvKey]struct{})
-	for rows.Next() {
-		var name string
-		var env sql.NullString
-		if err := rows.Scan(&name, &env); err != nil {
-			return nil, err
-		}
-		envPath := ""
-		if env.Valid {
-			envPath = env.String
-		}
-		result[generalEnvKey{envPath: envPath, name: name}] = struct{}{}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return result, nil
-}
-
-func loadExistingRepoEnvs(ctx context.Context, tx pgx.Tx) (map[repoEnvKey]struct{}, error) {
-	rows, err := tx.Query(ctx, "SELECT name, repository_name, scope FROM variables WHERE repository_name IS NOT NULL")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	result := make(map[repoEnvKey]struct{})
-	for rows.Next() {
-		var name, repo string
-		var env sql.NullString
-		if err := rows.Scan(&name, &repo, &env); err != nil {
-			return nil, err
-		}
-		envPath := ""
-		if env.Valid {
-			envPath = env.String
-		}
-		result[repoEnvKey{repo: repo, envPath: envPath, name: name}] = struct{}{}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return result, nil
 }
 
 type pipelineRunStructureNode struct {
@@ -2480,7 +2263,6 @@ func (a *App) handleCreateOrUpdatePipeline(w http.ResponseWriter, r *http.Reques
 
 	var pipeline models.Pipeline
 	decoder := yaml.NewDecoder(bytes.NewReader(pipelineDef))
-	decoder.KnownFields(true)
 
 	if err := decoder.Decode(&pipeline); err != nil {
 		var genericYAML map[string]interface{}
@@ -3025,7 +2807,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 			Sync:             pStep.GetSync(),
 			Secrets:          pStep.GetSecrets(),
 			Volumes:          pStep.GetVolumes(),
-			Environment:      pStep.GetEnvironment(),
+			Variables:        pStep.GetVariables(),
 			IgnoreFailure:    pStep.GetIgnoreFailure(),
 			LlmOutputSharing: pStep.GetLlmOutputSharing(),
 			Tasks:            pStep.GetTasks(),
@@ -4502,8 +4284,8 @@ func (a *App) resolveStepIncludes(pipeline *models.Pipeline) (*models.Pipeline, 
 		if secrets := step.GetSecrets(); len(secrets) > 0 {
 			includedStep.SetSecrets(secrets)
 		}
-		if env := step.GetEnvironment(); len(env) > 0 {
-			includedStep.SetEnvironment(env)
+		if vars := step.GetVariables(); len(vars) > 0 {
+			includedStep.SetVariables(vars)
 		}
 
 		finalSteps = append(finalSteps, includedStep)
@@ -4885,7 +4667,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		return
 	}
 
-	finalEnv, err := a.prepareEnvironmentForPipeline(pipeline, gitContext, scope)
+	finalVars, err := a.prepareVariablesForPipeline(pipeline, gitContext, scope)
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to prepare scope variables for pipeline")
 		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", err.Error(), runID)
@@ -4968,7 +4750,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		envVars = append(envVars, fmt.Sprintf("SCOPE=%s", scope))
 	}
 
-	for key, value := range finalEnv {
+	for key, value := range finalVars {
 		envVars = append(envVars, fmt.Sprintf("%s=%s", key, value))
 	}
 

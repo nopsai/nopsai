@@ -65,8 +65,8 @@ func (c *LLMClient) EvaluateCondition(ctx context.Context, req *proto.ConditionR
 
 func (c *LLMClient) buildConditionPrompt(req *proto.ConditionRequest) string {
 	var envBuilder strings.Builder
-	envBuilder.WriteString("**Environment Variables:**\n")
-	for key, value := range req.GetEnvironment() {
+	envBuilder.WriteString("**Variables:**\n")
+	for key, value := range req.GetVariables() {
 		envBuilder.WriteString(fmt.Sprintf("- %s: %s\n", key, value))
 	}
 
@@ -142,8 +142,8 @@ func (c *LLMClient) callGeminiForBoolean(ctx context.Context, prompt string) (bo
 
 func (c *LLMClient) buildPrompt(req *proto.GetActionRequest) string {
 	var envBuilder strings.Builder
-	envBuilder.WriteString("**Environment Variables:**\n")
-	for key, value := range req.GetEnvironment() {
+	envBuilder.WriteString("**Variables:**\n")
+	for key, value := range req.GetVariables() {
 		envBuilder.WriteString(fmt.Sprintf("- %s: %s\n", key, value))
 	}
 

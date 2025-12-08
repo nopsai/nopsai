@@ -14,7 +14,7 @@
 ---
 ### Pipeline & Step Configuration
 
-* **Declarative Environment**: A pipeline's YAML file declares a list of required environment variables under the `environment` key. It does not define the values, creating a clean separation between the pipeline's logic and its configuration.
+* **Declarative Variables**: A pipeline's YAML file declares a list of required variables under the `variables` key. It does not define the values, creating a clean separation between the pipeline's logic and its configuration.
 * **Natural Language or Scripts**: Steps can be defined using a simple `goal` in natural language or a traditional `script` for direct command execution.
 * **Per-Step Container Images**: Each step can run in its own dedicated container image, allowing you to use the perfect environment and toolset for every task. A default image can be set for the entire pipeline.
 * **Persistent Volume Mounting**: Steps can define `volumes` to be mounted, allowing for data persistence and sharing across runs. The agent automatically creates any specified volumes that do not already exist.

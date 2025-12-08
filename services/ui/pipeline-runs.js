@@ -144,7 +144,7 @@
             run.git_commit_message,
             run.git_pusher_name,
             run.status,
-            run.environment,
+            run.variables,
             run.trigger_event_id,
         ];
         return candidates.some(field => typeof field === 'string' && field.toLowerCase().includes(searchTermLower));
@@ -3023,7 +3023,7 @@ function showPipelineDefinitionModal(pipelineDefinition) {
         const toYAML = (obj, indent = 0, isListItem = false) => {
             const keyOrder = [
                 'name', 'description', 'container_image', 'working_directory', 'image', 'include', 'sync',
-                'display_options', 'environment', 'secrets', 'volumes', 'goal', 'script',
+                'display_options', 'variables', 'secrets', 'volumes', 'goal', 'script',
                 'tasks', 'depends_on', 'ignore_failure', 'llm_content_sharing', 'llm_output_sharing', 'timeout'
             ];
 
@@ -4520,8 +4520,8 @@ async function renderModalForStep(runId, stepName, parentContext = null) {
             const volumesList = stepDef.volumes.map(v => `<li>${escapeHtml(v)}</li>`).join('');
             configHTML += `<div class="step-config-list"><h4>Volumes</h4><ul>${volumesList}</ul></div>`;
         }
-        if (stepDef?.environment && Object.keys(stepDef.environment).length > 0) {
-            const envList = Object.entries(stepDef.environment).map(([k, v]) => `<li class="step-config-row"><span class="step-config-label">${escapeHtml(k)}:</span><span class="step-config-value">${escapeHtml(v)}</span></li>`).join('');
+        if (stepDef?.variables && Object.keys(stepDef.variables).length > 0) {
+            const envList = Object.entries(stepDef.variables).map(([k, v]) => `<li class="step-config-row"><span class="step-config-label">${escapeHtml(k)}:</span><span class="step-config-value">${escapeHtml(v)}</span></li>`).join('');
             configHTML += `<div class="step-config-list"><h4>Scope Variables</h4><ul>${envList}</ul></div>`;
         }
         addConfigRow('Ignore Failure', boolBadge(!!stepDef?.ignore_failure));

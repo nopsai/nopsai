@@ -107,10 +107,24 @@ func (s *BaseStep) AsScriptStep() (*ScriptStep, bool)   { return nil, false }
 
 // IncludeStep defines a step that includes a reusable step or pipeline.
 type IncludeStep struct {
-	BaseStep    `yaml:",inline"`
-	Include     string            `yaml:"include" json:"include"`
-	Sync        bool              `yaml:"sync,omitempty" json:"sync,omitempty"`
-	Environment map[string]string `yaml:"environment,omitempty" json:"environment,omitempty"`
+	BaseStep  `yaml:",inline"`
+	Include   string            `yaml:"include" json:"include"`
+	Sync      bool              `yaml:"sync,omitempty" json:"sync,omitempty"`
+	Variables map[string]string `yaml:"variables,omitempty" json:"variables,omitempty"`
+}
+
+func (s *IncludeStep) UnmarshalYAML(value *yaml.Node) error {
+	type rawInclude IncludeStep
+	aux := struct {
+		rawInclude `yaml:",inline"`
+	}{
+		rawInclude: rawInclude{},
+	}
+	if err := value.Decode(&aux); err != nil {
+		return err
+	}
+	*s = IncludeStep(aux.rawInclude)
+	return nil
 }
 
 func (s *IncludeStep) AsIncludeStep() (*IncludeStep, bool) { return s, true }
@@ -378,9 +392,9 @@ func (ps PipelineStep) GetSync() bool {
 	return false
 }
 
-func (ps PipelineStep) GetEnvironment() map[string]string {
+func (ps PipelineStep) GetVariables() map[string]string {
 	if include, ok := ps.AsIncludeStep(); ok {
-		return include.Environment
+		return include.Variables
 	}
 	return nil
 }
@@ -500,9 +514,9 @@ func (ps *PipelineStep) SetLlmOutputSharing(value *bool) {
 	}
 }
 
-func (ps *PipelineStep) SetEnvironment(env map[string]string) {
+func (ps *PipelineStep) SetVariables(env map[string]string) {
 	if include, ok := ps.AsIncludeStep(); ok {
-		include.Environment = env
+		include.Variables = env
 	}
 }
 
@@ -513,12 +527,22 @@ type Pipeline struct {
 	ContainerImage    string         `yaml:"container_image" json:"container_image"`
 	DisplayOptions    DisplayOptions `yaml:"display_options" json:"display_options"`
 	WorkingDirectory  string         `yaml:"working_directory,omitempty" json:"working_directory,omitempty"`
-	Environment       []string       `yaml:"environment" json:"environment"`
+	Variables         []string       `yaml:"variables" json:"variables"`
 	Steps             []PipelineStep `yaml:"steps" json:"steps"`
 	Timeout           string         `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 	LlmContentSharing *bool          `yaml:"llm_content_sharing,omitempty" json:"llm_content_sharing,omitempty"`
 	LlmOutputSharing  *bool          `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
 	LlmContentIgnore  []string       `yaml:"llm_content_ignore,omitempty" json:"llm_content_ignore,omitempty"`
+}
+
+func (p *Pipeline) UnmarshalYAML(value *yaml.Node) error {
+	type rawPipeline Pipeline
+	aux := rawPipeline{}
+	if err := value.Decode(&aux); err != nil {
+		return err
+	}
+	*p = Pipeline(aux)
+	return nil
 }
 
 // DisplayOptions defines how the pipeline progress is displayed in integrations like GitHub.
