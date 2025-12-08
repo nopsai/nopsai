@@ -3692,7 +3692,6 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		triggerEventIDSQL.Valid = true
 		gitContext["trigger_event_id"] = id
 	}
-	gitContext["run_id"] = runID.String()
 
 	groupID, err := a.resolveGroupIDForRepo(gitContext["repo_owner"], gitContext["repo_name"])
 	if err != nil {
@@ -3703,6 +3702,14 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 			repoFullName = fmt.Sprintf("%s/%s", repoOwner, repoName)
 		}
 		log.Error().Err(err).Str("repo", repoFullName).Msg("Failed to find or create group for repository")
+	}
+
+	var checkRunIDSQL sql.NullInt64
+	if val := gitContext["check_run_id"]; val != "" {
+		if parsed, err := strconv.ParseInt(val, 10, 64); err == nil {
+			checkRunIDSQL.Int64 = parsed
+			checkRunIDSQL.Valid = true
+		}
 	}
 
 	_, err = a.db.Exec(context.Background(),
@@ -3716,7 +3723,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		gitContext["repo_owner"], gitContext["repo_name"], gitContext["clone_url"], gitContext["ssh_url"], gitContext["ref"], gitContext["target_ref"],
 		gitContext["commit_sha"], gitContext["commit_url"], gitContext["commit_message"], gitContext["commit_author_name"],
 		gitContext["commit_author_email"], gitContext["commit_author_username"], gitContext["pusher_name"],
-		gitContext["pusher_email"], gitContext["check_run_id"], groupID, parentStepNameSQL, triggerEventIDSQL, scope, pipelineSource,
+		gitContext["pusher_email"], checkRunIDSQL, groupID, parentStepNameSQL, triggerEventIDSQL, scope, pipelineSource,
 	)
 
 	if err != nil {
