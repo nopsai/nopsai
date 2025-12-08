@@ -537,11 +537,33 @@ type Pipeline struct {
 
 func (p *Pipeline) UnmarshalYAML(value *yaml.Node) error {
 	type rawPipeline Pipeline
-	aux := rawPipeline{}
+	aux := struct {
+		rawPipeline `yaml:",inline"`
+		Environment []string `yaml:"environment"`
+	}{}
 	if err := value.Decode(&aux); err != nil {
 		return err
 	}
-	*p = Pipeline(aux)
+	if len(aux.Environment) > 0 {
+		return fmt.Errorf("the 'environment' key is deprecated; use 'variables'")
+	}
+	*p = Pipeline(aux.rawPipeline)
+	return nil
+}
+
+func (p *Pipeline) UnmarshalJSON(data []byte) error {
+	type rawPipeline Pipeline
+	aux := struct {
+		rawPipeline
+		Environment []string `json:"environment"`
+	}{}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if len(aux.Environment) > 0 {
+		return fmt.Errorf("the 'environment' key is deprecated; use 'variables'")
+	}
+	*p = Pipeline(aux.rawPipeline)
 	return nil
 }
 
