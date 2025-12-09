@@ -55,6 +55,7 @@ type Step interface {
 	GetImage() string
 	GetIgnoreFailure() bool
 	GetLlmOutputSharing() *bool
+	GetVariables() map[string]string
 
 	// Type assertion helpers
 	AsIncludeStep() (*IncludeStep, bool)
@@ -65,14 +66,15 @@ type Step interface {
 
 // BaseStep contains all common fields shared by all step types.
 type BaseStep struct {
-	Name             string   `yaml:"name" json:"name"`
-	Image            string   `yaml:"image,omitempty" json:"image,omitempty"`
-	Secrets          []string `yaml:"secrets,omitempty" json:"secrets,omitempty"`
-	Volumes          []string `yaml:"volumes,omitempty" json:"volumes,omitempty"`
-	DependsOn        []string `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
-	Condition        string   `yaml:"condition,omitempty" json:"condition,omitempty"`
-	IgnoreFailure    bool     `yaml:"ignore_failure,omitempty" json:"ignore_failure,omitempty"`
-	LlmOutputSharing *bool    `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
+	Name             string            `yaml:"name" json:"name"`
+	Image            string            `yaml:"image,omitempty" json:"image,omitempty"`
+	Secrets          []string          `yaml:"secrets,omitempty" json:"secrets,omitempty"`
+	Volumes          []string          `yaml:"volumes,omitempty" json:"volumes,omitempty"`
+	DependsOn        []string          `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
+	Condition        string            `yaml:"condition,omitempty" json:"condition,omitempty"`
+	IgnoreFailure    bool              `yaml:"ignore_failure,omitempty" json:"ignore_failure,omitempty"`
+	LlmOutputSharing *bool             `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
+	Variables        map[string]string `yaml:"variables,omitempty" json:"variables,omitempty"`
 }
 
 // GetName returns the step's name.
@@ -99,6 +101,9 @@ func (s *BaseStep) GetIgnoreFailure() bool { return s.IgnoreFailure }
 // GetLlmOutputSharing returns the step's LLM output sharing setting.
 func (s *BaseStep) GetLlmOutputSharing() *bool { return s.LlmOutputSharing }
 
+// GetVariables returns the step's inline variables.
+func (s *BaseStep) GetVariables() map[string]string { return s.Variables }
+
 // Default type assertion implementations
 func (s *BaseStep) AsIncludeStep() (*IncludeStep, bool) { return nil, false }
 func (s *BaseStep) AsTaskStep() (*TaskStep, bool)       { return nil, false }
@@ -107,10 +112,9 @@ func (s *BaseStep) AsScriptStep() (*ScriptStep, bool)   { return nil, false }
 
 // IncludeStep defines a step that includes a reusable step or pipeline.
 type IncludeStep struct {
-	BaseStep  `yaml:",inline"`
-	Include   string            `yaml:"include" json:"include"`
-	Sync      bool              `yaml:"sync,omitempty" json:"sync,omitempty"`
-	Variables map[string]string `yaml:"variables,omitempty" json:"variables,omitempty"`
+	BaseStep `yaml:",inline"`
+	Include  string `yaml:"include" json:"include"`
+	Sync     bool   `yaml:"sync,omitempty" json:"sync,omitempty"`
 }
 
 func (s *IncludeStep) UnmarshalYAML(value *yaml.Node) error {
@@ -393,8 +397,8 @@ func (ps PipelineStep) GetSync() bool {
 }
 
 func (ps PipelineStep) GetVariables() map[string]string {
-	if include, ok := ps.AsIncludeStep(); ok {
-		return include.Variables
+	if base := ps.baseStep(); base != nil {
+		return base.Variables
 	}
 	return nil
 }
@@ -515,8 +519,8 @@ func (ps *PipelineStep) SetLlmOutputSharing(value *bool) {
 }
 
 func (ps *PipelineStep) SetVariables(env map[string]string) {
-	if include, ok := ps.AsIncludeStep(); ok {
-		include.Variables = env
+	if base := ps.baseStep(); base != nil {
+		base.Variables = env
 	}
 }
 
@@ -578,12 +582,13 @@ type DisplayOptions struct {
 // This mutual exclusivity is enforced by the application-layer validation
 // (e.g., in services/nopsai/main.go::validatePipeline), not at the YAML unmarshaling level.
 type Task struct {
-	Name             string   `yaml:"name" json:"name"`
-	Goal             string   `yaml:"goal" json:"goal"`
-	Script           string   `yaml:"script,omitempty" json:"script,omitempty"`
-	DependsOn        []string `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
-	IgnoreFailure    bool     `yaml:"ignore_failure,omitempty" json:"ignore_failure,omitempty"`
-	LlmOutputSharing *bool    `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
+	Name             string            `yaml:"name" json:"name"`
+	Goal             string            `yaml:"goal" json:"goal"`
+	Script           string            `yaml:"script,omitempty" json:"script,omitempty"`
+	DependsOn        []string          `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
+	IgnoreFailure    bool              `yaml:"ignore_failure,omitempty" json:"ignore_failure,omitempty"`
+	LlmOutputSharing *bool             `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
+	Variables        map[string]string `yaml:"variables,omitempty" json:"variables,omitempty"`
 }
 
 // CommandAction defines a command to be executed in the shell.
