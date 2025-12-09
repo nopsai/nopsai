@@ -351,6 +351,54 @@ func getNextRunnableTasks(pipeline *models.Pipeline, completedTasks map[string]b
 	return runnableTasks
 }
 
+func countPipelineTasks(pipeline *models.Pipeline) int {
+	totalTasks := 0
+	if pipeline == nil {
+		return totalTasks
+	}
+
+	for _, step := range pipeline.Steps {
+		if tasks := step.GetTasks(); len(tasks) > 0 {
+			totalTasks += len(tasks)
+		} else {
+			totalTasks++
+		}
+	}
+	return totalTasks
+}
+
+func buildImagePullQueue(pipeline *models.Pipeline, totalTasks int) []string {
+	queue := make([]string, 0)
+	if pipeline == nil || totalTasks == 0 {
+		return queue
+	}
+
+	seen := make(map[string]bool)
+	simulatedCompleted := make(map[string]bool)
+
+	for len(simulatedCompleted) < totalTasks {
+		runnable := getNextRunnableTasks(pipeline, simulatedCompleted)
+		if len(runnable) == 0 {
+			break
+		}
+
+		for _, r := range runnable {
+			image := r.Step.GetImage()
+			if image == "" {
+				image = pipeline.ContainerImage
+			}
+
+			if image != "" && !seen[image] {
+				queue = append(queue, image)
+				seen[image] = true
+			}
+			simulatedCompleted[r.GlobalKey] = true
+		}
+	}
+
+	return queue
+}
+
 func notifyFinalStatus(pipelineName, runID, status string) {
 	nopsaiURL := os.Getenv("NOPSAI_API_URL")
 	if nopsaiURL == "" {
@@ -451,6 +499,46 @@ func ensureImageExists(ctx context.Context, logger *zerolog.Logger, cli *client.
 		logger.Info().Str("image", imageName).Msg("Image found locally")
 	}
 	return nil
+}
+
+func startImagePrePull(ctx context.Context, cli *client.Client, pipeline *models.Pipeline, runID string, totalTasks int) {
+	if cli == nil || pipeline == nil {
+		return
+	}
+
+	queue := buildImagePullQueue(pipeline, totalTasks)
+	if len(queue) == 0 {
+		agentLog(runID, pipeline.Name).Debug().Msg("No images to pre-pull for pipeline")
+		return
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	prePullLogger := agentLog(runID, pipeline.Name).With().Str("component", "image-prepull").Logger()
+	prePullLogger.Info().Int("count", len(queue)).Msg("Starting asynchronous image pre-pull")
+
+	go func() {
+		for i, imageName := range queue {
+			select {
+			case <-ctx.Done():
+				prePullLogger.Warn().Msg("Stopping image pre-pull due to cancellation")
+				return
+			default:
+			}
+
+			imageLogger := prePullLogger.With().
+				Str("image", imageName).
+				Int("position", i+1).
+				Int("total", len(queue)).
+				Logger()
+
+			if err := ensureImageExists(ctx, &imageLogger, cli, imageName); err != nil {
+				imageLogger.Warn().Err(err).Msg("Failed to pre-pull image; will pull on demand during execution")
+			}
+		}
+	}()
 }
 
 func triggerPipeline(parentRunID, parentPipelineName, parentStepName, pipelineIdentifier string, pipelineDef []byte, history string) (string, error) {
@@ -766,6 +854,14 @@ func run() int {
 		}()
 	}
 
+	totalTasks := countPipelineTasks(&pipeline)
+
+	prePullCtx := context.Background()
+	if timeoutCtx != nil {
+		prePullCtx = timeoutCtx
+	}
+	startImagePrePull(prePullCtx, cli, &pipeline, runID, totalTasks)
+
 	history := new(strings.Builder)
 	if parentHistoryBase64 != "" {
 		decodedHistory, err := base64.StdEncoding.DecodeString(parentHistoryBase64)
@@ -779,15 +875,6 @@ func run() int {
 	completedTasks := make(map[string]bool)
 	pipelineFailed := false
 	var syncWg sync.WaitGroup
-
-	totalTasks := 0
-	for _, step := range pipeline.Steps {
-		if tasks := step.GetTasks(); len(tasks) > 0 {
-			totalTasks += len(tasks)
-		} else {
-			totalTasks++
-		}
-	}
 
 	for len(completedTasks) < totalTasks {
 		if timeoutTriggered.Load() {
