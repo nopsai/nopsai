@@ -22,9 +22,8 @@ type Config struct {
 	ConfigRepoURL string `yaml:"config_repo_url" env:"CONFIG_REPO_URL"`
 
 	// Addresses for services to listen on
-	NopsaiListenAddress   string `yaml:"nopsai_listen_address" env:"NOPSAI_LISTEN_ADDRESS"`
-	LlmAgentListenAddress string `yaml:"llm_agent_listen_address" env:"LLM_AGENT_LISTEN_ADDRESS"`
-	GitBotListenAddress   string `yaml:"git_bot_listen_address" env:"GIT_BOT_LISTEN_ADDRESS"`
+	NopsaiListenAddress string `yaml:"nopsai_listen_address" env:"NOPSAI_LISTEN_ADDRESS"`
+	GitBotListenAddress string `yaml:"git_bot_listen_address" env:"GIT_BOT_LISTEN_ADDRESS"`
 
 	// Addresses for services to connect to each other
 	AgentLlmAgentAddress string `yaml:"agent_llm_agent_address" env:"AGENT_LLM_AGENT_ADDRESS"`
