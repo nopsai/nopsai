@@ -26,7 +26,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -43,7 +42,6 @@ import (
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/google/go-github/v53/github"
 	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -56,192 +54,12 @@ import (
 )
 
 // WebSocket Hub implementation
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins for simplicity
-	},
-}
-
-type Hub struct {
-	clients    map[*Client]bool
-	broadcast  chan []byte
-	register   chan *Client
-	unregister chan *Client
-	// Map runId to a map of clients subscribed to it
-	runSubscriptions map[string]map[*Client]bool
-	mu               sync.Mutex
-}
-
-type Client struct {
-	hub    *Hub
-	conn   *websocket.Conn
-	send   chan []byte
-	runIds map[string]bool
-	mu     sync.Mutex
-}
-
-// WebSocket message structure
-type WebSocketMessage struct {
-	Type    string      `json:"type"`
-	Payload interface{} `json:"payload"`
-}
-
-func newHub() *Hub {
-	return &Hub{
-		broadcast:        make(chan []byte),
-		register:         make(chan *Client),
-		unregister:       make(chan *Client),
-		clients:          make(map[*Client]bool),
-		runSubscriptions: make(map[string]map[*Client]bool),
-	}
-}
-
-func (h *Hub) run() {
-	for {
-		select {
-		case client := <-h.register:
-			h.mu.Lock()
-			h.clients[client] = true
-			h.mu.Unlock()
-		case client := <-h.unregister:
-			h.mu.Lock()
-			if _, ok := h.clients[client]; ok {
-				delete(h.clients, client)
-				close(client.send)
-				for runId := range client.runIds {
-					if _, ok := h.runSubscriptions[runId]; ok {
-						delete(h.runSubscriptions[runId], client)
-						if len(h.runSubscriptions[runId]) == 0 {
-							delete(h.runSubscriptions, runId)
-						}
-					}
-				}
-			}
-			h.mu.Unlock()
-		case message := <-h.broadcast:
-			h.mu.Lock()
-			for client := range h.clients {
-				select {
-				case client.send <- message:
-				default:
-					close(client.send)
-					delete(h.clients, client)
-					for runId := range client.runIds {
-						if _, ok := h.runSubscriptions[runId]; ok {
-							delete(h.runSubscriptions[runId], client)
-							if len(h.runSubscriptions[runId]) == 0 {
-								delete(h.runSubscriptions, runId)
-							}
-						}
-					}
-				}
-			}
-			h.mu.Unlock()
-		}
-	}
-}
-
-// This new function broadcasts a "new_run_started" message to all connected clients.
-func (a *App) broadcastNewRun(runID string) {
-	go func() {
-		// Small delay to ensure the run is fully committed to the DB
-		time.Sleep(100 * time.Millisecond)
-
-		runListItem, err := a.getRunListItem(runID)
-		if err != nil {
-			log.Error().Err(err).Str("run_id", runID).Msg("Failed to get RunListItem for new run broadcast")
-			return
-		}
-
-		message, err := json.Marshal(WebSocketMessage{
-			Type:    "new_run_started",
-			Payload: runListItem,
-		})
-
-		if err != nil {
-			log.Error().Err(err).Str("run_id", runID).Msg("Failed to marshal new run message for WebSocket")
-			return
-		}
-
-		// Send to the global broadcast channel
-		a.hub.broadcast <- message
-	}()
-}
-
-func (h *Hub) broadcastToRun(runId string, message []byte) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if subscribers, ok := h.runSubscriptions[runId]; ok {
-		for client := range subscribers {
-			select {
-			case client.send <- message:
-			default:
-				close(client.send)
-				delete(h.clients, client)
-			}
-		}
-	}
-}
-
-func (c *Client) readPump() {
-	defer func() {
-		c.hub.unregister <- c
-		c.conn.Close()
-	}()
-	for {
-		_, message, err := c.conn.ReadMessage()
-		if err != nil {
-			break
-		}
-		var msg WebSocketMessage
-		if err := json.Unmarshal(message, &msg); err != nil {
-			continue
-		}
-
-		if msg.Type == "subscribe" {
-			if payload, ok := msg.Payload.(map[string]interface{}); ok {
-				if runId, ok := payload["runId"].(string); ok {
-					c.hub.mu.Lock()
-					if _, ok := c.hub.runSubscriptions[runId]; !ok {
-						c.hub.runSubscriptions[runId] = make(map[*Client]bool)
-					}
-					c.hub.runSubscriptions[runId][c] = true
-					c.mu.Lock()
-					c.runIds[runId] = true
-					c.mu.Unlock()
-					c.hub.mu.Unlock()
-				}
-			}
-		}
-	}
-}
-
-func (c *Client) writePump() {
-	defer c.conn.Close()
-	for message := range c.send {
-		c.conn.WriteMessage(websocket.TextMessage, message)
-	}
-}
-
-func (a *App) serveWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to upgrade websocket")
-		return
-	}
-	client := &Client{hub: hub, conn: conn, send: make(chan []byte, 256), runIds: make(map[string]bool)}
-	client.hub.register <- client
-
-	go client.writePump()
-	go client.readPump()
-}
 
 type App struct {
 	db         *pgxpool.Pool
 	cfg        *config.Config
 	cli        *client.Client
 	encKey     []byte
-	hub        *Hub
 	httpClient *http.Client
 	store      store.Store
 }
@@ -294,52 +112,6 @@ func (a *App) getRunListItem(runID string) (*RunListItem, error) {
 
 // The broadcast function is updated to send a more specific 'run_summary_update' message
 // with the full RunListItem as the payload.
-func (a *App) broadcastRunUpdate(runID string) {
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-
-		runListItem, err := a.getRunListItem(runID)
-		if err != nil {
-			log.Error().Err(err).Str("run_id", runID).Msg("Failed to get RunListItem for broadcast")
-			// We won't send a fallback message here to avoid complexity.
-			// The UI will simply not update until the next full refresh.
-			return
-		}
-
-		message, err := json.Marshal(WebSocketMessage{
-			Type:    "run_summary_update",
-			Payload: runListItem,
-		})
-		if err != nil {
-			log.Error().Err(err).Str("run_id", runID).Msg("Failed to marshal run summary for WebSocket")
-			return
-		}
-
-		// --- CORRECTED LOGIC ---
-		// Send the summary update to ALL clients to update dashboards and sidebars.
-		a.hub.broadcast <- message
-		// --- END ---
-
-		// Also send a targeted update for the run itself, to trigger a full refresh
-		// for anyone viewing its details page.
-		runUpdateMessage, _ := json.Marshal(WebSocketMessage{
-			Type:    "run_update",
-			Payload: map[string]string{"runId": runID},
-		})
-		a.hub.broadcastToRun(runID, runUpdateMessage)
-
-		// Also notify the parent run (if any) that one of its children has been updated,
-		// prompting a generic refresh of the parent's detail view.
-		if runListItem.ParentRunID != nil && *runListItem.ParentRunID != "" {
-			parentMessage, _ := json.Marshal(WebSocketMessage{
-				Type:    "run_update", // Generic update type
-				Payload: map[string]string{"runId": *runListItem.ParentRunID},
-			})
-			// This one is targeted, as only users viewing the parent need this specific update.
-			a.hub.broadcastToRun(*runListItem.ParentRunID, parentMessage)
-		}
-	}()
-}
 
 func matchBranchPattern(pattern, name string) bool {
 	if pattern == "" {
@@ -1306,17 +1078,6 @@ func (a *App) handleConfigSync(w http.ResponseWriter, r *http.Request) {
 		} else {
 			log.Info().Interface("details", details).Msg("Configuration synchronization succeeded")
 		}
-
-		wsMessage, err := json.Marshal(WebSocketMessage{
-			Type:    "config_sync",
-			Payload: payload,
-		})
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to marshal config_sync WebSocket message")
-			return
-		}
-
-		a.hub.broadcast <- wsMessage
 	}()
 }
 
@@ -2658,6 +2419,15 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 		run.IsComplete = isTerminalRunStatus(run.Status)
 	}
 
+	// Calculate ETag based on RunID, Status, and timestamps
+	etag := fmt.Sprintf(`"%s-%s-%d-%d"`, run.RunID, run.Status, run.StartedAt.Unix(), run.FinishedAt.Unix())
+	w.Header().Set("ETag", etag)
+
+	if match := r.Header.Get("If-None-Match"); match == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
 	var parentRunInfo *ParentRunInfo
 	if run.ParentRunID != nil && *run.ParentRunID != "" {
 		var parentPipelineName, parentPipelineVersion, parentPipelinePath string
@@ -2982,8 +2752,6 @@ func (a *App) recordMissingPipelineRun(identifier string, pipelineVersion string
 		log.Error().Err(err).Str("pipeline", identifier).Msg("Failed to record missing pipeline run")
 		return
 	}
-
-	a.broadcastNewRun(runID.String())
 }
 
 func (a *App) launchAndRunPipeline(
@@ -3772,13 +3540,10 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 			_, err = a.db.Exec(context.Background(), "UPDATE pipeline_runs SET git_check_run_id = $1 WHERE run_id = $2", checkRunID, rID)
 			if err != nil {
 				log.Error().Err(err).Str("run_id", rID).Int64("check_run_id", checkRunID).Msg("Failed to update pipeline run with check_run_id (async)")
-			} else {
-				log.Info().Str("run_id", rID).Int64("check_run_id", checkRunID).Msg("Updated pipeline run with check_run_id (async)")
 			}
 		}(runID.String())
 	}
 
-	a.broadcastNewRun(runID.String())
 	resolvedPipeline, err := a.resolveStepIncludes(&pipeline)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to resolve step includes: %v", err)
@@ -3990,8 +3755,6 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a.broadcastNewRun(runID.String())
-
 	resolvedPipeline, err := a.resolveStepIncludes(&pipeline)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to resolve step includes on rerun: %v", err)
@@ -4096,8 +3859,6 @@ func (a *App) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 		}
 		a.notifyGitBotOfFinalStatus("cancelled", "", "", "Run cancelled by user.", gitContext)
 	}
-
-	a.broadcastRunUpdate(runUUID.String())
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -4239,8 +4000,6 @@ func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Info().Str("run_id", runID).Str("step", stepName).Str("task", taskName).Str("status", update.Status).Msg("Updated task status")
-
-	a.broadcastRunUpdate(runID) // Broadcast the update
 
 	go a.notifyGitBotOfTaskStatus(runID, stepName, taskName, update.Status)
 
@@ -4624,8 +4383,6 @@ func (a *App) handleFinalizeRun(w http.ResponseWriter, r *http.Request) {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to update final run status in DB from agent notification")
 	}
 
-	a.broadcastRunUpdate(runID) // Broadcast the final update
-
 	if gitContext["repo_owner"] != "" {
 		// Run git-bot notification in background to prevent agent hang
 		go a.notifyGitBotOfFinalStatus(finalStatus, failedStep, failedTask, "", gitContext)
@@ -4805,12 +4562,6 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	if dbErr != nil {
 		log.Error().Err(dbErr).Str("run_id", runID).Msg("Failed to record initial trigger event log line")
 	} else {
-		logLine := LogLine{Timestamp: time.Now(), Line: initialTriggerLine}
-		if message, err := json.Marshal(WebSocketMessage{Type: "log_line", Payload: logLine}); err == nil {
-			a.hub.broadcastToRun(runID, message)
-		} else {
-			log.Error().Err(err).Str("run_id", runID).Msg("Failed to marshal initial trigger log line")
-		}
 	}
 
 	// --- LOG STREAMING MODIFICATION ---
@@ -4873,23 +4624,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 				log.Error().Err(err).Str("run_id", runID).Msg("Failed to flush log batch to DB")
 			}
 
-			// 2. WebSocket Broadcast
-			var logPayload []LogLine
-			now := time.Now()
-			for _, line := range lines {
-				logPayload = append(logPayload, LogLine{Timestamp: now, Line: line})
-			}
-
-			message, err := json.Marshal(WebSocketMessage{
-				Type:    "log_batch",
-				Payload: logPayload,
-			})
-
-			if err == nil {
-				a.hub.broadcastToRun(runID, message)
-			} else {
-				log.Error().Err(err).Msg("Failed to marshal log batch")
-			}
+			// 2. WebSocket Broadcast (Removed)
 		}
 
 		for {
@@ -5773,7 +5508,15 @@ func (a *App) handleListRepoBranches(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleGetRunLogs(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("runID")
-	rows, err := a.db.Query(context.Background(), "SELECT timestamp, line FROM pipeline_run_logs WHERE run_id = $1 ORDER BY timestamp ASC", runID)
+	sinceLineStr := r.URL.Query().Get("since_line")
+	var lastID int64 = 0
+	if sinceLineStr != "" {
+		if parsed, err := strconv.ParseInt(sinceLineStr, 10, 64); err == nil {
+			lastID = parsed
+		}
+	}
+
+	rows, err := a.db.Query(context.Background(), "SELECT id, timestamp, line FROM pipeline_run_logs WHERE run_id = $1 AND id > $2 ORDER BY id ASC", runID, lastID)
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to query logs for run")
 		http.Error(w, "Failed to retrieve logs", http.StatusInternalServerError)
@@ -5784,7 +5527,7 @@ func (a *App) handleGetRunLogs(w http.ResponseWriter, r *http.Request) {
 	var logs []LogLine
 	for rows.Next() {
 		var logLine LogLine
-		if err := rows.Scan(&logLine.Timestamp, &logLine.Line); err != nil {
+		if err := rows.Scan(&logLine.ID, &logLine.Timestamp, &logLine.Line); err != nil {
 			log.Error().Err(err).Msg("Failed to scan log line")
 			continue
 		}
@@ -5843,25 +5586,16 @@ func main() {
 	}
 	defer cli.Close()
 
-	hub := newHub()
-	go hub.run()
-
 	app := &App{
 		db:         dbpool,
 		cfg:        cfg,
 		cli:        cli,
 		encKey:     key[:],
-		hub:        hub,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		store:      store.NewPGStore(dbpool),
 	}
 
 	mux := http.NewServeMux()
-
-	// WebSocket Endpoint
-	mux.HandleFunc("/v1/ws", func(w http.ResponseWriter, r *http.Request) {
-		app.serveWs(hub, w, r)
-	})
 
 	// Group Management
 	mux.HandleFunc("POST /v1/git/events", app.handleGitEvent)

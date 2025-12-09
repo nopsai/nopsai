@@ -1,106 +1,9 @@
 window.NopsAI = window.NopsAI || {};
 document.addEventListener('DOMContentLoaded', () => {
     const API_BASE_URL = 'http://localhost:8080';
-    const WS_URL = 'ws://localhost:8080/v1/ws';
 
     const normalizeRunId = (runId) => typeof runId === 'string' ? runId.trim().toLowerCase() : '';
 
-    // WebSocket Manager
-    const wsManager = {
-        socket: null,
-        activeRunSubscriptions: new Set(),
-        connect() {
-            if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-                return;
-            }
-            this.socket = new WebSocket(WS_URL);
-            this.socket.onopen = () => {
-                console.log('WebSocket connected');
-                this.resubscribeAll();
-                const pipelineRunsModule = window.NopsAI.pages.pipelineruns;
-                if (pipelineRunsModule && typeof pipelineRunsModule.handleWsReconnect === 'function') {
-                    pipelineRunsModule.handleWsReconnect();
-                }
-            };
-            this.socket.onmessage = (event) => this.handleMessage(event);
-            this.socket.onclose = () => {
-                console.log('WebSocket disconnected. Reconnecting in 3s...');
-                setTimeout(() => this.connect(), 3000);
-            };
-            this.socket.onerror = (err) => console.error('WebSocket error:', err);
-        },
-        resubscribeAll() {
-            this.activeRunSubscriptions.forEach(runId => this.sendSubscribe(runId));
-        },
-        sendSubscribe(runId) {
-            try {
-                if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-                    this.socket.send(JSON.stringify({
-                        type: 'subscribe',
-                        payload: { runId }
-                    }));
-                }
-            } catch (error) {
-                console.error('Failed to send subscription', error);
-            }
-        },
-        handleMessage(event) {
-            const message = JSON.parse(event.data);
-            const pipelineRunsModule = window.NopsAI.pages.pipelineruns;
-            const pipelinesModule = window.NopsAI.pages?.pipelines; // Get pipelines module reference
-            const logsModule = window.NopsAI.logs;
-
-            if (message.type === 'run_update' && message.payload && message.payload.runId) {
-                if (pipelineRunsModule && typeof pipelineRunsModule.handleRealtimeUpdate === 'function') {
-                    pipelineRunsModule.handleRealtimeUpdate(message.payload.runId);
-                }
-            } else if (message.type === 'run_summary_update' && message.payload) {
-                if (pipelineRunsModule && typeof pipelineRunsModule.handleRunSummaryUpdate === 'function') {
-                    pipelineRunsModule.handleRunSummaryUpdate(message.payload);
-                }
-            } else if (message.type === 'new_run_started' && message.payload) {
-                showToast(message.payload); // Assumes showToast exists globally or is passed in context
-                if (pipelineRunsModule && typeof pipelineRunsModule.handleNewRunStarted === 'function') {
-                    pipelineRunsModule.handleNewRunStarted(message.payload);
-                }
-            } else if (message.type === 'log_line') {
-                if (logsModule && typeof logsModule.appendLogLine === 'function') {
-                    logsModule.appendLogLine(message.payload);
-                }
-            } else if (message.type === 'log_batch') {
-                if (logsModule && typeof logsModule.appendLogLine === 'function' && Array.isArray(message.payload)) {
-                    message.payload.forEach(line => logsModule.appendLogLine(line));
-                }
-            } else if (message.type === 'config_sync') { // Add this block to handle the new event type
-                // Check if the pipelines module exists and has the handler function
-                if (pipelinesModule && typeof pipelinesModule.handleConfigSyncEvent === 'function') {
-                    try {
-                        // Pass the payload (which contains status, details, message) to the handler
-                        pipelinesModule.handleConfigSyncEvent(message.payload || message);
-                    } catch (err) {
-                        console.error('Failed to handle config sync event:', err);
-                        // Optionally show an error toast to the user
-                        if (typeof showToast === 'function') {
-                            showToast('Error processing configuration sync update.', 'error');
-                        }
-                    }
-                } else {
-                    console.warn('Received config_sync event, but no handler found in pipelines module.');
-                }
-            }
-        },
-        subscribeToRun(runId) {
-            const normalized = normalizeRunId(runId);
-            if (!normalized) return;
-            if (!this.activeRunSubscriptions.has(normalized)) {
-                this.activeRunSubscriptions.add(normalized);
-            }
-            this.sendSubscribe(normalized);
-        }
-    };
-
-    // Connect WebSocket on load
-    wsManager.connect();
 
     const showToast = (runData) => {
         const container = document.getElementById('toast-container');
@@ -270,11 +173,12 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetch(API_BASE_URL + url, options);
             fetchData.lastStatus = response.status;
+            fetchData.lastETag = response.headers.get('etag');
             if (!response.ok) {
                 const errorText = await response.text();
                 throw new Error(errorText || `HTTP error! Status: ${response.status}`);
             }
-            if (response.status === 204) return null;
+            if (response.status === 204 || response.status === 304) return null;
 
             const contentType = (response.headers.get('content-type') || '').toLowerCase();
             if (contentType.includes('application/json')) {
@@ -307,7 +211,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const logsModule = (window.NopsAI && window.NopsAI.logs) ? window.NopsAI.logs : null;
 
-    const context = { state, DOM, fetchData, postData, deleteData, wsManager, refresh: router, logsModule, apiBaseUrl: API_BASE_URL };
+    const context = { state, DOM, fetchData, postData, deleteData, refresh: router, logsModule, apiBaseUrl: API_BASE_URL };
 
     const pageModules = (window.NopsAI && window.NopsAI.pages) ? window.NopsAI.pages : {};
     const pipelineRunsModule = pageModules.pipelineruns || null;
@@ -455,7 +359,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // --- Call page-specific handlers ---
         if (path === 'pipelineruns' && pipelineRunsModule && typeof pipelineRunsModule.handleRoute === 'function') {
-            await pipelineRunsModule.handleRoute(hash, wsManager);
+            await pipelineRunsModule.handleRoute(hash);
             // Re-apply no-scroll specifically if needed after module handling
             if (runId && DOM.pageContentWrapper) {
                 DOM.pageContentWrapper.classList.add('no-scroll');
