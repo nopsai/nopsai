@@ -1518,6 +1518,42 @@ html.dark .pipelines-input {
     color: var(--text-secondary);
 }
 
+.system-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.32rem 0.65rem;
+    border-radius: 9999px;
+    border: 1px solid var(--border-primary);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-weight: 600;
+    font-size: 0.75rem;
+}
+
+.system-chip--success {
+    border-color: rgba(52, 211, 153, 0.7);
+    background: rgba(16, 185, 129, 0.15);
+    color: #15803d;
+}
+
+.system-chip--warning {
+    border-color: rgba(245, 158, 11, 0.6);
+    background: rgba(245, 158, 11, 0.12);
+    color: #92400e;
+}
+
+.system-chip--error {
+    border-color: rgba(248, 113, 113, 0.7);
+    background: rgba(248, 113, 113, 0.14);
+    color: #b91c1c;
+}
+
+.system-chip--muted {
+    border-color: var(--border-primary);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
 .pipeline-sync-log-wrap {
     margin-top: 0.65rem;
     max-height: 220px;

@@ -26,6 +26,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -62,6 +63,12 @@ type App struct {
 	encKey     []byte
 	httpClient *http.Client
 	store      store.Store
+	configPath string
+	cfgMu      sync.RWMutex
+
+	configSyncMu     sync.Mutex
+	configSyncStatus ConfigSyncStatus
+	envFilePath      string
 }
 
 type LogLine = models.LogLine
@@ -80,6 +87,14 @@ type PipelineRequest = models.PipelineRequest
 type TriggerOverrideRequest = models.TriggerOverrideRequest
 type FinalizeRequest = models.FinalizeRequest
 type Group = models.Group
+
+type ConfigSyncStatus struct {
+	Status      string         `json:"status"`
+	Message     string         `json:"message,omitempty"`
+	Details     map[string]int `json:"details,omitempty"`
+	StartedAt   *time.Time     `json:"started_at,omitempty"`
+	CompletedAt *time.Time     `json:"completed_at,omitempty"`
+}
 
 // Keep these local for now if not in models
 type suiteCheckRunResponse struct {
@@ -103,6 +118,80 @@ func deriveTriggerEventID(gitContext map[string]string) string {
 		return ""
 	}
 	return fmt.Sprintf("%s|%s|%s|%s", owner, name, ref, sha)
+}
+
+func (a *App) getConfigSnapshot() config.Config {
+	a.cfgMu.RLock()
+	defer a.cfgMu.RUnlock()
+	return *a.cfg
+}
+
+func (a *App) getConfigRepoURL() string {
+	a.cfgMu.RLock()
+	defer a.cfgMu.RUnlock()
+	return strings.TrimSpace(a.cfg.ConfigRepoURL)
+}
+
+func (a *App) getAutoRemovalAgentContainer() bool {
+	a.cfgMu.RLock()
+	defer a.cfgMu.RUnlock()
+	return a.cfg.AutoRemovalAgentContainer
+}
+
+func (a *App) getDefaultPipelineTimeout() string {
+	a.cfgMu.RLock()
+	defer a.cfgMu.RUnlock()
+	return a.cfg.DefaultPipelineTimeout
+}
+
+func (a *App) getAgentImage() string {
+	a.cfgMu.RLock()
+	defer a.cfgMu.RUnlock()
+	return strings.TrimSpace(a.cfg.AgentImage)
+}
+
+func (a *App) getDockerNetworkName() string {
+	a.cfgMu.RLock()
+	defer a.cfgMu.RUnlock()
+	return strings.TrimSpace(a.cfg.DockerNetworkName)
+}
+
+func (a *App) getLLMAgentTimeout() string {
+	a.cfgMu.RLock()
+	defer a.cfgMu.RUnlock()
+	return strings.TrimSpace(a.cfg.LLMAgentTimeout)
+}
+
+func (a *App) setConfigSyncStatus(status ConfigSyncStatus) {
+	a.configSyncMu.Lock()
+	defer a.configSyncMu.Unlock()
+	statusCopy := status
+	if status.Details != nil {
+		detailsCopy := make(map[string]int, len(status.Details))
+		for k, v := range status.Details {
+			detailsCopy[k] = v
+		}
+		statusCopy.Details = detailsCopy
+	}
+	a.configSyncStatus = statusCopy
+}
+
+func (a *App) getConfigSyncStatus() ConfigSyncStatus {
+	a.configSyncMu.Lock()
+	defer a.configSyncMu.Unlock()
+	statusCopy := a.configSyncStatus
+	if statusCopy.Details != nil {
+		detailsCopy := make(map[string]int, len(statusCopy.Details))
+		for k, v := range statusCopy.Details {
+			detailsCopy[k] = v
+		}
+		statusCopy.Details = detailsCopy
+	}
+	return statusCopy
+}
+
+func (a *App) isConfigSyncRunning() bool {
+	return strings.EqualFold(a.getConfigSyncStatus().Status, "running")
 }
 
 // This new helper function fetches and builds a RunListItem for a given run ID.
@@ -1011,6 +1100,301 @@ func (a *App) handleDeleteRepoSecret(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+type systemConfigPayload struct {
+	ConfigRepoURL             *string `json:"config_repo_url"`
+	LogLevel                  *string `json:"log_level"`
+	LogFormat                 *string `json:"log_format"`
+	NopsaiListenAddress       *string `json:"nopsai_listen_address"`
+	GitBotListenAddress       *string `json:"git_bot_listen_address"`
+	AgentNopsaiAPIURL         *string `json:"agent_nopsai_api_url"`
+	GitBotNopsaiAPIURL        *string `json:"git_bot_nopsai_api_url"`
+	NopsaiGitBotAPIURL        *string `json:"nopsai_git_bot_api_url"`
+	AgentImage                *string `json:"agent_image"`
+	DockerNetworkName         *string `json:"docker_network_name"`
+	AutoRemovalAgentContainer *bool   `json:"auto_removal_agent_container"`
+	DefaultPipelineTimeout    *string `json:"default_pipeline_timeout"`
+	LLMAgentTimeout           *string `json:"llm_agent_timeout"`
+}
+
+func (a *App) buildSystemConfigResponse(cfg config.Config) map[string]interface{} {
+	return map[string]interface{}{
+		"config_repo_url":              cfg.ConfigRepoURL,
+		"log_level":                    cfg.LogLevel,
+		"log_format":                   cfg.LogFormat,
+		"nopsai_listen_address":        cfg.NopsaiListenAddress,
+		"git_bot_listen_address":       cfg.GitBotListenAddress,
+		"agent_nopsai_api_url":         cfg.AgentNopsaiAPIURL,
+		"git_bot_nopsai_api_url":       cfg.GitBotNopsaiAPIURL,
+		"nopsai_git_bot_api_url":       cfg.NopsaiGitBotAPIURL,
+		"agent_image":                  cfg.AgentImage,
+		"docker_network_name":          cfg.DockerNetworkName,
+		"auto_removal_agent_container": cfg.AutoRemovalAgentContainer,
+		"default_pipeline_timeout":     cfg.DefaultPipelineTimeout,
+		"llm_agent_timeout":            cfg.LLMAgentTimeout,
+		"config_repo_configured":       strings.TrimSpace(cfg.ConfigRepoURL) != "",
+		"config_sync_status":           a.getConfigSyncStatus(),
+		"env_file_path":                a.envFilePath,
+	}
+}
+
+func (a *App) applySystemConfig(payload systemConfigPayload) config.Config {
+	a.cfgMu.Lock()
+	defer a.cfgMu.Unlock()
+
+	if payload.ConfigRepoURL != nil {
+		a.cfg.ConfigRepoURL = strings.TrimSpace(*payload.ConfigRepoURL)
+	}
+	if payload.LogLevel != nil {
+		a.cfg.LogLevel = strings.TrimSpace(*payload.LogLevel)
+	}
+	if payload.LogFormat != nil {
+		a.cfg.LogFormat = strings.TrimSpace(*payload.LogFormat)
+	}
+	if payload.NopsaiListenAddress != nil {
+		a.cfg.NopsaiListenAddress = strings.TrimSpace(*payload.NopsaiListenAddress)
+	}
+	if payload.GitBotListenAddress != nil {
+		a.cfg.GitBotListenAddress = strings.TrimSpace(*payload.GitBotListenAddress)
+	}
+	if payload.AgentNopsaiAPIURL != nil {
+		a.cfg.AgentNopsaiAPIURL = strings.TrimSpace(*payload.AgentNopsaiAPIURL)
+	}
+	if payload.GitBotNopsaiAPIURL != nil {
+		a.cfg.GitBotNopsaiAPIURL = strings.TrimSpace(*payload.GitBotNopsaiAPIURL)
+	}
+	if payload.NopsaiGitBotAPIURL != nil {
+		a.cfg.NopsaiGitBotAPIURL = strings.TrimSpace(*payload.NopsaiGitBotAPIURL)
+	}
+	if payload.AgentImage != nil {
+		a.cfg.AgentImage = strings.TrimSpace(*payload.AgentImage)
+	}
+	if payload.DockerNetworkName != nil {
+		a.cfg.DockerNetworkName = strings.TrimSpace(*payload.DockerNetworkName)
+	}
+	if payload.AutoRemovalAgentContainer != nil {
+		a.cfg.AutoRemovalAgentContainer = *payload.AutoRemovalAgentContainer
+	}
+	if payload.DefaultPipelineTimeout != nil {
+		a.cfg.DefaultPipelineTimeout = strings.TrimSpace(*payload.DefaultPipelineTimeout)
+	}
+	if payload.LLMAgentTimeout != nil {
+		a.cfg.LLMAgentTimeout = strings.TrimSpace(*payload.LLMAgentTimeout)
+	}
+
+	return *a.cfg
+}
+
+func (a *App) persistSystemConfig(cfg config.Config, payload systemConfigPayload) error {
+	if a.configPath == "" {
+		return nil
+	}
+
+	existing := map[string]interface{}{}
+	if contents, err := os.ReadFile(a.configPath); err == nil {
+		if len(contents) > 0 {
+			if unmarshalErr := yaml.Unmarshal(contents, &existing); unmarshalErr != nil {
+				log.Warn().Err(unmarshalErr).Msg("Failed to parse existing config file; rewriting allowed fields")
+			}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+
+	if payload.ConfigRepoURL != nil {
+		existing["config_repo_url"] = cfg.ConfigRepoURL
+	}
+	if payload.AgentImage != nil {
+		existing["agent_image"] = cfg.AgentImage
+	}
+	if payload.LogLevel != nil {
+		existing["log_level"] = cfg.LogLevel
+	}
+	if payload.LogFormat != nil {
+		existing["log_format"] = cfg.LogFormat
+	}
+	if payload.NopsaiListenAddress != nil {
+		existing["nopsai_listen_address"] = cfg.NopsaiListenAddress
+	}
+	if payload.GitBotListenAddress != nil {
+		existing["git_bot_listen_address"] = cfg.GitBotListenAddress
+	}
+	if payload.AgentNopsaiAPIURL != nil {
+		existing["agent_nopsai_api_url"] = cfg.AgentNopsaiAPIURL
+	}
+	if payload.GitBotNopsaiAPIURL != nil {
+		existing["git_bot_nopsai_api_url"] = cfg.GitBotNopsaiAPIURL
+	}
+	if payload.NopsaiGitBotAPIURL != nil {
+		existing["nopsai_git_bot_api_url"] = cfg.NopsaiGitBotAPIURL
+	}
+	if payload.DockerNetworkName != nil {
+		existing["docker_network_name"] = cfg.DockerNetworkName
+	}
+	if payload.AutoRemovalAgentContainer != nil {
+		existing["auto_removal_agent_container"] = cfg.AutoRemovalAgentContainer
+	}
+	if payload.DefaultPipelineTimeout != nil {
+		existing["default_pipeline_timeout"] = cfg.DefaultPipelineTimeout
+	}
+	if payload.LLMAgentTimeout != nil {
+		existing["llm_agent_timeout"] = cfg.LLMAgentTimeout
+	}
+
+	contents, err := yaml.Marshal(existing)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(a.configPath, contents, 0o644)
+}
+
+func (a *App) persistEnvOverrides(cfg config.Config, payload systemConfigPayload) error {
+	if a.envFilePath == "" {
+		return nil
+	}
+
+	updates := map[string]string{}
+
+	if payload.LogLevel != nil {
+		updates["LOG_LEVEL"] = cfg.LogLevel
+	}
+	if payload.LogFormat != nil {
+		updates["LOG_FORMAT"] = cfg.LogFormat
+	}
+	if payload.ConfigRepoURL != nil {
+		updates["CONFIG_REPO_URL"] = cfg.ConfigRepoURL
+	}
+	if payload.NopsaiListenAddress != nil {
+		updates["NOPSAI_LISTEN_ADDRESS"] = cfg.NopsaiListenAddress
+	}
+	if payload.GitBotListenAddress != nil {
+		updates["GIT_BOT_LISTEN_ADDRESS"] = cfg.GitBotListenAddress
+	}
+	if payload.AgentNopsaiAPIURL != nil {
+		updates["AGENT_NOPSAI_API_URL"] = cfg.AgentNopsaiAPIURL
+	}
+	if payload.GitBotNopsaiAPIURL != nil {
+		updates["GIT_BOT_NOPSAI_API_URL"] = cfg.GitBotNopsaiAPIURL
+	}
+	if payload.NopsaiGitBotAPIURL != nil {
+		updates["NOPSAI_GIT_BOT_API_URL"] = cfg.NopsaiGitBotAPIURL
+	}
+	if payload.AgentImage != nil {
+		updates["AGENT_IMAGE"] = cfg.AgentImage
+	}
+	if payload.DockerNetworkName != nil {
+		updates["DOCKER_NETWORK_NAME"] = cfg.DockerNetworkName
+	}
+	if payload.AutoRemovalAgentContainer != nil {
+		updates["AUTO_REMOVAL_AGENT_CONTAINER"] = strconv.FormatBool(cfg.AutoRemovalAgentContainer)
+	}
+	if payload.DefaultPipelineTimeout != nil {
+		updates["DEFAULT_PIPELINE_TIMEOUT"] = cfg.DefaultPipelineTimeout
+	}
+	if payload.LLMAgentTimeout != nil {
+		updates["LLM_AGENT_TIMEOUT"] = cfg.LLMAgentTimeout
+	}
+
+	if len(updates) == 0 {
+		return nil
+	}
+
+	return writeEnvFile(a.envFilePath, updates)
+}
+
+func writeEnvFile(path string, updates map[string]string) error {
+	var lines []string
+	used := make(map[string]bool, len(updates))
+
+	if data, err := os.ReadFile(path); err == nil {
+		scanner := bufio.NewScanner(bytes.NewReader(data))
+		for scanner.Scan() {
+			line := scanner.Text()
+			if key, ok := parseEnvKey(line); ok {
+				if value, shouldReplace := updates[key]; shouldReplace {
+					line = formatEnvLine(key, value)
+					used[key] = true
+				}
+			}
+			lines = append(lines, line)
+		}
+		if scanErr := scanner.Err(); scanErr != nil {
+			return scanErr
+		}
+	}
+
+	for key, value := range updates {
+		if used[key] {
+			continue
+		}
+		lines = append(lines, formatEnvLine(key, value))
+	}
+
+	output := strings.Join(lines, "\n")
+	return os.WriteFile(path, []byte(output), 0o644)
+}
+
+func parseEnvKey(line string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		return "", false
+	}
+	parts := strings.SplitN(trimmed, "=", 2)
+	if len(parts) != 2 {
+		return "", false
+	}
+	key := strings.TrimSpace(parts[0])
+	if key == "" {
+		return "", false
+	}
+	return key, true
+}
+
+func formatEnvLine(key, value string) string {
+	escaped := strings.ReplaceAll(value, `"`, `\"`)
+	return fmt.Sprintf(`%s="%s"`, key, escaped)
+}
+
+func (a *App) handleGetSystemConfig(w http.ResponseWriter, r *http.Request) {
+	cfg := a.getConfigSnapshot()
+	resp := a.buildSystemConfigResponse(cfg)
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Warn().Err(err).Msg("Failed to encode system config response")
+	}
+}
+
+func (a *App) handleUpdateSystemConfig(w http.ResponseWriter, r *http.Request) {
+	var payload systemConfigPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+
+	cfg := a.applySystemConfig(payload)
+	if err := a.persistSystemConfig(cfg, payload); err != nil {
+		log.Warn().Err(err).Msg("Failed to persist system config; keeping in-memory settings only")
+	}
+	if err := a.persistEnvOverrides(cfg, payload); err != nil {
+		log.Warn().Err(err).Msg("Failed to persist .env overrides; keeping in-memory settings only")
+	}
+
+	resp := a.buildSystemConfigResponse(cfg)
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Warn().Err(err).Msg("Failed to encode updated system config response")
+	}
+}
+
+func (a *App) handleGetConfigSyncStatus(w http.ResponseWriter, r *http.Request) {
+	status := a.getConfigSyncStatus()
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(status); err != nil {
+		log.Warn().Err(err).Msg("Failed to encode config sync status")
+	}
+}
+
 func (a *App) prepareSecretsForPipeline(pipeline models.Pipeline, gitContext map[string]string, scope string) (map[string]string, error) {
 	requiredSecrets := make(map[string]struct{})
 	for _, step := range pipeline.Steps {
@@ -1050,35 +1434,54 @@ func (a *App) prepareSecretsForPipeline(pipeline models.Pipeline, gitContext map
 }
 
 func (a *App) handleConfigSync(w http.ResponseWriter, r *http.Request) {
-	if a.cfg.ConfigRepoURL == "" {
+	repoURL := a.getConfigRepoURL()
+	if repoURL == "" {
 		http.Error(w, "CONFIG_REPO_URL is not configured", http.StatusBadRequest)
 		return
 	}
 
+	if a.isConfigSyncRunning() {
+		http.Error(w, "A configuration sync is already in progress", http.StatusConflict)
+		return
+	}
+
+	startedAt := time.Now()
+	a.setConfigSyncStatus(ConfigSyncStatus{
+		Status:    "running",
+		Message:   "Configuration synchronization started.",
+		StartedAt: &startedAt,
+	})
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	if err := json.NewEncoder(w).Encode(map[string]string{"status": "synchronization started"}); err != nil {
+	if err := json.NewEncoder(w).Encode(a.getConfigSyncStatus()); err != nil {
 		log.Warn().Err(err).Msg("Failed to encode config sync response")
 	}
 
-	go func() {
+	go func(started time.Time) {
 		log.Info().Msg("Starting configuration synchronization from Git")
 		details, syncErr := a.syncConfigurationFromGit(context.Background())
 
-		payload := map[string]interface{}{
-			"status":  "success",
-			"message": "Configuration synchronization completed successfully.",
-			"details": details,
-		}
+		completedAt := time.Now()
 		if syncErr != nil {
 			log.Error().Err(syncErr).Msg("Configuration synchronization failed")
-			payload["status"] = "error"
-			payload["message"] = fmt.Sprintf("Configuration synchronization failed: %v", syncErr)
-			delete(payload, "details")
-		} else {
-			log.Info().Interface("details", details).Msg("Configuration synchronization succeeded")
+			a.setConfigSyncStatus(ConfigSyncStatus{
+				Status:      "error",
+				Message:     fmt.Sprintf("Configuration synchronization failed: %v", syncErr),
+				StartedAt:   &started,
+				CompletedAt: &completedAt,
+			})
+			return
 		}
-	}()
+		log.Info().Interface("details", details).Msg("Configuration synchronization succeeded")
+		a.setConfigSyncStatus(ConfigSyncStatus{
+			Status:      "success",
+			Message:     "Configuration synchronization completed successfully.",
+			Details:     details,
+			StartedAt:   &started,
+			CompletedAt: &completedAt,
+		})
+	}(startedAt)
 }
 
 func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, error) {
@@ -1093,11 +1496,12 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 	}
 
 	// Git sync is additive: we upsert matching records and leave any DB-only entries untouched.
-	if a.cfg.ConfigRepoURL == "" {
+	repoURL := a.getConfigRepoURL()
+	if repoURL == "" {
 		return nil, fmt.Errorf("CONFIG_REPO_URL is not configured")
 	}
 
-	owner, repo, err := parseGitHubRepoURL(a.cfg.ConfigRepoURL)
+	owner, repo, err := parseGitHubRepoURL(repoURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse CONFIG_REPO_URL: %w", err)
 	}
@@ -3572,7 +3976,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 
 	timeoutStr := resolvedPipeline.Timeout
 	if timeoutStr == "" {
-		timeoutStr = a.cfg.DefaultPipelineTimeout
+		timeoutStr = a.getDefaultPipelineTimeout()
 	}
 
 	var timeoutDuration time.Duration
@@ -3833,7 +4237,7 @@ func (a *App) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 		log.Warn().Err(err).Str("run_id", runUUID.String()).Str("container", containerName).Msg("Failed to stop agent container during cancellation")
 	}
 
-	if !a.cfg.AutoRemovalAgentContainer {
+	if !a.getAutoRemovalAgentContainer() {
 		removeOpts := container.RemoveOptions{Force: true}
 		if err := a.cli.ContainerRemove(ctx, containerName, removeOpts); err != nil && !errdefs.IsNotFound(err) {
 			log.Warn().Err(err).Str("run_id", runUUID.String()).Str("container", containerName).Msg("Failed to remove agent container during cancellation")
@@ -4458,7 +4862,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	}
 	defer cli.Close()
 
-	agentImageName := a.cfg.AgentImage
+	agentImageName := a.getAgentImage()
 	if agentImageName == "" {
 		agentImageName = "nopsai-agent:latest"
 	}
@@ -4498,14 +4902,14 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		fmt.Sprintf("LOG_FORMAT=%s", a.cfg.LogFormat),
 		fmt.Sprintf("PIPELINE_DEFINITION=%s", base64.StdEncoding.EncodeToString(pipelineDef)),
 		fmt.Sprintf("SHARED_VOLUME_NAME=%s", sharedVolumeName),
-		fmt.Sprintf("DOCKER_NETWORK_NAME=%s", a.cfg.DockerNetworkName),
+		fmt.Sprintf("DOCKER_NETWORK_NAME=%s", a.getDockerNetworkName()),
 		fmt.Sprintf("NOPSAI_SECRETS=%s", base64.StdEncoding.EncodeToString(secretsJSON)),
 	}
 	if timeout > 0 {
 		envVars = append(envVars, fmt.Sprintf("PIPELINE_TIMEOUT=%s", timeout.String()))
 	}
-	if a.cfg.LLMAgentTimeout != "" {
-		envVars = append(envVars, fmt.Sprintf("LLM_AGENT_TIMEOUT=%s", a.cfg.LLMAgentTimeout))
+	if a.getLLMAgentTimeout() != "" {
+		envVars = append(envVars, fmt.Sprintf("LLM_AGENT_TIMEOUT=%s", a.getLLMAgentTimeout()))
 	}
 	if parentHistory != "" {
 		envVars = append(envVars, fmt.Sprintf("PARENT_EXECUTION_HISTORY=%s", parentHistory))
@@ -4528,7 +4932,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 			"/var/run/docker.sock:/var/run/docker.sock",
 			fmt.Sprintf("%s:/workspace", sharedVolumeName),
 		},
-		AutoRemove: a.cfg.AutoRemovalAgentContainer,
+		AutoRemove: a.getAutoRemovalAgentContainer(),
 	}
 
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
@@ -4536,7 +4940,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		Env:   envVars,
 	}, hostConfig, &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
-			a.cfg.DockerNetworkName: {},
+			a.getDockerNetworkName(): {},
 		},
 	}, nil, agentContainerName)
 
@@ -5563,6 +5967,11 @@ func main() {
 	}
 	zerolog.SetGlobalLevel(logLevel)
 
+	envFilePath := os.Getenv("ENV_FILE_PATH")
+	if envFilePath == "" {
+		envFilePath = filepath.Join(filepath.Dir(configPath), ".env")
+	}
+
 	var dbpool *pgxpool.Pool
 	for i := 0; i < 5; i++ {
 		dbpool, err = pgxpool.New(context.Background(), cfg.DatabaseURL)
@@ -5587,12 +5996,18 @@ func main() {
 	defer cli.Close()
 
 	app := &App{
-		db:         dbpool,
-		cfg:        cfg,
-		cli:        cli,
-		encKey:     key[:],
-		httpClient: &http.Client{Timeout: 10 * time.Second},
-		store:      store.NewPGStore(dbpool),
+		db:          dbpool,
+		cfg:         cfg,
+		cli:         cli,
+		encKey:      key[:],
+		httpClient:  &http.Client{Timeout: 10 * time.Second},
+		store:       store.NewPGStore(dbpool),
+		configPath:  configPath,
+		envFilePath: envFilePath,
+		configSyncStatus: ConfigSyncStatus{
+			Status:  "idle",
+			Message: "No configuration sync has been requested yet.",
+		},
 	}
 
 	mux := http.NewServeMux()
@@ -5606,6 +6021,10 @@ func main() {
 	mux.HandleFunc("PUT /v1/groups/{groupID}/move", app.handleMoveGroup)
 
 	// Configuration Synchronization
+	mux.HandleFunc("GET /v1/system/config", app.handleGetSystemConfig)
+	mux.HandleFunc("PUT /v1/system/config", app.handleUpdateSystemConfig)
+	mux.HandleFunc("GET /v1/system/config/sync", app.handleGetConfigSyncStatus)
+	mux.HandleFunc("POST /v1/system/config/sync", app.handleConfigSync)
 	mux.HandleFunc("POST /v1/internal/config/sync", app.handleConfigSync)
 
 	// Pipeline Management
