@@ -7,11 +7,10 @@
     let logsModule;
     let refresh;
     let initialized = false;
-    let showLogsModal = () => {};
-    let closeLogsModal = () => {};
-    let renderLogsWithFilters = () => {};
-    let updateLogsStepList = () => {};
-    let wsManager;
+    let showLogsModal = () => { };
+    let closeLogsModal = () => { };
+    let renderLogsWithFilters = () => { };
+    let updateLogsStepList = () => { };
     let lastMainGridRender = null;
     const runViewToggle = { container: null, gridBtn: null, listBtn: null };
 
@@ -171,11 +170,11 @@
         return `${base}/${encoded.join('/')}`;
     }
 
-function buildPipelineHashFromRun(run) {
-    return buildPipelineHashFromIdentifier(getPipelineIdentifierFromRun(run));
-}
+    function buildPipelineHashFromRun(run) {
+        return buildPipelineHashFromIdentifier(getPipelineIdentifierFromRun(run));
+    }
 
-function buildSidebarLogo(svgMarkup, variant = 'list', logoClass = '') {
+    function buildSidebarLogo(svgMarkup, variant = 'list', logoClass = '') {
         const renderer = (typeof window !== 'undefined' && window.NopsAI && window.NopsAI.ui)
             ? window.NopsAI.ui.renderStepLogo
             : null;
@@ -183,10 +182,10 @@ function buildSidebarLogo(svgMarkup, variant = 'list', logoClass = '') {
         if (typeof renderer === 'function') {
             return renderer(variant, extraClasses, svgMarkup);
         }
-    const safeVariant = variant || 'list';
-    const extra = extraClasses ? ` ${extraClasses}` : '';
-    return `<span class="step-logo step-logo--${safeVariant}${extra}" aria-hidden="true">${svgMarkup}</span>`;
-}
+        const safeVariant = variant || 'list';
+        const extra = extraClasses ? ` ${extraClasses}` : '';
+        return `<span class="step-logo step-logo--${safeVariant}${extra}" aria-hidden="true">${svgMarkup}</span>`;
+    }
 
     function buildRunStatusIcon(runLike) {
         if (!runLike) {
@@ -778,7 +777,7 @@ function buildSidebarLogo(svgMarkup, variant = 'list', logoClass = '') {
         if (state) {
             state._suppressNextRoute = true;
             if (state._suppressRouteTimeout) {
-                try { clearTimeout(state._suppressRouteTimeout); } catch {}
+                try { clearTimeout(state._suppressRouteTimeout); } catch { }
             }
             try {
                 state._suppressRouteTimeout = setTimeout(() => {
@@ -1197,8 +1196,9 @@ function buildSidebarLogo(svgMarkup, variant = 'list', logoClass = '') {
         postData = context.postData;
         deleteData = context.deleteData;
         logsModule = context.logsModule;
-        wsManager = context.wsManager; // Store wsManager
-        refresh = context.refresh || (() => {});
+        refresh = context.refresh || (() => { });
+        state.lastRunETag = null;
+        state.runPollingTimer = null;
         if (!DOM.sidebarNav && DOM.sidebarDetailsNav) {
             DOM.sidebarNav = DOM.sidebarDetailsNav;
         }
@@ -1253,8 +1253,8 @@ function buildSidebarLogo(svgMarkup, variant = 'list', logoClass = '') {
 
         if (currentHashInfo.path !== 'pipelineruns' || !currentHashInfo.runId) {
             if (state.currentTab === 'recent') {
-                 const runs = await fetchData('/v1/runs');
-                 if (runs) renderSidebarPipelineRunsList(runs);
+                const runs = await fetchData('/v1/runs');
+                if (runs) renderSidebarPipelineRunsList(runs);
             } else if (state.currentTab === 'main') {
                 await renderHierarchy(state.groups);
             }
@@ -1262,37 +1262,37 @@ function buildSidebarLogo(svgMarkup, variant = 'list', logoClass = '') {
         }
         if (normalizedUpdateId && currentRunIdNormalized && normalizedUpdateId === currentRunIdNormalized) {
             if (currentHashInfo.runId === currentRunIdRaw) {
-                 await fetchActiveRun(currentRunIdRaw, true);
-             }
+                await fetchActiveRun(currentRunIdRaw, true);
+            }
         } else if (normalizedUpdateId && trackedIds && trackedIds.has(normalizedUpdateId) && currentRunIdRaw) {
             if (currentHashInfo.runId === currentRunIdRaw) {
-                 await fetchActiveRun(currentRunIdRaw, true);
+                await fetchActiveRun(currentRunIdRaw, true);
             }
         }
 
         if (state.currentTab === 'recent') {
-             const runs = await fetchData('/v1/runs');
-             if (runs) renderSidebarPipelineRunsList(runs);
+            const runs = await fetchData('/v1/runs');
+            if (runs) renderSidebarPipelineRunsList(runs);
         } else if (state.currentTab === 'main') {
             await renderHierarchy(state.groups);
         }
     }
-        
-function setupLogHelpers() {
+
+    function setupLogHelpers() {
         if (!logsModule) {
-            showLogsModal = () => {};
-            closeLogsModal = () => {};
-            renderLogsWithFilters = () => {};
-            updateLogsStepList = () => {};
+            showLogsModal = () => { };
+            closeLogsModal = () => { };
+            renderLogsWithFilters = () => { };
+            updateLogsStepList = () => { };
             return;
         }
-        showLogsModal = typeof logsModule.showLogsModal === 'function' ? logsModule.showLogsModal.bind(logsModule) : () => {};
-        closeLogsModal = typeof logsModule.closeLogsModal === 'function' ? logsModule.closeLogsModal.bind(logsModule) : () => {};
-        renderLogsWithFilters = typeof logsModule.renderLogsWithFilters === 'function' ? logsModule.renderLogsWithFilters.bind(logsModule) : () => {};
-        updateLogsStepList = typeof logsModule.updateLogsStepList === 'function' ? logsModule.updateLogsStepList.bind(logsModule) : () => {};
+        showLogsModal = typeof logsModule.showLogsModal === 'function' ? logsModule.showLogsModal.bind(logsModule) : () => { };
+        closeLogsModal = typeof logsModule.closeLogsModal === 'function' ? logsModule.closeLogsModal.bind(logsModule) : () => { };
+        renderLogsWithFilters = typeof logsModule.renderLogsWithFilters === 'function' ? logsModule.renderLogsWithFilters.bind(logsModule) : () => { };
+        updateLogsStepList = typeof logsModule.updateLogsStepList === 'function' ? logsModule.updateLogsStepList.bind(logsModule) : () => { };
     }
 
-function setupObservers() {
+    function setupObservers() {
         if (typeof ResizeObserver === 'undefined' || !DOM || !DOM.graphWrapper) return;
         try {
             if (state._graphResizeObserver) {
@@ -1312,309 +1312,309 @@ function setupObservers() {
         }
     }
 
-function initPanAndZoom(view, layout = null) {
-  // Clean up any previous panzoom + wheel handler
-  if (state.panzoomInstance) {
-try { state.panzoomInstance.destroy(); } catch (e) {}
-state.panzoomInstance = null;
-  }
-  if (state._wheelTarget && state._wheelHandler) {
-try { state._wheelTarget.removeEventListener('wheel', state._wheelHandler); } catch (e) {}
-state._wheelTarget = null;
-state._wheelHandler = null;
-  }
-
-  let container, element;
-  if (view === 'steps') {
-container = DOM.graphContainer;
-element = DOM.graphWrapper;
-  } else if (view === 'tasks') {
-container = DOM.tasksGraphContainer;
-element = DOM.tasksGraphWrapper;
-  } else {
-return;
-  }
-
-  // If the target container is hidden or has no size yet, defer binding.
-  try {
-const isHidden = container.classList.contains('hidden') || container.clientWidth === 0 || container.clientHeight === 0;
-if (isHidden) {
-  state._pendingPanzoom = { view, layout };
-  return;
-}
-  } catch {}
-
-  if (!element || !element.firstElementChild) return;
-
-  state.panzoomInstance = Panzoom(element, {
-canvas: true,
-maxScale: 5,
-minScale: 0.1,
-  });
-  // Ensure the pan element never lets the browser handle scrolling/zoom gestures
-  try { element.style.touchAction = 'none'; } catch {}
-  state._wheelTarget = container;
-  state._wheelHandler = state.panzoomInstance.zoomWithWheel;
-  // Attach wheel to both the container and the element for robustness
-  container.addEventListener('wheel', state._wheelHandler, { passive: false });
-  element.addEventListener('wheel', state._wheelHandler, { passive: false });
-  // remember which element panzoom is bound to
-  state._panElement = element;
-
-  // Also bind pointer/touch start on the container so users can pan immediately,
-  // even if the pointer starts outside the inner SVG element.
-  if (state._pointerDownHandler) {
-try {
-  container.removeEventListener('mousedown', state._pointerDownHandler);
-  container.removeEventListener('pointerdown', state._pointerDownHandler);
-  container.removeEventListener('touchstart', state._pointerDownHandler);
-  element.removeEventListener('mousedown', state._pointerDownHandler);
-  element.removeEventListener('pointerdown', state._pointerDownHandler);
-  element.removeEventListener('touchstart', state._pointerDownHandler);
-} catch (e) {}
-  }
-  state._pointerDownHandler = (ev) => {
-if (!state.panzoomInstance) return;
-const isControl = !!(ev.target && (ev.target.closest('#steps-graph-controls') || ev.target.closest('#tasks-graph-controls')));
-if (isControl) return;
-try {
-  ev.preventDefault();
-  state.panzoomInstance.handleDown(ev);
-} catch {}
-  };
-  // Bind to pointerdown for widest browser coverage; keep mouse/touch as fallback
-  container.addEventListener('pointerdown', state._pointerDownHandler, { passive: false });
-  container.addEventListener('mousedown', state._pointerDownHandler, { passive: false });
-  container.addEventListener('touchstart', state._pointerDownHandler, { passive: false });
-  // Also bind directly on the pan element so dragging on the SVG works immediately
-  element.addEventListener('pointerdown', state._pointerDownHandler, { passive: false });
-  element.addEventListener('mousedown', state._pointerDownHandler, { passive: false });
-  element.addEventListener('touchstart', state._pointerDownHandler, { passive: false });
-
-  container.addEventListener('dblclick', () => {
-if (!state.panzoomInstance || state._panElement !== element) return;
-state.panzoomInstance.reset({ animate: true });
-fitToView();
-  });
-
-  // Restore transform for Steps view if requested. When preserving scale (e.g., expand/collapse all),
-  // ignore any pending auto-fit requests set by layout passes.
-  const restore = (view === 'steps' && state._stepsViewTransform && (!state._fitOnNextStepsRender || state._preserveScale)) ? state._stepsViewTransform : null;
-  if (restore) {
-try {
-  state.panzoomInstance.zoom(restore.scale || 1, { animate: false });
-  state.panzoomInstance.pan(restore.x || 0, restore.y || 0, { animate: false });
-} catch {}
-// one-time restore
-delete state._stepsViewTransform;
-  } else {
-// Do not auto-fit on bind; keep current zoom/pan unless explicitly requested.
-// Initial fit is triggered by external caller (first render) or when _fitOnNextStepsRender is set.
-if (state._suppressInitialFit) delete state._suppressInitialFit;
-  }
-
-  function fitToView() {
-// Another initPanAndZoom call might have destroyed/rebound the instance.
-// Only fit if the current instance is bound to this element.
-if (!state.panzoomInstance || state._panElement !== element) return;
-const parentRect = container.getBoundingClientRect();
-// prefer layout dims (exact), fallback to element’s current box
-const contentWidth  = layout?.width  || element.scrollWidth || element.offsetWidth;
-const contentHeight = layout?.height || element.scrollHeight || element.offsetHeight;
-if (!contentWidth || !contentHeight || !parentRect.width || !parentRect.height) return;
-
-// start from a clean slate
-if (!state.panzoomInstance) return;
-state.panzoomInstance.reset({ animate: false });
-
-// Centered fit behavior for both Steps and Tasks
-const padding = 40;
-const fitScale = Math.min(
-  parentRect.width  / (contentWidth  + padding),
-  parentRect.height / (contentHeight + padding)
-) * 0.98;
-const scale = Math.min(1, fitScale);
-state.panzoomInstance.zoom(scale, { animate: false });
-const x = (parentRect.width  - contentWidth  * scale) / 2;
-const y = (parentRect.height - contentHeight * scale) / 2;
-state.panzoomInstance.pan(x, y, { animate: false });
-// Record baseline so Reset reproduces this
-if (view === 'steps') state._baselineStepsTransform = { x, y, scale };
-
-// Record baseline transform for Steps view so Reset matches refresh
-try {
-  if (view === 'steps' && !state._baselineStepsTransform) {
-    const tr = window.getComputedStyle(element).transform;
-    if (tr && tr !== 'none') {
-      const m = tr.match(/matrix\(([^)]+)\)/);
-      if (m) {
-        const v = m[1].split(',').map(parseFloat);
-        if (v.length === 6) {
-          const a = v[0], b = v[1];
-          const s = Math.sqrt(a*a + b*b) || 1;
-          const px = v[4] || 0; const py = v[5] || 0;
-          state._baselineStepsTransform = { x: px, y: py, scale: s };
+    function initPanAndZoom(view, layout = null) {
+        // Clean up any previous panzoom + wheel handler
+        if (state.panzoomInstance) {
+            try { state.panzoomInstance.destroy(); } catch (e) { }
+            state.panzoomInstance = null;
         }
-      }
-    } else {
-      state._baselineStepsTransform = { x: 0, y: 0, scale: 1 };
-    }
-  }
-} catch {}
-  }
-
-  state.__fitToView = fitToView;
-  if (view === 'steps' && state._fitOnNextStepsRender && !state._preserveScale) {
-// ensure a final synchronous fit
-setTimeout(() => fitToView(), 0);
-delete state._fitOnNextStepsRender;
-  }
-}
-
-// Ensure there is a working Panzoom bound to the currently visible view
-function ensurePanzoomBound(view) {
-  try {
-const isSteps = view === 'steps';
-const container = isSteps ? DOM.graphContainer : DOM.tasksGraphContainer;
-const element = isSteps ? DOM.graphWrapper : DOM.tasksGraphWrapper;
-if (!container || !element) return;
-if (container.classList.contains('hidden')) return; // will bind on switch
-// Require content to be present
-if (!element.firstElementChild) return;
-// If missing or bound to the wrong element, (re)bind
-if (!state.panzoomInstance || state._panElement !== element) {
-  // Preserve current transform if re-binding to the same element (or to steps target)
-  try {
-    const tr = window.getComputedStyle(element).transform;
-    let scale = 1, x = 0, y = 0;
-    if (tr && tr !== 'none') {
-      const m = tr.match(/matrix\(([^)]+)\)/);
-      if (m) {
-        const v = m[1].split(',').map(parseFloat);
-        if (v.length === 6) {
-          const a = v[0], b = v[1];
-          scale = Math.sqrt(a*a + b*b) || 1; x = v[4] || 0; y = v[5] || 0;
+        if (state._wheelTarget && state._wheelHandler) {
+            try { state._wheelTarget.removeEventListener('wheel', state._wheelHandler); } catch (e) { }
+            state._wheelTarget = null;
+            state._wheelHandler = null;
         }
-      }
+
+        let container, element;
+        if (view === 'steps') {
+            container = DOM.graphContainer;
+            element = DOM.graphWrapper;
+        } else if (view === 'tasks') {
+            container = DOM.tasksGraphContainer;
+            element = DOM.tasksGraphWrapper;
+        } else {
+            return;
+        }
+
+        // If the target container is hidden or has no size yet, defer binding.
+        try {
+            const isHidden = container.classList.contains('hidden') || container.clientWidth === 0 || container.clientHeight === 0;
+            if (isHidden) {
+                state._pendingPanzoom = { view, layout };
+                return;
+            }
+        } catch { }
+
+        if (!element || !element.firstElementChild) return;
+
+        state.panzoomInstance = Panzoom(element, {
+            canvas: true,
+            maxScale: 5,
+            minScale: 0.1,
+        });
+        // Ensure the pan element never lets the browser handle scrolling/zoom gestures
+        try { element.style.touchAction = 'none'; } catch { }
+        state._wheelTarget = container;
+        state._wheelHandler = state.panzoomInstance.zoomWithWheel;
+        // Attach wheel to both the container and the element for robustness
+        container.addEventListener('wheel', state._wheelHandler, { passive: false });
+        element.addEventListener('wheel', state._wheelHandler, { passive: false });
+        // remember which element panzoom is bound to
+        state._panElement = element;
+
+        // Also bind pointer/touch start on the container so users can pan immediately,
+        // even if the pointer starts outside the inner SVG element.
+        if (state._pointerDownHandler) {
+            try {
+                container.removeEventListener('mousedown', state._pointerDownHandler);
+                container.removeEventListener('pointerdown', state._pointerDownHandler);
+                container.removeEventListener('touchstart', state._pointerDownHandler);
+                element.removeEventListener('mousedown', state._pointerDownHandler);
+                element.removeEventListener('pointerdown', state._pointerDownHandler);
+                element.removeEventListener('touchstart', state._pointerDownHandler);
+            } catch (e) { }
+        }
+        state._pointerDownHandler = (ev) => {
+            if (!state.panzoomInstance) return;
+            const isControl = !!(ev.target && (ev.target.closest('#steps-graph-controls') || ev.target.closest('#tasks-graph-controls')));
+            if (isControl) return;
+            try {
+                ev.preventDefault();
+                state.panzoomInstance.handleDown(ev);
+            } catch { }
+        };
+        // Bind to pointerdown for widest browser coverage; keep mouse/touch as fallback
+        container.addEventListener('pointerdown', state._pointerDownHandler, { passive: false });
+        container.addEventListener('mousedown', state._pointerDownHandler, { passive: false });
+        container.addEventListener('touchstart', state._pointerDownHandler, { passive: false });
+        // Also bind directly on the pan element so dragging on the SVG works immediately
+        element.addEventListener('pointerdown', state._pointerDownHandler, { passive: false });
+        element.addEventListener('mousedown', state._pointerDownHandler, { passive: false });
+        element.addEventListener('touchstart', state._pointerDownHandler, { passive: false });
+
+        container.addEventListener('dblclick', () => {
+            if (!state.panzoomInstance || state._panElement !== element) return;
+            state.panzoomInstance.reset({ animate: true });
+            fitToView();
+        });
+
+        // Restore transform for Steps view if requested. When preserving scale (e.g., expand/collapse all),
+        // ignore any pending auto-fit requests set by layout passes.
+        const restore = (view === 'steps' && state._stepsViewTransform && (!state._fitOnNextStepsRender || state._preserveScale)) ? state._stepsViewTransform : null;
+        if (restore) {
+            try {
+                state.panzoomInstance.zoom(restore.scale || 1, { animate: false });
+                state.panzoomInstance.pan(restore.x || 0, restore.y || 0, { animate: false });
+            } catch { }
+            // one-time restore
+            delete state._stepsViewTransform;
+        } else {
+            // Do not auto-fit on bind; keep current zoom/pan unless explicitly requested.
+            // Initial fit is triggered by external caller (first render) or when _fitOnNextStepsRender is set.
+            if (state._suppressInitialFit) delete state._suppressInitialFit;
+        }
+
+        function fitToView() {
+            // Another initPanAndZoom call might have destroyed/rebound the instance.
+            // Only fit if the current instance is bound to this element.
+            if (!state.panzoomInstance || state._panElement !== element) return;
+            const parentRect = container.getBoundingClientRect();
+            // prefer layout dims (exact), fallback to element’s current box
+            const contentWidth = layout?.width || element.scrollWidth || element.offsetWidth;
+            const contentHeight = layout?.height || element.scrollHeight || element.offsetHeight;
+            if (!contentWidth || !contentHeight || !parentRect.width || !parentRect.height) return;
+
+            // start from a clean slate
+            if (!state.panzoomInstance) return;
+            state.panzoomInstance.reset({ animate: false });
+
+            // Centered fit behavior for both Steps and Tasks
+            const padding = 40;
+            const fitScale = Math.min(
+                parentRect.width / (contentWidth + padding),
+                parentRect.height / (contentHeight + padding)
+            ) * 0.98;
+            const scale = Math.min(1, fitScale);
+            state.panzoomInstance.zoom(scale, { animate: false });
+            const x = (parentRect.width - contentWidth * scale) / 2;
+            const y = (parentRect.height - contentHeight * scale) / 2;
+            state.panzoomInstance.pan(x, y, { animate: false });
+            // Record baseline so Reset reproduces this
+            if (view === 'steps') state._baselineStepsTransform = { x, y, scale };
+
+            // Record baseline transform for Steps view so Reset matches refresh
+            try {
+                if (view === 'steps' && !state._baselineStepsTransform) {
+                    const tr = window.getComputedStyle(element).transform;
+                    if (tr && tr !== 'none') {
+                        const m = tr.match(/matrix\(([^)]+)\)/);
+                        if (m) {
+                            const v = m[1].split(',').map(parseFloat);
+                            if (v.length === 6) {
+                                const a = v[0], b = v[1];
+                                const s = Math.sqrt(a * a + b * b) || 1;
+                                const px = v[4] || 0; const py = v[5] || 0;
+                                state._baselineStepsTransform = { x: px, y: py, scale: s };
+                            }
+                        }
+                    } else {
+                        state._baselineStepsTransform = { x: 0, y: 0, scale: 1 };
+                    }
+                }
+            } catch { }
+        }
+
+        state.__fitToView = fitToView;
+        if (view === 'steps' && state._fitOnNextStepsRender && !state._preserveScale) {
+            // ensure a final synchronous fit
+            setTimeout(() => fitToView(), 0);
+            delete state._fitOnNextStepsRender;
+        }
     }
-    if (isSteps) state._stepsViewTransform = { x, y, scale };
-    state._suppressInitialFit = true; // avoid recenter jump on first control click
-  } catch {}
-  const layout = isSteps ? null : (state._lastStepLayout || null);
-  initPanAndZoom(view, layout);
-}
-  } catch {}
-}
 
-
-// Center a particular step (node or expanded cluster) in view
-function focusStepIntoView(stepName) {
-  try {
-const container = DOM.graphContainer;
-const svg = DOM.graphWrapper.querySelector('svg');
-if (!container || !svg || !state.panzoomInstance) return;
-
-// Prefer the expanded cluster bbox; fallback to the step node bbox
-let target = svg.querySelector(`.step-cluster[data-step-name="${stepName}"]`);
-if (!target) target = svg.querySelector(`g.graph-node[data-step-name="${stepName}"]`);
-if (!target || !target.getBBox) return;
-
-const bbox = target.getBBox();
-const cx = bbox.x + bbox.width / 2;
-const cy = bbox.y + bbox.height / 2;
-
-// Read current scale from computed transform matrix
-const panEl = state._panElement || svg; // actual pan element
-const tr = window.getComputedStyle(panEl).transform;
-let scale = 1;
-if (tr && tr !== 'none') {
-  const m = tr.match(/matrix\(([^)]+)\)/);
-  if (m) {
-    const vals = m[1].split(',').map(parseFloat);
-    if (vals.length === 6) {
-      const a = vals[0], b = vals[1];
-      scale = Math.sqrt(a*a + b*b) || 1;
+    // Ensure there is a working Panzoom bound to the currently visible view
+    function ensurePanzoomBound(view) {
+        try {
+            const isSteps = view === 'steps';
+            const container = isSteps ? DOM.graphContainer : DOM.tasksGraphContainer;
+            const element = isSteps ? DOM.graphWrapper : DOM.tasksGraphWrapper;
+            if (!container || !element) return;
+            if (container.classList.contains('hidden')) return; // will bind on switch
+            // Require content to be present
+            if (!element.firstElementChild) return;
+            // If missing or bound to the wrong element, (re)bind
+            if (!state.panzoomInstance || state._panElement !== element) {
+                // Preserve current transform if re-binding to the same element (or to steps target)
+                try {
+                    const tr = window.getComputedStyle(element).transform;
+                    let scale = 1, x = 0, y = 0;
+                    if (tr && tr !== 'none') {
+                        const m = tr.match(/matrix\(([^)]+)\)/);
+                        if (m) {
+                            const v = m[1].split(',').map(parseFloat);
+                            if (v.length === 6) {
+                                const a = v[0], b = v[1];
+                                scale = Math.sqrt(a * a + b * b) || 1; x = v[4] || 0; y = v[5] || 0;
+                            }
+                        }
+                    }
+                    if (isSteps) state._stepsViewTransform = { x, y, scale };
+                    state._suppressInitialFit = true; // avoid recenter jump on first control click
+                } catch { }
+                const layout = isSteps ? null : (state._lastStepLayout || null);
+                initPanAndZoom(view, layout);
+            }
+        } catch { }
     }
-  }
-}
 
-// Compute a zoom that keeps the cluster fully visible with margins
-const margin = 20;
-const topSafe = 72; // room for tabs/header
-const availW = Math.max(100, container.clientWidth - 2 * margin);
-const availH = Math.max(100, container.clientHeight - topSafe - 2 * margin);
-const fitScaleX = availW / Math.max(1, bbox.width);
-const fitScaleY = availH / Math.max(1, bbox.height);
-const fitScale = Math.min(fitScaleX, fitScaleY);
-if (fitScale < scale - 1e-6) {
-  state.panzoomInstance.zoom(fitScale, { animate: true });
-  scale = fitScale;
-}
 
-// Clamp pan so the bbox is fully inside the viewport margins
-const centerPanX = (container.clientWidth / 2) - (cx * scale);
-const centerPanY = ((container.clientHeight - topSafe) / 2 + topSafe) - (cy * scale);
-const leftMin   = margin - bbox.x * scale;
-const rightMax  = container.clientWidth - margin - (bbox.x + bbox.width) * scale;
-const topMin    = topSafe + margin - bbox.y * scale;
-const bottomMax = container.clientHeight - margin - (bbox.y + bbox.height) * scale;
+    // Center a particular step (node or expanded cluster) in view
+    function focusStepIntoView(stepName) {
+        try {
+            const container = DOM.graphContainer;
+            const svg = DOM.graphWrapper.querySelector('svg');
+            if (!container || !svg || !state.panzoomInstance) return;
 
-const panX = Math.min(leftMin, Math.max(rightMax, centerPanX));
-const panY = Math.min(bottomMax, Math.max(topMin, centerPanY));
-state.panzoomInstance.pan(panX, panY, { animate: true });
-  } catch {}
-}
+            // Prefer the expanded cluster bbox; fallback to the step node bbox
+            let target = svg.querySelector(`.step-cluster[data-step-name="${stepName}"]`);
+            if (!target) target = svg.querySelector(`g.graph-node[data-step-name="${stepName}"]`);
+            if (!target || !target.getBBox) return;
 
-// Minimal pan-only nudge to keep a step fully visible without changing zoom
-function nudgeStepIntoView(stepName) {
-  try {
-const container = DOM.graphContainer;
-const svg = DOM.graphWrapper.querySelector('svg');
-if (!container || !svg || !state.panzoomInstance) return;
-let target = svg.querySelector(`.step-cluster[data-step-name="${stepName}"]`);
-if (!target) target = svg.querySelector(`g.graph-node[data-step-name="${stepName}"]`);
-if (!target || !target.getBBox) return;
+            const bbox = target.getBBox();
+            const cx = bbox.x + bbox.width / 2;
+            const cy = bbox.y + bbox.height / 2;
 
-const bbox = target.getBBox();
-const panEl = state._panElement || svg;
-const tr = window.getComputedStyle(panEl).transform;
-let scale = 1;
-if (tr && tr !== 'none') {
-  const m = tr.match(/matrix\(([^)]+)\)/);
-  if (m) {
-    const vals = m[1].split(',').map(parseFloat);
-    if (vals.length === 6) { const a = vals[0], b = vals[1]; scale = Math.sqrt(a*a + b*b) || 1; }
-  }
-}
+            // Read current scale from computed transform matrix
+            const panEl = state._panElement || svg; // actual pan element
+            const tr = window.getComputedStyle(panEl).transform;
+            let scale = 1;
+            if (tr && tr !== 'none') {
+                const m = tr.match(/matrix\(([^)]+)\)/);
+                if (m) {
+                    const vals = m[1].split(',').map(parseFloat);
+                    if (vals.length === 6) {
+                        const a = vals[0], b = vals[1];
+                        scale = Math.sqrt(a * a + b * b) || 1;
+                    }
+                }
+            }
 
-const margin = 20, topSafe = 84; // extra room for sticky header/tabs
-// Current pan from transform matrix
-let panX = 0, panY = 0;
-if (tr && tr !== 'none') {
-  const m = tr.match(/matrix\(([^)]+)\)/);
-  if (m) {
-    const vals = m[1].split(',').map(parseFloat);
-    if (vals.length === 6) { panX = vals[4] || 0; panY = vals[5] || 0; }
-  }
-}
+            // Compute a zoom that keeps the cluster fully visible with margins
+            const margin = 20;
+            const topSafe = 72; // room for tabs/header
+            const availW = Math.max(100, container.clientWidth - 2 * margin);
+            const availH = Math.max(100, container.clientHeight - topSafe - 2 * margin);
+            const fitScaleX = availW / Math.max(1, bbox.width);
+            const fitScaleY = availH / Math.max(1, bbox.height);
+            const fitScale = Math.min(fitScaleX, fitScaleY);
+            if (fitScale < scale - 1e-6) {
+                state.panzoomInstance.zoom(fitScale, { animate: true });
+                scale = fitScale;
+            }
 
-// Compute deltas so bbox lies within margins
-const left = bbox.x * scale + panX;
-const top = bbox.y * scale + panY;
-const right = (bbox.x + bbox.width) * scale + panX;
-const bottom = (bbox.y + bbox.height) * scale + panY;
+            // Clamp pan so the bbox is fully inside the viewport margins
+            const centerPanX = (container.clientWidth / 2) - (cx * scale);
+            const centerPanY = ((container.clientHeight - topSafe) / 2 + topSafe) - (cy * scale);
+            const leftMin = margin - bbox.x * scale;
+            const rightMax = container.clientWidth - margin - (bbox.x + bbox.width) * scale;
+            const topMin = topSafe + margin - bbox.y * scale;
+            const bottomMax = container.clientHeight - margin - (bbox.y + bbox.height) * scale;
 
-let dx = 0, dy = 0;
-if (left < margin) dx = margin - left;
-if (right > container.clientWidth - margin) dx = (container.clientWidth - margin) - right;
-if (top < topSafe + margin) dy = (topSafe + margin) - top;
-if (bottom > container.clientHeight - margin) dy = (container.clientHeight - margin) - bottom;
+            const panX = Math.min(leftMin, Math.max(rightMax, centerPanX));
+            const panY = Math.min(bottomMax, Math.max(topMin, centerPanY));
+            state.panzoomInstance.pan(panX, panY, { animate: true });
+        } catch { }
+    }
 
-if (dx !== 0 || dy !== 0) {
-  state.panzoomInstance.pan(panX + dx, panY + dy, { animate: true });
-}
-  } catch {}
-}
+    // Minimal pan-only nudge to keep a step fully visible without changing zoom
+    function nudgeStepIntoView(stepName) {
+        try {
+            const container = DOM.graphContainer;
+            const svg = DOM.graphWrapper.querySelector('svg');
+            if (!container || !svg || !state.panzoomInstance) return;
+            let target = svg.querySelector(`.step-cluster[data-step-name="${stepName}"]`);
+            if (!target) target = svg.querySelector(`g.graph-node[data-step-name="${stepName}"]`);
+            if (!target || !target.getBBox) return;
+
+            const bbox = target.getBBox();
+            const panEl = state._panElement || svg;
+            const tr = window.getComputedStyle(panEl).transform;
+            let scale = 1;
+            if (tr && tr !== 'none') {
+                const m = tr.match(/matrix\(([^)]+)\)/);
+                if (m) {
+                    const vals = m[1].split(',').map(parseFloat);
+                    if (vals.length === 6) { const a = vals[0], b = vals[1]; scale = Math.sqrt(a * a + b * b) || 1; }
+                }
+            }
+
+            const margin = 20, topSafe = 84; // extra room for sticky header/tabs
+            // Current pan from transform matrix
+            let panX = 0, panY = 0;
+            if (tr && tr !== 'none') {
+                const m = tr.match(/matrix\(([^)]+)\)/);
+                if (m) {
+                    const vals = m[1].split(',').map(parseFloat);
+                    if (vals.length === 6) { panX = vals[4] || 0; panY = vals[5] || 0; }
+                }
+            }
+
+            // Compute deltas so bbox lies within margins
+            const left = bbox.x * scale + panX;
+            const top = bbox.y * scale + panY;
+            const right = (bbox.x + bbox.width) * scale + panX;
+            const bottom = (bbox.y + bbox.height) * scale + panY;
+
+            let dx = 0, dy = 0;
+            if (left < margin) dx = margin - left;
+            if (right > container.clientWidth - margin) dx = (container.clientWidth - margin) - right;
+            if (top < topSafe + margin) dy = (topSafe + margin) - top;
+            if (bottom > container.clientHeight - margin) dy = (container.clientHeight - margin) - bottom;
+
+            if (dx !== 0 || dy !== 0) {
+                state.panzoomInstance.pan(panX + dx, panY + dy, { animate: true });
+            }
+        } catch { }
+    }
 
 
 
@@ -1737,20 +1737,54 @@ if (dx !== 0 || dy !== 0) {
         state.currentRunTrackedIds.clear();
         relatedIdsMap.forEach((rawId, normalized) => {
             state.currentRunTrackedIds.set(normalized, rawId);
-            if (wsManager && typeof wsManager.subscribeToRun === 'function') {
-                wsManager.subscribeToRun(rawId);
-            }
         });
+    }
+
+    function startRunPolling(runId) {
+        stopRunPolling();
+        const poll = async () => {
+            if (state.currentRunData?.run_info?.run_id !== runId) return;
+            await fetchActiveRun(runId, true);
+
+            const isHidden = document.visibilityState === 'hidden';
+            const interval = isHidden ? 30000 : 2000;
+            state.runPollingTimer = setTimeout(poll, interval);
+        };
+        state.runPollingTimer = setTimeout(poll, 2000);
+    }
+
+    function stopRunPolling() {
+        if (state.runPollingTimer) {
+            clearTimeout(state.runPollingTimer);
+            state.runPollingTimer = null;
+        }
     }
 
     async function fetchActiveRun(runId, isRefresh = false) {
         if (!runId) return;
         if (!isRefresh) {
             resetMainView();
+            stopRunPolling();
+            state.lastRunETag = null;
         }
-        const runDetails = await fetchData(`/v1/runs/${runId}`);
+
+        const options = {};
+        if (state.lastRunETag) {
+            options.headers = { 'If-None-Match': state.lastRunETag };
+        }
+
+        const runDetails = await fetchData(`/v1/runs/${runId}`, options);
+
+        if (runDetails === null && fetchData.lastStatus === 304) {
+            if (!isRefresh) startRunPolling(runId);
+            return;
+        }
         if (runDetails) {
+            if (fetchData.lastETag) {
+                state.lastRunETag = fetchData.lastETag;
+            }
             state.currentRunData = runDetails;
+            if (!isRefresh) startRunPolling(runId);
             updateTrackedRunSubscriptions(runDetails);
             // Restore persisted Steps layout for this run (expanded, positions, scale)
             try {
@@ -1764,13 +1798,13 @@ if (dx !== 0 || dy !== 0) {
                         }
                         if (saved.positions && typeof saved.positions === 'object') {
                             const entries = Object.entries(saved.positions);
-                            state.expandedStepPositions = new Map(entries.map(([k, v]) => [k, { x: Number(v.x)||0, y: Number(v.y)||0 }]));
+                            state.expandedStepPositions = new Map(entries.map(([k, v]) => [k, { x: Number(v.x) || 0, y: Number(v.y) || 0 }]));
                         }
                         if (saved.scale) state.stepLayoutScale = Math.max(1, Math.min(1.8, Number(saved.scale) || 1.0));
                         if (saved.tasksScale) state.taskClusterScale = Math.max(0.65, Math.min(1.0, Number(saved.tasksScale) || 1.0));
                     }
                 }
-            } catch {}
+            } catch { }
             renderRunView(runDetails);
             const { action, stepName } = parsePipelineRunsHash(window.location.hash);
             if (action === 'steps' && stepName) {
@@ -1968,8 +2002,8 @@ if (dx !== 0 || dy !== 0) {
             const pathSegments = getGroupPathSegmentsById(group.id);
             const groupHref = pathSegments.length ? `#/pipelineruns/main/${pathSegments.join('/')}` : '#/pipelineruns/main';
 
-            let chevron = canExpand 
-                ? `<svg class="h-4 w-4 mr-1 text-[var(--text-secondary)] chevron ${isExpanded ? 'rotate-90' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>` 
+            let chevron = canExpand
+                ? `<svg class="h-4 w-4 mr-1 text-[var(--text-secondary)] chevron ${isExpanded ? 'rotate-90' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>`
                 : `<div class="w-5 h-4 mr-1"></div>`;
 
             const folderIconSvg = `<svg class="h-4 w-4 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>`;
@@ -2314,7 +2348,7 @@ if (dx !== 0 || dy !== 0) {
         const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
         const pipelineNameHTML = getPipelineNameHTML(run);
         const triggerCard = formatTriggerEventCardDisplay(run.trigger_event_id);
-        
+
         return `
             <a href="${runUrl}" data-run-context="${contextAttr}"
                 class="sidebar-run-link flex items-center p-2 text-sm text-[var(--text-secondary)] rounded-md ${isActive ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)] sidebar-run-link--active' : ''}">
@@ -2341,7 +2375,7 @@ if (dx !== 0 || dy !== 0) {
                 </div>
             </a>`;
     }
-    
+
     function handleRunSummaryUpdate(runData) {
         // Find all elements representing this run (cards in main view, links in sidebar)
         const elements = document.querySelectorAll(`[data-run-id="${runData.run_id}"]`);
@@ -2649,9 +2683,9 @@ if (dx !== 0 || dy !== 0) {
         let queue = Object.values(nodes).filter(node => node.parents.size === 0);
         let processedCount = 0;
 
-        while(queue.length > 0) {
+        while (queue.length > 0) {
             const levelSize = queue.length;
-            for(let i=0; i < levelSize; i++){
+            for (let i = 0; i < levelSize; i++) {
                 const node = queue.shift();
                 node.level = level;
                 processedCount++;
@@ -2690,12 +2724,12 @@ if (dx !== 0 || dy !== 0) {
                 PADDING_X = isMiniContainer ? 12 : 24;
                 PADDING_Y = isMiniContainer ? 12 : 24;
             }
-        } catch {}
+        } catch { }
         let totalWidth, totalHeight;
 
         if (isVertical) {
             let maxNodesInLevel = 0;
-            levels.forEach(l => { if(l) maxNodesInLevel = Math.max(maxNodesInLevel, l.length); });
+            levels.forEach(l => { if (l) maxNodesInLevel = Math.max(maxNodesInLevel, l.length); });
             totalWidth = maxNodesInLevel * nodeWidth + (maxNodesInLevel > 1 ? (maxNodesInLevel - 1) * hGap : 0);
             totalHeight = levels.length * nodeHeight + (levels.length > 1 ? (levels.length - 1) * vGap : 0);
 
@@ -2710,7 +2744,7 @@ if (dx !== 0 || dy !== 0) {
             });
         } else { // Horizontal layout
             let maxNodesInLevel = 0;
-            levels.forEach(l => { if(l) maxNodesInLevel = Math.max(maxNodesInLevel, l.length); });
+            levels.forEach(l => { if (l) maxNodesInLevel = Math.max(maxNodesInLevel, l.length); });
             totalWidth = levels.length * nodeWidth + (levels.length > 1 ? (levels.length - 1) * hGap : 0);
             totalHeight = maxNodesInLevel * nodeHeight + (maxNodesInLevel > 1 ? (maxNodesInLevel - 1) * vGap : 0);
 
@@ -2741,10 +2775,10 @@ if (dx !== 0 || dy !== 0) {
             });
         });
 
-        return { 
-            nodes: Object.values(nodes), 
-            edges, 
-            width: totalWidth + PADDING_X, 
+        return {
+            nodes: Object.values(nodes),
+            edges,
+            width: totalWidth + PADDING_X,
             height: totalHeight + PADDING_Y
         };
     }
@@ -2799,39 +2833,39 @@ if (dx !== 0 || dy !== 0) {
             `;
         }
 
-    const overrideIcon = runInfo.pipeline_source === 'database override'
-        ? `<svg class="h-5 w-5 text-purple-500 ml-2" title="Overridden from database" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l4-4 4 4m0 6l-4 4-4-4"/></svg>`
-        : '';
-    const statusIconHtml = buildRunStatusIcon(runInfo);
+        const overrideIcon = runInfo.pipeline_source === 'database override'
+            ? `<svg class="h-5 w-5 text-purple-500 ml-2" title="Overridden from database" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l4-4 4 4m0 6l-4 4-4-4"/></svg>`
+            : '';
+        const statusIconHtml = buildRunStatusIcon(runInfo);
 
-    const normalizedStatus = (runInfo.status || '').trim().toLowerCase();
-    const isCancelable = normalizedStatus === 'pending' || normalizedStatus === 'running';
-    const primaryActionHTML = isCancelable
-        ? `<button id="run-primary-action-btn" data-action="cancel" type="button" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+        const normalizedStatus = (runInfo.status || '').trim().toLowerCase();
+        const isCancelable = normalizedStatus === 'pending' || normalizedStatus === 'running';
+        const primaryActionHTML = isCancelable
+            ? `<button id="run-primary-action-btn" data-action="cancel" type="button" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
                 <svg class="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
                 Cancel Run
             </button>`
-        : `<button id="run-primary-action-btn" data-action="rerun" type="button" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+            : `<button id="run-primary-action-btn" data-action="rerun" type="button" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
                 <svg class="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16.023 9.348h4.992m0 0V4.356m0 4.992L18 7.5M7.977 14.652H2.985m0 0v4.992m0-4.992L6 16.5M4.5 12a7.5 7.5 0 0112.69-5.31M19.5 12a7.5 7.5 0 01-12.69 5.31" />
                 </svg>
                 Rerun
             </button>`;
 
-    const pipelineActionHTML = pipelineIdentifier
-        ? `<a id="run-view-pipeline-link" data-pipeline-id="${escapeAttribute(pipelineIdentifier)}" data-pipeline-href="${escapeAttribute(pipelinePageLink)}" data-active-title="View this pipeline in Pipelines tab" class="${PIPELINE_BUTTON_DISABLED_CLASSES}" aria-disabled="true" tabindex="-1" title="Checking pipeline availability…">
+        const pipelineActionHTML = pipelineIdentifier
+            ? `<a id="run-view-pipeline-link" data-pipeline-id="${escapeAttribute(pipelineIdentifier)}" data-pipeline-href="${escapeAttribute(pipelinePageLink)}" data-active-title="View this pipeline in Pipelines tab" class="${PIPELINE_BUTTON_DISABLED_CLASSES}" aria-disabled="true" tabindex="-1" title="Checking pipeline availability…">
                 <svg class="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
                 View Pipeline
             </a>`
-        : '';
+            : '';
 
-    const deleteRunIconHTML = `<button id="run-delete-btn" type="button" class="inline-flex items-center justify-center h-8 w-8 rounded-full text-[var(--text-secondary)] hover:text-red-500 hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500" title="Delete run">
+        const deleteRunIconHTML = `<button id="run-delete-btn" type="button" class="inline-flex items-center justify-center h-8 w-8 rounded-full text-[var(--text-secondary)] hover:text-red-500 hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500" title="Delete run">
                 <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5-3h4m1 3H7" /></svg>
             </button>`;
 
-    headerHTML += `
+        headerHTML += `
             <div class="flex flex-wrap items-baseline gap-x-3 min-w-0">
                 <a href="${repoLink}" class="text-xl font-semibold text-[var(--text-secondary)] hover:text-[var(--text-accent)] transition-colors truncate">${repoFullName}</a>
                 <span class="flex items-center gap-2 text-xl font-semibold text-[var(--text-primary)] truncate">
@@ -2873,125 +2907,135 @@ if (dx !== 0 || dy !== 0) {
             </div>
         </div>`;
 
-    if (DOM.mainHeader) {
+        if (DOM.mainHeader) {
             DOM.mainHeader.innerHTML = headerHTML;
         } else {
             console.error("DOM.mainHeader not found during renderRunView");
             return; // Avoid errors if header element isn't there
         }
 
-    if (pipelineIdentifier) {
-        updatePipelineButtonState(pipelineIdentifier);
-    }
+        if (pipelineIdentifier) {
+            updatePipelineButtonState(pipelineIdentifier);
+        }
 
-    const actionBtn = document.getElementById('run-primary-action-btn');
-    if (actionBtn && runInfo?.run_id) {
-        const setLoadingState = (label) => {
-            actionBtn.dataset.originalHtml = actionBtn.innerHTML;
-            actionBtn.disabled = true;
-            actionBtn.classList.add('opacity-70', 'cursor-not-allowed');
-            actionBtn.innerHTML = label;
-        };
-        const restoreState = () => {
-            if (!document.body.contains(actionBtn)) return;
-            const originalHTML = actionBtn.dataset.originalHtml;
-            if (originalHTML) {
-                actionBtn.innerHTML = originalHTML;
-                delete actionBtn.dataset.originalHtml;
+        const actionBtn = document.getElementById('run-primary-action-btn');
+        if (actionBtn && runInfo?.run_id) {
+            const setLoadingState = (label) => {
+                actionBtn.dataset.originalHtml = actionBtn.innerHTML;
+                actionBtn.disabled = true;
+                actionBtn.classList.add('opacity-70', 'cursor-not-allowed');
+                actionBtn.innerHTML = label;
+            };
+            const restoreState = () => {
+                if (!document.body.contains(actionBtn)) return;
+                const originalHTML = actionBtn.dataset.originalHtml;
+                if (originalHTML) {
+                    actionBtn.innerHTML = originalHTML;
+                    delete actionBtn.dataset.originalHtml;
+                }
+                actionBtn.disabled = false;
+                actionBtn.classList.remove('opacity-70', 'cursor-not-allowed');
+            };
+            const actionType = actionBtn.dataset.action;
+            if (actionType === 'cancel') {
+                actionBtn.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    if (actionBtn.disabled) return;
+                    if (!window.confirm('Cancel this pipeline run?')) {
+                        return;
+                    }
+                    setLoadingState('Cancelling…');
+                    try {
+                        await fetchData(`/v1/runs/${runInfo.run_id}/cancel`, { method: 'POST' });
+                        await fetchActiveRun(runInfo.run_id, true);
+                    } finally {
+                        restoreState();
+                    }
+                });
+            } else if (actionType === 'rerun') {
+                actionBtn.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    if (actionBtn.disabled) return;
+
+                    if (!window.confirm('Rerun this pipeline run?')) {
+                        return;
+                    }
+
+                    setLoadingState('Rerunning…');
+
+                    try {
+                        const result = await fetchData(`/v1/runs/${runInfo.run_id}/rerun`, { method: 'POST' });
+                        if (!result) return;
+
+                        let newRunId = null;
+                        let newTriggerId = null;
+                        if (typeof result === 'string') {
+                            const match = result.match(/[0-9a-fA-F-]{36}/);
+                            if (match) {
+                                newRunId = match[0];
+                            } else {
+                                alert(result);
+                            }
+                        } else if (typeof result === 'object' && result !== null) {
+                            if (result.runId) {
+                                newRunId = result.runId;
+                            }
+                            if (result.triggerEventId) {
+                                newTriggerId = result.triggerEventId;
+                            }
+                            if (!newRunId && typeof result.message === 'string') {
+                                alert(result.message);
+                            }
+                        }
+
+                        if (newRunId) {
+                            const context = resolveRunContext(state.currentRunContext || null);
+                            await fetchActiveRun(newRunId);
+                            const runForHash = state.currentRunData?.run_info
+                                ? state.currentRunData.run_info
+                                : { ...runInfo, run_id: newRunId, trigger_event_id: newTriggerId || newRunId };
+                            window.location.hash = buildRunHash(runForHash, context);
+                        }
+                    } finally {
+                        restoreState();
+                    }
+                });
             }
-            actionBtn.disabled = false;
-            actionBtn.classList.remove('opacity-70', 'cursor-not-allowed');
-        };
-        const actionType = actionBtn.dataset.action;
-        if (actionType === 'cancel') {
-            actionBtn.addEventListener('click', async (e) => {
+        }
+
+        const deleteRunBtn = document.getElementById('run-delete-btn');
+        if (deleteRunBtn && runInfo?.run_id) {
+            deleteRunBtn.addEventListener('click', async (e) => {
                 e.preventDefault();
-                if (actionBtn.disabled) return;
-                if (!window.confirm('Cancel this pipeline run?')) {
-                    return;
-                }
-                setLoadingState('Cancelling…');
+                if (deleteRunBtn.disabled) return;
+                deleteRunBtn.disabled = true;
+                deleteRunBtn.classList.add('opacity-70', 'cursor-not-allowed');
                 try {
-                    await fetchData(`/v1/runs/${runInfo.run_id}/cancel`, { method: 'POST' });
-                    await fetchActiveRun(runInfo.run_id, true);
+                    await deleteRunById(runInfo.run_id, state.currentRunContext);
                 } finally {
-                    restoreState();
-                }
-            });
-        } else if (actionType === 'rerun') {
-            actionBtn.addEventListener('click', async (e) => {
-                e.preventDefault();
-                if (actionBtn.disabled) return;
-
-                if (!window.confirm('Rerun this pipeline run?')) {
-                    return;
-                }
-
-                setLoadingState('Rerunning…');
-
-                try {
-                    const result = await fetchData(`/v1/runs/${runInfo.run_id}/rerun`, { method: 'POST' });
-                    if (!result) return;
-
-                    let newRunId = null;
-                    let newTriggerId = null;
-                    if (typeof result === 'string') {
-                        const match = result.match(/[0-9a-fA-F-]{36}/);
-                        if (match) {
-                            newRunId = match[0];
-                        } else {
-                            alert(result);
-                        }
-                    } else if (typeof result === 'object' && result !== null) {
-                        if (result.runId) {
-                            newRunId = result.runId;
-                        }
-                        if (result.triggerEventId) {
-                            newTriggerId = result.triggerEventId;
-                        }
-                        if (!newRunId && typeof result.message === 'string') {
-                            alert(result.message);
-                        }
-                    }
-
-                    if (newRunId) {
-                        const context = resolveRunContext(state.currentRunContext || null);
-                        await fetchActiveRun(newRunId);
-                        const runForHash = state.currentRunData?.run_info
-                            ? state.currentRunData.run_info
-                            : { ...runInfo, run_id: newRunId, trigger_event_id: newTriggerId || newRunId };
-                        window.location.hash = buildRunHash(runForHash, context);
-                    }
-                } finally {
-                    restoreState();
+                    deleteRunBtn.disabled = false;
+                    deleteRunBtn.classList.remove('opacity-70', 'cursor-not-allowed');
                 }
             });
         }
-    }
 
-    const deleteRunBtn = document.getElementById('run-delete-btn');
-    if (deleteRunBtn && runInfo?.run_id) {
-        deleteRunBtn.addEventListener('click', async (e) => {
-            e.preventDefault();
-            if (deleteRunBtn.disabled) return;
-            deleteRunBtn.disabled = true;
-            deleteRunBtn.classList.add('opacity-70', 'cursor-not-allowed');
-            try {
-                await deleteRunById(runInfo.run_id, state.currentRunContext);
-            } finally {
-                deleteRunBtn.disabled = false;
-                deleteRunBtn.classList.remove('opacity-70', 'cursor-not-allowed');
+        const isSameRun = state.stepsGraphRenderedRunId === runInfo.run_id;
+        if (isSameRun && state.currentGraphView === 'steps') {
+            const success = updateStepsGraphStatuses(runDetails);
+            if (success) {
+                if (pipelineIdentifier) updatePipelineButtonState(pipelineIdentifier);
+                return;
             }
-        });
-    }
+        }
 
-    resetMainView();
-    try { localStorage.setItem('graphView', 'steps'); } catch {}
-    state.currentGraphView = 'steps';
+        state.stepsGraphRenderedRunId = runInfo.run_id;
+        resetMainView();
+        try { localStorage.setItem('graphView', 'steps'); } catch { }
+        state.currentGraphView = 'steps';
 
-    if (runInfo.failure_reason) {
-        DOM.mainGridContainer.classList.remove('hidden');
-        DOM.mainGridContainer.innerHTML = `
+        if (runInfo.failure_reason) {
+            DOM.mainGridContainer.classList.remove('hidden');
+            DOM.mainGridContainer.innerHTML = `
             <div class="bg-red-50 dark:bg-red-900/50 border border-red-200 dark:border-red-500/50 text-red-800 dark:text-red-200 px-4 py-3 rounded-lg relative" role="alert">
                 <strong class="font-bold">Pipeline Failed to Start</strong>
                 <span class="block sm:inline mt-2 sm:mt-0 sm:ml-2">This pipeline could not be launched due to a configuration error.</span>
@@ -2999,19 +3043,19 @@ if (dx !== 0 || dy !== 0) {
                     <code class="text-sm text-red-900 dark:text-red-100">${runInfo.failure_reason}</code>
                 </div>
             </div>`;
-    } else {
-        renderStepsGraph(runDetails);
-        ensureStepsControls();
-        switchGraphView('steps');
-        setTimeout(() => {
-          const view = 'steps';
-          initPanAndZoom(view);
-          if (typeof state.__fitToView === 'function') state.__fitToView();
-        }, 0);
+        } else {
+            renderStepsGraph(runDetails);
+            ensureStepsControls();
+            switchGraphView('steps');
+            setTimeout(() => {
+                const view = 'steps';
+                initPanAndZoom(view);
+                if (typeof state.__fitToView === 'function') state.__fitToView();
+            }, 0);
+        }
     }
-}
 
-function showPipelineDefinitionModal(pipelineDefinition) {
+    function showPipelineDefinitionModal(pipelineDefinition) {
         const modal = document.getElementById('pipeline-definition-modal');
         const modalContent = document.getElementById('pipeline-definition-modal-content');
         const contentEl = document.getElementById('pipeline-definition-content').querySelector('code');
@@ -3095,7 +3139,7 @@ function showPipelineDefinitionModal(pipelineDefinition) {
         let pipelineYAML;
         let rawYAML;
 
-        if(typeof pipelineDefinition === 'string') {
+        if (typeof pipelineDefinition === 'string') {
             pipelineYAML = pipelineDefinition.replace(/</g, '&lt;').replace(/>/g, '&gt;');
             rawYAML = pipelineDefinition;
         } else if (typeof pipelineDefinition === 'object' && pipelineDefinition !== null) {
@@ -3161,10 +3205,10 @@ function showPipelineDefinitionModal(pipelineDefinition) {
                 if (Object.prototype.hasOwnProperty.call(obj, key)) {
                     const value = obj[key];
                     if (typeof value === 'object' && value !== null) {
-                        if(Array.isArray(value)) {
+                        if (Array.isArray(value)) {
                             yamlString += `${spaces}${key}:\n`;
                             value.forEach(item => {
-                                if(typeof item === 'object' && item !== null) {
+                                if (typeof item === 'object' && item !== null) {
                                     yamlString += `${spaces}  - \n${toYAML(item, indent + 2)}`;
                                 } else {
                                     yamlString += `${spaces}  - ${item}\n`;
@@ -3237,7 +3281,7 @@ function showPipelineDefinitionModal(pipelineDefinition) {
         });
     }
 
-function renderStepsGraph(runDetails) {
+    function renderStepsGraph(runDetails) {
         const runInfo = runDetails?.run_info || {};
         const runContext = resolveRunContext(state.currentRunContext || null);
 
@@ -3260,9 +3304,9 @@ function renderStepsGraph(runDetails) {
         // Use icon-only task graphs inside expanded steps for clarity
         const miniStyle = 'icon';
         const baseW = isVerticalLayout ? 160 : 120;
-        const baseH = isVerticalLayout ? 80  : 100;
+        const baseH = isVerticalLayout ? 80 : 100;
         // tighter horizontal spacing to keep graph compact when many steps are expanded
-        const baseHG = isVerticalLayout ? 40  : 90;   // was 120 for horizontal
+        const baseHG = isVerticalLayout ? 40 : 90;   // was 120 for horizontal
         const baseVG = isVerticalLayout ? 100 : 16;   // was 20 for horizontal
         const nodeWidth = Math.round(baseW * scale);
         const nodeHeight = Math.round(baseH * scale);
@@ -3308,49 +3352,49 @@ function renderStepsGraph(runDetails) {
 
         // Helper geometry for dynamic spacing: line/rect intersection
         function pointInRect(px, py, rx1, ry1, rx2, ry2) {
-          return px >= rx1 && px <= rx2 && py >= ry1 && py <= ry2;
+            return px >= rx1 && px <= rx2 && py >= ry1 && py <= ry2;
         }
         function segmentsIntersect(ax, ay, bx, by, cx, cy, dx, dy) {
-          function orient(px, py, qx, qy, rx, ry) { return (qy - py) * (rx - qx) - (qx - px) * (ry - qy); }
-          function onSeg(px, py, qx, qy, rx, ry) { return Math.min(px, qx) <= rx && rx <= Math.max(px, qx) && Math.min(py, qy) <= ry && ry <= Math.max(py, qy); }
-          const o1 = orient(ax, ay, bx, by, cx, cy);
-          const o2 = orient(ax, ay, bx, by, dx, dy);
-          const o3 = orient(cx, cy, dx, dy, ax, ay);
-          const o4 = orient(cx, cy, dx, dy, bx, by);
-          if ((o1 > 0 && o2 < 0 || o1 < 0 && o2 > 0) && (o3 > 0 && o4 < 0 || o3 < 0 && o4 > 0)) return true;
-          if (o1 === 0 && onSeg(ax, ay, bx, by, cx, cy)) return true;
-          if (o2 === 0 && onSeg(ax, ay, bx, by, dx, dy)) return true;
-          if (o3 === 0 && onSeg(cx, cy, dx, dy, ax, ay)) return true;
-          if (o4 === 0 && onSeg(cx, cy, dx, dy, bx, by)) return true;
-          return false;
+            function orient(px, py, qx, qy, rx, ry) { return (qy - py) * (rx - qx) - (qx - px) * (ry - qy); }
+            function onSeg(px, py, qx, qy, rx, ry) { return Math.min(px, qx) <= rx && rx <= Math.max(px, qx) && Math.min(py, qy) <= ry && ry <= Math.max(py, qy); }
+            const o1 = orient(ax, ay, bx, by, cx, cy);
+            const o2 = orient(ax, ay, bx, by, dx, dy);
+            const o3 = orient(cx, cy, dx, dy, ax, ay);
+            const o4 = orient(cx, cy, dx, dy, bx, by);
+            if ((o1 > 0 && o2 < 0 || o1 < 0 && o2 > 0) && (o3 > 0 && o4 < 0 || o3 < 0 && o4 > 0)) return true;
+            if (o1 === 0 && onSeg(ax, ay, bx, by, cx, cy)) return true;
+            if (o2 === 0 && onSeg(ax, ay, bx, by, dx, dy)) return true;
+            if (o3 === 0 && onSeg(cx, cy, dx, dy, ax, ay)) return true;
+            if (o4 === 0 && onSeg(cx, cy, dx, dy, bx, by)) return true;
+            return false;
         }
         function lineIntersectsRect(x1, y1, x2, y2, rx1, ry1, rx2, ry2) {
-          if (pointInRect(x1, y1, rx1, ry1, rx2, ry2) || pointInRect(x2, y2, rx1, ry1, rx2, ry2)) return true;
-          // check against each edge of rectangle
-          return (
-            segmentsIntersect(x1, y1, x2, y2, rx1, ry1, rx2, ry1) ||
-            segmentsIntersect(x1, y1, x2, y2, rx2, ry1, rx2, ry2) ||
-            segmentsIntersect(x1, y1, x2, y2, rx2, ry2, rx1, ry2) ||
-            segmentsIntersect(x1, y1, x2, y2, rx1, ry2, rx1, ry1)
-          );
+            if (pointInRect(x1, y1, rx1, ry1, rx2, ry2) || pointInRect(x2, y2, rx1, ry1, rx2, ry2)) return true;
+            // check against each edge of rectangle
+            return (
+                segmentsIntersect(x1, y1, x2, y2, rx1, ry1, rx2, ry1) ||
+                segmentsIntersect(x1, y1, x2, y2, rx2, ry1, rx2, ry2) ||
+                segmentsIntersect(x1, y1, x2, y2, rx2, ry2, rx1, ry2) ||
+                segmentsIntersect(x1, y1, x2, y2, rx1, ry2, rx1, ry1)
+            );
         }
 
         // Build simple step-edge segments (center-to-center) for overlap checks
         const simpleEdgeSegments = edges.map(e => ({
-          from: e.from.name,
-          to: e.to.name,
-          x1: e.from.x + e.from.width / 2,
-          y1: e.from.y + e.from.height / 2,
-          x2: e.to.x   + e.to.width   / 2,
-          y2: e.to.y   + e.to.height  / 2,
+            from: e.from.name,
+            to: e.to.name,
+            x1: e.from.x + e.from.width / 2,
+            y1: e.from.y + e.from.height / 2,
+            x2: e.to.x + e.to.width / 2,
+            y2: e.to.y + e.to.height / 2,
         }));
 
         // Place expanded step clusters in flow order to reduce collisions
         const expandedStepNodes = nodes.filter(n => state.expandedSteps && state.expandedSteps.has(n.name));
         expandedStepNodes.sort((a, b) => {
             return isVerticalLayout
-              ? (a.y - b.y) || (a.x - b.x)
-              : (a.x - b.x) || (a.y - b.y);
+                ? (a.y - b.y) || (a.x - b.x)
+                : (a.x - b.x) || (a.y - b.y);
         });
 
         expandedStepNodes.forEach(stepNode => {
@@ -3367,14 +3411,14 @@ function renderStepsGraph(runDetails) {
                 }
             });
 
-        // Size the inner task graph and ALIGN its direction with the main graph
-        // Horizontal steps => horizontal inner graph; Vertical steps => vertical inner graph
-        // Compact task nodes inside expanded step clusters
-        const tNodeW = Math.round((isVerticalLayout ? 140 : 100) * clusterScale);
-        const tNodeH = Math.round((isVerticalLayout ?  70 :  72) * clusterScale);
-        const tHG    = Math.max(32,  Math.round((isVerticalLayout ? 32 : 48) * clusterScale));
-        const tVG    = Math.max( (isVerticalLayout ? 80 :  24), Math.round((isVerticalLayout ? 80 : 24) * clusterScale));
-        const tLayout = calculateGraphLayout(itemsWithDeps, DOM.graphWrapper, tNodeW, tNodeH, tHG, tVG, isVerticalLayout);
+            // Size the inner task graph and ALIGN its direction with the main graph
+            // Horizontal steps => horizontal inner graph; Vertical steps => vertical inner graph
+            // Compact task nodes inside expanded step clusters
+            const tNodeW = Math.round((isVerticalLayout ? 140 : 100) * clusterScale);
+            const tNodeH = Math.round((isVerticalLayout ? 70 : 72) * clusterScale);
+            const tHG = Math.max(32, Math.round((isVerticalLayout ? 32 : 48) * clusterScale));
+            const tVG = Math.max((isVerticalLayout ? 80 : 24), Math.round((isVerticalLayout ? 80 : 24) * clusterScale));
+            const tLayout = calculateGraphLayout(itemsWithDeps, DOM.graphWrapper, tNodeW, tNodeH, tHG, tVG, isVerticalLayout);
             const stepCenterX = stepNode.x + stepNode.width / 2;
             const stepCenterY = stepNode.y + stepNode.height / 2;
             // Tighter padding around tasks inside a cluster box
@@ -3383,8 +3427,8 @@ function renderStepsGraph(runDetails) {
 
             // Place box initially centered on the step position
             const children = edges
-              .filter(e => e.from.name === stepNode.name)
-              .map(e => e.to);
+                .filter(e => e.from.name === stepNode.name)
+                .map(e => e.to);
             const anchorX = stepCenterX;
             const anchorY = stepCenterY;
 
@@ -3392,23 +3436,23 @@ function renderStepsGraph(runDetails) {
             const corridorMargin = pad + 12;
             let bandMin, bandMax;
             if (isVerticalLayout) {
-              const xs = [stepCenterX].concat(children.map(n => n.x + n.width / 2));
-              const minX = Math.min.apply(null, xs);
-              const maxX = Math.max.apply(null, xs);
-              bandMin = (isFinite(minX) ? minX : stepCenterX) - corridorMargin;
-              bandMax = (isFinite(maxX) ? maxX : stepCenterX) + corridorMargin;
+                const xs = [stepCenterX].concat(children.map(n => n.x + n.width / 2));
+                const minX = Math.min.apply(null, xs);
+                const maxX = Math.max.apply(null, xs);
+                bandMin = (isFinite(minX) ? minX : stepCenterX) - corridorMargin;
+                bandMax = (isFinite(maxX) ? maxX : stepCenterX) + corridorMargin;
             } else {
-              const ys = [stepCenterY].concat(children.map(n => n.y + n.height / 2));
-              const minY = Math.min.apply(null, ys);
-              const maxY = Math.max.apply(null, ys);
-              // For horizontal layout, widen the corridor by half the cluster height to allow vertical sliding
-              const corridorBoost = Math.round((tLayout.height / 2) || 0);
-              bandMin = (isFinite(minY) ? minY : stepCenterY) - corridorMargin - corridorBoost;
-              bandMax = (isFinite(maxY) ? maxY : stepCenterY) + corridorMargin + corridorBoost;
+                const ys = [stepCenterY].concat(children.map(n => n.y + n.height / 2));
+                const minY = Math.min.apply(null, ys);
+                const maxY = Math.max.apply(null, ys);
+                // For horizontal layout, widen the corridor by half the cluster height to allow vertical sliding
+                const corridorBoost = Math.round((tLayout.height / 2) || 0);
+                bandMin = (isFinite(minY) ? minY : stepCenterY) - corridorMargin - corridorBoost;
+                bandMax = (isFinite(maxY) ? maxY : stepCenterY) + corridorMargin + corridorBoost;
             }
 
             // Always anchor box to the step center so it stays in place across renders
-            let originX = Math.round(stepCenterX - (tLayout.width  / 2));
+            let originX = Math.round(stepCenterX - (tLayout.width / 2));
             let originY = Math.round(stepCenterY - (tLayout.height / 2));
             // Ensure background with padding stays inside the SVG viewBox
             if (originX < pad) originX = pad;
@@ -3428,32 +3472,32 @@ function renderStepsGraph(runDetails) {
 
             // Helper to test overlap against placed boxes and step rects
             const overlapsAny = (x1, y1, x2, y2) => {
-              for (const pc of placed) {
-                if (x1 < pc.x2 && x2 > pc.x1 && y1 < pc.y2 && y2 > pc.y1) return true;
-              }
-              for (const sr of stepRects) {
-                if (sr.name === stepNode.name) continue;
-                if (x1 < sr.x2 && x2 > sr.x1 && y1 < sr.y2 && y2 > sr.y1) return true;
-              }
-              return false;
+                for (const pc of placed) {
+                    if (x1 < pc.x2 && x2 > pc.x1 && y1 < pc.y2 && y2 > pc.y1) return true;
+                }
+                for (const sr of stepRects) {
+                    if (sr.name === stepNode.name) continue;
+                    if (x1 < sr.x2 && x2 > sr.x1 && y1 < sr.y2 && y2 > sr.y1) return true;
+                }
+                return false;
             };
 
             const overlapsStepsOnly = (x1, y1, x2, y2) => {
-              for (const sr of stepRects) {
-                if (sr.name === stepNode.name) continue;
-                if (x1 < sr.x2 && x2 > sr.x1 && y1 < sr.y2 && y2 > sr.y1) return true;
-              }
-              return false;
+                for (const sr of stepRects) {
+                    if (sr.name === stepNode.name) continue;
+                    if (x1 < sr.x2 && x2 > sr.x1 && y1 < sr.y2 && y2 > sr.y1) return true;
+                }
+                return false;
             };
 
             // If the box cannot fit within the corridor band, mark for scale-up
             let needsCorridorScale = false;
             if (isVerticalLayout) {
-              const corridorWidth = (bandMax - bandMin);
-              if ((tLayout.width + 2 * pad) > (corridorWidth - 8)) needsCorridorScale = true;
+                const corridorWidth = (bandMax - bandMin);
+                if ((tLayout.width + 2 * pad) > (corridorWidth - 8)) needsCorridorScale = true;
             } else {
-              const corridorHeight = (bandMax - bandMin);
-              if ((tLayout.height + 2 * pad) > (corridorHeight - 8)) needsCorridorScale = true;
+                const corridorHeight = (bandMax - bandMin);
+                if ((tLayout.height + 2 * pad) > (corridorHeight - 8)) needsCorridorScale = true;
             }
 
             // (Edge intersection check moved to after final placement)
@@ -3466,57 +3510,57 @@ function renderStepsGraph(runDetails) {
             let bumpedByStep = false;
 
             const attemptReposition = () => {
-              // scan along the orthogonal axis, alternating +/-, up to corridor bounds
-              const maxIter = 80; // 80 * step ~ reasonable spread
-              const step = 12;    // scan resolution in px
-              if (isVerticalLayout) {
-                // move left/right but keep within bandMin..bandMax
-                const baseCenter = stepCenterX;
-                for (let i = 0; i <= maxIter; i++) {
-                  const dir = (i % 2 === 0) ? 1 : -1;
-                  const delta = Math.floor(i / 2) * step * dir;
-                  const candCenter = baseCenter + delta;
-                  if (candCenter < bandMin || candCenter > bandMax) continue;
-                  const candOriginX = Math.round(candCenter - (tLayout.width / 2));
-                  const cx1 = candOriginX - pad;
-                  const cx2 = candOriginX + tLayout.width + pad;
-                  const cy1 = originY - pad;
-                  const cy2 = originY + tLayout.height + pad;
-                  if (fits(cx1, cy1, cx2, cy2)) {
-                    originX = candOriginX;
-                    boxX1 = cx1; boxX2 = cx2; boxY1 = cy1; boxY2 = cy2;
-                    return true;
-                  }
+                // scan along the orthogonal axis, alternating +/-, up to corridor bounds
+                const maxIter = 80; // 80 * step ~ reasonable spread
+                const step = 12;    // scan resolution in px
+                if (isVerticalLayout) {
+                    // move left/right but keep within bandMin..bandMax
+                    const baseCenter = stepCenterX;
+                    for (let i = 0; i <= maxIter; i++) {
+                        const dir = (i % 2 === 0) ? 1 : -1;
+                        const delta = Math.floor(i / 2) * step * dir;
+                        const candCenter = baseCenter + delta;
+                        if (candCenter < bandMin || candCenter > bandMax) continue;
+                        const candOriginX = Math.round(candCenter - (tLayout.width / 2));
+                        const cx1 = candOriginX - pad;
+                        const cx2 = candOriginX + tLayout.width + pad;
+                        const cy1 = originY - pad;
+                        const cy2 = originY + tLayout.height + pad;
+                        if (fits(cx1, cy1, cx2, cy2)) {
+                            originX = candOriginX;
+                            boxX1 = cx1; boxX2 = cx2; boxY1 = cy1; boxY2 = cy2;
+                            return true;
+                        }
+                    }
+                } else {
+                    // move up/down but keep within bandMin..bandMax
+                    const baseCenter = stepCenterY;
+                    // Honor header safe area when testing candidate positions
+                    const HEADER_SAFE = 84; // must match clamp above
+                    const minCenter = (Math.max(topClamp, HEADER_SAFE + 16)) + (tLayout.height / 2);
+                    for (let i = 0; i <= maxIter; i++) {
+                        const dir = (i % 2 === 0) ? 1 : -1;
+                        const delta = Math.floor(i / 2) * step * dir;
+                        const candCenter = baseCenter + delta;
+                        if (candCenter < bandMin || candCenter > bandMax) continue;
+                        if (candCenter < minCenter) continue; // keep below sticky header
+                        const candOriginY = Math.round(candCenter - (tLayout.height / 2));
+                        const cx1 = originX - pad;
+                        const cx2 = originX + tLayout.width + pad;
+                        const cy1 = candOriginY - pad;
+                        const cy2 = candOriginY + tLayout.height + pad;
+                        if (fits(cx1, cy1, cx2, cy2)) {
+                            originY = candOriginY;
+                            boxX1 = cx1; boxX2 = cx2; boxY1 = cy1; boxY2 = cy2;
+                            return true;
+                        }
+                    }
                 }
-              } else {
-                // move up/down but keep within bandMin..bandMax
-                const baseCenter = stepCenterY;
-                // Honor header safe area when testing candidate positions
-                const HEADER_SAFE = 84; // must match clamp above
-                const minCenter = (Math.max(topClamp, HEADER_SAFE + 16)) + (tLayout.height / 2);
-                for (let i = 0; i <= maxIter; i++) {
-                  const dir = (i % 2 === 0) ? 1 : -1;
-                  const delta = Math.floor(i / 2) * step * dir;
-                  const candCenter = baseCenter + delta;
-                  if (candCenter < bandMin || candCenter > bandMax) continue;
-                  if (candCenter < minCenter) continue; // keep below sticky header
-                  const candOriginY = Math.round(candCenter - (tLayout.height / 2));
-                  const cx1 = originX - pad;
-                  const cx2 = originX + tLayout.width + pad;
-                  const cy1 = candOriginY - pad;
-                  const cy2 = candOriginY + tLayout.height + pad;
-                  if (fits(cx1, cy1, cx2, cy2)) {
-                    originY = candOriginY;
-                    boxX1 = cx1; boxX2 = cx2; boxY1 = cy1; boxY2 = cy2;
-                    return true;
-                  }
-                }
-              }
-              return false;
+                return false;
             };
 
             if (overlapsAny(boxX1, boxY1, boxX2, boxY2)) {
-              bumpedByStep = !attemptReposition();
+                bumpedByStep = !attemptReposition();
             }
 
             // Ensure overall SVG fully contains the expanded cluster box (including padding)
@@ -3524,7 +3568,7 @@ function renderStepsGraph(runDetails) {
             finalHeight = Math.max(finalHeight, boxY2 + 24);
 
             const rootNames = itemsWithDeps.filter(t => !t.depends_on || t.depends_on.length === 0)
-              .map(t => t.task_name || t.name);
+                .map(t => t.task_name || t.name);
 
             // Save placed cluster rect and remember position
             placed.push({ x1: boxX1, x2: boxX2, y1: boxY1, y2: boxY2 });
@@ -3533,8 +3577,8 @@ function renderStepsGraph(runDetails) {
 
             // Detect intersections with other step edges (not involving this step) at the final position
             const hitsEdges = simpleEdgeSegments
-              .filter(s => s.from !== stepNode.name && s.to !== stepNode.name)
-              .some(seg => lineIntersectsRect(seg.x1, seg.y1, seg.x2, seg.y2, boxX1, boxY1, boxX2, boxY2));
+                .filter(s => s.from !== stepNode.name && s.to !== stepNode.name)
+                .some(seg => lineIntersectsRect(seg.x1, seg.y1, seg.x2, seg.y2, boxX1, boxY1, boxX2, boxY2));
 
             clusters.push({ stepNode, stepName: stepNode.name, layout: tLayout, originX, originY, stepCenterX, rootNames, pad, bumpedByStep, needsCorridorScale, hitsEdges });
         });
@@ -3544,28 +3588,28 @@ function renderStepsGraph(runDetails) {
         const needMoreSpace = clusters.some(c => c.bumpedByStep || c.needsCorridorScale || c.hitsEdges);
         if (needMoreSpace) {
             const tryIncreaseStepScale = () => {
-              const prevStep = state.stepLayoutScale || 1.0;
-              const inc = prevStep < 1.4 ? 0.2 : 0.12;
-              const nextStep = Math.min(MAX_STEP_LAYOUT_SCALE, prevStep + inc);
-              if (nextStep > prevStep + 1e-6) {
-                  state.stepLayoutScale = nextStep;
-                  if (!state._preserveScale) state._fitOnNextStepsRender = true;
-                  renderStepsGraph(runDetails);
-                  return true;
-              }
-              return false;
+                const prevStep = state.stepLayoutScale || 1.0;
+                const inc = prevStep < 1.4 ? 0.2 : 0.12;
+                const nextStep = Math.min(MAX_STEP_LAYOUT_SCALE, prevStep + inc);
+                if (nextStep > prevStep + 1e-6) {
+                    state.stepLayoutScale = nextStep;
+                    if (!state._preserveScale) state._fitOnNextStepsRender = true;
+                    renderStepsGraph(runDetails);
+                    return true;
+                }
+                return false;
             };
             const tryDecreaseClusterScale = () => {
-              const prevCluster = state.taskClusterScale || 1.0;
-              const dec = prevCluster > 0.95 ? 0.05 : 0.03;
-              const nextCluster = Math.max(MIN_TASK_CLUSTER_SCALE, prevCluster - dec);
-              if (nextCluster < prevCluster - 1e-6) {
-                  state.taskClusterScale = nextCluster;
-                  if (!state._preserveScale) state._fitOnNextStepsRender = true;
-                  renderStepsGraph(runDetails);
-                  return true;
-              }
-              return false;
+                const prevCluster = state.taskClusterScale || 1.0;
+                const dec = prevCluster > 0.95 ? 0.05 : 0.03;
+                const nextCluster = Math.max(MIN_TASK_CLUSTER_SCALE, prevCluster - dec);
+                if (nextCluster < prevCluster - 1e-6) {
+                    state.taskClusterScale = nextCluster;
+                    if (!state._preserveScale) state._fitOnNextStepsRender = true;
+                    renderStepsGraph(runDetails);
+                    return true;
+                }
+                return false;
             };
 
             // Always prefer expanding the main step layout first.
@@ -3627,7 +3671,7 @@ function renderStepsGraph(runDetails) {
         // Step-level edges (single input/output per expanded box) – will be appended after clusters
         edges.forEach(edge => {
             const fromBox = clustersByStep.get(edge.from.name);
-            const toBox   = clustersByStep.get(edge.to.name);
+            const toBox = clustersByStep.get(edge.to.name);
             const isCompletedEdge = edge.from.status === 'Success' && (edge.to.status.toLowerCase() !== 'pending' && edge.to.status.toLowerCase() !== 'skipped');
             const marker = isCompletedEdge ? 'url(#arrowhead-completed)' : 'url(#arrowhead)';
             const edgeClasses = ['edge-path', 'edge-path--glow'];
@@ -3636,8 +3680,8 @@ function renderStepsGraph(runDetails) {
 
             const fromCx = edge.from.x + edge.from.width / 2;
             const fromCy = edge.from.y + edge.from.height / 2;
-            const toCx   = edge.to.x   + edge.to.width   / 2;
-            const toCy   = edge.to.y   + edge.to.height  / 2;
+            const toCx = edge.to.x + edge.to.width / 2;
+            const toCy = edge.to.y + edge.to.height / 2;
 
             let sx, sy, tx, ty;
             if (fromBox) {
@@ -3678,17 +3722,17 @@ function renderStepsGraph(runDetails) {
                 const yInclude = node_center_y + 53;
                 const yDuration = node_center_y + 67;
                 if (childRun) {
-                     subText = `
+                    subText = `
                       <a data-included-link="true" href="${buildRunHash({
-                          run_id: childRun.run_id,
-                          git_repo_owner: runInfo.git_repo_owner,
-                          git_repo_name: runInfo.git_repo_name,
-                        }, runContext)}" class="fill-current ${linkClass}">
+                        run_id: childRun.run_id,
+                        git_repo_owner: runInfo.git_repo_owner,
+                        git_repo_name: runInfo.git_repo_name,
+                    }, runContext)}" class="fill-current ${linkClass}">
                          <text x="${node_center_x}" y="${yInclude}" text-anchor="middle" class="text-xs">${includeType}</text>
                        </a>
                        <text x="${node_center_x}" y="${yDuration}" text-anchor="middle" class="text-xs fill-current text-[var(--text-secondary)]">${node.duration || '...'}</text>`;
                 } else {
-                     subText = `
+                    subText = `
                        <text x="${node_center_x}" y="${yInclude}" text-anchor="middle" class="text-xs fill-current ${linkClass}">${includeType}</text>
                        <text x="${node_center_x}" y="${yDuration}" text-anchor="middle" class="text-xs fill-current text-[var(--text-secondary)]">${node.duration || '...'}</text>`;
                 }
@@ -3734,15 +3778,15 @@ function renderStepsGraph(runDetails) {
             layout.edges.forEach(edge => {
                 const from_center_x = originX + edge.from.x + edge.from.width / 2;
                 const from_center_y = originY + edge.from.y + edge.from.height / 2;
-                const to_center_x   = originX + edge.to.x   + edge.to.width   / 2;
-                const to_center_y   = originY + edge.to.y   + edge.to.height  / 2;
+                const to_center_x = originX + edge.to.x + edge.to.width / 2;
+                const to_center_y = originY + edge.to.y + edge.to.height / 2;
                 const arrowPad = 10;
                 let pathData;
                 if (isVerticalLayout) {
                     const x1 = from_center_x;
                     const y1 = from_center_y + (edge.from.height / 2) + arrowPad;
                     const x2 = to_center_x;
-                    const y2 = to_center_y - (edge.to.height / 2)  - arrowPad;
+                    const y2 = to_center_y - (edge.to.height / 2) - arrowPad;
                     const curveY = y1 + (y2 - y1) * 0.5;
                     pathData = `M ${x1} ${y1} C ${x1} ${curveY}, ${x2} ${curveY}, ${x2} ${y2}`;
                 } else {
@@ -3779,7 +3823,7 @@ function renderStepsGraph(runDetails) {
             // Collapse badge (minus) in top-right corner of the cluster box
             // Place collapse badge slightly inside the content area so it's never clipped by the top border
             const tbx = originX + layout.width + pad - 14;
-            const tby = (originY - pad) + 20;   
+            const tby = (originY - pad) + 20;
             svgClusters += `
               <g class=\"step-collapse-badge\"> 
                 <circle cx=\"${tbx}\" cy=\"${tby}\" r=\"7\" fill=\"var(--icon-collapse-bg)\"></circle>
@@ -3787,102 +3831,102 @@ function renderStepsGraph(runDetails) {
               </g>
             </g>`;
             // Top overlay collapse badge (duplicate for z-order)
-            (function(){
-              const tbx_ = originX + layout.width + pad - 14;
-              // Keep the badge inside the visible SVG even if an upstream calc misplaces originY
-              const HEADER_SAFE = 84; // header + tabs
-              const minBadgeY = Math.max(8, HEADER_SAFE + 8);
-              const tby_ = Math.max(minBadgeY, (originY - pad) + 20);
-              svgOverlays += `\n                  <g class=\"step-collapse-badge\" data-step-name=\"${cluster.stepName}\">\n                    <circle cx=\"${tbx_}\" cy=\"${tby_}\" r=\"7\" fill=\"var(--icon-collapse-bg)\"></circle>\n                    <path d=\"M ${tbx_ - 4} ${tby_ + 1.5} L ${tbx_} ${tby_ - 2.5} L ${tbx_ + 4} ${tby_ + 1.5}\" stroke=\"var(--icon-glyph)\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"></path>\n                  </g>`;
-              // Info badge: move to right side near collapse (accent circle with modern "i")
-              const ibx_ = tbx_ - 22;
-              const iby_ = tby_;
-              svgOverlays += `\n                  <g class=\"step-info\" data-step-info=\"true\" data-step-name=\"${cluster.stepName}\">\n                    <circle cx=\"${ibx_}\" cy=\"${iby_}\" r=\"7\" fill=\"var(--icon-info-bg)\"></circle>\n                    <circle cx=\"${ibx_ - 3.8}\" cy=\"${iby_}\" r=\"1.1\" fill=\"var(--icon-glyph)\"></circle>\n                    <circle cx=\"${ibx_}\" cy=\"${iby_}\" r=\"1.1\" fill=\"var(--icon-glyph)\"></circle>\n                    <circle cx=\"${ibx_ + 3.8}\" cy=\"${iby_}\" r=\"1.1\" fill=\"var(--icon-glyph)\"></circle>\n                  </g>`;
+            (function () {
+                const tbx_ = originX + layout.width + pad - 14;
+                // Keep the badge inside the visible SVG even if an upstream calc misplaces originY
+                const HEADER_SAFE = 84; // header + tabs
+                const minBadgeY = Math.max(8, HEADER_SAFE + 8);
+                const tby_ = Math.max(minBadgeY, (originY - pad) + 20);
+                svgOverlays += `\n                  <g class=\"step-collapse-badge\" data-step-name=\"${cluster.stepName}\">\n                    <circle cx=\"${tbx_}\" cy=\"${tby_}\" r=\"7\" fill=\"var(--icon-collapse-bg)\"></circle>\n                    <path d=\"M ${tbx_ - 4} ${tby_ + 1.5} L ${tbx_} ${tby_ - 2.5} L ${tbx_ + 4} ${tby_ + 1.5}\" stroke=\"var(--icon-glyph)\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"></path>\n                  </g>`;
+                // Info badge: move to right side near collapse (accent circle with modern "i")
+                const ibx_ = tbx_ - 22;
+                const iby_ = tby_;
+                svgOverlays += `\n                  <g class=\"step-info\" data-step-info=\"true\" data-step-name=\"${cluster.stepName}\">\n                    <circle cx=\"${ibx_}\" cy=\"${iby_}\" r=\"7\" fill=\"var(--icon-info-bg)\"></circle>\n                    <circle cx=\"${ibx_ - 3.8}\" cy=\"${iby_}\" r=\"1.1\" fill=\"var(--icon-glyph)\"></circle>\n                    <circle cx=\"${ibx_}\" cy=\"${iby_}\" r=\"1.1\" fill=\"var(--icon-glyph)\"></circle>\n                    <circle cx=\"${ibx_ + 3.8}\" cy=\"${iby_}\" r=\"1.1\" fill=\"var(--icon-glyph)\"></circle>\n                  </g>`;
             })();
         });
 
-  // Compose final SVG layers: clusters (background), edges, nodes, overlays
-  DOM.graphWrapper.innerHTML = svgContent + svgClusters + svgEdges + svgNodes + svgOverlays + `</svg>`;
-  try { updateExpandToggleLabel(); } catch {}
+        // Compose final SVG layers: clusters (background), edges, nodes, overlays
+        DOM.graphWrapper.innerHTML = svgContent + svgClusters + svgEdges + svgNodes + svgOverlays + `</svg>`;
+        try { updateExpandToggleLabel(); } catch { }
 
         // Clear the one-shot just-expanded hints after render cycle completes (allows scale pass to reuse them in same tick)
         setTimeout(() => { if (state._justExpandedSteps) state._justExpandedSteps.clear(); }, 0);
 
         // Persist current Steps layout (expanded set, positions, scale) per run
         try {
-          const runId = state.currentRunData?.run_info?.run_id;
-          if (runId) {
-            const key = `nopsai_steps_layout:${runId}`;
-            const positions = {};
-            if (state.expandedStepPositions && typeof state.expandedStepPositions.forEach === 'function') {
-              state.expandedStepPositions.forEach((pos, name) => { positions[name] = { x: pos.x, y: pos.y }; });
+            const runId = state.currentRunData?.run_info?.run_id;
+            if (runId) {
+                const key = `nopsai_steps_layout:${runId}`;
+                const positions = {};
+                if (state.expandedStepPositions && typeof state.expandedStepPositions.forEach === 'function') {
+                    state.expandedStepPositions.forEach((pos, name) => { positions[name] = { x: pos.x, y: pos.y }; });
+                }
+                const payload = {
+                    expanded: Array.from(state.expandedSteps || []),
+                    positions,
+                    scale: state.stepLayoutScale || 1.0,
+                    tasksScale: state.taskClusterScale || 1.0,
+                };
+                localStorage.setItem(key, JSON.stringify(payload));
             }
-            const payload = {
-              expanded: Array.from(state.expandedSteps || []),
-              positions,
-              scale: state.stepLayoutScale || 1.0,
-              tasksScale: state.taskClusterScale || 1.0,
-            };
-            localStorage.setItem(key, JSON.stringify(payload));
-          }
-        } catch {}
+        } catch { }
 
         initPanAndZoom('steps', { width: finalWidth, height: finalHeight });
         // Clear one-shot preserve flag after render
         if (state._preserveScale) delete state._preserveScale;
         // In case this ran while hidden, ensure a binding once visible
         requestAnimationFrame(() => ensurePanzoomBound('steps'));
-        try { updateExpandToggleLabel(); } catch {}
+        try { updateExpandToggleLabel(); } catch { }
         if (state._justExpandedSteps && state._justExpandedSteps.size > 0) {
-          const last = Array.from(state._justExpandedSteps).pop();
-          // Nudge only; avoid surprising recenter
-          setTimeout(() => nudgeStepIntoView(last), 50);
+            const last = Array.from(state._justExpandedSteps).pop();
+            // Nudge only; avoid surprising recenter
+            setTimeout(() => nudgeStepIntoView(last), 50);
         }
     }
 
     function makeResizable(card, step) {
-  const handle = card.querySelector('.resize-handle');
-  const miniGraphContainer = card.querySelector('.task-graph-mini-container');
-  if (!handle) return;
+        const handle = card.querySelector('.resize-handle');
+        const miniGraphContainer = card.querySelector('.task-graph-mini-container');
+        if (!handle) return;
 
-  handle.addEventListener('mousedown', function (e) {
-e.preventDefault();
-e.stopPropagation();
+        handle.addEventListener('mousedown', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
 
-const startX = e.clientX;
-const startY = e.clientY;
-const startWidth  = parseInt(document.defaultView.getComputedStyle(card).width, 10);
-const startHeight = parseInt(document.defaultView.getComputedStyle(card).height, 10);
+            const startX = e.clientX;
+            const startY = e.clientY;
+            const startWidth = parseInt(document.defaultView.getComputedStyle(card).width, 10);
+            const startHeight = parseInt(document.defaultView.getComputedStyle(card).height, 10);
 
-function doDrag(ev) {
-  card.style.width  = (startWidth  + ev.clientX - startX) + 'px';
-  card.style.height = (startHeight + ev.clientY - startY) + 'px';
-}
+            function doDrag(ev) {
+                card.style.width = (startWidth + ev.clientX - startX) + 'px';
+                card.style.height = (startHeight + ev.clientY - startY) + 'px';
+            }
 
-function stopDrag() {
-  document.documentElement.removeEventListener('mousemove', doDrag, false);
-  document.documentElement.removeEventListener('mouseup', stopDrag, false);
+            function stopDrag() {
+                document.documentElement.removeEventListener('mousemove', doDrag, false);
+                document.documentElement.removeEventListener('mouseup', stopDrag, false);
 
-  const style = localStorage.getItem('tasksMiniStyle') || 'icon';
-  renderMiniForStep(miniGraphContainer, step, style);
-  // Refresh inter-card connectors so arrow endpoints match the new card edge
-  if (state._lastStepLayout && state._lastStepElements) {
-    const isRunning = !state.currentRunData?.run_info?.is_complete;
-    drawStepConnections(state._lastStepLayout, state._lastStepElements, { running: isRunning });
-  }
-}
+                const style = localStorage.getItem('tasksMiniStyle') || 'icon';
+                renderMiniForStep(miniGraphContainer, step, style);
+                // Refresh inter-card connectors so arrow endpoints match the new card edge
+                if (state._lastStepLayout && state._lastStepElements) {
+                    const isRunning = !state.currentRunData?.run_info?.is_complete;
+                    drawStepConnections(state._lastStepLayout, state._lastStepElements, { running: isRunning });
+                }
+            }
 
-document.documentElement.addEventListener('mousemove', doDrag, false);
-document.documentElement.addEventListener('mouseup', stopDrag, false);
-  });
-}
+            document.documentElement.addEventListener('mousemove', doDrag, false);
+            document.documentElement.addEventListener('mouseup', stopDrag, false);
+        });
+    }
 
-function renderMiniForStep(container, step, style) {
-  // Always use icon-only task graph for clarity
-  renderTaskGraph(container, step.name, step.tasks);
-}
+    function renderMiniForStep(container, step, style) {
+        // Always use icon-only task graph for clarity
+        renderTaskGraph(container, step.name, step.tasks);
+    }
 
-function renderTaskGraphBoxes(container, stepName, tasks) {
+    function renderTaskGraphBoxes(container, stepName, tasks) {
         if (!state.currentRunData) {
             container.innerHTML = `<p class="text-[var(--text-secondary)] text-sm">Waiting for pipeline data...</p>`;
             return;
@@ -3910,35 +3954,35 @@ function renderTaskGraphBoxes(container, stepName, tasks) {
             }
         });
 
-  const isVerticalLayout = container.clientWidth < 600;
-  // Compact mini graphs to fit smaller task cards
-  const nodeWidth  = isVerticalLayout ? 84  : 120;
-  const nodeHeight = isVerticalLayout ? 48  : 72;
-  const hGap = isVerticalLayout ? 24 : 60;
-  const vGap = isVerticalLayout ? 64 : 28;
+        const isVerticalLayout = container.clientWidth < 600;
+        // Compact mini graphs to fit smaller task cards
+        const nodeWidth = isVerticalLayout ? 84 : 120;
+        const nodeHeight = isVerticalLayout ? 48 : 72;
+        const hGap = isVerticalLayout ? 24 : 60;
+        const vGap = isVerticalLayout ? 64 : 28;
 
-  const { nodes, edges, width, height } =
-calculateGraphLayout(itemsWithDeps, container, nodeWidth, nodeHeight, hGap, vGap, isVerticalLayout);
+        const { nodes, edges, width, height } =
+            calculateGraphLayout(itemsWithDeps, container, nodeWidth, nodeHeight, hGap, vGap, isVerticalLayout);
 
-  const arrowPad = 12;
-  const getEdgePath = (fromNode, toNode) => {
-const fc = { x: fromNode.x + fromNode.width / 2, y: fromNode.y + fromNode.height / 2 };
-const tc = { x: toNode.x   + toNode.width   / 2, y: toNode.y   + toNode.height   / 2 };
-if (isVerticalLayout) {
-  const x1 = fc.x, y1 = fc.y + (fromNode.height / 2) + arrowPad;
-  const x2 = tc.x, y2 = tc.y - (toNode.height / 2)  - arrowPad;
-  const curveY = y1 + (y2 - y1) * 0.5;
-  return `M ${x1} ${y1} C ${x1} ${curveY}, ${x2} ${curveY}, ${x2} ${y2}`;
-} else {
-  const x1 = fc.x + (fromNode.width / 2) + arrowPad, y1 = fc.y;
-  const x2 = tc.x - (toNode.width  / 2) - arrowPad, y2 = tc.y;
-  const curveX = x1 + (x2 - x1) * 0.5;
-  return `M ${x1} ${y1} C ${curveX} ${y1}, ${curveX} ${y2}, ${x2} ${y2}`;
-}
-  };
+        const arrowPad = 12;
+        const getEdgePath = (fromNode, toNode) => {
+            const fc = { x: fromNode.x + fromNode.width / 2, y: fromNode.y + fromNode.height / 2 };
+            const tc = { x: toNode.x + toNode.width / 2, y: toNode.y + toNode.height / 2 };
+            if (isVerticalLayout) {
+                const x1 = fc.x, y1 = fc.y + (fromNode.height / 2) + arrowPad;
+                const x2 = tc.x, y2 = tc.y - (toNode.height / 2) - arrowPad;
+                const curveY = y1 + (y2 - y1) * 0.5;
+                return `M ${x1} ${y1} C ${x1} ${curveY}, ${x2} ${curveY}, ${x2} ${y2}`;
+            } else {
+                const x1 = fc.x + (fromNode.width / 2) + arrowPad, y1 = fc.y;
+                const x2 = tc.x - (toNode.width / 2) - arrowPad, y2 = tc.y;
+                const curveX = x1 + (x2 - x1) * 0.5;
+                return `M ${x1} ${y1} C ${curveX} ${y1}, ${curveX} ${y2}, ${x2} ${y2}`;
+            }
+        };
 
-  // Build SVG with CSS vars via inline "style" (so they resolve inside SVG reliably)
-let svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"
+        // Build SVG with CSS vars via inline "style" (so they resolve inside SVG reliably)
+        let svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"
            style="max-width:100%;max-height:100%;display:block">
   <defs>
 <marker id="task_arrow_box_secondary" viewBox="0 0 10 10" refX="9" refY="5"
@@ -3951,48 +3995,48 @@ let svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/200
 </marker>
   </defs>`;
 
-const nodeNames = new Set(nodes.map(n => n.task_name || n.name));
-const filteredEdges = edges.filter(e =>
-  nodeNames.has(e.from.task_name || e.from.name) &&
-  nodeNames.has(e.to.task_name   || e.to.name)
-);
-const connectors = filteredEdges.length ? filteredEdges : (
-  nodes.length > 1
-? nodes.slice(0, -1).map((_, i) => ({ from: nodes[i], to: nodes[i + 1] }))
-: []
-);
-edges.forEach(e => {
-  // drop edges whose endpoints aren’t in the layout for any reason
-  if (!nodeNames.has(e.from.task_name || e.from.name) ||
-  !nodeNames.has(e.to.task_name   || e.to.name)) {
-e.__drop = true;
-  }
-});
-const validEdges = edges.filter(e => !e.__drop);
+        const nodeNames = new Set(nodes.map(n => n.task_name || n.name));
+        const filteredEdges = edges.filter(e =>
+            nodeNames.has(e.from.task_name || e.from.name) &&
+            nodeNames.has(e.to.task_name || e.to.name)
+        );
+        const connectors = filteredEdges.length ? filteredEdges : (
+            nodes.length > 1
+                ? nodes.slice(0, -1).map((_, i) => ({ from: nodes[i], to: nodes[i + 1] }))
+                : []
+        );
+        edges.forEach(e => {
+            // drop edges whose endpoints aren’t in the layout for any reason
+            if (!nodeNames.has(e.from.task_name || e.from.name) ||
+                !nodeNames.has(e.to.task_name || e.to.name)) {
+                e.__drop = true;
+            }
+        });
+        const validEdges = edges.filter(e => !e.__drop);
 
-// edges: pick color + marker per edge
-connectors.forEach(edge => {
-  const pathData = getEdgePath(edge.from, edge.to);
-  const isCompleted = (edge.from.status || '').toLowerCase() === 'success';
-  const stroke = isCompleted ? 'var(--border-accent)' : 'var(--border-secondary)';
-  const marker = isCompleted ? 'url(#task_arrow_box_accent)' : 'url(#task_arrow_box_secondary)';
-  svg += `<path d="${pathData}" class="edge-path" stroke="${stroke}" marker-end="${marker}"></path>`;
-});
+        // edges: pick color + marker per edge
+        connectors.forEach(edge => {
+            const pathData = getEdgePath(edge.from, edge.to);
+            const isCompleted = (edge.from.status || '').toLowerCase() === 'success';
+            const stroke = isCompleted ? 'var(--border-accent)' : 'var(--border-secondary)';
+            const marker = isCompleted ? 'url(#task_arrow_box_accent)' : 'url(#task_arrow_box_secondary)';
+            svg += `<path d="${pathData}" class="edge-path" stroke="${stroke}" marker-end="${marker}"></path>`;
+        });
 
 
-  // nodes as boxes + icon + labels
-  nodes.forEach(node => {
-const status = (node.status || 'pending').toLowerCase();
-const config = statusConfig[status] || statusConfig.pending;
-const duration = formatDuration(node.started_at, node.finished_at);
-const itemName = node.task_name || node.name;
+        // nodes as boxes + icon + labels
+        nodes.forEach(node => {
+            const status = (node.status || 'pending').toLowerCase();
+            const config = statusConfig[status] || statusConfig.pending;
+            const duration = formatDuration(node.started_at, node.finished_at);
+            const itemName = node.task_name || node.name;
 
-const x = node.x, y = node.y, w = node.width, h = node.height;
-const cx = x + w / 2;
-const taskAttr = escapeAttribute(itemName);
-const stepAttr = escapeAttribute(stepName || '');
+            const x = node.x, y = node.y, w = node.width, h = node.height;
+            const cx = x + w / 2;
+            const taskAttr = escapeAttribute(itemName);
+            const stepAttr = escapeAttribute(stepName || '');
 
-svg += `
+            svg += `
   <g class="graph-node" data-task-name="${taskAttr}" data-step-name="${stepAttr}" transform="translate(${x}, ${y})">
     <rect width="${w}" height="${h}" rx="10" ry="10"
           style="fill:var(--bg-primary);stroke:var(--border-primary);stroke-width:1.5"
@@ -4007,56 +4051,56 @@ svg += `
     <text x="${cx}" y="${h - 6}" text-anchor="middle"
           class="text-[10px] fill-current text-[var(--text-secondary)]">${duration}</text>
   </g>`;
-  });
+        });
 
-  svg += `</svg>`;
-  container.innerHTML = svg;
-}
+        svg += `</svg>`;
+        container.innerHTML = svg;
+    }
 
     function renderTasksGraph(runDetails) {
-  // Clear old
-  DOM.tasksGraphWrapper.querySelectorAll('[id^="step-card-"]').forEach(el => el.remove());
-  DOM.tasksGraphConnections.innerHTML = '';
+        // Clear old
+        DOM.tasksGraphWrapper.querySelectorAll('[id^="step-card-"]').forEach(el => el.remove());
+        DOM.tasksGraphConnections.innerHTML = '';
 
-  const stepsWithTasks = runDetails.steps.filter(s => s.tasks && s.tasks.length > 0);
-  if (stepsWithTasks.length === 0) {
-DOM.tasksEmpty.classList.remove('hidden');
-return;
-  }
-  DOM.tasksEmpty.classList.add('hidden');
+        const stepsWithTasks = runDetails.steps.filter(s => s.tasks && s.tasks.length > 0);
+        if (stepsWithTasks.length === 0) {
+            DOM.tasksEmpty.classList.remove('hidden');
+            return;
+        }
+        DOM.tasksEmpty.classList.add('hidden');
 
-  // Layout for step cards
-  const stepLayout = calculateGraphLayout(
-runDetails.steps,
-DOM.tasksGraphWrapper,
-120, 96,    // much smaller cards
-32, 24,     // compact gaps
-false
-  );
+        // Layout for step cards
+        const stepLayout = calculateGraphLayout(
+            runDetails.steps,
+            DOM.tasksGraphWrapper,
+            120, 96,    // much smaller cards
+            32, 24,     // compact gaps
+            false
+        );
 
-  // wrapper size == content size (for precise centering)
-  DOM.tasksGraphWrapper.style.width  = `${stepLayout.width}px`;
-  DOM.tasksGraphWrapper.style.height = `${stepLayout.height}px`;
+        // wrapper size == content size (for precise centering)
+        DOM.tasksGraphWrapper.style.width = `${stepLayout.width}px`;
+        DOM.tasksGraphWrapper.style.height = `${stepLayout.height}px`;
 
-  const stepElements = new Map();
-  const miniStyle = (localStorage.getItem('tasksMiniStyle') || 'icon'); // 'icon' | 'box'
+        const stepElements = new Map();
+        const miniStyle = (localStorage.getItem('tasksMiniStyle') || 'icon'); // 'icon' | 'box'
 
-  stepLayout.nodes.forEach(stepNode => {
-const step = runDetails.steps.find(s => s.name === stepNode.name);
-if (!step) return;
+        stepLayout.nodes.forEach(stepNode => {
+            const step = runDetails.steps.find(s => s.name === stepNode.name);
+            if (!step) return;
 
-const card = document.createElement('div');
-card.id = `step-card-${step.name}`;
-card.className = 'task-step-card bg-[var(--bg-secondary)] rounded-md p-1 shadow-sm border flex-shrink-0 flex flex-col absolute overflow-hidden z-10';
-card.style.left = `${stepNode.x}px`;
-card.style.top = `${stepNode.y}px`;
-card.style.width = `${stepNode.width}px`;
-card.style.height = `${stepNode.height}px`;
-card.dataset.stepName = step.name;
+            const card = document.createElement('div');
+            card.id = `step-card-${step.name}`;
+            card.className = 'task-step-card bg-[var(--bg-secondary)] rounded-md p-1 shadow-sm border flex-shrink-0 flex flex-col absolute overflow-hidden z-10';
+            card.style.left = `${stepNode.x}px`;
+            card.style.top = `${stepNode.y}px`;
+            card.style.width = `${stepNode.width}px`;
+            card.style.height = `${stepNode.height}px`;
+            card.dataset.stepName = step.name;
 
-const stepStatusConfig = statusConfig[step.status.toLowerCase()] || statusConfig.pending;
+            const stepStatusConfig = statusConfig[step.status.toLowerCase()] || statusConfig.pending;
 
-card.innerHTML = `
+            card.innerHTML = `
   <div class="flex items-center justify-between mb-0 flex-shrink-0 cursor-pointer" data-role="header">
     <h3 class="text-sm font-semibold text-[var(--text-primary)] truncate pr-1">${step.name}</h3>
     <span class="task-status-pill ${stepStatusConfig.color}">${step.status}</span>
@@ -4069,110 +4113,110 @@ card.innerHTML = `
   <div class="resize-handle"></div>
 `;
 
-// header opens modal (keeps "inside a step" behavior unchanged)
-card.querySelector('[data-role="header"]').addEventListener('click', () => {
-  const context = resolveRunContext(state.currentRunContext || null);
-  const newHash = buildRunHashWithExtras(runDetails.run_info, context, ['steps', step.name]);
-  window.location.hash = newHash;
-});
+            // header opens modal (keeps "inside a step" behavior unchanged)
+            card.querySelector('[data-role="header"]').addEventListener('click', () => {
+                const context = resolveRunContext(state.currentRunContext || null);
+                const newHash = buildRunHashWithExtras(runDetails.run_info, context, ['steps', step.name]);
+                window.location.hash = newHash;
+            });
 
-DOM.tasksGraphWrapper.appendChild(card);
-stepElements.set(step.name, card);
+            DOM.tasksGraphWrapper.appendChild(card);
+            stepElements.set(step.name, card);
 
-// render mini graph with chosen style
-const mini = card.querySelector('.task-graph-mini-container');
-renderMiniForStep(mini, step, miniStyle);
+            // render mini graph with chosen style
+            const mini = card.querySelector('.task-graph-mini-container');
+            renderMiniForStep(mini, step, miniStyle);
 
-// resizable: re-render with current style on release
-makeResizable(card, step);
+            // resizable: re-render with current style on release
+            makeResizable(card, step);
 
-// highlight connectors on hover
-card.addEventListener('mouseenter', () => {
-  DOM.tasksGraphConnections
-    .querySelectorAll(`[data-from="${step.name}"] ,[data-to="${step.name}"]`)
-    .forEach(p => p.classList.add('edge-path--highlight'));
-});
-card.addEventListener('mouseleave', () => {
-  DOM.tasksGraphConnections
-    .querySelectorAll(`[data-from="${step.name}"] ,[data-to="${step.name}"]`)
-    .forEach(p => p.classList.remove('edge-path--highlight'));
-});
-  });
-DOM.tasksGraphWrapper.style.width  = `${stepLayout.width}px`;
-DOM.tasksGraphWrapper.style.height = `${stepLayout.height}px`;
+            // highlight connectors on hover
+            card.addEventListener('mouseenter', () => {
+                DOM.tasksGraphConnections
+                    .querySelectorAll(`[data-from="${step.name}"] ,[data-to="${step.name}"]`)
+                    .forEach(p => p.classList.add('edge-path--highlight'));
+            });
+            card.addEventListener('mouseleave', () => {
+                DOM.tasksGraphConnections
+                    .querySelectorAll(`[data-from="${step.name}"] ,[data-to="${step.name}"]`)
+                    .forEach(p => p.classList.remove('edge-path--highlight'));
+            });
+        });
+        DOM.tasksGraphWrapper.style.width = `${stepLayout.width}px`;
+        DOM.tasksGraphWrapper.style.height = `${stepLayout.height}px`;
 
-// 🔧 Make sure the connections SVG lives inside the wrapper so it gets the same pan/zoom transform
-if (DOM.tasksGraphConnections.parentElement !== DOM.tasksGraphWrapper) {
-  DOM.tasksGraphWrapper.appendChild(DOM.tasksGraphConnections);
-}
-  // connectors between step cards
-  const isRunning = !runDetails.run_info.is_complete;
-  // Save to state for later refresh (e.g., after resize)
-  state._lastStepLayout = stepLayout;
-  state._lastStepElements = stepElements;
-  drawStepConnections(stepLayout, stepElements, { running: isRunning });
+        // 🔧 Make sure the connections SVG lives inside the wrapper so it gets the same pan/zoom transform
+        if (DOM.tasksGraphConnections.parentElement !== DOM.tasksGraphWrapper) {
+            DOM.tasksGraphWrapper.appendChild(DOM.tasksGraphConnections);
+        }
+        // connectors between step cards
+        const isRunning = !runDetails.run_info.is_complete;
+        // Save to state for later refresh (e.g., after resize)
+        state._lastStepLayout = stepLayout;
+        state._lastStepElements = stepElements;
+        drawStepConnections(stepLayout, stepElements, { running: isRunning });
 
-  // controls (+/−/Fit + style toggle)
-  ensureTasksControls();
+        // controls (+/−/Fit + style toggle)
+        ensureTasksControls();
 
-  // center & fit
-  setTimeout(() => initPanAndZoom('tasks', stepLayout), 40);
-}
+        // center & fit
+        setTimeout(() => initPanAndZoom('tasks', stepLayout), 40);
+    }
 
 
-function stripStepFromHashWithoutRouting() {
-  const info = parsePipelineRunsHash(window.location.hash);
-  if (!info.runId) return;
-  const runInfo = state.currentRunData ? state.currentRunData.run_info : { run_id: info.runId };
-  const context = resolveRunContext(state.currentRunContext || { tab: info.tab, groupSegments: info.groupSegments, groupId: state.selectedGroupId });
-  const newHash = buildRunHash(runInfo, context);
-  const currentHash = window.location.hash || '';
-  if (currentHash === newHash) return;
-  try {
-    const url = new URL(window.location.href);
-    url.hash = newHash.slice(1);
-    history.replaceState(null, '', url.toString());
-  } catch {
-    window.location.hash = newHash;
-  }
-}
+    function stripStepFromHashWithoutRouting() {
+        const info = parsePipelineRunsHash(window.location.hash);
+        if (!info.runId) return;
+        const runInfo = state.currentRunData ? state.currentRunData.run_info : { run_id: info.runId };
+        const context = resolveRunContext(state.currentRunContext || { tab: info.tab, groupSegments: info.groupSegments, groupId: state.selectedGroupId });
+        const newHash = buildRunHash(runInfo, context);
+        const currentHash = window.location.hash || '';
+        if (currentHash === newHash) return;
+        try {
+            const url = new URL(window.location.href);
+            url.hash = newHash.slice(1);
+            history.replaceState(null, '', url.toString());
+        } catch {
+            window.location.hash = newHash;
+        }
+    }
 
-function ensureTasksControls() {
-  let controls = document.getElementById('tasks-graph-controls');
-  if (!controls) {
-controls = document.createElement('div');
-controls.id = 'tasks-graph-controls';
-controls.innerHTML = `
+    function ensureTasksControls() {
+        let controls = document.getElementById('tasks-graph-controls');
+        if (!controls) {
+            controls = document.createElement('div');
+            controls.id = 'tasks-graph-controls';
+            controls.innerHTML = `
   <button class="ctrl" data-zoom="in"  title="Zoom In">+</button>
   <button class="ctrl" data-zoom="out" title="Zoom Out">−</button>
   <button class="ctrl" data-fit       title="Fit to Screen">Fit</button>
 `;
-DOM.tasksGraphContainer.appendChild(controls);
+            DOM.tasksGraphContainer.appendChild(controls);
 
-// Zoom controls
-controls.addEventListener('click', (e) => {
-  const btn = e.target.closest('button');
-  if (!btn) return;
+            // Zoom controls
+            controls.addEventListener('click', (e) => {
+                const btn = e.target.closest('button');
+                if (!btn) return;
 
-  if (btn.dataset.zoom === 'in' && state.panzoomInstance) {
-    state.panzoomInstance.zoomIn();
-  } else if (btn.dataset.zoom === 'out' && state.panzoomInstance) {
-    state.panzoomInstance.zoomOut();
-  } else if (btn.hasAttribute('data-fit')) {
-    if (typeof state.__fitToView === 'function') state.__fitToView();
-  }
-});
-  }
+                if (btn.dataset.zoom === 'in' && state.panzoomInstance) {
+                    state.panzoomInstance.zoomIn();
+                } else if (btn.dataset.zoom === 'out' && state.panzoomInstance) {
+                    state.panzoomInstance.zoomOut();
+                } else if (btn.hasAttribute('data-fit')) {
+                    if (typeof state.__fitToView === 'function') state.__fitToView();
+                }
+            });
+        }
 
-  // no style toggle; always icon mode
-}
+        // no style toggle; always icon mode
+    }
 
     function ensureStepsControls() {
-      let controls = document.getElementById('steps-graph-controls');
-      if (!controls) {
-        controls = document.createElement('div');
-        controls.id = 'steps-graph-controls';
-        controls.innerHTML = `
+        let controls = document.getElementById('steps-graph-controls');
+        if (!controls) {
+            controls = document.createElement('div');
+            controls.id = 'steps-graph-controls';
+            controls.innerHTML = `
           <button class="ctrl" data-zoom="in"  title="Zoom In">+</button>
           <button class="ctrl" data-zoom="out" title="Zoom Out">−</button>
           <button class="ctrl" data-fit       title="Fit to Screen">Fit</button>
@@ -4181,121 +4225,121 @@ controls.addEventListener('click', (e) => {
           </button>
           <button class="ctrl" data-reset    title="Reset Layout">Reset</button>
         `;
-// Reuse tasks control styles
-controls.style.position = 'absolute';
-controls.style.right = '12px';
-controls.style.bottom = '12px';
-controls.style.zIndex = '30';
-controls.style.display = 'flex';
-controls.style.gap = '8px';
-DOM.graphContainer.appendChild(controls);
+            // Reuse tasks control styles
+            controls.style.position = 'absolute';
+            controls.style.right = '12px';
+            controls.style.bottom = '12px';
+            controls.style.zIndex = '30';
+            controls.style.display = 'flex';
+            controls.style.gap = '8px';
+            DOM.graphContainer.appendChild(controls);
 
-        // Controls: zoom/fit/reset
-        controls.addEventListener('click', (e) => {
-          const btn = e.target.closest('button');
-          if (!btn) return;
-          // Guarantee there is a bound panzoom before acting
-          if (!state.panzoomInstance || state._panElement !== DOM.graphWrapper) {
-            ensurePanzoomBound('steps');
-          }
-          if (btn.dataset.zoom === 'in') {
-            if (state.panzoomInstance) state.panzoomInstance.zoomIn();
-          } else if (btn.dataset.zoom === 'out') {
-            if (state.panzoomInstance) state.panzoomInstance.zoomOut();
-          } else if (btn.hasAttribute('data-fit')) {
-            if (typeof state.__fitToView === 'function') state.__fitToView();
-          } else if (btn.hasAttribute('data-toggleall')) {
-            // Toggle all: expand all if some are collapsed; otherwise collapse all
-            const shouldExpand = (() => {
-              try {
-                const total = (state.currentRunData?.steps || []).length;
-                const expanded = state.expandedSteps ? state.expandedSteps.size : 0;
-                return total > 0 && expanded < total;
-              } catch { return true; }
-            })();
-            try {
-              const panEl = state._panElement || DOM.graphWrapper;
-              const tr = panEl ? window.getComputedStyle(panEl).transform : null;
-              let scale = 1, x = 0, y = 0;
-              if (tr && tr !== 'none') {
-                const m = tr.match(/matrix\(([^)]+)\)/);
-                if (m) {
-                  const v = m[1].split(',').map(parseFloat);
-                  if (v.length === 6) { const a=v[0], b=v[1]; scale = Math.sqrt(a*a+b*b)||1; x=v[4]||0; y=v[5]||0; }
+            // Controls: zoom/fit/reset
+            controls.addEventListener('click', (e) => {
+                const btn = e.target.closest('button');
+                if (!btn) return;
+                // Guarantee there is a bound panzoom before acting
+                if (!state.panzoomInstance || state._panElement !== DOM.graphWrapper) {
+                    ensurePanzoomBound('steps');
                 }
-              }
-              state._stepsViewTransform = { x, y, scale };
-            } catch {}
-            if (shouldExpand) {
-              // Do not change internal step layout scale; keep user's zoom feel
-              state._preserveScale = true;
-              if (state.currentRunData && Array.isArray(state.currentRunData.steps)) {
-                state.expandedSteps = new Set(state.currentRunData.steps.map(s => s && s.name).filter(Boolean));
-              }
-            } else {
-              state._preserveScale = true;
-              state.expandedSteps = new Set();
-              state.expandedStepPositions = new Map();
-            }
-            state._fitOnNextStepsRender = false;
-            if (state.currentRunData) renderStepsGraph(state.currentRunData);
-          } else if (btn.hasAttribute('data-reset')) {
-            // Clear expanded steps, positions, and scale. Remove persisted storage for this run.
-            try {
-              const runId = state.currentRunData?.run_info?.run_id;
-              if (runId) localStorage.removeItem(`nopsai_steps_layout:${runId}`);
-        } catch {}
-        state.expandedSteps = new Set();
-        state.expandedStepPositions = new Map();
-        state.stepLayoutScale = 1.0;
-        if (state.currentRunData) {
-          renderStepsGraph(state.currentRunData);
-          // Apply the same baseline transform used on first load
-          setTimeout(() => {
-            const t = state._baselineStepsTransform;
-            if (state.panzoomInstance && t && typeof t.scale === 'number') {
-              try {
-                state.panzoomInstance.zoom(t.scale, { animate: false });
-                state.panzoomInstance.pan(t.x || 0, t.y || 0, { animate: false });
-              } catch {}
-            } else if (typeof state.__fitToView === 'function') {
-              state.__fitToView();
-            }
-          }, 0);
+                if (btn.dataset.zoom === 'in') {
+                    if (state.panzoomInstance) state.panzoomInstance.zoomIn();
+                } else if (btn.dataset.zoom === 'out') {
+                    if (state.panzoomInstance) state.panzoomInstance.zoomOut();
+                } else if (btn.hasAttribute('data-fit')) {
+                    if (typeof state.__fitToView === 'function') state.__fitToView();
+                } else if (btn.hasAttribute('data-toggleall')) {
+                    // Toggle all: expand all if some are collapsed; otherwise collapse all
+                    const shouldExpand = (() => {
+                        try {
+                            const total = (state.currentRunData?.steps || []).length;
+                            const expanded = state.expandedSteps ? state.expandedSteps.size : 0;
+                            return total > 0 && expanded < total;
+                        } catch { return true; }
+                    })();
+                    try {
+                        const panEl = state._panElement || DOM.graphWrapper;
+                        const tr = panEl ? window.getComputedStyle(panEl).transform : null;
+                        let scale = 1, x = 0, y = 0;
+                        if (tr && tr !== 'none') {
+                            const m = tr.match(/matrix\(([^)]+)\)/);
+                            if (m) {
+                                const v = m[1].split(',').map(parseFloat);
+                                if (v.length === 6) { const a = v[0], b = v[1]; scale = Math.sqrt(a * a + b * b) || 1; x = v[4] || 0; y = v[5] || 0; }
+                            }
+                        }
+                        state._stepsViewTransform = { x, y, scale };
+                    } catch { }
+                    if (shouldExpand) {
+                        // Do not change internal step layout scale; keep user's zoom feel
+                        state._preserveScale = true;
+                        if (state.currentRunData && Array.isArray(state.currentRunData.steps)) {
+                            state.expandedSteps = new Set(state.currentRunData.steps.map(s => s && s.name).filter(Boolean));
+                        }
+                    } else {
+                        state._preserveScale = true;
+                        state.expandedSteps = new Set();
+                        state.expandedStepPositions = new Map();
+                    }
+                    state._fitOnNextStepsRender = false;
+                    if (state.currentRunData) renderStepsGraph(state.currentRunData);
+                } else if (btn.hasAttribute('data-reset')) {
+                    // Clear expanded steps, positions, and scale. Remove persisted storage for this run.
+                    try {
+                        const runId = state.currentRunData?.run_info?.run_id;
+                        if (runId) localStorage.removeItem(`nopsai_steps_layout:${runId}`);
+                    } catch { }
+                    state.expandedSteps = new Set();
+                    state.expandedStepPositions = new Map();
+                    state.stepLayoutScale = 1.0;
+                    if (state.currentRunData) {
+                        renderStepsGraph(state.currentRunData);
+                        // Apply the same baseline transform used on first load
+                        setTimeout(() => {
+                            const t = state._baselineStepsTransform;
+                            if (state.panzoomInstance && t && typeof t.scale === 'number') {
+                                try {
+                                    state.panzoomInstance.zoom(t.scale, { animate: false });
+                                    state.panzoomInstance.pan(t.x || 0, t.y || 0, { animate: false });
+                                } catch { }
+                            } else if (typeof state.__fitToView === 'function') {
+                                state.__fitToView();
+                            }
+                        }, 0);
+                    }
+                }
+            });
+
         }
-      }
-    });
 
-  }
+        // match tasks controls visual for container and ctrl buttons
+        controls.querySelectorAll('.ctrl').forEach(b => {
+            b.style.background = 'var(--bg-secondary)';
+            b.style.border = '1px solid var(--border-primary)';
+            b.style.borderRadius = '10px';
+            b.style.padding = '6px 10px';
+            b.style.fontSize = '12px';
+            b.style.color = 'var(--text-primary)';
+        });
 
-  // match tasks controls visual for container and ctrl buttons
-  controls.querySelectorAll('.ctrl').forEach(b => {
-b.style.background = 'var(--bg-secondary)';
-b.style.border = '1px solid var(--border-primary)';
-b.style.borderRadius = '10px';
-b.style.padding = '6px 10px';
-b.style.fontSize = '12px';
-b.style.color = 'var(--text-primary)';
-  });
+        // Sync the toggle button label based on current expanded state
+        try { updateExpandToggleLabel(); } catch { }
+    }
 
-  // Sync the toggle button label based on current expanded state
-  try { updateExpandToggleLabel(); } catch {}
-}
-
-// Update label and aria state for the expand/collapse toggle
-function updateExpandToggleLabel() {
-  const btn = document.querySelector('#steps-graph-controls [data-toggleall]');
-  if (!btn) return;
-  const total = (state.currentRunData?.steps || []).length;
-  const expanded = state.expandedSteps ? state.expandedSteps.size : 0;
-  const all = total > 0 && expanded >= total;
-  const label = all ? 'Collapse All' : 'Expand All';
-  btn.dataset.mode = all ? 'collapse' : 'expand';
-  btn.setAttribute('title', label);
-  btn.setAttribute('aria-pressed', all ? 'true' : 'false');
-  const span = btn.querySelector('.label');
-  if (span) span.textContent = label; else btn.textContent = label;
-}
+    // Update label and aria state for the expand/collapse toggle
+    function updateExpandToggleLabel() {
+        const btn = document.querySelector('#steps-graph-controls [data-toggleall]');
+        if (!btn) return;
+        const total = (state.currentRunData?.steps || []).length;
+        const expanded = state.expandedSteps ? state.expandedSteps.size : 0;
+        const all = total > 0 && expanded >= total;
+        const label = all ? 'Collapse All' : 'Expand All';
+        btn.dataset.mode = all ? 'collapse' : 'expand';
+        btn.setAttribute('title', label);
+        btn.setAttribute('aria-pressed', all ? 'true' : 'false');
+        const span = btn.querySelector('.label');
+        if (span) span.textContent = label; else btn.textContent = label;
+    }
 
 
     function renderMiniTaskGraph(step, container) {
@@ -4306,7 +4350,7 @@ function updateExpandToggleLabel() {
         const { nodes, edges, width, height } = calculateGraphLayout(step.tasks, container, 60, 50, 10, 20, false);
         let svg = `<svg width="${width}" height="${height}" class="max-w-full max-h-full">`;
         edges.forEach(edge => {
-            const path = `M${edge.from.x + edge.from.width/2},${edge.from.y + edge.from.height/2} L${edge.to.x + edge.to.width/2},${edge.to.y + edge.to.height/2}`;
+            const path = `M${edge.from.x + edge.from.width / 2},${edge.from.y + edge.from.height / 2} L${edge.to.x + edge.to.width / 2},${edge.to.y + edge.to.height / 2}`;
             svg += `<path d="${path}" class="edge-path" />`;
         });
         nodes.forEach(node => {
@@ -4322,16 +4366,16 @@ function updateExpandToggleLabel() {
     }
 
     function drawStepConnections(stepLayout, stepElements, opts = { running: false }) {
-  const svg = DOM.tasksGraphConnections;
+        const svg = DOM.tasksGraphConnections;
 
-  // Match the SVG’s coordinate space to the wrapper’s content box
-  const w = Math.max(stepLayout.width || 0, DOM.tasksGraphWrapper.scrollWidth);
-  const h = Math.max(stepLayout.height || 0, DOM.tasksGraphWrapper.scrollHeight);
-  svg.setAttribute('width', w);
-  svg.setAttribute('height', h);
-  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+        // Match the SVG’s coordinate space to the wrapper’s content box
+        const w = Math.max(stepLayout.width || 0, DOM.tasksGraphWrapper.scrollWidth);
+        const h = Math.max(stepLayout.height || 0, DOM.tasksGraphWrapper.scrollHeight);
+        svg.setAttribute('width', w);
+        svg.setAttribute('height', h);
+        svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
 
-  const defs = `
+        const defs = `
 <defs>
   <linearGradient id="tasks-edge-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
     <stop offset="0%"   style="stop-color:var(--border-secondary);" />
@@ -4347,41 +4391,41 @@ function updateExpandToggleLabel() {
 </defs>
   `;
 
-  let paths = '';
-  stepLayout.edges.forEach(edge => {
-const fromEl = stepElements.get(edge.from.name);
-const toEl   = stepElements.get(edge.to.name);
-if (!fromEl || !toEl) return;
+        let paths = '';
+        stepLayout.edges.forEach(edge => {
+            const fromEl = stepElements.get(edge.from.name);
+            const toEl = stepElements.get(edge.to.name);
+            if (!fromEl || !toEl) return;
 
-// Offsets are relative to #tasks-graph-wrapper (perfect for this SVG)
-const x1 = fromEl.offsetLeft + fromEl.offsetWidth;
-const y1 = fromEl.offsetTop + fromEl.offsetHeight / 2;
-const x2 = toEl.offsetLeft;
-const y2 = toEl.offsetTop + toEl.offsetHeight / 2;
-const curveX = x1 + (x2 - x1) / 2;
+            // Offsets are relative to #tasks-graph-wrapper (perfect for this SVG)
+            const x1 = fromEl.offsetLeft + fromEl.offsetWidth;
+            const y1 = fromEl.offsetTop + fromEl.offsetHeight / 2;
+            const x2 = toEl.offsetLeft;
+            const y2 = toEl.offsetTop + toEl.offsetHeight / 2;
+            const curveX = x1 + (x2 - x1) / 2;
 
-const isCompleted = edge.from.status === 'Success';
-const marker = isCompleted ? 'url(#arrowhead-completed)' : 'url(#arrowhead)';
-const extra = [
-  'edge-path',
-  isCompleted ? 'edge-path--completed' : '',
-  'edge-path--glow',
-  opts.running && isCompleted ? 'edge-path--running' : ''
-].join(' ').trim();
+            const isCompleted = edge.from.status === 'Success';
+            const marker = isCompleted ? 'url(#arrowhead-completed)' : 'url(#arrowhead)';
+            const extra = [
+                'edge-path',
+                isCompleted ? 'edge-path--completed' : '',
+                'edge-path--glow',
+                opts.running && isCompleted ? 'edge-path--running' : ''
+            ].join(' ').trim();
 
-const strokeStyle = isCompleted ? 'var(--border-accent)' : 'url(#tasks-edge-gradient)';
-const d = `M ${x1} ${y1} C ${curveX} ${y1}, ${curveX} ${y2}, ${x2} ${y2}`;
-paths += `<path d="${d}" class="edge-path-halo"></path>`;
-paths += `<path d="${d}"
+            const strokeStyle = isCompleted ? 'var(--border-accent)' : 'url(#tasks-edge-gradient)';
+            const d = `M ${x1} ${y1} C ${curveX} ${y1}, ${curveX} ${y2}, ${x2} ${y2}`;
+            paths += `<path d="${d}" class="edge-path-halo"></path>`;
+            paths += `<path d="${d}"
              class="${extra}"
              style="stroke:${strokeStyle};"
              marker-end="${marker}"
              data-from="${edge.from.name}"
              data-to="${edge.to.name}"></path>`;
-  });
+        });
 
-  svg.innerHTML = defs + paths;
-}
+        svg.innerHTML = defs + paths;
+    }
 
 
 
@@ -4393,22 +4437,22 @@ paths += `<path d="${d}"
         DOM.tasksGraphContainer.classList.toggle('hidden', view !== 'tasks');
         // Hide page scrollbars when a graph view is active
         if (DOM.pageContentWrapper) {
-          const active = (view === 'steps' || view === 'tasks');
-          DOM.pageContentWrapper.classList.toggle('no-scroll', active);
+            const active = (view === 'steps' || view === 'tasks');
+            DOM.pageContentWrapper.classList.toggle('no-scroll', active);
         }
         // Ensure pan/zoom is bound for the visible view
         if (view === 'steps') {
-          initPanAndZoom('steps');
+            initPanAndZoom('steps');
         } else if (view === 'tasks') {
-          // if we have a saved layout, pass it to fit accurately
-          const layout = state._lastStepLayout || null;
-          initPanAndZoom('tasks', layout);
+            // if we have a saved layout, pass it to fit accurately
+            const layout = state._lastStepLayout || null;
+            initPanAndZoom('tasks', layout);
         }
         // If any previous attempt deferred binding due to hidden container, try now
         if (state._pendingPanzoom && state._pendingPanzoom.view === view) {
-          const { view: pv, layout: pl } = state._pendingPanzoom;
-          delete state._pendingPanzoom;
-          initPanAndZoom(pv, pl || null);
+            const { view: pv, layout: pl } = state._pendingPanzoom;
+            delete state._pendingPanzoom;
+            initPanAndZoom(pv, pl || null);
         }
         // Final safety: after paint, verify there is a working panzoom
         requestAnimationFrame(() => ensurePanzoomBound(view));
@@ -4420,34 +4464,34 @@ paths += `<path d="${d}"
     }
 
     async function showStepDetails(stepName) {
-  if (!state.currentRunData) return;
+        if (!state.currentRunData) return;
 
-  // show the modal first so the graph container has dimensions
-  DOM.modal.classList.remove('hidden');
-  setTimeout(() => {
-DOM.modal.classList.add('opacity-100');
-DOM.modalContent.classList.remove('scale-95');
-  }, 10);
+        // show the modal first so the graph container has dimensions
+        DOM.modal.classList.remove('hidden');
+        setTimeout(() => {
+            DOM.modal.classList.add('opacity-100');
+            DOM.modalContent.classList.remove('scale-95');
+        }, 10);
 
-  // render the content (fetch + graph)
-  await renderModalForStep(state.currentRunData.run_info.run_id, stepName);
+        // render the content (fetch + graph)
+        await renderModalForStep(state.currentRunData.run_info.run_id, stepName);
 
-  // safety: if the SVG didn't render for any reason, re-draw once after layout
-  setTimeout(() => {
-const el = document.getElementById('task-graph');
-if (el && el.querySelector('svg') == null) {
-  const step = state.currentRunData?.steps?.find(s => s.name === stepName);
-  if (step) renderTaskGraph(el, stepName, step.tasks);
-}
-  }, 80);
-}
+        // safety: if the SVG didn't render for any reason, re-draw once after layout
+        setTimeout(() => {
+            const el = document.getElementById('task-graph');
+            if (el && el.querySelector('svg') == null) {
+                const step = state.currentRunData?.steps?.find(s => s.name === stepName);
+                if (step) renderTaskGraph(el, stepName, step.tasks);
+            }
+        }, 80);
+    }
 
 
 
-async function renderModalForStep(runId, stepName, parentContext = null) {
+    async function renderModalForStep(runId, stepName, parentContext = null) {
         const runDetails = await fetchData(`/v1/runs/${runId}`);
         if (!runDetails) return;
-        
+
         // Defensive check for steps array
         const step = (runDetails.steps || []).find(s => s.name === stepName);
         if (!step) return;
@@ -4590,7 +4634,7 @@ async function renderModalForStep(runId, stepName, parentContext = null) {
         }
     }
 
-function renderTaskGraph(container, stepName, tasks, clickableNodeContext = null) {
+    function renderTaskGraph(container, stepName, tasks, clickableNodeContext = null) {
         if (!state.currentRunData) {
             container.innerHTML = `<p class="text-[var(--text-secondary)] text-sm">Waiting for pipeline data...</p>`;
             return;
@@ -4618,45 +4662,45 @@ function renderTaskGraph(container, stepName, tasks, clickableNodeContext = null
             }
         });
 
-  const isVerticalLayout = container.clientWidth < 700;
-  const isMini = container.classList.contains('task-graph-mini-container');
-  // Compact sizing for mini-graphs inside task cards; keep larger sizing elsewhere (modal)
-  const nodeWidth  = isVerticalLayout ? (isMini ? 84  : 184) : (isMini ? 120 : 136);
-  const nodeHeight = isVerticalLayout ? (isMini ? 48  : 92)  : (isMini ? 72  : 112);
-  const hGap       = isVerticalLayout ? (isMini ? 24  : 44)  : (isMini ? 60  : 100);
-  const vGap       = isVerticalLayout ? (isMini ? 64  : 120) : (isMini ? 28  : 36);
+        const isVerticalLayout = container.clientWidth < 700;
+        const isMini = container.classList.contains('task-graph-mini-container');
+        // Compact sizing for mini-graphs inside task cards; keep larger sizing elsewhere (modal)
+        const nodeWidth = isVerticalLayout ? (isMini ? 84 : 184) : (isMini ? 120 : 136);
+        const nodeHeight = isVerticalLayout ? (isMini ? 48 : 92) : (isMini ? 72 : 112);
+        const hGap = isVerticalLayout ? (isMini ? 24 : 44) : (isMini ? 60 : 100);
+        const vGap = isVerticalLayout ? (isMini ? 64 : 120) : (isMini ? 28 : 36);
 
-  const { nodes, edges, width, height } =
-calculateGraphLayout(itemsWithDeps, container, nodeWidth, nodeHeight, hGap, vGap, isVerticalLayout);
+        const { nodes, edges, width, height } =
+            calculateGraphLayout(itemsWithDeps, container, nodeWidth, nodeHeight, hGap, vGap, isVerticalLayout);
 
-  // keep arrows clear of node icons
-  const iconRadius = 14;
-  const arrowPad   = 12; // extra gap so the tip doesn’t sit on the icon
+        // keep arrows clear of node icons
+        const iconRadius = 14;
+        const arrowPad = 12; // extra gap so the tip doesn’t sit on the icon
 
-  const getEdgePath = (fromNode, toNode) => {
-const from_center_x = fromNode.x + fromNode.width / 2;
-const from_center_y = fromNode.y + fromNode.height / 2;
-const to_center_x   = toNode.x   + toNode.width   / 2;
-const to_center_y   = toNode.y   + toNode.height  / 2;
+        const getEdgePath = (fromNode, toNode) => {
+            const from_center_x = fromNode.x + fromNode.width / 2;
+            const from_center_y = fromNode.y + fromNode.height / 2;
+            const to_center_x = toNode.x + toNode.width / 2;
+            const to_center_y = toNode.y + toNode.height / 2;
 
-if (isVerticalLayout) {
-  const x1 = from_center_x;
-  const y1 = from_center_y + iconRadius + arrowPad;
-  const x2 = to_center_x;
-  const y2 = to_center_y   - iconRadius - arrowPad;
-  const curveY = y1 + (y2 - y1) * 0.5;
-  return `M ${x1} ${y1} C ${x1} ${curveY}, ${x2} ${curveY}, ${x2} ${y2}`;
-} else {
-  const x1 = from_center_x + iconRadius + arrowPad;
-  const y1 = from_center_y;
-  const x2 = to_center_x   - iconRadius - arrowPad;
-  const y2 = to_center_y;
-  const curveX = x1 + (x2 - x1) * 0.5;
-  return `M ${x1} ${y1} C ${curveX} ${y1}, ${curveX} ${y2}, ${x2} ${y2}`;
-}
-  };
+            if (isVerticalLayout) {
+                const x1 = from_center_x;
+                const y1 = from_center_y + iconRadius + arrowPad;
+                const x2 = to_center_x;
+                const y2 = to_center_y - iconRadius - arrowPad;
+                const curveY = y1 + (y2 - y1) * 0.5;
+                return `M ${x1} ${y1} C ${x1} ${curveY}, ${x2} ${curveY}, ${x2} ${y2}`;
+            } else {
+                const x1 = from_center_x + iconRadius + arrowPad;
+                const y1 = from_center_y;
+                const x2 = to_center_x - iconRadius - arrowPad;
+                const y2 = to_center_y;
+                const curveX = x1 + (x2 - x1) * 0.5;
+                return `M ${x1} ${y1} C ${curveX} ${y1}, ${curveX} ${y2}, ${x2} ${y2}`;
+            }
+        };
 
-  let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+        let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
 <defs>
   <marker id="task_arrow" viewBox="0 0 10 10" refX="9" refY="5"
           markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
@@ -4664,32 +4708,32 @@ if (isVerticalLayout) {
   </marker>
 </defs>`;
 
-  // edges
-  edges.forEach(edge => {
-svgContent += `<path d="${getEdgePath(edge.from, edge.to)}"
+        // edges
+        edges.forEach(edge => {
+            svgContent += `<path d="${getEdgePath(edge.from, edge.to)}"
                      class="edge-path"
                      marker-end="url(#task_arrow)"></path>`;
-  });
+        });
 
-  // nodes (icon + labels only)
-  nodes.forEach(node => {
-const status = (node.status || 'pending').toLowerCase();
-const config = statusConfig[status] || statusConfig.pending;
-const duration = formatDuration(node.started_at, node.finished_at);
-const itemName = node.task_name || node.name;
-const cx = node.x + node.width / 2;
-const cy = node.y + node.height / 2;
+        // nodes (icon + labels only)
+        nodes.forEach(node => {
+            const status = (node.status || 'pending').toLowerCase();
+            const config = statusConfig[status] || statusConfig.pending;
+            const duration = formatDuration(node.started_at, node.finished_at);
+            const itemName = node.task_name || node.name;
+            const cx = node.x + node.width / 2;
+            const cy = node.y + node.height / 2;
 
-let clickableAttrs = '';
-if (clickableNodeContext) {
-  const contextString = JSON.stringify({ ...clickableNodeContext, childStepName: itemName }).replace(/"/g, '&quot;');
-  clickableAttrs = `class="graph-node" data-context='${contextString}'`;
-}
+            let clickableAttrs = '';
+            if (clickableNodeContext) {
+                const contextString = JSON.stringify({ ...clickableNodeContext, childStepName: itemName }).replace(/"/g, '&quot;');
+                clickableAttrs = `class="graph-node" data-context='${contextString}'`;
+            }
 
-const taskAttr = escapeAttribute(itemName);
-const stepAttr = escapeAttribute(stepName || '');
+            const taskAttr = escapeAttribute(itemName);
+            const stepAttr = escapeAttribute(stepName || '');
 
-svgContent += `
+            svgContent += `
   <g transform="translate(0,0)" ${clickableAttrs} data-task-name="${taskAttr}" data-step-name="${stepAttr}">
     <g transform="translate(${cx}, ${cy})">
       <path d="${config.icon}" transform="translate(-12, -12) scale(1.1)"
@@ -4700,11 +4744,50 @@ svgContent += `
     <text x="${cx}" y="${cy + 48}" text-anchor="middle"
           class="text-[10px] fill-current text-[var(--text-secondary)]">${duration}</text>
   </g>`;
-  });
+        });
 
-  container.innerHTML = svgContent + `</svg>`;
-}
+        container.innerHTML = svgContent + `</svg>`;
+    }
 
+
+    function updateStepsGraphStatuses(runDetails) {
+        if (!DOM.graphWrapper || !runDetails.steps) return false;
+
+        // Find existing nodes (excluding task sub-nodes for now, just main step nodes)
+        const mainNodes = Array.from(DOM.graphWrapper.querySelectorAll('.graph-node[data-step-name]'));
+
+        // Rough check: if count mismatch, re-render
+        // Note: graph-node includes both steps and tasks inside steps if expanded.
+        // It's safer to rely on data-step-name.
+
+        // Iterate through new data and try to find matching node
+        for (const step of runDetails.steps) {
+            // Find the main node for this step (not a task node)
+            // Main nodes usually don't have data-task-name
+            const stepNode = DOM.graphWrapper.querySelector(`.graph-node[data-step-name="${step.name}"]:not([data-task-name])`);
+
+            // If any step from the new data is missing in DOM, we must re-render
+            if (!stepNode) return false;
+
+            const status = (step.status || 'pending').toLowerCase();
+            const config = statusConfig[status] || statusConfig.pending;
+
+            // Update Icon
+            const path = stepNode.querySelector('path');
+            if (path) {
+                path.setAttribute('class', `stroke-current ${config.color}`);
+                path.setAttribute('d', config.icon); // Update icon shape!
+            }
+
+            // Update Duration (last text element)
+            const texts = stepNode.querySelectorAll('text');
+            if (texts.length > 0) {
+                // Optimization: assume last text is duration as per renderStepsGraph
+                texts[texts.length - 1].textContent = step.duration || '...';
+            }
+        }
+        return true;
+    }
 
     function renderBreadcrumbs(groupId) {
         // Always set the header to "Pipeline Runs" regardless of the group ID
@@ -4907,301 +4990,301 @@ svgContent += `
 
         if (state.selectedGroupId == state.groupToDelete.id) {
             state.selectedGroupId = null;
-             window.location.hash = '#/pipelineruns/main';
+            window.location.hash = '#/pipelineruns/main';
         } else {
             refresh();
         }
     }
 
     function closeModal() {
-  // hide animation
-  DOM.modal.classList.remove('opacity-100');
-  DOM.modalContent.classList.add('scale-95');
+        // hide animation
+        DOM.modal.classList.remove('opacity-100');
+        DOM.modalContent.classList.add('scale-95');
 
-  setTimeout(() => {
-DOM.modal.classList.add('hidden');
+        setTimeout(() => {
+            DOM.modal.classList.add('hidden');
 
-// Safety: ensure the main view is still visible after closing the modal
-// without relying solely on router timing.
-if (false && state.currentGraphView === 'tasks') {
-  DOM.graphContainer.classList.add('hidden');
-  DOM.tasksGraphContainer.classList.remove('hidden');
+            // Safety: ensure the main view is still visible after closing the modal
+            // without relying solely on router timing.
+            if (false && state.currentGraphView === 'tasks') {
+                DOM.graphContainer.classList.add('hidden');
+                DOM.tasksGraphContainer.classList.remove('hidden');
 
-  // If tasks graph somehow got cleared, rebuild current view.
-  const hasSvg = !!DOM.tasksGraphWrapper.querySelector('svg');
-  if (!hasSvg && state.currentRunData) {
-    renderRunView(state.currentRunData);
-    switchGraphView('steps');
-  }
+                // If tasks graph somehow got cleared, rebuild current view.
+                const hasSvg = !!DOM.tasksGraphWrapper.querySelector('svg');
+                if (!hasSvg && state.currentRunData) {
+                    renderRunView(state.currentRunData);
+                    switchGraphView('steps');
+                }
 
-  // Re-center after layout settles
-  if (typeof state.__fitToView === 'function') {
-    requestAnimationFrame(() => state.__fitToView());
-  }
-}
-  }, 300);
-}
+                // Re-center after layout settles
+                if (typeof state.__fitToView === 'function') {
+                    requestAnimationFrame(() => state.__fitToView());
+                }
+            }
+        }, 300);
+    }
 
     function bindDomEvents() {
-    DOM.mainHeader.addEventListener('click', e => {
-        if (e.target.closest('#view-logs-btn')) {
-            showLogsModal();
-        }
-    });
-
-    // Tabs navigation (Recent, Main, etc.) should update the hash lazily.
-    if (DOM.tabs && DOM.tabs.length) {
-        const navigateToTab = (targetTab) => {
-            if (!targetTab) return;
-
-            const current = parsePipelineRunsHash(window.location.hash);
-            const sameTab = current.tab === targetTab;
-            const hasRunOpen = !!current.runId;
-
-            if (targetTab === 'recent') {
-                if (sameTab && !hasRunOpen) return;
-                window.location.hash = '#/pipelineruns/recent';
-                return;
+        DOM.mainHeader.addEventListener('click', e => {
+            if (e.target.closest('#view-logs-btn')) {
+                showLogsModal();
             }
+        });
 
-            if (targetTab === 'main') {
-                let segments = [];
-                if (sameTab && !hasRunOpen) {
-                    segments = [];
-                } else if (sameTab && hasRunOpen && Array.isArray(current.groupSegments) && current.groupSegments.length) {
-                    segments = current.groupSegments.slice();
-                } else if (state.selectedGroupPathSegments && state.selectedGroupPathSegments.length) {
-                    segments = state.selectedGroupPathSegments.slice();
+        // Tabs navigation (Recent, Main, etc.) should update the hash lazily.
+        if (DOM.tabs && DOM.tabs.length) {
+            const navigateToTab = (targetTab) => {
+                if (!targetTab) return;
+
+                const current = parsePipelineRunsHash(window.location.hash);
+                const sameTab = current.tab === targetTab;
+                const hasRunOpen = !!current.runId;
+
+                if (targetTab === 'recent') {
+                    if (sameTab && !hasRunOpen) return;
+                    window.location.hash = '#/pipelineruns/recent';
+                    return;
                 }
 
-                const targetHash = segments.length ? `#/pipelineruns/main/${segments.join('/')}` : '#/pipelineruns/main';
-                window.location.hash = targetHash;
-            }
-        };
+                if (targetTab === 'main') {
+                    let segments = [];
+                    if (sameTab && !hasRunOpen) {
+                        segments = [];
+                    } else if (sameTab && hasRunOpen && Array.isArray(current.groupSegments) && current.groupSegments.length) {
+                        segments = current.groupSegments.slice();
+                    } else if (state.selectedGroupPathSegments && state.selectedGroupPathSegments.length) {
+                        segments = state.selectedGroupPathSegments.slice();
+                    }
 
-        DOM.tabs.forEach(tab => {
-            tab.addEventListener('click', (e) => {
-                e.preventDefault();
-                navigateToTab(tab.dataset.tab);
-            });
+                    const targetHash = segments.length ? `#/pipelineruns/main/${segments.join('/')}` : '#/pipelineruns/main';
+                    window.location.hash = targetHash;
+                }
+            };
 
-            tab.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
+            DOM.tabs.forEach(tab => {
+                tab.addEventListener('click', (e) => {
                     e.preventDefault();
                     navigateToTab(tab.dataset.tab);
-                }
-            });
-        });
-    }
+                });
 
-    DOM.closeLogsModalBtn.addEventListener('click', closeLogsModal);
-    DOM.logsModal.addEventListener('click', e => { if (e.target === DOM.logsModal) closeLogsModal(); });
-    DOM.copyLogsBtn.addEventListener('click', () => {
-        try {
-            const hasQuery = !!(state.logsSearchText && state.logsSearchText.trim());
-            let linesToCopy = [];
-
-            if (hasQuery) {
-                const highlightedElements = DOM.logsContainer.querySelectorAll('.log-highlight');
-                const uniqueLogEntries = new Set();
-
-                highlightedElements.forEach(highlight => {
-                    // This selector is key: it finds the parent container for BOTH structured and unstructured logs.
-                    const logEntry = highlight.closest('.log-line-raw, .flex.flex-col');
-                    if (logEntry) {
-                        uniqueLogEntries.add(logEntry);
+                tab.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        navigateToTab(tab.dataset.tab);
                     }
                 });
-
-                uniqueLogEntries.forEach(entry => {
-                    linesToCopy.push(entry.innerText);
-                });
-            }
-
-            // Fallback to copying everything if there's no active search, otherwise join the found entries.
-            const textToCopy = linesToCopy.length > 0 ? linesToCopy.join('\n\n') : DOM.logsContainer.innerText;
-            navigator.clipboard.writeText(textToCopy);
-
-        } catch (e) {
-            console.error("Copy to clipboard failed:", e);
+            });
         }
 
-        // Provide visual feedback to the user.
-        const originalIcon = DOM.copyLogsBtn.innerHTML;
-        DOM.copyLogsBtn.innerHTML = '<svg class="h-5 w-5 text-green-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>';
-        setTimeout(() => DOM.copyLogsBtn.innerHTML = originalIcon, 2000);
-    });
+        DOM.closeLogsModalBtn.addEventListener('click', closeLogsModal);
+        DOM.logsModal.addEventListener('click', e => { if (e.target === DOM.logsModal) closeLogsModal(); });
+        DOM.copyLogsBtn.addEventListener('click', () => {
+            try {
+                const hasQuery = !!(state.logsSearchText && state.logsSearchText.trim());
+                let linesToCopy = [];
 
-    // Steps sidebar interactions
-    if (DOM.logsStepsSidebar) {
-      DOM.logsStepsSidebar.addEventListener('click', (e) => {
-        const item = e.target.closest('.logs-step-item');
-        if (item) {
-          const name = item.dataset.step;
-          if (state.logsSelectedSteps.has(name)) state.logsSelectedSteps.delete(name); else state.logsSelectedSteps.add(name);
-          updateLogsStepList();
-          state._logsFocusFirstMatch = true;
-          renderLogsWithFilters({ scrollToTop: true }); 
-          if (typeof state.syncLogsHash === 'function') state.syncLogsHash({ replace: true });
-          return;
-        }
-      });
-    }
-    if (DOM.logsStepSearch) {
-      DOM.logsStepSearch.addEventListener('input', () => updateLogsStepList());
-    }
+                if (hasQuery) {
+                    const highlightedElements = DOM.logsContainer.querySelectorAll('.log-highlight');
+                    const uniqueLogEntries = new Set();
 
-    // Select all / clear
-    if (DOM.logsStepsSelectAll) {
-      DOM.logsStepsSelectAll.addEventListener('click', () => {
-        (state.logsAllSteps || []).forEach(n => state.logsSelectedSteps.add(n));
-        updateLogsStepList();
-        state._logsFocusFirstMatch = true;
-        renderLogsWithFilters();
-        if (typeof state.syncLogsHash === 'function') state.syncLogsHash({ replace: true });
-      });
-    }
-    if (DOM.logsStepsClear) {
-      DOM.logsStepsClear.addEventListener('click', () => {
-        state.logsSelectedSteps = new Set();
-        updateLogsStepList();
-        state._logsFocusFirstMatch = true;
-        renderLogsWithFilters();
-        if (typeof state.syncLogsHash === 'function') state.syncLogsHash({ replace: true });
-      });
-    }
-    // No 'only selected' toggle; selecting none means show all
+                    highlightedElements.forEach(highlight => {
+                        // This selector is key: it finds the parent container for BOTH structured and unstructured logs.
+                        const logEntry = highlight.closest('.log-line-raw, .flex.flex-col');
+                        if (logEntry) {
+                            uniqueLogEntries.add(logEntry);
+                        }
+                    });
 
-    if (DOM.pipelineRunsSearch) {
-        DOM.pipelineRunsSearch.addEventListener('input', () => {
-            const nextValue = DOM.pipelineRunsSearch.value.trim();
-            if (state.runSearchTerm === nextValue) return;
-            state.runSearchTerm = nextValue;
-            applyRunSearchFilter();
-        });
-    }
-    if (DOM.logsSearch) {
-      DOM.logsSearch.addEventListener('input', (e) => {
-        state.logsSearchText = e.target.value || '';
-        state._logsFocusFirstMatch = true;
-        renderLogsWithFilters();
-        if (typeof state.syncLogsHash === 'function') state.syncLogsHash({ replace: true });
-      });
-    }
-    if (DOM.logsClearSearch) {
-      DOM.logsClearSearch.addEventListener('click', () => {
-        if (DOM.logsSearch) DOM.logsSearch.value = '';
-        state.logsSearchText = '';
-        renderLogsWithFilters();
-        if (typeof state.syncLogsHash === 'function') state.syncLogsHash({ replace: true });
-      });
-    }
-    if (DOM.downloadLogsBtn) {
-      DOM.downloadLogsBtn.addEventListener('click', () => {
-        try {
-          const text = DOM.logsContainer?.innerText || '';
-          if (!text) {
-            alert('No logs available to download yet.');
-            return;
-          }
-          const blob = new Blob([text], { type: 'text/plain' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          const runId = state.currentRunData?.run_info?.run_id || 'logs';
-          a.download = `logs-${runId.slice(0, 8)}.txt`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-        } catch (error) {
-          console.error('Failed to download logs:', error);
-          alert('Could not download the logs.');
-        }
-      });
-    }
-
-    if (DOM.addGroupForm) {
-      DOM.addGroupForm.addEventListener('submit', createGroup);
-    }
-    if (DOM.closeAddGroupModalBtn) {
-      DOM.closeAddGroupModalBtn.addEventListener('click', closeAddGroupModal);
-    }
-    if (DOM.cancelAddGroupBtn) {
-      DOM.cancelAddGroupBtn.addEventListener('click', closeAddGroupModal);
-    }
-        if (DOM.graphContainer) {
-      DOM.graphContainer.addEventListener('click', (e) => {
-        const includedLink = e.target.closest('[data-included-link="true"]');
-        if (includedLink) {
-          e.stopPropagation();
-          return;
-        }
-
-        const infoBtn = e.target.closest('[data-step-info="true"]');
-        if (infoBtn && infoBtn.dataset.stepName) {
-          e.stopPropagation();
-          const stepName = infoBtn.dataset.stepName;
-          const newHash = buildRunHashWithExtras(state.currentRunData?.run_info, resolveRunContext(state.currentRunContext || null), ['steps', stepName]);
-          window.location.hash = newHash;
-          showStepDetails(stepName);
-          return;
-        }
-
-        const stepEl = e.target.closest('[data-step-name]');
-        const taskNode = e.target.closest('g.graph-node[data-task-name]');
-        if (taskNode) {
-          if (!(taskNode.dataset && taskNode.dataset.context)) {
-            const taskStepName = taskNode.dataset.stepName || (stepEl && stepEl.dataset.stepName) || '';
-            const taskName = taskNode.dataset.taskName || '';
-            if (taskStepName && taskName) {
-              e.preventDefault();
-              e.stopPropagation();
-              openLogsForTask(taskStepName, taskName);
-              return;
-            }
-          }
-        }
-
-        if (stepEl && stepEl.dataset.stepName) {
-          try {
-            const panEl = state._panElement || DOM.graphWrapper;
-            const tr = panEl ? window.getComputedStyle(panEl).transform : null;
-            let scale = 1, x = 0, y = 0;
-            if (tr && tr !== 'none') {
-              const m = tr.match(/matrix\(([^)]+)\)/);
-              if (m) {
-                const v = m[1].split(',').map(parseFloat);
-                if (v.length === 6) {
-                  const a = v[0], b = v[1];
-                  scale = Math.sqrt(a * a + b * b) || 1;
-                  x = v[4] || 0;
-                  y = v[5] || 0;
+                    uniqueLogEntries.forEach(entry => {
+                        linesToCopy.push(entry.innerText);
+                    });
                 }
-              }
+
+                // Fallback to copying everything if there's no active search, otherwise join the found entries.
+                const textToCopy = linesToCopy.length > 0 ? linesToCopy.join('\n\n') : DOM.logsContainer.innerText;
+                navigator.clipboard.writeText(textToCopy);
+
+            } catch (e) {
+                console.error("Copy to clipboard failed:", e);
             }
-            state._stepsViewTransform = { x, y, scale };
-          } catch {}
-          state._fitOnNextStepsRender = false;
-          const stepName = stepEl.dataset.stepName;
-          if (e.ctrlKey || e.metaKey) {
-            const newHash = buildRunHashWithExtras(state.currentRunData?.run_info, resolveRunContext(state.currentRunContext || null), ['steps', stepName]);
-            window.location.hash = newHash;
-          } else {
-            if (!state.expandedSteps) state.expandedSteps = new Set();
-            state._preserveScale = true;
-            if (state.expandedSteps.has(stepName)) {
-              state.expandedSteps.delete(stepName);
-            } else {
-              state.expandedSteps.add(stepName);
-              if (!state._justExpandedSteps) state._justExpandedSteps = new Set();
-              state._justExpandedSteps.add(stepName);
-            }
-            if (state.currentRunData) renderStepsGraph(state.currentRunData);
-          }
+
+            // Provide visual feedback to the user.
+            const originalIcon = DOM.copyLogsBtn.innerHTML;
+            DOM.copyLogsBtn.innerHTML = '<svg class="h-5 w-5 text-green-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>';
+            setTimeout(() => DOM.copyLogsBtn.innerHTML = originalIcon, 2000);
+        });
+
+        // Steps sidebar interactions
+        if (DOM.logsStepsSidebar) {
+            DOM.logsStepsSidebar.addEventListener('click', (e) => {
+                const item = e.target.closest('.logs-step-item');
+                if (item) {
+                    const name = item.dataset.step;
+                    if (state.logsSelectedSteps.has(name)) state.logsSelectedSteps.delete(name); else state.logsSelectedSteps.add(name);
+                    updateLogsStepList();
+                    state._logsFocusFirstMatch = true;
+                    renderLogsWithFilters({ scrollToTop: true });
+                    if (typeof state.syncLogsHash === 'function') state.syncLogsHash({ replace: true });
+                    return;
+                }
+            });
         }
-      });
-    }
+        if (DOM.logsStepSearch) {
+            DOM.logsStepSearch.addEventListener('input', () => updateLogsStepList());
+        }
+
+        // Select all / clear
+        if (DOM.logsStepsSelectAll) {
+            DOM.logsStepsSelectAll.addEventListener('click', () => {
+                (state.logsAllSteps || []).forEach(n => state.logsSelectedSteps.add(n));
+                updateLogsStepList();
+                state._logsFocusFirstMatch = true;
+                renderLogsWithFilters();
+                if (typeof state.syncLogsHash === 'function') state.syncLogsHash({ replace: true });
+            });
+        }
+        if (DOM.logsStepsClear) {
+            DOM.logsStepsClear.addEventListener('click', () => {
+                state.logsSelectedSteps = new Set();
+                updateLogsStepList();
+                state._logsFocusFirstMatch = true;
+                renderLogsWithFilters();
+                if (typeof state.syncLogsHash === 'function') state.syncLogsHash({ replace: true });
+            });
+        }
+        // No 'only selected' toggle; selecting none means show all
+
+        if (DOM.pipelineRunsSearch) {
+            DOM.pipelineRunsSearch.addEventListener('input', () => {
+                const nextValue = DOM.pipelineRunsSearch.value.trim();
+                if (state.runSearchTerm === nextValue) return;
+                state.runSearchTerm = nextValue;
+                applyRunSearchFilter();
+            });
+        }
+        if (DOM.logsSearch) {
+            DOM.logsSearch.addEventListener('input', (e) => {
+                state.logsSearchText = e.target.value || '';
+                state._logsFocusFirstMatch = true;
+                renderLogsWithFilters();
+                if (typeof state.syncLogsHash === 'function') state.syncLogsHash({ replace: true });
+            });
+        }
+        if (DOM.logsClearSearch) {
+            DOM.logsClearSearch.addEventListener('click', () => {
+                if (DOM.logsSearch) DOM.logsSearch.value = '';
+                state.logsSearchText = '';
+                renderLogsWithFilters();
+                if (typeof state.syncLogsHash === 'function') state.syncLogsHash({ replace: true });
+            });
+        }
+        if (DOM.downloadLogsBtn) {
+            DOM.downloadLogsBtn.addEventListener('click', () => {
+                try {
+                    const text = DOM.logsContainer?.innerText || '';
+                    if (!text) {
+                        alert('No logs available to download yet.');
+                        return;
+                    }
+                    const blob = new Blob([text], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    const runId = state.currentRunData?.run_info?.run_id || 'logs';
+                    a.download = `logs-${runId.slice(0, 8)}.txt`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                } catch (error) {
+                    console.error('Failed to download logs:', error);
+                    alert('Could not download the logs.');
+                }
+            });
+        }
+
+        if (DOM.addGroupForm) {
+            DOM.addGroupForm.addEventListener('submit', createGroup);
+        }
+        if (DOM.closeAddGroupModalBtn) {
+            DOM.closeAddGroupModalBtn.addEventListener('click', closeAddGroupModal);
+        }
+        if (DOM.cancelAddGroupBtn) {
+            DOM.cancelAddGroupBtn.addEventListener('click', closeAddGroupModal);
+        }
+        if (DOM.graphContainer) {
+            DOM.graphContainer.addEventListener('click', (e) => {
+                const includedLink = e.target.closest('[data-included-link="true"]');
+                if (includedLink) {
+                    e.stopPropagation();
+                    return;
+                }
+
+                const infoBtn = e.target.closest('[data-step-info="true"]');
+                if (infoBtn && infoBtn.dataset.stepName) {
+                    e.stopPropagation();
+                    const stepName = infoBtn.dataset.stepName;
+                    const newHash = buildRunHashWithExtras(state.currentRunData?.run_info, resolveRunContext(state.currentRunContext || null), ['steps', stepName]);
+                    window.location.hash = newHash;
+                    showStepDetails(stepName);
+                    return;
+                }
+
+                const stepEl = e.target.closest('[data-step-name]');
+                const taskNode = e.target.closest('g.graph-node[data-task-name]');
+                if (taskNode) {
+                    if (!(taskNode.dataset && taskNode.dataset.context)) {
+                        const taskStepName = taskNode.dataset.stepName || (stepEl && stepEl.dataset.stepName) || '';
+                        const taskName = taskNode.dataset.taskName || '';
+                        if (taskStepName && taskName) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            openLogsForTask(taskStepName, taskName);
+                            return;
+                        }
+                    }
+                }
+
+                if (stepEl && stepEl.dataset.stepName) {
+                    try {
+                        const panEl = state._panElement || DOM.graphWrapper;
+                        const tr = panEl ? window.getComputedStyle(panEl).transform : null;
+                        let scale = 1, x = 0, y = 0;
+                        if (tr && tr !== 'none') {
+                            const m = tr.match(/matrix\(([^)]+)\)/);
+                            if (m) {
+                                const v = m[1].split(',').map(parseFloat);
+                                if (v.length === 6) {
+                                    const a = v[0], b = v[1];
+                                    scale = Math.sqrt(a * a + b * b) || 1;
+                                    x = v[4] || 0;
+                                    y = v[5] || 0;
+                                }
+                            }
+                        }
+                        state._stepsViewTransform = { x, y, scale };
+                    } catch { }
+                    state._fitOnNextStepsRender = false;
+                    const stepName = stepEl.dataset.stepName;
+                    if (e.ctrlKey || e.metaKey) {
+                        const newHash = buildRunHashWithExtras(state.currentRunData?.run_info, resolveRunContext(state.currentRunContext || null), ['steps', stepName]);
+                        window.location.hash = newHash;
+                    } else {
+                        if (!state.expandedSteps) state.expandedSteps = new Set();
+                        state._preserveScale = true;
+                        if (state.expandedSteps.has(stepName)) {
+                            state.expandedSteps.delete(stepName);
+                        } else {
+                            state.expandedSteps.add(stepName);
+                            if (!state._justExpandedSteps) state._justExpandedSteps = new Set();
+                            state._justExpandedSteps.add(stepName);
+                        }
+                        if (state.currentRunData) renderStepsGraph(state.currentRunData);
+                    }
+                }
+            });
+        }
         if (DOM.cancelDeleteBtn) DOM.cancelDeleteBtn.addEventListener('click', closeDeleteGroupModal);
         if (DOM.confirmDeleteBtn) DOM.confirmDeleteBtn.addEventListener('click', deleteGroup);
 
@@ -5227,7 +5310,7 @@ if (false && state.currentGraphView === 'tasks') {
                     if (selection && selection.toString().trim().length > 0 && button === 0) {
                         try {
                             navigator.clipboard.writeText(selection.toString());
-                        } catch {}
+                        } catch { }
                         return;
                     }
 
@@ -5444,7 +5527,7 @@ if (false && state.currentGraphView === 'tasks') {
 
         DOM.mainGridContainer.addEventListener('dragleave', e => {
             const target = e.target.closest('a[data-group-id]');
-             if (target) {
+            if (target) {
                 target.classList.remove('drop-target-highlight');
             }
         });
@@ -5604,18 +5687,10 @@ if (false && state.currentGraphView === 'tasks') {
 
         if (trackedIds && parentNormalized && trackedIds.has(parentNormalized) && newRunNormalized && currentRunId) {
             trackedIds.set(newRunNormalized, newRunIdRaw);
-            if (wsManager && typeof wsManager.subscribeToRun === 'function') {
-                wsManager.subscribeToRun(newRunIdRaw);
-            }
             await fetchActiveRun(currentRunId, true);
         }
     }
 
-    async function handleWsReconnect() {
-        if (state.currentRunData?.run_info?.run_id) {
-            await fetchActiveRun(state.currentRunData.run_info.run_id, true);
-        }
-    }
 
     function setupSidebarDragAndDrop() {
         if (!DOM.sidebarNav) return;
@@ -5690,10 +5765,7 @@ if (false && state.currentGraphView === 'tasks') {
     global.pages.pipelineruns = {
         init,
         handleRoute,
-        handleRealtimeUpdate,
-        handleRunSummaryUpdate,
         handleNewRunStarted,
-        handleWsReconnect,
         renderSidebarForRoute: async (route) => {
             await renderSidebar(route, state.currentTab || 'main');
         },

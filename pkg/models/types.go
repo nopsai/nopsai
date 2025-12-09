@@ -5,6 +5,7 @@ import (
 )
 
 type LogLine struct {
+	ID        int64     `json:"id"`
 	Timestamp time.Time `json:"timestamp"`
 	Line      string    `json:"line"`
 }
