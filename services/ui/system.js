@@ -16,7 +16,6 @@
             'system-reload-btn', 'system-save-btn', 'system-sync-report', 'system-sync-empty',
             'system-repo-display', 'system-repo-helper', 'system-repo-chip', 'system-sync-updated',
             'system-sync-status-label', 'system-config-status', 'system-sync-refresh-btn',
-            'system-log-level', 'system-log-format', 'system-nopsai-listen', 'system-gitbot-listen',
             'system-agent-api', 'system-gitbot-api', 'system-nopsai-gitbot-api',
         ];
         ids.forEach(id => {
@@ -31,12 +30,6 @@
             DOM['system-sync-btn'].addEventListener('click', (e) => {
                 e.preventDefault();
                 triggerSync();
-            });
-        }
-        if (DOM['system-reload-btn']) {
-            DOM['system-reload-btn'].addEventListener('click', (e) => {
-                e.preventDefault();
-                loadSystemConfig(true);
             });
         }
         if (DOM['system-sync-refresh-btn']) {
@@ -92,10 +85,6 @@
         if (DOM['system-default-timeout']) DOM['system-default-timeout'].value = data.default_pipeline_timeout || '';
         if (DOM['system-llm-timeout']) DOM['system-llm-timeout'].value = data.llm_agent_timeout || '';
         if (DOM['system-auto-remove']) DOM['system-auto-remove'].checked = !!data.auto_removal_agent_container;
-        if (DOM['system-log-level']) DOM['system-log-level'].value = data.log_level || 'info';
-        if (DOM['system-log-format']) DOM['system-log-format'].value = data.log_format || 'json';
-        if (DOM['system-nopsai-listen']) DOM['system-nopsai-listen'].value = data.nopsai_listen_address || '';
-        if (DOM['system-gitbot-listen']) DOM['system-gitbot-listen'].value = data.git_bot_listen_address || '';
         if (DOM['system-agent-api']) DOM['system-agent-api'].value = data.agent_nopsai_api_url || '';
         if (DOM['system-gitbot-api']) DOM['system-gitbot-api'].value = data.git_bot_nopsai_api_url || '';
         if (DOM['system-nopsai-gitbot-api']) DOM['system-nopsai-gitbot-api'].value = data.nopsai_git_bot_api_url || '';
@@ -108,10 +97,6 @@
         const defaultTimeoutInput = DOM['system-default-timeout'];
         const llmTimeoutInput = DOM['system-llm-timeout'];
         const autoRemoveInput = DOM['system-auto-remove'];
-        const logLevelInput = DOM['system-log-level'];
-        const logFormatInput = DOM['system-log-format'];
-        const nopsaiListenInput = DOM['system-nopsai-listen'];
-        const gitbotListenInput = DOM['system-gitbot-listen'];
         const agentApiInput = DOM['system-agent-api'];
         const gitbotApiInput = DOM['system-gitbot-api'];
         const nopsaiGitbotApiInput = DOM['system-nopsai-gitbot-api'];
@@ -123,10 +108,6 @@
             default_pipeline_timeout: ((defaultTimeoutInput && defaultTimeoutInput.value) || '').trim(),
             llm_agent_timeout: ((llmTimeoutInput && llmTimeoutInput.value) || '').trim(),
             auto_removal_agent_container: !!(autoRemoveInput && autoRemoveInput.checked),
-            log_level: ((logLevelInput && logLevelInput.value) || '').trim(),
-            log_format: ((logFormatInput && logFormatInput.value) || '').trim(),
-            nopsai_listen_address: ((nopsaiListenInput && nopsaiListenInput.value) || '').trim(),
-            git_bot_listen_address: ((gitbotListenInput && gitbotListenInput.value) || '').trim(),
             agent_nopsai_api_url: ((agentApiInput && agentApiInput.value) || '').trim(),
             git_bot_nopsai_api_url: ((gitbotApiInput && gitbotApiInput.value) || '').trim(),
             nopsai_git_bot_api_url: ((nopsaiGitbotApiInput && nopsaiGitbotApiInput.value) || '').trim(),

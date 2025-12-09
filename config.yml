@@ -3,10 +3,13 @@ log_format: "json" # Options: "console", "json"
 
 # database_url: "postgres://nopsai_user:yoursecurepassword@nopsai-db:5432/nopsai_db"
 # agent_image: "nopsai-agent:latest"
+# master_key: "vsfdverguhuyi3287467324ujfbsaihufb" # 32bytes random key (openssl rand -base64 32)
 
 # # --- LLM Configuration (agents call Gemini directly) ---
 # gemini_api_key: "AIzaSyCdyZBcvjWrroxGem8l0ER62WNPlg8s7xU"
 # gemini_model: "gemini-2.5-flash"
+# config_repo_url: "https://github.com/yourorg/nopsai-config.git"
+# llm_agent_timeout: "30m" # A global default timeout for all LLM requests
 
 # # --- Service Addresses ---
 # nopsai_listen_address: "0.0.0.0:8080"
@@ -27,3 +30,4 @@ log_format: "json" # Options: "console", "json"
 # github_app_id: "1754146"
 # github_installation_id: "80056360"
 # github_private_key_path: "/app/private-key.pem"
+
