@@ -220,6 +220,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const stepsModule = pageModules.steps || null;
     const triggersModule = pageModules.triggers || null;
     const scopesModule = pageModules.scopes || null;
+    const systemModule = pageModules.system || null;
 
     if (logsModule && typeof logsModule.init === 'function') {
         logsModule.init({ state, DOM, fetchData });
@@ -243,6 +244,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (scopesModule && typeof scopesModule.init === 'function') {
         scopesModule.init(context);
+    }
+
+    if (systemModule && typeof systemModule.init === 'function') {
+        systemModule.init(context);
     }
 
     async function router(hashOverride) {
@@ -314,6 +319,14 @@ document.addEventListener('DOMContentLoaded', () => {
         // Use the helper to get info about the TARGET route
         const info = parsePipelineRunsHash(hash);
         const { path, runId } = info; // 'path' is the new page, 'runId' exists if it's a run detail page
+
+        if (path !== 'system' && systemModule && typeof systemModule.onLeave === 'function') {
+            try {
+                systemModule.onLeave();
+            } catch (error) {
+                console.error('Failed to clean up system page state:', error);
+            }
+        }
 
         // --- ADDED/MODIFIED SCROLL MANAGEMENT BLOCK ---
         // Check the state *before* updating state.currentPath
@@ -419,6 +432,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             await scopesModule.handleRoute(hash);
+            return;
+        }
+
+        if (path === 'system' && systemModule && typeof systemModule.handleRoute === 'function') {
+            if (DOM.pageContentWrapper) {
+                DOM.pageContentWrapper.classList.remove('no-scroll');
+            }
+            if (pipelineRunsModule && typeof pipelineRunsModule.renderSidebarForRoute === 'function') {
+                try {
+                    await pipelineRunsModule.renderSidebarForRoute('system');
+                } catch (error) {
+                    console.error('Failed to render system sidebar navigation:', error);
+                }
+            }
+            await systemModule.handleRoute(hash);
             return;
         }
 
