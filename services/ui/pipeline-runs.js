@@ -1225,6 +1225,7 @@
         if (!(state.currentRunTrackedIds instanceof Map)) {
             state.currentRunTrackedIds = new Map();
         }
+        startRecentRunsPolling();
         ensureRunSelectionSet();
         updateSelectionBar();
         if (DOM.runSelectionClearBtn) {
@@ -1663,15 +1664,14 @@
     }
 
     function startRecentRunsPolling() {
-        stopRecentRunsPolling();
+        if (state.recentRunsPollingTimer) return;
         const poll = async () => {
-            if (state.currentTab !== 'recent') {
-                stopRecentRunsPolling();
-                return;
-            }
             await fetchAllRuns();
             const isHidden = document.visibilityState === 'hidden';
-            const interval = isHidden ? 15000 : 5000;
+            const onRecentTab = state.currentPath === 'pipelineruns' && state.currentTab === 'recent';
+            const interval = onRecentTab
+                ? (isHidden ? 10000 : 5000)
+                : (isHidden ? 20000 : 12000);
             state.recentRunsPollingTimer = setTimeout(poll, interval);
         };
         state.recentRunsPollingTimer = setTimeout(poll, 0);
@@ -4915,7 +4915,6 @@
         if (path !== 'pipelineruns') {
             clearSelectedRuns({ silent: true });
             updateSelectionBar();
-            stopRecentRunsPolling();
         }
 
         if (!runId) {
@@ -4939,11 +4938,7 @@
 
             state.currentTab = (tab === 'recent' || tab === 'main') ? tab : 'main';
             updateTabs(state.currentTab);
-            if (state.currentTab === 'recent') {
-                startRecentRunsPolling();
-            } else {
-                stopRecentRunsPolling();
-            }
+            startRecentRunsPolling();
 
             let selectedGroupId = null;
             if (state.currentTab === 'main' && groupSegments.length) {
