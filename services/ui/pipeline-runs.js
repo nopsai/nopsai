@@ -1225,7 +1225,7 @@
         if (!(state.currentRunTrackedIds instanceof Map)) {
             state.currentRunTrackedIds = new Map();
         }
-        startRecentRunsPolling();
+        startPipelineRunsPolling();
         ensureRunSelectionSet();
         updateSelectionBar();
         if (DOM.runSelectionClearBtn) {
@@ -1648,33 +1648,51 @@
             state.recentRuns = [];
         }
         renderSidebarPipelineRunsList(state.recentRuns);
-        if (state.currentTab === 'recent') {
-            const hashInfo = parsePipelineRunsHash(window.location.hash);
-            if (!hashInfo.runId) {
-                renderMainGridContent(null, state.recentRuns, false);
-            }
+        const hashInfo = parsePipelineRunsHash(window.location.hash);
+        if (state.currentTab === 'recent' && !hashInfo.runId) {
+            renderMainGridContent(null, state.recentRuns, false);
         }
     }
 
-    function stopRecentRunsPolling() {
-        if (state.recentRunsPollingTimer) {
-            clearTimeout(state.recentRunsPollingTimer);
-            state.recentRunsPollingTimer = null;
+    function stopPipelineRunsPolling() {
+        if (state.pipelineRunsPollingTimer) {
+            clearTimeout(state.pipelineRunsPollingTimer);
+            state.pipelineRunsPollingTimer = null;
         }
     }
 
-    function startRecentRunsPolling() {
-        if (state.recentRunsPollingTimer) return;
+    function startPipelineRunsPolling() {
+        if (state.pipelineRunsPollingTimer) return;
         const poll = async () => {
-            await fetchAllRuns();
+            const info = parsePipelineRunsHash(window.location.hash || '#/pipelineruns/main');
+            const onPipelineruns = info.path === 'pipelineruns';
+            if (!onPipelineruns) {
+                stopPipelineRunsPolling();
+                return;
+            }
+
+            if (state.currentTab === 'recent') {
+                await fetchAllRuns();
+            } else {
+                await fetchGroups();
+                await renderSidebar('pipelineruns', state.currentTab || 'main');
+                if (!info.runId) {
+                    if (state.selectedGroupId) {
+                        await fetchMainContent(state.selectedGroupId);
+                    } else {
+                        const rootGroups = state.groups.filter(g => normalizeParentId(g.parent_id) === null);
+                        state.currentRepoRunsByBranch = null;
+                        state.currentRepoGroupId = null;
+                        renderMainGridContent(rootGroups, null, true);
+                    }
+                }
+            }
+
             const isHidden = document.visibilityState === 'hidden';
-            const onRecentTab = state.currentPath === 'pipelineruns' && state.currentTab === 'recent';
-            const interval = onRecentTab
-                ? (isHidden ? 10000 : 5000)
-                : (isHidden ? 20000 : 12000);
-            state.recentRunsPollingTimer = setTimeout(poll, interval);
+            const interval = isHidden ? 12000 : 6000;
+            state.pipelineRunsPollingTimer = setTimeout(poll, interval);
         };
-        state.recentRunsPollingTimer = setTimeout(poll, 0);
+        state.pipelineRunsPollingTimer = setTimeout(poll, 0);
     }
 
     async function fetchMainContent(groupId) {
@@ -4938,7 +4956,7 @@
 
             state.currentTab = (tab === 'recent' || tab === 'main') ? tab : 'main';
             updateTabs(state.currentTab);
-            startRecentRunsPolling();
+            startPipelineRunsPolling();
 
             let selectedGroupId = null;
             if (state.currentTab === 'main' && groupSegments.length) {
