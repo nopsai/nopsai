@@ -981,6 +981,12 @@ func run() int {
 					}
 				}
 
+				if vars := step.GetVariables(); len(vars) > 0 {
+					for k, v := range vars {
+						stepEnvVars = append(stepEnvVars, fmt.Sprintf("%s=%s", k, v))
+					}
+				}
+
 				stepSecrets := step.GetSecrets()
 				if len(stepSecrets) > 0 && len(secrets) > 0 {
 					for _, secretName := range stepSecrets {
@@ -989,6 +995,13 @@ func run() int {
 						} else {
 							taskLogger.Warn().Str("secret", secretName).Msg("Secret was requested by step but not provided")
 						}
+					}
+				}
+
+				taskEnvVars := append([]string{}, stepEnvVars...)
+				if vars := task.Variables; len(vars) > 0 {
+					for k, v := range vars {
+						taskEnvVars = append(taskEnvVars, fmt.Sprintf("%s=%s", k, v))
 					}
 				}
 
@@ -1143,7 +1156,7 @@ func run() int {
 					historyMutex.Unlock()
 
 					varMap := make(map[string]string)
-					for _, e := range stepEnvVars {
+					for _, e := range taskEnvVars {
 						parts := strings.SplitN(e, "=", 2)
 						if len(parts) == 2 {
 							varMap[parts[0]] = parts[1]
@@ -1199,7 +1212,7 @@ func run() int {
 
 				// Retry logic for potential race conditions (e.g. filesystem locks)
 				for attempt := 0; attempt < 10; attempt++ {
-					stdout, stderr, exitCode = executeAction(cli, stepContainerID, action, stepEnvVars)
+					stdout, stderr, exitCode = executeAction(cli, stepContainerID, action, taskEnvVars)
 					if exitCode == 0 {
 						break
 					}

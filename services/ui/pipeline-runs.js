@@ -4620,7 +4620,7 @@
         }
         if (stepDef?.variables && Object.keys(stepDef.variables).length > 0) {
             const envList = Object.entries(stepDef.variables).map(([k, v]) => `<li class="step-config-row"><span class="step-config-label">${escapeHtml(k)}:</span><span class="step-config-value">${escapeHtml(v)}</span></li>`).join('');
-            configHTML += `<div class="step-config-list"><h4>Scope Variables</h4><ul>${envList}</ul></div>`;
+            configHTML += `<div class="step-config-list"><h4>Variables</h4><ul>${envList}</ul></div>`;
         }
         addConfigRow('Ignore Failure', boolBadge(!!stepDef?.ignore_failure));
         addConfigRow('Sync', boolBadge(!!step.sync));
@@ -4652,6 +4652,10 @@
                 }
                 if (task.llm_output_sharing === false) {
                     configHTML += `<div class="step-task-row"><span class="step-config-label">LLM Output Sharing:</span><span class="step-config-value">${boolBadge(false)}</span></div>`;
+                }
+                if (task.variables && Object.keys(task.variables).length > 0) {
+                    const taskVars = Object.entries(task.variables).map(([k, v]) => `<li class="step-config-row"><span class="step-config-label">${escapeHtml(k)}:</span><span class="step-config-value">${escapeHtml(v)}</span></li>`).join('');
+                    configHTML += `<div class="step-config-list"><h5>Variables</h5><ul>${taskVars}</ul></div>`;
                 }
                 configHTML += '</div>';
             });
