@@ -1102,10 +1102,6 @@ func (a *App) handleDeleteRepoSecret(w http.ResponseWriter, r *http.Request) {
 
 type systemConfigPayload struct {
 	ConfigRepoURL             *string `json:"config_repo_url"`
-	LogLevel                  *string `json:"log_level"`
-	LogFormat                 *string `json:"log_format"`
-	NopsaiListenAddress       *string `json:"nopsai_listen_address"`
-	GitBotListenAddress       *string `json:"git_bot_listen_address"`
 	AgentNopsaiAPIURL         *string `json:"agent_nopsai_api_url"`
 	GitBotNopsaiAPIURL        *string `json:"git_bot_nopsai_api_url"`
 	NopsaiGitBotAPIURL        *string `json:"nopsai_git_bot_api_url"`
@@ -1119,10 +1115,6 @@ type systemConfigPayload struct {
 func (a *App) buildSystemConfigResponse(cfg config.Config) map[string]interface{} {
 	return map[string]interface{}{
 		"config_repo_url":              cfg.ConfigRepoURL,
-		"log_level":                    cfg.LogLevel,
-		"log_format":                   cfg.LogFormat,
-		"nopsai_listen_address":        cfg.NopsaiListenAddress,
-		"git_bot_listen_address":       cfg.GitBotListenAddress,
 		"agent_nopsai_api_url":         cfg.AgentNopsaiAPIURL,
 		"git_bot_nopsai_api_url":       cfg.GitBotNopsaiAPIURL,
 		"nopsai_git_bot_api_url":       cfg.NopsaiGitBotAPIURL,
@@ -1143,18 +1135,6 @@ func (a *App) applySystemConfig(payload systemConfigPayload) config.Config {
 
 	if payload.ConfigRepoURL != nil {
 		a.cfg.ConfigRepoURL = strings.TrimSpace(*payload.ConfigRepoURL)
-	}
-	if payload.LogLevel != nil {
-		a.cfg.LogLevel = strings.TrimSpace(*payload.LogLevel)
-	}
-	if payload.LogFormat != nil {
-		a.cfg.LogFormat = strings.TrimSpace(*payload.LogFormat)
-	}
-	if payload.NopsaiListenAddress != nil {
-		a.cfg.NopsaiListenAddress = strings.TrimSpace(*payload.NopsaiListenAddress)
-	}
-	if payload.GitBotListenAddress != nil {
-		a.cfg.GitBotListenAddress = strings.TrimSpace(*payload.GitBotListenAddress)
 	}
 	if payload.AgentNopsaiAPIURL != nil {
 		a.cfg.AgentNopsaiAPIURL = strings.TrimSpace(*payload.AgentNopsaiAPIURL)
@@ -1206,18 +1186,6 @@ func (a *App) persistSystemConfig(cfg config.Config, payload systemConfigPayload
 	if payload.AgentImage != nil {
 		existing["agent_image"] = cfg.AgentImage
 	}
-	if payload.LogLevel != nil {
-		existing["log_level"] = cfg.LogLevel
-	}
-	if payload.LogFormat != nil {
-		existing["log_format"] = cfg.LogFormat
-	}
-	if payload.NopsaiListenAddress != nil {
-		existing["nopsai_listen_address"] = cfg.NopsaiListenAddress
-	}
-	if payload.GitBotListenAddress != nil {
-		existing["git_bot_listen_address"] = cfg.GitBotListenAddress
-	}
 	if payload.AgentNopsaiAPIURL != nil {
 		existing["agent_nopsai_api_url"] = cfg.AgentNopsaiAPIURL
 	}
@@ -1255,20 +1223,8 @@ func (a *App) persistEnvOverrides(cfg config.Config, payload systemConfigPayload
 
 	updates := map[string]string{}
 
-	if payload.LogLevel != nil {
-		updates["LOG_LEVEL"] = cfg.LogLevel
-	}
-	if payload.LogFormat != nil {
-		updates["LOG_FORMAT"] = cfg.LogFormat
-	}
 	if payload.ConfigRepoURL != nil {
 		updates["CONFIG_REPO_URL"] = cfg.ConfigRepoURL
-	}
-	if payload.NopsaiListenAddress != nil {
-		updates["NOPSAI_LISTEN_ADDRESS"] = cfg.NopsaiListenAddress
-	}
-	if payload.GitBotListenAddress != nil {
-		updates["GIT_BOT_LISTEN_ADDRESS"] = cfg.GitBotListenAddress
 	}
 	if payload.AgentNopsaiAPIURL != nil {
 		updates["AGENT_NOPSAI_API_URL"] = cfg.AgentNopsaiAPIURL

@@ -687,12 +687,6 @@
                                 <p class="text-sm text-[var(--text-secondary)] max-w-3xl">Manage your config repository sync and runtime defaults for the agents that power runs.</p>
                             </div>
                             <div class="flex items-center gap-2 flex-shrink-0">
-                                <button id="system-reload-btn" class="glass-button-ghost">
-                                    <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
-                                    </svg>
-                                    <span>Reload</span>
-                                </button>
                                 <button id="system-sync-btn" class="glass-button-primary">
                                     <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v3m0 12v3m9-9h-3M6 12H3m15.364 6.364l-2.121-2.121M6.343 6.343 4.222 4.222m15.556 0-2.121 2.121M6.343 17.657l-2.121 2.121" />
@@ -709,32 +703,14 @@
                                 <div class="glass-card p-6 space-y-4">
                                     <div class="flex items-start justify-between gap-3">
                                         <div>
-                                            <h2 class="text-xl font-semibold text-[var(--text-primary)]">Logging & config source</h2>
-                                            <p class="text-sm text-[var(--text-secondary)]">Control verbosity, log format, and where definitions sync from.</p>
+                                            <h2 class="text-xl font-semibold text-[var(--text-primary)]">Config source</h2>
+                                            <p class="text-sm text-[var(--text-secondary)]">Set the Git repository used for sync.</p>
                                         </div>
                                         <div id="system-config-status" class="text-xs text-[var(--text-secondary)]"></div>
                                     </div>
-                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div>
-                                            <label for="system-log-level" class="block text-sm font-medium text-[var(--text-secondary)]">Log level</label>
-                                            <select id="system-log-level" class="pipelines-input w-full mt-1">
-                                                <option value="debug">debug</option>
-                                                <option value="info">info</option>
-                                                <option value="warn">warn</option>
-                                                <option value="error">error</option>
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label for="system-log-format" class="block text-sm font-medium text-[var(--text-secondary)]">Log format</label>
-                                            <select id="system-log-format" class="pipelines-input w-full mt-1">
-                                                <option value="json">json</option>
-                                                <option value="console">console</option>
-                                            </select>
-                                        </div>
-                                    </div>
                                     <div>
                                         <label for="system-config-repo" class="block text-sm font-medium text-[var(--text-secondary)]">Config repository URL</label>
-                                        <input id="system-config-repo" type="text" name="config_repo_url" placeholder="https://github.com/org/configs" class="pipelines-input w-full mt-1" />
+                                        <input id="system-config-repo" type="text" name="config_repo_url" placeholder="https://github.com/org/configs" class="pipelines-input system-input w-full mt-1" />
                                         <p class="text-xs text-[var(--text-secondary)] mt-1">Used when syncing YAML definitions into the database.</p>
                                     </div>
                                 </div>
@@ -747,17 +723,17 @@
                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div>
                                             <label for="system-agent-image" class="block text-sm font-medium text-[var(--text-secondary)]">Agent image</label>
-                                            <input id="system-agent-image" type="text" name="agent_image" placeholder="nopsai-agent:latest" class="pipelines-input w-full mt-1" />
+                                            <input id="system-agent-image" type="text" name="agent_image" placeholder="nopsai-agent:latest" class="pipelines-input system-input w-full mt-1" />
                                             <p class="text-xs text-[var(--text-secondary)] mt-1">Image to launch for pipeline execution workers.</p>
                                         </div>
                                         <div>
                                             <label for="system-default-timeout" class="block text-sm font-medium text-[var(--text-secondary)]">Default pipeline timeout</label>
-                                            <input id="system-default-timeout" type="text" name="default_pipeline_timeout" placeholder="30m" class="pipelines-input w-full mt-1" />
+                                            <input id="system-default-timeout" type="text" name="default_pipeline_timeout" placeholder="30m" class="pipelines-input system-input w-full mt-1" />
                                             <p class="text-xs text-[var(--text-secondary)] mt-1">Applied when a pipeline definition omits a timeout.</p>
                                         </div>
                                         <div>
                                             <label for="system-llm-timeout" class="block text-sm font-medium text-[var(--text-secondary)]">LLM agent timeout</label>
-                                            <input id="system-llm-timeout" type="text" name="llm_agent_timeout" placeholder="2m" class="pipelines-input w-full mt-1" />
+                                            <input id="system-llm-timeout" type="text" name="llm_agent_timeout" placeholder="2m" class="pipelines-input system-input w-full mt-1" />
                                             <p class="text-xs text-[var(--text-secondary)] mt-1">Passed through to the LLM agent container.</p>
                                         </div>
                                         <div class="border border-[var(--border-primary)] rounded-lg px-4 py-3 bg-[var(--bg-tertiary)] flex items-start gap-3">
@@ -778,27 +754,19 @@
                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div>
                                             <label for="system-docker-network" class="block text-sm font-medium text-[var(--text-secondary)]">Docker network name</label>
-                                            <input id="system-docker-network" type="text" name="docker_network_name" placeholder="nopsai-net" class="pipelines-input w-full mt-1" />
-                                        </div>
-                                        <div>
-                                            <label for="system-nopsai-listen" class="block text-sm font-medium text-[var(--text-secondary)]">NopsAI listen address</label>
-                                            <input id="system-nopsai-listen" type="text" name="nopsai_listen_address" placeholder="0.0.0.0:8080" class="pipelines-input w-full mt-1" />
-                                        </div>
-                                        <div>
-                                            <label for="system-gitbot-listen" class="block text-sm font-medium text-[var(--text-secondary)]">Git Bot listen address</label>
-                                            <input id="system-gitbot-listen" type="text" name="git_bot_listen_address" placeholder="0.0.0.0:8081" class="pipelines-input w-full mt-1" />
+                                            <input id="system-docker-network" type="text" name="docker_network_name" placeholder="nopsai-net" class="pipelines-input system-input w-full mt-1" />
                                         </div>
                                         <div>
                                             <label for="system-agent-api" class="block text-sm font-medium text-[var(--text-secondary)]">Agent → NopsAI API URL</label>
-                                            <input id="system-agent-api" type="text" name="agent_nopsai_api_url" placeholder="http://nopsai:8080" class="pipelines-input w-full mt-1" />
+                                            <input id="system-agent-api" type="text" name="agent_nopsai_api_url" placeholder="http://nopsai:8080" class="pipelines-input system-input w-full mt-1" />
                                         </div>
                                         <div>
                                             <label for="system-gitbot-api" class="block text-sm font-medium text-[var(--text-secondary)]">Git Bot → NopsAI API URL</label>
-                                            <input id="system-gitbot-api" type="text" name="git_bot_nopsai_api_url" placeholder="http://nopsai:8080" class="pipelines-input w-full mt-1" />
+                                            <input id="system-gitbot-api" type="text" name="git_bot_nopsai_api_url" placeholder="http://nopsai:8080" class="pipelines-input system-input w-full mt-1" />
                                         </div>
                                         <div>
                                             <label for="system-nopsai-gitbot-api" class="block text-sm font-medium text-[var(--text-secondary)]">NopsAI → Git Bot API URL</label>
-                                            <input id="system-nopsai-gitbot-api" type="text" name="nopsai_git_bot_api_url" placeholder="http://nopsai-git-bot:8081" class="pipelines-input w-full mt-1" />
+                                            <input id="system-nopsai-gitbot-api" type="text" name="nopsai_git_bot_api_url" placeholder="http://nopsai-git-bot:8081" class="pipelines-input system-input w-full mt-1" />
                                         </div>
                                     </div>
                                     <div class="flex items-center justify-end gap-2 pt-2">
