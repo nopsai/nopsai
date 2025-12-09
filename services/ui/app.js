@@ -162,6 +162,7 @@ document.addEventListener('DOMContentLoaded', () => {
         selectedRunIds: new Set(),
         runSearchTerm: '',
         recentRuns: [],
+        recentRunsPollingTimer: null,
         currentRepoRunsByBranch: null,
         currentRepoGroupId: null,
         searchRuns: [],

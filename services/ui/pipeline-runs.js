@@ -1655,6 +1655,28 @@
         }
     }
 
+    function stopRecentRunsPolling() {
+        if (state.recentRunsPollingTimer) {
+            clearTimeout(state.recentRunsPollingTimer);
+            state.recentRunsPollingTimer = null;
+        }
+    }
+
+    function startRecentRunsPolling() {
+        stopRecentRunsPolling();
+        const poll = async () => {
+            if (state.currentTab !== 'recent') {
+                stopRecentRunsPolling();
+                return;
+            }
+            await fetchAllRuns();
+            const isHidden = document.visibilityState === 'hidden';
+            const interval = isHidden ? 15000 : 5000;
+            state.recentRunsPollingTimer = setTimeout(poll, interval);
+        };
+        state.recentRunsPollingTimer = setTimeout(poll, 0);
+    }
+
     async function fetchMainContent(groupId) {
         const runsByBranch = await fetchData(`/v1/runs?groupId=${groupId}`);
         const hasRuns = runsByBranch && Object.keys(runsByBranch).length > 0;
@@ -1768,8 +1790,15 @@
             state.lastRunETag = null;
         }
 
-        const options = {};
-        if (state.lastRunETag) {
+        const prevRunInfo = state.currentRunData?.run_info;
+        const canUseConditionalGet =
+            prevRunInfo &&
+            prevRunInfo.run_id === runId &&
+            prevRunInfo.is_complete === true &&
+            !!state.lastRunETag;
+
+        const options = { cache: 'no-store' };
+        if (canUseConditionalGet) {
             options.headers = { 'If-None-Match': state.lastRunETag };
         }
 
@@ -1784,6 +1813,7 @@
                 state.lastRunETag = fetchData.lastETag;
             }
             state.currentRunData = runDetails;
+            refreshSidebarRunState(runDetails.run_info || {});
             if (!isRefresh) startRunPolling(runId);
             updateTrackedRunSubscriptions(runDetails);
             // Restore persisted Steps layout for this run (expanded, positions, scale)
@@ -2374,6 +2404,31 @@
                     </div>
                 </div>
             </a>`;
+    }
+
+    // Keep sidebar entries in sync with live run updates without a full refresh.
+    function refreshSidebarRunState(runInfo) {
+        if (!runInfo || !runInfo.run_id) return;
+        const safeId = escapeForSelector(runInfo.run_id);
+        const matchingItems = document.querySelectorAll(`[data-run-id="${safeId}"]`);
+
+        matchingItems.forEach(item => {
+            const ctxAttr = item.getAttribute('data-run-context');
+            const ctx = parseRunContextAttr(ctxAttr) || undefined;
+            item.innerHTML = renderSidebarRunLinkHTML(runInfo, ctx);
+        });
+
+        // Upsert into the recent runs list so new runs appear without reload.
+        if (!Array.isArray(state.recentRuns)) {
+            state.recentRuns = [];
+        }
+        const existingIdx = state.recentRuns.findIndex(r => r && r.run_id === runInfo.run_id);
+        if (existingIdx !== -1) {
+            state.recentRuns[existingIdx] = { ...state.recentRuns[existingIdx], ...runInfo };
+        } else {
+            state.recentRuns.unshift({ ...runInfo });
+        }
+        renderSidebarPipelineRunsList(state.recentRuns);
     }
 
     function handleRunSummaryUpdate(runData) {
@@ -2990,10 +3045,7 @@
 
                         if (newRunId) {
                             const context = resolveRunContext(state.currentRunContext || null);
-                            await fetchActiveRun(newRunId);
-                            const runForHash = state.currentRunData?.run_info
-                                ? state.currentRunData.run_info
-                                : { ...runInfo, run_id: newRunId, trigger_event_id: newTriggerId || newRunId };
+                            const runForHash = { ...runInfo, run_id: newRunId, trigger_event_id: newTriggerId || newRunId };
                             window.location.hash = buildRunHash(runForHash, context);
                         }
                     } finally {
@@ -3677,6 +3729,8 @@
             const edgeClasses = ['edge-path', 'edge-path--glow'];
             if (isCompletedEdge) edgeClasses.push('edge-path--completed');
             if (isRunning && isCompletedEdge) edgeClasses.push('edge-path--running');
+            const fromAttr = escapeAttribute(edge.from.name);
+            const toAttr = escapeAttribute(edge.to.name);
 
             const fromCx = edge.from.x + edge.from.width / 2;
             const fromCy = edge.from.y + edge.from.height / 2;
@@ -3702,8 +3756,8 @@
 
             const d = pathBetween(sx, sy, tx, ty);
             // halo then main stroke for readability
-            svgEdges += `<path d="${d}" class="edge-path-halo"></path>`;
-            svgEdges += `<path d="${d}" class="${edgeClasses.join(' ')}" marker-end="${marker}"></path>`;
+            svgEdges += `<path d="${d}" class="edge-path-halo" data-from-step="${fromAttr}" data-to-step="${toAttr}"></path>`;
+            svgEdges += `<path d="${d}" class="${edgeClasses.join(' ')}" marker-end="${marker}" data-from-step="${fromAttr}" data-to-step="${toAttr}"></path>`;
         });
 
         // Step nodes
@@ -4751,41 +4805,94 @@
 
 
     function updateStepsGraphStatuses(runDetails) {
-        if (!DOM.graphWrapper || !runDetails.steps) return false;
+        if (!DOM.graphWrapper || !runDetails?.steps) return false;
 
-        // Find existing nodes (excluding task sub-nodes for now, just main step nodes)
-        const mainNodes = Array.from(DOM.graphWrapper.querySelectorAll('.graph-node[data-step-name]'));
+        const renderedRunId = state.stepsGraphRenderedRunId || null;
+        const incomingRunId = runDetails.run_info?.run_id || null;
+        if (renderedRunId && incomingRunId && renderedRunId !== incomingRunId) {
+            return false;
+        }
 
-        // Rough check: if count mismatch, re-render
-        // Note: graph-node includes both steps and tasks inside steps if expanded.
-        // It's safer to rely on data-step-name.
+        const stepStatus = new Map();
+        runDetails.steps.forEach(s => stepStatus.set(s.name, (s.status || 'pending').toLowerCase()));
 
-        // Iterate through new data and try to find matching node
+        const formatItemDuration = (item) => {
+            if (!item) return '...';
+            if (item.duration) return item.duration;
+            return formatDuration(item.started_at, item.finished_at) || '...';
+        };
+
         for (const step of runDetails.steps) {
-            // Find the main node for this step (not a task node)
-            // Main nodes usually don't have data-task-name
-            const stepNode = DOM.graphWrapper.querySelector(`.graph-node[data-step-name="${step.name}"]:not([data-task-name])`);
+            const safeStep = escapeForSelector(step.name);
+            const clusterEl = DOM.graphWrapper.querySelector(`.step-cluster[data-step-name="${safeStep}"]`);
+            const stepNode = DOM.graphWrapper.querySelector(`.graph-node[data-step-name="${safeStep}"]:not([data-task-name])`);
 
-            // If any step from the new data is missing in DOM, we must re-render
-            if (!stepNode) return false;
+            // If neither a cluster nor a node exists, structure changed — force re-render
+            if (!clusterEl && !stepNode) return false;
 
-            const status = (step.status || 'pending').toLowerCase();
+            // Update expanded task clusters in-place
+            if (clusterEl) {
+                const tasks = Array.isArray(step.tasks) ? step.tasks : [];
+                const taskMap = new Map();
+                tasks.forEach(t => {
+                    const key = t.task_name || t.name;
+                    if (key) taskMap.set(key, t);
+                });
+                const taskNodes = clusterEl.querySelectorAll('g.graph-node[data-task-name]');
+                if (taskNodes.length !== taskMap.size) return false; // structural change
+
+                for (const node of taskNodes) {
+                    const taskName = node.dataset.taskName;
+                    const task = taskMap.get(taskName);
+                    if (!task) return false;
+                    const statusKey = (task.status || 'pending').toLowerCase();
+                    const config = statusConfig[statusKey] || statusConfig.pending;
+                    const path = node.querySelector('path');
+                    if (path) {
+                        path.setAttribute('class', `stroke-current ${config.color}`);
+                        path.setAttribute('d', config.icon);
+                    }
+                    const texts = node.querySelectorAll('text');
+                    if (texts.length > 0) {
+                        texts[texts.length - 1].textContent = formatItemDuration(task);
+                    }
+                }
+                continue;
+            }
+
+            // Update collapsed step node
+            const status = stepStatus.get(step.name) || 'pending';
             const config = statusConfig[status] || statusConfig.pending;
-
-            // Update Icon
             const path = stepNode.querySelector('path');
             if (path) {
                 path.setAttribute('class', `stroke-current ${config.color}`);
                 path.setAttribute('d', config.icon); // Update icon shape!
             }
 
-            // Update Duration (last text element)
             const texts = stepNode.querySelectorAll('text');
             if (texts.length > 0) {
-                // Optimization: assume last text is duration as per renderStepsGraph
-                texts[texts.length - 1].textContent = step.duration || '...';
+                texts[texts.length - 1].textContent = formatItemDuration(step);
             }
         }
+
+        // Update edge styling without rebuilding the SVG (only applies to step-level edges)
+        const edgePaths = DOM.graphWrapper.querySelectorAll('.edge-path[data-from-step]');
+        if (edgePaths.length) {
+            const isRunStillRunning = !runDetails.run_info?.is_complete;
+            const pendingOrSkipped = new Set(['pending', 'skipped']);
+            edgePaths.forEach(path => {
+                if (path.classList.contains('edge-path-halo')) return; // halos don't need status changes
+                const from = path.getAttribute('data-from-step');
+                const to = path.getAttribute('data-to-step');
+                const fromStatus = stepStatus.get(from) || 'pending';
+                const toStatus = stepStatus.get(to) || 'pending';
+                const completedEdge = fromStatus === 'success' && !pendingOrSkipped.has(toStatus);
+                path.classList.toggle('edge-path--completed', completedEdge);
+                path.classList.toggle('edge-path--running', completedEdge && isRunStillRunning);
+                path.setAttribute('marker-end', completedEdge ? 'url(#arrowhead-completed)' : 'url(#arrowhead)');
+            });
+        }
+
         return true;
     }
 
@@ -4804,6 +4911,7 @@
         if (path !== 'pipelineruns') {
             clearSelectedRuns({ silent: true });
             updateSelectionBar();
+            stopRecentRunsPolling();
         }
 
         if (!runId) {
@@ -4827,6 +4935,11 @@
 
             state.currentTab = (tab === 'recent' || tab === 'main') ? tab : 'main';
             updateTabs(state.currentTab);
+            if (state.currentTab === 'recent') {
+                startRecentRunsPolling();
+            } else {
+                stopRecentRunsPolling();
+            }
 
             let selectedGroupId = null;
             if (state.currentTab === 'main' && groupSegments.length) {
