@@ -573,6 +573,7 @@ html.dark .themed-bg-blur {
 .step-logo--pipelines { color: #16a34a; }
 .step-logo--steps { color: #a855f7; }
 .step-logo--scopes { color: #0ea5e9; }
+.step-logo--lab { color: #f97316; }
 .step-logo--triggers { color: #f43f5e; }
 .step-logo--monitoring { color: #6366f1; }
 .step-logo--system { color: #64748b; }
@@ -2367,6 +2368,26 @@ html.dark .env-suggestion-footnote {
     width: 100%;
 }
 
+.lab-editor-wrapper {
+    align-items: flex-start;
+}
+
+.lab-editor-wrapper .editor-container {
+    max-height: 640px;
+}
+.lab-editor-wrapper .pipeline-suggestion-panel {
+    width: min(260px, 100%);
+}
+
+@media (min-width: 960px) {
+    .lab-editor-wrapper {
+        flex-direction: row;
+    }
+    .lab-editor-wrapper .pipeline-suggestion-panel {
+        max-width: 260px;
+    }
+}
+
 .pipeline-suggestion-panel {
     flex-shrink: 0;
     width: min(260px, 100%);
@@ -3800,7 +3821,8 @@ html.dark .triggers-sidebar-link--active {
 
 #pipeline-yaml-editor,
 #triggers-yaml-editor,
-#step-yaml-editor {
+#step-yaml-editor,
+#lab-yaml-editor {
     flex: 1;
     padding: 1rem 1.25rem;
     border: none;
@@ -3868,10 +3890,23 @@ html.dark .pipeline-editor-autocomplete__ghost {
 #pipeline-yaml-content.hidden,
 #step-yaml-content.hidden,
 #triggers-yaml-content.hidden { display: none; }
+#lab-editor-container {
+    height: 640px;
+    max-height: 70vh;
+}
+#lab-yaml-stage {
+    height: 100%;
+    overflow: auto;
+}
+#lab-yaml-highlight,
+#lab-yaml-editor {
+    height: 100%;
+}
 
 #line-numbers,
 #triggers-line-numbers,
-#step-line-numbers {
+#step-line-numbers,
+#lab-line-numbers {
     --line-number-scroll: 0px;
     padding: 1rem 0.75rem 1rem 0.5rem;
     margin: 0;
@@ -3889,7 +3924,8 @@ html.dark .pipeline-editor-autocomplete__ghost {
 
 #line-numbers .line-number-track,
 #triggers-line-numbers .line-number-track,
-#step-line-numbers .line-number-track {
+#step-line-numbers .line-number-track,
+#lab-line-numbers .line-number-track {
     display: flex;
     flex-direction: column;
     align-items: flex-end;
@@ -3898,6 +3934,10 @@ html.dark .pipeline-editor-autocomplete__ghost {
     will-change: transform;
 }
 
+#line-numbers .line-number,
+#triggers-line-numbers .line-number,
+#step-line-numbers .line-number,
+#lab-line-numbers .line-number,
 .line-number {
     width: 100%;
     text-align: right;

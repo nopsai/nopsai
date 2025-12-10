@@ -220,6 +220,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const stepsModule = pageModules.steps || null;
     const triggersModule = pageModules.triggers || null;
     const scopesModule = pageModules.scopes || null;
+    const labModule = pageModules.lab || null;
     const systemModule = pageModules.system || null;
 
     if (logsModule && typeof logsModule.init === 'function') {
@@ -244,6 +245,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (scopesModule && typeof scopesModule.init === 'function') {
         scopesModule.init(context);
+    }
+
+    if (labModule && typeof labModule.init === 'function') {
+        labModule.init(context);
     }
 
     if (systemModule && typeof systemModule.init === 'function') {
@@ -432,6 +437,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             await scopesModule.handleRoute(hash);
+            return;
+        }
+
+        if (path === 'lab' && labModule && typeof labModule.handleRoute === 'function') {
+            if (DOM.pageContentWrapper) {
+                DOM.pageContentWrapper.classList.remove('no-scroll');
+            }
+            if (pipelineRunsModule && typeof pipelineRunsModule.renderSidebarForRoute === 'function') {
+                try {
+                    await pipelineRunsModule.renderSidebarForRoute('lab');
+                } catch (error) {
+                    console.error('Failed to render lab sidebar navigation:', error);
+                }
+            }
+            await labModule.handleRoute(hash);
             return;
         }
 

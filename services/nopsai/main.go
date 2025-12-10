@@ -105,6 +105,7 @@ type suiteCheckRunResponse struct {
 }
 
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
+var envKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
 func deriveTriggerEventID(gitContext map[string]string) string {
 	if gitContext == nil {
@@ -675,14 +676,34 @@ func (a *App) handleGetRepoVariableValue(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(response)
 }
 
-func (a *App) prepareVariablesForPipeline(pipeline models.Pipeline, gitContext map[string]string, scope string) (map[string]string, error) {
+func (a *App) prepareVariablesForPipeline(pipeline models.Pipeline, gitContext map[string]string, scope string, overrides map[string]string) (map[string]string, error) {
 	finalVars := make(map[string]string)
+	cleanOverrides := make(map[string]string)
+	for key, value := range overrides {
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == "" {
+			continue
+		}
+		cleanOverrides[trimmedKey] = value
+	}
+
 	repoFullName := fmt.Sprintf("%s/%s", gitContext["repo_owner"], gitContext["repo_name"])
 
 	// The 'variables' block in the YAML is a list of required variable names.
 	requiredVars := pipeline.Variables
 
-	for _, varName := range requiredVars {
+	for _, rawName := range requiredVars {
+		varName := strings.TrimSpace(rawName)
+		if varName == "" {
+			continue
+		}
+
+		// Allow ad-hoc overrides to satisfy or replace scoped values.
+		if val, ok := cleanOverrides[varName]; ok {
+			finalVars[varName] = val
+			continue
+		}
+
 		var value string
 		var err error
 		found := false
@@ -723,6 +744,13 @@ func (a *App) prepareVariablesForPipeline(pipeline models.Pipeline, gitContext m
 		}
 
 		finalVars[varName] = value
+	}
+
+	// Append any ad-hoc overrides that are not declared as required variables.
+	for key, value := range cleanOverrides {
+		if _, exists := finalVars[key]; !exists {
+			finalVars[key] = value
+		}
 	}
 
 	return finalVars, nil
@@ -3122,6 +3150,7 @@ func (a *App) launchAndRunPipeline(
 	gitContext map[string]string,
 	parentHistory string,
 	scope string,
+	overrides map[string]string,
 ) {
 	tx, err := a.db.Begin(context.Background())
 	if err != nil {
@@ -3172,7 +3201,7 @@ func (a *App) launchAndRunPipeline(
 		return
 	}
 
-	go a.launchAgent(runID.String(), pipeline, pipelineDef, timeoutDuration, gitContext, parentHistory, scope)
+	go a.launchAgent(runID.String(), pipeline, pipelineDef, timeoutDuration, gitContext, parentHistory, scope, overrides)
 }
 
 func findStepByName(steps []models.PipelineStep, name string) (models.PipelineStep, bool) {
@@ -3699,6 +3728,13 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type runRequestPayload struct {
+	Pipeline   string            `json:"pipeline"`
+	Scope      string            `json:"scope"`
+	Variables  map[string]string `json:"variables"`
+	Definition string            `json:"definition"`
+}
+
 func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	var pipeline models.Pipeline
 	var pipelineDef []byte
@@ -3706,7 +3742,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 
 	parentRunID := r.Header.Get("X-Nopsai-Parent-Run-ID")
 	parentHistory := r.Header.Get("X-Nopsai-Parent-History")
-	scope := r.Header.Get("X-Nopsai-Scope")
+	scope := strings.TrimSpace(r.Header.Get("X-Nopsai-Scope"))
 	parentStepName := r.Header.Get("X-Nopsai-Parent-Step-Name")
 	pipelineSource := r.Header.Get("X-Nopsai-Pipeline-Source")
 	pipelineNameFromPath := r.PathValue("pipelineName")
@@ -3716,40 +3752,93 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		pipelinePathForRun = ""
 	}
 
+	contentType := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type")))
+	var payload runRequestPayload
+	if strings.Contains(contentType, "application/json") {
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil && !errors.Is(err, io.EOF) {
+			http.Error(w, "Invalid JSON payload for run request", http.StatusBadRequest)
+			return
+		}
+	}
+
+	if scope == "" {
+		scope = strings.TrimSpace(payload.Scope)
+	}
+
+	if pipelineNameFromPath == "" {
+		pipelineNameFromPath = strings.TrimSpace(payload.Pipeline)
+	}
+
+	overrideVars := make(map[string]string)
+	if len(payload.Variables) > 0 {
+		var invalidKeys []string
+		for key, value := range payload.Variables {
+			trimmedKey := strings.TrimSpace(key)
+			if trimmedKey == "" {
+				continue
+			}
+			if !envKeyPattern.MatchString(trimmedKey) {
+				invalidKeys = append(invalidKeys, trimmedKey)
+				continue
+			}
+			overrideVars[trimmedKey] = value
+		}
+		if len(invalidKeys) > 0 {
+			http.Error(w, fmt.Sprintf("Invalid variable override name(s): %s. Allowed characters: letters, numbers, underscores, dots, and hyphens.", strings.Join(invalidKeys, ", ")), http.StatusBadRequest)
+			return
+		}
+	}
+
+	rawDefinition := strings.TrimSpace(payload.Definition)
+	usePayloadDefinition := rawDefinition != ""
+
+	if strings.Contains(contentType, "application/json") && pipelineNameFromPath == "" && !usePayloadDefinition {
+		http.Error(w, "Pipeline identifier or definition is required for JSON run requests", http.StatusBadRequest)
+		return
+	}
+
 	if pipelineNameFromPath != "" {
-		var pipelineDefStr string
 		pathPart, namePart, _, parseErr := splitPipelineIdentifier(pipelineNameFromPath)
 		if parseErr != nil {
 			http.Error(w, parseErr.Error(), http.StatusBadRequest)
 			return
 		}
 		pipelinePathForRun = pathPart
-		err = a.db.QueryRow(context.Background(), "SELECT definition FROM pipelines WHERE path = $1 AND name = $2", pathPart, namePart).Scan(&pipelineDefStr)
-		if err != nil {
-			log.Error().Err(err).Str("pipeline", pipelineNameFromPath).Msg("Pipeline not found in database")
-			http.Error(w, "Pipeline not found", http.StatusNotFound)
-			return
+		if !usePayloadDefinition {
+			var pipelineDefStr string
+			err = a.db.QueryRow(context.Background(), "SELECT definition FROM pipelines WHERE path = $1 AND name = $2", pathPart, namePart).Scan(&pipelineDefStr)
+			if err != nil {
+				log.Error().Err(err).Str("pipeline", pipelineNameFromPath).Msg("Pipeline not found in database")
+				http.Error(w, "Pipeline not found", http.StatusNotFound)
+				return
+			}
+			pipelineDef = []byte(pipelineDefStr)
 		}
-		pipelineDef = []byte(pipelineDefStr)
+	}
 
-		if err = yaml.Unmarshal(pipelineDef, &pipeline); err != nil {
-			http.Error(w, "Error parsing stored YAML pipeline", http.StatusInternalServerError)
-			return
-		}
-	} else {
+	if usePayloadDefinition {
+		pipelineDef = []byte(rawDefinition)
+	} else if pipelineNameFromPath == "" {
 		pipelineDef, err = io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, "Error reading request body", http.StatusInternalServerError)
 			return
 		}
-		if err = yaml.Unmarshal(pipelineDef, &pipeline); err != nil {
-			http.Error(w, fmt.Sprintf("Pipeline YAML is malformed: %v", err), http.StatusBadRequest)
-			return
-		}
-		if pipelinePathForRun != "" && strings.Contains(pipelinePathForRun, "..") {
-			http.Error(w, "Invalid pipeline path", http.StatusBadRequest)
-			return
-		}
+	}
+
+	if len(pipelineDef) == 0 {
+		http.Error(w, "Pipeline definition is required to start a run", http.StatusBadRequest)
+		return
+	}
+
+	if err = yaml.Unmarshal(pipelineDef, &pipeline); err != nil {
+		http.Error(w, fmt.Sprintf("Pipeline YAML is malformed: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if pipelinePathForRun != "" && strings.Contains(pipelinePathForRun, "..") {
+		http.Error(w, "Invalid pipeline path", http.StatusBadRequest)
+		return
 	}
 
 	pipeline.Name = sanitizeInput(pipeline.Name)
@@ -3953,7 +4042,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	a.launchAndRunPipeline(runID, *resolvedPipeline, resolvedPipelineDef, timeoutDuration, gitContext, parentHistory, scope)
+	a.launchAndRunPipeline(runID, *resolvedPipeline, resolvedPipelineDef, timeoutDuration, gitContext, parentHistory, scope, overrideVars)
 
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte("Pipeline run created successfully with ID: " + runID.String()))
@@ -4138,7 +4227,7 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a.launchAndRunPipeline(runID, *resolvedPipeline, resolvedPipelineDef, timeoutDuration, gitContext, "", scope.String)
+	a.launchAndRunPipeline(runID, *resolvedPipeline, resolvedPipelineDef, timeoutDuration, gitContext, "", scope.String, nil)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -4778,7 +4867,7 @@ func (a *App) handleGetRunByCheckID(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"run_id": runID})
 }
 
-func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []byte, timeout time.Duration, gitContext map[string]string, parentHistory string, scope string) {
+func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []byte, timeout time.Duration, gitContext map[string]string, parentHistory string, scope string, overrides map[string]string) {
 	ctx := context.Background()
 
 	secrets, err := a.prepareSecretsForPipeline(pipeline, gitContext, scope)
@@ -4791,7 +4880,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		return
 	}
 
-	finalVars, err := a.prepareVariablesForPipeline(pipeline, gitContext, scope)
+	finalVars, err := a.prepareVariablesForPipeline(pipeline, gitContext, scope, overrides)
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to prepare scope variables for pipeline")
 		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", err.Error(), runID)
