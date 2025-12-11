@@ -2421,8 +2421,6 @@ html.dark .env-suggestion-footnote {
 
 /* Lab overrides */
 .lab-overrides-panel {
-    border: 1px dashed var(--border-primary);
-    border-radius: 16px;
     background: var(--bg-secondary);
     padding: 0.9rem;
     display: grid;
@@ -2443,6 +2441,8 @@ html.dark .lab-overrides-panel {
     font-size: 0.9rem;
     color: var(--text-secondary);
     padding: 0.25rem 0.35rem;
+    background: var(--bg-primary);
+    border: none;
 }
 
 .lab-override-row {
@@ -2451,8 +2451,6 @@ html.dark .lab-overrides-panel {
     gap: 0.75rem;
     align-items: center;
     padding: 0.75rem 0.85rem;
-    border-radius: 12px;
-    border: 1px solid var(--border-primary);
     background: var(--bg-primary);
 }
 
@@ -2500,7 +2498,7 @@ html.dark .lab-override-row .pipelines-input:focus {
 }
 
 .lab-override-input {
-    font-size: 0.95rem;
+    font-size: 0.80rem;
 }
 
 .lab-override-remove {
@@ -2537,7 +2535,7 @@ html.dark .lab-override-remove:hover {
     gap: 0.6rem;
     padding: 0.55rem 0.9rem;
     border-radius: 9999px;
-    border: 1px dashed var(--border-primary);
+    border: 1px  var(--border-primary);
     color: var(--text-primary);
     background: transparent;
     font-weight: 600;
@@ -2551,9 +2549,6 @@ html.dark .lab-override-remove:hover {
     justify-content: center;
     width: 28px;
     height: 28px;
-    border-radius: 9999px;
-    border: 1px solid var(--border-primary);
-    background: var(--bg-tertiary);
     font-size: 1rem;
     line-height: 1;
 }
