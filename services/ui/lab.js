@@ -1550,15 +1550,28 @@
         list.innerHTML = '';
         state.overrides.forEach(o => {
             const div = document.createElement('div');
-            div.className = 'grid grid-cols-[1fr,1fr,auto] gap-2 items-center';
+            const keyId = `lab-override-key-${o.id}`;
+            const valueId = `lab-override-val-${o.id}`;
+            div.className = 'lab-override-row';
             div.innerHTML = `
-                <input class="pipelines-input h-10" placeholder="KEY" value="${escapeHtml(o.key)}" onchange="NopsAI.pages.lab.updateOv(${o.id}, 'key', this.value)">
-                <input class="pipelines-input h-10" placeholder="VALUE" value="${escapeHtml(o.value)}" onchange="NopsAI.pages.lab.updateOv(${o.id}, 'value', this.value)">
-                <button type="button" class="glass-button-ghost h-10 px-3 shrink-0" onclick="NopsAI.pages.lab.removeOv(${o.id})">&times;</button>
+                <div class="lab-override-field">
+                    <label class="lab-override-label" for="${escapeAttribute(keyId)}">Key</label>
+                    <input id="${escapeAttribute(keyId)}" class="pipelines-input lab-override-input" placeholder="KEY_NAME" value="${escapeHtml(o.key)}" onchange="NopsAI.pages.lab.updateOv(${o.id}, 'key', this.value)">
+                </div>
+                <div class="lab-override-field">
+                    <label class="lab-override-label" for="${escapeAttribute(valueId)}">Value</label>
+                    <input id="${escapeAttribute(valueId)}" class="pipelines-input lab-override-input" placeholder="value" value="${escapeHtml(o.value)}" onchange="NopsAI.pages.lab.updateOv(${o.id}, 'value', this.value)">
+                </div>
+                <button type="button" class="lab-override-remove" onclick="NopsAI.pages.lab.removeOv(${o.id})" aria-label="Remove override">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    <span class="sr-only">Remove override</span>
+                </button>
             `;
             list.appendChild(div);
         });
-        DOM['lab-overrides-empty'].classList.toggle('hidden', state.overrides.length > 0);
+        if (DOM['lab-overrides-empty']) DOM['lab-overrides-empty'].classList.toggle('hidden', state.overrides.length > 0);
         renderSummary();
     }
 
@@ -1717,6 +1730,7 @@
         }
         status.classList.remove('hidden');
 
+        const baseClass = 'validation-box validation-box--inline';
         if (errors.length) {
             const items = errors.map(err => {
                 const lineLabel = typeof err.line === 'number' ? `<span class="validation-box__line">Line ${err.line}</span>` : '';
@@ -1726,11 +1740,11 @@
                 return `<div class="validation-box__item">${lineLabel}${message}${exampleHtml}</div>`;
             }).join('');
             status.innerHTML = `<div class="validation-box__header">Validation issues</div>${items}`;
-            status.className = 'validation-box validation-box--error mt-1';
+            status.className = `${baseClass} validation-box--error`;
             if (DOM['lab-save-yaml']) DOM['lab-save-yaml'].disabled = true;
         } else {
             status.innerHTML = '<div class="validation-box__header">All good</div><div class="validation-box__message">Pipeline definition passes validation.</div>';
-            status.className = 'validation-box validation-box--success mt-1';
+            status.className = `${baseClass} validation-box--success`;
             if (DOM['lab-save-yaml']) DOM['lab-save-yaml'].disabled = false;
         }
         updateActionState();
