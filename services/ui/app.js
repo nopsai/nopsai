@@ -140,6 +140,7 @@ document.addEventListener('DOMContentLoaded', () => {
         logPollingInterval: null, // This will be removed
         currentGraphView: localStorage.getItem('graphView') || 'steps',
         currentPath: 'pipelineruns',
+        currentHash: window.location.hash || '#/pipelineruns/main',
         pollingInterval: null,
         currentRunTrackedIds: new Map(),
         _logsRaw: [],
@@ -325,6 +326,22 @@ document.addEventListener('DOMContentLoaded', () => {
         const info = parsePipelineRunsHash(hash);
         const { path, runId } = info; // 'path' is the new page, 'runId' exists if it's a run detail page
 
+        const wasOnLab = state.currentPath === 'lab';
+        if (wasOnLab && path !== 'lab' && labModule && typeof labModule.preventNavigation === 'function') {
+            const blocked = labModule.preventNavigation(hash, state.currentHash || '#/lab');
+            if (blocked) {
+                return;
+            }
+        }
+
+        if (wasOnLab && path !== 'lab' && labModule && typeof labModule.onLeave === 'function') {
+            try {
+                labModule.onLeave();
+            } catch (error) {
+                console.error('Failed to clean up lab page state:', error);
+            }
+        }
+
         if (path !== 'system' && systemModule && typeof systemModule.onLeave === 'function') {
             try {
                 systemModule.onLeave();
@@ -357,6 +374,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Update the current path *after* checking the previous state
         state.currentPath = path;
+        state.currentHash = hash;
 
         // --- Standard router logic continues ---
         if (DOM.mainHeader) {
