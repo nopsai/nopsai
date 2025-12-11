@@ -112,11 +112,11 @@
     function mapDom() {
         const ids = [
             'lab-pipeline-select', 'lab-refresh-pipelines', 'lab-open-pipeline',
-            'lab-scope-input', 'lab-scope-options',
+            'lab-scope-input',
             'lab-yaml-editor', 'lab-yaml-highlight', 'lab-line-numbers', 'lab-yaml-stage',
             'lab-editor-wrapper', 'lab-overrides-list', 'lab-overrides-empty', 'lab-add-override',
             'lab-summary-pipeline', 'lab-summary-scope', 'lab-summary-overrides',
-            'lab-run-btn', 'lab-run-feedback', 'lab-copy-yaml', 'lab-reset-yaml', 'lab-blank-pipeline', 'lab-save-yaml',
+            'lab-run-btn', 'lab-run-feedback', 'lab-reset-yaml', 'lab-save-yaml',
             'lab-validation-status', 'lab-includes',
             'lab-suggestion-panel', 'lab-suggestion-list', 'lab-suggestion-empty',
             'lab-suggestion-title', 'lab-suggestion-subtitle', 'lab-suggestion-footnote'
@@ -126,14 +126,12 @@
 
     function attachEvents() {
         if (DOM['lab-pipeline-select']) DOM['lab-pipeline-select'].addEventListener('change', handlePipelineChange);
-        if (DOM['lab-scope-input']) DOM['lab-scope-input'].addEventListener('input', handleScopeInput);
+        if (DOM['lab-scope-input']) DOM['lab-scope-input'].addEventListener('change', handleScopeInput);
         if (DOM['lab-add-override']) DOM['lab-add-override'].addEventListener('click', () => addOverride());
         if (DOM['lab-refresh-pipelines']) DOM['lab-refresh-pipelines'].addEventListener('click', () => loadPipelines(true));
         if (DOM['lab-run-btn']) DOM['lab-run-btn'].addEventListener('click', handleRunClick);
-        if (DOM['lab-copy-yaml']) DOM['lab-copy-yaml'].addEventListener('click', copyYamlToClipboard);
         if (DOM['lab-reset-yaml']) DOM['lab-reset-yaml'].addEventListener('click', resetYamlToSource);
         if (DOM['lab-save-yaml']) DOM['lab-save-yaml'].addEventListener('click', saveLabYaml);
-        if (DOM['lab-blank-pipeline']) DOM['lab-blank-pipeline'].addEventListener('click', startBlankPipeline);
         
         if (DOM['lab-yaml-editor']) {
             const editor = DOM['lab-yaml-editor'];
@@ -388,10 +386,20 @@
     }
 
     function renderScopeOptions() {
-        const list = DOM['lab-scope-options'];
-        if (!list) return;
-        list.innerHTML = '';
-        state.scopes.forEach(s => list.appendChild(new Option(s, s)));
+        const select = DOM['lab-scope-input'];
+        if (!select) return;
+        const selected = state.scopeValue || '';
+        select.innerHTML = '';
+        select.appendChild(new Option('Default scope', '', selected === ''));
+        state.scopes.forEach(s => {
+            const opt = new Option(s, s, false, selected === s);
+            select.appendChild(opt);
+        });
+        if (selected && !state.scopes.includes(selected)) {
+            // Preserve any custom scope not returned by the API
+            const customOpt = new Option(selected, selected, false, true);
+            select.appendChild(customOpt);
+        }
     }
 
     // --- 4. Editor Logic ---
@@ -553,7 +561,7 @@
         const nextSibling = panel.nextSibling;
         state.suggestionPanelOriginalParent = parent;
         state.suggestionPanelOriginalNextSibling = nextSibling;
-        const container = document.getElementById('page-content-wrapper') || document.body;
+        const container = DOM['lab-editor-wrapper'] || document.getElementById('page-content-wrapper') || document.body;
         const baseWidth = panel.offsetWidth || 260;
         try {
             parent.removeChild(panel);
@@ -616,7 +624,7 @@
         if (!state.suggestionPanelFloating) return;
         const panel = DOM['lab-suggestion-panel'];
         const textarea = DOM['lab-yaml-editor'];
-        const container = state.suggestionPanelOverlayContainer || document.getElementById('page-content-wrapper') || document.body;
+        const container = state.suggestionPanelOverlayContainer || DOM['lab-editor-wrapper'] || document.getElementById('page-content-wrapper') || document.body;
         if (!panel || panel.classList.contains('hidden') || !textarea || !container) {
             return;
         }
@@ -1542,11 +1550,11 @@
         list.innerHTML = '';
         state.overrides.forEach(o => {
             const div = document.createElement('div');
-            div.className = 'flex gap-2 mb-2';
+            div.className = 'grid grid-cols-[1fr,1fr,auto] gap-2 items-center';
             div.innerHTML = `
-                <input class="pipelines-input flex-1" placeholder="KEY" value="${escapeHtml(o.key)}" onchange="NopsAI.pages.lab.updateOv(${o.id}, 'key', this.value)">
-                <input class="pipelines-input flex-1" placeholder="VALUE" value="${escapeHtml(o.value)}" onchange="NopsAI.pages.lab.updateOv(${o.id}, 'value', this.value)">
-                <button class="glass-button-ghost" onclick="NopsAI.pages.lab.removeOv(${o.id})">&times;</button>
+                <input class="pipelines-input h-10" placeholder="KEY" value="${escapeHtml(o.key)}" onchange="NopsAI.pages.lab.updateOv(${o.id}, 'key', this.value)">
+                <input class="pipelines-input h-10" placeholder="VALUE" value="${escapeHtml(o.value)}" onchange="NopsAI.pages.lab.updateOv(${o.id}, 'value', this.value)">
+                <button type="button" class="glass-button-ghost h-10 px-3 shrink-0" onclick="NopsAI.pages.lab.removeOv(${o.id})">&times;</button>
             `;
             list.appendChild(div);
         });
