@@ -744,6 +744,10 @@
                 <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v6h6M20 20v-6h-6M5 19a9 9 0 0113-13l1 .75M19 5v4h-4" /></svg>
                 <span>Reset to source</span>
             </button>
+            <button id="lab-save-yaml" type="button" class="glass-button-primary" title="Save this YAML for the current lab session (pipelines stay unchanged).">
+                <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                <span>Save for Lab</span>
+            </button>
             <button id="lab-copy-yaml" type="button" class="glass-button-subtle">
                 <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
                 <span>Copy YAML</span>
@@ -753,7 +757,7 @@
     <div class="space-y-3">
         <div class="bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg p-3 text-xs text-[var(--text-secondary)]">
             <p class="font-medium text-[var(--text-primary)] mb-1">Editor behavior</p>
-            <p>Uses the same YAML editor as Pipelines. You can tweak any field and run instantly. The run uses the selected pipeline path (or the YAML name if none selected).</p>
+            <p>Uses the same YAML editor as Pipelines. You can tweak any field and run instantly. The run uses the selected pipeline path (or the YAML name if none selected). Saving here only keeps the YAML for this lab session; pipelines stay unchanged.</p>
         </div>
         <div id="lab-editor-wrapper" class="pipeline-editor-wrapper lab-editor-wrapper">
             <div id="lab-editor-container" class="editor-container">
@@ -765,22 +769,29 @@
                     <textarea id="lab-yaml-editor" spellcheck="false"></textarea>
                 </div>
             </div>
+            <section id="lab-suggestion-panel" class="env-suggestion-panel pipeline-suggestion-panel hidden" aria-live="polite">
+                <div class="env-suggestion-heading">
+                    <div>
+                        <p class="env-suggestion-kicker">Need a reference?</p>
+                        <h3 id="lab-suggestion-title" class="env-suggestion-title">Variables by scope</h3>
+                    </div>
+                    <p id="lab-suggestion-subtitle" class="env-suggestion-subtitle">Compare existing scope variables while editing your pipeline.</p>
+                </div>
+                <div class="env-suggestion-body">
+                    <p id="lab-suggestion-empty" class="env-suggestion-empty">Loading scope variables…</p>
+                    <div id="lab-suggestion-list" class="env-suggestion-list"></div>
+                    <p id="lab-suggestion-footnote" class="env-suggestion-footnote">Click any variable to insert it into the pipeline definition.</p>
+                </div>
+            </section>
         </div>
         <div id="lab-validation-status" class="mt-1 text-xs text-[var(--text-secondary)] hidden"></div>
-        <section id="lab-suggestion-panel" class="env-suggestion-panel pipeline-suggestion-panel hidden" aria-live="polite">
-            <div class="env-suggestion-heading">
-                <div>
-                    <p class="env-suggestion-kicker">Need a reference?</p>
-                    <h3 id="lab-suggestion-title" class="env-suggestion-title">Variables by scope</h3>
-                </div>
-                <p id="lab-suggestion-subtitle" class="env-suggestion-subtitle">Compare existing scope variables while editing your pipeline.</p>
+        <div class="bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg p-3 space-y-2">
+            <div class="flex items-center justify-between gap-2">
+                <p class="text-sm font-semibold text-[var(--text-primary)]">Included dependencies</p>
+                <span class="text-[10px] uppercase tracking-wide text-[var(--text-secondary)]">Live</span>
             </div>
-            <div class="env-suggestion-body">
-                <p id="lab-suggestion-empty" class="env-suggestion-empty">Loading scope variables…</p>
-                <div id="lab-suggestion-list" class="env-suggestion-list"></div>
-                <p id="lab-suggestion-footnote" class="env-suggestion-footnote">Click any variable to insert it into the pipeline definition.</p>
-            </div>
-        </section>
+            <div id="lab-includes" class="text-sm text-[var(--text-secondary)] space-y-2" data-empty="No steps defined yet."></div>
+        </div>
         <div class="text-xs text-[var(--text-secondary)]">Hint: leave the scope empty to test the default resolution order, or point it at a new scope while you tweak variables.</div>
     </div>
 </div>
