@@ -116,7 +116,7 @@
             'lab-yaml-editor', 'lab-yaml-highlight', 'lab-line-numbers', 'lab-yaml-stage',
             'lab-editor-wrapper', 'lab-overrides-list', 'lab-overrides-empty', 'lab-add-override',
             'lab-summary-pipeline', 'lab-summary-scope', 'lab-summary-overrides',
-            'lab-run-btn', 'lab-run-feedback', 'lab-reset-yaml', 'lab-save-yaml',
+            'lab-run-btn', 'lab-run-feedback', 'lab-save-yaml',
             'lab-validation-status', 'lab-includes',
             'lab-suggestion-panel', 'lab-suggestion-list', 'lab-suggestion-empty',
             'lab-suggestion-title', 'lab-suggestion-subtitle', 'lab-suggestion-footnote'
@@ -130,7 +130,6 @@
         if (DOM['lab-add-override']) DOM['lab-add-override'].addEventListener('click', () => addOverride());
         if (DOM['lab-refresh-pipelines']) DOM['lab-refresh-pipelines'].addEventListener('click', () => loadPipelines(true));
         if (DOM['lab-run-btn']) DOM['lab-run-btn'].addEventListener('click', handleRunClick);
-        if (DOM['lab-reset-yaml']) DOM['lab-reset-yaml'].addEventListener('click', resetYamlToSource);
         if (DOM['lab-save-yaml']) DOM['lab-save-yaml'].addEventListener('click', saveLabYaml);
         
         if (DOM['lab-yaml-editor']) {
@@ -1555,18 +1554,15 @@
             div.className = 'lab-override-row';
             div.innerHTML = `
                 <div class="lab-override-field">
-                    <label class="lab-override-label" for="${escapeAttribute(keyId)}">Key</label>
-                    <input id="${escapeAttribute(keyId)}" class="pipelines-input lab-override-input" placeholder="KEY_NAME" value="${escapeHtml(o.key)}" onchange="NopsAI.pages.lab.updateOv(${o.id}, 'key', this.value)">
+                    <input id="${escapeAttribute(keyId)}" class="pipelines-input lab-override-input" placeholder="key" value="${escapeHtml(o.key)}" onchange="NopsAI.pages.lab.updateOv(${o.id}, 'key', this.value)">
                 </div>
                 <div class="lab-override-field">
-                    <label class="lab-override-label" for="${escapeAttribute(valueId)}">Value</label>
                     <input id="${escapeAttribute(valueId)}" class="pipelines-input lab-override-input" placeholder="value" value="${escapeHtml(o.value)}" onchange="NopsAI.pages.lab.updateOv(${o.id}, 'value', this.value)">
                 </div>
                 <button type="button" class="lab-override-remove" onclick="NopsAI.pages.lab.removeOv(${o.id})" aria-label="Remove override">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                     </svg>
-                    <span class="sr-only">Remove override</span>
                 </button>
             `;
             list.appendChild(div);
