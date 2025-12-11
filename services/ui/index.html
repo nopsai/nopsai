@@ -728,10 +728,6 @@
                                             </div>
                                         </div>
                                         <div class="flex items-center flex-wrap gap-2">
-                                            <button id="lab-reset-yaml" type="button" class="glass-button-ghost">
-                                                <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v6h6M20 20v-6h-6M5 19a9 9 0 0113-13l1 .75M19 5v4h-4" /></svg>
-                                                <span>Reset to source</span>
-                                            </button>
                                             <button id="lab-save-yaml" type="button" class="glass-button-primary" title="Save this YAML for the current lab session (pipelines stay unchanged).">
                                                 <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                                                 <span>Save for Lab</span>
@@ -778,13 +774,10 @@
                                     <div class="glass-card p-5 space-y-4 rounded-2xl ring-1 ring-[var(--border-primary)]/70">
                                         <div class="flex items-start justify-between gap-3">
                                             <div class="space-y-1">
-                                                <p class="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Overrides</p>
-                                                <h3 class="text-lg font-semibold text-[var(--text-primary)] leading-tight">Variable overrides</h3>
-                                                <p class="text-sm text-[var(--text-secondary)]">Only the keys you change for this run.</p>
+                                                <h3 class="text-lg font-semibold text-[var(--text-primary)] leading-tight" style="padding-top: 10px;">Variable overrides</h3>
                                             </div>
-                                            <button id="lab-add-override" type="button" class="lab-override-add">
+                                            <button id="lab-add-override" type="button" class="glass-button-primary"">
                                                 <span class="lab-override-add__icon" aria-hidden="true">+</span>
-                                                <span>Add override</span>
                                             </button>
                                         </div>
                                         <div class="lab-overrides-panel">
