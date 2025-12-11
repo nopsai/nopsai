@@ -694,130 +694,118 @@
                         </div>
                     </div>
                     <div class="flex-1 overflow-auto px-6 pb-8">
-                        <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
-                            <div class="space-y-6 xl:col-span-2">
-                                <div class="glass-card p-6 space-y-4">
-                                    <div class="flex flex-wrap items-start justify-between gap-3">
+                        <div class="space-y-5">
+                            <div class="glass-card p-6 space-y-5 rounded-2xl shadow-lg ring-1 ring-[var(--border-primary)]/70 bg-gradient-to-br from-[var(--bg-secondary)] to-[var(--bg-tertiary)]">
+                                <div class="flex flex-wrap items-center justify-between gap-3">
+                                    <div class="flex items-center gap-3">
+                                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-[var(--bg-tertiary)] border border-[var(--border-primary)]/70 text-[var(--text-secondary)]">Lab mode</span>
+                                        <p class="text-sm text-[var(--text-secondary)]">Launch scoped runs with temporary overrides.</p>
+                                    </div>
+                                    <div class="flex items-center gap-2">
                                         <a id="lab-open-pipeline" href="#/pipelines" class="glass-button-ghost hidden">
                                             <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
                                             <span>Open in Pipelines</span>
                                         </a>
-                                    </div>
-                                    <div class="space-y-4">
-                                        <div>
-                                            <label for="lab-pipeline-select" class="block text-sm font-medium text-[var(--text-secondary)]">Pipeline</label>
-                                            <select id="lab-pipeline-select" class="mt-1 block w-full pipelines-input py-2 px-3 text-sm" aria-label="Pipeline selection">
-                                                <option value="">Select a pipeline from /v1/pipelines</option>
-                                            </select>
-                                        </div>
-                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            <div>
-                                                <label for="lab-scope-input" class="block text-sm font-medium text-[var(--text-secondary)]">Target scope</label>
-                                                <input id="lab-scope-input" list="lab-scope-options" type="text" placeholder="prod, staging, dev or blank for default" class="mt-1 block w-full bg-[var(--bg-tertiary)] border border-[var(--border-input)] rounded-md shadow-sm py-2 px-3 text-[var(--text-primary)] focus:outline-none focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)] sm:text-sm" />
-                                                <datalist id="lab-scope-options"></datalist>
-                                                <p class="text-xs text-[var(--text-secondary)] mt-2">Matches the scope logic used when preparing variables and secrets.</p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="glass-card p-6 space-y-4">
-                                    <div class="flex flex-wrap items-start justify-between gap-3">
-
-        <div class="flex items-center flex-wrap gap-2">
-            <button id="lab-blank-pipeline" type="button" class="glass-button-ghost">
-                <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7h16M4 12h16M4 17h10" /></svg>
-                <span>Start blank</span>
-            </button>
-            <button id="lab-reset-yaml" type="button" class="glass-button-ghost">
-                <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v6h6M20 20v-6h-6M5 19a9 9 0 0113-13l1 .75M19 5v4h-4" /></svg>
-                <span>Reset to source</span>
-            </button>
-            <button id="lab-save-yaml" type="button" class="glass-button-primary" title="Save this YAML for the current lab session (pipelines stay unchanged).">
-                <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-                <span>Save for Lab</span>
-            </button>
-            <button id="lab-copy-yaml" type="button" class="glass-button-subtle">
-                <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-                <span>Copy YAML</span>
-            </button>
-        </div>
-    </div>
-    <div class="space-y-3">
-        <div id="lab-editor-wrapper" class="pipeline-editor-wrapper lab-editor-wrapper">
-            <div id="lab-editor-container" class="editor-container">
-                <pre id="lab-line-numbers">1</pre>
-                <div id="lab-yaml-stage" class="yaml-editor-stage">
-                    <div class="yaml-editor-highlight" aria-hidden="true">
-                        <pre id="lab-yaml-highlight" class="yaml-editor-highlight__content"></pre>
-                    </div>
-                    <textarea id="lab-yaml-editor" spellcheck="false"></textarea>
-                </div>
-            </div>
-            <section id="lab-suggestion-panel" class="env-suggestion-panel pipeline-suggestion-panel hidden" aria-live="polite">
-                <div class="env-suggestion-heading">
-                    <div>
-                        <p class="env-suggestion-kicker">Need a reference?</p>
-                        <h3 id="lab-suggestion-title" class="env-suggestion-title">Variables by scope</h3>
-                    </div>
-                    <p id="lab-suggestion-subtitle" class="env-suggestion-subtitle">Compare existing scope variables while editing your pipeline.</p>
-                </div>
-                <div class="env-suggestion-body">
-                    <p id="lab-suggestion-empty" class="env-suggestion-empty">Loading scope variables…</p>
-                    <div id="lab-suggestion-list" class="env-suggestion-list"></div>
-                    <p id="lab-suggestion-footnote" class="env-suggestion-footnote">Click any variable to insert it into the pipeline definition.</p>
-                </div>
-            </section>
-        </div>
-        <div id="lab-validation-status" class="mt-1 text-xs text-[var(--text-secondary)] hidden"></div>
-        <div class="bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg p-3 space-y-2">
-            <div class="flex items-center justify-between gap-2">
-                <p class="text-sm font-semibold text-[var(--text-primary)]">Included dependencies</p>
-                <span class="text-[10px] uppercase tracking-wide text-[var(--text-secondary)]">Live</span>
-            </div>
-            <div id="lab-includes" class="text-sm text-[var(--text-secondary)] space-y-2" data-empty="No steps defined yet."></div>
-        </div>
-    </div>
-</div>
-                                <div class="glass-card p-6 space-y-4">
-                                    <div class="flex flex-wrap items-center justify-between gap-3">
-                                        <div>
-                                            <h3 class="text-lg font-semibold text-[var(--text-primary)]">Variable overrides</h3>
-                                            <p class="text-sm text-[var(--text-secondary)]">Inject ad-hoc environment variables for this test run.</p>
-                                        </div>
-                                        <button id="lab-add-override" type="button" class="glass-button-subtle">
-                                            <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14M5 12h14" /></svg>
-                                            <span>Add variable</span>
+                                        <button id="lab-run-btn" type="button" class="glass-button-primary">
+                                            <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h4l1-5 4 10 1-5h4" /></svg>
+                                            <span>Run</span>
                                         </button>
                                     </div>
-                                    <div id="lab-overrides-empty" class="text-sm text-[var(--text-secondary)]">No overrides yet. Add a key/value pair to test different inputs.</div>
-                                    <div id="lab-overrides-list" class="space-y-3"></div>
                                 </div>
-                            </div>
-                            <div class="space-y-4">
-                                <div class="glass-card p-6 space-y-4">
-                                    <div class="flex items-center justify-between gap-3">
-                                        <h3 class="text-lg font-semibold text-[var(--text-primary)]">Run</h3>
-                                        <span class="text-xs text-[var(--text-secondary)] bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-full px-2 py-1">Lab mode</span>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+                                    <div>
+                                        <label for="lab-pipeline-select" class="block text-sm font-medium text-[var(--text-secondary)]">Pipeline</label>
+                                        <select id="lab-pipeline-select" class="mt-1 block w-full pipelines-input py-2 px-3 text-sm" aria-label="Pipeline selection">
+                                            <option value="">Blank pipeline</option>
+                                        </select>
                                     </div>
-                                    <dl class="grid grid-cols-1 gap-3 text-sm">
-                                        <div class="flex items-center justify-between gap-2">
-                                            <dt class="text-[var(--text-secondary)]">Pipeline</dt>
-                                            <dd id="lab-summary-pipeline" class="font-medium text-[var(--text-primary)] text-right truncate">Not selected</dd>
+                                    <div>
+                                        <label for="lab-scope-input" class="block text-sm font-medium text-[var(--text-secondary)]">Target scope</label>
+                                        <select id="lab-scope-input" class="mt-1 block w-full pipelines-input py-2 px-3 text-sm" aria-label="Target scope selection">
+                                            <option value="">Default scope</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div id="lab-run-feedback" class="text-sm text-[var(--text-secondary)] hidden"></div>
+                            </div>
+
+                            <div class="grid grid-cols-1 lg:grid-cols-4 gap-5">
+                                <div class="glass-card p-6 space-y-5 rounded-2xl shadow-lg ring-1 ring-[var(--border-primary)]/70 lg:col-span-3">
+                                    <div class="flex flex-wrap items-center justify-between gap-3">
+                                    <div class="flex items-center gap-3">
+                                            <div>
+                                                <h3 class="text-lg font-semibold text-[var(--text-primary)]">Pipeline definition</h3>
+                                                <p class="text-sm text-[var(--text-secondary)]">Edit and validate before you launch.</p>
+                                            </div>
                                         </div>
-                                        <div class="flex items-center justify-between gap-2">
-                                            <dt class="text-[var(--text-secondary)]">Scope</dt>
-                                            <dd id="lab-summary-scope" class="font-medium text-[var(--text-primary)] text-right truncate">Default</dd>
+                                        <div class="flex items-center flex-wrap gap-2">
+                                            <button id="lab-reset-yaml" type="button" class="glass-button-ghost">
+                                                <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v6h6M20 20v-6h-6M5 19a9 9 0 0113-13l1 .75M19 5v4h-4" /></svg>
+                                                <span>Reset to source</span>
+                                            </button>
+                                            <button id="lab-save-yaml" type="button" class="glass-button-primary" title="Save this YAML for the current lab session (pipelines stay unchanged).">
+                                                <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                                                <span>Save for Lab</span>
+                                            </button>
                                         </div>
-                                        <div class="flex items-center justify-between gap-2">
-                                            <dt class="text-[var(--text-secondary)]">Overrides</dt>
-                                            <dd id="lab-summary-overrides" class="font-medium text-[var(--text-primary)] text-right">0</dd>
+                                    </div>
+                                    <div class="space-y-4">
+                                        <div id="lab-editor-wrapper" class="pipeline-editor-wrapper lab-editor-wrapper">
+                                            <div id="lab-editor-container" class="editor-container">
+                                                <pre id="lab-line-numbers">1</pre>
+                                                <div id="lab-yaml-stage" class="yaml-editor-stage">
+                                                    <div class="yaml-editor-highlight" aria-hidden="true">
+                                                        <pre id="lab-yaml-highlight" class="yaml-editor-highlight__content"></pre>
+                                                    </div>
+                                                    <textarea id="lab-yaml-editor" spellcheck="false"></textarea>
+                                                </div>
+                                            </div>
+                                            <section id="lab-suggestion-panel" class="env-suggestion-panel pipeline-suggestion-panel hidden" aria-live="polite">
+                                                <div class="env-suggestion-heading">
+                                                    <div>
+                                                        <h3 id="lab-suggestion-title" class="env-suggestion-title">Variables by scope</h3>
+                                                    </div>
+                                                    <p id="lab-suggestion-subtitle" class="env-suggestion-subtitle">Compare existing scope variables while editing your pipeline.</p>
+                                                </div>
+                                                <div class="env-suggestion-body">
+                                                    <p id="lab-suggestion-empty" class="env-suggestion-empty">Loading scope variables…</p>
+                                                    <div id="lab-suggestion-list" class="env-suggestion-list"></div>
+                                                </div>
+                                            </section>
                                         </div>
-                                    </dl>
-                                    <button id="lab-run-btn" type="button" class="glass-button-primary w-full">
-                                        <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h4l1-5 4 10 1-5h4" /></svg>
-                                        <span>Run with Scope</span>
-                                    </button>
-                                    <div id="lab-run-feedback" class="text-sm text-[var(--text-secondary)] hidden"></div>
+                                        <div id="lab-validation-status" class="text-xs text-[var(--text-secondary)] hidden"></div>
+                                    </div>
+                                </div>
+
+                                <div class="space-y-5">
+                                    <div class="glass-card p-4 space-y-2 rounded-2xl shadow-lg ring-1 ring-[var(--border-primary)]/70">
+                                        <div class="flex items-center justify-between gap-2">
+                                            <p class="text-sm font-semibold text-[var(--text-primary)]">Included dependencies</p>
+                                        </div>
+                                        <div id="lab-includes" class="text-sm text-[var(--text-secondary)] space-y-2" data-empty="No steps defined yet."></div>
+                                    </div>
+                                    <div class="glass-card p-6 space-y-5 rounded-2xl shadow-lg ring-1 ring-[var(--border-primary)]/70 bg-gradient-to-br from-[var(--bg-secondary)]/70 to-[var(--bg-tertiary)]/60">
+                                        <div class="flex flex-wrap items-start justify-between gap-3">
+                                            <div class="space-y-1">
+                                                    <h3 class="text-lg font-semibold text-[var(--text-primary)]">Variable overrides</h3>
+                                                    <p class="text-sm text-[var(--text-secondary)]">Inject ad-hoc environment variables for test.</p>
+                                                </div>
+                                            </div>
+                                            <button id="lab-add-override" type="button" class="glass-button-primary px-4 py-2">
+                                                <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14M5 12h14" /></svg>
+                                                <span>Add</span>
+                                            </button>
+                                        </div>
+                                        <div class="rounded-xl border border-[var(--border-primary)]/80 bg-[var(--bg-secondary)]/60 p-3 space-y-3 shadow-inner">
+                                            <div class="grid grid-cols-[1fr,1fr,auto] items-center text-[11px] uppercase tracking-wide text-[var(--text-secondary)] px-1">
+                                                <span>Key</span>
+                                                <span>Value</span>
+                                                <span class="text-right">Remove</span>
+                                            </div>
+                                            <div id="lab-overrides-empty" class="text-sm text-[var(--text-secondary)]">No overrides yet. Add a key/value pair to test different inputs.</div>
+                                            <div id="lab-overrides-list" class="space-y-2"></div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
