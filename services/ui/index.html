@@ -681,14 +681,13 @@
                     <div class="px-6 pt-6 pb-4">
                         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                             <div>
-                                <p class="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Lab</p>
                                 <h1 class="text-3xl font-bold text-[var(--text-primary)]">Scoped pipeline runs</h1>
                                 <p class="text-sm text-[var(--text-secondary)] max-w-3xl">Pick a stored pipeline, lock in a scope, and launch it with temporary variables to validate behavior quickly.</p>
                             </div>
                             <div class="flex items-center gap-2">
                                 <button id="lab-refresh-pipelines" type="button" class="glass-button-ghost">
                                     <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v6h6M20 20v-6h-6M5 19a9 9 0 0113-13l1 .75M19 5v4h-4" /></svg>
-                                    <span>Refresh list</span>
+                                    <span>Refresh pipelines</span>
                                 </button>
                             </div>
                         </div>
@@ -696,23 +695,7 @@
                     <div class="flex-1 overflow-auto px-6 pb-8">
                         <div class="space-y-5">
                             <div class="glass-card p-6 space-y-5 rounded-2xl shadow-lg ring-1 ring-[var(--border-primary)]/70 bg-gradient-to-br from-[var(--bg-secondary)] to-[var(--bg-tertiary)]">
-                                <div class="flex flex-wrap items-center justify-between gap-3">
-                                    <div class="flex items-center gap-3">
-                                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-[var(--bg-tertiary)] border border-[var(--border-primary)]/70 text-[var(--text-secondary)]">Lab mode</span>
-                                        <p class="text-sm text-[var(--text-secondary)]">Launch scoped runs with temporary overrides.</p>
-                                    </div>
-                                    <div class="flex items-center gap-2">
-                                        <a id="lab-open-pipeline" href="#/pipelines" class="glass-button-ghost hidden">
-                                            <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
-                                            <span>Open in Pipelines</span>
-                                        </a>
-                                        <button id="lab-run-btn" type="button" class="glass-button-primary">
-                                            <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h4l1-5 4 10 1-5h4" /></svg>
-                                            <span>Run</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+                                <div class="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-4 items-end">
                                     <div>
                                         <label for="lab-pipeline-select" class="block text-sm font-medium text-[var(--text-secondary)]">Pipeline</label>
                                         <select id="lab-pipeline-select" class="mt-1 block w-full pipelines-input py-2 px-3 text-sm" aria-label="Pipeline selection">
@@ -724,6 +707,12 @@
                                         <select id="lab-scope-input" class="mt-1 block w-full pipelines-input py-2 px-3 text-sm" aria-label="Target scope selection">
                                             <option value="">Default scope</option>
                                         </select>
+                                    </div>
+                                    <div class="flex flex-wrap items-center gap-2 justify-start md:justify-end">
+                                        <button id="lab-run-btn" type="button" class="glass-button-primary">
+                                            <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h4l1-5 4 10 1-5h4" /></svg>
+                                            <span>Run</span>
+                                        </button>
                                     </div>
                                 </div>
                                 <div id="lab-run-feedback" class="text-sm text-[var(--text-secondary)] hidden"></div>
@@ -760,20 +749,22 @@
                                                     <textarea id="lab-yaml-editor" spellcheck="false"></textarea>
                                                 </div>
                                             </div>
-                                            <section id="lab-suggestion-panel" class="env-suggestion-panel pipeline-suggestion-panel hidden" aria-live="polite">
-                                                <div class="env-suggestion-heading">
-                                                    <div>
-                                                        <h3 id="lab-suggestion-title" class="env-suggestion-title">Variables by scope</h3>
+                                            <div class="lab-side-panel">
+                                                <div id="lab-validation-status" class="validation-box validation-box--inline hidden"></div>
+                                                <section id="lab-suggestion-panel" class="env-suggestion-panel pipeline-suggestion-panel hidden" aria-live="polite">
+                                                    <div class="env-suggestion-heading">
+                                                        <div>
+                                                            <h3 id="lab-suggestion-title" class="env-suggestion-title">Variables by scope</h3>
+                                                        </div>
+                                                        <p id="lab-suggestion-subtitle" class="env-suggestion-subtitle">Compare existing scope variables while editing your pipeline.</p>
                                                     </div>
-                                                    <p id="lab-suggestion-subtitle" class="env-suggestion-subtitle">Compare existing scope variables while editing your pipeline.</p>
-                                                </div>
-                                                <div class="env-suggestion-body">
-                                                    <p id="lab-suggestion-empty" class="env-suggestion-empty">Loading scope variables…</p>
-                                                    <div id="lab-suggestion-list" class="env-suggestion-list"></div>
-                                                </div>
-                                            </section>
+                                                    <div class="env-suggestion-body">
+                                                        <p id="lab-suggestion-empty" class="env-suggestion-empty">Loading scope variables…</p>
+                                                        <div id="lab-suggestion-list" class="env-suggestion-list"></div>
+                                                    </div>
+                                                </section>
+                                            </div>
                                         </div>
-                                        <div id="lab-validation-status" class="text-xs text-[var(--text-secondary)] hidden"></div>
                                     </div>
                                 </div>
 
@@ -784,26 +775,21 @@
                                         </div>
                                         <div id="lab-includes" class="text-sm text-[var(--text-secondary)] space-y-2" data-empty="No steps defined yet."></div>
                                     </div>
-                                    <div class="glass-card p-6 space-y-5 rounded-2xl shadow-lg ring-1 ring-[var(--border-primary)]/70 bg-gradient-to-br from-[var(--bg-secondary)]/70 to-[var(--bg-tertiary)]/60">
-                                        <div class="flex flex-wrap items-start justify-between gap-3">
+                                    <div class="glass-card p-5 space-y-4 rounded-2xl ring-1 ring-[var(--border-primary)]/70">
+                                        <div class="flex items-start justify-between gap-3">
                                             <div class="space-y-1">
-                                                    <h3 class="text-lg font-semibold text-[var(--text-primary)]">Variable overrides</h3>
-                                                    <p class="text-sm text-[var(--text-secondary)]">Inject ad-hoc environment variables for test.</p>
-                                                </div>
+                                                <p class="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Overrides</p>
+                                                <h3 class="text-lg font-semibold text-[var(--text-primary)] leading-tight">Variable overrides</h3>
+                                                <p class="text-sm text-[var(--text-secondary)]">Only the keys you change for this run.</p>
                                             </div>
-                                            <button id="lab-add-override" type="button" class="glass-button-primary px-4 py-2">
-                                                <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14M5 12h14" /></svg>
-                                                <span>Add</span>
+                                            <button id="lab-add-override" type="button" class="lab-override-add">
+                                                <span class="lab-override-add__icon" aria-hidden="true">+</span>
+                                                <span>Add override</span>
                                             </button>
                                         </div>
-                                        <div class="rounded-xl border border-[var(--border-primary)]/80 bg-[var(--bg-secondary)]/60 p-3 space-y-3 shadow-inner">
-                                            <div class="grid grid-cols-[1fr,1fr,auto] items-center text-[11px] uppercase tracking-wide text-[var(--text-secondary)] px-1">
-                                                <span>Key</span>
-                                                <span>Value</span>
-                                                <span class="text-right">Remove</span>
-                                            </div>
-                                            <div id="lab-overrides-empty" class="text-sm text-[var(--text-secondary)]">No overrides yet. Add a key/value pair to test different inputs.</div>
-                                            <div id="lab-overrides-list" class="space-y-2"></div>
+                                        <div class="lab-overrides-panel">
+                                            <div id="lab-overrides-empty" class="lab-overrides-empty">No overrides yet. Leave it blank to inherit scope defaults.</div>
+                                            <div id="lab-overrides-list" class="lab-overrides-list"></div>
                                         </div>
                                     </div>
                                 </div>
