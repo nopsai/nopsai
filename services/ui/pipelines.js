@@ -2888,7 +2888,7 @@ function formatPathLabel(path) {
         if (DOM['pipeline-yaml-content']) DOM['pipeline-yaml-content'].classList.remove('hidden');
         if (DOM['pipeline-editor-wrapper']) DOM['pipeline-editor-wrapper'].classList.add('hidden');
         if (DOM['editor-container']) DOM['editor-container'].classList.add('hidden');
-        if (DOM['validation-status']) DOM['validation-status'].classList.add('hidden');
+        if (DOM['validation-status']) DOM['validation-status'].classList.add('hidden');        
         disableFloatingSuggestionPanel();
         setPipelineSuggestionPanelMode(null);
         if (state.selectedId) {
@@ -3077,14 +3077,14 @@ function formatPathLabel(path) {
                 const exampleHtml = example ? `<pre class="validation-box__example"><code>${escapeHtml(example)}</code></pre>` : '';
                 return `<div class="validation-box__item">${lineLabel}${message}${exampleHtml}</div>`;
             }).join('');
-            DOM['validation-status'].innerHTML = `<div class="validation-box__header">Validation issues</div>${items}`;
-            DOM['validation-status'].className = 'validation-box validation-box--error';
-            if (DOM['pipeline-save-btn']) DOM['pipeline-save-btn'].disabled = true;
-        } else {
-            DOM['validation-status'].innerHTML = '<div class="validation-box__header">All good</div><div class="validation-box__message">Pipeline definition passes validation.</div>';
-            DOM['validation-status'].className = 'validation-box validation-box--success';
-            if (DOM['pipeline-save-btn']) DOM['pipeline-save-btn'].disabled = false;
-        }
+            DOM['validation-status'].className = 'validation-box validation-box--inline validation-box--error';
+        if (DOM['pipeline-save-btn']) DOM['pipeline-save-btn'].disabled = true;
+    } else {
+        DOM['validation-status'].innerHTML = '<div class="validation-box__header">Valid</div>';
+        
+        DOM['validation-status'].className = 'validation-box validation-box--inline validation-box--success';
+        if (DOM['pipeline-save-btn']) DOM['pipeline-save-btn'].disabled = false;
+    }
     }
     function renderPipelineIncludes(yamlString) {
         const container = DOM['pipeline-includes'];
@@ -3359,23 +3359,32 @@ function formatPathLabel(path) {
         if (!panel) return;
         const parent = panel.parentNode;
         if (!parent) return;
+        
         const panelWidth = panel.offsetWidth || 260;
         const nextSibling = panel.nextSibling;
+        
         state.suggestionPanelOriginalParent = parent;
         state.suggestionPanelOriginalNextSibling = nextSibling;
+        
         parent.removeChild(panel);
-        const container = document.getElementById('page-content-wrapper') || document.body;
+        
+        const container = DOM['pipeline-editor-wrapper'] || document.getElementById('page-content-wrapper') || document.body;
+        
         if (container && container.classList) {
             container.classList.add('pipeline-suggestion-overlay-host');
         }
+        
         container.appendChild(panel);
         panel.classList.add('pipeline-suggestion-overlay');
         panel.dataset.baseWidth = String(panelWidth);
+
         panel.style.left = '0px';
         panel.style.top = '0px';
         panel.style.transform = '';
+        
         state.suggestionPanelOverlayContainer = container;
         state.suggestionPanelFloating = true;
+        
         updateFloatingSuggestionPanelPosition();
         startEditorSuggestionTracking();
     }
@@ -3384,9 +3393,12 @@ function formatPathLabel(path) {
         if (!state.suggestionPanelFloating) return;
         const panel = DOM['pipeline-suggestion-panel'];
         if (!panel) return;
+        
         panel.classList.remove('pipeline-suggestion-overlay');
+        
         const originalParent = state.suggestionPanelOriginalParent;
         const referenceNode = state.suggestionPanelOriginalNextSibling;
+        
         if (originalParent) {
             if (referenceNode && referenceNode.parentNode === originalParent) {
                 originalParent.insertBefore(panel, referenceNode);
@@ -3394,18 +3406,24 @@ function formatPathLabel(path) {
                 originalParent.appendChild(panel);
             }
         }
+        
         state.suggestionPanelOriginalParent = null;
         state.suggestionPanelOriginalNextSibling = null;
+        
         if (state.suggestionPanelOverlayContainer && state.suggestionPanelOverlayContainer.classList) {
             state.suggestionPanelOverlayContainer.classList.remove('pipeline-suggestion-overlay-host');
         }
+        
         state.suggestionPanelOverlayContainer = null;
         state.suggestionPanelFloating = false;
+        
         panel.style.transform = '';
         panel.style.left = '';
         panel.style.top = '';
         panel.style.width = '';
+        panel.style.minWidth = '';
         panel.style.maxHeight = '';
+        
         stopEditorSuggestionTracking(true);
     }
 
@@ -3437,15 +3455,27 @@ function formatPathLabel(path) {
 
         const actions = DOM['yaml-edit-actions'];
         let anchorTop = textareaRect.top - containerRect.top + container.scrollTop;
+
         if (actions && !actions.classList.contains('hidden')) {
             const actionsRect = actions.getBoundingClientRect();
             anchorTop = Math.max(anchorTop, actionsRect.bottom - containerRect.top + container.scrollTop + 12);
         }
-        const minTop = Math.max(viewportTop, anchorTop);
 
-        let finalTop = anchorTop;
+        let finalTop = Math.max(viewportTop, anchorTop);
+
+        const validationBox = DOM['validation-status'];
+        if (validationBox && !validationBox.classList.contains('hidden')) {
+            const vRect = validationBox.getBoundingClientRect();
+            const valBottom = vRect.bottom - containerRect.top + container.scrollTop;
+            const minTop = valBottom + 12;
+
+            if (finalTop < minTop) {
+                finalTop = minTop;
+            }
+        }
+
         if (finalTop + panelHeight > viewportBottom) {
-            finalTop = Math.max(minTop, viewportBottom - panelHeight);
+            finalTop = Math.max(finalTop, Math.min(finalTop, viewportBottom - panelHeight)); 
         }
 
         panel.style.transform = '';
