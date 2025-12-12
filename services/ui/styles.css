@@ -3941,11 +3941,11 @@ html.dark .triggers-sidebar-link--active {
 }
 
 #editor-container {
-    height: 640px;          /* Set a fixed height */
-    max-height: 70vh;       /* Or max-height relative to viewport */
-    display: flex;          /* Ensure flex layout for line nums + editor */
+    height: 640px;
+    max-height: 70vh;
+    display: flex;
     align-items: stretch;
-    overflow: hidden;       /* Clip overflow */
+    overflow: hidden;
 }
 
 .editor-container.hidden { display: none; }
@@ -3991,23 +3991,22 @@ html.dark .triggers-sidebar-link--active {
     border: none;
     background: transparent;
     color: #e2e8f0;
-    /* CHANGE: Remove large min-height, use 100% height to fill container */
     min-height: 0; 
     height: 100%;
     width: 100%;
     display: block;
-    resize: none; /* Disable resizing since container is fixed */
+    resize: none;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
     font-size: 0.85rem;
     line-height: 1.6;
     outline: none;
-    overflow-y: auto; /* Enable vertical scroll on textarea */
+    overflow-y: auto;
 }
 
 #pipeline-yaml-stage {
     height: 100%;
-    overflow: hidden; /* Textarea handles scrolling */
-    min-height: 0;    /* Override default min-height */
+    overflow: hidden;
+    min-height: 0;
 }
 
 #pipeline-yaml-highlight {
