@@ -2,8 +2,53 @@ window.NopsAI = window.NopsAI || {};
 document.addEventListener('DOMContentLoaded', () => {
     const API_BASE_URL = 'http://localhost:8080';
 
-    const normalizeRunId = (runId) => typeof runId === 'string' ? runId.trim().toLowerCase() : '';
+const normalizeRunId = (runId) => typeof runId === 'string' ? runId.trim().toLowerCase() : '';
 
+    const showErrorToast = (message) => {
+        const container = document.getElementById('toast-container');
+        if (!container) return;
+
+        const toast = document.createElement('div');
+        toast.className = 'pointer-events-auto w-full max-w-sm overflow-hidden rounded-lg bg-[var(--bg-secondary)] shadow-lg ring-1 ring-black ring-opacity-5 border-l-4 border-red-500 transition-transform transform translate-x-full duration-300 ease-in-out';
+
+        toast.innerHTML = `
+            <div class="p-4">
+                <div class="flex items-start">
+                    <div class="flex-shrink-0">
+                        <svg class="h-6 w-6 text-red-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                    </div>
+                    <div class="ml-3 w-0 flex-1 pt-0.5">
+                        <p class="text-sm font-medium text-[var(--text-primary)]">Error</p>
+                        <p class="mt-1 text-sm text-[var(--text-secondary)] break-words">
+                            ${String(message).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}
+                        </p>
+                    </div>
+                    <div class="ml-4 flex flex-shrink-0">
+                        <button class="inline-flex rounded-md bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2">
+                            <span class="sr-only">Close</span>
+                            <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"></path></svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const closeButton = toast.querySelector('button');
+        const closeToast = () => {
+            toast.classList.add('translate-x-full', 'opacity-0');
+            setTimeout(() => toast.remove(), 300);
+        };
+        closeButton.addEventListener('click', closeToast);
+
+        container.appendChild(toast);
+
+        // Animate in
+        setTimeout(() => toast.classList.remove('translate-x-full'), 10);
+        // Auto-dismiss after 8 seconds
+        setTimeout(closeToast, 8000);
+    };
 
     const showToast = (runData) => {
         const container = document.getElementById('toast-container');
@@ -191,7 +236,7 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error(`Fetch error for ${url}:`, error);
             fetchData.lastError = error;
             fetchData.lastStatus = null;
-            alert(`Error: ${error.message}`);
+            showErrorToast(error.message || 'Network error occurred');
             return null;
         }
     }
@@ -213,9 +258,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const logsModule = (window.NopsAI && window.NopsAI.logs) ? window.NopsAI.logs : null;
 
-    const context = { state, DOM, fetchData, postData, deleteData, refresh: router, logsModule, apiBaseUrl: API_BASE_URL };
+    const context = { state, DOM, fetchData, postData, deleteData, refresh: router, logsModule, apiBaseUrl: API_BASE_URL, showErrorToast };
 
     const pageModules = (window.NopsAI && window.NopsAI.pages) ? window.NopsAI.pages : {};
+
     const pipelineRunsModule = pageModules.pipelineruns || null;
     const pipelinesModule = pageModules.pipelines || null;
     const stepsModule = pageModules.steps || null;

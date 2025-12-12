@@ -7,6 +7,7 @@
     let logsModule;
     let refresh;
     let initialized = false;
+    let showErrorToast = (msg) => console.error(msg);
     let showLogsModal = () => { };
     let closeLogsModal = () => { };
     let renderLogsWithFilters = () => { };
@@ -484,7 +485,7 @@
 
     async function deleteBranchRunsForRepo(owner, repo, branch) {
         if (!owner || !repo) {
-            alert('Unable to determine repository information for this branch.');
+            showErrorToast('Unable to determine repository information for this branch.');
             return false;
         }
         const branchLabel = branch || 'Others';
@@ -504,7 +505,7 @@
         if (!button) return false;
         const branch = button.dataset.branch || '';
         if (!branch) {
-            alert('Unable to determine which branch to delete.');
+            showErrorToast('Unable to determine which branch to delete.');
             return true;
         }
         let owner = button.dataset.owner || '';
@@ -641,7 +642,7 @@
 
     async function deleteRunById(runId, context) {
         if (!runId) {
-            alert('Missing run identifier.');
+            showErrorToast('Missing run identifier.');
             return;
         }
         if (!window.confirm('Delete this pipeline run permanently? This action cannot be undone.')) {
@@ -1198,6 +1199,9 @@
         deleteData = context.deleteData;
         logsModule = context.logsModule;
         refresh = context.refresh || (() => { });
+        if (typeof context.showErrorToast === 'function') {
+            showErrorToast = context.showErrorToast;
+        }
         state.lastRunETag = null;
         state.runPollingTimer = null;
         if (!DOM.sidebarNav && DOM.sidebarDetailsNav) {
@@ -1667,6 +1671,8 @@
         }
     }
 
+    // services/ui/pipeline-runs.js
+
     function startPipelineRunsPolling() {
         if (state.pipelineRunsPollingTimer) return;
         const poll = async () => {
@@ -1682,10 +1688,14 @@
 
             } else if (state.currentTab === 'events') {
                 const runs = await fetchData('/v1/runs');
-                if (typeof renderTriggerGroupsView === 'function') {
+                
+                // FIX: Only render the groups view if we are NOT looking at a specific run
+                if (!info.runId && typeof renderTriggerGroupsView === 'function') {
                     renderTriggerGroupsView(runs || []);
                 }
+                
                 // Optional: Keep the sidebar updated with recent runs while on Events tab
+                // (Only if sidebar is in list mode, otherwise this does nothing which is fine)
                 renderSidebarPipelineRunsList(runs || []); 
             } else {
                 await fetchGroups();
@@ -3418,7 +3428,7 @@
                             if (match) {
                                 newRunId = match[0];
                             } else {
-                                alert(result);
+                                showErrorToast(result);
                             }
                         } else if (typeof result === 'object' && result !== null) {
                             if (result.runId) {
@@ -3428,7 +3438,7 @@
                                 newTriggerId = result.triggerEventId;
                             }
                             if (!newRunId && typeof result.message === 'string') {
-                                alert(result.message);
+                                showErrorToast(result.message);
                             }
                         }
 
@@ -5289,10 +5299,9 @@
         return true;
     }
 
-// services/ui/pipeline-runs.js
-
     async function syncSidebarToRun(runInfo) {
-        if (!runInfo || state.currentTab !== 'main') return;
+        // Change: Allow 'events' tab as well (exclude only 'recent' which uses a flat list)
+        if (!runInfo || state.currentTab === 'recent') return;
         if (!Array.isArray(state.groups)) return;
 
         const repoFullName = `${runInfo.git_repo_owner}/${runInfo.git_repo_name}`;
@@ -5309,7 +5318,6 @@
         // Ensure Branch is expanded
         const branchName = normalizeBranchRef(runInfo.git_ref);
         if (branchName) {
-            // Reconstruct branch ID using the same logic as renderRepoChildren
             const branchId = `branch-${repoGroup.id}-${branchName.replace(/[^a-zA-Z0-9]/g, '')}`;
             if (!state.expandedGroups.has(branchId)) {
                 state.expandedGroups.add(branchId);
@@ -5317,7 +5325,7 @@
         }
 
         // Re-render the sidebar to show the expanded hierarchy
-        await renderSidebar('pipelineruns', 'main');
+        await renderSidebar('pipelineruns', state.currentTab);
 
         // Scroll the active item into view
         setTimeout(() => {
@@ -5498,7 +5506,7 @@
 
         const siblings = state.groups.filter(g => normalizeParentId(g.parent_id) === normalizeParentId(parentId));
         if (siblings.some(s => s.name === name)) {
-            alert('A folder or repository with this name already exists at this level.');
+            showErrorToast('A folder or repository with this name already exists at this level.');
             return;
         }
 
@@ -5725,7 +5733,7 @@
                 try {
                     const text = DOM.logsContainer?.innerText || '';
                     if (!text) {
-                        alert('No logs available to download yet.');
+                        showErrorToast('No logs available to download yet.');
                         return;
                     }
                     const blob = new Blob([text], { type: 'text/plain' });
@@ -5740,7 +5748,7 @@
                     URL.revokeObjectURL(url);
                 } catch (error) {
                     console.error('Failed to download logs:', error);
-                    alert('Could not download the logs.');
+                    showErrorToast('Could not download the logs.');
                 }
             });
         }

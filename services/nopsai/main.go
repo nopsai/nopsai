@@ -2686,7 +2686,7 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	query += " ORDER BY created_at DESC LIMIT 100"
+	query += " ORDER BY created_at DESC"
 
 	rows, err := a.db.Query(context.Background(), query, args...)
 	if err != nil {
