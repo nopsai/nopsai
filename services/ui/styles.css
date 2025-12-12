@@ -3940,6 +3940,14 @@ html.dark .triggers-sidebar-link--active {
     border: 1px solid rgba(99,102,241,0.22);
 }
 
+#editor-container {
+    height: 640px;          /* Set a fixed height */
+    max-height: 70vh;       /* Or max-height relative to viewport */
+    display: flex;          /* Ensure flex layout for line nums + editor */
+    align-items: stretch;
+    overflow: hidden;       /* Clip overflow */
+}
+
 .editor-container.hidden { display: none; }
 
 .yaml-editor-stage {
@@ -3977,7 +3985,35 @@ html.dark .triggers-sidebar-link--active {
     z-index: 2;
 }
 
-#pipeline-yaml-editor,
+#pipeline-yaml-editor {
+    flex: 1;
+    padding: 1rem 1.25rem;
+    border: none;
+    background: transparent;
+    color: #e2e8f0;
+    /* CHANGE: Remove large min-height, use 100% height to fill container */
+    min-height: 0; 
+    height: 100%;
+    width: 100%;
+    display: block;
+    resize: none; /* Disable resizing since container is fixed */
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
+    font-size: 0.85rem;
+    line-height: 1.6;
+    outline: none;
+    overflow-y: auto; /* Enable vertical scroll on textarea */
+}
+
+#pipeline-yaml-stage {
+    height: 100%;
+    overflow: hidden; /* Textarea handles scrolling */
+    min-height: 0;    /* Override default min-height */
+}
+
+#pipeline-yaml-highlight {
+    min-height: 100%;
+}
+
 #triggers-yaml-editor,
 #step-yaml-editor,
 #lab-yaml-editor {
