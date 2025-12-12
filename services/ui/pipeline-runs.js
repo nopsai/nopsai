@@ -2221,7 +2221,34 @@
         }
     }
 
+    function groupRunsByTriggerId(runs) {
+        const groups = new Map();
+        runs.forEach(run => {
+            const triggerId = run.trigger_event_id || run.triggerEventId || 'manual';
+            if (!groups.has(triggerId)) {
+                groups.set(triggerId, []);
+            }
+            groups.get(triggerId).push(run);
+        });
+        return groups;
+    }
+
     function renderGroupedRuns(runsByBranch) {
+        // --- State Management for Expansion Persistence ---
+        const activeRepoId = state.selectedGroupId || 'root';
+        
+        // Reset state if navigating to a different repository
+        if (state.lastViewedRepoId !== activeRepoId) {
+            state.expandedBranchNames = new Set();
+            state.repoViewInitialized = false;
+            state.lastViewedRepoId = activeRepoId;
+        }
+        
+        // Ensure the set exists
+        if (!state.expandedBranchNames) {
+            state.expandedBranchNames = new Set();
+        }
+
         state.currentRepoRunsByBranch = runsByBranch || {};
         state.currentRepoGroupId = state.selectedGroupId || null;
         resetMainView();
@@ -2229,13 +2256,33 @@
         setRunToolbarVisibility(true);
         setNewFolderButtonEnabled(false);
         
-        // Modified: Explicitly hide the toggle on repo detail view and force grid
         hideRunViewToggle();
 
         if (!runsByBranch || Object.keys(runsByBranch).length === 0) {
             DOM.mainGridContainer.innerHTML = `<p class="text-[var(--text-secondary)]">No pipeline runs found for this repository.</p>`;
             return;
         }
+
+        // --- Helpers ---
+        const getDotColor = (status) => {
+            const s = (status || 'pending').toLowerCase();
+            if (s === 'success') return 'bg-green-500';
+            if (s.includes('fail')) return 'bg-red-500';
+            if (s === 'running') return 'bg-blue-500 animate-pulse';
+            if (s === 'cancelled') return 'bg-orange-500';
+            if (s === 'skipped') return 'bg-amber-500';
+            return 'bg-gray-400';
+        };
+
+        const getStatusStyles = (status) => {
+            const s = (status || 'pending').toLowerCase();
+            if (s === 'success') return { bg: 'bg-green-500/10', text: 'text-green-500', ring: 'ring-green-500/20' };
+            if (s.includes('fail')) return { bg: 'bg-red-500/10', text: 'text-red-500', ring: 'ring-red-500/20' };
+            if (s === 'running') return { bg: 'bg-blue-500/10', text: 'text-blue-500', ring: 'ring-blue-500/20' };
+            if (s === 'cancelled') return { bg: 'bg-orange-500/10', text: 'text-orange-500', ring: 'ring-orange-500/20' };
+            if (s === 'skipped') return { bg: 'bg-amber-500/10', text: 'text-amber-500', ring: 'ring-amber-500/20' };
+            return { bg: 'bg-gray-500/10', text: 'text-gray-500', ring: 'ring-gray-500/20' };
+        };
 
         const sortedBranches = Object.keys(runsByBranch).sort((a, b) => {
             const lastRunA = runsByBranch[a][0];
@@ -2245,6 +2292,12 @@
             return new Date(lastRunB.started_at) - new Date(lastRunA.started_at);
         });
 
+        // Initialize default expansion (first branch) if not done yet for this repo
+        if (!state.repoViewInitialized && sortedBranches.length > 0) {
+            state.expandedBranchNames.add(sortedBranches[0]);
+            state.repoViewInitialized = true;
+        }
+
         const context = resolveRunContext({
             tab: 'main',
             groupId: state.selectedGroupId,
@@ -2252,61 +2305,148 @@
         });
 
         const searchTerm = (state.runSearchTerm || '').trim().toLowerCase();
-        const filteredBranches = [];
+        
+        let html = '<div class="space-y-6">';
+        let hasContent = false;
 
-        sortedBranches.forEach(branch => {
+        sortedBranches.forEach((branch) => {
             const runs = runsByBranch[branch] || [];
             const visibleRuns = searchTerm ? runs.filter(run => runMatchesSearch(run, searchTerm)) : runs;
             if (!visibleRuns.length) return;
-            const latestSummary = summarizeLatestTriggerStatus(runs);
-            const fallbackRun = runs[0];
-            filteredBranches.push({
-                branch,
-                runs: visibleRuns,
-                latestRun: latestSummary?.referenceRun || fallbackRun,
-                latestStatus: latestSummary?.status || normalizeRunStatus(fallbackRun),
+            hasContent = true;
+
+            // Check persistence state
+            const isExpanded = state.expandedBranchNames.has(branch);
+            const bodyClass = isExpanded ? '' : 'hidden';
+            const chevronClass = isExpanded ? 'rotate-90' : '';
+
+            const latestRun = runs[0];
+            const latestStatus = normalizeRunStatus(latestRun);
+            const config = statusConfig[latestStatus] || statusConfig.pending;
+
+            // 1. Generate status dots for the branch history (limited to 30)
+            const dotsHtml = runs.slice(0, 30).map(run => {
+                const s = normalizeRunStatus(run);
+                const color = getDotColor(s);
+                return `<span class="inline-block h-2 w-2 rounded-full ${color}" title="Pipeline: ${s}"></span>`;
+            }).join('');
+
+            // 2. Group visible runs by Trigger ID
+            const groupsMap = groupRunsByTriggerId(visibleRuns);
+            const sortedGroups = Array.from(groupsMap.entries()).map(([id, groupRuns]) => {
+                const latestTime = groupRuns.reduce((max, r) => {
+                    const t = new Date(r.started_at || 0).getTime();
+                    return t > max ? t : max;
+                }, 0);
+                return { id, runs: groupRuns, time: latestTime };
+            }).sort((a, b) => b.time - a.time);
+
+            // 3. Build HTML for Trigger Groups inside this branch
+            let triggerGroupsHtml = sortedGroups.map(group => {
+                const summary = summarizeLatestTriggerStatus(group.runs);
+                const statusKey = summary ? summary.status : normalizeRunStatus(group.runs[0]);
+                const groupConfig = statusConfig[statusKey] || statusConfig.pending;
+                const styles = getStatusStyles(statusKey);
+
+                const refRun = group.runs[0];
+                const isManual = group.id === 'manual';
+                const displayId = isManual ? 'Manual' : group.id.slice(0, 8);
+                const timeDisplay = timeAgo(refRun.started_at);
+                const shortSha = refRun.git_commit_sha ? refRun.git_commit_sha.slice(0, 7) : '';
+
+                return `
+                <div class="border border-[var(--border-primary)] rounded-lg overflow-hidden mb-3">
+                    <div class="bg-[var(--bg-tertiary)] px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <div class="flex items-center gap-3">
+                            <span class="inline-flex items-center justify-center h-6 w-6 rounded-md ${styles.bg} ${styles.text} ring-1 ${styles.ring}">
+                                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${groupConfig.icon}" /></svg>
+                            </span>
+                            <span class="font-mono font-semibold text-[var(--text-primary)]">Event: ${escapeText(displayId)}</span>
+                            <span class="text-[var(--text-secondary)] flex items-center gap-1">
+                                <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                ${timeDisplay}
+                            </span>
+                            <span class="text-[var(--text-secondary)] flex items-center gap-1">
+                                <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                                ${escapeText(refRun.git_pusher_name || 'System')}
+                                ${shortSha ? `<span class="font-mono opacity-75 ml-0.5">(${shortSha})</span>` : ''}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="p-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 bg-[var(--bg-secondary)]">
+                        ${group.runs.map(run => renderRunCard(run, context, { viewMode: 'grid' })).join('')}
+                    </div>
+                </div>`;
+            }).join('');
+
+            // 4. Wrap in Branch Accordion
+            // NOTE: Removed 'branch-runs' class to prevent CSS max-height:0 conflict
+            html += `
+            <div class="bg-[var(--bg-secondary)] rounded-lg shadow-md mb-4">
+                <div class="branch-header cursor-pointer flex items-center justify-between p-4 border-b border-[var(--border-primary)] ${isExpanded ? 'expanded' : ''}" data-branch="${escapeAttribute(branch)}">
+                    <div class="flex items-center min-w-0 mr-4">
+                        <svg class="h-5 w-5 mr-3 text-[var(--text-secondary)] chevron flex-shrink-0 ${chevronClass} transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                        <svg class="h-5 w-5 mr-3 text-[var(--text-accent)] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                        <span class="font-semibold text-lg text-[var(--text-primary)] truncate">${escapeText(branch)}</span>
+                    </div>
+                    <div class="flex items-center gap-3 flex-shrink-0">
+                         <div class="flex flex-wrap items-center justify-end gap-1 opacity-70 max-w-[120px] sm:max-w-[200px]">
+                            ${dotsHtml}
+                        </div>
+                        <span class="text-sm text-[var(--text-secondary)] hidden sm:inline mr-2">(${runs.length} runs)</span>
+                        
+                        <div class="flex items-center gap-2 pl-2 border-l border-[var(--border-primary)]">
+                            <span class="text-sm text-[var(--text-secondary)] hidden md:block mr-1">Latest: ${latestRun ? timeAgo(latestRun.started_at) : 'N/A'}</span>
+                            <button type="button" class="branch-delete-btn inline-flex items-center justify-center h-8 w-8 rounded-full text-[var(--text-secondary)] hover:text-red-500 hover:bg-[var(--border-primary)] focus:outline-none" data-branch="${escapeAttribute(branch)}" data-owner="${escapeAttribute(latestRun?.git_repo_owner || '')}" data-repo="${escapeAttribute(latestRun?.git_repo_name || '')}" title="Delete branch">
+                                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5-3h4m1 3H7" /></svg>
+                            </button>
+                            <svg class="h-6 w-6 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-4 ${bodyClass}">
+                    ${triggerGroupsHtml}
+                </div>
+            </div>`;
+        });
+
+        html += '</div>';
+
+        if (!hasContent) {
+             const message = searchTerm ? 'No runs match your search in this repository.' : 'No pipeline runs found for this repository.';
+             DOM.mainGridContainer.innerHTML = `<p class="text-[var(--text-secondary)]">${escapeText(message)}</p>`;
+             return;
+        }
+
+        DOM.mainGridContainer.innerHTML = html;
+        
+        // Add specific event listeners for the branch headers to manage state
+        const headers = DOM.mainGridContainer.querySelectorAll('.branch-header');
+        headers.forEach(header => {
+            header.addEventListener('click', (e) => {
+                if (e.target.closest('button')) return;
+                e.stopPropagation();
+
+                const branch = header.dataset.branch;
+                const chevron = header.querySelector('.chevron');
+                const body = header.nextElementSibling;
+                
+                const isHidden = body.classList.contains('hidden');
+
+                if (isHidden) {
+                    body.classList.remove('hidden');
+                    header.classList.add('expanded');
+                    if (chevron) chevron.classList.add('rotate-90');
+                    state.expandedBranchNames.add(branch);
+                } else {
+                    body.classList.add('hidden');
+                    header.classList.remove('expanded');
+                    if (chevron) chevron.classList.remove('rotate-90');
+                    state.expandedBranchNames.delete(branch);
+                }
             });
         });
 
-        if (filteredBranches.length === 0) {
-            const message = searchTerm ? 'No runs match your search in this repository.' : 'No pipeline runs found for this repository.';
-            DOM.mainGridContainer.innerHTML = `<p class="text-[var(--text-secondary)]">${escapeText(message)}</p>`;
-            return;
-        }
-
-        let html = '<div class="space-y-6">';
-
-        filteredBranches.forEach((entry, index) => {
-            const { branch, runs, latestRun: latestFromBranch, latestStatus } = entry;
-            const latestRun = latestFromBranch || runs[0];
-            const statusKey = latestStatus || normalizeRunStatus(latestRun);
-            const config = statusConfig[statusKey] || statusConfig.pending;
-            const isExpanded = index === 0;
-
-            html += `
-            <div class="bg-[var(--bg-secondary)] rounded-lg shadow-md">
-                <div class="branch-header cursor-pointer flex items-center justify-between p-4 border-b border-[var(--border-primary)] ${isExpanded ? 'expanded' : ''}">
-                    <div class="flex items-center min-w-0">
-                        <svg class="h-5 w-5 mr-3 text-[var(--text-secondary)] chevron flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                        <svg class="h-5 w-5 mr-3 text-[var(--text-accent)] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
-                        <span class="font-semibold text-lg text-[var(--text-primary)] truncate">${escapeText(branch)}</span>
-                        <span class="ml-4 text-sm text-[var(--text-secondary)] hidden sm:inline">(${runs.length} runs)</span>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <span class="text-sm text-[var(--text-secondary)] mr-1 hidden sm:block">Latest run: ${latestRun ? timeAgo(latestRun.started_at) : 'N/A'}</span>
-                        <button type="button" class="branch-delete-btn inline-flex items-center justify-center h-8 w-8 rounded-full text-[var(--text-secondary)] hover:text-red-500 hover:bg-[var(--border-primary)] focus:outline-none" data-branch="${escapeAttribute(branch)}" data-owner="${escapeAttribute(latestRun?.git_repo_owner || '')}" data-repo="${escapeAttribute(latestRun?.git_repo_name || '')}" title="Delete branch">
-                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5-3h4m1 3H7" /></svg>
-                        </button>
-                        <svg class="h-6 w-6 ${config.color}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}"/></svg>
-                    </div>
-                </div>
-                <div class="branch-runs p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" style="${isExpanded ? 'max-height: 2000px;' : ''}">
-                ${runs.map(run => renderRunCard(run, context, { viewMode: 'grid' })).join('')}
-            </div>
-            </div>`;
-        });
-        html += '</div>';
-        DOM.mainGridContainer.innerHTML = html;
         updateSelectionBar();
     }
 
@@ -2881,20 +3021,6 @@
             width: totalWidth + PADDING_X,
             height: totalHeight + PADDING_Y
         };
-    }
-
-    // NEW FUNCTION: Groups flat runs by their trigger_event_id
-    function groupRunsByTriggerId(runs) {
-        const groups = new Map();
-        runs.forEach(run => {
-            // Fallback for manual runs or legacy data
-            const triggerId = run.trigger_event_id || run.triggerEventId || 'manual';
-            if (!groups.has(triggerId)) {
-                groups.set(triggerId, []);
-            }
-            groups.get(triggerId).push(run);
-        });
-        return groups;
     }
 
     function renderTriggerGroupsView(runs) {
@@ -5396,14 +5522,8 @@
                     return;
                 }
                 if (targetTab === 'events') {
-                        if (sameTab && !hasRunOpen) return;
-                        window.location.hash = '#/pipelineruns/events';
-                        return;
-                    }
-                
-                if (targetTab === 'recent') {
                     if (sameTab && !hasRunOpen) return;
-                    window.location.hash = '#/pipelineruns/recent';
+                    window.location.hash = '#/pipelineruns/events';
                     return;
                 }
                 if (targetTab === 'main') {
@@ -5438,6 +5558,7 @@
 
         DOM.closeLogsModalBtn.addEventListener('click', closeLogsModal);
         DOM.logsModal.addEventListener('click', e => { if (e.target === DOM.logsModal) closeLogsModal(); });
+        
         DOM.copyLogsBtn.addEventListener('click', () => {
             try {
                 const hasQuery = !!(state.logsSearchText && state.logsSearchText.trim());
@@ -5448,7 +5569,6 @@
                     const uniqueLogEntries = new Set();
 
                     highlightedElements.forEach(highlight => {
-                        // This selector is key: it finds the parent container for BOTH structured and unstructured logs.
                         const logEntry = highlight.closest('.log-line-raw, .flex.flex-col');
                         if (logEntry) {
                             uniqueLogEntries.add(logEntry);
@@ -5460,7 +5580,6 @@
                     });
                 }
 
-                // Fallback to copying everything if there's no active search, otherwise join the found entries.
                 const textToCopy = linesToCopy.length > 0 ? linesToCopy.join('\n\n') : DOM.logsContainer.innerText;
                 navigator.clipboard.writeText(textToCopy);
 
@@ -5468,7 +5587,6 @@
                 console.error("Copy to clipboard failed:", e);
             }
 
-            // Provide visual feedback to the user.
             const originalIcon = DOM.copyLogsBtn.innerHTML;
             DOM.copyLogsBtn.innerHTML = '<svg class="h-5 w-5 text-green-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>';
             setTimeout(() => DOM.copyLogsBtn.innerHTML = originalIcon, 2000);
@@ -5512,7 +5630,6 @@
                 if (typeof state.syncLogsHash === 'function') state.syncLogsHash({ replace: true });
             });
         }
-        // No 'only selected' toggle; selecting none means show all
 
         if (DOM.pipelineRunsSearch) {
             DOM.pipelineRunsSearch.addEventListener('input', () => {
@@ -5730,21 +5847,7 @@
                     return;
                 }
 
-                const branchHeader = e.target.closest('.branch-header');
-                if (branchHeader) {
-                    const chevron = branchHeader.querySelector('.chevron');
-                    if (chevron && chevron.parentElement) {
-                        chevron.parentElement.classList.toggle('expanded');
-                    }
-                    const runsContainer = branchHeader.nextElementSibling;
-                    if (runsContainer) {
-                        if (runsContainer.style.maxHeight && runsContainer.style.maxHeight !== '0px') {
-                            runsContainer.style.maxHeight = '0px';
-                        } else {
-                            runsContainer.style.maxHeight = `${runsContainer.scrollHeight}px`;
-                        }
-                    }
-                }
+                // REMOVED: Conflicting .branch-header logic
             });
 
             DOM.mainGridContainer.addEventListener('mouseover', handleRunHighlight);
