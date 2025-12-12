@@ -2228,6 +2228,9 @@
         DOM.mainGridContainer.classList.remove('hidden');
         setRunToolbarVisibility(true);
         setNewFolderButtonEnabled(false);
+        
+        // Modified: Explicitly hide the toggle on repo detail view and force grid
+        hideRunViewToggle();
 
         if (!runsByBranch || Object.keys(runsByBranch).length === 0) {
             DOM.mainGridContainer.innerHTML = `<p class="text-[var(--text-secondary)]">No pipeline runs found for this repository.</p>`;
@@ -2277,8 +2280,8 @@
             const { branch, runs, latestRun: latestFromBranch, latestStatus } = entry;
             const latestRun = latestFromBranch || runs[0];
             const statusKey = latestStatus || normalizeRunStatus(latestRun);
-            const config = statusKey ? (statusConfig[statusKey] || statusConfig.pending) : statusConfig.pending;
-            const isExpanded = index === 0; // Expand first branch by default
+            const config = statusConfig[statusKey] || statusConfig.pending;
+            const isExpanded = index === 0;
 
             html += `
             <div class="bg-[var(--bg-secondary)] rounded-lg shadow-md">
@@ -2298,7 +2301,7 @@
                     </div>
                 </div>
                 <div class="branch-runs p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" style="${isExpanded ? 'max-height: 2000px;' : ''}">
-                ${runs.map(run => renderRunCard(run, context, { viewMode: getRunViewMode() })).join('')}
+                ${runs.map(run => renderRunCard(run, context, { viewMode: 'grid' })).join('')}
             </div>
             </div>`;
         });
@@ -2549,8 +2552,16 @@
         lastMainGridRender = { subgroups, runs, showAddButton };
         const container = DOM.mainGridContainer;
         if (!container) return;
-        const isListView = getRunViewMode() === 'list';
-        ensureRunViewToggle();
+
+        // Modified: Only allow view toggle on Recent tab; Main tab enforces grid view.
+        const allowViewToggle = state.currentTab === 'recent';
+        if (allowViewToggle) {
+            ensureRunViewToggle();
+        } else {
+            hideRunViewToggle();
+        }
+        const isListView = allowViewToggle ? (getRunViewMode() === 'list') : false;
+        
         resetMainView();
         container.classList.remove('hidden');
 
@@ -2621,7 +2632,8 @@
             groupSegments: state.selectedGroupPathSegments,
         });
 
-        const wrapperClass = 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4';
+        // Use grid classes if not in list view
+        const wrapperClass = isListView ? 'flex flex-col gap-3' : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4';
         let html = `<div class="${wrapperClass}">`;
 
         visibleSubgroups.forEach(group => {
@@ -2885,15 +2897,48 @@
         return groups;
     }
 
-    // NEW FUNCTION: Renders the grouped view
     function renderTriggerGroupsView(runs) {
         const container = DOM.mainGridContainer;
         if (!container) return;
         
+        // Ensure state tracking for collapsed groups exists
+        if (!state.collapsedTriggerGroups) {
+            state.collapsedTriggerGroups = new Set();
+        }
+
+        // Hide view toggle on events tab
+        hideRunViewToggle();
+
+        // Ensure toolbar is visible but "New Folder" button is hidden
+        setRunToolbarVisibility(true);
+        setNewFolderButtonEnabled(false);
+
         // Clear previous view
         container.innerHTML = '';
         container.classList.remove('hidden');
         
+        // Helper to map status to Tailwind color classes for the container
+        const getStatusStyles = (status) => {
+            const s = (status || 'pending').toLowerCase();
+            if (s === 'success') return { bg: 'bg-green-500/10', text: 'text-green-500', ring: 'ring-green-500/20' };
+            if (s.includes('fail')) return { bg: 'bg-red-500/10', text: 'text-red-500', ring: 'ring-red-500/20' };
+            if (s === 'running') return { bg: 'bg-blue-500/10', text: 'text-blue-500', ring: 'ring-blue-500/20' };
+            if (s === 'cancelled') return { bg: 'bg-orange-500/10', text: 'text-orange-500', ring: 'ring-orange-500/20' };
+            if (s === 'skipped') return { bg: 'bg-amber-500/10', text: 'text-amber-500', ring: 'ring-amber-500/20' };
+            return { bg: 'bg-gray-500/10', text: 'text-gray-500', ring: 'ring-gray-500/20' };
+        };
+
+        // Helper for the small status dots
+        const getDotColor = (status) => {
+            const s = (status || 'pending').toLowerCase();
+            if (s === 'success') return 'bg-green-500';
+            if (s.includes('fail')) return 'bg-red-500';
+            if (s === 'running') return 'bg-blue-500 animate-pulse';
+            if (s === 'cancelled') return 'bg-orange-500';
+            if (s === 'skipped') return 'bg-amber-500';
+            return 'bg-gray-400';
+        };
+
         // Group and Sort
         const groupsMap = groupRunsByTriggerId(runs);
         const sortedGroups = Array.from(groupsMap.entries()).map(([id, groupRuns]) => {
@@ -2910,29 +2955,59 @@
             return;
         }
 
-        let html = `<div class="space-y-6">`;
+        // Add Global Controls
+        let html = `
+        <div class="flex items-center justify-end gap-3 mb-4 px-1">
+            <button type="button" id="trigger-expand-all" class="text-xs font-medium text-[var(--text-accent)] hover:text-[var(--text-primary)] transition-colors">Expand All</button>
+            <span class="text-[var(--border-secondary)]">|</span>
+            <button type="button" id="trigger-collapse-all" class="text-xs font-medium text-[var(--text-accent)] hover:text-[var(--text-primary)] transition-colors">Collapse All</button>
+        </div>
+        <div class="space-y-6">`;
 
         sortedGroups.forEach(group => {
+            // Determine aggregated status for the trigger group
+            const summary = summarizeLatestTriggerStatus(group.runs);
+            const statusKey = summary ? summary.status : normalizeRunStatus(group.runs[0]);
+            
+            // Get Icon and Styles
+            const config = statusConfig[statusKey] || statusConfig.pending;
+            const styles = getStatusStyles(statusKey);
+
+            // Generate status dots for individual pipelines
+            const dotsHtml = group.runs.map(run => {
+                const s = normalizeRunStatus(run);
+                const color = getDotColor(s);
+                return `<span class="inline-block h-2 w-2 rounded-full ${color}" title="Pipeline: ${s}"></span>`;
+            }).join('');
+
             // Use the first run to get shared metadata (like commit info)
             const refRun = group.runs[0];
             const isManual = group.id === 'manual';
             const displayId = isManual ? 'Manual Triggers' : group.id.slice(0, 8);
             const branchDisplay = formatBranchDisplay(refRun.git_ref, refRun.git_target_ref, { html: true });
             const timeDisplay = timeAgo(refRun.started_at);
+            const safeId = escapeAttribute(group.id);
+            const shortSha = refRun.git_commit_sha ? refRun.git_commit_sha.slice(0, 7) : '';
             
-            // Render the Event Header Card
+            // Check persistence state
+            const isCollapsed = state.collapsedTriggerGroups.has(group.id);
+            const bodyClass = isCollapsed ? 'hidden' : '';
+            const chevronClass = isCollapsed ? '' : 'rotate-90';
+            
             html += `
-            <div class="bg-[var(--bg-secondary)] rounded-lg shadow-md border border-[var(--border-primary)] overflow-hidden">
-                <div class="p-4 border-b border-[var(--border-primary)] bg-[var(--bg-tertiary)] flex flex-wrap items-center justify-between gap-4">
+            <div class="bg-[var(--bg-secondary)] rounded-lg shadow-md border border-[var(--border-primary)] overflow-hidden trigger-group-card" data-trigger-id="${safeId}">
+                <div class="trigger-group-header p-4 border-b border-[var(--border-primary)] bg-[var(--bg-tertiary)] flex flex-wrap items-center justify-between gap-4 cursor-pointer hover:bg-[var(--bg-hover)] transition-colors select-none">
                     <div class="flex items-center gap-3">
-                        <span class="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-indigo-500/10 text-indigo-500 ring-1 ring-indigo-500/20">
-                            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                        <svg class="h-4 w-4 text-[var(--text-secondary)] chevron ${chevronClass} transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                        </svg>
+                        <span class="inline-flex items-center justify-center h-8 w-8 rounded-lg ${styles.bg} ${styles.text} ring-1 ${styles.ring}" title="Status: ${statusKey}">
+                            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}" /></svg>
                         </span>
                         <div>
                             <h3 class="text-sm font-semibold text-[var(--text-primary)] font-mono">Event: ${escapeText(displayId)}</h3>
                             <div class="flex items-center gap-3 text-xs text-[var(--text-secondary)] mt-1">
                                 <span class="flex items-center gap-1">
-                                    <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                     ${timeDisplay}
                                 </span>
                                 <span class="flex items-center gap-1">
@@ -2942,16 +3017,22 @@
                                 <span class="flex items-center gap-1">
                                     <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
                                     ${escapeText(refRun.git_pusher_name || 'System')}
+                                    ${shortSha ? `<span class="font-mono opacity-75 ml-1">(${shortSha})</span>` : ''}
                                 </span>
                             </div>
                         </div>
                     </div>
-                    <div class="text-xs font-medium px-2.5 py-0.5 rounded-full bg-[var(--bg-primary)] border border-[var(--border-primary)] text-[var(--text-secondary)]">
-                        ${group.runs.length} Pipeline${group.runs.length === 1 ? '' : 's'}
+                    <div class="flex items-center gap-3">
+                        <div class="flex items-center gap-1 opacity-70">
+                            ${dotsHtml}
+                        </div>
+                        <div class="text-xs font-medium px-2.5 py-0.5 rounded-full bg-[var(--bg-primary)] border border-[var(--border-primary)] text-[var(--text-secondary)]">
+                            ${group.runs.length} Pipeline${group.runs.length === 1 ? '' : 's'}
+                        </div>
                     </div>
                 </div>
                 
-                <div class="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div class="trigger-group-body p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 transition-all ${bodyClass}">
                     ${group.runs.map(run => renderRunCard(run, { tab: 'events' }, { viewMode: 'grid' })).join('')}
                 </div>
             </div>`;
@@ -2959,7 +3040,52 @@
 
         html += `</div>`;
         container.innerHTML = html;
-}
+
+        // --- Event Handling for Toggles ---
+        const headers = container.querySelectorAll('.trigger-group-header');
+        const expandAllBtn = container.querySelector('#trigger-expand-all');
+        const collapseAllBtn = container.querySelector('#trigger-collapse-all');
+
+        const toggleGroup = (header, forceExpand = null) => {
+            const card = header.closest('.trigger-group-card');
+            const body = header.nextElementSibling;
+            const chevron = header.querySelector('.chevron');
+            const groupId = card.dataset.triggerId;
+            
+            const isHidden = body.classList.contains('hidden');
+            const shouldExpand = forceExpand !== null ? forceExpand : isHidden;
+
+            if (shouldExpand) {
+                body.classList.remove('hidden');
+                chevron.classList.add('rotate-90');
+                state.collapsedTriggerGroups.delete(groupId);
+            } else {
+                body.classList.add('hidden');
+                chevron.classList.remove('rotate-90');
+                state.collapsedTriggerGroups.add(groupId);
+            }
+        };
+
+        headers.forEach(header => {
+            header.addEventListener('click', (e) => {
+                if (e.target.closest('button') || e.target.closest('a')) return;
+                toggleGroup(header);
+            });
+        });
+
+        if (expandAllBtn) {
+            expandAllBtn.addEventListener('click', () => {
+                headers.forEach(h => toggleGroup(h, true));
+                state.collapsedTriggerGroups.clear();
+            });
+        }
+        if (collapseAllBtn) {
+            collapseAllBtn.addEventListener('click', () => {
+                headers.forEach(h => toggleGroup(h, false));
+                sortedGroups.forEach(g => state.collapsedTriggerGroups.add(g.id));
+            });
+        }
+    }
 
     function renderRunView(runDetails) {
         const currentHashInfo = parsePipelineRunsHash(window.location.hash);
