@@ -1257,6 +1257,11 @@
             if (state.currentTab === 'recent') {
                 const runs = await fetchData('/v1/runs');
                 if (runs) renderSidebarPipelineRunsList(runs);
+            } else if (state.currentTab === 'events') {
+                 const runs = await fetchData('/v1/runs');
+                 if (typeof renderTriggerGroupsView === 'function') {
+                    renderTriggerGroupsView(runs || []);
+                }
             } else if (state.currentTab === 'main') {
                 await renderHierarchy(state.groups);
             }
@@ -1674,6 +1679,14 @@
 
             if (state.currentTab === 'recent') {
                 await fetchAllRuns();
+
+            } else if (state.currentTab === 'events') {
+                const runs = await fetchData('/v1/runs');
+                if (typeof renderTriggerGroupsView === 'function') {
+                    renderTriggerGroupsView(runs || []);
+                }
+                // Optional: Keep the sidebar updated with recent runs while on Events tab
+                renderSidebarPipelineRunsList(runs || []); 
             } else {
                 await fetchGroups();
                 await renderSidebar('pipelineruns', state.currentTab || 'main');
@@ -2857,19 +2870,107 @@
             height: totalHeight + PADDING_Y
         };
     }
+
+    // NEW FUNCTION: Groups flat runs by their trigger_event_id
+    function groupRunsByTriggerId(runs) {
+        const groups = new Map();
+        runs.forEach(run => {
+            // Fallback for manual runs or legacy data
+            const triggerId = run.trigger_event_id || run.triggerEventId || 'manual';
+            if (!groups.has(triggerId)) {
+                groups.set(triggerId, []);
+            }
+            groups.get(triggerId).push(run);
+        });
+        return groups;
+    }
+
+    // NEW FUNCTION: Renders the grouped view
+    function renderTriggerGroupsView(runs) {
+        const container = DOM.mainGridContainer;
+        if (!container) return;
+        
+        // Clear previous view
+        container.innerHTML = '';
+        container.classList.remove('hidden');
+        
+        // Group and Sort
+        const groupsMap = groupRunsByTriggerId(runs);
+        const sortedGroups = Array.from(groupsMap.entries()).map(([id, groupRuns]) => {
+            // Find the latest time in this group to sort the groups by recency
+            const latestTime = groupRuns.reduce((max, r) => {
+                const t = new Date(r.started_at || 0).getTime();
+                return t > max ? t : max;
+            }, 0);
+            return { id, runs: groupRuns, time: latestTime };
+        }).sort((a, b) => b.time - a.time);
+
+        if (sortedGroups.length === 0) {
+            container.innerHTML = `<p class="text-[var(--text-secondary)] text-center py-10">No events found.</p>`;
+            return;
+        }
+
+        let html = `<div class="space-y-6">`;
+
+        sortedGroups.forEach(group => {
+            // Use the first run to get shared metadata (like commit info)
+            const refRun = group.runs[0];
+            const isManual = group.id === 'manual';
+            const displayId = isManual ? 'Manual Triggers' : group.id.slice(0, 8);
+            const branchDisplay = formatBranchDisplay(refRun.git_ref, refRun.git_target_ref, { html: true });
+            const timeDisplay = timeAgo(refRun.started_at);
+            
+            // Render the Event Header Card
+            html += `
+            <div class="bg-[var(--bg-secondary)] rounded-lg shadow-md border border-[var(--border-primary)] overflow-hidden">
+                <div class="p-4 border-b border-[var(--border-primary)] bg-[var(--bg-tertiary)] flex flex-wrap items-center justify-between gap-4">
+                    <div class="flex items-center gap-3">
+                        <span class="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-indigo-500/10 text-indigo-500 ring-1 ring-indigo-500/20">
+                            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                        </span>
+                        <div>
+                            <h3 class="text-sm font-semibold text-[var(--text-primary)] font-mono">Event: ${escapeText(displayId)}</h3>
+                            <div class="flex items-center gap-3 text-xs text-[var(--text-secondary)] mt-1">
+                                <span class="flex items-center gap-1">
+                                    <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                    ${timeDisplay}
+                                </span>
+                                <span class="flex items-center gap-1">
+                                    <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                                    ${branchDisplay}
+                                </span>
+                                <span class="flex items-center gap-1">
+                                    <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                                    ${escapeText(refRun.git_pusher_name || 'System')}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="text-xs font-medium px-2.5 py-0.5 rounded-full bg-[var(--bg-primary)] border border-[var(--border-primary)] text-[var(--text-secondary)]">
+                        ${group.runs.length} Pipeline${group.runs.length === 1 ? '' : 's'}
+                    </div>
+                </div>
+                
+                <div class="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    ${group.runs.map(run => renderRunCard(run, { tab: 'events' }, { viewMode: 'grid' })).join('')}
+                </div>
+            </div>`;
+        });
+
+        html += `</div>`;
+        container.innerHTML = html;
+}
+
     function renderRunView(runDetails) {
         const currentHashInfo = parsePipelineRunsHash(window.location.hash);
         const expectedRunId = runDetails?.run_info?.run_id;
 
-        // Only update the header IF we are currently on a pipelinerun page
-        // AND the runId in the hash matches the runId we are trying to render.
         if (currentHashInfo.path !== 'pipelineruns' || currentHashInfo.runId !== expectedRunId) {
             console.warn("renderRunView aborted: View changed or Run ID mismatch.", {
                 currentPath: currentHashInfo.path,
                 currentHashRunId: currentHashInfo.runId,
                 renderingRunId: expectedRunId
             });
-            // IMPORTANT: Stop the function here to prevent overwriting the header
             return;
         }
         setRunToolbarVisibility(false);
@@ -4956,7 +5057,7 @@
         if (path === 'pipelineruns') {
             await fetchGroups();
 
-            state.currentTab = (tab === 'recent' || tab === 'main') ? tab : 'main';
+            state.currentTab = (tab === 'recent' || tab === 'main' || tab === 'events') ? tab : 'main';            
             updateTabs(state.currentTab);
             startPipelineRunsPolling();
 
@@ -4997,30 +5098,20 @@
 
             await renderSidebar(path, state.currentTab);
 
-            if (runId) {
-                const shouldFetch = !state.currentRunData || state.currentRunData.run_info.run_id !== runId;
-                if (shouldFetch) {
-                    await fetchActiveRun(runId);
-                }
+            if (state.currentTab === 'events') {
+                state.selectedGroupId = null;
+                state.currentRunContext = null;
+                if (DOM.mainHeader) DOM.mainHeader.textContent = 'Trigger Events';
 
-                state.currentRunContext = {
-                    tab: state.currentTab,
-                    groupSegments: state.selectedGroupPathSegments.slice(),
-                    groupId: selectedGroupId || null,
-                };
-
-                if (state.currentRunData) {
-                    if (action === 'logs') {
-                        applyLogRouteState(logSegments, query);
-                        renderRunView(state.currentRunData);
-                        showLogsModal();
-                    } else {
-                        renderRunView(state.currentRunData);
-                        if (action === 'steps' && stepName) {
-                            showStepDetails(stepName);
-                        }
-                    }
+                // Fetch runs and render the new view
+                const runs = await fetchData('/v1/runs');
+                // Ensure you have added the renderTriggerGroupsView function from the previous step!
+                if (typeof renderTriggerGroupsView === 'function') {
+                    renderTriggerGroupsView(runs || []);
+                } else {
+                    console.error('renderTriggerGroupsView is missing');
                 }
+                renderSidebarPipelineRunsList(runs || []);
             } else if (state.currentTab === 'recent') {
                 state.selectedGroupId = null;
                 state.selectedGroupPathSegments = [];
@@ -5178,7 +5269,17 @@
                     window.location.hash = '#/pipelineruns/recent';
                     return;
                 }
-
+                if (targetTab === 'events') {
+                        if (sameTab && !hasRunOpen) return;
+                        window.location.hash = '#/pipelineruns/events';
+                        return;
+                    }
+                
+                if (targetTab === 'recent') {
+                    if (sameTab && !hasRunOpen) return;
+                    window.location.hash = '#/pipelineruns/recent';
+                    return;
+                }
                 if (targetTab === 'main') {
                     let segments = [];
                     if (sameTab && !hasRunOpen) {
@@ -5794,6 +5895,11 @@
                 }
                 renderMainGridContent(null, state.recentRuns, false);
                 renderSidebarPipelineRunsList(state.recentRuns);
+            } else if (state.currentTab === 'events') {
+                 const runs = await fetchData('/v1/runs');
+                 if (typeof renderTriggerGroupsView === 'function') {
+                    renderTriggerGroupsView(runs || []);
+                }
             } else if (state.currentTab === 'main') {
                 // If on the "Main" tab, re-fetch the content for the currently selected group.
                 // This will show new branches or update the grouped run lists.
