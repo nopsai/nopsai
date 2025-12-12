@@ -1845,6 +1845,11 @@
                 state.lastRunETag = fetchData.lastETag;
             }
             state.currentRunData = runDetails;
+
+            if (!isRefresh) {
+                 await syncSidebarToRun(runDetails.run_info);
+            }
+
             refreshSidebarRunState(runDetails.run_info || {});
             if (!isRefresh) startRunPolling(runId);
             updateTrackedRunSubscriptions(runDetails);
@@ -1993,13 +1998,24 @@
                 DOM.sidebarDetailsNav.innerHTML = detailsNavHtml;
                 fetchAllRuns();
             } else {
-                detailsNavHtml = `<div class="px-2 mt-2 mb-2 flex items-center justify-between">
-                                      <h2 class="text-xs font-semibold tracking-wider text-[var(--text-secondary)] uppercase">Main</h2>
-                                  </div>
-                                  <div id="main-hierarchy"></div>`;
-                DOM.sidebarDetailsNav.innerHTML = detailsNavHtml;
+                if (!document.getElementById('main-hierarchy')) {
+                    detailsNavHtml = `<div class="px-2 mt-2 mb-2 flex items-center justify-between">
+                                          <h2 class="text-xs font-semibold tracking-wider text-[var(--text-secondary)] uppercase">Main</h2>
+                                      </div>
+                                      <div id="main-hierarchy"></div>`;
+                    DOM.sidebarDetailsNav.innerHTML = detailsNavHtml;
+                }
+                
                 state.repoLastRunCache.clear();
+
+                const scrollContainer = DOM.sidebarDetailsNav.parentElement || DOM.sidebarDetailsNav;
+                const savedScroll = scrollContainer ? scrollContainer.scrollTop : 0;
+
                 await renderHierarchy(state.groups);
+
+                if (scrollContainer) {
+                    scrollContainer.scrollTop = savedScroll;
+                }
             }
         } else {
             DOM.sidebarDetailsNav.innerHTML = '';
@@ -5273,6 +5289,45 @@
         return true;
     }
 
+// services/ui/pipeline-runs.js
+
+    async function syncSidebarToRun(runInfo) {
+        if (!runInfo || state.currentTab !== 'main') return;
+        if (!Array.isArray(state.groups)) return;
+
+        const repoFullName = `${runInfo.git_repo_owner}/${runInfo.git_repo_name}`;
+        const repoGroup = state.groups.find(g => g.name === repoFullName);
+        
+        if (!repoGroup) return;
+
+        // Ensure Repo Group and Ancestors are expanded
+        if (!state.expandedGroups.has(repoGroup.id)) {
+            state.expandedGroups.add(repoGroup.id);
+        }
+        ensureGroupAncestorsExpanded(repoGroup.id);
+
+        // Ensure Branch is expanded
+        const branchName = normalizeBranchRef(runInfo.git_ref);
+        if (branchName) {
+            // Reconstruct branch ID using the same logic as renderRepoChildren
+            const branchId = `branch-${repoGroup.id}-${branchName.replace(/[^a-zA-Z0-9]/g, '')}`;
+            if (!state.expandedGroups.has(branchId)) {
+                state.expandedGroups.add(branchId);
+            }
+        }
+
+        // Re-render the sidebar to show the expanded hierarchy
+        await renderSidebar('pipelineruns', 'main');
+
+        // Scroll the active item into view
+        setTimeout(() => {
+            const item = document.querySelector(`#main-hierarchy li[data-run-id="${runInfo.run_id}"]`);
+            if (item) {
+                item.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }, 50);
+    }
+
     function renderBreadcrumbs(groupId) {
         // Always set the header to "Pipeline Runs" regardless of the group ID
         if (DOM.mainHeader) {
@@ -5334,12 +5389,12 @@
                         }
                     }
                 }
-                if (!group) {
-                    window.location.hash = '#/pipelineruns/main';
-                    return;
+                if (!group && groupSegments.length > 0) {
+                    // If we can't resolve the group, default to root but keep going to handle runId check
+                } else if (group) {
+                    selectedGroupId = group.id;
+                    groupSegments.splice(0, groupSegments.length, ...getGroupPathSegmentsById(group.id));
                 }
-                selectedGroupId = group.id;
-                groupSegments.splice(0, groupSegments.length, ...getGroupPathSegmentsById(group.id));
             }
 
             state.selectedGroupId = selectedGroupId;
@@ -5350,18 +5405,19 @@
 
             await renderSidebar(path, state.currentTab);
 
+            if (runId) {
+                await fetchActiveRun(runId);
+                return;
+            }
+
             if (state.currentTab === 'events') {
                 state.selectedGroupId = null;
                 state.currentRunContext = null;
                 if (DOM.mainHeader) DOM.mainHeader.textContent = 'Trigger Events';
 
-                // Fetch runs and render the new view
                 const runs = await fetchData('/v1/runs');
-                // Ensure you have added the renderTriggerGroupsView function from the previous step!
                 if (typeof renderTriggerGroupsView === 'function') {
                     renderTriggerGroupsView(runs || []);
-                } else {
-                    console.error('renderTriggerGroupsView is missing');
                 }
                 renderSidebarPipelineRunsList(runs || []);
             } else if (state.currentTab === 'recent') {
@@ -5522,8 +5578,14 @@
                     return;
                 }
                 if (targetTab === 'events') {
+                        if (sameTab && !hasRunOpen) return;
+                        window.location.hash = '#/pipelineruns/events';
+                        return;
+                    }
+                
+                if (targetTab === 'recent') {
                     if (sameTab && !hasRunOpen) return;
-                    window.location.hash = '#/pipelineruns/events';
+                    window.location.hash = '#/pipelineruns/recent';
                     return;
                 }
                 if (targetTab === 'main') {
@@ -5558,7 +5620,6 @@
 
         DOM.closeLogsModalBtn.addEventListener('click', closeLogsModal);
         DOM.logsModal.addEventListener('click', e => { if (e.target === DOM.logsModal) closeLogsModal(); });
-        
         DOM.copyLogsBtn.addEventListener('click', () => {
             try {
                 const hasQuery = !!(state.logsSearchText && state.logsSearchText.trim());
@@ -5569,6 +5630,7 @@
                     const uniqueLogEntries = new Set();
 
                     highlightedElements.forEach(highlight => {
+                        // This selector is key: it finds the parent container for BOTH structured and unstructured logs.
                         const logEntry = highlight.closest('.log-line-raw, .flex.flex-col');
                         if (logEntry) {
                             uniqueLogEntries.add(logEntry);
@@ -5580,6 +5642,7 @@
                     });
                 }
 
+                // Fallback to copying everything if there's no active search, otherwise join the found entries.
                 const textToCopy = linesToCopy.length > 0 ? linesToCopy.join('\n\n') : DOM.logsContainer.innerText;
                 navigator.clipboard.writeText(textToCopy);
 
@@ -5587,6 +5650,7 @@
                 console.error("Copy to clipboard failed:", e);
             }
 
+            // Provide visual feedback to the user.
             const originalIcon = DOM.copyLogsBtn.innerHTML;
             DOM.copyLogsBtn.innerHTML = '<svg class="h-5 w-5 text-green-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>';
             setTimeout(() => DOM.copyLogsBtn.innerHTML = originalIcon, 2000);
@@ -5630,6 +5694,7 @@
                 if (typeof state.syncLogsHash === 'function') state.syncLogsHash({ replace: true });
             });
         }
+        // No 'only selected' toggle; selecting none means show all
 
         if (DOM.pipelineRunsSearch) {
             DOM.pipelineRunsSearch.addEventListener('input', () => {
@@ -5819,17 +5884,21 @@
                     return;
                 }
 
-                const card = e.target.closest('a[data-run-id]');
+                const card = e.target.closest('[data-run-id]');
                 if (card && !e.ctrlKey && !e.metaKey && e.button === 0) {
                     e.preventDefault();
                     const context = parseRunContextAttr(card.dataset.runContext);
                     if (context) {
                         state.currentRunContext = context;
                     }
-                    window.location.hash = card.getAttribute('href');
+                    const url = card.getAttribute('href') || card.dataset.href;
+                    if (url) {
+                         window.location.hash = url;
+                    }
                 }
 
                 const branchDeleteBtn = e.target.closest('.branch-delete-btn');
+
                 if (branchDeleteBtn) {
                     e.preventDefault();
                     e.stopPropagation();
@@ -5847,7 +5916,21 @@
                     return;
                 }
 
-                // REMOVED: Conflicting .branch-header logic
+                const branchHeader = e.target.closest('.branch-header');
+                if (branchHeader) {
+                    const chevron = branchHeader.querySelector('.chevron');
+                    if (chevron && chevron.parentElement) {
+                        chevron.parentElement.classList.toggle('expanded');
+                    }
+                    const runsContainer = branchHeader.nextElementSibling;
+                    if (runsContainer) {
+                        if (runsContainer.style.maxHeight && runsContainer.style.maxHeight !== '0px') {
+                            runsContainer.style.maxHeight = '0px';
+                        } else {
+                            runsContainer.style.maxHeight = `${runsContainer.scrollHeight}px`;
+                        }
+                    }
+                }
             });
 
             DOM.mainGridContainer.addEventListener('mouseover', handleRunHighlight);
@@ -5957,6 +6040,7 @@
         setupHoverHint();
         setupGlobalTitleTooltips();
     }
+
 
     function setupMainGridDragAndDrop() {
         if (!DOM.mainGridContainer) return;
