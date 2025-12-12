@@ -644,18 +644,27 @@
         const minLeft = container.scrollLeft + padding;
         const finalLeft = Math.max(minLeft, Math.min(targetLeft, maxLeft));
 
-        const panelHeight = panel.offsetHeight || 0;
         const viewportTop = container.scrollTop + padding;
         const viewportBottom = container.scrollTop + (container.clientHeight || window.innerHeight || (panelHeight + padding * 2)) - padding;
-        const anchorTop = Math.max(viewportTop, textareaRect.top - containerRect.top + container.scrollTop);
-        let finalTop = anchorTop;
-        if (finalTop + panelHeight > viewportBottom) {
-            finalTop = Math.max(viewportTop, viewportBottom - panelHeight);
+        
+        let finalTop = Math.max(viewportTop, textareaRect.top - containerRect.top + container.scrollTop);
+
+        const validationBox = DOM['lab-validation-status'];
+        if (validationBox && !validationBox.classList.contains('hidden')) {
+            const vRect = validationBox.getBoundingClientRect();
+            const valBottom = vRect.bottom - containerRect.top + container.scrollTop;
+            const minTop = valBottom + 12;
+            
+            if (finalTop < minTop) {
+                finalTop = minTop;
+            }
         }
+
+        let availableHeight = Math.max(150, viewportBottom - finalTop);
 
         panel.style.left = `${finalLeft}px`;
         panel.style.top = `${finalTop}px`;
-        panel.style.maxHeight = `${Math.max(240, viewportBottom - viewportTop)}px`;
+        panel.style.maxHeight = `${availableHeight}px`;
     }
 
     // --- 5. Context Detection & Suggestions ---
@@ -1744,7 +1753,7 @@
             status.className = `${baseClass} validation-box--error`;
             if (DOM['lab-save-yaml']) DOM['lab-save-yaml'].disabled = true;
         } else {
-            status.innerHTML = '<div class="validation-box__header">All good</div><div class="validation-box__message">Pipeline definition passes validation.</div>';
+            status.innerHTML = '<div class="validation-box__header">Valid</div>';
             status.className = `${baseClass} validation-box--success`;
             if (DOM['lab-save-yaml']) DOM['lab-save-yaml'].disabled = false;
         }
