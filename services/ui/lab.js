@@ -606,6 +606,7 @@
             panel.style.left = '';
             panel.style.top = '';
             panel.style.width = '';
+            panel.style.minWidth = '';
             panel.style.maxHeight = '';
         }
         if (container && container.classList) {
@@ -632,9 +633,14 @@
         const containerRect = container.getBoundingClientRect();
         const padding = 24;
         const baseWidth = panel.dataset.baseWidth ? parseFloat(panel.dataset.baseWidth) : (panel.offsetWidth || 260);
+
+        panel.style.width = 'auto';
+        panel.style.minWidth = `${baseWidth}px`;
+        const currentWidth = panel.offsetWidth;
+
         const containerWidth = container.clientWidth || (window.innerWidth ?? baseWidth + padding * 2);
         const targetLeft = textareaRect.right - containerRect.left + container.scrollLeft + padding;
-        const maxLeft = container.scrollLeft + containerWidth - baseWidth - padding;
+        const maxLeft = container.scrollLeft + containerWidth - currentWidth - padding;
         const minLeft = container.scrollLeft + padding;
         const finalLeft = Math.max(minLeft, Math.min(targetLeft, maxLeft));
 
@@ -649,7 +655,6 @@
 
         panel.style.left = `${finalLeft}px`;
         panel.style.top = `${finalTop}px`;
-        panel.style.width = `${baseWidth}px`;
         panel.style.maxHeight = `${Math.max(240, viewportBottom - viewportTop)}px`;
     }
 
