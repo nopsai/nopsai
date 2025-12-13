@@ -21,6 +21,8 @@
     fetchData = context.fetchData;
     state.lastLogId = 0;
     state.logPollingTimer = null;
+    state.lastMatchCount = 0; // Initialize match counter for search
+    if (!state.presentLogLevels) state.presentLogLevels = new Set(DEFAULT_LOG_LEVELS);
   }
 
   // ADD THIS FUNCTION HERE
@@ -192,6 +194,19 @@
     if (firstInit) {
       DOM.logsSearchNext.addEventListener('click', () => navigateSearch('next'));
       DOM.logsSearchPrev.addEventListener('click', () => navigateSearch('prev'));
+      DOM.logsContainer.addEventListener('scroll', () => {
+        const { scrollTop, scrollHeight, clientHeight } = DOM.logsContainer;
+        // Allow a small buffer (e.g., 20px) for calculation inaccuracies
+        const isAtBottom = scrollTop + clientHeight >= scrollHeight - 20;
+
+        if (!isAtBottom && DOM.followLogsCheckbox.checked) {
+           // User scrolled up; disable follow mode
+           DOM.followLogsCheckbox.checked = false;
+        } else if (isAtBottom && !DOM.followLogsCheckbox.checked) {
+           // User scrolled back to bottom; re-enable follow mode (optional)
+           DOM.followLogsCheckbox.checked = true;
+        }
+      });
     }
     updateLogLevelFiltersVisibility();
     updateShortModeUI();
@@ -231,19 +246,22 @@
   async function fetchAndRenderLogs(runId) {
     const lastId = state.lastLogId || 0;
     const logs = await fetchData(`/v1/runs/${runId}/logs?since_line=${lastId}`);
+    
     if (logs && logs.length > 0) {
       // Update lastLogId based on new logs
       const maxId = logs.reduce((max, log) => Math.max(max, log.id || 0), lastId);
       state.lastLogId = maxId;
 
-      if (lastId === 0) {
+      const isFirstLoad = (lastId === 0);
+
+      if (isFirstLoad) {
         state._logsRaw = logs;
+        state.presentLogLevels = new Set(DEFAULT_LOG_LEVELS);
       } else {
         state._logsRaw = (state._logsRaw || []).concat(logs);
       }
 
-      // Analyze the logs to find unique levels
-      const presentLevels = new Set();
+      // Analyze the logs to find unique levels (accumulate them)
       logs.forEach(log => {
         try {
           const line = (log.line || '').trim();
@@ -251,22 +269,24 @@
           if (jsonStart !== -1) {
             const json = JSON.parse(line.substring(jsonStart));
             if (json.level) {
-              presentLevels.add(json.level.toLowerCase());
+              state.presentLogLevels.add(json.level.toLowerCase());
             }
           }
         } catch (e) { /* Ignore parsing errors */ }
       });
-      // Also account for simple, non-structured log levels if needed
-      if (!presentLevels.has('info')) presentLevels.add('info');
+      if (!state.presentLogLevels.has('info')) state.presentLogLevels.add('info');
 
+      updateLogLevelFiltersVisibility(); 
 
-      state.presentLogLevels = presentLevels;
-      updateLogLevelFiltersVisibility(); // Update the UI based on the findings
-
-      renderLogsWithFilters();
+      // Use append mode for incremental updates to avoid jumping
+      if (isFirstLoad) {
+         renderLogsWithFilters();
+      } else {
+         renderLogsWithFilters({ append: true, newLogs: logs });
+      }
     } else if (DOM.logsContainer.innerHTML.includes('Loading')) {
       DOM.logsContainer.innerHTML = `<p class="text-[var(--text-secondary)]">No logs yet...</p>`;
-      updateLogLevelFiltersVisibility(); // Ensure buttons are hidden if no logs
+      updateLogLevelFiltersVisibility();
     }
   }
 
@@ -275,7 +295,8 @@
       state._logsRaw = [];
     }
     state._logsRaw.push(logLine);
-    renderLogsWithFilters();
+    // Append single line
+    renderLogsWithFilters({ append: true, newLogs: [logLine] });
   }
 
   function getLogStepName(log) {
@@ -434,7 +455,6 @@
   }
 
   function renderLogsWithFilters(options = {}) {
-    const logs = state._logsRaw || [];
     const selected = state.logsSelectedSteps || new Set();
     const query = (state.logsSearchText || '').toLowerCase();
     const structuredOn = !!state.logsStructured;
@@ -443,10 +463,19 @@
     const agentOnly = !!state.logsAgentOnly;
     const shortMode = !!state.logsShortView;
 
+    // Determine if we are appending or doing a full render
+    const isAppend = options.append && Array.isArray(options.newLogs);
+    const logsToProcess = isAppend ? options.newLogs : (state._logsRaw || []);
+
     DOM.logsContainer.classList.toggle('logs-unwrapped', !wrap);
 
-    state._logsSearchMatches = [];
-    state._logsSearchMatchIndex = -1;
+    if (!isAppend) {
+        state._logsSearchMatches = [];
+        state._logsSearchMatchIndex = -1;
+    }
+
+    // Keep track of match count for numbering (if appending, continue from last count)
+    let matches = isAppend ? (state.lastMatchCount || 0) : 0;
 
     const ansiRegex = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
     const colorConfig = {
@@ -464,7 +493,6 @@
     const tagLabels = { runid: 'Run ID', pipeline: 'Pipeline', step: 'Step', task: 'Task', status: 'Status', component: 'Component', session: 'Session', container_id: 'Container ID', child_run_id: 'Child Run', image: 'Image' };
     const nameToIdx = new Map(Array.from(selected).map((n, i) => [n, i % 8]));
     const rx = query ? new RegExp(`(${escapeRegExp(query)})`, 'ig') : null;
-    let matches = 0;
 
     const formatTimestamp = (value) => {
       if (!value) {
@@ -505,7 +533,7 @@
       return lvl || 'info';
     };
 
-    const html = logs.map((log, i) => {
+    const html = logsToProcess.map((log, i) => {
       let rawLine = (log.line || '').replace(ansiRegex, '').trim();
       if (!rawLine) {
         return null;
@@ -876,20 +904,27 @@
 
     }).filter(Boolean).join('');
 
-    DOM.logsContainer.innerHTML = html || `<p class="text-[var(--text-secondary)]">No matching logs.</p>`;
+    if (isAppend) {
+        if (html) {
+             DOM.logsContainer.insertAdjacentHTML('beforeend', html);
+        }
+    } else {
+        DOM.logsContainer.innerHTML = html || `<p class="text-[var(--text-secondary)]">No matching logs.</p>`;
+    }
 
+    state.lastMatchCount = matches;
     state._logsSearchMatches = Array.from(DOM.logsContainer.querySelectorAll('.log-highlight'));
     updateSearchNav();
 
     if (DOM.logsCount) {
-      const total = logs.length || 0;
+      const total = state._logsRaw ? state._logsRaw.length : 0;
       DOM.logsCount.textContent = query && total ? `${matches} matches • ${total} lines` : (total ? `${total} lines` : '');
     }
 
     // New logic to handle scrolling
     if (options.scrollToTop) {
       DOM.logsContainer.scrollTop = 0;
-    } else if (state._logsFocusFirstMatch) {
+    } else if (state._logsFocusFirstMatch && !isAppend) {
       requestAnimationFrame(() => {
         let target = DOM.logsContainer.querySelector('.log-highlight');
         if (target) target = target.closest('.log-line-structured') || target.closest('.log-line') || target;
