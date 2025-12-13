@@ -1826,7 +1826,13 @@
 
     async function fetchActiveRun(runId, isRefresh = false) {
         if (!runId) return;
-        if (!isRefresh) {
+        
+        // [OPTIMIZATION] If we are just navigating tabs (e.g. Main -> Logs) for the same run,
+        // don't wipe the screen. Only reset if the Run ID actually changes.
+        const currentId = state.currentRunData?.run_info?.run_id;
+        const isSameRun = currentId === runId;
+
+        if (!isRefresh && !isSameRun) {
             resetMainView();
             stopRunPolling();
             state.lastRunETag = null;
@@ -1846,11 +1852,8 @@
 
         const runDetails = await fetchData(`/v1/runs/${runId}`, options);
 
-        if (runDetails === null && fetchData.lastStatus === 304) {
-            if (!isRefresh) startRunPolling(runId);
-            return;
-        }
         if (runDetails) {
+            // [STATUS 200] New data received
             if (fetchData.lastETag) {
                 state.lastRunETag = fetchData.lastETag;
             }
@@ -1863,7 +1866,8 @@
             refreshSidebarRunState(runDetails.run_info || {});
             if (!isRefresh) startRunPolling(runId);
             updateTrackedRunSubscriptions(runDetails);
-            // Restore persisted Steps layout for this run (expanded, positions, scale)
+            
+            // Restore persisted Steps layout
             try {
                 const key = `nopsai_steps_layout:${runDetails.run_info?.run_id || ''}`;
                 const raw = localStorage.getItem(key);
@@ -1882,10 +1886,28 @@
                     }
                 }
             } catch { }
+
             renderRunView(runDetails);
-            const { action, stepName } = parsePipelineRunsHash(window.location.hash);
+        } else if (fetchData.lastStatus === 304) {
+            // [STATUS 304] Data unchanged. 
+            // We do NOT return early anymore; we fall through to check URL actions (logs/steps).
+            if (!isRefresh) startRunPolling(runId);
+        }
+
+        // [FIX] Always check URL actions if we have data (whether from 200 or 304)
+        if (state.currentRunData) {
+            const { action, stepName, logSegments, query } = parsePipelineRunsHash(window.location.hash);
+            
             if (action === 'steps' && stepName) {
                 showStepDetails(stepName);
+            } else if (action === 'logs') {
+                // Initialize log state from hash and open the modal
+                if (typeof applyLogRouteState === 'function') {
+                    applyLogRouteState(logSegments, query);
+                }
+                if (typeof showLogsModal === 'function') {
+                    showLogsModal();
+                }
             }
         }
     }
@@ -2032,6 +2054,78 @@
         }
     }
 
+// ... existing imports ...
+
+    // [HELPER] Syncs a UL list with data items to prevent full re-renders
+    function syncDomList(container, items, idKey, createFn, updateFn, level) {
+        let ul = container.querySelector(':scope > ul');
+        if (!ul) {
+            ul = document.createElement('ul');
+            ul.className = `pl-${level > 0 ? '4' : '0'} space-y-1`;
+            container.appendChild(ul);
+        }
+
+        const existingNodes = new Map();
+        Array.from(ul.children).forEach(li => {
+            const id = li.dataset[idKey]; // e.g. 'groupId' or 'branchId'
+            if (id) existingNodes.set(id, li);
+        });
+
+        // Reorder / Create / Update
+        items.forEach((item) => {
+            const itemId = String(item.id); // Ensure string for map lookup
+            let li = existingNodes.get(itemId);
+
+            if (li) {
+                updateFn(li, item);
+                existingNodes.delete(itemId);
+                ul.appendChild(li); // Moves it to the correct new position
+            } else {
+                li = createFn(item, level);
+                ul.appendChild(li);
+            }
+        });
+
+        // Remove items that are no longer in the data
+        existingNodes.forEach(li => li.remove());
+    }
+
+    // [HELPER] Generates the inner HTML for a group header
+    function getGroupHeaderHTML(group, isExpanded, isActive, canExpand) {
+        const isRepo = (group.name || '').includes('/');
+        const displayName = isRepo ? group.name.split('/')[1] : group.name;
+        const pathSegments = getGroupPathSegmentsById(group.id);
+        const groupHref = pathSegments.length ? `#/pipelineruns/main/${pathSegments.join('/')}` : '#/pipelineruns/main';
+        
+        let chevron = canExpand
+            ? `<svg class="h-4 w-4 mr-1 text-[var(--text-secondary)] chevron ${isExpanded ? 'rotate-90' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>`
+            : `<div class="w-5 h-4 mr-1"></div>`;
+
+        const folderIconSvg = `<svg class="h-4 w-4 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>`;
+        const repoIconSvg = `<svg class="h-4 w-4 text-[var(--text-accent)] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="8" cy="7" r="2" fill="currentColor" /><circle cx="8" cy="17" r="2" fill="currentColor" /><circle cx="16" cy="7" r="2" fill="currentColor" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 7h4"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9v6a4 4 0 004 4h4"/></svg>`;
+        const iconHtml = isRepo ? repoIconSvg : folderIconSvg;
+        const descriptionText = (group.description || '').trim();
+        const descriptionHtml = descriptionText ? `<span class="group-tree-description truncate">${escapeText(descriptionText)}</span>` : '';
+        const linkTitleAttr = escapeAttribute(descriptionText ? `${displayName} — ${descriptionText}` : displayName);
+
+        return `
+            <div class="flex items-center justify-between p-2 text-[var(--text-primary)] rounded-md group-header-container ${isActive ? 'bg-[var(--bg-tertiary)]' : ''}">
+                <div class="flex items-center group-header flex-grow cursor-pointer ${isExpanded ? 'expanded' : ''}">
+                    ${chevron}
+                    <a href="${groupHref}" class="flex items-center flex-grow gap-2" title="${linkTitleAttr}">
+                        ${iconHtml}
+                        <span class="flex flex-col leading-tight min-w-0">
+                            <span class="truncate">${escapeText(displayName)}</span>
+                            ${descriptionHtml}
+                        </span>
+                    </a>
+                </div>
+                <button class="delete-group-btn text-[var(--text-secondary)] hover:text-red-500 opacity-0 transition-opacity" data-group-id="${group.id}" data-group-name="${group.name}"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+            </div>
+            <div class="group-children"></div>`;
+    }
+
+    // [MODIFIED] renderHierarchy: Uses syncDomList to update in-place
     async function renderHierarchy(groups, parentId = null, level = 0, container = null) {
         container = container || (level === 0 ? document.getElementById('main-hierarchy') : document.querySelector(`[data-group-id='${parentId}'] .group-children`));
         if (!container) return;
@@ -2042,11 +2136,11 @@
         const childrenWithDataPromises = children.map(async (group) => {
             const isRepo = (group.name || '').includes('/');
             if (!isRepo) {
-                return { ...group, lastRunAt: null };
+                return { ...group, lastRunAt: null, hasChildren: groups.some(g => normalizeParentId(g.parent_id) === group.id) };
             }
             if (state.repoLastRunCache && state.repoLastRunCache.has(group.id)) {
                 const latestRun = state.repoLastRunCache.get(group.id);
-                return { ...group, lastRunAt: latestRun ? latestRun.started_at : null };
+                return { ...group, lastRunAt: latestRun ? latestRun.started_at : null, hasChildren: true }; // Repos always treated as expandable
             }
             const runsByBranch = await fetchData(`/v1/runs?groupId=${group.id}`);
             let latestRun = null;
@@ -2063,7 +2157,7 @@
             const lastRunAt = latestRun ? latestRun.started_at : null;
             if (!state.repoLastRunCache) state.repoLastRunCache = new Map();
             state.repoLastRunCache.set(group.id, latestRun);
-            return { ...group, lastRunAt };
+            return { ...group, lastRunAt, hasChildren: true };
         });
 
         const childrenWithData = await Promise.all(childrenWithDataPromises);
@@ -2071,60 +2165,56 @@
         childrenWithData.sort((a, b) => {
             const isRepoA = (a.name || '').includes('/');
             const isRepoB = (b.name || '').includes('/');
-            if (isRepoA !== isRepoB) {
-                return isRepoA ? 1 : -1;
-            }
-            if (isRepoA && a.lastRunAt && b.lastRunAt) {
-                return new Date(b.lastRunAt) - new Date(a.lastRunAt);
-            }
+            if (isRepoA !== isRepoB) return isRepoA ? 1 : -1;
+            if (isRepoA && a.lastRunAt && b.lastRunAt) return new Date(b.lastRunAt) - new Date(a.lastRunAt);
             return a.name.localeCompare(b.name);
         });
 
-        let html = `<ul class="pl-${level > 0 ? '4' : '0'} space-y-1">`;
-        for (const group of childrenWithData) {
-            const hasChildren = groups.some(g => normalizeParentId(g.parent_id) === group.id);
+        // Define Create and Update functions for syncDomList
+        const createGroupNode = (group, lvl) => {
+            const li = document.createElement('li');
+            li.dataset.groupId = group.id;
+            li.draggable = true;
+            
             const isExpanded = state.expandedGroups.has(group.id);
-            const isRepo = (group.name || '').includes('/');
-            const displayName = isRepo ? group.name.split('/')[1] : group.name;
-            const canExpand = hasChildren || isRepo;
             const isActive = state.selectedGroupId === group.id;
-            const pathSegments = getGroupPathSegmentsById(group.id);
-            const groupHref = pathSegments.length ? `#/pipelineruns/main/${pathSegments.join('/')}` : '#/pipelineruns/main';
+            const canExpand = group.hasChildren || (group.name || '').includes('/');
+            
+            li.innerHTML = getGroupHeaderHTML(group, isExpanded, isActive, canExpand);
+            return li;
+        };
 
-            let chevron = canExpand
-                ? `<svg class="h-4 w-4 mr-1 text-[var(--text-secondary)] chevron ${isExpanded ? 'rotate-90' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>`
-                : `<div class="w-5 h-4 mr-1"></div>`;
+        const updateGroupNode = (li, group) => {
+            const isExpanded = state.expandedGroups.has(group.id);
+            const isActive = state.selectedGroupId === group.id;
+            const canExpand = group.hasChildren || (group.name || '').includes('/');
+            
+            // Only update the header part, preserve .group-children
+            // We reconstruct the header string. A more granular diff could be done, 
+            // but this is sufficient to stop the "jumping" as long as <li> remains.
+            const newHeaderHTML = getGroupHeaderHTML(group, isExpanded, isActive, canExpand);
+            
+            // Extract just the header content from the new string
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = newHeaderHTML;
+            const newHeaderDiv = tempDiv.querySelector('.group-header-container');
+            
+            const currentHeaderDiv = li.querySelector('.group-header-container');
+            if (currentHeaderDiv && newHeaderDiv) {
+                if (currentHeaderDiv.innerHTML !== newHeaderDiv.innerHTML || 
+                    currentHeaderDiv.className !== newHeaderDiv.className) {
+                    currentHeaderDiv.replaceWith(newHeaderDiv);
+                }
+            }
+        };
 
-            const folderIconSvg = `<svg class="h-4 w-4 text-[var(--text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>`;
-            const repoIconSvg = `<svg class="h-4 w-4 text-[var(--text-accent)] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="8" cy="7" r="2" fill="currentColor" /><circle cx="8" cy="17" r="2" fill="currentColor" /><circle cx="16" cy="7" r="2" fill="currentColor" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 7h4"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9v6a4 4 0 004 4h4"/></svg>`;
-            const iconHtml = isRepo ? repoIconSvg : folderIconSvg;
-            const descriptionText = (group.description || '').trim();
-            const descriptionHtml = descriptionText ? `<span class="group-tree-description truncate">${escapeText(descriptionText)}</span>` : '';
-            const linkTitleAttr = escapeAttribute(descriptionText ? `${displayName} — ${descriptionText}` : displayName);
+        // Perform the sync
+        syncDomList(container, childrenWithData, 'groupId', createGroupNode, updateGroupNode, level);
 
-            html += `<li data-group-id="${group.id}" draggable="true">
-                            <div class="flex items-center justify-between p-2 text-[var(--text-primary)] rounded-md group-header-container ${isActive ? 'bg-[var(--bg-tertiary)]' : ''}">
-                                <div class="flex items-center group-header flex-grow cursor-pointer ${isExpanded ? 'expanded' : ''}">
-                                    ${chevron}
-                                    <a href="${groupHref}" class="flex items-center flex-grow gap-2" title="${linkTitleAttr}">
-                                        ${iconHtml}
-                                        <span class="flex flex-col leading-tight min-w-0">
-                                            <span class="truncate">${escapeText(displayName)}</span>
-                                            ${descriptionHtml}
-                                        </span>
-                                    </a>
-                                </div>
-                                <button class="delete-group-btn text-[var(--text-secondary)] hover:text-red-500 opacity-0 transition-opacity" data-group-id="${group.id}" data-group-name="${group.name}"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
-                            </div>
-                            <div class="group-children"></div>
-                        </li>`;
-        }
-        html += '</ul>';
-        container.innerHTML = html;
-
+        // Recursion for expanded items
         for (const group of childrenWithData) {
             if (state.expandedGroups.has(group.id)) {
-                const childContainer = document.querySelector(`[data-group-id='${group.id}'] .group-children`);
+                const childContainer = container.querySelector(`li[data-group-id='${group.id}'] .group-children`);
                 const isRepo = (group.name || '').includes('/');
                 if (isRepo) {
                     const runsByBranch = await fetchData(`/v1/runs?groupId=${group.id}`);
@@ -2136,40 +2226,59 @@
         }
     }
 
+    // [MODIFIED] renderRepoChildren: Uses syncDomList for branches
     function renderRepoChildren(container, runsByBranch, level, repoGroupId) {
         if (!container) return;
         const repoInfo = getRepoIdentifiersByGroupId(repoGroupId);
-        let html = `<ul class="pl-${level > 0 ? '4' : '0'} space-y-1">`;
-        const sortedBranches = Object.keys(runsByBranch).sort();
+        const sortedBranches = Object.keys(runsByBranch).sort().map(branch => ({
+            id: `branch-${repoGroupId}-${branch.replace(/[^a-zA-Z0-9]/g, '')}`, // Generate a stable ID for syncing
+            branchName: branch,
+            runs: runsByBranch[branch]
+        }));
 
-        sortedBranches.forEach(branch => {
-            const runs = runsByBranch[branch];
-            const branchId = `branch-${container.closest('li').dataset.groupId}-${branch.replace(/[^a-zA-Z0-9]/g, '')}`;
-            const isExpanded = state.expandedGroups.has(branchId);
+        const createBranchNode = (item, lvl) => {
+            const li = document.createElement('li');
+            li.dataset.branchId = item.id;
+            li.dataset.repoGroupId = repoGroupId;
+            
+            const branch = item.branchName;
+            const isExpanded = state.expandedGroups.has(item.id);
             const chevron = `<svg class="h-4 w-4 mr-1 text-[var(--text-secondary)] chevron ${isExpanded ? 'rotate-90' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>`;
-
             const branchIconHtml = `<svg class="h-4 w-4 mr-2 text-[var(--text-accent)] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>`;
+            
+            li.innerHTML = `
+                <div class="flex items-center justify-between p-2 text-[var(--text-primary)] rounded-md group-header cursor-pointer">
+                    <div class="flex items-center min-w-0">
+                        ${chevron}
+                        ${branchIconHtml}
+                        <span class="truncate">${escapeText(branch)}</span>
+                    </div>
+                    <div class="flex items-center gap-1 branch-actions">
+                        <button type="button" class="branch-delete-btn inline-flex items-center justify-center h-6 w-6 rounded-full text-[var(--text-secondary)] hover:text-red-500 hover:bg-[var(--border-primary)] focus:outline-none" data-branch="${escapeAttribute(branch)}" data-repo-group-id="${repoGroupId}" ${repoInfo ? `data-owner="${escapeAttribute(repoInfo.owner)}" data-repo="${escapeAttribute(repoInfo.repo)}"` : ''} title="Delete branch">
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5-3h4m1 3H7" /></svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="group-children">
+                    ${isExpanded ? renderRunLinks(item.runs, lvl + 1, repoGroupId) : ''}
+                </div>`;
+            return li;
+        };
 
-            html += `<li data-branch-id="${branchId}" data-repo-group-id="${repoGroupId}">
-                            <div class="flex items-center justify-between p-2 text-[var(--text-primary)] rounded-md group-header cursor-pointer">
-                                <div class="flex items-center min-w-0">
-                                    ${chevron}
-                                    ${branchIconHtml}
-                                    <span class="truncate">${escapeText(branch)}</span>
-                                </div>
-                                <div class="flex items-center gap-1 branch-actions">
-                                    <button type="button" class="branch-delete-btn inline-flex items-center justify-center h-6 w-6 rounded-full text-[var(--text-secondary)] hover:text-red-500 hover:bg-[var(--border-primary)] focus:outline-none" data-branch="${escapeAttribute(branch)}" data-repo-group-id="${repoGroupId}" ${repoInfo ? `data-owner="${escapeAttribute(repoInfo.owner)}" data-repo="${escapeAttribute(repoInfo.repo)}"` : ''} title="Delete branch">
-                                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5-3h4m1 3H7" /></svg>
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="group-children">
-                                ${isExpanded ? renderRunLinks(runs, level + 1, repoGroupId) : ''}
-                            </div>
-                        </li>`;
-        });
-        html += '</ul>';
-        container.innerHTML = html;
+        const updateBranchNode = (li, item) => {
+            const isExpanded = state.expandedGroups.has(item.id);
+            const chevron = li.querySelector('.chevron');
+            if (chevron) {
+                chevron.classList.toggle('rotate-90', isExpanded);
+            }
+            
+            const childContainer = li.querySelector('.group-children');
+            if (childContainer) {
+                childContainer.innerHTML = isExpanded ? renderRunLinks(item.runs, level + 1, repoGroupId) : '';
+            }
+        };
+
+        syncDomList(container, sortedBranches, 'branchId', createBranchNode, updateBranchNode, level);
         updateSelectionBar();
     }
 
@@ -3352,7 +3461,7 @@
                 <div class="ml-auto flex items-center gap-2">
                     ${pipelineActionHTML}
                     ${primaryActionHTML}
-                    <a href="${buildRunHashWithExtras(runInfo, runContext, ['logs'])}" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-accent)]">
+                    <a id="view-logs-btn" href="${buildRunHashWithExtras(runInfo, runContext, ['logs'])}" class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-accent)]">
                         <svg class="-ml-0.5 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7" /></svg>
                         View Logs
                     </a>
@@ -5300,8 +5409,19 @@
     }
 
     async function syncSidebarToRun(runInfo) {
-        // Change: Allow 'events' tab as well (exclude only 'recent' which uses a flat list)
-        if (!runInfo || state.currentTab === 'recent') return;
+        if (!runInfo) return;
+
+        // [MODIFIED] Handle Recent Tab: Scroll the flat list item into view
+        if (state.currentTab === 'recent') {
+            setTimeout(() => {
+                const item = document.querySelector(`#pipeline-runs-list li[data-run-id="${runInfo.run_id}"]`);
+                if (item) {
+                    item.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }, 50);
+            return;
+        }
+
         if (!Array.isArray(state.groups)) return;
 
         const repoFullName = `${runInfo.git_repo_owner}/${runInfo.git_repo_name}`;
