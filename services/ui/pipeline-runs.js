@@ -1905,7 +1905,12 @@
                 if (typeof applyLogRouteState === 'function') {
                     applyLogRouteState(logSegments, query);
                 }
-                if (typeof showLogsModal === 'function') {
+                
+                // [FIX] Check if modal is already open to prevent resetting state/scroll on every poll
+                const logsModal = document.getElementById('logs-modal');
+                const isOpen = logsModal && !logsModal.classList.contains('hidden');
+                
+                if (typeof showLogsModal === 'function' && !isOpen) {
                     showLogsModal();
                 }
             }
