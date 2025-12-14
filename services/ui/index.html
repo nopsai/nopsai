@@ -811,95 +811,100 @@
                         </div>
                     </div>
                     <div class="flex-1 overflow-auto px-6 pb-8 space-y-6">
-                        <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
-                            <div class="space-y-4 xl:col-span-2">
-                                <form id="system-config-form" class="space-y-4">
-                                <div class="glass-card p-6 space-y-4">
-                                    <div class="flex items-start justify-between gap-3">
-                                        <div>
-                                            <h2 class="text-xl font-semibold text-[var(--text-primary)]">Config source</h2>
-                                            <p class="text-sm text-[var(--text-secondary)]">Set the Git repository used for sync.</p>
-                                        </div>
-                                        <div id="system-config-status" class="text-xs text-[var(--text-secondary)]"></div>
-                                    </div>
-                                    <div>
-                                        <label for="system-config-repo" class="block text-sm font-medium text-[var(--text-secondary)]">Config repository URL</label>
-                                        <input id="system-config-repo" type="text" name="config_repo_url" placeholder="https://github.com/org/configs" class="pipelines-input system-input w-full mt-1" />
-                                        <p class="text-xs text-[var(--text-secondary)] mt-1">Used when syncing YAML definitions into the database.</p>
-                                    </div>
-                                </div>
-
-                                <div class="glass-card p-6 space-y-4">
-                                    <div>
-                                        <h2 class="text-xl font-semibold text-[var(--text-primary)]">Runtime & timeouts</h2>
-                                        <p class="text-sm text-[var(--text-secondary)]">Defaults for agent containers and pipeline execution.</p>
-                                    </div>
-                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div>
-                                            <label for="system-agent-image" class="block text-sm font-medium text-[var(--text-secondary)]">Agent image</label>
-                                            <input id="system-agent-image" type="text" name="agent_image" placeholder="nopsai-agent:latest" class="pipelines-input system-input w-full mt-1" />
-                                            <p class="text-xs text-[var(--text-secondary)] mt-1">Image to launch for pipeline execution workers.</p>
-                                        </div>
-                                        <div>
-                                            <label for="system-default-timeout" class="block text-sm font-medium text-[var(--text-secondary)]">Default pipeline timeout</label>
-                                            <input id="system-default-timeout" type="text" name="default_pipeline_timeout" placeholder="30m" class="pipelines-input system-input w-full mt-1" />
-                                            <p class="text-xs text-[var(--text-secondary)] mt-1">Applied when a pipeline definition omits a timeout.</p>
-                                        </div>
-                                        <div>
-                                            <label for="system-llm-timeout" class="block text-sm font-medium text-[var(--text-secondary)]">LLM agent timeout</label>
-                                            <input id="system-llm-timeout" type="text" name="llm_agent_timeout" placeholder="2m" class="pipelines-input system-input w-full mt-1" />
-                                            <p class="text-xs text-[var(--text-secondary)] mt-1">Passed through to the LLM agent container.</p>
-                                        </div>
-                                        <div class="border border-[var(--border-primary)] rounded-lg px-4 py-3 bg-[var(--bg-tertiary)] flex items-start gap-3">
-                                            <input id="system-auto-remove" name="auto_removal_agent_container" type="checkbox" class="mt-1 h-4 w-4 rounded border-[var(--border-primary)] text-[var(--border-accent)] focus:ring-[var(--border-accent)]" />
+                        <div class="mt-1 flex flex-wrap items-center gap-3 px-0">
+                            <button class="system-tab-btn system-tab-btn--active" data-target="config">Config</button>
+                            <button class="system-tab-btn" data-target="dispatcher">Dispatcher</button>
+                        </div>
+                        <div id="system-config-section">
+                            <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                                <div class="space-y-4 xl:col-span-2">
+                                    <form id="system-config-form" class="space-y-4">
+                                    <div class="glass-card p-6 space-y-4">
+                                        <div class="flex items-start justify-between gap-3">
                                             <div>
-                                                <label for="system-auto-remove" class="block text-sm font-medium text-[var(--text-primary)]">Auto-remove agent containers</label>
-                                                <p class="text-xs text-[var(--text-secondary)] mt-1">Keep containers clean after runs finish. Disable to inspect failures manually.</p>
+                                                <h2 class="text-xl font-semibold text-[var(--text-primary)]">Config source</h2>
+                                                <p class="text-sm text-[var(--text-secondary)]">Set the Git repository used for sync.</p>
+                                            </div>
+                                            <div id="system-config-status" class="text-xs text-[var(--text-secondary)]"></div>
+                                        </div>
+                                        <div>
+                                            <label for="system-config-repo" class="block text-sm font-medium text-[var(--text-secondary)]">Config repository URL</label>
+                                            <input id="system-config-repo" type="text" name="config_repo_url" placeholder="https://github.com/org/configs" class="pipelines-input system-input w-full mt-1" />
+                                            <p class="text-xs text-[var(--text-secondary)] mt-1">Used when syncing YAML definitions into the database.</p>
+                                        </div>
+                                    </div>
+
+                                    <div class="glass-card p-6 space-y-4">
+                                        <div>
+                                            <h2 class="text-xl font-semibold text-[var(--text-primary)]">Runtime & timeouts</h2>
+                                            <p class="text-sm text-[var(--text-secondary)]">Defaults for agent containers and pipeline execution.</p>
+                                        </div>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div>
+                                                <label for="system-agent-image" class="block text-sm font-medium text-[var(--text-secondary)]">Agent image</label>
+                                                <input id="system-agent-image" type="text" name="agent_image" placeholder="nopsai-agent:latest" class="pipelines-input system-input w-full mt-1" />
+                                                <p class="text-xs text-[var(--text-secondary)] mt-1">Image to launch for pipeline execution workers.</p>
+                                            </div>
+                                            <div>
+                                                <label for="system-default-timeout" class="block text-sm font-medium text-[var(--text-secondary)]">Default pipeline timeout</label>
+                                                <input id="system-default-timeout" type="text" name="default_pipeline_timeout" placeholder="30m" class="pipelines-input system-input w-full mt-1" />
+                                                <p class="text-xs text-[var(--text-secondary)] mt-1">Applied when a pipeline definition omits a timeout.</p>
+                                            </div>
+                                            <div>
+                                                <label for="system-llm-timeout" class="block text-sm font-medium text-[var(--text-secondary)]">LLM agent timeout</label>
+                                                <input id="system-llm-timeout" type="text" name="llm_agent_timeout" placeholder="2m" class="pipelines-input system-input w-full mt-1" />
+                                                <p class="text-xs text-[var(--text-secondary)] mt-1">Passed through to the LLM agent container.</p>
+                                            </div>
+                                            <div class="border border-[var(--border-primary)] rounded-lg px-4 py-3 bg-[var(--bg-tertiary)] flex items-start gap-3">
+                                                <input id="system-auto-remove" name="auto_removal_agent_container" type="checkbox" class="mt-1 h-4 w-4 rounded border-[var(--border-primary)] text-[var(--border-accent)] focus:ring-[var(--border-accent)]" />
+                                                <div>
+                                                    <label for="system-auto-remove" class="block text-sm font-medium text-[var(--text-primary)]">Auto-remove agent containers</label>
+                                                    <p class="text-xs text-[var(--text-secondary)] mt-1">Keep containers clean after runs finish. Disable to inspect failures manually.</p>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
-                                </div>
 
-                                <div class="glass-card p-6 space-y-4">
-                                    <div>
-                                        <h2 class="text-xl font-semibold text-[var(--text-primary)]">Networking & endpoints</h2>
-                                        <p class="text-sm text-[var(--text-secondary)]">Control how services talk to each other and listen for traffic.</p>
+                                    <div class="glass-card p-6 space-y-4">
+                                        <div>
+                                            <h2 class="text-xl font-semibold text-[var(--text-primary)]">Networking & endpoints</h2>
+                                            <p class="text-sm text-[var(--text-secondary)]">Control how services talk to each other and listen for traffic.</p>
+                                        </div>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div>
+                                                <label for="system-docker-network" class="block text-sm font-medium text-[var(--text-secondary)]">Docker network name</label>
+                                                <input id="system-docker-network" type="text" name="docker_network_name" placeholder="nopsai-net" class="pipelines-input system-input w-full mt-1" />
+                                            </div>
+                                            <div>
+                                                <label for="system-agent-api" class="block text-sm font-medium text-[var(--text-secondary)]">Agent → NopsAI API URL</label>
+                                                <input id="system-agent-api" type="text" name="agent_nopsai_api_url" placeholder="http://nopsai:8080" class="pipelines-input system-input w-full mt-1" />
+                                            </div>
+                                            <div>
+                                                <label for="system-gitbot-api" class="block text-sm font-medium text-[var(--text-secondary)]">Git Bot → NopsAI API URL</label>
+                                                <input id="system-gitbot-api" type="text" name="git_bot_nopsai_api_url" placeholder="http://nopsai:8080" class="pipelines-input system-input w-full mt-1" />
+                                            </div>
+                                            <div>
+                                                <label for="system-nopsai-gitbot-api" class="block text-sm font-medium text-[var(--text-secondary)]">NopsAI → Git Bot API URL</label>
+                                                <input id="system-nopsai-gitbot-api" type="text" name="nopsai_git_bot_api_url" placeholder="http://nopsai-git-bot:8081" class="pipelines-input system-input w-full mt-1" />
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center justify-end gap-2 pt-2">
+                                            <button id="system-save-btn" type="submit" form="system-config-form" class="glass-button-primary">
+                                                <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                                                <span>Save settings</span>
+                                            </button>
+                                        </div>
                                     </div>
-                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div>
-                                            <label for="system-docker-network" class="block text-sm font-medium text-[var(--text-secondary)]">Docker network name</label>
-                                            <input id="system-docker-network" type="text" name="docker_network_name" placeholder="nopsai-net" class="pipelines-input system-input w-full mt-1" />
-                                        </div>
-                                        <div>
-                                            <label for="system-agent-api" class="block text-sm font-medium text-[var(--text-secondary)]">Agent → NopsAI API URL</label>
-                                            <input id="system-agent-api" type="text" name="agent_nopsai_api_url" placeholder="http://nopsai:8080" class="pipelines-input system-input w-full mt-1" />
-                                        </div>
-                                        <div>
-                                            <label for="system-gitbot-api" class="block text-sm font-medium text-[var(--text-secondary)]">Git Bot → NopsAI API URL</label>
-                                            <input id="system-gitbot-api" type="text" name="git_bot_nopsai_api_url" placeholder="http://nopsai:8080" class="pipelines-input system-input w-full mt-1" />
-                                        </div>
-                                        <div>
-                                            <label for="system-nopsai-gitbot-api" class="block text-sm font-medium text-[var(--text-secondary)]">NopsAI → Git Bot API URL</label>
-                                            <input id="system-nopsai-gitbot-api" type="text" name="nopsai_git_bot_api_url" placeholder="http://nopsai-git-bot:8081" class="pipelines-input system-input w-full mt-1" />
-                                        </div>
-                                    </div>
-                                    <div class="flex items-center justify-end gap-2 pt-2">
-                                        <button id="system-save-btn" type="submit" form="system-config-form" class="glass-button-primary">
-                                            <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-                                            <span>Save settings</span>
-                                        </button>
-                                    </div>
+                                    </form>
                                 </div>
-                                </form>
-                            </div>
-                            <div class="space-y-4">
-                                <div class="glass-card p-6 space-y-4">
-                                    <div class="flex items-start justify-between gap-2">
-                                        <div>
-                                            <p class="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Config repo</p>
-                                            <div id="system-repo-display" class="text-lg font-semibold text-[var(--text-primary)] break-words">Not configured</div>
-                                            <p id="system-repo-helper" class="text-xs text-[var(--text-secondary)] mt-1">Set the Git URL to enable sync from source control.</p>
-                                        </div>
+                                <div class="space-y-4">
+                                    <div class="glass-card p-6 space-y-4">
+                                        <div class="flex items-start justify-between gap-2">
+                                            <div>
+                                                <p class="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Config repo</p>
+                                                <div id="system-repo-display" class="text-lg font-semibold text-[var(--text-primary)] break-words">Not configured</div>
+                                                <p id="system-repo-helper" class="text-xs text-[var(--text-secondary)] mt-1">Set the Git URL to enable sync from source control.</p>
+                                            </div>
                                         <span id="system-repo-chip" class="system-chip system-chip--muted">Idle</span>
                                     </div>
                                     <dl class="grid grid-cols-2 gap-3 text-sm">
@@ -912,21 +917,52 @@
                                             <dd id="system-sync-status-label" class="font-medium text-[var(--text-primary)]">Not started</dd>
                                         </div>
                                     </dl>
-                                </div>
-                                <div class="glass-card p-6 space-y-3">
-                                    <div class="flex items-center justify-between gap-2">
-                                        <h3 class="text-lg font-semibold text-[var(--text-primary)]">Sync activity</h3>
-                                        <div class="flex items-center gap-2">
-                                            <button id="system-sync-refresh-btn" class="glass-button-ghost" aria-label="Refresh sync status">
-                                                <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 4.5v6h6m9-6-3.75 3.75A7.5 7.5 0 016.75 18.75L4.5 21m0 0h6m-6 0v-6" />
-                                                </svg>
-                                            </button>
-                                        </div>
                                     </div>
-                                    <div id="system-sync-report" class="space-y-2"></div>
-                                    <p id="system-sync-empty" class="text-sm text-[var(--text-secondary)]">Run a sync to see logs and progress here.</p>
+                                    <div class="glass-card p-6 space-y-3">
+                                        <div class="flex items-center justify-between gap-2">
+                                            <h3 class="text-lg font-semibold text-[var(--text-primary)]">Sync activity</h3>
+                                            <div class="flex items-center gap-2">
+                                                <button id="system-sync-refresh-btn" class="glass-button-ghost" aria-label="Refresh sync status">
+                                                    <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 4.5v6h6m9-6-3.75 3.75A7.5 7.5 0 016.75 18.75L4.5 21m0 0h6m-6 0v-6" />
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div id="system-sync-report" class="space-y-2"></div>
+                                        <p id="system-sync-empty" class="text-sm text-[var(--text-secondary)]">Run a sync to see logs and progress here.</p>
+                                    </div>
                                 </div>
+                            </div>
+                        </div>
+                        <div id="system-dispatcher-section" class="hidden space-y-4">
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div class="glass-card p-4">
+                                    <p class="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Queued jobs</p>
+                                    <div id="dispatcher-queue-count" class="text-3xl font-bold text-[var(--text-primary)] mt-2">—</div>
+                                    <p class="text-xs text-[var(--text-secondary)]">Jobs waiting for an eligible runner.</p>
+                                </div>
+                                <div class="glass-card p-4">
+                                    <p class="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Connected runners</p>
+                                    <div id="dispatcher-runner-count" class="text-3xl font-bold text-[var(--text-primary)] mt-2">—</div>
+                                    <p class="text-xs text-[var(--text-secondary)]">Healthy streams reporting heartbeats.</p>
+                                </div>
+                                <div class="glass-card p-4">
+                                    <p class="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Active jobs</p>
+                                    <div id="dispatcher-active-count" class="text-3xl font-bold text-[var(--text-primary)] mt-2">—</div>
+                                    <p class="text-xs text-[var(--text-secondary)]">Sum of jobs currently running across runners.</p>
+                                </div>
+                            </div>
+                            <div class="glass-card p-6 space-y-3">
+                                <div class="flex items-center justify-between gap-2">
+                                    <div>
+                                        <h3 class="text-lg font-semibold text-[var(--text-primary)]">Runners</h3>
+                                        <p class="text-sm text-[var(--text-secondary)]">Heartbeat status, scopes, and capacity per runner.</p>
+                                    </div>
+                                    <span id="dispatcher-updated" class="text-xs text-[var(--text-secondary)]">—</span>
+                                </div>
+                                <div id="dispatcher-runner-list" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3"></div>
+                                <p id="dispatcher-empty" class="text-sm text-[var(--text-secondary)]">No runners connected yet.</p>
                             </div>
                         </div>
                     </div>

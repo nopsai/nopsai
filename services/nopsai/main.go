@@ -32,15 +32,8 @@ import (
 
 	"nopsai/config"
 	"nopsai/pkg/models"
+	"nopsai/pkg/proto"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/api/types/volume"
-	"github.com/docker/docker/client"
-	"github.com/docker/docker/errdefs"
-	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/google/go-github/v53/github"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -48,6 +41,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/types/known/emptypb"
 	"gopkg.in/yaml.v3"
 
 	"nopsai/services/nopsai/pkg/store"
@@ -59,7 +55,7 @@ import (
 type App struct {
 	db         *pgxpool.Pool
 	cfg        *config.Config
-	cli        *client.Client
+	dispatcher proto.DispatcherServiceClient
 	encKey     []byte
 	httpClient *http.Client
 	store      store.Store
@@ -1376,6 +1372,21 @@ func (a *App) handleGetConfigSyncStatus(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(status); err != nil {
 		log.Warn().Err(err).Msg("Failed to encode config sync status")
+	}
+}
+
+func (a *App) handleDispatcherStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	status, err := a.dispatcher.GetStatus(ctx, &emptypb.Empty{})
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to fetch dispatcher status")
+		http.Error(w, "Failed to fetch dispatcher status", http.StatusBadGateway)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(status); err != nil {
+		log.Warn().Err(err).Msg("Failed to encode dispatcher status")
 	}
 }
 
@@ -4389,21 +4400,6 @@ func (a *App) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	containerName := buildAgentContainerName(pipelineName.String, repoName.String, triggerEventID.String, runUUID.String())
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	stopTimeout := 10
-	if err := a.cli.ContainerStop(ctx, containerName, container.StopOptions{Timeout: &stopTimeout}); err != nil && !errdefs.IsNotFound(err) {
-		log.Warn().Err(err).Str("run_id", runUUID.String()).Str("container", containerName).Msg("Failed to stop agent container during cancellation")
-	}
-
-	if !a.getAutoRemovalAgentContainer() {
-		removeOpts := container.RemoveOptions{Force: true}
-		if err := a.cli.ContainerRemove(ctx, containerName, removeOpts); err != nil && !errdefs.IsNotFound(err) {
-			log.Warn().Err(err).Str("run_id", runUUID.String()).Str("container", containerName).Msg("Failed to remove agent container during cancellation")
-		}
-	}
-
 	if _, err := a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'cancelled', finished_at = NOW() WHERE run_id = $1", runUUID); err != nil {
 		log.Error().Err(err).Str("run_id", runUUID.String()).Msg("Failed to mark run as cancelled")
 		http.Error(w, "Failed to cancel run", http.StatusInternalServerError)
@@ -5015,30 +5011,12 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		return
 	}
 
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		log.Error().Err(err).Str("run_id", runID).Msg("Error creating Docker client")
-		return
-	}
-	defer cli.Close()
-
 	agentImageName := a.getAgentImage()
 	if agentImageName == "" {
 		agentImageName = "nopsai-agent:latest"
 	}
 
-	if err := ensureImageExists(ctx, cli, agentImageName); err != nil {
-		log.Error().Err(err).Str("run_id", runID).Msg("Failed to ensure agent image exists")
-		return
-	}
-
 	sharedVolumeName := fmt.Sprintf("vol-%s", runID)
-	_, err = cli.VolumeCreate(context.Background(), volume.CreateOptions{Name: sharedVolumeName})
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to create shared volume")
-		return
-	}
-	defer cli.VolumeRemove(context.Background(), sharedVolumeName, true)
 
 	repoName := gitContext["repo_name"]
 	triggerEventID := strings.TrimSpace(gitContext["trigger_event_id"])
@@ -5092,146 +5070,72 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		envVars = append(envVars, fmt.Sprintf("%s=%s", envKey, value))
 	}
 
-	hostConfig := &container.HostConfig{
-		Binds: []string{
-			"/var/run/docker.sock:/var/run/docker.sock",
-			fmt.Sprintf("%s:/workspace", sharedVolumeName),
-		},
-		AutoRemove: a.getAutoRemovalAgentContainer(),
-	}
-
-	resp, err := cli.ContainerCreate(ctx, &container.Config{
-		Image: agentImageName,
-		Env:   envVars,
-	}, hostConfig, &network.NetworkingConfig{
-		EndpointsConfig: map[string]*network.EndpointSettings{
-			a.getDockerNetworkName(): {},
-		},
-	}, nil, agentContainerName)
-
-	if err != nil {
-		log.Error().Err(err).Str("run_id", runID).Msg("Failed to create agent container")
-		return
-	}
-
-	if err := a.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
-		log.Error().Err(err).Str("container_id", resp.ID).Msg("Failed to start agent container")
-		return
-	}
-
-	log.Info().Str("run_id", runID).Str("container_name", agentContainerName).Str("trigger_event_id", triggerEventID).Msg("Successfully started agent container")
-
-	initialTriggerLine := ""
+	initialLines := []string{}
 	if triggerEventID != "" {
-		initialTriggerLine = fmt.Sprintf("Trigger Event ID: %s", triggerEventID)
+		initialLines = append(initialLines, fmt.Sprintf("Trigger Event ID: %s", triggerEventID))
 	} else {
-		initialTriggerLine = "Trigger Event ID: N/A"
+		initialLines = append(initialLines, "Trigger Event ID: N/A")
 	}
-	_, dbErr := a.db.Exec(context.Background(), "INSERT INTO pipeline_run_logs (run_id, line) VALUES ($1, $2)", runID, initialTriggerLine)
-	if dbErr != nil {
-		log.Error().Err(dbErr).Str("run_id", runID).Msg("Failed to record initial trigger event log line")
-	} else {
-	}
+	initialLines = append(initialLines, fmt.Sprintf("Preparing agent container %s with image %s", agentContainerName, agentImageName))
 
-	// --- LOG STREAMING MODIFICATION ---
-	// --- LOG STREAMING MODIFICATION ---
-	go func() {
-		logCtx := context.Background()
-		logReader, err := a.cli.ContainerLogs(logCtx, resp.ID, container.LogsOptions{ShowStdout: true, ShowStderr: true, Follow: true, Timestamps: true})
-		if err != nil {
-			log.Error().Err(err).Str("run_id", runID).Msg("Failed to attach to container logs")
+	appendLogs := func(lines ...string) {
+		if len(lines) == 0 {
 			return
 		}
-		defer logReader.Close()
-
-		r, w := io.Pipe()
-		go func() {
-			defer w.Close()
-			_, err := stdcopy.StdCopy(w, w, logReader)
-			if err != nil {
-				log.Error().Err(err).Str("run_id", runID).Msg("Error demultiplexing log stream")
-			}
-		}()
-
-		// Channel to feed the batcher
-		logChan := make(chan string, 100)
-
-		// Scanner runs in a separate goroutine to avoid blocking the ticker
-		go func() {
-			defer close(logChan)
-			scanner := bufio.NewScanner(r)
-			for scanner.Scan() {
-				logChan <- scanner.Text()
-			}
-			if err := scanner.Err(); err != nil {
-				log.Error().Err(err).Str("run_id", runID).Msg("Error reading from log pipe")
-			}
-		}()
-
-		const batchSize = 50
-		const batchTimeout = 500 * time.Millisecond
-
-		var batchLines []string
-		ticker := time.NewTicker(batchTimeout)
-		defer ticker.Stop()
-
-		flushBatch := func(lines []string) {
-			if len(lines) == 0 {
-				return
-			}
-
-			// 1. Bulk Insert into DB using pgx.Batch
-			dbBatch := &pgx.Batch{}
-			for _, line := range lines {
-				dbBatch.Queue("INSERT INTO pipeline_run_logs (run_id, line) VALUES ($1, $2)", runID, line)
-			}
-
-			// Send the batch
-			br := a.db.SendBatch(context.Background(), dbBatch)
-			// Close reads all results and closes the batch. It returns the first error if any.
+		dbBatch := &pgx.Batch{}
+		for _, line := range lines {
+			dbBatch.Queue("INSERT INTO pipeline_run_logs (run_id, line) VALUES ($1, $2)", runID, line)
+		}
+		if br := a.db.SendBatch(context.Background(), dbBatch); br != nil {
 			if err := br.Close(); err != nil {
-				log.Error().Err(err).Str("run_id", runID).Msg("Failed to flush log batch to DB")
-			}
-
-			// 2. WebSocket Broadcast (Removed)
-		}
-
-		for {
-			select {
-			case line, ok := <-logChan:
-				if !ok {
-					flushBatch(batchLines)
-					return
-				}
-				batchLines = append(batchLines, line)
-				if len(batchLines) >= batchSize {
-					flushBatch(batchLines)
-					batchLines = nil
-				}
-			case <-ticker.C:
-				if len(batchLines) > 0 {
-					flushBatch(batchLines)
-					batchLines = nil
-				}
+				log.Error().Err(err).Str("run_id", runID).Msg("Failed to write log lines")
 			}
 		}
-	}()
-	// --- END MODIFICATION ---
+	}
 
-	statusCh, errCh := cli.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
-	select {
-	case err := <-errCh:
-		if err != nil {
-			log.Error().Err(err).Str("run_id", runID).Msg("Error waiting for agent container")
-			a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW() WHERE run_id = $1 AND finished_at IS NULL", runID)
+	appendLogs(initialLines...)
+
+	job := &proto.JobRequest{
+		RunId:              runID,
+		PipelineName:       pipeline.Name,
+		PipelineVersion:    pipeline.Version,
+		PipelineDefinition: pipelineDef,
+		Env:                envVars,
+		AgentImage:         agentImageName,
+		SharedVolumeName:   sharedVolumeName,
+		DockerNetwork:      a.getDockerNetworkName(),
+		AutoRemove:         a.getAutoRemovalAgentContainer(),
+		ContainerName:      agentContainerName,
+		Scope:              scope,
+		NopsaiApiUrl:       strings.TrimSpace(a.cfg.AgentNopsaiAPIURL),
+	}
+
+	resp, err := a.dispatcher.SubmitJob(ctx, job)
+	if err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to dispatch job to runner")
+		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", "Failed to dispatch job to runner", runID)
+		if gitContext["repo_owner"] != "" {
+			a.notifyGitBotOfFinalStatus("failure", "", "", "Failed to dispatch job to runner", gitContext)
 		}
-	case status := <-statusCh:
-		log.Info().Str("run_id", runID).Int64("status_code", status.StatusCode).Msg("Agent container finished.")
-		finalStatus := "success"
-		if status.StatusCode != 0 {
-			finalStatus = "failure"
+		appendLogs("Failed to dispatch job to runner: " + err.Error())
+		return
+	}
+
+	switch resp.State {
+	case proto.JobState_JOB_STATE_ASSIGNED:
+		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'running', started_at = COALESCE(started_at, NOW()) WHERE run_id = $1", runID)
+		log.Info().Str("run_id", runID).Str("runner_id", resp.RunnerId).Msg("Job dispatched to runner")
+		appendLogs(fmt.Sprintf("Dispatched to runner %s", resp.RunnerId))
+	case proto.JobState_JOB_STATE_QUEUED:
+		log.Info().Str("run_id", runID).Msg("No runner available; job queued")
+		appendLogs("No runner available; job queued by dispatcher")
+	default:
+		log.Error().Str("run_id", runID).Str("state", resp.State.String()).Msg("Dispatcher rejected job")
+		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", "Dispatcher rejected job", runID)
+		if gitContext["repo_owner"] != "" {
+			a.notifyGitBotOfFinalStatus("failure", "", "", "Dispatcher rejected job", gitContext)
 		}
-		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = $1, finished_at = NOW() WHERE run_id = $2 AND finished_at IS NULL", finalStatus, runID)
+		appendLogs("Dispatcher rejected job")
 	}
 }
 
@@ -5852,27 +5756,6 @@ func (a *App) notifyImmediateCheckFailure(owner, repo string, checkRunID int64, 
 	a.notifyGitBotOfFinalStatus("failure", "", "", summary, gitContext)
 }
 
-func ensureImageExists(ctx context.Context, cli *client.Client, imageName string) error {
-	imageFilters := filters.NewArgs(filters.Arg("reference", imageName))
-	images, err := cli.ImageList(ctx, image.ListOptions{Filters: imageFilters})
-	if err != nil {
-		return fmt.Errorf("failed to list images to check for %s: %w", imageName, err)
-	}
-
-	if len(images) == 0 {
-		log.Info().Msgf("Image %s not found locally, pulling...", imageName)
-		out, err := cli.ImagePull(ctx, imageName, image.PullOptions{})
-		if err != nil {
-			return fmt.Errorf("failed to pull image %s: %w", imageName, err)
-		}
-		defer out.Close()
-		io.Copy(io.Discard, out)
-	} else {
-		log.Info().Msgf("Image %s found locally.", imageName)
-	}
-	return nil
-}
-
 func (a *App) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 	var group Group
 	if err := json.NewDecoder(r.Body).Decode(&group); err != nil {
@@ -6108,6 +5991,48 @@ func (a *App) handleListRepoBranches(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(branches)
 }
 
+func (a *App) handleIngestLogs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	runID := strings.TrimSpace(r.PathValue("runID"))
+	if runID == "" {
+		http.Error(w, "Run ID is required", http.StatusBadRequest)
+		return
+	}
+	if _, err := uuid.Parse(runID); err != nil {
+		http.Error(w, "Invalid run ID", http.StatusBadRequest)
+		return
+	}
+
+	var payload struct {
+		Lines []string `json:"lines"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if len(payload.Lines) == 0 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	batch := &pgx.Batch{}
+	for _, line := range payload.Lines {
+		batch.Queue("INSERT INTO pipeline_run_logs (run_id, line) VALUES ($1, $2)", runID, line)
+	}
+	br := a.db.SendBatch(context.Background(), batch)
+	if err := br.Close(); err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to ingest log batch")
+		http.Error(w, "Failed to persist logs", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (a *App) handleGetRunLogs(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("runID")
 	sinceLineStr := r.URL.Query().Get("since_line")
@@ -6187,16 +6112,20 @@ func main() {
 	}
 	defer dbpool.Close()
 
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create Docker client")
+	dispatcherAddr := strings.TrimSpace(cfg.DispatcherAddress)
+	if dispatcherAddr == "" {
+		dispatcherAddr = "localhost:9090"
 	}
-	defer cli.Close()
+	dispatcherConn, err := grpc.Dial(dispatcherAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatal().Err(err).Str("addr", dispatcherAddr).Msg("Failed to connect to dispatcher")
+	}
+	defer dispatcherConn.Close()
 
 	app := &App{
 		db:          dbpool,
 		cfg:         cfg,
-		cli:         cli,
+		dispatcher:  proto.NewDispatcherServiceClient(dispatcherConn),
 		encKey:      key[:],
 		httpClient:  &http.Client{Timeout: 10 * time.Second},
 		store:       store.NewPGStore(dbpool),
@@ -6224,6 +6153,7 @@ func main() {
 	mux.HandleFunc("GET /v1/system/config/sync", app.handleGetConfigSyncStatus)
 	mux.HandleFunc("POST /v1/system/config/sync", app.handleConfigSync)
 	mux.HandleFunc("POST /v1/internal/config/sync", app.handleConfigSync)
+	mux.HandleFunc("GET /v1/system/dispatcher", app.handleDispatcherStatus)
 
 	// Pipeline Management
 	mux.HandleFunc("GET /v1/pipelines", app.handleListPipelines)
@@ -6267,6 +6197,7 @@ func main() {
 	mux.HandleFunc("POST /v1/runs/{runID}/cancel", app.handleCancelRun)
 	mux.HandleFunc("POST /v1/runs/{runID}/finalize", app.handleFinalizeRun)
 	mux.HandleFunc("POST /v1/runs/{runID}/steps/{stepName}/tasks/{taskName}", app.handleTaskUpdate)
+	mux.HandleFunc("POST /v1/runs/{runID}/logs/ingest", app.handleIngestLogs)
 	mux.HandleFunc("GET /v1/runs/{runID}/logs", app.handleGetRunLogs)
 	mux.HandleFunc("DELETE /v1/repositories/{repoOwner}/{repoName}/branches/{branch...}", app.handleDeleteRepoBranchRuns)
 
