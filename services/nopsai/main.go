@@ -5016,6 +5016,11 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		agentImageName = "nopsai-agent:latest"
 	}
 
+	dispatcherAddr := strings.TrimSpace(a.cfg.DispatcherAddress)
+	if dispatcherAddr == "" {
+		dispatcherAddr = "localhost:9090"
+	}
+
 	sharedVolumeName := fmt.Sprintf("vol-%s", runID)
 
 	repoName := gitContext["repo_name"]
@@ -5042,6 +5047,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		fmt.Sprintf("SHARED_VOLUME_NAME=%s", sharedVolumeName),
 		fmt.Sprintf("DOCKER_NETWORK_NAME=%s", a.getDockerNetworkName()),
 		fmt.Sprintf("NOPSAI_SECRETS=%s", base64.StdEncoding.EncodeToString(secretsJSON)),
+		fmt.Sprintf("DISPATCHER_ADDRESS=%s", dispatcherAddr),
 	}
 	if timeout > 0 {
 		envVars = append(envVars, fmt.Sprintf("PIPELINE_TIMEOUT=%s", timeout.String()))

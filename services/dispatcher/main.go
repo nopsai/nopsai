@@ -1,8 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
 	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -38,9 +45,12 @@ type dispatcherServer struct {
 	runners map[string]*runnerConn
 	queue   []*proto.JobRequest
 	routing map[string][]string
+
+	nopsaiBase string
+	httpClient *http.Client
 }
 
-func newDispatcherServer(routing map[string][]string) *dispatcherServer {
+func newDispatcherServer(routing map[string][]string, nopsaiBase string) *dispatcherServer {
 	clean := make(map[string][]string, len(routing))
 	for scope, ids := range routing {
 		scopeKey := strings.TrimSpace(scope)
@@ -50,8 +60,10 @@ func newDispatcherServer(routing map[string][]string) *dispatcherServer {
 		clean[scopeKey] = ids
 	}
 	return &dispatcherServer{
-		runners: make(map[string]*runnerConn),
-		routing: clean,
+		runners:    make(map[string]*runnerConn),
+		routing:    clean,
+		nopsaiBase: strings.TrimRight(strings.TrimSpace(nopsaiBase), "/"),
+		httpClient: &http.Client{Timeout: 15 * time.Second},
 	}
 }
 
@@ -177,6 +189,254 @@ func (d *dispatcherServer) GetStatus(ctx context.Context, _ *emptypb.Empty) (*pr
 	}
 
 	return resp, nil
+}
+
+func (d *dispatcherServer) IngestLogs(ctx context.Context, batch *proto.LogBatch) (*emptypb.Empty, error) {
+	if batch == nil || strings.TrimSpace(batch.RunId) == "" {
+		return nil, status.Error(codes.InvalidArgument, "run_id is required")
+	}
+	if err := d.requireNopsaiBase(); err != nil {
+		return nil, err
+	}
+
+	body, _ := json.Marshal(map[string][]string{"lines": batch.Lines})
+	target := fmt.Sprintf("%s/v1/runs/%s/logs/ingest", d.nopsaiBase, strings.TrimSpace(batch.RunId))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "build log ingest request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		return nil, status.Errorf(codes.Unavailable, "send log ingest: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, status.Errorf(codes.FailedPrecondition, "nopsai log ingest returned %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return &emptypb.Empty{}, nil
+}
+
+func (d *dispatcherServer) ReportTaskStatus(ctx context.Context, req *proto.TaskStatusReport) (*emptypb.Empty, error) {
+	if req == nil || strings.TrimSpace(req.RunId) == "" || strings.TrimSpace(req.StepName) == "" || strings.TrimSpace(req.TaskName) == "" {
+		return nil, status.Error(codes.InvalidArgument, "run_id, step_name, and task_name are required")
+	}
+	if err := d.requireNopsaiBase(); err != nil {
+		return nil, err
+	}
+
+	payload := map[string]interface{}{
+		"status":          req.Status,
+		"exit_code":       req.ExitCode,
+		"llm_duration_ms": req.LlmDurationMs,
+	}
+	body, _ := json.Marshal(payload)
+
+	target := fmt.Sprintf("%s/v1/runs/%s/steps/%s/tasks/%s", d.nopsaiBase, strings.TrimSpace(req.RunId), url.PathEscape(req.StepName), url.PathEscape(req.TaskName))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "build task status request: %v", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := d.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, status.Errorf(codes.Unavailable, "send task status: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, status.Errorf(codes.FailedPrecondition, "nopsai task status returned %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return &emptypb.Empty{}, nil
+}
+
+func (d *dispatcherServer) FinalizeRun(ctx context.Context, req *proto.FinalizeRunRequest) (*emptypb.Empty, error) {
+	if req == nil || strings.TrimSpace(req.RunId) == "" {
+		return nil, status.Error(codes.InvalidArgument, "run_id is required")
+	}
+	if err := d.requireNopsaiBase(); err != nil {
+		return nil, err
+	}
+
+	body, _ := json.Marshal(map[string]string{"status": req.Status})
+	target := fmt.Sprintf("%s/v1/runs/%s/finalize", d.nopsaiBase, strings.TrimSpace(req.RunId))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "build finalize request: %v", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := d.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, status.Errorf(codes.Unavailable, "send finalize: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, status.Errorf(codes.FailedPrecondition, "nopsai finalize returned %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return &emptypb.Empty{}, nil
+}
+
+func (d *dispatcherServer) FetchPipeline(ctx context.Context, req *proto.FetchPipelineRequest) (*proto.FetchPipelineResponse, error) {
+	if req == nil || strings.TrimSpace(req.PipelineName) == "" {
+		return nil, status.Error(codes.InvalidArgument, "pipeline_name is required")
+	}
+	if err := d.requireNopsaiBase(); err != nil {
+		return nil, err
+	}
+
+	base := d.nopsaiBase
+	target := fmt.Sprintf("%s/v1/pipelines/%s", base, strings.TrimLeft(req.PipelineName, "/"))
+	parsed, err := url.Parse(target)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "parse pipeline url: %v", err)
+	}
+	q := parsed.Query()
+	if strings.TrimSpace(req.RepoOwner) != "" {
+		q.Set("repoOwner", req.RepoOwner)
+	}
+	if strings.TrimSpace(req.RepoName) != "" {
+		q.Set("repoName", req.RepoName)
+	}
+	if strings.TrimSpace(req.CommitSha) != "" {
+		q.Set("commitSHA", req.CommitSha)
+	}
+	parsed.RawQuery = q.Encode()
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "build pipeline request: %v", err)
+	}
+
+	resp, err := d.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, status.Errorf(codes.Unavailable, "fetch pipeline: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, status.Errorf(codes.FailedPrecondition, "nopsai pipeline returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	return &proto.FetchPipelineResponse{PipelineDefinition: body}, nil
+}
+
+func (d *dispatcherServer) TriggerPipeline(ctx context.Context, req *proto.TriggerPipelineRequest) (*proto.TriggerPipelineResponse, error) {
+	if req == nil || len(req.PipelineDefinition) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "pipeline_definition is required")
+	}
+	if err := d.requireNopsaiBase(); err != nil {
+		return nil, err
+	}
+
+	target := fmt.Sprintf("%s/v1/run", d.nopsaiBase)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(req.PipelineDefinition))
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "build trigger request: %v", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/x-yaml")
+
+	if v := strings.TrimSpace(req.ParentRunId); v != "" {
+		httpReq.Header.Set("X-Nopsai-Parent-Run-ID", v)
+	}
+	if v := strings.TrimSpace(req.ParentPipelineName); v != "" {
+		httpReq.Header.Set("X-Nopsai-Parent-Pipeline-Name", v)
+	}
+	if v := strings.TrimSpace(req.ParentStepName); v != "" {
+		httpReq.Header.Set("X-Nopsai-Parent-Step-Name", v)
+	}
+
+	if path := pipelinePath(strings.TrimSpace(req.PipelineIdentifier)); path != "" {
+		httpReq.Header.Set("X-Nopsai-Pipeline-Path", path)
+	}
+
+	if h := strings.TrimSpace(req.History); h != "" {
+		httpReq.Header.Set("X-Nopsai-Parent-History", base64.StdEncoding.EncodeToString([]byte(h)))
+	}
+
+	if scope := strings.TrimSpace(req.Scope); scope != "" {
+		httpReq.Header.Set("X-Nopsai-Scope", scope)
+	}
+
+	for key, value := range req.GitContext {
+		if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
+			continue
+		}
+		headerKey := gitHeaderKey(key)
+		httpReq.Header.Set(headerKey, value)
+	}
+
+	resp, err := d.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, status.Errorf(codes.Unavailable, "trigger pipeline: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusCreated {
+		return &proto.TriggerPipelineResponse{
+			Status: resp.Status,
+			Error:  fmt.Sprintf("nopsai trigger returned %d: %s", resp.StatusCode, string(body)),
+		}, nil
+	}
+
+	const prefix = "Pipeline run created successfully with ID: "
+	runID := strings.TrimSpace(strings.TrimPrefix(string(body), prefix))
+	if runID == "" {
+		return &proto.TriggerPipelineResponse{
+			Status: resp.Status,
+			Error:  fmt.Sprintf("unexpected response body: %s", string(body)),
+		}, nil
+	}
+
+	return &proto.TriggerPipelineResponse{
+		RunId:  runID,
+		Status: "created",
+	}, nil
+}
+
+func (d *dispatcherServer) GetRunStatus(ctx context.Context, req *proto.RunStatusRequest) (*proto.RunStatusResponse, error) {
+	if req == nil || strings.TrimSpace(req.RunId) == "" {
+		return nil, status.Error(codes.InvalidArgument, "run_id is required")
+	}
+	if err := d.requireNopsaiBase(); err != nil {
+		return nil, err
+	}
+
+	target := fmt.Sprintf("%s/v1/runs/%s/status", d.nopsaiBase, strings.TrimSpace(req.RunId))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "build run status request: %v", err)
+	}
+
+	resp, err := d.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, status.Errorf(codes.Unavailable, "fetch run status: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, status.Errorf(codes.FailedPrecondition, "nopsai run status returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var statusResp map[string]string
+	if err := json.Unmarshal(body, &statusResp); err != nil {
+		return nil, status.Errorf(codes.Internal, "decode run status response: %v", err)
+	}
+
+	return &proto.RunStatusResponse{Status: statusResp["status"]}, nil
 }
 
 func (d *dispatcherServer) handleHeartbeat(runnerID string, hb *proto.RunnerHeartbeat) {
@@ -312,9 +572,11 @@ func (d *dispatcherServer) dispatch(job *proto.JobRequest) string {
 		return ""
 	}
 
+	jobForRunner := d.prepareJobForRunner(job, runner)
+
 	select {
-	case runner.sendCh <- &proto.DispatcherMessage{Message: &proto.DispatcherMessage_Job{Job: job}}:
-		runner.inflight[job.RunId] = job
+	case runner.sendCh <- &proto.DispatcherMessage{Message: &proto.DispatcherMessage_Job{Job: jobForRunner}}:
+		runner.inflight[job.RunId] = jobForRunner
 		runner.active++
 		log.Info().Str("run_id", job.RunId).Str("runner_id", runner.id).Str("scope", job.Scope).Msg("job dispatched to runner")
 		return runner.id
@@ -386,9 +648,10 @@ func (d *dispatcherServer) pumpQueue() {
 			remaining = append(remaining, job)
 			continue
 		}
+		jobForRunner := d.prepareJobForRunner(job, runner)
 		select {
-		case runner.sendCh <- &proto.DispatcherMessage{Message: &proto.DispatcherMessage_Job{Job: job}}:
-			runner.inflight[job.RunId] = job
+		case runner.sendCh <- &proto.DispatcherMessage{Message: &proto.DispatcherMessage_Job{Job: jobForRunner}}:
+			runner.inflight[job.RunId] = jobForRunner
 			runner.active++
 			log.Info().Str("run_id", job.RunId).Str("runner_id", runner.id).Msg("job dispatched from queue")
 		default:
@@ -478,6 +741,75 @@ func (d *dispatcherServer) reapStaleRunners(interval, ttl time.Duration, stop <-
 	}
 }
 
+func (d *dispatcherServer) requireNopsaiBase() error {
+	if d.nopsaiBase == "" {
+		return status.Error(codes.FailedPrecondition, "nopsai api url is not configured on dispatcher")
+	}
+	return nil
+}
+
+func (d *dispatcherServer) prepareJobForRunner(job *proto.JobRequest, runner *runnerConn) *proto.JobRequest {
+	if job == nil {
+		return nil
+	}
+	copyJob := *job
+	envCopy := append([]string(nil), job.Env...)
+	if runner != nil {
+		if override, ok := runner.metadata["docker_network"]; ok {
+			copyJob.DockerNetwork = strings.TrimSpace(override)
+			envCopy = upsertEnv(envCopy, "DOCKER_NETWORK_NAME", copyJob.DockerNetwork)
+		}
+		if addr, ok := runner.metadata["dispatcher_addr"]; ok {
+			envCopy = upsertEnv(envCopy, "DISPATCHER_ADDRESS", strings.TrimSpace(addr))
+		}
+	}
+	copyJob.Env = envCopy
+	return &copyJob
+}
+
+func upsertEnv(env []string, key, val string) []string {
+	prefix := key + "="
+	for i, e := range env {
+		if strings.HasPrefix(e, prefix) {
+			env[i] = prefix + val
+			return env
+		}
+	}
+	return append(env, prefix+val)
+}
+
+func pipelinePath(identifier string) string {
+	trimmed := strings.TrimSpace(identifier)
+	trimmed = strings.Trim(trimmed, "/")
+	if trimmed == "" {
+		return ""
+	}
+	lower := strings.ToLower(trimmed)
+	if strings.HasSuffix(lower, ".yaml") {
+		trimmed = trimmed[:len(trimmed)-len(".yaml")]
+	} else if strings.HasSuffix(lower, ".yml") {
+		trimmed = trimmed[:len(trimmed)-len(".yml")]
+	}
+	parts := strings.Split(trimmed, "/")
+	if len(parts) <= 1 {
+		return ""
+	}
+	return strings.Join(parts[:len(parts)-1], "/")
+}
+
+func gitHeaderKey(envKey string) string {
+	key := strings.TrimSpace(envKey)
+	key = strings.TrimPrefix(key, "X-")
+	parts := strings.Split(strings.ToLower(key), "_")
+	for i, p := range parts {
+		if len(p) == 0 {
+			continue
+		}
+		parts[i] = strings.ToUpper(p[:1]) + p[1:]
+	}
+	return "X-" + strings.Join(parts, "-")
+}
+
 func main() {
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
@@ -503,7 +835,12 @@ func main() {
 		listenAddr = ":9090"
 	}
 
-	dispatcher := newDispatcherServer(cfg.DispatcherRouting)
+	nopsaiBase := strings.TrimSpace(cfg.AgentNopsaiAPIURL)
+	if nopsaiBase == "" {
+		log.Fatal().Msg("Agent Nopsai API URL (agent_nopsai_api_url) must be configured for dispatcher")
+	}
+
+	dispatcher := newDispatcherServer(cfg.DispatcherRouting, nopsaiBase)
 
 	grpcServer := grpc.NewServer()
 	proto.RegisterDispatcherServiceServer(grpcServer, dispatcher)

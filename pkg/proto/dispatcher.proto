@@ -79,6 +79,13 @@ service DispatcherService {
   rpc Register(stream RunnerMessage) returns (stream DispatcherMessage);
   // Returns current dispatcher health and runner state.
   rpc GetStatus(.google.protobuf.Empty) returns (DispatcherStatus);
+  // Agent and runner updates flow through the dispatcher to nopsai.
+  rpc IngestLogs(LogBatch) returns (.google.protobuf.Empty);
+  rpc ReportTaskStatus(TaskStatusReport) returns (.google.protobuf.Empty);
+  rpc FinalizeRun(FinalizeRunRequest) returns (.google.protobuf.Empty);
+  rpc FetchPipeline(FetchPipelineRequest) returns (FetchPipelineResponse);
+  rpc TriggerPipeline(TriggerPipelineRequest) returns (TriggerPipelineResponse);
+  rpc GetRunStatus(RunStatusRequest) returns (RunStatusResponse);
 }
 
 message RunnerInfo {
@@ -95,4 +102,60 @@ message RunnerInfo {
 message DispatcherStatus {
   repeated RunnerInfo runners = 1;
   int32 queued_jobs = 2;
+}
+
+// Agent-facing RPC payloads
+message LogBatch {
+  string run_id = 1;
+  repeated string lines = 2;
+}
+
+message TaskStatusReport {
+  string run_id = 1;
+  string step_name = 2;
+  string task_name = 3;
+  string status = 4;
+  int32 exit_code = 5;
+  int64 llm_duration_ms = 6;
+}
+
+message FinalizeRunRequest {
+  string run_id = 1;
+  string status = 2;
+}
+
+message FetchPipelineRequest {
+  string pipeline_name = 1;
+  string repo_owner = 2;
+  string repo_name = 3;
+  string commit_sha = 4;
+}
+
+message FetchPipelineResponse {
+  bytes pipeline_definition = 1;
+}
+
+message TriggerPipelineRequest {
+  string parent_run_id = 1;
+  string parent_pipeline_name = 2;
+  string parent_step_name = 3;
+  string pipeline_identifier = 4;
+  bytes pipeline_definition = 5;
+  string history = 6;
+  string scope = 7;
+  map<string, string> git_context = 8;
+}
+
+message TriggerPipelineResponse {
+  string run_id = 1;
+  string status = 2;
+  string error = 3;
+}
+
+message RunStatusRequest {
+  string run_id = 1;
+}
+
+message RunStatusResponse {
+  string status = 1;
 }

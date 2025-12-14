@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v3.21.12
-// source: pkg/proto/dispatcher.proto
+// source: dispatcher.proto
 
 package proto
 
@@ -20,9 +20,15 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	DispatcherService_SubmitJob_FullMethodName = "/proto.DispatcherService/SubmitJob"
-	DispatcherService_Register_FullMethodName  = "/proto.DispatcherService/Register"
-	DispatcherService_GetStatus_FullMethodName = "/proto.DispatcherService/GetStatus"
+	DispatcherService_SubmitJob_FullMethodName        = "/proto.DispatcherService/SubmitJob"
+	DispatcherService_Register_FullMethodName         = "/proto.DispatcherService/Register"
+	DispatcherService_GetStatus_FullMethodName        = "/proto.DispatcherService/GetStatus"
+	DispatcherService_IngestLogs_FullMethodName       = "/proto.DispatcherService/IngestLogs"
+	DispatcherService_ReportTaskStatus_FullMethodName = "/proto.DispatcherService/ReportTaskStatus"
+	DispatcherService_FinalizeRun_FullMethodName      = "/proto.DispatcherService/FinalizeRun"
+	DispatcherService_FetchPipeline_FullMethodName    = "/proto.DispatcherService/FetchPipeline"
+	DispatcherService_TriggerPipeline_FullMethodName  = "/proto.DispatcherService/TriggerPipeline"
+	DispatcherService_GetRunStatus_FullMethodName     = "/proto.DispatcherService/GetRunStatus"
 )
 
 // DispatcherServiceClient is the client API for DispatcherService service.
@@ -35,6 +41,13 @@ type DispatcherServiceClient interface {
 	Register(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[RunnerMessage, DispatcherMessage], error)
 	// Returns current dispatcher health and runner state.
 	GetStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*DispatcherStatus, error)
+	// Agent and runner updates flow through the dispatcher to nopsai.
+	IngestLogs(ctx context.Context, in *LogBatch, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	ReportTaskStatus(ctx context.Context, in *TaskStatusReport, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	FinalizeRun(ctx context.Context, in *FinalizeRunRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	FetchPipeline(ctx context.Context, in *FetchPipelineRequest, opts ...grpc.CallOption) (*FetchPipelineResponse, error)
+	TriggerPipeline(ctx context.Context, in *TriggerPipelineRequest, opts ...grpc.CallOption) (*TriggerPipelineResponse, error)
+	GetRunStatus(ctx context.Context, in *RunStatusRequest, opts ...grpc.CallOption) (*RunStatusResponse, error)
 }
 
 type dispatcherServiceClient struct {
@@ -78,6 +91,66 @@ func (c *dispatcherServiceClient) GetStatus(ctx context.Context, in *emptypb.Emp
 	return out, nil
 }
 
+func (c *dispatcherServiceClient) IngestLogs(ctx context.Context, in *LogBatch, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, DispatcherService_IngestLogs_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *dispatcherServiceClient) ReportTaskStatus(ctx context.Context, in *TaskStatusReport, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, DispatcherService_ReportTaskStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *dispatcherServiceClient) FinalizeRun(ctx context.Context, in *FinalizeRunRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, DispatcherService_FinalizeRun_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *dispatcherServiceClient) FetchPipeline(ctx context.Context, in *FetchPipelineRequest, opts ...grpc.CallOption) (*FetchPipelineResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FetchPipelineResponse)
+	err := c.cc.Invoke(ctx, DispatcherService_FetchPipeline_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *dispatcherServiceClient) TriggerPipeline(ctx context.Context, in *TriggerPipelineRequest, opts ...grpc.CallOption) (*TriggerPipelineResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TriggerPipelineResponse)
+	err := c.cc.Invoke(ctx, DispatcherService_TriggerPipeline_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *dispatcherServiceClient) GetRunStatus(ctx context.Context, in *RunStatusRequest, opts ...grpc.CallOption) (*RunStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RunStatusResponse)
+	err := c.cc.Invoke(ctx, DispatcherService_GetRunStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DispatcherServiceServer is the server API for DispatcherService service.
 // All implementations must embed UnimplementedDispatcherServiceServer
 // for forward compatibility.
@@ -88,6 +161,13 @@ type DispatcherServiceServer interface {
 	Register(grpc.BidiStreamingServer[RunnerMessage, DispatcherMessage]) error
 	// Returns current dispatcher health and runner state.
 	GetStatus(context.Context, *emptypb.Empty) (*DispatcherStatus, error)
+	// Agent and runner updates flow through the dispatcher to nopsai.
+	IngestLogs(context.Context, *LogBatch) (*emptypb.Empty, error)
+	ReportTaskStatus(context.Context, *TaskStatusReport) (*emptypb.Empty, error)
+	FinalizeRun(context.Context, *FinalizeRunRequest) (*emptypb.Empty, error)
+	FetchPipeline(context.Context, *FetchPipelineRequest) (*FetchPipelineResponse, error)
+	TriggerPipeline(context.Context, *TriggerPipelineRequest) (*TriggerPipelineResponse, error)
+	GetRunStatus(context.Context, *RunStatusRequest) (*RunStatusResponse, error)
 	mustEmbedUnimplementedDispatcherServiceServer()
 }
 
@@ -106,6 +186,24 @@ func (UnimplementedDispatcherServiceServer) Register(grpc.BidiStreamingServer[Ru
 }
 func (UnimplementedDispatcherServiceServer) GetStatus(context.Context, *emptypb.Empty) (*DispatcherStatus, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetStatus not implemented")
+}
+func (UnimplementedDispatcherServiceServer) IngestLogs(context.Context, *LogBatch) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method IngestLogs not implemented")
+}
+func (UnimplementedDispatcherServiceServer) ReportTaskStatus(context.Context, *TaskStatusReport) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReportTaskStatus not implemented")
+}
+func (UnimplementedDispatcherServiceServer) FinalizeRun(context.Context, *FinalizeRunRequest) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FinalizeRun not implemented")
+}
+func (UnimplementedDispatcherServiceServer) FetchPipeline(context.Context, *FetchPipelineRequest) (*FetchPipelineResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FetchPipeline not implemented")
+}
+func (UnimplementedDispatcherServiceServer) TriggerPipeline(context.Context, *TriggerPipelineRequest) (*TriggerPipelineResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TriggerPipeline not implemented")
+}
+func (UnimplementedDispatcherServiceServer) GetRunStatus(context.Context, *RunStatusRequest) (*RunStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetRunStatus not implemented")
 }
 func (UnimplementedDispatcherServiceServer) mustEmbedUnimplementedDispatcherServiceServer() {}
 func (UnimplementedDispatcherServiceServer) testEmbeddedByValue()                           {}
@@ -171,6 +269,114 @@ func _DispatcherService_GetStatus_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DispatcherService_IngestLogs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LogBatch)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DispatcherServiceServer).IngestLogs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DispatcherService_IngestLogs_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DispatcherServiceServer).IngestLogs(ctx, req.(*LogBatch))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DispatcherService_ReportTaskStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TaskStatusReport)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DispatcherServiceServer).ReportTaskStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DispatcherService_ReportTaskStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DispatcherServiceServer).ReportTaskStatus(ctx, req.(*TaskStatusReport))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DispatcherService_FinalizeRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FinalizeRunRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DispatcherServiceServer).FinalizeRun(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DispatcherService_FinalizeRun_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DispatcherServiceServer).FinalizeRun(ctx, req.(*FinalizeRunRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DispatcherService_FetchPipeline_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FetchPipelineRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DispatcherServiceServer).FetchPipeline(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DispatcherService_FetchPipeline_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DispatcherServiceServer).FetchPipeline(ctx, req.(*FetchPipelineRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DispatcherService_TriggerPipeline_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TriggerPipelineRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DispatcherServiceServer).TriggerPipeline(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DispatcherService_TriggerPipeline_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DispatcherServiceServer).TriggerPipeline(ctx, req.(*TriggerPipelineRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DispatcherService_GetRunStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RunStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DispatcherServiceServer).GetRunStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DispatcherService_GetRunStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DispatcherServiceServer).GetRunStatus(ctx, req.(*RunStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DispatcherService_ServiceDesc is the grpc.ServiceDesc for DispatcherService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -186,6 +392,30 @@ var DispatcherService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "GetStatus",
 			Handler:    _DispatcherService_GetStatus_Handler,
 		},
+		{
+			MethodName: "IngestLogs",
+			Handler:    _DispatcherService_IngestLogs_Handler,
+		},
+		{
+			MethodName: "ReportTaskStatus",
+			Handler:    _DispatcherService_ReportTaskStatus_Handler,
+		},
+		{
+			MethodName: "FinalizeRun",
+			Handler:    _DispatcherService_FinalizeRun_Handler,
+		},
+		{
+			MethodName: "FetchPipeline",
+			Handler:    _DispatcherService_FetchPipeline_Handler,
+		},
+		{
+			MethodName: "TriggerPipeline",
+			Handler:    _DispatcherService_TriggerPipeline_Handler,
+		},
+		{
+			MethodName: "GetRunStatus",
+			Handler:    _DispatcherService_GetRunStatus_Handler,
+		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
@@ -195,5 +425,5 @@ var DispatcherService_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "pkg/proto/dispatcher.proto",
+	Metadata: "dispatcher.proto",
 }
