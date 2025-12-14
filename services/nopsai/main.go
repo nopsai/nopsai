@@ -4963,9 +4963,14 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		envVars = append(envVars, fmt.Sprintf("SCOPE=%s", scope))
 	}
 
-	for key, value := range finalVars {
-		envVars = append(envVars, fmt.Sprintf("%s=%s", key, value))
+	variablesJSON, err := json.Marshal(finalVars)
+	if err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to marshal variables")
+		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", "Failed to marshal variables", runID)
+		return
 	}
+
+	envVars = append(envVars, fmt.Sprintf("NOPSAI_VARIABLES=%s", base64.StdEncoding.EncodeToString(variablesJSON)))
 
 	for key, value := range gitContext {
 		envKey := fmt.Sprintf("GIT_%s", strings.ToUpper(key))
