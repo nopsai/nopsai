@@ -3529,7 +3529,7 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pipelines, baseScope := findPipelinesForEvent(manifest, eventType, ref)
+	pipelines, baseScope := findPipelinesForEvent(manifest, eventType, ref, repo)
 	if len(pipelines) == 0 {
 		log.Info().Str("repo", repoFullName).Str("ref", ref).Msg("No pipelines matched event.")
 		w.WriteHeader(http.StatusOK)
@@ -5265,9 +5265,15 @@ func (a *App) findEncryptedSecret(secretName, repoFullName, scope string) (strin
 	return "", false, err
 }
 
-func findPipelinesForEvent(manifest models.Manifest, eventType, ref string) ([]models.PipelineSource, string) {
+func findPipelinesForEvent(manifest models.Manifest, eventType, ref, repoName string) ([]models.PipelineSource, string) {
 	for _, trigger := range manifest.Triggers {
-		if trigger.On != eventType {
+		// Support "all" event type or specific match
+		if trigger.On != eventType && trigger.On != "all" {
+			continue
+		}
+
+		// Check for repo exceptions
+		if len(trigger.SkipRepos) > 0 && isRepoSkipped(repoName, trigger.SkipRepos) {
 			continue
 		}
 
@@ -5280,6 +5286,11 @@ func findPipelinesForEvent(manifest models.Manifest, eventType, ref string) ([]m
 				} else if len(trigger.SkipBranches) > 0 {
 					branchIncluded = true
 				}
+				// If "on: all", treat empty branches as "all branches"
+				if trigger.On == "all" && len(trigger.Branches) == 0 {
+					branchIncluded = true
+				}
+
 				if branchIncluded {
 					if branchMatchesAnyPattern(branchName, trigger.SkipBranches) {
 						continue
@@ -5297,7 +5308,6 @@ func findPipelinesForEvent(manifest models.Manifest, eventType, ref string) ([]m
 		}
 
 		if eventType == "pull_request" {
-			// This logic is now correctly isolated to only pull_request events
 			return trigger.Pipelines, trigger.Scope
 		}
 	}
@@ -5325,10 +5335,20 @@ func (a *App) getTriggerOverride(fullName string) (string, error) {
 	return triggerDef, nil
 }
 
+func isRepoSkipped(repoName string, skipList []string) bool {
+	for _, pattern := range skipList {
+		if matchBranchPattern(pattern, repoName) {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *App) fetchTriggerManifest(owner, repo, commitSHA string) (models.Manifest, string, error) {
 	fullName := fmt.Sprintf("%s/%s", owner, repo)
 	var manifest models.Manifest
 
+	// 1. Try Specific Repo Override
 	if overrideDef, err := a.getTriggerOverride(fullName); err != nil {
 		return manifest, "", err
 	} else if overrideDef != "" {
@@ -5339,6 +5359,19 @@ func (a *App) fetchTriggerManifest(owner, repo, commitSHA string) (models.Manife
 		return manifest, "database override", nil
 	}
 
+	// 2. Try Owner-Wide "all" Override
+	ownerAll := fmt.Sprintf("%s/all", owner)
+	if overrideDef, err := a.getTriggerOverride(ownerAll); err != nil {
+		return manifest, "", err
+	} else if overrideDef != "" {
+		if err := yaml.Unmarshal([]byte(overrideDef), &manifest); err != nil {
+			return manifest, "", err
+		}
+		log.Info().Str("repository", fullName).Str("owner_trigger", ownerAll).Msg("Using owner-wide trigger override from database")
+		return manifest, "database owner override", nil
+	}
+
+	// 3. Fallback to Git
 	content, err := a.requestGitBotFile(owner, repo, commitSHA, ".nopsai/triggers.yaml", errManifestNotFound)
 	if err != nil {
 		return manifest, "", err
