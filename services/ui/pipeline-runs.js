@@ -1906,7 +1906,6 @@
                     applyLogRouteState(logSegments, query);
                 }
                 
-                // [FIX] Check if modal is already open to prevent resetting state/scroll on every poll
                 const logsModal = document.getElementById('logs-modal');
                 const isOpen = logsModal && !logsModal.classList.contains('hidden');
                 
