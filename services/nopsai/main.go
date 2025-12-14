@@ -1479,7 +1479,6 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 		"run_groups_updated":  0,
 	}
 
-	// Git sync is additive: we upsert matching records and leave any DB-only entries untouched.
 	repoURL := a.getConfigRepoURL()
 	if repoURL == "" {
 		return nil, fmt.Errorf("CONFIG_REPO_URL is not configured")
@@ -1492,6 +1491,8 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 	if err := a.ensureConfigRepoAccessible(owner, repo); err != nil {
 		return nil, err
 	}
+
+	// --- 1. Fetch all configurations from Git ---
 
 	pipelineFiles, err := a.requestGitBotDirectory(owner, repo, "pipelines")
 	if err != nil {
@@ -1539,6 +1540,8 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 		path       string
 		name       string
 	}
+
+	// --- 2. Parse Files ---
 
 	pipelines := make(map[string]storedPipeline)
 	for path, content := range pipelineFiles {
@@ -1702,15 +1705,13 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 		triggers[repoKey] = content
 	}
 
-	// --- Database Transaction ---
+	// --- 3. Database Transaction (Upsert + Prune) ---
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	// Load existing keys from DB
-	// Define SQL statements
 	const pipelineUpsert = `INSERT INTO pipelines (path, name, version, definition, source, updated_at) VALUES ($1, $2, $3, $4, 'git', NOW())
 		ON CONFLICT (path, name) DO UPDATE SET version = EXCLUDED.version, definition = EXCLUDED.definition, source = 'git', updated_at = NOW()`
 	const stepUpsert = `INSERT INTO steps (path, name, definition, source, updated_at) VALUES ($1, $2, $3, 'git', NOW())
@@ -1720,7 +1721,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 	const triggerUpsert = `INSERT INTO triggers (repository_name, trigger_definition, source) VALUES ($1, $2, 'git')
 		ON CONFLICT (repository_name) DO UPDATE SET trigger_definition = EXCLUDED.trigger_definition, source = 'git'`
 
-	// Upsert Pipelines
+	// A. Upsert Pipelines
 	for key, stored := range pipelines {
 		if _, err := tx.Exec(ctx, pipelineUpsert, stored.path, stored.name, stored.version, stored.definition); err != nil {
 			return nil, fmt.Errorf("failed to upsert pipeline '%s': %w", key, err)
@@ -1728,7 +1729,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 		details["pipelines_synced"]++
 	}
 
-	// Upsert Steps
+	// B. Upsert Steps
 	for key, stored := range steps {
 		if _, err := tx.Exec(ctx, stepUpsert, stored.path, stored.name, stored.definition); err != nil {
 			return nil, fmt.Errorf("failed to upsert reusable step '%s': %w", key, err)
@@ -1736,7 +1737,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 		details["steps_synced"]++
 	}
 
-	// Upsert General Envs
+	// C. Upsert General Envs
 	for key, value := range generalEnvs {
 		var envParam interface{}
 		if key.envPath != "" {
@@ -1748,7 +1749,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 		details["general_vars_synced"]++
 	}
 
-	// Upsert Repo Envs
+	// D. Upsert Repo Envs
 	for key, value := range repoEnvs {
 		var envParam interface{}
 		if key.envPath != "" {
@@ -1760,6 +1761,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 		details["repo_vars_synced"]++
 	}
 
+	// E. Upsert Triggers
 	for repoName, definition := range triggers {
 		if _, err := tx.Exec(ctx, triggerUpsert, repoName, definition); err != nil {
 			return nil, fmt.Errorf("failed to upsert trigger override '%s': %w", repoName, err)
@@ -1767,6 +1769,119 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 		details["triggers_synced"]++
 	}
 
+	// --- PRUNING PHASE: Remove items that exist in DB as source='git' but were not in the Git payload ---
+
+	// 1. Prune Pipelines
+	{
+		var paths, names []string
+		for _, p := range pipelines {
+			paths = append(paths, p.path)
+			names = append(names, p.name)
+		}
+		if len(paths) == 0 {
+			if _, err := tx.Exec(ctx, "DELETE FROM pipelines WHERE source = 'git'"); err != nil {
+				return nil, fmt.Errorf("failed to prune pipelines: %w", err)
+			}
+		} else {
+			// Delete where source='git' AND (path, name) NOT IN the lists we just processed
+			if _, err := tx.Exec(ctx, `
+				DELETE FROM pipelines 
+				WHERE source = 'git' 
+				AND NOT EXISTS (
+					SELECT 1 FROM unnest($1::text[], $2::text[]) AS t(p, n) 
+					WHERE pipelines.path = t.p AND pipelines.name = t.n
+				)`, paths, names); err != nil {
+				return nil, fmt.Errorf("failed to prune pipelines: %w", err)
+			}
+		}
+	}
+
+	// 2. Prune Steps
+	{
+		var paths, names []string
+		for _, s := range steps {
+			paths = append(paths, s.path)
+			names = append(names, s.name)
+		}
+		if len(paths) == 0 {
+			if _, err := tx.Exec(ctx, "DELETE FROM steps WHERE source = 'git'"); err != nil {
+				return nil, fmt.Errorf("failed to prune steps: %w", err)
+			}
+		} else {
+			if _, err := tx.Exec(ctx, `
+				DELETE FROM steps 
+				WHERE source = 'git' 
+				AND NOT EXISTS (
+					SELECT 1 FROM unnest($1::text[], $2::text[]) AS t(p, n) 
+					WHERE steps.path = t.p AND steps.name = t.n
+				)`, paths, names); err != nil {
+				return nil, fmt.Errorf("failed to prune steps: %w", err)
+			}
+		}
+	}
+
+	// 3. Prune Triggers
+	{
+		var repos []string
+		for repo := range triggers {
+			repos = append(repos, repo)
+		}
+		if len(repos) == 0 {
+			if _, err := tx.Exec(ctx, "DELETE FROM triggers WHERE source = 'git'"); err != nil {
+				return nil, fmt.Errorf("failed to prune triggers: %w", err)
+			}
+		} else {
+			if _, err := tx.Exec(ctx, "DELETE FROM triggers WHERE source = 'git' AND repository_name != ALL($1)", repos); err != nil {
+				return nil, fmt.Errorf("failed to prune triggers: %w", err)
+			}
+		}
+	}
+
+	// 4. Prune Variables (Environment Variables)
+	{
+		var names []string
+		var repos []*string
+		var scopes []*string
+
+		// Helper to collect all valid (name, repo, scope) tuples
+		addVar := func(n string, r *string, s string) {
+			names = append(names, n)
+			repos = append(repos, r)
+			if s == "" {
+				scopes = append(scopes, nil)
+			} else {
+				scopes = append(scopes, &s)
+			}
+		}
+
+		for key := range generalEnvs {
+			addVar(key.name, nil, key.envPath)
+		}
+		for key := range repoEnvs {
+			r := key.repo // copy loop variable
+			addVar(key.name, &r, key.envPath)
+		}
+
+		if len(names) == 0 {
+			if _, err := tx.Exec(ctx, "DELETE FROM variables WHERE source = 'git'"); err != nil {
+				return nil, fmt.Errorf("failed to prune variables: %w", err)
+			}
+		} else {
+			if _, err := tx.Exec(ctx, `
+				DELETE FROM variables 
+				WHERE source = 'git' 
+				AND NOT EXISTS (
+					SELECT 1 FROM unnest($1::text[], $2::text[], $3::text[]) AS t(n, r, s) 
+					WHERE variables.name = t.n 
+					AND variables.repository_name IS NOT DISTINCT FROM t.r 
+					AND variables.scope IS NOT DISTINCT FROM t.s
+				)`, names, repos, scopes); err != nil {
+				return nil, fmt.Errorf("failed to prune variables: %w", err)
+			}
+		}
+	}
+
+	// Sync groups (UI folders) - Note: Groups do not have a 'source' column, so we do not prune them to avoid deleting user-created folders.
 	if len(pipelineRunStructure) > 0 {
 		if err := a.syncPipelineRunGroups(ctx, tx, pipelineRunStructure, details); err != nil {
 			return nil, err
