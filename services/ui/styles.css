@@ -1643,6 +1643,12 @@ html.dark .system-input {
     border-color: rgba(248, 113, 113, 0.3);
 }
 
+.runner-pill--muted {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border-color: var(--border-primary);
+}
+
 .runner-meta {
     display: flex;
     flex-direction: column;
@@ -1660,6 +1666,11 @@ html.dark .system-input {
 .runner-meta__value {
     color: var(--text-primary);
     font-weight: 700;
+}
+
+.runner-meta__value--mono {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    letter-spacing: 0.01em;
 }
 
 .pipeline-sync-log-wrap {
