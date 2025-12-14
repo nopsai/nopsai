@@ -151,6 +151,11 @@ func (r *runner) connectAndServe() error {
 		Capacity: r.capacity,
 	}
 	metadata := map[string]string{"version": "v1"}
+	if host, err := os.Hostname(); err == nil {
+		if trimmed := strings.TrimSpace(host); trimmed != "" {
+			metadata["hostname"] = trimmed
+		}
+	}
 	if r.networkSet {
 		metadata["docker_network"] = r.dockerNetwork
 	}

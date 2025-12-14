@@ -13,6 +13,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"nopsai/config"
@@ -27,6 +28,7 @@ import (
 )
 
 type runnerConn struct {
+	connectionID  string
 	id            string
 	scopes        map[string]struct{}
 	capacity      int32
@@ -45,6 +47,7 @@ type dispatcherServer struct {
 	runners map[string]*runnerConn
 	queue   []*proto.JobRequest
 	routing map[string][]string
+	connSeq uint64
 
 	nopsaiBase string
 	httpClient *http.Client
@@ -65,6 +68,15 @@ func newDispatcherServer(routing map[string][]string, nopsaiBase string) *dispat
 		nopsaiBase: strings.TrimRight(strings.TrimSpace(nopsaiBase), "/"),
 		httpClient: &http.Client{Timeout: 15 * time.Second},
 	}
+}
+
+func (d *dispatcherServer) nextConnectionID(base string) string {
+	seq := atomic.AddUint64(&d.connSeq, 1)
+	name := strings.TrimSpace(base)
+	if name == "" {
+		name = "runner"
+	}
+	return fmt.Sprintf("%s#%d", name, seq)
 }
 
 func (d *dispatcherServer) SubmitJob(ctx context.Context, job *proto.JobRequest) (*proto.SubmitJobResponse, error) {
@@ -103,7 +115,21 @@ func (d *dispatcherServer) Register(stream proto.DispatcherService_RegisterServe
 	if capacity <= 0 {
 		capacity = 1
 	}
+
+	connectionID := d.nextConnectionID(reg.RunnerId)
+	metadata := make(map[string]string, len(reg.Metadata)+2)
+	for k, v := range reg.Metadata {
+		key := strings.TrimSpace(k)
+		if key == "" {
+			continue
+		}
+		metadata[key] = v
+	}
+	metadata["connection_id"] = connectionID
+	metadata["connected_at"] = time.Now().UTC().Format(time.RFC3339)
+
 	rc := &runnerConn{
+		connectionID:  connectionID,
 		id:            reg.RunnerId,
 		scopes:        toSet(reg.Scopes),
 		capacity:      capacity,
@@ -111,12 +137,12 @@ func (d *dispatcherServer) Register(stream proto.DispatcherService_RegisterServe
 		lastHeartbeat: time.Now(),
 		inflight:      make(map[string]*proto.JobRequest),
 		sendCh:        make(chan *proto.DispatcherMessage, 32),
-		metadata:      reg.Metadata,
+		metadata:      metadata,
 		allowDispatch: true,
 	}
 
 	d.addRunner(rc)
-	defer d.removeRunner(rc.id)
+	defer d.removeRunner(rc.connectionID)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	sendErrCh := make(chan error, 1)
@@ -154,9 +180,9 @@ func (d *dispatcherServer) Register(stream proto.DispatcherService_RegisterServe
 		}
 		switch body := msg.Message.(type) {
 		case *proto.RunnerMessage_Heartbeat:
-			d.handleHeartbeat(rc.id, body.Heartbeat)
+			d.handleHeartbeat(rc.connectionID, body.Heartbeat)
 		case *proto.RunnerMessage_JobResult:
-			d.handleJobResult(rc.id, body.JobResult)
+			d.handleJobResult(rc.connectionID, body.JobResult)
 		case *proto.RunnerMessage_Register:
 			// Ignore duplicate registration attempts on the same stream.
 			log.Warn().Str("runner_id", rc.id).Msg("received duplicate registration message on stream")
@@ -182,7 +208,7 @@ func (d *dispatcherServer) GetStatus(ctx context.Context, _ *emptypb.Empty) (*pr
 			ActiveJobs:        r.active,
 			InflightJobs:      int32(len(r.inflight)),
 			LastHeartbeatUnix: r.lastHeartbeat.Unix(),
-			Metadata:          r.metadata,
+			Metadata:          mergeMetadata(r.metadata, r.connectionID),
 			AllowDispatch:     r.allowDispatch,
 		}
 		resp.Runners = append(resp.Runners, info)
@@ -439,13 +465,13 @@ func (d *dispatcherServer) GetRunStatus(ctx context.Context, req *proto.RunStatu
 	return &proto.RunStatusResponse{Status: statusResp["status"]}, nil
 }
 
-func (d *dispatcherServer) handleHeartbeat(runnerID string, hb *proto.RunnerHeartbeat) {
+func (d *dispatcherServer) handleHeartbeat(connectionID string, hb *proto.RunnerHeartbeat) {
 	if hb == nil {
 		return
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	runner, ok := d.runners[runnerID]
+	runner, ok := d.runners[connectionID]
 	if !ok {
 		return
 	}
@@ -455,14 +481,14 @@ func (d *dispatcherServer) handleHeartbeat(runnerID string, hb *proto.RunnerHear
 	go d.pumpQueue()
 }
 
-func (d *dispatcherServer) handleJobResult(runnerID string, result *proto.JobResult) {
+func (d *dispatcherServer) handleJobResult(connectionID string, result *proto.JobResult) {
 	if result == nil {
 		return
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	runner, ok := d.runners[runnerID]
+	runner, ok := d.runners[connectionID]
 	if !ok {
 		return
 	}
@@ -479,52 +505,39 @@ func (d *dispatcherServer) handleJobResult(runnerID string, result *proto.JobRes
 	switch statusText {
 	case "requeued":
 		if job != nil {
-			log.Info().Str("run_id", job.RunId).Str("runner_id", runnerID).Msg("job requeued by runner")
+			log.Info().Str("run_id", job.RunId).Str("runner_id", runner.id).Msg("job requeued by runner")
 			d.queue = append(d.queue, job)
 			go d.pumpQueue()
 		}
 	case "failed":
-		log.Warn().Str("run_id", result.RunId).Str("runner_id", runnerID).Str("error", result.Error).Msg("job failed to start on runner")
+		log.Warn().Str("run_id", result.RunId).Str("runner_id", runner.id).Str("error", result.Error).Msg("job failed to start on runner")
 	case "completed":
-		log.Info().Str("run_id", result.RunId).Str("runner_id", runnerID).Msg("job completed")
+		log.Info().Str("run_id", result.RunId).Str("runner_id", runner.id).Msg("job completed")
 	case "accepted":
-		log.Info().Str("run_id", result.RunId).Str("runner_id", runnerID).Msg("runner acknowledged job")
+		log.Info().Str("run_id", result.RunId).Str("runner_id", runner.id).Msg("runner acknowledged job")
 	default:
-		log.Info().Str("run_id", result.RunId).Str("runner_id", runnerID).Str("status", statusText).Msg("received job update from runner")
+		log.Info().Str("run_id", result.RunId).Str("runner_id", runner.id).Str("status", statusText).Msg("received job update from runner")
 	}
 }
 
 func (d *dispatcherServer) addRunner(rc *runnerConn) {
-	var toRequeue *runnerConn
-
 	d.mu.Lock()
-
-	if existing, ok := d.runners[rc.id]; ok {
-		log.Warn().Str("runner_id", rc.id).Msg("replacing existing runner connection")
-		delete(d.runners, rc.id)
-		close(existing.sendCh)
-		toRequeue = existing
-	}
-
-	d.runners[rc.id] = rc
+	d.runners[rc.connectionID] = rc
 	log.Info().
 		Str("runner_id", rc.id).
+		Str("connection_id", rc.connectionID).
 		Int("scopes", len(rc.scopes)).
 		Int32("capacity", rc.capacity).
 		Msg("runner connected")
 
 	d.mu.Unlock()
-
-	if toRequeue != nil {
-		go d.requeueInflight(toRequeue)
-	}
 }
 
-func (d *dispatcherServer) removeRunner(runnerID string) {
+func (d *dispatcherServer) removeRunner(connectionID string) {
 	d.mu.Lock()
-	runner, ok := d.runners[runnerID]
+	runner, ok := d.runners[connectionID]
 	if ok {
-		delete(d.runners, runnerID)
+		delete(d.runners, connectionID)
 	}
 	d.mu.Unlock()
 
@@ -533,7 +546,10 @@ func (d *dispatcherServer) removeRunner(runnerID string) {
 	}
 
 	close(runner.sendCh)
-	log.Warn().Str("runner_id", runnerID).Msg("runner disconnected")
+	log.Warn().
+		Str("runner_id", runner.id).
+		Str("connection_id", runner.connectionID).
+		Msg("runner disconnected")
 	d.requeueInflight(runner)
 }
 
@@ -705,6 +721,24 @@ func keys(m map[string]struct{}) []string {
 	return out
 }
 
+func mergeMetadata(meta map[string]string, connectionID string) map[string]string {
+	if len(meta) == 0 && connectionID == "" {
+		return nil
+	}
+	out := make(map[string]string, len(meta)+1)
+	for k, v := range meta {
+		key := strings.TrimSpace(k)
+		if key == "" {
+			continue
+		}
+		out[key] = v
+	}
+	if connectionID != "" {
+		out["connection_id"] = connectionID
+	}
+	return out
+}
+
 func (r *runnerConn) send(msg *proto.DispatcherMessage) {
 	select {
 	case r.sendCh <- msg:
@@ -723,19 +757,28 @@ func (d *dispatcherServer) reapStaleRunners(interval, ttl time.Duration, stop <-
 			return
 		case <-ticker.C:
 			now := time.Now()
-			var stale []string
+			var stale []struct {
+				connectionID string
+				runnerID     string
+			}
 
 			d.mu.Lock()
-			for id, runner := range d.runners {
+			for connID, runner := range d.runners {
 				if now.Sub(runner.lastHeartbeat) > ttl {
-					stale = append(stale, id)
+					stale = append(stale, struct {
+						connectionID string
+						runnerID     string
+					}{connectionID: connID, runnerID: runner.id})
 				}
 			}
 			d.mu.Unlock()
 
-			for _, id := range stale {
-				log.Warn().Str("runner_id", id).Msg("runner considered stale; removing")
-				d.removeRunner(id)
+			for _, entry := range stale {
+				log.Warn().
+					Str("runner_id", entry.runnerID).
+					Str("connection_id", entry.connectionID).
+					Msg("runner considered stale; removing")
+				d.removeRunner(entry.connectionID)
 			}
 		}
 	}
