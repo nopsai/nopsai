@@ -314,7 +314,8 @@
             return;
         }
 
-        const runners = Array.isArray(status.runners) ? status.runners : [];
+        const runnersRaw = Array.isArray(status.runners) ? status.runners : [];
+        const runners = sortRunnersById(runnersRaw);
         const activeSum = runners.reduce((sum, r) => sum + (r.activeJobs || 0), 0);
 
         queueCountEl.textContent = status.queuedJobs != null ? status.queuedJobs : '0';
@@ -337,34 +338,74 @@
             const scopes = (runner.scopes || []).length > 0 ? runner.scopes.join(', ') : 'All scopes';
             const badgeClass = stale ? 'runner-pill--error' : 'runner-pill--ok';
             const badgeLabel = stale ? 'Stale' : 'Healthy';
+            const meta = getRunnerMeta(runner);
+            const connectionLabel = formatConnectionId(meta.connectionId);
 
             const card = document.createElement('div');
             card.className = 'glass-card p-4 space-y-2';
+            const metaGrid = [];
+            metaGrid.push(`
+                <div class="runner-meta">
+                    <span class="runner-meta__label">Active</span>
+                    <span class="runner-meta__value">${runner.activeJobs || 0}/${runner.capacity || 0}</span>
+                </div>
+            `);
+            metaGrid.push(`
+                <div class="runner-meta">
+                    <span class="runner-meta__label">Inflight</span>
+                    <span class="runner-meta__value">${runner.inflightJobs || 0}</span>
+                </div>
+            `);
+            metaGrid.push(`
+                <div class="runner-meta">
+                    <span class="runner-meta__label">Dispatch</span>
+                    <span class="runner-meta__value">${runner.allowDispatch ? 'Yes' : 'Paused'}</span>
+                </div>
+            `);
+            metaGrid.push(`
+                <div class="runner-meta">
+                    <span class="runner-meta__label">Heartbeat</span>
+                    <span class="runner-meta__value">${formatSince(runner.lastHeartbeatUnix)}</span>
+                </div>
+            `);
+            if (connectionLabel) {
+                metaGrid.push(`
+                    <div class="runner-meta">
+                        <span class="runner-meta__label">Instance</span>
+                        <span class="runner-meta__value runner-meta__value--mono">${escapeHtml(connectionLabel)}</span>
+                    </div>
+                `);
+            }
+            if (meta.hostname) {
+                metaGrid.push(`
+                    <div class="runner-meta">
+                        <span class="runner-meta__label">Host</span>
+                        <span class="runner-meta__value">${escapeHtml(meta.hostname)}</span>
+                    </div>
+                `);
+            }
+            if (meta.network) {
+                metaGrid.push(`
+                    <div class="runner-meta">
+                        <span class="runner-meta__label">Network</span>
+                        <span class="runner-meta__value runner-meta__value--mono">${escapeHtml(meta.network)}</span>
+                    </div>
+                `);
+            }
+
             card.innerHTML = `
                 <div class="flex items-start justify-between gap-2">
-                    <div>
-                        <p class="text-sm font-semibold text-[var(--text-primary)]">${runner.runnerId || 'unnamed'}</p>
-                        <p class="text-xs text-[var(--text-secondary)]">${scopes}</p>
+                    <div class="space-y-1">
+                        <p class="text-sm font-semibold text-[var(--text-primary)]">${escapeHtml(runner.runnerId || 'unnamed')}</p>
+                        <p class="text-xs text-[var(--text-secondary)]">${escapeHtml(scopes)}</p>
                     </div>
-                    <span class="runner-pill ${badgeClass}">${badgeLabel}</span>
+                    <div class="flex items-center gap-2">
+                        ${connectionLabel ? `<span class="runner-pill runner-pill--muted">${escapeHtml(connectionLabel)}</span>` : ''}
+                        <span class="runner-pill ${badgeClass}">${badgeLabel}</span>
+                    </div>
                 </div>
                 <div class="grid grid-cols-2 gap-2 text-xs">
-                    <div class="runner-meta">
-                        <span class="runner-meta__label">Active</span>
-                        <span class="runner-meta__value">${runner.activeJobs || 0}/${runner.capacity || 0}</span>
-                    </div>
-                    <div class="runner-meta">
-                        <span class="runner-meta__label">Inflight</span>
-                        <span class="runner-meta__value">${runner.inflightJobs || 0}</span>
-                    </div>
-                    <div class="runner-meta">
-                        <span class="runner-meta__label">Dispatch</span>
-                        <span class="runner-meta__value">${runner.allowDispatch ? 'Yes' : 'Paused'}</span>
-                    </div>
-                    <div class="runner-meta">
-                        <span class="runner-meta__label">Heartbeat</span>
-                        <span class="runner-meta__value">${formatSince(runner.lastHeartbeatUnix)}</span>
-                    </div>
+                    ${metaGrid.join('')}
                 </div>
             `;
             listEl.appendChild(card);
@@ -508,6 +549,35 @@
         const d = date instanceof Date ? date : new Date(date);
         if (Number.isNaN(d.getTime())) return '—';
         return d.toLocaleTimeString();
+    }
+
+    function getRunnerMeta(runner) {
+        const meta = (runner && runner.metadata) || {};
+        return {
+            connectionId: (meta.connection_id || meta.instance_id || '').trim(),
+            hostname: (meta.hostname || meta.host || meta.runner_host || '').trim(),
+            network: (meta.docker_network || meta.docker_network_name || meta.docker_networkname || '').trim(),
+        };
+    }
+
+    function formatConnectionId(value) {
+        const trimmed = (value || '').trim();
+        if (!trimmed) return '';
+        if (trimmed.length <= 14) return trimmed;
+        return `${trimmed.slice(0, 6)}...${trimmed.slice(-4)}`;
+    }
+
+    function sortRunnersById(runners) {
+        const copy = Array.isArray(runners) ? runners.slice() : [];
+        copy.sort((a, b) => {
+            const idA = ((a && a.runnerId) || '').toLowerCase();
+            const idB = ((b && b.runnerId) || '').toLowerCase();
+            if (idA !== idB) return idA.localeCompare(idB);
+            const connA = getRunnerMeta(a).connectionId.toLowerCase();
+            const connB = getRunnerMeta(b).connectionId.toLowerCase();
+            return connA.localeCompare(connB);
+        });
+        return copy;
     }
 
     function isStale(nowMs, lastHeartbeatUnix) {
