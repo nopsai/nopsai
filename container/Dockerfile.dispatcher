@@ -1,0 +1,8 @@
+FROM nopsai-base:latest AS base
+FROM alpine:latest
+
+WORKDIR /app
+COPY --from=base /nopsai-dispatcher /usr/local/bin/nopsai-dispatcher
+COPY --from=base /app/config.yml .
+
+ENTRYPOINT ["nopsai-dispatcher"]

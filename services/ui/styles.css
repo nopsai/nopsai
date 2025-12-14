@@ -1599,6 +1599,69 @@ html.dark .system-input {
     color: var(--text-secondary);
 }
 
+.system-tab-btn {
+    padding: 8px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border-primary);
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+    font-weight: 600;
+    transition: all 0.2s ease;
+}
+
+.system-tab-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--border-accent);
+}
+
+.system-tab-btn--active {
+    color: var(--text-primary);
+    border-color: var(--border-accent);
+    background: rgba(94, 234, 212, 0.08);
+    box-shadow: 0 4px 14px rgba(94, 234, 212, 0.12);
+}
+
+.runner-pill {
+    padding: 4px 8px;
+    border-radius: 9999px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    border: 1px solid transparent;
+}
+
+.runner-pill--ok {
+    background: rgba(74, 222, 128, 0.12);
+    color: #22c55e;
+    border-color: rgba(74, 222, 128, 0.3);
+}
+
+.runner-pill--error {
+    background: rgba(248, 113, 113, 0.12);
+    color: #f87171;
+    border-color: rgba(248, 113, 113, 0.3);
+}
+
+.runner-meta {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-tertiary);
+    border-radius: 10px;
+    padding: 8px 10px;
+    border: 1px solid var(--border-primary);
+}
+
+.runner-meta__label {
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.runner-meta__value {
+    color: var(--text-primary);
+    font-weight: 700;
+}
+
 .pipeline-sync-log-wrap {
     margin-top: 0.65rem;
     max-height: 220px;
