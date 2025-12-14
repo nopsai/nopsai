@@ -3,6 +3,7 @@
         syncPollTimer: null,
         lastStatus: null,
         isSaving: false,
+        activeTab: 'config',
     };
 
     const DOM = {};
@@ -17,10 +18,22 @@
             'system-repo-display', 'system-repo-helper', 'system-repo-chip', 'system-sync-updated',
             'system-sync-status-label', 'system-config-status', 'system-sync-refresh-btn',
             'system-agent-api', 'system-gitbot-api', 'system-nopsai-gitbot-api',
+            'system-config-section', 'system-dispatcher-section', 'dispatcher-queue-count',
+            'dispatcher-runner-count', 'dispatcher-active-count', 'dispatcher-runner-list',
+            'dispatcher-empty', 'dispatcher-updated',
         ];
         ids.forEach(id => {
             const el = document.getElementById(id);
             if (el) DOM[id] = el;
+        });
+
+        const tabButtons = document.querySelectorAll('.system-tab-btn');
+        tabButtons.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const target = btn.getAttribute('data-target');
+                switchTab(target);
+            });
         });
 
         if (DOM['system-config-form']) {
@@ -42,12 +55,16 @@
 
     async function handleRoute() {
         stopSyncPolling();
+        switchTab(state.activeTab || 'config');
         await loadSystemConfig(true);
+        await loadDispatcherStatus(true);
         startSyncPolling();
     }
 
     function onLeave() {
         stopSyncPolling();
+        state.activeTab = 'config';
+        switchTab('config');
     }
 
     function startSyncPolling() {
@@ -55,6 +72,7 @@
         state.syncPollTimer = window.setInterval(() => {
             if (window.location.hash.startsWith('#/system')) {
                 loadSyncStatus();
+                loadDispatcherStatus();
             }
         }, 5000);
     }
@@ -75,6 +93,15 @@
         renderMeta(data);
         renderSyncStatus(data.config_sync_status);
         return data;
+    }
+
+    async function loadDispatcherStatus(force = false) {
+        if (!context || typeof context.fetchData !== 'function') return;
+        if (!force && state.activeTab !== 'dispatcher') {
+            return;
+        }
+        const status = await context.fetchData('/v1/system/dispatcher');
+        renderDispatcherStatus(status);
     }
 
     function applyConfigToForm(data) {
@@ -275,6 +302,100 @@
         renderMeta({ config_repo_url: repoInput ? repoInput.value : '', config_sync_status: status });
     }
 
+    function renderDispatcherStatus(status) {
+        const queueCountEl = DOM['dispatcher-queue-count'];
+        const runnerCountEl = DOM['dispatcher-runner-count'];
+        const activeCountEl = DOM['dispatcher-active-count'];
+        const listEl = DOM['dispatcher-runner-list'];
+        const emptyEl = DOM['dispatcher-empty'];
+        const updatedEl = DOM['dispatcher-updated'];
+
+        if (!status || !queueCountEl || !runnerCountEl || !activeCountEl || !listEl || !emptyEl) {
+            return;
+        }
+
+        const runners = Array.isArray(status.runners) ? status.runners : [];
+        const activeSum = runners.reduce((sum, r) => sum + (r.activeJobs || 0), 0);
+
+        queueCountEl.textContent = status.queuedJobs != null ? status.queuedJobs : '0';
+        runnerCountEl.textContent = runners.length.toString();
+        activeCountEl.textContent = activeSum.toString();
+        if (updatedEl) {
+            updatedEl.textContent = `Updated ${formatRelative(new Date())}`;
+        }
+
+        listEl.innerHTML = '';
+        if (runners.length === 0) {
+            emptyEl.classList.remove('hidden');
+            return;
+        }
+
+        emptyEl.classList.add('hidden');
+        const now = Date.now();
+        runners.forEach(runner => {
+            const stale = isStale(now, runner.lastHeartbeatUnix);
+            const scopes = (runner.scopes || []).length > 0 ? runner.scopes.join(', ') : 'All scopes';
+            const badgeClass = stale ? 'runner-pill--error' : 'runner-pill--ok';
+            const badgeLabel = stale ? 'Stale' : 'Healthy';
+
+            const card = document.createElement('div');
+            card.className = 'glass-card p-4 space-y-2';
+            card.innerHTML = `
+                <div class="flex items-start justify-between gap-2">
+                    <div>
+                        <p class="text-sm font-semibold text-[var(--text-primary)]">${runner.runnerId || 'unnamed'}</p>
+                        <p class="text-xs text-[var(--text-secondary)]">${scopes}</p>
+                    </div>
+                    <span class="runner-pill ${badgeClass}">${badgeLabel}</span>
+                </div>
+                <div class="grid grid-cols-2 gap-2 text-xs">
+                    <div class="runner-meta">
+                        <span class="runner-meta__label">Active</span>
+                        <span class="runner-meta__value">${runner.activeJobs || 0}/${runner.capacity || 0}</span>
+                    </div>
+                    <div class="runner-meta">
+                        <span class="runner-meta__label">Inflight</span>
+                        <span class="runner-meta__value">${runner.inflightJobs || 0}</span>
+                    </div>
+                    <div class="runner-meta">
+                        <span class="runner-meta__label">Dispatch</span>
+                        <span class="runner-meta__value">${runner.allowDispatch ? 'Yes' : 'Paused'}</span>
+                    </div>
+                    <div class="runner-meta">
+                        <span class="runner-meta__label">Heartbeat</span>
+                        <span class="runner-meta__value">${formatSince(runner.lastHeartbeatUnix)}</span>
+                    </div>
+                </div>
+            `;
+            listEl.appendChild(card);
+        });
+    }
+
+    function switchTab(target) {
+        if (!target || (target !== 'config' && target !== 'dispatcher')) return;
+        state.activeTab = target;
+        const configSection = DOM['system-config-section'];
+        const dispatcherSection = DOM['system-dispatcher-section'];
+        if (configSection && dispatcherSection) {
+            if (target === 'config') {
+                configSection.classList.remove('hidden');
+                dispatcherSection.classList.add('hidden');
+            } else {
+                configSection.classList.add('hidden');
+                dispatcherSection.classList.remove('hidden');
+                loadDispatcherStatus(true);
+            }
+        }
+        document.querySelectorAll('.system-tab-btn').forEach(btn => {
+            const tab = btn.getAttribute('data-target');
+            if (tab === target) {
+                btn.classList.add('system-tab-btn--active');
+            } else {
+                btn.classList.remove('system-tab-btn--active');
+            }
+        });
+    }
+
     function renderDetails(details) {
         if (!details || typeof details !== 'object') return '';
         const entries = Object.entries(details);
@@ -369,6 +490,29 @@
         const date = new Date(value);
         if (Number.isNaN(date.getTime())) return '—';
         return date.toLocaleString();
+    }
+
+    function formatSince(unixSeconds) {
+        if (!unixSeconds) return 'never';
+        const diff = Date.now() - unixSeconds * 1000;
+        if (diff < 0) return 'now';
+        const seconds = Math.floor(diff / 1000);
+        if (seconds < 60) return `${seconds}s ago`;
+        const minutes = Math.floor(seconds / 60);
+        if (minutes < 60) return `${minutes}m ago`;
+        const hours = Math.floor(minutes / 60);
+        return `${hours}h ago`;
+    }
+
+    function formatRelative(date) {
+        const d = date instanceof Date ? date : new Date(date);
+        if (Number.isNaN(d.getTime())) return '—';
+        return d.toLocaleTimeString();
+    }
+
+    function isStale(nowMs, lastHeartbeatUnix) {
+        if (!lastHeartbeatUnix) return true;
+        return (nowMs - lastHeartbeatUnix * 1000) > 30000;
     }
 
     function capitalizeStatus(value) {

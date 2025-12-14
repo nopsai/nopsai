@@ -22,13 +22,15 @@ type Config struct {
 	ConfigRepoURL string `yaml:"config_repo_url" env:"CONFIG_REPO_URL"`
 
 	// Addresses for services to listen on
-	NopsaiListenAddress string `yaml:"nopsai_listen_address" env:"NOPSAI_LISTEN_ADDRESS"`
-	GitBotListenAddress string `yaml:"git_bot_listen_address" env:"GIT_BOT_LISTEN_ADDRESS"`
+	NopsaiListenAddress     string `yaml:"nopsai_listen_address" env:"NOPSAI_LISTEN_ADDRESS"`
+	GitBotListenAddress     string `yaml:"git_bot_listen_address" env:"GIT_BOT_LISTEN_ADDRESS"`
+	DispatcherListenAddress string `yaml:"dispatcher_listen_address" env:"DISPATCHER_LISTEN_ADDRESS"`
 
 	// Addresses for services to connect to each other
 	AgentLlmAgentAddress string `yaml:"agent_llm_agent_address" env:"AGENT_LLM_AGENT_ADDRESS"`
 	AgentNopsaiAPIURL    string `yaml:"agent_nopsai_api_url" env:"AGENT_NOPSAI_API_URL"`
 	GitBotNopsaiAPIURL   string `yaml:"git_bot_nopsai_api_url" env:"GIT_BOT_NOPSAI_API_URL"`
+	DispatcherAddress    string `yaml:"dispatcher_address" env:"DISPATCHER_ADDRESS"`
 
 	// Git Bot specific configuration
 	GitHubWebhookSecret  string `yaml:"github_webhook_secret" env:"GITHUB_WEBHOOK_SECRET"`
@@ -43,6 +45,11 @@ type Config struct {
 	DefaultPipelineTimeout    string `yaml:"default_pipeline_timeout" env:"DEFAULT_PIPELINE_TIMEOUT"`
 	AgentImage                string `yaml:"agent_image" env:"AGENT_IMAGE"`
 	LLMAgentTimeout           string `yaml:"llm_agent_timeout" env:"LLM_AGENT_TIMEOUT"`
+
+	DispatcherRouting map[string][]string `yaml:"dispatcher_routing" env:"DISPATCHER_ROUTING"`
+	RunnerID          string              `yaml:"runner_id" env:"RUNNER_ID"`
+	RunnerScopes      string              `yaml:"runner_scopes" env:"RUNNER_SCOPES"`
+	RunnerCapacity    int                 `yaml:"runner_capacity" env:"RUNNER_CAPACITY"`
 }
 
 func LoadConfig(path string) (*Config, error) {
@@ -77,6 +84,16 @@ func LoadConfig(path string) (*Config, error) {
 				boolVal, err := strconv.ParseBool(envValue)
 				if err == nil {
 					val.Field(i).SetBool(boolVal)
+				}
+			case reflect.Int, reflect.Int32, reflect.Int64:
+				if intVal, err := strconv.Atoi(envValue); err == nil {
+					val.Field(i).SetInt(int64(intVal))
+				}
+			case reflect.Map:
+				// Expect YAML/JSON string for maps (e.g., DISPATCHER_ROUTING='{"prod":["runner-prod-1"]}')
+				newVal := reflect.New(field.Type).Interface()
+				if err := yaml.Unmarshal([]byte(envValue), newVal); err == nil {
+					val.Field(i).Set(reflect.ValueOf(newVal).Elem())
 				}
 			}
 		}

@@ -57,8 +57,22 @@ services:
       - .env
     networks:
       - nopsai-net
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+
+  dispatcher:
+    container_name: nopsai-dispatcher
+    image: nopsai-dispatcher
+    build:
+      context: .
+      dockerfile: container/Dockerfile.dispatcher
+    restart: always
+    ports:
+      - "9090:9090"
+    depends_on:
+      - base
+    env_file:
+      - .env
+    networks:
+      - nopsai-net
 
   git-bot:
     container_name: nopsai-git-bot
@@ -88,6 +102,7 @@ services:
       - nopsai-net
     depends_on:
       - nopsai
+      - dispatcher
   
   agent:
     container_name: nopsai-agent
@@ -98,6 +113,22 @@ services:
     depends_on:
       - base
     entrypoint: 'true'
+
+  runner:
+    container_name: nopsai-runner
+    image: nopsai-runner
+    build:
+      context: .
+      dockerfile: container/Dockerfile.runner
+    restart: always
+    depends_on:
+      - dispatcher
+    env_file:
+      - .env
+    networks:
+      - nopsai-net
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
   pipeline:
     container_name: pipeline-image

@@ -1,128 +1,114 @@
-# Nopsai: The Complete Guide
+# Nopsai: Control Plane + Data Plane Guide
 
-Welcome to the definitive reference for the Nopsai platform. This guide documents how the services cooperate, which features ship today, and how to operate the stack confidently in development or production-like environments.
----
-
-## Platform Vision
-
-Nopsai turns natural-language automation goals into deterministic CI/CD runs. Instead of hand-writing every shell command, teams can describe the outcome they want. The platform combines an AI-powered agent, opinionated pipeline definitions, and rich observability so that automation stays flexible **and** auditable. Real-time feedback, GitHub-native workflows, and secure secret handling are core design pillars.
+This guide documents the current architecture, how to run the stack, and how to use every major feature after the dispatcher/runner split.
 
 ---
 
-## Architecture Overview
+## Architecture at a Glance
 
-| Component | Highlights |
-|-----------|------------|
-| **Core API (`services/nopsai`)** | REST and WebSocket surface, pipeline/run lifecycle management, Docker agent orchestration, encrypted secret store, config repo syncing, run grouping, and log archival. |
-| **Agent (`services/agent`)** | Executes pipelines inside disposable containers, resolves AI goals with the embedded Gemini client, enforces step/task dependencies, masks secrets, and streams granular telemetry to the API. |
-| **Git Bot (`services/git-bot`)** | GitHub App webhook handler, rich check-run author, repository data helper, and liaison between Git events and the core orchestrator. |
-| **Web UI (`services/ui`)** | Vanilla JS single-page app that consumes REST + WebSocket feeds to present live dashboards, graphs, logs, grouping, and management tooling. |
-| **PostgreSQL (`nopsai-db`)** | Durable store for pipelines, reusable steps, triggers, encrypted secrets, environment variables, run metadata, and full log history. |
+- **Core API (`services/nopsai`)** – Brain + database owner. Receives run requests, validates pipelines, resolves secrets/variables, records runs/logs, and now hands execution to the Dispatcher instead of calling Docker directly.
+- **Dispatcher (`services/dispatcher`)** – Control plane switchboard. Tracks connected runners, heartbeats, and capacity; routes jobs by scope using `dispatcher_routing`; requeues on disconnect.
+- **Runner (`services/runner`)** – Long-lived daemon on Docker-capable hosts. Opens an outbound gRPC stream to the Dispatcher, receives jobs, starts the agent container with the supplied env/volume config, forwards logs to Nopsai, and reports job results.
+- **Agent (`services/agent`)** – Per-run container that orchestrates pipeline steps/tasks, calls Gemini for LLM actions, masks secrets, and reports step/task status back to Nopsai/GitHub.
+- **Git Bot (`services/git-bot`)** – GitHub App webhook handler; creates check runs, fetches pipeline sources, posts status, supports reruns/cancels, and cancels stale checks.
+- **UI (`services/ui`)** – Reads REST + WebSocket feeds for runs, graphs, logs, groups, and branch hygiene actions.
+- **PostgreSQL** – Stores pipelines, triggers, reusable steps, secrets/variables, runs, tasks, logs, and groups.
 
-All services run inside the shared `nopsai-net` Docker network. The agent launches additional per-step containers on the same network so they can reach git-bot and any ambient dependencies while keeping each run isolated.
----
-
-## Service Deep Dive
-
-### Core API (`services/nopsai`)
-- Hosts `/v1` REST endpoints for pipelines, reusable steps, trigger overrides, secrets, environments, run groups, runs, logs, reruns, cancellations, branch clean-up, and Git helper utilities.
-- Maintains an in-memory WebSocket hub with per-run subscriptions and global broadcasts (`new_run_started`, `run_update`, `run_summary_update`, `log_line`) so the UI never polls.
-- Launches agent containers on demand, mounting a dedicated workspace volume, injecting scoped secrets/environment variables, wiring them into Docker, and tailing logs back into PostgreSQL.
-- Encrypts secrets with AES-GCM using a key derived from `NOPSAI_MASTER_KEY`, guaranteeing that sensitive values are protected at rest.
-- Syncs pipelines, steps, triggers, and environment definitions from the Git-backed config repository via `/v1/internal/config/sync` or automatically when new commits land.
-### Agent (`services/agent`)
-- Parses pipeline manifests, expands includes, and builds a dependency graph across steps and nested tasks.
-- Supports both scripted tasks and LLM-generated goals, with optional natural-language `condition` checks resolved through the embedded Gemini client.
-- Shares a curated directory listing (respecting `llm_content_ignore`) with the LLM, and honours `llm_output_sharing` at pipeline and task granularity.
-- Reuses warm step containers, provisions ad-hoc volume mounts, ensures referenced images exist, and injects secrets safely into the environment.
-- Streams stdout/stderr in real time, masks secret values before logging, reports status/exit codes/LLM durations per task, and finalises runs through the API.
-### Git Bot (`services/git-bot`)
-- Validates incoming GitHub webhook signatures, normalises events, and posts run requests to the core API.
-- Manages hierarchical check-run state where steps own tasks; renders Markdown summaries or Mermaid diagrams and updates GitHub in real time with progress, failure context, and rerun hooks.
-- Offers helper endpoints for repository access checks, file/directory content lookups, pipeline source retrieval, child check-run creation, and stale check-run cancellation.
-### Web UI (`services/ui`)
-- Boots a resilient WebSocket client that reconnects, resubscribes to active runs, and drives toast notifications whenever `new_run_started` broadcasts fire.
-- Provides branch-first dashboards with group/folder organisation, drag-and-drop ordering, inline branch clean-up, run selection for bulk actions, and URL hash deep-linking.
-- Renders interactive pipeline graphs with pan/zoom, task cluster expansion, and live status colouring.
-- Ships an advanced log modal featuring level chips, agent-only toggle, structured vs. short views, search with navigational controls, copy/download helpers, and follow mode – all backed by WebSocket streaming plus historical fetches.
----
-
-## Deployment & Configuration
-
-1.  **Prerequisites**: Docker + Docker Compose, a Gemini API key, and a generated `NOPSAI_MASTER_KEY` for secret encryption.
-2.  **Environment**: Populate `.env` (or the environment) with values referenced in `config/config.go`—database URL, service listen addresses, inter-service URLs, GitHub App credentials, Gemini configuration, Docker network name, agent image tags, and logging preferences.
-3.  **Bring up the stack**:
-    ```bash
-    docker-compose up --build -d
-    ```
-    This command builds the shared `base` image, produces service images (`nopsai`, `git-bot`, `agent`, `pipeline`), launches Postgres with `db/init.sql`, and serves the UI on `http://localhost:5173` via nginx.
-4.  **Initial sync**: Seed pipelines, steps, environments, and triggers from the config repo with:
-    ```bash
-    curl -X POST http://localhost:8080/v1/internal/config/sync
-    ```
-   
+Flow: GitHub event → git-bot → Nopsai validates + enqueues → Dispatcher selects a runner (by scope/capacity) → Runner launches Agent → Agent talks back to Nopsai + Git Bot → Logs stream to Nopsai DB/UI.
 
 ---
 
-## Pipeline Model
+## Deploy the Stack (Docker Compose)
 
-- **Definition**: Pipelines live beneath `.nopsai/` and declare `name`, `version`, `description`, `container_image`, optional `timeout`, `display_options`, and `llm_*` flags.
-- **Steps**: Each step can provide nested `tasks`, `goal`, `script`, `condition`, `depends_on`, `secrets`, `volumes`, `environment`, `include`, and per-step container overrides.
-- **Tasks**: Multi-task steps execute within the same container; tasks may depend on siblings via `depends_on` and inherit or override LLM sharing behaviour.
-- **Triggers**: `.nopsai/triggers.yaml` maps Git events to pipelines with branch/tag globs, skip lists, and scope selection.
-  - **Important Note**: Within a single `on: push` rule, you cannot use `branches` and `tags` together. The system checks for *either* a branch push or a tag push, not both. To trigger on both, you must define **separate rules**:
-    ```yaml
-    triggers:
-      # Rule 1: Trigger for the main branch
-      - on: push
-        branches:
-          - main
-        pipelines:
-          - deploy-prod.yaml
-
-      # Rule 2: Trigger for version tags
-      - on: push
-        tags:
-          - 'v*'
-        pipelines:
-          - create-release.yaml
-    ```
-- **Config repository**: Environment variables live under `environments/` (global and scoped directories). Keys without slashes apply globally;
-`owner/repo/KEY` targets repository-specific overrides within the same scope.
+1. **Prereqs**: Docker + Docker Compose, Gemini key, GitHub App credentials, and a generated `NOPSAI_MASTER_KEY`.
+2. **Config**: Set `.env` (or environment) for values defined in `config/config.go`. Key additions:
+   - `DISPATCHER_LISTEN_ADDRESS` (default `:9090`), `DISPATCHER_ADDRESS` (what clients dial, default `dispatcher:9090`).
+   - `DISPATCHER_ROUTING` (YAML in `config.yml`) maps scope → allowed runner IDs; `RUNNER_ID`, `RUNNER_SCOPES` (comma list), `RUNNER_CAPACITY`.
+   - Existing fields still apply: DB URL, Gemini model/key, service listen addresses, Docker network name, agent image, log format/level, GitBot URLs, config repo URL, defaults for timeouts.
+3. **Compose up**:
+   ```bash
+   docker-compose up --build -d
+   ```
+   Services: `nopsai`, `dispatcher`, `runner`, `git-bot`, `nopsai-ui`, Postgres, plus build-only images (`agent`, `pipeline`).
+4. **Verify**:
+   - Dispatcher: `nc -z localhost 9090` (or check logs for “dispatcher listening”).
+   - Runner: logs should show registration + heartbeats; ensure `/var/run/docker.sock` is mounted.
+   - Core API: `curl http://localhost:8080/v1/runs` returns an empty list.
+5. **Initial sync** (optional): `curl -X POST http://localhost:8080/v1/internal/config/sync` to pull pipelines/steps/triggers from the config repo.
 
 ---
 
-## GitHub Integration Workflow
+## Config Reference (selected)
 
-1. Install a GitHub App configured with the git-bot’s externally reachable `/webhook` endpoint and agreed HMAC secret.
-2. When events arrive, the git-bot validates the signature, fetches pipeline definitions for the commit, creates or updates the GitHub check run, and asks the core API to start a pipeline run.
-3. As the agent advances through tasks, the git-bot streams updates back to GitHub (status, timing, failure context) and exposes rerun/cancel actions.
-4. Stale check runs are cancelled automatically when newer commits supersede them, keeping GitHub noise low.
+- **Networking**: `nopsai_listen_address`, `git_bot_listen_address`, `dispatcher_listen_address`.
+- **Service-to-service URLs**: `agent_nopsai_api_url`, `git_bot_nopsai_api_url`, `nopsai_git_bot_api_url`, `dispatcher_address`.
+- **Dispatcher routing**: In `config.yml`:
+  ```yaml
+  dispatcher_routing:
+    prod: ["runner-prod-1", "runner-prod-2"]
+    "*": ["runner-general"]
+  ```
+  Runners must use matching `RUNNER_ID` and declare scopes via `RUNNER_SCOPES`.
+- **Runner**: `RUNNER_ID`, `RUNNER_SCOPES` (e.g., `dev,prod`), `RUNNER_CAPACITY` (concurrent jobs). Mount Docker socket on the runner container/host.
+- **Agent defaults**: `agent_image`, `docker_network_name`, `auto_removal_agent_container`, `default_pipeline_timeout`, `llm_agent_timeout`.
+- **Secrets/vars**: Master key from `NOPSAI_MASTER_KEY`; secrets encrypted with AES-256-GCM and scope-aware resolution stays unchanged.
+
 ---
 
-## Operations Cheat Sheet
+## Working With Pipelines
 
-- **List runs**: `curl http://localhost:8080/v1/runs`
-- **Manual run**: `curl -X POST http://localhost:8080/v1/run -H 'Content-Type: application/json' -d '{"pipeline":"main-pipeline"}'`
-- **Rerun / cancel**: POST to `/v1/runs/{runID}/rerun` or `/v1/runs/{runID}/cancel`
-- **Logs**: Stream from the UI or download via `/v1/runs/{runID}/logs`
-- **Branch hygiene**: `DELETE /v1/repositories/{owner}/{repo}/branches/{branch...}` removes historical runs for a branch (the UI surfaces the same action).
-- **Dashboard groups**: Manage folders with `/v1/groups` endpoints to keep large installations tidy.
+- **Definitions** live under `.nopsai/` in repos or the DB (overrides). Fields: `name`, `version`, `description`, `timeout`, `container_image`, `display_options`, `llm_*` flags, steps/tasks with `goal`/`script`, `condition`, `depends_on`, `secrets`, `volumes`, `environment`, and `include` for nested pipelines/steps.
+- **Triggers** in `.nopsai/triggers.yaml` map Git events to pipelines and scopes with branch/tag globs.
+  - Branch and tag globs cannot coexist in a single `on: push` rule; use separate rules for branch pushes vs. tag pushes.
+- **Overrides**: Store pipelines or triggers in DB; git-bot and core will prefer overrides when present.
+- **Scopes**: Provide isolation for secrets/variables; dispatcher also uses scope to target runners.
+
 ---
 
-## Security Considerations
+## Running & Monitoring
 
-- Secrets are encrypted before storage and masked before logs leave the agent.
-- Webhook payloads are HMAC verified before any run is scheduled.
-- Access control is not enforced by default;
-front the API with authentication/authorisation when deploying outside a trusted environment.
-- Gemini keys, GitHub credentials, and master keys are sourced from environment variables to keep secrets out of version control.
+- **Manual run**: `curl -X POST http://localhost:8080/v1/run -H 'Content-Type: application/json' -d '{"pipeline":"main-pipeline","scope":"dev"}'`
+- **Rerun / cancel**: POST to `/v1/runs/{runID}/rerun` or `/v1/runs/{runID}/cancel`.
+- **Logs**: UI streams live logs via WebSockets; runners post batches to `/v1/runs/{runID}/logs/ingest`; history available at `/v1/runs/{runID}/logs`.
+- **Status**: `/v1/runs/{runID}/status` or `/v1/runs-by-check/{checkRunID}`.
+- **Groups/Folders**: Manage via `/v1/groups` endpoints to organize repos/runs.
+- **Branch hygiene**: `DELETE /v1/repositories/{owner}/{repo}/branches/{branch...}` to prune runs for obsolete branches.
+
 ---
 
-## UI Highlights
+## GitHub Flow
 
-- **Dashboard tabs**: “Main” (grouped repositories) and “Recent” (chronological feed) keep production noise manageable.
-- **Run details**: Combine dependency graphs, step/task metadata, environment context, and quick access to logs.
-- **Toast centre**: Every `new_run_started` broadcast surfaces as a toast so teams see activity immediately.
-- **URL state**: Page/tab/selection state is encoded in the hash, enabling deep links and easy sharing.
-Pair this guide with `doc/api.md` for endpoint specifics and `doc/triggering.md` when simulating GitHub events locally.
+1. GitHub App receives webhook → git-bot validates HMAC.
+2. git-bot fetches pipeline/triggers, creates/updates check run, posts run request to Nopsai.
+3. Nopsai records run, resolves includes/variables/secrets, submits job to Dispatcher.
+4. Dispatcher picks a runner (scope + least-active + routing).
+5. Runner launches Agent, streams logs back, reports job status to Dispatcher, Agent reports task status to Nopsai/GitHub.
+6. git-bot updates check runs with step/task progress, failures, and rerun/cancel actions; stale checks are cancelled.
+
+---
+
+## Operations Tips
+
+- Watch runner heartbeats in dispatcher logs; if missing >30s, dispatcher marks runner stale and requeues jobs.
+- Ensure each runner has correct `RUNNER_SCOPES`; jobs without a matching runner will queue until a compatible runner connects.
+- To add capacity, start additional runner containers pointing at the same dispatcher.
+- If the core API restarts, running agents continue and will still post logs/status through the runner/dispatcher path.
+
+---
+
+## Security Notes
+
+- Secrets stay encrypted at rest; logs are masked before leaving the agent.
+- Use TLS/mTLS on gRPC endpoints in production (current defaults use insecure creds for local/dev).
+- Protect the API/git-bot ingress with auth if exposed beyond trusted networks.
+
+---
+
+## Quick Commands
+
+- Compose up: `docker-compose up --build -d`
+- Tail dispatcher: `docker logs -f nopsai-dispatcher`
+- Tail runner: `docker logs -f nopsai-runner`
+- Trigger config sync: `curl -X POST http://localhost:8080/v1/internal/config/sync`
+
+With these pieces, Nopsai now follows a standard CI/CD control-plane/data-plane pattern similar to GitHub Actions or GitLab Runners, making it easier to scale and to place runners near your workloads.

@@ -1,0 +1,98 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "nopsai/pkg/proto";
+
+import "google/protobuf/empty.proto";
+
+// JobRequest is produced by the Nopsai control plane and delivered to a runner.
+message JobRequest {
+  string run_id = 1;
+  string pipeline_name = 2;
+  string pipeline_version = 3;
+  bytes pipeline_definition = 4;
+  repeated string env = 5;
+  string agent_image = 6;
+  string shared_volume_name = 7;
+  string docker_network = 8;
+  bool auto_remove = 9;
+  string container_name = 10;
+  string scope = 11;
+  string nopsai_api_url = 12;
+}
+
+enum JobState {
+  JOB_STATE_UNKNOWN = 0;
+  JOB_STATE_ASSIGNED = 1;
+  JOB_STATE_QUEUED = 2;
+  JOB_STATE_REJECTED = 3;
+}
+
+message SubmitJobResponse {
+  string run_id = 1;
+  JobState state = 2;
+  string runner_id = 3;
+  string message = 4;
+}
+
+// Registration info sent once when a runner connects.
+message RunnerRegistration {
+  string runner_id = 1;
+  repeated string scopes = 2;
+  int32 capacity = 3;
+  map<string, string> metadata = 4;
+}
+
+// Heartbeat keeps the dispatcher aware of liveness and current load.
+message RunnerHeartbeat {
+  string runner_id = 1;
+  int32 active_jobs = 2;
+}
+
+// JobResult is sent by the runner when it fails to start a job or when it completes.
+message JobResult {
+  string run_id = 1;
+  string status = 2; // accepted, completed, failed, requeued
+  string error = 3;
+}
+
+message RunnerMessage {
+  oneof message {
+    RunnerRegistration register = 1;
+    RunnerHeartbeat heartbeat = 2;
+    JobResult job_result = 3;
+  }
+}
+
+message DispatcherMessage {
+  oneof message {
+    JobRequest job = 1;
+    string note = 2;
+  }
+}
+
+service DispatcherService {
+  // Called by Nopsai to place a job into the scheduling system.
+  rpc SubmitJob(JobRequest) returns (SubmitJobResponse);
+  // Long-lived bidirectional stream used by runners.
+  rpc Register(stream RunnerMessage) returns (stream DispatcherMessage);
+  // Returns current dispatcher health and runner state.
+  rpc GetStatus(.google.protobuf.Empty) returns (DispatcherStatus);
+}
+
+message RunnerInfo {
+  string runner_id = 1;
+  repeated string scopes = 2;
+  int32 capacity = 3;
+  int32 active_jobs = 4;
+  int32 inflight_jobs = 5;
+  int64 last_heartbeat_unix = 6;
+  map<string, string> metadata = 7;
+  bool allow_dispatch = 8;
+}
+
+message DispatcherStatus {
+  repeated RunnerInfo runners = 1;
+  int32 queued_jobs = 2;
+}

@@ -11,4 +11,6 @@ COPY services services
 
 RUN CGO_ENABLED=0 GOOS=linux go build -o /nopsai-agent ./services/agent && \
   CGO_ENABLED=0 GOOS=linux go build -o /nopsai-git-bot ./services/git-bot && \
-  CGO_ENABLED=0 GOOS=linux go build -o /nopsai ./services/nopsai
+  CGO_ENABLED=0 GOOS=linux go build -o /nopsai ./services/nopsai && \
+  CGO_ENABLED=0 GOOS=linux go build -o /nopsai-dispatcher ./services/dispatcher && \
+  CGO_ENABLED=0 GOOS=linux go build -o /nopsai-runner ./services/runner
