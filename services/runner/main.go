@@ -2,12 +2,9 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -34,9 +31,10 @@ type runner struct {
 	scopes         []string
 	capacity       int32
 	dispatcherAddr string
-	httpClient     *http.Client
 	docker         *client.Client
 	active         atomic.Int32
+	dockerNetwork  string
+	networkSet     bool
 }
 
 func main() {
@@ -85,13 +83,23 @@ func main() {
 	}
 	defer dockerClient.Close()
 
+	networkValue := strings.TrimSpace(cfg.DockerNetworkName)
+	networkSet := false
+	if envVal, ok := os.LookupEnv("DOCKER_NETWORK_NAME"); ok {
+		networkValue = envVal
+		networkSet = true
+	} else if networkValue != "" {
+		networkSet = true
+	}
+
 	r := &runner{
 		id:             runnerID,
 		scopes:         scopes,
 		capacity:       capacity,
 		dispatcherAddr: dispatcherAddr,
-		httpClient:     &http.Client{Timeout: 10 * time.Second},
 		docker:         dockerClient,
+		dockerNetwork:  networkValue,
+		networkSet:     networkSet,
 	}
 
 	for {
@@ -112,8 +120,8 @@ func (r *runner) connectAndServe() error {
 	}
 	defer conn.Close()
 
-	client := proto.NewDispatcherServiceClient(conn)
-	stream, err := client.Register(ctx)
+	dispatcherClient := proto.NewDispatcherServiceClient(conn)
+	stream, err := dispatcherClient.Register(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to open register stream: %w", err)
 	}
@@ -141,8 +149,15 @@ func (r *runner) connectAndServe() error {
 		RunnerId: r.id,
 		Scopes:   r.scopes,
 		Capacity: r.capacity,
-		Metadata: map[string]string{"version": "v1"},
 	}
+	metadata := map[string]string{"version": "v1"}
+	if r.networkSet {
+		metadata["docker_network"] = r.dockerNetwork
+	}
+	if strings.TrimSpace(r.dispatcherAddr) != "" {
+		metadata["dispatcher_addr"] = r.dispatcherAddr
+	}
+	reg.Metadata = metadata
 	sendCh <- &proto.RunnerMessage{Message: &proto.RunnerMessage_Register{Register: reg}}
 
 	hbStop := make(chan struct{})
@@ -164,7 +179,7 @@ func (r *runner) connectAndServe() error {
 		switch body := msg.Message.(type) {
 		case *proto.DispatcherMessage_Job:
 			if body.Job != nil {
-				go r.handleJob(context.Background(), body.Job, sendCh)
+				go r.handleJob(context.Background(), dispatcherClient, body.Job, sendCh)
 			}
 		case *proto.DispatcherMessage_Note:
 			log.Info().Str("note", body.Note).Msg("dispatcher message")
@@ -195,7 +210,7 @@ func (r *runner) heartbeatLoop(sendCh chan<- *proto.RunnerMessage, stop <-chan s
 	}
 }
 
-func (r *runner) handleJob(ctx context.Context, job *proto.JobRequest, sendCh chan<- *proto.RunnerMessage) {
+func (r *runner) handleJob(ctx context.Context, dispatcher proto.DispatcherServiceClient, job *proto.JobRequest, sendCh chan<- *proto.RunnerMessage) {
 	if job == nil {
 		return
 	}
@@ -209,6 +224,14 @@ func (r *runner) handleJob(ctx context.Context, job *proto.JobRequest, sendCh ch
 		agentImage := job.AgentImage
 		if strings.TrimSpace(agentImage) == "" {
 			agentImage = "nopsai-agent:latest"
+		}
+
+		envVars := append([]string(nil), job.Env...)
+		if strings.TrimSpace(r.dispatcherAddr) != "" {
+			envVars = upsertEnv(envVars, "DISPATCHER_ADDRESS", strings.TrimSpace(r.dispatcherAddr))
+		}
+		if r.networkSet {
+			envVars = upsertEnv(envVars, "DOCKER_NETWORK_NAME", strings.TrimSpace(job.DockerNetwork))
 		}
 
 		runCtx := context.Background()
@@ -251,7 +274,7 @@ func (r *runner) handleJob(ctx context.Context, job *proto.JobRequest, sendCh ch
 
 		resp, err := r.docker.ContainerCreate(runCtx, &container.Config{
 			Image: agentImage,
-			Env:   job.Env,
+			Env:   envVars,
 		}, hostConfig, networking, nil, containerName)
 		if err != nil {
 			sendJobResult(sendCh, job.RunId, "failed", fmt.Sprintf("container create: %v", err))
@@ -265,7 +288,7 @@ func (r *runner) handleJob(ctx context.Context, job *proto.JobRequest, sendCh ch
 
 		log.Info().Str("run_id", job.RunId).Str("container_id", resp.ID).Msg("started agent container")
 
-		go r.streamLogs(runCtx, job, resp.ID)
+		go r.streamLogs(runCtx, dispatcher, job, resp.ID)
 
 		statusCh, errCh := r.docker.ContainerWait(runCtx, resp.ID, container.WaitConditionNotRunning)
 		select {
@@ -285,9 +308,9 @@ func (r *runner) handleJob(ctx context.Context, job *proto.JobRequest, sendCh ch
 	}()
 }
 
-func (r *runner) streamLogs(ctx context.Context, job *proto.JobRequest, containerID string) {
-	if strings.TrimSpace(job.NopsaiApiUrl) == "" {
-		log.Warn().Str("run_id", job.RunId).Msg("NOPSAI_API_URL not provided; skipping log forwarding")
+func (r *runner) streamLogs(ctx context.Context, dispatcher proto.DispatcherServiceClient, job *proto.JobRequest, containerID string) {
+	if dispatcher == nil {
+		log.Warn().Str("run_id", job.RunId).Msg("dispatcher client not available; skipping log forwarding")
 		return
 	}
 
@@ -330,17 +353,17 @@ func (r *runner) streamLogs(ctx context.Context, job *proto.JobRequest, containe
 		select {
 		case line, ok := <-logChan:
 			if !ok {
-				r.flushLogs(ctx, job, batchLines)
+				r.flushLogs(ctx, dispatcher, job.RunId, batchLines)
 				return
 			}
 			batchLines = append(batchLines, line)
 			if len(batchLines) >= batchSize {
-				r.flushLogs(ctx, job, batchLines)
+				r.flushLogs(ctx, dispatcher, job.RunId, batchLines)
 				batchLines = nil
 			}
 		case <-ticker.C:
 			if len(batchLines) > 0 {
-				r.flushLogs(ctx, job, batchLines)
+				r.flushLogs(ctx, dispatcher, job.RunId, batchLines)
 				batchLines = nil
 			}
 		case <-ctx.Done():
@@ -349,30 +372,20 @@ func (r *runner) streamLogs(ctx context.Context, job *proto.JobRequest, containe
 	}
 }
 
-func (r *runner) flushLogs(ctx context.Context, job *proto.JobRequest, lines []string) {
+func (r *runner) flushLogs(ctx context.Context, dispatcher proto.DispatcherServiceClient, runID string, lines []string) {
 	if len(lines) == 0 {
 		return
 	}
 
-	body, _ := json.Marshal(map[string][]string{"lines": lines})
-	url := fmt.Sprintf("%s/v1/runs/%s/logs/ingest", strings.TrimRight(job.NopsaiApiUrl, "/"), job.RunId)
+	sendCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	_, err := dispatcher.IngestLogs(sendCtx, &proto.LogBatch{
+		RunId: runID,
+		Lines: lines,
+	})
 	if err != nil {
-		log.Error().Err(err).Str("run_id", job.RunId).Msg("failed to build log ingest request")
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := r.httpClient.Do(req)
-	if err != nil {
-		log.Error().Err(err).Str("run_id", job.RunId).Msg("failed to send log batch")
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		log.Warn().Str("run_id", job.RunId).Int("status_code", resp.StatusCode).Msg("unexpected status from log ingest")
+		log.Error().Err(err).Str("run_id", runID).Msg("failed to send log batch to dispatcher")
 	}
 }
 
@@ -425,4 +438,15 @@ func ensureImageExists(ctx context.Context, cli *client.Client, imageName string
 		io.Copy(io.Discard, out)
 	}
 	return nil
+}
+
+func upsertEnv(env []string, key, val string) []string {
+	prefix := key + "="
+	for i, e := range env {
+		if strings.HasPrefix(e, prefix) {
+			env[i] = prefix + val
+			return env
+		}
+	}
+	return append(env, prefix+val)
 }
