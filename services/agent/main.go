@@ -695,6 +695,7 @@ func run() int {
 	dockerNetworkName := os.Getenv("DOCKER_NETWORK_NAME")
 	llmTimeoutStr := os.Getenv("LLM_AGENT_TIMEOUT")
 	secretsBase64 := os.Getenv("NOPSAI_SECRETS")
+	variablesBase64 := os.Getenv("NOPSAI_VARIABLES")
 
 	var secrets map[string]string
 	if secretsBase64 != "" {
@@ -704,6 +705,18 @@ func run() int {
 		} else {
 			if err := json.Unmarshal(secretsJSON, &secrets); err != nil {
 				agentLog(runID, pipelineName).Error().Err(err).Msg("Failed to unmarshal secrets payload")
+			}
+		}
+	}
+
+	var variables map[string]string
+	if variablesBase64 != "" {
+		variablesJSON, err := base64.StdEncoding.DecodeString(variablesBase64)
+		if err != nil {
+			agentLog(runID, pipelineName).Error().Err(err).Msg("Failed to decode variables payload")
+		} else {
+			if err := json.Unmarshal(variablesJSON, &variables); err != nil {
+				agentLog(runID, pipelineName).Error().Err(err).Msg("Failed to unmarshal variables payload")
 			}
 		}
 	}
@@ -1052,6 +1065,11 @@ func run() int {
 				requiredEnvKeys := make(map[string]struct{})
 				for _, key := range pipeline.Variables {
 					requiredEnvKeys[key] = struct{}{}
+				}
+				for key, value := range variables {
+					if _, ok := requiredEnvKeys[key]; ok {
+						stepEnvVars = append(stepEnvVars, fmt.Sprintf("%s=%s", key, value))
+					}
 				}
 
 				for _, e := range os.Environ() {
@@ -1406,11 +1424,20 @@ func maskSecrets(output string, secrets map[string]string) string {
 	if len(secrets) == 0 || output == "" {
 		return output
 	}
+
 	for _, secretValue := range secrets {
 		if len(secretValue) < 4 {
 			continue
 		}
 		output = strings.ReplaceAll(output, secretValue, "*****")
+
+		if strings.Contains(secretValue, "\n") {
+			flattened := strings.ReplaceAll(secretValue, "\n", " ")
+			flattened = strings.ReplaceAll(flattened, "\r", "")
+			if len(flattened) >= 4 {
+				output = strings.ReplaceAll(output, flattened, "*****")
+			}
+		}
 	}
 	return output
 }
