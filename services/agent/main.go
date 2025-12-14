@@ -30,6 +30,8 @@ import (
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"gopkg.in/yaml.v3"
 )
 
@@ -136,6 +138,8 @@ type RunnableTask struct {
 }
 
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
+
+var dispatcherClient proto.DispatcherServiceClient
 
 func sanitizeInput(name string) string {
 	sanitized := strings.ReplaceAll(name, " ", "-")
@@ -400,55 +404,46 @@ func buildImagePullQueue(pipeline *models.Pipeline, totalTasks int) []string {
 }
 
 func notifyFinalStatus(pipelineName, runID, status string) {
-	nopsaiURL := os.Getenv("NOPSAI_API_URL")
-	if nopsaiURL == "" {
-		agentLog(runID, pipelineName).Error().Msg("NOPSAI_API_URL environment variable not set. Cannot report final status")
+	if dispatcherClient == nil {
+		agentLog(runID, pipelineName).Error().Msg("Dispatcher client not initialized. Cannot report final status")
 		return
 	}
-	url := fmt.Sprintf("%s/v1/runs/%s/finalize", nopsaiURL, runID)
 
-	payload := map[string]string{"status": status}
-	body, _ := json.Marshal(payload)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	_, err := dispatcherClient.FinalizeRun(ctx, &proto.FinalizeRunRequest{
+		RunId:  runID,
+		Status: status,
+	})
 	if err != nil {
-		agentLog(runID, pipelineName).Error().Err(err).Msg("Failed to send final status to nopsai API")
+		agentLog(runID, pipelineName).Error().Err(err).Msg("Failed to send final status to dispatcher")
 		return
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		agentLog(runID, pipelineName).Error().Int("status_code", resp.StatusCode).Msg("Received non-OK status from nopsai API for final status")
-	} else {
-		agentLog(runID, pipelineName).Info().Str("status", status).Msg("Successfully notified nopsai of final pipeline status")
-	}
+	agentLog(runID, pipelineName).Info().Str("status", status).Msg("Successfully notified dispatcher of final pipeline status")
 }
 
-// updateTaskStatus reports the final status of a task back to the nopsai API.
+// updateTaskStatus reports the final status of a task back through the dispatcher.
 func updateTaskStatus(pipelineName, runID, stepName, taskName, status string, exitCode int, llmDurationMs int64) {
-	nopsaiURL := os.Getenv("NOPSAI_API_URL")
-	if nopsaiURL == "" {
-		stepLog(runID, pipelineName, stepName, taskName).Error().Msg("NOPSAI_API_URL environment variable not set. Cannot report status")
+	if dispatcherClient == nil {
+		stepLog(runID, pipelineName, stepName, taskName).Error().Msg("Dispatcher client not initialized. Cannot report status")
 		return
 	}
-	url := fmt.Sprintf("%s/v1/runs/%s/steps/%s/tasks/%s", nopsaiURL, runID, stepName, taskName)
 
-	payload := map[string]interface{}{
-		"status":          status,
-		"exit_code":       exitCode,
-		"llm_duration_ms": llmDurationMs,
-	}
-	body, _ := json.Marshal(payload)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	_, err := dispatcherClient.ReportTaskStatus(ctx, &proto.TaskStatusReport{
+		RunId:         runID,
+		StepName:      stepName,
+		TaskName:      taskName,
+		Status:        status,
+		ExitCode:      int32(exitCode),
+		LlmDurationMs: llmDurationMs,
+	})
 	if err != nil {
-		stepLog(runID, pipelineName, stepName, taskName).Error().Err(err).Msg("Failed to send status update to nopsai API")
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		stepLog(runID, pipelineName, stepName, taskName).Error().Int("status_code", resp.StatusCode).Msg("Received non-OK status from nopsai API")
+		stepLog(runID, pipelineName, stepName, taskName).Error().Err(err).Msg("Failed to send status update to dispatcher")
 	}
 }
 
@@ -542,70 +537,51 @@ func startImagePrePull(ctx context.Context, cli *client.Client, pipeline *models
 }
 
 func triggerPipeline(parentRunID, parentPipelineName, parentStepName, pipelineIdentifier string, pipelineDef []byte, history string) (string, error) {
-	nopsaiURL := os.Getenv("NOPSAI_API_URL")
-	url := fmt.Sprintf("%s/v1/run", nopsaiURL)
-
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(pipelineDef))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/x-yaml")
-	req.Header.Set("X-Nopsai-Parent-Run-ID", parentRunID)
-	req.Header.Set("X-Nopsai-Parent-Pipeline-Name", parentPipelineName)
-	req.Header.Set("X-Nopsai-Parent-Step-Name", parentStepName)
-
-	if pipelineIdentifier != "" {
-		pathPart, _ := splitPipelineIdentifier(pipelineIdentifier)
-		req.Header.Set("X-Nopsai-Pipeline-Path", pathPart)
-	}
-
-	if history != "" {
-		encodedHistory := base64.StdEncoding.EncodeToString([]byte(history))
-		req.Header.Set("X-Nopsai-Parent-History", encodedHistory)
+	if dispatcherClient == nil {
+		return "", fmt.Errorf("dispatcher client not initialized")
 	}
 
 	scope := os.Getenv("SCOPE")
-	if scope != "" {
-		req.Header.Set("X-Nopsai-Scope", scope)
-	}
-
-	if triggerEventID := os.Getenv("GIT_TRIGGER_EVENT_ID"); triggerEventID != "" {
-		req.Header.Set("X-Nopsai-Trigger-Event-ID", triggerEventID)
-	}
-
+	gitContext := make(map[string]string)
 	for _, e := range os.Environ() {
 		if strings.HasPrefix(e, "GIT_") {
 			parts := strings.SplitN(e, "=", 2)
 			if len(parts) == 2 {
-				headerKey := "X-" + strings.ReplaceAll(strings.Title(strings.ToLower(strings.ReplaceAll(parts[0], "_", " "))), " ", "-")
-				req.Header.Set(headerKey, parts[1])
+				gitContext[parts[0]] = parts[1]
 			}
 		}
 	}
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	resp, err := dispatcherClient.TriggerPipeline(ctx, &proto.TriggerPipelineRequest{
+		ParentRunId:        parentRunID,
+		ParentPipelineName: parentPipelineName,
+		ParentStepName:     parentStepName,
+		PipelineIdentifier: pipelineIdentifier,
+		PipelineDefinition: pipelineDef,
+		History:            history,
+		Scope:              scope,
+		GitContext:         gitContext,
+	})
 	if err != nil {
-		return "", fmt.Errorf("failed to trigger child pipeline: %w", err)
+		return "", fmt.Errorf("dispatcher trigger pipeline: %w", err)
 	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusCreated {
-		return "", fmt.Errorf("nopsai api returned non-201 status %d for trigger: %s", resp.StatusCode, string(body))
+	if resp.Error != "" {
+		return "", fmt.Errorf("dispatcher trigger pipeline: %s", resp.Error)
 	}
-
-	prefix := "Pipeline run created successfully with ID: "
-	if !strings.HasPrefix(string(body), prefix) {
-		return "", fmt.Errorf("unexpected response body from trigger: %s", string(body))
+	if strings.TrimSpace(resp.RunId) == "" {
+		return "", fmt.Errorf("dispatcher returned empty run id for child pipeline")
 	}
-	runID := strings.TrimSpace(strings.TrimPrefix(string(body), prefix))
-	return runID, nil
+	return resp.RunId, nil
 }
 
 func monitorPipeline(logger *zerolog.Logger, runID string) (string, error) {
-	nopsaiURL := os.Getenv("NOPSAI_API_URL")
-	url := fmt.Sprintf("%s/v1/runs/%s/status", nopsaiURL, runID)
+	if dispatcherClient == nil {
+		return "", fmt.Errorf("dispatcher client not initialized")
+	}
+
 	ticker := time.NewTicker(10 * time.Second) // Poll every 10 seconds
 	defer ticker.Stop()
 
@@ -618,21 +594,15 @@ func monitorPipeline(logger *zerolog.Logger, runID string) (string, error) {
 	for {
 		select {
 		case <-ticker.C:
-			resp, err := http.Get(url)
+			reqCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			resp, err := dispatcherClient.GetRunStatus(reqCtx, &proto.RunStatusRequest{RunId: runID})
+			cancel()
 			if err != nil {
-				childLogger.Error().Err(err).Msg("Failed to poll child pipeline status")
+				childLogger.Error().Err(err).Msg("Failed to poll child pipeline status via dispatcher")
 				continue
 			}
 
-			var statusResp map[string]string
-			if err := json.NewDecoder(resp.Body).Decode(&statusResp); err != nil {
-				resp.Body.Close()
-				childLogger.Error().Err(err).Msg("Failed to decode child pipeline status")
-				continue
-			}
-			resp.Body.Close()
-
-			status := statusResp["status"]
+			status := resp.GetStatus()
 			childLogger.Info().Str("status", status).Msg("Polling child pipeline status")
 			if status == "success" || status == "failure" {
 				return status, nil
@@ -644,33 +614,30 @@ func monitorPipeline(logger *zerolog.Logger, runID string) (string, error) {
 }
 
 func getPipelineDef(pipelineName string) ([]byte, error) {
-	nopsaiURL := os.Getenv("NOPSAI_API_URL")
-	if nopsaiURL == "" {
-		return nil, fmt.Errorf("NOPSAI_API_URL not set")
+	if dispatcherClient == nil {
+		return nil, fmt.Errorf("dispatcher client not initialized")
 	}
-	// Note: We assume for now the agent doesn't have access to the repo to fetch files.
-	// It must fetch named pipelines from the nopsai service.
-	url := fmt.Sprintf("%s/v1/pipelines/%s", nopsaiURL, pipelineName)
 
-	// Add git context as query parameters if available
 	repoOwner := os.Getenv("GIT_REPO_OWNER")
 	repoName := os.Getenv("GIT_REPO_NAME")
 	commitSHA := os.Getenv("GIT_COMMIT_SHA")
-	if repoOwner != "" && repoName != "" && commitSHA != "" {
-		url = fmt.Sprintf("%s?repoOwner=%s&repoName=%s&commitSHA=%s", url, repoOwner, repoName, commitSHA)
-	}
 
-	resp, err := http.Get(url)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	resp, err := dispatcherClient.FetchPipeline(ctx, &proto.FetchPipelineRequest{
+		PipelineName: pipelineName,
+		RepoOwner:    repoOwner,
+		RepoName:     repoName,
+		CommitSha:    commitSHA,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to call nopsai api: %w", err)
+		return nil, fmt.Errorf("dispatcher fetch pipeline: %w", err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("nopsai api returned non-200 status %d: %s", resp.StatusCode, string(body))
+	if len(resp.GetPipelineDefinition()) == 0 {
+		return nil, fmt.Errorf("dispatcher returned empty pipeline definition")
 	}
-	return io.ReadAll(resp.Body)
+	return resp.PipelineDefinition, nil
 }
 
 func run() int {
@@ -738,6 +705,19 @@ func run() int {
 		agentLog(runID, pipelineName).Error().Msg("Missing GEMINI_API_KEY or GEMINI_MODEL")
 		return 1
 	}
+
+	dispatcherAddr := os.Getenv("DISPATCHER_ADDRESS")
+	if dispatcherAddr == "" {
+		agentLog(runID, pipelineName).Error().Msg("DISPATCHER_ADDRESS environment variable not set. Cannot contact dispatcher")
+		return 1
+	}
+	conn, err := grpc.Dial(dispatcherAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		agentLog(runID, pipelineName).Error().Err(err).Str("dispatcher_addr", dispatcherAddr).Msg("Failed to connect to dispatcher")
+		return 1
+	}
+	defer conn.Close()
+	dispatcherClient = proto.NewDispatcherServiceClient(conn)
 
 	pipelineDefBytes, err := base64.StdEncoding.DecodeString(pipelineDefBase64)
 	if err != nil {

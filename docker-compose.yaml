@@ -41,7 +41,7 @@ services:
 
   nopsai:
     container_name: nopsai
-    image: nopsai
+    image: hoseindocker/nopsai
     build:
       context: .
       dockerfile: container/Dockerfile.nopsai
@@ -60,7 +60,7 @@ services:
 
   dispatcher:
     container_name: nopsai-dispatcher
-    image: nopsai-dispatcher
+    image: hoseindocker/nopsai-dispatcher
     build:
       context: .
       dockerfile: container/Dockerfile.dispatcher
@@ -76,7 +76,7 @@ services:
 
   git-bot:
     container_name: nopsai-git-bot
-    image: nopsai-git-bot
+    image: hoseindocker/nopsai-git-bot
     build:
       context: .
       dockerfile: container/Dockerfile.git-bot
@@ -106,7 +106,7 @@ services:
   
   agent:
     container_name: nopsai-agent
-    image: nopsai-agent
+    image: hoseindocker/nopsai-agent
     build:
       context: .
       dockerfile: container/Dockerfile.agent
@@ -116,7 +116,7 @@ services:
 
   runner:
     container_name: nopsai-runner
-    image: nopsai-runner
+    image: hoseindocker/nopsai-runner
     build:
       context: .
       dockerfile: container/Dockerfile.runner
@@ -132,7 +132,7 @@ services:
 
   pipeline:
     container_name: pipeline-image
-    image: pipeline-image
+    image: hoseindocker/pipeline-image
     build:
       context: .
       dockerfile: container/Dockerfile.pipeline
