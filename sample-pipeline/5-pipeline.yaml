@@ -8,7 +8,7 @@ llm_content_ignore:
 llm_output_sharing: true
 display_options:
   github_view: "mermaid" # mermaid, tree or flat
-container_image: "pipeline-image:latest"
+container_image: "hoseindocker/pipeline-image:latest"
 working_directory: "/tmp/test"
 timeout: "2m"
 variables:
@@ -17,7 +17,7 @@ variables:
   - TEST_ENV
 steps:
   - name: preparation
-    image: pipeline-image:latest
+    image: hoseindocker/pipeline-image:latest
     secrets:
       - TEST_SECRET
     variables:

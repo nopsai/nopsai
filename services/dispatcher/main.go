@@ -594,7 +594,13 @@ func (d *dispatcherServer) dispatch(job *proto.JobRequest) string {
 	case runner.sendCh <- &proto.DispatcherMessage{Message: &proto.DispatcherMessage_Job{Job: jobForRunner}}:
 		runner.inflight[job.RunId] = jobForRunner
 		runner.active++
-		log.Info().Str("run_id", job.RunId).Str("runner_id", runner.id).Str("scope", job.Scope).Msg("job dispatched to runner")
+		log.Info().
+			Str("run_id", job.RunId).
+			Str("runner_id", runner.id).
+			Str("pipeline", job.PipelineName).
+			Str("scope", job.Scope).
+			Msg("job dispatched to runner")
+		d.recordAssignment(job.RunId, job.PipelineName, runner.id, job.Scope)
 		return runner.id
 	default:
 		log.Warn().Str("runner_id", runner.id).Msg("runner send channel is full; queueing job")
@@ -658,6 +664,12 @@ func (d *dispatcherServer) pumpQueue() {
 	}
 
 	var remaining []*proto.JobRequest
+	var assignments []struct {
+		runID        string
+		pipelineName string
+		runnerID     string
+		scope        string
+	}
 	for _, job := range d.queue {
 		runner := d.pickRunnerLocked(job.Scope)
 		if runner == nil {
@@ -669,13 +681,34 @@ func (d *dispatcherServer) pumpQueue() {
 		case runner.sendCh <- &proto.DispatcherMessage{Message: &proto.DispatcherMessage_Job{Job: jobForRunner}}:
 			runner.inflight[job.RunId] = jobForRunner
 			runner.active++
-			log.Info().Str("run_id", job.RunId).Str("runner_id", runner.id).Msg("job dispatched from queue")
+			log.Info().
+				Str("run_id", job.RunId).
+				Str("runner_id", runner.id).
+				Str("pipeline", job.PipelineName).
+				Str("scope", job.Scope).
+				Msg("job dispatched from queue")
+			assignments = append(assignments, struct {
+				runID        string
+				pipelineName string
+				runnerID     string
+				scope        string
+			}{
+				runID:        job.RunId,
+				pipelineName: job.PipelineName,
+				runnerID:     runner.id,
+				scope:        job.Scope,
+			})
 		default:
 			log.Warn().Str("runner_id", runner.id).Msg("runner send channel is full during queue dispatch")
 			remaining = append(remaining, job)
 		}
 	}
 	d.queue = remaining
+
+	// Send assignment log entries without holding the dispatcher lock.
+	for _, a := range assignments {
+		d.recordAssignment(a.runID, a.pipelineName, a.runnerID, a.scope)
+	}
 }
 
 func (r *runnerConn) hasScope(scope string) bool {
@@ -843,7 +876,14 @@ func pipelinePath(identifier string) string {
 func gitHeaderKey(envKey string) string {
 	key := strings.TrimSpace(envKey)
 	key = strings.TrimPrefix(key, "X-")
-	parts := strings.Split(strings.ToLower(key), "_")
+	lowerKey := strings.ToLower(key)
+
+	// Preserve trigger event ID with the header name expected by nopsai
+	if lowerKey == "git_trigger_event_id" || lowerKey == "trigger_event_id" {
+		return "X-Nopsai-Trigger-Event-ID"
+	}
+
+	parts := strings.Split(lowerKey, "_")
 	for i, p := range parts {
 		if len(p) == 0 {
 			continue
@@ -851,6 +891,34 @@ func gitHeaderKey(envKey string) string {
 		parts[i] = strings.ToUpper(p[:1]) + p[1:]
 	}
 	return "X-" + strings.Join(parts, "-")
+}
+
+func (d *dispatcherServer) recordAssignment(runID, pipelineName, runnerID, scope string) {
+	runID = strings.TrimSpace(runID)
+	runnerID = strings.TrimSpace(runnerID)
+	if runID == "" || runnerID == "" {
+		return
+	}
+
+	scope = strings.TrimSpace(scope)
+	pipelineName = strings.TrimSpace(pipelineName)
+
+	msg := fmt.Sprintf("Assigned run %s to runner %s", runID, runnerID)
+	if pipelineName != "" {
+		msg = fmt.Sprintf("Assigned pipeline %s (run %s) to runner %s", pipelineName, runID, runnerID)
+	}
+	if scope != "" {
+		msg = fmt.Sprintf("%s (scope %s)", msg, scope)
+	}
+
+	go func(runID, line string) {
+		if _, err := d.IngestLogs(context.Background(), &proto.LogBatch{
+			RunId: runID,
+			Lines: []string{line},
+		}); err != nil {
+			log.Warn().Err(err).Str("run_id", runID).Msg("failed to record runner assignment")
+		}
+	}(runID, msg)
 }
 
 func main() {
