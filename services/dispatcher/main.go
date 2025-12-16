@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -38,6 +39,7 @@ type runnerConn struct {
 	sendCh        chan *proto.DispatcherMessage
 	metadata      map[string]string
 	allowDispatch bool
+	cancel        context.CancelFunc
 }
 
 type dispatcherServer struct {
@@ -146,7 +148,9 @@ func (d *dispatcherServer) Register(stream proto.DispatcherService_RegisterServe
 	d.addRunner(rc)
 	defer d.removeRunner(rc.connectionID)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(stream.Context())
+	rc.cancel = cancel
+	defer cancel()
 	sendErrCh := make(chan error, 1)
 	go func() {
 		for {
@@ -203,20 +207,112 @@ func (d *dispatcherServer) GetStatus(ctx context.Context, _ *emptypb.Empty) (*pr
 	}
 
 	for _, r := range d.runners {
-		info := &proto.RunnerInfo{
-			RunnerId:          r.id,
-			Scopes:            keys(r.scopes),
-			Capacity:          r.capacity,
-			ActiveJobs:        r.active,
-			InflightJobs:      int32(len(r.inflight)),
-			LastHeartbeatUnix: r.lastHeartbeat.Unix(),
-			Metadata:          mergeMetadata(r.metadata, r.connectionID),
-			AllowDispatch:     r.allowDispatch,
+		if info := d.runnerInfoLocked(r); info != nil {
+			resp.Runners = append(resp.Runners, info)
 		}
-		resp.Runners = append(resp.Runners, info)
 	}
 
 	return resp, nil
+}
+
+func (d *dispatcherServer) runnerInfoLocked(r *runnerConn) *proto.RunnerInfo {
+	if r == nil {
+		return nil
+	}
+
+	runSummaries := make([]map[string]string, 0, len(r.inflight))
+	for runID, job := range r.inflight {
+		entry := map[string]string{"run_id": runID}
+		if job != nil {
+			if name := strings.TrimSpace(job.PipelineName); name != "" {
+				entry["pipeline"] = name
+			}
+			if trig := strings.TrimSpace(job.TriggerEventId); trig != "" {
+				entry["trigger_event_id"] = trig
+			}
+		}
+		runSummaries = append(runSummaries, entry)
+	}
+	sort.Slice(runSummaries, func(i, j int) bool {
+		return runSummaries[i]["run_id"] < runSummaries[j]["run_id"]
+	})
+
+	var runSummariesJSON string
+	if len(runSummaries) > 0 {
+		if data, err := json.Marshal(runSummaries); err == nil {
+			runSummariesJSON = string(data)
+		}
+	}
+
+	meta := mergeMetadata(r.metadata, r.connectionID)
+	if runSummariesJSON != "" {
+		meta = cloneMetadata(meta)
+		meta["active_runs"] = runSummariesJSON
+	}
+
+	return &proto.RunnerInfo{
+		RunnerId:          r.id,
+		Scopes:            keys(r.scopes),
+		Capacity:          r.capacity,
+		ActiveJobs:        r.active,
+		InflightJobs:      int32(len(r.inflight)),
+		LastHeartbeatUnix: r.lastHeartbeat.Unix(),
+		Metadata:          meta,
+		AllowDispatch:     r.allowDispatch,
+	}
+}
+
+func (d *dispatcherServer) UpdateRunnerDispatch(ctx context.Context, req *proto.UpdateRunnerDispatchRequest) (*proto.UpdateRunnerDispatchResponse, error) {
+	if req == nil || strings.TrimSpace(req.RunnerId) == "" {
+		return nil, status.Error(codes.InvalidArgument, "runner_id is required")
+	}
+
+	runnerID := strings.TrimSpace(req.RunnerId)
+	connectionID := strings.TrimSpace(req.ConnectionId)
+
+	d.mu.Lock()
+	var target *runnerConn
+	if connectionID != "" {
+		if r, ok := d.runners[connectionID]; ok && r.id == runnerID {
+			target = r
+		}
+	}
+	if target == nil {
+		for _, r := range d.runners {
+			if r.id == runnerID {
+				target = r
+				break
+			}
+		}
+	}
+	if target == nil {
+		d.mu.Unlock()
+		return nil, status.Error(codes.NotFound, "runner is not connected")
+	}
+
+	target.allowDispatch = req.AllowDispatch
+	if req.AllowDispatch {
+		// Avoid stale active counts blocking dispatch after a pause.
+		if inflight := int32(len(target.inflight)); inflight < target.active {
+			target.active = inflight
+		}
+	}
+	if !req.AllowDispatch {
+		d.dropTriggerAssignmentsForRunner(target.id)
+	}
+
+	info := d.runnerInfoLocked(target)
+	d.mu.Unlock()
+
+	log.Info().
+		Str("runner_id", target.id).
+		Str("connection_id", target.connectionID).
+		Bool("allow_dispatch", target.allowDispatch).
+		Msg("runner dispatch flag updated")
+
+	go d.pumpQueue()
+
+	return &proto.UpdateRunnerDispatchResponse{Runner: info}, nil
 }
 
 func (d *dispatcherServer) IngestLogs(ctx context.Context, batch *proto.LogBatch) (*emptypb.Empty, error) {
@@ -482,7 +578,6 @@ func (d *dispatcherServer) handleHeartbeat(connectionID string, hb *proto.Runner
 	}
 	runner.lastHeartbeat = time.Now()
 	runner.active = hb.ActiveJobs
-	runner.allowDispatch = true
 	go d.pumpQueue()
 }
 
@@ -549,6 +644,10 @@ func (d *dispatcherServer) removeRunner(connectionID string) {
 
 	if !ok {
 		return
+	}
+
+	if runner.cancel != nil {
+		runner.cancel()
 	}
 
 	close(runner.sendCh)
@@ -650,7 +749,7 @@ func (d *dispatcherServer) pickRunnerForJobLocked(job *proto.JobRequest) *runner
 				return r
 			}
 			// Runner is connected but at capacity; wait to honor pin.
-			if r.active >= r.capacity {
+			if runnerLoad(r) >= r.capacity {
 				return nil
 			}
 			log.Info().
@@ -672,7 +771,7 @@ func (d *dispatcherServer) pickRunnerForJobLocked(job *proto.JobRequest) *runner
 					return r
 				}
 				// Runner is still connected but at capacity; keep the affinity and wait.
-				if r.active >= r.capacity {
+				if runnerLoad(r) >= r.capacity {
 					return nil
 				}
 			}
@@ -683,13 +782,14 @@ func (d *dispatcherServer) pickRunnerForJobLocked(job *proto.JobRequest) *runner
 	var candidates []*runnerConn
 	var busyChoice *runnerConn
 	for _, r := range d.runners {
+		load := runnerLoad(r)
 		if !d.runnerMatchesScope(r, job.Scope, allowed) {
 			continue
 		}
-		if r.allowDispatch && r.active < r.capacity {
+		if r.allowDispatch && load < r.capacity {
 			candidates = append(candidates, r)
 		} else if r.allowDispatch {
-			if busyChoice == nil || r.active < busyChoice.active {
+			if busyChoice == nil || load < runnerLoad(busyChoice) {
 				busyChoice = r
 			}
 		}
@@ -704,7 +804,7 @@ func (d *dispatcherServer) pickRunnerForJobLocked(job *proto.JobRequest) *runner
 
 	selected := candidates[0]
 	for _, r := range candidates[1:] {
-		if r.active < selected.active {
+		if runnerLoad(r) < runnerLoad(selected) {
 			selected = r
 		}
 	}
@@ -731,7 +831,7 @@ func (d *dispatcherServer) runnerEligibleForJob(r *runnerConn, scope string, all
 	if !d.runnerMatchesScope(r, scope, allowed) {
 		return false
 	}
-	return r.active < r.capacity
+	return runnerLoad(r) < r.capacity
 }
 
 func (d *dispatcherServer) allowedRunnerIDs(scope string) []string {
@@ -887,16 +987,35 @@ func mergeMetadata(meta map[string]string, connectionID string) map[string]strin
 	if len(meta) == 0 && connectionID == "" {
 		return nil
 	}
-	out := make(map[string]string, len(meta)+1)
+	out := cloneMetadata(meta)
+	if connectionID != "" {
+		out["connection_id"] = connectionID
+	}
+	return out
+}
+
+func runnerLoad(r *runnerConn) int32 {
+	if r == nil {
+		return 1 << 30
+	}
+	load := r.active
+	if inflight := int32(len(r.inflight)); inflight > load {
+		load = inflight
+	}
+	return load
+}
+
+func cloneMetadata(meta map[string]string) map[string]string {
+	if len(meta) == 0 {
+		return make(map[string]string)
+	}
+	out := make(map[string]string, len(meta))
 	for k, v := range meta {
 		key := strings.TrimSpace(k)
 		if key == "" {
 			continue
 		}
 		out[key] = v
-	}
-	if connectionID != "" {
-		out["connection_id"] = connectionID
 	}
 	return out
 }

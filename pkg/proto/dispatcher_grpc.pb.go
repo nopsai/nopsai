@@ -20,15 +20,16 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	DispatcherService_SubmitJob_FullMethodName        = "/proto.DispatcherService/SubmitJob"
-	DispatcherService_Register_FullMethodName         = "/proto.DispatcherService/Register"
-	DispatcherService_GetStatus_FullMethodName        = "/proto.DispatcherService/GetStatus"
-	DispatcherService_IngestLogs_FullMethodName       = "/proto.DispatcherService/IngestLogs"
-	DispatcherService_ReportTaskStatus_FullMethodName = "/proto.DispatcherService/ReportTaskStatus"
-	DispatcherService_FinalizeRun_FullMethodName      = "/proto.DispatcherService/FinalizeRun"
-	DispatcherService_FetchPipeline_FullMethodName    = "/proto.DispatcherService/FetchPipeline"
-	DispatcherService_TriggerPipeline_FullMethodName  = "/proto.DispatcherService/TriggerPipeline"
-	DispatcherService_GetRunStatus_FullMethodName     = "/proto.DispatcherService/GetRunStatus"
+	DispatcherService_SubmitJob_FullMethodName            = "/proto.DispatcherService/SubmitJob"
+	DispatcherService_Register_FullMethodName             = "/proto.DispatcherService/Register"
+	DispatcherService_GetStatus_FullMethodName            = "/proto.DispatcherService/GetStatus"
+	DispatcherService_UpdateRunnerDispatch_FullMethodName = "/proto.DispatcherService/UpdateRunnerDispatch"
+	DispatcherService_IngestLogs_FullMethodName           = "/proto.DispatcherService/IngestLogs"
+	DispatcherService_ReportTaskStatus_FullMethodName     = "/proto.DispatcherService/ReportTaskStatus"
+	DispatcherService_FinalizeRun_FullMethodName          = "/proto.DispatcherService/FinalizeRun"
+	DispatcherService_FetchPipeline_FullMethodName        = "/proto.DispatcherService/FetchPipeline"
+	DispatcherService_TriggerPipeline_FullMethodName      = "/proto.DispatcherService/TriggerPipeline"
+	DispatcherService_GetRunStatus_FullMethodName         = "/proto.DispatcherService/GetRunStatus"
 )
 
 // DispatcherServiceClient is the client API for DispatcherService service.
@@ -41,6 +42,8 @@ type DispatcherServiceClient interface {
 	Register(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[RunnerMessage, DispatcherMessage], error)
 	// Returns current dispatcher health and runner state.
 	GetStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*DispatcherStatus, error)
+	// Toggle whether a runner is eligible to receive new dispatches.
+	UpdateRunnerDispatch(ctx context.Context, in *UpdateRunnerDispatchRequest, opts ...grpc.CallOption) (*UpdateRunnerDispatchResponse, error)
 	// Agent and runner updates flow through the dispatcher to nopsai.
 	IngestLogs(ctx context.Context, in *LogBatch, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	ReportTaskStatus(ctx context.Context, in *TaskStatusReport, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -85,6 +88,16 @@ func (c *dispatcherServiceClient) GetStatus(ctx context.Context, in *emptypb.Emp
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(DispatcherStatus)
 	err := c.cc.Invoke(ctx, DispatcherService_GetStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *dispatcherServiceClient) UpdateRunnerDispatch(ctx context.Context, in *UpdateRunnerDispatchRequest, opts ...grpc.CallOption) (*UpdateRunnerDispatchResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateRunnerDispatchResponse)
+	err := c.cc.Invoke(ctx, DispatcherService_UpdateRunnerDispatch_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -161,6 +174,8 @@ type DispatcherServiceServer interface {
 	Register(grpc.BidiStreamingServer[RunnerMessage, DispatcherMessage]) error
 	// Returns current dispatcher health and runner state.
 	GetStatus(context.Context, *emptypb.Empty) (*DispatcherStatus, error)
+	// Toggle whether a runner is eligible to receive new dispatches.
+	UpdateRunnerDispatch(context.Context, *UpdateRunnerDispatchRequest) (*UpdateRunnerDispatchResponse, error)
 	// Agent and runner updates flow through the dispatcher to nopsai.
 	IngestLogs(context.Context, *LogBatch) (*emptypb.Empty, error)
 	ReportTaskStatus(context.Context, *TaskStatusReport) (*emptypb.Empty, error)
@@ -186,6 +201,9 @@ func (UnimplementedDispatcherServiceServer) Register(grpc.BidiStreamingServer[Ru
 }
 func (UnimplementedDispatcherServiceServer) GetStatus(context.Context, *emptypb.Empty) (*DispatcherStatus, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetStatus not implemented")
+}
+func (UnimplementedDispatcherServiceServer) UpdateRunnerDispatch(context.Context, *UpdateRunnerDispatchRequest) (*UpdateRunnerDispatchResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateRunnerDispatch not implemented")
 }
 func (UnimplementedDispatcherServiceServer) IngestLogs(context.Context, *LogBatch) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method IngestLogs not implemented")
@@ -265,6 +283,24 @@ func _DispatcherService_GetStatus_Handler(srv interface{}, ctx context.Context, 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DispatcherServiceServer).GetStatus(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DispatcherService_UpdateRunnerDispatch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateRunnerDispatchRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DispatcherServiceServer).UpdateRunnerDispatch(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DispatcherService_UpdateRunnerDispatch_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DispatcherServiceServer).UpdateRunnerDispatch(ctx, req.(*UpdateRunnerDispatchRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -391,6 +427,10 @@ var DispatcherService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetStatus",
 			Handler:    _DispatcherService_GetStatus_Handler,
+		},
+		{
+			MethodName: "UpdateRunnerDispatch",
+			Handler:    _DispatcherService_UpdateRunnerDispatch_Handler,
 		},
 		{
 			MethodName: "IngestLogs",

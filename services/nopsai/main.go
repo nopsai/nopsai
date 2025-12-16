@@ -42,7 +42,9 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"gopkg.in/yaml.v3"
 
@@ -1384,9 +1386,92 @@ func (a *App) handleDispatcherStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	a.cfgMu.RLock()
+	routing := a.cfg.DispatcherRouting
+	a.cfgMu.RUnlock()
+
+	runners := make([]map[string]interface{}, 0, len(status.GetRunners()))
+	for _, runner := range status.GetRunners() {
+		runners = append(runners, map[string]interface{}{
+			"runner_id":           runner.GetRunnerId(),
+			"scopes":              runner.GetScopes(),
+			"capacity":            runner.GetCapacity(),
+			"active_jobs":         runner.GetActiveJobs(),
+			"inflight_jobs":       runner.GetInflightJobs(),
+			"last_heartbeat_unix": runner.GetLastHeartbeatUnix(),
+			"metadata":            runner.GetMetadata(),
+			"allow_dispatch":      runner.GetAllowDispatch(),
+		})
+	}
+
+	resp := map[string]interface{}{
+		"queued_jobs": status.GetQueuedJobs(),
+		"runners":     runners,
+	}
+	if len(routing) > 0 {
+		resp["routing"] = routing
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(status); err != nil {
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		log.Warn().Err(err).Msg("Failed to encode dispatcher status")
+	}
+}
+
+func (a *App) handleUpdateRunnerDispatch(w http.ResponseWriter, r *http.Request) {
+	runnerID := strings.TrimSpace(r.PathValue("runnerID"))
+	if runnerID == "" {
+		http.Error(w, "runner_id is required", http.StatusBadRequest)
+		return
+	}
+
+	var payload struct {
+		AllowDispatch *bool  `json:"allow_dispatch"`
+		ConnectionID  string `json:"connection_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+	if payload.AllowDispatch == nil {
+		http.Error(w, "allow_dispatch is required", http.StatusBadRequest)
+		return
+	}
+
+	resp, err := a.dispatcher.UpdateRunnerDispatch(r.Context(), &proto.UpdateRunnerDispatchRequest{
+		RunnerId:      runnerID,
+		AllowDispatch: *payload.AllowDispatch,
+		ConnectionId:  strings.TrimSpace(payload.ConnectionID),
+	})
+	if err != nil {
+		log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to update runner dispatch state")
+		statusCode := http.StatusBadGateway
+		if st, ok := grpcstatus.FromError(err); ok {
+			switch st.Code() {
+			case codes.InvalidArgument:
+				statusCode = http.StatusBadRequest
+			case codes.NotFound:
+				statusCode = http.StatusNotFound
+			case codes.Unavailable:
+				statusCode = http.StatusBadGateway
+			default:
+				statusCode = http.StatusInternalServerError
+			}
+			http.Error(w, st.Message(), statusCode)
+			return
+		}
+		http.Error(w, "Failed to update runner dispatch", statusCode)
+		return
+	}
+
+	if resp == nil || resp.Runner == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp.Runner); err != nil {
+		log.Warn().Err(err).Msg("Failed to encode runner dispatch response")
 	}
 }
 
@@ -6178,6 +6263,7 @@ func main() {
 	mux.HandleFunc("POST /v1/system/config/sync", app.handleConfigSync)
 	mux.HandleFunc("POST /v1/internal/config/sync", app.handleConfigSync)
 	mux.HandleFunc("GET /v1/system/dispatcher", app.handleDispatcherStatus)
+	mux.HandleFunc("POST /v1/system/dispatcher/runners/{runnerID}/dispatch", app.handleUpdateRunnerDispatch)
 
 	// Pipeline Management
 	mux.HandleFunc("GET /v1/pipelines", app.handleListPipelines)
