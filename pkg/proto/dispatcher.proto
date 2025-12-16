@@ -82,6 +82,8 @@ service DispatcherService {
   rpc Register(stream RunnerMessage) returns (stream DispatcherMessage);
   // Returns current dispatcher health and runner state.
   rpc GetStatus(.google.protobuf.Empty) returns (DispatcherStatus);
+  // Toggle whether a runner is eligible to receive new dispatches.
+  rpc UpdateRunnerDispatch(UpdateRunnerDispatchRequest) returns (UpdateRunnerDispatchResponse);
   // Agent and runner updates flow through the dispatcher to nopsai.
   rpc IngestLogs(LogBatch) returns (.google.protobuf.Empty);
   rpc ReportTaskStatus(TaskStatusReport) returns (.google.protobuf.Empty);
@@ -100,6 +102,16 @@ message RunnerInfo {
   int64 last_heartbeat_unix = 6;
   map<string, string> metadata = 7;
   bool allow_dispatch = 8;
+}
+
+message UpdateRunnerDispatchRequest {
+  string runner_id = 1;
+  bool allow_dispatch = 2;
+  string connection_id = 3;
+}
+
+message UpdateRunnerDispatchResponse {
+  RunnerInfo runner = 1;
 }
 
 message DispatcherStatus {

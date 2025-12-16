@@ -4,6 +4,7 @@
         lastStatus: null,
         isSaving: false,
         activeTab: 'config',
+        runnerActionPending: new Set(),
     };
 
     const DOM = {};
@@ -20,7 +21,7 @@
             'system-agent-api', 'system-gitbot-api', 'system-nopsai-gitbot-api',
             'system-config-section', 'system-dispatcher-section', 'dispatcher-queue-count',
             'dispatcher-runner-count', 'dispatcher-active-count', 'dispatcher-runner-list',
-            'dispatcher-empty', 'dispatcher-updated',
+            'dispatcher-empty', 'dispatcher-updated', 'dispatcher-routing', 'dispatcher-routing-empty',
         ];
         ids.forEach(id => {
             const el = document.getElementById(id);
@@ -50,6 +51,9 @@
                 e.preventDefault();
                 loadSyncStatus(true);
             });
+        }
+        if (DOM['dispatcher-runner-list']) {
+            DOM['dispatcher-runner-list'].addEventListener('click', handleRunnerActionClick);
         }
     }
 
@@ -104,6 +108,51 @@
         }
         const status = await context.fetchData('/v1/system/dispatcher');
         renderDispatcherStatus(status);
+    }
+
+    async function handleRunnerActionClick(event) {
+        const button = event.target.closest('[data-runner-action]');
+        if (!button) return;
+
+        const action = button.getAttribute('data-runner-action');
+        if (action !== 'toggle-dispatch') return;
+        event.preventDefault();
+
+        const runnerId = (button.getAttribute('data-runner-id') || '').trim();
+        const connectionId = (button.getAttribute('data-connection-id') || '').trim();
+        const nextAllow = (button.getAttribute('data-next-allow') || '').toLowerCase() === 'true';
+        if (!runnerId || !context || typeof context.fetchData !== 'function') return;
+        if (isRunnerActionPending(runnerId, connectionId)) return;
+
+        const originalLabel = button.textContent;
+        setRunnerActionPending(runnerId, connectionId, true);
+        button.disabled = true;
+        button.classList.add('opacity-60', 'cursor-wait');
+        button.textContent = nextAllow ? 'Enabling...' : 'Pausing...';
+
+        try {
+            const payload = { allow_dispatch: nextAllow };
+            if (connectionId) {
+                payload.connection_id = connectionId;
+            }
+
+            await context.fetchData(`/v1/system/dispatcher/runners/${encodeURIComponent(runnerId)}/dispatch`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+
+            if (context.fetchData.lastStatus === null) {
+                return;
+            }
+
+            await loadDispatcherStatus(true);
+        } finally {
+            setRunnerActionPending(runnerId, connectionId, false);
+            button.disabled = false;
+            button.classList.remove('opacity-60', 'cursor-wait');
+            button.textContent = originalLabel;
+        }
     }
 
     function applyConfigToForm(data) {
@@ -323,6 +372,7 @@
         return {
             runners: runnersRaw.map(normalizeRunner),
             queuedJobs: status.queuedJobs ?? status.queued_jobs ?? 0,
+            routing: status.routing || status.routing_map || {},
         };
     }
 
@@ -381,6 +431,17 @@
             const badgeLabel = stale ? 'Stale' : 'Healthy';
             const meta = getRunnerMeta(runner);
             const connectionLabel = formatConnectionId(meta.connectionId);
+            const connectionId = meta.connectionId || '';
+            const dispatchValue = runner.allowDispatch ? '<span class="text-green-500 font-semibold">Enabled</span>' : '<span class="text-red-500 font-semibold">Paused</span>';
+            const toggleLabel = runner.allowDispatch ? 'Pause dispatch' : 'Resume dispatch';
+            const toggleClass = runner.allowDispatch ? 'glass-button-danger' : 'glass-button-primary';
+            const nextAllow = runner.allowDispatch ? 'false' : 'true';
+            const pendingAction = isRunnerActionPending(runner.runnerId, connectionId);
+            const actionLabel = pendingAction ? 'Updating...' : toggleLabel;
+            const actionClasses = `${toggleClass} text-xs ${pendingAction ? 'opacity-60 cursor-wait' : ''}`;
+            const pausedPill = runner.allowDispatch ? '' : '<span class="runner-pill runner-pill--error">Paused</span>';
+            const activeRuns = Array.isArray(meta.activeRuns) ? meta.activeRuns : [];
+            const detailLink = activeRuns.length ? `#/pipelineruns/main/${encodeURIComponent(activeRuns[0].runId)}` : '#/pipelineruns/main';
 
             const card = document.createElement('div');
             card.className = 'glass-card p-4 space-y-2';
@@ -400,7 +461,7 @@
             metaGrid.push(`
                 <div class="runner-meta">
                     <span class="runner-meta__label">Dispatch</span>
-                    <span class="runner-meta__value">${runner.allowDispatch ? 'Yes' : 'Paused'}</span>
+                    <span class="runner-meta__value">${dispatchValue}</span>
                 </div>
             `);
             metaGrid.push(`
@@ -440,17 +501,92 @@
                         <p class="text-sm font-semibold text-[var(--text-primary)]">${escapeHtml(runner.runnerId || 'unnamed')}</p>
                         <p class="text-xs text-[var(--text-secondary)]">${escapeHtml(scopes)}</p>
                     </div>
-                    <div class="flex items-center gap-2">
+                    <div class="flex items-center flex-wrap justify-end gap-2">
+                        <button
+                            type="button"
+                            class="${actionClasses}"
+                            data-runner-action="toggle-dispatch"
+                            data-runner-id="${escapeHtml(runner.runnerId || '')}"
+                            data-connection-id="${escapeHtml(connectionId)}"
+                            data-next-allow="${nextAllow}"
+                            ${pendingAction ? 'disabled' : ''}
+                        >${escapeHtml(actionLabel)}</button>
+                        <a href="${detailLink}" class="runner-pill runner-pill--muted" title="View runs on this runner">
+                            <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7" />
+                            </svg>
+                        </a>
                         ${connectionLabel ? `<span class="runner-pill runner-pill--muted">${escapeHtml(connectionLabel)}</span>` : ''}
+                        ${pausedPill}
                         <span class="runner-pill ${badgeClass}">${badgeLabel}</span>
                     </div>
                 </div>
                 <div class="grid grid-cols-2 gap-2 text-xs">
                     ${metaGrid.join('')}
                 </div>
+                <div class="text-xs">
+                    <p class="text-[var(--text-secondary)] font-semibold mb-1">Runs on this runner</p>
+                    ${activeRuns.length ? `
+                        <ul class="space-y-1">
+                            ${activeRuns.map(run => {
+                                const trigger = run.triggerId ? ` — Trigger ${escapeHtml(truncateId(run.triggerId))}` : '';
+                                const pipeline = run.pipeline ? `${escapeHtml(run.pipeline)} ` : '';
+                                const label = `${pipeline}(${escapeHtml(truncateId(run.runId))})${trigger}`;
+                                return `<li><a class="text-[var(--text-accent)] hover:underline" href="#/pipelineruns/main/${encodeURIComponent(run.runId)}">${label}</a></li>`;
+                            }).join('')}
+                        </ul>
+                    ` : `<p class="text-[var(--text-secondary)]">No active runs on this runner.</p>`}
+                </div>
             `;
             listEl.appendChild(card);
         });
+
+        renderRoutingMap(normalized.routing);
+    }
+
+    function renderRoutingMap(routing) {
+        const container = DOM['dispatcher-routing'];
+        const empty = DOM['dispatcher-routing-empty'];
+        if (!container || !empty) return;
+
+        container.innerHTML = '';
+        const entries = routing && typeof routing === 'object' ? Object.entries(routing) : [];
+        if (!entries.length) {
+            empty.classList.remove('hidden');
+            return;
+        }
+        empty.classList.add('hidden');
+
+        const rows = entries
+            .map(([scope, runners]) => ({
+                scope: (scope || '*').trim() || '*',
+                runners: Array.isArray(runners) && runners.length ? runners.map(r => (r || '*').trim() || '*') : ['*'],
+            }))
+            .sort((a, b) => a.scope.localeCompare(b.scope));
+
+        const legend = `
+            <div class="flex items-center justify-between text-xs text-[var(--text-secondary)] mb-2">
+                <span>Scopes → Allowed runners</span>
+                <span>‘Any runner’ means no affinity restriction</span>
+            </div>
+        `;
+
+        const list = rows.map(row => {
+            const pills = row.runners
+                .map(r => `<span class="runner-pill runner-pill--muted">${escapeHtml(r === '*' ? 'Any runner' : r)}</span>`)
+                .join(' ');
+            return `
+                <div class="flex items-center justify-between gap-3 bg-[var(--bg-tertiary)] px-3 py-2 rounded-md border border-[var(--border-primary)]">
+                    <div class="flex items-center gap-2">
+                        <span class="runner-pill runner-pill--ok">${escapeHtml(row.scope)}</span>
+                        <span class="text-xs text-[var(--text-secondary)]">Scope</span>
+                    </div>
+                    <div class="flex flex-wrap gap-2 justify-end text-sm">${pills}</div>
+                </div>
+            `;
+        }).join('');
+
+        container.innerHTML = legend + list;
     }
 
     function switchTab(target, options = {}) {
@@ -570,6 +706,30 @@
         }[char]));
     }
 
+    function runnerActionKey(runnerId, connectionId = '') {
+        const rid = (runnerId || '').trim();
+        const cid = (connectionId || '').trim();
+        return cid ? `${rid}::${cid}` : rid;
+    }
+
+    function isRunnerActionPending(runnerId, connectionId = '') {
+        if (!state.runnerActionPending) return false;
+        return state.runnerActionPending.has(runnerActionKey(runnerId, connectionId));
+    }
+
+    function setRunnerActionPending(runnerId, connectionId = '', pending = false) {
+        if (!state.runnerActionPending) {
+            state.runnerActionPending = new Set();
+        }
+        const key = runnerActionKey(runnerId, connectionId);
+        if (!key) return;
+        if (pending) {
+            state.runnerActionPending.add(key);
+        } else {
+            state.runnerActionPending.delete(key);
+        }
+    }
+
     function formatTimestamp(value) {
         if (!value) return '—';
         const date = new Date(value);
@@ -601,7 +761,28 @@
             connectionId: (meta.connection_id || meta.instance_id || '').trim(),
             hostname: (meta.hostname || meta.host || meta.runner_host || '').trim(),
             network: (meta.docker_network || meta.docker_network_name || meta.docker_networkname || '').trim(),
+            activeRuns: parseActiveRuns(meta),
         };
+    }
+
+    function parseActiveRuns(meta) {
+        const raw = (meta && meta.active_runs) || '';
+        if (!raw) return [];
+        try {
+            const parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed)) return [];
+            return parsed
+                .map(item => ({
+                    runId: (item.run_id || '').trim(),
+                    pipeline: (item.pipeline || '').trim(),
+                    parentStep: (item.parent_step || '').trim(),
+                    triggerId: (item.trigger_event_id || '').trim(),
+                }))
+                .filter(item => item.runId);
+        } catch (error) {
+            console.warn('Failed to parse active_runs metadata', error);
+            return [];
+        }
     }
 
     function formatConnectionId(value) {
@@ -610,6 +791,13 @@
         if (trimmed.length <= 14) return trimmed;
         return `${trimmed.slice(0, 6)}...${trimmed.slice(-4)}`;
     }
+
+    function truncateId(value, length = 8) {
+        const trimmed = (value || '').trim();
+        if (!trimmed) return '';
+        return trimmed.slice(0, length);
+    }
+
 
     function sortRunnersById(runners) {
         const copy = Array.isArray(runners) ? runners.slice() : [];

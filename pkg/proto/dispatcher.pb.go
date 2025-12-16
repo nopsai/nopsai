@@ -762,6 +762,110 @@ func (x *RunnerInfo) GetAllowDispatch() bool {
 	return false
 }
 
+type UpdateRunnerDispatchRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RunnerId      string                 `protobuf:"bytes,1,opt,name=runner_id,json=runnerId,proto3" json:"runner_id,omitempty"`
+	AllowDispatch bool                   `protobuf:"varint,2,opt,name=allow_dispatch,json=allowDispatch,proto3" json:"allow_dispatch,omitempty"`
+	ConnectionId  string                 `protobuf:"bytes,3,opt,name=connection_id,json=connectionId,proto3" json:"connection_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateRunnerDispatchRequest) Reset() {
+	*x = UpdateRunnerDispatchRequest{}
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateRunnerDispatchRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateRunnerDispatchRequest) ProtoMessage() {}
+
+func (x *UpdateRunnerDispatchRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateRunnerDispatchRequest.ProtoReflect.Descriptor instead.
+func (*UpdateRunnerDispatchRequest) Descriptor() ([]byte, []int) {
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *UpdateRunnerDispatchRequest) GetRunnerId() string {
+	if x != nil {
+		return x.RunnerId
+	}
+	return ""
+}
+
+func (x *UpdateRunnerDispatchRequest) GetAllowDispatch() bool {
+	if x != nil {
+		return x.AllowDispatch
+	}
+	return false
+}
+
+func (x *UpdateRunnerDispatchRequest) GetConnectionId() string {
+	if x != nil {
+		return x.ConnectionId
+	}
+	return ""
+}
+
+type UpdateRunnerDispatchResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Runner        *RunnerInfo            `protobuf:"bytes,1,opt,name=runner,proto3" json:"runner,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateRunnerDispatchResponse) Reset() {
+	*x = UpdateRunnerDispatchResponse{}
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateRunnerDispatchResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateRunnerDispatchResponse) ProtoMessage() {}
+
+func (x *UpdateRunnerDispatchResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateRunnerDispatchResponse.ProtoReflect.Descriptor instead.
+func (*UpdateRunnerDispatchResponse) Descriptor() ([]byte, []int) {
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *UpdateRunnerDispatchResponse) GetRunner() *RunnerInfo {
+	if x != nil {
+		return x.Runner
+	}
+	return nil
+}
+
 type DispatcherStatus struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Runners       []*RunnerInfo          `protobuf:"bytes,1,rep,name=runners,proto3" json:"runners,omitempty"`
@@ -772,7 +876,7 @@ type DispatcherStatus struct {
 
 func (x *DispatcherStatus) Reset() {
 	*x = DispatcherStatus{}
-	mi := &file_pkg_proto_dispatcher_proto_msgTypes[8]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -784,7 +888,7 @@ func (x *DispatcherStatus) String() string {
 func (*DispatcherStatus) ProtoMessage() {}
 
 func (x *DispatcherStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_dispatcher_proto_msgTypes[8]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -797,7 +901,7 @@ func (x *DispatcherStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DispatcherStatus.ProtoReflect.Descriptor instead.
 func (*DispatcherStatus) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{8}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *DispatcherStatus) GetRunners() []*RunnerInfo {
@@ -825,7 +929,7 @@ type LogBatch struct {
 
 func (x *LogBatch) Reset() {
 	*x = LogBatch{}
-	mi := &file_pkg_proto_dispatcher_proto_msgTypes[9]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -837,7 +941,7 @@ func (x *LogBatch) String() string {
 func (*LogBatch) ProtoMessage() {}
 
 func (x *LogBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_dispatcher_proto_msgTypes[9]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -850,7 +954,7 @@ func (x *LogBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogBatch.ProtoReflect.Descriptor instead.
 func (*LogBatch) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{9}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *LogBatch) GetRunId() string {
@@ -881,7 +985,7 @@ type TaskStatusReport struct {
 
 func (x *TaskStatusReport) Reset() {
 	*x = TaskStatusReport{}
-	mi := &file_pkg_proto_dispatcher_proto_msgTypes[10]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -893,7 +997,7 @@ func (x *TaskStatusReport) String() string {
 func (*TaskStatusReport) ProtoMessage() {}
 
 func (x *TaskStatusReport) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_dispatcher_proto_msgTypes[10]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -906,7 +1010,7 @@ func (x *TaskStatusReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskStatusReport.ProtoReflect.Descriptor instead.
 func (*TaskStatusReport) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{10}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *TaskStatusReport) GetRunId() string {
@@ -961,7 +1065,7 @@ type FinalizeRunRequest struct {
 
 func (x *FinalizeRunRequest) Reset() {
 	*x = FinalizeRunRequest{}
-	mi := &file_pkg_proto_dispatcher_proto_msgTypes[11]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -973,7 +1077,7 @@ func (x *FinalizeRunRequest) String() string {
 func (*FinalizeRunRequest) ProtoMessage() {}
 
 func (x *FinalizeRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_dispatcher_proto_msgTypes[11]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -986,7 +1090,7 @@ func (x *FinalizeRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FinalizeRunRequest.ProtoReflect.Descriptor instead.
 func (*FinalizeRunRequest) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{11}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *FinalizeRunRequest) GetRunId() string {
@@ -1015,7 +1119,7 @@ type FetchPipelineRequest struct {
 
 func (x *FetchPipelineRequest) Reset() {
 	*x = FetchPipelineRequest{}
-	mi := &file_pkg_proto_dispatcher_proto_msgTypes[12]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1027,7 +1131,7 @@ func (x *FetchPipelineRequest) String() string {
 func (*FetchPipelineRequest) ProtoMessage() {}
 
 func (x *FetchPipelineRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_dispatcher_proto_msgTypes[12]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1040,7 +1144,7 @@ func (x *FetchPipelineRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchPipelineRequest.ProtoReflect.Descriptor instead.
 func (*FetchPipelineRequest) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{12}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *FetchPipelineRequest) GetPipelineName() string {
@@ -1080,7 +1184,7 @@ type FetchPipelineResponse struct {
 
 func (x *FetchPipelineResponse) Reset() {
 	*x = FetchPipelineResponse{}
-	mi := &file_pkg_proto_dispatcher_proto_msgTypes[13]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1092,7 +1196,7 @@ func (x *FetchPipelineResponse) String() string {
 func (*FetchPipelineResponse) ProtoMessage() {}
 
 func (x *FetchPipelineResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_dispatcher_proto_msgTypes[13]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1105,7 +1209,7 @@ func (x *FetchPipelineResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchPipelineResponse.ProtoReflect.Descriptor instead.
 func (*FetchPipelineResponse) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{13}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *FetchPipelineResponse) GetPipelineDefinition() []byte {
@@ -1132,7 +1236,7 @@ type TriggerPipelineRequest struct {
 
 func (x *TriggerPipelineRequest) Reset() {
 	*x = TriggerPipelineRequest{}
-	mi := &file_pkg_proto_dispatcher_proto_msgTypes[14]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1144,7 +1248,7 @@ func (x *TriggerPipelineRequest) String() string {
 func (*TriggerPipelineRequest) ProtoMessage() {}
 
 func (x *TriggerPipelineRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_dispatcher_proto_msgTypes[14]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1157,7 +1261,7 @@ func (x *TriggerPipelineRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TriggerPipelineRequest.ProtoReflect.Descriptor instead.
 func (*TriggerPipelineRequest) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{14}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *TriggerPipelineRequest) GetParentRunId() string {
@@ -1234,7 +1338,7 @@ type TriggerPipelineResponse struct {
 
 func (x *TriggerPipelineResponse) Reset() {
 	*x = TriggerPipelineResponse{}
-	mi := &file_pkg_proto_dispatcher_proto_msgTypes[15]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1246,7 +1350,7 @@ func (x *TriggerPipelineResponse) String() string {
 func (*TriggerPipelineResponse) ProtoMessage() {}
 
 func (x *TriggerPipelineResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_dispatcher_proto_msgTypes[15]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1259,7 +1363,7 @@ func (x *TriggerPipelineResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TriggerPipelineResponse.ProtoReflect.Descriptor instead.
 func (*TriggerPipelineResponse) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{15}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *TriggerPipelineResponse) GetRunId() string {
@@ -1292,7 +1396,7 @@ type RunStatusRequest struct {
 
 func (x *RunStatusRequest) Reset() {
 	*x = RunStatusRequest{}
-	mi := &file_pkg_proto_dispatcher_proto_msgTypes[16]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1304,7 +1408,7 @@ func (x *RunStatusRequest) String() string {
 func (*RunStatusRequest) ProtoMessage() {}
 
 func (x *RunStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_dispatcher_proto_msgTypes[16]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1317,7 +1421,7 @@ func (x *RunStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunStatusRequest.ProtoReflect.Descriptor instead.
 func (*RunStatusRequest) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{16}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *RunStatusRequest) GetRunId() string {
@@ -1336,7 +1440,7 @@ type RunStatusResponse struct {
 
 func (x *RunStatusResponse) Reset() {
 	*x = RunStatusResponse{}
-	mi := &file_pkg_proto_dispatcher_proto_msgTypes[17]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1348,7 +1452,7 @@ func (x *RunStatusResponse) String() string {
 func (*RunStatusResponse) ProtoMessage() {}
 
 func (x *RunStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_proto_dispatcher_proto_msgTypes[17]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1361,7 +1465,7 @@ func (x *RunStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunStatusResponse.ProtoReflect.Descriptor instead.
 func (*RunStatusResponse) Descriptor() ([]byte, []int) {
-	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{17}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *RunStatusResponse) GetStatus() string {
@@ -1440,7 +1544,13 @@ const file_pkg_proto_dispatcher_proto_rawDesc = "" +
 	"\x0eallow_dispatch\x18\b \x01(\bR\rallowDispatch\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"`\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x86\x01\n" +
+	"\x1bUpdateRunnerDispatchRequest\x12\x1b\n" +
+	"\trunner_id\x18\x01 \x01(\tR\brunnerId\x12%\n" +
+	"\x0eallow_dispatch\x18\x02 \x01(\bR\rallowDispatch\x12#\n" +
+	"\rconnection_id\x18\x03 \x01(\tR\fconnectionId\"I\n" +
+	"\x1cUpdateRunnerDispatchResponse\x12)\n" +
+	"\x06runner\x18\x01 \x01(\v2\x11.proto.RunnerInfoR\x06runner\"`\n" +
 	"\x10DispatcherStatus\x12+\n" +
 	"\arunners\x18\x01 \x03(\v2\x11.proto.RunnerInfoR\arunners\x12\x1f\n" +
 	"\vqueued_jobs\x18\x02 \x01(\x05R\n" +
@@ -1493,11 +1603,12 @@ const file_pkg_proto_dispatcher_proto_rawDesc = "" +
 	"\x11JOB_STATE_UNKNOWN\x10\x00\x12\x16\n" +
 	"\x12JOB_STATE_ASSIGNED\x10\x01\x12\x14\n" +
 	"\x10JOB_STATE_QUEUED\x10\x02\x12\x16\n" +
-	"\x12JOB_STATE_REJECTED\x10\x032\xea\x04\n" +
+	"\x12JOB_STATE_REJECTED\x10\x032\xcb\x05\n" +
 	"\x11DispatcherService\x128\n" +
 	"\tSubmitJob\x12\x11.proto.JobRequest\x1a\x18.proto.SubmitJobResponse\x12>\n" +
 	"\bRegister\x12\x14.proto.RunnerMessage\x1a\x18.proto.DispatcherMessage(\x010\x01\x12<\n" +
-	"\tGetStatus\x12\x16.google.protobuf.Empty\x1a\x17.proto.DispatcherStatus\x125\n" +
+	"\tGetStatus\x12\x16.google.protobuf.Empty\x1a\x17.proto.DispatcherStatus\x12_\n" +
+	"\x14UpdateRunnerDispatch\x12\".proto.UpdateRunnerDispatchRequest\x1a#.proto.UpdateRunnerDispatchResponse\x125\n" +
 	"\n" +
 	"IngestLogs\x12\x0f.proto.LogBatch\x1a\x16.google.protobuf.Empty\x12C\n" +
 	"\x10ReportTaskStatus\x12\x17.proto.TaskStatusReport\x1a\x16.google.protobuf.Empty\x12@\n" +
@@ -1519,65 +1630,70 @@ func file_pkg_proto_dispatcher_proto_rawDescGZIP() []byte {
 }
 
 var file_pkg_proto_dispatcher_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_pkg_proto_dispatcher_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_pkg_proto_dispatcher_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_pkg_proto_dispatcher_proto_goTypes = []any{
-	(JobState)(0),                   // 0: proto.JobState
-	(*JobRequest)(nil),              // 1: proto.JobRequest
-	(*SubmitJobResponse)(nil),       // 2: proto.SubmitJobResponse
-	(*RunnerRegistration)(nil),      // 3: proto.RunnerRegistration
-	(*RunnerHeartbeat)(nil),         // 4: proto.RunnerHeartbeat
-	(*JobResult)(nil),               // 5: proto.JobResult
-	(*RunnerMessage)(nil),           // 6: proto.RunnerMessage
-	(*DispatcherMessage)(nil),       // 7: proto.DispatcherMessage
-	(*RunnerInfo)(nil),              // 8: proto.RunnerInfo
-	(*DispatcherStatus)(nil),        // 9: proto.DispatcherStatus
-	(*LogBatch)(nil),                // 10: proto.LogBatch
-	(*TaskStatusReport)(nil),        // 11: proto.TaskStatusReport
-	(*FinalizeRunRequest)(nil),      // 12: proto.FinalizeRunRequest
-	(*FetchPipelineRequest)(nil),    // 13: proto.FetchPipelineRequest
-	(*FetchPipelineResponse)(nil),   // 14: proto.FetchPipelineResponse
-	(*TriggerPipelineRequest)(nil),  // 15: proto.TriggerPipelineRequest
-	(*TriggerPipelineResponse)(nil), // 16: proto.TriggerPipelineResponse
-	(*RunStatusRequest)(nil),        // 17: proto.RunStatusRequest
-	(*RunStatusResponse)(nil),       // 18: proto.RunStatusResponse
-	nil,                             // 19: proto.RunnerRegistration.MetadataEntry
-	nil,                             // 20: proto.RunnerInfo.MetadataEntry
-	nil,                             // 21: proto.TriggerPipelineRequest.GitContextEntry
-	(*emptypb.Empty)(nil),           // 22: google.protobuf.Empty
+	(JobState)(0),                        // 0: proto.JobState
+	(*JobRequest)(nil),                   // 1: proto.JobRequest
+	(*SubmitJobResponse)(nil),            // 2: proto.SubmitJobResponse
+	(*RunnerRegistration)(nil),           // 3: proto.RunnerRegistration
+	(*RunnerHeartbeat)(nil),              // 4: proto.RunnerHeartbeat
+	(*JobResult)(nil),                    // 5: proto.JobResult
+	(*RunnerMessage)(nil),                // 6: proto.RunnerMessage
+	(*DispatcherMessage)(nil),            // 7: proto.DispatcherMessage
+	(*RunnerInfo)(nil),                   // 8: proto.RunnerInfo
+	(*UpdateRunnerDispatchRequest)(nil),  // 9: proto.UpdateRunnerDispatchRequest
+	(*UpdateRunnerDispatchResponse)(nil), // 10: proto.UpdateRunnerDispatchResponse
+	(*DispatcherStatus)(nil),             // 11: proto.DispatcherStatus
+	(*LogBatch)(nil),                     // 12: proto.LogBatch
+	(*TaskStatusReport)(nil),             // 13: proto.TaskStatusReport
+	(*FinalizeRunRequest)(nil),           // 14: proto.FinalizeRunRequest
+	(*FetchPipelineRequest)(nil),         // 15: proto.FetchPipelineRequest
+	(*FetchPipelineResponse)(nil),        // 16: proto.FetchPipelineResponse
+	(*TriggerPipelineRequest)(nil),       // 17: proto.TriggerPipelineRequest
+	(*TriggerPipelineResponse)(nil),      // 18: proto.TriggerPipelineResponse
+	(*RunStatusRequest)(nil),             // 19: proto.RunStatusRequest
+	(*RunStatusResponse)(nil),            // 20: proto.RunStatusResponse
+	nil,                                  // 21: proto.RunnerRegistration.MetadataEntry
+	nil,                                  // 22: proto.RunnerInfo.MetadataEntry
+	nil,                                  // 23: proto.TriggerPipelineRequest.GitContextEntry
+	(*emptypb.Empty)(nil),                // 24: google.protobuf.Empty
 }
 var file_pkg_proto_dispatcher_proto_depIdxs = []int32{
 	0,  // 0: proto.SubmitJobResponse.state:type_name -> proto.JobState
-	19, // 1: proto.RunnerRegistration.metadata:type_name -> proto.RunnerRegistration.MetadataEntry
+	21, // 1: proto.RunnerRegistration.metadata:type_name -> proto.RunnerRegistration.MetadataEntry
 	3,  // 2: proto.RunnerMessage.register:type_name -> proto.RunnerRegistration
 	4,  // 3: proto.RunnerMessage.heartbeat:type_name -> proto.RunnerHeartbeat
 	5,  // 4: proto.RunnerMessage.job_result:type_name -> proto.JobResult
 	1,  // 5: proto.DispatcherMessage.job:type_name -> proto.JobRequest
-	20, // 6: proto.RunnerInfo.metadata:type_name -> proto.RunnerInfo.MetadataEntry
-	8,  // 7: proto.DispatcherStatus.runners:type_name -> proto.RunnerInfo
-	21, // 8: proto.TriggerPipelineRequest.git_context:type_name -> proto.TriggerPipelineRequest.GitContextEntry
-	1,  // 9: proto.DispatcherService.SubmitJob:input_type -> proto.JobRequest
-	6,  // 10: proto.DispatcherService.Register:input_type -> proto.RunnerMessage
-	22, // 11: proto.DispatcherService.GetStatus:input_type -> google.protobuf.Empty
-	10, // 12: proto.DispatcherService.IngestLogs:input_type -> proto.LogBatch
-	11, // 13: proto.DispatcherService.ReportTaskStatus:input_type -> proto.TaskStatusReport
-	12, // 14: proto.DispatcherService.FinalizeRun:input_type -> proto.FinalizeRunRequest
-	13, // 15: proto.DispatcherService.FetchPipeline:input_type -> proto.FetchPipelineRequest
-	15, // 16: proto.DispatcherService.TriggerPipeline:input_type -> proto.TriggerPipelineRequest
-	17, // 17: proto.DispatcherService.GetRunStatus:input_type -> proto.RunStatusRequest
-	2,  // 18: proto.DispatcherService.SubmitJob:output_type -> proto.SubmitJobResponse
-	7,  // 19: proto.DispatcherService.Register:output_type -> proto.DispatcherMessage
-	9,  // 20: proto.DispatcherService.GetStatus:output_type -> proto.DispatcherStatus
-	22, // 21: proto.DispatcherService.IngestLogs:output_type -> google.protobuf.Empty
-	22, // 22: proto.DispatcherService.ReportTaskStatus:output_type -> google.protobuf.Empty
-	22, // 23: proto.DispatcherService.FinalizeRun:output_type -> google.protobuf.Empty
-	14, // 24: proto.DispatcherService.FetchPipeline:output_type -> proto.FetchPipelineResponse
-	16, // 25: proto.DispatcherService.TriggerPipeline:output_type -> proto.TriggerPipelineResponse
-	18, // 26: proto.DispatcherService.GetRunStatus:output_type -> proto.RunStatusResponse
-	18, // [18:27] is the sub-list for method output_type
-	9,  // [9:18] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	22, // 6: proto.RunnerInfo.metadata:type_name -> proto.RunnerInfo.MetadataEntry
+	8,  // 7: proto.UpdateRunnerDispatchResponse.runner:type_name -> proto.RunnerInfo
+	8,  // 8: proto.DispatcherStatus.runners:type_name -> proto.RunnerInfo
+	23, // 9: proto.TriggerPipelineRequest.git_context:type_name -> proto.TriggerPipelineRequest.GitContextEntry
+	1,  // 10: proto.DispatcherService.SubmitJob:input_type -> proto.JobRequest
+	6,  // 11: proto.DispatcherService.Register:input_type -> proto.RunnerMessage
+	24, // 12: proto.DispatcherService.GetStatus:input_type -> google.protobuf.Empty
+	9,  // 13: proto.DispatcherService.UpdateRunnerDispatch:input_type -> proto.UpdateRunnerDispatchRequest
+	12, // 14: proto.DispatcherService.IngestLogs:input_type -> proto.LogBatch
+	13, // 15: proto.DispatcherService.ReportTaskStatus:input_type -> proto.TaskStatusReport
+	14, // 16: proto.DispatcherService.FinalizeRun:input_type -> proto.FinalizeRunRequest
+	15, // 17: proto.DispatcherService.FetchPipeline:input_type -> proto.FetchPipelineRequest
+	17, // 18: proto.DispatcherService.TriggerPipeline:input_type -> proto.TriggerPipelineRequest
+	19, // 19: proto.DispatcherService.GetRunStatus:input_type -> proto.RunStatusRequest
+	2,  // 20: proto.DispatcherService.SubmitJob:output_type -> proto.SubmitJobResponse
+	7,  // 21: proto.DispatcherService.Register:output_type -> proto.DispatcherMessage
+	11, // 22: proto.DispatcherService.GetStatus:output_type -> proto.DispatcherStatus
+	10, // 23: proto.DispatcherService.UpdateRunnerDispatch:output_type -> proto.UpdateRunnerDispatchResponse
+	24, // 24: proto.DispatcherService.IngestLogs:output_type -> google.protobuf.Empty
+	24, // 25: proto.DispatcherService.ReportTaskStatus:output_type -> google.protobuf.Empty
+	24, // 26: proto.DispatcherService.FinalizeRun:output_type -> google.protobuf.Empty
+	16, // 27: proto.DispatcherService.FetchPipeline:output_type -> proto.FetchPipelineResponse
+	18, // 28: proto.DispatcherService.TriggerPipeline:output_type -> proto.TriggerPipelineResponse
+	20, // 29: proto.DispatcherService.GetRunStatus:output_type -> proto.RunStatusResponse
+	20, // [20:30] is the sub-list for method output_type
+	10, // [10:20] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_pkg_proto_dispatcher_proto_init() }
@@ -1600,7 +1716,7 @@ func file_pkg_proto_dispatcher_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pkg_proto_dispatcher_proto_rawDesc), len(file_pkg_proto_dispatcher_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   21,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
