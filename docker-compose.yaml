@@ -12,7 +12,7 @@ volumes:
 services:
   base:
     container_name: nopsai-base
-    image: nopsai-base
+    image: hoseindocker/nopsai-base
     build:
       context: .
       dockerfile: Dockerfile

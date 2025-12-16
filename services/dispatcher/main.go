@@ -43,11 +43,12 @@ type runnerConn struct {
 type dispatcherServer struct {
 	proto.UnimplementedDispatcherServiceServer
 
-	mu      sync.Mutex
-	runners map[string]*runnerConn
-	queue   []*proto.JobRequest
-	routing map[string][]string
-	connSeq uint64
+	mu                 sync.Mutex
+	runners            map[string]*runnerConn
+	queue              []*proto.JobRequest
+	routing            map[string][]string
+	triggerAssignments map[string]string
+	connSeq            uint64
 
 	nopsaiBase string
 	httpClient *http.Client
@@ -63,10 +64,11 @@ func newDispatcherServer(routing map[string][]string, nopsaiBase string) *dispat
 		clean[scopeKey] = ids
 	}
 	return &dispatcherServer{
-		runners:    make(map[string]*runnerConn),
-		routing:    clean,
-		nopsaiBase: strings.TrimRight(strings.TrimSpace(nopsaiBase), "/"),
-		httpClient: &http.Client{Timeout: 15 * time.Second},
+		runners:            make(map[string]*runnerConn),
+		routing:            clean,
+		triggerAssignments: make(map[string]string),
+		nopsaiBase:         strings.TrimRight(strings.TrimSpace(nopsaiBase), "/"),
+		httpClient:         &http.Client{Timeout: 15 * time.Second},
 	}
 }
 
@@ -376,6 +378,9 @@ func (d *dispatcherServer) TriggerPipeline(ctx context.Context, req *proto.Trigg
 	if v := strings.TrimSpace(req.ParentRunId); v != "" {
 		httpReq.Header.Set("X-Nopsai-Parent-Run-ID", v)
 	}
+	if v := strings.TrimSpace(req.ParentRunnerId); v != "" {
+		httpReq.Header.Set("X-Nopsai-Parent-Runner-ID", v)
+	}
 	if v := strings.TrimSpace(req.ParentPipelineName); v != "" {
 		httpReq.Header.Set("X-Nopsai-Parent-Pipeline-Name", v)
 	}
@@ -538,6 +543,7 @@ func (d *dispatcherServer) removeRunner(connectionID string) {
 	runner, ok := d.runners[connectionID]
 	if ok {
 		delete(d.runners, connectionID)
+		d.dropTriggerAssignmentsForRunner(runner.id)
 	}
 	d.mu.Unlock()
 
@@ -579,16 +585,31 @@ func (d *dispatcherServer) enqueue(job *proto.JobRequest) {
 	log.Info().Str("run_id", job.RunId).Str("scope", job.Scope).Msg("job queued")
 }
 
+func affinityKeyForJob(job *proto.JobRequest) string {
+	if job == nil {
+		return ""
+	}
+	if key := strings.TrimSpace(job.RunnerAffinityKey); key != "" {
+		return key
+	}
+	if key := strings.TrimSpace(job.TriggerEventId); key != "" {
+		return key
+	}
+	return strings.TrimSpace(job.RunId)
+}
+
 func (d *dispatcherServer) dispatch(job *proto.JobRequest) string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	runner := d.pickRunnerLocked(job.Scope)
+	runner := d.pickRunnerForJobLocked(job)
 	if runner == nil {
 		return ""
 	}
 
 	jobForRunner := d.prepareJobForRunner(job, runner)
+	affinityKey := affinityKeyForJob(job)
+	preferredRunnerID := strings.TrimSpace(job.PreferredRunnerId)
 
 	select {
 	case runner.sendCh <- &proto.DispatcherMessage{Message: &proto.DispatcherMessage_Job{Job: jobForRunner}}:
@@ -599,8 +620,14 @@ func (d *dispatcherServer) dispatch(job *proto.JobRequest) string {
 			Str("runner_id", runner.id).
 			Str("pipeline", job.PipelineName).
 			Str("scope", job.Scope).
+			Str("trigger_event_id", job.TriggerEventId).
+			Str("runner_affinity_key", affinityKey).
+			Str("preferred_runner_id", preferredRunnerID).
 			Msg("job dispatched to runner")
-		d.recordAssignment(job.RunId, job.PipelineName, runner.id, job.Scope)
+		if affinityKey != "" {
+			d.triggerAssignments[affinityKey] = runner.id
+		}
+		d.recordAssignment(job.RunId, job.PipelineName, runner.id, job.Scope, job.TriggerEventId)
 		return runner.id
 	default:
 		log.Warn().Str("runner_id", runner.id).Msg("runner send channel is full; queueing job")
@@ -608,27 +635,70 @@ func (d *dispatcherServer) dispatch(job *proto.JobRequest) string {
 	}
 }
 
-func (d *dispatcherServer) pickRunnerLocked(scope string) *runnerConn {
-	var candidates []*runnerConn
-	allowed := d.allowedRunnerIDs(scope)
+func (d *dispatcherServer) pickRunnerForJobLocked(job *proto.JobRequest) *runnerConn {
+	if job == nil {
+		return nil
+	}
 
+	allowed := d.allowedRunnerIDs(job.Scope)
+	preferredRunnerID := strings.TrimSpace(job.PreferredRunnerId)
+	affinityKey := affinityKeyForJob(job)
+
+	if preferredRunnerID != "" {
+		if r := d.runnerByIDLocked(preferredRunnerID); r != nil {
+			if d.runnerEligibleForJob(r, job.Scope, allowed) {
+				return r
+			}
+			// Runner is connected but at capacity; wait to honor pin.
+			if r.active >= r.capacity {
+				return nil
+			}
+			log.Info().
+				Str("run_id", job.RunId).
+				Str("preferred_runner_id", preferredRunnerID).
+				Msg("preferred runner not eligible; falling back to affinity/selection")
+		} else {
+			log.Info().
+				Str("run_id", job.RunId).
+				Str("preferred_runner_id", preferredRunnerID).
+				Msg("preferred runner not connected; falling back to affinity/selection")
+		}
+	}
+
+	if affinityKey != "" {
+		if runnerID, ok := d.triggerAssignments[affinityKey]; ok {
+			if r := d.runnerByIDLocked(runnerID); r != nil {
+				if d.runnerEligibleForJob(r, job.Scope, allowed) {
+					return r
+				}
+				// Runner is still connected but at capacity; keep the affinity and wait.
+				if r.active >= r.capacity {
+					return nil
+				}
+			}
+			delete(d.triggerAssignments, affinityKey)
+		}
+	}
+
+	var candidates []*runnerConn
+	var busyChoice *runnerConn
 	for _, r := range d.runners {
-		if len(allowed) > 0 && !contains(allowed, r.id) {
+		if !d.runnerMatchesScope(r, job.Scope, allowed) {
 			continue
 		}
-		if scope != "" && !r.hasScope(scope) {
-			continue
+		if r.allowDispatch && r.active < r.capacity {
+			candidates = append(candidates, r)
+		} else if r.allowDispatch {
+			if busyChoice == nil || r.active < busyChoice.active {
+				busyChoice = r
+			}
 		}
-		if r.active >= r.capacity {
-			continue
-		}
-		if !r.allowDispatch {
-			continue
-		}
-		candidates = append(candidates, r)
 	}
 
 	if len(candidates) == 0 {
+		if affinityKey != "" && busyChoice != nil {
+			d.triggerAssignments[affinityKey] = busyChoice.id
+		}
 		return nil
 	}
 
@@ -638,7 +708,30 @@ func (d *dispatcherServer) pickRunnerLocked(scope string) *runnerConn {
 			selected = r
 		}
 	}
+	if affinityKey != "" {
+		d.triggerAssignments[affinityKey] = selected.id
+	}
 	return selected
+}
+
+func (d *dispatcherServer) runnerMatchesScope(r *runnerConn, scope string, allowed []string) bool {
+	if r == nil {
+		return false
+	}
+	if len(allowed) > 0 && !contains(allowed, r.id) {
+		return false
+	}
+	if scope != "" && !r.hasScope(scope) {
+		return false
+	}
+	return r.allowDispatch
+}
+
+func (d *dispatcherServer) runnerEligibleForJob(r *runnerConn, scope string, allowed []string) bool {
+	if !d.runnerMatchesScope(r, scope, allowed) {
+		return false
+	}
+	return r.active < r.capacity
 }
 
 func (d *dispatcherServer) allowedRunnerIDs(scope string) []string {
@@ -655,6 +748,31 @@ func (d *dispatcherServer) allowedRunnerIDs(scope string) []string {
 	return ids
 }
 
+// runnerByIDLocked returns the runner connection matching the given runner ID.
+// Caller must hold d.mu.
+func (d *dispatcherServer) runnerByIDLocked(runnerID string) *runnerConn {
+	if runnerID == "" {
+		return nil
+	}
+	for _, r := range d.runners {
+		if r.id == runnerID {
+			return r
+		}
+	}
+	return nil
+}
+
+func (d *dispatcherServer) dropTriggerAssignmentsForRunner(runnerID string) {
+	if runnerID == "" {
+		return
+	}
+	for triggerID, assigned := range d.triggerAssignments {
+		if assigned == runnerID {
+			delete(d.triggerAssignments, triggerID)
+		}
+	}
+}
+
 func (d *dispatcherServer) pumpQueue() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -669,14 +787,17 @@ func (d *dispatcherServer) pumpQueue() {
 		pipelineName string
 		runnerID     string
 		scope        string
+		triggerID    string
 	}
 	for _, job := range d.queue {
-		runner := d.pickRunnerLocked(job.Scope)
+		runner := d.pickRunnerForJobLocked(job)
 		if runner == nil {
 			remaining = append(remaining, job)
 			continue
 		}
 		jobForRunner := d.prepareJobForRunner(job, runner)
+		affinityKey := affinityKeyForJob(job)
+		preferredRunnerID := strings.TrimSpace(job.PreferredRunnerId)
 		select {
 		case runner.sendCh <- &proto.DispatcherMessage{Message: &proto.DispatcherMessage_Job{Job: jobForRunner}}:
 			runner.inflight[job.RunId] = jobForRunner
@@ -686,17 +807,25 @@ func (d *dispatcherServer) pumpQueue() {
 				Str("runner_id", runner.id).
 				Str("pipeline", job.PipelineName).
 				Str("scope", job.Scope).
+				Str("trigger_event_id", job.TriggerEventId).
+				Str("runner_affinity_key", affinityKey).
+				Str("preferred_runner_id", preferredRunnerID).
 				Msg("job dispatched from queue")
+			if affinityKey != "" {
+				d.triggerAssignments[affinityKey] = runner.id
+			}
 			assignments = append(assignments, struct {
 				runID        string
 				pipelineName string
 				runnerID     string
 				scope        string
+				triggerID    string
 			}{
 				runID:        job.RunId,
 				pipelineName: job.PipelineName,
 				runnerID:     runner.id,
 				scope:        job.Scope,
+				triggerID:    job.TriggerEventId,
 			})
 		default:
 			log.Warn().Str("runner_id", runner.id).Msg("runner send channel is full during queue dispatch")
@@ -707,7 +836,7 @@ func (d *dispatcherServer) pumpQueue() {
 
 	// Send assignment log entries without holding the dispatcher lock.
 	for _, a := range assignments {
-		d.recordAssignment(a.runID, a.pipelineName, a.runnerID, a.scope)
+		d.recordAssignment(a.runID, a.pipelineName, a.runnerID, a.scope, a.triggerID)
 	}
 }
 
@@ -838,6 +967,7 @@ func (d *dispatcherServer) prepareJobForRunner(job *proto.JobRequest, runner *ru
 		if addr, ok := runner.metadata["dispatcher_addr"]; ok {
 			envCopy = upsertEnv(envCopy, "DISPATCHER_ADDRESS", strings.TrimSpace(addr))
 		}
+		envCopy = upsertEnv(envCopy, "RUNNER_ID", runner.id)
 	}
 	copyJob.Env = envCopy
 	return &copyJob
@@ -893,7 +1023,7 @@ func gitHeaderKey(envKey string) string {
 	return "X-" + strings.Join(parts, "-")
 }
 
-func (d *dispatcherServer) recordAssignment(runID, pipelineName, runnerID, scope string) {
+func (d *dispatcherServer) recordAssignment(runID, pipelineName, runnerID, scope, triggerID string) {
 	runID = strings.TrimSpace(runID)
 	runnerID = strings.TrimSpace(runnerID)
 	if runID == "" || runnerID == "" {
@@ -902,6 +1032,7 @@ func (d *dispatcherServer) recordAssignment(runID, pipelineName, runnerID, scope
 
 	scope = strings.TrimSpace(scope)
 	pipelineName = strings.TrimSpace(pipelineName)
+	triggerID = strings.TrimSpace(triggerID)
 
 	msg := fmt.Sprintf("Assigned run %s to runner %s", runID, runnerID)
 	if pipelineName != "" {
@@ -909,6 +1040,9 @@ func (d *dispatcherServer) recordAssignment(runID, pipelineName, runnerID, scope
 	}
 	if scope != "" {
 		msg = fmt.Sprintf("%s (scope %s)", msg, scope)
+	}
+	if triggerID != "" {
+		msg = fmt.Sprintf("%s [trigger %s]", msg, triggerID)
 	}
 
 	go func(runID, line string) {

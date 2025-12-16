@@ -3270,6 +3270,8 @@ func (a *App) recordMissingPipelineRun(identifier string, pipelineVersion string
 
 func (a *App) launchAndRunPipeline(
 	runID uuid.UUID,
+	parentRunID string,
+	parentRunnerID string,
 	pipeline models.Pipeline,
 	pipelineDef []byte,
 	timeoutDuration time.Duration,
@@ -3327,7 +3329,7 @@ func (a *App) launchAndRunPipeline(
 		return
 	}
 
-	go a.launchAgent(runID.String(), pipeline, pipelineDef, timeoutDuration, gitContext, parentHistory, scope, overrides)
+	go a.launchAgent(runID.String(), parentRunID, parentRunnerID, pipeline, pipelineDef, timeoutDuration, gitContext, parentHistory, scope, overrides)
 }
 
 func findStepByName(steps []models.PipelineStep, name string) (models.PipelineStep, bool) {
@@ -3867,6 +3869,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	var err error
 
 	parentRunID := r.Header.Get("X-Nopsai-Parent-Run-ID")
+	parentRunnerID := r.Header.Get("X-Nopsai-Parent-Runner-ID")
 	parentHistory := r.Header.Get("X-Nopsai-Parent-History")
 	scope := strings.TrimSpace(r.Header.Get("X-Nopsai-Scope"))
 	parentStepName := r.Header.Get("X-Nopsai-Parent-Step-Name")
@@ -4168,7 +4171,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	a.launchAndRunPipeline(runID, *resolvedPipeline, resolvedPipelineDef, timeoutDuration, gitContext, parentHistory, scope, overrideVars)
+	a.launchAndRunPipeline(runID, parentRunID, parentRunnerID, *resolvedPipeline, resolvedPipelineDef, timeoutDuration, gitContext, parentHistory, scope, overrideVars)
 
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte("Pipeline run created successfully with ID: " + runID.String()))
@@ -4353,7 +4356,7 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a.launchAndRunPipeline(runID, *resolvedPipeline, resolvedPipelineDef, timeoutDuration, gitContext, "", scope.String, nil)
+	a.launchAndRunPipeline(runID, "", "", *resolvedPipeline, resolvedPipelineDef, timeoutDuration, gitContext, "", scope.String, nil)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -4978,7 +4981,7 @@ func (a *App) handleGetRunByCheckID(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"run_id": runID})
 }
 
-func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []byte, timeout time.Duration, gitContext map[string]string, parentHistory string, scope string, overrides map[string]string) {
+func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID string, pipeline models.Pipeline, pipelineDef []byte, timeout time.Duration, gitContext map[string]string, parentHistory string, scope string, overrides map[string]string) {
 	ctx := context.Background()
 
 	secrets, err := a.prepareSecretsForPipeline(pipeline, gitContext, scope)
@@ -5026,6 +5029,7 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	repoName := gitContext["repo_name"]
 	triggerEventID := strings.TrimSpace(gitContext["trigger_event_id"])
 	agentContainerName := buildAgentContainerName(pipeline.Name, repoName, triggerEventID, runID)
+	preferredRunnerID := strings.TrimSpace(parentRunnerID)
 
 	secretsJSON, err := json.Marshal(secrets)
 	if err != nil {
@@ -5060,6 +5064,9 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 	}
 	if scope != "" {
 		envVars = append(envVars, fmt.Sprintf("SCOPE=%s", scope))
+	}
+	if preferredRunnerID != "" {
+		envVars = append(envVars, fmt.Sprintf("PARENT_RUNNER_ID=%s", preferredRunnerID))
 	}
 
 	variablesJSON, err := json.Marshal(finalVars)
@@ -5101,6 +5108,14 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 
 	appendLogs(initialLines...)
 
+	affinityKey := triggerEventID
+	if affinityKey == "" {
+		affinityKey = strings.TrimSpace(parentRunID)
+	}
+	if affinityKey == "" {
+		affinityKey = runID
+	}
+
 	job := &proto.JobRequest{
 		RunId:              runID,
 		PipelineName:       pipeline.Name,
@@ -5114,6 +5129,9 @@ func (a *App) launchAgent(runID string, pipeline models.Pipeline, pipelineDef []
 		ContainerName:      agentContainerName,
 		Scope:              scope,
 		NopsaiApiUrl:       strings.TrimSpace(a.cfg.AgentNopsaiAPIURL),
+		TriggerEventId:     triggerEventID,
+		RunnerAffinityKey:  affinityKey,
+		PreferredRunnerId:  preferredRunnerID,
 	}
 
 	resp, err := a.dispatcher.SubmitJob(ctx, job)
