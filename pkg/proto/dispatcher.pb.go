@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.6
 // 	protoc        v3.21.12
-// source: dispatcher.proto
+// source: pkg/proto/dispatcher.proto
 
 package proto
 
@@ -58,11 +58,11 @@ func (x JobState) String() string {
 }
 
 func (JobState) Descriptor() protoreflect.EnumDescriptor {
-	return file_dispatcher_proto_enumTypes[0].Descriptor()
+	return file_pkg_proto_dispatcher_proto_enumTypes[0].Descriptor()
 }
 
 func (JobState) Type() protoreflect.EnumType {
-	return &file_dispatcher_proto_enumTypes[0]
+	return &file_pkg_proto_dispatcher_proto_enumTypes[0]
 }
 
 func (x JobState) Number() protoreflect.EnumNumber {
@@ -71,7 +71,7 @@ func (x JobState) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use JobState.Descriptor instead.
 func (JobState) EnumDescriptor() ([]byte, []int) {
-	return file_dispatcher_proto_rawDescGZIP(), []int{0}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{0}
 }
 
 // JobRequest is produced by the Nopsai control plane and delivered to a runner.
@@ -89,13 +89,16 @@ type JobRequest struct {
 	ContainerName      string                 `protobuf:"bytes,10,opt,name=container_name,json=containerName,proto3" json:"container_name,omitempty"`
 	Scope              string                 `protobuf:"bytes,11,opt,name=scope,proto3" json:"scope,omitempty"`
 	NopsaiApiUrl       string                 `protobuf:"bytes,12,opt,name=nopsai_api_url,json=nopsaiApiUrl,proto3" json:"nopsai_api_url,omitempty"`
+	TriggerEventId     string                 `protobuf:"bytes,13,opt,name=trigger_event_id,json=triggerEventId,proto3" json:"trigger_event_id,omitempty"`
+	RunnerAffinityKey  string                 `protobuf:"bytes,14,opt,name=runner_affinity_key,json=runnerAffinityKey,proto3" json:"runner_affinity_key,omitempty"`
+	PreferredRunnerId  string                 `protobuf:"bytes,15,opt,name=preferred_runner_id,json=preferredRunnerId,proto3" json:"preferred_runner_id,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
 
 func (x *JobRequest) Reset() {
 	*x = JobRequest{}
-	mi := &file_dispatcher_proto_msgTypes[0]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -107,7 +110,7 @@ func (x *JobRequest) String() string {
 func (*JobRequest) ProtoMessage() {}
 
 func (x *JobRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dispatcher_proto_msgTypes[0]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -120,7 +123,7 @@ func (x *JobRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobRequest.ProtoReflect.Descriptor instead.
 func (*JobRequest) Descriptor() ([]byte, []int) {
-	return file_dispatcher_proto_rawDescGZIP(), []int{0}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *JobRequest) GetRunId() string {
@@ -207,6 +210,27 @@ func (x *JobRequest) GetNopsaiApiUrl() string {
 	return ""
 }
 
+func (x *JobRequest) GetTriggerEventId() string {
+	if x != nil {
+		return x.TriggerEventId
+	}
+	return ""
+}
+
+func (x *JobRequest) GetRunnerAffinityKey() string {
+	if x != nil {
+		return x.RunnerAffinityKey
+	}
+	return ""
+}
+
+func (x *JobRequest) GetPreferredRunnerId() string {
+	if x != nil {
+		return x.PreferredRunnerId
+	}
+	return ""
+}
+
 type SubmitJobResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
@@ -219,7 +243,7 @@ type SubmitJobResponse struct {
 
 func (x *SubmitJobResponse) Reset() {
 	*x = SubmitJobResponse{}
-	mi := &file_dispatcher_proto_msgTypes[1]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -231,7 +255,7 @@ func (x *SubmitJobResponse) String() string {
 func (*SubmitJobResponse) ProtoMessage() {}
 
 func (x *SubmitJobResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dispatcher_proto_msgTypes[1]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -244,7 +268,7 @@ func (x *SubmitJobResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitJobResponse.ProtoReflect.Descriptor instead.
 func (*SubmitJobResponse) Descriptor() ([]byte, []int) {
-	return file_dispatcher_proto_rawDescGZIP(), []int{1}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *SubmitJobResponse) GetRunId() string {
@@ -288,7 +312,7 @@ type RunnerRegistration struct {
 
 func (x *RunnerRegistration) Reset() {
 	*x = RunnerRegistration{}
-	mi := &file_dispatcher_proto_msgTypes[2]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -300,7 +324,7 @@ func (x *RunnerRegistration) String() string {
 func (*RunnerRegistration) ProtoMessage() {}
 
 func (x *RunnerRegistration) ProtoReflect() protoreflect.Message {
-	mi := &file_dispatcher_proto_msgTypes[2]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -313,7 +337,7 @@ func (x *RunnerRegistration) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunnerRegistration.ProtoReflect.Descriptor instead.
 func (*RunnerRegistration) Descriptor() ([]byte, []int) {
-	return file_dispatcher_proto_rawDescGZIP(), []int{2}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *RunnerRegistration) GetRunnerId() string {
@@ -355,7 +379,7 @@ type RunnerHeartbeat struct {
 
 func (x *RunnerHeartbeat) Reset() {
 	*x = RunnerHeartbeat{}
-	mi := &file_dispatcher_proto_msgTypes[3]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -367,7 +391,7 @@ func (x *RunnerHeartbeat) String() string {
 func (*RunnerHeartbeat) ProtoMessage() {}
 
 func (x *RunnerHeartbeat) ProtoReflect() protoreflect.Message {
-	mi := &file_dispatcher_proto_msgTypes[3]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -380,7 +404,7 @@ func (x *RunnerHeartbeat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunnerHeartbeat.ProtoReflect.Descriptor instead.
 func (*RunnerHeartbeat) Descriptor() ([]byte, []int) {
-	return file_dispatcher_proto_rawDescGZIP(), []int{3}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *RunnerHeartbeat) GetRunnerId() string {
@@ -409,7 +433,7 @@ type JobResult struct {
 
 func (x *JobResult) Reset() {
 	*x = JobResult{}
-	mi := &file_dispatcher_proto_msgTypes[4]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -421,7 +445,7 @@ func (x *JobResult) String() string {
 func (*JobResult) ProtoMessage() {}
 
 func (x *JobResult) ProtoReflect() protoreflect.Message {
-	mi := &file_dispatcher_proto_msgTypes[4]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -434,7 +458,7 @@ func (x *JobResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobResult.ProtoReflect.Descriptor instead.
 func (*JobResult) Descriptor() ([]byte, []int) {
-	return file_dispatcher_proto_rawDescGZIP(), []int{4}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *JobResult) GetRunId() string {
@@ -472,7 +496,7 @@ type RunnerMessage struct {
 
 func (x *RunnerMessage) Reset() {
 	*x = RunnerMessage{}
-	mi := &file_dispatcher_proto_msgTypes[5]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -484,7 +508,7 @@ func (x *RunnerMessage) String() string {
 func (*RunnerMessage) ProtoMessage() {}
 
 func (x *RunnerMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_dispatcher_proto_msgTypes[5]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -497,7 +521,7 @@ func (x *RunnerMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunnerMessage.ProtoReflect.Descriptor instead.
 func (*RunnerMessage) Descriptor() ([]byte, []int) {
-	return file_dispatcher_proto_rawDescGZIP(), []int{5}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *RunnerMessage) GetMessage() isRunnerMessage_Message {
@@ -569,7 +593,7 @@ type DispatcherMessage struct {
 
 func (x *DispatcherMessage) Reset() {
 	*x = DispatcherMessage{}
-	mi := &file_dispatcher_proto_msgTypes[6]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -581,7 +605,7 @@ func (x *DispatcherMessage) String() string {
 func (*DispatcherMessage) ProtoMessage() {}
 
 func (x *DispatcherMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_dispatcher_proto_msgTypes[6]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -594,7 +618,7 @@ func (x *DispatcherMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DispatcherMessage.ProtoReflect.Descriptor instead.
 func (*DispatcherMessage) Descriptor() ([]byte, []int) {
-	return file_dispatcher_proto_rawDescGZIP(), []int{6}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *DispatcherMessage) GetMessage() isDispatcherMessage_Message {
@@ -654,7 +678,7 @@ type RunnerInfo struct {
 
 func (x *RunnerInfo) Reset() {
 	*x = RunnerInfo{}
-	mi := &file_dispatcher_proto_msgTypes[7]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -666,7 +690,7 @@ func (x *RunnerInfo) String() string {
 func (*RunnerInfo) ProtoMessage() {}
 
 func (x *RunnerInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_dispatcher_proto_msgTypes[7]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -679,7 +703,7 @@ func (x *RunnerInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunnerInfo.ProtoReflect.Descriptor instead.
 func (*RunnerInfo) Descriptor() ([]byte, []int) {
-	return file_dispatcher_proto_rawDescGZIP(), []int{7}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *RunnerInfo) GetRunnerId() string {
@@ -748,7 +772,7 @@ type DispatcherStatus struct {
 
 func (x *DispatcherStatus) Reset() {
 	*x = DispatcherStatus{}
-	mi := &file_dispatcher_proto_msgTypes[8]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -760,7 +784,7 @@ func (x *DispatcherStatus) String() string {
 func (*DispatcherStatus) ProtoMessage() {}
 
 func (x *DispatcherStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_dispatcher_proto_msgTypes[8]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -773,7 +797,7 @@ func (x *DispatcherStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DispatcherStatus.ProtoReflect.Descriptor instead.
 func (*DispatcherStatus) Descriptor() ([]byte, []int) {
-	return file_dispatcher_proto_rawDescGZIP(), []int{8}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *DispatcherStatus) GetRunners() []*RunnerInfo {
@@ -801,7 +825,7 @@ type LogBatch struct {
 
 func (x *LogBatch) Reset() {
 	*x = LogBatch{}
-	mi := &file_dispatcher_proto_msgTypes[9]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -813,7 +837,7 @@ func (x *LogBatch) String() string {
 func (*LogBatch) ProtoMessage() {}
 
 func (x *LogBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_dispatcher_proto_msgTypes[9]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -826,7 +850,7 @@ func (x *LogBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogBatch.ProtoReflect.Descriptor instead.
 func (*LogBatch) Descriptor() ([]byte, []int) {
-	return file_dispatcher_proto_rawDescGZIP(), []int{9}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *LogBatch) GetRunId() string {
@@ -857,7 +881,7 @@ type TaskStatusReport struct {
 
 func (x *TaskStatusReport) Reset() {
 	*x = TaskStatusReport{}
-	mi := &file_dispatcher_proto_msgTypes[10]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -869,7 +893,7 @@ func (x *TaskStatusReport) String() string {
 func (*TaskStatusReport) ProtoMessage() {}
 
 func (x *TaskStatusReport) ProtoReflect() protoreflect.Message {
-	mi := &file_dispatcher_proto_msgTypes[10]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -882,7 +906,7 @@ func (x *TaskStatusReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskStatusReport.ProtoReflect.Descriptor instead.
 func (*TaskStatusReport) Descriptor() ([]byte, []int) {
-	return file_dispatcher_proto_rawDescGZIP(), []int{10}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *TaskStatusReport) GetRunId() string {
@@ -937,7 +961,7 @@ type FinalizeRunRequest struct {
 
 func (x *FinalizeRunRequest) Reset() {
 	*x = FinalizeRunRequest{}
-	mi := &file_dispatcher_proto_msgTypes[11]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -949,7 +973,7 @@ func (x *FinalizeRunRequest) String() string {
 func (*FinalizeRunRequest) ProtoMessage() {}
 
 func (x *FinalizeRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dispatcher_proto_msgTypes[11]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -962,7 +986,7 @@ func (x *FinalizeRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FinalizeRunRequest.ProtoReflect.Descriptor instead.
 func (*FinalizeRunRequest) Descriptor() ([]byte, []int) {
-	return file_dispatcher_proto_rawDescGZIP(), []int{11}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *FinalizeRunRequest) GetRunId() string {
@@ -991,7 +1015,7 @@ type FetchPipelineRequest struct {
 
 func (x *FetchPipelineRequest) Reset() {
 	*x = FetchPipelineRequest{}
-	mi := &file_dispatcher_proto_msgTypes[12]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1003,7 +1027,7 @@ func (x *FetchPipelineRequest) String() string {
 func (*FetchPipelineRequest) ProtoMessage() {}
 
 func (x *FetchPipelineRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dispatcher_proto_msgTypes[12]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1016,7 +1040,7 @@ func (x *FetchPipelineRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchPipelineRequest.ProtoReflect.Descriptor instead.
 func (*FetchPipelineRequest) Descriptor() ([]byte, []int) {
-	return file_dispatcher_proto_rawDescGZIP(), []int{12}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *FetchPipelineRequest) GetPipelineName() string {
@@ -1056,7 +1080,7 @@ type FetchPipelineResponse struct {
 
 func (x *FetchPipelineResponse) Reset() {
 	*x = FetchPipelineResponse{}
-	mi := &file_dispatcher_proto_msgTypes[13]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1068,7 +1092,7 @@ func (x *FetchPipelineResponse) String() string {
 func (*FetchPipelineResponse) ProtoMessage() {}
 
 func (x *FetchPipelineResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dispatcher_proto_msgTypes[13]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1081,7 +1105,7 @@ func (x *FetchPipelineResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchPipelineResponse.ProtoReflect.Descriptor instead.
 func (*FetchPipelineResponse) Descriptor() ([]byte, []int) {
-	return file_dispatcher_proto_rawDescGZIP(), []int{13}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *FetchPipelineResponse) GetPipelineDefinition() []byte {
@@ -1101,13 +1125,14 @@ type TriggerPipelineRequest struct {
 	History            string                 `protobuf:"bytes,6,opt,name=history,proto3" json:"history,omitempty"`
 	Scope              string                 `protobuf:"bytes,7,opt,name=scope,proto3" json:"scope,omitempty"`
 	GitContext         map[string]string      `protobuf:"bytes,8,rep,name=git_context,json=gitContext,proto3" json:"git_context,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	ParentRunnerId     string                 `protobuf:"bytes,9,opt,name=parent_runner_id,json=parentRunnerId,proto3" json:"parent_runner_id,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
 
 func (x *TriggerPipelineRequest) Reset() {
 	*x = TriggerPipelineRequest{}
-	mi := &file_dispatcher_proto_msgTypes[14]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1119,7 +1144,7 @@ func (x *TriggerPipelineRequest) String() string {
 func (*TriggerPipelineRequest) ProtoMessage() {}
 
 func (x *TriggerPipelineRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dispatcher_proto_msgTypes[14]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1132,7 +1157,7 @@ func (x *TriggerPipelineRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TriggerPipelineRequest.ProtoReflect.Descriptor instead.
 func (*TriggerPipelineRequest) Descriptor() ([]byte, []int) {
-	return file_dispatcher_proto_rawDescGZIP(), []int{14}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *TriggerPipelineRequest) GetParentRunId() string {
@@ -1191,6 +1216,13 @@ func (x *TriggerPipelineRequest) GetGitContext() map[string]string {
 	return nil
 }
 
+func (x *TriggerPipelineRequest) GetParentRunnerId() string {
+	if x != nil {
+		return x.ParentRunnerId
+	}
+	return ""
+}
+
 type TriggerPipelineResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
@@ -1202,7 +1234,7 @@ type TriggerPipelineResponse struct {
 
 func (x *TriggerPipelineResponse) Reset() {
 	*x = TriggerPipelineResponse{}
-	mi := &file_dispatcher_proto_msgTypes[15]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1214,7 +1246,7 @@ func (x *TriggerPipelineResponse) String() string {
 func (*TriggerPipelineResponse) ProtoMessage() {}
 
 func (x *TriggerPipelineResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dispatcher_proto_msgTypes[15]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1227,7 +1259,7 @@ func (x *TriggerPipelineResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TriggerPipelineResponse.ProtoReflect.Descriptor instead.
 func (*TriggerPipelineResponse) Descriptor() ([]byte, []int) {
-	return file_dispatcher_proto_rawDescGZIP(), []int{15}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *TriggerPipelineResponse) GetRunId() string {
@@ -1260,7 +1292,7 @@ type RunStatusRequest struct {
 
 func (x *RunStatusRequest) Reset() {
 	*x = RunStatusRequest{}
-	mi := &file_dispatcher_proto_msgTypes[16]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1272,7 +1304,7 @@ func (x *RunStatusRequest) String() string {
 func (*RunStatusRequest) ProtoMessage() {}
 
 func (x *RunStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dispatcher_proto_msgTypes[16]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1285,7 +1317,7 @@ func (x *RunStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunStatusRequest.ProtoReflect.Descriptor instead.
 func (*RunStatusRequest) Descriptor() ([]byte, []int) {
-	return file_dispatcher_proto_rawDescGZIP(), []int{16}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *RunStatusRequest) GetRunId() string {
@@ -1304,7 +1336,7 @@ type RunStatusResponse struct {
 
 func (x *RunStatusResponse) Reset() {
 	*x = RunStatusResponse{}
-	mi := &file_dispatcher_proto_msgTypes[17]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1316,7 +1348,7 @@ func (x *RunStatusResponse) String() string {
 func (*RunStatusResponse) ProtoMessage() {}
 
 func (x *RunStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dispatcher_proto_msgTypes[17]
+	mi := &file_pkg_proto_dispatcher_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1329,7 +1361,7 @@ func (x *RunStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunStatusResponse.ProtoReflect.Descriptor instead.
 func (*RunStatusResponse) Descriptor() ([]byte, []int) {
-	return file_dispatcher_proto_rawDescGZIP(), []int{17}
+	return file_pkg_proto_dispatcher_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *RunStatusResponse) GetStatus() string {
@@ -1339,11 +1371,11 @@ func (x *RunStatusResponse) GetStatus() string {
 	return ""
 }
 
-var File_dispatcher_proto protoreflect.FileDescriptor
+var File_pkg_proto_dispatcher_proto protoreflect.FileDescriptor
 
-const file_dispatcher_proto_rawDesc = "" +
+const file_pkg_proto_dispatcher_proto_rawDesc = "" +
 	"\n" +
-	"\x10dispatcher.proto\x12\x05proto\x1a\x1bgoogle/protobuf/empty.proto\"\xb0\x03\n" +
+	"\x1apkg/proto/dispatcher.proto\x12\x05proto\x1a\x1bgoogle/protobuf/empty.proto\"\xba\x04\n" +
 	"\n" +
 	"JobRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12#\n" +
@@ -1360,7 +1392,10 @@ const file_dispatcher_proto_rawDesc = "" +
 	"\x0econtainer_name\x18\n" +
 	" \x01(\tR\rcontainerName\x12\x14\n" +
 	"\x05scope\x18\v \x01(\tR\x05scope\x12$\n" +
-	"\x0enopsai_api_url\x18\f \x01(\tR\fnopsaiApiUrl\"\x88\x01\n" +
+	"\x0enopsai_api_url\x18\f \x01(\tR\fnopsaiApiUrl\x12(\n" +
+	"\x10trigger_event_id\x18\r \x01(\tR\x0etriggerEventId\x12.\n" +
+	"\x13runner_affinity_key\x18\x0e \x01(\tR\x11runnerAffinityKey\x12.\n" +
+	"\x13preferred_runner_id\x18\x0f \x01(\tR\x11preferredRunnerId\"\x88\x01\n" +
 	"\x11SubmitJobResponse\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12%\n" +
 	"\x05state\x18\x02 \x01(\x0e2\x0f.proto.JobStateR\x05state\x12\x1b\n" +
@@ -1431,7 +1466,7 @@ const file_dispatcher_proto_rawDesc = "" +
 	"\n" +
 	"commit_sha\x18\x04 \x01(\tR\tcommitSha\"H\n" +
 	"\x15FetchPipelineResponse\x12/\n" +
-	"\x13pipeline_definition\x18\x01 \x01(\fR\x12pipelineDefinition\"\xb9\x03\n" +
+	"\x13pipeline_definition\x18\x01 \x01(\fR\x12pipelineDefinition\"\xe3\x03\n" +
 	"\x16TriggerPipelineRequest\x12\"\n" +
 	"\rparent_run_id\x18\x01 \x01(\tR\vparentRunId\x120\n" +
 	"\x14parent_pipeline_name\x18\x02 \x01(\tR\x12parentPipelineName\x12(\n" +
@@ -1441,7 +1476,8 @@ const file_dispatcher_proto_rawDesc = "" +
 	"\ahistory\x18\x06 \x01(\tR\ahistory\x12\x14\n" +
 	"\x05scope\x18\a \x01(\tR\x05scope\x12N\n" +
 	"\vgit_context\x18\b \x03(\v2-.proto.TriggerPipelineRequest.GitContextEntryR\n" +
-	"gitContext\x1a=\n" +
+	"gitContext\x12(\n" +
+	"\x10parent_runner_id\x18\t \x01(\tR\x0eparentRunnerId\x1a=\n" +
 	"\x0fGitContextEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"^\n" +
@@ -1471,20 +1507,20 @@ const file_dispatcher_proto_rawDesc = "" +
 	"\fGetRunStatus\x12\x17.proto.RunStatusRequest\x1a\x18.proto.RunStatusResponseB\x12Z\x10nopsai/pkg/protob\x06proto3"
 
 var (
-	file_dispatcher_proto_rawDescOnce sync.Once
-	file_dispatcher_proto_rawDescData []byte
+	file_pkg_proto_dispatcher_proto_rawDescOnce sync.Once
+	file_pkg_proto_dispatcher_proto_rawDescData []byte
 )
 
-func file_dispatcher_proto_rawDescGZIP() []byte {
-	file_dispatcher_proto_rawDescOnce.Do(func() {
-		file_dispatcher_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_dispatcher_proto_rawDesc), len(file_dispatcher_proto_rawDesc)))
+func file_pkg_proto_dispatcher_proto_rawDescGZIP() []byte {
+	file_pkg_proto_dispatcher_proto_rawDescOnce.Do(func() {
+		file_pkg_proto_dispatcher_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_pkg_proto_dispatcher_proto_rawDesc), len(file_pkg_proto_dispatcher_proto_rawDesc)))
 	})
-	return file_dispatcher_proto_rawDescData
+	return file_pkg_proto_dispatcher_proto_rawDescData
 }
 
-var file_dispatcher_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_dispatcher_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
-var file_dispatcher_proto_goTypes = []any{
+var file_pkg_proto_dispatcher_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_pkg_proto_dispatcher_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_pkg_proto_dispatcher_proto_goTypes = []any{
 	(JobState)(0),                   // 0: proto.JobState
 	(*JobRequest)(nil),              // 1: proto.JobRequest
 	(*SubmitJobResponse)(nil),       // 2: proto.SubmitJobResponse
@@ -1509,7 +1545,7 @@ var file_dispatcher_proto_goTypes = []any{
 	nil,                             // 21: proto.TriggerPipelineRequest.GitContextEntry
 	(*emptypb.Empty)(nil),           // 22: google.protobuf.Empty
 }
-var file_dispatcher_proto_depIdxs = []int32{
+var file_pkg_proto_dispatcher_proto_depIdxs = []int32{
 	0,  // 0: proto.SubmitJobResponse.state:type_name -> proto.JobState
 	19, // 1: proto.RunnerRegistration.metadata:type_name -> proto.RunnerRegistration.MetadataEntry
 	3,  // 2: proto.RunnerMessage.register:type_name -> proto.RunnerRegistration
@@ -1544,17 +1580,17 @@ var file_dispatcher_proto_depIdxs = []int32{
 	0,  // [0:9] is the sub-list for field type_name
 }
 
-func init() { file_dispatcher_proto_init() }
-func file_dispatcher_proto_init() {
-	if File_dispatcher_proto != nil {
+func init() { file_pkg_proto_dispatcher_proto_init() }
+func file_pkg_proto_dispatcher_proto_init() {
+	if File_pkg_proto_dispatcher_proto != nil {
 		return
 	}
-	file_dispatcher_proto_msgTypes[5].OneofWrappers = []any{
+	file_pkg_proto_dispatcher_proto_msgTypes[5].OneofWrappers = []any{
 		(*RunnerMessage_Register)(nil),
 		(*RunnerMessage_Heartbeat)(nil),
 		(*RunnerMessage_JobResult)(nil),
 	}
-	file_dispatcher_proto_msgTypes[6].OneofWrappers = []any{
+	file_pkg_proto_dispatcher_proto_msgTypes[6].OneofWrappers = []any{
 		(*DispatcherMessage_Job)(nil),
 		(*DispatcherMessage_Note)(nil),
 	}
@@ -1562,18 +1598,18 @@ func file_dispatcher_proto_init() {
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dispatcher_proto_rawDesc), len(file_dispatcher_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pkg_proto_dispatcher_proto_rawDesc), len(file_pkg_proto_dispatcher_proto_rawDesc)),
 			NumEnums:      1,
 			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_dispatcher_proto_goTypes,
-		DependencyIndexes: file_dispatcher_proto_depIdxs,
-		EnumInfos:         file_dispatcher_proto_enumTypes,
-		MessageInfos:      file_dispatcher_proto_msgTypes,
+		GoTypes:           file_pkg_proto_dispatcher_proto_goTypes,
+		DependencyIndexes: file_pkg_proto_dispatcher_proto_depIdxs,
+		EnumInfos:         file_pkg_proto_dispatcher_proto_enumTypes,
+		MessageInfos:      file_pkg_proto_dispatcher_proto_msgTypes,
 	}.Build()
-	File_dispatcher_proto = out.File
-	file_dispatcher_proto_goTypes = nil
-	file_dispatcher_proto_depIdxs = nil
+	File_pkg_proto_dispatcher_proto = out.File
+	file_pkg_proto_dispatcher_proto_goTypes = nil
+	file_pkg_proto_dispatcher_proto_depIdxs = nil
 }

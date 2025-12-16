@@ -542,6 +542,7 @@ func triggerPipeline(parentRunID, parentPipelineName, parentStepName, pipelineId
 	}
 
 	scope := os.Getenv("SCOPE")
+	parentRunnerID := os.Getenv("RUNNER_ID")
 	gitContext := make(map[string]string)
 	for _, e := range os.Environ() {
 		if strings.HasPrefix(e, "GIT_") {
@@ -557,6 +558,7 @@ func triggerPipeline(parentRunID, parentPipelineName, parentStepName, pipelineId
 
 	resp, err := dispatcherClient.TriggerPipeline(ctx, &proto.TriggerPipelineRequest{
 		ParentRunId:        parentRunID,
+		ParentRunnerId:     parentRunnerID,
 		ParentPipelineName: parentPipelineName,
 		ParentStepName:     parentStepName,
 		PipelineIdentifier: pipelineIdentifier,

@@ -20,6 +20,9 @@ message JobRequest {
   string container_name = 10;
   string scope = 11;
   string nopsai_api_url = 12;
+  string trigger_event_id = 13;
+  string runner_affinity_key = 14;
+  string preferred_runner_id = 15;
 }
 
 enum JobState {
@@ -144,6 +147,7 @@ message TriggerPipelineRequest {
   string history = 6;
   string scope = 7;
   map<string, string> git_context = 8;
+  string parent_runner_id = 9;
 }
 
 message TriggerPipelineResponse {
