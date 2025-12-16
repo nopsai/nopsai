@@ -32,7 +32,7 @@
             btn.addEventListener('click', (e) => {
                 e.preventDefault();
                 const target = btn.getAttribute('data-target');
-                switchTab(target);
+                navigateToTab(target);
             });
         });
 
@@ -53,11 +53,13 @@
         }
     }
 
-    async function handleRoute() {
+    async function handleRoute(hash) {
         stopSyncPolling();
-        switchTab(state.activeTab || 'config');
+        const tab = parseSystemTab(hash);
+        const isDispatcher = tab === 'dispatcher';
+        switchTab(tab, { skipFetch: isDispatcher });
         await loadSystemConfig(true);
-        await loadDispatcherStatus(true);
+        await loadDispatcherStatus(isDispatcher);
         startSyncPolling();
     }
 
@@ -302,6 +304,45 @@
         renderMeta({ config_repo_url: repoInput ? repoInput.value : '', config_sync_status: status });
     }
 
+    function normalizeRunner(runner = {}) {
+        return {
+            runnerId: runner.runnerId || runner.runner_id || '',
+            scopes: runner.scopes || [],
+            capacity: runner.capacity ?? 0,
+            activeJobs: runner.activeJobs ?? runner.active_jobs ?? 0,
+            inflightJobs: runner.inflightJobs ?? runner.inflight_jobs ?? 0,
+            lastHeartbeatUnix: runner.lastHeartbeatUnix ?? runner.last_heartbeat_unix ?? 0,
+            metadata: runner.metadata || {},
+            allowDispatch: runner.allowDispatch ?? runner.allow_dispatch ?? false,
+        };
+    }
+
+    function normalizeDispatcherStatus(status) {
+        if (!status) return { runners: [], queuedJobs: 0 };
+        const runnersRaw = Array.isArray(status.runners) ? status.runners : [];
+        return {
+            runners: runnersRaw.map(normalizeRunner),
+            queuedJobs: status.queuedJobs ?? status.queued_jobs ?? 0,
+        };
+    }
+
+    function parseSystemTab(hash) {
+        const raw = ((hash || window.location.hash || '#/system').replace(/^#\/?/, '') || '');
+        const parts = raw.split('/');
+        const tab = (parts[1] || '').toLowerCase();
+        return (tab === 'dispatcher') ? 'dispatcher' : 'config';
+    }
+
+    function navigateToTab(target) {
+        const safe = target === 'dispatcher' ? 'dispatcher' : 'config';
+        const newHash = `#/system/${safe}`;
+        if (window.location.hash === newHash) {
+            switchTab(safe);
+            return;
+        }
+        window.location.hash = newHash;
+    }
+
     function renderDispatcherStatus(status) {
         const queueCountEl = DOM['dispatcher-queue-count'];
         const runnerCountEl = DOM['dispatcher-runner-count'];
@@ -314,11 +355,11 @@
             return;
         }
 
-        const runnersRaw = Array.isArray(status.runners) ? status.runners : [];
-        const runners = sortRunnersById(runnersRaw);
+        const normalized = normalizeDispatcherStatus(status);
+        const runners = sortRunnersById(normalized.runners);
         const activeSum = runners.reduce((sum, r) => sum + (r.activeJobs || 0), 0);
 
-        queueCountEl.textContent = status.queuedJobs != null ? status.queuedJobs : '0';
+        queueCountEl.textContent = normalized.queuedJobs != null ? normalized.queuedJobs : '0';
         runnerCountEl.textContent = runners.length.toString();
         activeCountEl.textContent = activeSum.toString();
         if (updatedEl) {
@@ -412,8 +453,9 @@
         });
     }
 
-    function switchTab(target) {
+    function switchTab(target, options = {}) {
         if (!target || (target !== 'config' && target !== 'dispatcher')) return;
+        const skipFetch = options.skipFetch === true;
         state.activeTab = target;
         const configSection = DOM['system-config-section'];
         const dispatcherSection = DOM['system-dispatcher-section'];
@@ -424,7 +466,9 @@
             } else {
                 configSection.classList.add('hidden');
                 dispatcherSection.classList.remove('hidden');
-                loadDispatcherStatus(true);
+                if (!skipFetch) {
+                    loadDispatcherStatus(true);
+                }
             }
         }
         document.querySelectorAll('.system-tab-btn').forEach(btn => {
