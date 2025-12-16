@@ -964,6 +964,16 @@
                                 <div id="dispatcher-runner-list" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3"></div>
                                 <p id="dispatcher-empty" class="text-sm text-[var(--text-secondary)]">No runners connected yet.</p>
                             </div>
+                            <div class="glass-card p-6 space-y-3">
+                                <div class="flex items-center justify-between gap-2">
+                                    <div>
+                                        <h3 class="text-lg font-semibold text-[var(--text-primary)]">Routing map</h3>
+                                        <p class="text-sm text-[var(--text-secondary)]">Scopes mapped to allowed runner IDs.</p>
+                                    </div>
+                                </div>
+                                <div id="dispatcher-routing" class="space-y-2"></div>
+                                <p id="dispatcher-routing-empty" class="text-sm text-[var(--text-secondary)]">No routing rules configured; all runners are eligible.</p>
+                            </div>
                         </div>
                     </div>
                 </div>
