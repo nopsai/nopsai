@@ -432,76 +432,44 @@
             const meta = getRunnerMeta(runner);
             const connectionLabel = formatConnectionId(meta.connectionId);
             const connectionId = meta.connectionId || '';
-            const dispatchValue = runner.allowDispatch ? '<span class="text-green-500 font-semibold">Enabled</span>' : '<span class="text-red-500 font-semibold">Paused</span>';
-            const toggleLabel = runner.allowDispatch ? 'Pause dispatch' : 'Resume dispatch';
+            const dispatchLabel = runner.allowDispatch ? 'Dispatch on' : 'Dispatch off';
+            const dispatchClass = runner.allowDispatch ? 'runner-pill--ok' : 'runner-pill--error';
+            const toggleLabel = runner.allowDispatch ? 'Pause' : 'Resume';
             const toggleClass = runner.allowDispatch ? 'glass-button-danger' : 'glass-button-primary';
             const nextAllow = runner.allowDispatch ? 'false' : 'true';
             const pendingAction = isRunnerActionPending(runner.runnerId, connectionId);
             const actionLabel = pendingAction ? 'Updating...' : toggleLabel;
             const actionClasses = `${toggleClass} text-xs ${pendingAction ? 'opacity-60 cursor-wait' : ''}`;
-            const pausedPill = runner.allowDispatch ? '' : '<span class="runner-pill runner-pill--error">Paused</span>';
             const activeRuns = Array.isArray(meta.activeRuns) ? meta.activeRuns : [];
-            const detailLink = activeRuns.length ? `#/pipelineruns/main/${encodeURIComponent(activeRuns[0].runId)}` : '#/pipelineruns/main';
+
+            const stats = [
+                { label: 'Active', value: runner.activeJobs || 0 },
+                { label: 'Inflight', value: runner.inflightJobs || 0 },
+                { label: 'Load', value: `${runner.activeJobs || 0}/${runner.capacity || 0}` },
+            ];
+
+            const runPills = activeRuns.slice(0, 3).map(run => {
+                const idLabel = truncateId(run.runId);
+                const pipeline = run.pipeline ? `${escapeHtml(run.pipeline)} ` : '';
+                return `<a class="runner-pill runner-pill--muted" href="#/pipelineruns/main/${encodeURIComponent(run.runId)}" title="${escapeHtml(run.runId)}">${pipeline}${escapeHtml(idLabel)}</a>`;
+            });
+            const remainingRuns = activeRuns.length - runPills.length;
+            if (remainingRuns > 0) {
+                runPills.push(`<span class="runner-pill runner-pill--muted">+${remainingRuns}</span>`);
+            }
 
             const card = document.createElement('div');
-            card.className = 'glass-card p-4 space-y-2';
-            const metaGrid = [];
-            metaGrid.push(`
-                <div class="runner-meta">
-                    <span class="runner-meta__label">Active</span>
-                    <span class="runner-meta__value">${runner.activeJobs || 0}/${runner.capacity || 0}</span>
-                </div>
-            `);
-            metaGrid.push(`
-                <div class="runner-meta">
-                    <span class="runner-meta__label">Inflight</span>
-                    <span class="runner-meta__value">${runner.inflightJobs || 0}</span>
-                </div>
-            `);
-            metaGrid.push(`
-                <div class="runner-meta">
-                    <span class="runner-meta__label">Dispatch</span>
-                    <span class="runner-meta__value">${dispatchValue}</span>
-                </div>
-            `);
-            metaGrid.push(`
-                <div class="runner-meta">
-                    <span class="runner-meta__label">Heartbeat</span>
-                    <span class="runner-meta__value">${formatSince(runner.lastHeartbeatUnix)}</span>
-                </div>
-            `);
-            if (connectionLabel) {
-                metaGrid.push(`
-                    <div class="runner-meta">
-                        <span class="runner-meta__label">Instance</span>
-                        <span class="runner-meta__value runner-meta__value--mono">${escapeHtml(connectionLabel)}</span>
-                    </div>
-                `);
-            }
-            if (meta.hostname) {
-                metaGrid.push(`
-                    <div class="runner-meta">
-                        <span class="runner-meta__label">Host</span>
-                        <span class="runner-meta__value">${escapeHtml(meta.hostname)}</span>
-                    </div>
-                `);
-            }
-            if (meta.network) {
-                metaGrid.push(`
-                    <div class="runner-meta">
-                        <span class="runner-meta__label">Network</span>
-                        <span class="runner-meta__value runner-meta__value--mono">${escapeHtml(meta.network)}</span>
-                    </div>
-                `);
-            }
-
+            const statusDotClass = stale ? 'runner-dot--error' : 'runner-dot--ok';
+            card.className = 'runner-card glass-card p-4 space-y-3';
             card.innerHTML = `
-                <div class="flex items-start justify-between gap-2">
-                    <div class="space-y-1">
-                        <p class="text-sm font-semibold text-[var(--text-primary)]">${escapeHtml(runner.runnerId || 'unnamed')}</p>
-                        <p class="text-xs text-[var(--text-secondary)]">${escapeHtml(scopes)}</p>
+                <div class="flex items-start justify-between gap-3">
+                    <div class="flex items-center gap-2 min-w-0">
+                        <span class="runner-dot ${statusDotClass}"></span>
+                        <p class="text-base font-semibold text-[var(--text-primary)] truncate">${escapeHtml(runner.runnerId || 'unnamed')}</p>
                     </div>
-                    <div class="flex items-center flex-wrap justify-end gap-2">
+                    <div class="flex items-center flex-wrap justify-end gap-2 flex-shrink-0">
+                        <span class="runner-pill ${dispatchClass}">${dispatchLabel}</span>
+                        <span class="runner-pill ${badgeClass}">${badgeLabel}</span>
                         <button
                             type="button"
                             class="${actionClasses}"
@@ -511,32 +479,27 @@
                             data-next-allow="${nextAllow}"
                             ${pendingAction ? 'disabled' : ''}
                         >${escapeHtml(actionLabel)}</button>
-                        <a href="${detailLink}" class="runner-pill runner-pill--muted" title="View runs on this runner">
-                            <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7" />
-                            </svg>
-                        </a>
-                        ${connectionLabel ? `<span class="runner-pill runner-pill--muted">${escapeHtml(connectionLabel)}</span>` : ''}
-                        ${pausedPill}
-                        <span class="runner-pill ${badgeClass}">${badgeLabel}</span>
                     </div>
                 </div>
-                <div class="grid grid-cols-2 gap-2 text-xs">
-                    ${metaGrid.join('')}
+                <div class="flex flex-wrap gap-2 text-xs text-[var(--text-secondary)]">
+                    <span class="runner-pill runner-pill--muted">${escapeHtml(scopes)}</span>
+                    ${meta.hostname ? `<span class="runner-pill runner-pill--muted">${escapeHtml(meta.hostname)}</span>` : ''}
+                    ${meta.network ? `<span class="runner-pill runner-pill--muted">${escapeHtml(meta.network)}</span>` : ''}
+                    ${connectionLabel ? `<span class="runner-pill runner-pill--muted">${escapeHtml(connectionLabel)}</span>` : ''}
                 </div>
-                <div class="text-xs">
-                    <p class="text-[var(--text-secondary)] font-semibold mb-1">Runs on this runner</p>
-                    ${activeRuns.length ? `
-                        <ul class="space-y-1">
-                            ${activeRuns.map(run => {
-                                const trigger = run.triggerId ? ` — Trigger ${escapeHtml(truncateId(run.triggerId))}` : '';
-                                const pipeline = run.pipeline ? `${escapeHtml(run.pipeline)} ` : '';
-                                const label = `${pipeline}(${escapeHtml(truncateId(run.runId))})${trigger}`;
-                                return `<li><a class="text-[var(--text-accent)] hover:underline" href="#/pipelineruns/main/${encodeURIComponent(run.runId)}">${label}</a></li>`;
-                            }).join('')}
-                        </ul>
-                    ` : `<p class="text-[var(--text-secondary)]">No active runs on this runner.</p>`}
+                <div class="grid grid-cols-3 gap-2 text-xs">
+                    ${stats.map(stat => `
+                        <div class="runner-stat">
+                            <span class="runner-stat__label">${escapeHtml(stat.label)}</span>
+                            <span class="runner-stat__value">${escapeHtml(String(stat.value))}</span>
+                        </div>
+                    `).join('')}
                 </div>
+                <div class="flex items-center justify-between text-xs text-[var(--text-secondary)]">
+                    <span class="runner-pill runner-pill--muted">HB ${escapeHtml(formatSince(runner.lastHeartbeatUnix))}</span>
+                    <span class="runner-pill runner-pill--muted">Cap ${escapeHtml(String(runner.capacity || 0))}</span>
+                </div>
+                ${runPills.length ? `<div class="flex flex-wrap gap-2 text-xs">${runPills.join('')}</div>` : `<p class="text-xs text-[var(--text-secondary)]">No active runs</p>`}
             `;
             listEl.appendChild(card);
         });
@@ -564,29 +527,19 @@
             }))
             .sort((a, b) => a.scope.localeCompare(b.scope));
 
-        const legend = `
-            <div class="flex items-center justify-between text-xs text-[var(--text-secondary)] mb-2">
-                <span>Scopes → Allowed runners</span>
-                <span>‘Any runner’ means no affinity restriction</span>
-            </div>
-        `;
-
         const list = rows.map(row => {
             const pills = row.runners
-                .map(r => `<span class="runner-pill runner-pill--muted">${escapeHtml(r === '*' ? 'Any runner' : r)}</span>`)
+                .map(r => `<span class="runner-pill runner-pill--muted">${escapeHtml(r === '*' ? 'Any' : r)}</span>`)
                 .join(' ');
             return `
                 <div class="flex items-center justify-between gap-3 bg-[var(--bg-tertiary)] px-3 py-2 rounded-md border border-[var(--border-primary)]">
-                    <div class="flex items-center gap-2">
-                        <span class="runner-pill runner-pill--ok">${escapeHtml(row.scope)}</span>
-                        <span class="text-xs text-[var(--text-secondary)]">Scope</span>
-                    </div>
+                    <span class="runner-pill runner-pill--ok">${escapeHtml(row.scope)}</span>
                     <div class="flex flex-wrap gap-2 justify-end text-sm">${pills}</div>
                 </div>
             `;
         }).join('');
 
-        container.innerHTML = legend + list;
+        container.innerHTML = list;
     }
 
     function switchTab(target, options = {}) {
