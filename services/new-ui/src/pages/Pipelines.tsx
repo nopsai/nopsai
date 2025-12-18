@@ -1743,152 +1743,164 @@ function PipelinesPage() {
             </div>
 
             <div className="space-y-4">
-              <div className="glass-card p-4">
-                <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2">Trigger Rules</h3>
-                {triggersLoading ? (
-                  <p className="text-sm text-[var(--text-secondary)]">Loading triggers…</p>
-                ) : triggersError ? (
-                  <p className="text-sm text-red-500">Failed to load triggers: {triggersError}</p>
-                ) : triggers.length ? (
-                  <ul className={`triggers-pipeline-list ${triggers.length > MAX_VISIBLE_TRIGGER_CARDS ? 'triggers-list-scroll' : ''}`}>
-                    {triggers.map((item, index) => {
-                      const sourceLabel = (item.source || 'database').trim() || 'database';
-                      const triggerPath = `/triggers/${encodeId(item.repoSlug)}`;
-                      const branchField = formatTriggerBranchField(item.trigger);
-                      return (
-                        <li key={`${item.repoSlug}-${index}`} className="triggers-pipeline-item">
-                          <button
-                            type="button"
-                            className="triggers-pipeline-link"
-                            title={`Open trigger ${item.repoSlug}`}
-                            onClick={() => navigate(triggerPath)}
-                          >
-                            <span className="triggers-pipeline-name">{item.repoSlug}</span>
-                            <dl className="triggers-detail-grid triggers-pipeline-details">
-                              <dt className="triggers-detail-label">Event:</dt>
-                              <dd className="triggers-detail-value">{formatTriggerEvent(item.trigger.on)}</dd>
-                              <dt className="triggers-detail-label">{branchField.label}</dt>
-                              <dd className="triggers-detail-value">{branchField.value}</dd>
-                              <dt className="triggers-detail-label">Scope:</dt>
-                              <dd className="triggers-detail-value">{formatTriggerScope(item.trigger)}</dd>
-                              <dt className="triggers-detail-label">Source:</dt>
-                              <dd className="triggers-detail-value">{sourceLabel}</dd>
-                            </dl>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-[var(--text-secondary)]">No trigger manifests reference this pipeline.</p>
-                )}
-              </div>
-
-              <div className="glass-card p-4">
-                <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2">Included Dependencies</h3>
-                {detail.includedDependencies.length ? (
-                  <ul
-                    className={`triggers-pipeline-list ${
-                      detail.includedDependencies.length > MAX_VISIBLE_TRIGGER_CARDS ? 'triggers-list-scroll' : ''
-                    }`}
-                  >
-                    {Array.from(new Set(detail.includedDependencies))
-                      .sort((a, b) => a.localeCompare(b))
-                      .map(dep => {
-                        const trimmed = dep.trim();
-                        const isPipeline = trimmed.startsWith('pipeline:');
-                        const isStep = trimmed.startsWith('step:');
-                        const identifier = isPipeline
-                          ? trimmed.slice('pipeline:'.length).trim()
-                          : isStep
-                            ? trimmed.slice('step:'.length).trim()
-                            : trimmed;
-
-                        const typeLabel = isPipeline ? 'Pipeline' : isStep ? 'Step' : 'Include';
-                        const actionLabel = isPipeline ? 'Open' : 'Copy';
-
+              <div className="glass-card overflow-hidden">
+                <div className="p-4 border-b border-[var(--border-primary)]">
+                  <h3 className="text-lg font-semibold text-[var(--text-primary)]">Trigger Rules</h3>
+                </div>
+                <div className="p-4">
+                  {triggersLoading ? (
+                    <p className="text-sm text-[var(--text-secondary)]">Loading triggers…</p>
+                  ) : triggersError ? (
+                    <p className="text-sm text-red-500">Failed to load triggers: {triggersError}</p>
+                  ) : triggers.length ? (
+                    <ul className={`triggers-pipeline-list ${triggers.length > MAX_VISIBLE_TRIGGER_CARDS ? 'triggers-list-scroll' : ''}`}>
+                      {triggers.map((item, index) => {
+                        const sourceLabel = (item.source || 'database').trim() || 'database';
+                        const triggerPath = `/triggers/${encodeId(item.repoSlug)}`;
+                        const branchField = formatTriggerBranchField(item.trigger);
                         return (
-                          <li key={trimmed} className="triggers-pipeline-item">
+                          <li key={`${item.repoSlug}-${index}`} className="triggers-pipeline-item">
                             <button
                               type="button"
                               className="triggers-pipeline-link"
-                              title={isPipeline ? `Open ${identifier}` : `Copy ${identifier}`}
-                              onClick={async () => {
-                                if (isPipeline && identifier) {
-                                  handleSelect(identifier);
-                                  return;
-                                }
-                                try {
-                                  await navigator.clipboard.writeText(identifier || trimmed);
-                                  addToast('Copied dependency reference.', 'success');
-                                } catch (error) {
-                                  console.error('Failed to copy dependency reference', error);
-                                  addToast('Unable to copy dependency reference.', 'error');
-                                }
-                              }}
+                              title={`Open trigger ${item.repoSlug}`}
+                              onClick={() => navigate(triggerPath)}
                             >
-                              <span className="triggers-pipeline-name">{identifier || trimmed}</span>
+                              <span className="triggers-pipeline-name">{item.repoSlug}</span>
                               <dl className="triggers-detail-grid triggers-pipeline-details">
-                                <dt className="triggers-detail-label">Type:</dt>
-                                <dd className="triggers-detail-value">{typeLabel}</dd>
-                                <dt className="triggers-detail-label">Action:</dt>
-                                <dd className="triggers-detail-value">{actionLabel}</dd>
+                                <dt className="triggers-detail-label">Event:</dt>
+                                <dd className="triggers-detail-value">{formatTriggerEvent(item.trigger.on)}</dd>
+                                <dt className="triggers-detail-label">{branchField.label}</dt>
+                                <dd className="triggers-detail-value">{branchField.value}</dd>
+                                <dt className="triggers-detail-label">Scope:</dt>
+                                <dd className="triggers-detail-value">{formatTriggerScope(item.trigger)}</dd>
+                                <dt className="triggers-detail-label">Source:</dt>
+                                <dd className="triggers-detail-value">{sourceLabel}</dd>
                               </dl>
                             </button>
                           </li>
                         );
                       })}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-[var(--text-secondary)]">No includes detected for this pipeline.</p>
-                )}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-[var(--text-secondary)]">No trigger manifests reference this pipeline.</p>
+                  )}
+                </div>
               </div>
 
-              <div className="glass-card p-4" id="pipeline-recent-runs">
-                <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2">Recent Pipeline Runs</h3>
-                {runsLoading ? (
-                  <p className="text-sm text-[var(--text-secondary)]">Loading recent runs…</p>
-                ) : runsError ? (
-                  <p className="text-sm text-red-500">Failed to load runs: {runsError}</p>
-                ) : recentRuns.length ? (
-                  <ul className="triggers-pipeline-list">
-                    {recentRuns.map(run => {
-                      const runId = run.run_id || '';
-                      const shortRunId = runId ? runId.slice(0, 8) : '—';
-                      const triggerId = typeof (run as any).trigger_event_id === 'string' ? (run as any).trigger_event_id : '';
-                      const shortTriggerId = triggerId ? triggerId.slice(0, 8) : '—';
-                      const runPath = runId ? `/pipelineruns/recent?run_id=${encodeURIComponent(runId)}` : '/pipelineruns/recent';
-                      return (
-                        <li key={runId || `${run.pipeline_name}-${run.started_at}`} className="triggers-pipeline-item">
-                          <button
-                            type="button"
-                            className="triggers-pipeline-link"
-                            title={runId ? `Open run ${runId}` : 'Open pipeline runs'}
-                            onClick={() => navigate(runPath)}
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <span className="triggers-pipeline-name">{detail.name || detail.id}</span>
-                                <p className="text-xs text-[var(--text-secondary)] mt-0.5">{formatRelativeTime(run.started_at)}</p>
+              <div className="glass-card overflow-hidden">
+                <div className="p-4 border-b border-[var(--border-primary)]">
+                  <h3 className="text-lg font-semibold text-[var(--text-primary)]">Included Dependencies</h3>
+                </div>
+                <div className="p-4">
+                  {detail.includedDependencies.length ? (
+                    <ul
+                      className={`triggers-pipeline-list ${
+                        detail.includedDependencies.length > MAX_VISIBLE_TRIGGER_CARDS ? 'triggers-list-scroll' : ''
+                      }`}
+                    >
+                      {Array.from(new Set(detail.includedDependencies))
+                        .sort((a, b) => a.localeCompare(b))
+                        .map(dep => {
+                          const trimmed = dep.trim();
+                          const isPipeline = trimmed.startsWith('pipeline:');
+                          const isStep = trimmed.startsWith('step:');
+                          const identifier = isPipeline
+                            ? trimmed.slice('pipeline:'.length).trim()
+                            : isStep
+                              ? trimmed.slice('step:'.length).trim()
+                              : trimmed;
+
+                          const typeLabel = isPipeline ? 'Pipeline' : isStep ? 'Step' : 'Include';
+                          const actionLabel = isPipeline ? 'Open' : 'Copy';
+
+                          return (
+                            <li key={trimmed} className="triggers-pipeline-item">
+                              <button
+                                type="button"
+                                className="triggers-pipeline-link"
+                                title={isPipeline ? `Open ${identifier}` : `Copy ${identifier}`}
+                                onClick={async () => {
+                                  if (isPipeline && identifier) {
+                                    handleSelect(identifier);
+                                    return;
+                                  }
+                                  try {
+                                    await navigator.clipboard.writeText(identifier || trimmed);
+                                    addToast('Copied dependency reference.', 'success');
+                                  } catch (error) {
+                                    console.error('Failed to copy dependency reference', error);
+                                    addToast('Unable to copy dependency reference.', 'error');
+                                  }
+                                }}
+                              >
+                                <span className="triggers-pipeline-name">{identifier || trimmed}</span>
+                                <dl className="triggers-detail-grid triggers-pipeline-details">
+                                  <dt className="triggers-detail-label">Type:</dt>
+                                  <dd className="triggers-detail-value">{typeLabel}</dd>
+                                  <dt className="triggers-detail-label">Action:</dt>
+                                  <dd className="triggers-detail-value">{actionLabel}</dd>
+                                </dl>
+                              </button>
+                            </li>
+                          );
+                        })}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-[var(--text-secondary)]">No includes detected for this pipeline.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="glass-card overflow-hidden" id="pipeline-recent-runs">
+                <div className="p-4 border-b border-[var(--border-primary)]">
+                  <h3 className="text-lg font-semibold text-[var(--text-primary)]">Recent Pipeline Runs</h3>
+                </div>
+                <div className="p-4">
+                  {runsLoading ? (
+                    <p className="text-sm text-[var(--text-secondary)]">Loading recent runs…</p>
+                  ) : runsError ? (
+                    <p className="text-sm text-red-500">Failed to load runs: {runsError}</p>
+                  ) : recentRuns.length ? (
+                    <ul className="triggers-pipeline-list">
+                      {recentRuns.map(run => {
+                        const runId = run.run_id || '';
+                        const shortRunId = runId ? runId.slice(0, 8) : '—';
+                        const triggerId = typeof (run as any).trigger_event_id === 'string' ? (run as any).trigger_event_id : '';
+                        const shortTriggerId = triggerId ? triggerId.slice(0, 8) : '—';
+                        const runPath = runId ? `/pipelineruns/recent?run_id=${encodeURIComponent(runId)}` : '/pipelineruns/recent';
+                        return (
+                          <li key={runId || `${run.pipeline_name}-${run.started_at}`} className="triggers-pipeline-item">
+                            <button
+                              type="button"
+                              className="triggers-pipeline-link"
+                              title={runId ? `Open run ${runId}` : 'Open pipeline runs'}
+                              onClick={() => navigate(runPath)}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <span className="triggers-pipeline-name">{detail.name || detail.id}</span>
+                                  <p className="text-xs text-[var(--text-secondary)] mt-0.5">{formatRelativeTime(run.started_at)}</p>
+                                </div>
+                                <span className={`runner-pill ${statusClass(run.status)}`}>{statusLabel(run.status)}</span>
                               </div>
-                              <span className={`runner-pill ${statusClass(run.status)}`}>{statusLabel(run.status)}</span>
-                            </div>
-                            <dl className="triggers-detail-grid triggers-pipeline-details">
-                              <dt className="triggers-detail-label">Branch:</dt>
-                              <dd className="triggers-detail-value">{formatRef(run.git_ref)}</dd>
-                              <dt className="triggers-detail-label">Run ID:</dt>
-                              <dd className="triggers-detail-value">{shortRunId}</dd>
-                              <dt className="triggers-detail-label">Trigger:</dt>
-                              <dd className="triggers-detail-value">{shortTriggerId}</dd>
-                            </dl>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-[var(--text-secondary)]">No recent runs for this pipeline.</p>
-                )}
+                              <dl className="triggers-detail-grid triggers-pipeline-details">
+                                <dt className="triggers-detail-label">Branch:</dt>
+                                <dd className="triggers-detail-value">{formatRef(run.git_ref)}</dd>
+                                <dt className="triggers-detail-label">Run ID:</dt>
+                                <dd className="triggers-detail-value">{shortRunId}</dd>
+                                <dt className="triggers-detail-label">Trigger:</dt>
+                                <dd className="triggers-detail-value">{shortTriggerId}</dd>
+                              </dl>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-[var(--text-secondary)]">No recent runs for this pipeline.</p>
+                  )}
+                </div>
               </div>
             </div>
           </div>
