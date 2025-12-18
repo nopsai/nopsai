@@ -1150,6 +1150,206 @@ html.dark .system-input {
     margin-bottom: 1rem;
 }
 
+.glass-button-ghost.active {
+    background: rgba(148,163,184,0.15);
+    color: var(--text-primary);
+}
+
+.pipelines-search-shell {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0;
+    border-radius: 14px;
+    background: transparent;
+    border: none;
+    transition: all 0.2s ease;
+    min-width: 0;
+}
+
+.pipelines-search-shell.open {
+    background: rgba(255,255,255,0.7);
+    border-color: rgba(148,163,184,0.35);
+    box-shadow: 0 8px 24px rgba(15,23,42,0.12);
+    border: 1px solid rgba(148,163,184,0.35);
+    padding: 8px 10px;
+}
+
+html.dark .pipelines-search-shell {
+    background: transparent;
+    border-color: transparent;
+}
+
+html.dark .pipelines-search-shell.open {
+    background: rgba(17,24,39,0.62);
+    border-color: rgba(148,163,184,0.25);
+}
+
+.pipelines-search-toggle {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+}
+
+.pipelines-search-input {
+    background: transparent;
+    border: none;
+    outline: none;
+    width: 0;
+    opacity: 0;
+    transition: width 0.2s ease, opacity 0.15s ease;
+    color: var(--text-primary);
+}
+
+.pipelines-search-shell.open .pipelines-search-input,
+.pipelines-search-input:focus {
+    width: 180px;
+    opacity: 1;
+}
+
+.pipelines-search-input::placeholder {
+    color: var(--text-secondary);
+}
+
+.pipelines-search-clear {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    padding: 0 2px;
+}
+
+.pipelines-search-clear:hover {
+    color: var(--text-primary);
+}
+
+.pipelines-trigger-card--legacy {
+    border: 1px solid var(--border-primary);
+    background: rgba(255,255,255,0.6);
+    border-radius: 14px;
+    padding: 0.9rem 1rem;
+}
+
+html.dark .pipelines-trigger-card--legacy {
+    background: rgba(17,24,39,0.55);
+}
+
+.pipelines-trigger-card--legacy .trigger-repo {
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 0.6rem;
+}
+
+.pipelines-trigger-card--legacy .trigger-meta {
+    display: grid;
+    gap: 0.25rem;
+    font-size: 0.85rem;
+}
+
+.pipelines-trigger-card--legacy dt {
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 700;
+    color: var(--text-secondary);
+    display: inline-block;
+    width: 5rem;
+}
+
+.pipelines-trigger-card--legacy dd {
+    display: inline-block;
+    margin: 0;
+    color: var(--text-primary);
+}
+
+.dependency-chip {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 0.85rem;
+    border: 1px solid var(--border-primary);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.6);
+}
+
+html.dark .dependency-chip {
+    background: rgba(17,24,39,0.55);
+}
+
+.dependency-icon {
+    font-size: 1rem;
+}
+
+.dependency-text {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.recent-run-card {
+    border: 1px solid var(--border-primary);
+    border-radius: 14px;
+    padding: 0.9rem 1rem;
+    background: rgba(255,255,255,0.6);
+}
+
+html.dark .recent-run-card {
+    background: rgba(17,24,39,0.55);
+}
+
+.recent-run-title {
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.recent-run-status {
+    font-size: 0.9rem;
+}
+
+.recent-run-meta {
+    display: grid;
+    gap: 0.2rem;
+    font-size: 0.85rem;
+    margin-top: 0.6rem;
+}
+
+.recent-run-meta dt {
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+    display: inline-block;
+    width: 4.5rem;
+}
+
+.recent-run-meta dd {
+    display: inline-block;
+    margin: 0;
+    color: var(--text-primary);
+}
+.pipelines-icon-only {
+    background: transparent;
+    border: none;
+    padding: 6px;
+    border-radius: 50%;
+    color: var(--text-secondary);
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.pipelines-icon-only:hover {
+    background: rgba(148,163,184,0.14);
+    color: var(--text-primary);
+}
+
+.pipelines-icon-only:focus-visible {
+    outline: 2px solid var(--border-accent);
+    outline-offset: 2px;
+}
+
 .pipeline-card {
     position: relative;
     display: flex;
@@ -1400,6 +1600,126 @@ html.dark .system-input {
 
 .pipeline-sidebar-folder-row:hover {
     background-color: var(--bg-tertiary);
+}
+
+.pipeline-tree-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.pipeline-tree-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 10px;
+    color: var(--text-primary);
+    background: linear-gradient(135deg, rgba(255,255,255,0.04), rgba(148,163,184,0.06));
+    border: 1px solid rgba(148,163,184,0.15);
+}
+
+html.dark .pipeline-tree-item {
+    background: linear-gradient(135deg, rgba(17,24,39,0.45), rgba(148,163,184,0.06));
+    border-color: rgba(148,163,184,0.2);
+}
+
+.pipeline-tree-toggle {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 6px;
+}
+
+.pipeline-tree-folder {
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    flex: 1;
+}
+
+.pipeline-tree-folder.active {
+    color: var(--text-accent);
+    font-weight: 600;
+}
+
+.pipeline-tree-children {
+    list-style: none;
+    margin: 6px 0 0 14px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.pipeline-tree-leaf {
+    border-radius: 8px;
+}
+
+.pipeline-tree-leaf-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    width: 100%;
+    text-align: left;
+    border-radius: 8px;
+    color: var(--text-primary);
+}
+
+.pipeline-tree-leaf.active .pipeline-tree-leaf-btn {
+    background: var(--bg-tertiary);
+    color: var(--text-accent);
+}
+
+.pipeline-tree-leaf-btn:hover {
+    background: rgba(148,163,184,0.12);
+}
+
+.pipeline-tree-leaf-dot {
+    color: var(--text-secondary);
+}
+
+.pipeline-tree-leaf-meta {
+    margin-left: auto;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.pipeline-tree-leaf-icon svg {
+    width: 14px;
+    height: 14px;
+}
+
+.pipeline-card-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    background: rgba(148,163,184,0.12);
+    color: var(--text-primary);
+    flex-shrink: 0;
+}
+
+html.dark .pipeline-card-icon {
+    background: rgba(99,102,241,0.12);
+}
+
+.pipeline-card-icon svg {
+    width: 18px;
+    height: 18px;
 }
 
 .pipeline-sidebar-toggle,

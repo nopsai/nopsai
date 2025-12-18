@@ -7,6 +7,14 @@
         runnerActionPending: new Set(),
     };
 
+    const runnerDockerDefaults = {
+        runnerId: 'runner-general-2',
+        scopes: 'prod',
+        capacity: '2',
+        dispatcher: '192.168.1.16:9090',
+        network: '',
+    };
+
     const DOM = {};
     let context = null;
 
@@ -22,6 +30,10 @@
             'system-config-section', 'system-dispatcher-section', 'dispatcher-queue-count',
             'dispatcher-runner-count', 'dispatcher-active-count', 'dispatcher-runner-list',
             'dispatcher-empty', 'dispatcher-updated', 'dispatcher-routing', 'dispatcher-routing-empty',
+            'open-runner-docker-btn', 'runner-docker-modal', 'close-runner-docker-btn',
+            'runner-docker-form', 'runner-docker-id', 'runner-docker-scopes', 'runner-docker-capacity',
+            'runner-docker-dispatcher', 'runner-docker-network', 'runner-docker-command',
+            'copy-runner-docker-btn',
         ];
         ids.forEach(id => {
             const el = document.getElementById(id);
@@ -55,6 +67,39 @@
         if (DOM['dispatcher-runner-list']) {
             DOM['dispatcher-runner-list'].addEventListener('click', handleRunnerActionClick);
         }
+        if (DOM['open-runner-docker-btn']) {
+            DOM['open-runner-docker-btn'].addEventListener('click', (e) => {
+                e.preventDefault();
+                openRunnerDockerModal();
+            });
+        }
+        if (DOM['close-runner-docker-btn']) {
+            DOM['close-runner-docker-btn'].addEventListener('click', (e) => {
+                e.preventDefault();
+                closeRunnerDockerModal();
+            });
+        }
+        if (DOM['runner-docker-modal']) {
+            DOM['runner-docker-modal'].addEventListener('click', (e) => {
+                if (e.target === DOM['runner-docker-modal']) {
+                    closeRunnerDockerModal();
+                }
+            });
+        }
+        if (DOM['runner-docker-form']) {
+            DOM['runner-docker-form'].addEventListener('submit', (e) => e.preventDefault());
+            DOM['runner-docker-form'].addEventListener('input', updateRunnerDockerCommand);
+        }
+        if (DOM['copy-runner-docker-btn']) {
+            DOM['copy-runner-docker-btn'].addEventListener('click', handleCopyRunnerDockerCommand);
+        }
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && isRunnerDockerModalOpen()) {
+                closeRunnerDockerModal();
+            }
+        });
+
+        updateRunnerDockerCommand();
     }
 
     async function handleRoute(hash) {
@@ -432,8 +477,6 @@
             const meta = getRunnerMeta(runner);
             const connectionLabel = formatConnectionId(meta.connectionId);
             const connectionId = meta.connectionId || '';
-            const dispatchLabel = runner.allowDispatch ? 'Dispatch on' : 'Dispatch off';
-            const dispatchClass = runner.allowDispatch ? 'runner-pill--ok' : 'runner-pill--error';
             const toggleLabel = runner.allowDispatch ? 'Pause' : 'Resume';
             const toggleClass = runner.allowDispatch ? 'glass-button-danger' : 'glass-button-primary';
             const nextAllow = runner.allowDispatch ? 'false' : 'true';
@@ -441,6 +484,7 @@
             const actionLabel = pendingAction ? 'Updating...' : toggleLabel;
             const actionClasses = `${toggleClass} text-xs ${pendingAction ? 'opacity-60 cursor-wait' : ''}`;
             const activeRuns = Array.isArray(meta.activeRuns) ? meta.activeRuns : [];
+            const paused = !runner.allowDispatch;
 
             const stats = [
                 { label: 'Active', value: runner.activeJobs || 0 },
@@ -449,9 +493,12 @@
             ];
 
             const runPills = activeRuns.slice(0, 3).map(run => {
-                const idLabel = truncateId(run.runId);
-                const pipeline = run.pipeline ? `${escapeHtml(run.pipeline)} ` : '';
-                return `<a class="runner-pill runner-pill--muted" href="#/pipelineruns/main/${encodeURIComponent(run.runId)}" title="${escapeHtml(run.runId)}">${pipeline}${escapeHtml(idLabel)}</a>`;
+                const pipelineName = run.pipeline || 'Run';
+                const triggerLabel = run.triggerId ? truncateId(run.triggerId, 6) : 'manual';
+                const runIdLabel = truncateId(run.runId, 6);
+                const display = `${pipelineName}-${triggerLabel}-${runIdLabel}`;
+                const title = `${pipelineName} • Trigger ${run.triggerId || 'manual'} • Run ${run.runId}`;
+                return `<a class="runner-pill runner-pill--muted runner-pill--link" href="#/pipelineruns/main/${encodeURIComponent(run.runId)}" title="${escapeHtml(title)}">${escapeHtml(display)}</a>`;
             });
             const remainingRuns = activeRuns.length - runPills.length;
             if (remainingRuns > 0) {
@@ -460,16 +507,24 @@
 
             const card = document.createElement('div');
             const statusDotClass = stale ? 'runner-dot--error' : 'runner-dot--ok';
-            card.className = 'runner-card glass-card p-4 space-y-3';
+            const runnerNameClass = `runner-name ${paused ? 'runner-name--paused' : ''}`;
+            const runnerCardClass = `runner-card glass-card p-5 space-y-4 ${paused ? 'runner-card--paused' : ''}`;
+            card.className = runnerCardClass;
             card.innerHTML = `
-                <div class="flex items-start justify-between gap-3">
-                    <div class="flex items-center gap-2 min-w-0">
+                <div class="runner-card__header">
+                    <div class="runner-card__title">
                         <span class="runner-dot ${statusDotClass}"></span>
-                        <p class="text-base font-semibold text-[var(--text-primary)] truncate">${escapeHtml(runner.runnerId || 'unnamed')}</p>
+                        <div class="runner-card__title-stack">
+                            <div class="${runnerNameClass}">
+                                ${escapeHtml(runner.runnerId || 'unnamed')}
+                                ${paused ? '<span class="runner-paused-label">Paused</span>' : ''}
+                            </div>
+                            <div class="runner-card__health-row">
+                                <span class="runner-pill ${badgeClass}">${badgeLabel}</span>
+                            </div>
+                        </div>
                     </div>
-                    <div class="flex items-center flex-wrap justify-end gap-2 flex-shrink-0">
-                        <span class="runner-pill ${dispatchClass}">${dispatchLabel}</span>
-                        <span class="runner-pill ${badgeClass}">${badgeLabel}</span>
+                    <div class="runner-card__actions">
                         <button
                             type="button"
                             class="${actionClasses}"
@@ -481,13 +536,7 @@
                         >${escapeHtml(actionLabel)}</button>
                     </div>
                 </div>
-                <div class="flex flex-wrap gap-2 text-xs text-[var(--text-secondary)]">
-                    <span class="runner-pill runner-pill--muted">${escapeHtml(scopes)}</span>
-                    ${meta.hostname ? `<span class="runner-pill runner-pill--muted">${escapeHtml(meta.hostname)}</span>` : ''}
-                    ${meta.network ? `<span class="runner-pill runner-pill--muted">${escapeHtml(meta.network)}</span>` : ''}
-                    ${connectionLabel ? `<span class="runner-pill runner-pill--muted">${escapeHtml(connectionLabel)}</span>` : ''}
-                </div>
-                <div class="grid grid-cols-3 gap-2 text-xs">
+                <div class="grid grid-cols-3 gap-2 runner-card__stat-grid text-xs">
                     ${stats.map(stat => `
                         <div class="runner-stat">
                             <span class="runner-stat__label">${escapeHtml(stat.label)}</span>
@@ -495,11 +544,14 @@
                         </div>
                     `).join('')}
                 </div>
-                <div class="flex items-center justify-between text-xs text-[var(--text-secondary)]">
-                    <span class="runner-pill runner-pill--muted">HB ${escapeHtml(formatSince(runner.lastHeartbeatUnix))}</span>
-                    <span class="runner-pill runner-pill--muted">Cap ${escapeHtml(String(runner.capacity || 0))}</span>
+                <div class="runner-card__meta-row text-xs text-[var(--text-secondary)]">
+                    <div class="flex flex-wrap gap-2">
+                        <span class="runner-pill runner-pill--muted">${escapeHtml(scopes)}</span>
+                        ${meta.network ? `<span class="runner-pill runner-pill--muted">${escapeHtml(meta.network)}</span>` : ''}
+                        <span class="runner-pill runner-pill--muted">Cap ${escapeHtml(String(runner.capacity || 0))}</span>
+                    </div>
                 </div>
-                ${runPills.length ? `<div class="flex flex-wrap gap-2 text-xs">${runPills.join('')}</div>` : `<p class="text-xs text-[var(--text-secondary)]">No active runs</p>`}
+                ${runPills.length ? `<div class="runner-run-list">${runPills.join('')}</div>` : `<p class="text-xs text-[var(--text-secondary)]">No active runs</p>`}
             `;
             listEl.appendChild(card);
         });
@@ -773,6 +825,112 @@
     function capitalizeStatus(value) {
         if (!value) return '';
         return value.charAt(0).toUpperCase() + value.slice(1);
+    }
+
+    function applyRunnerDockerDefaults() {
+        const fieldMap = {
+            'runner-docker-id': runnerDockerDefaults.runnerId,
+            'runner-docker-scopes': runnerDockerDefaults.scopes,
+            'runner-docker-capacity': runnerDockerDefaults.capacity,
+            'runner-docker-dispatcher': runnerDockerDefaults.dispatcher,
+            'runner-docker-network': runnerDockerDefaults.network,
+        };
+        Object.entries(fieldMap).forEach(([id, fallback]) => {
+            const el = DOM[id];
+            if (!el) return;
+            if ((el.value || '').trim() === '') {
+                el.value = fallback;
+            }
+        });
+    }
+
+    function openRunnerDockerModal() {
+        const modal = DOM['runner-docker-modal'];
+        if (!modal) return;
+        applyRunnerDockerDefaults();
+        updateRunnerDockerCommand();
+        modal.classList.remove('hidden');
+        requestAnimationFrame(() => {
+            modal.classList.remove('opacity-0');
+            const panel = modal.querySelector('.runner-docker-panel');
+            if (panel) {
+                panel.classList.remove('scale-95');
+                panel.classList.add('scale-100');
+            }
+        });
+    }
+
+    function closeRunnerDockerModal() {
+        const modal = DOM['runner-docker-modal'];
+        if (!modal) return;
+        modal.classList.add('opacity-0');
+        const panel = modal.querySelector('.runner-docker-panel');
+        if (panel) {
+            panel.classList.add('scale-95');
+            panel.classList.remove('scale-100');
+        }
+        window.setTimeout(() => modal.classList.add('hidden'), 180);
+    }
+
+    function isRunnerDockerModalOpen() {
+        const modal = DOM['runner-docker-modal'];
+        if (!modal) return false;
+        return !modal.classList.contains('hidden');
+    }
+
+    function updateRunnerDockerCommand() {
+        const commandEl = DOM['runner-docker-command'];
+        if (!commandEl) return;
+        const runnerId = readDockerField('runner-docker-id', runnerDockerDefaults.runnerId);
+        const scopes = readDockerField('runner-docker-scopes', runnerDockerDefaults.scopes);
+        const capacity = readDockerField('runner-docker-capacity', runnerDockerDefaults.capacity);
+        const dispatcher = readDockerField('runner-docker-dispatcher', runnerDockerDefaults.dispatcher);
+        const network = readDockerField('runner-docker-network', runnerDockerDefaults.network);
+        commandEl.value = buildRunnerDockerCommand({ runnerId, scopes, capacity, dispatcher, network });
+    }
+
+    function readDockerField(id, fallback = '') {
+        const el = DOM[id];
+        const value = (el && typeof el.value === 'string') ? el.value : '';
+        const trimmed = value.trim();
+        if (trimmed) return trimmed;
+        return fallback;
+    }
+
+    function buildRunnerDockerCommand(fields) {
+        const parts = [
+            'docker run',
+            `-e RUNNER_ID=${fields.runnerId}`,
+            `-e RUNNER_SCOPES="${fields.scopes}"`,
+            `-e RUNNER_CAPACITY="${fields.capacity}"`,
+            `-e DISPATCHER_ADDRESS=${fields.dispatcher}`,
+            '-v /var/run/docker.sock:/var/run/docker.sock',
+            `-e DOCKER_NETWORK_NAME="${fields.network}"`,
+            '--pull always',
+            'hoseindocker/nopsai-runner',
+        ];
+        return parts.join(' ');
+    }
+
+    async function handleCopyRunnerDockerCommand(event) {
+        event.preventDefault();
+        updateRunnerDockerCommand();
+        const commandEl = DOM['runner-docker-command'];
+        if (!commandEl) return;
+        const command = (commandEl.value || '').trim();
+        if (!command) return;
+        try {
+            if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                await navigator.clipboard.writeText(command);
+            } else {
+                commandEl.select();
+                document.execCommand('copy');
+            }
+            showToast('Docker command copied to clipboard.', 'success');
+        } catch (error) {
+            console.error('Failed to copy command', error);
+            showToast('Unable to copy command.', 'error');
+        }
     }
 
     function showToast(message, variant = 'info') {
