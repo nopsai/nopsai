@@ -1,6 +1,6 @@
 function ScopesPage() {
   return (
-    <div data-page="scopes" className="h-full flex flex-col">
+    <div data-page="scopes" className="active h-full flex flex-col">
       <div className="px-6 pt-6 pb-4 flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-semibold">Scopes</h2>
