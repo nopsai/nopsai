@@ -2122,11 +2122,13 @@ function formatPathLabel(path) {
             const trigger = record.trigger || {};
             const repoSlug = record.repoSlug || (record.repoOwner && record.repoName ? `${record.repoOwner}/${record.repoName}` : 'Config repository');
             const eventInfo = formatTriggerEventInfo(trigger.on, { fallback: 'N/A', limit: 32 });
+            let branchLabel = 'Branches:';
             let branchValue = 'All branches';
             if (Array.isArray(trigger.branches) && trigger.branches.length) {
                 branchValue = trigger.branches.join(', ');
             } else if (Array.isArray(trigger.skip_branches) && trigger.skip_branches.length) {
-                branchValue = `Skip: ${trigger.skip_branches.join(', ')}`;
+                branchLabel = 'SKIP_BRANCHES:';
+                branchValue = trigger.skip_branches.join(', ');
             }
             const tagsValue = Array.isArray(trigger.tags) && trigger.tags.length ? trigger.tags.join(', ') : '';
             const scopeValue = (trigger.scope || '').trim() || 'default';
@@ -2134,7 +2136,7 @@ function formatPathLabel(path) {
             const linkSlug = repoSlug.split('/').filter(Boolean).map(encodeURIComponent).join('/');
             const rows = [
                 { label: 'Event:', value: eventInfo.full },
-                { label: 'Branches:', value: branchValue },
+                { label: branchLabel, value: branchValue },
                 { label: 'Scope:', value: scopeValue },
                 { label: 'Source:', value: sourceLabel },
             ];
