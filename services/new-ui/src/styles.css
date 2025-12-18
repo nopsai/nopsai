@@ -1108,6 +1108,18 @@ html.dark .system-input {
         0 10px 30px rgba(0,0,0,0.28),
         inset 0 0 0 1px rgba(129,140,248,0.2);
 }
+
+/* Ensure native <select> dropdowns match dark theme. */
+html.dark select.pipelines-input,
+html.dark select.system-input {
+    color-scheme: dark;
+}
+
+html.dark select.pipelines-input option,
+html.dark select.system-input option {
+    background-color: rgba(17,24,39,0.98);
+    color: rgba(226,232,240,0.92);
+}
 .system-input {
     padding: 0.7rem 1rem;
     background: linear-gradient(145deg, rgba(99,102,241,0.08), rgba(255,255,255,0.4));
