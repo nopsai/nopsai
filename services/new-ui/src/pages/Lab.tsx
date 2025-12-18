@@ -47,6 +47,7 @@ function buildBlankYaml(name = DEFAULT_PIPELINE_NAME) {
     `name: ${name}`,
     'version: latest',
     'description: Lab pipeline (ad-hoc)',
+    'container_image: alpine:latest',
     'steps:',
     '  - name: hello',
     '    script: echo "Hello from Lab"',
