@@ -1356,7 +1356,6 @@ function PipelinesPage() {
             </span>
             <div className="pipeline-card-text">
               <h3 className="pipeline-card-title">{node.name}</h3>
-              <p className="pipeline-card-path">folder</p>
             </div>
           </div>
           <span className="pipeline-folder-chevron">›</span>
@@ -1744,7 +1743,7 @@ function PipelinesPage() {
 
             <div className="space-y-4">
               <div className="glass-card overflow-hidden">
-                <div className="p-4 border-b border-[var(--border-primary)]">
+                <div className="p-4 border-b border-[var(--border-primary)]" style={{ marginTop: '9px' }}>
                   <h3 className="text-lg font-semibold text-[var(--text-primary)]">Trigger Rules</h3>
                 </div>
                 <div className="p-4">
@@ -1995,7 +1994,10 @@ function PipelinesPage() {
       </div>
 
       {formModal && (
-        <div className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50">
+        <div
+          id={formModal.mode === 'create' ? 'pipelines-new-modal' : 'pipelines-clone-modal'}
+          className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show"
+        >
           <div className="pipelines-modal-card max-w-md w-full">
             <header className="pipelines-modal-header">
               <div>
@@ -2047,7 +2049,7 @@ function PipelinesPage() {
       )}
 
       {deleteModal && (
-        <div className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50">
+        <div id="pipelines-delete-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
           <div className="pipelines-modal-card max-w-md w-full">
             <header className="pipelines-modal-header">
               <div>

@@ -4916,6 +4916,7 @@ html.dark .pipeline-editor-autocomplete__ghost {
 }
 
 .triggers-runs-scroll {
+    max-height: 320px;
     overflow-y: auto;
     padding-right: 0.3rem;
 }
