@@ -43,6 +43,14 @@ type StepTreeNode = {
   stepIds: string[];
 };
 
+type ScopeTreeNode = {
+  id: string;
+  name: string;
+  fullPath: string;
+  children: ScopeTreeNode[];
+  scopes: string[];
+};
+
 const navItems: NavItem[] = [
   {
     label: 'Pipeline runs',
@@ -62,7 +70,7 @@ const navItems: NavItem[] = [
   {
     label: 'Scopes',
     path: '/scopes',
-    icon: <IconGlobe />, 
+    icon: <IconScope />, 
   },
   {
     label: 'Lab',
@@ -122,6 +130,10 @@ function AppShell() {
   const serverStepsRef = useRef<string[]>([]);
   const [stepTreeOpen, setStepTreeOpen] = useState<Set<string>>(new Set());
 
+  const [scopes, setScopes] = useState<string[]>([]);
+  const serverScopesRef = useRef<string[]>([]);
+  const [scopeTreeOpen, setScopeTreeOpen] = useState<Set<string>>(new Set());
+
   useEffect(() => {
     const root = document.documentElement;
     if (theme === 'dark') {
@@ -138,6 +150,55 @@ function AppShell() {
     const handle = window.setTimeout(() => setSidebarOpen(false), 0);
     return () => window.clearTimeout(handle);
   }, [location.pathname, sidebarOpen]);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const [secretResp, variableResp] = await Promise.all([
+          fetch(buildApiUrl('/v1/secrets/scopes')),
+          fetch(buildApiUrl('/v1/variables/scopes')),
+        ]);
+        const secretJson = secretResp.ok ? await secretResp.json() : [];
+        const variableJson = variableResp.ok ? await variableResp.json() : [];
+        const scopeSet = new Set<string>();
+        scopeSet.add('');
+        if (Array.isArray(secretJson)) {
+          secretJson.forEach((entry: unknown) => {
+            if (!entry || typeof entry !== 'object') return;
+            const record = entry as Record<string, unknown>;
+            const scopeLabel = typeof record.scope === 'string' ? record.scope : '';
+            scopeSet.add(scopeLabel.trim());
+          });
+        }
+        if (Array.isArray(variableJson)) {
+          variableJson.forEach((entry: unknown) => {
+            if (typeof entry === 'string') {
+              scopeSet.add(entry.trim());
+              return;
+            }
+            if (!entry || typeof entry !== 'object') return;
+            const record = entry as Record<string, unknown>;
+            const scopeLabel = typeof record.scope === 'string'
+              ? record.scope
+              : typeof record.env === 'string'
+                ? record.env
+                : typeof record.name === 'string'
+                  ? record.name
+                  : '';
+            scopeSet.add(scopeLabel.trim());
+          });
+        }
+        const list = Array.from(scopeSet).map(scope => scope.replace(/^\/+|\/+$/g, '')).sort((a, b) => a.localeCompare(b));
+        serverScopesRef.current = list;
+        setScopes(list);
+      } catch (error) {
+        console.warn('Failed to load scopes for sidebar', error);
+      }
+    };
+    if (location.pathname.startsWith('/scopes')) {
+      void load();
+    }
+  }, [location.pathname]);
 
   useEffect(() => {
     const load = async () => {
@@ -342,6 +403,33 @@ function AppShell() {
     return root;
   }, [steps]);
 
+  const buildScopeTree = useMemo(() => {
+    const root: ScopeTreeNode = { id: '__root__', name: 'All scopes', fullPath: '', children: [], scopes: [] };
+    scopes.forEach(scope => {
+      const normalized = scope.replace(/^\/+|\/+$/g, '');
+      const parts = normalized.split('/').filter(Boolean);
+      if (!parts.length) {
+        root.scopes.push('');
+        return;
+      }
+      let current = root;
+      let pathSoFar = '';
+      parts.forEach(segment => {
+        pathSoFar = pathSoFar ? `${pathSoFar}/${segment}` : segment;
+        let child = current.children.find(c => c.name === segment);
+        if (!child) {
+          child = { id: pathSoFar, name: segment, fullPath: pathSoFar, children: [], scopes: [] };
+          current.children.push(child);
+          current.children.sort((a, b) => a.name.localeCompare(b.name));
+        }
+        current = child;
+      });
+      current.scopes.push(normalized);
+      current.scopes.sort((a, b) => a.localeCompare(b));
+    });
+    return root;
+  }, [scopes]);
+
   const handleTogglePipelineNode = (id: string) => {
     setPipelineTreeOpen(prev => {
       const next = new Set(prev);
@@ -369,29 +457,42 @@ function AppShell() {
     });
   };
 
+  const handleToggleScopeNode = (id: string) => {
+    setScopeTreeOpen(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   return (
     <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
       <div id="hover-hint" aria-hidden="true"></div>
       <div className="flex h-screen overflow-hidden">
-          <Sidebar
-            navItems={navItems}
-            open={sidebarOpen}
-            onClose={() => setSidebarOpen(false)}
-            pipelineTree={buildTree}
-            pipelineTreeOpen={pipelineTreeOpen}
-            onTogglePipelineNode={handleTogglePipelineNode}
-            triggerTree={buildTriggerTree}
-            triggerTreeOpen={triggerTreeOpen}
-            onToggleTriggerNode={handleToggleTriggerNode}
-            stepTree={buildStepTree}
-            stepTreeOpen={stepTreeOpen}
-            onToggleStepNode={handleToggleStepNode}
-            splitIdentifier={splitIdentifier}
-            locationPathname={location.pathname}
-            onSelectPipelineFolder={path => navigate(path ? `/pipelines?folder=${encodeURIComponent(path)}` : '/pipelines')}
-            onSelectTriggerFolder={path => navigate(path ? `/triggers?folder=${encodeURIComponent(path)}` : '/triggers')}
-            onSelectStepFolder={path => navigate(path ? `/steps?folder=${encodeURIComponent(path)}` : '/steps')}
-          />
+        <Sidebar
+          navItems={navItems}
+          open={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          pipelineTree={buildTree}
+          pipelineTreeOpen={pipelineTreeOpen}
+          onTogglePipelineNode={handleTogglePipelineNode}
+          triggerTree={buildTriggerTree}
+          triggerTreeOpen={triggerTreeOpen}
+          onToggleTriggerNode={handleToggleTriggerNode}
+          stepTree={buildStepTree}
+          stepTreeOpen={stepTreeOpen}
+          onToggleStepNode={handleToggleStepNode}
+          scopeTree={buildScopeTree}
+          scopeTreeOpen={scopeTreeOpen}
+          onToggleScopeNode={handleToggleScopeNode}
+          splitIdentifier={splitIdentifier}
+          locationPathname={location.pathname}
+          onSelectPipelineFolder={path => navigate(path ? `/pipelines?folder=${encodeURIComponent(path)}` : '/pipelines')}
+          onSelectTriggerFolder={path => navigate(path ? `/triggers?folder=${encodeURIComponent(path)}` : '/triggers')}
+          onSelectStepFolder={path => navigate(path ? `/steps?folder=${encodeURIComponent(path)}` : '/steps')}
+          onSelectScopeFolder={path => navigate(path ? `/scopes?folder=${encodeURIComponent(path)}` : '/scopes')}
+        />
         <div
           id="sidebar-resizer"
           className="w-1.5 cursor-col-resize flex-shrink-0 bg-[var(--bg-tertiary)] hover:bg-[var(--border-accent)] transition-colors duration-200 hidden sm:block"
@@ -436,11 +537,15 @@ function Sidebar({
   stepTree,
   stepTreeOpen,
   onToggleStepNode,
+  scopeTree,
+  scopeTreeOpen,
+  onToggleScopeNode,
   splitIdentifier,
   locationPathname,
   onSelectPipelineFolder,
   onSelectTriggerFolder,
   onSelectStepFolder,
+  onSelectScopeFolder,
 }: {
   navItems: NavItem[];
   open: boolean;
@@ -454,15 +559,20 @@ function Sidebar({
   stepTree: StepTreeNode;
   stepTreeOpen: Set<string>;
   onToggleStepNode: (id: string) => void;
+  scopeTree: ScopeTreeNode;
+  scopeTreeOpen: Set<string>;
+  onToggleScopeNode: (id: string) => void;
   splitIdentifier: (id: string) => { name: string; path: string };
   locationPathname: string;
   onSelectPipelineFolder: (path: string) => void;
   onSelectTriggerFolder: (path: string) => void;
   onSelectStepFolder: (path: string) => void;
+  onSelectScopeFolder: (path: string) => void;
 }) {
   const isPipelinesRoute = locationPathname.startsWith('/pipelines');
   const isTriggersRoute = locationPathname.startsWith('/triggers');
   const isStepsRoute = locationPathname.startsWith('/steps');
+  const isScopesRoute = locationPathname.startsWith('/scopes');
   const searchParams = new URLSearchParams(location.search);
   const activeFolder = searchParams.get('folder') || '';
 
@@ -622,6 +732,75 @@ function Sidebar({
     );
   };
 
+  const encodeScopeForRoute = (scope: string) => {
+    const normalized = scope.replace(/^\/+|\/+$/g, '');
+    if (!normalized) return 'default';
+    return normalized
+      .split('/')
+      .filter(Boolean)
+      .map(encodeURIComponent)
+      .join('/');
+  };
+
+  const renderScopeTreeNode = (node: ScopeTreeNode) => {
+    const isOpen = scopeTreeOpen.has(node.id);
+    const isRoot = node.id === '__root__';
+    const isActiveFolder = activeFolder === node.fullPath;
+    return (
+      <li key={`scope-${node.id}`} className="pipeline-tree-row">
+        {!isRoot && (
+          <div className="pipeline-tree-item">
+            <button className="pipeline-tree-toggle" onClick={() => onToggleScopeNode(node.id)} aria-label="Toggle folder">
+              <span className="text-sm">{isOpen ? '▾' : '▸'}</span>
+            </button>
+            <button
+              className={`pipeline-tree-folder ${isActiveFolder ? 'active' : ''}`}
+              onClick={() => {
+                if (!isOpen) onToggleScopeNode(node.id);
+                onSelectScopeFolder(node.fullPath);
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 7h5l2 2h11v9a2 2 0 0 1-2 2H3z" />
+                <path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2" />
+              </svg>
+              <span className="truncate">{node.name}</span>
+            </button>
+          </div>
+        )}
+        {(isRoot || isOpen) && (
+          <ul className="pipeline-tree-children">
+            {node.children.map(child => renderScopeTreeNode(child))}
+            {node.scopes.map(scopeLabel => {
+              const active = locationPathname.includes(`/scopes/${encodeScopeForRoute(scopeLabel)}`);
+              const name = scopeLabel.split('/').filter(Boolean).pop() || 'Default';
+              return (
+                <li key={`scope-leaf-${scopeLabel || 'default'}`} className={`pipeline-tree-leaf ${active ? 'active' : ''}`}>
+                  <NavLink
+                    className="pipeline-tree-leaf-btn"
+                    to={`/scopes/${encodeScopeForRoute(scopeLabel)}`}
+                    onClick={() => onSelectScopeFolder(node.fullPath)}
+                  >
+                    <span className="pipeline-tree-leaf-icon" aria-hidden="true">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="7" />
+                        <circle cx="12" cy="12" r="2.2" />
+                        <path d="M12 4v2.4m0 11.2V20m8-8h-2.4M6.4 12H4" />
+                        <path d="M16.4 7.6l-1.4 1.4m-6 6-1.4 1.4" />
+                        <path d="M7.6 7.6l1.4 1.4m6 6 1.4 1.4" />
+                      </svg>
+                    </span>
+                    <span className="truncate">{name}</span>
+                  </NavLink>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </li>
+    );
+  };
+
   return (
     <>
       <div
@@ -689,6 +868,13 @@ function Sidebar({
                   <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">All steps</p>
                 </div>
                 <ul className="pipeline-tree-list">{renderStepTreeNode(stepTree)}</ul>
+              </div>
+            ) : isScopesRoute ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">All scopes</p>
+                </div>
+                <ul className="pipeline-tree-list">{renderScopeTreeNode(scopeTree)}</ul>
               </div>
             ) : (
               <p className="text-xs text-[var(--text-secondary)]">Contextual navigation will appear here as features are migrated.</p>
@@ -798,11 +984,14 @@ function IconBell() {
   );
 }
 
-function IconGlobe() {
+function IconScope() {
   return (
     <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 12c2.28 0 4-1.79 4-4s-1.72-4-4-4-4 1.79-4 4 1.72 4 4 4z" />
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+      <circle cx="12" cy="12" r="8" strokeWidth="1.8" />
+      <circle cx="12" cy="12" r="2" strokeWidth="1.8" />
+      <path strokeWidth="1.8" strokeLinecap="round" d="M12 3v3m0 12v3m9-9h-3M6 12H3" />
+      <path strokeWidth="1.8" strokeLinecap="round" d="M16.95 7.05l-2.12 2.12m-5.66 5.66-2.12 2.12" />
+      <path strokeWidth="1.8" strokeLinecap="round" d="M7.05 7.05l2.12 2.12m5.66 5.66 2.12 2.12" />
     </svg>
   );
 }
