@@ -5,9 +5,11 @@ import PipelinesPage from './pages/Pipelines';
 import TriggersPage from './pages/Triggers';
 import ScopesPage from './pages/Scopes';
 import LabPage from './pages/Lab';
+import StepsPage from './pages/Steps';
 import SystemPage from './pages/System';
 import { buildApiUrl } from './lib/api';
 import { PIPELINE_DRAFTS_CHANGED_EVENT, PIPELINE_DRAFTS_STORAGE_KEY, loadPipelineDrafts } from './lib/pipelineDrafts';
+import { STEP_DRAFTS_CHANGED_EVENT, STEP_DRAFTS_STORAGE_KEY, loadStepDrafts } from './lib/stepDrafts';
 
 type Theme = 'light' | 'dark';
 
@@ -31,6 +33,14 @@ type TriggerTreeNode = {
   fullPath: string;
   children: TriggerTreeNode[];
   triggerSlugs: string[];
+};
+
+type StepTreeNode = {
+  id: string;
+  name: string;
+  fullPath: string;
+  children: StepTreeNode[];
+  stepIds: string[];
 };
 
 const navItems: NavItem[] = [
@@ -60,6 +70,11 @@ const navItems: NavItem[] = [
     icon: <IconFlask />, 
   },
   {
+    label: 'Steps',
+    path: '/steps',
+    icon: <IconSteps />,
+  },
+  {
     label: 'System',
     path: '/system/config',
     icon: <IconCog />, 
@@ -72,6 +87,7 @@ const titleMap: Record<string, string> = {
   triggers: 'Triggers',
   scopes: 'Scopes',
   lab: 'Lab',
+  steps: 'Steps',
   system: 'System',
 };
 
@@ -101,6 +117,10 @@ function AppShell() {
 
   const [triggers, setTriggers] = useState<string[]>([]);
   const [triggerTreeOpen, setTriggerTreeOpen] = useState<Set<string>>(new Set());
+
+  const [steps, setSteps] = useState<string[]>([]);
+  const serverStepsRef = useRef<string[]>([]);
+  const [stepTreeOpen, setStepTreeOpen] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const root = document.documentElement;
@@ -176,6 +196,29 @@ function AppShell() {
   }, [location.pathname]);
 
   useEffect(() => {
+    const load = async () => {
+      try {
+        const response = await fetch(buildApiUrl('/v1/steps'));
+        if (!response.ok) return;
+        const payload = await response.json();
+        const ids = Array.isArray(payload)
+          ? payload.map((item: unknown) => (typeof item === 'string' ? item.trim() : '')).filter(Boolean)
+          : [];
+        ids.sort((a, b) => a.localeCompare(b));
+        serverStepsRef.current = ids;
+        const draftIds = loadStepDrafts().map(draft => draft.id);
+        const merged = Array.from(new Set([...ids, ...draftIds])).sort((a, b) => a.localeCompare(b));
+        setSteps(merged);
+      } catch (error) {
+        console.warn('Failed to load steps for sidebar', error);
+      }
+    };
+    if (location.pathname.startsWith('/steps')) {
+      void load();
+    }
+  }, [location.pathname]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') return;
     const handleDraftsChanged = () => {
       if (!location.pathname.startsWith('/pipelines')) return;
@@ -191,6 +234,26 @@ function AppShell() {
     window.addEventListener('storage', handleStorage);
     return () => {
       window.removeEventListener(PIPELINE_DRAFTS_CHANGED_EVENT, handleDraftsChanged);
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleDraftsChanged = () => {
+      if (!location.pathname.startsWith('/steps')) return;
+      const draftIds = loadStepDrafts().map(draft => draft.id);
+      const merged = Array.from(new Set([...serverStepsRef.current, ...draftIds])).sort((a, b) => a.localeCompare(b));
+      setSteps(merged);
+    };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== STEP_DRAFTS_STORAGE_KEY) return;
+      handleDraftsChanged();
+    };
+    window.addEventListener(STEP_DRAFTS_CHANGED_EVENT, handleDraftsChanged);
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      window.removeEventListener(STEP_DRAFTS_CHANGED_EVENT, handleDraftsChanged);
       window.removeEventListener('storage', handleStorage);
     };
   }, [location.pathname]);
@@ -255,6 +318,30 @@ function AppShell() {
     return root;
   }, [triggers]);
 
+  const buildStepTree = useMemo(() => {
+    const root: StepTreeNode = { id: '__root__', name: 'All steps', fullPath: '', children: [], stepIds: [] };
+    steps.forEach(id => {
+      const parts = id.split('/').filter(Boolean);
+      const stepName = parts.pop();
+      if (!stepName) return;
+      let current = root;
+      let pathSoFar = '';
+      parts.forEach(segment => {
+        pathSoFar = pathSoFar ? `${pathSoFar}/${segment}` : segment;
+        let child = current.children.find(c => c.name === segment);
+        if (!child) {
+          child = { id: pathSoFar, name: segment, fullPath: pathSoFar, children: [], stepIds: [] };
+          current.children.push(child);
+          current.children.sort((a, b) => a.name.localeCompare(b.name));
+        }
+        current = child;
+      });
+      current.stepIds.push(id);
+      current.stepIds.sort((a, b) => a.localeCompare(b));
+    });
+    return root;
+  }, [steps]);
+
   const handleTogglePipelineNode = (id: string) => {
     setPipelineTreeOpen(prev => {
       const next = new Set(prev);
@@ -266,6 +353,15 @@ function AppShell() {
 
   const handleToggleTriggerNode = (id: string) => {
     setTriggerTreeOpen(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleToggleStepNode = (id: string) => {
+    setStepTreeOpen(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -287,10 +383,14 @@ function AppShell() {
             triggerTree={buildTriggerTree}
             triggerTreeOpen={triggerTreeOpen}
             onToggleTriggerNode={handleToggleTriggerNode}
+            stepTree={buildStepTree}
+            stepTreeOpen={stepTreeOpen}
+            onToggleStepNode={handleToggleStepNode}
             splitIdentifier={splitIdentifier}
             locationPathname={location.pathname}
             onSelectPipelineFolder={path => navigate(path ? `/pipelines?folder=${encodeURIComponent(path)}` : '/pipelines')}
             onSelectTriggerFolder={path => navigate(path ? `/triggers?folder=${encodeURIComponent(path)}` : '/triggers')}
+            onSelectStepFolder={path => navigate(path ? `/steps?folder=${encodeURIComponent(path)}` : '/steps')}
           />
         <div
           id="sidebar-resizer"
@@ -311,6 +411,7 @@ function AppShell() {
               <Route path="/triggers/*" element={<TriggersPage />} />
               <Route path="/scopes/*" element={<ScopesPage />} />
               <Route path="/lab/*" element={<LabPage />} />
+              <Route path="/steps/*" element={<StepsPage />} />
               <Route path="/system/:tab?" element={<SystemPage />} />
               <Route path="*" element={<Navigate to="/pipelineruns/main" replace />} />
             </Routes>
@@ -332,10 +433,14 @@ function Sidebar({
   triggerTree,
   triggerTreeOpen,
   onToggleTriggerNode,
+  stepTree,
+  stepTreeOpen,
+  onToggleStepNode,
   splitIdentifier,
   locationPathname,
   onSelectPipelineFolder,
   onSelectTriggerFolder,
+  onSelectStepFolder,
 }: {
   navItems: NavItem[];
   open: boolean;
@@ -346,13 +451,18 @@ function Sidebar({
   triggerTree: TriggerTreeNode;
   triggerTreeOpen: Set<string>;
   onToggleTriggerNode: (id: string) => void;
+  stepTree: StepTreeNode;
+  stepTreeOpen: Set<string>;
+  onToggleStepNode: (id: string) => void;
   splitIdentifier: (id: string) => { name: string; path: string };
   locationPathname: string;
   onSelectPipelineFolder: (path: string) => void;
   onSelectTriggerFolder: (path: string) => void;
+  onSelectStepFolder: (path: string) => void;
 }) {
   const isPipelinesRoute = locationPathname.startsWith('/pipelines');
   const isTriggersRoute = locationPathname.startsWith('/triggers');
+  const isStepsRoute = locationPathname.startsWith('/steps');
   const searchParams = new URLSearchParams(location.search);
   const activeFolder = searchParams.get('folder') || '';
 
@@ -459,6 +569,59 @@ function Sidebar({
     );
   };
 
+  const renderStepTreeNode = (node: StepTreeNode) => {
+    const isOpen = stepTreeOpen.has(node.id);
+    const isRoot = node.id === '__root__';
+    const isActiveFolder = activeFolder === node.fullPath;
+    return (
+      <li key={`step-${node.id}`} className="pipeline-tree-row">
+        {!isRoot && (
+          <div className="pipeline-tree-item">
+            <button className="pipeline-tree-toggle" onClick={() => onToggleStepNode(node.id)} aria-label="Toggle folder">
+              <span className="text-sm">{isOpen ? '▾' : '▸'}</span>
+            </button>
+            <button
+              className={`pipeline-tree-folder ${isActiveFolder ? 'active' : ''}`}
+              onClick={() => {
+                if (!isOpen) onToggleStepNode(node.id);
+                onSelectStepFolder(node.fullPath);
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 7h5l2 2h11v9a2 2 0 0 1-2 2H3z" />
+                <path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2" />
+              </svg>
+              <span className="truncate">{node.name}</span>
+            </button>
+          </div>
+        )}
+        {(isRoot || isOpen) && (
+          <ul className="pipeline-tree-children">
+            {node.children.map(child => renderStepTreeNode(child))}
+            {node.stepIds.map(stepId => {
+              const { name } = splitIdentifier(stepId);
+              const active = locationPathname.includes(`/steps/${stepId}`);
+              return (
+                <li key={`step-id-${stepId}`} className={`pipeline-tree-leaf ${active ? 'active' : ''}`}>
+                  <NavLink className="pipeline-tree-leaf-btn" to={`/steps/${stepId.split('/').map(encodeURIComponent).join('/')}`}>
+                    <span className="pipeline-tree-leaf-icon" aria-hidden="true">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 2l8 4.5v11L12 22 4 17.5v-11L12 2z" />
+                        <path d="M12 22v-7.5" />
+                        <path d="M20 6.5l-8 4.5-8-4.5" />
+                      </svg>
+                    </span>
+                    <span className="truncate">{name || stepId}</span>
+                  </NavLink>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </li>
+    );
+  };
+
   return (
     <>
       <div
@@ -519,6 +682,13 @@ function Sidebar({
                 <ul className="pipeline-tree-list">
                   {renderTriggerTreeNode(triggerTree)}
                 </ul>
+              </div>
+            ) : isStepsRoute ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">All steps</p>
+                </div>
+                <ul className="pipeline-tree-list">{renderStepTreeNode(stepTree)}</ul>
               </div>
             ) : (
               <p className="text-xs text-[var(--text-secondary)]">Contextual navigation will appear here as features are migrated.</p>
@@ -650,6 +820,16 @@ function IconCog() {
     <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0a1.724 1.724 0 002.573 1.02c.842-.488 1.91.27 1.662 1.2a1.724 1.724 0 001.091 2.062c.9.3.9 1.603 0 1.902a1.724 1.724 0 00-1.09 2.062c.247.93-.82 1.688-1.663 1.2a1.724 1.724 0 00-2.572 1.02c-.3.921-1.603.921-1.902 0a1.724 1.724 0 00-2.573-1.02c-.842.488-1.91-.27-1.662-1.2a1.724 1.724 0 00-1.091-2.062c-.9-.3-.9-1.603 0-1.902a1.724 1.724 0 001.09-2.062c-.247-.93.82-1.688 1.663-1.2a1.724 1.724 0 002.572-1.02z" />
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
+  );
+}
+
+function IconSteps() {
+  return (
+    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 2l8 4.5v11L12 22 4 17.5v-11L12 2z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 22v-7.5" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 6.5l-8 4.5-8-4.5" />
     </svg>
   );
 }
