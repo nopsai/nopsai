@@ -25,6 +25,14 @@ type PipelineTreeNode = {
   pipelineIds: string[];
 };
 
+type TriggerTreeNode = {
+  id: string;
+  name: string;
+  fullPath: string;
+  children: TriggerTreeNode[];
+  triggerSlugs: string[];
+};
+
 const navItems: NavItem[] = [
   {
     label: 'Pipeline runs',
@@ -89,7 +97,10 @@ function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [pipelines, setPipelines] = useState<string[]>([]);
   const serverPipelinesRef = useRef<string[]>([]);
-  const [treeOpen, setTreeOpen] = useState<Set<string>>(new Set());
+  const [pipelineTreeOpen, setPipelineTreeOpen] = useState<Set<string>>(new Set());
+
+  const [triggers, setTriggers] = useState<string[]>([]);
+  const [triggerTreeOpen, setTriggerTreeOpen] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const root = document.documentElement;
@@ -102,7 +113,11 @@ function AppShell() {
     }
   }, [theme]);
 
-  useEffect(() => setSidebarOpen(false), [location.pathname]);
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const handle = window.setTimeout(() => setSidebarOpen(false), 0);
+    return () => window.clearTimeout(handle);
+  }, [location.pathname, sidebarOpen]);
 
   useEffect(() => {
     const load = async () => {
@@ -110,13 +125,18 @@ function AppShell() {
         const response = await fetch(buildApiUrl('/v1/pipelines'));
         if (!response.ok) return;
         const payload = await response.json();
+        const asRecord = (value: unknown): Record<string, unknown> | null => {
+          if (!value || typeof value !== 'object') return null;
+          return value as Record<string, unknown>;
+        };
         const ids = Array.isArray(payload)
           ? payload
-              .map((item: any) => {
+              .map((item: unknown) => {
                 if (typeof item === 'string') return item;
-                if (item && typeof item === 'object') {
-                  return typeof item.id === 'string' ? item.id : typeof item.identifier === 'string' ? item.identifier : '';
-                }
+                const record = asRecord(item);
+                if (!record) return '';
+                if (typeof record.id === 'string') return record.id;
+                if (typeof record.identifier === 'string') return record.identifier;
                 return '';
               })
               .filter(Boolean)
@@ -131,6 +151,26 @@ function AppShell() {
       }
     };
     if (location.pathname.startsWith('/pipelines')) {
+      void load();
+    }
+  }, [location.pathname]);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const response = await fetch(buildApiUrl('/v1/overrides'));
+        if (!response.ok) return;
+        const payload = await response.json();
+        const slugs = Array.isArray(payload)
+          ? payload.map((item: unknown) => (typeof item === 'string' ? item.trim() : '')).filter(Boolean)
+          : [];
+        slugs.sort((a: string, b: string) => a.localeCompare(b));
+        setTriggers(slugs);
+      } catch (error) {
+        console.warn('Failed to load triggers for sidebar', error);
+      }
+    };
+    if (location.pathname.startsWith('/triggers')) {
       void load();
     }
   }, [location.pathname]);
@@ -191,8 +231,41 @@ function AppShell() {
     return root;
   }, [pipelines]);
 
-  const handleToggleNode = (id: string) => {
-    setTreeOpen(prev => {
+  const buildTriggerTree = useMemo(() => {
+    const root: TriggerTreeNode = { id: '__root__', name: 'All triggers', fullPath: '', children: [], triggerSlugs: [] };
+    triggers.forEach(slug => {
+      const parts = slug.split('/').filter(Boolean);
+      const repoName = parts.pop();
+      if (!repoName) return;
+      let current = root;
+      let pathSoFar = '';
+      parts.forEach(segment => {
+        pathSoFar = pathSoFar ? `${pathSoFar}/${segment}` : segment;
+        let child = current.children.find(c => c.name === segment);
+        if (!child) {
+          child = { id: pathSoFar, name: segment, fullPath: pathSoFar, children: [], triggerSlugs: [] };
+          current.children.push(child);
+          current.children.sort((a, b) => a.name.localeCompare(b.name));
+        }
+        current = child;
+      });
+      current.triggerSlugs.push(slug);
+      current.triggerSlugs.sort((a, b) => a.localeCompare(b));
+    });
+    return root;
+  }, [triggers]);
+
+  const handleTogglePipelineNode = (id: string) => {
+    setPipelineTreeOpen(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleToggleTriggerNode = (id: string) => {
+    setTriggerTreeOpen(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -204,19 +277,21 @@ function AppShell() {
     <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
       <div id="hover-hint" aria-hidden="true"></div>
       <div className="flex h-screen overflow-hidden">
-        <Sidebar
-          navItems={navItems}
-          open={sidebarOpen}
-          onClose={() => setSidebarOpen(false)}
-          tree={buildTree}
-          treeOpen={treeOpen}
-          onToggleNode={handleToggleNode}
-          splitIdentifier={splitIdentifier}
-          locationPathname={location.pathname}
-          onSelectFolder={path => {
-            navigate(path ? `/pipelines?folder=${encodeURIComponent(path)}` : '/pipelines');
-          }}
-        />
+          <Sidebar
+            navItems={navItems}
+            open={sidebarOpen}
+            onClose={() => setSidebarOpen(false)}
+            pipelineTree={buildTree}
+            pipelineTreeOpen={pipelineTreeOpen}
+            onTogglePipelineNode={handleTogglePipelineNode}
+            triggerTree={buildTriggerTree}
+            triggerTreeOpen={triggerTreeOpen}
+            onToggleTriggerNode={handleToggleTriggerNode}
+            splitIdentifier={splitIdentifier}
+            locationPathname={location.pathname}
+            onSelectPipelineFolder={path => navigate(path ? `/pipelines?folder=${encodeURIComponent(path)}` : '/pipelines')}
+            onSelectTriggerFolder={path => navigate(path ? `/triggers?folder=${encodeURIComponent(path)}` : '/triggers')}
+          />
         <div
           id="sidebar-resizer"
           className="w-1.5 cursor-col-resize flex-shrink-0 bg-[var(--bg-tertiary)] hover:bg-[var(--border-accent)] transition-colors duration-200 hidden sm:block"
@@ -251,43 +326,52 @@ function Sidebar({
   navItems,
   open,
   onClose,
-  tree,
-  treeOpen,
-  onToggleNode,
+  pipelineTree,
+  pipelineTreeOpen,
+  onTogglePipelineNode,
+  triggerTree,
+  triggerTreeOpen,
+  onToggleTriggerNode,
   splitIdentifier,
   locationPathname,
-  onSelectFolder,
+  onSelectPipelineFolder,
+  onSelectTriggerFolder,
 }: {
   navItems: NavItem[];
   open: boolean;
   onClose: () => void;
-  tree: PipelineTreeNode;
-  treeOpen: Set<string>;
-  onToggleNode: (id: string) => void;
+  pipelineTree: PipelineTreeNode;
+  pipelineTreeOpen: Set<string>;
+  onTogglePipelineNode: (id: string) => void;
+  triggerTree: TriggerTreeNode;
+  triggerTreeOpen: Set<string>;
+  onToggleTriggerNode: (id: string) => void;
   splitIdentifier: (id: string) => { name: string; path: string };
   locationPathname: string;
-  onSelectFolder: (path: string) => void;
+  onSelectPipelineFolder: (path: string) => void;
+  onSelectTriggerFolder: (path: string) => void;
 }) {
   const isPipelinesRoute = locationPathname.startsWith('/pipelines');
+  const isTriggersRoute = locationPathname.startsWith('/triggers');
   const searchParams = new URLSearchParams(location.search);
   const activeFolder = searchParams.get('folder') || '';
 
-  const renderTreeNode = (node: PipelineTreeNode) => {
-    const isOpen = treeOpen.has(node.id);
+  const renderPipelineTreeNode = (node: PipelineTreeNode) => {
+    const isOpen = pipelineTreeOpen.has(node.id);
     const isRoot = node.id === '__root__';
     const isActiveFolder = activeFolder === node.fullPath;
     return (
       <li key={node.id} className="pipeline-tree-row">
         {!isRoot && (
           <div className="pipeline-tree-item">
-            <button className="pipeline-tree-toggle" onClick={() => onToggleNode(node.id)} aria-label="Toggle folder">
+            <button className="pipeline-tree-toggle" onClick={() => onTogglePipelineNode(node.id)} aria-label="Toggle folder">
               <span className="text-sm">{isOpen ? '▾' : '▸'}</span>
             </button>
             <button
               className={`pipeline-tree-folder ${isActiveFolder ? 'active' : ''}`}
               onClick={() => {
-                if (!isOpen) onToggleNode(node.id);
-                onSelectFolder(node.fullPath);
+                if (!isOpen) onTogglePipelineNode(node.id);
+                onSelectPipelineFolder(node.fullPath);
               }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -300,7 +384,7 @@ function Sidebar({
         )}
         {(isRoot || isOpen) && (
           <ul className="pipeline-tree-children">
-            {node.children.map(child => renderTreeNode(child))}
+            {node.children.map(child => renderPipelineTreeNode(child))}
             {node.pipelineIds.map(pid => {
               const { name } = splitIdentifier(pid);
               const active = locationPathname.includes(`/pipelines/${pid}`);
@@ -314,6 +398,57 @@ function Sidebar({
                       </svg>
                     </span>
                     <span className="truncate">{name || pid}</span>
+                  </NavLink>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </li>
+    );
+  };
+
+  const renderTriggerTreeNode = (node: TriggerTreeNode) => {
+    const isOpen = triggerTreeOpen.has(node.id);
+    const isRoot = node.id === '__root__';
+    const isActiveFolder = activeFolder === node.fullPath;
+    return (
+      <li key={`tr-${node.id}`} className="pipeline-tree-row">
+        {!isRoot && (
+          <div className="pipeline-tree-item">
+            <button className="pipeline-tree-toggle" onClick={() => onToggleTriggerNode(node.id)} aria-label="Toggle folder">
+              <span className="text-sm">{isOpen ? '▾' : '▸'}</span>
+            </button>
+            <button
+              className={`pipeline-tree-folder ${isActiveFolder ? 'active' : ''}`}
+              onClick={() => {
+                if (!isOpen) onToggleTriggerNode(node.id);
+                onSelectTriggerFolder(node.fullPath);
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 7h5l2 2h11v9a2 2 0 0 1-2 2H3z" />
+                <path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2" />
+              </svg>
+              <span className="truncate">{node.name}</span>
+            </button>
+          </div>
+        )}
+        {(isRoot || isOpen) && (
+          <ul className="pipeline-tree-children">
+            {node.children.map(child => renderTriggerTreeNode(child))}
+            {node.triggerSlugs.map(slug => {
+              const { name } = splitIdentifier(slug);
+              const active = locationPathname.includes(`/triggers/${slug}`);
+              return (
+                <li key={`slug-${slug}`} className={`pipeline-tree-leaf ${active ? 'active' : ''}`}>
+                  <NavLink className="pipeline-tree-leaf-btn" to={`/triggers/${slug.split('/').map(encodeURIComponent).join('/')}`}>
+                    <span className="pipeline-tree-leaf-icon" aria-hidden="true">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                      </svg>
+                    </span>
+                    <span className="truncate">{name || slug}</span>
                   </NavLink>
                 </li>
               );
@@ -373,7 +508,16 @@ function Sidebar({
                   <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">All pipelines</p>
                 </div>
                 <ul className="pipeline-tree-list">
-                  {renderTreeNode(tree)}
+                  {renderPipelineTreeNode(pipelineTree)}
+                </ul>
+              </div>
+            ) : isTriggersRoute ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">All triggers</p>
+                </div>
+                <ul className="pipeline-tree-list">
+                  {renderTriggerTreeNode(triggerTree)}
                 </ul>
               </div>
             ) : (
@@ -479,7 +623,7 @@ function IconFlow() {
 function IconBell() {
   return (
     <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V4a2 2 0 10-4 0v1.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
     </svg>
   );
 }
