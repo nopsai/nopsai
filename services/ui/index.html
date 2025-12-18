@@ -958,7 +958,26 @@
                             </div>
                             <div class="glass-card p-6 space-y-3">
                                 <div class="flex items-center justify-between gap-2">
-                                    <h3 class="text-lg font-semibold text-[var(--text-primary)]">Runners</h3>
+                                    <div class="flex items-center gap-3">
+                                        <h3 class="text-lg font-semibold text-[var(--text-primary)]">Runners</h3>
+                                        <button id="open-runner-docker-btn" class="glass-button-ghost" title="Generate docker run command for a runner">
+                                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <path d="M3 8h5v5H3z" />
+                                                <path d="M9 8h5v5H9z" />
+                                                <path d="M4 5h4" />
+                                                <path d="M10 5h4" />
+                                                <path d="M5 3h2" />
+                                                <path d="M11 3h2" />
+                                                <path d="M18 10h3" />
+                                                <path d="M18 14h3" />
+                                                <path d="M18 18h3" />
+                                                <path d="M3 13h4" />
+                                                <path d="M10 13h5" />
+                                                <path d="M3 17h8" />
+                                                <path d="M12 17h5" />
+                                            </svg>
+                                        </button>
+                                    </div>
                                     <span id="dispatcher-updated" class="text-xs text-[var(--text-secondary)]">—</span>
                                 </div>
                                 <div id="dispatcher-runner-list" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3"></div>
@@ -976,6 +995,59 @@
                 </div>
             </div>
         </main>
+    </div>
+
+    <div id="runner-docker-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-200">
+        <div class="runner-docker-panel bg-[var(--bg-secondary)] rounded-lg shadow-2xl w-full max-w-3xl transform scale-95 transition-transform duration-200">
+            <div class="flex items-center justify-between p-4 border-b border-[var(--border-primary)]">
+                <div>
+                    <h2 class="text-xl font-semibold text-[var(--text-primary)]">Generate runner docker command</h2>
+                    <p class="text-sm text-[var(--text-secondary)]">Fill parameters to build a ready-to-run command with defaults.</p>
+                </div>
+                <button id="close-runner-docker-btn" class="text-[var(--text-secondary)] hover:text-[var(--text-primary)]" aria-label="Close docker command builder">
+                    <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <div class="p-6 space-y-5">
+                <form id="runner-docker-form" class="space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <label class="block text-sm text-[var(--text-secondary)] space-y-1">
+                            <span class="font-semibold">Runner ID</span>
+                            <input id="runner-docker-id" type="text" class="pipelines-input system-input w-full" value="runner-general-2" />
+                        </label>
+                        <label class="block text-sm text-[var(--text-secondary)] space-y-1">
+                            <span class="font-semibold">Scopes (comma separated)</span>
+                            <input id="runner-docker-scopes" type="text" class="pipelines-input system-input w-full" value="prod" />
+                        </label>
+                        <label class="block text-sm text-[var(--text-secondary)] space-y-1">
+                            <span class="font-semibold">Capacity</span>
+                            <input id="runner-docker-capacity" type="number" min="1" class="pipelines-input system-input w-full" value="2" />
+                        </label>
+                        <label class="block text-sm text-[var(--text-secondary)] space-y-1">
+                            <span class="font-semibold">Dispatcher address</span>
+                            <input id="runner-docker-dispatcher" type="text" class="pipelines-input system-input w-full" value="192.168.1.16:9090" />
+                        </label>
+                        <label class="block text-sm text-[var(--text-secondary)] space-y-1 md:col-span-2">
+                            <span class="font-semibold">Docker network (optional)</span>
+                            <input id="runner-docker-network" type="text" class="pipelines-input system-input w-full" placeholder="bridge" value="" />
+                        </label>
+                    </div>
+                </form>
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between">
+                        <span class="text-sm font-semibold text-[var(--text-secondary)]">Command</span>
+                        <button id="copy-runner-docker-btn" class="glass-button-primary text-xs">
+                            <svg class="h-4 w-4 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h8m-8 4h8m-8 4h8m2-10h.01M4 6h.01M4 10h.01M4 14h.01M4 18h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                            <span>Copy</span>
+                        </button>
+                    </div>
+                    <textarea id="runner-docker-command" class="w-full bg-[var(--bg-tertiary)] text-[var(--text-primary)] border border-[var(--border-primary)] rounded-md p-3 text-sm font-mono" rows="3" readonly></textarea>
+                    <p class="text-xs text-[var(--text-secondary)]">Includes volume mount for docker.sock and matches the runner defaults above.</p>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div id="step-modal" class="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 hidden opacity-0 transition-opacity duration-300">
