@@ -35,6 +35,13 @@ type LabSessionState = {
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
 const LAB_SESSION_STORAGE_KEY = 'nopsai.lab.session.v1';
 
+function normalizeScopeLabel(value: unknown): string {
+  if (value == null) return '';
+  return String(value)
+    .trim()
+    .replace(/^\/+|\/+$/g, '');
+}
+
 function buildBlankYaml(name = DEFAULT_PIPELINE_NAME) {
   return [
     `name: ${name}`,
@@ -59,6 +66,20 @@ function normalizeList(payload: unknown): string[] {
       return '';
     })
     .filter(Boolean);
+}
+
+function normalizeVariableSuggestionList(payload: unknown): string[] {
+  const names = normalizeList(payload);
+  const set = new Set<string>();
+  names.forEach(name => {
+    const parts = name.split('/').filter(Boolean);
+    if (parts.length === 3) {
+      set.add(parts[2]);
+    } else {
+      set.add(name);
+    }
+  });
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
 }
 
 function encodeId(id: string) {
@@ -196,6 +217,21 @@ function LabPage() {
 
   const pipelineIds = useMemo(() => pipelines.map(item => item.id).filter(Boolean), [pipelines]);
 
+  useEffect(() => {
+    if (scopeValue && !scopes.includes(scopeValue)) {
+      setScopeValue('');
+    }
+  }, [scopeValue, scopes]);
+
+  const scopeOptions = useMemo(() => {
+    const list = scopes
+      .slice()
+      .map(normalizeScopeLabel)
+      .filter(scope => scope !== '')
+      .sort((a, b) => a.localeCompare(b));
+    return list;
+  }, [scopes]);
+
   const includedDependencies = useMemo(() => {
     try {
       const parsed = yaml.load(yamlText) as unknown;
@@ -277,15 +313,16 @@ function LabPage() {
     setAutocompleteMeta(prev => ({ ...prev, loading: true }));
     try {
       const promise = (async () => {
+        const scopeParam = scopeValue ? `?env=${encodeURIComponent(scopeValue)}` : '';
         const [secretsResp, varsResp, stepsResp] = await Promise.all([
-          fetch(buildApiUrl('/v1/secrets')).then(r => (r.ok ? r.json() : [])),
-          fetch(buildApiUrl('/v1/variables')).then(r => (r.ok ? r.json() : [])),
+          fetch(buildApiUrl(`/v1/secrets${scopeParam}`)).then(r => (r.ok ? r.json() : [])),
+          fetch(buildApiUrl(`/v1/variables${scopeParam}`)).then(r => (r.ok ? r.json() : [])),
           fetch(buildApiUrl('/v1/steps')).then(r => (r.ok ? r.json() : [])),
         ]);
 
         setAutocompleteMeta({
           secrets: normalizeList(secretsResp),
-          variables: normalizeList(varsResp),
+          variables: normalizeVariableSuggestionList(varsResp),
           reusableSteps: normalizeList(stepsResp),
           fetchedAt: Date.now(),
           loading: false,
@@ -301,7 +338,13 @@ function LabPage() {
     } finally {
       autocompleteFetchRef.current.loadingPromise = null;
     }
-  }, []);
+  }, [scopeValue]);
+
+  useEffect(() => {
+    // refresh autocomplete when scope changes so suggestions match the target scope
+    autocompleteFetchRef.current.fetchedAt = 0;
+    void loadAutocomplete(true);
+  }, [loadAutocomplete, scopeValue]);
 
   const loadPipelines = useCallback(async () => {
     setPipelinesLoading(true);
@@ -340,12 +383,43 @@ function LabPage() {
 
   const loadScopes = useCallback(async () => {
     try {
-      const response = await fetch(buildApiUrl('/v1/variables/scopes'));
-      if (!response.ok) return;
-      const payload = await response.json();
-      const list = Array.isArray(payload) ? payload : [];
-      const normalized = list.map(item => (typeof item === 'string' ? item.trim() : '')).filter(Boolean);
-      normalized.sort((a: string, b: string) => a.localeCompare(b));
+      const [secretResp, variableResp] = await Promise.all([
+        fetch(buildApiUrl('/v1/secrets/scopes')),
+        fetch(buildApiUrl('/v1/variables/scopes')),
+      ]);
+
+      const secretJson = secretResp.ok ? await secretResp.json() : [];
+      const variableJson = variableResp.ok ? await variableResp.json() : [];
+
+      const scopeSet = new Set<string>();
+      scopeSet.add('');
+
+      if (Array.isArray(secretJson)) {
+        secretJson.forEach(entry => {
+          if (!entry || typeof entry !== 'object') return;
+          const record = entry as Record<string, unknown>;
+          const label = normalizeScopeLabel(record.scope);
+          scopeSet.add(label);
+        });
+      }
+
+      if (Array.isArray(variableJson)) {
+        variableJson.forEach(entry => {
+          if (typeof entry === 'string') {
+            scopeSet.add(normalizeScopeLabel(entry));
+            return;
+          }
+          if (!entry || typeof entry !== 'object') return;
+          const record = entry as Record<string, unknown>;
+          const label = normalizeScopeLabel(record.scope ?? record.env ?? record.name ?? record.value);
+          scopeSet.add(label);
+        });
+      }
+
+      const normalized = Array.from(scopeSet)
+        .map(normalizeScopeLabel)
+        .filter(scope => scope !== null)
+        .sort((a, b) => a.localeCompare(b));
       setScopes(normalized);
     } catch (error) {
       console.warn('Failed to load scopes', error);
@@ -895,9 +969,9 @@ function LabPage() {
                   onChange={event => setScopeValue(event.target.value)}
                 >
                   <option value="">Default scope</option>
-                  {scopes.map(scope => (
+                  {scopeOptions.map(scope => (
                     <option key={scope} value={scope}>
-                      {scope}
+                      {`/${scope}`}
                     </option>
                   ))}
                 </select>
