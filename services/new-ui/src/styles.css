@@ -2634,6 +2634,12 @@ html.dark .pipelines-modal-card {
     opacity: 1;
 }
 
+/* Wider layout for scope variable/secret modals */
+#variable-edit-modal .pipelines-modal-card,
+#secret-edit-modal .pipelines-modal-card {
+    max-width: min(1100px, 96vw);
+}
+
 #triggers-new-modal.show,
 #triggers-delete-modal.show,
 #triggers-clone-modal.show {
