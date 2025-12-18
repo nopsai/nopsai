@@ -4,7 +4,8 @@ import yaml from 'js-yaml';
 import { buildApiUrl } from '../lib/api';
 import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
 
-const MAX_RECENT_RUNS = 5;
+const INITIAL_RECENT_RUNS = 5;
+const RUNS_PAGE_SIZE = 10;
 const RUNS_CACHE_TTL = 60 * 1000;
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
 
@@ -331,6 +332,8 @@ function TriggersPage() {
   const autoEnterEditSlugRef = useRef<string | null>(null);
 
   const runsCacheRef = useRef<{ fetchedAt: number; runs: TriggerRun[] }>({ fetchedAt: 0, runs: [] });
+  const recentRunsAllRef = useRef<TriggerRun[]>([]);
+  const recentRunsListRef = useRef<HTMLUListElement | null>(null);
 
   const pipelineSourceIndexRef = useRef<Map<string, string> | null>(null);
   const pipelineMetaCacheRef = useRef<Map<string, PipelineMeta>>(new Map());
@@ -808,16 +811,20 @@ function TriggersPage() {
           const aTime = new Date(a.started_at || '').getTime() || 0;
           const bTime = new Date(b.started_at || '').getTime() || 0;
           return bTime - aTime;
-        })
-        .slice(0, MAX_RECENT_RUNS);
+        });
 
       if (selectedSlugRef.current === target) {
-        setRecentRuns(filtered);
+        recentRunsAllRef.current = filtered;
+        setRecentRuns(filtered.slice(0, INITIAL_RECENT_RUNS));
+        requestAnimationFrame(() => {
+          recentRunsListRef.current?.scrollTo({ top: 0 });
+        });
       }
     } catch (error) {
       console.error('Failed to load runs', error);
       if (selectedSlugRef.current === target) {
         setRunsError(error instanceof Error ? error.message : 'Unable to load runs');
+        recentRunsAllRef.current = [];
         setRecentRuns([]);
       }
     } finally {
@@ -826,6 +833,27 @@ function TriggersPage() {
       }
     }
   }, []);
+
+  const loadMoreRuns = useCallback(() => {
+    setRecentRuns(prev => {
+      const allRuns = recentRunsAllRef.current;
+      if (!allRuns.length || prev.length >= allRuns.length) return prev;
+      const nextCount = Math.min(prev.length + RUNS_PAGE_SIZE, allRuns.length);
+      return allRuns.slice(0, nextCount);
+    });
+  }, []);
+
+  const handleRecentRunsScroll = useCallback(
+    (event: UIEvent<HTMLUListElement>) => {
+      const list = event.currentTarget;
+      if (!list) return;
+      const remaining = list.scrollHeight - list.scrollTop - list.clientHeight;
+      if (remaining > 80) return;
+      if (recentRuns.length >= recentRunsAllRef.current.length) return;
+      loadMoreRuns();
+    },
+    [loadMoreRuns, recentRuns.length],
+  );
 
   const parentFolder = (path: string) => {
     const parts = path.split('/').filter(Boolean);
@@ -1102,6 +1130,7 @@ function TriggersPage() {
       setDetail(null);
       setLinkedPipelines([]);
       setRecentRuns([]);
+      recentRunsAllRef.current = [];
       setRunsError(null);
       setEditorValue('');
       setIsEditing(false);
@@ -1220,7 +1249,6 @@ function TriggersPage() {
           </span>
           <div className="pipeline-card-text">
             <h3 className="pipeline-card-title">{node.name}</h3>
-            <p className="pipeline-card-path">folder</p>
           </div>
         </div>
         <span className="pipeline-folder-chevron">›</span>
@@ -1537,15 +1565,15 @@ function TriggersPage() {
                           ))}
                         </div>
                       </div>
-                      <div id="trigger-yaml-stage" className="yaml-editor-stage yaml-editor-stage--with-highlight">
-                        <div id="trigger-yaml-highlight" className="yaml-editor-highlight" aria-hidden="true">
+                      <div id="triggers-yaml-stage" className="yaml-editor-stage yaml-editor-stage--with-highlight">
+                        <div id="triggers-yaml-highlight" className="yaml-editor-highlight" aria-hidden="true">
                           <pre ref={highlightContentRef} className="yaml-editor-highlight__content">
                             {renderYamlHighlight(editorValue)}
                           </pre>
                         </div>
                         <textarea
                           ref={editorRef}
-                          id="trigger-yaml-editor"
+                          id="triggers-yaml-editor"
                           value={editorValue}
                           onChange={event => {
                             const next = event.target.value;
@@ -1673,8 +1701,8 @@ function TriggersPage() {
             </div>
 
             <div className="space-y-6">
-              <div className="glass-card overflow-hidden border border-[var(--border-primary)] rounded-xl">
-                <div className="p-4 border-b border-[var(--border-primary)]">
+              <div className="glass-card overflow-hidden">
+                <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-b border-[var(--border-primary)]" style={{ marginTop: '9px' }}>
                   <h3 className="text-lg font-semibold text-[var(--text-primary)]">Linked Pipelines</h3>
                 </div>
                 <div className="p-4">
@@ -1714,9 +1742,9 @@ function TriggersPage() {
                 </div>
               </div>
 
-              <div className="glass-card overflow-hidden border border-[var(--border-primary)] rounded-xl">
-                <div className="p-4 border-b border-[var(--border-primary)]">
-                  <h3 className="text-lg font-semibold text-[var(--text-primary)]">Recent Runs</h3>
+              <div className="glass-card overflow-hidden">
+                <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-b border-[var(--border-primary)]">
+                  <h3 className="text-lg font-semibold text-[var(--text-primary)]">Recent PipelineRuns</h3>
                 </div>
                 <div className="p-4">
                   {runsLoading ? (
@@ -1724,7 +1752,11 @@ function TriggersPage() {
                   ) : runsError ? (
                     <p className="text-sm text-red-500">Failed to load runs: {runsError}</p>
                   ) : recentRuns.length ? (
-                    <ul className={`triggers-runs-list ${recentRuns.length >= MAX_RECENT_RUNS ? 'triggers-runs-scroll' : ''}`}>
+                    <ul
+                      ref={recentRunsListRef}
+                      onScroll={handleRecentRunsScroll}
+                      className={`triggers-runs-list ${recentRuns.length >= INITIAL_RECENT_RUNS ? 'triggers-runs-scroll' : ''}`}
+                    >
                       {recentRuns.map(run => {
                         const runId = run.run_id || '';
                         const triggerId = run.trigger_event_id || '';
@@ -1858,7 +1890,7 @@ function TriggersPage() {
       </div>
 
       {createModal && (
-        <div className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50">
+        <div id="triggers-new-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
           <div className="pipelines-modal-card trigger-modal-card max-w-lg w-full">
             <header className="pipelines-modal-header trigger-modal-header">
               <div className="trigger-modal-heading">
@@ -1916,7 +1948,7 @@ function TriggersPage() {
       )}
 
       {cloneModal && (
-        <div className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50">
+        <div id="triggers-clone-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
           <div className="pipelines-modal-card trigger-modal-card max-w-md w-full">
             <header className="pipelines-modal-header trigger-modal-header">
               <div className="trigger-modal-heading">
@@ -1962,7 +1994,7 @@ function TriggersPage() {
       )}
 
       {deleteModal && (
-        <div className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50">
+        <div id="triggers-delete-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
           <div className="pipelines-modal-card max-w-md w-full">
             <header className="pipelines-modal-header">
               <div>
