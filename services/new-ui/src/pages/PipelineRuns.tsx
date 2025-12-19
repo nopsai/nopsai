@@ -257,10 +257,18 @@ function PipelineRunsPage() {
   const pollingRef = useRef<number | null>(null);
   const detailPollRef = useRef<number | null>(null);
   const mainContentRef = useRef<HTMLDivElement | null>(null);
+  const scrollMainToTop = useCallback(() => {
+    const el = mainContentRef.current;
+    if (el) el.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
 
   useEffect(() => {
     setSearchTerm((searchParams.get('q') || '').trim());
   }, [searchParams]);
+
+  useEffect(() => {
+    scrollMainToTop();
+  }, [scrollMainToTop, activeTab]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -529,7 +537,8 @@ function PipelineRunsPage() {
     if (activeTab === 'recent') {
       setRecentVisibleCount(RECENT_INITIAL_BATCH);
     }
-  }, [activeTab, searchTerm]);
+    scrollMainToTop();
+  }, [activeTab, scrollMainToTop, searchTerm]);
 
   const toggleEventGroup = useCallback((id: string) => {
     setCollapsedEvents(prev => {
@@ -611,8 +620,9 @@ function PipelineRunsPage() {
       setStepDetail(null);
       setDefinitionOpen(false);
       setLogsStepFilter(null);
+      scrollMainToTop();
     },
-    [updateSearchParams]
+    [scrollMainToTop, updateSearchParams]
   );
 
   const handleCloseDetail = useCallback(() => {
@@ -739,8 +749,9 @@ function PipelineRunsPage() {
       updateSearchParams({ group: groupId, run: null });
       setSelectedRunIds(new Set());
       setRunDetail(null);
+      scrollMainToTop();
     },
-    [updateSearchParams]
+    [scrollMainToTop, updateSearchParams]
   );
 
   const mainRunsEmpty = activeTab === 'main' && Boolean(activeGroupId) && Object.keys(runsByBranch).length === 0;
@@ -891,6 +902,7 @@ function PipelineRunsPage() {
               onExpandAllEvents={expandAllEvents}
               collapsedBranches={collapsedBranches}
               onToggleBranch={toggleBranchCollapse}
+              onDeleteBranch={handleDeleteBranch}
             />
           )}
         </main>
@@ -963,6 +975,7 @@ function Dashboard({
   onExpandAllEvents,
   collapsedBranches,
   onToggleBranch,
+  onDeleteBranch,
 }: {
   activeTab: TabKey;
   groups: Group[];
@@ -990,7 +1003,8 @@ function Dashboard({
   onCollapseAllEvents: () => void;
   onExpandAllEvents: () => void;
   collapsedBranches: Set<string>;
-  onToggleBranch: (branch: string) => void;
+  onToggleBranch: (branch: string, scrollIntoView?: boolean) => void;
+  onDeleteBranch: (branch: string) => void;
 }) {
   const term = searchTerm.trim().toLowerCase();
   const effectiveViewMode = activeTab === 'main' ? 'grid' : viewMode;
@@ -1089,15 +1103,15 @@ function Dashboard({
                   runs={runs}
                   onOpenRun={onOpenRun}
                   onSelectRun={onSelectRun}
-              selectedRunIds={selectedRunIds}
-              collapsed={collapsedBranches.has(branch)}
-              onToggleBranch={() => onToggleBranch(branch, collapsedBranches.has(branch))}
-              onDeleteBranch={() => handleDeleteBranch(branch)}
-            />
-          ))}
-        </div>
-      )}
-    </div>
+                  selectedRunIds={selectedRunIds}
+                  collapsed={collapsedBranches.has(branch)}
+                  onToggleBranch={() => onToggleBranch(branch, collapsedBranches.has(branch))}
+                  onDeleteBranch={() => onDeleteBranch(branch)}
+                />
+              ))}
+          </div>
+        )}
+      </div>
     );
   }
 
