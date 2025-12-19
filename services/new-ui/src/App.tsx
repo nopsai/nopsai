@@ -143,6 +143,12 @@ function AppShell() {
 
   const [runGroups, setRunGroups] = useState<RunGroupTreeNode[]>([]);
   const [runGroupTreeOpen, setRunGroupTreeOpen] = useState<Set<number>>(new Set());
+  const activeRunGroupId = useMemo(() => {
+    if (!location.pathname.startsWith('/pipelineruns')) return null;
+    const params = new URLSearchParams(location.search);
+    const value = Number(params.get('group'));
+    return Number.isFinite(value) ? value : null;
+  }, [location.pathname, location.search]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -283,6 +289,27 @@ function AppShell() {
       void load();
     }
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (!activeRunGroupId || !runGroups.length) return;
+    const path: number[] = [];
+    const dfs = (nodes: RunGroupTreeNode[]): boolean => {
+      for (const node of nodes) {
+        if (node.id === activeRunGroupId) {
+          path.push(node.id);
+          return true;
+        }
+        if (dfs(node.children)) {
+          path.push(node.id);
+          return true;
+        }
+      }
+      return false;
+    };
+    dfs(runGroups);
+    if (!path.length) return;
+    setRunGroupTreeOpen(prev => new Set([...prev, ...path]));
+  }, [activeRunGroupId, runGroups]);
 
   useEffect(() => {
     const load = async () => {
@@ -546,6 +573,7 @@ function AppShell() {
           runGroups={runGroups}
           runGroupTreeOpen={runGroupTreeOpen}
           onToggleRunGroupNode={handleToggleRunGroupNode}
+          activeRunGroupId={activeRunGroupId}
           splitIdentifier={splitIdentifier}
           locationPathname={location.pathname}
           onSelectRunGroup={id => {
@@ -608,6 +636,7 @@ function Sidebar({
   runGroups,
   runGroupTreeOpen,
   onToggleRunGroupNode,
+  activeRunGroupId,
   splitIdentifier,
   locationPathname,
   onSelectRunGroup,
@@ -634,6 +663,7 @@ function Sidebar({
   runGroups: RunGroupTreeNode[];
   runGroupTreeOpen: Set<number>;
   onToggleRunGroupNode: (id: number) => void;
+  activeRunGroupId: number | null;
   splitIdentifier: (id: string) => { name: string; path: string };
   locationPathname: string;
   onSelectRunGroup: (id: number | null) => void;
@@ -878,6 +908,7 @@ function Sidebar({
   const renderRunGroupTreeNode = (node: RunGroupTreeNode) => {
     const isOpen = runGroupTreeOpen.has(node.id);
     const hasChildren = node.children.length > 0;
+    const isActive = activeRunGroupId === node.id;
     return (
       <li key={`run-group-${node.id}`} className="pipeline-tree-row">
         <div className="pipeline-tree-item">
@@ -888,7 +919,7 @@ function Sidebar({
           ) : (
             <span className="pipeline-tree-toggle text-sm opacity-50">•</span>
           )}
-          <button className="pipeline-tree-folder" onClick={() => onSelectRunGroup(node.id)}>
+          <button className={`pipeline-tree-folder ${isActive ? 'active' : ''}`} onClick={() => onSelectRunGroup(node.id)}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
               <path d="M3 7h5l2 2h11v9a2 2 0 0 1-2 2H3z" />
               <path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2" />
