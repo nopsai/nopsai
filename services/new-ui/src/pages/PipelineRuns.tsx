@@ -147,15 +147,15 @@ const STATUS_META: Record<
   success: {
     text: 'Success',
     pillClass: 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-200 dark:border-green-700',
-    icon: 'M9 12l2 2 4-4',
-    strokeClass: 'text-green-500',
+    icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z',
+    strokeClass: 'text-green-700',
     border: 'border-green-500/50',
     bg: 'fill-green-100 dark:fill-green-900/50 stroke-green-500',
   },
   failure: {
     text: 'Failure',
     pillClass: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-200 dark:border-red-700',
-    icon: 'M6 18L18 6M6 6l12 12',
+    icon: 'M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0',
     strokeClass: 'text-red-500',
     border: 'border-red-500/60',
     bg: 'fill-red-100 dark:fill-red-900/50 stroke-red-500',
@@ -252,6 +252,7 @@ function PipelineRunsPage() {
   const [logsStepFilter, setLogsStepFilter] = useState<string | null>(null);
   const [collapsedEvents, setCollapsedEvents] = useState<Set<string>>(new Set());
   const [collapsedBranches, setCollapsedBranches] = useState<Set<string>>(new Set());
+  const collapsedInitRef = useRef(false);
 
   const pollingRef = useRef<number | null>(null);
   const detailPollRef = useRef<number | null>(null);
@@ -472,7 +473,7 @@ function PipelineRunsPage() {
     setCollapsedEvents(next);
   }, [groupedEvents]);
 
-  const toggleBranchCollapse = useCallback((branch: string) => {
+  const toggleBranchCollapse = useCallback((branch: string, scrollIntoView = false) => {
     setCollapsedBranches(prev => {
       const next = new Set(prev);
       if (next.has(branch)) {
@@ -482,6 +483,15 @@ function PipelineRunsPage() {
       }
       return next;
     });
+    if (scrollIntoView) {
+      requestAnimationFrame(() => {
+        const selector = `[data-branch-row="${(window.CSS && CSS.escape ? CSS.escape(branch) : branch).replace(/"/g, '')}"]`;
+        const el = document.querySelector(selector);
+        if (el && 'scrollIntoView' in el) {
+          (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    }
   }, []);
 
   const recentFilteredTotal = useMemo(() => {
@@ -543,14 +553,18 @@ function PipelineRunsPage() {
   const activeGroupPath = useMemo(() => buildGroupPath(activeGroupId, groups), [activeGroupId, groups]);
 
   useEffect(() => {
+    // reset collapse state when switching tabs/groups
+    collapsedInitRef.current = false;
+    setCollapsedBranches(new Set());
+  }, [activeTab, activeGroupId]);
+
+  useEffect(() => {
     if (activeTab !== 'main') return;
-    setCollapsedBranches(prev => {
-      const next = new Set(prev);
-      Object.keys(runsByBranch).forEach(branch => {
-        if (!next.has(branch)) next.add(branch);
-      });
-      return next;
-    });
+    if (collapsedInitRef.current) return;
+    const branches = Object.keys(runsByBranch);
+    if (!branches.length) return;
+    collapsedInitRef.current = true;
+    setCollapsedBranches(new Set(branches));
   }, [activeTab, runsByBranch]);
 
   const handleRunSelect = useCallback(
@@ -566,6 +580,26 @@ function PipelineRunsPage() {
       });
     },
     []
+  );
+
+  const handleDeleteBranch = useCallback(
+    async (branch: string) => {
+      const runs = runsByBranch[branch] || [];
+      const label = formatBranch(branch);
+      if (!runs.length) return;
+      if (!window.confirm(`Delete all runs for branch "${label || branch}"?`)) return;
+      try {
+        await Promise.all(
+          runs.map(run => fetchJson<void>(`/v1/runs/${encodeURIComponent(run.run_id)}`, { method: 'DELETE' }).catch(() => null))
+        );
+        setSelectedRunIds(new Set());
+        await loadRuns();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to delete branch runs';
+        alert(message);
+      }
+    },
+    [fetchJson, loadRuns, runsByBranch]
   );
 
   const clearSelection = useCallback(() => setSelectedRunIds(new Set()), []);
@@ -764,7 +798,7 @@ function PipelineRunsPage() {
                   setSearchTerm(event.target.value);
                   updateSearchParams({ q: event.target.value || null });
                 }}
-                className="w-full h-11 rounded-full border border-[#1f2740] bg-gradient-to-r from-[#141b2f] via-[#161d32] to-[#141b2f] focus:border-[var(--border-accent)] focus:ring-2 focus:ring-[var(--border-accent)]/60 pl-11 pr-10 text-sm transition text-[var(--text-secondary)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_8px_24px_rgba(0,0,0,0.35)]"
+                className="w-full h-11 rounded-full border border-[var(--border-primary)] bg-[var(--bg-primary)] focus:border-[var(--border-accent)] focus:ring-2 focus:ring-[var(--border-accent)]/60 pl-11 pr-10 text-sm transition text-[var(--text-secondary)] shadow-[0_8px_24px_rgba(0,0,0,0.1)]"
               />
               <svg
                 className="w-4 h-4 text-[var(--text-secondary)] absolute left-4 top-1/2 -translate-y-1/2"
@@ -1055,14 +1089,15 @@ function Dashboard({
                   runs={runs}
                   onOpenRun={onOpenRun}
                   onSelectRun={onSelectRun}
-                  selectedRunIds={selectedRunIds}
-                  collapsed={collapsedBranches.has(branch)}
-                  onToggleBranch={() => onToggleBranch(branch)}
-                />
-              ))}
-          </div>
-        )}
-      </div>
+              selectedRunIds={selectedRunIds}
+              collapsed={collapsedBranches.has(branch)}
+              onToggleBranch={() => onToggleBranch(branch, collapsedBranches.has(branch))}
+              onDeleteBranch={() => handleDeleteBranch(branch)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
     );
   }
 
@@ -1184,9 +1219,7 @@ function GroupGrid({
                     <span className="text-xs text-[var(--text-secondary)] flex-shrink-0 ml-2">{timeAgo(summary.started_at)}</span>
                   </div>
                   <div className="flex items-center">
-                    <svg className="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-                    </svg>
+                    <CommitIcon className="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" />
                     <span className="truncate">{summary.commit || '—'}</span>
                   </div>
                   <div className="flex items-center">
@@ -1268,6 +1301,45 @@ function GroupGrid({
   );
 }
 
+function BranchIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <line x1="6" y1="3" x2="6" y2="15" />
+      <circle cx="18" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <path d="M18 9a9 9 0 01-9 9" />
+    </svg>
+  );
+}
+
+function CommitIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path d="M3 12h6" />
+      <path d="M15 12h6" />
+    </svg>
+  );
+}
+
 function BranchRunsSection({
   branch,
   runs,
@@ -1276,6 +1348,7 @@ function BranchRunsSection({
   selectedRunIds,
   collapsed,
   onToggleBranch,
+  onDeleteBranch,
 }: {
   branch: string;
   runs: RunListItem[];
@@ -1284,6 +1357,7 @@ function BranchRunsSection({
   selectedRunIds: Set<string>;
   collapsed: boolean;
   onToggleBranch: () => void;
+  onDeleteBranch: () => void;
 }) {
   const branchLabel = formatBranch(branch);
   const sortedRuns = useMemo(() => [...runs].sort((a, b) => runTimestamp(b) - runTimestamp(a)), [runs]);
@@ -1319,10 +1393,10 @@ function BranchRunsSection({
   const timeline = useMemo(() => buildStatusTimeline(sortedRuns, 40), [sortedRuns]);
 
   return (
-    <div className="rounded-xl border border-[#253049] bg-[#1c243a] shadow-[0_10px_24px_rgba(0,0,0,0.35)] overflow-hidden">
+    <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-[0_10px_24px_rgba(0,0,0,0.12)] overflow-hidden" data-branch-row={branch}>
       <button
         type="button"
-        className="w-full flex flex-col gap-3 px-4 sm:px-5 py-3 text-left hover:bg-[#202b44] transition-colors sm:flex-row sm:items-center sm:gap-4 sm:flex-nowrap sm:justify-between"
+        className="w-full flex flex-col gap-3 px-4 sm:px-5 py-3 text-left hover:bg-[var(--bg-tertiary)] transition-colors sm:flex-row sm:items-center sm:gap-4 sm:flex-nowrap sm:justify-between"
         onClick={onToggleBranch}
         aria-expanded={!collapsed}
         aria-label={`${collapsed ? 'Expand' : 'Collapse'} branch ${branchLabel || branch}`}
@@ -1340,37 +1414,43 @@ function BranchRunsSection({
           >
             <path d="M9 5l7 7-7 7" />
           </svg>
-          <svg
-            className="h-5 w-5 text-[#6b7cff] flex-shrink-0"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M4 6h16" />
-            <path d="M4 12h8" />
-            <path d="M4 18h4" />
-          </svg>
+          <span className="h-5 w-5 flex items-center justify-center text-[var(--text-link)]">
+            <BranchIcon className="h-4 w-4" />
+          </span>
           <span className="text-base font-semibold text-[var(--text-primary)] break-words" title={branchLabel || branch}>
             {branchLabel || branch}
           </span>
         </div>
         <div className="flex items-center gap-3 sm:gap-4 text-xs text-[var(--text-secondary)] sm:flex-1 sm:flex-nowrap flex-wrap justify-end">
-          <div className="flex items-center gap-2 flex-nowrap overflow-x-auto sm:overflow-x-auto sm:max-w-[420px] pr-1 sm:pr-0 sm:ml-auto">
+          <div className="flex items-center gap-2 flex-nowrap overflow-hidden pr-1 sm:pr-0 sm:ml-auto">
             <StatusTimeline items={timeline} />
           </div>
           <span className="whitespace-nowrap">({sortedRuns.length} {sortedRuns.length === 1 ? 'run' : 'runs'})</span>
-          <span className="hidden sm:inline-block h-4 border-l border-[#2e3852]" aria-hidden="true" />
+          <span className="hidden sm:inline-block h-4 border-l border-[var(--border-primary)]" aria-hidden="true" />
           <span className="whitespace-nowrap">Latest: {latestTime}</span>
-          <span className="hidden sm:inline-block h-4 border-l border-[#2e3852]" aria-hidden="true" />
+          <span className="hidden sm:inline-block h-4 border-l border-[var(--border-primary)]" aria-hidden="true" />
           <BranchStatusIcon status={latestStatus} />
+          <button
+            type="button"
+            className="ml-2 h-8 w-8 flex items-center justify-center rounded-full text-[var(--text-secondary)] hover:text-red-400 hover:bg-[var(--bg-tertiary)] border border-transparent hover:border-[var(--border-primary)]"
+            aria-label={`Delete branch ${branchLabel || branch}`}
+            onClick={event => {
+              event.stopPropagation();
+              onDeleteBranch();
+            }}
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7" />
+              <path d="M10 11v6" />
+              <path d="M14 11v6" />
+              <path d="M9 7h6" />
+              <path d="M12 3v1" />
+            </svg>
+          </button>
         </div>
       </button>
       {!collapsed && (
-        <div className="border-t border-[#253049] p-4 sm:p-5 space-y-4 bg-[#0f1629]">
+        <div className="border-t border-[var(--border-primary)] p-4 sm:p-5 space-y-4 bg-[var(--bg-primary)]">
           {events.map(event => (
             <BranchEventCard
               key={event.id}
@@ -1439,9 +1519,9 @@ function StatusTimeline({ items }: { items: { key: string; status: string }[] })
     return <span className="text-xs text-[var(--text-secondary)]">No runs yet</span>;
   }
   return (
-    <div className="flex items-center gap-1 flex-nowrap max-w-full overflow-x-auto sm:overflow-visible">
+    <div className="flex items-center gap-1.5 flex-nowrap overflow-hidden" aria-hidden="true">
       {items.map(item => (
-        <span key={item.key} className={`h-2.5 w-2.5 rounded-full ${getStatusDotClass(item.status)}`} title={item.status} />
+        <span key={item.key} className={`h-2 w-2 rounded-full ${getStatusDotClass(item.status)}`} title={item.status} />
       ))}
     </div>
   );
@@ -1462,54 +1542,41 @@ function BranchEventCard({
   const meta = getStatusMeta(event.status, event.status === 'success');
   const triggerLabel = formatTriggerId(event.id);
   return (
-    <div className="border border-[#1f2740] rounded-xl bg-[#0f1629] shadow-[0_10px_28px_rgba(0,0,0,0.35)]">
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-[#1f2740]">
-        <div className="flex items-center gap-3 min-w-0">
-          <span className={`h-2.5 w-2.5 rounded-full ${getStatusDotClass(event.status, true)}`} aria-hidden="true" />
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-[var(--text-primary)] truncate">Event: {triggerLabel.display}</p>
-            <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--text-secondary)]">
-              {event.startedAt && (
-                <span className="inline-flex items-center gap-1">
-                  <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  {timeAgo(event.startedAt)}
-                </span>
-              )}
-              {event.branchLabel && (
-                <span className="inline-flex items-center gap-1">
-                  <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-                  </svg>
-                  {event.branchLabel}
-                </span>
-              )}
-              {event.commitLabel && (
-                <span className="inline-flex items-center gap-1 font-mono">
-                  <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-                  </svg>
-                  {event.commitLabel}
-                </span>
-              )}
-              {event.actor && (
-                <span className="inline-flex items-center gap-1">
-                  <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
-                  {event.actor}
-                </span>
-              )}
-            </div>
+    <div className="border border-[var(--border-primary)] rounded-xl bg-[var(--bg-secondary)] shadow-[0_10px_28px_rgba(0,0,0,0.12)]">
+      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[var(--border-primary)] text-xs text-[var(--text-secondary)]">
+        <div className="flex items-center gap-3 min-w-0 flex-1 flex-nowrap overflow-hidden">
+          <span className={`runner-pill ${meta.pillClass} flex-shrink-0`}>{meta.text}</span>
+          <div className="flex items-center gap-2 min-w-0 flex-nowrap overflow-hidden text-xs text-[var(--text-secondary)]">
+            <span className="text-sm font-semibold text-[var(--text-primary)] truncate" title={triggerLabel.full}>
+              Event: {triggerLabel.display}
+            </span>
+            {event.startedAt && (
+              <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {timeAgo(event.startedAt)}
+              </span>
+            )}
+            {event.actor && (
+              <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+                {event.actor}
+              </span>
+            )}
+            {event.commitLabel && (
+              <span className="inline-flex items-center gap-1 font-mono whitespace-nowrap">
+                <CommitIcon className="h-3.5 w-3.5" />
+                {event.commitLabel}
+              </span>
+            )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className={`runner-pill ${meta.pillClass}`}>{meta.text}</span>
-          <span className="px-3 py-1 rounded-full text-[11px] bg-[#111a2f] border border-[#1f2740] text-[var(--text-secondary)]">
-            {event.runs.length} {event.runs.length === 1 ? 'run' : 'runs'}
-          </span>
-        </div>
+        <span className="px-3 py-1 rounded-full text-[11px] bg-[var(--bg-primary)] border border-[var(--border-primary)] text-[var(--text-secondary)] whitespace-nowrap">
+          {event.runs.length} {event.runs.length === 1 ? 'run' : 'runs'}
+        </span>
       </div>
       <div className="p-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {event.runs.map(run => (
@@ -1548,7 +1615,7 @@ function RunCard({
   const branchLabel = formatBranchDisplay(run.git_ref, run.git_target_ref);
   const cardTone =
     variant === 'event'
-      ? 'border-[#1f2338] bg-[#0f1629] shadow-[0_6px_18px_rgba(0,0,0,0.35)]'
+      ? 'border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-[0_6px_18px_rgba(0,0,0,0.12)]'
       : 'border-[var(--border-primary)] bg-transparent shadow-sm';
   return (
     <div
@@ -1571,9 +1638,7 @@ function RunCard({
               </div>
             </div>
             <p className="text-sm text-[var(--text-link)] font-mono mt-2 truncate flex items-center gap-1">
-              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-              </svg>
+              <BranchIcon className="h-4 w-4" />
               {branchLabel || 'N/A'}
             </p>
           </div>
@@ -1587,9 +1652,7 @@ function RunCard({
             <span className="truncate">{run.git_pusher_name || 'N/A'}</span>
           </div>
           <div className="flex items-center">
-            <svg className="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-            </svg>
+            <CommitIcon className="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" />
             <span className="truncate" title="Commit Hash">{(run.git_commit_sha || '...').slice(0, 8)}</span>
           </div>
           <div className="flex items-center">
@@ -1643,9 +1706,7 @@ function ListRunRow({ run, selected, onSelect, onOpen }: { run: RunListItem; sel
             <div className="run-list-titles flex-1 min-w-0">
               <div className="run-list-title">{run.pipeline_name}</div>
               <div className="run-list-sub flex items-center gap-1">
-                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-                </svg>
+                <BranchIcon className="h-4 w-4" />
                 {branchLabel || 'N/A'}
               </div>
             </div>
@@ -1684,28 +1745,41 @@ function ListRunRow({ run, selected, onSelect, onOpen }: { run: RunListItem; sel
 }
 
 function RunStatusIcon({ status, complete }: { status: string; complete?: boolean }) {
-  const meta = getStatusMeta(status, complete);
-  return (
-    <span className={`run-status-icon ${meta.strokeClass}`} aria-hidden="true">
-      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d={meta.icon} />
-      </svg>
-    </span>
-  );
+  return <BranchStatusIcon status={status} complete={complete} className="run-status-icon" />;
 }
 
-function BranchStatusIcon({ status }: { status: string }) {
-  const tone = getBranchStatusTone(status);
+function BranchStatusIcon({ status, complete, className }: { status: string; complete?: boolean; className?: string }) {
+  const rawStatus = (status || '').toLowerCase();
+  const normalized = normalizeStatus(rawStatus, complete ?? Boolean(STATUS_META[rawStatus]));
+  const tone = getBranchStatusTone(normalized);
+  const isFailure = normalized === 'failure' || normalized === 'failure (ignored)';
+  const isCancelled = normalized === 'cancelled';
+  const isRunning = normalized === 'running';
+  const isSkipped = normalized === 'skipped';
+  const isPending = normalized === 'pending';
   return (
-    <span className={`inline-flex h-7 w-7 items-center justify-center rounded-full border border-[#2e3852] bg-[#11192f] ${tone}`} aria-label={status}>
-      {status === 'running' ? (
+    <span
+      className={`inline-flex h-7 w-7 items-center justify-center rounded-full border border-[var(--border-primary)] bg-[var(--bg-secondary)] ${tone} ${className || ''}`}
+      aria-label={normalized}
+    >
+      {isRunning ? (
         <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M21 12a9 9 0 11-6.219-8.56" />
         </svg>
-      ) : status === 'failure' ? (
+      ) : isFailure || isCancelled ? (
         <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M18 6L6 18" />
           <path d="M6 6l12 12" />
+        </svg>
+      ) : isSkipped ? (
+        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 12h12" />
+          <path d="M6 16h12" />
+        </svg>
+      ) : isPending ? (
+        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 8v4l3 3" />
+          <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
       ) : (
         <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1739,7 +1813,7 @@ function PipelineBadges({ run }: { run: RunListItem }) {
   const badges: React.ReactNode[] = [];
   if (run.pipeline_source === 'database override') {
     badges.push(
-      <span key="override" className="text-xs text-[var(--text-secondary)] inline-flex items-center gap-1">
+      <span key="override" className="text-xs font-semibold text-[var(--text-link)] inline-flex items-center gap-1">
         <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M13 16h-1v-4h-1m1-4h.01" />
           <path d="M12 2a10 10 0 100 20 10 10 0 000-20z" />
@@ -2153,14 +2227,14 @@ function EventCard({
   };
 
   return (
-    <div className="border border-[#27324d] rounded-xl bg-[#1a2238] overflow-hidden shadow-[0_10px_28px_rgba(0,0,0,0.35)]">
+    <div className="border border-[var(--border-primary)] rounded-xl bg-[var(--bg-secondary)] overflow-hidden shadow-[0_10px_28px_rgba(0,0,0,0.12)]">
       <button
         type="button"
-        className="w-full flex items-center justify-between gap-3 p-4 text-left hover:bg-[#212b45] transition-colors"
+        className="w-full flex items-center justify-between gap-3 p-4 text-left hover:bg-[var(--bg-tertiary)] transition-colors"
         onClick={onToggle}
         aria-expanded={!collapsed}
       >
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-3 min-w-0 flex-1 flex-nowrap overflow-hidden">
           <svg
             className={`h-4 w-4 text-[var(--text-secondary)] transition-transform ${collapsed ? '' : 'rotate-90'}`}
             viewBox="0 0 24 24"
@@ -2174,36 +2248,30 @@ function EventCard({
             <path d="M9 5l7 7-7 7" />
           </svg>
           <span className={`runner-pill ${meta.pillClass} flex-shrink-0`}>{meta.text}</span>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-[var(--text-primary)] break-all" title={triggerLabel.full}>
+          <div className="flex items-center gap-2 min-w-0 flex-nowrap overflow-hidden text-xs text-[var(--text-secondary)]">
+            <span className="text-sm font-semibold text-[var(--text-primary)] truncate" title={triggerLabel.full}>
               Event: {triggerLabel.display}
-            </p>
-            <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--text-secondary)] mt-1">
-              <span className="inline-flex items-center gap-1">
-                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                {timeAgo(timestamp)}
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-                </svg>
-                {branchLabel}
-              </span>
-              <span className="inline-flex items-center gap-1 font-mono">
-                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-                </svg>
-                {commitLabel}
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-                {pusher}
-              </span>
-            </div>
+            </span>
+            <span className="inline-flex items-center gap-1 whitespace-nowrap">
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              {timeAgo(timestamp)}
+            </span>
+            <span className="inline-flex items-center gap-1 whitespace-nowrap">
+              <BranchIcon className="h-3.5 w-3.5" />
+              {branchLabel}
+            </span>
+            <span className="inline-flex items-center gap-1 font-mono whitespace-nowrap">
+              <CommitIcon className="h-3.5 w-3.5" />
+              {commitLabel}
+            </span>
+            <span className="inline-flex items-center gap-1 whitespace-nowrap">
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+              {pusher}
+            </span>
           </div>
         </div>
         <div className="flex items-center gap-3 flex-shrink-0">
@@ -2212,13 +2280,13 @@ function EventCard({
               <span key={run.run_id} className={`h-2.5 w-2.5 rounded-full ${statusDotClass(run.status, run.is_complete)}`} />
             ))}
           </div>
-          <span className="px-3 py-1 text-[11px] rounded-full bg-[#0f1629] border border-[#27324d] text-[var(--text-secondary)]">
+          <span className="px-3 py-1 text-[11px] rounded-full bg-[var(--bg-primary)] border border-[var(--border-primary)] text-[var(--text-secondary)]">
             {group.runs.length} {group.runs.length === 1 ? 'Pipeline' : 'Pipelines'}
           </span>
         </div>
       </button>
       {!collapsed && (
-        <div className="p-4 border-t border-[#27324d] bg-[#0f1629]">
+        <div className="p-4 border-t border-[var(--border-primary)] bg-[var(--bg-primary)]">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {group.runs.map(run => (
               <EventRunRow key={run.run_id} run={run} onOpenRun={onOpenRun} />
