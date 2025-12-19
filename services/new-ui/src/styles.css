@@ -263,6 +263,9 @@ body {
 
 .run-card {
     transition: border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out, transform 0.2s ease-in-out;
+    border: 1px solid var(--border-primary);
+    border-radius: 12px;
+    background: transparent;
 }
 
 .run-card:hover {
