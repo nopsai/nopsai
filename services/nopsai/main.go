@@ -2881,6 +2881,28 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	args := []interface{}{}
 	var conditions []string
 
+	limit := 300
+	offset := 0
+
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if v, err := strconv.Atoi(limitStr); err == nil {
+			switch {
+			case v <= 0:
+				limit = 50
+			case v > 1000:
+				limit = 1000
+			default:
+				limit = v
+			}
+		}
+	}
+
+	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
+		if v, err := strconv.Atoi(offsetStr); err == nil && v > 0 {
+			offset = v
+		}
+	}
+
 	if groupIDStr := r.URL.Query().Get("groupId"); groupIDStr != "" {
 		groupID, err := strconv.Atoi(groupIDStr)
 		if err == nil {
@@ -2897,7 +2919,7 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	query += " ORDER BY created_at DESC LIMIT 300"
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT %d OFFSET %d", limit, offset)
 
 	rows, err := a.db.Query(context.Background(), query, args...)
 	if err != nil {
