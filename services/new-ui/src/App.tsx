@@ -51,6 +51,13 @@ type ScopeTreeNode = {
   scopes: string[];
 };
 
+type RunGroupTreeNode = {
+  id: number;
+  name: string;
+  parentId: number | null;
+  children: RunGroupTreeNode[];
+};
+
 const navItems: NavItem[] = [
   {
     label: 'Pipeline runs',
@@ -133,6 +140,9 @@ function AppShell() {
   const [scopes, setScopes] = useState<string[]>([]);
   const serverScopesRef = useRef<string[]>([]);
   const [scopeTreeOpen, setScopeTreeOpen] = useState<Set<string>>(new Set());
+
+  const [runGroups, setRunGroups] = useState<RunGroupTreeNode[]>([]);
+  const [runGroupTreeOpen, setRunGroupTreeOpen] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     const root = document.documentElement;
@@ -232,6 +242,44 @@ function AppShell() {
       }
     };
     if (location.pathname.startsWith('/pipelines')) {
+      void load();
+    }
+  }, [location.pathname]);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const response = await fetch(buildApiUrl('/v1/groups'));
+        if (!response.ok) return;
+        const payload = (await response.json()) as Array<{ id: number; name: string; parent_id?: number | null }>;
+        if (!Array.isArray(payload)) return;
+        const nodes: RunGroupTreeNode[] = payload.map(item => ({
+          id: Number(item.id),
+          name: typeof item.name === 'string' ? item.name : '',
+          parentId: item.parent_id === null || item.parent_id === undefined ? null : Number(item.parent_id),
+          children: [],
+        }));
+        const map = new Map<number, RunGroupTreeNode>();
+        nodes.forEach(node => map.set(node.id, node));
+        const roots: RunGroupTreeNode[] = [];
+        nodes.forEach(node => {
+          if (node.parentId !== null && map.has(node.parentId)) {
+            map.get(node.parentId)!.children.push(node);
+          } else {
+            roots.push(node);
+          }
+        });
+        const sortTree = (items: RunGroupTreeNode[]) => {
+          items.sort((a, b) => a.name.localeCompare(b.name));
+          items.forEach(child => sortTree(child.children));
+        };
+        sortTree(roots);
+        setRunGroups(roots);
+      } catch (error) {
+        console.warn('Failed to load pipeline run groups for sidebar', error);
+      }
+    };
+    if (location.pathname.startsWith('/pipelineruns')) {
       void load();
     }
   }, [location.pathname]);
@@ -466,6 +514,15 @@ function AppShell() {
     });
   };
 
+  const handleToggleRunGroupNode = (id: number) => {
+    setRunGroupTreeOpen(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   return (
     <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
       <div id="hover-hint" aria-hidden="true"></div>
@@ -486,8 +543,16 @@ function AppShell() {
           scopeTree={buildScopeTree}
           scopeTreeOpen={scopeTreeOpen}
           onToggleScopeNode={handleToggleScopeNode}
+          runGroups={runGroups}
+          runGroupTreeOpen={runGroupTreeOpen}
+          onToggleRunGroupNode={handleToggleRunGroupNode}
           splitIdentifier={splitIdentifier}
           locationPathname={location.pathname}
+          onSelectRunGroup={id => {
+            if (id === null) navigate('/pipelineruns/main');
+            else navigate(`/pipelineruns/main?group=${id}`);
+            setSidebarOpen(false);
+          }}
           onSelectPipelineFolder={path => navigate(path ? `/pipelines?folder=${encodeURIComponent(path)}` : '/pipelines')}
           onSelectTriggerFolder={path => navigate(path ? `/triggers?folder=${encodeURIComponent(path)}` : '/triggers')}
           onSelectStepFolder={path => navigate(path ? `/steps?folder=${encodeURIComponent(path)}` : '/steps')}
@@ -540,8 +605,12 @@ function Sidebar({
   scopeTree,
   scopeTreeOpen,
   onToggleScopeNode,
+  runGroups,
+  runGroupTreeOpen,
+  onToggleRunGroupNode,
   splitIdentifier,
   locationPathname,
+  onSelectRunGroup,
   onSelectPipelineFolder,
   onSelectTriggerFolder,
   onSelectStepFolder,
@@ -562,8 +631,12 @@ function Sidebar({
   scopeTree: ScopeTreeNode;
   scopeTreeOpen: Set<string>;
   onToggleScopeNode: (id: string) => void;
+  runGroups: RunGroupTreeNode[];
+  runGroupTreeOpen: Set<number>;
+  onToggleRunGroupNode: (id: number) => void;
   splitIdentifier: (id: string) => { name: string; path: string };
   locationPathname: string;
+  onSelectRunGroup: (id: number | null) => void;
   onSelectPipelineFolder: (path: string) => void;
   onSelectTriggerFolder: (path: string) => void;
   onSelectStepFolder: (path: string) => void;
@@ -573,7 +646,8 @@ function Sidebar({
   const isTriggersRoute = locationPathname.startsWith('/triggers');
   const isStepsRoute = locationPathname.startsWith('/steps');
   const isScopesRoute = locationPathname.startsWith('/scopes');
-  const searchParams = new URLSearchParams(location.search);
+  const isPipelineRunsRoute = locationPathname.startsWith('/pipelineruns');
+  const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
   const activeFolder = searchParams.get('folder') || '';
 
   const renderPipelineTreeNode = (node: PipelineTreeNode) => {
@@ -801,6 +875,36 @@ function Sidebar({
     );
   };
 
+  const renderRunGroupTreeNode = (node: RunGroupTreeNode) => {
+    const isOpen = runGroupTreeOpen.has(node.id);
+    const hasChildren = node.children.length > 0;
+    return (
+      <li key={`run-group-${node.id}`} className="pipeline-tree-row">
+        <div className="pipeline-tree-item">
+          {hasChildren ? (
+            <button className="pipeline-tree-toggle" onClick={() => onToggleRunGroupNode(node.id)} aria-label="Toggle folder">
+              <span className="text-sm">{isOpen ? '▾' : '▸'}</span>
+            </button>
+          ) : (
+            <span className="pipeline-tree-toggle text-sm opacity-50">•</span>
+          )}
+          <button className="pipeline-tree-folder" onClick={() => onSelectRunGroup(node.id)}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 7h5l2 2h11v9a2 2 0 0 1-2 2H3z" />
+              <path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2" />
+            </svg>
+            <span className="truncate">{node.name}</span>
+          </button>
+        </div>
+        {isOpen && hasChildren && (
+          <ul className="pipeline-tree-children">
+            {node.children.map(child => renderRunGroupTreeNode(child))}
+          </ul>
+        )}
+      </li>
+    );
+  };
+
   return (
     <>
       <div
@@ -844,7 +948,23 @@ function Sidebar({
         </nav>
         <div className="flex-1 overflow-y-auto sidebar-scrollbar border-t border-[var(--border-primary)]">
           <nav id="sidebar-details-nav" className="px-4 py-4 space-y-2">
-            {isPipelinesRoute ? (
+            {isPipelineRunsRoute ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">Main</p>
+                  <button
+                    type="button"
+                    className="text-xs text-[var(--text-link)] hover:underline"
+                    onClick={() => onSelectRunGroup(null)}
+                  >
+                    Root
+                  </button>
+                </div>
+                <ul className="pipeline-tree-list">
+                  {runGroups.map(group => renderRunGroupTreeNode(group))}
+                </ul>
+              </div>
+            ) : isPipelinesRoute ? (
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">All pipelines</p>
