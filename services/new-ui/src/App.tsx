@@ -1379,6 +1379,7 @@ function RunSidebarRow({ run, active, onOpen }: { run: RunListItem; active: bool
     <button
       type="button"
       onClick={onOpen}
+      data-trigger-id={run.trigger_event_id || ''}
       data-run-id={run.run_id}
       className={`w-full text-left rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:border-[var(--border-accent)] transition shadow-sm px-3 py-2 ${
         active ? 'run-link-highlight' : ''

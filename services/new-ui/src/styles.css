@@ -253,6 +253,15 @@ body {
     outline: none;
 }
 
+.trigger-hover {
+    background-color: var(--bg-tertiary) !important;
+}
+
+.trigger-selected {
+    outline: 2px solid var(--border-accent);
+    outline-offset: 0;
+}
+
 .sidebar-link-highlight > a,
 .sidebar-link-highlight > div {
     background-color: inherit !important;
