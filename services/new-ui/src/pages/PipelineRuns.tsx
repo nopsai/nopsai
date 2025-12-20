@@ -246,7 +246,6 @@ function PipelineRunsPage() {
   const [runDetailLoading, setRunDetailLoading] = useState(false);
   const [runDetailError, setRunDetailError] = useState<string | null>(null);
   const [selectedStep, setSelectedStep] = useState<string | null>(null);
-  const [stepDetail, setStepDetail] = useState<StepDetail | null>(null);
   const [definitionOpen, setDefinitionOpen] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
   const hoverTriggerRef = useRef<string | null>(null);
@@ -291,6 +290,11 @@ function PipelineRunsPage() {
   useEffect(() => {
     scrollMainToTop();
   }, [scrollMainToTop, activeTab]);
+
+  useEffect(() => {
+    // Reset step selection when run detail changes to avoid showing task graphs by default.
+    setSelectedStep(null);
+  }, [runDetail?.run_info.run_id]);
 
   useEffect(() => {
     const handleMove = (event: MouseEvent) => {
@@ -682,7 +686,6 @@ function PipelineRunsPage() {
     (runId: string) => {
       updateSearchParams({ run: runId });
       setSelectedStep(null);
-      setStepDetail(null);
       setDefinitionOpen(false);
       setLogsStepFilter(null);
       scrollMainToTop();
@@ -694,7 +697,6 @@ function PipelineRunsPage() {
     updateSearchParams({ run: null });
     setRunDetail(null);
     setSelectedStep(null);
-    setStepDetail(null);
     setDefinitionOpen(false);
     setLogsStepFilter(null);
   }, [updateSearchParams]);
@@ -819,6 +821,7 @@ function PipelineRunsPage() {
     [scrollMainToTop, updateSearchParams]
   );
 
+  const isViewingDetail = Boolean(runDetail && activeRunId);
   const mainRunsEmpty = activeTab === 'main' && Boolean(activeGroupId) && Object.keys(runsByBranch).length === 0;
   const showSelectionBar = selectedRunIds.size > 0;
   const trimmedSearch = searchTerm.trim();
@@ -844,48 +847,52 @@ function PipelineRunsPage() {
                 </NavLink>
               ))}
             </nav>
-            <div className="flex items-center gap-2 flex-shrink-0 order-1 sm:order-2">
-              {activeTab !== 'main' && <ViewToggle viewMode={viewMode} onChange={setViewMode} />}
-              {activeTab === 'main' && (
-                <button
-                  type="button"
-                  className={`flex items-center gap-2 px-4 py-2 rounded-full border border-[var(--border-primary)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] text-[var(--text-primary)] transition shadow-sm disabled:opacity-60 disabled:cursor-not-allowed`}
-                  onClick={handleNewFolder}
-                  aria-label="New Folder"
-                  disabled={Boolean(trimmedSearch)}
-                  title={trimmedSearch ? 'Clear search to create a folder' : 'New Folder'}
+            {!isViewingDetail && (
+              <div className="flex items-center gap-2 flex-shrink-0 order-1 sm:order-2">
+                {activeTab !== 'main' && <ViewToggle viewMode={viewMode} onChange={setViewMode} />}
+                {activeTab === 'main' && (
+                  <button
+                    type="button"
+                    className={`flex items-center gap-2 px-4 py-2 rounded-full border border-[var(--border-primary)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] text-[var(--text-primary)] transition shadow-sm disabled:opacity-60 disabled:cursor-not-allowed`}
+                    onClick={handleNewFolder}
+                    aria-label="New Folder"
+                    disabled={Boolean(trimmedSearch)}
+                    title={trimmedSearch ? 'Clear search to create a folder' : 'New Folder'}
+                  >
+                    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v14M5 12h14" />
+                    </svg>
+                    <span>New Folder</span>
+                  </button>
+                )}
+              </div>
+            )}
+            {!isViewingDetail && (
+              <div className="relative flex-1 min-w-[260px] max-w-3xl order-2 sm:order-1">
+                <input
+                  type="search"
+                  value={searchTerm}
+                  placeholder="Search runs"
+                  aria-label="Search pipeline runs"
+                  id="pipeline-runs-search"
+                  name="pipeline-runs-search"
+                  onChange={event => {
+                    setSearchTerm(event.target.value);
+                    updateSearchParams({ q: event.target.value || null });
+                  }}
+                  className="w-full h-11 rounded-full border border-[var(--border-primary)] bg-[var(--bg-primary)] focus:border-[var(--border-accent)] focus:ring-2 focus:ring-[var(--border-accent)]/60 pl-11 pr-10 text-sm transition text-[var(--text-secondary)] shadow-[0_8px_24px_rgba(0,0,0,0.1)]"
+                />
+                <svg
+                  className="w-4 h-4 text-[var(--text-secondary)] absolute left-4 top-1/2 -translate-y-1/2"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
                 >
-                  <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v14M5 12h14" />
-                  </svg>
-                  <span>New Folder</span>
-                </button>
-              )}
-            </div>
-            <div className="relative flex-1 min-w-[260px] max-w-3xl order-2 sm:order-1">
-              <input
-                type="search"
-                value={searchTerm}
-                placeholder="Search runs"
-                aria-label="Search pipeline runs"
-                id="pipeline-runs-search"
-                name="pipeline-runs-search"
-                onChange={event => {
-                  setSearchTerm(event.target.value);
-                  updateSearchParams({ q: event.target.value || null });
-                }}
-                className="w-full h-11 rounded-full border border-[var(--border-primary)] bg-[var(--bg-primary)] focus:border-[var(--border-accent)] focus:ring-2 focus:ring-[var(--border-accent)]/60 pl-11 pr-10 text-sm transition text-[var(--text-secondary)] shadow-[0_8px_24px_rgba(0,0,0,0.1)]"
-              />
-              <svg
-                className="w-4 h-4 text-[var(--text-secondary)] absolute left-4 top-1/2 -translate-y-1/2"
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-4.35-4.35M10 18a8 8 0 110-16 8 8 0 010 16z" />
-              </svg>
-            </div>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-4.35-4.35M10 18a8 8 0 110-16 8 8 0 010 16z" />
+                </svg>
+              </div>
+            )}
           </div>
           {showSelectionBar && (
             <div className="mt-3">
@@ -932,11 +939,6 @@ function PipelineRunsPage() {
               }}
               onOpenRun={handleOpenRun}
               onShowDefinition={() => setDefinitionOpen(true)}
-              onOpenStepDetail={setStepDetail}
-              onOpenLogsForStep={stepName => {
-                setLogsStepFilter(stepName);
-                setLogsOpen(true);
-              }}
             />
           ) : (
             <Dashboard
@@ -980,20 +982,6 @@ function PipelineRunsPage() {
           yamlText={runDetail.pipeline_definition_yaml}
           definition={runDetail.pipeline_definition}
           onClose={() => setDefinitionOpen(false)}
-        />
-      )}
-
-      {stepDetail && (
-        <StepDetailModal
-          step={stepDetail}
-          pipelineDefinition={runDetail?.pipeline_definition}
-          onClose={() => setStepDetail(null)}
-          onOpenLogs={() => {
-            if (stepDetail) {
-              setLogsStepFilter(stepDetail.name);
-              setLogsOpen(true);
-            }
-          }}
         />
       )}
 
@@ -1941,8 +1929,6 @@ function RunDetailView({
   onOpenLogs,
   onOpenRun,
   onShowDefinition,
-  onOpenStepDetail,
-  onOpenLogsForStep,
 }: {
   detail: RunDetail;
   loading: boolean;
@@ -1956,73 +1942,206 @@ function RunDetailView({
   onOpenLogs: () => void;
   onOpenRun: (id: string) => void;
   onShowDefinition: () => void;
-  onOpenStepDetail: (step: StepDetail) => void;
-  onOpenLogsForStep: (stepName: string) => void;
 }) {
   const run = detail.run_info;
   const isRunning = normalizeStatus(run.status, run.is_complete) === 'running';
   const pipelineLink = buildPipelineLink(run);
   const triggerLabel = formatTriggerId(run.trigger_event_id);
   const parentRun = detail.parent_run_info;
-  const selectedStepData = selectedStep ? detail.steps.find(step => step.name === selectedStep) || null : null;
+
+  const actionBase =
+    'inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition shadow-sm focus:outline-none';
+  const ghostAction = `${actionBase} border border-[var(--border-primary)] bg-white/80 dark:bg-slate-900 text-[var(--text-primary)] hover:border-indigo-300 hover:text-indigo-600`;
+  const primaryAction = `${actionBase} bg-[#5448ff] text-white shadow-lg hover:brightness-110 focus:ring-2 focus:ring-offset-2 focus:ring-[#5448ff]`;
+  const dangerAction = `${actionBase} border border-red-200/70 text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-100 dark:border-red-700`;
+
+  const copyRunId = useCallback(() => {
+    if (typeof navigator === 'undefined' || !navigator.clipboard) return;
+    void navigator.clipboard.writeText(run.run_id);
+  }, [run.run_id]);
+
+  const copyCommitSha = useCallback(() => {
+    if (typeof navigator === 'undefined' || !navigator.clipboard) return;
+    if (!run.git_commit_sha) return;
+    void navigator.clipboard.writeText(run.git_commit_sha);
+  }, [run.git_commit_sha]);
+
+  const metaItems = [
+    { label: 'Run ID', value: run.run_id, onCopy: copyRunId },
+    { label: 'Commit', value: run.git_commit_sha ? run.git_commit_sha.slice(0, 7) : '—', title: run.git_commit_sha, onCopy: run.git_commit_sha ? copyCommitSha : undefined },
+    { label: 'Trigger Event', value: triggerLabel.display, title: triggerLabel.full },
+  ];
+
+  const startedLabel = run.started_at ? timeAgo(run.started_at) : '—';
+  const branchLabel = formatBranchDisplay(run.git_ref, run.git_target_ref);
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-start gap-3">
-        <button className="runner-pill runner-pill--muted" type="button" onClick={onClose}>
-          ← Back
-        </button>
-        <div className="flex-1 min-w-[320px] space-y-2">
-          {parentRun && (
-            <button className="runner-pill runner-pill--ghost" type="button" onClick={() => onOpenRun(parentRun.run_id)}>
-              ← Parent: {parentRun.pipeline_name}
-            </button>
-          )}
-          <div className="flex flex-wrap items-center gap-2 text-sm text-[var(--text-secondary)]">
-            <span className="font-semibold text-[var(--text-primary)]">{formatRepo(run)}</span>
-            <span>•</span>
-            <span className="font-mono">{run.run_id}</span>
+    <div className="space-y-6">
+      <div className="rounded-2xl border border-[var(--border-primary)] bg-white/95 dark:bg-slate-950 shadow-[0_18px_48px_rgba(15,23,42,0.08)] overflow-hidden">
+        <div className="p-6 pb-4 flex flex-wrap items-start gap-4">
+          <div className="flex-1 min-w-[320px] space-y-4">
+            <div className="flex items-center gap-2 flex-wrap text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">
+              <button type="button" className={`${ghostAction} px-3 py-1.5 text-xs`} onClick={onClose}>
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 18l-6-6 6-6" />
+                </svg>
+                Back to runs
+              </button>
+              {parentRun && (
+                <button type="button" className={`${ghostAction} px-3 py-1.5 text-xs`} onClick={() => onOpenRun(parentRun.run_id)}>
+                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M5 12h14" />
+                    <path d="M12 5l7 7-7 7" />
+                  </svg>
+                  Parent: {parentRun.pipeline_name}
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="inline-flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                <svg className="h-4 w-4 text-[var(--text-secondary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 7l9-4 9 4-9 4-9-4z" />
+                  <path d="M3 17l9 4 9-4" />
+                  <path d="M3 12l9 4 9-4" />
+                </svg>
+                <span className="font-semibold text-[var(--text-primary)]">{formatRepo(run)}</span>
+              </div>
+              <span className="text-[var(--border-primary)]">/</span>
+              <span className="text-2xl font-semibold text-[var(--text-primary)]">{run.pipeline_name}</span>
+              <StatusBadge status={run.status} complete={run.is_complete} />
+              {run.pipeline_source && <span className="runner-pill runner-pill--muted capitalize">{run.pipeline_source}</span>}
+              <span className="runner-pill runner-pill--ghost" title={triggerLabel.full}>
+                Trigger {triggerLabel.display}
+              </span>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              {metaItems.map(item => (
+                <div key={item.label} className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 py-2 shadow-sm flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-[11px] uppercase tracking-wide text-[var(--text-secondary)]">{item.label}</div>
+                    <div className="text-sm font-semibold text-[var(--text-primary)] truncate" title={item.title || item.value}>
+                      {item.value}
+                    </div>
+                  </div>
+                  {item.onCopy && (
+                    <button
+                      type="button"
+                      onClick={item.onCopy}
+                      className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-[var(--border-primary)] text-[var(--text-secondary)] hover:text-indigo-600 hover:border-indigo-300"
+                      title={`Copy ${item.label.toLowerCase()}`}
+                    >
+                      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                        <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2 mt-1">
-            <StatusBadge status={run.status} complete={run.is_complete} />
-            <span className="text-xl font-semibold text-[var(--text-primary)]">{run.pipeline_name}</span>
-            {run.pipeline_source && <span className="runner-pill runner-pill--muted">{run.pipeline_source}</span>}
-            <span className="runner-pill runner-pill--ghost" title={triggerLabel.full}>
-              Trigger {triggerLabel.display}
-            </span>
-          </div>
-          <div className="text-sm text-[var(--text-secondary)] flex flex-wrap gap-2 mt-2">
-            <span className="runner-pill runner-pill--muted">Branch {formatBranchDisplay(run.git_ref, run.git_target_ref)}</span>
-            <span className="runner-pill runner-pill--muted">Commit {(run.git_commit_sha || '—').slice(0, 7)}</span>
-            <span className="runner-pill runner-pill--muted">{run.git_pusher_name || 'Unknown'}</span>
-            <span className="runner-pill runner-pill--muted">{run.duration || '—'}</span>
-            <span className="runner-pill runner-pill--muted">Started {timeAgo(run.started_at)}</span>
+
+          <div className="flex flex-col items-end gap-3 flex-shrink-0 min-w-[260px]">
+            <div className="flex items-center gap-2">
+              <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-4 py-2 text-sm text-[var(--text-secondary)] shadow-inner">
+                <svg className="h-4 w-4 text-indigo-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M12 6v6l3 3" />
+                </svg>
+                <span className="text-[var(--text-primary)] font-semibold">{run.duration || '—'}</span>
+                <span className="text-[11px] uppercase tracking-wide text-[var(--text-secondary)]">Elapsed</span>
+              </div>
+              <button
+                type="button"
+                className={`${ghostAction} h-11 w-11 rounded-full p-0 justify-center`}
+                onClick={() => onOpenRun(run.run_id)}
+                title="Refresh run detail"
+              >
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="23 4 23 10 17 10" />
+                  <polyline points="1 20 1 14 7 14" />
+                  <path d="M3.51 9a9 9 0 0114.13-3.36L23 10M1 14l5.36 4.36A9 9 0 0020.49 15" />
+                </svg>
+              </button>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              {pipelineLink && (
+                <Link className={ghostAction} to={pipelineLink}>
+                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 22V2h8l2 2h6v18H4z" />
+                  </svg>
+                  View Pipeline
+                </Link>
+              )}
+              <button className={ghostAction} type="button" onClick={onShowDefinition}>
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 19.5A2.5 2.5 0 016.5 17H20" />
+                  <path d="M4 4.5A2.5 2.5 0 016.5 7H20" />
+                  <path d="M4 12h16" />
+                </svg>
+                Definition
+              </button>
+              <button className={ghostAction} type="button" onClick={onOpenLogs}>
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15V6" />
+                  <path d="M18 12V3" />
+                  <path d="M3 9v12h18" />
+                  <path d="M6 5v11" />
+                </svg>
+                View Logs
+              </button>
+              <button className={ghostAction} type="button" onClick={copyRunId}>
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" />
+                  <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
+                </svg>
+                Copy
+              </button>
+              <button className={isRunning ? dangerAction : primaryAction} type="button" onClick={isRunning ? onCancel : onRerun} disabled={loading}>
+                {isRunning ? 'Cancel' : 'Rerun'}
+              </button>
+              <button className={`${ghostAction} text-red-600 hover:text-red-700`} type="button" onClick={onDelete}>
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" />
+                  <path d="M10 11v6" />
+                  <path d="M14 11v6" />
+                  <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
+                </svg>
+                Delete
+              </button>
+            </div>
           </div>
         </div>
-        <div className="flex items-center gap-2 ml-auto flex-wrap">
-          {pipelineLink && (
-            <Link className="glass-button-subtle" to={pipelineLink}>
-              View pipeline
-            </Link>
-          )}
-          <button className="glass-button-subtle" type="button" onClick={onShowDefinition}>
-            Definition
-          </button>
-          <button className="glass-button-subtle" type="button" onClick={onOpenLogs}>
-            View logs
-          </button>
-          <button className="glass-button-subtle" type="button" onClick={onDelete}>
-            Delete
-          </button>
-          {isRunning ? (
-            <button className="glass-button-primary" type="button" onClick={onCancel}>
-              Cancel run
-            </button>
-          ) : (
-            <button className="glass-button-primary" type="button" onClick={onRerun} disabled={loading}>
-              Rerun
-            </button>
-          )}
+
+        <div className="px-6 pb-4 pt-3 border-t border-[var(--border-primary)] bg-[var(--bg-primary)] flex flex-wrap items-center gap-3 text-sm text-[var(--text-secondary)]">
+          <div className="inline-flex items-center gap-2">
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 6v6l3 3" />
+            </svg>
+            <span>Started {startedLabel}</span>
+          </div>
+          <span className="text-[var(--border-primary)]">•</span>
+          <div className="inline-flex items-center gap-2">
+            <BranchIcon className="h-4 w-4 text-[var(--text-secondary)]" />
+            <span className="font-medium text-[var(--text-primary)]">{branchLabel}</span>
+          </div>
+          <span className="text-[var(--border-primary)]">•</span>
+          <div className="inline-flex items-center gap-2">
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0z" />
+              <path d="M12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            </svg>
+            <span>{run.git_pusher_name || 'Unknown actor'}</span>
+          </div>
+          <span className="text-[var(--border-primary)]">•</span>
+          <div className="inline-flex items-center gap-2 font-mono">
+            <CommitIcon className="h-4 w-4 text-[var(--text-secondary)]" />
+            <span>{(run.git_commit_sha || '—').slice(0, 7)}</span>
+          </div>
         </div>
       </div>
 
@@ -2034,42 +2153,18 @@ function RunDetailView({
         </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[2fr,1fr]">
-        <div className="border border-[var(--border-primary)] rounded-xl bg-[var(--bg-secondary)] p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold text-[var(--text-primary)]">Steps graph</h3>
-            <span className="text-xs text-[var(--text-secondary)]">{detail.steps.length} steps</span>
-          </div>
+      <div className="space-y-4">
+        <div className="rounded-2xl border border-[var(--border-primary)] bg-white dark:bg-slate-950 shadow-[0_16px_44px_rgba(15,23,42,0.07)] p-2">
           <StepsGraph steps={detail.steps} selectedStep={selectedStep} onSelectStep={onSelectStep} />
-        </div>
-        <div className="border border-[var(--border-primary)] rounded-xl bg-[var(--bg-secondary)] p-4 space-y-3">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <h3 className="font-semibold text-[var(--text-primary)]">Tasks</h3>
-            {selectedStepData && (
-              <div className="flex items-center gap-2">
-                <button className="glass-button-subtle text-xs" type="button" onClick={() => onOpenLogsForStep(selectedStepData.name)}>
-                  Logs for step
-                </button>
-                <button className="glass-button-subtle text-xs" type="button" onClick={() => onOpenStepDetail(selectedStepData)}>
-                  View step details
-                </button>
-              </div>
-            )}
-          </div>
-          {selectedStepData ? (
-            <TaskPanel step={selectedStepData} />
-          ) : (
-            <div className="text-sm text-[var(--text-secondary)]">Select a step to view its tasks.</div>
-          )}
         </div>
       </div>
 
       {detail.child_runs?.length > 0 && (
-        <div className="border border-[var(--border-primary)] rounded-xl bg-[var(--bg-secondary)] p-4 space-y-2">
+        <div className="border border-[var(--border-primary)] rounded-2xl bg-white dark:bg-slate-950 p-4 space-y-2 shadow-sm">
           <h3 className="font-semibold text-[var(--text-primary)]">Child runs</h3>
-          <div className="space-y-2">
+          <div className="space-y-3">
             {detail.child_runs.map(child => (
-              <div key={child.run_id} className="flex items-center justify-between text-sm">
+              <div key={child.run_id} className="flex items-center justify-between text-sm p-3 rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)]">
                 <div className="flex items-center gap-2">
                   <StatusBadge status={child.status} complete={child.is_complete} />
                   <span className="font-medium text-[var(--text-primary)]">{child.pipeline_name}</span>
@@ -2077,7 +2172,7 @@ function RunDetailView({
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-[var(--text-secondary)]">{timeAgo(child.started_at)}</span>
-                  <button className="glass-button-subtle text-xs" type="button" onClick={() => onOpenRun(child.run_id)}>
+                  <button className={ghostAction} type="button" onClick={() => onOpenRun(child.run_id)}>
                     Open
                   </button>
                 </div>
@@ -2092,17 +2187,64 @@ function RunDetailView({
 
 function StepsGraph({ steps, selectedStep, onSelectStep }: { steps: StepDetail[]; selectedStep: string | null; onSelectStep: (name: string) => void }) {
   const items: GraphItem[] = steps.map(step => ({ name: step.name, depends_on: step.depends_on || [] }));
-  const layout = useMemo<GraphLayout>(() => calculateGraphLayout(items, { nodeWidth: 180, nodeHeight: 100, horizontalGap: 120, verticalGap: 32 }), [items]);
+  const layout = useMemo<GraphLayout>(
+    () =>
+      calculateGraphLayout(items, {
+        nodeWidth: 140,
+        nodeHeight: 70,
+        horizontalGap: 150,
+        verticalGap: 70,
+        paddingX: 140,
+        paddingY: 160,
+      }),
+    [items]
+  );
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
   const draggingRef = useRef(false);
   const lastRef = useRef({ x: 0, y: 0 });
+  const selectedStepDetail = useMemo(() => steps.find(step => step.name === selectedStep), [selectedStep, steps]);
+  const taskStatusByName = useMemo(() => {
+    const map = new Map<string, TaskDetail>();
+    selectedStepDetail?.tasks?.forEach(task => map.set(task.task_name, task));
+    return map;
+  }, [selectedStepDetail]);
+
+  const toneForStatus = useCallback((status: string | undefined, complete?: boolean) => {
+    const palette: Record<string, { stroke: string; fill: string; icon: string; glow: string }> = {
+      success: { stroke: '#1f9e54', fill: '#ecfdf3', icon: 'M5 13l4 4L19 7', glow: 'rgba(33,197,111,0.25)' },
+      failure: { stroke: '#ef4444', fill: '#fef2f2', icon: 'M6 18L18 6M6 6l12 12', glow: 'rgba(239,68,68,0.2)' },
+      'failure (ignored)': { stroke: '#f59e0b', fill: '#fffbeb', icon: 'M6 18L18 6M6 6l12 12', glow: 'rgba(245,158,11,0.24)' },
+      running: { stroke: '#3b82f6', fill: '#eff6ff', icon: 'M12 6v6l3.5 2', glow: 'rgba(59,130,246,0.22)' },
+      cancelled: { stroke: '#fb923c', fill: '#fff7ed', icon: 'M6 18L18 6M6 6l12 12', glow: 'rgba(251,146,60,0.2)' },
+      skipped: { stroke: '#818cf8', fill: '#eef2ff', icon: 'M8 12h8', glow: 'rgba(129,140,248,0.18)' },
+      pending: { stroke: '#cbd5e1', fill: '#f8fafc', icon: 'M12 6v6l3.5 2', glow: 'rgba(148,163,184,0.18)' },
+    };
+    return palette[normalizeStatus(status, complete)] || palette.pending;
+  }, []);
+
+  const formatTaskDuration = useCallback((task?: TaskDetail) => {
+    if (!task?.started_at || !task.finished_at) return '0s';
+    const start = new Date(task.started_at).getTime();
+    const end = new Date(task.finished_at).getTime();
+    const ms = end - start;
+    if (Number.isNaN(ms) || ms < 0) return '0s';
+    const seconds = ms / 1000;
+    if (seconds < 1) return `${seconds.toFixed(2)}s`;
+    if (seconds < 10) return `${seconds.toFixed(2)}s`;
+    if (seconds < 60) return `${seconds.toFixed(1)}s`;
+    const minutes = Math.floor(seconds / 60);
+    const rem = Math.round(seconds % 60);
+    return `${minutes}m ${rem}s`;
+  }, []);
 
   const handleWheel = (event: React.WheelEvent) => {
     event.preventDefault();
     const delta = event.deltaY < 0 ? 0.1 : -0.1;
-    setScale(prev => Math.min(2, Math.max(0.5, prev + delta)));
+    setScale(prev => Math.min(1.8, Math.max(0.55, prev + delta)));
   };
 
   const onMouseDown = (event: React.MouseEvent) => {
@@ -2124,120 +2266,389 @@ function StepsGraph({ steps, selectedStep, onSelectStep }: { steps: StepDetail[]
     setIsDragging(false);
   };
 
+  const centerGraph = useCallback(
+    (nextScale: number) => {
+      const container = containerRef.current;
+      if (!container) return;
+      const { width: cw, height: ch } = container.getBoundingClientRect();
+      if (!cw || !ch) return;
+      const x = (cw - layout.width * nextScale) / 2;
+      const y = (ch - layout.height * nextScale) / 2;
+      setOffset({ x, y });
+    },
+    [layout.height, layout.width]
+  );
+
+  const fitGraph = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const { width: cw, height: ch } = container.getBoundingClientRect();
+    if (!cw || !ch) return;
+    const margin = 48;
+    const fitScale = Math.min(
+      1.6,
+      Math.max(0.5, Math.min((cw - margin) / layout.width, (ch - margin) / layout.height))
+    );
+    setScale(fitScale);
+    centerGraph(fitScale);
+  }, [centerGraph, layout.height, layout.width]);
+
+  useEffect(() => {
+    fitGraph();
+  }, [fitGraph, steps.length]);
+
+  const handleExpandAll = () => {
+    const next = new Set<string>();
+    steps.forEach(step => {
+      if (step.configuration?.tasks && step.configuration.tasks.length) {
+        next.add(step.name);
+      }
+    });
+    setExpandedSteps(next);
+  };
+
+  const handleReset = () => {
+    setExpandedSteps(new Set());
+    fitGraph();
+  };
+
   return (
-    <div className="relative border border-[var(--border-primary)] rounded-lg bg-[var(--bg-primary)] overflow-hidden" onWheel={handleWheel} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}>
-      <div className="absolute right-3 top-3 flex items-center gap-2 bg-[var(--bg-secondary)]/80 backdrop-blur px-2 py-1 rounded-full text-xs">
-        <button className="runner-pill runner-pill--muted" type="button" onClick={() => setScale(prev => Math.max(0.5, prev - 0.1))}>
+    <div
+      ref={containerRef}
+      className="relative overflow-hidden rounded-2xl bg-gradient-to-b from-slate-50 via-white to-slate-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950"
+      onWheel={handleWheel}
+      onMouseMove={onMouseMove}
+      onMouseUp={onMouseUp}
+      onMouseLeave={onMouseUp}
+    >
+      <div className="absolute top-4 left-4 flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+        <span className="inline-flex items-center gap-2 rounded-full border border-[var(--border-primary)] bg-white/90 dark:bg-slate-900/85 px-3 py-1 shadow-sm">
+          <svg className="h-4 w-4 text-indigo-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 6v6l3 3" />
+          </svg>
+          {steps.length} steps
+        </span>
+        {selectedStep && (
+          <span className="inline-flex items-center gap-2 rounded-full border border-indigo-200/80 bg-white/95 dark:bg-slate-900/85 px-3 py-1 shadow-sm text-[var(--text-primary)]">
+            <svg className="h-4 w-4 text-indigo-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 12h14" />
+              <path d="M12 5l7 7-7 7" />
+            </svg>
+            Selected: <span className="font-semibold text-indigo-600 dark:text-indigo-300">{selectedStep}</span>
+          </span>
+        )}
+      </div>
+
+      <div className="absolute right-4 bottom-4 flex items-center gap-2 bg-white/90 dark:bg-slate-900/85 backdrop-blur px-2 py-1 rounded-full text-xs shadow border border-[var(--border-secondary)]">
+        <button
+          className="h-8 w-8 rounded-full border border-[var(--border-primary)] bg-white dark:bg-slate-900 text-[var(--text-primary)] hover:border-indigo-300 hover:text-indigo-600 flex items-center justify-center"
+          type="button"
+          onClick={() => setScale(prev => Math.max(0.55, prev - 0.1))}
+        >
           -
         </button>
-        <span className="text-[var(--text-secondary)] w-12 text-center">{Math.round(scale * 100)}%</span>
-        <button className="runner-pill runner-pill--muted" type="button" onClick={() => setScale(prev => Math.min(2, prev + 0.1))}>
+        <button
+          className="h-8 w-8 rounded-full border border-[var(--border-primary)] bg-white dark:bg-slate-900 text-[var(--text-primary)] hover:border-indigo-300 hover:text-indigo-600 flex items-center justify-center"
+          type="button"
+          onClick={() => setScale(prev => Math.min(1.8, prev + 0.1))}
+        >
           +
         </button>
-        <button className="runner-pill runner-pill--muted" type="button" onClick={() => { setScale(1); setOffset({ x: 0, y: 0 }); }}>
+        <button
+          className="px-3 h-8 rounded-full border border-[var(--border-primary)] bg-white dark:bg-slate-900 text-[var(--text-primary)] hover:border-indigo-300 hover:text-indigo-600"
+          type="button"
+          onClick={fitGraph}
+        >
+          Fit
+        </button>
+        <button
+          className="px-3 h-8 rounded-full border border-[var(--border-primary)] bg-white dark:bg-slate-900 text-[var(--text-primary)] hover:border-indigo-300 hover:text-indigo-600"
+          type="button"
+          onClick={handleExpandAll}
+        >
+          Expand All
+        </button>
+        <button
+          className="px-3 h-8 rounded-full border border-[var(--border-primary)] bg-white dark:bg-slate-900 text-[var(--text-primary)] hover:border-indigo-300 hover:text-indigo-600"
+          type="button"
+          onClick={handleReset}
+        >
           Reset
         </button>
       </div>
-      <div className="w-full h-[480px]" onMouseDown={onMouseDown}>
+
+      <div className="w-full h-[640px]" onMouseDown={onMouseDown}>
         <svg
           width="100%"
           height="100%"
           viewBox={`0 0 ${layout.width} ${layout.height}`}
           style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`, transformOrigin: 'center center', cursor: isDragging ? 'grabbing' : 'grab' }}
         >
-          {layout.edges.map((edge, index) => (
-            <path
-              key={`${edge.from.id}-${edge.to.id}-${index}`}
-              d={buildEdgePath(edge.from.x + edge.from.width, edge.from.y + edge.from.height / 2, edge.to.x, edge.to.y + edge.to.height / 2)}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={1.6}
-              className="text-[var(--border-secondary)]"
-            />
-          ))}
+          <defs>
+            <linearGradient id="edge-gradient" x1="0" y1="0" x2={layout.width} y2="0" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stopColor="#d7dcff" stopOpacity="0.3" />
+              <stop offset="50%" stopColor="#b3c0ff" stopOpacity="0.7" />
+              <stop offset="100%" stopColor="#7c3aed" stopOpacity="0.9" />
+            </linearGradient>
+            <filter id="edge-glow" x="-40%" y="-40%" width="180%" height="180%">
+              <feGaussianBlur stdDeviation="6" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+            <marker id="graph-arrow" markerWidth="6" markerHeight="4" refX="4.5" refY="2" orient="auto" markerUnits="strokeWidth">
+              <polygon points="0 0, 6 2, 0 4" fill="#7c3aed" />
+            </marker>
+          </defs>
+          {layout.edges.map((edge, index) => {
+            const fromCenterX = edge.from.x + edge.from.width / 2;
+            const fromCenterY = edge.from.y + edge.from.height / 2 - 10; // route toward icon while staying clear of text
+            const toCenterX = edge.to.x + edge.to.width / 2;
+            const toCenterY = edge.to.y + edge.to.height / 2 - 10;
+            const offset = 30; // small gap at node entry/exit so arrows point at icons
+            return (
+              <path
+                key={`${edge.from.id}-${edge.to.id}-${index}`}
+                d={buildEdgePath(fromCenterX + offset, fromCenterY, toCenterX - offset, toCenterY)}
+                fill="none"
+                stroke="url(#edge-gradient)"
+                strokeWidth={2.2}
+                className="opacity-85"
+                markerEnd="url(#graph-arrow)"
+                strokeLinecap="round"
+                filter="url(#edge-glow)"
+              />
+            );
+          })}
           {layout.nodes.map(node => {
             const step = steps.find(stepItem => stepItem.name === node.id);
-            const meta = getStatusMeta(step?.status || 'pending', step?.status === 'success');
+            const tone = toneForStatus(step?.status, step?.status === 'success');
             const isActive = selectedStep === node.id;
-            const statusY = node.y + 56;
+            const includedLabel = step?.configuration?.include
+              ? `Included ${step.configuration.include.toLowerCase().includes('pipeline') ? 'Pipeline' : 'Step'}`
+              : '';
+            const cx = node.x + node.width / 2;
+            const cy = node.y + node.height / 2 - 10; // lift node visuals slightly upward
+            const statusMeta = getStatusMeta(step?.status, step?.status === 'success');
+            const iconScale = 1.1;
+            const nameY = cy + 24;
+            const includeY = nameY + 16;
+            const durationY = includedLabel ? includeY + 16 : nameY + 22;
             return (
-              <g key={node.id} className="graph-node" onClick={() => onSelectStep(node.id)}>
+              <g
+                key={node.id}
+                className="graph-node"
+                onClick={() => {
+                  onSelectStep(node.id);
+                  setExpandedSteps(prev => {
+                    const next = new Set(prev);
+                    if (next.has(node.id)) {
+                      next.delete(node.id);
+                    } else if (taskCount > 0) {
+                      next.add(node.id);
+                    }
+                    return next;
+                  });
+                }}
+              >
+                <g
+                  transform={`translate(${cx - 12 * iconScale}, ${cy - 12 * iconScale}) scale(${iconScale})`}
+                  stroke={tone.stroke}
+                  fill="none"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d={statusMeta.icon} />
+                </g>
+                <text
+                  x={cx}
+                  y={nameY}
+                  className="text-sm font-semibold text-slate-900 dark:text-slate-100"
+                  fill="currentColor"
+                  textAnchor="middle"
+                >
+                  {node.name}
+                </text>
+                {includedLabel && (
+                  <text
+                    x={cx}
+                    y={includeY}
+                    className="text-[11px] text-indigo-600 dark:text-indigo-300"
+                    fill="currentColor"
+                    textAnchor="middle"
+                  >
+                    {includedLabel}
+                  </text>
+                )}
+                <text
+                  x={cx}
+                  y={durationY}
+                  className="text-[12px] text-[var(--text-secondary)]"
+                  fill="currentColor"
+                  textAnchor="middle"
+                >
+                  {step?.duration || '0s'}
+                </text>
+              </g>
+            );
+          })}
+          {/* Expanded task subgraphs */}
+          {steps.map(step => {
+            if (!expandedSteps.has(step.name)) return null;
+            const taskDefs = step.configuration?.tasks || [];
+            if (!taskDefs.length) return null;
+            const taskLayout = calculateGraphLayout(
+              taskDefs.map(task => ({ name: task.name, depends_on: task.depends_on || [] })),
+              { nodeWidth: 140, nodeHeight: 80, horizontalGap: 70, verticalGap: 28, vertical: true, paddingX: 32, paddingY: 24 }
+            );
+            const statusByTask = new Map<string, string>();
+            step.tasks.forEach(task => statusByTask.set(task.task_name, task.status));
+            const parentNode = layout.nodes.find(n => n.id === step.name);
+            if (!parentNode) return null;
+            const originX = parentNode.x + parentNode.width + 32;
+            const originY = parentNode.y;
+            const pad = 12;
+            return (
+              <g key={`${step.name}-tasks`} transform={`translate(${originX}, ${originY})`} className="expanded-task-cluster">
                 <rect
-                  x={node.x}
-                  y={node.y}
-                  width={node.width}
-                  height={node.height}
+                  x={-pad}
+                  y={-pad}
+                  width={taskLayout.width + pad * 2}
+                  height={taskLayout.height + pad * 2}
                   rx={14}
-                  className={`stroke-2 ${meta.bg} ${isActive ? 'ring-4 ring-[var(--border-accent)]' : ''}`}
-                  fillOpacity={0.7}
+                  className="fill-white dark:fill-slate-900 stroke-indigo-100 dark:stroke-indigo-800"
+                  fillOpacity={0.96}
                 />
-                <text x={node.x + 16} y={node.y + 28} className="text-sm font-semibold" fill="currentColor">
-                  {node.name}
-                </text>
-                <circle cx={node.x + 16} cy={statusY} r={6} className={meta.strokeClass} fill="currentColor" />
-                <text x={node.x + 30} y={statusY + 4} className={`text-[11px] ${meta.strokeClass}`} fill="currentColor">
-                  {meta.text}
-                </text>
-                <text x={node.x + 16} y={node.y + 88} className="text-[11px] text-[var(--text-secondary)]" fill="currentColor">
-                  {step?.duration || '—'}
-                </text>
+                {taskLayout.edges.map((edge, idx) => (
+                  <path
+                    key={`${edge.from.id}-${edge.to.id}-${idx}`}
+                    d={buildEdgePath(
+                      edge.from.x + edge.from.width / 2,
+                      edge.from.y + edge.from.height,
+                      edge.to.x + edge.to.width / 2,
+                      edge.to.y
+                    )}
+                    fill="none"
+                    stroke="url(#edge-gradient)"
+                    strokeWidth={1.4}
+                    className="text-[var(--border-secondary)]"
+                  />
+                ))}
+                {taskLayout.nodes.map(node => {
+                  const status = statusByTask.get(node.id) || 'pending';
+                  const tone = toneForStatus(status, status === 'success');
+                  const meta = getStatusMeta(status, status === 'success');
+                  const def = taskDefs.find(t => t.name === node.id);
+                  const statusY = node.y + node.height - 16;
+                  return (
+                    <g key={node.id}>
+                      <rect x={node.x} y={node.y} width={node.width} height={node.height} rx={12} fill={tone.fill} stroke={tone.stroke} strokeWidth={1.4} />
+                      <text x={node.x + 10} y={node.y + 22} className="text-[13px] font-semibold" fill="currentColor">
+                        {node.name}
+                      </text>
+                      <text x={node.x + 10} y={node.y + 40} className="text-[11px] text-[var(--text-secondary)]" fill="currentColor">
+                        {(def?.goal || def?.script || '').slice(0, 32) || 'Task'}
+                      </text>
+                      <circle cx={node.x + 12} cy={statusY} r={6} fill={tone.stroke} />
+                      <text x={node.x + 24} y={statusY + 4} className="text-[11px]" fill={tone.stroke}>
+                        {meta.text}
+                      </text>
+                    </g>
+                  );
+                })}
               </g>
             );
           })}
-        </svg>
-      </div>
-    </div>
-  );
-}
 
-function TaskPanel({ step }: { step: StepDetail | null }) {
-  if (!step) return <div className="text-sm text-[var(--text-secondary)]">Select a step to view tasks.</div>;
-  const taskDefinitions = step.configuration?.tasks || [];
-  if (!taskDefinitions.length) return <div className="text-sm text-[var(--text-secondary)]">No tasks defined for this step.</div>;
-
-  const layout = calculateGraphLayout(
-    taskDefinitions.map(task => ({ name: task.name, depends_on: task.depends_on || [] })),
-    { nodeWidth: 150, nodeHeight: 90, vertical: true, horizontalGap: 80, verticalGap: 28 }
-  );
-
-  const statusByName = new Map<string, string>();
-  step.tasks.forEach(task => statusByName.set(task.task_name, task.status));
-
-  return (
-    <div className="border border-[var(--border-primary)] rounded-lg bg-[var(--bg-primary)] overflow-hidden">
-      <div className="w-full h-64 overflow-auto">
-        <svg width={layout.width} height={layout.height} className="bg-[var(--bg-primary)]">
-          {layout.edges.map((edge, index) => (
-            <path
-              key={`${edge.from.id}-${edge.to.id}-${index}`}
-              d={buildEdgePath(edge.from.x + edge.from.width / 2, edge.from.y + edge.from.height, edge.to.x + edge.to.width / 2, edge.to.y)}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={1.5}
-              className="text-[var(--border-secondary)]"
-            />
-          ))}
-          {layout.nodes.map(node => {
-            const status = statusByName.get(node.id) || 'pending';
-            const meta = getStatusMeta(status, status === 'success');
-            const def = taskDefinitions.find(t => t.name === node.id);
-            const statusY = node.y + node.height - 18;
+          {/* Task subgraph for selected step */}
+          {selectedStepDetail && selectedStepDetail.configuration?.tasks?.length ? (() => {
+            const taskDefs = selectedStepDetail.configuration?.tasks || [];
+            const taskLayout = calculateGraphLayout(
+              taskDefs.map(task => ({ name: task.name, depends_on: task.depends_on || [] })),
+              { nodeWidth: 120, nodeHeight: 70, vertical: true, horizontalGap: 70, verticalGap: 46, paddingX: 80, paddingY: 80 }
+            );
+            const parentNode = layout.nodes.find(n => n.id === selectedStepDetail.name);
+            if (!parentNode) return null;
+            const baseX = Math.max(20, parentNode.x - taskLayout.width - 120);
+            const baseY = Math.max(20, parentNode.y - 60);
             return (
-              <g key={node.id} className="graph-node">
-                <rect x={node.x} y={node.y} width={node.width} height={node.height} rx={12} className={`${meta.bg}`} />
-                <text x={node.x + 12} y={node.y + 26} className="text-sm font-semibold" fill="currentColor">
-                  {node.name}
-                </text>
-                <text x={node.x + 12} y={node.y + 48} className="text-[11px] text-[var(--text-secondary)]" fill="currentColor">
-                  {(def?.goal || def?.script || '').slice(0, 40) || 'Task'}
-                </text>
-                <circle cx={node.x + 12} cy={statusY} r={6} className={meta.strokeClass} fill="currentColor" />
-                <text x={node.x + 24} y={statusY + 4} className={`text-[11px] ${meta.strokeClass}`} fill="currentColor">
-                  {meta.text}
-                </text>
+              <g key={`${selectedStepDetail.name}-tasks`} transform={`translate(${baseX}, ${baseY})`}>
+                <rect
+                  x={-12}
+                  y={-12}
+                  rx={16}
+                  width={taskLayout.width + 24}
+                  height={taskLayout.height + 24}
+                  fill="white"
+                  stroke="#e2e8f0"
+                  strokeWidth={1}
+                  opacity={0.96}
+                />
+                {taskLayout.edges.map((edge, idx) => {
+                  const fromX = edge.from.x + edge.from.width / 2;
+                  const fromY = edge.from.y + edge.from.height / 2 - 6;
+                  const toX = edge.to.x + edge.to.width / 2;
+                  const toY = edge.to.y + edge.to.height / 2 - 6;
+                  return (
+                    <path
+                      key={`${edge.from.id}-${edge.to.id}-${idx}`}
+                      d={buildEdgePath(fromX + 8, fromY, toX - 8, toY)}
+                      fill="none"
+                      stroke="url(#edge-gradient)"
+                      strokeWidth={1.8}
+                      strokeLinecap="round"
+                      className="opacity-80"
+                    />
+                  );
+                })}
+                {taskLayout.nodes.map(node => {
+                  const taskDef = taskDefs.find(t => t.name === node.id);
+                  const task = taskStatusByName.get(node.id);
+                  const tone = toneForStatus(task?.status, task?.status === 'success');
+                  const meta = getStatusMeta(task?.status, task?.status === 'success');
+                  const cx = node.x + node.width / 2;
+                  const cy = node.y + node.height / 2 - 6;
+                  const iconScale = 1.0;
+                  const nameY = cy + 20;
+                  const durationY = nameY + 18;
+                  return (
+                    <g key={node.id}>
+                      <rect
+                        x={node.x}
+                        y={node.y}
+                        width={node.width}
+                        height={node.height}
+                        rx={14}
+                        fill="white"
+                        stroke="#e2e8f0"
+                        strokeWidth={1}
+                        opacity={0.94}
+                      />
+                      <g
+                        transform={`translate(${cx - 12 * iconScale}, ${cy - 12 * iconScale}) scale(${iconScale})`}
+                        stroke={tone.stroke}
+                        fill="none"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d={meta.icon} />
+                      </g>
+                      <text x={cx} y={nameY} className="text-sm font-semibold text-slate-900 dark:text-slate-100" fill="currentColor" textAnchor="middle">
+                        {node.name}
+                      </text>
+                      <text x={cx} y={durationY} className="text-[12px] text-[var(--text-secondary)]" fill="currentColor" textAnchor="middle">
+                        {formatTaskDuration(task)}
+                      </text>
+                    </g>
+                  );
+                })}
               </g>
             );
-          })}
+          })() : null}
         </svg>
       </div>
     </div>
@@ -2399,13 +2810,18 @@ function LogsModal({
   const [lines, setLines] = useState<EnrichedLogLine[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedStep, setSelectedStep] = useState<string>(initialStep || 'all');
+  const [selectedSteps, setSelectedSteps] = useState<Set<string>>(() =>
+    initialStep && initialStep !== 'all' ? new Set([initialStep]) : new Set()
+  );
   const [selectedLevels, setSelectedLevels] = useState<Set<string>>(new Set());
+  const [searchText, setSearchText] = useState('');
   const lastIdRef = useRef(0);
+  const logContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    setSelectedStep(initialStep || 'all');
+    setSelectedSteps(initialStep && initialStep !== 'all' ? new Set([initialStep]) : new Set());
     setSelectedLevels(new Set());
+    setSearchText('');
     setLines([]);
     lastIdRef.current = 0;
   }, [initialStep, runId]);
@@ -2443,20 +2859,23 @@ function LogsModal({
   const stepOptions = useMemo(() => {
     const provided = stepNames || [];
     const derived = Array.from(new Set(lines.map(line => line.step).filter(Boolean) as string[]));
-    const combined = Array.from(new Set(['all', ...provided, ...derived]));
+    const combined = Array.from(new Set([...provided, ...derived])).filter(Boolean);
     return combined;
   }, [lines, stepNames]);
 
   const visibleLines = useMemo(() => {
+    const stepFilterActive = selectedSteps.size > 0;
+    const term = searchText.trim().toLowerCase();
     return lines.filter(line => {
       const level = line.level || 'info';
-      if (selectedStep !== 'all') {
-        if (!line.step || line.step !== selectedStep) return false;
+      if (stepFilterActive) {
+        if (!line.step || !selectedSteps.has(line.step)) return false;
       }
       if (selectedLevels.size > 0 && !selectedLevels.has(level)) return false;
+      if (term && !line.line.toLowerCase().includes(term)) return false;
       return true;
     });
-  }, [lines, selectedLevels, selectedStep]);
+  }, [lines, searchText, selectedLevels, selectedSteps]);
 
   const toggleLevel = (level: string) => {
     setSelectedLevels(prev => {
@@ -2469,6 +2888,58 @@ function LogsModal({
       return next;
     });
   };
+
+  const toggleStep = (step: string) => {
+    setSelectedSteps(prev => {
+      const next = new Set(prev);
+      if (next.has(step)) {
+        next.delete(step);
+      } else {
+        next.add(step);
+      }
+      return next;
+    });
+  };
+
+  const resetFilters = () => {
+    setSelectedSteps(new Set());
+    setSelectedLevels(new Set());
+    setSearchText('');
+  };
+
+  const handleDownload = () => {
+    const source = (visibleLines.length ? visibleLines : lines) || [];
+    if (!source.length) {
+      alert('No logs available to download yet.');
+      return;
+    }
+    const content = source
+      .map(line => {
+        const ts = new Date(line.timestamp).toISOString();
+        const parts = [ts];
+        if (line.step) parts.push(`[${line.step}]`);
+        if (line.level) parts.push(line.level.toUpperCase());
+        parts.push('-', line.line);
+        return parts.join(' ');
+      })
+      .join('\n');
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `logs-${(runId || 'run').slice(0, 8)}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  useEffect(() => {
+    const container = logContainerRef.current;
+    if (!container) return;
+    const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
+    if (nearBottom) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, [visibleLines.length]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)]">
@@ -2483,21 +2954,32 @@ function LogsModal({
           </button>
         </div>
         <div className="px-4 py-3 border-b border-[var(--border-primary)] flex flex-wrap items-center gap-3 bg-[var(--bg-secondary)]">
-          <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
-            Step
-            <select
-              className="pipelines-input text-sm"
-              value={selectedStep}
-              onChange={event => setSelectedStep(event.target.value)}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-[var(--text-secondary)]">Steps</span>
+            <button
+              type="button"
+              className={`runner-pill ${selectedSteps.size === 0 ? 'runner-pill--muted' : 'runner-pill--ghost'}`}
+              onClick={() => setSelectedSteps(new Set())}
             >
-              {stepOptions.map(option => (
-                <option key={option} value={option}>
-                  {option === 'all' ? 'All steps' : option}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="flex items-center gap-1">
+              All
+            </button>
+            {stepOptions.map(step => {
+              const active = selectedSteps.has(step);
+              return (
+                <button
+                  key={step}
+                  type="button"
+                  className={`runner-pill ${active ? 'runner-pill--muted' : 'runner-pill--ghost'}`}
+                  onClick={() => toggleStep(step)}
+                  title={step}
+                >
+                  {step}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-1 flex-wrap">
+            <span className="text-xs text-[var(--text-secondary)]">Levels</span>
             {['info', 'warn', 'error', 'debug'].map(level => {
               const active = selectedLevels.has(level);
               return (
@@ -2506,24 +2988,37 @@ function LogsModal({
                   type="button"
                   className={`runner-pill ${active ? 'runner-pill--muted' : 'runner-pill--ghost'}`}
                   onClick={() => toggleLevel(level)}
+                  title={`Filter ${level} logs`}
                 >
                   {level}
                 </button>
               );
             })}
           </div>
-          <button
-            type="button"
-            className="runner-pill runner-pill--ghost ml-auto"
-            onClick={() => {
-              setSelectedStep('all');
-              setSelectedLevels(new Set());
-            }}
-          >
-            Reset filters
-          </button>
+          <div className="flex items-center gap-2 flex-1 min-w-[220px]">
+            <input
+              type="search"
+              className="pipelines-input text-sm w-full"
+              placeholder="Search log text"
+              value={searchText}
+              onChange={event => setSearchText(event.target.value)}
+            />
+            {searchText && (
+              <button className="runner-pill runner-pill--ghost" type="button" onClick={() => setSearchText('')}>
+                Clear
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2 ml-auto">
+            <button className="runner-pill runner-pill--ghost" type="button" onClick={handleDownload}>
+              Download
+            </button>
+            <button className="runner-pill runner-pill--ghost" type="button" onClick={resetFilters}>
+              Reset
+            </button>
+          </div>
         </div>
-        <div className="p-4 bg-[var(--bg-secondary)] h-[60vh] overflow-auto font-mono text-xs space-y-1">
+        <div ref={logContainerRef} className="p-4 bg-[var(--bg-secondary)] h-[60vh] overflow-auto font-mono text-xs space-y-1">
           {error && <div className="text-red-500">{error}</div>}
           {loading && !lines.length && <div className="text-[var(--text-secondary)]">Loading…</div>}
           {!loading && visibleLines.length === 0 && <div className="text-[var(--text-secondary)]">No log lines match the current filters.</div>}
