@@ -1630,16 +1630,16 @@ html.dark .recent-run-card {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 6px 8px;
-    border-radius: 10px;
+    padding: 4px 6px;
+    border-radius: 8px;
     color: var(--text-primary);
-    background: linear-gradient(135deg, rgba(255,255,255,0.04), rgba(148,163,184,0.06));
-    border: 1px solid rgba(148,163,184,0.15);
+    background: transparent;
+    border: none;
 }
 
 html.dark .pipeline-tree-item {
-    background: linear-gradient(135deg, rgba(17,24,39,0.45), rgba(148,163,184,0.06));
-    border-color: rgba(148,163,184,0.2);
+    background: transparent;
+    border: none;
 }
 
 .pipeline-tree-toggle {
@@ -1647,25 +1647,34 @@ html.dark .pipeline-tree-item {
     border: none;
     color: var(--text-secondary);
     cursor: pointer;
-    padding: 2px 4px;
+    padding: 4px;
     border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .pipeline-tree-folder {
     background: none;
     border: none;
     color: var(--text-primary);
-    font-size: 0.9rem;
+    font-size: 0.92rem;
     display: inline-flex;
     align-items: center;
     gap: 8px;
     cursor: pointer;
     flex: 1;
+    padding: 4px 6px;
+    border-radius: 8px;
 }
 
 .pipeline-tree-folder.active {
     color: var(--text-accent);
-    font-weight: 600;
+    font-weight: 500;
+}
+
+.pipeline-tree-item:hover .pipeline-tree-folder:not(.active) {
+    background: var(--bg-tertiary);
 }
 
 .pipeline-tree-children {
@@ -1690,15 +1699,18 @@ html.dark .pipeline-tree-item {
     text-align: left;
     border-radius: 8px;
     color: var(--text-primary);
+    background: transparent;
+    border: 1px solid transparent;
 }
 
 .pipeline-tree-leaf.active .pipeline-tree-leaf-btn {
     background: var(--bg-tertiary);
     color: var(--text-accent);
+    border-color: var(--border-accent);
 }
 
 .pipeline-tree-leaf-btn:hover {
-    background: rgba(148,163,184,0.12);
+    background: var(--bg-tertiary);
 }
 
 .pipeline-tree-leaf-dot {
