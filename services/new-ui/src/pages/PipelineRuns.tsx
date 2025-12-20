@@ -249,6 +249,8 @@ function PipelineRunsPage() {
   const [stepDetail, setStepDetail] = useState<StepDetail | null>(null);
   const [definitionOpen, setDefinitionOpen] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
+  const hoverTriggerRef = useRef<string | null>(null);
+  const selectedTriggerRef = useRef<string | null>(null);
   const [logsStepFilter, setLogsStepFilter] = useState<string | null>(null);
   const [collapsedEvents, setCollapsedEvents] = useState<Set<string>>(new Set());
   const [collapsedBranches, setCollapsedBranches] = useState<Set<string>>(new Set());
@@ -269,6 +271,43 @@ function PipelineRunsPage() {
   useEffect(() => {
     scrollMainToTop();
   }, [scrollMainToTop, activeTab]);
+
+  useEffect(() => {
+    const applyTriggerClass = (triggerId: string | null, className: string, add: boolean) => {
+      if (!triggerId) return;
+      const selector =
+        typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+          ? `[data-trigger-id="${CSS.escape(triggerId)}"]`
+          : `[data-trigger-id="${triggerId.replace(/"/g, '\\"')}"]`;
+      document.querySelectorAll(selector).forEach(el => el.classList.toggle(className, add));
+    };
+
+    const handleOver = (event: MouseEvent) => {
+      const target = (event.target as HTMLElement | null)?.closest('[data-trigger-id]') as HTMLElement | null;
+      const triggerId = target?.getAttribute('data-trigger-id');
+      if (hoverTriggerRef.current && hoverTriggerRef.current !== triggerId) {
+        applyTriggerClass(hoverTriggerRef.current, 'trigger-hover', false);
+      }
+      if (triggerId) {
+        hoverTriggerRef.current = triggerId;
+        applyTriggerClass(triggerId, 'trigger-hover', true);
+      }
+    };
+
+    const handleOut = () => {
+      if (hoverTriggerRef.current) {
+        applyTriggerClass(hoverTriggerRef.current, 'trigger-hover', false);
+        hoverTriggerRef.current = null;
+      }
+    };
+
+    document.addEventListener('mouseover', handleOver);
+    document.addEventListener('mouseout', handleOut);
+    return () => {
+      document.removeEventListener('mouseover', handleOver);
+      document.removeEventListener('mouseout', handleOut);
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -566,6 +605,28 @@ function PipelineRunsPage() {
     collapsedInitRef.current = false;
     setCollapsedBranches(new Set());
   }, [activeTab, activeGroupId]);
+
+  useEffect(() => {
+    const applyTriggerClass = (triggerId: string | null, add: boolean) => {
+      if (!triggerId) return;
+      const selector =
+        typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+          ? `[data-trigger-id="${CSS.escape(triggerId)}"]`
+          : `[data-trigger-id="${triggerId.replace(/"/g, '\\"')}"]`;
+      document.querySelectorAll(selector).forEach(el => el.classList.toggle('trigger-selected', add));
+    };
+
+    const triggerId = runDetail?.run_info?.trigger_event_id || null;
+    if (selectedTriggerRef.current && selectedTriggerRef.current !== triggerId) {
+      applyTriggerClass(selectedTriggerRef.current, false);
+    }
+    if (triggerId) {
+      selectedTriggerRef.current = triggerId;
+      applyTriggerClass(triggerId, true);
+    } else {
+      selectedTriggerRef.current = null;
+    }
+  }, [runDetail]);
 
   useEffect(() => {
     if (activeTab !== 'main') return;
@@ -1640,6 +1701,8 @@ function RunCard({
         if (event.key === 'Enter') onOpen();
       }}
       className={`run-card run-card--grid p-4 flex flex-col justify-between ${cardTone} hover:border-[var(--border-accent)] rounded-2xl ${selected ? 'run-link-highlight' : ''}`}
+      data-trigger-id={run.trigger_event_id || ''}
+      data-run-id={run.run_id}
     >
       <div className="space-y-3">
         <div className="flex items-start justify-between gap-3">
@@ -1710,6 +1773,8 @@ function ListRunRow({ run, selected, onSelect, onOpen }: { run: RunListItem; sel
       onKeyDown={event => {
         if (event.key === 'Enter') onOpen();
       }}
+      data-trigger-id={run.trigger_event_id || ''}
+      data-run-id={run.run_id}
     >
       <div className="run-list-info">
         <span className="run-list-icon">
