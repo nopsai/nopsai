@@ -628,12 +628,26 @@ function Sidebar({
     return (
       <li key={node.id} className="pipeline-tree-row">
         {!isRoot && (
-          <div className="pipeline-tree-item">
-            <button className="pipeline-tree-toggle" onClick={() => onTogglePipelineNode(node.id)} aria-label="Toggle folder">
-              <span className="text-sm">{isOpen ? '▾' : '▸'}</span>
+          <div className="pipeline-tree-item flex items-center gap-2 rounded-md hover:bg-[var(--bg-tertiary)] px-1">
+            <button
+              className="pipeline-tree-toggle inline-flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1"
+              onClick={() => onTogglePipelineNode(node.id)}
+              aria-label="Toggle folder"
+            >
+              <svg
+                className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-90' : ''}`}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M9 5l7 7-7 7" />
+              </svg>
             </button>
             <button
-              className={`pipeline-tree-folder ${isActiveFolder ? 'active' : ''}`}
+              className={`pipeline-tree-folder flex items-center gap-2 flex-1 min-w-0 text-left text-[var(--text-primary)] hover:text-[var(--text-primary)] px-2 py-1 rounded-md hover:bg-[var(--bg-tertiary)] ${isActiveFolder ? 'active' : ''}`}
               onClick={() => {
                 if (!isOpen) onTogglePipelineNode(node.id);
                 onSelectPipelineFolder(node.fullPath);
@@ -680,12 +694,26 @@ function Sidebar({
     return (
       <li key={`tr-${node.id}`} className="pipeline-tree-row">
         {!isRoot && (
-          <div className="pipeline-tree-item">
-            <button className="pipeline-tree-toggle" onClick={() => onToggleTriggerNode(node.id)} aria-label="Toggle folder">
-              <span className="text-sm">{isOpen ? '▾' : '▸'}</span>
+          <div className="pipeline-tree-item flex items-center gap-2 rounded-md hover:bg-[var(--bg-tertiary)] px-1">
+            <button
+              className="pipeline-tree-toggle inline-flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1"
+              onClick={() => onToggleTriggerNode(node.id)}
+              aria-label="Toggle folder"
+            >
+              <svg
+                className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-90' : ''}`}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M9 5l7 7-7 7" />
+              </svg>
             </button>
             <button
-              className={`pipeline-tree-folder ${isActiveFolder ? 'active' : ''}`}
+              className={`pipeline-tree-folder flex items-center gap-2 flex-1 min-w-0 text-left text-[var(--text-primary)] hover:text-[var(--text-primary)] px-2 py-1 rounded-md hover:bg-[var(--bg-tertiary)] ${isActiveFolder ? 'active' : ''}`}
               onClick={() => {
                 if (!isOpen) onToggleTriggerNode(node.id);
                 onSelectTriggerFolder(node.fullPath);
@@ -731,12 +759,26 @@ function Sidebar({
     return (
       <li key={`step-${node.id}`} className="pipeline-tree-row">
         {!isRoot && (
-          <div className="pipeline-tree-item">
-            <button className="pipeline-tree-toggle" onClick={() => onToggleStepNode(node.id)} aria-label="Toggle folder">
-              <span className="text-sm">{isOpen ? '▾' : '▸'}</span>
+          <div className="pipeline-tree-item flex items-center gap-2 rounded-md hover:bg-[var(--bg-tertiary)] px-1">
+            <button
+              className="pipeline-tree-toggle inline-flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1"
+              onClick={() => onToggleStepNode(node.id)}
+              aria-label="Toggle folder"
+            >
+              <svg
+                className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-90' : ''}`}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M9 5l7 7-7 7" />
+              </svg>
             </button>
             <button
-              className={`pipeline-tree-folder ${isActiveFolder ? 'active' : ''}`}
+              className={`pipeline-tree-folder flex items-center gap-2 flex-1 min-w-0 text-left text-[var(--text-primary)] hover:text-[var(--text-primary)] px-2 py-1 rounded-md hover:bg-[var(--bg-tertiary)] ${isActiveFolder ? 'active' : ''}`}
               onClick={() => {
                 if (!isOpen) onToggleStepNode(node.id);
                 onSelectStepFolder(node.fullPath);
@@ -794,12 +836,26 @@ function Sidebar({
     return (
       <li key={`scope-${node.id}`} className="pipeline-tree-row">
         {!isRoot && (
-          <div className="pipeline-tree-item">
-            <button className="pipeline-tree-toggle" onClick={() => onToggleScopeNode(node.id)} aria-label="Toggle folder">
-              <span className="text-sm">{isOpen ? '▾' : '▸'}</span>
+          <div className="pipeline-tree-item flex items-center gap-2 rounded-md hover:bg-[var(--bg-tertiary)] px-1">
+            <button
+              className="pipeline-tree-toggle inline-flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1"
+              onClick={() => onToggleScopeNode(node.id)}
+              aria-label="Toggle folder"
+            >
+              <svg
+                className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-90' : ''}`}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M9 5l7 7-7 7" />
+              </svg>
             </button>
             <button
-              className={`pipeline-tree-folder ${isActiveFolder ? 'active' : ''}`}
+              className={`pipeline-tree-folder flex items-center gap-2 flex-1 min-w-0 text-left text-[var(--text-primary)] hover:text-[var(--text-primary)] px-2 py-1 rounded-md hover:bg-[var(--bg-tertiary)] ${isActiveFolder ? 'active' : ''}`}
               onClick={() => {
                 if (!isOpen) onToggleScopeNode(node.id);
                 onSelectScopeFolder(node.fullPath);
@@ -1230,7 +1286,7 @@ function PipelineRunsSidebarContent({
                 </svg>
               )}
             </span>
-            <span className="text-sm font-medium text-[var(--text-primary)] truncate" title={group.name}>
+            <span className="text-sm text-[var(--text-primary)] truncate" title={group.name}>
               {label}
             </span>
           </button>
@@ -1309,7 +1365,7 @@ function RunSidebarRow({ run, active, onOpen }: { run: RunListItem; active: bool
       <div className="flex items-center gap-2">
         <SidebarStatusIcon status={run.status} complete={run.is_complete} />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{run.pipeline_name || 'Pipeline Run'}</p>
+          <p className="text-sm text-[var(--text-primary)] truncate">{run.pipeline_name || 'Pipeline Run'}</p>
           <p className="text-xs text-[var(--text-secondary)] truncate">{branchLabel || 'N/A'}</p>
         </div>
         <span className="text-[10px] text-[var(--text-secondary)] whitespace-nowrap">{timeAgoShort(run.started_at || run.finished_at)}</span>
