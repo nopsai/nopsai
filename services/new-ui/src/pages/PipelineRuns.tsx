@@ -264,6 +264,26 @@ function PipelineRunsPage() {
     if (el) el.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
+  const applyTriggerClass = useCallback((triggerId: string | null, className: string, add: boolean) => {
+    if (!triggerId) return;
+    const selector =
+      typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+        ? `[data-trigger-id="${CSS.escape(triggerId)}"]`
+        : `[data-trigger-id="${triggerId.replace(/"/g, '\\"')}"]`;
+    document.querySelectorAll(selector).forEach(el => el.classList.toggle(className, add));
+  }, []);
+
+  const clearTriggerHighlights = useCallback(() => {
+    if (hoverTriggerRef.current) {
+      applyTriggerClass(hoverTriggerRef.current, 'trigger-hover', false);
+      hoverTriggerRef.current = null;
+    }
+    if (selectedTriggerRef.current) {
+      applyTriggerClass(selectedTriggerRef.current, 'trigger-selected', false);
+      selectedTriggerRef.current = null;
+    }
+  }, [applyTriggerClass]);
+
   useEffect(() => {
     setSearchTerm((searchParams.get('q') || '').trim());
   }, [searchParams]);
@@ -273,39 +293,32 @@ function PipelineRunsPage() {
   }, [scrollMainToTop, activeTab]);
 
   useEffect(() => {
-    const applyTriggerClass = (triggerId: string | null, className: string, add: boolean) => {
-      if (!triggerId) return;
-      const selector =
-        typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
-          ? `[data-trigger-id="${CSS.escape(triggerId)}"]`
-          : `[data-trigger-id="${triggerId.replace(/"/g, '\\"')}"]`;
-      document.querySelectorAll(selector).forEach(el => el.classList.toggle(className, add));
-    };
-
-    const handleOver = (event: MouseEvent) => {
+    const handleMove = (event: MouseEvent) => {
       const target = (event.target as HTMLElement | null)?.closest('[data-trigger-id]') as HTMLElement | null;
-      const triggerId = target?.getAttribute('data-trigger-id');
+      const triggerId = target?.getAttribute('data-trigger-id') || null;
       if (hoverTriggerRef.current && hoverTriggerRef.current !== triggerId) {
         applyTriggerClass(hoverTriggerRef.current, 'trigger-hover', false);
       }
       if (triggerId) {
         hoverTriggerRef.current = triggerId;
         applyTriggerClass(triggerId, 'trigger-hover', true);
+      } else {
+        hoverTriggerRef.current = null;
       }
     };
 
-    const handleOut = () => {
+    const handleLeave = () => {
       if (hoverTriggerRef.current) {
         applyTriggerClass(hoverTriggerRef.current, 'trigger-hover', false);
         hoverTriggerRef.current = null;
       }
     };
 
-    document.addEventListener('mouseover', handleOver);
-    document.addEventListener('mouseout', handleOut);
+    document.addEventListener('mousemove', handleMove);
+    document.addEventListener('mouseleave', handleLeave);
     return () => {
-      document.removeEventListener('mouseover', handleOver);
-      document.removeEventListener('mouseout', handleOut);
+      document.removeEventListener('mousemove', handleMove);
+      document.removeEventListener('mouseleave', handleLeave);
     };
   }, []);
 
@@ -607,26 +620,17 @@ function PipelineRunsPage() {
   }, [activeTab, activeGroupId]);
 
   useEffect(() => {
-    const applyTriggerClass = (triggerId: string | null, add: boolean) => {
-      if (!triggerId) return;
-      const selector =
-        typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
-          ? `[data-trigger-id="${CSS.escape(triggerId)}"]`
-          : `[data-trigger-id="${triggerId.replace(/"/g, '\\"')}"]`;
-      document.querySelectorAll(selector).forEach(el => el.classList.toggle('trigger-selected', add));
-    };
-
-    const triggerId = runDetail?.run_info?.trigger_event_id || null;
+    const triggerId = activeRunId ? runDetail?.run_info?.trigger_event_id || null : null;
+    if (!triggerId) {
+      clearTriggerHighlights();
+      return;
+    }
     if (selectedTriggerRef.current && selectedTriggerRef.current !== triggerId) {
-      applyTriggerClass(selectedTriggerRef.current, false);
+      applyTriggerClass(selectedTriggerRef.current, 'trigger-selected', false);
     }
-    if (triggerId) {
-      selectedTriggerRef.current = triggerId;
-      applyTriggerClass(triggerId, true);
-    } else {
-      selectedTriggerRef.current = null;
-    }
-  }, [runDetail]);
+    selectedTriggerRef.current = triggerId;
+    applyTriggerClass(triggerId, 'trigger-selected', true);
+  }, [activeRunId, applyTriggerClass, clearTriggerHighlights, runDetail]);
 
   useEffect(() => {
     if (activeTab !== 'main') return;
