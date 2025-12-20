@@ -1181,8 +1181,29 @@ function PipelineRunsSidebarContent({
     return recentRuns.filter(run => runMatchesSearch(run, searchTerm));
   }, [recentRuns, searchTerm, tab]);
 
+  useEffect(() => {
+    if (!activeRunId) return;
+    const selector = (() => {
+      if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return `[data-run-id="${CSS.escape(activeRunId)}"]`;
+      return `[data-run-id="${activeRunId.replace(/"/g, '\\"')}"]`;
+    })();
+    const scrollToActive = () => {
+      const el = document.querySelector(selector);
+      if (el && 'scrollIntoView' in el) {
+        (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    };
+    const id = window.setTimeout(scrollToActive, 100);
+    return () => window.clearTimeout(id);
+  }, [activeRunId, repoRunsCache, recentRuns]);
+
   const renderRunRow = (run: RunListItem, groupId?: number | null) => (
-    <RunSidebarRow key={run.run_id} run={run} active={activeRunId === run.run_id} onOpen={() => handleOpenRun(run.run_id, groupId)} />
+    <RunSidebarRow
+      key={run.run_id}
+      run={run}
+      active={activeRunId === run.run_id}
+      onOpen={() => handleOpenRun(run.run_id, groupId)}
+    />
   );
 
   const renderBranchRuns = (groupId: number, branch: string, runs: RunListItem[]) => {
@@ -1358,6 +1379,7 @@ function RunSidebarRow({ run, active, onOpen }: { run: RunListItem; active: bool
     <button
       type="button"
       onClick={onOpen}
+      data-run-id={run.run_id}
       className={`w-full text-left rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:border-[var(--border-accent)] transition shadow-sm px-3 py-2 ${
         active ? 'run-link-highlight' : ''
       }`}
