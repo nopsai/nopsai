@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { HashRouter, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import PipelineRunsPage from './pages/PipelineRuns';
 import PipelinesPage from './pages/Pipelines';
@@ -51,12 +51,39 @@ type ScopeTreeNode = {
   scopes: string[];
 };
 
-type RunGroupTreeNode = {
+type RunGroup = {
   id: number;
   name: string;
-  parentId: number | null;
-  children: RunGroupTreeNode[];
+  parent_id?: number | null;
+  description?: string;
 };
+
+type RunListItem = {
+  run_id: string;
+  pipeline_name: string;
+  pipeline_path?: string;
+  pipeline_version?: string;
+  pipeline_source?: string;
+  status: string;
+  git_commit_sha?: string;
+  git_repo_name?: string;
+  git_repo_owner?: string;
+  git_ref?: string;
+  git_target_ref?: string;
+  git_pusher_name?: string;
+  started_at?: string;
+  finished_at?: string;
+  duration?: string;
+  is_complete?: boolean;
+  parent_run_id?: string | null;
+  trigger_event_id?: string;
+};
+
+type RunDetail = {
+  run_info?: RunListItem;
+};
+
+type RunTabKey = 'main' | 'recent' | 'events';
 
 const navItems: NavItem[] = [
   {
@@ -106,6 +133,8 @@ const titleMap: Record<string, string> = {
   system: 'System',
 };
 
+const STATUS_PRIORITY = ['failure', 'failure (ignored)', 'cancelled', 'running', 'pending', 'skipped', 'success'];
+
 const getInitialTheme = (): Theme => {
   if (typeof window === 'undefined') return 'light';
   const stored = localStorage.getItem('theme');
@@ -140,15 +169,6 @@ function AppShell() {
   const [scopes, setScopes] = useState<string[]>([]);
   const serverScopesRef = useRef<string[]>([]);
   const [scopeTreeOpen, setScopeTreeOpen] = useState<Set<string>>(new Set());
-
-  const [runGroups, setRunGroups] = useState<RunGroupTreeNode[]>([]);
-  const [runGroupTreeOpen, setRunGroupTreeOpen] = useState<Set<number>>(new Set());
-  const activeRunGroupId = useMemo(() => {
-    if (!location.pathname.startsWith('/pipelineruns')) return null;
-    const params = new URLSearchParams(location.search);
-    const value = Number(params.get('group'));
-    return Number.isFinite(value) ? value : null;
-  }, [location.pathname, location.search]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -251,65 +271,6 @@ function AppShell() {
       void load();
     }
   }, [location.pathname]);
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const response = await fetch(buildApiUrl('/v1/groups'));
-        if (!response.ok) return;
-        const payload = (await response.json()) as Array<{ id: number; name: string; parent_id?: number | null }>;
-        if (!Array.isArray(payload)) return;
-        const nodes: RunGroupTreeNode[] = payload.map(item => ({
-          id: Number(item.id),
-          name: typeof item.name === 'string' ? item.name : '',
-          parentId: item.parent_id === null || item.parent_id === undefined ? null : Number(item.parent_id),
-          children: [],
-        }));
-        const map = new Map<number, RunGroupTreeNode>();
-        nodes.forEach(node => map.set(node.id, node));
-        const roots: RunGroupTreeNode[] = [];
-        nodes.forEach(node => {
-          if (node.parentId !== null && map.has(node.parentId)) {
-            map.get(node.parentId)!.children.push(node);
-          } else {
-            roots.push(node);
-          }
-        });
-        const sortTree = (items: RunGroupTreeNode[]) => {
-          items.sort((a, b) => a.name.localeCompare(b.name));
-          items.forEach(child => sortTree(child.children));
-        };
-        sortTree(roots);
-        setRunGroups(roots);
-      } catch (error) {
-        console.warn('Failed to load pipeline run groups for sidebar', error);
-      }
-    };
-    if (location.pathname.startsWith('/pipelineruns')) {
-      void load();
-    }
-  }, [location.pathname]);
-
-  useEffect(() => {
-    if (!activeRunGroupId || !runGroups.length) return;
-    const path: number[] = [];
-    const dfs = (nodes: RunGroupTreeNode[]): boolean => {
-      for (const node of nodes) {
-        if (node.id === activeRunGroupId) {
-          path.push(node.id);
-          return true;
-        }
-        if (dfs(node.children)) {
-          path.push(node.id);
-          return true;
-        }
-      }
-      return false;
-    };
-    dfs(runGroups);
-    if (!path.length) return;
-    setRunGroupTreeOpen(prev => new Set([...prev, ...path]));
-  }, [activeRunGroupId, runGroups]);
 
   useEffect(() => {
     const load = async () => {
@@ -541,15 +502,6 @@ function AppShell() {
     });
   };
 
-  const handleToggleRunGroupNode = (id: number) => {
-    setRunGroupTreeOpen(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
   return (
     <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
       <div id="hover-hint" aria-hidden="true"></div>
@@ -570,17 +522,10 @@ function AppShell() {
           scopeTree={buildScopeTree}
           scopeTreeOpen={scopeTreeOpen}
           onToggleScopeNode={handleToggleScopeNode}
-          runGroups={runGroups}
-          runGroupTreeOpen={runGroupTreeOpen}
-          onToggleRunGroupNode={handleToggleRunGroupNode}
-          activeRunGroupId={activeRunGroupId}
           splitIdentifier={splitIdentifier}
           locationPathname={location.pathname}
-          onSelectRunGroup={id => {
-            if (id === null) navigate('/pipelineruns/main');
-            else navigate(`/pipelineruns/main?group=${id}`);
-            setSidebarOpen(false);
-          }}
+          locationSearch={location.search}
+          navigateTo={navigate}
           onSelectPipelineFolder={path => navigate(path ? `/pipelines?folder=${encodeURIComponent(path)}` : '/pipelines')}
           onSelectTriggerFolder={path => navigate(path ? `/triggers?folder=${encodeURIComponent(path)}` : '/triggers')}
           onSelectStepFolder={path => navigate(path ? `/steps?folder=${encodeURIComponent(path)}` : '/steps')}
@@ -633,13 +578,10 @@ function Sidebar({
   scopeTree,
   scopeTreeOpen,
   onToggleScopeNode,
-  runGroups,
-  runGroupTreeOpen,
-  onToggleRunGroupNode,
-  activeRunGroupId,
   splitIdentifier,
   locationPathname,
-  onSelectRunGroup,
+  locationSearch,
+  navigateTo,
   onSelectPipelineFolder,
   onSelectTriggerFolder,
   onSelectStepFolder,
@@ -660,13 +602,10 @@ function Sidebar({
   scopeTree: ScopeTreeNode;
   scopeTreeOpen: Set<string>;
   onToggleScopeNode: (id: string) => void;
-  runGroups: RunGroupTreeNode[];
-  runGroupTreeOpen: Set<number>;
-  onToggleRunGroupNode: (id: number) => void;
-  activeRunGroupId: number | null;
   splitIdentifier: (id: string) => { name: string; path: string };
   locationPathname: string;
-  onSelectRunGroup: (id: number | null) => void;
+  locationSearch: string;
+  navigateTo: (path: string) => void;
   onSelectPipelineFolder: (path: string) => void;
   onSelectTriggerFolder: (path: string) => void;
   onSelectStepFolder: (path: string) => void;
@@ -677,7 +616,9 @@ function Sidebar({
   const isStepsRoute = locationPathname.startsWith('/steps');
   const isScopesRoute = locationPathname.startsWith('/scopes');
   const isPipelineRunsRoute = locationPathname.startsWith('/pipelineruns');
-  const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
+  const searchParams = useMemo(() => new URLSearchParams(locationSearch), [locationSearch]);
+  const pipelineRunsTab: RunTabKey =
+    locationPathname.startsWith('/pipelineruns/recent') ? 'recent' : locationPathname.startsWith('/pipelineruns/events') ? 'events' : 'main';
   const activeFolder = searchParams.get('folder') || '';
 
   const renderPipelineTreeNode = (node: PipelineTreeNode) => {
@@ -905,37 +846,6 @@ function Sidebar({
     );
   };
 
-  const renderRunGroupTreeNode = (node: RunGroupTreeNode) => {
-    const isOpen = runGroupTreeOpen.has(node.id);
-    const hasChildren = node.children.length > 0;
-    const isActive = activeRunGroupId === node.id;
-    return (
-      <li key={`run-group-${node.id}`} className="pipeline-tree-row">
-        <div className="pipeline-tree-item">
-          {hasChildren ? (
-            <button className="pipeline-tree-toggle" onClick={() => onToggleRunGroupNode(node.id)} aria-label="Toggle folder">
-              <span className="text-sm">{isOpen ? '▾' : '▸'}</span>
-            </button>
-          ) : (
-            <span className="pipeline-tree-toggle text-sm opacity-50">•</span>
-          )}
-          <button className={`pipeline-tree-folder ${isActive ? 'active' : ''}`} onClick={() => onSelectRunGroup(node.id)}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 7h5l2 2h11v9a2 2 0 0 1-2 2H3z" />
-              <path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2" />
-            </svg>
-            <span className="truncate">{node.name}</span>
-          </button>
-        </div>
-        {isOpen && hasChildren && (
-          <ul className="pipeline-tree-children">
-            {node.children.map(child => renderRunGroupTreeNode(child))}
-          </ul>
-        )}
-      </li>
-    );
-  };
-
   return (
     <>
       <div
@@ -964,12 +874,12 @@ function Sidebar({
           </button>
         </div>
         <nav id="sidebar-base-nav" className="px-4 py-4 flex-shrink-0 space-y-1">
-          {navItems.map(item => (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors sidebar-link ${isActive ? 'active text-[var(--text-primary)] bg-[var(--bg-tertiary)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'}`
+            {navItems.map(item => (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors sidebar-link ${isActive ? 'active text-[var(--text-primary)] bg-[var(--bg-tertiary)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'}`
               }
             >
               <span className="text-[var(--text-secondary)]">{item.icon}</span>
@@ -980,21 +890,12 @@ function Sidebar({
         <div className="flex-1 overflow-y-auto sidebar-scrollbar border-t border-[var(--border-primary)]">
           <nav id="sidebar-details-nav" className="px-4 py-4 space-y-2">
             {isPipelineRunsRoute ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">Main</p>
-                  <button
-                    type="button"
-                    className="text-xs text-[var(--text-link)] hover:underline"
-                    onClick={() => onSelectRunGroup(null)}
-                  >
-                    Root
-                  </button>
-                </div>
-                <ul className="pipeline-tree-list">
-                  {runGroups.map(group => renderRunGroupTreeNode(group))}
-                </ul>
-              </div>
+              <PipelineRunsSidebarContent
+                tab={pipelineRunsTab}
+                searchParams={searchParams}
+                navigateTo={navigateTo}
+                onClose={onClose}
+              />
             ) : isPipelinesRoute ? (
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
@@ -1035,6 +936,575 @@ function Sidebar({
       </aside>
     </>
   );
+}
+
+function PipelineRunsSidebarContent({
+  tab,
+  searchParams,
+  navigateTo,
+  onClose,
+}: {
+  tab: RunTabKey;
+  searchParams: URLSearchParams;
+  navigateTo: (path: string) => void;
+  onClose?: () => void;
+}) {
+  const [groups, setGroups] = useState<RunGroup[]>([]);
+  const [groupsLoading, setGroupsLoading] = useState(false);
+  const [recentRuns, setRecentRuns] = useState<RunListItem[]>([]);
+  const [runsLoading, setRunsLoading] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
+  const [expandedBranches, setExpandedBranches] = useState<Set<string>>(new Set());
+  const [repoRunsCache, setRepoRunsCache] = useState<Map<number, Record<string, RunListItem[]>>>(new Map());
+  const [loadingRepos, setLoadingRepos] = useState<Set<number>>(new Set());
+
+  const searchTerm = (searchParams.get('q') || '').trim().toLowerCase();
+  const activeRunId = searchParams.get('run');
+  const activeGroupId = useMemo(() => {
+    const raw = Number(searchParams.get('group'));
+    return Number.isFinite(raw) ? raw : null;
+  }, [searchParams]);
+
+  const fetchJson = useCallback(async <T,>(path: string): Promise<T | null> => {
+    try {
+      const resp = await fetch(buildApiUrl(path));
+      if (!resp.ok) return null;
+      return (await resp.json()) as T;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const ensureRepoRuns = useCallback(
+    async (groupId: number) => {
+      if (repoRunsCache.has(groupId) || loadingRepos.has(groupId)) return;
+      setLoadingRepos(prev => {
+        const next = new Set(prev);
+        next.add(groupId);
+        return next;
+      });
+      const data = await fetchJson<Record<string, RunListItem[]>>(`/v1/runs?groupId=${groupId}`);
+      setRepoRunsCache(prev => {
+        const next = new Map(prev);
+        next.set(groupId, data || {});
+        return next;
+      });
+      setLoadingRepos(prev => {
+        const next = new Set(prev);
+        next.delete(groupId);
+        return next;
+      });
+    },
+    [fetchJson, loadingRepos, repoRunsCache]
+  );
+
+  const handleSelectGroup = useCallback(
+    (groupId: number | null) => {
+      const params = new URLSearchParams(searchParams);
+      if (groupId === null) params.delete('group');
+      else params.set('group', String(groupId));
+      params.delete('run');
+      navigateTo(`/pipelineruns/main${params.toString() ? `?${params.toString()}` : ''}`);
+      onClose?.();
+    },
+    [navigateTo, onClose, searchParams]
+  );
+
+  const handleOpenRun = useCallback(
+    (runId: string, groupId?: number | null) => {
+      const params = new URLSearchParams(searchParams);
+      if (groupId) params.set('group', String(groupId));
+      params.set('run', runId);
+      const base = tab === 'recent' ? '/pipelineruns/recent' : tab === 'events' ? '/pipelineruns/events' : '/pipelineruns/main';
+      navigateTo(`${base}?${params.toString()}`);
+      onClose?.();
+    },
+    [navigateTo, onClose, searchParams, tab]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      setGroupsLoading(true);
+      const data = await fetchJson<RunGroup[]>('/v1/groups');
+      if (cancelled) return;
+      setGroups(Array.isArray(data) ? data : []);
+      setGroupsLoading(false);
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchJson, tab]);
+
+  useEffect(() => {
+    if (tab === 'main') return;
+    let cancelled = false;
+    const loadRuns = async () => {
+      setRunsLoading(true);
+      const data = await fetchJson<RunListItem[]>('/v1/runs');
+      if (cancelled) return;
+      setRecentRuns(Array.isArray(data) ? data : []);
+      setRunsLoading(false);
+    };
+    void loadRuns();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchJson, tab]);
+
+  useEffect(() => {
+    if (!activeGroupId || !groups.length) return;
+    const path = buildGroupPath(activeGroupId, groups);
+    if (!path.length) return;
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      path.forEach(g => next.add(g.id));
+      return next;
+    });
+  }, [activeGroupId, groups]);
+
+  useEffect(() => {
+    if (!activeRunId) return;
+    const expandForRun = async () => {
+      const detail = await fetchJson<RunDetail>(`/v1/runs/${encodeURIComponent(activeRunId)}`);
+      const info = detail?.run_info;
+      if (!info) return;
+      const repoName = info.git_repo_owner && info.git_repo_name ? `${info.git_repo_owner}/${info.git_repo_name}` : '';
+      const repoGroup = repoName ? groups.find(g => g.name === repoName) : null;
+      if (!repoGroup) return;
+      const path = buildGroupPath(repoGroup.id, groups);
+      setExpandedGroups(prev => {
+        const next = new Set(prev);
+        path.forEach(g => next.add(g.id));
+        return next;
+      });
+      await ensureRepoRuns(repoGroup.id);
+      const branchName = formatBranch(info.git_ref);
+      if (branchName) {
+        const key = `${repoGroup.id}:${branchName}`;
+        setExpandedBranches(prev => {
+          const next = new Set(prev);
+          next.add(key);
+          return next;
+        });
+      }
+    };
+    void expandForRun();
+  }, [activeRunId, ensureRepoRuns, groups]);
+
+  const toggleGroup = (group: RunGroup) => {
+    const isRepo = group.name.includes('/');
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      const willExpand = !next.has(group.id);
+      if (willExpand) {
+        next.add(group.id);
+        if (isRepo) void ensureRepoRuns(group.id);
+      } else {
+        next.delete(group.id);
+      }
+      return next;
+    });
+  };
+
+  const toggleBranch = (groupId: number, branch: string) => {
+    const key = `${groupId}:${branch}`;
+    setExpandedBranches(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const rootGroups = useMemo(() => groups.filter(g => (g.parent_id ?? null) === null), [groups]);
+  const filteredRecent = useMemo(() => {
+    if (tab !== 'recent') return [];
+    if (!searchTerm) return recentRuns;
+    return recentRuns.filter(run => runMatchesSearch(run, searchTerm));
+  }, [recentRuns, searchTerm, tab]);
+
+  const renderRunRow = (run: RunListItem, groupId?: number | null) => (
+    <RunSidebarRow key={run.run_id} run={run} active={activeRunId === run.run_id} onOpen={() => handleOpenRun(run.run_id, groupId)} />
+  );
+
+  const renderBranchRuns = (groupId: number, branch: string, runs: RunListItem[]) => {
+    const key = `${groupId}:${branch}`;
+    const expanded = expandedBranches.has(key);
+    const filteredRuns = searchTerm ? runs.filter(run => runMatchesSearch(run, searchTerm)) : runs;
+    if (searchTerm && filteredRuns.length === 0) return null;
+    const branchLabel = formatBranch(branch);
+    return (
+      <div key={key} className="border border-[var(--border-primary)] rounded-lg overflow-hidden bg-[var(--bg-primary)]">
+        <button
+          type="button"
+          onClick={() => toggleBranch(groupId, branch)}
+          className="flex items-center justify-between w-full px-3 py-2 text-left hover:bg-[var(--bg-tertiary)] transition-colors"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <svg
+              className={`h-4 w-4 text-[var(--text-secondary)] transition-transform ${expanded ? 'rotate-90' : ''}`}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M9 5l7 7-7 7" />
+            </svg>
+            <span className="text-xs font-semibold text-[var(--text-primary)] truncate">{branchLabel || branch}</span>
+            <span className="text-[10px] text-[var(--text-secondary)] whitespace-nowrap">({runs.length})</span>
+          </div>
+          <StatusDot status={summarizeStatus(runs)} />
+        </button>
+        {expanded && (
+          <div className="border-t border-[var(--border-primary)] bg-[var(--bg-secondary)]/40">
+            {filteredRuns.length === 0 ? (
+              <div className="px-3 py-2 text-[var(--text-secondary)] text-xs">No matching runs.</div>
+            ) : (
+              <div className="divide-y divide-[var(--border-primary)]">
+                {filteredRuns.map(run => (
+                  <div key={run.run_id} className="px-3 py-2">
+                    {renderRunRow(run, groupId)}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderGroupNode = (group: RunGroup) => {
+    const isRepo = group.name.includes('/');
+    const expanded = expandedGroups.has(group.id);
+    const children = groups.filter(child => (child.parent_id ?? null) === group.id);
+    const label = isRepo ? group.name.split('/')[1] || group.name : group.name;
+    const repoRuns = repoRunsCache.get(group.id);
+    const isLoadingRepo = loadingRepos.has(group.id);
+
+    return (
+      <div key={group.id} className="space-y-2">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => toggleGroup(group)}
+            aria-label={expanded ? 'Collapse sidebar item' : 'Expand sidebar item'}
+            className="inline-flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1"
+          >
+            <svg
+              className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className="flex items-center gap-2 flex-1 min-w-0 text-left"
+            onClick={() => handleSelectGroup(group.id)}
+            aria-expanded={expanded}
+            title={isRepo ? 'Open in main view' : 'Open folder in main view'}
+          >
+            <span className={`h-4 w-4 flex items-center justify-center ${isRepo ? 'text-[var(--text-accent)]' : 'text-[var(--text-secondary)]'}`}>
+              {isRepo ? (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+                  <circle cx="8" cy="7" r="2" />
+                  <circle cx="8" cy="17" r="2" />
+                  <circle cx="16" cy="7" r="2" />
+                  <path d="M10 7h4" />
+                  <path d="M8 9v6a4 4 0 004 4h4" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+                  <path d="M3 7h5l2 2h9a2 2 0 012 2v7a2 2 0 01-2 2H3a2 2 0 01-2-2V9a2 2 0 012-2z" />
+                </svg>
+              )}
+            </span>
+            <span className="text-sm font-medium text-[var(--text-primary)] truncate" title={group.name}>
+              {label}
+            </span>
+          </button>
+        </div>
+        {expanded && (
+          <div className="pl-4 space-y-2">
+            {isRepo ? (
+              <>
+                {isLoadingRepo && <div className="text-[var(--text-secondary)] text-xs">Loading runs…</div>}
+                {!isLoadingRepo && (!repoRuns || Object.keys(repoRuns).length === 0) && (
+                  <div className="text-[var(--text-secondary)] text-xs">No runs for this repository.</div>
+                )}
+                {repoRuns &&
+                  Object.entries(repoRuns)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([branch, runs]) => renderBranchRuns(group.id, branch, runs))}
+              </>
+            ) : (
+              children
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map(child => renderGroupNode(child))
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-3">
+      {tab === 'recent' ? (
+        <>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">Recent runs</p>
+            <span className="text-[10px] text-[var(--text-secondary)]">{filteredRecent.length} items</span>
+          </div>
+          {runsLoading && <div className="text-xs text-[var(--text-secondary)]">Loading runs…</div>}
+          {!runsLoading && filteredRecent.length === 0 && <div className="text-xs text-[var(--text-secondary)]">No runs to show.</div>}
+          {!runsLoading && filteredRecent.map(run => renderRunRow(run))}
+        </>
+      ) : (
+        <>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">Main</p>
+            <button
+              type="button"
+              className="text-xs text-[var(--text-link)] hover:underline"
+              onClick={() => handleSelectGroup(null)}
+            >
+              Root
+            </button>
+          </div>
+          {groupsLoading && <div className="text-xs text-[var(--text-secondary)]">Loading folders…</div>}
+          {!groupsLoading && rootGroups.length === 0 && <div className="text-xs text-[var(--text-secondary)]">No folders defined yet.</div>}
+          {!groupsLoading && rootGroups.map(group => renderGroupNode(group))}
+        </>
+      )}
+    </div>
+  );
+}
+
+function RunSidebarRow({ run, active, onOpen }: { run: RunListItem; active: boolean; onOpen: () => void }) {
+  const branchLabel = formatBranchDisplay(run.git_ref, run.git_target_ref);
+  const repoLabel = formatRepoLabel(run);
+  const trigger = formatTriggerLabel(run.trigger_event_id);
+  const shortCommit = (run.git_commit_sha || '…').slice(0, 7);
+  const shortRunId = (run.run_id || '…').slice(0, 8);
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={`w-full text-left rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:border-[var(--border-accent)] transition shadow-sm px-3 py-2 ${
+        active ? 'run-link-highlight' : ''
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        <SidebarStatusIcon status={run.status} complete={run.is_complete} />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{run.pipeline_name || 'Pipeline Run'}</p>
+          <p className="text-xs text-[var(--text-secondary)] truncate">{branchLabel || 'N/A'}</p>
+        </div>
+        <span className="text-[10px] text-[var(--text-secondary)] whitespace-nowrap">{timeAgoShort(run.started_at || run.finished_at)}</span>
+      </div>
+      <div className="mt-2 text-[11px] text-[var(--text-secondary)] font-mono space-y-1">
+        <div className="flex items-center gap-2 truncate" title="Repository">
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="8" cy="7" r="2" />
+            <circle cx="8" cy="17" r="2" />
+            <circle cx="16" cy="7" r="2" />
+            <path d="M10 7h4" />
+            <path d="M8 9v6a4 4 0 004 4h4" />
+          </svg>
+          <span className="truncate">{repoLabel}</span>
+        </div>
+        <div className="flex items-center gap-2 truncate" title="Commit">
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M3 12h6" />
+            <path d="M15 12h6" />
+          </svg>
+          <span className="truncate">{shortCommit}</span>
+        </div>
+        <div className="flex items-center gap-2 truncate" title="Run ID">
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H5v-2H3v-2H1v-4a6 6 0 016-6h1.5" />
+          </svg>
+          <span className="truncate">{shortRunId}</span>
+        </div>
+        <div className="flex items-center gap-2 truncate" title="Trigger ID">
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M7 7a1 1 0 011-1h3.586a1 1 0 01.707.293l6.414 6.414a1 1 0 010 1.414l-4.586 4.586a1 1 0 01-1.414 0L7.293 13.707A1 1 0 017 13V9a1 1 0 011-1z" />
+          </svg>
+          <span className="truncate">{trigger.display}</span>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function SidebarStatusIcon({ status, complete }: { status: string; complete?: boolean }) {
+  const normalized = normalizeRunStatus(status, complete);
+  const tone = getSidebarStatusTone(normalized);
+  const isFailure = normalized === 'failure' || normalized === 'failure (ignored)';
+  const isCancelled = normalized === 'cancelled';
+  const isRunning = normalized === 'running';
+  const isSkipped = normalized === 'skipped';
+  const isPending = normalized === 'pending';
+  return (
+    <span
+      className={`inline-flex h-7 w-7 items-center justify-center rounded-full border border-[var(--border-primary)] bg-[var(--bg-secondary)] ${tone}`}
+      aria-label={normalized}
+    >
+      {isRunning ? (
+        <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 12a9 9 0 11-6.219-8.56" />
+        </svg>
+      ) : isFailure || isCancelled ? (
+        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 6L6 18" />
+          <path d="M6 6l12 12" />
+        </svg>
+      ) : isSkipped ? (
+        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 12h12" />
+          <path d="M6 16h12" />
+        </svg>
+      ) : isPending ? (
+        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 8v4l3 3" />
+          <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      ) : (
+        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M5 13l4 4L19 7" />
+        </svg>
+      )}
+    </span>
+  );
+}
+
+function getSidebarStatusTone(status: string) {
+  const normalized = normalizeRunStatus(status, true);
+  if (normalized === 'success') return 'text-green-400';
+  if (normalized === 'failure' || normalized === 'failure (ignored)') return 'text-red-400';
+  if (normalized === 'running') return 'text-blue-400';
+  return 'text-slate-300';
+}
+
+function StatusDot({ status, complete }: { status: string; complete?: boolean }) {
+  return <span className={`inline-block h-2.5 w-2.5 rounded-full ${getStatusDotClass(status, complete)}`} aria-hidden="true" />;
+}
+
+function getStatusDotClass(status: string | undefined, complete?: boolean) {
+  const normalized = normalizeRunStatus(status, complete);
+  if (normalized === 'success') return 'bg-emerald-400';
+  if (normalized === 'failure') return 'bg-red-500';
+  if (normalized === 'failure (ignored)') return 'bg-amber-500';
+  if (normalized === 'running') return 'bg-blue-400';
+  if (normalized === 'cancelled') return 'bg-orange-400';
+  if (normalized === 'skipped') return 'bg-slate-400';
+  return 'bg-gray-500';
+}
+
+function normalizeRunStatus(status: string | undefined, complete?: boolean): string {
+  const raw = (status || '').toLowerCase();
+  if (!complete && raw !== 'success' && raw !== 'failure' && raw !== 'cancelled' && raw !== 'skipped') return 'running';
+  if (STATUS_PRIORITY.includes(raw)) return raw;
+  return 'pending';
+}
+
+function runMatchesSearch(run: RunListItem, term: string): boolean {
+  if (!term) return true;
+  const haystack = [
+    run.pipeline_name,
+    run.pipeline_path,
+    run.git_repo_name,
+    run.git_repo_owner,
+    run.git_ref,
+    run.git_target_ref,
+    run.git_commit_sha,
+    run.git_pusher_name,
+    run.status,
+    run.trigger_event_id,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return haystack.includes(term);
+}
+
+function formatBranch(ref?: string) {
+  if (!ref) return '';
+  return ref.replace(/^refs\/heads\//, '');
+}
+
+function formatBranchDisplay(source?: string, target?: string) {
+  const sourceBranch = formatBranch(source);
+  const targetBranch = formatBranch(target);
+  if (targetBranch && targetBranch !== '—') {
+    return `${sourceBranch} -> ${targetBranch}`;
+  }
+  return sourceBranch;
+}
+
+function formatRepoLabel(run: RunListItem) {
+  const owner = run.git_repo_owner || '';
+  const name = run.git_repo_name || '';
+  if (owner && name) return `${owner}/${name}`;
+  return name || owner || 'Repository';
+}
+
+function formatTriggerLabel(id?: string) {
+  if (!id) return { display: 'N/A', full: 'N/A' };
+  const full = String(id);
+  return { display: full, full };
+}
+
+function timeAgoShort(dateInput?: string) {
+  if (!dateInput) return '—';
+  const date = new Date(dateInput);
+  if (Number.isNaN(date.getTime())) return '—';
+  const diff = Date.now() - date.getTime();
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function buildGroupPath(groupId: number | null, groups: RunGroup[]): RunGroup[] {
+  if (!groupId) return [];
+  const map = new Map<number, RunGroup>();
+  groups.forEach(group => map.set(group.id, group));
+  const path: RunGroup[] = [];
+  let current = map.get(groupId) || null;
+  const visited = new Set<number>();
+  while (current && !visited.has(current.id)) {
+    visited.add(current.id);
+    path.unshift(current);
+    const parentId = current.parent_id ?? null;
+    current = parentId ? map.get(parentId) || null : null;
+  }
+  return path;
+}
+
+function summarizeStatus(runs: RunListItem[]): string {
+  if (!runs.length) return 'pending';
+  const ranked = runs
+    .map(run => normalizeRunStatus(run.status, run.is_complete))
+    .sort((a, b) => STATUS_PRIORITY.indexOf(a) - STATUS_PRIORITY.indexOf(b));
+  return ranked[0] || 'pending';
 }
 
 function Header({ title, onOpenSidebar, theme, onToggleTheme }: { title: string; onOpenSidebar: () => void; theme: Theme; onToggleTheme: () => void; }) {
