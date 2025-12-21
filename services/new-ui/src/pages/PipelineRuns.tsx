@@ -2219,7 +2219,8 @@ type GraphStep = {
 
 const STEP_WIDTH_CLOSED = 190;
 const STEP_HEIGHT_CLOSED = 56;
-const TASK_WIDTH = 150;
+const TASK_MIN_WIDTH = 160;
+const TASK_MAX_WIDTH = 280;
 const TASK_HEIGHT = 24;
 const H_GAP = 76;
 const V_GAP = 26;
@@ -2247,12 +2248,6 @@ function StepsGraph({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const interactedRef = useRef(false);
   const prevStepStatusesRef = useRef<Map<string, GraphStatus>>(new Map());
-
-  useEffect(() => {
-    interactedRef.current = false;
-    const frame = requestAnimationFrame(() => setExpandedSteps(new Set()));
-    return () => cancelAnimationFrame(frame);
-  }, [steps]);
 
   useEffect(() => {
     if (!selectedStep) return undefined;
@@ -2314,15 +2309,15 @@ function StepsGraph({
 
   const expandedLayouts = useMemo(() => {
     const map = new Map<string, GraphLayout<GraphTask>>();
+    const taskSize = (task: GraphTask) => {
+      const label = `${task.name} - ${task.duration || '0s'}`;
+      const width = Math.max(TASK_MIN_WIDTH, Math.min(TASK_MAX_WIDTH, 32 + label.length * 7));
+      return { width, height: TASK_HEIGHT };
+    };
     graphSteps.forEach(step => {
       if (!expandedSteps.has(step.id)) return;
       if (!step.tasks.length) return;
-      const innerLayout = calculateGraphLayout<GraphTask>(
-        step.tasks,
-        () => ({ width: TASK_WIDTH, height: TASK_HEIGHT }),
-        36,
-        10
-      );
+      const innerLayout = calculateGraphLayout<GraphTask>(step.tasks, taskSize, 30, 16);
       map.set(step.id, innerLayout);
     });
     return map;
@@ -2566,15 +2561,24 @@ function StepNodeRenderer({
       <rect width={node.width} height={node.height} fill="transparent" />
 
       <g transform={`translate(${INNER_PADDING}, 10)`}>
-        <GraphStatusGlyph status={node.data.status} x={12} y={12} size={18} />
+        <GraphStatusGlyph status={node.data.status} x={12} y={12} size={expanded ? 16 : 18} opacity={expanded ? 0.3 : 1} />
         <text x={30} y={14} className="text-[13px] font-semibold">
-          <tspan style={{ fill: titleColor }}>{node.data.name}</tspan>
-          <tspan style={{ fill: 'var(--text-secondary)', fontWeight: 600 }}>{`  -  ${durationLabel}`}</tspan>
+          <tspan style={{ fill: expanded ? 'var(--text-secondary)' : titleColor, opacity: expanded ? 0.5 : 1 }}>{node.data.name}</tspan>
+          <tspan style={{ fill: 'var(--text-secondary)', fontWeight: expanded ? 500 : 600, opacity: expanded ? 0.5 : 1 }}>
+            {`  -  ${durationLabel}`}
+          </tspan>
         </text>
         {(node.data.includeLabel || node.data.childRun) && (
-          <text x={30} y={32} className="text-[11px]" style={{ fill: 'var(--text-secondary)' }}>
+          <text
+            x={30}
+            y={32}
+            className="text-[11px]"
+            style={{ fill: 'var(--text-secondary)', opacity: expanded ? 0.65 : 1 }}
+          >
             {node.data.includeLabel && (
-              <tspan style={{ fill: statusColor, fontWeight: 600 }}>{node.data.includeLabel}</tspan>
+              <tspan style={{ fill: statusColor, fontWeight: 600, opacity: expanded ? 0.7 : 1 }}>
+                {node.data.includeLabel}
+              </tspan>
             )}
             {node.data.childRun && (
               <tspan dx={node.data.includeLabel ? 10 : 0}>{node.data.includeLabel ? '• Child run' : 'Child run'}</tspan>
@@ -2584,7 +2588,7 @@ function StepNodeRenderer({
       </g>
 
       {expanded && innerLayout && (
-        <g transform={`translate(${INNER_PADDING}, ${STEP_HEADER_HEIGHT})`}>
+        <g transform={`translate(${INNER_PADDING}, ${STEP_HEADER_HEIGHT - 6})`}>
           {innerLayout.edges.map(edge => (
             <path
               key={edge.id}
@@ -2644,6 +2648,8 @@ function getGraphStatusIconPath(status: GraphStatus) {
   return STATUS_META.pending.icon;
 }
 
+const MAX_ELAPSED_MS = 1000 * 60 * 60 * 24 * 30; // cap at 30 days to avoid runaway durations
+
 function parseTimestamp(value?: string | null): number | null {
   if (!value) return null;
   const t = Date.parse(value);
@@ -2664,18 +2670,18 @@ function formatElapsedLabel(start?: string | null, end?: string | null, fallback
   const startTs = parseTimestamp(start);
   if (!startTs) return fallback;
   const endTs = parseTimestamp(end) ?? Date.now();
-  if (endTs < startTs) return fallback;
-  return humanizeDurationMs(endTs - startTs);
+  const duration = endTs - startTs;
+  if (duration <= 0 || duration > MAX_ELAPSED_MS) return fallback;
+  return humanizeDurationMs(duration);
 }
 
 function formatStepDuration(step: StepDetail): string {
   const provided = (step.duration || '').trim();
   const range = calculateStepDurationFromTasks(step.tasks);
   if (range) return range;
-  if (provided) return provided;
-  const start = parseTimestamp(step.started_at);
-  const end = parseTimestamp(step.finished_at);
-  if (start) return humanizeDurationMs((end ?? Date.now()) - start);
+  if (provided && /[a-zA-Z]/.test(provided)) return provided;
+  const label = formatElapsedLabel(step.started_at, step.finished_at, '');
+  if (label) return label;
   return '0s';
 }
 
@@ -2685,14 +2691,15 @@ function calculateStepDurationFromTasks(tasks: TaskDetail[]): string | null {
   let endMax: number | null = null;
   tasks.forEach(task => {
     const start = parseTimestamp(task.started_at);
-    if (start !== null) {
-      startMin = startMin === null ? start : Math.min(startMin, start);
-      const end = parseTimestamp(task.finished_at) ?? Date.now();
-      endMax = endMax === null ? end : Math.max(endMax, end);
-    }
+    if (start === null) return;
+    startMin = startMin === null ? start : Math.min(startMin, start);
+    const end = parseTimestamp(task.finished_at) ?? Date.now();
+    endMax = endMax === null ? end : Math.max(endMax, end);
   });
   if (startMin === null || endMax === null) return null;
-  return humanizeDurationMs(endMax - startMin);
+  const duration = endMax - startMin;
+  if (duration <= 0 || duration > MAX_ELAPSED_MS) return null;
+  return humanizeDurationMs(duration);
 }
 
 function normalizeGraphStatus(status: string | undefined, complete?: boolean): GraphStatus {
@@ -2704,12 +2711,55 @@ function normalizeGraphStatus(status: string | undefined, complete?: boolean): G
   return 'failed';
 }
 
-function GraphStatusGlyph({ status, x, y, size = 14 }: { status: GraphStatus; x: number; y: number; size?: number }) {
+function GraphStatusGlyph({
+  status,
+  x,
+  y,
+  size = 14,
+  opacity = 1,
+}: {
+  status: GraphStatus;
+  x: number;
+  y: number;
+  size?: number;
+  opacity?: number;
+}) {
   const color = getGraphStatusColor(status);
   const strokeWidth = Math.max(1.6, Math.min(2.4, size / 6.5));
+  if (status === 'running') {
+    const r = size / 2 - strokeWidth;
+    return (
+      <g transform={`translate(${x}, ${y})`} opacity={opacity}>
+        <circle
+          r={r}
+          fill="none"
+          stroke={color}
+          strokeWidth={strokeWidth}
+          strokeDasharray="6 6"
+          strokeLinecap="round"
+        >
+          <animate attributeName="stroke-dashoffset" from="12" to="0" dur="0.9s" repeatCount="indefinite" />
+        </circle>
+        <svg
+          x={-size / 2}
+          y={-size / 2}
+          width={size}
+          height={size}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke={color}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d={getGraphStatusIconPath(status)} />
+        </svg>
+      </g>
+    );
+  }
   const path = getGraphStatusIconPath(status);
   return (
-    <g transform={`translate(${x}, ${y})`}>
+    <g transform={`translate(${x}, ${y})`} opacity={opacity}>
       <svg
         x={-size / 2}
         y={-size / 2}
@@ -2825,9 +2875,9 @@ function calculateGraphLayout<T extends { id: string; dependsOn?: string[]; stat
     item.dependsOn.forEach(parentId => {
       const sourceNode = nodes.find(n => n.data.id === parentId);
       if (!sourceNode) return;
-      const start = { x: sourceNode.x + sourceNode.width, y: sourceNode.y + sourceNode.height / 2 };
-      const end = { x: targetNode.x, y: targetNode.y + targetNode.height / 2 };
-      const controlDist = Math.max(24, (end.x - start.x) * 0.45);
+      const start = { x: sourceNode.x + sourceNode.width - 35, y: sourceNode.y + sourceNode.height / 2 };
+      const end = { x: targetNode.x - 2, y: targetNode.y + targetNode.height / 2 };
+      const controlDist = Math.max(20, (end.x - start.x) * 0.38);
 
       edges.push({
         id: `${parentId}-${item.id}`,
