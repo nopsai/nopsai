@@ -1,6 +1,8 @@
 export type GraphItem = {
   name: string;
   depends_on?: string[];
+  width?: number;
+  height?: number;
 };
 
 export type GraphNode = {
@@ -53,6 +55,8 @@ export function calculateGraphLayout(
   items.forEach(item => {
     const id = item.name;
     if (!id) return;
+    const width = Number.isFinite(item.width) && item.width ? item.width : nodeWidth;
+    const height = Number.isFinite(item.height) && item.height ? item.height : nodeHeight;
     nodes[id] = {
       id,
       name: item.name,
@@ -60,8 +64,8 @@ export function calculateGraphLayout(
       level: -1,
       x: 0,
       y: 0,
-      width: nodeWidth,
-      height: nodeHeight,
+      width,
+      height,
       parents: new Set(),
       children: new Set(),
     };
@@ -131,30 +135,50 @@ export function calculateGraphLayout(
   let totalHeight = 0;
 
   if (vertical) {
-    totalWidth = maxNodesInLevel * nodeWidth + (maxNodesInLevel > 1 ? (maxNodesInLevel - 1) * hGap : 0);
-    totalHeight = levels.length * nodeHeight + (levels.length > 1 ? (levels.length - 1) * vGap : 0);
+    const rowHeights = levels.map(nodesAtLevel =>
+      (nodesAtLevel || []).reduce((sum, n) => sum + n.height, 0) + Math.max(0, (nodesAtLevel?.length || 0) - 1) * vGap
+    );
+    const rowWidths = levels.map(nodesAtLevel => Math.max(...(nodesAtLevel || []).map(n => n.width), 0));
+    const maxRowWidth = Math.max(...rowWidths, 0);
+    totalWidth = paddingX + maxRowWidth;
+    totalHeight = paddingY + rowHeights.reduce((sum, h) => sum + h, 0) + Math.max(0, levels.length - 1) * vGap;
 
+    let yCursor = paddingY / 2;
     levels.forEach((nodesAtLevel, i) => {
       if (!nodesAtLevel) return;
-      const levelWidth = nodesAtLevel.length * nodeWidth + (nodesAtLevel.length > 1 ? (nodesAtLevel.length - 1) * hGap : 0);
-      const xOffset = (totalWidth - levelWidth) / 2;
-      nodesAtLevel.forEach((node, j) => {
-        node.x = j * (nodeWidth + hGap) + xOffset + paddingX / 2;
-        node.y = i * (nodeHeight + vGap) + paddingY / 2;
+      const rowHeight = rowHeights[i];
+      const rowWidth = rowWidths[i];
+      const xOffset = paddingX / 2 + (maxRowWidth - rowWidth) / 2;
+      let xCursor = xOffset;
+      nodesAtLevel.forEach(node => {
+        node.x = xCursor;
+        node.y = yCursor + (rowHeight - node.height) / 2;
+        xCursor += node.width + hGap;
       });
+      yCursor += rowHeight + vGap;
     });
   } else {
-    totalWidth = levels.length * nodeWidth + (levels.length > 1 ? (levels.length - 1) * hGap : 0);
-    totalHeight = maxNodesInLevel * nodeHeight + (maxNodesInLevel > 1 ? (maxNodesInLevel - 1) * vGap : 0);
+    const columnWidths = levels.map(nodesAtLevel => Math.max(...(nodesAtLevel || []).map(n => n.width), 0));
+    const columnHeights = levels.map(nodesAtLevel =>
+      (nodesAtLevel || []).reduce((sum, n) => sum + n.height, 0) + Math.max(0, (nodesAtLevel?.length || 0) - 1) * vGap
+    );
+    const maxColumnHeight = Math.max(...columnHeights, 0);
+    totalWidth = paddingX + columnWidths.reduce((sum, width) => sum + width, 0) + Math.max(0, levels.length - 1) * hGap;
+    totalHeight = paddingY + maxColumnHeight;
 
+    let xCursor = paddingX / 2;
     levels.forEach((nodesAtLevel, i) => {
       if (!nodesAtLevel) return;
-      const levelHeight = nodesAtLevel.length * nodeHeight + (nodesAtLevel.length > 1 ? (nodesAtLevel.length - 1) * vGap : 0);
-      const yOffset = (totalHeight - levelHeight) / 2;
-      nodesAtLevel.forEach((node, j) => {
-        node.x = i * (nodeWidth + hGap) + paddingX / 2;
-        node.y = j * (nodeHeight + vGap) + yOffset + paddingY / 2;
+      const columnWidth = columnWidths[i];
+      const columnHeight = columnHeights[i];
+      const yOffset = paddingY / 2 + (maxColumnHeight - columnHeight) / 2;
+      let yCursor = yOffset;
+      nodesAtLevel.forEach(node => {
+        node.x = xCursor + (columnWidth - node.width) / 2;
+        node.y = yCursor;
+        yCursor += node.height + vGap;
       });
+      xCursor += columnWidth + hGap;
     });
   }
 
@@ -174,4 +198,3 @@ export function calculateGraphLayout(
     height: totalHeight + paddingY,
   };
 }
-
