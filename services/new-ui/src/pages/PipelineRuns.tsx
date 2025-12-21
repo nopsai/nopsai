@@ -2410,18 +2410,17 @@ function StepsGraph({
     setExpandedSteps(new Set());
   }, []);
 
-  const handleWheel = (event: React.WheelEvent) => {
+  const handleWheel = useCallback((event: React.WheelEvent | WheelEvent) => {
     interactedRef.current = true;
-    const shouldZoom = event.ctrlKey || event.metaKey || event.shiftKey;
-    if (shouldZoom) {
-      event.preventDefault();
-      const scaleSens = 0.001;
-      const nextScale = Math.min(Math.max(MIN_GRAPH_SCALE, transform.k - event.deltaY * scaleSens), MAX_GRAPH_SCALE);
-      setTransform(prev => ({ ...prev, k: nextScale }));
-    } else {
-      setTransform(prev => ({ ...prev, x: prev.x - event.deltaX, y: prev.y - event.deltaY }));
-    }
-  };
+    event.stopPropagation();
+    event.preventDefault();
+    const deltaY = 'deltaY' in event ? event.deltaY : 0;
+    const scaleSens = 0.001;
+    setTransform(prev => {
+      const nextScale = Math.min(MAX_GRAPH_SCALE, Math.max(MIN_GRAPH_SCALE, prev.k - deltaY * scaleSens));
+      return { ...prev, k: nextScale };
+    });
+  }, []);
 
   const handleMouseDown = (event: React.MouseEvent) => {
     if (event.button !== 0) return;
@@ -2452,6 +2451,14 @@ function StepsGraph({
     setTransform({ x: 0, y: 0, k: 1 });
   };
 
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return undefined;
+    const listener = (evt: WheelEvent) => handleWheel(evt);
+    el.addEventListener('wheel', listener, { passive: false });
+    return () => el.removeEventListener('wheel', listener);
+  }, [handleWheel]);
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2 px-2 text-sm text-[var(--text-secondary)]">
@@ -2469,7 +2476,7 @@ function StepsGraph({
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        onWheel={handleWheel}
+        style={{ overscrollBehavior: 'contain' }}
       >
         <div className="absolute top-3 left-3 z-20 flex flex-wrap items-center gap-3 text-[11px] text-[var(--text-secondary)]">
           {(['success', 'running', 'failed', 'pending'] as GraphStatus[]).map(status => (
