@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, NavLink, useParams, useSearchParams } from 'react-router-dom';
 import yaml from 'js-yaml';
 import { buildApiUrl } from '../lib/api';
-import { calculateGraphLayout, type GraphItem, type GraphLayout } from '../lib/pipelineGraph';
 
 type TabKey = 'main' | 'recent' | 'events';
 
@@ -459,6 +458,7 @@ function PipelineRunsPage() {
       setRunDetailLoading(false);
     }
   }, [activeRunId, fetchJson]);
+
 
   useEffect(() => {
     void loadGroups();
@@ -2152,7 +2152,13 @@ function RunDetailView({
 
       <div className="space-y-4">
         <div className="rounded-2xl border border-[var(--border-primary)] bg-white dark:bg-slate-950 shadow-[0_16px_44px_rgba(15,23,42,0.07)] p-2">
-          <StepsGraph steps={detail.steps} pipelineDefinition={detail.pipeline_definition} selectedStep={selectedStep} onSelectStep={onSelectStep} />
+          <StepsGraph
+            steps={detail.steps}
+            selectedStep={selectedStep}
+            onSelectStep={onSelectStep}
+            childRuns={detail.child_runs}
+            pipelineDefinition={detail.pipeline_definition}
+          />
         </div>
       </div>
 
@@ -2182,583 +2188,615 @@ function RunDetailView({
   );
 }
 
+type GraphStatus = 'success' | 'failed' | 'running' | 'pending' | 'skipped';
+
+type GraphPoint = { x: number; y: number };
+type GraphSize = { width: number; height: number };
+type GraphLayoutNode<T> = GraphPoint & GraphSize & { data: T; level: number };
+type GraphLayoutEdge = { id: string; from: string; to: string; points: GraphPoint[]; status: GraphStatus };
+type GraphLayout<T> = { nodes: GraphLayoutNode<T>[]; edges: GraphLayoutEdge[]; width: number; height: number };
+
+type GraphTask = {
+  id: string;
+  name: string;
+  status: GraphStatus;
+  duration?: string;
+  dependsOn?: string[];
+};
+
+type GraphStep = {
+  id: string;
+  name: string;
+  status: GraphStatus;
+  duration?: string;
+  dependsOn?: string[];
+  tasks: GraphTask[];
+  includeLabel?: string;
+  childRun?: RunListItem | null;
+};
+
+const STEP_WIDTH_CLOSED = 190;
+const STEP_HEIGHT_CLOSED = 56;
+const TASK_WIDTH = 150;
+const TASK_HEIGHT = 24;
+const H_GAP = 76;
+const V_GAP = 26;
+const PADDING = 32;
+const STEP_HEADER_HEIGHT = 44;
+const INNER_PADDING = 12;
+
 function StepsGraph({
   steps,
-  pipelineDefinition,
   selectedStep,
   onSelectStep,
+  childRuns,
+  pipelineDefinition,
 }: {
   steps: StepDetail[];
-  pipelineDefinition?: PipelineDefinition | null;
   selectedStep: string | null;
   onSelectStep: (name: string | null) => void;
+  childRuns: RunListItem[];
+  pipelineDefinition?: PipelineDefinition;
 }) {
-  const items: GraphItem[] = steps.map(step => ({ name: step.name, depends_on: step.depends_on || [] }));
-  const stepLayout = useMemo<GraphLayout>(
-    () =>
-      calculateGraphLayout(items, {
-        nodeWidth: 140,
-        nodeHeight: 70,
-        horizontalGap: 150,
-        verticalGap: 70,
-        paddingX: 140,
-        paddingY: 160,
-      }),
-    [items]
-  );
-  const pipelineSteps = useMemo(() => pipelineDefinition?.steps || [], [pipelineDefinition]);
-  const [scale, setScale] = useState(1);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
+  const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
   const [isDragging, setIsDragging] = useState(false);
-  const draggingRef = useRef(false);
-  const lastRef = useRef({ x: 0, y: 0 });
-  const selectedStepDetail = useMemo(() => steps.find(step => step.name === selectedStep), [selectedStep, steps]);
-  const selectedStepDefinition = useMemo(
-    () => pipelineSteps.find(step => step.name === selectedStepDetail?.name),
-    [pipelineSteps, selectedStepDetail?.name]
-  );
-  const resolveTaskName = useCallback((task: TaskDetail) => {
-    if (task.task_name) return task.task_name;
-    if (task.task_id) return task.task_id;
-    const index = Number.isFinite(task.task_index) ? task.task_index + 1 : 1;
-    return `task-${index}`;
-  }, []);
-  const taskDefinitionsByName = useMemo(() => {
-    const map = new Map<string, TaskDefinition>();
-    (selectedStepDefinition?.tasks || []).forEach(task => {
-      if (task?.name) map.set(task.name, task);
-    });
-    (selectedStepDetail?.configuration?.tasks || []).forEach(task => {
-      if (task?.name) map.set(task.name, task);
-    });
-    return map;
-  }, [selectedStepDefinition, selectedStepDetail?.configuration?.tasks]);
-  const taskStatusByName = useMemo(() => {
-    const map = new Map<string, TaskDetail>();
-    selectedStepDetail?.tasks?.forEach(task => {
-      const name = resolveTaskName(task);
-      if (name) map.set(name, task);
-    });
-    return map;
-  }, [resolveTaskName, selectedStepDetail]);
-  const taskGraphItems = useMemo<GraphItem[]>(() => {
-    const runtimeTasks = selectedStepDetail?.tasks || [];
-    const items: GraphItem[] = [];
-    runtimeTasks.forEach(task => {
-      const name = resolveTaskName(task);
-      if (!name) return;
-      const def = taskDefinitionsByName.get(name);
-      items.push({ name, depends_on: def?.depends_on || [] });
-    });
-
-    if (!items.length && taskDefinitionsByName.size > 0) {
-      taskDefinitionsByName.forEach(def => {
-        if (def?.name) {
-          items.push({ name: def.name, depends_on: def.depends_on || [] });
-        }
-      });
-    }
-
-    return items;
-  }, [resolveTaskName, selectedStepDetail?.tasks, taskDefinitionsByName]);
-  const taskLayout = useMemo<GraphLayout | null>(() => {
-    if (!taskGraphItems.length) return null;
-    return calculateGraphLayout(
-      taskGraphItems.map(task => ({ name: task.name, depends_on: task.depends_on || [] })),
-      {
-        nodeWidth: 110,
-        nodeHeight: 72,
-        horizontalGap: 90,
-        verticalGap: 42,
-        paddingX: 64,
-        paddingY: 80,
-      }
-    );
-  }, [taskGraphItems]);
-  const selectedStepNode = useMemo(() => stepLayout.nodes.find(node => node.id === selectedStep), [selectedStep, stepLayout.nodes]);
-  const inlineTasks = Boolean(selectedStepDetail && taskLayout && selectedStepNode);
-  const otherStepRects = useMemo(
-    () =>
-      stepLayout.nodes
-        .filter(node => node.id !== selectedStep)
-        .map(node => ({
-          x1: node.x - 28,
-          y1: node.y - 28,
-          x2: node.x + node.width + 28,
-          y2: node.y + node.height + 28,
-        })),
-    [selectedStep, stepLayout.nodes]
-  );
-
-  const CLUSTER_PAD = 12;
-
-  const chooseTaskAnchor = useCallback(() => {
-    if (!taskLayout || !selectedStepNode) return null;
-    const stepCenterX = selectedStepNode.x + selectedStepNode.width / 2;
-    const stepCenterY = selectedStepNode.y + selectedStepNode.height / 2;
-    const pad = Math.max(CLUSTER_PAD, 16);
-    const bandMargin = pad + 20;
-    const childCenters = stepLayout.edges.filter(e => e.from.id === selectedStepNode.id).map(e => e.to.y + e.to.height / 2);
-    const bandMinY = Math.min(stepCenterY, ...(childCenters.length ? childCenters : [stepCenterY])) - bandMargin;
-    const bandMaxY = Math.max(stepCenterY, ...(childCenters.length ? childCenters : [stepCenterY])) + bandMargin;
-
-    const overlaps = (x1: number, y1: number, x2: number, y2: number) =>
-      otherStepRects.some(sr => x1 < sr.x2 && x2 > sr.x1 && y1 < sr.y2 && y2 > sr.y1);
-
-    const scan = () => {
-      const baseX = Math.round(stepCenterX - taskLayout.width / 2);
-      const baseY = Math.round(stepCenterY - taskLayout.height / 2);
-      const maxIter = 120;
-      const step = 14;
-      for (let i = 0; i <= maxIter; i += 1) {
-        const dir = i % 2 === 0 ? 1 : -1;
-        const delta = Math.floor(i / 2) * step * dir;
-        const centerY = Math.min(bandMaxY, Math.max(bandMinY, stepCenterY + delta));
-        const candidateY = Math.round(centerY - taskLayout.height / 2);
-        const x1 = baseX - pad;
-        const x2 = baseX + taskLayout.width + pad;
-        const y1 = candidateY - pad;
-        const y2 = candidateY + taskLayout.height + pad;
-        if (!overlaps(x1, y1, x2, y2)) {
-          return { baseX, baseY: candidateY };
-        }
-      }
-      return { baseX, baseY };
-    };
-
-    return scan();
-  }, [CLUSTER_PAD, otherStepRects, selectedStepNode, stepLayout.edges, taskLayout]);
-
-  const taskAnchor = useMemo(() => {
-    if (!inlineTasks) return null;
-    return chooseTaskAnchor();
-  }, [chooseTaskAnchor, inlineTasks]);
-
-  const taskAnchorPoints = useMemo(() => {
-    if (!inlineTasks || !taskLayout || !taskAnchor) return null;
-    const leftX = taskAnchor.baseX - CLUSTER_PAD;
-    const rightX = taskAnchor.baseX + taskLayout.width + CLUSTER_PAD;
-    const centerY = taskAnchor.baseY + taskLayout.height / 2 - 10;
-    return {
-      inX: leftX,
-      inY: centerY,
-      outX: rightX,
-      outY: centerY,
-    };
-  }, [CLUSTER_PAD, inlineTasks, taskAnchor, taskLayout]);
-
-  const toneForStatus = useCallback((status: string | undefined, complete?: boolean) => {
-    const palette: Record<string, { stroke: string; fill: string; icon: string; glow: string }> = {
-      success: { stroke: '#1f9e54', fill: '#ecfdf3', icon: 'M5 13l4 4L19 7', glow: 'rgba(33,197,111,0.25)' },
-      failure: { stroke: '#ef4444', fill: '#fef2f2', icon: 'M6 18L18 6M6 6l12 12', glow: 'rgba(239,68,68,0.2)' },
-      'failure (ignored)': { stroke: '#f59e0b', fill: '#fffbeb', icon: 'M6 18L18 6M6 6l12 12', glow: 'rgba(245,158,11,0.24)' },
-      running: { stroke: '#3b82f6', fill: '#eff6ff', icon: 'M12 6v6l3.5 2', glow: 'rgba(59,130,246,0.22)' },
-      cancelled: { stroke: '#fb923c', fill: '#fff7ed', icon: 'M6 18L18 6M6 6l12 12', glow: 'rgba(251,146,60,0.2)' },
-      skipped: { stroke: '#818cf8', fill: '#eef2ff', icon: 'M8 12h8', glow: 'rgba(129,140,248,0.18)' },
-      pending: { stroke: '#cbd5e1', fill: '#f8fafc', icon: 'M12 6v6l3.5 2', glow: 'rgba(148,163,184,0.18)' },
-    };
-    return palette[normalizeStatus(status, complete)] || palette.pending;
-  }, []);
-
-  const formatTaskDuration = useCallback((task?: TaskDetail) => {
-    if (!task?.started_at || !task.finished_at) return '0s';
-    const start = new Date(task.started_at).getTime();
-    const end = new Date(task.finished_at).getTime();
-    const ms = end - start;
-    if (Number.isNaN(ms) || ms < 0) return '0s';
-    const seconds = ms / 1000;
-    if (seconds < 1) return `${seconds.toFixed(2)}s`;
-    if (seconds < 10) return `${seconds.toFixed(2)}s`;
-    if (seconds < 60) return `${seconds.toFixed(1)}s`;
-    const minutes = Math.floor(seconds / 60);
-    const rem = Math.round(seconds % 60);
-    return `${minutes}m ${rem}s`;
-  }, []);
-
-  const handleWheel = (event: React.WheelEvent) => {
-    event.preventDefault();
-    const delta = event.deltaY < 0 ? 0.1 : -0.1;
-    setScale(prev => Math.min(1.8, Math.max(0.55, prev + delta)));
-  };
-
-  const onMouseDown = (event: React.MouseEvent) => {
-    draggingRef.current = true;
-    setIsDragging(true);
-    lastRef.current = { x: event.clientX, y: event.clientY };
-  };
-
-  const onMouseMove = (event: React.MouseEvent) => {
-    if (!draggingRef.current) return;
-    const dx = event.clientX - lastRef.current.x;
-    const dy = event.clientY - lastRef.current.y;
-    lastRef.current = { x: event.clientX, y: event.clientY };
-    setOffset(prev => ({ x: prev.x + dx, y: prev.y + dy }));
-  };
-
-  const onMouseUp = () => {
-    draggingRef.current = false;
-    setIsDragging(false);
-  };
-
-  const activeWidth = useMemo(() => {
-    if (inlineTasks && taskLayout && taskAnchor) {
-      return Math.max(stepLayout.width, taskAnchor.baseX + taskLayout.width + CLUSTER_PAD * 2);
-    }
-    return stepLayout.width || 1;
-  }, [CLUSTER_PAD, inlineTasks, stepLayout.width, taskAnchor, taskLayout]);
-
-  const activeHeight = useMemo(() => {
-    if (inlineTasks && taskLayout && taskAnchor) {
-      return Math.max(stepLayout.height, taskAnchor.baseY + taskLayout.height + CLUSTER_PAD * 2);
-    }
-    return stepLayout.height || 1;
-  }, [CLUSTER_PAD, inlineTasks, stepLayout.height, taskAnchor, taskLayout]);
-
-  const fitGraph = useCallback(() => {
-    const container = containerRef.current;
-    if (!container || !activeWidth || !activeHeight) return;
-    const { width: cw, height: ch } = container.getBoundingClientRect();
-    if (!cw || !ch) return;
-    const margin = 48;
-    const fitScale = Math.min(1.6, Math.max(0.5, Math.min((cw - margin) / activeWidth, (ch - margin) / activeHeight)));
-    setScale(fitScale);
-    setOffset({ x: (cw - activeWidth * fitScale) / 2, y: (ch - activeHeight * fitScale) / 2 });
-  }, [activeHeight, activeWidth]);
+  const [startPan, setStartPan] = useState({ x: 0, y: 0 });
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const interactedRef = useRef(false);
 
   useEffect(() => {
-    fitGraph();
-  }, [fitGraph, steps.length]);
+    interactedRef.current = false;
+    const frame = requestAnimationFrame(() => setExpandedSteps(new Set()));
+    return () => cancelAnimationFrame(frame);
+  }, [steps]);
 
-  const handleReset = useCallback(() => {
-    fitGraph();
-  }, [fitGraph]);
+  useEffect(() => {
+    if (!selectedStep) return undefined;
+    const frame = requestAnimationFrame(() =>
+      setExpandedSteps(prev => {
+        if (prev.has(selectedStep)) return prev;
+        const next = new Set(prev);
+        next.add(selectedStep);
+        return next;
+      })
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [selectedStep]);
 
-  const handleStepClick = useCallback(
+  const stepDefMap = useMemo(() => {
+    const map = new Map<string, StepConfiguration>();
+    (pipelineDefinition?.steps || []).forEach(step => map.set(step.name, step));
+    return map;
+  }, [pipelineDefinition]);
+
+  const childRunMap = useMemo(() => {
+    const map = new Map<string, RunListItem>();
+    childRuns.forEach(run => {
+      if (run.parent_step_name) map.set(run.parent_step_name, run);
+    });
+    return map;
+  }, [childRuns]);
+
+  const graphSteps = useMemo<GraphStep[]>(() => {
+    return steps.map(step => {
+      const stepDef = stepDefMap.get(step.name);
+      const includeLabel = step.configuration?.include
+        ? `Included ${step.configuration.include.toLowerCase().includes('pipeline') ? 'Pipeline' : 'Step'}`
+        : '';
+      const tasks: GraphTask[] = (step.tasks || []).map(task => {
+        const def = stepDef?.tasks?.find(t => t.name === task.task_name);
+        return {
+          id: task.task_name,
+          name: task.task_name,
+          status: normalizeGraphStatus(task.status, task.status === 'success'),
+          duration: task.finished_at || task.started_at || '',
+          dependsOn: def?.depends_on || [],
+        };
+      });
+      return {
+        id: step.name,
+        name: step.name,
+        status: normalizeGraphStatus(step.status, step.status === 'success'),
+        duration: step.duration,
+        dependsOn: step.depends_on || [],
+        tasks,
+        includeLabel,
+        childRun: childRunMap.get(step.name) || null,
+      };
+    });
+  }, [childRunMap, stepDefMap, steps]);
+
+  const expandedLayouts = useMemo(() => {
+    const map = new Map<string, GraphLayout<GraphTask>>();
+    graphSteps.forEach(step => {
+      if (!expandedSteps.has(step.id)) return;
+      if (!step.tasks.length) return;
+      const innerLayout = calculateGraphLayout<GraphTask>(
+        step.tasks,
+        () => ({ width: TASK_WIDTH, height: TASK_HEIGHT }),
+        36,
+        10
+      );
+      map.set(step.id, innerLayout);
+    });
+    return map;
+  }, [expandedSteps, graphSteps]);
+
+  const mainLayout = useMemo(
+    () =>
+      calculateGraphLayout<GraphStep>(
+        graphSteps,
+        step => {
+          const inner = expandedLayouts.get(step.id);
+          if (inner) {
+            return {
+              width: Math.max(STEP_WIDTH_CLOSED, inner.width + INNER_PADDING * 2),
+              height: Math.max(STEP_HEIGHT_CLOSED, inner.height + STEP_HEADER_HEIGHT + INNER_PADDING * 2),
+            };
+          }
+          return { width: STEP_WIDTH_CLOSED, height: STEP_HEIGHT_CLOSED };
+        },
+        H_GAP,
+        V_GAP
+      ),
+    [expandedLayouts, graphSteps]
+  );
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    if (interactedRef.current) return;
+    const nextX = (container.clientWidth - mainLayout.width) / 2;
+    const nextY = (container.clientHeight - mainLayout.height) / 2;
+    if (Number.isFinite(nextX) && Number.isFinite(nextY)) {
+      setTransform(prev => ({ ...prev, x: nextX, y: nextY }));
+    }
+  }, [mainLayout.height, mainLayout.width]);
+
+  const toggleStep = useCallback(
     (id: string) => {
-      onSelectStep(selectedStep === id ? null : id);
+      setExpandedSteps(prev => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+      onSelectStep(id);
     },
-    [onSelectStep, selectedStep]
+    [onSelectStep]
   );
 
-  const handleExpandToggle = useCallback(
-    (event: React.MouseEvent, id: string) => {
-      event.stopPropagation();
-      onSelectStep(selectedStep === id ? null : id);
-    },
-    [onSelectStep, selectedStep]
-  );
+  const handleWheel = (event: React.WheelEvent) => {
+    interactedRef.current = true;
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      const scaleSens = 0.001;
+      const nextScale = Math.min(Math.max(0.4, transform.k - event.deltaY * scaleSens), 3);
+      setTransform(prev => ({ ...prev, k: nextScale }));
+    } else {
+      setTransform(prev => ({ ...prev, x: prev.x - event.deltaX, y: prev.y - event.deltaY }));
+    }
+  };
 
-  const viewBoxWidth = activeWidth || 1;
-  const viewBoxHeight = activeHeight || 1;
+  const handleMouseDown = (event: React.MouseEvent) => {
+    if (event.button !== 0) return;
+    const target = event.target as HTMLElement;
+    if (target.closest('[data-graph-node]')) return;
+    interactedRef.current = true;
+    setIsDragging(true);
+    setStartPan({ x: event.clientX - transform.x, y: event.clientY - transform.y });
+  };
+
+  const handleMouseMove = (event: React.MouseEvent) => {
+    if (!isDragging) return;
+    setTransform(prev => ({ ...prev, x: event.clientX - startPan.x, y: event.clientY - startPan.y }));
+  };
+
+  const handleMouseUp = () => setIsDragging(false);
+
+  const zoomIn = () => {
+    interactedRef.current = true;
+    setTransform(prev => ({ ...prev, k: Math.min(prev.k + 0.2, 3) }));
+  };
+  const zoomOut = () => {
+    interactedRef.current = true;
+    setTransform(prev => ({ ...prev, k: Math.max(prev.k - 0.2, 0.4) }));
+  };
+  const resetZoom = () => {
+    interactedRef.current = false;
+    setTransform({ x: 0, y: 0, k: 1 });
+  };
 
   return (
-    <div
-      ref={containerRef}
-      className="relative overflow-hidden rounded-2xl bg-gradient-to-b from-slate-50 via-white to-slate-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950"
-      onWheel={handleWheel}
-      onMouseMove={onMouseMove}
-      onMouseUp={onMouseUp}
-      onMouseLeave={onMouseUp}
-    >
-      <div className="absolute top-4 left-4 flex items-center gap-2 text-xs text-[var(--text-secondary)]">
-        <span className="inline-flex items-center gap-2 rounded-full border border-[var(--border-primary)] bg-white/90 dark:bg-slate-900/85 px-3 py-1 shadow-sm">
-          <svg className="h-4 w-4 text-indigo-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="10" />
-            <path d="M12 6v6l3 3" />
-          </svg>
-          {steps.length} steps
-        </span>
-        {selectedStep && inlineTasks && (
-          <span className="inline-flex items-center gap-2 rounded-full border border-indigo-200/80 bg-white/95 dark:bg-slate-900/85 px-3 py-1 shadow-sm text-[var(--text-primary)]">
-            <svg className="h-4 w-4 text-indigo-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M5 12h14" />
-              <path d="M12 5l7 7-7 7" />
-            </svg>
-            Tasks for <span className="font-semibold text-indigo-600 dark:text-indigo-300">{selectedStep}</span>
+    <div className="space-y-3">
+      <div className="flex flex-col gap-2 px-2 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-wrap items-center gap-2 text-sm text-[var(--text-secondary)]">
+          <span className="px-2.5 py-1 text-[11px] uppercase tracking-[0.08em] rounded-full bg-[var(--bg-secondary)] text-[var(--text-primary)]">
+            {steps.length} step{steps.length === 1 ? '' : 's'}
           </span>
-        )}
-        {!inlineTasks && (
-          <span className="inline-flex items-center gap-2 rounded-full border border-[var(--border-primary)] bg-white/90 dark:bg-slate-900/85 px-3 py-1 shadow-sm">
-            <svg className="h-4 w-4 text-[var(--text-secondary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 5l7 7-7 7" />
-            </svg>
-            Click a step to view its tasks
-          </span>
-        )}
+          <span className="hidden sm:inline">Dots show flow. Drag to pan · Scroll to zoom · Tap a step to open tasks</span>
+          <span className="sm:hidden">Dots show flow. Pan, zoom, tap to expand</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs">
+          <button
+            type="button"
+            onClick={() => setExpandedSteps(new Set(steps.map(step => step.name)))}
+            className="px-3 py-1.5 rounded-full border border-[var(--border-primary)] bg-[var(--bg-secondary)] hover:border-[var(--border-accent)] shadow-sm"
+          >
+            Expand all
+          </button>
+          <button
+            type="button"
+            onClick={() => setExpandedSteps(new Set())}
+            className="px-3 py-1.5 rounded-full border border-[var(--border-primary)] bg-[var(--bg-secondary)] hover:border-[var(--border-accent)] shadow-sm"
+          >
+            Collapse all
+          </button>
+          <button
+            type="button"
+            onClick={resetZoom}
+            className="px-3 py-1.5 rounded-full border border-[var(--border-primary)] bg-[var(--bg-secondary)] hover:border-[var(--border-accent)] shadow-sm"
+          >
+            Reset view
+          </button>
+        </div>
       </div>
 
-      <div className="absolute right-4 bottom-4 flex items-center gap-2 bg-white/90 dark:bg-slate-900/85 backdrop-blur px-2 py-1 rounded-full text-xs shadow border border-[var(--border-secondary)]">
-        <button
-          className="h-8 w-8 rounded-full border border-[var(--border-primary)] bg-white dark:bg-slate-900 text-[var(--text-primary)] hover:border-indigo-300 hover:text-indigo-600 flex items-center justify-center"
-          type="button"
-          onClick={() => setScale(prev => Math.max(0.55, prev - 0.1))}
-        >
-          -
-        </button>
-        <button
-          className="h-8 w-8 rounded-full border border-[var(--border-primary)] bg-white dark:bg-slate-900 text-[var(--text-primary)] hover:border-indigo-300 hover:text-indigo-600 flex items-center justify-center"
-          type="button"
-          onClick={() => setScale(prev => Math.min(1.8, prev + 0.1))}
-        >
-          +
-        </button>
-        <button
-          className="px-3 h-8 rounded-full border border-[var(--border-primary)] bg-white dark:bg-slate-900 text-[var(--text-primary)] hover:border-indigo-300 hover:text-indigo-600"
-          type="button"
-          onClick={fitGraph}
-        >
-          Fit
-        </button>
-        <button
-          className="px-3 h-8 rounded-full border border-[var(--border-primary)] bg-white dark:bg-slate-900 text-[var(--text-primary)] hover:border-indigo-300 hover:text-indigo-600"
-          type="button"
-          onClick={handleReset}
-        >
-          Reset
-        </button>
-      </div>
+      <div
+        className="relative h-[720px] w-full overflow-hidden rounded-2xl border border-[var(--border-primary)] bg-white dark:bg-slate-950 shadow-[0_16px_44px_rgba(15,23,42,0.07)]"
+        ref={containerRef}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        onWheel={handleWheel}
+      >
+        <div className="absolute top-3 left-3 z-20 flex flex-wrap items-center gap-3 text-[11px] text-[var(--text-secondary)]">
+          {(['success', 'running', 'failed', 'pending'] as GraphStatus[]).map(status => (
+            <span key={status} className="flex items-center gap-1">
+              <span className="h-2.5 w-2.5 rounded-full" style={{ background: getGraphStatusColor(status) }} />
+              <span className="capitalize opacity-80">{getGraphStatusLabel(status)}</span>
+            </span>
+          ))}
+        </div>
 
-      <div className="w-full h-[640px]" onMouseDown={onMouseDown}>
-        <svg
-          width="100%"
-          height="100%"
-          viewBox={`0 0 ${viewBoxWidth} ${viewBoxHeight}`}
-          style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`, transformOrigin: 'center center', cursor: isDragging ? 'grabbing' : 'grab' }}
-        >
-          <defs>
-            <linearGradient id="edge-gradient" x1="0" y1="0" x2={viewBoxWidth || 1} y2="0" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stopColor="#d7dcff" stopOpacity="0.3" />
-              <stop offset="50%" stopColor="#b3c0ff" stopOpacity="0.7" />
-              <stop offset="100%" stopColor="#7c3aed" stopOpacity="0.9" />
-            </linearGradient>
-            <filter id="edge-glow" x="-40%" y="-40%" width="180%" height="180%">
-              <feGaussianBlur stdDeviation="6" result="blur" />
-              <feMerge>
-                <feMergeNode in="blur" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-            <marker id="graph-arrow" markerWidth="6" markerHeight="4" refX="4.5" refY="2" orient="auto" markerUnits="strokeWidth">
-              <polygon points="0 0, 6 2, 0 4" fill="#7c3aed" />
-            </marker>
-          </defs>
-          {stepLayout.edges.map((edge, index) => {
-            const fromCenterX = edge.from.x + edge.from.width / 2;
-            const fromCenterY = edge.from.y + edge.from.height / 2 - 10; // route toward icon while staying clear of text
-            const toCenterX = edge.to.x + edge.to.width / 2;
-            const toCenterY = edge.to.y + edge.to.height / 2 - 10;
-            const padOffset = 30; // small gap at node entry/exit so arrows point at icons
+        <div className="absolute top-3 right-3 z-20 flex flex-col gap-1">
+          <button onClick={zoomIn} className="h-9 w-9 rounded-full bg-[var(--bg-secondary)]/80 hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] shadow-sm border border-[var(--border-primary)]" title="Zoom in">
+            +
+          </button>
+          <button onClick={zoomOut} className="h-9 w-9 rounded-full bg-[var(--bg-secondary)]/80 hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] shadow-sm border border-[var(--border-primary)]" title="Zoom out">
+            −
+          </button>
+          <button onClick={resetZoom} className="h-9 w-9 rounded-full bg-[var(--bg-secondary)]/80 hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] shadow-sm border border-[var(--border-primary)]" title="Reset">
+            ⟳
+          </button>
+        </div>
 
-            // If selected step is replaced by tasks, keep a single entry/exit line just like steps.
-            if (inlineTasks && selectedStepDetail && taskAnchorPoints) {
-              if (edge.to.id === selectedStepDetail.name) {
-                return (
+        <svg width="100%" height="100%" className="cursor-grab active:cursor-grabbing">
+          <g transform={`translate(${transform.x}, ${transform.y}) scale(${transform.k})`}>
+            {mainLayout.edges.map(edge => {
+              const [start, c1, c2, end] = edge.points;
+              const color = getGraphStatusColor(edge.status);
+              return (
+                <g key={edge.id} className="transition-colors">
                   <path
-                    key={`${edge.from.id}-${edge.to.id}-${index}-in`}
-                    d={buildEdgePath(fromCenterX + padOffset, fromCenterY, taskAnchorPoints.inX, taskAnchorPoints.inY)}
+                    d={`M ${start.x} ${start.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${end.x} ${end.y}`}
                     fill="none"
-                    stroke="url(#edge-gradient)"
+                    stroke={color}
                     strokeWidth={2.2}
-                    className="opacity-85"
-                    markerEnd="url(#graph-arrow)"
+                    strokeOpacity={0.75}
                     strokeLinecap="round"
-                    filter="url(#edge-glow)"
                   />
-                );
-              }
-              if (edge.from.id === selectedStepDetail.name) {
-                return (
-                  <path
-                    key={`${edge.from.id}-${edge.to.id}-${index}-out`}
-                    d={buildEdgePath(taskAnchorPoints.outX, taskAnchorPoints.outY, toCenterX - padOffset, toCenterY)}
-                    fill="none"
-                    stroke="url(#edge-gradient)"
-                    strokeWidth={2.2}
-                    className="opacity-85"
-                    markerEnd="url(#graph-arrow)"
-                    strokeLinecap="round"
-                    filter="url(#edge-glow)"
-                  />
-                );
-              }
-            }
-
-            return (
-              <path
-                key={`${edge.from.id}-${edge.to.id}-${index}`}
-                d={buildEdgePath(fromCenterX + padOffset, fromCenterY, toCenterX - padOffset, toCenterY)}
-                fill="none"
-                stroke="url(#edge-gradient)"
-                strokeWidth={2.2}
-                className="opacity-85"
-                markerEnd="url(#graph-arrow)"
-                strokeLinecap="round"
-                filter="url(#edge-glow)"
-              />
-            );
-          })}
-
-          {stepLayout.nodes.map(node => {
-            if (inlineTasks && node.id === selectedStep) return null;
-            const step = steps.find(stepItem => stepItem.name === node.id);
-            const canExpand = Boolean(step?.tasks?.length || step?.configuration?.tasks?.length);
-            const isSelected = selectedStep === node.id;
-            const tone = toneForStatus(step?.status, step?.status === 'success');
-            const includedLabel = step?.configuration?.include
-              ? `Included ${step.configuration.include.toLowerCase().includes('pipeline') ? 'Pipeline' : 'Step'}`
-              : '';
-            const cx = node.x + node.width / 2;
-            const cy = node.y + node.height / 2 - 10; // lift node visuals slightly upward
-            const statusMeta = getStatusMeta(step?.status, step?.status === 'success');
-            const iconScale = 1.1;
-            const nameY = cy + 24;
-            const includeY = nameY + 16;
-            const durationY = includedLabel ? includeY + 16 : nameY + 22;
-            const badgeX = node.x + node.width - 12;
-            const badgeY = node.y + 12;
-            return (
-              <g key={node.id} className="graph-node" onClick={() => handleStepClick(node.id)}>
-                <g
-                  transform={`translate(${cx - 12 * iconScale}, ${cy - 12 * iconScale}) scale(${iconScale})`}
-                  stroke={tone.stroke}
-                  fill="none"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d={statusMeta.icon} />
-                </g>
-                <text
-                  x={cx}
-                  y={nameY}
-                  className="text-sm font-semibold text-slate-900 dark:text-slate-100"
-                  fill="currentColor"
-                  textAnchor="middle"
-                >
-                  {node.name}
-                </text>
-                {includedLabel && (
-                  <text
-                    x={cx}
-                    y={includeY}
-                    className="text-[11px] text-indigo-600 dark:text-indigo-300"
-                    fill="currentColor"
-                    textAnchor="middle"
-                  >
-                    {includedLabel}
-                  </text>
-                )}
-                <text
-                  x={cx}
-                  y={durationY}
-                  className="text-[12px] text-[var(--text-secondary)]"
-                  fill="currentColor"
-                  textAnchor="middle"
-                >
-                  {step?.duration || '0s'}
-                </text>
-                {canExpand && (
-                  <g
-                    transform={`translate(${badgeX}, ${badgeY})`}
-                    onClick={event => handleExpandToggle(event, node.id)}
-                    className="cursor-pointer"
-                  >
-                    <circle
-                      cx={0}
-                      cy={0}
-                      r={9}
-                      className="fill-white dark:fill-slate-900 stroke-indigo-200 dark:stroke-indigo-700"
-                      strokeWidth={1.5}
-                    />
+                  {edge.status === 'running' && (
                     <path
-                      d={isSelected ? 'M-4 0h8' : 'M-4 0h8 M0 -4v8'}
-                      stroke="#4f46e5"
-                      strokeWidth={1.6}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </g>
-                )}
-              </g>
-            );
-          })}
-
-          {inlineTasks && taskLayout && selectedStepNode && taskAnchor && (() => {
-            const { baseX, baseY } = taskAnchor;
-            return (
-              <g key={`${selectedStepDetail?.name || 'tasks'}-inline`} transform={`translate(${baseX}, ${baseY})`}>
-                {taskLayout.edges.map((edge, index) => {
-                  const fromCenterX = edge.from.x + edge.from.width / 2;
-                  const fromCenterY = edge.from.y + edge.from.height / 2 - 10;
-                  const toCenterX = edge.to.x + edge.to.width / 2;
-                  const toCenterY = edge.to.y + edge.to.height / 2 - 10;
-                  const padOffset = 24;
-                  return (
-                    <path
-                      key={`${edge.from.id}-${edge.to.id}-${index}`}
-                      d={buildEdgePath(fromCenterX + padOffset, fromCenterY, toCenterX - padOffset, toCenterY)}
+                      d={`M ${start.x} ${start.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${end.x} ${end.y}`}
                       fill="none"
-                      stroke="url(#edge-gradient)"
+                      stroke="white"
                       strokeWidth={2}
-                      className="opacity-85"
-                      markerEnd="url(#graph-arrow)"
-                      strokeLinecap="round"
-                      filter="url(#edge-glow)"
-                    />
-                  );
-                })}
-                {taskLayout.nodes.map(node => {
-                  const task = taskStatusByName.get(node.id);
-                  const status = task?.status || 'pending';
-                  const isTaskComplete = task ? status !== 'running' && status !== 'pending' : true;
-                  const tone = toneForStatus(status, isTaskComplete);
-                  const meta = getStatusMeta(status, isTaskComplete);
-                  const cx = node.x + node.width / 2;
-                  const cy = node.y + node.height / 2 - 10;
-                  const iconScale = 1.05;
-                  const nameY = cy + 22;
-                  const durationY = nameY + 18;
-                  return (
-                    <g key={node.id} className="graph-node">
-                      <g
-                        transform={`translate(${cx - 12 * iconScale}, ${cy - 12 * iconScale}) scale(${iconScale})`}
-                        stroke={tone.stroke}
-                        fill="none"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <path d={meta.icon} />
-                      </g>
-                      <text
-                        x={cx}
-                        y={nameY}
-                        className="text-sm font-semibold text-slate-900 dark:text-slate-100"
-                        fill="currentColor"
-                        textAnchor="middle"
-                      >
-                        {node.name}
-                      </text>
-                      <text
-                        x={cx}
-                        y={durationY}
-                        className="text-[12px] text-[var(--text-secondary)]"
-                        fill="currentColor"
-                        textAnchor="middle"
-                      >
-                        {formatTaskDuration(task)}
-                      </text>
-                    </g>
-                  );
-                })}
-              </g>
-            );
-          })()}
+                      strokeDasharray="4 8"
+                      strokeOpacity={0.4}
+                    >
+                      <animate attributeName="stroke-dashoffset" from="12" to="0" dur="1s" repeatCount="indefinite" />
+                    </path>
+                  )}
+                </g>
+              );
+            })}
+
+            {mainLayout.nodes.map(node => (
+              <StepNodeRenderer
+                key={node.data.id}
+                node={node}
+                expanded={expandedSteps.has(node.data.id)}
+                selected={selectedStep === node.data.id}
+                onToggle={() => toggleStep(node.data.id)}
+                innerLayout={expandedLayouts.get(node.data.id)}
+              />
+            ))}
+          </g>
         </svg>
       </div>
     </div>
   );
+}
+
+function StepNodeRenderer({
+  node,
+  expanded,
+  selected,
+  onToggle,
+  innerLayout,
+}: {
+  node: GraphLayoutNode<GraphStep>;
+  expanded: boolean;
+  selected: boolean;
+  onToggle: () => void;
+  innerLayout?: GraphLayout<GraphTask>;
+}) {
+  const statusColor = getGraphStatusColor(node.data.status);
+  const titleColor = selected ? statusColor : 'var(--text-primary)';
+  return (
+    <g
+      transform={`translate(${node.x}, ${node.y})`}
+      className="cursor-pointer"
+      onClick={event => {
+        event.stopPropagation();
+        onToggle();
+      }}
+      onMouseDown={event => event.stopPropagation()}
+      data-graph-node
+    >
+      <rect width={node.width} height={node.height} fill="transparent" />
+
+      <g transform={`translate(${INNER_PADDING}, 10)`}>
+        <StatusDot status={node.data.status} x={12} y={12} size={14} />
+        <text x={28} y={14} className="text-[13px] font-semibold" style={{ fill: titleColor }}>
+          {node.data.name}
+        </text>
+        <text
+          x={node.width - INNER_PADDING * 2}
+          y={14}
+          textAnchor="end"
+          className="text-[11px] uppercase tracking-[0.08em]"
+          style={{ fill: 'var(--text-secondary)' }}
+        >
+          {node.data.duration || '—'}
+        </text>
+        {(node.data.includeLabel || node.data.childRun) && (
+          <text x={28} y={32} className="text-[11px]" style={{ fill: 'var(--text-secondary)' }}>
+            {node.data.includeLabel && (
+              <tspan style={{ fill: statusColor, fontWeight: 600 }}>{node.data.includeLabel}</tspan>
+            )}
+            {node.data.childRun && (
+              <tspan dx={node.data.includeLabel ? 10 : 0}>{node.data.includeLabel ? '• Child run' : 'Child run'}</tspan>
+            )}
+          </text>
+        )}
+      </g>
+
+      {expanded && innerLayout && (
+        <g transform={`translate(${INNER_PADDING}, ${STEP_HEADER_HEIGHT})`}>
+          {innerLayout.edges.map(edge => (
+            <path
+              key={edge.id}
+              d={`M ${edge.points[0].x} ${edge.points[0].y} C ${edge.points[1].x} ${edge.points[1].y}, ${edge.points[2].x} ${edge.points[2].y}, ${edge.points[3].x} ${edge.points[3].y}`}
+              fill="none"
+              stroke={getGraphStatusColor(edge.status)}
+              strokeWidth={1.2}
+              strokeOpacity={0.35}
+              strokeLinecap="round"
+            />
+          ))}
+          {innerLayout.nodes.map(task => (
+            <TaskNodeRenderer key={task.data.id} task={task} />
+          ))}
+        </g>
+      )}
+    </g>
+  );
+}
+
+function TaskNodeRenderer({ task }: { task: GraphLayoutNode<GraphTask> }) {
+  return (
+    <g transform={`translate(${task.x}, ${task.y})`}>
+      <rect width={task.width} height={task.height} fill="transparent" />
+      <StatusDot status={task.data.status} x={10} y={task.height / 2} size={10} />
+      <text x={22} y={task.height / 2 + 4} className="text-[11px] font-semibold" style={{ fill: 'var(--text-primary)' }}>
+        {task.data.name}
+      </text>
+      {task.data.duration && (
+        <text x={task.width - 6} y={task.height / 2 + 3} textAnchor="end" className="text-[10px]" style={{ fill: 'var(--text-secondary)' }}>
+          {task.data.duration}
+        </text>
+      )}
+    </g>
+  );
+}
+
+function getGraphStatusColor(status: GraphStatus) {
+  if (status === 'success') return '#10b981';
+  if (status === 'failed') return '#ef4444';
+  if (status === 'running') return '#3b82f6';
+  return '#94a3b8';
+}
+
+function getGraphStatusLabel(status: GraphStatus) {
+  if (status === 'success') return 'Success';
+  if (status === 'failed') return 'Failed';
+  if (status === 'running') return 'Running';
+  if (status === 'pending') return 'Pending';
+  if (status === 'skipped') return 'Skipped';
+  return status;
+}
+
+function normalizeGraphStatus(status: string | undefined, complete?: boolean): GraphStatus {
+  const normalized = normalizeStatus(status, complete);
+  if (normalized === 'success') return 'success';
+  if (normalized === 'running') return 'running';
+  if (normalized === 'skipped') return 'skipped';
+  if (normalized === 'pending') return 'pending';
+  return 'failed';
+}
+
+function StatusDot({ status, x, y, size = 12 }: { status: GraphStatus; x: number; y: number; size?: number }) {
+  const color = getGraphStatusColor(status);
+  const r = size / 2;
+  if (status === 'failed') {
+    return (
+      <g transform={`translate(${x}, ${y})`}>
+        <rect x={-r} y={-r} width={size} height={size} fill={color} opacity={0.95} transform="rotate(45)" rx={2} />
+      </g>
+    );
+  }
+  if (status === 'running') {
+    return (
+      <g transform={`translate(${x}, ${y})`}>
+        <circle r={r} fill="none" stroke={color} strokeWidth={2} strokeOpacity={0.8} strokeDasharray="4 4">
+          <animate attributeName="stroke-dashoffset" from="8" to="0" dur="1s" repeatCount="indefinite" />
+        </circle>
+        <circle r={r / 1.8} fill={color} opacity={0.9} />
+      </g>
+    );
+  }
+  if (status === 'pending') {
+    return (
+      <g transform={`translate(${x}, ${y})`}>
+        <circle r={r} fill="none" stroke={color} strokeWidth={2} strokeOpacity={0.75} />
+      </g>
+    );
+  }
+  if (status === 'skipped') {
+    return (
+      <g transform={`translate(${x}, ${y})`}>
+        <rect x={-r} y={-r / 2} width={size} height={r} rx={r / 2} fill={color} opacity={0.85} />
+      </g>
+    );
+  }
+  return (
+    <g transform={`translate(${x}, ${y})`}>
+      <circle r={r} fill={color} opacity={0.95} />
+    </g>
+  );
+}
+
+function getRanks(items: { id: string; dependsOn?: string[] }[]) {
+  const ranks: Record<string, number> = {};
+  const visited = new Set<string>();
+
+  items.forEach(item => {
+    if (!item.dependsOn || item.dependsOn.length === 0) {
+      ranks[item.id] = 0;
+    }
+  });
+
+  const getRank = (id: string): number => {
+    if (ranks[id] !== undefined) return ranks[id];
+    if (visited.has(id)) return 0;
+    visited.add(id);
+
+    const item = items.find(i => i.id === id);
+    if (!item || !item.dependsOn?.length) {
+      ranks[id] = 0;
+      return 0;
+    }
+
+    let maxParentRank = -1;
+    item.dependsOn.forEach(parentId => {
+      maxParentRank = Math.max(maxParentRank, getRank(parentId));
+    });
+
+    ranks[id] = maxParentRank + 1;
+    return maxParentRank + 1;
+  };
+
+  items.forEach(item => getRank(item.id));
+  return ranks;
+}
+
+function calculateGraphLayout<T extends { id: string; dependsOn?: string[]; status: GraphStatus }>(
+  items: T[],
+  getSize: (item: T) => GraphSize,
+  hGap: number,
+  vGap: number
+): GraphLayout<T> {
+  if (!items.length) {
+    return { nodes: [], edges: [], width: PADDING * 2, height: PADDING * 2 };
+  }
+
+  const ranks = getRanks(items);
+  const levels: T[][] = [];
+  items.forEach(item => {
+    const r = ranks[item.id] || 0;
+    if (!levels[r]) levels[r] = [];
+    levels[r].push(item);
+  });
+
+  const nodes: GraphLayoutNode<T>[] = [];
+  const edges: GraphLayoutEdge[] = [];
+
+  let currentX = PADDING;
+  const levelXs: number[] = [];
+
+  levels.forEach((levelItems, lvlIdx) => {
+    levelXs[lvlIdx] = currentX;
+    const sizes = levelItems.map(getSize);
+    const maxWidth = Math.max(...sizes.map(s => s.width), 0);
+    currentX += maxWidth + hGap;
+  });
+
+  const totalWidth = Math.max(PADDING * 2, currentX - hGap + PADDING);
+  const levelHeights = levels.map(levelItems => levelItems.reduce((acc, item) => acc + getSize(item).height + vGap, 0) - vGap);
+  const maxLevelHeight = Math.max(...levelHeights, 0);
+  const totalHeight = Math.max(PADDING * 2, maxLevelHeight + PADDING * 2);
+
+  levels.forEach((levelItems, lvlIdx) => {
+    const x = levelXs[lvlIdx];
+    const levelH = levelHeights[lvlIdx];
+    let currentY = PADDING + (maxLevelHeight - levelH) / 2;
+
+    levelItems.forEach(item => {
+      const size = getSize(item);
+      nodes.push({
+        data: item,
+        level: lvlIdx,
+        x,
+        y: currentY,
+        width: size.width,
+        height: size.height,
+      });
+      currentY += size.height + vGap;
+    });
+  });
+
+  items.forEach(item => {
+    if (!item.dependsOn) return;
+    const targetNode = nodes.find(n => n.data.id === item.id);
+    if (!targetNode) return;
+
+    item.dependsOn.forEach(parentId => {
+      const sourceNode = nodes.find(n => n.data.id === parentId);
+      if (!sourceNode) return;
+      const start = { x: sourceNode.x + sourceNode.width, y: sourceNode.y + sourceNode.height / 2 };
+      const end = { x: targetNode.x, y: targetNode.y + targetNode.height / 2 };
+      const controlDist = Math.max(24, (end.x - start.x) * 0.45);
+
+      edges.push({
+        id: `${parentId}-${item.id}`,
+        from: parentId,
+        to: item.id,
+        status: sourceNode.data.status,
+        points: [
+          start,
+          { x: start.x + controlDist, y: start.y },
+          { x: end.x - controlDist, y: end.y },
+          end,
+        ],
+      });
+    });
+  });
+
+  return { nodes, edges, width: totalWidth, height: totalHeight };
 }
 
 function ViewToggle({ viewMode, onChange }: { viewMode: 'grid' | 'list'; onChange: (mode: 'grid' | 'list') => void }) {
@@ -3383,11 +3421,6 @@ function parseLogLine(line: string): { level?: string; step?: string } {
   }
   const levelMatch = line.match(/\b(info|warn|error|debug)\b/i);
   return { level: levelMatch ? levelMatch[1].toLowerCase() : undefined };
-}
-
-function buildEdgePath(x1: number, y1: number, x2: number, y2: number) {
-  const delta = Math.max(40, Math.abs(x2 - x1) * 0.5);
-  return `M ${x1} ${y1} C ${x1 + delta} ${y1}, ${x2 - delta} ${y2}, ${x2} ${y2}`;
 }
 
 function extractLatestRunSummary(runsByBranch: Record<string, RunListItem[]> | null): RepoSummary | null {
