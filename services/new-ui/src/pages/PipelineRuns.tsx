@@ -82,6 +82,8 @@ type StepDetail = {
   depends_on: string[];
   tasks: TaskDetail[];
   duration?: string;
+  started_at?: string;
+  finished_at?: string;
   configuration?: StepConfiguration;
 };
 
@@ -170,7 +172,7 @@ const STATUS_META: Record<
   running: {
     text: 'Running',
     pillClass: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-700',
-    icon: 'M12 8v4l3 3',
+    icon: 'M21 12a9 9 0 11-6.219-8.56',
     strokeClass: 'text-blue-500 animate-pulse',
     border: 'border-blue-500/60',
     bg: 'fill-blue-100 dark:fill-blue-900/50 stroke-blue-500',
@@ -178,7 +180,7 @@ const STATUS_META: Record<
   pending: {
     text: 'Pending',
     pillClass: 'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800/40 dark:text-gray-200 dark:border-gray-700',
-    icon: 'M12 8v4l3 3',
+    icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z',
     strokeClass: 'text-gray-500',
     border: 'border-gray-500/60',
     bg: 'fill-gray-100 dark:fill-gray-800 stroke-gray-500',
@@ -2244,6 +2246,7 @@ function StepsGraph({
   const [startPan, setStartPan] = useState({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement | null>(null);
   const interactedRef = useRef(false);
+  const prevStepStatusesRef = useRef<Map<string, GraphStatus>>(new Map());
 
   useEffect(() => {
     interactedRef.current = false;
@@ -2278,6 +2281,8 @@ function StepsGraph({
     return map;
   }, [childRuns]);
 
+  const getStepBaseWidth = useCallback((step: GraphStep) => Math.max(STEP_WIDTH_CLOSED, Math.min(360, step.name.length * 8 + 120)), []);
+
   const graphSteps = useMemo<GraphStep[]>(() => {
     return steps.map(step => {
       const stepDef = stepDefMap.get(step.name);
@@ -2290,7 +2295,7 @@ function StepsGraph({
           id: task.task_name,
           name: task.task_name,
           status: normalizeGraphStatus(task.status, task.status === 'success'),
-          duration: task.finished_at || task.started_at || '',
+          duration: formatElapsedLabel(task.started_at, task.finished_at),
           dependsOn: def?.depends_on || [],
         };
       });
@@ -2298,7 +2303,7 @@ function StepsGraph({
         id: step.name,
         name: step.name,
         status: normalizeGraphStatus(step.status, step.status === 'success'),
-        duration: step.duration,
+        duration: formatStepDuration(step),
         dependsOn: step.depends_on || [],
         tasks,
         includeLabel,
@@ -2329,18 +2334,19 @@ function StepsGraph({
         graphSteps,
         step => {
           const inner = expandedLayouts.get(step.id);
+          const baseWidth = getStepBaseWidth(step);
           if (inner) {
             return {
-              width: Math.max(STEP_WIDTH_CLOSED, inner.width + INNER_PADDING * 2),
+              width: Math.max(baseWidth, inner.width + INNER_PADDING * 2),
               height: Math.max(STEP_HEIGHT_CLOSED, inner.height + STEP_HEADER_HEIGHT + INNER_PADDING * 2),
             };
           }
-          return { width: STEP_WIDTH_CLOSED, height: STEP_HEIGHT_CLOSED };
+          return { width: baseWidth, height: STEP_HEIGHT_CLOSED };
         },
         H_GAP,
         V_GAP
       ),
-    [expandedLayouts, graphSteps]
+    [expandedLayouts, getStepBaseWidth, graphSteps]
   );
 
   useEffect(() => {
@@ -2353,6 +2359,15 @@ function StepsGraph({
       setTransform(prev => ({ ...prev, x: nextX, y: nextY }));
     }
   }, [mainLayout.height, mainLayout.width]);
+
+  useEffect(() => {
+    const prevStatuses = prevStepStatusesRef.current;
+    const nextStatusMap = new Map<string, GraphStatus>();
+    graphSteps.forEach(step => {
+      nextStatusMap.set(step.id, step.status);
+    });
+    prevStepStatusesRef.current = nextStatusMap;
+  }, [graphSteps]);
 
   const toggleStep = useCallback(
     (id: string) => {
@@ -2536,6 +2551,7 @@ function StepNodeRenderer({
 }) {
   const statusColor = getGraphStatusColor(node.data.status);
   const titleColor = selected ? statusColor : 'var(--text-primary)';
+  const durationLabel = node.data.duration || '0s';
   return (
     <g
       transform={`translate(${node.x}, ${node.y})`}
@@ -2550,21 +2566,13 @@ function StepNodeRenderer({
       <rect width={node.width} height={node.height} fill="transparent" />
 
       <g transform={`translate(${INNER_PADDING}, 10)`}>
-        <StatusDot status={node.data.status} x={12} y={12} size={14} />
-        <text x={28} y={14} className="text-[13px] font-semibold" style={{ fill: titleColor }}>
-          {node.data.name}
-        </text>
-        <text
-          x={node.width - INNER_PADDING * 2}
-          y={14}
-          textAnchor="end"
-          className="text-[11px] uppercase tracking-[0.08em]"
-          style={{ fill: 'var(--text-secondary)' }}
-        >
-          {node.data.duration || '—'}
+        <GraphStatusGlyph status={node.data.status} x={12} y={12} size={18} />
+        <text x={30} y={14} className="text-[13px] font-semibold">
+          <tspan style={{ fill: titleColor }}>{node.data.name}</tspan>
+          <tspan style={{ fill: 'var(--text-secondary)', fontWeight: 600 }}>{`  -  ${durationLabel}`}</tspan>
         </text>
         {(node.data.includeLabel || node.data.childRun) && (
-          <text x={28} y={32} className="text-[11px]" style={{ fill: 'var(--text-secondary)' }}>
+          <text x={30} y={32} className="text-[11px]" style={{ fill: 'var(--text-secondary)' }}>
             {node.data.includeLabel && (
               <tspan style={{ fill: statusColor, fontWeight: 600 }}>{node.data.includeLabel}</tspan>
             )}
@@ -2598,18 +2606,15 @@ function StepNodeRenderer({
 }
 
 function TaskNodeRenderer({ task }: { task: GraphLayoutNode<GraphTask> }) {
+  const durationLabel = task.data.duration || '0s';
   return (
     <g transform={`translate(${task.x}, ${task.y})`}>
       <rect width={task.width} height={task.height} fill="transparent" />
-      <StatusDot status={task.data.status} x={10} y={task.height / 2} size={10} />
-      <text x={22} y={task.height / 2 + 4} className="text-[11px] font-semibold" style={{ fill: 'var(--text-primary)' }}>
-        {task.data.name}
+      <GraphStatusGlyph status={task.data.status} x={11} y={task.height / 2} size={14} />
+      <text x={24} y={task.height / 2 + 4} className="text-[11px] font-semibold">
+        <tspan style={{ fill: 'var(--text-primary)' }}>{task.data.name}</tspan>
+        <tspan style={{ fill: 'var(--text-secondary)', fontWeight: 600 }}>{`  -  ${durationLabel}`}</tspan>
       </text>
-      {task.data.duration && (
-        <text x={task.width - 6} y={task.height / 2 + 3} textAnchor="end" className="text-[10px]" style={{ fill: 'var(--text-secondary)' }}>
-          {task.data.duration}
-        </text>
-      )}
     </g>
   );
 }
@@ -2630,6 +2635,66 @@ function getGraphStatusLabel(status: GraphStatus) {
   return status;
 }
 
+function getGraphStatusIconPath(status: GraphStatus) {
+  if (status === 'success') return STATUS_META.success.icon;
+  if (status === 'failed') return STATUS_META.failure.icon;
+  if (status === 'running') return STATUS_META.running.icon;
+  if (status === 'pending') return STATUS_META.pending.icon;
+  if (status === 'skipped') return STATUS_META.skipped.icon;
+  return STATUS_META.pending.icon;
+}
+
+function parseTimestamp(value?: string | null): number | null {
+  if (!value) return null;
+  const t = Date.parse(value);
+  return Number.isNaN(t) ? null : t;
+}
+
+function humanizeDurationMs(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const seconds = totalSeconds % 60;
+  const minutes = Math.floor(totalSeconds / 60) % 60;
+  const hours = Math.floor(totalSeconds / 3600);
+  if (hours) return `${hours}h ${minutes}m`;
+  if (minutes) return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  return `${seconds}s`;
+}
+
+function formatElapsedLabel(start?: string | null, end?: string | null, fallback = '0s') {
+  const startTs = parseTimestamp(start);
+  if (!startTs) return fallback;
+  const endTs = parseTimestamp(end) ?? Date.now();
+  if (endTs < startTs) return fallback;
+  return humanizeDurationMs(endTs - startTs);
+}
+
+function formatStepDuration(step: StepDetail): string {
+  const provided = (step.duration || '').trim();
+  const range = calculateStepDurationFromTasks(step.tasks);
+  if (range) return range;
+  if (provided) return provided;
+  const start = parseTimestamp(step.started_at);
+  const end = parseTimestamp(step.finished_at);
+  if (start) return humanizeDurationMs((end ?? Date.now()) - start);
+  return '0s';
+}
+
+function calculateStepDurationFromTasks(tasks: TaskDetail[]): string | null {
+  if (!tasks?.length) return null;
+  let startMin: number | null = null;
+  let endMax: number | null = null;
+  tasks.forEach(task => {
+    const start = parseTimestamp(task.started_at);
+    if (start !== null) {
+      startMin = startMin === null ? start : Math.min(startMin, start);
+      const end = parseTimestamp(task.finished_at) ?? Date.now();
+      endMax = endMax === null ? end : Math.max(endMax, end);
+    }
+  });
+  if (startMin === null || endMax === null) return null;
+  return humanizeDurationMs(endMax - startMin);
+}
+
 function normalizeGraphStatus(status: string | undefined, complete?: boolean): GraphStatus {
   const normalized = normalizeStatus(status, complete);
   if (normalized === 'success') return 'success';
@@ -2639,43 +2704,26 @@ function normalizeGraphStatus(status: string | undefined, complete?: boolean): G
   return 'failed';
 }
 
-function StatusDot({ status, x, y, size = 12 }: { status: GraphStatus; x: number; y: number; size?: number }) {
+function GraphStatusGlyph({ status, x, y, size = 14 }: { status: GraphStatus; x: number; y: number; size?: number }) {
   const color = getGraphStatusColor(status);
-  const r = size / 2;
-  if (status === 'failed') {
-    return (
-      <g transform={`translate(${x}, ${y})`}>
-        <rect x={-r} y={-r} width={size} height={size} fill={color} opacity={0.95} transform="rotate(45)" rx={2} />
-      </g>
-    );
-  }
-  if (status === 'running') {
-    return (
-      <g transform={`translate(${x}, ${y})`}>
-        <circle r={r} fill="none" stroke={color} strokeWidth={2} strokeOpacity={0.8} strokeDasharray="4 4">
-          <animate attributeName="stroke-dashoffset" from="8" to="0" dur="1s" repeatCount="indefinite" />
-        </circle>
-        <circle r={r / 1.8} fill={color} opacity={0.9} />
-      </g>
-    );
-  }
-  if (status === 'pending') {
-    return (
-      <g transform={`translate(${x}, ${y})`}>
-        <circle r={r} fill="none" stroke={color} strokeWidth={2} strokeOpacity={0.75} />
-      </g>
-    );
-  }
-  if (status === 'skipped') {
-    return (
-      <g transform={`translate(${x}, ${y})`}>
-        <rect x={-r} y={-r / 2} width={size} height={r} rx={r / 2} fill={color} opacity={0.85} />
-      </g>
-    );
-  }
+  const strokeWidth = Math.max(1.6, Math.min(2.4, size / 6.5));
+  const path = getGraphStatusIconPath(status);
   return (
     <g transform={`translate(${x}, ${y})`}>
-      <circle r={r} fill={color} opacity={0.95} />
+      <svg
+        x={-size / 2}
+        y={-size / 2}
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke={color}
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d={path} />
+      </svg>
     </g>
   );
 }
@@ -3307,8 +3355,8 @@ function getBranchStatusTone(status: string) {
 
 function normalizeStatus(status: string | undefined, complete?: boolean): string {
   const raw = (status || '').toLowerCase();
-  if (!complete && raw !== 'success' && raw !== 'failure' && raw !== 'cancelled' && raw !== 'skipped') return 'running';
   if (STATUS_META[raw]) return raw;
+  if (!complete) return raw || 'pending';
   return 'pending';
 }
 
