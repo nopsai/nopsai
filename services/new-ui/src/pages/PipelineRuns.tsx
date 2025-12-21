@@ -2227,6 +2227,8 @@ const V_GAP = 26;
 const PADDING = 32;
 const STEP_HEADER_HEIGHT = 44;
 const INNER_PADDING = 12;
+const MIN_GRAPH_SCALE = 0.4;
+const MAX_GRAPH_SCALE = 1.4;
 
 function StepsGraph({
   steps,
@@ -2344,6 +2346,20 @@ function StepsGraph({
     [expandedLayouts, getStepBaseWidth, graphSteps]
   );
 
+  const fitGraphToViewport = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const { clientWidth, clientHeight } = container;
+    if (!clientWidth || !clientHeight || !mainLayout.width || !mainLayout.height) return;
+    const padding = 32;
+    const scaleX = (clientWidth - padding * 2) / mainLayout.width;
+    const scaleY = (clientHeight - padding * 2) / mainLayout.height;
+    const nextScale = Math.min(MAX_GRAPH_SCALE, Math.max(MIN_GRAPH_SCALE, Math.min(scaleX, scaleY)));
+    const nextX = (clientWidth - mainLayout.width * nextScale) / 2;
+    const nextY = (clientHeight - mainLayout.height * nextScale) / 2;
+    setTransform({ x: nextX, y: nextY, k: nextScale });
+  }, [mainLayout.height, mainLayout.width]);
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -2355,8 +2371,9 @@ function StepsGraph({
     }
   }, [mainLayout.height, mainLayout.width]);
 
+  const pendingFitRef = useRef(false);
+
   useEffect(() => {
-    const prevStatuses = prevStepStatusesRef.current;
     const nextStatusMap = new Map<string, GraphStatus>();
     graphSteps.forEach(step => {
       nextStatusMap.set(step.id, step.status);
@@ -2364,8 +2381,16 @@ function StepsGraph({
     prevStepStatusesRef.current = nextStatusMap;
   }, [graphSteps]);
 
+  useEffect(() => {
+    if (pendingFitRef.current) {
+      pendingFitRef.current = false;
+      fitGraphToViewport();
+    }
+  }, [expandedLayouts, expandedSteps, fitGraphToViewport, mainLayout.height, mainLayout.width]);
+
   const toggleStep = useCallback(
     (id: string) => {
+      pendingFitRef.current = true;
       setExpandedSteps(prev => {
         const next = new Set(prev);
         if (next.has(id)) next.delete(id);
@@ -2376,13 +2401,22 @@ function StepsGraph({
     },
     [onSelectStep]
   );
+  const expandAll = useCallback(() => {
+    pendingFitRef.current = true;
+    setExpandedSteps(new Set(steps.map(step => step.name)));
+  }, [steps]);
+  const collapseAll = useCallback(() => {
+    pendingFitRef.current = true;
+    setExpandedSteps(new Set());
+  }, []);
 
   const handleWheel = (event: React.WheelEvent) => {
     interactedRef.current = true;
-    if (event.ctrlKey || event.metaKey) {
+    const shouldZoom = event.ctrlKey || event.metaKey || event.shiftKey;
+    if (shouldZoom) {
       event.preventDefault();
       const scaleSens = 0.001;
-      const nextScale = Math.min(Math.max(0.4, transform.k - event.deltaY * scaleSens), 3);
+      const nextScale = Math.min(Math.max(MIN_GRAPH_SCALE, transform.k - event.deltaY * scaleSens), MAX_GRAPH_SCALE);
       setTransform(prev => ({ ...prev, k: nextScale }));
     } else {
       setTransform(prev => ({ ...prev, x: prev.x - event.deltaX, y: prev.y - event.deltaY }));
@@ -2420,37 +2454,12 @@ function StepsGraph({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-col gap-2 px-2 md:flex-row md:items-center md:justify-between">
-        <div className="flex flex-wrap items-center gap-2 text-sm text-[var(--text-secondary)]">
-          <span className="px-2.5 py-1 text-[11px] uppercase tracking-[0.08em] rounded-full bg-[var(--bg-secondary)] text-[var(--text-primary)]">
-            {steps.length} step{steps.length === 1 ? '' : 's'}
-          </span>
-          <span className="hidden sm:inline">Dots show flow. Drag to pan · Scroll to zoom · Tap a step to open tasks</span>
-          <span className="sm:hidden">Dots show flow. Pan, zoom, tap to expand</span>
-        </div>
-        <div className="flex items-center gap-2 text-xs">
-          <button
-            type="button"
-            onClick={() => setExpandedSteps(new Set(steps.map(step => step.name)))}
-            className="px-3 py-1.5 rounded-full border border-[var(--border-primary)] bg-[var(--bg-secondary)] hover:border-[var(--border-accent)] shadow-sm"
-          >
-            Expand all
-          </button>
-          <button
-            type="button"
-            onClick={() => setExpandedSteps(new Set())}
-            className="px-3 py-1.5 rounded-full border border-[var(--border-primary)] bg-[var(--bg-secondary)] hover:border-[var(--border-accent)] shadow-sm"
-          >
-            Collapse all
-          </button>
-          <button
-            type="button"
-            onClick={resetZoom}
-            className="px-3 py-1.5 rounded-full border border-[var(--border-primary)] bg-[var(--bg-secondary)] hover:border-[var(--border-accent)] shadow-sm"
-          >
-            Reset view
-          </button>
-        </div>
+      <div className="flex flex-wrap items-center gap-2 px-2 text-sm text-[var(--text-secondary)]">
+        <span className="px-2.5 py-1 text-[11px] uppercase tracking-[0.08em] rounded-full bg-[var(--bg-secondary)] text-[var(--text-primary)]">
+          {steps.length} step{steps.length === 1 ? '' : 's'}
+        </span>
+        <span className="hidden sm:inline">Dots show flow. Drag to pan · Scroll to zoom · Tap a step to open tasks</span>
+        <span className="sm:hidden">Dots show flow. Pan, zoom, tap to expand</span>
       </div>
 
       <div
@@ -2464,22 +2473,36 @@ function StepsGraph({
       >
         <div className="absolute top-3 left-3 z-20 flex flex-wrap items-center gap-3 text-[11px] text-[var(--text-secondary)]">
           {(['success', 'running', 'failed', 'pending'] as GraphStatus[]).map(status => (
-            <span key={status} className="flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ background: getGraphStatusColor(status) }} />
+            <span key={status} className="flex items-center gap-1.5">
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                <GraphStatusGlyph status={status} x={8} y={8} size={12} />
+              </svg>
               <span className="capitalize opacity-80">{getGraphStatusLabel(status)}</span>
             </span>
           ))}
         </div>
 
         <div className="absolute top-3 right-3 z-20 flex flex-col gap-1">
+          <button
+            onClick={() => {
+              const allExpanded = expandedSteps.size === steps.length;
+              if (allExpanded) {
+                collapseAll();
+              } else {
+                expandAll();
+                fitGraphToViewport();
+              }
+            }}
+            className="h-9 w-9 rounded-full bg-[var(--bg-secondary)]/80 hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] shadow-sm border border-[var(--border-primary)]"
+            title={expandedSteps.size === steps.length ? 'Collapse all' : 'Expand all'}
+          >
+            {expandedSteps.size === steps.length ? '⇱' : '⇲'}
+          </button>
           <button onClick={zoomIn} className="h-9 w-9 rounded-full bg-[var(--bg-secondary)]/80 hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] shadow-sm border border-[var(--border-primary)]" title="Zoom in">
             +
           </button>
           <button onClick={zoomOut} className="h-9 w-9 rounded-full bg-[var(--bg-secondary)]/80 hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] shadow-sm border border-[var(--border-primary)]" title="Zoom out">
             −
-          </button>
-          <button onClick={resetZoom} className="h-9 w-9 rounded-full bg-[var(--bg-secondary)]/80 hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] shadow-sm border border-[var(--border-primary)]" title="Reset">
-            ⟳
           </button>
         </div>
 
