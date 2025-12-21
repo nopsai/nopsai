@@ -452,16 +452,13 @@ function PipelineRunsPage() {
     try {
       const detail = await fetchJson<RunDetail>(`/v1/runs/${encodeURIComponent(activeRunId)}`);
       setRunDetail(detail);
-      if (!selectedStep && detail.steps.length) {
-        setSelectedStep(detail.steps[0].name);
-      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to load run details';
       setRunDetailError(message);
     } finally {
       setRunDetailLoading(false);
     }
-  }, [activeRunId, fetchJson, selectedStep]);
+  }, [activeRunId, fetchJson]);
 
   useEffect(() => {
     void loadGroups();
@@ -1938,7 +1935,7 @@ function RunDetailView({
   onRerun: () => void;
   onDelete: () => void;
   selectedStep: string | null;
-  onSelectStep: (step: string) => void;
+  onSelectStep: (step: string | null) => void;
   onOpenLogs: () => void;
   onOpenRun: (id: string) => void;
   onShowDefinition: () => void;
@@ -2155,7 +2152,7 @@ function RunDetailView({
 
       <div className="space-y-4">
         <div className="rounded-2xl border border-[var(--border-primary)] bg-white dark:bg-slate-950 shadow-[0_16px_44px_rgba(15,23,42,0.07)] p-2">
-          <StepsGraph steps={detail.steps} selectedStep={selectedStep} onSelectStep={onSelectStep} />
+          <StepsGraph steps={detail.steps} pipelineDefinition={detail.pipeline_definition} selectedStep={selectedStep} onSelectStep={onSelectStep} />
         </div>
       </div>
 
@@ -2185,9 +2182,19 @@ function RunDetailView({
   );
 }
 
-function StepsGraph({ steps, selectedStep, onSelectStep }: { steps: StepDetail[]; selectedStep: string | null; onSelectStep: (name: string) => void }) {
+function StepsGraph({
+  steps,
+  pipelineDefinition,
+  selectedStep,
+  onSelectStep,
+}: {
+  steps: StepDetail[];
+  pipelineDefinition?: PipelineDefinition | null;
+  selectedStep: string | null;
+  onSelectStep: (name: string | null) => void;
+}) {
   const items: GraphItem[] = steps.map(step => ({ name: step.name, depends_on: step.depends_on || [] }));
-  const layout = useMemo<GraphLayout>(
+  const stepLayout = useMemo<GraphLayout>(
     () =>
       calculateGraphLayout(items, {
         nodeWidth: 140,
@@ -2199,19 +2206,147 @@ function StepsGraph({ steps, selectedStep, onSelectStep }: { steps: StepDetail[]
       }),
     [items]
   );
+  const pipelineSteps = useMemo(() => pipelineDefinition?.steps || [], [pipelineDefinition]);
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
   const draggingRef = useRef(false);
   const lastRef = useRef({ x: 0, y: 0 });
   const selectedStepDetail = useMemo(() => steps.find(step => step.name === selectedStep), [selectedStep, steps]);
+  const selectedStepDefinition = useMemo(
+    () => pipelineSteps.find(step => step.name === selectedStepDetail?.name),
+    [pipelineSteps, selectedStepDetail?.name]
+  );
+  const resolveTaskName = useCallback((task: TaskDetail) => {
+    if (task.task_name) return task.task_name;
+    if (task.task_id) return task.task_id;
+    const index = Number.isFinite(task.task_index) ? task.task_index + 1 : 1;
+    return `task-${index}`;
+  }, []);
+  const taskDefinitionsByName = useMemo(() => {
+    const map = new Map<string, TaskDefinition>();
+    (selectedStepDefinition?.tasks || []).forEach(task => {
+      if (task?.name) map.set(task.name, task);
+    });
+    (selectedStepDetail?.configuration?.tasks || []).forEach(task => {
+      if (task?.name) map.set(task.name, task);
+    });
+    return map;
+  }, [selectedStepDefinition, selectedStepDetail?.configuration?.tasks]);
   const taskStatusByName = useMemo(() => {
     const map = new Map<string, TaskDetail>();
-    selectedStepDetail?.tasks?.forEach(task => map.set(task.task_name, task));
+    selectedStepDetail?.tasks?.forEach(task => {
+      const name = resolveTaskName(task);
+      if (name) map.set(name, task);
+    });
     return map;
-  }, [selectedStepDetail]);
+  }, [resolveTaskName, selectedStepDetail]);
+  const taskGraphItems = useMemo<GraphItem[]>(() => {
+    const runtimeTasks = selectedStepDetail?.tasks || [];
+    const items: GraphItem[] = [];
+    runtimeTasks.forEach(task => {
+      const name = resolveTaskName(task);
+      if (!name) return;
+      const def = taskDefinitionsByName.get(name);
+      items.push({ name, depends_on: def?.depends_on || [] });
+    });
+
+    if (!items.length && taskDefinitionsByName.size > 0) {
+      taskDefinitionsByName.forEach(def => {
+        if (def?.name) {
+          items.push({ name: def.name, depends_on: def.depends_on || [] });
+        }
+      });
+    }
+
+    return items;
+  }, [resolveTaskName, selectedStepDetail?.tasks, taskDefinitionsByName]);
+  const taskLayout = useMemo<GraphLayout | null>(() => {
+    if (!taskGraphItems.length) return null;
+    return calculateGraphLayout(
+      taskGraphItems.map(task => ({ name: task.name, depends_on: task.depends_on || [] })),
+      {
+        nodeWidth: 110,
+        nodeHeight: 72,
+        horizontalGap: 90,
+        verticalGap: 42,
+        paddingX: 64,
+        paddingY: 80,
+      }
+    );
+  }, [taskGraphItems]);
+  const selectedStepNode = useMemo(() => stepLayout.nodes.find(node => node.id === selectedStep), [selectedStep, stepLayout.nodes]);
+  const inlineTasks = Boolean(selectedStepDetail && taskLayout && selectedStepNode);
+  const otherStepRects = useMemo(
+    () =>
+      stepLayout.nodes
+        .filter(node => node.id !== selectedStep)
+        .map(node => ({
+          x1: node.x - 28,
+          y1: node.y - 28,
+          x2: node.x + node.width + 28,
+          y2: node.y + node.height + 28,
+        })),
+    [selectedStep, stepLayout.nodes]
+  );
+
+  const CLUSTER_PAD = 12;
+
+  const chooseTaskAnchor = useCallback(() => {
+    if (!taskLayout || !selectedStepNode) return null;
+    const stepCenterX = selectedStepNode.x + selectedStepNode.width / 2;
+    const stepCenterY = selectedStepNode.y + selectedStepNode.height / 2;
+    const pad = Math.max(CLUSTER_PAD, 16);
+    const bandMargin = pad + 20;
+    const childCenters = stepLayout.edges.filter(e => e.from.id === selectedStepNode.id).map(e => e.to.y + e.to.height / 2);
+    const bandMinY = Math.min(stepCenterY, ...(childCenters.length ? childCenters : [stepCenterY])) - bandMargin;
+    const bandMaxY = Math.max(stepCenterY, ...(childCenters.length ? childCenters : [stepCenterY])) + bandMargin;
+
+    const overlaps = (x1: number, y1: number, x2: number, y2: number) =>
+      otherStepRects.some(sr => x1 < sr.x2 && x2 > sr.x1 && y1 < sr.y2 && y2 > sr.y1);
+
+    const scan = () => {
+      const baseX = Math.round(stepCenterX - taskLayout.width / 2);
+      const baseY = Math.round(stepCenterY - taskLayout.height / 2);
+      const maxIter = 120;
+      const step = 14;
+      for (let i = 0; i <= maxIter; i += 1) {
+        const dir = i % 2 === 0 ? 1 : -1;
+        const delta = Math.floor(i / 2) * step * dir;
+        const centerY = Math.min(bandMaxY, Math.max(bandMinY, stepCenterY + delta));
+        const candidateY = Math.round(centerY - taskLayout.height / 2);
+        const x1 = baseX - pad;
+        const x2 = baseX + taskLayout.width + pad;
+        const y1 = candidateY - pad;
+        const y2 = candidateY + taskLayout.height + pad;
+        if (!overlaps(x1, y1, x2, y2)) {
+          return { baseX, baseY: candidateY };
+        }
+      }
+      return { baseX, baseY };
+    };
+
+    return scan();
+  }, [CLUSTER_PAD, otherStepRects, selectedStepNode, stepLayout.edges, taskLayout]);
+
+  const taskAnchor = useMemo(() => {
+    if (!inlineTasks) return null;
+    return chooseTaskAnchor();
+  }, [chooseTaskAnchor, inlineTasks]);
+
+  const taskAnchorPoints = useMemo(() => {
+    if (!inlineTasks || !taskLayout || !taskAnchor) return null;
+    const leftX = taskAnchor.baseX - CLUSTER_PAD;
+    const rightX = taskAnchor.baseX + taskLayout.width + CLUSTER_PAD;
+    const centerY = taskAnchor.baseY + taskLayout.height / 2 - 10;
+    return {
+      inX: leftX,
+      inY: centerY,
+      outX: rightX,
+      outY: centerY,
+    };
+  }, [CLUSTER_PAD, inlineTasks, taskAnchor, taskLayout]);
 
   const toneForStatus = useCallback((status: string | undefined, complete?: boolean) => {
     const palette: Record<string, { stroke: string; fill: string; icon: string; glow: string }> = {
@@ -2266,51 +2401,56 @@ function StepsGraph({ steps, selectedStep, onSelectStep }: { steps: StepDetail[]
     setIsDragging(false);
   };
 
-  const centerGraph = useCallback(
-    (nextScale: number) => {
-      const container = containerRef.current;
-      if (!container) return;
-      const { width: cw, height: ch } = container.getBoundingClientRect();
-      if (!cw || !ch) return;
-      const x = (cw - layout.width * nextScale) / 2;
-      const y = (ch - layout.height * nextScale) / 2;
-      setOffset({ x, y });
-    },
-    [layout.height, layout.width]
-  );
+  const activeWidth = useMemo(() => {
+    if (inlineTasks && taskLayout && taskAnchor) {
+      return Math.max(stepLayout.width, taskAnchor.baseX + taskLayout.width + CLUSTER_PAD * 2);
+    }
+    return stepLayout.width || 1;
+  }, [CLUSTER_PAD, inlineTasks, stepLayout.width, taskAnchor, taskLayout]);
+
+  const activeHeight = useMemo(() => {
+    if (inlineTasks && taskLayout && taskAnchor) {
+      return Math.max(stepLayout.height, taskAnchor.baseY + taskLayout.height + CLUSTER_PAD * 2);
+    }
+    return stepLayout.height || 1;
+  }, [CLUSTER_PAD, inlineTasks, stepLayout.height, taskAnchor, taskLayout]);
 
   const fitGraph = useCallback(() => {
     const container = containerRef.current;
-    if (!container) return;
+    if (!container || !activeWidth || !activeHeight) return;
     const { width: cw, height: ch } = container.getBoundingClientRect();
     if (!cw || !ch) return;
     const margin = 48;
-    const fitScale = Math.min(
-      1.6,
-      Math.max(0.5, Math.min((cw - margin) / layout.width, (ch - margin) / layout.height))
-    );
+    const fitScale = Math.min(1.6, Math.max(0.5, Math.min((cw - margin) / activeWidth, (ch - margin) / activeHeight)));
     setScale(fitScale);
-    centerGraph(fitScale);
-  }, [centerGraph, layout.height, layout.width]);
+    setOffset({ x: (cw - activeWidth * fitScale) / 2, y: (ch - activeHeight * fitScale) / 2 });
+  }, [activeHeight, activeWidth]);
 
   useEffect(() => {
     fitGraph();
   }, [fitGraph, steps.length]);
 
-  const handleExpandAll = () => {
-    const next = new Set<string>();
-    steps.forEach(step => {
-      if (step.configuration?.tasks && step.configuration.tasks.length) {
-        next.add(step.name);
-      }
-    });
-    setExpandedSteps(next);
-  };
-
-  const handleReset = () => {
-    setExpandedSteps(new Set());
+  const handleReset = useCallback(() => {
     fitGraph();
-  };
+  }, [fitGraph]);
+
+  const handleStepClick = useCallback(
+    (id: string) => {
+      onSelectStep(selectedStep === id ? null : id);
+    },
+    [onSelectStep, selectedStep]
+  );
+
+  const handleExpandToggle = useCallback(
+    (event: React.MouseEvent, id: string) => {
+      event.stopPropagation();
+      onSelectStep(selectedStep === id ? null : id);
+    },
+    [onSelectStep, selectedStep]
+  );
+
+  const viewBoxWidth = activeWidth || 1;
+  const viewBoxHeight = activeHeight || 1;
 
   return (
     <div
@@ -2329,13 +2469,21 @@ function StepsGraph({ steps, selectedStep, onSelectStep }: { steps: StepDetail[]
           </svg>
           {steps.length} steps
         </span>
-        {selectedStep && (
+        {selectedStep && inlineTasks && (
           <span className="inline-flex items-center gap-2 rounded-full border border-indigo-200/80 bg-white/95 dark:bg-slate-900/85 px-3 py-1 shadow-sm text-[var(--text-primary)]">
             <svg className="h-4 w-4 text-indigo-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M5 12h14" />
               <path d="M12 5l7 7-7 7" />
             </svg>
-            Selected: <span className="font-semibold text-indigo-600 dark:text-indigo-300">{selectedStep}</span>
+            Tasks for <span className="font-semibold text-indigo-600 dark:text-indigo-300">{selectedStep}</span>
+          </span>
+        )}
+        {!inlineTasks && (
+          <span className="inline-flex items-center gap-2 rounded-full border border-[var(--border-primary)] bg-white/90 dark:bg-slate-900/85 px-3 py-1 shadow-sm">
+            <svg className="h-4 w-4 text-[var(--text-secondary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 5l7 7-7 7" />
+            </svg>
+            Click a step to view its tasks
           </span>
         )}
       </div>
@@ -2365,13 +2513,6 @@ function StepsGraph({ steps, selectedStep, onSelectStep }: { steps: StepDetail[]
         <button
           className="px-3 h-8 rounded-full border border-[var(--border-primary)] bg-white dark:bg-slate-900 text-[var(--text-primary)] hover:border-indigo-300 hover:text-indigo-600"
           type="button"
-          onClick={handleExpandAll}
-        >
-          Expand All
-        </button>
-        <button
-          className="px-3 h-8 rounded-full border border-[var(--border-primary)] bg-white dark:bg-slate-900 text-[var(--text-primary)] hover:border-indigo-300 hover:text-indigo-600"
-          type="button"
           onClick={handleReset}
         >
           Reset
@@ -2382,11 +2523,11 @@ function StepsGraph({ steps, selectedStep, onSelectStep }: { steps: StepDetail[]
         <svg
           width="100%"
           height="100%"
-          viewBox={`0 0 ${layout.width} ${layout.height}`}
+          viewBox={`0 0 ${viewBoxWidth} ${viewBoxHeight}`}
           style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`, transformOrigin: 'center center', cursor: isDragging ? 'grabbing' : 'grab' }}
         >
           <defs>
-            <linearGradient id="edge-gradient" x1="0" y1="0" x2={layout.width} y2="0" gradientUnits="userSpaceOnUse">
+            <linearGradient id="edge-gradient" x1="0" y1="0" x2={viewBoxWidth || 1} y2="0" gradientUnits="userSpaceOnUse">
               <stop offset="0%" stopColor="#d7dcff" stopOpacity="0.3" />
               <stop offset="50%" stopColor="#b3c0ff" stopOpacity="0.7" />
               <stop offset="100%" stopColor="#7c3aed" stopOpacity="0.9" />
@@ -2402,16 +2543,51 @@ function StepsGraph({ steps, selectedStep, onSelectStep }: { steps: StepDetail[]
               <polygon points="0 0, 6 2, 0 4" fill="#7c3aed" />
             </marker>
           </defs>
-          {layout.edges.map((edge, index) => {
+          {stepLayout.edges.map((edge, index) => {
             const fromCenterX = edge.from.x + edge.from.width / 2;
             const fromCenterY = edge.from.y + edge.from.height / 2 - 10; // route toward icon while staying clear of text
             const toCenterX = edge.to.x + edge.to.width / 2;
             const toCenterY = edge.to.y + edge.to.height / 2 - 10;
-            const offset = 30; // small gap at node entry/exit so arrows point at icons
+            const padOffset = 30; // small gap at node entry/exit so arrows point at icons
+
+            // If selected step is replaced by tasks, keep a single entry/exit line just like steps.
+            if (inlineTasks && selectedStepDetail && taskAnchorPoints) {
+              if (edge.to.id === selectedStepDetail.name) {
+                return (
+                  <path
+                    key={`${edge.from.id}-${edge.to.id}-${index}-in`}
+                    d={buildEdgePath(fromCenterX + padOffset, fromCenterY, taskAnchorPoints.inX, taskAnchorPoints.inY)}
+                    fill="none"
+                    stroke="url(#edge-gradient)"
+                    strokeWidth={2.2}
+                    className="opacity-85"
+                    markerEnd="url(#graph-arrow)"
+                    strokeLinecap="round"
+                    filter="url(#edge-glow)"
+                  />
+                );
+              }
+              if (edge.from.id === selectedStepDetail.name) {
+                return (
+                  <path
+                    key={`${edge.from.id}-${edge.to.id}-${index}-out`}
+                    d={buildEdgePath(taskAnchorPoints.outX, taskAnchorPoints.outY, toCenterX - padOffset, toCenterY)}
+                    fill="none"
+                    stroke="url(#edge-gradient)"
+                    strokeWidth={2.2}
+                    className="opacity-85"
+                    markerEnd="url(#graph-arrow)"
+                    strokeLinecap="round"
+                    filter="url(#edge-glow)"
+                  />
+                );
+              }
+            }
+
             return (
               <path
                 key={`${edge.from.id}-${edge.to.id}-${index}`}
-                d={buildEdgePath(fromCenterX + offset, fromCenterY, toCenterX - offset, toCenterY)}
+                d={buildEdgePath(fromCenterX + padOffset, fromCenterY, toCenterX - padOffset, toCenterY)}
                 fill="none"
                 stroke="url(#edge-gradient)"
                 strokeWidth={2.2}
@@ -2422,10 +2598,13 @@ function StepsGraph({ steps, selectedStep, onSelectStep }: { steps: StepDetail[]
               />
             );
           })}
-          {layout.nodes.map(node => {
+
+          {stepLayout.nodes.map(node => {
+            if (inlineTasks && node.id === selectedStep) return null;
             const step = steps.find(stepItem => stepItem.name === node.id);
+            const canExpand = Boolean(step?.tasks?.length || step?.configuration?.tasks?.length);
+            const isSelected = selectedStep === node.id;
             const tone = toneForStatus(step?.status, step?.status === 'success');
-            const isActive = selectedStep === node.id;
             const includedLabel = step?.configuration?.include
               ? `Included ${step.configuration.include.toLowerCase().includes('pipeline') ? 'Pipeline' : 'Step'}`
               : '';
@@ -2436,23 +2615,10 @@ function StepsGraph({ steps, selectedStep, onSelectStep }: { steps: StepDetail[]
             const nameY = cy + 24;
             const includeY = nameY + 16;
             const durationY = includedLabel ? includeY + 16 : nameY + 22;
+            const badgeX = node.x + node.width - 12;
+            const badgeY = node.y + 12;
             return (
-              <g
-                key={node.id}
-                className="graph-node"
-                onClick={() => {
-                  onSelectStep(node.id);
-                  setExpandedSteps(prev => {
-                    const next = new Set(prev);
-                    if (next.has(node.id)) {
-                      next.delete(node.id);
-                    } else if (taskCount > 0) {
-                      next.add(node.id);
-                    }
-                    return next;
-                  });
-                }}
-              >
+              <g key={node.id} className="graph-node" onClick={() => handleStepClick(node.id)}>
                 <g
                   transform={`translate(${cx - 12 * iconScale}, ${cy - 12 * iconScale}) scale(${iconScale})`}
                   stroke={tone.stroke}
@@ -2492,141 +2658,69 @@ function StepsGraph({ steps, selectedStep, onSelectStep }: { steps: StepDetail[]
                 >
                   {step?.duration || '0s'}
                 </text>
-              </g>
-            );
-          })}
-          {/* Expanded task subgraphs */}
-          {steps.map(step => {
-            if (!expandedSteps.has(step.name)) return null;
-            const taskDefs = step.configuration?.tasks || [];
-            if (!taskDefs.length) return null;
-            const taskLayout = calculateGraphLayout(
-              taskDefs.map(task => ({ name: task.name, depends_on: task.depends_on || [] })),
-              { nodeWidth: 140, nodeHeight: 80, horizontalGap: 70, verticalGap: 28, vertical: true, paddingX: 32, paddingY: 24 }
-            );
-            const statusByTask = new Map<string, string>();
-            step.tasks.forEach(task => statusByTask.set(task.task_name, task.status));
-            const parentNode = layout.nodes.find(n => n.id === step.name);
-            if (!parentNode) return null;
-            const originX = parentNode.x + parentNode.width + 32;
-            const originY = parentNode.y;
-            const pad = 12;
-            return (
-              <g key={`${step.name}-tasks`} transform={`translate(${originX}, ${originY})`} className="expanded-task-cluster">
-                <rect
-                  x={-pad}
-                  y={-pad}
-                  width={taskLayout.width + pad * 2}
-                  height={taskLayout.height + pad * 2}
-                  rx={14}
-                  className="fill-white dark:fill-slate-900 stroke-indigo-100 dark:stroke-indigo-800"
-                  fillOpacity={0.96}
-                />
-                {taskLayout.edges.map((edge, idx) => (
-                  <path
-                    key={`${edge.from.id}-${edge.to.id}-${idx}`}
-                    d={buildEdgePath(
-                      edge.from.x + edge.from.width / 2,
-                      edge.from.y + edge.from.height,
-                      edge.to.x + edge.to.width / 2,
-                      edge.to.y
-                    )}
-                    fill="none"
-                    stroke="url(#edge-gradient)"
-                    strokeWidth={1.4}
-                    className="text-[var(--border-secondary)]"
-                  />
-                ))}
-                {taskLayout.nodes.map(node => {
-                  const status = statusByTask.get(node.id) || 'pending';
-                  const tone = toneForStatus(status, status === 'success');
-                  const meta = getStatusMeta(status, status === 'success');
-                  const def = taskDefs.find(t => t.name === node.id);
-                  const statusY = node.y + node.height - 16;
-                  return (
-                    <g key={node.id}>
-                      <rect x={node.x} y={node.y} width={node.width} height={node.height} rx={12} fill={tone.fill} stroke={tone.stroke} strokeWidth={1.4} />
-                      <text x={node.x + 10} y={node.y + 22} className="text-[13px] font-semibold" fill="currentColor">
-                        {node.name}
-                      </text>
-                      <text x={node.x + 10} y={node.y + 40} className="text-[11px] text-[var(--text-secondary)]" fill="currentColor">
-                        {(def?.goal || def?.script || '').slice(0, 32) || 'Task'}
-                      </text>
-                      <circle cx={node.x + 12} cy={statusY} r={6} fill={tone.stroke} />
-                      <text x={node.x + 24} y={statusY + 4} className="text-[11px]" fill={tone.stroke}>
-                        {meta.text}
-                      </text>
-                    </g>
-                  );
-                })}
+                {canExpand && (
+                  <g
+                    transform={`translate(${badgeX}, ${badgeY})`}
+                    onClick={event => handleExpandToggle(event, node.id)}
+                    className="cursor-pointer"
+                  >
+                    <circle
+                      cx={0}
+                      cy={0}
+                      r={9}
+                      className="fill-white dark:fill-slate-900 stroke-indigo-200 dark:stroke-indigo-700"
+                      strokeWidth={1.5}
+                    />
+                    <path
+                      d={isSelected ? 'M-4 0h8' : 'M-4 0h8 M0 -4v8'}
+                      stroke="#4f46e5"
+                      strokeWidth={1.6}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </g>
+                )}
               </g>
             );
           })}
 
-          {/* Task subgraph for selected step */}
-          {selectedStepDetail && selectedStepDetail.configuration?.tasks?.length ? (() => {
-            const taskDefs = selectedStepDetail.configuration?.tasks || [];
-            const taskLayout = calculateGraphLayout(
-              taskDefs.map(task => ({ name: task.name, depends_on: task.depends_on || [] })),
-              { nodeWidth: 120, nodeHeight: 70, vertical: true, horizontalGap: 70, verticalGap: 46, paddingX: 80, paddingY: 80 }
-            );
-            const parentNode = layout.nodes.find(n => n.id === selectedStepDetail.name);
-            if (!parentNode) return null;
-            const baseX = Math.max(20, parentNode.x - taskLayout.width - 120);
-            const baseY = Math.max(20, parentNode.y - 60);
+          {inlineTasks && taskLayout && selectedStepNode && taskAnchor && (() => {
+            const { baseX, baseY } = taskAnchor;
             return (
-              <g key={`${selectedStepDetail.name}-tasks`} transform={`translate(${baseX}, ${baseY})`}>
-                <rect
-                  x={-12}
-                  y={-12}
-                  rx={16}
-                  width={taskLayout.width + 24}
-                  height={taskLayout.height + 24}
-                  fill="white"
-                  stroke="#e2e8f0"
-                  strokeWidth={1}
-                  opacity={0.96}
-                />
-                {taskLayout.edges.map((edge, idx) => {
-                  const fromX = edge.from.x + edge.from.width / 2;
-                  const fromY = edge.from.y + edge.from.height / 2 - 6;
-                  const toX = edge.to.x + edge.to.width / 2;
-                  const toY = edge.to.y + edge.to.height / 2 - 6;
+              <g key={`${selectedStepDetail?.name || 'tasks'}-inline`} transform={`translate(${baseX}, ${baseY})`}>
+                {taskLayout.edges.map((edge, index) => {
+                  const fromCenterX = edge.from.x + edge.from.width / 2;
+                  const fromCenterY = edge.from.y + edge.from.height / 2 - 10;
+                  const toCenterX = edge.to.x + edge.to.width / 2;
+                  const toCenterY = edge.to.y + edge.to.height / 2 - 10;
+                  const padOffset = 24;
                   return (
                     <path
-                      key={`${edge.from.id}-${edge.to.id}-${idx}`}
-                      d={buildEdgePath(fromX + 8, fromY, toX - 8, toY)}
+                      key={`${edge.from.id}-${edge.to.id}-${index}`}
+                      d={buildEdgePath(fromCenterX + padOffset, fromCenterY, toCenterX - padOffset, toCenterY)}
                       fill="none"
                       stroke="url(#edge-gradient)"
-                      strokeWidth={1.8}
+                      strokeWidth={2}
+                      className="opacity-85"
+                      markerEnd="url(#graph-arrow)"
                       strokeLinecap="round"
-                      className="opacity-80"
+                      filter="url(#edge-glow)"
                     />
                   );
                 })}
                 {taskLayout.nodes.map(node => {
-                  const taskDef = taskDefs.find(t => t.name === node.id);
                   const task = taskStatusByName.get(node.id);
-                  const tone = toneForStatus(task?.status, task?.status === 'success');
-                  const meta = getStatusMeta(task?.status, task?.status === 'success');
+                  const status = task?.status || 'pending';
+                  const isTaskComplete = task ? status !== 'running' && status !== 'pending' : true;
+                  const tone = toneForStatus(status, isTaskComplete);
+                  const meta = getStatusMeta(status, isTaskComplete);
                   const cx = node.x + node.width / 2;
-                  const cy = node.y + node.height / 2 - 6;
-                  const iconScale = 1.0;
-                  const nameY = cy + 20;
+                  const cy = node.y + node.height / 2 - 10;
+                  const iconScale = 1.05;
+                  const nameY = cy + 22;
                   const durationY = nameY + 18;
                   return (
-                    <g key={node.id}>
-                      <rect
-                        x={node.x}
-                        y={node.y}
-                        width={node.width}
-                        height={node.height}
-                        rx={14}
-                        fill="white"
-                        stroke="#e2e8f0"
-                        strokeWidth={1}
-                        opacity={0.94}
-                      />
+                    <g key={node.id} className="graph-node">
                       <g
                         transform={`translate(${cx - 12 * iconScale}, ${cy - 12 * iconScale}) scale(${iconScale})`}
                         stroke={tone.stroke}
@@ -2637,10 +2731,22 @@ function StepsGraph({ steps, selectedStep, onSelectStep }: { steps: StepDetail[]
                       >
                         <path d={meta.icon} />
                       </g>
-                      <text x={cx} y={nameY} className="text-sm font-semibold text-slate-900 dark:text-slate-100" fill="currentColor" textAnchor="middle">
+                      <text
+                        x={cx}
+                        y={nameY}
+                        className="text-sm font-semibold text-slate-900 dark:text-slate-100"
+                        fill="currentColor"
+                        textAnchor="middle"
+                      >
                         {node.name}
                       </text>
-                      <text x={cx} y={durationY} className="text-[12px] text-[var(--text-secondary)]" fill="currentColor" textAnchor="middle">
+                      <text
+                        x={cx}
+                        y={durationY}
+                        className="text-[12px] text-[var(--text-secondary)]"
+                        fill="currentColor"
+                        textAnchor="middle"
+                      >
                         {formatTaskDuration(task)}
                       </text>
                     </g>
@@ -2648,7 +2754,7 @@ function StepsGraph({ steps, selectedStep, onSelectStep }: { steps: StepDetail[]
                 })}
               </g>
             );
-          })() : null}
+          })()}
         </svg>
       </div>
     </div>
@@ -3104,120 +3210,6 @@ function PipelineDefinitionModal({
         </div>
         <div className="p-4 bg-[var(--bg-secondary)] h-[70vh] overflow-auto">
           <pre className="text-xs text-[var(--text-primary)] whitespace-pre-wrap leading-5">{content}</pre>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StepDetailModal({
-  step,
-  pipelineDefinition,
-  onClose,
-  onOpenLogs,
-}: {
-  step: StepDetail;
-  pipelineDefinition?: PipelineDefinition;
-  onClose: () => void;
-  onOpenLogs: () => void;
-}) {
-  if (!step) return null;
-  const config = step.configuration || {};
-  const definitionSteps = pipelineDefinition?.steps || [];
-  const matchingDefinition = definitionSteps.find(item => item.name === step.name);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)]">
-      <div className="bg-[var(--bg-primary)] rounded-xl shadow-xl w-full max-w-5xl max-h-[85vh] overflow-hidden border border-[var(--border-primary)]">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-primary)]">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <StatusBadge status={step.status} complete={step.status === 'success'} />
-              <h3 className="text-lg font-semibold text-[var(--text-primary)]">Step: {step.name}</h3>
-              {matchingDefinition?.description && <span className="runner-pill runner-pill--muted">{matchingDefinition.description}</span>}
-            </div>
-            <p className="text-xs text-[var(--text-secondary)]">
-              Duration {step.duration || '—'} - Depends on {step.depends_on.length ? step.depends_on.join(', ') : 'No dependencies'}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button className="glass-button-subtle" type="button" onClick={onOpenLogs}>
-              Logs
-            </button>
-            <button className="glass-button-primary" type="button" onClick={onClose}>
-              Close
-            </button>
-          </div>
-        </div>
-        <div className="grid gap-4 md:grid-cols-2 p-4 bg-[var(--bg-secondary)] max-h-[75vh] overflow-auto">
-          <div className="space-y-3">
-            <h4 className="text-sm font-semibold text-[var(--text-primary)]">Configuration</h4>
-            <div className="space-y-2 text-sm text-[var(--text-secondary)]">
-              <div className="runner-pill runner-pill--muted">Image: {config.image || 'Inherited'}</div>
-              {config.include && <div className="runner-pill runner-pill--muted">Include: {config.include}</div>}
-              {config.sync !== undefined && <div className="runner-pill runner-pill--muted">Sync: {config.sync ? 'true' : 'false'}</div>}
-              {config.ignore_failure !== undefined && <div className="runner-pill runner-pill--muted">Ignore failure: {config.ignore_failure ? 'true' : 'false'}</div>}
-              {config.variables && (
-                <div>
-                  <p className="text-xs uppercase tracking-wide mb-1">Variables</p>
-                  <div className="flex flex-wrap gap-1">
-                    {Object.entries(config.variables).map(([key, value]) => (
-                      <span key={key} className="runner-pill runner-pill--ghost">{`${key}=${value}`}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {config.secrets && config.secrets.length > 0 && (
-                <div>
-                  <p className="text-xs uppercase tracking-wide mb-1">Secrets</p>
-                  <div className="flex flex-wrap gap-1">
-                    {config.secrets.map(secret => (
-                      <span key={secret} className="runner-pill runner-pill--ghost">{secret}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {config.volumes && config.volumes.length > 0 && (
-                <div>
-                  <p className="text-xs uppercase tracking-wide mb-1">Volumes</p>
-                  <div className="flex flex-wrap gap-1">
-                    {config.volumes.map(volume => (
-                      <span key={volume} className="runner-pill runner-pill--ghost">{volume}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <h4 className="text-sm font-semibold text-[var(--text-primary)]">Tasks</h4>
-              <span className="text-xs text-[var(--text-secondary)]">{step.tasks.length} tasks</span>
-            </div>
-            {step.tasks.length === 0 ? (
-              <p className="text-xs text-[var(--text-secondary)]">No tasks recorded for this step.</p>
-            ) : (
-              <div className="space-y-2">
-                {step.tasks.map(task => {
-                  const taskMeta = getStatusMeta(task.status, task.status === 'success');
-                  return (
-                    <div key={task.task_id} className="flex items-start justify-between gap-3 border border-[var(--border-primary)] rounded-lg px-3 py-2 bg-[var(--bg-primary)]">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className={`runner-pill ${taskMeta.pillClass}`}>{taskMeta.text}</span>
-                          <span className="font-semibold text-[var(--text-primary)]">{task.task_name}</span>
-                        </div>
-                        <p className="text-[11px] text-[var(--text-secondary)]">
-                          Index {task.task_index} - Exit {task.exit_code ?? '—'}
-                        </p>
-                      </div>
-                      <span className="text-[11px] text-[var(--text-secondary)]">{timeAgo(task.started_at)}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
         </div>
       </div>
     </div>
