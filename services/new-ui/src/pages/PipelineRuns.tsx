@@ -1,4 +1,3 @@
-import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, NavLink, useParams, useSearchParams } from 'react-router-dom';
 import yaml from 'js-yaml';
@@ -213,6 +212,8 @@ function PipelineRunsPage() {
   }, [tabParam]);
 
   const [searchTerm, setSearchTerm] = useState(() => (searchParams.get('q') || '').trim());
+  const [searchOpen, setSearchOpen] = useState(() => Boolean((searchParams.get('q') || '').trim()));
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
     const fromUrl = searchParams.get('view');
     if (fromUrl === 'list' || fromUrl === 'grid') return fromUrl;
@@ -286,6 +287,7 @@ function PipelineRunsPage() {
 
   useEffect(() => {
     setSearchTerm((searchParams.get('q') || '').trim());
+    setSearchOpen(Boolean((searchParams.get('q') || '').trim()));
   }, [searchParams]);
 
   useEffect(() => {
@@ -426,11 +428,16 @@ function PipelineRunsPage() {
     setRunsLoading(true);
     setRunsError(null);
     try {
+      const hasSearch = Boolean(searchTerm.trim());
       if (activeTab === 'main' && activeGroupId) {
         const data = await fetchJson<Record<string, RunListItem[]>>(`/v1/runs?groupId=${activeGroupId}`);
         setRunsByBranch(data || {});
+      } else if (activeTab === 'main' && hasSearch) {
+        setRunsByBranch({});
+        await fetchRecentPage(0, { replace: true });
       } else if (activeTab === 'main') {
         setRunsByBranch({});
+        setRecentRunsAll([]);
       } else {
         await fetchRecentPage(0, { replace: true });
       }
@@ -440,7 +447,7 @@ function PipelineRunsPage() {
     } finally {
       setRunsLoading(false);
     }
-  }, [activeGroupId, activeTab, fetchJson]);
+  }, [activeGroupId, activeTab, fetchJson, fetchRecentPage, searchTerm]);
 
   const loadRunDetail = useCallback(async () => {
     if (!activeRunId) {
@@ -486,7 +493,7 @@ function PipelineRunsPage() {
         pollingRef.current = null;
       }
     };
-  }, [activeGroupId, activeTab, loadRuns]);
+  }, [activeGroupId, activeTab, loadRuns, searchTerm]);
 
   useEffect(() => {
     if (detailPollRef.current) {
@@ -513,8 +520,10 @@ function PipelineRunsPage() {
 
   const groupedEvents = useMemo<TriggerGroup[]>(() => {
     if (activeTab !== 'events') return [];
+    const term = searchTerm.trim().toLowerCase();
+    const runs = !term ? recentRunsAll : recentRunsAll.filter(run => runMatchesSearch(run, term));
     const bucket = new Map<string, RunListItem[]>();
-    recentRunsAll.forEach(run => {
+    runs.forEach(run => {
       const key = run.trigger_event_id || run.run_id || 'unknown';
       const list = bucket.get(key) || [];
       list.push(run);
@@ -849,10 +858,56 @@ function PipelineRunsPage() {
             {!isViewingDetail && (
               <div className="flex items-center gap-2 flex-shrink-0 order-1 sm:order-2">
                 {activeTab !== 'main' && <ViewToggle viewMode={viewMode} onChange={setViewMode} />}
+                <div className={`pipelines-search-shell ${searchOpen ? 'open' : ''}`}>
+                  <button
+                    type="button"
+                    className="pipelines-search-toggle"
+                    aria-label="Search pipeline runs"
+                    onClick={() => {
+                      setSearchOpen(true);
+                      requestAnimationFrame(() => searchInputRef.current?.focus());
+                    }}
+                  >
+                    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-4.35-4.35M10 18a8 8 0 110-16 8 8 0 010 16z" />
+                    </svg>
+                  </button>
+                  <input
+                    ref={searchInputRef}
+                    id="pipeline-runs-search"
+                    type="text"
+                    placeholder="Search runs"
+                    className="pipelines-search-input"
+                    value={searchTerm}
+                    onChange={event => {
+                      setSearchTerm(event.target.value);
+                      if (event.target.value && !searchOpen) setSearchOpen(true);
+                      updateSearchParams({ q: event.target.value || null });
+                    }}
+                    onBlur={() => {
+                      if (!searchTerm.trim()) setSearchOpen(false);
+                    }}
+                  />
+                  {(searchTerm || searchOpen) && (
+                    <button
+                      type="button"
+                      className="pipelines-search-clear"
+                      onClick={() => {
+                        setSearchTerm('');
+                        setSearchOpen(false);
+                        updateSearchParams({ q: null });
+                        searchInputRef.current?.blur();
+                      }}
+                      aria-label="Clear search"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
                 {activeTab === 'main' && (
                   <button
                     type="button"
-                    className={`flex items-center gap-2 px-4 py-2 rounded-full border border-[var(--border-primary)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] text-[var(--text-primary)] transition shadow-sm disabled:opacity-60 disabled:cursor-not-allowed`}
+                    className="pipelines-icon-only"
                     onClick={handleNewFolder}
                     aria-label="New Folder"
                     disabled={Boolean(trimmedSearch)}
@@ -861,35 +916,8 @@ function PipelineRunsPage() {
                     <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v14M5 12h14" />
                     </svg>
-                    <span>New Folder</span>
                   </button>
                 )}
-              </div>
-            )}
-            {!isViewingDetail && (
-              <div className="relative flex-1 min-w-[260px] max-w-3xl order-2 sm:order-1">
-                <input
-                  type="search"
-                  value={searchTerm}
-                  placeholder="Search runs"
-                  aria-label="Search pipeline runs"
-                  id="pipeline-runs-search"
-                  name="pipeline-runs-search"
-                  onChange={event => {
-                    setSearchTerm(event.target.value);
-                    updateSearchParams({ q: event.target.value || null });
-                  }}
-                  className="w-full h-11 rounded-full border border-[var(--border-primary)] bg-[var(--bg-primary)] focus:border-[var(--border-accent)] focus:ring-2 focus:ring-[var(--border-accent)]/60 pl-11 pr-10 text-sm transition text-[var(--text-secondary)] shadow-[0_8px_24px_rgba(0,0,0,0.1)]"
-                />
-                <svg
-                  className="w-4 h-4 text-[var(--text-secondary)] absolute left-4 top-1/2 -translate-y-1/2"
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-4.35-4.35M10 18a8 8 0 110-16 8 8 0 010 16z" />
-                </svg>
               </div>
             )}
           </div>
@@ -1072,6 +1100,9 @@ function Dashboard({
     return childGroups.filter(group => group.name.toLowerCase().includes(term));
   }, [activeTab, childGroups, term]);
 
+  const repoGroups = useMemo(() => visibleGroups.filter(group => group.name.includes('/')), [visibleGroups]);
+  const folderGroups = useMemo(() => visibleGroups.filter(group => !group.name.includes('/')), [visibleGroups]);
+
   const filteredRunsByBranch = useMemo(() => {
     if (activeTab !== 'main') return runsByBranch;
     if (!term) return runsByBranch;
@@ -1096,6 +1127,9 @@ function Dashboard({
   }
 
   if (activeTab === 'main') {
+    const hasSearch = Boolean(term);
+    const mainSearchRuns = hasSearch ? recentRuns : [];
+
     return (
       <div className="space-y-4">
         {groupsError && <div className="text-red-500 text-sm">{groupsError}</div>}
@@ -1125,17 +1159,29 @@ function Dashboard({
           </div>
         )}
 
-        {groupsLoading && !groups.length ? (
+        {hasSearch ? (
+          <RunCollection runs={mainSearchRuns} viewMode={viewMode} onOpenRun={onOpenRun} onSelectRun={onSelectRun} selectedRunIds={selectedRunIds} />
+        ) : groupsLoading && !groups.length ? (
           <div className="text-sm text-[var(--text-secondary)]">Loading folders…</div>
         ) : (
-          <GroupGrid
-            groups={visibleGroups}
-            allGroups={groups}
-            activeGroupId={activeGroupId}
-            repoSummaries={repoSummaries}
-            onSelect={onSelectGroup}
-            onDelete={onDeleteFolder}
-          />
+          <div className="space-y-4">
+            <GroupGrid
+              groups={repoGroups}
+              allGroups={groups}
+              activeGroupId={activeGroupId}
+              repoSummaries={repoSummaries}
+              onSelect={onSelectGroup}
+              onDelete={onDeleteFolder}
+            />
+            <GroupGrid
+              groups={folderGroups}
+              allGroups={groups}
+              activeGroupId={activeGroupId}
+              repoSummaries={repoSummaries}
+              onSelect={onSelectGroup}
+              onDelete={onDeleteFolder}
+            />
+          </div>
         )}
 
         {mainRunsEmpty && (
@@ -1230,7 +1276,7 @@ function GroupGrid({
 }) {
   if (!groups.length) return null;
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
       {groups.map(group => {
         const isRepo = group.name.includes('/');
         const description = (group.description || '').trim();
@@ -1607,7 +1653,7 @@ function RunCollection({
   }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-4 lg:grid-cols-4 gap-4">
       {runs.map(run => (
         <RunCard
           key={run.run_id}
@@ -1685,7 +1731,7 @@ function BranchEventCard({
           {event.runs.length} {event.runs.length === 1 ? 'run' : 'runs'}
         </span>
       </div>
-      <div className="p-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="p-4 grid gap-3 sm:grid-cols-4 xl:grid-cols-4">
         {event.runs.map(run => (
           <RunCard
             key={run.run_id}
@@ -2070,11 +2116,11 @@ function RunDetailView({
 
   return (
     <div className="space-y-6">
-      <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-[#0b0c15] via-[#0c0f1f] to-[#0b0c15] text-white shadow-[0_22px_60px_rgba(8,10,24,0.5)] overflow-hidden">
+      <div className="rounded-3xl border border-[var(--border-primary)] bg-white text-[var(--text-primary)] shadow-[0_22px_60px_rgba(8,10,24,0.12)] dark:border-white/10 dark:bg-gradient-to-br from-[#0b0c15] via-[#0c0f1f] to-[#0b0c15] dark:text-white dark:shadow-[0_22px_60px_rgba(8,10,24,0.5)] overflow-hidden">
         <div className="p-6 flex flex-col gap-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3 flex-wrap">
-              <span className="text-3xl font-black tracking-tight text-white">{run.pipeline_name}</span>
+              <span className="text-3xl font-black tracking-tight text-[var(--text-primary)] dark:text-white">{run.pipeline_name}</span>
               {parentRun && (
                 <button type="button" className={`${ghostAction} px-3 py-1.5 text-xs`} onClick={() => onOpenRun(parentRun.run_id)}>
                   <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -2085,7 +2131,11 @@ function RunDetailView({
                 </button>
               )}
               {renderHeroStatus()}
-              {run.pipeline_source && <span className="runner-pill runner-pill--muted capitalize bg-white/10 text-white border-white/20">{run.pipeline_source}</span>}
+              {run.pipeline_source && (
+                <span className="runner-pill runner-pill--muted capitalize bg-[var(--bg-secondary)] text-[var(--text-primary)] border-[var(--border-primary)] dark:bg-white/10 dark:text-white dark:border-white/20">
+                  {run.pipeline_source}
+                </span>
+              )}
             </div>
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-2">
@@ -2116,7 +2166,7 @@ function RunDetailView({
                   </button>
                   )}
                 </div>
-                <div className="h-6 w-px bg-white/10 dark:bg-white/10 bg-[var(--border-primary)]" />
+                <div className="h-6 w-px bg-[var(--border-primary)] dark:bg-white/10" />
                 <button className={isRunning ? dangerAction : primaryAction} type="button" onClick={isRunning ? onCancel : onRerun} disabled={loading}>
                   <svg className="h-4 w-4 text-current" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="1 4 1 10 7 10" />
@@ -2134,36 +2184,45 @@ function RunDetailView({
                     <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
                   </svg>
                 </button>
+                <button
+                  className="pipelines-icon-only"
+                  type="button"
+                  onClick={onClose}
+                  aria-label="Close details"
+                  title="Close"
+                >
+                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M18 6L6 18" />
+                    <path d="M6 6l12 12" />
+                  </svg>
+                </button>
               </div>
             </div>
 
           <div className="flex items-start gap-6 flex-wrap justify-between">
             <div className="flex-1 min-w-[320px] space-y-6">
-              <div className="grid gap-3 md:grid-cols-3 text-sm text-white mt-4">
+              <div className="grid gap-3 md:grid-cols-3 text-sm text-[var(--text-primary)] mt-4">
                 {detailLines.map(item => (
-                  <div key={item.label} className="flex flex-col gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 shadow-[0_12px_32px_rgba(0,0,0,0.35)] h-full">
-                    <div className="flex items-center justify-between text-[11px] uppercase tracking-wide text-slate-400">
+                  <div
+                    key={item.label}
+                    className="flex flex-col gap-2 rounded-2xl border border-[var(--border-primary)] bg-white text-[var(--text-primary)] px-4 py-3 shadow-[0_12px_32px_rgba(0,0,0,0.08)] dark:bg-white/5 dark:border-white/10 dark:text-white dark:shadow-[0_12px_32px_rgba(0,0,0,0.35)] h-full"
+                  >
+                    <div className="flex items-center justify-between text-[11px] uppercase tracking-wide text-[var(--text-secondary)]">
                       <span className="inline-flex items-center gap-2 font-semibold">
                         {item.icon}
                         {item.label}
                       </span>
                     </div>
-                    <div className="flex items-center gap-3 min-w-0">
-                      {item.avatar && (
-                        <div className="h-8 w-8 rounded-full bg-gradient-to-r from-indigo-500 to-blue-500 text-white text-sm font-bold flex items-center justify-center">
-                          {item.avatar}
-                        </div>
+                    <div className="min-w-0 space-y-1">
+                      <div className="font-mono text-sm text-[var(--text-primary)] dark:text-white break-words whitespace-pre-wrap">{item.value}</div>
+                      {item.subtext && (
+                        <div className="text-xs text-[var(--text-secondary)] dark:text-slate-400 break-words whitespace-pre-wrap">{item.subtext}</div>
                       )}
-                      <div className="min-w-0 space-y-1">
-                        <div className="font-mono text-sm text-white break-words whitespace-pre-wrap">{item.value}</div>
-                        {item.subtext && <div className="text-xs text-slate-400 break-words whitespace-pre-wrap">{item.subtext}</div>}
-                      </div>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
-
           </div>
         </div>
       </div>
@@ -3075,7 +3134,7 @@ function EventCard({
       </button>
       {!collapsed && (
         <div className="p-4 border-t border-[var(--border-primary)] bg-[var(--bg-primary)]">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-4 xl:grid-cols-4">
             {group.runs.map(run => (
               <EventRunRow key={run.run_id} run={run} onOpenRun={onOpenRun} />
             ))}
@@ -3470,8 +3529,12 @@ function getStatusMeta(status: string | undefined, complete?: boolean) {
 function runMatchesSearch(run: RunListItem, term: string): boolean {
   if (!term) return true;
   const haystack = [
+    run.run_id,
+    run.parent_run_id,
     run.pipeline_name,
     run.pipeline_path,
+    run.pipeline_version,
+    run.pipeline_source,
     run.git_repo_name,
     run.git_repo_owner,
     run.git_ref,
@@ -3499,13 +3562,6 @@ function formatBranchDisplay(source?: string, target?: string) {
     return `${sourceBranch} -> ${targetBranch}`;
   }
   return sourceBranch;
-}
-
-function formatRepo(run: RunListItem) {
-  const owner = run.git_repo_owner || '';
-  const name = run.git_repo_name || '';
-  if (owner && name) return `${owner}/${name}`;
-  return name || owner || 'Repository';
 }
 
 function getPipelineIdentifier(run?: Pick<RunListItem, 'pipeline_name' | 'pipeline_path'> | ParentRunInfo | null) {

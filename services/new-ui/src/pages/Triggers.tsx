@@ -1836,7 +1836,7 @@ function TriggersPage() {
               <input
                 ref={searchInputRef}
                 id="triggers-search"
-                type="search"
+                type="text"
                 placeholder="Search triggers"
                 className="pipelines-search-input"
                 value={searchTerm}
