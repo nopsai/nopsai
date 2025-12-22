@@ -188,7 +188,7 @@ const STATUS_META: Record<
   skipped: {
     text: 'Skipped',
     pillClass: 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800/60 dark:text-slate-200 dark:border-slate-700',
-    icon: 'M15 12H9',
+    icon: 'M6 12h12M12 3a9 9 0 110 18 9 9 0 010-18z',
     strokeClass: 'text-slate-500',
     border: 'border-slate-500/60',
     bg: 'fill-slate-100 dark:fill-slate-800 stroke-slate-500',
@@ -1043,10 +1043,12 @@ function PipelineRunsPage() {
       {logsOpen && activeRunId && (
         <LogsModal
           runId={activeRunId}
+          runName={runDetail?.run_info.pipeline_name}
           onClose={() => {
             setLogsOpen(false);
             setLogsStepFilter(null);
           }}
+          steps={runDetail?.steps}
           stepNames={runDetail?.steps.map(step => step.name)}
           initialStep={logsStepFilter}
         />
@@ -1996,8 +1998,8 @@ function BranchStatusIcon({ status, complete, className }: { status: string; com
         </svg>
       ) : isSkipped ? (
         <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10" />
           <path d="M6 12h12" />
-          <path d="M6 16h12" />
         </svg>
       ) : isPending ? (
         <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -2121,12 +2123,6 @@ function RunDetailView({
       icon: <RunIdIcon className="h-4 w-4 text-slate-500" />,
     },
     {
-      label: 'Branch',
-      value: branchLabel || '—',
-      subtext: repoLabel ? `Repo: ${repoLabel}` : 'Repo: —',
-      icon: <BranchIcon className="h-4 w-4 text-slate-500" />,
-    },
-    {
       label: 'Commit',
       value: run.git_commit_sha || '—',
       subtext: run.git_pusher_name ? `Committer: ${run.git_pusher_name}` : 'Committer: —',
@@ -2139,7 +2135,6 @@ function RunDetailView({
       icon: <ZapIcon className="h-4 w-4 text-slate-500" />,
     },
   ];
-
 
 
   const renderHeroStatus = () => {
@@ -2193,85 +2188,108 @@ function RunDetailView({
       <div className="rounded-3xl border border-[var(--border-primary)] bg-white text-[var(--text-primary)] shadow-[0_22px_60px_rgba(8,10,24,0.12)] dark:border-white/10 dark:bg-gradient-to-br from-[#0b0c15] via-[#0c0f1f] to-[#0b0c15] dark:text-white dark:shadow-[0_22px_60px_rgba(8,10,24,0.5)] overflow-hidden">
         <div className="p-6 flex flex-col gap-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-3 flex-wrap">
-              <span className="text-3xl font-black tracking-tight text-[var(--text-primary)] dark:text-white">{run.pipeline_name}</span>
-              {parentRun && (
-                <button type="button" className={`${ghostAction} px-3 py-1.5 text-xs`} onClick={() => onOpenRun(parentRun.run_id)}>
-                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M5 12h14" />
-                    <path d="M12 5l7 7-7 7" />
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-3xl font-black tracking-tight text-[var(--text-primary)] dark:text-white">{run.pipeline_name}</span>
+                {parentRun && (
+                  <button type="button" className={`${ghostAction} px-3 py-1.5 text-xs`} onClick={() => onOpenRun(parentRun.run_id)}>
+                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M5 12h14" />
+                      <path d="M12 5l7 7-7 7" />
+                    </svg>
+                    Parent: {parentRun.pipeline_name}
+                  </button>
+                )}
+                {renderHeroStatus()}
+                {run.pipeline_source && (
+                  <span className="runner-pill runner-pill--muted capitalize bg-[var(--bg-secondary)] text-[var(--text-primary)] border-[var(--border-primary)] dark:bg-white/10 dark:text-white dark:border-white/20">
+                    {run.pipeline_source}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-3 text-sm text-[var(--text-secondary)]">
+                <span className="inline-flex items-center gap-2 min-w-0">
+                  <svg className="h-4 w-4 text-[var(--text-secondary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="8" cy="7" r="2" />
+                    <circle cx="8" cy="17" r="2" />
+                    <circle cx="16" cy="7" r="2" />
+                    <path d="M10 7h4" />
+                    <path d="M8 9v6a4 4 0 004 4h4" />
                   </svg>
-                  Parent: {parentRun.pipeline_name}
-                </button>
-              )}
-              {renderHeroStatus()}
-              {run.pipeline_source && (
-                <span className="runner-pill runner-pill--muted capitalize bg-[var(--bg-secondary)] text-[var(--text-primary)] border-[var(--border-primary)] dark:bg-white/10 dark:text-white dark:border-white/20">
-                  {run.pipeline_source}
+                  <span className="font-medium text-[var(--text-primary)] dark:text-white truncate max-w-xs" title={repoLabel}>
+                    {repoLabel}
+                  </span>
                 </span>
-              )}
+                <span className="text-[var(--border-primary)]">/</span>
+                <span className="inline-flex items-center gap-2 min-w-0">
+                  <BranchIcon className="h-4 w-4 text-[var(--text-secondary)]" />
+                  <span className="font-mono text-[var(--text-primary)] dark:text-white break-words" title={branchLabel || undefined}>
+                    {branchLabel || '—'}
+                  </span>
+                </span>
+              </div>
             </div>
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 <button className={ghostAction} type="button" onClick={onOpenLogs}>
                   <svg className="h-4 w-4 text-current" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M9 12h6" />
                     <path d="M9 16h6" />
                     <path d="M7 8h10" />
-                      <rect x="4" y="4" width="16" height="16" rx="2" ry="2" />
-                    </svg>
-                    Logs
-                  </button>
+                    <rect x="4" y="4" width="16" height="16" rx="2" ry="2" />
+                  </svg>
+                  Logs
+                </button>
                 {pipelineLink ? (
                   <Link className={ghostAction} to={pipelineLink}>
                     <svg className="h-4 w-4 text-current" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="2.5" />
-                        <path d="M4 12h3m10 0h3M12 4v3m0 10v3" />
+                      <circle cx="12" cy="12" r="2.5" />
+                      <path d="M4 12h3m10 0h3M12 4v3m0 10v3" />
                     </svg>
                     Pipeline
                   </Link>
-                  ) : (
+                ) : (
                   <button className={ghostAction} type="button" onClick={onShowDefinition}>
                     <svg className="h-4 w-4 text-current" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="2.5" />
-                        <path d="M4 12h3m10 0h3M12 4v3m0 10v3" />
+                      <circle cx="12" cy="12" r="2.5" />
+                      <path d="M4 12h3m10 0h3M12 4v3m0 10v3" />
                     </svg>
                     Pipeline
                   </button>
-                  )}
-                </div>
-                <div className="h-6 w-px bg-[var(--border-primary)] dark:bg-white/10" />
-                <button className={isRunning ? dangerAction : primaryAction} type="button" onClick={isRunning ? onCancel : onRerun} disabled={loading}>
-                  <svg className="h-4 w-4 text-current" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="1 4 1 10 7 10" />
-                    <polyline points="23 20 23 14 17 14" />
-                    <path d="M3.51 9a9 9 0 0114.13-3.36L23 10M1 14l5.36 4.36A9 9 0 0020.49 15" />
-                  </svg>
-                  {isRunning ? 'Cancel' : 'Re-run'}
-                </button>
-                <button className={iconDanger} type="button" onClick={onDelete} aria-label="Delete run">
-                  <svg className="h-4 w-4 text-current" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="3 6 5 6 21 6" />
-                    <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" />
-                    <path d="M10 11v6" />
-                    <path d="M14 11v6" />
-                    <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
-                  </svg>
-                </button>
-                <button
-                  className="pipelines-icon-only"
-                  type="button"
-                  onClick={onClose}
-                  aria-label="Close details"
-                  title="Close"
-                >
-                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M18 6L6 18" />
-                    <path d="M6 6l12 12" />
-                  </svg>
-                </button>
+                )}
               </div>
+              <div className="h-6 w-px bg-[var(--border-primary)] dark:bg-white/10" />
+              <button className={isRunning ? dangerAction : primaryAction} type="button" onClick={isRunning ? onCancel : onRerun} disabled={loading}>
+                <svg className="h-4 w-4 text-current" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="1 4 1 10 7 10" />
+                  <polyline points="23 20 23 14 17 14" />
+                  <path d="M3.51 9a9 9 0 0114.13-3.36L23 10M1 14l5.36 4.36A9 9 0 0020.49 15" />
+                </svg>
+                {isRunning ? 'Cancel' : 'Re-run'}
+              </button>
+              <button className={iconDanger} type="button" onClick={onDelete} aria-label="Delete run">
+                <svg className="h-4 w-4 text-current" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" />
+                  <path d="M10 11v6" />
+                  <path d="M14 11v6" />
+                  <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
+                </svg>
+              </button>
+              <button
+                className="pipelines-icon-only"
+                type="button"
+                onClick={onClose}
+                aria-label="Close details"
+                title="Close"
+              >
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 6L6 18" />
+                  <path d="M6 6l12 12" />
+                </svg>
+              </button>
             </div>
+          </div>
 
           <div className="flex items-start gap-6 flex-wrap justify-between">
             <div className="flex-1 min-w-[320px] space-y-6">
@@ -3225,36 +3243,65 @@ function EventRunRow({ run, onOpenRun }: { run: RunListItem; onOpenRun: (id: str
 
 function LogsModal({
   runId,
+  runName,
   onClose,
+  steps,
   stepNames,
   initialStep,
 }: {
   runId: string;
+  runName?: string | null;
   onClose: () => void;
+  steps?: StepDetail[];
   stepNames?: string[];
   initialStep?: string | null;
 }) {
   const [lines, setLines] = useState<EnrichedLogLine[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedSteps, setSelectedSteps] = useState<Set<string>>(() =>
-    initialStep && initialStep !== 'all' ? new Set([initialStep]) : new Set()
+  const [selectedSteps, setSelectedSteps] = useState<Set<string>>(
+    () => (initialStep && initialStep !== 'all' ? new Set([initialStep]) : new Set())
   );
   const [selectedLevels, setSelectedLevels] = useState<Set<string>>(new Set());
   const [searchText, setSearchText] = useState('');
+  const [stepSearch, setStepSearch] = useState('');
+  const [follow, setFollow] = useState(true);
+  const [wrap, setWrap] = useState(false);
+  const [structured, setStructured] = useState(false);
+  const [shortView, setShortView] = useState(true);
+  const [agentOnly, setAgentOnly] = useState(false);
+  const [hasUnseen, setHasUnseen] = useState(false);
   const lastIdRef = useRef(0);
   const logContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const levelOptions = ['info', 'warn', 'error', 'debug'];
 
   useEffect(() => {
     setSelectedSteps(initialStep && initialStep !== 'all' ? new Set([initialStep]) : new Set());
     setSelectedLevels(new Set());
     setSearchText('');
+    setStepSearch('');
+    setFollow(true);
+    setWrap(false);
+    setStructured(false);
+    setShortView(true);
+    setAgentOnly(false);
     setLines([]);
     lastIdRef.current = 0;
+    setHasUnseen(false);
   }, [initialStep, runId]);
 
   useEffect(() => {
+    if (shortView) {
+      setWrap(false);
+      setStructured(false);
+    }
+  }, [shortView]);
+
+  useEffect(() => {
     let cancelled = false;
+    let timer: number | null = null;
+
     const fetchLogs = async () => {
       setLoading(true);
       setError(null);
@@ -3265,8 +3312,9 @@ function LogsModal({
         if (cancelled) return;
         if (payload.length) {
           lastIdRef.current = payload[payload.length - 1].id;
-          const enriched = payload.map(line => ({ ...line, ...parseLogLine(line.line) }));
+          const enriched = payload.map(line => ({ ...line, ...parseLogLine(line.line || '') }));
           setLines(prev => [...prev, ...enriched]);
+          if (!follow) setHasUnseen(true);
         }
       } catch (err) {
         if (cancelled) return;
@@ -3275,44 +3323,84 @@ function LogsModal({
         if (!cancelled) setLoading(false);
       }
     };
-    void fetchLogs();
-    const timer = window.setInterval(fetchLogs, 5000);
+
+    const tick = async () => {
+      await fetchLogs();
+      if (cancelled) return;
+      const interval = document.hidden ? 30000 : 5000;
+      timer = window.setTimeout(tick, interval);
+    };
+
+    void tick();
+
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      if (timer) window.clearTimeout(timer);
     };
-  }, [initialStep, runId]);
+  }, [follow, initialStep, runId]);
 
-  const stepOptions = useMemo(() => {
-    const provided = stepNames || [];
-    const derived = Array.from(new Set(lines.map(line => line.step).filter(Boolean) as string[]));
-    const combined = Array.from(new Set([...provided, ...derived])).filter(Boolean);
-    return combined;
-  }, [lines, stepNames]);
+  const stepItems = useMemo(() => {
+    const fromSteps = (steps || []).map(step => ({
+      name: step.name,
+      status: step.status,
+    }));
+    const provided = (stepNames || []).map(name => ({ name, status: undefined }));
+    const derived = Array.from(new Set(lines.map(line => line.step).filter(Boolean) as string[])).map(name => ({
+      name,
+      status: undefined,
+    }));
+    const merged = [...fromSteps, ...provided, ...derived];
+    const seen = new Set<string>();
+    return merged.filter(item => {
+      if (!item.name || seen.has(item.name)) return false;
+      seen.add(item.name);
+      return true;
+    });
+  }, [lines, stepNames, steps]);
+
+  const filteredStepItems = useMemo(() => {
+    const term = stepSearch.trim().toLowerCase();
+    if (!term) return stepItems;
+    return stepItems.filter(item => item.name.toLowerCase().includes(term));
+  }, [stepItems, stepSearch]);
+
+  const isAgentLine = (line: EnrichedLogLine) => {
+    const lower = (line.line || '').toLowerCase();
+    return lower.includes('agent') || (line.step || '').toLowerCase().includes('agent');
+  };
+
+  const presentLevels = useMemo(() => {
+    const set = new Set<string>();
+    lines.forEach(line => {
+      const lvl = (line.level || 'info').toLowerCase();
+      const normalized = lvl === 'warning' ? 'warn' : lvl || 'info';
+      set.add(normalized);
+      if (isAgentLine(line)) set.add('agent');
+    });
+    return set;
+  }, [lines]);
 
   const visibleLines = useMemo(() => {
     const stepFilterActive = selectedSteps.size > 0;
     const term = searchText.trim().toLowerCase();
     return lines.filter(line => {
-      const level = line.level || 'info';
-      if (stepFilterActive) {
-        if (!line.step || !selectedSteps.has(line.step)) return false;
-      }
-      if (selectedLevels.size > 0 && !selectedLevels.has(level)) return false;
-      if (term && !line.line.toLowerCase().includes(term)) return false;
+      const level = (line.level || 'info').toLowerCase();
+      const normalizedLevel = level === 'warning' ? 'warn' : level;
+      const content = (line.line || '').toLowerCase();
+      if (stepFilterActive && (!line.step || !selectedSteps.has(line.step))) return false;
+      if (agentOnly && !isAgentLine(line)) return false;
+      if (selectedLevels.size > 0 && !selectedLevels.has(normalizedLevel)) return false;
+      if (term && !content.includes(term)) return false;
       return true;
     });
-  }, [lines, searchText, selectedLevels, selectedSteps]);
+  }, [agentOnly, lines, searchText, selectedLevels, selectedSteps]);
 
   const toggleLevel = (level: string) => {
     setSelectedLevels(prev => {
-      const next = new Set(prev);
-      if (next.has(level)) {
-        next.delete(level);
-      } else {
-        next.add(level);
-      }
-      return next;
+      const isAll = prev.size === 0 || prev.size === levelOptions.length;
+      if (isAll) return new Set([level]);
+      if (prev.size === 1 && prev.has(level)) return new Set();
+      return new Set([level]);
     });
   };
 
@@ -3331,7 +3419,13 @@ function LogsModal({
   const resetFilters = () => {
     setSelectedSteps(new Set());
     setSelectedLevels(new Set());
+    setAgentOnly(false);
     setSearchText('');
+    setStepSearch('');
+    setShortView(true);
+    setWrap(false);
+    setStructured(false);
+    setHasUnseen(false);
   };
 
   const handleDownload = () => {
@@ -3342,11 +3436,11 @@ function LogsModal({
     }
     const content = source
       .map(line => {
-        const ts = new Date(line.timestamp).toISOString();
-        const parts = [ts];
+        const ts = line.timestamp ? new Date(line.timestamp).toISOString() : '';
+        const parts = [ts || ''];
         if (line.step) parts.push(`[${line.step}]`);
         if (line.level) parts.push(line.level.toUpperCase());
-        parts.push('-', line.line);
+        parts.push('-', line.line || '');
         return parts.join(' ');
       })
       .join('\n');
@@ -3359,104 +3453,298 @@ function LogsModal({
     URL.revokeObjectURL(url);
   };
 
+  const formatTime = (iso: string) => {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return '—';
+    return date.toLocaleTimeString(undefined, { hour12: true });
+  };
+
+  const levelTone = (level: string) => {
+    const normalized = level.toLowerCase();
+    if (normalized === 'error') return 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-100';
+    if (normalized === 'warn' || normalized === 'warning') return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-100';
+    if (normalized === 'debug') return 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200';
+    if (normalized === 'agent') return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-100';
+    return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-100';
+  };
+
   useEffect(() => {
     const container = logContainerRef.current;
     if (!container) return;
     const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
-    if (nearBottom) {
+    if (follow && nearBottom) {
       container.scrollTop = container.scrollHeight;
+      setHasUnseen(false);
     }
-  }, [visibleLines.length]);
+  }, [follow, visibleLines.length]);
+
+  const handleScroll = () => {
+    const container = logContainerRef.current;
+    if (!container) return;
+    const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
+    if (!nearBottom) {
+      setFollow(false);
+    } else {
+      setFollow(true);
+      setHasUnseen(false);
+    }
+  };
+
+  const logCountLabel = `${visibleLines.length} line${visibleLines.length === 1 ? '' : 's'} + ${lines.length} total`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)]">
-      <div className="bg-[var(--bg-primary)] rounded-xl shadow-xl w-full max-w-4xl max-h-[80vh] overflow-hidden border border-[var(--border-primary)]">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-primary)]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] px-4 py-6">
+      <div className="w-full max-w-6xl bg-[var(--bg-primary)] rounded-2xl shadow-2xl border border-[var(--border-primary)] flex flex-col max-h-[90vh] overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-primary)]">
           <div>
-            <p className="text-sm font-semibold text-[var(--text-primary)]">Logs for {runId}</p>
-            <p className="text-xs text-[var(--text-secondary)]">Streaming newest at the bottom</p>
+            <p className="text-base font-semibold text-[var(--text-primary)]">Agent Logs for {runName || runId}</p>
+            <p className="text-xs text-[var(--text-secondary)]">Run ID: {runId}</p>
           </div>
-          <button className="glass-button-subtle" type="button" onClick={onClose}>
-            Close
-          </button>
-        </div>
-        <div className="px-4 py-3 border-b border-[var(--border-primary)] flex flex-wrap items-center gap-3 bg-[var(--bg-secondary)]">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-[var(--text-secondary)]">Steps</span>
-            <button
-              type="button"
-              className={`runner-pill ${selectedSteps.size === 0 ? 'runner-pill--muted' : 'runner-pill--ghost'}`}
-              onClick={() => setSelectedSteps(new Set())}
-            >
-              All
+          <div className="flex items-center gap-2">
+            <button className="runner-pill runner-pill--ghost" type="button" onClick={handleDownload}>
+              Download
             </button>
-            {stepOptions.map(step => {
-              const active = selectedSteps.has(step);
-              return (
-                <button
-                  key={step}
-                  type="button"
-                  className={`runner-pill ${active ? 'runner-pill--muted' : 'runner-pill--ghost'}`}
-                  onClick={() => toggleStep(step)}
-                  title={step}
-                >
-                  {step}
-                </button>
-              );
-            })}
+            <button className="glass-button-subtle" type="button" onClick={onClose}>
+              Close
+            </button>
           </div>
-          <div className="flex items-center gap-1 flex-wrap">
-            <span className="text-xs text-[var(--text-secondary)]">Levels</span>
-            {['info', 'warn', 'error', 'debug'].map(level => {
-              const active = selectedLevels.has(level);
+        </div>
+
+        <div className="flex border-b border-[var(--border-primary)] bg-[var(--bg-secondary)] px-5 py-3 items-center gap-3">
+          <div className="flex-1 min-w-[280px]">
+            <div className="relative">
+              <input
+                type="search"
+                className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)]"
+                placeholder="Search logs..."
+                value={searchText}
+                onChange={event => setSearchText(event.target.value)}
+              />
+              {searchText && (
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-secondary)] text-xs"
+                  onClick={() => setSearchText('')}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            <p className="text-[11px] text-[var(--text-secondary)] mt-1">{logCountLabel}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {levelOptions.map(level => {
+              const isDefault = selectedLevels.size === 0;
+              const active = !isDefault && selectedLevels.has(level);
+              const available = presentLevels.has(level);
               return (
                 <button
                   key={level}
                   type="button"
-                  className={`runner-pill ${active ? 'runner-pill--muted' : 'runner-pill--ghost'}`}
+                  disabled={!available && lines.length > 0}
+                  className={`px-2.5 py-1 rounded-full text-xs font-semibold border border-[var(--border-primary)] ${active ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] ring-1 ring-[var(--border-accent)]' : 'text-[var(--text-secondary)]'} ${!available && lines.length > 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
                   onClick={() => toggleLevel(level)}
-                  title={`Filter ${level} logs`}
+                  title={`Toggle ${level} logs`}
                 >
-                  {level}
+                  {level.toUpperCase()}
                 </button>
               );
             })}
-          </div>
-          <div className="flex items-center gap-2 flex-1 min-w-[220px]">
-            <input
-              type="search"
-              className="pipelines-input text-sm w-full"
-              placeholder="Search log text"
-              value={searchText}
-              onChange={event => setSearchText(event.target.value)}
-            />
-            {searchText && (
-              <button className="runner-pill runner-pill--ghost" type="button" onClick={() => setSearchText('')}>
-                Clear
-              </button>
-            )}
+            <button
+              type="button"
+              disabled={!presentLevels.has('agent') && lines.length > 0}
+              className={`px-2.5 py-1 rounded-full text-xs font-semibold border border-[var(--border-primary)] ${agentOnly ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] ring-1 ring-[var(--border-accent)]' : 'text-[var(--text-secondary)]'} ${!presentLevels.has('agent') && lines.length > 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
+              onClick={() => {
+                setAgentOnly(prev => !prev);
+                setFollow(true);
+                setHasUnseen(false);
+              }}
+              title="Show only agent logs"
+            >
+              AGENT
+            </button>
           </div>
           <div className="flex items-center gap-2 ml-auto">
-            <button className="runner-pill runner-pill--ghost" type="button" onClick={handleDownload}>
-              Download
-            </button>
-            <button className="runner-pill runner-pill--ghost" type="button" onClick={resetFilters}>
-              Reset
-            </button>
+            {[
+              { label: 'Follow', value: follow, setter: setFollow },
+              { label: 'Wrap', value: wrap, setter: setWrap },
+              { label: 'Structured', value: structured, setter: setStructured },
+              { label: 'Short', value: shortView, setter: setShortView },
+            ].map(toggle => (
+              <button
+                key={toggle.label}
+                type="button"
+                onClick={() => {
+                  const next = !toggle.value;
+                  toggle.setter(next);
+                  if (toggle.label === 'Follow' && next) {
+                    const container = logContainerRef.current;
+                    if (container) container.scrollTop = container.scrollHeight;
+                    setHasUnseen(false);
+                  }
+                }}
+                disabled={shortView && (toggle.label === 'Wrap' || toggle.label === 'Structured')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border border-[var(--border-primary)] flex items-center gap-2 ${toggle.value ? 'bg-[var(--bg-primary)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'} ${shortView && (toggle.label === 'Wrap' || toggle.label === 'Structured') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                title={`Toggle ${toggle.label.toLowerCase()}`}
+              >
+                <span
+                  className={`h-3.5 w-3.5 rounded-sm border border-[var(--border-primary)] flex items-center justify-center ${toggle.value ? 'bg-[var(--text-primary)] text-[var(--bg-primary)]' : ''}`}
+                  aria-hidden="true"
+                >
+                  {toggle.value && (
+                    <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M5 12l4 4L19 7" />
+                    </svg>
+                  )}
+                </span>
+                {toggle.label}
+              </button>
+            ))}
           </div>
         </div>
-        <div ref={logContainerRef} className="p-4 bg-[var(--bg-secondary)] h-[60vh] overflow-auto font-mono text-xs space-y-1">
-          {error && <div className="text-red-500">{error}</div>}
-          {loading && !lines.length && <div className="text-[var(--text-secondary)]">Loading…</div>}
-          {!loading && visibleLines.length === 0 && <div className="text-[var(--text-secondary)]">No log lines match the current filters.</div>}
-          {visibleLines.map(line => (
-            <div key={line.id} className="text-[var(--text-primary)] whitespace-pre-wrap">
-              <span className="text-[var(--text-secondary)] mr-2">{new Date(line.timestamp).toLocaleTimeString()}</span>
-              {line.step && <span className="runner-pill runner-pill--muted mr-2">{line.step}</span>}
-              {line.level && <span className="runner-pill runner-pill--ghost mr-2 uppercase">{line.level}</span>}
-              {line.line}
+
+        <div className="flex flex-1 min-h-0">
+          <aside className="w-64 border-r border-[var(--border-primary)] bg-[var(--bg-primary)] flex flex-col">
+            <div className="p-3">
+              <input
+                type="search"
+                className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)]"
+                placeholder="Filter steps..."
+                value={stepSearch}
+                onChange={event => setStepSearch(event.target.value)}
+              />
             </div>
-          ))}
+            <div className="flex-1 overflow-auto px-2 pb-2 space-y-2">
+              {filteredStepItems.map(item => {
+                const active = selectedSteps.has(item.name);
+                const meta = getStatusMeta(item.status, true);
+                return (
+                  <button
+                    key={item.name}
+                    type="button"
+                    className={`w-full text-left px-3 py-2 rounded-lg border border-[var(--border-primary)] flex items-center justify-between gap-2 ${active ? 'bg-[var(--bg-secondary)]' : 'bg-[var(--bg-primary)] hover:bg-[var(--bg-secondary)]'}`}
+                    onClick={() => toggleStep(item.name)}
+                    title={item.name}
+                  >
+                    <span className="text-sm text-[var(--text-primary)] truncate">{item.name}</span>
+                    {item.status && <span className={`text-[10px] px-2 py-1 rounded-full border ${meta.pillClass}`}>{meta.text}</span>}
+                  </button>
+                );
+              })}
+              {!filteredStepItems.length && (
+                <div className="text-xs text-[var(--text-secondary)] px-3 py-2">No steps found.</div>
+              )}
+            </div>
+            <div className="border-t border-[var(--border-primary)] p-3 flex items-center gap-2 justify-between">
+              <button
+                type="button"
+                className="runner-pill runner-pill--ghost text-xs"
+                onClick={() => setSelectedSteps(new Set(stepItems.map(item => item.name)))}
+                disabled={!stepItems.length}
+              >
+                All
+              </button>
+              <button type="button" className="runner-pill runner-pill--ghost text-xs" onClick={() => setSelectedSteps(new Set())}>
+                Clear
+              </button>
+            </div>
+          </aside>
+
+          <section className="flex-1 flex flex-col bg-[var(--bg-secondary)]">
+            <div className="flex items-center gap-3 px-5 py-3 border-b border-[var(--border-primary)] bg-[var(--bg-primary)]">
+              {error && <div className="text-red-500 text-sm">{error}</div>}
+              {hasUnseen && !follow && (
+                <button
+                  type="button"
+                  className="runner-pill runner-pill--ghost text-xs"
+                  onClick={() => {
+                    setFollow(true);
+                    const container = logContainerRef.current;
+                    if (container) container.scrollTop = container.scrollHeight;
+                    setHasUnseen(false);
+                  }}
+                >
+                  Jump to latest
+                </button>
+              )}
+              <button className="runner-pill runner-pill--ghost text-xs" type="button" onClick={resetFilters}>
+                Reset filters
+              </button>
+              {loading && <span className="text-[var(--text-secondary)] text-xs">Fetching new logs…</span>}
+            </div>
+            <div
+              ref={logContainerRef}
+              onScroll={handleScroll}
+              className={`flex-1 overflow-auto px-5 py-4 font-mono text-sm space-y-1 ${wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'} bg-[var(--bg-secondary)]`}
+            >
+              {loading && !lines.length && <div className="text-[var(--text-secondary)]">Loading…</div>}
+              {!loading && visibleLines.length === 0 && <div className="text-[var(--text-secondary)]">No log lines match the current filters.</div>}
+              {visibleLines.map(line => {
+                const level = (line.level || 'info').toLowerCase();
+                const isAgent = isAgentLine(line);
+                const levelLabel = isAgent ? 'AGENT' : level.toUpperCase();
+                const rawLine = line.line || '';
+              const content = structured
+                ? (() => {
+                    const jsonStart = rawLine.indexOf('{');
+                    if (jsonStart !== -1) {
+                      try {
+                          const parsed = JSON.parse(rawLine.slice(jsonStart));
+                          return JSON.stringify(parsed, null, 2);
+                        } catch {
+                          return rawLine;
+                        }
+                      }
+                      return rawLine;
+                    })()
+                  : rawLine;
+              const trimmedContent = shortView && content.length > 240 ? `${content.slice(0, 240)}…` : content;
+              if (shortView) {
+                const messageOnly = (() => {
+                  try {
+                    const jsonStart = rawLine.indexOf('{');
+                    if (jsonStart !== -1) {
+                      const parsed = JSON.parse(rawLine.slice(jsonStart));
+                      const msg = parsed.message ?? parsed.msg ?? parsed.output ?? '';
+                      if (msg) {
+                        const asString = typeof msg === 'string' ? msg : JSON.stringify(msg);
+                        return asString.length > 240 ? `${asString.slice(0, 240)}…` : asString;
+                      }
+                    }
+                  } catch {
+                    // ignore
+                  }
+                  return trimmedContent || '';
+                })();
+                return (
+                  <div key={line.id} className="flex items-start gap-3 rounded-lg px-2 py-1 hover:bg-[var(--bg-primary)]">
+                    <span className="text-[var(--text-secondary)] text-xs w-20 flex-shrink-0">{formatTime(line.timestamp)}</span>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${levelTone(levelLabel)}`}>
+                      {levelLabel}
+                    </span>
+                    <pre className={`flex-1 text-[var(--text-primary)] leading-6 ${wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}`}>
+                      {messageOnly || '—'}
+                    </pre>
+                  </div>
+                );
+              }
+              return (
+                <div key={line.id} className="flex items-start gap-3 rounded-lg px-2 py-1 hover:bg-[var(--bg-primary)]">
+                  <span className="text-[var(--text-secondary)] text-xs w-20 flex-shrink-0">{formatTime(line.timestamp)}</span>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${levelTone(levelLabel)}`}>
+                    {levelLabel}
+                    </span>
+                    {line.step && (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-[var(--bg-primary)] border border-[var(--border-primary)] text-[11px] font-semibold text-[var(--text-primary)]">
+                        {line.step}
+                      </span>
+                    )}
+                    <pre className={`flex-1 text-[var(--text-primary)] leading-6 ${wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}`}>{trimmedContent}</pre>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
         </div>
       </div>
     </div>
