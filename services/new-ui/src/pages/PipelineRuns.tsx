@@ -1992,18 +1992,35 @@ function RunDetailView({
 
   const actionBase =
     'inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition duration-150 focus:outline-none';
-  const ghostAction = `${actionBase} border border-white/10 bg-white/5 text-white shadow-[0_10px_30px_rgba(0,0,0,0.25)] hover:border-indigo-300/50 hover:bg-white/10`;
+  const ghostAction = `${actionBase} border border-[var(--border-primary)]/80 bg-[var(--bg-secondary)] text-[var(--text-primary)] shadow-[0_10px_30px_rgba(0,0,0,0.08)] hover:border-indigo-300/60 hover:text-indigo-600 dark:border-white/10 dark:bg-white/5 dark:text-white dark:shadow-[0_10px_30px_rgba(0,0,0,0.25)] dark:hover:border-indigo-300/50 dark:hover:bg-white/10`;
   const primaryAction = `${actionBase} bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-[0_14px_34px_rgba(79,70,229,0.25)] hover:shadow-[0_18px_44px_rgba(79,70,229,0.32)] focus:ring-2 focus:ring-offset-2 focus:ring-indigo-400`;
-  const dangerAction = `${actionBase} border border-red-500/40 text-red-100 bg-red-500/10 hover:bg-red-500/20`;
-
-  const detailLines = [
-    { label: 'Run ID', value: run.run_id || '—', icon: <FingerprintIcon className="h-4 w-4 text-slate-500" /> },
-    { label: 'Commit', value: run.git_commit_sha || '—', icon: <CommitIcon className="h-4 w-4 text-slate-500" /> },
-    { label: 'Triggered By', value: run.git_pusher_name || 'Unknown', subtext: triggerLabel.full ? `Event: ${triggerLabel.full}` : 'Event: —', icon: <ZapIcon className="h-4 w-4 text-slate-500" />, avatar: (run.git_pusher_name || '?').charAt(0).toUpperCase() },
-  ];
+  const dangerAction = `${actionBase} border border-red-500/40 text-red-600 bg-red-50 hover:bg-red-100 dark:text-red-100 dark:bg-red-500/10 dark:hover:bg-red-500/20`;
+  const iconDanger = 'inline-flex items-center justify-center h-11 w-11 rounded-xl p-0 text-red-600 hover:text-red-700 dark:text-red-200 dark:hover:text-red-100 bg-transparent border-none shadow-none';
 
   const startedLabel = run.started_at ? timeAgo(run.started_at) : '—';
   const branchLabel = formatBranchDisplay(run.git_ref, run.git_target_ref);
+  const detailLines = [
+    {
+      label: 'Run ID',
+      value: run.run_id || '—',
+      subtext: run.duration ? `${run.duration} elapsed` : 'Elapsed: —',
+      icon: <FingerprintIcon className="h-4 w-4 text-slate-500" />,
+    },
+    {
+      label: 'Commit',
+      value: run.git_commit_sha || '—',
+      subtext: `Branch: ${branchLabel}${run.git_pusher_name ? ` • By ${run.git_pusher_name}` : ''}`,
+      icon: <CommitIcon className="h-4 w-4 text-slate-500" />,
+    },
+    {
+      label: 'Trigger Event ID',
+      value: triggerLabel.full || '—',
+      subtext: run.started_at ? `Started ${startedLabel}` : 'Started: —',
+      icon: <ZapIcon className="h-4 w-4 text-slate-500" />,
+    },
+  ];
+
+
 
   const renderHeroStatus = () => {
     const pulseClasses = 'relative flex h-2.5 w-2.5';
@@ -2055,14 +2072,9 @@ function RunDetailView({
     <div className="space-y-6">
       <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-[#0b0c15] via-[#0c0f1f] to-[#0b0c15] text-white shadow-[0_22px_60px_rgba(8,10,24,0.5)] overflow-hidden">
         <div className="p-6 flex flex-col gap-6">
-          <div className="flex items-center justify-between gap-3 flex-wrap text-xs font-semibold text-slate-400 uppercase tracking-wide">
-            <div className="flex items-center gap-2 flex-wrap">
-              <button type="button" className={`${ghostAction} px-3 py-1.5 text-xs`} onClick={onClose}>
-                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M15 18l-6-6 6-6" />
-                </svg>
-                Back to runs
-              </button>
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-3xl font-black tracking-tight text-white">{run.pipeline_name}</span>
               {parentRun && (
                 <button type="button" className={`${ghostAction} px-3 py-1.5 text-xs`} onClick={() => onOpenRun(parentRun.run_id)}>
                   <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -2072,62 +2084,64 @@ function RunDetailView({
                   Parent: {parentRun.pipeline_name}
                 </button>
               )}
+              {renderHeroStatus()}
+              {run.pipeline_source && <span className="runner-pill runner-pill--muted capitalize bg-white/10 text-white border-white/20">{run.pipeline_source}</span>}
             </div>
-          </div>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                <button className={ghostAction} type="button" onClick={onOpenLogs}>
+                  <svg className="h-4 w-4 text-current" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 12h6" />
+                    <path d="M9 16h6" />
+                    <path d="M7 8h10" />
+                      <rect x="4" y="4" width="16" height="16" rx="2" ry="2" />
+                    </svg>
+                    Logs
+                  </button>
+                {pipelineLink ? (
+                  <Link className={ghostAction} to={pipelineLink}>
+                    <svg className="h-4 w-4 text-current" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="2.5" />
+                        <path d="M4 12h3m10 0h3M12 4v3m0 10v3" />
+                    </svg>
+                    Pipeline
+                  </Link>
+                  ) : (
+                  <button className={ghostAction} type="button" onClick={onShowDefinition}>
+                    <svg className="h-4 w-4 text-current" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="2.5" />
+                        <path d="M4 12h3m10 0h3M12 4v3m0 10v3" />
+                    </svg>
+                    Pipeline
+                  </button>
+                  )}
+                </div>
+                <div className="h-6 w-px bg-white/10 dark:bg-white/10 bg-[var(--border-primary)]" />
+                <button className={isRunning ? dangerAction : primaryAction} type="button" onClick={isRunning ? onCancel : onRerun} disabled={loading}>
+                  <svg className="h-4 w-4 text-current" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="1 4 1 10 7 10" />
+                    <polyline points="23 20 23 14 17 14" />
+                    <path d="M3.51 9a9 9 0 0114.13-3.36L23 10M1 14l5.36 4.36A9 9 0 0020.49 15" />
+                  </svg>
+                  {isRunning ? 'Cancel' : 'Re-run'}
+                </button>
+                <button className={iconDanger} type="button" onClick={onDelete} aria-label="Delete run">
+                  <svg className="h-4 w-4 text-current" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" />
+                    <path d="M10 11v6" />
+                    <path d="M14 11v6" />
+                    <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
+                  </svg>
+                </button>
+              </div>
+            </div>
 
           <div className="flex items-start gap-6 flex-wrap justify-between">
-            <div className="flex-1 min-w-[320px] space-y-3">
-              <div className="inline-flex items-center gap-2 flex-wrap text-xs font-semibold uppercase tracking-wide text-slate-400">
-                <svg className="h-4 w-4 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 7l9-4 9 4-9 4-9-4z" />
-                  <path d="M3 17l9 4 9-4" />
-                  <path d="M3 12l9 4 9-4" />
-                </svg>
-                <span className="font-semibold text-white">{formatRepo(run)}</span>
-                <span className="text-slate-600">/</span>
-                <span className="text-white/80">Runs</span>
-              </div>
-
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className="text-3xl font-black tracking-tight text-white">{run.pipeline_name}</span>
-                {renderHeroStatus()}
-                {run.pipeline_source && <span className="runner-pill runner-pill--muted capitalize bg-white/10 text-white border-white/20">{run.pipeline_source}</span>}
-              </div>
-
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-400">
-                <div className="inline-flex items-center gap-2">
-                  <BranchIcon className="h-4 w-4 text-slate-400" />
-                  <span className="font-mono text-white">{branchLabel}</span>
-                </div>
-                <span className="hidden sm:inline text-slate-700">•</span>
-                <div className="inline-flex items-center gap-2">
-                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 6v6l3 3" />
-                    <circle cx="12" cy="12" r="10" />
-                  </svg>
-                  <span className="text-white">{run.duration || '—'} elapsed</span>
-                </div>
-                <span className="hidden sm:inline text-slate-700">•</span>
-                <div className="inline-flex items-center gap-2">
-                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 8v4l3 3" />
-                    <circle cx="12" cy="12" r="10" />
-                  </svg>
-                  <span className="text-white">Started {startedLabel}</span>
-                </div>
-                <span className="hidden sm:inline text-slate-700">•</span>
-                <div className="inline-flex items-center gap-2">
-                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0z" />
-                    <path d="M12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
-                  <span className="text-white">{run.git_pusher_name || 'Unknown actor'}</span>
-                </div>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-3 text-sm text-white">
+            <div className="flex-1 min-w-[320px] space-y-6">
+              <div className="grid gap-3 md:grid-cols-3 text-sm text-white mt-4">
                 {detailLines.map(item => (
-                  <div key={item.label} className="flex flex-col gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 shadow-[0_12px_32px_rgba(0,0,0,0.35)]">
+                  <div key={item.label} className="flex flex-col gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 shadow-[0_12px_32px_rgba(0,0,0,0.35)] h-full">
                     <div className="flex items-center justify-between text-[11px] uppercase tracking-wide text-slate-400">
                       <span className="inline-flex items-center gap-2 font-semibold">
                         {item.icon}
@@ -2150,55 +2164,6 @@ function RunDetailView({
               </div>
             </div>
 
-            <div className="flex items-center gap-3 flex-shrink-0 min-w-[320px] justify-end">
-              <div className="flex items-center gap-2">
-                <button className={ghostAction} type="button" onClick={onOpenLogs}>
-                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15V6" />
-                    <path d="M18 12V3" />
-                    <path d="M3 9v12h18" />
-                    <path d="M6 5v11" />
-                  </svg>
-                  Logs
-                </button>
-                {pipelineLink ? (
-                  <Link className={ghostAction} to={pipelineLink}>
-                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M4 22V2h8l2 2h6v18H4z" />
-                    </svg>
-                    Pipeline
-                  </Link>
-                ) : (
-                  <button className={ghostAction} type="button" onClick={onShowDefinition}>
-                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M4 19.5A2.5 2.5 0 016.5 17H20" />
-                      <path d="M4 4.5A2.5 2.5 0 016.5 7H20" />
-                      <path d="M4 12h16" />
-                    </svg>
-                    Pipeline
-                  </button>
-                )}
-              </div>
-              <div className="h-6 w-px bg-white/10" />
-              <button className={isRunning ? dangerAction : primaryAction} type="button" onClick={isRunning ? onCancel : onRerun} disabled={loading}>
-                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M1 4v6h6" />
-                  <path d="M23 20v-6h-6" />
-                  <path d="M3.51 15a9 9 0 010-6.3" />
-                  <path d="M20.49 9a9 9 0 010 6.3" />
-                </svg>
-                {isRunning ? 'Cancel' : 'Re-run'}
-              </button>
-              <button className={`${ghostAction} h-11 w-11 p-0 justify-center text-red-200 hover:text-red-100`} type="button" onClick={onDelete} aria-label="Delete run">
-                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="3 6 5 6 21 6" />
-                  <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" />
-                  <path d="M10 11v6" />
-                  <path d="M14 11v6" />
-                  <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
-                </svg>
-              </button>
-            </div>
           </div>
         </div>
       </div>
