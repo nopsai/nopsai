@@ -1647,7 +1647,7 @@ function StepsPage() {
               <input
                 ref={searchInputRef}
                 id="steps-search"
-                type="search"
+                type="text"
                 placeholder="Search steps"
                 className="pipelines-search-input"
                 value={searchTerm}

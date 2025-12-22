@@ -1941,7 +1941,7 @@ function PipelinesPage() {
               <input
                 ref={searchInputRef}
                 id="pipelines-search"
-                type="search"
+                type="text"
                 placeholder="Search pipelines"
                 className="pipelines-search-input"
                 value={searchTerm}

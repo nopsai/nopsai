@@ -134,6 +134,9 @@ const titleMap: Record<string, string> = {
 };
 
 const STATUS_PRIORITY = ['failure', 'failure (ignored)', 'cancelled', 'running', 'pending', 'skipped', 'success'];
+const SIDEBAR_MIN_WIDTH = 260;
+const SIDEBAR_MAX_WIDTH = 520;
+const SIDEBAR_DEFAULT_WIDTH = 320;
 
 const getInitialTheme = (): Theme => {
   if (typeof window === 'undefined') return 'light';
@@ -155,6 +158,15 @@ function AppShell() {
   const navigate = useNavigate();
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    if (typeof window === 'undefined') return SIDEBAR_DEFAULT_WIDTH;
+    const stored = Number(localStorage.getItem('sidebarWidth'));
+    if (Number.isFinite(stored)) return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, stored));
+    return SIDEBAR_DEFAULT_WIDTH;
+  });
+  const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+  const resizeStartXRef = useRef(0);
+  const resizeStartWidthRef = useRef(SIDEBAR_DEFAULT_WIDTH);
   const [pipelines, setPipelines] = useState<string[]>([]);
   const serverPipelinesRef = useRef<string[]>([]);
   const [pipelineTreeOpen, setPipelineTreeOpen] = useState<Set<string>>(new Set());
@@ -502,6 +514,61 @@ function AppShell() {
     });
   };
 
+  const clampSidebarWidth = useCallback(
+    (value: number) => Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, value)),
+    []
+  );
+
+  const startSidebarResize = (event: React.MouseEvent | React.TouchEvent) => {
+    if (typeof window !== 'undefined' && window.innerWidth < 640) return;
+    const clientX = 'touches' in event ? event.touches[0]?.clientX : event.clientX;
+    if (typeof clientX !== 'number') return;
+    resizeStartXRef.current = clientX;
+    resizeStartWidthRef.current = sidebarWidth;
+    setIsResizingSidebar(true);
+    event.stopPropagation();
+    event.preventDefault();
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem('sidebarWidth', String(sidebarWidth));
+  }, [sidebarWidth]);
+
+  useEffect(() => {
+    if (!isResizingSidebar) return undefined;
+    const handleMove = (event: MouseEvent | TouchEvent) => {
+      const clientX = 'touches' in event ? event.touches[0]?.clientX : event.clientX;
+      if (typeof clientX !== 'number') return;
+      const delta = clientX - resizeStartXRef.current;
+      setSidebarWidth(clampSidebarWidth(resizeStartWidthRef.current + delta));
+    };
+    const handleUp = () => setIsResizingSidebar(false);
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('touchmove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    window.addEventListener('touchend', handleUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('touchmove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+      window.removeEventListener('touchend', handleUp);
+    };
+  }, [clampSidebarWidth, isResizingSidebar]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    if (!isResizingSidebar) return undefined;
+    const prevCursor = document.body.style.cursor;
+    const prevUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    return () => {
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevUserSelect;
+    };
+  }, [isResizingSidebar]);
+
   return (
     <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
       <div id="hover-hint" aria-hidden="true"></div>
@@ -510,6 +577,7 @@ function AppShell() {
           navItems={navItems}
           open={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
+          width={sidebarWidth}
           pipelineTree={buildTree}
           pipelineTreeOpen={pipelineTreeOpen}
           onTogglePipelineNode={handleTogglePipelineNode}
@@ -533,7 +601,10 @@ function AppShell() {
         />
         <div
           id="sidebar-resizer"
-          className="w-1.5 cursor-col-resize flex-shrink-0 bg-[var(--bg-tertiary)] hover:bg-[var(--border-accent)] transition-colors duration-200 hidden sm:block"
+          className={`hidden sm:block w-1.5 cursor-col-resize flex-shrink-0 transition-colors duration-200 ${isResizingSidebar ? 'bg-[var(--border-accent)]' : 'bg-[var(--bg-tertiary)] hover:bg-[var(--border-accent)]'}`}
+          onMouseDown={startSidebarResize}
+          onTouchStart={startSidebarResize}
+          aria-label="Resize sidebar"
         ></div>
         <main className="flex-1 flex flex-col overflow-hidden">
           <Header
@@ -566,6 +637,7 @@ function Sidebar({
   navItems,
   open,
   onClose,
+  width,
   pipelineTree,
   pipelineTreeOpen,
   onTogglePipelineNode,
@@ -590,6 +662,7 @@ function Sidebar({
   navItems: NavItem[];
   open: boolean;
   onClose: () => void;
+  width: number;
   pipelineTree: PipelineTreeNode;
   pipelineTreeOpen: Set<string>;
   onTogglePipelineNode: (id: string) => void;
@@ -912,6 +985,7 @@ function Sidebar({
         id="sidebar"
         className={`bg-[var(--bg-secondary)] border-r border-[var(--border-primary)] flex-shrink-0 flex flex-col transition-transform duration-300 ease-in-out h-full z-20 w-80 sidebar-scrollbar overflow-hidden
           ${open ? 'translate-x-0' : '-translate-x-full'} sm:translate-x-0 fixed sm:static`}
+        style={{ width, minWidth: SIDEBAR_MIN_WIDTH, maxWidth: SIDEBAR_MAX_WIDTH }}
       >
         <div className="flex items-center justify-between px-6 h-16 border-b border-[var(--border-primary)] flex-shrink-0">
           <div className="flex items-center gap-3">

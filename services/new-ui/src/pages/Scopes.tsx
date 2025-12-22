@@ -2125,7 +2125,7 @@ function ScopesPage() {
               <input
                 ref={searchInputRef}
                 id="scopes-search"
-                type="search"
+                type="text"
                 placeholder="Search scopes"
                 className="pipelines-search-input"
                 value={searchTerm}
@@ -2154,11 +2154,17 @@ function ScopesPage() {
             </div>
 
             {!searchTerm.trim() && (
-              <button id="scopes-new-btn" type="button" className="glass-button-primary" aria-label="Create new scope" onClick={openNewScopeModal}>
+              <button
+                id="scopes-new-btn"
+                type="button"
+                className="pipelines-icon-only"
+                aria-label="Create new scope"
+                title="New Scope"
+                onClick={openNewScopeModal}
+              >
                 <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v14M5 12h14" />
                 </svg>
-                <span>New Scope</span>
               </button>
             )}
           </div>
