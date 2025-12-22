@@ -3241,6 +3241,79 @@ function EventRunRow({ run, onOpenRun }: { run: RunListItem; onOpenRun: (id: str
   return <RunCard run={run} selected={false} onSelect={() => {}} onOpen={() => onOpenRun(run.run_id)} variant="event" showSelect={false} />;
 }
 
+function parseLegacyLogsHash(hash: string, runId?: string, levelOrder: string[] = []) {
+  if (!hash || !hash.includes('/logs/')) return null;
+  const trimmed = hash.replace(/^#/, '');
+  const [pathPart, queryPart] = trimmed.split('?');
+  const parts = pathPart.split('/').filter(Boolean).map(decodeURIComponent);
+  const logsIdx = parts.indexOf('logs');
+  if (logsIdx === -1) return null;
+  const hashRunId = parts[logsIdx - 1];
+  if (runId && hashRunId && hashRunId !== runId) return null;
+  const segments = parts.slice(logsIdx + 1);
+  if (segments.length < 6) return null;
+  const [stepsSeg, levelsSeg, wrapSeg, structuredSeg, agentSeg, shortSeg] = segments;
+  const steps = stepsSeg && stepsSeg !== 'all' ? stepsSeg.split(',').filter(Boolean) : [];
+  const levelList = levelsSeg && levelsSeg !== 'all' ? levelsSeg.split(',').filter(Boolean) : [];
+  const normalizedLevels = levelList.map(level => (level.toLowerCase() === 'warning' ? 'warn' : level.toLowerCase()));
+  const orderedLevels = levelOrder.length
+    ? normalizedLevels.sort((a, b) => levelOrder.indexOf(a) - levelOrder.indexOf(b))
+    : normalizedLevels;
+  const params = queryPart ? new URLSearchParams(queryPart) : null;
+  return {
+    steps,
+    levels: new Set(orderedLevels),
+    wrap: wrapSeg !== 'unwrap',
+    structured: structuredSeg !== 'unstructured',
+    agentOnly: agentSeg === 'agent',
+    shortView: shortSeg !== 'full',
+    search: params?.get('search') || '',
+  };
+}
+
+function buildLegacyLogsHash(
+  currentHash: string,
+  runId: string,
+  selectedSteps: Set<string>,
+  selectedLevels: Set<string>,
+  wrap: boolean,
+  structured: boolean,
+  agentOnly: boolean,
+  shortView: boolean,
+  searchText: string,
+  levelOrder: string[]
+) {
+  if (!runId) return null;
+  const trimmed = (currentHash || '#').replace(/^#/, '');
+  const [pathPart] = trimmed.split('?');
+  const parts = pathPart.split('/').filter(Boolean).map(decodeURIComponent);
+  const logsIdx = parts.indexOf('logs');
+  let prefix: string[];
+  if (logsIdx !== -1) {
+    prefix = parts.slice(0, logsIdx);
+  } else {
+    prefix = ['pipelineruns', 'events', runId];
+  }
+  if (!prefix.includes(runId)) {
+    prefix.push(runId);
+  }
+
+  const stepsSeg = selectedSteps.size ? encodeURIComponent(Array.from(selectedSteps).join(',')) : 'all';
+  const orderedLevels =
+    selectedLevels.size === 0
+      ? []
+      : levelOrder.filter(level => selectedLevels.has(level));
+  const levelsSeg = orderedLevels.length ? encodeURIComponent(orderedLevels.join(',')) : 'all';
+  const wrapSeg = wrap ? 'wrap' : 'unwrap';
+  const structuredSeg = structured ? 'structured' : 'unstructured';
+  const agentSeg = agentOnly ? 'agent' : 'all';
+  const shortSeg = shortView ? 'short' : 'full';
+
+  const hashPath = `#/${[...prefix.map(encodeURIComponent), 'logs', stepsSeg, levelsSeg, wrapSeg, structuredSeg, agentSeg, shortSeg].join('/')}`;
+  const query = searchText ? `?search=${encodeURIComponent(searchText)}` : '';
+  return `${hashPath}${query}`;
+}
+
 function LogsModal({
   runId,
   runName,
@@ -3274,22 +3347,54 @@ function LogsModal({
   const lastIdRef = useRef(0);
   const logContainerRef = useRef<HTMLDivElement | null>(null);
 
-  const levelOptions = ['info', 'warn', 'error', 'debug'];
+  const levelOptions = useMemo(() => ['info', 'warn', 'error', 'debug'], []);
 
   useEffect(() => {
-    setSelectedSteps(initialStep && initialStep !== 'all' ? new Set([initialStep]) : new Set());
-    setSelectedLevels(new Set());
-    setSearchText('');
+    const parsed = parseLegacyLogsHash(window.location.hash, runId, levelOptions);
+    setSelectedSteps(
+      parsed?.steps && parsed.steps.length
+        ? new Set(parsed.steps)
+        : initialStep && initialStep !== 'all'
+        ? new Set([initialStep])
+        : new Set()
+    );
+    setSelectedLevels(parsed?.levels ?? new Set());
+    setSearchText(parsed?.search ?? '');
     setStepSearch('');
     setFollow(true);
-    setWrap(false);
-    setStructured(false);
-    setShortView(true);
-    setAgentOnly(false);
+    setWrap(parsed?.wrap ?? false);
+    setStructured(parsed?.structured ?? false);
+    setShortView(parsed?.shortView ?? true);
+    setAgentOnly(parsed?.agentOnly ?? false);
     setLines([]);
     lastIdRef.current = 0;
     setHasUnseen(false);
-  }, [initialStep, runId]);
+  }, [initialStep, levelOptions, runId]);
+
+  useEffect(() => {
+    const nextHash = buildLegacyLogsHash(
+      window.location.hash,
+      runId,
+      selectedSteps,
+      selectedLevels,
+      wrap,
+      structured,
+      agentOnly,
+      shortView,
+      searchText,
+      levelOptions
+    );
+    if (!nextHash) return;
+    const current = window.location.hash || '';
+    if (current === nextHash) return;
+    try {
+      const url = new URL(window.location.href);
+      url.hash = nextHash.slice(1);
+      history.replaceState(null, '', url.toString());
+    } catch {
+      window.location.hash = nextHash;
+    }
+  }, [agentOnly, levelOptions, runId, searchText, selectedLevels, selectedSteps, shortView, structured, wrap]);
 
   useEffect(() => {
     if (shortView) {
@@ -3308,11 +3413,12 @@ function LogsModal({
       try {
         const response = await fetch(buildApiUrl(`/v1/runs/${encodeURIComponent(runId)}/logs?since_line=${lastIdRef.current}`));
         if (!response.ok) throw new Error(await response.text());
-        const payload = (await response.json()) as LogLine[];
+        const payload = (await response.json()) as LogLine[] | null;
         if (cancelled) return;
-        if (payload.length) {
-          lastIdRef.current = payload[payload.length - 1].id;
-          const enriched = payload.map(line => ({ ...line, ...parseLogLine(line.line || '') }));
+        const list = Array.isArray(payload) ? payload : [];
+        if (list.length) {
+          lastIdRef.current = list[list.length - 1].id;
+          const enriched = list.map(line => ({ ...line, ...parseLogLine(line.line || '') }));
           setLines(prev => [...prev, ...enriched]);
           if (!follow) setHasUnseen(true);
         }
@@ -3368,6 +3474,56 @@ function LogsModal({
     const lower = (line.line || '').toLowerCase();
     return lower.includes('agent') || (line.step || '').toLowerCase().includes('agent');
   };
+
+  const stepColorMap = useMemo(() => {
+    const palette = [
+      {
+        pillClass: 'bg-sky-500 text-white border-sky-600 dark:bg-sky-400 dark:text-slate-900 dark:border-sky-500',
+        dotClass: 'bg-sky-500',
+        lineClass: 'border-sky-500 dark:border-sky-400',
+      },
+      {
+        pillClass: 'bg-emerald-500 text-white border-emerald-600 dark:bg-emerald-400 dark:text-slate-900 dark:border-emerald-500',
+        dotClass: 'bg-emerald-500',
+        lineClass: 'border-emerald-500 dark:border-emerald-400',
+      },
+      {
+        pillClass: 'bg-indigo-500 text-white border-indigo-600 dark:bg-indigo-400 dark:text-slate-900 dark:border-indigo-500',
+        dotClass: 'bg-indigo-500',
+        lineClass: 'border-indigo-500 dark:border-indigo-400',
+      },
+      {
+        pillClass: 'bg-amber-500 text-white border-amber-600 dark:bg-amber-400 dark:text-slate-900 dark:border-amber-500',
+        dotClass: 'bg-amber-500',
+        lineClass: 'border-amber-500 dark:border-amber-400',
+      },
+      {
+        pillClass: 'bg-rose-500 text-white border-rose-600 dark:bg-rose-400 dark:text-slate-900 dark:border-rose-500',
+        dotClass: 'bg-rose-500',
+        lineClass: 'border-rose-500 dark:border-rose-400',
+      },
+      {
+        pillClass: 'bg-teal-500 text-white border-teal-600 dark:bg-teal-400 dark:text-slate-900 dark:border-teal-500',
+        dotClass: 'bg-teal-500',
+        lineClass: 'border-teal-500 dark:border-teal-400',
+      },
+      {
+        pillClass: 'bg-purple-500 text-white border-purple-600 dark:bg-purple-400 dark:text-slate-900 dark:border-purple-500',
+        dotClass: 'bg-purple-500',
+        lineClass: 'border-purple-500 dark:border-purple-400',
+      },
+      {
+        pillClass: 'bg-lime-500 text-white border-lime-600 dark:bg-lime-400 dark:text-slate-900 dark:border-lime-500',
+        dotClass: 'bg-lime-500',
+        lineClass: 'border-lime-500 dark:border-lime-400',
+      },
+    ];
+    const map = new Map<string, (typeof palette)[number]>();
+    Array.from(selectedSteps).forEach((step, index) => {
+      map.set(step, palette[index % palette.length]);
+    });
+    return map;
+  }, [selectedSteps]);
 
   const presentLevels = useMemo(() => {
     const set = new Set<string>();
@@ -3510,7 +3666,7 @@ function LogsModal({
           </div>
         </div>
 
-        <div className="flex border-b border-[var(--border-primary)] bg-[var(--bg-secondary)] px-5 py-3 items-center gap-3">
+        <div className="flex flex-col gap-3 border-b border-[var(--border-primary)] bg-[var(--bg-secondary)] px-5 py-3 md:flex-row md:items-start md:gap-6">
           <div className="flex-1 min-w-[280px]">
             <div className="relative">
               <input
@@ -3532,74 +3688,76 @@ function LogsModal({
             </div>
             <p className="text-[11px] text-[var(--text-secondary)] mt-1">{logCountLabel}</p>
           </div>
-          <div className="flex items-center gap-2">
-            {levelOptions.map(level => {
-              const isDefault = selectedLevels.size === 0;
-              const active = !isDefault && selectedLevels.has(level);
-              const available = presentLevels.has(level);
-              return (
-                <button
-                  key={level}
-                  type="button"
-                  disabled={!available && lines.length > 0}
-                  className={`px-2.5 py-1 rounded-full text-xs font-semibold border border-[var(--border-primary)] ${active ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] ring-1 ring-[var(--border-accent)]' : 'text-[var(--text-secondary)]'} ${!available && lines.length > 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
-                  onClick={() => toggleLevel(level)}
-                  title={`Toggle ${level} logs`}
-                >
-                  {level.toUpperCase()}
-                </button>
-              );
-            })}
-            <button
-              type="button"
-              disabled={!presentLevels.has('agent') && lines.length > 0}
-              className={`px-2.5 py-1 rounded-full text-xs font-semibold border border-[var(--border-primary)] ${agentOnly ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] ring-1 ring-[var(--border-accent)]' : 'text-[var(--text-secondary)]'} ${!presentLevels.has('agent') && lines.length > 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
-              onClick={() => {
-                setAgentOnly(prev => !prev);
-                setFollow(true);
-                setHasUnseen(false);
-              }}
-              title="Show only agent logs"
-            >
-              AGENT
-            </button>
-          </div>
-          <div className="flex items-center gap-2 ml-auto">
-            {[
-              { label: 'Follow', value: follow, setter: setFollow },
-              { label: 'Wrap', value: wrap, setter: setWrap },
-              { label: 'Structured', value: structured, setter: setStructured },
-              { label: 'Short', value: shortView, setter: setShortView },
-            ].map(toggle => (
+          <div className="flex flex-col gap-2 flex-1 min-w-[240px] w-full items-end">
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              {levelOptions.map(level => {
+                const isDefault = selectedLevels.size === 0;
+                const active = !isDefault && selectedLevels.has(level);
+                const available = presentLevels.has(level);
+                return (
+                  <button
+                    key={level}
+                    type="button"
+                    disabled={!available && lines.length > 0}
+                    className={`px-2.5 py-1 rounded-full text-xs font-semibold border border-[var(--border-primary)] ${active ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] ring-1 ring-[var(--border-accent)]' : 'text-[var(--text-secondary)]'} ${!available && lines.length > 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
+                    onClick={() => toggleLevel(level)}
+                    title={`Toggle ${level} logs`}
+                  >
+                    {level.toUpperCase()}
+                  </button>
+                );
+              })}
               <button
-                key={toggle.label}
                 type="button"
+                disabled={!presentLevels.has('agent') && lines.length > 0}
+                className={`px-2.5 py-1 rounded-full text-xs font-semibold border border-[var(--border-primary)] ${agentOnly ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] ring-1 ring-[var(--border-accent)]' : 'text-[var(--text-secondary)]'} ${!presentLevels.has('agent') && lines.length > 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
                 onClick={() => {
-                  const next = !toggle.value;
-                  toggle.setter(next);
-                  if (toggle.label === 'Follow' && next) {
-                    const container = logContainerRef.current;
-                    if (container) container.scrollTop = container.scrollHeight;
-                    setHasUnseen(false);
-                  }
+                  setAgentOnly(prev => !prev);
+                  setFollow(true);
+                  setHasUnseen(false);
                 }}
-                disabled={shortView && (toggle.label === 'Wrap' || toggle.label === 'Structured')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border border-[var(--border-primary)] flex items-center gap-2 ${toggle.value ? 'bg-[var(--bg-primary)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'} ${shortView && (toggle.label === 'Wrap' || toggle.label === 'Structured') ? 'opacity-50 cursor-not-allowed' : ''}`}
-                title={`Toggle ${toggle.label.toLowerCase()}`}
+                title="Show only agent logs"
               >
-                <span
-                  className={`h-3.5 w-3.5 rounded-sm border border-[var(--border-primary)] flex items-center justify-center ${toggle.value ? 'bg-[var(--text-primary)] text-[var(--bg-primary)]' : ''}`}
-                  aria-hidden="true"
-                >
-                  {toggle.value && (
-                    <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M5 12l4 4L19 7" />
-                    </svg>
-                  )}
-                </span>
-                {toggle.label}
+                AGENT
               </button>
-            ))}
+            </div>
+            <div className="flex items-center gap-2 flex-wrap justify-end w-full">
+              {[
+                { label: 'Follow', value: follow, setter: setFollow },
+                { label: 'Wrap', value: wrap, setter: setWrap },
+                { label: 'Structured', value: structured, setter: setStructured },
+                { label: 'Short', value: shortView, setter: setShortView },
+              ].map(toggle => (
+                <button
+                  key={toggle.label}
+                  type="button"
+                  onClick={() => {
+                    const next = !toggle.value;
+                    toggle.setter(next);
+                    if (toggle.label === 'Follow' && next) {
+                      const container = logContainerRef.current;
+                      if (container) container.scrollTop = container.scrollHeight;
+                      setHasUnseen(false);
+                    }
+                  }}
+                  disabled={shortView && (toggle.label === 'Wrap' || toggle.label === 'Structured')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 ${toggle.value ? 'bg-[var(--bg-primary)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'} ${shortView && (toggle.label === 'Wrap' || toggle.label === 'Structured') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  title={`Toggle ${toggle.label.toLowerCase()}`}
+                >
+                  <span
+                    className={`h-3.5 w-3.5 rounded-sm flex items-center justify-center ${toggle.value ? 'bg-[var(--text-primary)] text-[var(--bg-primary)]' : 'bg-[var(--bg-primary)] text-[var(--text-secondary)]'}`}
+                    aria-hidden="true"
+                  >
+                    {toggle.value && (
+                      <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M5 12l4 4L19 7" />
+                      </svg>
+                    )}
+                  </span>
+                  {toggle.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -3618,6 +3776,7 @@ function LogsModal({
               {filteredStepItems.map(item => {
                 const active = selectedSteps.has(item.name);
                 const meta = getStatusMeta(item.status, true);
+                const color = stepColorMap.get(item.name);
                 return (
                   <button
                     key={item.name}
@@ -3626,7 +3785,10 @@ function LogsModal({
                     onClick={() => toggleStep(item.name)}
                     title={item.name}
                   >
-                    <span className="text-sm text-[var(--text-primary)] truncate">{item.name}</span>
+                    <span className="text-sm text-[var(--text-primary)] truncate flex items-center gap-2">
+                      {active && color && <span className={`h-2.5 w-2.5 rounded-full ${color.dotClass}`} aria-hidden="true" />}
+                      <span className="truncate">{item.name}</span>
+                    </span>
                     {item.status && <span className={`text-[10px] px-2 py-1 rounded-full border ${meta.pillClass}`}>{meta.text}</span>}
                   </button>
                 );
@@ -3675,7 +3837,7 @@ function LogsModal({
             <div
               ref={logContainerRef}
               onScroll={handleScroll}
-              className={`flex-1 overflow-auto px-5 py-4 font-mono text-sm space-y-1 ${wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'} bg-[var(--bg-secondary)]`}
+              className={`flex-1 overflow-auto overflow-x-auto px-5 py-4 font-mono text-sm space-y-1 ${wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'} bg-[var(--bg-secondary)]`}
             >
               {loading && !lines.length && <div className="text-[var(--text-secondary)]">Loading…</div>}
               {!loading && visibleLines.length === 0 && <div className="text-[var(--text-secondary)]">No log lines match the current filters.</div>}
@@ -3684,11 +3846,12 @@ function LogsModal({
                 const isAgent = isAgentLine(line);
                 const levelLabel = isAgent ? 'AGENT' : level.toUpperCase();
                 const rawLine = line.line || '';
-              const content = structured
-                ? (() => {
-                    const jsonStart = rawLine.indexOf('{');
-                    if (jsonStart !== -1) {
-                      try {
+                const stepColor = line.step ? stepColorMap.get(line.step) : undefined;
+                const content = structured
+                  ? (() => {
+                      const jsonStart = rawLine.indexOf('{');
+                      if (jsonStart !== -1) {
+                        try {
                           const parsed = JSON.parse(rawLine.slice(jsonStart));
                           return JSON.stringify(parsed, null, 2);
                         } catch {
@@ -3698,8 +3861,8 @@ function LogsModal({
                       return rawLine;
                     })()
                   : rawLine;
-              const trimmedContent = shortView && content.length > 240 ? `${content.slice(0, 240)}…` : content;
-              if (shortView) {
+                const trimmedContent = shortView && content.length > 240 ? `${content.slice(0, 240)}…` : content;
+                if (shortView) {
                 const messageOnly = (() => {
                   try {
                     const jsonStart = rawLine.indexOf('{');
@@ -3717,29 +3880,42 @@ function LogsModal({
                   return trimmedContent || '';
                 })();
                 return (
-                  <div key={line.id} className="flex items-start gap-3 rounded-lg px-2 py-1 hover:bg-[var(--bg-primary)]">
+                  <div
+                    key={line.id}
+                    className={`flex items-start gap-3 rounded-lg px-2 py-1 hover:bg-[var(--bg-primary)] ${stepColor ? `border-l-4 ${stepColor.lineClass}` : ''}`}
+                  >
                     <span className="text-[var(--text-secondary)] text-xs w-20 flex-shrink-0">{formatTime(line.timestamp)}</span>
                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${levelTone(levelLabel)}`}>
                       {levelLabel}
                     </span>
-                    <pre className={`flex-1 text-[var(--text-primary)] leading-6 ${wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}`}>
+                    <pre
+                      className={`flex-1 text-[var(--text-primary)] leading-6 ${wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'} ${wrap ? '' : 'overflow-x-auto min-w-max'}`}
+                    >
                       {messageOnly || '—'}
                     </pre>
                   </div>
                 );
               }
-              return (
-                <div key={line.id} className="flex items-start gap-3 rounded-lg px-2 py-1 hover:bg-[var(--bg-primary)]">
-                  <span className="text-[var(--text-secondary)] text-xs w-20 flex-shrink-0">{formatTime(line.timestamp)}</span>
+                return (
+                  <div key={line.id} className="flex items-start gap-3 rounded-lg px-2 py-1 hover:bg-[var(--bg-primary)]">
+                    <span className="text-[var(--text-secondary)] text-xs w-20 flex-shrink-0">{formatTime(line.timestamp)}</span>
                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${levelTone(levelLabel)}`}>
                     {levelLabel}
-                    </span>
+                  </span>
                     {line.step && (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-[var(--bg-primary)] border border-[var(--border-primary)] text-[11px] font-semibold text-[var(--text-primary)]">
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full border text-[11px] font-semibold ${
+                          stepColor ? stepColor.pillClass : 'bg-[var(--bg-primary)] border-[var(--border-primary)] text-[var(--text-primary)]'
+                        }`}
+                      >
                         {line.step}
                       </span>
                     )}
-                    <pre className={`flex-1 text-[var(--text-primary)] leading-6 ${wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}`}>{trimmedContent}</pre>
+                    <pre
+                      className={`flex-1 text-[var(--text-primary)] leading-6 ${wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'} ${wrap ? '' : 'overflow-x-auto min-w-max'}`}
+                    >
+                      {trimmedContent}
+                    </pre>
                   </div>
                 );
               })}
