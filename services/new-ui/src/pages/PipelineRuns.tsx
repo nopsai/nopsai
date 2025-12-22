@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { FormEvent } from 'react';
 import { Link, NavLink, useParams, useSearchParams } from 'react-router-dom';
 import yaml from 'js-yaml';
 import { buildApiUrl } from '../lib/api';
@@ -241,6 +242,9 @@ function PipelineRunsPage() {
   const [recentLoadingMore, setRecentLoadingMore] = useState(false);
   const [runsLoading, setRunsLoading] = useState(false);
   const [runsError, setRunsError] = useState<string | null>(null);
+  const [newFolderOpen, setNewFolderOpen] = useState(false);
+  const [newFolderError, setNewFolderError] = useState<string | null>(null);
+  const [newFolderPending, setNewFolderPending] = useState(false);
   const [selectedRunIds, setSelectedRunIds] = useState<Set<string>>(new Set());
   const [repoSummaries, setRepoSummaries] = useState<Map<number, RepoSummary>>(new Map());
 
@@ -362,7 +366,13 @@ function PipelineRunsPage() {
       const message = await response.text();
       throw new Error(message || `Request failed: ${response.status}`);
     }
-    return (await response.json()) as T;
+    const text = await response.text();
+    if (!text) return undefined as T;
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      return text as unknown as T;
+    }
   }, []);
 
   const fetchRecentPage = useCallback(
@@ -624,6 +634,7 @@ function PipelineRunsPage() {
   }, [activeTab, recentRunsAll, recentVisibleCount, searchTerm]);
 
   const activeGroupPath = useMemo(() => buildGroupPath(activeGroupId, groups), [activeGroupId, groups]);
+  const activeGroupLabel = activeGroupPath.length ? activeGroupPath[activeGroupPath.length - 1].name : 'Root';
 
   useEffect(() => {
     // reset collapse state when switching tabs/groups
@@ -755,21 +766,38 @@ function PipelineRunsPage() {
     }
   }, [clearSelection, fetchJson, loadRuns, selectedRunIds]);
 
-  const handleNewFolder = useCallback(async () => {
-    const name = window.prompt('Folder name');
-    if (!name) return;
-    try {
-      await fetchJson('/v1/groups', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), parent_id: activeGroupId }),
-      });
-      await loadGroups();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to create folder';
-      alert(message);
-    }
-  }, [activeGroupId, fetchJson, loadGroups]);
+  const handleNewFolder = useCallback(() => {
+    setNewFolderError(null);
+    setNewFolderOpen(true);
+  }, []);
+
+  const submitNewFolder = useCallback(
+    async (name: string, description: string) => {
+      const trimmedName = name.trim();
+      const trimmedDescription = description.trim();
+      if (!trimmedName) {
+        setNewFolderError('Folder name is required.');
+        return;
+      }
+      setNewFolderPending(true);
+      setNewFolderError(null);
+      try {
+        await fetchJson('/v1/groups', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: trimmedName, description: trimmedDescription || undefined, parent_id: activeGroupId }),
+        });
+        setNewFolderOpen(false);
+        setNewFolderPending(false);
+        await loadGroups();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unable to create folder';
+        setNewFolderError(message);
+        setNewFolderPending(false);
+      }
+    },
+    [activeGroupId, fetchJson, loadGroups]
+  );
 
   const handleCancelRun = useCallback(
     async (runId: string) => {
@@ -857,7 +885,7 @@ function PipelineRunsPage() {
             </nav>
             {!isViewingDetail && (
               <div className="flex items-center gap-2 flex-shrink-0 order-1 sm:order-2">
-                {activeTab !== 'main' && <ViewToggle viewMode={viewMode} onChange={setViewMode} />}
+                {activeTab === 'recent' && <ViewToggle viewMode={viewMode} onChange={setViewMode} />}
                 <div className={`pipelines-search-shell ${searchOpen ? 'open' : ''}`}>
                   <button
                     type="button"
@@ -1021,6 +1049,21 @@ function PipelineRunsPage() {
           }}
           stepNames={runDetail?.steps.map(step => step.name)}
           initialStep={logsStepFilter}
+        />
+      )}
+
+      {newFolderOpen && (
+        <NewFolderModal
+          open={newFolderOpen}
+          parentLabel={activeGroupLabel}
+          error={newFolderError}
+          pending={newFolderPending}
+          onClose={() => {
+            setNewFolderOpen(false);
+            setNewFolderError(null);
+            setNewFolderPending(false);
+          }}
+          onSubmit={submitNewFolder}
         />
       )}
     </div>
@@ -1452,30 +1495,6 @@ function CommitIcon({ className }: { className?: string }) {
   );
 }
 
-function FingerprintIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M12 11a3 3 0 00-3 3v2" />
-      <path d="M12 11a3 3 0 013 3v1.5" />
-      <path d="M12 11V9a3 3 0 00-3-3" />
-      <path d="M12 11V9a3 3 0 013-3" />
-      <path d="M12 2a8 8 0 00-8 8v1" />
-      <path d="M12 2a8 8 0 018 8v1" />
-      <path d="M6 15v1.5A3.5 3.5 0 009.5 20" />
-      <path d="M18 15v1a6 6 0 01-6 6" />
-    </svg>
-  );
-}
-
 function ZapIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -1537,7 +1556,7 @@ function BranchRunsSection({
           startedAt: newest?.started_at || newest?.finished_at,
           actor: newest?.git_pusher_name,
           branchLabel: formatBranchDisplay(newest?.git_ref, newest?.git_target_ref),
-          commitLabel: newest?.git_commit_sha ? newest.git_commit_sha.slice(0, 7) : undefined,
+          commitLabel: newest?.git_commit_sha ? newest.git_commit_sha.slice(0, 8) : undefined,
         };
       })
       .sort((a, b) => runTimestamp(b.runs[0]) - runTimestamp(a.runs[0]));
@@ -1764,7 +1783,7 @@ function RunCard({
 }) {
   const triggerLabel = formatTriggerId(run.trigger_event_id);
   const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
-  const repoLabel = run.pipeline_path || run.git_repo_name || 'N/A';
+  const repoLabel = formatRepoLabel(run);
   const branchLabel = formatBranchDisplay(run.git_ref, run.git_target_ref);
   const cardTone =
     variant === 'event'
@@ -1789,32 +1808,41 @@ function RunCard({
               <RunStatusIcon status={run.status} complete={run.is_complete} />
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{run.pipeline_name}</p>
-                <p className="text-xs text-[var(--text-secondary)] truncate">{repoLabel}</p>
+                <p className="text-[11px] font-mono text-[var(--text-secondary)] truncate flex items-center gap-1">
+                  <RunIdIcon className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span>{(run.run_id || 'N/A').slice(0, 8)}</span>
+                </p>
+                <div className="flex items-center gap-3 text-xs text-[var(--text-secondary)] mt-1 flex-wrap">
+                </div>
               </div>
             </div>
-            <p className="text-sm text-[var(--text-link)] font-mono mt-2 truncate flex items-center gap-1">
-              <BranchIcon className="h-4 w-4" />
-              {branchLabel || 'N/A'}
-            </p>
           </div>
           <PipelineBadges run={run} />
         </div>
         <div className="text-xs text-[var(--text-secondary)] font-mono space-y-1.5">
           <div className="flex items-center">
+            <svg className="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="8" cy="7" r="2" />
+              <circle cx="8" cy="17" r="2" />
+              <circle cx="16" cy="7" r="2" />
+              <path d="M10 7h4" />
+              <path d="M8 9v6a4 4 0 004 4h4" />
+            </svg>
+            <span className="truncate" title="Repository">{repoLabel}</span>
+          </div>
+          <div className="flex items-center">
+            <BranchIcon className="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" />
+            <span className="truncate" title="Branch">{branchLabel || 'N/A'}</span>
+          </div>
+          <div className="flex items-center">
             <svg className="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
             </svg>
             <span className="truncate">{run.git_pusher_name || 'N/A'}</span>
-          </div>
+          </div>          
           <div className="flex items-center">
             <CommitIcon className="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" />
-            <span className="truncate" title="Commit Hash">{(run.git_commit_sha || '...').slice(0, 8)}</span>
-          </div>
-          <div className="flex items-center">
-            <svg className="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H5v-2H3v-2H1v-4a6 6 0 016-6h1.5" />
-            </svg>
-            <span className="truncate" title="Run ID">{(run.run_id || '...').slice(0, 8)}</span>
+            <span className="truncate" title="Commit Hash">{(run.git_commit_sha || 'N/A').slice(0, 8)}</span>
           </div>
           <div className="flex items-center">
             <svg className="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1840,7 +1868,7 @@ function RunCard({
 function ListRunRow({ run, selected, onSelect, onOpen }: { run: RunListItem; selected: boolean; onSelect: () => void; onOpen: () => void }) {
   const triggerLabel = formatTriggerId(run.trigger_event_id);
   const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
-  const repoLabel = run.pipeline_path || run.git_repo_name || 'N/A';
+  const repoLabel = formatRepoLabel(run);
   const branchLabel = formatBranchDisplay(run.git_ref, run.git_target_ref);
   return (
     <div
@@ -1862,20 +1890,35 @@ function ListRunRow({ run, selected, onSelect, onOpen }: { run: RunListItem; sel
           <div className="flex items-start justify-between gap-2">
             <div className="run-list-titles flex-1 min-w-0">
               <div className="run-list-title">{run.pipeline_name}</div>
-              <div className="run-list-sub flex items-center gap-1">
-                <BranchIcon className="h-4 w-4" />
-                {branchLabel || 'N/A'}
+              <div className="font-mono text-[11px] text-[var(--text-secondary)] truncate flex items-center gap-1">
+                <RunIdIcon className="h-3.5 w-3.5 flex-shrink-0" />
+                <span>Run: {(run.run_id || 'N/A').slice(0, 8)}</span>
+              </div>
+              <div className="run-list-sub flex items-center gap-3 flex-wrap text-[var(--text-secondary)]">
+                <span className="inline-flex items-center gap-1 min-w-0">
+                  <svg className="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="8" cy="7" r="2" />
+                    <circle cx="8" cy="17" r="2" />
+                    <circle cx="16" cy="7" r="2" />
+                    <path d="M10 7h4" />
+                    <path d="M8 9v6a4 4 0 004 4h4" />
+                  </svg>
+                  <span className="truncate">{repoLabel}</span>
+                </span>
+                <span className="inline-flex items-center gap-1 min-w-0">
+                  <BranchIcon className="h-4 w-4 flex-shrink-0" />
+                  <span className="truncate">{branchLabel || 'N/A'}</span>
+                </span>
               </div>
             </div>
             <PipelineBadges run={run} />
           </div>
-          <div className="text-xs text-[var(--text-secondary)] mt-1 truncate">{repoLabel}</div>
         </div>
       </div>
       <div className="run-list-meta">
         <span className="run-list-meta-item">
           <span className="run-list-meta-label">Commit</span>
-          <span className="run-list-meta-value font-mono">{(run.git_commit_sha || '...').slice(0, 8)}</span>
+          <span className="run-list-meta-value font-mono">{(run.git_commit_sha || 'N/A').slice(0, 8)}</span>
         </span>
         <span className="run-list-meta-item">
           <span className="run-list-meta-label">Repo</span>
@@ -1883,7 +1926,10 @@ function ListRunRow({ run, selected, onSelect, onOpen }: { run: RunListItem; sel
         </span>
         <span className="run-list-meta-item">
           <span className="run-list-meta-label">Run ID</span>
-          <span className="run-list-meta-value font-mono">{(run.run_id || '...').slice(0, 8)}</span>
+          <span className="run-list-meta-value font-mono inline-flex items-center gap-1">
+            <RunIdIcon className="h-3.5 w-3.5 flex-shrink-0" />
+            {(run.run_id || 'N/A').slice(0, 8)}
+          </span>
         </span>
         <span className="run-list-meta-item">
           <span className="run-list-meta-label">Trigger</span>
@@ -1903,6 +1949,26 @@ function ListRunRow({ run, selected, onSelect, onOpen }: { run: RunListItem; sel
 
 function RunStatusIcon({ status, complete }: { status: string; complete?: boolean }) {
   return <BranchStatusIcon status={status} complete={complete} className="run-status-icon" />;
+}
+
+function RunIdIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M4 7h4v10H4z" />
+      <path d="M12 7h8" />
+      <path d="M12 12h8" />
+      <path d="M12 17h8" />
+    </svg>
+  );
 }
 
 function BranchStatusIcon({ status, complete, className }: { status: string; complete?: boolean; className?: string }) {
@@ -2045,17 +2111,25 @@ function RunDetailView({
 
   const startedLabel = run.started_at ? timeAgo(run.started_at) : '—';
   const branchLabel = formatBranchDisplay(run.git_ref, run.git_target_ref);
+  const repoLabel = formatRepoLabel(run);
+
   const detailLines = [
     {
       label: 'Run ID',
       value: run.run_id || '—',
       subtext: run.duration ? `${run.duration} elapsed` : 'Elapsed: —',
-      icon: <FingerprintIcon className="h-4 w-4 text-slate-500" />,
+      icon: <RunIdIcon className="h-4 w-4 text-slate-500" />,
+    },
+    {
+      label: 'Branch',
+      value: branchLabel || '—',
+      subtext: repoLabel ? `Repo: ${repoLabel}` : 'Repo: —',
+      icon: <BranchIcon className="h-4 w-4 text-slate-500" />,
     },
     {
       label: 'Commit',
       value: run.git_commit_sha || '—',
-      subtext: `Branch: ${branchLabel}${run.git_pusher_name ? ` • By ${run.git_pusher_name}` : ''}`,
+      subtext: run.git_pusher_name ? `Committer: ${run.git_pusher_name}` : 'Committer: —',
       icon: <CommitIcon className="h-4 w-4 text-slate-500" />,
     },
     {
@@ -3058,7 +3132,7 @@ function EventCard({
   const latestRun = group.latestRun || group.runs[0];
   const triggerLabel = formatTriggerId(group.id);
   const branchLabel = latestRun ? formatBranchDisplay(latestRun.git_ref, latestRun.git_target_ref) : '—';
-  const commitLabel = latestRun?.git_commit_sha ? latestRun.git_commit_sha.slice(0, 7) : '—';
+  const commitLabel = latestRun?.git_commit_sha ? latestRun.git_commit_sha.slice(0, 8) : '—';
   const pusher = latestRun?.git_pusher_name || 'System';
   const timestamp = latestRun?.started_at;
 
@@ -3463,6 +3537,101 @@ function PipelineDefinitionModal({
   );
 }
 
+function NewFolderModal({
+  open,
+  parentLabel,
+  error,
+  pending,
+  onClose,
+  onSubmit,
+}: {
+  open: boolean;
+  parentLabel: string;
+  error: string | null;
+  pending: boolean;
+  onClose: () => void;
+  onSubmit: (name: string, description: string) => Promise<void>;
+}) {
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setName('');
+      setDescription('');
+      requestAnimationFrame(() => nameInputRef.current?.focus());
+    }
+  }, [open]);
+
+  if (!open) return null;
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    await onSubmit(name, description);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] px-4">
+      <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-[var(--border-primary)] overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-primary)]">
+          <div>
+            <h3 className="text-lg font-semibold text-[var(--text-primary)]">Create New Folder</h3>
+            <p className="text-xs text-[var(--text-secondary)]">Parent: {parentLabel || 'Root'}</p>
+          </div>
+          <button type="button" className="pipelines-icon-only" aria-label="Close" onClick={onClose}>
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 6L6 18" />
+              <path d="M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          <div className="space-y-2">
+            <label htmlFor="new-folder-name" className="text-sm font-medium text-[var(--text-primary)]">
+              Folder Name
+            </label>
+            <input
+              ref={nameInputRef}
+              id="new-folder-name"
+              name="new-folder-name"
+              type="text"
+              required
+              value={name}
+              onChange={event => setName(event.target.value)}
+              className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)]"
+              placeholder="Enter folder name"
+            />
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="new-folder-description" className="text-sm font-medium text-[var(--text-primary)]">
+              Description <span className="text-[var(--text-secondary)]">(optional)</span>
+            </label>
+            <textarea
+              id="new-folder-description"
+              name="new-folder-description"
+              value={description}
+              onChange={event => setDescription(event.target.value)}
+              rows={3}
+              className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)]"
+              placeholder="Add a short summary for this folder"
+            />
+          </div>
+          {error && <div className="text-sm text-red-600">{error}</div>}
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <button type="button" className="glass-button-subtle" onClick={onClose} disabled={pending}>
+              Cancel
+            </button>
+            <button type="submit" className="glass-button-primary" disabled={pending}>
+              {pending ? 'Creating…' : 'Create'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function buildGroupPath(groupId: number | null, groups: Group[]): Group[] {
   if (!groupId) return [];
   const map = new Map<number, Group>();
@@ -3564,6 +3733,16 @@ function formatBranchDisplay(source?: string, target?: string) {
   return sourceBranch;
 }
 
+function formatRepoLabel(run: RunListItem) {
+  const owner = (run.git_repo_owner || '').trim();
+  const name = (run.git_repo_name || '').trim();
+  if (owner && name) return `${owner}/${name}`;
+  if (name) return name;
+  if (owner) return owner;
+  const path = (run.pipeline_path || '').trim().replace(/^\/+|\/+$/g, '');
+  return path || 'Repository';
+}
+
 function getPipelineIdentifier(run?: Pick<RunListItem, 'pipeline_name' | 'pipeline_path'> | ParentRunInfo | null) {
   if (!run) return '';
   const name = (run.pipeline_name || '').trim();
@@ -3600,7 +3779,7 @@ function timeAgo(dateInput?: string) {
 function formatTriggerId(id?: string) {
   if (!id) return { display: 'N/A', full: 'N/A' };
   const full = String(id);
-  const display = full.length > 12 ? `${full.slice(0, 8)}...` : full;
+  const display = full.length > 12 ? `${full.slice(0, 8)}` : full;
   return { display, full };
 }
 
@@ -3653,7 +3832,7 @@ function extractLatestRunSummary(runsByBranch: Record<string, RunListItem[]> | n
   return {
     status: normalizeStatus(resolved.status, resolved.is_complete),
     branch: branchName,
-    commit: (resolved.git_commit_sha || '').slice(0, 7),
+    commit: (resolved.git_commit_sha || '').slice(0, 8),
     pusher: resolved.git_pusher_name || '',
     started_at: resolved.started_at,
   };
