@@ -910,7 +910,7 @@ function Sidebar({
       ></div>
       <aside
         id="sidebar"
-        className={`bg-[var(--bg-secondary)] border-r border-[var(--border-primary)] flex-shrink-0 flex flex-col transition-transform duration-300 ease-in-out h-full z-20 w-72 sidebar-scrollbar overflow-hidden
+        className={`bg-[var(--bg-secondary)] border-r border-[var(--border-primary)] flex-shrink-0 flex flex-col transition-transform duration-300 ease-in-out h-full z-20 w-80 sidebar-scrollbar overflow-hidden
           ${open ? 'translate-x-0' : '-translate-x-full'} sm:translate-x-0 fixed sm:static`}
       >
         <div className="flex items-center justify-between px-6 h-16 border-b border-[var(--border-primary)] flex-shrink-0">
@@ -1356,10 +1356,10 @@ function PipelineRunsSidebarContent({
               type="button"
               className="text-xs text-[var(--text-link)] hover:underline"
               onClick={() => handleSelectGroup(null)}
-            >
-              Root
-            </button>
-          </div>
+          >
+            Root
+          </button>
+        </div>
           {groupsLoading && <div className="text-xs text-[var(--text-secondary)]">Loading folders…</div>}
           {!groupsLoading && rootGroups.length === 0 && <div className="text-xs text-[var(--text-secondary)]">No folders defined yet.</div>}
           {!groupsLoading && rootGroups.map(group => renderGroupNode(group))}
@@ -1367,6 +1367,30 @@ function PipelineRunsSidebarContent({
       )}
     </div>
   );
+}
+
+function RunSidebarBadges({ run }: { run: RunListItem }) {
+  const badges: ReactNode[] = [];
+  if (run.pipeline_source === 'database override') {
+    badges.push(
+      <span key="override" className="text-[10px] font-semibold text-[var(--text-link)] inline-flex items-center gap-1 whitespace-nowrap">
+        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M13 16h-1v-4h-1m1-4h.01" />
+          <path d="M12 2a10 10 0 100 20 10 10 0 000-20z" />
+        </svg>
+        Override
+      </span>
+    );
+  }
+  if (run.parent_run_id) {
+    badges.push(
+      <span key="included" className="text-[10px] font-semibold text-[var(--text-link)] whitespace-nowrap">
+        Included
+      </span>
+    );
+  }
+  if (!badges.length) return null;
+  return <div className="flex flex-col items-end gap-1 text-right flex-shrink-0">{badges}</div>;
 }
 
 function RunSidebarRow({ run, active, onOpen }: { run: RunListItem; active: boolean; onOpen: () => void }) {
@@ -1385,13 +1409,20 @@ function RunSidebarRow({ run, active, onOpen }: { run: RunListItem; active: bool
         active ? 'run-link-highlight' : ''
       }`}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex items-start gap-2">
         <SidebarStatusIcon status={run.status} complete={run.is_complete} />
         <div className="min-w-0 flex-1">
-          <p className="text-sm text-[var(--text-primary)] truncate">{run.pipeline_name || 'Pipeline Run'}</p>
-          <p className="text-xs text-[var(--text-secondary)] truncate">{branchLabel || 'N/A'}</p>
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-sm text-[var(--text-primary)] truncate">{run.pipeline_name || 'Pipeline Run'}</p>
+              <p className="text-xs text-[var(--text-secondary)] truncate">{branchLabel || 'N/A'}</p>
+            </div>
+            <RunSidebarBadges run={run} />
+          </div>
         </div>
-        <span className="text-[10px] text-[var(--text-secondary)] whitespace-nowrap">{timeAgoShort(run.started_at || run.finished_at)}</span>
+        <span className="text-[10px] text-[var(--text-secondary)] whitespace-nowrap flex-shrink-0">
+          {timeAgoShort(run.started_at || run.finished_at)}
+        </span>
       </div>
       <div className="mt-2 text-[11px] text-[var(--text-secondary)] font-mono space-y-1">
         <div className="flex items-center gap-2 truncate" title="Repository">
