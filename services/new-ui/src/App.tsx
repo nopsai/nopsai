@@ -1471,8 +1471,8 @@ function RunSidebarRow({ run, active, onOpen }: { run: RunListItem; active: bool
   const branchLabel = formatBranchDisplay(run.git_ref, run.git_target_ref);
   const repoLabel = formatRepoLabel(run);
   const trigger = formatTriggerLabel(run.trigger_event_id);
-  const shortCommit = (run.git_commit_sha || '…').slice(0, 7);
-  const shortRunId = (run.run_id || '…').slice(0, 8);
+  const shortCommit = (run.git_commit_sha || 'N/A').slice(0, 8);
+  const shortRunId = (run.run_id || 'N/A').slice(0, 8);
   return (
     <button
       type="button"
@@ -1489,7 +1489,10 @@ function RunSidebarRow({ run, active, onOpen }: { run: RunListItem; active: bool
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <p className="text-sm text-[var(--text-primary)] truncate">{run.pipeline_name || 'Pipeline Run'}</p>
-              <p className="text-xs text-[var(--text-secondary)] truncate">{branchLabel || 'N/A'}</p>
+              <p className="text-[11px] text-[var(--text-secondary)] font-mono flex items-center gap-1 truncate">
+                <RunIdIcon className="h-3.5 w-3.5 flex-shrink-0" />
+                <span>{shortRunId}</span>
+              </p>
             </div>
             <RunSidebarBadges run={run} />
           </div>
@@ -1509,6 +1512,10 @@ function RunSidebarRow({ run, active, onOpen }: { run: RunListItem; active: bool
           </svg>
           <span className="truncate">{repoLabel}</span>
         </div>
+        <div className="flex items-center gap-2 truncate" title="Branch">
+          <BranchIcon className="h-3.5 w-3.5" />
+          <span className="truncate">{branchLabel || 'N/A'}</span>
+        </div>
         <div className="flex items-center gap-2 truncate" title="Commit">
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="3" />
@@ -1517,17 +1524,11 @@ function RunSidebarRow({ run, active, onOpen }: { run: RunListItem; active: bool
           </svg>
           <span className="truncate">{shortCommit}</span>
         </div>
-        <div className="flex items-center gap-2 truncate" title="Run ID">
-          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H5v-2H3v-2H1v-4a6 6 0 016-6h1.5" />
-          </svg>
-          <span className="truncate">{shortRunId}</span>
-        </div>
         <div className="flex items-center gap-2 truncate" title="Trigger ID">
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M7 7a1 1 0 011-1h3.586a1 1 0 01.707.293l6.414 6.414a1 1 0 010 1.414l-4.586 4.586a1 1 0 01-1.414 0L7.293 13.707A1 1 0 017 13V9a1 1 0 011-1z" />
           </svg>
-          <span className="truncate">{trigger.display}</span>
+          <span className="truncate">{trigger.display.slice(0, 8)}</span>
         </div>
       </div>
     </button>
@@ -1777,6 +1778,46 @@ function IconFlow() {
   return (
     <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+    </svg>
+  );
+}
+
+function RunIdIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M4 7h4v10H4z" />
+      <path d="M12 7h8" />
+      <path d="M12 12h8" />
+      <path d="M12 17h8" />
+    </svg>
+  );
+}
+
+function BranchIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <line x1="6" y1="3" x2="6" y2="15" />
+      <circle cx="18" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <path d="M18 9a9 9 0 01-9 9" />
     </svg>
   );
 }
