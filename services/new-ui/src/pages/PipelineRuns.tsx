@@ -2461,6 +2461,11 @@ function StepsGraph({
   onOpenStepDetail,
   childRuns,
   pipelineDefinition,
+  statusVariant = 'default',
+  hideStatusLegend = false,
+  statusColorOverride,
+  stepStatusColorOverride,
+  taskStatusColorOverride = '#60a5fa',
 }: {
   steps: StepDetail[];
   selectedStep: string | null;
@@ -2469,6 +2474,11 @@ function StepsGraph({
   onOpenStepDetail?: (stepName: string) => void;
   childRuns: RunListItem[];
   pipelineDefinition?: PipelineDefinition;
+  statusVariant?: StatusGlyphVariant;
+  hideStatusLegend?: boolean;
+  statusColorOverride?: string;
+  stepStatusColorOverride?: string;
+  taskStatusColorOverride?: string;
 }) {
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
   const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
@@ -2722,16 +2732,18 @@ function StepsGraph({
         onMouseLeave={handleMouseUp}
         style={{ overscrollBehavior: 'contain' }}
       >
-        <div className="absolute top-3 left-3 z-20 flex flex-wrap items-center gap-3 text-[11px] text-[var(--text-secondary)]">
-          {(['success', 'running', 'failed', 'pending', 'skipped'] as GraphStatus[]).map(status => (
-            <span key={status} className="flex items-center gap-1.5">
-              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-                <GraphStatusGlyph status={status} x={8} y={8} size={12} />
-              </svg>
-              <span className="capitalize opacity-80">{getGraphStatusLabel(status)}</span>
-            </span>
-          ))}
-        </div>
+        {!hideStatusLegend && (
+          <div className="absolute top-3 left-3 z-20 flex flex-wrap items-center gap-3 text-[11px] text-[var(--text-secondary)]">
+            {(['success', 'running', 'failed', 'pending', 'skipped'] as GraphStatus[]).map(status => (
+              <span key={status} className="flex items-center gap-1.5">
+                <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                  <GraphStatusGlyph status={status} x={8} y={8} size={12} />
+                </svg>
+                <span className="capitalize opacity-80">{getGraphStatusLabel(status)}</span>
+              </span>
+            ))}
+          </div>
+        )}
 
         <div className="absolute top-3 right-3 z-20 flex flex-col gap-1">
           <button
@@ -2788,20 +2800,23 @@ function StepsGraph({
               );
             })}
 
-            {mainLayout.nodes.map(node => (
-            <StepNodeRenderer
-              key={node.data.id}
-              node={node}
-              expanded={expandedSteps.has(node.data.id)}
-              selected={selectedStep === node.data.id}
-              onToggle={() => toggleStep(node.data.id)}
-              onTaskClick={onOpenTaskLogs}
-              onOpenDetail={onOpenStepDetail}
-              onPreview={handleShowPreview}
-              onPreviewEnd={handleHidePreview}
-              innerLayout={expandedLayouts.get(node.data.id)}
-            />
-            ))}
+      {mainLayout.nodes.map(node => (
+      <StepNodeRenderer
+        key={node.data.id}
+        node={node}
+        expanded={expandedSteps.has(node.data.id)}
+        selected={selectedStep === node.data.id}
+        onToggle={() => toggleStep(node.data.id)}
+        onTaskClick={onOpenTaskLogs}
+        onOpenDetail={onOpenStepDetail}
+        onPreview={handleShowPreview}
+        onPreviewEnd={handleHidePreview}
+        innerLayout={expandedLayouts.get(node.data.id)}
+        statusVariant={statusVariant}
+        statusColorOverride={stepStatusColorOverride || statusColorOverride}
+        taskStatusColorOverride={taskStatusColorOverride}
+      />
+      ))}
           </g>
         </svg>
 
@@ -2845,6 +2860,9 @@ function StepNodeRenderer({
   onPreview,
   onPreviewEnd,
   innerLayout,
+  statusVariant = 'default',
+  statusColorOverride,
+  taskStatusColorOverride,
 }: {
   node: GraphLayoutNode<GraphStep>;
   expanded: boolean;
@@ -2855,15 +2873,27 @@ function StepNodeRenderer({
   onPreview?: (step: GraphStep, evt: React.MouseEvent) => void;
   onPreviewEnd?: () => void;
   innerLayout?: GraphLayout<GraphTask>;
+  statusVariant?: StatusGlyphVariant;
+  statusColorOverride?: string;
+  taskStatusColorOverride?: string;
 }) {
   const statusColor = getGraphStatusColor(node.data.status);
   const titleColor = selected ? statusColor : 'var(--text-primary)';
   const durationLabel = node.data.duration || '0s';
+  const showDuration = Boolean(durationLabel && durationLabel !== '0s');
   const nameWidthEstimate = node.data.name.length * 6.6;
   const infoX = Math.min(node.width - 22, 28 + nameWidthEstimate);
   const durationX = infoX + 4 + 6;
   const isDarkMode = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
   const infoColor = isDarkMode ? '#22c55e' : '#0284c7';
+  const innerOffset = (() => {
+    if (!innerLayout) return { x: 0, y: 0 };
+    const availableWidth = Math.max(0, node.width - INNER_PADDING * 2);
+    const availableHeight = Math.max(0, node.height - (STEP_HEADER_HEIGHT - 6) - INNER_PADDING);
+    const offsetX = Math.max(0, (availableWidth - innerLayout.width) / 2);
+    const offsetY = Math.max(0, (availableHeight - innerLayout.height) / 2);
+    return { x: offsetX, y: offsetY };
+  })();
   return (
     <g
       transform={`translate(${node.x}, ${node.y})`}
@@ -2878,7 +2908,7 @@ function StepNodeRenderer({
       <rect width={node.width} height={node.height} fill="transparent" />
 
       <g transform={`translate(${INNER_PADDING}, 10)`}>
-        <GraphStatusGlyph status={node.data.status} x={12} y={12} size={expanded ? 16 : 18} opacity={expanded ? 0.3 : 1} />
+        <GraphStatusGlyph status={node.data.status} x={12} y={12} size={expanded ? 16 : 18} opacity={expanded ? 0.3 : 1} variant={statusVariant} colorOverride={statusColorOverride} />
         <text x={30} y={14} className="text-[13px] font-semibold">
           <tspan style={{ fill: expanded ? 'var(--text-secondary)' : titleColor, opacity: expanded ? 0.5 : 1 }}>{node.data.name}</tspan>
         </text>
@@ -2903,9 +2933,11 @@ function StepNodeRenderer({
           </g>
         )}
         <text x={durationX} y={14} className="text-[13px] font-semibold">
-          <tspan style={{ fill: 'var(--text-secondary)', fontWeight: expanded ? 500 : 600, opacity: expanded ? 0.5 : 1 }}>
-            {`-  ${durationLabel}`}
-          </tspan>
+          {showDuration && (
+            <tspan style={{ fill: 'var(--text-secondary)', fontWeight: expanded ? 500 : 600, opacity: expanded ? 0.5 : 1 }}>
+              {`-  ${durationLabel}`}
+            </tspan>
+          )}
         </text>
         {(node.data.includeLabel || node.data.childRun) && (
           <text
@@ -2927,20 +2959,26 @@ function StepNodeRenderer({
       </g>
 
       {expanded && innerLayout && (
-        <g transform={`translate(${INNER_PADDING}, ${STEP_HEADER_HEIGHT - 6})`}>
+        <g transform={`translate(${INNER_PADDING + innerOffset.x}, ${STEP_HEADER_HEIGHT - 6 + innerOffset.y})`}>
           {innerLayout.edges.map(edge => (
             <path
               key={edge.id}
               d={`M ${edge.points[0].x} ${edge.points[0].y} C ${edge.points[1].x} ${edge.points[1].y}, ${edge.points[2].x} ${edge.points[2].y}, ${edge.points[3].x} ${edge.points[3].y}`}
               fill="none"
-              stroke={getGraphStatusColor(edge.status)}
+              stroke={taskStatusColorOverride || getGraphStatusColor(edge.status)}
               strokeWidth={1.2}
               strokeOpacity={0.35}
               strokeLinecap="round"
             />
           ))}
           {innerLayout.nodes.map(task => (
-            <TaskNodeRenderer key={task.data.id} task={task} stepName={node.data.name} onTaskClick={onTaskClick} />
+          <TaskNodeRenderer
+            key={task.data.id}
+            task={task}
+            stepName={node.data.name}
+            onTaskClick={onTaskClick}
+            statusColorOverride={taskStatusColorOverride}
+          />
           ))}
         </g>
       )}
@@ -2954,21 +2992,23 @@ function TaskNodeRenderer({
   onTaskClick,
   fontSize = 11,
   glyphSize = 14,
+  statusColorOverride,
 }: {
   task: GraphLayoutNode<GraphTask>;
   stepName: string;
   onTaskClick?: (stepName: string, taskName: string) => void;
   fontSize?: number;
   glyphSize?: number;
+  statusColorOverride?: string;
 }) {
   const durationLabel = task.data.duration || '0s';
+  const showDuration = Boolean(durationLabel && durationLabel !== '0s');
   const centerX = task.width / 2;
   const statusIconSize = glyphSize + 2;
   const statusIconY = 8;
   const lineHeight = fontSize + 4;
   const textY = statusIconY + statusIconSize + lineHeight;
-  const statusColor = getGraphStatusColor(task.data.status);
-  const statusIconPath = getGraphStatusIconPath(task.data.status);
+  const statusColor = statusColorOverride || getGraphStatusColor(task.data.status);
   return (
     <g
       transform={`translate(${task.x}, ${task.y})`}
@@ -2979,23 +3019,12 @@ function TaskNodeRenderer({
       className="cursor-pointer"
     >
       <rect width={task.width} height={task.height} fill="transparent" />
-      <svg
-        x={centerX - statusIconSize / 2}
-        y={statusIconY}
-        width={statusIconSize}
-        height={statusIconSize}
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke={statusColor}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d={statusIconPath} />
+      <svg x={centerX - statusIconSize / 2} y={statusIconY} width={statusIconSize} height={statusIconSize} viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="6" fill={statusColor} />
       </svg>
       <text x={centerX} y={textY} textAnchor="middle" style={{ fontSize, fontWeight: 700 }}>
         <tspan style={{ fill: 'var(--text-primary)' }}>{task.data.name}</tspan>
-        <tspan style={{ fill: 'var(--text-secondary)', fontWeight: 700 }}>{`  -  ${durationLabel}`}</tspan>
+        {showDuration && <tspan style={{ fill: 'var(--text-secondary)', fontWeight: 700 }}>{`  -  ${durationLabel}`}</tspan>}
       </text>
     </g>
   );
@@ -3089,21 +3118,31 @@ function normalizeGraphStatus(status: string | undefined, complete?: boolean): G
   return 'failed';
 }
 
+type StatusGlyphVariant = 'default' | 'dot';
+
 function GraphStatusGlyph({
   status,
   x,
   y,
   size = 14,
   opacity = 1,
+  variant = 'default',
+  colorOverride,
 }: {
   status: GraphStatus;
   x: number;
   y: number;
   size?: number;
   opacity?: number;
+  variant?: StatusGlyphVariant;
+  colorOverride?: string;
 }) {
-  const color = getGraphStatusColor(status);
+  const color = colorOverride || getGraphStatusColor(status);
   const strokeWidth = Math.max(1.6, Math.min(2.4, size / 6.5));
+  if (variant === 'dot') {
+    const r = size / 2;
+    return <circle cx={x} cy={y} r={r} fill={color} opacity={opacity} />;
+  }
   if (status === 'running') {
     const r = size / 2 - strokeWidth;
     return (
@@ -3207,6 +3246,10 @@ function calculateGraphLayout<T extends { id: string; dependsOn?: string[]; stat
     const r = ranks[item.id] || 0;
     if (!levels[r]) levels[r] = [];
     levels[r].push(item);
+  });
+  levels.forEach(levelItems => {
+    if (!levelItems) return;
+    levelItems.sort((a, b) => a.id.localeCompare(b.id));
   });
 
   const nodes: GraphLayoutNode<T>[] = [];
@@ -5129,4 +5172,6 @@ function extractLatestRunSummary(runsByBranch: Record<string, RunListItem[]> | n
   };
 }
 
+export { StepsGraph };
+export type { StepDetail, RunListItem, PipelineDefinition, StepConfiguration, TaskDefinition, TaskDetail };
 export default PipelineRunsPage;
