@@ -4179,47 +4179,45 @@ function LogsModal({
                       return rawLine;
                     })()
                   : rawLine;
-                const trimmedContent = shortView && content.length > 240 ? `${content.slice(0, 240)}…` : content;
                 if (shortView) {
-                const messageOnly = (() => {
-                  try {
-                    const jsonStart = rawLine.indexOf('{');
-                    if (jsonStart !== -1) {
-                      const parsed = JSON.parse(rawLine.slice(jsonStart));
-                      const msg = parsed.message ?? parsed.msg ?? parsed.output ?? '';
-                      if (msg) {
-                        const asString = typeof msg === 'string' ? msg : JSON.stringify(msg);
-                        return asString.length > 240 ? `${asString.slice(0, 240)}…` : asString;
+                  const messageOnly = (() => {
+                    try {
+                      const jsonStart = rawLine.indexOf('{');
+                      if (jsonStart !== -1) {
+                        const parsed = JSON.parse(rawLine.slice(jsonStart));
+                        const msg = parsed.message ?? parsed.msg ?? parsed.output ?? '';
+                        if (msg) {
+                          return typeof msg === 'string' ? msg : JSON.stringify(msg);
+                        }
                       }
+                    } catch {
+                      // ignore
                     }
-                  } catch {
-                    // ignore
-                  }
-                  return trimmedContent || '';
-                })();
+                    return content || '';
+                  })();
+                  return (
+                    <div
+                      key={line.id}
+                      className={`flex items-start gap-3 rounded-lg px-2 py-1 hover:bg-[var(--bg-primary)] ${stepColor ? `border-l-4 ${stepColor.lineClass}` : ''}`}
+                    >
+                      <span className="text-[var(--text-secondary)] text-xs w-20 flex-shrink-0">{formatTime(line.timestamp)}</span>
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${levelTone(levelLabel)}`}>
+                        {levelLabel}
+                      </span>
+                      <pre
+                        className={`flex-1 text-[var(--text-primary)] leading-6 ${wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre min-w-max'}`}
+                      >
+                        {messageOnly || '—'}
+                      </pre>
+                    </div>
+                  );
+                }
                 return (
-                  <div
-                    key={line.id}
-                    className={`flex items-start gap-3 rounded-lg px-2 py-1 hover:bg-[var(--bg-primary)] ${stepColor ? `border-l-4 ${stepColor.lineClass}` : ''}`}
-                  >
+                  <div key={line.id} className="flex items-start gap-3 rounded-lg px-2 py-1 hover:bg-[var(--bg-primary)]">
                     <span className="text-[var(--text-secondary)] text-xs w-20 flex-shrink-0">{formatTime(line.timestamp)}</span>
                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${levelTone(levelLabel)}`}>
                       {levelLabel}
                     </span>
-                    <pre
-                      className={`flex-1 text-[var(--text-primary)] leading-6 ${wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre min-w-max'}`}
-                    >
-                      {messageOnly || '—'}
-                    </pre>
-                  </div>
-                );
-              }
-                return (
-                  <div key={line.id} className="flex items-start gap-3 rounded-lg px-2 py-1 hover:bg-[var(--bg-primary)]">
-                    <span className="text-[var(--text-secondary)] text-xs w-20 flex-shrink-0">{formatTime(line.timestamp)}</span>
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${levelTone(levelLabel)}`}>
-                    {levelLabel}
-                  </span>
                     {line.step && (
                       <span
                         className={`inline-flex items-center px-2 py-0.5 rounded-full border text-[11px] font-semibold ${
@@ -4232,7 +4230,7 @@ function LogsModal({
                     <pre
                       className={`flex-1 text-[var(--text-primary)] leading-6 ${wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre min-w-max'}`}
                     >
-                      {trimmedContent}
+                      {content}
                     </pre>
                   </div>
                 );
