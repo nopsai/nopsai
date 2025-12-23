@@ -137,6 +137,8 @@ const STATUS_PRIORITY = ['failure', 'failure (ignored)', 'cancelled', 'running',
 const SIDEBAR_MIN_WIDTH = 260;
 const SIDEBAR_MAX_WIDTH = 520;
 const SIDEBAR_DEFAULT_WIDTH = 320;
+const SIDEBAR_RECENT_PAGE_SIZE = 200;
+const SIDEBAR_SCROLL_BUFFER = 200;
 
 const getInitialTheme = (): Theme => {
   if (typeof window === 'undefined') return 'light';
@@ -1083,6 +1085,8 @@ function PipelineRunsSidebarContent({
   const [groupsLoading, setGroupsLoading] = useState(false);
   const [recentRuns, setRecentRuns] = useState<RunListItem[]>([]);
   const [runsLoading, setRunsLoading] = useState(false);
+  const [recentHasMore, setRecentHasMore] = useState(true);
+  const [recentLoadingMore, setRecentLoadingMore] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
   const [expandedBranches, setExpandedBranches] = useState<Set<string>>(new Set());
   const [repoRunsCache, setRepoRunsCache] = useState<Map<number, Record<string, RunListItem[]>>>(new Map());
@@ -1168,13 +1172,17 @@ function PipelineRunsSidebarContent({
   }, [fetchJson, tab]);
 
   useEffect(() => {
-    if (tab === 'main') return;
+    if (tab !== 'recent') return;
     let cancelled = false;
     const loadRuns = async () => {
       setRunsLoading(true);
-      const data = await fetchJson<RunListItem[]>('/v1/runs');
+      setRecentHasMore(true);
+      setRecentLoadingMore(false);
+      const data = await fetchJson<RunListItem[]>(`/v1/runs?offset=0&limit=${SIDEBAR_RECENT_PAGE_SIZE}`);
       if (cancelled) return;
-      setRecentRuns(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      setRecentRuns(list);
+      setRecentHasMore(list.length === SIDEBAR_RECENT_PAGE_SIZE);
       setRunsLoading(false);
     };
     void loadRuns();
@@ -1182,6 +1190,36 @@ function PipelineRunsSidebarContent({
       cancelled = true;
     };
   }, [fetchJson, tab]);
+
+  const loadMoreRecentRuns = useCallback(async () => {
+    if (tab !== 'recent') return;
+    if (!recentHasMore || recentLoadingMore || runsLoading) return;
+    setRecentLoadingMore(true);
+    const data = await fetchJson<RunListItem[]>(`/v1/runs?offset=${recentRuns.length}&limit=${SIDEBAR_RECENT_PAGE_SIZE}`);
+    const list = Array.isArray(data) ? data : [];
+    setRecentHasMore(list.length === SIDEBAR_RECENT_PAGE_SIZE);
+    setRecentRuns(prev => {
+      const existing = new Set(prev.map(run => run.run_id));
+      const appended = list.filter(run => !existing.has(run.run_id));
+      return [...prev, ...appended];
+    });
+    setRecentLoadingMore(false);
+  }, [fetchJson, recentHasMore, recentLoadingMore, recentRuns.length, runsLoading, tab]);
+
+  useEffect(() => {
+    if (tab !== 'recent') return;
+    const nav = document.getElementById('sidebar-details-nav');
+    const container = nav?.parentElement;
+    if (!container) return;
+    const handleScroll = () => {
+      const remaining = container.scrollHeight - container.scrollTop - container.clientHeight;
+      if (remaining <= SIDEBAR_SCROLL_BUFFER) {
+        void loadMoreRecentRuns();
+      }
+    };
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [loadMoreRecentRuns, tab]);
 
   useEffect(() => {
     if (!activeGroupId || !groups.length) return;
@@ -1429,6 +1467,16 @@ function PipelineRunsSidebarContent({
           {runsLoading && <div className="text-xs text-[var(--text-secondary)]">Loading runs…</div>}
           {!runsLoading && filteredRecent.length === 0 && <div className="text-xs text-[var(--text-secondary)]">No runs to show.</div>}
           {!runsLoading && filteredRecent.map(run => renderRunRow(run))}
+          {recentLoadingMore && <div className="text-xs text-[var(--text-secondary)]">Loading more runs…</div>}
+          {!runsLoading && !recentLoadingMore && recentHasMore && (
+            <button
+              type="button"
+              className="text-xs text-[var(--text-link)] hover:underline"
+              onClick={() => void loadMoreRecentRuns()}
+            >
+              Load more runs
+            </button>
+          )}
         </>
       ) : (
         <>
