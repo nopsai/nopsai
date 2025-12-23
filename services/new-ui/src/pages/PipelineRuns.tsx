@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, NavLink, useParams, useSearchParams } from 'react-router-dom';
 import yaml from 'js-yaml';
@@ -2936,12 +2936,25 @@ function TaskNodeRenderer({
   task,
   stepName,
   onTaskClick,
+  fontSize = 11,
+  glyphSize = 14,
+  textOffsetX = 24,
 }: {
   task: GraphLayoutNode<GraphTask>;
   stepName: string;
   onTaskClick?: (stepName: string, taskName: string) => void;
+  fontSize?: number;
+  glyphSize?: number;
+  textOffsetX?: number;
 }) {
   const durationLabel = task.data.duration || '0s';
+  const centerX = task.width / 2;
+  const statusIconSize = glyphSize + 2;
+  const statusIconY = 8;
+  const lineHeight = fontSize + 4;
+  const textY = statusIconY + statusIconSize + lineHeight;
+  const statusColor = getGraphStatusColor(task.data.status);
+  const statusIconPath = getGraphStatusIconPath(task.data.status);
   return (
     <g
       transform={`translate(${task.x}, ${task.y})`}
@@ -2952,10 +2965,23 @@ function TaskNodeRenderer({
       className="cursor-pointer"
     >
       <rect width={task.width} height={task.height} fill="transparent" />
-      <GraphStatusGlyph status={task.data.status} x={11} y={task.height / 2} size={14} />
-      <text x={24} y={task.height / 2 + 4} className="text-[11px] font-semibold">
+      <svg
+        x={centerX - statusIconSize / 2}
+        y={statusIconY}
+        width={statusIconSize}
+        height={statusIconSize}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke={statusColor}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d={statusIconPath} />
+      </svg>
+      <text x={centerX} y={textY} textAnchor="middle" style={{ fontSize, fontWeight: 700 }}>
         <tspan style={{ fill: 'var(--text-primary)' }}>{task.data.name}</tspan>
-        <tspan style={{ fill: 'var(--text-secondary)', fontWeight: 600 }}>{`  -  ${durationLabel}`}</tspan>
+        <tspan style={{ fill: 'var(--text-secondary)', fontWeight: 700 }}>{`  -  ${durationLabel}`}</tspan>
       </text>
     </g>
   );
@@ -3154,7 +3180,8 @@ function calculateGraphLayout<T extends { id: string; dependsOn?: string[]; stat
   items: T[],
   getSize: (item: T) => GraphSize,
   hGap: number,
-  vGap: number
+  vGap: number,
+  orientation: 'horizontal' | 'vertical' = 'horizontal'
 ): GraphLayout<T> {
   if (!items.length) {
     return { nodes: [], edges: [], width: PADDING * 2, height: PADDING * 2 };
@@ -3171,39 +3198,78 @@ function calculateGraphLayout<T extends { id: string; dependsOn?: string[]; stat
   const nodes: GraphLayoutNode<T>[] = [];
   const edges: GraphLayoutEdge[] = [];
 
-  let currentX = PADDING;
-  const levelXs: number[] = [];
+  let totalWidth = PADDING * 2;
+  let totalHeight = PADDING * 2;
 
-  levels.forEach((levelItems, lvlIdx) => {
-    levelXs[lvlIdx] = currentX;
-    const sizes = levelItems.map(getSize);
-    const maxWidth = Math.max(...sizes.map(s => s.width), 0);
-    currentX += maxWidth + hGap;
-  });
+  if (orientation === 'horizontal') {
+    let currentX = PADDING;
+    const levelXs: number[] = [];
 
-  const totalWidth = Math.max(PADDING * 2, currentX - hGap + PADDING);
-  const levelHeights = levels.map(levelItems => levelItems.reduce((acc, item) => acc + getSize(item).height + vGap, 0) - vGap);
-  const maxLevelHeight = Math.max(...levelHeights, 0);
-  const totalHeight = Math.max(PADDING * 2, maxLevelHeight + PADDING * 2);
-
-  levels.forEach((levelItems, lvlIdx) => {
-    const x = levelXs[lvlIdx];
-    const levelH = levelHeights[lvlIdx];
-    let currentY = PADDING + (maxLevelHeight - levelH) / 2;
-
-    levelItems.forEach(item => {
-      const size = getSize(item);
-      nodes.push({
-        data: item,
-        level: lvlIdx,
-        x,
-        y: currentY,
-        width: size.width,
-        height: size.height,
-      });
-      currentY += size.height + vGap;
+    levels.forEach((levelItems, lvlIdx) => {
+      levelXs[lvlIdx] = currentX;
+      const sizes = levelItems.map(getSize);
+      const maxWidth = Math.max(...sizes.map(s => s.width), 0);
+      currentX += maxWidth + hGap;
     });
-  });
+
+    totalWidth = Math.max(PADDING * 2, currentX - hGap + PADDING);
+    const levelHeights = levels.map(levelItems => levelItems.reduce((acc, item) => acc + getSize(item).height + vGap, 0) - vGap);
+    const maxLevelHeight = Math.max(...levelHeights, 0);
+    totalHeight = Math.max(PADDING * 2, maxLevelHeight + PADDING * 2);
+
+    levels.forEach((levelItems, lvlIdx) => {
+      const x = levelXs[lvlIdx];
+      const levelH = levelHeights[lvlIdx];
+      let currentY = PADDING + (maxLevelHeight - levelH) / 2;
+
+      levelItems.forEach(item => {
+        const size = getSize(item);
+        nodes.push({
+          data: item,
+          level: lvlIdx,
+          x,
+          y: currentY,
+          width: size.width,
+          height: size.height,
+        });
+        currentY += size.height + vGap;
+      });
+    });
+  } else {
+    let currentY = PADDING;
+    const levelYs: number[] = [];
+
+    levels.forEach((levelItems, lvlIdx) => {
+      levelYs[lvlIdx] = currentY;
+      const sizes = levelItems.map(getSize);
+      const maxHeight = Math.max(...sizes.map(s => s.height), 0);
+      currentY += maxHeight + vGap;
+    });
+
+    totalHeight = Math.max(PADDING * 2, currentY - vGap + PADDING);
+    const levelWidths = levels.map(levelItems => levelItems.reduce((acc, item) => acc + getSize(item).width + hGap, 0) - hGap);
+    const maxLevelWidth = Math.max(...levelWidths, 0);
+    totalWidth = Math.max(PADDING * 2, maxLevelWidth + PADDING * 2);
+
+    levels.forEach((levelItems, lvlIdx) => {
+      const y = levelYs[lvlIdx];
+      const levelW = levelWidths[lvlIdx];
+      let currentX = PADDING + (maxLevelWidth - levelW) / 2;
+
+      levelItems.forEach(item => {
+        const size = getSize(item);
+        nodes.push({
+          data: item,
+          level: lvlIdx,
+          x: currentX,
+          y,
+          width: size.width,
+          height: size.height,
+        });
+        currentX += size.width + hGap;
+      });
+    });
+  }
 
   items.forEach(item => {
     if (!item.dependsOn) return;
@@ -3213,21 +3279,39 @@ function calculateGraphLayout<T extends { id: string; dependsOn?: string[]; stat
     item.dependsOn.forEach(parentId => {
       const sourceNode = nodes.find(n => n.data.id === parentId);
       if (!sourceNode) return;
-      const start = { x: sourceNode.x + sourceNode.width - 35, y: sourceNode.y + sourceNode.height / 2 };
-      const end = { x: targetNode.x - 2, y: targetNode.y + targetNode.height / 2 };
-      const controlDist = Math.max(20, (end.x - start.x) * 0.38);
+      const start =
+        orientation === 'horizontal'
+          ? { x: sourceNode.x + sourceNode.width - 35, y: sourceNode.y + sourceNode.height / 2 }
+          : { x: sourceNode.x + sourceNode.width / 2, y: sourceNode.y + sourceNode.height - 2 };
+      const end =
+        orientation === 'horizontal'
+          ? { x: targetNode.x - 2, y: targetNode.y + targetNode.height / 2 }
+          : { x: targetNode.x + targetNode.width / 2, y: targetNode.y + 2 };
+      const controlDist =
+        orientation === 'horizontal'
+          ? Math.max(20, (end.x - start.x) * 0.38)
+          : Math.max(18, (end.y - start.y) * 0.45);
+      const points =
+        orientation === 'horizontal'
+          ? [
+              start,
+              { x: start.x + controlDist, y: start.y },
+              { x: end.x - controlDist, y: end.y },
+              end,
+            ]
+          : [
+              start,
+              { x: start.x, y: start.y + controlDist },
+              { x: end.x, y: end.y - controlDist },
+              end,
+            ];
 
       edges.push({
         id: `${parentId}-${item.id}`,
         from: parentId,
         to: item.id,
         status: sourceNode.data.status,
-        points: [
-          start,
-          { x: start.x + controlDist, y: start.y },
-          { x: end.x - controlDist, y: end.y },
-          end,
-        ],
+        points,
       });
     });
   });
@@ -4097,16 +4181,91 @@ function StepDetailModal({
         : layoutTasks;
     const sizeFor = (task: GraphTask): GraphSize => {
       const label = `${task.name} - ${task.duration || '0s'}`;
-      const width = Math.max(TASK_MIN_WIDTH, Math.min(TASK_MAX_WIDTH, 32 + label.length * 7));
-      return { width, height: TASK_HEIGHT };
+      const width = Math.max(TASK_MIN_WIDTH + 40, Math.min(TASK_MAX_WIDTH + 60, 38 + label.length * 8));
+      return { width, height: Math.max(TASK_HEIGHT + 28, 64) };
     };
-    let layout = calculateGraphLayout(tasksForLayout, sizeFor, 30, 16);
+    let layout = calculateGraphLayout(tasksForLayout, sizeFor, 32, 44, 'vertical');
     if (!hasAnyDeps && layout.nodes.length > 1 && layout.edges.length === 0) {
       const chained = layoutTasks.map((t, idx) => (idx === 0 ? t : { ...t, dependsOn: [layoutTasks[idx - 1].id] }));
-      layout = calculateGraphLayout(chained, sizeFor, 30, 16);
+      layout = calculateGraphLayout(chained, sizeFor, 32, 44, 'vertical');
     }
     return layout;
   }, [step, taskDefs]);
+
+  const taskGraphView = useMemo(() => {
+    if (!taskLayout || !taskLayout.nodes.length) return null;
+    const viewWidth = Math.max(taskLayout.width + 10, 260);
+    const viewHeight = Math.max(taskLayout.height + 80, 320);
+    return { viewWidth, viewHeight };
+  }, [taskLayout]);
+
+  const graphContainerRef = useRef<HTMLDivElement | null>(null);
+  const [baseGraphScale, setBaseGraphScale] = useState(1.6);
+  const [userGraphScale, setUserGraphScale] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const draggingRef = useRef(false);
+  const dragStartRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
+  const clampUserScale = useCallback((value: number) => Math.min(2.4, Math.max(0.6, value)), []);
+  const graphScale = baseGraphScale * userGraphScale;
+  const nearlyEqual = (a: number, b: number, eps = 0.5) => Math.abs(a - b) < eps;
+
+  useLayoutEffect(() => {
+    const recomputeScale = () => {
+      if (!graphContainerRef.current || !taskGraphView) return;
+      const rect = graphContainerRef.current.getBoundingClientRect();
+      const padding = 24;
+      const availableWidth = Math.max(120, rect.width - padding * 2);
+      const availableHeight = Math.max(180, rect.height - padding * 2);
+      const fitScale = Math.min(availableWidth / taskGraphView.viewWidth, availableHeight / taskGraphView.viewHeight);
+      const target = Math.min(2.4, Math.max(1.1, fitScale * 1.32));
+      const scaledWidth = taskGraphView.viewWidth * target;
+      const scaledHeight = taskGraphView.viewHeight * target;
+      const centerPan = {
+        x: (rect.width - scaledWidth) / 2,
+        y: (rect.height - scaledHeight) / 2,
+      };
+
+      setBaseGraphScale(prev => (Math.abs(prev - target) > 0.001 ? target : prev));
+      setPan(prev => {
+        if (nearlyEqual(prev.x, centerPan.x) && nearlyEqual(prev.y, centerPan.y)) return prev;
+        return centerPan;
+      });
+      setUserGraphScale(prev => {
+        const clamped = clampUserScale(prev);
+        return clamped === prev ? prev : clamped;
+      });
+    };
+    recomputeScale();
+    window.addEventListener('resize', recomputeScale);
+    return () => window.removeEventListener('resize', recomputeScale);
+  }, [taskGraphView, clampUserScale]);
+
+  useEffect(() => {
+    const el = graphContainerRef.current;
+    if (!el) return undefined;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const factor = e.deltaY > 0 ? 1 / 1.1 : 1.1;
+      setUserGraphScale(prev => clampUserScale(prev * factor));
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [clampUserScale]);
+
+  const onMouseDownGraph = (e: React.MouseEvent) => {
+    draggingRef.current = true;
+    dragStartRef.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
+  };
+  const onMouseMoveGraph = (e: React.MouseEvent) => {
+    if (!draggingRef.current || !dragStartRef.current) return;
+    const dx = e.clientX - dragStartRef.current.x;
+    const dy = e.clientY - dragStartRef.current.y;
+    setPan({ x: dragStartRef.current.panX + dx, y: dragStartRef.current.panY + dy });
+  };
+  const endDrag = () => {
+    draggingRef.current = false;
+    dragStartRef.current = null;
+  };
 
   const statusMeta = step ? getStatusMeta(step.status, true) : null;
 
@@ -4146,32 +4305,78 @@ function StepDetailModal({
                   {step.tasks.length} task{step.tasks.length === 1 ? '' : 's'}
                 </span>
               </div>
-              <div className="h-[420px] w-full overflow-auto rounded-lg bg-[var(--bg-primary)] border border-[var(--border-primary)] flex items-center justify-center">
-                {taskLayout && taskLayout.nodes.length ? (
-                  <svg
-                    width="100%"
-                    height="100%"
-                    viewBox={`0 0 ${Math.max(taskLayout.width, 640)} ${Math.max(taskLayout.height, 360)}`}
-                    className="p-4"
-                  >
-                    {taskLayout.edges.map(edge => {
-                      const [start, c1, c2, end] = edge.points;
-                      return (
-                        <path
-                          key={edge.id}
-                          d={`M ${start.x} ${start.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${end.x} ${end.y}`}
-                          fill="none"
-                          stroke={getGraphStatusColor(edge.status)}
-                          strokeWidth={1.3}
-                          strokeOpacity={0.55}
-                          strokeLinecap="round"
-                        />
-                      );
-                    })}
-                    {taskLayout.nodes.map(node => (
-                      <TaskNodeRenderer key={node.data.id} task={node} stepName={step.name} />
-                    ))}
-                  </svg>
+              <div
+                className="relative h-[820px] w-full overflow-hidden rounded-lg bg-[var(--bg-primary)] border border-[var(--border-primary)] flex items-center justify-center"
+                ref={graphContainerRef}
+                onMouseDown={onMouseDownGraph}
+                onMouseMove={onMouseMoveGraph}
+                onMouseUp={endDrag}
+                onMouseLeave={endDrag}
+              >
+                {taskLayout && taskLayout.nodes.length && taskGraphView ? (
+                  (() => {
+                    return (
+                      <>
+                        <div className="absolute right-3 top-3 z-20 flex gap-2">
+                          <button
+                            type="button"
+                            className="h-9 w-9 rounded-full bg-[var(--bg-secondary)]/80 hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] shadow-sm border border-[var(--border-primary)]"
+                            aria-label="Zoom out"
+                            onClick={() => setUserGraphScale(prev => clampUserScale(prev / 1.15))}
+                          >
+                            −
+                          </button>
+                          <button
+                            type="button"
+                            className="h-9 w-9 rounded-full bg-[var(--bg-secondary)]/80 hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] shadow-sm border border-[var(--border-primary)]"
+                            aria-label="Zoom in"
+                            onClick={() => setUserGraphScale(prev => clampUserScale(prev * 1.15))}
+                          >
+                            +
+                          </button>
+                        </div>
+                        <svg
+                          width="100%"
+                          height="100%"
+                          viewBox={`0 0 ${taskGraphView.viewWidth} ${taskGraphView.viewHeight}`}
+                          preserveAspectRatio="xMidYMid meet"
+                          className="p-6"
+                          style={{
+                            transform: `translate(${pan.x}px, ${pan.y}px) scale(${graphScale})`,
+                            transformOrigin: 'center center',
+                            margin: '0 auto',
+                            display: 'block',
+                            cursor: draggingRef.current ? 'grabbing' : 'grab',
+                          }}
+                        >
+                          {taskLayout.edges.map(edge => {
+                            const [start, c1, c2, end] = edge.points;
+                            return (
+                              <path
+                                key={edge.id}
+                                d={`M ${start.x} ${start.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${end.x} ${end.y}`}
+                                fill="none"
+                                stroke={getGraphStatusColor(edge.status)}
+                                strokeWidth={2.2}
+                                strokeOpacity={0.75}
+                                strokeLinecap="round"
+                              />
+                            );
+                          })}
+                          {taskLayout.nodes.map(node => (
+                            <TaskNodeRenderer
+                              key={node.data.id}
+                              task={node}
+                              stepName={step.name}
+                              fontSize={13}
+                              glyphSize={18}
+                              textOffsetX={30}
+                            />
+                          ))}
+                        </svg>
+                      </>
+                    );
+                  })()
                 ) : (
                   <div className="text-sm text-[var(--text-secondary)]">No task graph available.</div>
                 )}
