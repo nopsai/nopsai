@@ -1733,7 +1733,8 @@
 
     async function maybeLoadMoreRecentRuns(container) {
         if (state.currentTab !== 'recent') return;
-        const node = container || state.recentRunsScrollContainer || DOM?.sidebarDetailsNav || document.documentElement;
+        const nodes = getRecentScrollContainers();
+        const node = container || state.recentRunsScrollContainer || nodes[0] || document.documentElement;
         if (!node) return;
         if (!state.recentRunsHasMore || state.recentRunsLoadingMore || state.recentRunsRefreshing) return;
         const remaining = node.scrollHeight - node.scrollTop - node.clientHeight;
@@ -2419,6 +2420,7 @@
         if (!filteredRuns.length) {
             const message = searchTerm ? 'No runs match your search.' : 'No recent runs found.';
             listEl.innerHTML = `<li><p class="p-2 text-[var(--text-secondary)] text-sm">${escapeText(message)}</p></li>`;
+            requestAnimationFrame(() => maybeLoadMoreRecentRuns());
             return;
         }
         const context = { tab: 'recent' };
@@ -2429,6 +2431,9 @@
                         ${renderSidebarRunLinkHTML(run, context)}
                     </li>`;
         }).join('');
+
+        // Ensure pagination keeps advancing if the list is shorter than the viewport.
+        requestAnimationFrame(() => maybeLoadMoreRecentRuns());
     }
 
     async function applyRunSearchFilter() {
