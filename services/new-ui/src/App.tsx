@@ -1195,6 +1195,14 @@ function PipelineRunsSidebarContent({
   }, [activeGroupId, groups]);
 
   useEffect(() => {
+    if (tab !== 'main') return;
+    if (!activeGroupId) return;
+    const group = groups.find(g => g.id === activeGroupId);
+    if (!group || !group.name.includes('/')) return;
+    void ensureRepoRuns(group.id);
+  }, [activeGroupId, ensureRepoRuns, groups, tab]);
+
+  useEffect(() => {
     if (!activeRunId) return;
     const expandForRun = async () => {
       const detail = await fetchJson<RunDetail>(`/v1/runs/${encodeURIComponent(activeRunId)}`);

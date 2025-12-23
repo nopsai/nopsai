@@ -275,6 +275,7 @@ function PipelineRunsPage() {
   const pollingRef = useRef<number | null>(null);
   const detailPollRef = useRef<number | null>(null);
   const mainContentRef = useRef<HTMLDivElement | null>(null);
+  const pageWrapperRef = useRef<HTMLElement | null>(null);
   const scrollMainToTop = useCallback(() => {
     const el = mainContentRef.current;
     if (el) el.scrollTo({ top: 0, behavior: 'smooth' });
@@ -384,6 +385,11 @@ function PipelineRunsPage() {
     } catch {
       return text as unknown as T;
     }
+  }, []);
+
+  useLayoutEffect(() => {
+    // Capture the scrollable wrapper used by the app layout so we can attach listeners there too.
+    pageWrapperRef.current = (mainContentRef.current?.closest('#page-content-wrapper') as HTMLElement | null) ?? null;
   }, []);
 
   const fetchRecentPage = useCallback(
@@ -593,9 +599,15 @@ function PipelineRunsPage() {
     return (!term ? recentRunsAll : recentRunsAll.filter(run => runMatchesSearch(run, term))).length;
   }, [activeTab, recentRunsAll, searchTerm]);
 
-  const handleRecentScroll = useCallback(() => {
+  const handleRecentScroll = useCallback((source?: HTMLElement | null) => {
     if (activeTab !== 'recent') return;
-    const node = mainContentRef.current;
+    const node =
+      source ||
+      mainContentRef.current ||
+      pageWrapperRef.current ||
+      (document.getElementById('page-content-wrapper') as HTMLElement | null) ||
+      document.scrollingElement ||
+      document.documentElement;
     if (!node) return;
     const remaining = node.scrollHeight - node.scrollTop - node.clientHeight;
     if (remaining > 240) return;
@@ -611,11 +623,29 @@ function PipelineRunsPage() {
 
   useEffect(() => {
     if (activeTab !== 'recent') return;
-    const node = mainContentRef.current;
-    if (!node) return;
-    const listener = () => handleRecentScroll();
-    node.addEventListener('scroll', listener);
-    return () => node.removeEventListener('scroll', listener);
+    const listeners: Array<{ node: HTMLElement; handler: () => void }> = [];
+
+    const mainNode = mainContentRef.current;
+    if (mainNode) {
+      const handler = () => handleRecentScroll(mainNode);
+      mainNode.addEventListener('scroll', handler, { passive: true });
+      listeners.push({ node: mainNode, handler });
+    }
+
+    const wrapperNode = pageWrapperRef.current;
+    if (wrapperNode && wrapperNode !== mainNode) {
+      const handler = () => handleRecentScroll(wrapperNode);
+      wrapperNode.addEventListener('scroll', handler, { passive: true });
+      listeners.push({ node: wrapperNode, handler });
+    }
+
+    const windowHandler = () => handleRecentScroll(document.documentElement);
+    window.addEventListener('scroll', windowHandler, { passive: true });
+
+    return () => {
+      listeners.forEach(({ node, handler }) => node.removeEventListener('scroll', handler));
+      window.removeEventListener('scroll', windowHandler);
+    };
   }, [activeTab, handleRecentScroll]);
 
   useEffect(() => {
@@ -1908,9 +1938,11 @@ function ListRunRow({ run, selected, onSelect, onOpen }: { run: RunListItem; sel
   const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
   const repoLabel = formatRepoLabel(run);
   const branchLabel = formatBranchDisplay(run.git_ref, run.git_target_ref);
+  const commitLabel = (run.git_commit_sha || 'N/A').slice(0, 8);
+  const runIdLabel = (run.run_id || 'N/A').slice(0, 8);
   return (
     <div
-      className={`run-card run-card--list border border-[var(--border-primary)] bg-transparent shadow-sm rounded-2xl hover:border-[var(--border-accent)] ${selected ? 'run-link-highlight' : ''}`}
+      className={`run-card run-card--list border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-sm rounded-2xl hover:border-[var(--border-accent)] ${selected ? 'run-link-highlight' : ''}`}
       role="button"
       tabIndex={0}
       onClick={onOpen}
@@ -1920,65 +1952,54 @@ function ListRunRow({ run, selected, onSelect, onOpen }: { run: RunListItem; sel
       data-trigger-id={run.trigger_event_id || ''}
       data-run-id={run.run_id}
     >
-      <div className="run-list-info">
+      <div className="run-list-cell run-list-cell--main">
         <span className="run-list-icon">
           <RunStatusIcon status={run.status} complete={run.is_complete} />
         </span>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-2">
-            <div className="run-list-titles flex-1 min-w-0">
-              <div className="run-list-title">{run.pipeline_name}</div>
-              <div className="font-mono text-[11px] text-[var(--text-secondary)] truncate flex items-center gap-1">
-                <RunIdIcon className="h-3.5 w-3.5 flex-shrink-0" />
-                <span>Run: {(run.run_id || 'N/A').slice(0, 8)}</span>
-              </div>
-              <div className="run-list-sub flex items-center gap-3 flex-wrap text-[var(--text-secondary)]">
-                <span className="inline-flex items-center gap-1 min-w-0">
-                  <svg className="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="8" cy="7" r="2" />
-                    <circle cx="8" cy="17" r="2" />
-                    <circle cx="16" cy="7" r="2" />
-                    <path d="M10 7h4" />
-                    <path d="M8 9v6a4 4 0 004 4h4" />
-                  </svg>
-                  <span className="truncate">{repoLabel}</span>
-                </span>
-                <span className="inline-flex items-center gap-1 min-w-0">
-                  <BranchIcon className="h-4 w-4 flex-shrink-0" />
-                  <span className="truncate">{branchLabel || 'N/A'}</span>
-                </span>
-              </div>
+        <div className="run-list-main">
+          <div className="run-list-title-row">
+            <div className="run-list-title truncate" title={run.pipeline_name}>
+              {run.pipeline_name}
             </div>
             <PipelineBadges run={run} />
           </div>
+          <div className="run-list-chips">
+            <span className="run-list-chip" title={repoLabel}>
+              <svg className="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="8" cy="7" r="2" />
+                <circle cx="8" cy="17" r="2" />
+                <circle cx="16" cy="7" r="2" />
+                <path d="M10 7h4" />
+                <path d="M8 9v6a4 4 0 004 4h4" />
+              </svg>
+              <span className="truncate">{repoLabel}</span>
+            </span>
+            <span className="run-list-chip" title={branchLabel || 'N/A'}>
+              <BranchIcon className="h-3.5 w-3.5 flex-shrink-0" />
+              <span className="truncate">{branchLabel || 'N/A'}</span>
+            </span>
+            <span className="run-list-chip font-mono" title={`Run ${run.run_id || 'N/A'}`}>
+              <RunIdIcon className="h-3.5 w-3.5 flex-shrink-0" />
+              {runIdLabel}
+            </span>
+          </div>
         </div>
       </div>
-      <div className="run-list-meta">
-        <span className="run-list-meta-item">
-          <span className="run-list-meta-label">Commit</span>
-          <span className="run-list-meta-value font-mono">{(run.git_commit_sha || 'N/A').slice(0, 8)}</span>
-        </span>
-        <span className="run-list-meta-item">
-          <span className="run-list-meta-label">Repo</span>
-          <span className="run-list-meta-value">{repoLabel}</span>
-        </span>
-        <span className="run-list-meta-item">
-          <span className="run-list-meta-label">Run ID</span>
-          <span className="run-list-meta-value font-mono inline-flex items-center gap-1">
-            <RunIdIcon className="h-3.5 w-3.5 flex-shrink-0" />
-            {(run.run_id || 'N/A').slice(0, 8)}
-          </span>
-        </span>
-        <span className="run-list-meta-item">
-          <span className="run-list-meta-label">Trigger</span>
-          <span className="run-list-meta-value">{triggerLabel.display}</span>
-        </span>
-        <span className="run-list-meta-item">
-          <span className="run-list-meta-label">Updated</span>
-          <span className="run-list-meta-value">{timeAgo(timeToDisplay)}</span>
+      <div className="run-list-cell">
+        <span className="run-list-meta-label">Commit</span>
+        <span className="run-list-meta-value font-mono">{commitLabel}</span>
+      </div>
+      <div className="run-list-cell">
+        <span className="run-list-meta-label">Trigger</span>
+        <span className="run-list-meta-value truncate" title={triggerLabel.full}>
+          {triggerLabel.display}
         </span>
       </div>
-      <div className="run-list-actions">
+      <div className="run-list-cell">
+        <span className="run-list-meta-label">Updated</span>
+        <span className="run-list-meta-value">{timeAgo(timeToDisplay)}</span>
+      </div>
+      <div className="run-list-cell run-list-cell--actions">
         <RunSelectToggle selected={selected} onToggle={onSelect} />
       </div>
     </div>
