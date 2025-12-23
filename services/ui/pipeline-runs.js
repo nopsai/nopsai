@@ -15,6 +15,9 @@
     let lastMainGridRender = null;
     const runViewToggle = { container: null, gridBtn: null, listBtn: null };
 
+    const RECENT_RUNS_PAGE_SIZE = 200;
+    const RECENT_RUNS_SCROLL_BUFFER = 200;
+
     const statusConfig = {
         success: { icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-green-500 dark:text-green-400', rectClass: 'stroke-green-500 fill-green-100 dark:fill-green-500/10' },
         failure: { icon: 'M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-red-500 dark:text-red-400', rectClass: 'stroke-red-500 fill-red-100 dark:fill-red-500/10' },
@@ -1226,6 +1229,12 @@
         }
         if (!Array.isArray(state.recentRuns)) state.recentRuns = [];
         if (!Array.isArray(state.searchRuns)) state.searchRuns = [];
+        if (typeof state.recentRunsHasMore !== 'boolean') state.recentRunsHasMore = true;
+        if (typeof state.recentRunsRefreshing !== 'boolean') state.recentRunsRefreshing = false;
+        if (typeof state.recentRunsLoadingMore !== 'boolean') state.recentRunsLoadingMore = false;
+        state.recentRunsScrollHandler = state.recentRunsScrollHandler || null;
+        state.recentRunsScrollContainer = state.recentRunsScrollContainer || null;
+        state.recentRunsScrollNodes = Array.isArray(state.recentRunsScrollNodes) ? state.recentRunsScrollNodes : [];
         apiBaseUrl = typeof context.apiBaseUrl === 'string' ? context.apiBaseUrl.replace(/\/+$/, '') : '';
         if (!(state.currentRunTrackedIds instanceof Map)) {
             state.currentRunTrackedIds = new Map();
@@ -1259,8 +1268,7 @@
 
         if (currentHashInfo.path !== 'pipelineruns' || !currentHashInfo.runId) {
             if (state.currentTab === 'recent') {
-                const runs = await fetchData('/v1/runs');
-                if (runs) renderSidebarPipelineRunsList(runs);
+                await fetchAllRuns({ replace: true, updateMain: false });
             } else if (state.currentTab === 'events') {
                  const runs = await fetchData('/v1/runs');
                  if (typeof renderTriggerGroupsView === 'function') {
@@ -1282,8 +1290,7 @@
         }
 
         if (state.currentTab === 'recent') {
-            const runs = await fetchData('/v1/runs');
-            if (runs) renderSidebarPipelineRunsList(runs);
+            await fetchAllRuns({ replace: true, updateMain: false });
         } else if (state.currentTab === 'main') {
             await renderHierarchy(state.groups);
         }
@@ -1650,18 +1657,113 @@
 
 
 
-    async function fetchAllRuns() {
-        const runs = await fetchData('/v1/runs');
-        if (Array.isArray(runs)) {
-            state.recentRuns = runs;
+    async function fetchRecentRunsPage(offset = 0, { replace = false } = {}) {
+        const isRefresh = replace || offset === 0;
+        if (isRefresh) {
+            if (state.recentRunsRefreshing) return null;
+            state.recentRunsRefreshing = true;
         } else {
-            state.recentRuns = [];
+            if (state.recentRunsLoadingMore) return null;
+            state.recentRunsLoadingMore = true;
         }
+        try {
+            const runs = await fetchData(`/v1/runs?offset=${offset}&limit=${RECENT_RUNS_PAGE_SIZE}`);
+            const list = Array.isArray(runs) ? runs : [];
+            state.recentRunsHasMore = list.length === RECENT_RUNS_PAGE_SIZE;
+
+            if (!Array.isArray(state.recentRuns)) state.recentRuns = [];
+
+            if (isRefresh) {
+                const newIds = new Set(list.map(run => run?.run_id));
+                const merged = [...list, ...state.recentRuns.filter(run => run && !newIds.has(run.run_id))];
+                state.recentRuns = merged;
+            } else {
+                const existingIds = new Set(state.recentRuns.map(run => run?.run_id));
+                const appended = list.filter(run => run && !existingIds.has(run.run_id));
+                state.recentRuns = [...state.recentRuns, ...appended];
+            }
+            return list;
+        } catch (error) {
+            console.error('Failed to load recent runs page', error);
+            return null;
+        } finally {
+            if (isRefresh) {
+                state.recentRunsRefreshing = false;
+            } else {
+                state.recentRunsLoadingMore = false;
+            }
+        }
+    }
+
+    async function fetchAllRuns(options = {}) {
+        const { replace = true, updateMain = true } = options;
+        await fetchRecentRunsPage(0, { replace });
         renderSidebarPipelineRunsList(state.recentRuns);
+        if (!updateMain) return;
         const hashInfo = parsePipelineRunsHash(window.location.hash);
         if (state.currentTab === 'recent' && !hashInfo.runId) {
             renderMainGridContent(null, state.recentRuns, false);
         }
+    }
+
+    function teardownRecentRunsInfiniteScroll() {
+        if (Array.isArray(state.recentRunsScrollNodes)) {
+            state.recentRunsScrollNodes.forEach(entry => {
+                if (entry?.node && entry?.handler) {
+                    entry.node.removeEventListener('scroll', entry.handler);
+                }
+            });
+        }
+        state.recentRunsScrollNodes = [];
+        state.recentRunsScrollContainer = null;
+        state.recentRunsScrollHandler = null;
+    }
+
+    function getRecentScrollContainers() {
+        const nodes = [];
+        if (DOM?.sidebarDetailsNav) {
+            if (DOM.sidebarDetailsNav.parentElement) nodes.push(DOM.sidebarDetailsNav.parentElement);
+            nodes.push(DOM.sidebarDetailsNav);
+        }
+        if (DOM?.pageContentWrapper) nodes.push(DOM.pageContentWrapper);
+        if (DOM?.pageContent) nodes.push(DOM.pageContent);
+        if (document?.documentElement) nodes.push(document.documentElement);
+        return nodes.filter(Boolean);
+    }
+
+    async function maybeLoadMoreRecentRuns(container) {
+        if (state.currentTab !== 'recent') return;
+        const node = container || state.recentRunsScrollContainer || DOM?.sidebarDetailsNav || document.documentElement;
+        if (!node) return;
+        if (!state.recentRunsHasMore || state.recentRunsLoadingMore || state.recentRunsRefreshing) return;
+        const remaining = node.scrollHeight - node.scrollTop - node.clientHeight;
+        if (remaining > RECENT_RUNS_SCROLL_BUFFER) return;
+        await fetchRecentRunsPage(state.recentRuns.length, { replace: false });
+        renderSidebarPipelineRunsList(state.recentRuns);
+        const hashInfo = parsePipelineRunsHash(window.location.hash);
+        if (!hashInfo.runId) {
+            renderMainGridContent(null, state.recentRuns, false);
+        }
+    }
+
+    function setupRecentRunsInfiniteScroll() {
+        const containers = getRecentScrollContainers();
+        if (!containers.length) return;
+
+        teardownRecentRunsInfiniteScroll();
+
+        const handlerFactory = node => () => maybeLoadMoreRecentRuns(node);
+        state.recentRunsScrollNodes = containers.map(node => {
+            const handler = handlerFactory(node);
+            node.addEventListener('scroll', handler, { passive: true });
+            return { node, handler };
+        });
+
+        // Store primary container for fallback computations.
+        state.recentRunsScrollContainer = containers[0];
+
+        // Immediate check in case the list is short.
+        maybeLoadMoreRecentRuns(containers[0]);
     }
 
     function stopPipelineRunsPolling() {
@@ -1684,7 +1786,7 @@
             }
 
             if (state.currentTab === 'recent') {
-                await fetchAllRuns();
+                await fetchAllRuns({ replace: true, updateMain: true });
 
             } else if (state.currentTab === 'events') {
                 const runs = await fetchData('/v1/runs');
@@ -1970,6 +2072,10 @@
 
         DOM.sidebarBaseNav.innerHTML = `<div class="space-y-1">${baseNavHtml}</div>`;
 
+        if (!(activeRoute === 'pipelineruns' && currentTab === 'recent')) {
+            teardownRecentRunsInfiniteScroll();
+        }
+
         let detailsNavHtml = '';
         if (activeRoute === 'pipelines') {
             detailsNavHtml = `<div class="px-2 mt-2 mb-2 flex items-center justify-between">
@@ -2032,8 +2138,10 @@
                 detailsNavHtml = `<h2 class="px-2 mt-2 mb-2 text-xs font-semibold tracking-wider text-[var(--text-secondary)] uppercase">Recent Runs</h2>
                                   <ul id="pipeline-runs-list" class="space-y-1"></ul>`;
                 DOM.sidebarDetailsNav.innerHTML = detailsNavHtml;
-                fetchAllRuns();
+                setupRecentRunsInfiniteScroll();
+                fetchAllRuns({ replace: true, updateMain: true });
             } else {
+                teardownRecentRunsInfiniteScroll();
                 if (!document.getElementById('main-hierarchy')) {
                     detailsNavHtml = `<div class="px-2 mt-2 mb-2 flex items-center justify-between">
                                           <h2 class="text-xs font-semibold tracking-wider text-[var(--text-secondary)] uppercase">Main</h2>
@@ -5557,14 +5665,7 @@
                 state.selectedGroupPathSegments = [];
                 state.currentRunContext = null;
                 DOM.mainHeader.textContent = 'Recent Pipeline Runs';
-                const runs = await fetchData('/v1/runs');
-                if (Array.isArray(runs)) {
-                    state.recentRuns = runs;
-                } else {
-                    state.recentRuns = [];
-                }
-                renderMainGridContent(null, state.recentRuns, false);
-                renderSidebarPipelineRunsList(state.recentRuns);
+                await fetchAllRuns({ replace: true, updateMain: true });
             } else { // main tab without specific run
                 state.currentRunContext = null;
                 const groupId = selectedGroupId;
@@ -6332,14 +6433,7 @@
         if (state.currentPath === 'pipelineruns' && !hashInfo.runId) {
             if (state.currentTab === 'recent') {
                 // If on the "Recent" tab, re-fetch all runs and re-render the main grid.
-                const runs = await fetchData('/v1/runs');
-                if (Array.isArray(runs)) {
-                    state.recentRuns = runs;
-                } else {
-                    state.recentRuns = [];
-                }
-                renderMainGridContent(null, state.recentRuns, false);
-                renderSidebarPipelineRunsList(state.recentRuns);
+                await fetchAllRuns({ replace: true, updateMain: true });
             } else if (state.currentTab === 'events') {
                  const runs = await fetchData('/v1/runs');
                  if (typeof renderTriggerGroupsView === 'function') {
