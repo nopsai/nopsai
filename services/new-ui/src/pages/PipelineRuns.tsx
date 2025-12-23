@@ -3425,6 +3425,7 @@ function EventCard({
   const meta = getStatusMeta(group.status, group.status === 'success');
   const latestRun = group.latestRun || group.runs[0];
   const triggerLabel = formatTriggerId(group.id);
+  const eventDisplay = (triggerLabel.full || triggerLabel.display).slice(0, 8);
   const branchLabel = latestRun ? formatBranchDisplay(latestRun.git_ref, latestRun.git_target_ref) : '—';
   const commitLabel = latestRun?.git_commit_sha ? latestRun.git_commit_sha.slice(0, 8) : '—';
   const pusher = latestRun?.git_pusher_name || 'System';
@@ -3452,10 +3453,10 @@ function EventCard({
         aria-expanded={!collapsed}
       >
         <div
-          className="grid items-center gap-3 min-w-0 overflow-hidden text-xs text-[var(--text-secondary)]"
+          className="grid items-center gap-2 min-w-0 overflow-hidden text-xs text-[var(--text-secondary)]"
           style={{
             gridTemplateColumns:
-              'auto minmax(104px,120px) minmax(170px,1.3fr) minmax(110px,0.8fr) minmax(220px,1.2fr) minmax(130px,0.9fr) minmax(160px,1fr) minmax(140px,1fr) minmax(96px,0.8fr) minmax(120px,0.8fr)',
+              'auto minmax(88px,105px) minmax(160px,1.2fr) minmax(82px,0.55fr) minmax(220px,1.4fr) minmax(120px,0.75fr) minmax(110px,0.65fr) minmax(130px,0.9fr) minmax(130px,0.9fr)',
           }}
         >
           <svg
@@ -3470,50 +3471,52 @@ function EventCard({
           >
             <path d="M9 5l7 7-7 7" />
           </svg>
-          <span className={`runner-pill ${meta.pillClass} flex-shrink-0 min-w-[104px] justify-center text-center`}>
+          <span className={`runner-pill ${meta.pillClass} flex-shrink-0 min-w-[96px] justify-center text-center`}>
             {meta.text}
           </span>
-            <span className="text-sm font-semibold text-[var(--text-primary)] truncate" title={triggerLabel.full}>
-              Event: {triggerLabel.display}
-            </span>
-            <span className="inline-flex items-center gap-1 min-w-0 whitespace-nowrap">
-              <svg className="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <span className="text-sm font-semibold text-[var(--text-primary)] truncate" title={triggerLabel.full}>
+            Event: {eventDisplay}
+          </span>
+          <span className="inline-flex items-center gap-1 min-w-0 whitespace-nowrap">
+            <svg className="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <span className="truncate" title={timestamp || undefined}>{timeLabel}</span>
           </span>
-            <span className="inline-flex items-center gap-1 min-w-0 whitespace-nowrap">
-              <svg className="h-3.5 w-3.5 flex-shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <circle cx="8" cy="7" r="2" />
-                <circle cx="8" cy="17" r="2" />
-                <circle cx="16" cy="7" r="2" />
-                <path d="M10 7h4" />
-                <path d="M8 9v6a4 4 0 004 4h4" />
-              </svg>
-              <span className="truncate" title={repoLabel}>{repoLabel}</span>
-            </span>
-            <span className="inline-flex items-center gap-1 min-w-0 whitespace-nowrap font-mono">
-              <CommitIcon className="h-3.5 w-3.5 flex-shrink-0" />
-              <span className="truncate" title={latestRun?.git_commit_sha || commitLabel}>{commitLabel}</span>
-            </span>
+          <span className="inline-flex items-center gap-1 min-w-0 whitespace-nowrap">
+            <svg className="h-3.5 w-3.5 flex-shrink-0 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="8" cy="7" r="2" />
+              <circle cx="8" cy="17" r="2" />
+              <circle cx="16" cy="7" r="2" />
+              <path d="M10 7h4" />
+              <path d="M8 9v6a4 4 0 004 4h4" />
+            </svg>
+            <span className="truncate" title={repoLabel}>{repoLabel}</span>
+          </span>
+          <span className="inline-flex items-center gap-1 min-w-0 whitespace-nowrap font-mono">
+            <CommitIcon className="h-3.5 w-3.5 flex-shrink-0" />
+            <span className="truncate" title={latestRun?.git_commit_sha || commitLabel}>{commitLabel}</span>
+          </span>
           <span className="inline-flex items-center gap-1 min-w-0 whitespace-nowrap">
             <BranchIcon className="h-3.5 w-3.5 flex-shrink-0" />
             <span className="truncate" title={branchLabel}>{branchLabel}</span>
           </span>
-            <span className="inline-flex items-center gap-1 min-w-0 whitespace-nowrap">
-              <svg className="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-              </svg>
-              <span className="truncate" title={pusher}>{pusher}</span>
+          <span className="inline-flex items-center gap-1 min-w-0 whitespace-nowrap">
+            <svg className="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            </svg>
+            <span className="truncate" title={pusher}>{pusher}</span>
           </span>
-          <div className="flex items-center gap-1">
-            {group.runs.slice(0, 6).map(run => (
-              <span key={run.run_id} className={`h-2.5 w-2.5 rounded-full ${statusDotClass(run.status, run.is_complete)}`} />
-            ))}
+          <div className="flex items-center justify-end gap-2 whitespace-nowrap">
+            <span className="px-2 py-[3px] text-[11px] rounded-full bg-[var(--bg-primary)] border border-[var(--border-primary)] text-[var(--text-secondary)] text-center">
+              {group.runs.length} {group.runs.length === 1 ? 'Pipeline' : 'Pipelines'}
+            </span>
+            <div className="flex items-center gap-1">
+              {group.runs.slice(0, 6).map(run => (
+                <span key={run.run_id} className={`h-2.5 w-2.5 rounded-full ${statusDotClass(run.status, run.is_complete)}`} />
+              ))}
+            </div>
           </div>
-          <span className="px-3 py-1 text-[11px] rounded-full bg-[var(--bg-primary)] border border-[var(--border-primary)] text-[var(--text-secondary)] text-center">
-            {group.runs.length} {group.runs.length === 1 ? 'Pipeline' : 'Pipelines'}
-          </span>
         </div>
       </button>
       {!collapsed && (
