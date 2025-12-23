@@ -2424,6 +2424,12 @@ type GraphStep = {
   childRun?: RunListItem | null;
 };
 
+type TaskGraphLayout = GraphLayout<GraphTask> & {
+  orientation: 'horizontal' | 'vertical';
+  taskCount: number;
+  dependencyCount: number;
+};
+
 const STEP_WIDTH_CLOSED = 190;
 const STEP_HEIGHT_CLOSED = 56;
 const TASK_MIN_WIDTH = 160;
@@ -4159,8 +4165,13 @@ function StepDetailModal({
 }) {
   const config = step?.configuration;
   const taskDefs = config?.tasks || [];
+  const [activeTaskName, setActiveTaskName] = useState<string | null>(null);
 
-  const taskLayout = useMemo(() => {
+  useEffect(() => {
+    setActiveTaskName(null);
+  }, [step?.name]);
+
+  const taskLayout = useMemo<TaskGraphLayout | null>(() => {
     if (!step) return null;
     const layoutTasks: GraphTask[] = (step.tasks || []).map(task => {
       const def = taskDefs.find(t => t.name === task.task_name);
@@ -4174,85 +4185,159 @@ function StepDetailModal({
         dependsOn: deps,
       };
     });
-    const hasAnyDeps = layoutTasks.some(t => t.dependsOn && t.dependsOn.length > 0);
-    const tasksForLayout =
-      !hasAnyDeps && layoutTasks.length > 1
-        ? layoutTasks.map((t, idx) => (idx === 0 ? t : { ...t, dependsOn: [layoutTasks[idx - 1].id] }))
-        : layoutTasks;
+    const dependencyCount = layoutTasks.reduce((sum, t) => sum + (t.dependsOn?.length || 0), 0);
+    const hasAnyDeps = dependencyCount > 0;
+    const chained = layoutTasks.map((t, idx) => (idx === 0 ? t : { ...t, dependsOn: [layoutTasks[idx - 1].id] }));
+    const tasksForLayout = !hasAnyDeps && layoutTasks.length > 1 ? chained : layoutTasks;
     const sizeFor = (task: GraphTask): GraphSize => {
       const label = `${task.name} - ${task.duration || '0s'}`;
       const width = Math.max(TASK_MIN_WIDTH + 40, Math.min(TASK_MAX_WIDTH + 60, 38 + label.length * 8));
       return { width, height: Math.max(TASK_HEIGHT + 28, 64) };
     };
-    let layout = calculateGraphLayout(tasksForLayout, sizeFor, 32, 44, 'vertical');
-    if (!hasAnyDeps && layout.nodes.length > 1 && layout.edges.length === 0) {
-      const chained = layoutTasks.map((t, idx) => (idx === 0 ? t : { ...t, dependsOn: [layoutTasks[idx - 1].id] }));
-      layout = calculateGraphLayout(chained, sizeFor, 32, 44, 'vertical');
-    }
-    return layout;
+
+    const baseLayout = calculateGraphLayout(tasksForLayout, sizeFor, 44, 32, 'horizontal');
+    const layoutNeedsChain = !hasAnyDeps && baseLayout.nodes.length > 1 && baseLayout.edges.length === 0;
+    const finalLayout = layoutNeedsChain ? calculateGraphLayout(chained, sizeFor, 44, 32, 'horizontal') : baseLayout;
+
+    return {
+      ...finalLayout,
+      orientation: 'horizontal',
+      taskCount: layoutTasks.length,
+      dependencyCount,
+    };
   }, [step, taskDefs]);
 
   const taskGraphView = useMemo(() => {
     if (!taskLayout || !taskLayout.nodes.length) return null;
-    const viewWidth = Math.max(taskLayout.width + 10, 260);
-    const viewHeight = Math.max(taskLayout.height + 80, 320);
-    return { viewWidth, viewHeight };
+    const density = taskLayout.taskCount ? taskLayout.dependencyCount / taskLayout.taskCount : 0;
+    const padScale = 1 + Math.min(0.6, taskLayout.taskCount * 0.04 + density * 0.06);
+    const padX = Math.max(48, Math.min(170, taskLayout.width * 0.18 * padScale));
+    const padY = Math.max(60, Math.min(200, taskLayout.height * 0.2 * padScale));
+    const viewWidth = Math.max(taskLayout.width + padX * 2, 360 + taskLayout.taskCount * 6);
+    const viewHeight = Math.max(taskLayout.height + padY * 2, 380 + taskLayout.taskCount * 8);
+    return {
+      viewWidth,
+      viewHeight,
+      taskCount: taskLayout.taskCount,
+      dependencyCount: taskLayout.dependencyCount,
+      density,
+      orientation: taskLayout.orientation,
+    };
   }, [taskLayout]);
 
   const graphContainerRef = useRef<HTMLDivElement | null>(null);
-  const [baseGraphScale, setBaseGraphScale] = useState(1.6);
+  const [baseGraphScale, setBaseGraphScale] = useState(1);
   const [userGraphScale, setUserGraphScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const draggingRef = useRef(false);
   const dragStartRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
-  const clampUserScale = useCallback((value: number) => Math.min(2.4, Math.max(0.6, value)), []);
+  const userAdjustedRef = useRef(false);
+  const clampUserScale = useCallback((value: number) => Math.min(3, Math.max(0.6, value)), []);
   const graphScale = baseGraphScale * userGraphScale;
   const nearlyEqual = (a: number, b: number, eps = 0.5) => Math.abs(a - b) < eps;
+  const markUserAdjusted = () => {
+    userAdjustedRef.current = true;
+  };
+
+  const centerGraph = useCallback(() => {
+    if (!graphContainerRef.current || !taskGraphView) return;
+    const rect = graphContainerRef.current.getBoundingClientRect();
+    const scaledWidth = taskGraphView.viewWidth * graphScale;
+    const scaledHeight = taskGraphView.viewHeight * graphScale;
+    const nextPan = {
+      x: (rect.width - scaledWidth) / 2,
+      y: (rect.height - scaledHeight) / 2,
+    };
+    setPan(prev => {
+      if (nearlyEqual(prev.x, nextPan.x, 0.3) && nearlyEqual(prev.y, nextPan.y, 0.3)) return prev;
+      return nextPan;
+    });
+  }, [graphScale, nearlyEqual, taskGraphView]);
+
+  const recomputeBaseScale = useCallback(() => {
+    if (!graphContainerRef.current || !taskGraphView) return;
+    const rect = graphContainerRef.current.getBoundingClientRect();
+    const padding = 32;
+    const availableWidth = Math.max(160, rect.width - padding * 2);
+    const availableHeight = Math.max(260, rect.height - padding * 2);
+    if (!taskGraphView.viewWidth || !taskGraphView.viewHeight) return;
+    const fitScale = Math.min(availableWidth / taskGraphView.viewWidth, availableHeight / taskGraphView.viewHeight);
+    const density = taskGraphView.taskCount ? taskGraphView.dependencyCount / taskGraphView.taskCount : 0;
+    const sizeFactor =
+      taskGraphView.taskCount <= 3 ? 1.18 : taskGraphView.taskCount <= 6 ? 1.05 : taskGraphView.taskCount <= 10 ? 0.95 : 0.82;
+    const dependencyFactor = density > 1.3 ? 0.86 : density > 0.8 ? 0.92 : density > 0.4 ? 0.98 : 1.06;
+    const orientationFactor = taskGraphView.orientation === 'horizontal' && taskGraphView.taskCount <= 4 ? 1.05 : 1;
+    const target = Math.min(2.2, Math.max(0.7, fitScale * sizeFactor * dependencyFactor * orientationFactor));
+    setBaseGraphScale(target);
+    if (!userAdjustedRef.current) {
+      setUserGraphScale(1);
+    }
+  }, [taskGraphView]);
+
+  useEffect(() => {
+    userAdjustedRef.current = false;
+    recomputeBaseScale();
+  }, [recomputeBaseScale]);
 
   useLayoutEffect(() => {
-    const recomputeScale = () => {
-      if (!graphContainerRef.current || !taskGraphView) return;
-      const rect = graphContainerRef.current.getBoundingClientRect();
-      const padding = 24;
-      const availableWidth = Math.max(120, rect.width - padding * 2);
-      const availableHeight = Math.max(180, rect.height - padding * 2);
-      const fitScale = Math.min(availableWidth / taskGraphView.viewWidth, availableHeight / taskGraphView.viewHeight);
-      const target = Math.min(2.4, Math.max(1.1, fitScale * 1.32));
-      const scaledWidth = taskGraphView.viewWidth * target;
-      const scaledHeight = taskGraphView.viewHeight * target;
-      const centerPan = {
-        x: (rect.width - scaledWidth) / 2,
-        y: (rect.height - scaledHeight) / 2,
-      };
+    const onResize = () => recomputeBaseScale();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [recomputeBaseScale]);
 
-      setBaseGraphScale(prev => (Math.abs(prev - target) > 0.001 ? target : prev));
-      setPan(prev => {
-        if (nearlyEqual(prev.x, centerPan.x) && nearlyEqual(prev.y, centerPan.y)) return prev;
-        return centerPan;
-      });
-      setUserGraphScale(prev => {
-        const clamped = clampUserScale(prev);
-        return clamped === prev ? prev : clamped;
-      });
-    };
-    recomputeScale();
-    window.addEventListener('resize', recomputeScale);
-    return () => window.removeEventListener('resize', recomputeScale);
-  }, [taskGraphView, clampUserScale]);
+  useLayoutEffect(() => {
+    if (!taskGraphView || userAdjustedRef.current) return;
+    const rect = graphContainerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    centerGraph();
+  }, [baseGraphScale, centerGraph, graphScale, nearlyEqual, taskGraphView, userGraphScale]);
 
   useEffect(() => {
     const el = graphContainerRef.current;
     if (!el) return undefined;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const factor = e.deltaY > 0 ? 1 / 1.1 : 1.1;
+      const factor = e.deltaY > 0 ? 1 / 1.06 : 1.06;
+      markUserAdjusted();
       setUserGraphScale(prev => clampUserScale(prev * factor));
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
   }, [clampUserScale]);
 
+  useEffect(() => {
+    if (userAdjustedRef.current) return;
+    centerGraph();
+  }, [centerGraph, taskGraphView]);
+
+  const taskContentOffset = useMemo(() => {
+    if (!taskLayout || !taskLayout.nodes.length || !taskGraphView) return { x: 0, y: 0 };
+    const minX = Math.min(...taskLayout.nodes.map(n => n.x));
+    const minY = Math.min(...taskLayout.nodes.map(n => n.y));
+    const maxX = Math.max(...taskLayout.nodes.map(n => n.x + n.width));
+    const maxY = Math.max(...taskLayout.nodes.map(n => n.y + n.height));
+    const contentWidth = maxX - minX;
+    const contentHeight = maxY - minY;
+    const extraX = Math.max(0, taskGraphView.viewWidth - contentWidth);
+    const extraY = Math.max(0, taskGraphView.viewHeight - contentHeight);
+    return {
+      x: -minX + extraX / 2,
+      y: -minY + extraY / 2,
+    };
+  }, [taskGraphView, taskLayout]);
+
+  const selectedTask = useMemo(() => {
+    if (!activeTaskName) return null;
+    return (step?.tasks || []).find(task => task.task_name === activeTaskName) || null;
+  }, [activeTaskName, step?.tasks]);
+
+  const selectedTaskDefinition = useMemo(() => {
+    if (!activeTaskName) return null;
+    return taskDefs.find(def => def.name === activeTaskName) || null;
+  }, [activeTaskName, taskDefs]);
+
   const onMouseDownGraph = (e: React.MouseEvent) => {
+    markUserAdjusted();
     draggingRef.current = true;
     dragStartRef.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
   };
@@ -4273,139 +4358,138 @@ function StepDetailModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] px-3 py-6">
-      <div className="w-full max-w-6xl bg-[var(--bg-primary)] rounded-2xl shadow-2xl border border-[var(--border-primary)] flex flex-col max-h-[90vh] overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-primary)]">
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-3">
-              <h3 className="text-xl font-bold text-[var(--text-primary)]">Step: {step.name}</h3>
-              {statusMeta && (
-                <span className={`runner-pill border ${statusMeta.pillClass} text-xs`}>
-                  {statusMeta.text}
-                </span>
-              )}
-              {step.duration && <span className="runner-pill runner-pill--muted text-xs">Duration: {step.duration}</span>}
-            </div>
+      <div className="w-full max-w-6xl bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-[var(--border-primary)] flex flex-col max-h-[90vh] overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-primary)] bg-[var(--bg-primary)]">
+          <div className="flex flex-wrap items-center gap-3">
+            <h3 className="text-lg font-semibold text-[var(--text-primary)]">Step: {step.name}</h3>
+            {statusMeta && <span className={`runner-pill border ${statusMeta.pillClass} text-xs`}>{statusMeta.text}</span>}
+            {step.duration && <span className="runner-pill runner-pill--muted text-xs">Duration: {step.duration}</span>}
           </div>
           <div className="flex items-center gap-2">
             <button className="runner-pill runner-pill--ghost" type="button" onClick={onViewLogs}>
               View Logs
             </button>
-            <button className="glass-button-subtle" type="button" onClick={onClose}>
+            <button className="runner-pill runner-pill--ghost" type="button" onClick={onClose}>
               Close
             </button>
           </div>
         </div>
 
-        <div className="flex-1 overflow-auto p-5 space-y-4">
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-semibold text-[var(--text-primary)]">Execution Flow &amp; Status</p>
-                <span className="text-xs text-[var(--text-secondary)]">
-                  {step.tasks.length} task{step.tasks.length === 1 ? '' : 's'}
-                </span>
-              </div>
-              <div
-                className="relative h-[820px] w-full overflow-hidden rounded-lg bg-[var(--bg-primary)] border border-[var(--border-primary)] flex items-center justify-center"
-                ref={graphContainerRef}
-                onMouseDown={onMouseDownGraph}
-                onMouseMove={onMouseMoveGraph}
-                onMouseUp={endDrag}
-                onMouseLeave={endDrag}
-              >
-                {taskLayout && taskLayout.nodes.length && taskGraphView ? (
-                  (() => {
-                    return (
-                      <>
-                        <div className="absolute right-3 top-3 z-20 flex gap-2">
-                          <button
-                            type="button"
-                            className="h-9 w-9 rounded-full bg-[var(--bg-secondary)]/80 hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] shadow-sm border border-[var(--border-primary)]"
-                            aria-label="Zoom out"
-                            onClick={() => setUserGraphScale(prev => clampUserScale(prev / 1.15))}
-                          >
-                            −
-                          </button>
-                          <button
-                            type="button"
-                            className="h-9 w-9 rounded-full bg-[var(--bg-secondary)]/80 hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] shadow-sm border border-[var(--border-primary)]"
-                            aria-label="Zoom in"
-                            onClick={() => setUserGraphScale(prev => clampUserScale(prev * 1.15))}
-                          >
-                            +
-                          </button>
-                        </div>
-                        <svg
-                          width="100%"
-                          height="100%"
-                          viewBox={`0 0 ${taskGraphView.viewWidth} ${taskGraphView.viewHeight}`}
-                          preserveAspectRatio="xMidYMid meet"
-                          className="p-6"
-                          style={{
-                            transform: `translate(${pan.x}px, ${pan.y}px) scale(${graphScale})`,
-                            transformOrigin: 'center center',
-                            margin: '0 auto',
-                            display: 'block',
-                            cursor: draggingRef.current ? 'grabbing' : 'grab',
-                          }}
-                        >
-                          {taskLayout.edges.map(edge => {
-                            const [start, c1, c2, end] = edge.points;
-                            return (
-                              <path
-                                key={edge.id}
-                                d={`M ${start.x} ${start.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${end.x} ${end.y}`}
-                                fill="none"
-                                stroke={getGraphStatusColor(edge.status)}
-                                strokeWidth={2.2}
-                                strokeOpacity={0.75}
-                                strokeLinecap="round"
-                              />
-                            );
-                          })}
-                          {taskLayout.nodes.map(node => (
-                            <TaskNodeRenderer
-                              key={node.data.id}
-                              task={node}
-                              stepName={step.name}
-                              fontSize={13}
-                              glyphSize={18}
-                              textOffsetX={30}
-                            />
-                          ))}
-                        </svg>
-                      </>
-                    );
-                  })()
-                ) : (
-                  <div className="text-sm text-[var(--text-secondary)]">No task graph available.</div>
-                )}
-              </div>
+        <div className="flex-1 overflow-auto p-5 space-y-4 bg-[var(--bg-secondary)]">
+          <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-4">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-[var(--text-primary)]">Execution Flow</p>
+              <span className="text-xs text-[var(--text-secondary)]">
+                {step.tasks.length} task{step.tasks.length === 1 ? '' : 's'}
+              </span>
             </div>
+            <div
+              className="relative h-[420px] lg:h-[480px] w-full overflow-hidden rounded border border-[var(--border-primary)] bg-white dark:bg-slate-950 flex items-center justify-center"
+              ref={graphContainerRef}
+              onMouseDown={onMouseDownGraph}
+              onMouseMove={onMouseMoveGraph}
+              onMouseUp={endDrag}
+              onMouseLeave={endDrag}
+            >
+              {taskLayout && taskLayout.nodes.length && taskGraphView ? (
+                <>
+                  <div className="absolute right-3 top-3 z-20 flex gap-2">
+                    <button
+                      type="button"
+                      className="h-9 w-9 rounded-full bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-primary)]"
+                      aria-label="Zoom out"
+                      onClick={() => {
+                        markUserAdjusted();
+                        setUserGraphScale(prev => clampUserScale(prev / 1.15));
+                      }}
+                    >
+                      −
+                    </button>
+                    <button
+                      type="button"
+                      className="h-9 w-9 rounded-full bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-primary)]"
+                      aria-label="Zoom in"
+                      onClick={() => {
+                        markUserAdjusted();
+                        setUserGraphScale(prev => clampUserScale(prev * 1.15));
+                      }}
+                    >
+                      +
+                    </button>
+                  </div>
+                  <svg
+                    width="100%"
+                    height="100%"
+                    viewBox={`0 0 ${taskGraphView.viewWidth} ${taskGraphView.viewHeight}`}
+                    preserveAspectRatio="xMidYMid meet"
+                    className="p-6"
+                    style={{
+                      transform: `translate(${pan.x}px, ${pan.y}px) scale(${graphScale})`,
+                      transformOrigin: 'center center',
+                      margin: '0 auto',
+                      display: 'block',
+                      cursor: draggingRef.current ? 'grabbing' : 'grab',
+                    }}
+                  >
+                    <g transform={`translate(${taskContentOffset.x}, ${taskContentOffset.y})`}>
+                      {taskLayout.edges.map(edge => {
+                        const [start, c1, c2, end] = edge.points;
+                        return (
+                          <path
+                            key={edge.id}
+                            d={`M ${start.x} ${start.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${end.x} ${end.y}`}
+                            fill="none"
+                            stroke={getGraphStatusColor(edge.status)}
+                            strokeWidth={2.2}
+                            strokeOpacity={0.75}
+                            strokeLinecap="round"
+                          />
+                        );
+                      })}
+                      {taskLayout.nodes.map(node => (
+                      <TaskNodeRenderer
+                        key={node.data.id}
+                        task={node}
+                        stepName={step.name}
+                        fontSize={13}
+                        glyphSize={18}
+                        textOffsetX={30}
+                        onTaskClick={(_, taskName) => setActiveTaskName(taskName)}
+                      />
+                    ))}
+                  </g>
+                </svg>
+              </>
+              ) : (
+                <div className="text-sm text-[var(--text-secondary)]">No task graph available.</div>
+              )}
+            </div>
+          </div>
 
-            <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4 space-y-3">
-              <p className="text-sm font-semibold text-[var(--text-primary)]">Configuration</p>
-              <div className="space-y-2 text-sm text-[var(--text-primary)]">
+          <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-4 space-y-4">
+            <p className="text-sm font-semibold text-[var(--text-primary)]">Configuration</p>
+            <div className="space-y-3 text-sm text-[var(--text-primary)]">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <div className="flex items-start gap-2">
-                  <span className="text-[var(--text-secondary)] w-28">Image:</span>
+                  <span className="text-[var(--text-secondary)] w-28">Image</span>
                   <span className="font-mono break-words">{config?.image || '—'}</span>
                 </div>
                 <div className="flex items-start gap-2">
-                  <span className="text-[var(--text-secondary)] w-28">Secrets:</span>
-                  <div className="flex-1 space-y-1">
+                  <span className="text-[var(--text-secondary)] w-28">Secrets</span>
+                  <div className="flex-1 flex flex-wrap gap-1">
                     {(config?.secrets || []).map(secret => (
-                      <div key={secret} className="runner-pill runner-pill--muted inline-flex text-xs">
+                      <span key={secret} className="px-2 py-1 rounded border border-[var(--border-primary)] text-[11px]">
                         {secret}
-                      </div>
+                      </span>
                     ))}
                     {!config?.secrets?.length && <span className="text-[var(--text-secondary)]">—</span>}
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
-                  <span className="text-[var(--text-secondary)] w-28">Volumes:</span>
+                  <span className="text-[var(--text-secondary)] w-28">Volumes</span>
                   <div className="flex-1 space-y-1">
                     {(config?.volumes || []).map(volume => (
-                      <div key={volume} className="font-mono text-xs bg-[var(--bg-primary)] rounded px-2 py-1 border border-[var(--border-primary)]">
+                      <div key={volume} className="font-mono text-xs bg-white dark:bg-slate-900 border border-[var(--border-primary)] rounded px-2 py-1">
                         {volume}
                       </div>
                     ))}
@@ -4413,11 +4497,11 @@ function StepDetailModal({
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
-                  <span className="text-[var(--text-secondary)] w-28">Variables:</span>
+                  <span className="text-[var(--text-secondary)] w-28">Variables</span>
                   <div className="flex-1 space-y-1">
                     {config?.variables &&
                       Object.entries(config.variables).map(([key, value]) => (
-                        <div key={key} className="font-mono text-xs bg-[var(--bg-primary)] rounded px-2 py-1 border border-[var(--border-primary)]">
+                        <div key={key} className="font-mono text-xs bg-white dark:bg-slate-900 border border-[var(--border-primary)] rounded px-2 py-1">
                           {key}: {value}
                         </div>
                       ))}
@@ -4426,55 +4510,87 @@ function StepDetailModal({
                     )}
                   </div>
                 </div>
-                <div className="flex items-start gap-2">
-                  <span className="text-[var(--text-secondary)] w-28">Ignore failure:</span>
-                  <span>{config?.ignore_failure ? 'true' : 'false'}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs text-[var(--text-secondary)]">
+                <div className="flex items-center gap-2">
+                  <span>Ignore failure</span>
+                  <span className="text-[var(--text-primary)] font-semibold">{config?.ignore_failure ? 'true' : 'false'}</span>
                 </div>
-                <div className="flex items-start gap-2">
-                  <span className="text-[var(--text-secondary)] w-28">Sync:</span>
-                  <span>{config?.sync ? 'true' : 'false'}</span>
+                <div className="flex items-center gap-2">
+                  <span>Sync</span>
+                  <span className="text-[var(--text-primary)] font-semibold">{config?.sync ? 'true' : 'false'}</span>
                 </div>
                 {config?.llm_output_sharing !== undefined && (
-                  <div className="flex items-start gap-2">
-                    <span className="text-[var(--text-secondary)] w-28">LLM Output Sharing:</span>
-                    <span>{config.llm_output_sharing ? 'true' : 'false'}</span>
+                  <div className="flex items-center gap-2 col-span-2">
+                    <span>LLM Output Sharing</span>
+                    <span className="text-[var(--text-primary)] font-semibold">{config.llm_output_sharing ? 'true' : 'false'}</span>
                   </div>
                 )}
               </div>
-
-              <div className="space-y-2">
-                <p className="text-sm font-semibold text-[var(--text-primary)]">Tasks</p>
-                {taskDefs.length === 0 && <p className="text-sm text-[var(--text-secondary)]">No task definitions.</p>}
-                {taskDefs.map(def => (
-                  <div key={def.name} className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-[var(--text-primary)]">{def.name}</span>
-                      {def.depends_on?.length ? (
-                        <span className="text-xs text-[var(--text-secondary)]">Depends on: {def.depends_on.join(', ')}</span>
-                      ) : (
-                        <span className="text-xs text-[var(--text-secondary)]">No dependencies</span>
-                      )}
-                    </div>
-                    {def.goal && <p className="text-xs text-[var(--text-secondary)]">Goal: {def.goal}</p>}
-                    {def.script && (
-                      <pre className="text-xs font-mono whitespace-pre-wrap bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded p-2 text-[var(--text-primary)]">
-                        {def.script}
-                      </pre>
-                    )}
-                    {def.variables && Object.keys(def.variables).length > 0 && (
-                      <div className="space-y-1 text-xs">
-                        <p className="text-[var(--text-secondary)]">Variables:</p>
-                        {Object.entries(def.variables).map(([key, value]) => (
-                          <div key={key} className="font-mono bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded px-2 py-1">
-                            {key}: {value}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
             </div>
+          </div>
+
+          <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-[var(--text-primary)]">Task details</p>
+              {selectedTask && (
+                <span className={`runner-pill border ${getStatusMeta(selectedTask.status, true).pillClass} text-xs`}>
+                  {getStatusMeta(selectedTask.status, true).text}
+                </span>
+              )}
+            </div>
+            {!selectedTask && <p className="text-sm text-[var(--text-secondary)]">Click a task in the graph to see its details here.</p>}
+            {selectedTask && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-base font-semibold text-[var(--text-primary)]">{selectedTask.task_name}</div>
+                  <div className="text-xs text-[var(--text-secondary)] font-mono">
+                    Duration: {formatElapsedLabel(selectedTask.started_at, selectedTask.finished_at, selectedTask.duration || '—')}
+                  </div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 text-sm text-[var(--text-primary)]">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[var(--text-secondary)]">Dependencies</span>
+                    <span className="font-mono">{(selectedTaskDefinition?.depends_on || []).join(', ') || 'None'}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[var(--text-secondary)]">Exit code</span>
+                    <span className="font-mono">{selectedTask.exit_code ?? '—'}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[var(--text-secondary)]">Started</span>
+                    <span className="font-mono">{selectedTask.started_at || '—'}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[var(--text-secondary)]">Finished</span>
+                    <span className="font-mono">{selectedTask.finished_at || '—'}</span>
+                  </div>
+                </div>
+                {selectedTaskDefinition?.goal && (
+                  <div className="text-sm text-[var(--text-secondary)]">
+                    Goal: <span className="text-[var(--text-primary)]">{selectedTaskDefinition.goal}</span>
+                  </div>
+                )}
+                {selectedTaskDefinition?.script && (
+                  <div>
+                    <p className="text-xs text-[var(--text-secondary)] mb-1">Script</p>
+                    <pre className="text-xs font-mono whitespace-pre-wrap bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded px-2 py-2 text-[var(--text-primary)]">
+                      {selectedTaskDefinition.script}
+                    </pre>
+                  </div>
+                )}
+                {selectedTaskDefinition?.variables && Object.keys(selectedTaskDefinition.variables).length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-xs text-[var(--text-secondary)]">Variables</p>
+                    {Object.entries(selectedTaskDefinition.variables).map(([key, value]) => (
+                      <div key={key} className="font-mono bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded px-2 py-1 text-xs">
+                        {key}: {value}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
