@@ -257,6 +257,8 @@ function PipelineRunsPage() {
   const hoverTriggerRef = useRef<string | null>(null);
   const selectedTriggerRef = useRef<string | null>(null);
   const [logsStepFilter, setLogsStepFilter] = useState<string | null>(null);
+  const [logsSearchFilter, setLogsSearchFilter] = useState<string | null>(null);
+  const [stepDetailName, setStepDetailName] = useState<string | null>(null);
   const [collapsedEvents, setCollapsedEvents] = useState<Set<string>>(new Set());
   const [collapsedBranches, setCollapsedBranches] = useState<Set<string>>(new Set());
   const collapsedInitRef = useRef(false);
@@ -990,7 +992,17 @@ function PipelineRunsPage() {
               onSelectStep={setSelectedStep}
               onOpenLogs={() => {
                 setLogsStepFilter(null);
+                setLogsSearchFilter(null);
                 setLogsOpen(true);
+              }}
+              onOpenTaskLogs={(stepName, taskName) => {
+                setSelectedStep(stepName);
+                setLogsStepFilter(stepName);
+                setLogsSearchFilter(taskName);
+                setLogsOpen(true);
+              }}
+              onOpenStepDetail={stepName => {
+                setStepDetailName(stepName);
               }}
               onOpenRun={handleOpenRun}
               onShowDefinition={() => setDefinitionOpen(true)}
@@ -1047,10 +1059,24 @@ function PipelineRunsPage() {
           onClose={() => {
             setLogsOpen(false);
             setLogsStepFilter(null);
+            setLogsSearchFilter(null);
           }}
           steps={runDetail?.steps}
           stepNames={runDetail?.steps.map(step => step.name)}
           initialStep={logsStepFilter}
+          initialSearch={logsSearchFilter}
+        />
+      )}
+
+      {stepDetailName && runDetail && (
+        <StepDetailModal
+          step={runDetail.steps.find(step => step.name === stepDetailName) || null}
+          onClose={() => setStepDetailName(null)}
+          onViewLogs={() => {
+            setLogsStepFilter(stepDetailName);
+            setLogsSearchFilter(null);
+            setLogsOpen(true);
+          }}
         />
       )}
 
@@ -2043,7 +2069,7 @@ function PipelineBadges({ run }: { run: RunListItem }) {
           <path d="M13 16h-1v-4h-1m1-4h.01" />
           <path d="M12 2a10 10 0 100 20 10 10 0 000-20z" />
         </svg>
-        Override
+        Overridden
       </span>
     );
   }
@@ -2081,6 +2107,8 @@ function RunDetailView({
   selectedStep,
   onSelectStep,
   onOpenLogs,
+  onOpenTaskLogs,
+  onOpenStepDetail,
   onOpenRun,
   onShowDefinition,
 }: {
@@ -2094,6 +2122,8 @@ function RunDetailView({
   selectedStep: string | null;
   onSelectStep: (step: string | null) => void;
   onOpenLogs: () => void;
+  onOpenTaskLogs: (stepName: string, taskName: string) => void;
+  onOpenStepDetail: (stepName: string) => void;
   onOpenRun: (id: string) => void;
   onShowDefinition: () => void;
 }) {
@@ -2333,6 +2363,8 @@ function RunDetailView({
             steps={detail.steps}
             selectedStep={selectedStep}
             onSelectStep={onSelectStep}
+            onOpenTaskLogs={onOpenTaskLogs}
+            onOpenStepDetail={onOpenStepDetail}
             childRuns={detail.child_runs}
             pipelineDefinition={detail.pipeline_definition}
           />
@@ -2409,17 +2441,22 @@ function StepsGraph({
   steps,
   selectedStep,
   onSelectStep,
+  onOpenTaskLogs,
+  onOpenStepDetail,
   childRuns,
   pipelineDefinition,
 }: {
   steps: StepDetail[];
   selectedStep: string | null;
   onSelectStep: (name: string | null) => void;
+  onOpenTaskLogs?: (stepName: string, taskName: string) => void;
+  onOpenStepDetail?: (stepName: string) => void;
   childRuns: RunListItem[];
   pipelineDefinition?: PipelineDefinition;
 }) {
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
   const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
+  const [preview, setPreview] = useState<{ step: GraphStep; x: number; y: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [startPan, setStartPan] = useState({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -2621,6 +2658,24 @@ function StepsGraph({
     interactedRef.current = true;
     setTransform(prev => ({ ...prev, k: Math.max(prev.k - 0.2, 0.4) }));
   };
+
+  const handleShowPreview = useCallback(
+    (step: GraphStep, evt: React.MouseEvent) => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setPreview({
+        step,
+        x: evt.clientX - rect.left + 8,
+        y: evt.clientY - rect.top - 12,
+      });
+    },
+    []
+  );
+
+  const handleHidePreview = useCallback(() => {
+    setPreview(null);
+  }, []);
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return undefined;
@@ -2718,17 +2773,47 @@ function StepsGraph({
             })}
 
             {mainLayout.nodes.map(node => (
-              <StepNodeRenderer
-                key={node.data.id}
-                node={node}
-                expanded={expandedSteps.has(node.data.id)}
-                selected={selectedStep === node.data.id}
-                onToggle={() => toggleStep(node.data.id)}
-                innerLayout={expandedLayouts.get(node.data.id)}
-              />
+            <StepNodeRenderer
+              key={node.data.id}
+              node={node}
+              expanded={expandedSteps.has(node.data.id)}
+              selected={selectedStep === node.data.id}
+              onToggle={() => toggleStep(node.data.id)}
+              onTaskClick={onOpenTaskLogs}
+              onOpenDetail={onOpenStepDetail}
+              onPreview={handleShowPreview}
+              onPreviewEnd={handleHidePreview}
+              innerLayout={expandedLayouts.get(node.data.id)}
+            />
             ))}
           </g>
         </svg>
+
+        {preview && (
+          <div
+            className="absolute z-30 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] shadow-lg px-3 py-2 text-xs text-[var(--text-primary)] backdrop-blur-sm"
+            style={{ left: preview.x, top: preview.y, pointerEvents: 'none' }}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-semibold">{preview.step.name}</span>
+              <span className="inline-flex items-center gap-1 text-[11px] text-[var(--text-secondary)]">
+                <span
+                  className="inline-flex h-2 w-2 rounded-full"
+                  style={{ backgroundColor: getGraphStatusColor(preview.step.status) }}
+                />
+                {getGraphStatusLabel(preview.step.status)}
+              </span>
+            </div>
+            <div className="mt-1 text-[11px] text-[var(--text-secondary)]">
+              Duration: {preview.step.duration || '—'}
+            </div>
+            {preview.step.tasks?.length ? (
+              <div className="mt-1 text-[11px] text-[var(--text-secondary)]">
+                Tasks: {preview.step.tasks.length}
+              </div>
+            ) : null}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2739,17 +2824,30 @@ function StepNodeRenderer({
   expanded,
   selected,
   onToggle,
+  onTaskClick,
+  onOpenDetail,
+  onPreview,
+  onPreviewEnd,
   innerLayout,
 }: {
   node: GraphLayoutNode<GraphStep>;
   expanded: boolean;
   selected: boolean;
   onToggle: () => void;
+  onTaskClick?: (stepName: string, taskName: string) => void;
+  onOpenDetail?: (stepName: string) => void;
+  onPreview?: (step: GraphStep, evt: React.MouseEvent) => void;
+  onPreviewEnd?: () => void;
   innerLayout?: GraphLayout<GraphTask>;
 }) {
   const statusColor = getGraphStatusColor(node.data.status);
   const titleColor = selected ? statusColor : 'var(--text-primary)';
   const durationLabel = node.data.duration || '0s';
+  const nameWidthEstimate = node.data.name.length * 6.6;
+  const infoX = Math.min(node.width - 22, 28 + nameWidthEstimate);
+  const durationX = infoX + 4 + 6;
+  const isDarkMode = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
+  const infoColor = isDarkMode ? '#22c55e' : '#0284c7';
   return (
     <g
       transform={`translate(${node.x}, ${node.y})`}
@@ -2767,8 +2865,30 @@ function StepNodeRenderer({
         <GraphStatusGlyph status={node.data.status} x={12} y={12} size={expanded ? 16 : 18} opacity={expanded ? 0.3 : 1} />
         <text x={30} y={14} className="text-[13px] font-semibold">
           <tspan style={{ fill: expanded ? 'var(--text-secondary)' : titleColor, opacity: expanded ? 0.5 : 1 }}>{node.data.name}</tspan>
+        </text>
+        {onOpenDetail && (
+          <g
+            transform={`translate(${infoX}, -8)`}
+            onClick={event => {
+              event.stopPropagation();
+              onPreviewEnd?.();
+              onOpenDetail(node.data.name);
+            }}
+            className="cursor-pointer"
+            aria-label="Step details"
+            style={{ pointerEvents: 'auto' }}
+            onMouseEnter={event => onPreview?.(node.data, event)}
+            onMouseLeave={() => onPreviewEnd?.()}
+          >
+            <rect width={12} height={12} rx={6} fill="transparent" stroke={infoColor} strokeWidth={1} opacity={selected ? 0.9 : 0.7} />
+            <text x={6} y={9} textAnchor="middle" style={{ fill: infoColor, fontSize: '8px', fontWeight: 800, opacity: selected ? 1 : 0.95 }}>
+              i
+            </text>
+          </g>
+        )}
+        <text x={durationX} y={14} className="text-[13px] font-semibold">
           <tspan style={{ fill: 'var(--text-secondary)', fontWeight: expanded ? 500 : 600, opacity: expanded ? 0.5 : 1 }}>
-            {`  -  ${durationLabel}`}
+            {`-  ${durationLabel}`}
           </tspan>
         </text>
         {(node.data.includeLabel || node.data.childRun) && (
@@ -2804,7 +2924,7 @@ function StepNodeRenderer({
             />
           ))}
           {innerLayout.nodes.map(task => (
-            <TaskNodeRenderer key={task.data.id} task={task} />
+            <TaskNodeRenderer key={task.data.id} task={task} stepName={node.data.name} onTaskClick={onTaskClick} />
           ))}
         </g>
       )}
@@ -2812,10 +2932,25 @@ function StepNodeRenderer({
   );
 }
 
-function TaskNodeRenderer({ task }: { task: GraphLayoutNode<GraphTask> }) {
+function TaskNodeRenderer({
+  task,
+  stepName,
+  onTaskClick,
+}: {
+  task: GraphLayoutNode<GraphTask>;
+  stepName: string;
+  onTaskClick?: (stepName: string, taskName: string) => void;
+}) {
   const durationLabel = task.data.duration || '0s';
   return (
-    <g transform={`translate(${task.x}, ${task.y})`}>
+    <g
+      transform={`translate(${task.x}, ${task.y})`}
+      onClick={event => {
+        event.stopPropagation();
+        onTaskClick?.(stepName, task.data.name);
+      }}
+      className="cursor-pointer"
+    >
       <rect width={task.width} height={task.height} fill="transparent" />
       <GraphStatusGlyph status={task.data.status} x={11} y={task.height / 2} size={14} />
       <text x={24} y={task.height / 2 + 4} className="text-[11px] font-semibold">
@@ -3321,6 +3456,7 @@ function LogsModal({
   steps,
   stepNames,
   initialStep,
+  initialSearch,
 }: {
   runId: string;
   runName?: string | null;
@@ -3328,6 +3464,7 @@ function LogsModal({
   steps?: StepDetail[];
   stepNames?: string[];
   initialStep?: string | null;
+  initialSearch?: string | null;
 }) {
   const [lines, setLines] = useState<EnrichedLogLine[]>([]);
   const [loading, setLoading] = useState(false);
@@ -3359,7 +3496,7 @@ function LogsModal({
         : new Set()
     );
     setSelectedLevels(parsed?.levels ?? new Set());
-    setSearchText(parsed?.search ?? '');
+    setSearchText(initialSearch ?? parsed?.search ?? '');
     setStepSearch('');
     setFollow(true);
     setWrap(parsed?.wrap ?? false);
@@ -3369,7 +3506,7 @@ function LogsModal({
     setLines([]);
     lastIdRef.current = 0;
     setHasUnseen(false);
-  }, [initialStep, levelOptions, runId]);
+  }, [initialSearch, initialStep, levelOptions, runId]);
 
   useEffect(() => {
     const nextHash = buildLegacyLogsHash(
@@ -3921,6 +4058,241 @@ function LogsModal({
               })}
             </div>
           </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StepDetailModal({
+  step,
+  onClose,
+  onViewLogs,
+}: {
+  step: StepDetail | null;
+  onClose: () => void;
+  onViewLogs: () => void;
+}) {
+  const config = step?.configuration;
+  const taskDefs = config?.tasks || [];
+
+  const taskLayout = useMemo(() => {
+    if (!step) return null;
+    const layoutTasks: GraphTask[] = (step.tasks || []).map(task => {
+      const def = taskDefs.find(t => t.name === task.task_name);
+      const deps = def?.depends_on || [];
+      return {
+        id: task.task_id || task.task_name || `task-${task.task_index}`,
+        name: task.task_name,
+        status: normalizeGraphStatus(task.status, task.status === 'success'),
+        duration: formatElapsedLabel(task.started_at, task.finished_at, ''),
+        dependsOn: deps,
+      };
+    });
+    const sizeFor = (task: GraphTask): GraphSize => {
+      const label = `${task.name}${task.duration ? ` (${task.duration})` : ''}`;
+      const width = Math.max(160, Math.min(320, label.length * 8 + 48));
+      return { width, height: 56 };
+    };
+    return calculateGraphLayout(layoutTasks, sizeFor, 64, 36);
+  }, [step, taskDefs]);
+
+  const statusMeta = step ? getStatusMeta(step.status, true) : null;
+
+  if (!step) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] px-3 py-6">
+      <div className="w-full max-w-6xl bg-[var(--bg-primary)] rounded-2xl shadow-2xl border border-[var(--border-primary)] flex flex-col max-h-[90vh] overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-primary)]">
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-3">
+              <h3 className="text-xl font-bold text-[var(--text-primary)]">Step: {step.name}</h3>
+              {statusMeta && (
+                <span className={`runner-pill border ${statusMeta.pillClass} text-xs`}>
+                  {statusMeta.text}
+                </span>
+              )}
+              {step.duration && <span className="runner-pill runner-pill--muted text-xs">Duration: {step.duration}</span>}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button className="runner-pill runner-pill--ghost" type="button" onClick={onViewLogs}>
+              View Logs
+            </button>
+            <button className="glass-button-subtle" type="button" onClick={onClose}>
+              Close
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-auto p-5 space-y-4">
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-semibold text-[var(--text-primary)]">Execution Flow &amp; Status</p>
+                <span className="text-xs text-[var(--text-secondary)]">
+                  {step.tasks.length} task{step.tasks.length === 1 ? '' : 's'}
+                </span>
+              </div>
+              <div className="h-[420px] w-full overflow-auto rounded-lg bg-[var(--bg-primary)] border border-[var(--border-primary)] flex items-center justify-center">
+                {taskLayout && taskLayout.nodes.length ? (
+                  <svg
+                    width="100%"
+                    height="100%"
+                    viewBox={`0 0 ${Math.max(taskLayout.width, 640)} ${Math.max(taskLayout.height, 360)}`}
+                    className="p-4"
+                  >
+                    {taskLayout.edges.map(edge => {
+                      const [start, c1, c2, end] = edge.points;
+                      const color = getGraphStatusColor(edge.status);
+                      return (
+                        <g key={edge.id} className="transition-colors">
+                          <path
+                            d={`M ${start.x} ${start.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${end.x} ${end.y}`}
+                            fill="none"
+                            stroke={color}
+                            strokeWidth={1.8}
+                            strokeOpacity={0.6}
+                            strokeLinecap="round"
+                          />
+                          {edge.status === 'running' && (
+                            <path
+                              d={`M ${start.x} ${start.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${end.x} ${end.y}`}
+                              fill="none"
+                              stroke="white"
+                              strokeWidth={1.6}
+                              strokeDasharray="4 8"
+                              strokeOpacity={0.4}
+                            >
+                              <animate attributeName="stroke-dashoffset" from="12" to="0" dur="1s" repeatCount="indefinite" />
+                            </path>
+                          )}
+                        </g>
+                      );
+                    })}
+                    {taskLayout.nodes.map(node => (
+                      <g key={node.data.id} transform={`translate(${node.x}, ${node.y})`}>
+                        <rect
+                          width={node.width}
+                          height={node.height}
+                          rx={10}
+                          fill="var(--bg-secondary)"
+                          stroke={getGraphStatusColor(node.data.status)}
+                          strokeWidth={1.4}
+                          className="drop-shadow-sm"
+                        />
+                        <GraphStatusGlyph status={node.data.status} x={16} y={node.height / 2} size={14} />
+                        <text x={32} y={node.height / 2 - 2} className="text-[12px] font-semibold" style={{ fill: 'var(--text-primary)' }}>
+                          {node.data.name}
+                        </text>
+                        {node.data.duration && (
+                          <text x={32} y={node.height / 2 + 14} className="text-[11px]" style={{ fill: 'var(--text-secondary)' }}>
+                            {node.data.duration}
+                          </text>
+                        )}
+                      </g>
+                    ))}
+                  </svg>
+                ) : (
+                  <div className="text-sm text-[var(--text-secondary)]">No task graph available.</div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4 space-y-3">
+              <p className="text-sm font-semibold text-[var(--text-primary)]">Configuration</p>
+              <div className="space-y-2 text-sm text-[var(--text-primary)]">
+                <div className="flex items-start gap-2">
+                  <span className="text-[var(--text-secondary)] w-28">Image:</span>
+                  <span className="font-mono break-words">{config?.image || '—'}</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-[var(--text-secondary)] w-28">Secrets:</span>
+                  <div className="flex-1 space-y-1">
+                    {(config?.secrets || []).map(secret => (
+                      <div key={secret} className="runner-pill runner-pill--muted inline-flex text-xs">
+                        {secret}
+                      </div>
+                    ))}
+                    {!config?.secrets?.length && <span className="text-[var(--text-secondary)]">—</span>}
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-[var(--text-secondary)] w-28">Volumes:</span>
+                  <div className="flex-1 space-y-1">
+                    {(config?.volumes || []).map(volume => (
+                      <div key={volume} className="font-mono text-xs bg-[var(--bg-primary)] rounded px-2 py-1 border border-[var(--border-primary)]">
+                        {volume}
+                      </div>
+                    ))}
+                    {!config?.volumes?.length && <span className="text-[var(--text-secondary)]">—</span>}
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-[var(--text-secondary)] w-28">Variables:</span>
+                  <div className="flex-1 space-y-1">
+                    {config?.variables &&
+                      Object.entries(config.variables).map(([key, value]) => (
+                        <div key={key} className="font-mono text-xs bg-[var(--bg-primary)] rounded px-2 py-1 border border-[var(--border-primary)]">
+                          {key}: {value}
+                        </div>
+                      ))}
+                    {(!config?.variables || Object.keys(config.variables || {}).length === 0) && (
+                      <span className="text-[var(--text-secondary)]">—</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-[var(--text-secondary)] w-28">Ignore failure:</span>
+                  <span>{config?.ignore_failure ? 'true' : 'false'}</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-[var(--text-secondary)] w-28">Sync:</span>
+                  <span>{config?.sync ? 'true' : 'false'}</span>
+                </div>
+                {config?.llm_output_sharing !== undefined && (
+                  <div className="flex items-start gap-2">
+                    <span className="text-[var(--text-secondary)] w-28">LLM Output Sharing:</span>
+                    <span>{config.llm_output_sharing ? 'true' : 'false'}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-[var(--text-primary)]">Tasks</p>
+                {taskDefs.length === 0 && <p className="text-sm text-[var(--text-secondary)]">No task definitions.</p>}
+                {taskDefs.map(def => (
+                  <div key={def.name} className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-[var(--text-primary)]">{def.name}</span>
+                      {def.depends_on?.length ? (
+                        <span className="text-xs text-[var(--text-secondary)]">Depends on: {def.depends_on.join(', ')}</span>
+                      ) : (
+                        <span className="text-xs text-[var(--text-secondary)]">No dependencies</span>
+                      )}
+                    </div>
+                    {def.goal && <p className="text-xs text-[var(--text-secondary)]">Goal: {def.goal}</p>}
+                    {def.script && (
+                      <pre className="text-xs font-mono whitespace-pre-wrap bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded p-2 text-[var(--text-primary)]">
+                        {def.script}
+                      </pre>
+                    )}
+                    {def.variables && Object.keys(def.variables).length > 0 && (
+                      <div className="space-y-1 text-xs">
+                        <p className="text-[var(--text-secondary)]">Variables:</p>
+                        {Object.entries(def.variables).map(([key, value]) => (
+                          <div key={key} className="font-mono bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded px-2 py-1">
+                            {key}: {value}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
