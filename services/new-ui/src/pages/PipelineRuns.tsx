@@ -3812,7 +3812,7 @@ function LogsModal({
             </div>
           </aside>
 
-          <section className="flex-1 flex flex-col bg-[var(--bg-secondary)]">
+          <section className="flex-1 flex flex-col bg-[var(--bg-secondary)] min-h-0 min-w-0">
             <div className="flex items-center gap-3 px-5 py-3 border-b border-[var(--border-primary)] bg-[var(--bg-primary)]">
               {error && <div className="text-red-500 text-sm">{error}</div>}
               {hasUnseen && !follow && (
@@ -3837,7 +3837,7 @@ function LogsModal({
             <div
               ref={logContainerRef}
               onScroll={handleScroll}
-              className={`flex-1 overflow-auto overflow-x-auto px-5 py-4 font-mono text-sm space-y-1 ${wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'} bg-[var(--bg-secondary)]`}
+              className={`flex-1 overflow-y-auto overflow-x-auto px-5 py-4 font-mono text-sm space-y-1 ${wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'} bg-[var(--bg-secondary)] min-w-0`}
             >
               {loading && !lines.length && <div className="text-[var(--text-secondary)]">Loading…</div>}
               {!loading && visibleLines.length === 0 && <div className="text-[var(--text-secondary)]">No log lines match the current filters.</div>}
@@ -3889,7 +3889,7 @@ function LogsModal({
                       {levelLabel}
                     </span>
                     <pre
-                      className={`flex-1 text-[var(--text-primary)] leading-6 ${wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'} ${wrap ? '' : 'overflow-x-auto min-w-max'}`}
+                      className={`flex-1 text-[var(--text-primary)] leading-6 ${wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre min-w-max'}`}
                     >
                       {messageOnly || '—'}
                     </pre>
@@ -3912,7 +3912,7 @@ function LogsModal({
                       </span>
                     )}
                     <pre
-                      className={`flex-1 text-[var(--text-primary)] leading-6 ${wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'} ${wrap ? '' : 'overflow-x-auto min-w-max'}`}
+                      className={`flex-1 text-[var(--text-primary)] leading-6 ${wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre min-w-max'}`}
                     >
                       {trimmedContent}
                     </pre>
