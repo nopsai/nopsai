@@ -62,6 +62,8 @@ type StepConfiguration = {
   variables?: Record<string, string>;
   ignore_failure?: boolean;
   llm_output_sharing?: boolean;
+  goal?: string;
+  script?: string;
   tasks?: TaskDefinition[];
 };
 
@@ -91,7 +93,14 @@ type PipelineDefinition = {
   name?: string;
   description?: string;
   version?: string;
-  steps?: { name: string; description?: string; depends_on?: string[]; tasks?: TaskDefinition[] }[];
+  steps?: {
+    name: string;
+    description?: string;
+    depends_on?: string[];
+    tasks?: TaskDefinition[];
+    goal?: string;
+    script?: string;
+  }[];
 };
 
 type RunDetail = {
@@ -1069,16 +1078,17 @@ function PipelineRunsPage() {
       )}
 
       {stepDetailName && runDetail && (
-        <StepDetailModal
-          step={runDetail.steps.find(step => step.name === stepDetailName) || null}
-          onClose={() => setStepDetailName(null)}
-          onViewLogs={() => {
-            setLogsStepFilter(stepDetailName);
-            setLogsSearchFilter(null);
-            setLogsOpen(true);
-          }}
-        />
-      )}
+      <StepDetailModal
+        step={runDetail.steps.find(step => step.name === stepDetailName) || null}
+        onClose={() => setStepDetailName(null)}
+        onViewLogs={() => {
+          setLogsStepFilter(stepDetailName);
+          setLogsSearchFilter(null);
+          setLogsOpen(true);
+        }}
+        pipelineDefinition={runDetail.pipeline_definition}
+      />
+    )}
 
       {newFolderOpen && (
         <NewFolderModal
@@ -2944,14 +2954,12 @@ function TaskNodeRenderer({
   onTaskClick,
   fontSize = 11,
   glyphSize = 14,
-  textOffsetX = 24,
 }: {
   task: GraphLayoutNode<GraphTask>;
   stepName: string;
   onTaskClick?: (stepName: string, taskName: string) => void;
   fontSize?: number;
   glyphSize?: number;
-  textOffsetX?: number;
 }) {
   const durationLabel = task.data.duration || '0s';
   const centerX = task.width / 2;
@@ -4158,10 +4166,12 @@ function StepDetailModal({
   step,
   onClose,
   onViewLogs,
+  pipelineDefinition,
 }: {
   step: StepDetail | null;
   onClose: () => void;
   onViewLogs: () => void;
+  pipelineDefinition?: PipelineDefinition;
 }) {
   const config = step?.configuration;
   const taskDefs = config?.tasks || [];
@@ -4326,6 +4336,28 @@ function StepDetailModal({
     };
   }, [taskGraphView, taskLayout]);
 
+  const hasTasks = (step?.tasks?.length || 0) > 0;
+  const configTasks = config?.tasks || [];
+  const stepDefinition = useMemo(() => {
+    if (!pipelineDefinition?.steps || !step?.name) return null;
+    return pipelineDefinition.steps.find(s => s.name === step.name) || null;
+  }, [pipelineDefinition, step?.name]);
+  const stepGoal = config?.goal || (stepDefinition as any)?.goal || '';
+  const stepScript = config?.script || (stepDefinition as any)?.script || '';
+  const taskDefsFromDefinition = stepDefinition?.tasks || [];
+  const allTaskDefinitions = useMemo(() => {
+    if (configTasks.length && taskDefsFromDefinition.length) {
+      const map = new Map<string, TaskDefinition>();
+      taskDefsFromDefinition.forEach(def => map.set(def.name, def));
+      configTasks.forEach(def => map.set(def.name, def));
+      return Array.from(map.values());
+    }
+    return configTasks.length ? configTasks : taskDefsFromDefinition;
+  }, [configTasks, taskDefsFromDefinition]);
+  const hasTaskDefinitions = allTaskDefinitions.length > 0;
+  const isSingleSyntheticTask = hasTasks && !hasTaskDefinitions && (step?.tasks?.length || 0) === 1;
+  const showStepLevelInfo = !hasTasks || isSingleSyntheticTask;
+
   const selectedTask = useMemo(() => {
     if (!activeTaskName) return null;
     return (step?.tasks || []).find(task => task.task_name === activeTaskName) || null;
@@ -4333,8 +4365,28 @@ function StepDetailModal({
 
   const selectedTaskDefinition = useMemo(() => {
     if (!activeTaskName) return null;
-    return taskDefs.find(def => def.name === activeTaskName) || null;
-  }, [activeTaskName, taskDefs]);
+    return allTaskDefinitions.find(def => def.name === activeTaskName) || null;
+  }, [activeTaskName, allTaskDefinitions]);
+
+  useEffect(() => {
+    const tasks = step?.tasks || [];
+    if (!tasks.length) {
+      setActiveTaskName(null);
+      return;
+    }
+    if (isSingleSyntheticTask) {
+      setActiveTaskName(null);
+      return;
+    }
+    const hasSelection = tasks.some(task => task.task_name === activeTaskName);
+    if (!hasSelection) {
+      if (tasks.length === 1) {
+        setActiveTaskName(tasks[0].task_name);
+      } else {
+        setActiveTaskName(null);
+      }
+    }
+  }, [activeTaskName, isSingleSyntheticTask, step?.tasks]);
 
   const onMouseDownGraph = (e: React.MouseEvent) => {
     markUserAdjusted();
@@ -4447,19 +4499,18 @@ function StepDetailModal({
                         );
                       })}
                       {taskLayout.nodes.map(node => (
-                      <TaskNodeRenderer
-                        key={node.data.id}
-                        task={node}
-                        stepName={step.name}
-                        fontSize={13}
-                        glyphSize={18}
-                        textOffsetX={30}
-                        onTaskClick={(_, taskName) => setActiveTaskName(taskName)}
-                      />
-                    ))}
-                  </g>
-                </svg>
-              </>
+                        <TaskNodeRenderer
+                          key={node.data.id}
+                          task={node}
+                          stepName={step.name}
+                          fontSize={13}
+                          glyphSize={18}
+                          onTaskClick={(_, taskName) => setActiveTaskName(taskName)}
+                        />
+                      ))}
+                    </g>
+                  </svg>
+                </>
               ) : (
                 <div className="text-sm text-[var(--text-secondary)]">No task graph available.</div>
               )}
@@ -4495,6 +4546,10 @@ function StepDetailModal({
                     ))}
                     {!config?.volumes?.length && <span className="text-[var(--text-secondary)]">—</span>}
                   </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-[var(--text-secondary)] w-28">Include</span>
+                  <span className="font-mono break-words">{config?.include || '—'}</span>
                 </div>
                 <div className="flex items-start gap-2">
                   <span className="text-[var(--text-secondary)] w-28">Variables</span>
@@ -4533,19 +4588,120 @@ function StepDetailModal({
           <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-4 space-y-3">
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold text-[var(--text-primary)]">Task details</p>
-              {selectedTask && (
-                <span className={`runner-pill border ${getStatusMeta(selectedTask.status, true).pillClass} text-xs`}>
-                  {getStatusMeta(selectedTask.status, true).text}
-                </span>
-              )}
-            </div>
-            {!selectedTask && <p className="text-sm text-[var(--text-secondary)]">Click a task in the graph to see its details here.</p>}
-            {selectedTask && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="text-base font-semibold text-[var(--text-primary)]">{selectedTask.task_name}</div>
-                  <div className="text-xs text-[var(--text-secondary)] font-mono">
-                    Duration: {formatElapsedLabel(selectedTask.started_at, selectedTask.finished_at, selectedTask.duration || '—')}
+            {selectedTask && !isSingleSyntheticTask && (
+              <span className={`runner-pill border ${getStatusMeta(selectedTask.status, true).pillClass} text-xs`}>
+                {getStatusMeta(selectedTask.status, true).text}
+              </span>
+            )}
+            {(isSingleSyntheticTask || !hasTasks) && (
+              <span className={`runner-pill border ${getStatusMeta(step?.status, true).pillClass} text-xs`}>
+                {getStatusMeta(step?.status, true).text}
+              </span>
+            )}
+          </div>
+          {!selectedTask && hasTasks && !isSingleSyntheticTask && (
+            <p className="text-sm text-[var(--text-secondary)]">Click a task in the graph to see its details here.</p>
+          )}
+          {showStepLevelInfo && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-base font-semibold text-[var(--text-primary)]">{step?.name}</div>
+                <div className="text-xs text-[var(--text-secondary)] font-mono">
+                    Duration: {step ? formatStepDuration(step) : '—'}
+                  </div>
+                </div>
+                {(stepGoal || stepScript) && (
+                  <div className="space-y-2">
+                    {stepGoal && <p className="text-sm text-[var(--text-primary)]">Goal: <span className="text-[var(--text-secondary)]">{stepGoal}</span></p>}
+                    {stepScript && (
+                      <div>
+                        <p className="text-xs text-[var(--text-secondary)] mb-1">Script</p>
+                        <pre className="text-xs font-mono whitespace-pre-wrap bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded px-2 py-2 text-[var(--text-primary)]">
+                          {stepScript}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div className="grid gap-3 sm:grid-cols-2 text-sm text-[var(--text-primary)]">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[var(--text-secondary)]">Depends on</span>
+                    <span className="font-mono">{(step?.depends_on || []).join(', ') || 'None'}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[var(--text-secondary)]">Started</span>
+                    <span className="font-mono">{step?.started_at || '—'}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[var(--text-secondary)]">Finished</span>
+                    <span className="font-mono">{step?.finished_at || '—'}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[var(--text-secondary)]">Ignore failure</span>
+                    <span className="font-mono">{step?.configuration?.ignore_failure ? 'true' : 'false'}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[var(--text-secondary)]">Sync</span>
+                    <span className="font-mono">{step?.configuration?.sync ? 'true' : 'false'}</span>
+                  </div>
+                  {step?.configuration?.include && (
+                    <div className="flex items-center gap-2 sm:col-span-2">
+                      <span className="text-[var(--text-secondary)]">Include</span>
+                      <span className="font-mono">{step.configuration.include}</span>
+                    </div>
+                  )}
+                  {step?.configuration?.variables && Object.keys(step.configuration.variables).length > 0 && (
+                    <div className="sm:col-span-2 space-y-1">
+                      <p className="text-xs text-[var(--text-secondary)]">Variables</p>
+                      {Object.entries(step.configuration.variables).map(([key, value]) => (
+                        <div key={key} className="font-mono bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded px-2 py-1 text-xs">
+                          {key}: {value}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {configTasks.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs text-[var(--text-secondary)] uppercase tracking-wide">Step directives</p>
+                    <div className="space-y-2">
+                      {configTasks.map(def => (
+                        <div key={def.name} className="rounded border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-semibold text-[var(--text-primary)]">{def.name || 'Unnamed task'}</span>
+                            <span className="text-xs text-[var(--text-secondary)]">
+                              {def.depends_on?.length ? `Depends on: ${def.depends_on.join(', ')}` : 'No dependencies'}
+                            </span>
+                          </div>
+                          {def.goal && <p className="text-xs text-[var(--text-secondary)]">Goal: {def.goal}</p>}
+                          {def.script && (
+                            <pre className="text-xs font-mono whitespace-pre-wrap bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded px-2 py-2 text-[var(--text-primary)]">
+                              {def.script}
+                            </pre>
+                          )}
+                          {def.variables && Object.keys(def.variables).length > 0 && (
+                            <div className="space-y-1 text-xs">
+                              <p className="text-[var(--text-secondary)]">Variables</p>
+                              {Object.entries(def.variables).map(([key, value]) => (
+                                <div key={key} className="font-mono bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded px-2 py-1">
+                                  {key}: {value}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          {selectedTask && !isSingleSyntheticTask && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-base font-semibold text-[var(--text-primary)]">{selectedTask.task_name}</div>
+                <div className="text-xs text-[var(--text-secondary)] font-mono">
+                  Duration: {formatElapsedLabel(selectedTask.started_at, selectedTask.finished_at, '—')}
                   </div>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2 text-sm text-[var(--text-primary)]">
