@@ -3786,7 +3786,7 @@ function LogsModal({
   const logCountLabel = `${visibleLines.length} line${visibleLines.length === 1 ? '' : 's'} + ${lines.length} total`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] px-4 py-6">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[var(--bg-overlay)] px-4 py-6">
       <div className="w-full max-w-6xl bg-[var(--bg-primary)] rounded-2xl shadow-2xl border border-[var(--border-primary)] flex flex-col max-h-[90vh] overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-primary)]">
           <div>
@@ -4081,20 +4081,31 @@ function StepDetailModal({
     const layoutTasks: GraphTask[] = (step.tasks || []).map(task => {
       const def = taskDefs.find(t => t.name === task.task_name);
       const deps = def?.depends_on || [];
+      const taskId = task.task_name || task.task_id || `task-${task.task_index}`;
       return {
-        id: task.task_id || task.task_name || `task-${task.task_index}`,
+        id: taskId,
         name: task.task_name,
         status: normalizeGraphStatus(task.status, task.status === 'success'),
         duration: formatElapsedLabel(task.started_at, task.finished_at, ''),
         dependsOn: deps,
       };
     });
+    const hasAnyDeps = layoutTasks.some(t => t.dependsOn && t.dependsOn.length > 0);
+    const tasksForLayout =
+      !hasAnyDeps && layoutTasks.length > 1
+        ? layoutTasks.map((t, idx) => (idx === 0 ? t : { ...t, dependsOn: [layoutTasks[idx - 1].id] }))
+        : layoutTasks;
     const sizeFor = (task: GraphTask): GraphSize => {
-      const label = `${task.name}${task.duration ? ` (${task.duration})` : ''}`;
-      const width = Math.max(160, Math.min(320, label.length * 8 + 48));
-      return { width, height: 56 };
+      const label = `${task.name} - ${task.duration || '0s'}`;
+      const width = Math.max(TASK_MIN_WIDTH, Math.min(TASK_MAX_WIDTH, 32 + label.length * 7));
+      return { width, height: TASK_HEIGHT };
     };
-    return calculateGraphLayout(layoutTasks, sizeFor, 64, 36);
+    let layout = calculateGraphLayout(tasksForLayout, sizeFor, 30, 16);
+    if (!hasAnyDeps && layout.nodes.length > 1 && layout.edges.length === 0) {
+      const chained = layoutTasks.map((t, idx) => (idx === 0 ? t : { ...t, dependsOn: [layoutTasks[idx - 1].id] }));
+      layout = calculateGraphLayout(chained, sizeFor, 30, 16);
+    }
+    return layout;
   }, [step, taskDefs]);
 
   const statusMeta = step ? getStatusMeta(step.status, true) : null;
@@ -4145,53 +4156,20 @@ function StepDetailModal({
                   >
                     {taskLayout.edges.map(edge => {
                       const [start, c1, c2, end] = edge.points;
-                      const color = getGraphStatusColor(edge.status);
                       return (
-                        <g key={edge.id} className="transition-colors">
-                          <path
-                            d={`M ${start.x} ${start.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${end.x} ${end.y}`}
-                            fill="none"
-                            stroke={color}
-                            strokeWidth={1.8}
-                            strokeOpacity={0.6}
-                            strokeLinecap="round"
-                          />
-                          {edge.status === 'running' && (
-                            <path
-                              d={`M ${start.x} ${start.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${end.x} ${end.y}`}
-                              fill="none"
-                              stroke="white"
-                              strokeWidth={1.6}
-                              strokeDasharray="4 8"
-                              strokeOpacity={0.4}
-                            >
-                              <animate attributeName="stroke-dashoffset" from="12" to="0" dur="1s" repeatCount="indefinite" />
-                            </path>
-                          )}
-                        </g>
+                        <path
+                          key={edge.id}
+                          d={`M ${start.x} ${start.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${end.x} ${end.y}`}
+                          fill="none"
+                          stroke={getGraphStatusColor(edge.status)}
+                          strokeWidth={1.3}
+                          strokeOpacity={0.55}
+                          strokeLinecap="round"
+                        />
                       );
                     })}
                     {taskLayout.nodes.map(node => (
-                      <g key={node.data.id} transform={`translate(${node.x}, ${node.y})`}>
-                        <rect
-                          width={node.width}
-                          height={node.height}
-                          rx={10}
-                          fill="var(--bg-secondary)"
-                          stroke={getGraphStatusColor(node.data.status)}
-                          strokeWidth={1.4}
-                          className="drop-shadow-sm"
-                        />
-                        <GraphStatusGlyph status={node.data.status} x={16} y={node.height / 2} size={14} />
-                        <text x={32} y={node.height / 2 - 2} className="text-[12px] font-semibold" style={{ fill: 'var(--text-primary)' }}>
-                          {node.data.name}
-                        </text>
-                        {node.data.duration && (
-                          <text x={32} y={node.height / 2 + 14} className="text-[11px]" style={{ fill: 'var(--text-secondary)' }}>
-                            {node.data.duration}
-                          </text>
-                        )}
-                      </g>
+                      <TaskNodeRenderer key={node.data.id} task={node} stepName={step.name} />
                     ))}
                   </svg>
                 ) : (
