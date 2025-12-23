@@ -10,8 +10,8 @@ import {
   type PipelineDraft,
   upsertPipelineDraft,
 } from '../lib/pipelineDrafts';
-import { calculateGraphLayout, type GraphItem } from '../lib/pipelineGraph';
 import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
+import { StepsGraph, type PipelineDefinition as RunPipelineDefinition, type StepDetail as RunStepDetail, type TaskDefinition as RunTaskDefinition, type TaskDetail as RunTaskDetail } from './PipelineRuns';
 
 const MAX_RECENT_RUNS = 5;
 const MAX_VISIBLE_TRIGGER_CARDS = 5;
@@ -159,6 +159,7 @@ function PipelinesPage() {
   const [triggers, setTriggers] = useState<PipelineTrigger[]>([]);
   const [triggersLoading, setTriggersLoading] = useState(false);
   const [triggersError, setTriggersError] = useState<string | null>(null);
+  const [selectedGraphStep, setSelectedGraphStep] = useState<string | null>(null);
 
   const [isEditing, setIsEditing] = useState(false);
   const [editorValue, setEditorValue] = useState('');
@@ -349,6 +350,149 @@ function PipelinesPage() {
     });
     return lines;
   }, [validation.errors]);
+
+  const graphData = useMemo<{
+    steps: RunStepDetail[];
+    definition?: RunPipelineDefinition;
+    error: string | null;
+  }>(() => {
+    const source = isEditing ? editorValue : detail?.rawYaml;
+    const base = { steps: [] as RunStepDetail[], definition: undefined as RunPipelineDefinition | undefined, error: null as string | null };
+    if (!source) return base;
+
+    const normalizeStringArray = (value: unknown) =>
+      Array.isArray(value) ? value.map(v => (typeof v === 'string' ? v.trim() : '')).filter(Boolean) : [];
+    const normalizeVariables = (value: unknown) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+      const entries: Record<string, string> = {};
+      Object.entries(value as Record<string, unknown>).forEach(([key, val]) => {
+        if (typeof val === 'string') entries[key] = val;
+      });
+      return Object.keys(entries).length ? entries : undefined;
+    };
+
+    type NormalizedStep = {
+      name: string;
+      description?: string;
+      depends_on: string[];
+      include?: string;
+      sync?: boolean;
+      image?: string;
+      secrets?: string[];
+      volumes?: string[];
+      variables?: Record<string, string>;
+      ignore_failure?: boolean;
+      llm_output_sharing?: boolean;
+      goal?: string;
+      script?: string;
+      tasks: RunTaskDefinition[];
+    };
+
+    try {
+      const parsed = yaml.load(source) as any;
+      const rawSteps = Array.isArray(parsed?.steps) ? parsed.steps : [];
+      const normalizedSteps: NormalizedStep[] = rawSteps
+        .map((step: any) => {
+          const name = typeof step?.name === 'string' ? step.name.trim() : '';
+          if (!name) return null;
+
+          const taskDefs: RunTaskDefinition[] = Array.isArray(step?.tasks)
+            ? step.tasks
+                .map((task: any) => {
+                  const taskName = typeof task?.name === 'string' ? task.name.trim() : '';
+                  if (!taskName) return null;
+                  return {
+                    name: taskName,
+                    goal: typeof task?.goal === 'string' ? task.goal : undefined,
+                    script: typeof task?.script === 'string' ? task.script : undefined,
+                    depends_on: normalizeStringArray(task?.depends_on),
+                    ignore_failure: typeof task?.ignore_failure === 'boolean' ? task.ignore_failure : undefined,
+                    variables: normalizeVariables(task?.variables),
+                  } as RunTaskDefinition;
+                })
+                .filter(Boolean)
+            : [];
+
+          return {
+            name,
+            description: typeof step?.description === 'string' ? step.description : undefined,
+            depends_on: normalizeStringArray(step?.depends_on),
+            include: typeof step?.include === 'string' ? step.include : undefined,
+            sync: typeof step?.sync === 'boolean' ? step.sync : undefined,
+            image: typeof step?.image === 'string' ? step.image : undefined,
+            secrets: normalizeStringArray(step?.secrets),
+            volumes: normalizeStringArray(step?.volumes),
+            variables: normalizeVariables(step?.variables),
+            ignore_failure: typeof step?.ignore_failure === 'boolean' ? step.ignore_failure : undefined,
+            llm_output_sharing: typeof step?.llm_output_sharing === 'boolean' ? step.llm_output_sharing : undefined,
+            goal: typeof step?.goal === 'string' ? step.goal : undefined,
+            script: typeof step?.script === 'string' ? step.script : undefined,
+            tasks: taskDefs,
+          };
+        })
+        .filter(Boolean) as NormalizedStep[];
+
+      const definition: RunPipelineDefinition | undefined =
+        normalizedSteps.length > 0
+          ? {
+              name: typeof parsed?.name === 'string' ? parsed.name : undefined,
+              description: typeof parsed?.description === 'string' ? parsed.description : undefined,
+              version: typeof parsed?.version === 'string' ? parsed.version : undefined,
+              steps: normalizedSteps.map(step => ({
+                name: step.name,
+                description: step.description,
+                depends_on: step.depends_on,
+                tasks: step.tasks,
+                goal: step.goal,
+                script: step.script,
+              })),
+            }
+          : undefined;
+
+      const stepDetails: RunStepDetail[] = normalizedSteps.map(step => {
+        const taskDetails: RunTaskDetail[] = step.tasks.map((task, index) => ({
+          task_id: `def-${step.name}-${task.name || index}`,
+          step_name: step.name,
+          task_name: task.name,
+          status: 'pending',
+          exit_code: null,
+          started_at: undefined,
+          finished_at: undefined,
+          task_index: index,
+        }));
+
+        return {
+          name: step.name,
+          status: 'success',
+          depends_on: step.depends_on,
+          tasks: taskDetails,
+          configuration: {
+            include: step.include,
+            sync: step.sync,
+            image: step.image,
+            secrets: step.secrets,
+            volumes: step.volumes,
+            variables: step.variables,
+            ignore_failure: step.ignore_failure,
+            llm_output_sharing: step.llm_output_sharing,
+            goal: step.goal,
+            script: step.script,
+            tasks: step.tasks,
+          },
+        };
+      });
+
+      return { steps: stepDetails, definition, error: null };
+    } catch (error: any) {
+      return { steps: [], definition: undefined, error: error instanceof Error ? error.message : 'Unable to parse YAML' };
+    }
+  }, [detail?.rawYaml, editorValue, isEditing]);
+
+  useEffect(() => {
+    if (selectedGraphStep && !graphData.steps.some(step => step.name === selectedGraphStep)) {
+      setSelectedGraphStep(null);
+    }
+  }, [graphData.steps, selectedGraphStep]);
 
   const [formModal, setFormModal] = useState<FormModalState | null>(null);
   const [deleteModal, setDeleteModal] = useState<DeleteModalState | null>(null);
@@ -1635,108 +1779,25 @@ function PipelinesPage() {
                   <p className="text-xs text-[var(--text-secondary)] mt-1">Based on `depends_on` relationships.</p>
                 </div>
                 <div className="pipelines-graph">
-                  {(() => {
-                    const graphYaml = isEditing ? editorValue : detail.rawYaml;
-                    let steps: GraphItem[] = [];
-                    let parseError: string | null = null;
-                    try {
-                      const parsed = yaml.load(graphYaml) as any;
-                      const rawSteps = Array.isArray(parsed?.steps) ? parsed.steps : [];
-	                      steps = rawSteps
-	                        .map((step: any) => ({
-	                          name: typeof step?.name === 'string' ? step.name.trim() : '',
-	                          depends_on: Array.isArray(step?.depends_on)
-	                            ? step.depends_on.map((dep: any) => (typeof dep === 'string' ? dep.trim() : '')).filter(Boolean)
-	                            : [],
-	                        }))
-	                        .filter((item: GraphItem) => item.name);
-	                    } catch (error) {
-	                      parseError = error instanceof Error ? error.message : 'Unable to parse YAML';
-	                    }
-
-                    if (parseError) {
-                      return <p className="text-sm text-red-500">Unable to render graph: {parseError}</p>;
-                    }
-                    if (!steps.length) {
-                      return <p className="text-sm text-[var(--text-secondary)]">No steps defined in this pipeline.</p>;
-                    }
-
-                    const layout = calculateGraphLayout(steps);
-
-                    const iconRadius = 12;
-                    const arrowPad = 3;
-                    const pathBetween = (fromNode: any, toNode: any) => {
-                      const fromCx = fromNode.x + fromNode.width / 2;
-                      const fromCy = fromNode.y + fromNode.height / 2;
-                      const toCx = toNode.x + toNode.width / 2;
-                      const toCy = toNode.y + toNode.height / 2;
-                      const sx = fromCx + iconRadius + arrowPad;
-                      const sy = fromCy;
-                      const tx = toCx - iconRadius - arrowPad;
-                      const ty = toCy;
-                      const curveX = sx + (tx - sx) * 0.5;
-                      return `M ${sx} ${sy} C ${curveX} ${sy}, ${curveX} ${ty}, ${tx} ${ty}`;
-                    };
-
-                    return (
-                      <div id="pipeline-graph" style={{ overflow: 'auto' }}>
-                        <svg
-                          viewBox={`0 0 ${layout.width} ${layout.height}`}
-                          preserveAspectRatio="xMinYMin meet"
-                          xmlns="http://www.w3.org/2000/svg"
-                          style={{ width: '100%', height: 'auto', display: 'block' }}
-                        >
-                          <defs>
-                            <radialGradient id="glassyIconGradientPipelineDef" cx="40%" cy="35%" r="80%" fx="30%" fy="30%">
-                              <stop offset="0%" stopColor="rgba(254, 252, 232, 0.9)" />
-                              <stop offset="50%" stopColor="rgba(250, 204, 21, 0.85)" />
-                              <stop offset="100%" stopColor="rgba(217, 119, 6, 0.9)" />
-                            </radialGradient>
-                            <filter id="softIconShadowPipelineDef" x="-40%" y="-40%" width="180%" height="180%">
-                              <feDropShadow dx="1" dy="3" stdDeviation="2.5" floodColor="#a16207" floodOpacity="0.25" />
-                            </filter>
-                            <marker id="pipeline-def-arrowhead" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-                              <path d="M0,0 L8,4 L0,8 Q2.4,4 0,0 Z" fill="var(--border-secondary)" />
-                            </marker>
-                          </defs>
-                          <rect x="0" y="0" width={layout.width} height={layout.height} fill="transparent" style={{ pointerEvents: 'all' }} />
-                          {layout.edges.map((edge, idx) => {
-                            const d = pathBetween(edge.from, edge.to);
-                            return (
-                              <g key={`edge-${idx}`}>
-                                <path d={d} className="edge-path-halo" />
-                                <path d={d} className="edge-path" markerEnd="url(#pipeline-def-arrowhead)" />
-                              </g>
-                            );
-                          })}
-                          {layout.nodes.map(node => {
-                            const nodeCenterX = node.x + node.width / 2;
-                            const nodeCenterY = node.y + node.height / 2;
-                            return (
-                              <g key={node.id} className="graph-node graph-node-pipeline-def" data-step-name={node.name}>
-                                <circle
-                                  cx={nodeCenterX}
-                                  cy={nodeCenterY}
-                                  r={iconRadius}
-                                  fill="url(#glassyIconGradientPipelineDef)"
-                                  stroke="rgba(202, 138, 4, 0.25)"
-                                  strokeWidth="0.5"
-                                  filter="url(#softIconShadowPipelineDef)"
-                                  opacity="0.95"
-                                />
-                                <text x={nodeCenterX} y={nodeCenterY + 35} textAnchor="middle" className="pipeline-def-node-label">
-                                  {node.name}
-                                </text>
-                                <text x={nodeCenterX} y={nodeCenterY + 48} textAnchor="middle" className="pipeline-def-node-sublabel">
-                                  Defined
-                                </text>
-                              </g>
-                            );
-                          })}
-                        </svg>
-                      </div>
-                    );
-                  })()}
+                  {graphData.error ? (
+                    <p className="text-sm text-red-500">Unable to render graph: {graphData.error}</p>
+                  ) : !graphData.steps.length ? (
+                    <p className="text-sm text-[var(--text-secondary)]">No steps defined in this pipeline.</p>
+                  ) : (
+                    <div className="rounded-2xl border border-[var(--border-primary)] bg-white dark:bg-slate-950 shadow-[0_16px_44px_rgba(15,23,42,0.07)] p-2">
+                      <StepsGraph
+                        steps={graphData.steps}
+                        selectedStep={selectedGraphStep}
+                        onSelectStep={setSelectedGraphStep}
+                        childRuns={[]}
+                        pipelineDefinition={graphData.definition}
+                        statusVariant="dot"
+                        stepStatusColorOverride="#10b981"
+                        taskStatusColorOverride="#60a5fa"
+                        hideStatusLegend
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
