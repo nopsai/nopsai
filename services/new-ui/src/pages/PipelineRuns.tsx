@@ -899,7 +899,6 @@ function PipelineRunsPage() {
   );
 
   const isViewingDetail = Boolean(runDetail && activeRunId);
-  const mainRunsEmpty = activeTab === 'main' && Boolean(activeGroupId) && Object.keys(runsByBranch).length === 0;
   const showSelectionBar = selectedRunIds.size > 0;
   const trimmedSearch = searchTerm.trim();
 
@@ -1068,7 +1067,6 @@ function PipelineRunsPage() {
               onOpenRun={handleOpenRun}
               onSelectRun={handleRunSelect}
               selectedRunIds={selectedRunIds}
-              mainRunsEmpty={mainRunsEmpty}
               collapsedEvents={collapsedEvents}
               onToggleEventGroup={toggleEventGroup}
               onCollapseAllEvents={collapseAllEvents}
@@ -1159,7 +1157,6 @@ function Dashboard({
   onOpenRun,
   onSelectRun,
   selectedRunIds,
-  mainRunsEmpty,
   collapsedEvents,
   onToggleEventGroup,
   onCollapseAllEvents,
@@ -1188,7 +1185,6 @@ function Dashboard({
   onOpenRun: (id: string) => void;
   onSelectRun: (id: string) => void;
   selectedRunIds: Set<string>;
-  mainRunsEmpty: boolean;
   collapsedEvents: Set<string>;
   onToggleEventGroup: (id: string) => void;
   onCollapseAllEvents: () => void;
@@ -3153,11 +3149,10 @@ function deriveTaskGraphStatus(task: TaskDetail, stepStatus?: string): GraphStat
   if (finished && hasExitCode) return exitCode === 0 ? 'success' : 'failed';
 
   if (!finished && stepBase && stepBase !== 'pending') {
-    if (base === 'success') return stepBase;
     return stepBase;
   }
 
-  if (!started && !finished && (base === 'success' || base === 'failed')) {
+  if (!started && !finished && base === 'success') {
     return stepBase && stepBase !== 'pending' ? stepBase : 'pending';
   }
 
