@@ -1349,9 +1349,9 @@ function StepsPage() {
               <div className="min-w-0 flex items-start gap-3">
                 <span className="step-logo step-logo--detail step-logo--steps mt-1" aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M6 10l6-3 6 3-6 3-6-3z"></path>
-                    <path d="M6 14l6 3 6-3"></path>
-                    <path d="M6 18l6 3 6-3"></path>
+                    <path d="M12 2l8 4.5v11L12 22 4 17.5v-11L12 2z" />
+                    <path d="M12 22v-7.5" />
+                    <path d="M20 6.5l-8 4.5-8-4.5" />
                   </svg>
                 </span>
                 <div className="min-w-0">
