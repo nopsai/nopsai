@@ -1295,12 +1295,6 @@ function Dashboard({
           </div>
         )}
 
-        {mainRunsEmpty && (
-          <div className="p-6 border border-dashed border-[var(--border-primary)] rounded-lg text-center text-sm text-[var(--text-secondary)]">
-            No runs found for this folder yet.
-          </div>
-        )}
-
         {Object.keys(filteredRunsByBranch).length > 0 && (
           <div className="space-y-5">
             {Object.entries(filteredRunsByBranch)
@@ -2465,7 +2459,7 @@ const STEP_WIDTH_CLOSED = 190;
 const STEP_HEIGHT_CLOSED = 56;
 const TASK_MIN_WIDTH = 160;
 const TASK_MAX_WIDTH = 280;
-const TASK_HEIGHT = 24;
+const TASK_HEIGHT = 48;
 const H_GAP = 76;
 const V_GAP = 26;
 const PADDING = 32;
@@ -2486,7 +2480,7 @@ function StepsGraph({
   hideStatusLegend = false,
   statusColorOverride,
   stepStatusColorOverride,
-  taskStatusColorOverride = '#60a5fa',
+  taskStatusColorOverride,
 }: {
   steps: StepDetail[];
   selectedStep: string | null;
@@ -2550,7 +2544,7 @@ function StepsGraph({
         return {
           id: task.task_name,
           name: task.task_name,
-          status: normalizeGraphStatus(task.status, task.status === 'success'),
+          status: deriveTaskGraphStatus(task, step.status),
           duration: formatElapsedLabel(task.started_at, task.finished_at),
           dependsOn: def?.depends_on || [],
         };
@@ -3023,12 +3017,12 @@ function TaskNodeRenderer({
   statusColorOverride?: string;
 }) {
   const durationLabel = task.data.duration || '0s';
-  const showDuration = Boolean(durationLabel && durationLabel !== '0s');
+  const showDuration = true;
   const centerX = task.width / 2;
   const statusIconSize = glyphSize + 2;
-  const statusIconY = 8;
-  const lineHeight = fontSize + 4;
-  const textY = statusIconY + statusIconSize + lineHeight;
+  const contentCenterY = task.height / 2;
+  const statusIconCenterY = Math.max(statusIconSize / 2 + 6, contentCenterY - 8);
+  const textY = Math.min(task.height - 8, contentCenterY + fontSize / 2 + 10);
   const statusColor = statusColorOverride || getGraphStatusColor(task.data.status);
   return (
     <g
@@ -3040,9 +3034,13 @@ function TaskNodeRenderer({
       className="cursor-pointer"
     >
       <rect width={task.width} height={task.height} fill="transparent" />
-      <svg x={centerX - statusIconSize / 2} y={statusIconY} width={statusIconSize} height={statusIconSize} viewBox="0 0 24 24" aria-hidden="true">
-        <circle cx="12" cy="12" r="6" fill={statusColor} />
-      </svg>
+      <GraphStatusGlyph
+        status={task.data.status}
+        x={centerX}
+        y={statusIconCenterY}
+        size={statusIconSize}
+        colorOverride={statusColor}
+      />
       <text x={centerX} y={textY} textAnchor="middle" style={{ fontSize, fontWeight: 700 }}>
         <tspan style={{ fill: 'var(--text-primary)' }}>{task.data.name}</tspan>
         {showDuration && <tspan style={{ fill: 'var(--text-secondary)', fontWeight: 700 }}>{`  -  ${durationLabel}`}</tspan>}
@@ -3137,6 +3135,33 @@ function normalizeGraphStatus(status: string | undefined, complete?: boolean): G
   if (normalized === 'skipped') return 'skipped';
   if (normalized === 'pending') return 'pending';
   return 'failed';
+}
+
+function deriveTaskGraphStatus(task: TaskDetail, stepStatus?: string): GraphStatus {
+  const base = normalizeGraphStatus(task.status, task.status === 'success');
+  const stepBase = stepStatus ? normalizeGraphStatus(stepStatus, stepStatus === 'success') : null;
+  const started = Boolean(task.started_at);
+  const finished = Boolean(task.finished_at);
+  const exitCode = task.exit_code;
+  const hasExitCode = typeof exitCode === 'number';
+
+  if (base === 'skipped') return 'skipped';
+  if (base === 'failed') return 'failed';
+  if (base === 'running') return 'running';
+
+  if (started && !finished) return 'running';
+  if (finished && hasExitCode) return exitCode === 0 ? 'success' : 'failed';
+
+  if (!finished && stepBase && stepBase !== 'pending') {
+    if (base === 'success') return stepBase;
+    return stepBase;
+  }
+
+  if (!started && !finished && (base === 'success' || base === 'failed')) {
+    return stepBase && stepBase !== 'pending' ? stepBase : 'pending';
+  }
+
+  return base === 'pending' && !started && !finished ? (stepBase || 'pending') : base;
 }
 
 type StatusGlyphVariant = 'default' | 'dot';
@@ -3282,11 +3307,13 @@ function calculateGraphLayout<T extends { id: string; dependsOn?: string[]; stat
   if (orientation === 'horizontal') {
     let currentX = PADDING;
     const levelXs: number[] = [];
+    const levelMaxWidths: number[] = [];
 
     levels.forEach((levelItems, lvlIdx) => {
       levelXs[lvlIdx] = currentX;
       const sizes = levelItems.map(getSize);
       const maxWidth = Math.max(...sizes.map(s => s.width), 0);
+      levelMaxWidths[lvlIdx] = maxWidth;
       currentX += maxWidth + hGap;
     });
 
@@ -3297,6 +3324,7 @@ function calculateGraphLayout<T extends { id: string; dependsOn?: string[]; stat
 
     levels.forEach((levelItems, lvlIdx) => {
       const x = levelXs[lvlIdx];
+      const maxWidth = levelMaxWidths[lvlIdx] || 0;
       const levelH = levelHeights[lvlIdx];
       let currentY = PADDING + (maxLevelHeight - levelH) / 2;
 
@@ -3305,7 +3333,7 @@ function calculateGraphLayout<T extends { id: string; dependsOn?: string[]; stat
         nodes.push({
           data: item,
           level: lvlIdx,
-          x,
+          x: x + (maxWidth - size.width) / 2,
           y: currentY,
           width: size.width,
           height: size.height,
@@ -4271,7 +4299,7 @@ function StepDetailModal({
       return {
         id: taskId,
         name: task.task_name,
-        status: normalizeGraphStatus(task.status, task.status === 'success'),
+        status: deriveTaskGraphStatus(task, step.status),
         duration: formatElapsedLabel(task.started_at, task.finished_at, ''),
         dependsOn: deps,
       };
