@@ -922,7 +922,7 @@ export function applyEnterIndent(
   const after = value.slice(end);
   const currentIndent = lineInfo.line.match(/^\s*/)?.[0] ?? '';
   const trimmed = lineInfo.line.trim();
-  const parentBlock = findParentBlock(value.slice(0, lineInfo.start), ['steps', 'tasks'], lineInfo.indent);
+  const parentBlock = findParentBlock(value.slice(0, lineInfo.start), ['steps', 'tasks'], lineInfo.indent, Array.from(LIST_KEYS_SIMPLE));
 
   let newIndent = currentIndent;
   let listPrefix = '';
@@ -931,7 +931,12 @@ export function applyEnterIndent(
     newIndent = ' '.repeat(lineInfo.indent + 2);
   } else if (trimmed.startsWith('-')) {
     newIndent = currentIndent;
-    const parent = findParentBlock(value.slice(0, lineInfo.start), ['steps', 'tasks'], lineInfo.indent);
+    const parent = findParentBlock(
+      value.slice(0, lineInfo.start),
+      ['steps', 'tasks'],
+      lineInfo.indent,
+      Array.from(LIST_KEYS_SIMPLE)
+    );
     if (parent && LIST_KEYS_WITH_NAME_TEMPLATE.has(parent)) {
       listPrefix = '- name: ';
     } else {
