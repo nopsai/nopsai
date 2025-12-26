@@ -10,14 +10,14 @@ import {
   type PipelineDraft,
   upsertPipelineDraft,
 } from '../lib/pipelineDrafts';
-import { applyEnterIndent, findParentBlock } from '../lib/lab';
+import { applyEnterIndent, findParentBlock, validatePipelineYamlStrict } from '../lib/lab';
+import { findLineNumberForKey, normalizeLineNumber, parseYamlWithLocation } from '../lib/yamlValidation';
 import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
 import { StepsGraph, type PipelineDefinition as RunPipelineDefinition, type StepDetail as RunStepDetail, type TaskDefinition as RunTaskDefinition, type TaskDetail as RunTaskDetail } from './PipelineRuns';
 
 const MAX_RECENT_RUNS = 5;
 const MAX_VISIBLE_TRIGGER_CARDS = 5;
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
-const PIPELINE_NAME_PATTERN = /^[a-zA-Z0-9_.-]+$/;
 
 const PIPELINE_DIRECTIVES = [
   'name',
@@ -197,144 +197,37 @@ function PipelinesPage() {
   }>(null);
 
   const validatePipelineYaml = useCallback((rawYaml: string): ValidationResult => {
+    const trimmed = rawYaml.trim();
+    if (!trimmed) {
+      return { errors: [{ message: 'Pipeline definition cannot be empty.', line: 1 }] };
+    }
+
+    const { parsed, error: parseError } = parseYamlWithLocation(rawYaml);
+    if (parseError) {
+      return { errors: [parseError] };
+    }
+
     const errors: ValidationError[] = [];
-    let parsed: any = null;
-    try {
-      parsed = yaml.load(rawYaml) as any;
-    } catch (error: any) {
-      const mark = error?.mark;
+    const strict = validatePipelineYamlStrict(rawYaml);
+    strict.errors.forEach(err => {
       errors.push({
-        message: error instanceof Error ? error.message : 'Invalid YAML',
-        line: typeof mark?.line === 'number' ? mark.line + 1 : undefined,
-        column: typeof mark?.column === 'number' ? mark.column + 1 : undefined,
+        message: err.message,
+        line: normalizeLineNumber(err.line),
       });
-      return { errors };
-    }
+    });
 
-    if (!parsed || typeof parsed !== 'object') {
-      return { errors: [{ message: 'YAML must define an object at the root.' }] };
-    }
-
-    const safeString = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
-
-    const name = safeString(parsed.name);
-    if (!name) {
-      errors.push({ message: "'name' is a required field" });
-    } else if (!PIPELINE_NAME_PATTERN.test(name)) {
-      errors.push({ message: 'Pipeline name can only contain alphanumeric characters, underscores, dots, and hyphens.' });
-    }
-
-    const version = safeString(parsed.version);
-    if (version && !PIPELINE_NAME_PATTERN.test(version)) {
-      errors.push({ message: 'Pipeline version can only contain alphanumeric characters, underscores, dots, and hyphens.' });
-    }
-
-    const steps = Array.isArray(parsed.steps) ? parsed.steps : [];
-    if (steps.length === 0) {
-      errors.push({ message: 'At least one step is required.' });
-      return { errors };
-    }
-
-    const containerImage = safeString(parsed.container_image);
-    const firstStepImage = safeString((steps[0] as any)?.image);
-    if (!containerImage && steps.length > 0 && !firstStepImage) {
-      errors.push({ message: "'container_image' is required when steps do not specify their own image." });
-    }
-
-    const allStepNames = new Set<string>();
-    const stepToTaskNames = new Map<string, Set<string>>();
-    const stepTaskMeta = new Map<string, { hasTasks: boolean; taskNames: Set<string> }>();
-
-    for (const stepRaw of steps) {
-      const step = stepRaw && typeof stepRaw === 'object' ? (stepRaw as any) : null;
-      const stepName = safeString(step?.name);
-      if (!stepName) {
-        errors.push({ message: "A step is missing its required 'name' field." });
-        continue;
-      }
-      if (allStepNames.has(stepName)) {
-        errors.push({ message: `Duplicate step name '${stepName}' found. Step names must be unique.` });
-        continue;
-      }
-      allStepNames.add(stepName);
-      stepToTaskNames.set(stepName, new Set());
-
-      const includeValue = safeString(step?.include);
-      const tasks = Array.isArray(step?.tasks) ? step.tasks : [];
-      const hasTasks = tasks.length > 0;
-      const hasLegacy = Boolean(safeString(step?.goal) || safeString(step?.script));
-
-      if (includeValue) {
-        if (hasTasks || hasLegacy) {
+    const pipelineObject = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+    if (pipelineObject) {
+      const steps = Array.isArray(pipelineObject.steps) ? (pipelineObject.steps as Array<Record<string, unknown>>) : [];
+      if (steps.length > 0) {
+        const containerImage = typeof pipelineObject.container_image === 'string' ? pipelineObject.container_image.trim() : '';
+        const firstStep = steps[0] as Record<string, unknown> | undefined;
+        const firstStepImage = typeof firstStep?.image === 'string' ? (firstStep.image as string).trim() : '';
+        if (!containerImage && !firstStepImage) {
           errors.push({
-            message: `Step '${stepName}' is an 'include' step and cannot also contain 'tasks', 'goal', or 'script'.`,
+            message: "'container_image' is required when steps do not specify their own image.",
+            line: findLineNumberForKey(rawYaml, 'container_image') ?? findLineNumberForKey(rawYaml, 'steps') ?? 1,
           });
-        }
-      } else if (hasTasks) {
-        if (hasLegacy) {
-          errors.push({ message: `Step '${stepName}' has tasks and should not also contain 'goal' or 'script'.` });
-        }
-        const taskNames = stepToTaskNames.get(stepName)!;
-        for (const taskRaw of tasks) {
-          const task = taskRaw && typeof taskRaw === 'object' ? (taskRaw as any) : null;
-          const taskName = safeString(task?.name);
-          if (!taskName) {
-            errors.push({ message: `A task in step '${stepName}' is missing its required 'name' field.` });
-            continue;
-          }
-          if (taskNames.has(taskName)) {
-            errors.push({
-              message: `Duplicate task name '${taskName}' found within step '${stepName}'. Task names must be unique within a step.`,
-            });
-            continue;
-          }
-          taskNames.add(taskName);
-
-          const hasGoal = Boolean(safeString(task?.goal));
-          const hasScript = Boolean(safeString(task?.script));
-          if (hasGoal && hasScript) {
-            errors.push({ message: `Task '${taskName}' in step '${stepName}' cannot define both 'goal' and 'script'.` });
-          } else if (!hasGoal && !hasScript) {
-            errors.push({ message: `Task '${taskName}' in step '${stepName}' must define either 'goal' or 'script'.` });
-          }
-        }
-      } else if (!hasLegacy) {
-        errors.push({ message: `Step '${stepName}' must contain 'include', 'tasks', 'goal', or 'script'.` });
-      }
-
-      const taskNames = stepToTaskNames.get(stepName)!;
-      stepTaskMeta.set(stepName, { hasTasks, taskNames });
-    }
-
-    for (const stepRaw of steps) {
-      const step = stepRaw && typeof stepRaw === 'object' ? (stepRaw as any) : null;
-      const stepName = safeString(step?.name);
-      if (!stepName) continue;
-
-      const dependsOn = Array.isArray(step?.depends_on) ? step.depends_on : [];
-      for (const depRaw of dependsOn) {
-        const depName = safeString(depRaw);
-        if (depName && !allStepNames.has(depName)) {
-          errors.push({ message: `Step '${stepName}' has an undefined dependency: '${depName}'.` });
-        }
-      }
-
-      const taskInfo = stepTaskMeta.get(stepName);
-      if (taskInfo?.hasTasks) {
-        const tasks = Array.isArray(step?.tasks) ? step.tasks : [];
-        for (const taskRaw of tasks) {
-          const task = taskRaw && typeof taskRaw === 'object' ? (taskRaw as any) : null;
-          const taskName = safeString(task?.name);
-          if (!taskName) continue;
-          const taskDependsOn = Array.isArray(task?.depends_on) ? task.depends_on : [];
-          for (const depRaw of taskDependsOn) {
-            const depName = safeString(depRaw);
-            if (depName && !taskInfo.taskNames.has(depName)) {
-              errors.push({
-                message: `Task '${taskName}' in step '${stepName}' has an invalid dependency: '${depName}'. Tasks can only depend on other tasks within the same step.`,
-              });
-            }
-          }
         }
       }
     }

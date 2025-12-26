@@ -10,9 +10,9 @@ import {
   type StepDraft,
   upsertStepDraft,
 } from '../lib/stepDrafts';
-import { findParentBlock } from '../lib/lab';
+import { applyEnterIndent, findParentBlock } from '../lib/lab';
 import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
-import { applyEnterIndent } from '../lib/lab';
+import { findLineNumberForKey, findLineNumberForTaskName, parseYamlWithLocation } from '../lib/yamlValidation';
 
 const STEP_NAME_PATTERN = /^[a-zA-Z0-9_.-]+$/;
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
@@ -141,59 +141,15 @@ function formatUpdatedAt(value?: string): string {
   return date.toLocaleString();
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function normalizeLineNumber(value: unknown): number | undefined {
-  if (typeof value !== 'number' || Number.isNaN(value)) return undefined;
-  const normalized = Math.max(1, Math.floor(value));
-  return Number.isFinite(normalized) ? normalized : undefined;
-}
-
-function findLineNumberByRegex(yamlString: string, regex: RegExp): number | undefined {
-  const lines = yamlString.split('\n');
-  for (let i = 0; i < lines.length; i += 1) {
-    if (regex.test(lines[i])) return i + 1;
-  }
-  return undefined;
-}
-
-function findLineNumberForKey(yamlString: string, key: string): number | undefined {
-  if (!key) return undefined;
-  const pattern = new RegExp(`^\\s*(?:-\\s*)?${escapeRegExp(key)}\\s*:`, 'i');
-  return findLineNumberByRegex(yamlString, pattern);
-}
-
-function findLineNumberForTaskName(yamlString: string, taskName: string): number | undefined {
-  if (!taskName) return undefined;
-  const pattern = new RegExp(`^\\s*(?:-\\s*)?name:\\s*${escapeRegExp(taskName)}\\b`, 'i');
-  return findLineNumberByRegex(yamlString, pattern);
-}
-
 function validateStepYaml(rawYaml: string, opts?: { expectedName?: string }): ValidationResult {
   const trimmed = rawYaml.trim();
   if (!trimmed) {
     return { errors: [{ message: 'Step definition cannot be empty.', line: 1 }] };
   }
 
-  let parsed: unknown = null;
-  try {
-    parsed = yaml.load(rawYaml) as unknown;
-  } catch (error: unknown) {
-    const record = error && typeof error === 'object' ? (error as Record<string, unknown>) : null;
-    const mark = record?.mark && typeof record.mark === 'object' ? (record.mark as Record<string, unknown>) : null;
-    const line = typeof mark?.line === 'number' ? mark.line + 1 : undefined;
-    const column = typeof mark?.column === 'number' ? mark.column + 1 : undefined;
-    return {
-      errors: [
-        {
-          message: error instanceof Error ? error.message : typeof record?.message === 'string' ? record.message : 'Unable to parse YAML.',
-          line: normalizeLineNumber(line),
-          column: normalizeLineNumber(column),
-        },
-      ],
-    };
+  const { parsed, error } = parseYamlWithLocation(rawYaml);
+  if (error) {
+    return { errors: [error] };
   }
 
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
