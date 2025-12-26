@@ -487,8 +487,8 @@ function TriggersPage() {
   );
 
   const openEditorSuggestion = useCallback(
-    (cursor: number, nextText?: string) => {
-      const text = nextText ?? editorValue;
+    (cursor: number, opts?: { text?: string; force?: boolean }) => {
+      const text = typeof opts?.text === 'string' ? opts.text : editorValue;
       const before = text.slice(0, cursor);
       const lineStart = before.lastIndexOf('\n') + 1;
       const lineBeforeCursor = text.slice(lineStart, cursor);
@@ -554,6 +554,26 @@ function TriggersPage() {
       const filtered = pool
         .filter(item => item.toLowerCase().startsWith(normalizedPrefix))
         .sort((a, b) => a.localeCompare(b));
+
+      if (
+        !opts?.force &&
+        !lineBeforeCursor.trim() &&
+        !prefix &&
+        !pipelineValueContext &&
+        !scopeValueContext &&
+        !onValueContext
+      ) {
+        setEditorSuggestion(null);
+        return;
+      }
+
+      const hasContext = pipelineValueContext || scopeValueContext || onValueContext || isKeyContext;
+      const shouldShow = opts?.force || hasContext || filtered.length > 0;
+
+      if (!shouldShow) {
+        setEditorSuggestion(null);
+        return;
+      }
 
       setEditorSuggestion({
         title,
@@ -1523,9 +1543,6 @@ function TriggersPage() {
                             <button className="glass-button-subtle" onClick={openCloneModal}>
                               Clone
                             </button>
-                            <button className="glass-button-danger" onClick={() => openDeleteModal(detail.slug)}>
-                              Delete
-                            </button>
                           </>
                         )}
                       </>
@@ -1578,10 +1595,8 @@ function TriggersPage() {
                           onChange={event => {
                             const next = event.target.value;
                             setEditorValue(next);
-                            if (editorSuggestion) {
-                              const cursor = event.target.selectionStart || 0;
-                              openEditorSuggestion(cursor, next);
-                            }
+                            const cursor = event.target.selectionStart || 0;
+                            openEditorSuggestion(cursor, { text: next });
                           }}
                           onScroll={handleEditorScroll}
                           onKeyDown={event => {
@@ -1591,7 +1606,7 @@ function TriggersPage() {
                               if (editorSuggestion) {
                                 setEditorSuggestion(null);
                               } else {
-                                openEditorSuggestion(cursor);
+                                openEditorSuggestion(cursor, { force: true });
                               }
                               return;
                             }
@@ -1638,45 +1653,12 @@ function TriggersPage() {
                             }
                           }}
                           onClick={event => {
-                            if (!editorSuggestion) return;
                             const cursor = event.currentTarget.selectionStart || 0;
                             openEditorSuggestion(cursor);
                           }}
                           spellCheck={false}
                         ></textarea>
 
-                        {editorSuggestion && (
-                          <div className="pipeline-suggestion-overlay" style={{ top: 12, left: 12, width: 340 }}>
-                            <div className="env-suggestion-panel">
-                              <div className="env-suggestion-heading">
-                                <p className="env-suggestion-kicker">Autocomplete</p>
-                                <p className="env-suggestion-title">{editorSuggestion.title}</p>
-                                <p className="env-suggestion-subtitle">
-                                  Ctrl+Space • Enter to insert • Esc to close
-                                  {autocompleteMeta.loading ? ' • Loading…' : ''}
-                                </p>
-                              </div>
-                              <div className="env-suggestion-body">
-                                {editorSuggestion.items.length ? (
-                                  <div className="env-suggestion-list">
-                                    {editorSuggestion.items.map((item, idx) => (
-                                      <div
-                                        key={`sg-${item}-${idx}`}
-                                        className={`env-suggestion-item ${idx === editorSuggestion.activeIndex ? 'env-suggestion-item--active' : ''}`}
-                                      >
-                                        <button type="button" className="env-suggestion-pill env-suggestion-pill--action" onClick={() => applyEditorSuggestion(item)}>
-                                          {item}
-                                        </button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <p className="env-suggestion-empty">No suggestions available.</p>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        )}
                       </div>
 
                       <div id="validation-status" className={`validation-box ${validation.errors.length ? '' : 'validation-box--success'}`}>
@@ -1694,6 +1676,41 @@ function TriggersPage() {
                           </div>
                         )}
                       </div>
+                      {editorSuggestion && (
+                        <div
+                          className="pipeline-suggestion-overlay"
+                          style={{ width: 340, marginLeft: 'auto', position: 'relative', top: 'auto', left: 'auto' }}
+                        >
+                          <div className="env-suggestion-panel">
+                            <div className="env-suggestion-heading">
+                              <p className="env-suggestion-kicker">Autocomplete</p>
+                              <p className="env-suggestion-title">{editorSuggestion.title}</p>
+                              <p className="env-suggestion-subtitle">
+                                Ctrl+Space • Enter to insert • Esc to close
+                                {autocompleteMeta.loading ? ' • Loading…' : ''}
+                              </p>
+                            </div>
+                            <div className="env-suggestion-body">
+                              {editorSuggestion.items.length ? (
+                                <div className="env-suggestion-list">
+                                  {editorSuggestion.items.map((item, idx) => (
+                                    <div
+                                      key={`sg-${item}-${idx}`}
+                                      className={`env-suggestion-item ${idx === editorSuggestion.activeIndex ? 'env-suggestion-item--active' : ''}`}
+                                    >
+                                      <button type="button" className="env-suggestion-pill env-suggestion-pill--action" onClick={() => applyEditorSuggestion(item)}>
+                                        {item}
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="env-suggestion-empty">No suggestions available.</p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

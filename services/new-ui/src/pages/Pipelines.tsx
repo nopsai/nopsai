@@ -545,8 +545,8 @@ function PipelinesPage() {
   );
 
   const openEditorSuggestion = useCallback(
-    (cursor: number) => {
-      const text = editorValue;
+    (cursor: number, opts?: { text?: string; force?: boolean }) => {
+      const text = typeof opts?.text === 'string' ? opts.text : editorValue;
       const before = text.slice(0, cursor);
       const lineStart = before.lastIndexOf('\n') + 1;
       const lineBeforeCursor = text.slice(lineStart, cursor);
@@ -626,15 +626,14 @@ function PipelinesPage() {
         .filter(item => item.toLowerCase().startsWith(normalizedPrefix))
         .sort((a, b) => a.localeCompare(b));
 
-      if (!filtered.length) {
-        setEditorSuggestion({
-          title,
-          items: [],
-          activeIndex: 0,
-          replaceStart,
-          replaceEnd,
-          appendColon,
-        });
+      const hasContext =
+        includeValueContext || parentKey === 'secrets' || parentKey === 'variables' || parentKey === 'depends_on';
+      const isRootLine = !parentKey && currentIndent === 0 && !currentKey;
+      const shouldShow =
+        opts?.force || hasContext || filtered.length > 0 || parentKey === 'tasks' || parentKey === 'steps';
+
+      if (!shouldShow || (!opts?.force && isRootLine && !prefix)) {
+        setEditorSuggestion(null);
         return;
       }
 
@@ -1671,7 +1670,16 @@ function PipelinesPage() {
                           ref={editorRef}
                           id="pipeline-yaml-editor"
                           value={editorValue}
-                          onChange={event => setEditorValue(event.target.value)}
+                          onChange={event => {
+                            const next = event.target.value;
+                            setEditorValue(next);
+                            const cursor = event.target.selectionStart || 0;
+                            openEditorSuggestion(cursor, { text: next });
+                          }}
+                          onClick={event => {
+                            const cursor = event.currentTarget.selectionStart || 0;
+                            openEditorSuggestion(cursor);
+                          }}
                           onScroll={handleEditorScroll}
                           onKeyDown={event => {
                             if (event.ctrlKey && event.code === 'Space') {
@@ -1680,7 +1688,7 @@ function PipelinesPage() {
                               if (editorSuggestion) {
                                 setEditorSuggestion(null);
                               } else {
-                                openEditorSuggestion(cursor);
+                                openEditorSuggestion(cursor, { force: true });
                               }
                               return;
                             }
@@ -1716,42 +1724,6 @@ function PipelinesPage() {
                           }}
                           spellCheck={false}
                         ></textarea>
-                        {editorSuggestion && (
-                          <div className="pipeline-suggestion-overlay" style={{ top: 12, left: 12, width: 320 }}>
-                            <div className="env-suggestion-panel">
-                              <div className="env-suggestion-heading">
-                                <p className="env-suggestion-kicker">Autocomplete</p>
-                                <p className="env-suggestion-title">{editorSuggestion.title}</p>
-                                <p className="env-suggestion-subtitle">
-                                  Ctrl+Space • Enter to insert • Esc to close
-                                  {autocompleteMeta.loading ? ' • Loading…' : ''}
-                                </p>
-                              </div>
-                              <div className="env-suggestion-body">
-                                {editorSuggestion.items.length ? (
-                                  <div className="env-suggestion-list">
-                                    {editorSuggestion.items.map((item, idx) => (
-                                      <div
-                                        key={`sg-${item}-${idx}`}
-                                        className={`env-suggestion-item ${idx === editorSuggestion.activeIndex ? 'env-suggestion-item--active' : ''}`}
-                                      >
-                                        <button
-                                          type="button"
-                                          className="env-suggestion-pill env-suggestion-pill--action"
-                                          onClick={() => applyEditorSuggestion(item)}
-                                        >
-                                          {item}
-                                        </button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <p className="env-suggestion-empty">No suggestions available.</p>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        )}
                       </div>
                       <div id="validation-status" className={`validation-box ${validation.errors.length ? '' : 'validation-box--success'}`}>
                         <div className="validation-box__header">{validation.errors.length ? 'Invalid' : 'Valid'}</div>
@@ -1768,6 +1740,45 @@ function PipelinesPage() {
                           </div>
                         )}
                       </div>
+                      {editorSuggestion && (
+                        <div
+                          className="pipeline-suggestion-overlay"
+                          style={{ width: 320, marginLeft: 'auto', position: 'relative', top: 'auto', left: 'auto' }}
+                        >
+                          <div className="env-suggestion-panel">
+                            <div className="env-suggestion-heading">
+                              <p className="env-suggestion-kicker">Autocomplete</p>
+                              <p className="env-suggestion-title">{editorSuggestion.title}</p>
+                              <p className="env-suggestion-subtitle">
+                                Ctrl+Space • Enter to insert • Esc to close
+                                {autocompleteMeta.loading ? ' • Loading…' : ''}
+                              </p>
+                            </div>
+                            <div className="env-suggestion-body">
+                              {editorSuggestion.items.length ? (
+                                <div className="env-suggestion-list">
+                                  {editorSuggestion.items.map((item, idx) => (
+                                    <div
+                                      key={`sg-${item}-${idx}`}
+                                      className={`env-suggestion-item ${idx === editorSuggestion.activeIndex ? 'env-suggestion-item--active' : ''}`}
+                                    >
+                                      <button
+                                        type="button"
+                                        className="env-suggestion-pill env-suggestion-pill--action"
+                                        onClick={() => applyEditorSuggestion(item)}
+                                      >
+                                        {item}
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="env-suggestion-empty">No suggestions available.</p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
