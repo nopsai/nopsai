@@ -1596,56 +1596,26 @@ function StepsPage() {
                           }}
                           onScroll={handleEditorScroll}
                           onKeyDown={event => {
-                            if (event.ctrlKey && event.code === 'Space') {
-                              event.preventDefault();
-                              const cursor = event.currentTarget.selectionStart || 0;
-                              if (editorSuggestion) {
-                                setEditorSuggestion(null);
+                          if (event.ctrlKey && event.code === 'Space') {
+                            event.preventDefault();
+                            const cursor = event.currentTarget.selectionStart || 0;
+                            if (editorSuggestion) {
+                              setEditorSuggestion(null);
                               } else {
                                 openEditorSuggestion(cursor, { force: true });
-                              }
-                              return;
                             }
+                            return;
+                          }
 
                             if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey) {
-                              if (editorSuggestion) {
-                                if (editorSuggestion.items.length === 0) return;
-                                event.preventDefault();
-                                applyEditorSuggestion(editorSuggestion.items[editorSuggestion.activeIndex]);
-                              } else {
-                                event.preventDefault();
-                                handleAutoIndentEnter();
-                              }
+                              event.preventDefault();
+                              handleAutoIndentEnter();
                               return;
                             }
 
-                            if (!editorSuggestion) return;
-
-                            if (event.key === 'Escape') {
+                            if (editorSuggestion && event.key === 'Escape') {
                               event.preventDefault();
                               setEditorSuggestion(null);
-                              return;
-                            }
-                            if (event.key === 'ArrowDown') {
-                              event.preventDefault();
-                              setEditorSuggestion(prev => {
-                                if (!prev || prev.items.length === 0) return prev;
-                                return { ...prev, activeIndex: (prev.activeIndex + 1) % prev.items.length };
-                              });
-                              return;
-                            }
-                            if (event.key === 'ArrowUp') {
-                              event.preventDefault();
-                              setEditorSuggestion(prev => {
-                                if (!prev || prev.items.length === 0) return prev;
-                                return { ...prev, activeIndex: (prev.activeIndex - 1 + prev.items.length) % prev.items.length };
-                              });
-                              return;
-                            }
-                            if (event.key === 'Enter') {
-                              if (editorSuggestion.items.length === 0) return;
-                              event.preventDefault();
-                              applyEditorSuggestion(editorSuggestion.items[editorSuggestion.activeIndex]);
                             }
                           }}
                           spellCheck={false}
