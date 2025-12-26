@@ -10,6 +10,7 @@ import {
   type PipelineDraft,
   upsertPipelineDraft,
 } from '../lib/pipelineDrafts';
+import { findParentBlock } from '../lib/lab';
 import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
 import { StepsGraph, type PipelineDefinition as RunPipelineDefinition, type StepDetail as RunStepDetail, type TaskDefinition as RunTaskDefinition, type TaskDetail as RunTaskDetail } from './PipelineRuns';
 
@@ -179,9 +180,11 @@ function PipelinesPage() {
     secrets: string[];
     variables: string[];
     reusableSteps: string[];
+    secretScopes: Array<{ scope: string; items: string[] }>;
+    variableScopes: Array<{ scope: string; items: string[] }>;
     fetchedAt: number;
     loading: boolean;
-  }>({ secrets: [], variables: [], reusableSteps: [], fetchedAt: 0, loading: false });
+  }>({ secrets: [], variables: [], reusableSteps: [], secretScopes: [], variableScopes: [], fetchedAt: 0, loading: false });
 
   const [editorSuggestion, setEditorSuggestion] = useState<null | {
     title: string;
@@ -190,6 +193,7 @@ function PipelinesPage() {
     replaceStart: number;
     replaceEnd: number;
     appendColon: boolean;
+    groupedSections?: Array<{ label: string; items: string[]; totalCount: number }>;
   }>(null);
 
   const validatePipelineYaml = useCallback((rawYaml: string): ValidationResult => {
@@ -563,20 +567,9 @@ function PipelinesPage() {
       const currentKeyMatch = currentLine.match(/^\s*-?\s*([A-Za-z0-9_.-]+)\s*:\s*/);
       const currentKey = currentKeyMatch?.[1] || '';
 
-      let parentKey = '';
-      for (let i = lineIndex; i >= 0; i -= 1) {
-        const rawLine = lines[i];
-        const trimmed = rawLine.trim();
-        if (!trimmed || trimmed.startsWith('#')) continue;
-        const indent = rawLine.match(/^\s*/)?.[0].length ?? 0;
-        if (indent < currentIndent) {
-          const match = rawLine.match(/^\s*-?\s*([A-Za-z0-9_.-]+)\s*:\s*/);
-          if (match) {
-            parentKey = match[1];
-            break;
-          }
-        }
-      }
+      const beforeLineText = text.slice(0, lineStart);
+      const ancestorKey = findParentBlock(beforeLineText, ['secrets', 'variables', 'depends_on', 'tasks', 'steps'], currentIndent) || '';
+      const containerBlock = findParentBlock(beforeLineText, ['tasks', 'steps'], currentIndent) || '';
 
       const includeValueContext =
         currentKey === 'include' ||
@@ -594,25 +587,60 @@ function PipelinesPage() {
       let title = 'Suggestions';
       let pool: string[] = [];
       let appendColon = false;
+      let groupedSections: Array<{ label: string; items: string[]; totalCount: number }> | undefined;
 
       if (includeValueContext) {
         title = 'Reusable steps';
         pool = autocompleteMeta.reusableSteps;
-      } else if (parentKey === 'secrets') {
+      } else if (ancestorKey === 'secrets') {
         title = 'Secrets';
-        pool = autocompleteMeta.secrets;
-      } else if (parentKey === 'variables') {
+        const base = autocompleteMeta.secretScopes.length
+          ? autocompleteMeta.secretScopes
+          : [{ scope: '', items: autocompleteMeta.secrets }];
+        let remaining = 50;
+        groupedSections = base
+          .map(entry => {
+            const filteredItems = entry.items.filter(item => item.toLowerCase().startsWith(prefix.toLowerCase()));
+            if (!filteredItems.length) return null;
+            const slice = filteredItems.slice(0, remaining);
+            remaining -= slice.length;
+            return {
+              label: entry.scope ? `/${entry.scope}` : 'Default scope',
+              items: slice,
+              totalCount: filteredItems.length,
+            };
+          })
+          .filter(Boolean) as Array<{ label: string; items: string[]; totalCount: number }>;
+        pool = groupedSections.flatMap(section => section.items);
+      } else if (ancestorKey === 'variables') {
         title = 'Variables';
-        pool = autocompleteMeta.variables;
-      } else if (parentKey === 'depends_on') {
+        const base = autocompleteMeta.variableScopes.length
+          ? autocompleteMeta.variableScopes
+          : [{ scope: '', items: autocompleteMeta.variables }];
+        let remaining = 50;
+        groupedSections = base
+          .map(entry => {
+            const filteredItems = entry.items.filter(item => item.toLowerCase().startsWith(prefix.toLowerCase()));
+            if (!filteredItems.length) return null;
+            const slice = filteredItems.slice(0, remaining);
+            remaining -= slice.length;
+            return {
+              label: entry.scope ? `/${entry.scope}` : 'Default scope',
+              items: slice,
+              totalCount: filteredItems.length,
+            };
+          })
+          .filter(Boolean) as Array<{ label: string; items: string[]; totalCount: number }>;
+        pool = groupedSections.flatMap(section => section.items);
+      } else if (ancestorKey === 'depends_on') {
         title = 'Step dependencies';
         pool = resolveStepNames();
       } else {
         appendColon = true;
-        if (parentKey === 'tasks') {
+        if (containerBlock === 'tasks') {
           title = 'Task keys';
           pool = TASK_DIRECTIVES;
-        } else if (parentKey === 'steps') {
+        } else if (containerBlock === 'steps') {
           title = 'Step keys';
           pool = STEP_DIRECTIVES;
         } else {
@@ -627,10 +655,9 @@ function PipelinesPage() {
         .sort((a, b) => a.localeCompare(b));
 
       const hasContext =
-        includeValueContext || parentKey === 'secrets' || parentKey === 'variables' || parentKey === 'depends_on';
-      const isRootLine = !parentKey && currentIndent === 0 && !currentKey;
-      const shouldShow =
-        opts?.force || hasContext || filtered.length > 0 || parentKey === 'tasks' || parentKey === 'steps';
+        includeValueContext || ancestorKey === 'secrets' || ancestorKey === 'variables' || ancestorKey === 'depends_on';
+      const isRootLine = !containerBlock && currentIndent === 0 && !currentKey;
+      const shouldShow = opts?.force || hasContext || filtered.length > 0 || containerBlock === 'tasks' || containerBlock === 'steps';
 
       if (!shouldShow || (!opts?.force && isRootLine && !prefix)) {
         setEditorSuggestion(null);
@@ -644,6 +671,7 @@ function PipelinesPage() {
         replaceStart,
         replaceEnd,
         appendColon,
+        groupedSections,
       });
     },
     [autocompleteMeta, detail, editorValue]
@@ -676,17 +704,77 @@ function PipelinesPage() {
             .filter(Boolean);
         };
 
+        const normalizeScopeLabel = (entry: unknown) => {
+          if (entry == null) return '';
+          if (typeof entry === 'string') return entry.trim().replace(/^\/+|\/+$/g, '');
+          if (typeof entry === 'object') {
+            const record = entry as Record<string, unknown>;
+            const raw = record.scope ?? record.env ?? record.name ?? record.value;
+            if (typeof raw === 'string') return raw.trim().replace(/^\/+|\/+$/g, '');
+          }
+          return '';
+        };
+
+        const buildScopeList = (secretsPayload: unknown, variablesPayload: unknown): string[] => {
+          const scopes = new Set<string>();
+          scopes.add('');
+          if (Array.isArray(secretsPayload)) {
+            secretsPayload.forEach(entry => {
+              const label = normalizeScopeLabel(entry);
+              if (label !== null) scopes.add(label);
+            });
+          }
+          if (Array.isArray(variablesPayload)) {
+            variablesPayload.forEach(entry => {
+              const label = normalizeScopeLabel(entry);
+              if (label !== null) scopes.add(label);
+            });
+          }
+          return Array.from(scopes)
+            .map(scope => scope.replace(/^\/+|\/+$/g, ''))
+            .sort((a, b) => a.localeCompare(b));
+        };
+
+        const fetchScopedList = async (path: string, scope: string) => {
+          const suffix = scope ? `?env=${encodeURIComponent(scope)}` : '';
+          const response = await fetch(buildApiUrl(`${path}${suffix}`));
+          if (!response.ok) return [];
+          const payload = await response.json();
+          return normalize(payload);
+        };
+
         const promise = (async () => {
-          const [secretsResp, varsResp, stepsResp] = await Promise.all([
+          const [secretsResp, varsResp, stepsResp, secretScopesResp, variableScopesResp] = await Promise.all([
             fetch(buildApiUrl('/v1/secrets')).then(r => (r.ok ? r.json() : [])),
             fetch(buildApiUrl('/v1/variables')).then(r => (r.ok ? r.json() : [])),
             fetch(buildApiUrl('/v1/steps')).then(r => (r.ok ? r.json() : [])),
+            fetch(buildApiUrl('/v1/secrets/scopes')).then(r => (r.ok ? r.json() : [])),
+            fetch(buildApiUrl('/v1/variables/scopes')).then(r => (r.ok ? r.json() : [])),
+          ]);
+
+          const scopeList = buildScopeList(secretScopesResp, variableScopesResp);
+
+          const [secretScopes, variableScopes] = await Promise.all([
+            Promise.all(
+              scopeList.map(async scope => ({
+                scope,
+                items: await fetchScopedList('/v1/secrets', scope),
+              }))
+            ),
+            Promise.all(
+              scopeList.map(async scope => ({
+                scope,
+                items: await fetchScopedList('/v1/variables', scope),
+              }))
+            ),
           ]);
 
           setAutocompleteMeta({
             secrets: normalize(secretsResp),
             variables: normalize(varsResp),
             reusableSteps: normalize(stepsResp),
+            secretScopes,
+            variableScopes,
             fetchedAt: Date.now(),
             loading: false,
           });
@@ -1743,7 +1831,14 @@ function PipelinesPage() {
                       {editorSuggestion && (
                         <div
                           className="pipeline-suggestion-overlay"
-                          style={{ width: 320, marginLeft: 'auto', position: 'relative', top: 'auto', left: 'auto' }}
+                          style={{
+                            width: 320,
+                            maxWidth: 'calc(100% - 32px)',
+                            right: 16,
+                            bottom: 16,
+                            top: 'auto',
+                            left: 'auto',
+                          }}
                         >
                           <div className="env-suggestion-panel">
                             <div className="env-suggestion-heading">
@@ -1757,20 +1852,69 @@ function PipelinesPage() {
                             <div className="env-suggestion-body">
                               {editorSuggestion.items.length ? (
                                 <div className="env-suggestion-list">
-                                  {editorSuggestion.items.map((item, idx) => (
-                                    <div
-                                      key={`sg-${item}-${idx}`}
-                                      className={`env-suggestion-item ${idx === editorSuggestion.activeIndex ? 'env-suggestion-item--active' : ''}`}
-                                    >
-                                      <button
-                                        type="button"
-                                        className="env-suggestion-pill env-suggestion-pill--action"
-                                        onClick={() => applyEditorSuggestion(item)}
+                                  {editorSuggestion.groupedSections && editorSuggestion.groupedSections.length > 0 ? (
+                                    (() => {
+                                      let runningIndex = 0;
+                                      return editorSuggestion.groupedSections.map(section => {
+                                        const startIndex = runningIndex;
+                                        const pills = section.items.map((item, idx) => {
+                                          const globalIndex = startIndex + idx;
+                                          const isActive = editorSuggestion.activeIndex === globalIndex;
+                                          runningIndex += 1;
+                                          return (
+                                            <button
+                                              key={`${section.label}-${item}-${idx}`}
+                                              type="button"
+                                              className={`env-suggestion-pill env-suggestion-pill--action ${isActive ? 'env-suggestion-pill--active' : ''}`}
+                                              onClick={() => applyEditorSuggestion(item)}
+                                            >
+                                              {item}
+                                            </button>
+                                          );
+                                        });
+                                        const remaining = Math.max(0, section.totalCount - section.items.length);
+                                        const hasActive =
+                                          editorSuggestion.activeIndex >= startIndex &&
+                                          editorSuggestion.activeIndex < startIndex + section.items.length;
+                                        return (
+                                          <article
+                                            key={`section-${section.label}`}
+                                            className={`env-suggestion-item ${hasActive ? 'env-suggestion-item--active' : ''}`}
+                                          >
+                                            <div className="env-suggestion-env">
+                                              <span className="env-suggestion-env-label">{section.label}</span>
+                                              <span className="env-suggestion-env-count">
+                                                {section.totalCount} {section.totalCount === 1 ? 'item' : 'items'}
+                                              </span>
+                                            </div>
+                                            <div className="env-suggestion-variables">
+                                              {pills}
+                                              {remaining > 0 && (
+                                                <span className="env-suggestion-pill env-suggestion-pill--more">
+                                                  +{remaining} more
+                                                </span>
+                                              )}
+                                            </div>
+                                          </article>
+                                        );
+                                      });
+                                    })()
+                                  ) : (
+                                    editorSuggestion.items.map((item, idx) => (
+                                      <div
+                                        key={`sg-${item}-${idx}`}
+                                        className={`env-suggestion-item ${idx === editorSuggestion.activeIndex ? 'env-suggestion-item--active' : ''}`}
                                       >
-                                        {item}
-                                      </button>
-                                    </div>
-                                  ))}
+                                        <button
+                                          type="button"
+                                          className="env-suggestion-pill env-suggestion-pill--action"
+                                          onClick={() => applyEditorSuggestion(item)}
+                                        >
+                                          {item}
+                                        </button>
+                                      </div>
+                                    ))
+                                  )}
                                 </div>
                               ) : (
                                 <p className="env-suggestion-empty">No suggestions available.</p>

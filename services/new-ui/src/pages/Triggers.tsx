@@ -1679,7 +1679,14 @@ function TriggersPage() {
                       {editorSuggestion && (
                         <div
                           className="pipeline-suggestion-overlay"
-                          style={{ width: 340, marginLeft: 'auto', position: 'relative', top: 'auto', left: 'auto' }}
+                          style={{
+                            width: 340,
+                            maxWidth: 'calc(100% - 32px)',
+                            right: 16,
+                            bottom: 16,
+                            top: 'auto',
+                            left: 'auto',
+                          }}
                         >
                           <div className="env-suggestion-panel">
                             <div className="env-suggestion-heading">
