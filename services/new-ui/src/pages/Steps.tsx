@@ -12,6 +12,7 @@ import {
 } from '../lib/stepDrafts';
 import { findParentBlock } from '../lib/lab';
 import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
+import { applyEnterIndent } from '../lib/lab';
 
 const STEP_NAME_PATTERN = /^[a-zA-Z0-9_.-]+$/;
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
@@ -519,6 +520,23 @@ function StepsPage() {
     },
     [editorSuggestion, editorValue, syncEditorOverlays]
   );
+
+  const handleAutoIndentEnter = useCallback(() => {
+    const textarea = editorRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart ?? 0;
+    const end = textarea.selectionEnd ?? start;
+    const { nextValue, nextCursor } = applyEnterIndent(editorValue, start, end);
+    setEditorValue(nextValue);
+    requestAnimationFrame(() => {
+      const el = editorRef.current;
+      if (!el) return;
+      el.focus();
+      el.selectionStart = nextCursor;
+      el.selectionEnd = nextCursor;
+      syncEditorOverlays(el);
+    });
+  }, [editorValue, syncEditorOverlays]);
 
   const openEditorSuggestion = useCallback(
     (cursor: number, opts?: { text?: string; force?: boolean }) => {
@@ -1585,6 +1603,18 @@ function StepsPage() {
                                 setEditorSuggestion(null);
                               } else {
                                 openEditorSuggestion(cursor, { force: true });
+                              }
+                              return;
+                            }
+
+                            if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey) {
+                              if (editorSuggestion) {
+                                if (editorSuggestion.items.length === 0) return;
+                                event.preventDefault();
+                                applyEditorSuggestion(editorSuggestion.items[editorSuggestion.activeIndex]);
+                              } else {
+                                event.preventDefault();
+                                handleAutoIndentEnter();
                               }
                               return;
                             }

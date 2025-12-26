@@ -10,7 +10,7 @@ import {
   type PipelineDraft,
   upsertPipelineDraft,
 } from '../lib/pipelineDrafts';
-import { findParentBlock } from '../lib/lab';
+import { applyEnterIndent, findParentBlock } from '../lib/lab';
 import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
 import { StepsGraph, type PipelineDefinition as RunPipelineDefinition, type StepDetail as RunStepDetail, type TaskDefinition as RunTaskDefinition, type TaskDetail as RunTaskDetail } from './PipelineRuns';
 
@@ -547,6 +547,23 @@ function PipelinesPage() {
     },
     [editorSuggestion, editorValue, syncEditorOverlays]
   );
+
+  const handleAutoIndentEnter = useCallback(() => {
+    const textarea = editorRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart ?? 0;
+    const end = textarea.selectionEnd ?? start;
+    const { nextValue, nextCursor } = applyEnterIndent(editorValue, start, end);
+    setEditorValue(nextValue);
+    requestAnimationFrame(() => {
+      const el = editorRef.current;
+      if (!el) return;
+      el.focus();
+      el.selectionStart = nextCursor;
+      el.selectionEnd = nextCursor;
+      syncEditorOverlays(el);
+    });
+  }, [editorValue, syncEditorOverlays]);
 
   const openEditorSuggestion = useCallback(
     (cursor: number, opts?: { text?: string; force?: boolean }) => {
@@ -1777,6 +1794,18 @@ function PipelinesPage() {
                                 setEditorSuggestion(null);
                               } else {
                                 openEditorSuggestion(cursor, { force: true });
+                              }
+                              return;
+                            }
+
+                            if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey) {
+                              if (editorSuggestion) {
+                                if (editorSuggestion.items.length === 0) return;
+                                event.preventDefault();
+                                applyEditorSuggestion(editorSuggestion.items[editorSuggestion.activeIndex]);
+                              } else {
+                                event.preventDefault();
+                                handleAutoIndentEnter();
                               }
                               return;
                             }
