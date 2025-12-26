@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, 
 import { useLocation, useNavigate } from 'react-router-dom';
 import yaml from 'js-yaml';
 import { buildApiUrl } from '../lib/api';
+import { escapeRegExp, findLineNumberByRegex, findLineNumberForKey, parseYamlWithLocation } from '../lib/yamlValidation';
 import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
 
 const INITIAL_RECENT_RUNS = 5;
@@ -393,40 +394,163 @@ function TriggersPage() {
   };
 
   const validateTriggerYaml = useCallback((rawYaml: string): ValidationResult => {
-    const errors: ValidationError[] = [];
-    let parsed: unknown = null;
-    try {
-      parsed = yaml.load(rawYaml) as unknown;
-    } catch (error: unknown) {
-      const errorRecord = asRecord(error);
-      const markRecord = asRecord(errorRecord?.mark);
-      errors.push({
-        message: error instanceof Error ? error.message : 'Invalid YAML',
-        line: typeof markRecord?.line === 'number' ? markRecord.line + 1 : undefined,
-        column: typeof markRecord?.column === 'number' ? markRecord.column + 1 : undefined,
-      });
-      return { errors };
+    const trimmed = rawYaml.trim();
+    if (!trimmed) {
+      return { errors: [{ message: 'Trigger manifest cannot be empty.', line: 1 }] };
     }
 
-    if (!parsed || typeof parsed !== 'object') {
-      return { errors: [{ message: 'YAML must define an object at the root.' }] };
+    const { parsed, error } = parseYamlWithLocation(rawYaml);
+    if (error) {
+      return { errors: [error] };
+    }
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { errors: [{ message: 'YAML must define an object at the root.', line: 1 }] };
     }
 
     const root = asRecord(parsed);
-    const triggers = Array.isArray(root?.triggers) ? root?.triggers : [];
+    if (!root) {
+      return { errors: [{ message: 'YAML must define an object at the root.', line: 1 }] };
+    }
+
+    const errors: ValidationError[] = [];
+
+    if (root.steps) {
+      errors.push({
+        message:
+          "Validation failed: The provided file appears to be a pipeline, not a trigger manifest. A trigger must contain 'triggers', not 'steps'.",
+        line: findLineNumberForKey(rawYaml, 'steps') ?? 1,
+      });
+    }
+
+    const unknownRootKey = Object.keys(root).find(key => !TRIGGER_ROOT_KEYS.includes(key));
+    if (unknownRootKey) {
+      errors.push({
+        message: `Unknown directive '${unknownRootKey}' at root.`,
+        line: findLineNumberForKey(rawYaml, unknownRootKey) ?? 1,
+      });
+    }
+
+    const triggers = Array.isArray(root.triggers) ? root.triggers : [];
     if (triggers.length === 0) {
-      errors.push({ message: "'triggers' must be a non-empty list." });
+      errors.push({ message: "'triggers' must be a non-empty list.", line: findLineNumberForKey(rawYaml, 'triggers') ?? 1 });
       return { errors };
     }
 
     triggers.forEach((trigger, index: number) => {
       const triggerRecord = asRecord(trigger);
+      const triggerLine =
+        findLineNumberByRegex(
+          rawYaml,
+          new RegExp(
+            `^\\s*-\\s*on:\\s*${escapeRegExp(typeof triggerRecord?.on === 'string' ? triggerRecord.on.trim() : '')}\\b`,
+            'i'
+          )
+        ) ?? findLineNumberForKey(rawYaml, 'triggers') ?? 1;
+
       if (!triggerRecord) {
-        errors.push({ message: `Trigger #${index + 1} must be an object.` });
+        errors.push({ message: `Trigger #${index + 1} must be an object.`, line: triggerLine });
         return;
       }
+      const unknownKey = Object.keys(triggerRecord).find(key => !TRIGGER_KEYS.includes(key) && key !== 'skipBranches');
+      if (unknownKey) {
+        errors.push({
+          message: `Trigger #${index + 1} contains unknown directive '${unknownKey}'.`,
+          line: findLineNumberForKey(rawYaml, unknownKey) ?? triggerLine,
+        });
+      }
+      const onValue = typeof triggerRecord.on === 'string' ? triggerRecord.on.trim() : '';
+      if (!onValue) {
+        errors.push({
+          message: `Trigger #${index + 1} is missing required 'on' event.`,
+          line: findLineNumberForKey(rawYaml, 'on') ?? triggerLine,
+        });
+      } else if (!TRIGGER_EVENT_OPTIONS.includes(onValue)) {
+        errors.push({
+          message: `Trigger #${index + 1} has unsupported event '${onValue}'.`,
+          line:
+            findLineNumberByRegex(rawYaml, new RegExp(`^\\s*(?:-\\s*)?on:\\s*${escapeRegExp(onValue)}\\b`, 'i')) ??
+            triggerLine,
+        });
+      }
+
+      const pipelines = Array.isArray(triggerRecord.pipelines) ? triggerRecord.pipelines : [];
+      if (pipelines.length === 0) {
+        errors.push({
+          message: `Trigger #${index + 1} must include at least one pipeline reference.`,
+          line: findLineNumberForKey(rawYaml, 'pipelines') ?? triggerLine,
+        });
+      } else {
+        pipelines.forEach((entry, pipelineIdx) => {
+          const entryRecord =
+            entry && typeof entry === 'object' && !Array.isArray(entry) ? (entry as Record<string, unknown>) : null;
+          const path =
+            typeof entry === 'string'
+              ? entry.trim()
+              : typeof entryRecord?.path === 'string'
+              ? entryRecord.path.trim()
+              : '';
+          if (!path) {
+            errors.push({
+              message: `Trigger #${index + 1} pipeline #${pipelineIdx + 1} is missing a path.`,
+              line: findLineNumberForKey(rawYaml, 'pipelines') ?? triggerLine,
+            });
+          }
+        });
+      }
+
+      const branches = Array.isArray(triggerRecord.branches) ? triggerRecord.branches : [];
+      branches.forEach((branch, branchIdx) => {
+        const value = typeof branch === 'string' ? branch.trim() : '';
+        if (!value) {
+          errors.push({
+            message: `Trigger #${index + 1} has an empty branch entry at position ${branchIdx + 1}.`,
+            line: findLineNumberForKey(rawYaml, 'branches') ?? triggerLine,
+          });
+        }
+      });
+
+      const rawSkip = Array.isArray(triggerRecord.skip_branches)
+        ? triggerRecord.skip_branches
+        : Array.isArray((triggerRecord as Record<string, unknown>).skipBranches)
+        ? (triggerRecord as Record<string, unknown>).skipBranches
+        : [];
+      rawSkip.forEach((branch, branchIdx) => {
+        const value = typeof branch === 'string' ? branch.trim() : '';
+        if (!value) {
+          errors.push({
+            message: `Trigger #${index + 1} has an empty skip_branches entry at position ${branchIdx + 1}.`,
+            line: findLineNumberForKey(rawYaml, 'skip_branches') ?? triggerLine,
+          });
+        }
+      });
+
+      const tags = Array.isArray(triggerRecord.tags) ? triggerRecord.tags : [];
+      tags.forEach((tag, tagIdx) => {
+        const value = typeof tag === 'string' ? tag.trim() : '';
+        if (!value) {
+          errors.push({
+            message: `Trigger #${index + 1} has an empty tag entry at position ${tagIdx + 1}.`,
+            line: findLineNumberForKey(rawYaml, 'tags') ?? triggerLine,
+          });
+        }
+      });
+
       if (Object.prototype.hasOwnProperty.call(triggerRecord, 'environment')) {
-        errors.push({ message: `Trigger #${index + 1} uses deprecated 'environment'. Rename it to 'scope'.` });
+        errors.push({
+          message: `Trigger #${index + 1} uses deprecated 'environment'. Rename it to 'scope'.`,
+          line: findLineNumberForKey(rawYaml, 'environment') ?? triggerLine,
+        });
+      }
+
+      if (triggerRecord.scope != null) {
+        const scopeValue = typeof triggerRecord.scope === 'string' ? triggerRecord.scope.trim() : '';
+        if (!scopeValue) {
+          errors.push({
+            message: `Trigger #${index + 1} has an empty 'scope'.`,
+            line: findLineNumberForKey(rawYaml, 'scope') ?? triggerLine,
+          });
+        }
       }
     });
 
@@ -1600,62 +1724,38 @@ function TriggersPage() {
                           }}
                           onScroll={handleEditorScroll}
                           onKeyDown={event => {
-                            if (event.ctrlKey && event.code === 'Space') {
-                              event.preventDefault();
-                              const cursor = event.currentTarget.selectionStart || 0;
-                              if (editorSuggestion) {
-                                setEditorSuggestion(null);
+                          if (event.ctrlKey && event.code === 'Space') {
+                            event.preventDefault();
+                            const cursor = event.currentTarget.selectionStart || 0;
+                            if (editorSuggestion) {
+                              setEditorSuggestion(null);
                               } else {
                                 openEditorSuggestion(cursor, { force: true });
                               }
-                              return;
-                            }
+                            return;
+                          }
 
-                            if (event.key === 'Tab') {
-                              event.preventDefault();
-                              handleIndentTab(event);
-                              return;
-                            }
+                          if (event.key === 'Tab') {
+                            event.preventDefault();
+                            handleIndentTab(event);
+                            return;
+                          }
 
-                            if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !editorSuggestion) {
-                              event.preventDefault();
-                              handleAutoIndentEnter(event);
-                              return;
-                            }
+                          if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey) {
+                            event.preventDefault();
+                            handleAutoIndentEnter(event);
+                            return;
+                          }
 
-                            if (!editorSuggestion) return;
-
-                            if (event.key === 'Escape') {
-                              event.preventDefault();
-                              setEditorSuggestion(null);
-                              return;
-                            }
-                            if (event.key === 'ArrowDown') {
-                              event.preventDefault();
-                              setEditorSuggestion(prev => {
-                                if (!prev || prev.items.length === 0) return prev;
-                                return { ...prev, activeIndex: (prev.activeIndex + 1) % prev.items.length };
-                              });
-                              return;
-                            }
-                            if (event.key === 'ArrowUp') {
-                              event.preventDefault();
-                              setEditorSuggestion(prev => {
-                                if (!prev || prev.items.length === 0) return prev;
-                                return { ...prev, activeIndex: (prev.activeIndex - 1 + prev.items.length) % prev.items.length };
-                              });
-                              return;
-                            }
-                            if (event.key === 'Enter') {
-                              if (editorSuggestion.items.length === 0) return;
-                              event.preventDefault();
-                              applyEditorSuggestion(editorSuggestion.items[editorSuggestion.activeIndex]);
-                            }
-                          }}
-                          onClick={event => {
-                            const cursor = event.currentTarget.selectionStart || 0;
-                            openEditorSuggestion(cursor);
-                          }}
+                          if (editorSuggestion && event.key === 'Escape') {
+                            event.preventDefault();
+                            setEditorSuggestion(null);
+                          }
+                        }}
+                        onClick={event => {
+                          const cursor = event.currentTarget.selectionStart || 0;
+                          openEditorSuggestion(cursor);
+                        }}
                           spellCheck={false}
                         ></textarea>
 
