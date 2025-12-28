@@ -1,0 +1,966 @@
+import yaml from 'js-yaml';
+
+export type LabValidationError = {
+  message: string;
+  line?: number | null;
+};
+
+export type LabValidationResult = {
+  errors: LabValidationError[];
+};
+
+export type LabDirective = {
+  key: string;
+  hint: string;
+};
+
+export const PIPELINE_DIRECTIVES: LabDirective[] = [
+  { key: 'name', hint: 'Pipeline display name' },
+  { key: 'version', hint: 'Pipeline schema version' },
+  { key: 'description', hint: 'Human readable summary' },
+  { key: 'container_image', hint: 'Default container image' },
+  { key: 'working_directory', hint: 'Default working directory' },
+  { key: 'variables', hint: 'Global variables' },
+  { key: 'steps', hint: 'List pipeline steps' },
+  { key: 'timeout', hint: 'Pipeline timeout' },
+  { key: 'llm_output_sharing', hint: 'Share LLM outputs across steps' },
+  { key: 'llm_content_sharing', hint: 'Share LLM prompts across steps' },
+  { key: 'llm_content_ignore', hint: 'Paths excluded from LLM context' },
+  { key: 'display_options', hint: 'UI rendering preferences' },
+];
+
+export const STEP_DIRECTIVES: LabDirective[] = [
+  { key: 'name', hint: 'Step name' },
+  { key: 'include', hint: 'Include reusable step' },
+  { key: 'sync', hint: 'Run step synchronously' },
+  { key: 'image', hint: 'Override container image' },
+  { key: 'secrets', hint: 'Step secrets' },
+  { key: 'volumes', hint: 'Step volumes' },
+  { key: 'variables', hint: 'Step variables' },
+  { key: 'tasks', hint: 'Nested task list' },
+  { key: 'condition', hint: 'Conditional execution' },
+  { key: 'goal', hint: 'LLM goal prompt' },
+  { key: 'script', hint: 'Shell script body' },
+  { key: 'depends_on', hint: 'Upstream steps' },
+  { key: 'ignore_failure', hint: 'Ignore failures' },
+  { key: 'llm_output_sharing', hint: 'Share step LLM output' },
+];
+
+export const TASK_DIRECTIVES: LabDirective[] = [
+  { key: 'name', hint: 'Task name' },
+  { key: 'goal', hint: 'Task goal prompt' },
+  { key: 'script', hint: 'Task script body' },
+  { key: 'depends_on', hint: 'Dependent tasks' },
+  { key: 'ignore_failure', hint: 'Ignore task errors' },
+  { key: 'llm_output_sharing', hint: 'Share task LLM output' },
+];
+
+export const DIRECTIVE_VALUE_METADATA: Record<string, { values: string[]; title: string }> = {
+  llm_output_sharing: { values: ['true', 'false'], title: 'Boolean value' },
+  llm_content_sharing: { values: ['true', 'false'], title: 'Boolean value' },
+  ignore_failure: { values: ['true', 'false'], title: 'Boolean value' },
+  sync: { values: ['true', 'false'], title: 'Boolean value' },
+};
+
+export const LIST_KEYS_WITH_NAME_TEMPLATE = new Set(['steps', 'tasks']);
+export const LIST_KEYS_SIMPLE = new Set(['secrets', 'volumes', 'depends_on', 'artifacts', 'variables', 'llm_content_ignore']);
+export const ARRAY_KEYS = new Set(['steps', 'tasks', 'variables', 'secrets', 'volumes', 'depends_on', 'artifacts', 'llm_content_ignore']);
+
+const OVERRIDE_KEY_PATTERN = /^[A-Za-z0-9_.-]+$/;
+export const DEFAULT_PIPELINE_NAME = 'ad-hoc-pipeline';
+
+const VALIDATION_EXAMPLES: Array<{ pattern: RegExp; example: string }> = [
+  {
+    pattern: /Unknown field '.*'/i,
+    example: `name: demo-pipeline\nversion: latest\nsteps:\n  - name: build\n    script: echo "hello"`,
+  },
+  { pattern: /At least one step is required/i, example: `steps:\n  - name: build\n    script: echo "hello"` },
+  {
+    pattern: /Duplicate step name/i,
+    example: `steps:\n  - name: build\n    script: echo "first"\n  - name: build\n    script: echo "second"`,
+  },
+  {
+    pattern: /Duplicate task name/i,
+    example: `steps:\n  - name: build\n    tasks:\n      - name: compile\n        script: make\n      - name: compile\n        script: make test`,
+  },
+  {
+    pattern: /has an empty 'goal'/i,
+    example: `steps:\n  - name: summarize\n    goal: "Describe the changes for release notes"`,
+  },
+  { pattern: /has an empty 'script'/i, example: `steps:\n  - name: build\n    script: |\n      npm run build` },
+  { pattern: /empty 'include'/i, example: `steps:\n  - name: reuse\n    include: "step:path/to/reusable"` },
+  {
+    pattern: /must define either 'goal' or 'script'/i,
+    example: `steps:\n  - name: lint\n    tasks:\n      - name: run-lint\n        script: |\n          npm run lint`,
+  },
+];
+
+export function buildValidationExample(message: string): string {
+  if (!message) return '';
+  for (const entry of VALIDATION_EXAMPLES) {
+    if (entry.pattern.test(message)) return entry.example;
+  }
+  return '';
+}
+
+export function buildYamlPathIndex(yamlString: string): Map<string, number> {
+  const index = new Map<string, number>();
+  if (typeof yamlString !== 'string' || !yamlString.length) {
+    return index;
+  }
+
+  const lines = yamlString.split('\n');
+  const stack: Array<{ indent: number; path: string; type: 'object' | 'array'; nextIndex: number }> = [];
+
+  const pushContext = (indent: number, path: string, type: 'object' | 'array') => {
+    stack.push({ indent, path, type, nextIndex: 0 });
+  };
+
+  const popToIndent = (indent: number) => {
+    while (stack.length && indent < stack[stack.length - 1].indent) {
+      stack.pop();
+    }
+  };
+
+  const setPathIndex = (path: string, lineNumber: number) => {
+    if (path) {
+      index.set(path, lineNumber);
+    }
+  };
+
+  lines.forEach((line, idx) => {
+    const lineNumber = idx + 1;
+    const indent = line.match(/^\s*/)?.[0].length ?? 0;
+    const trimmed = line.trim();
+
+    if (!trimmed || trimmed.startsWith('#')) return;
+
+    popToIndent(indent);
+
+    if (trimmed.startsWith('-')) {
+      const parent = stack[stack.length - 1];
+      if (!parent || parent.type !== 'array') {
+        return;
+      }
+      const itemIndex = parent.nextIndex++;
+      const itemPath = `${parent.path}[${itemIndex}]`;
+      setPathIndex(itemPath, lineNumber);
+
+      const rest = trimmed.slice(1).trim();
+      const keyMatch = rest.match(/^([A-Za-z0-9_]+)\s*:/);
+      if (keyMatch) {
+        const key = keyMatch[1];
+        setPathIndex(`${itemPath}.${key}`, lineNumber);
+        if (rest.endsWith(':')) {
+          const isArrayKey = ARRAY_KEYS.has(key);
+          pushContext(indent + 2, `${itemPath}.${key}`, isArrayKey ? 'array' : 'object');
+        }
+      } else {
+        pushContext(indent + 2, itemPath, 'object');
+      }
+      return;
+    }
+
+    const keyMatch = trimmed.match(/^([A-Za-z0-9_]+)\s*:/);
+    if (!keyMatch) return;
+
+    const key = keyMatch[1];
+    const parentPath = stack.length ? stack[stack.length - 1].path : '';
+    const currentPath = parentPath ? `${parentPath}.${key}` : key;
+    setPathIndex(currentPath, lineNumber);
+
+    if (trimmed.endsWith(':')) {
+      const isArrayKey = ARRAY_KEYS.has(key);
+      pushContext(indent + 2, currentPath, isArrayKey ? 'array' : 'object');
+    }
+  });
+
+  return index;
+}
+
+function safeString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object') return false;
+  return !Array.isArray(value);
+}
+
+function hasOwn(obj: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+export function validateOverrideKey(key: string): boolean {
+  return OVERRIDE_KEY_PATTERN.test(key);
+}
+
+export function validatePipelineYamlStrict(yamlString: string): LabValidationResult {
+  const pathIndex = buildYamlPathIndex(yamlString);
+
+  const knownPipelineKeys = new Set([
+    'name',
+    'version',
+    'description',
+    'container_image',
+    'display_options',
+    'working_directory',
+    'variables',
+    'steps',
+    'timeout',
+    'llm_content_sharing',
+    'llm_output_sharing',
+    'llm_content_ignore',
+  ]);
+  const knownStepKeys = new Set([
+    'name',
+    'include',
+    'sync',
+    'image',
+    'secrets',
+    'volumes',
+    'variables',
+    'tasks',
+    'condition',
+    'goal',
+    'script',
+    'depends_on',
+    'ignore_failure',
+    'llm_output_sharing',
+  ]);
+  const knownTaskKeys = new Set(['name', 'goal', 'script', 'depends_on', 'ignore_failure', 'llm_output_sharing']);
+  const knownDisplayOptionsKeys = new Set(['github_view']);
+
+  const createError = (message: string, pathHints: string[] = []): LabValidationError => {
+    let line: number | null = null;
+    for (const hint of pathHints) {
+      if (!hint) continue;
+      if (hint.startsWith('line:')) {
+        const direct = Number(hint.slice(5));
+        if (!Number.isNaN(direct) && direct > 0) {
+          line = direct;
+          break;
+        }
+        continue;
+      }
+      const candidate = pathIndex.get(hint);
+      if (typeof candidate === 'number') {
+        line = candidate;
+        break;
+      }
+    }
+    return { message, line };
+  };
+
+  const findUnknownKeys = (obj: unknown, knownKeys: Set<string>, path = '') => {
+    if (!isPlainObject(obj)) return [];
+    const unknown: Array<{ path: string; key: string }> = [];
+    Object.keys(obj).forEach(key => {
+      if (!knownKeys.has(key)) {
+        unknown.push({ path: path ? `${path}.${key}` : key, key });
+      }
+    });
+    return unknown;
+  };
+
+  const checkAllKeys = (pipeline: Record<string, unknown>) => {
+    let allUnknown = findUnknownKeys(pipeline, knownPipelineKeys);
+    if (pipeline.display_options) {
+      allUnknown = allUnknown.concat(findUnknownKeys(pipeline.display_options, knownDisplayOptionsKeys, 'display_options'));
+    }
+
+    const steps = Array.isArray(pipeline.steps) ? pipeline.steps : [];
+    steps.forEach((step, index) => {
+      const stepPath = `steps[${index}]`;
+      allUnknown = allUnknown.concat(findUnknownKeys(step, knownStepKeys, stepPath));
+      let tasks: unknown[] = [];
+      if (isPlainObject(step) && Array.isArray(step.tasks)) {
+        tasks = step.tasks;
+      }
+      tasks.forEach((task: unknown, taskIndex: number) => {
+        const taskPath = `${stepPath}.tasks[${taskIndex}]`;
+        allUnknown = allUnknown.concat(findUnknownKeys(task, knownTaskKeys, taskPath));
+      });
+    });
+    return allUnknown;
+  };
+
+  try {
+    const parsed = yaml.load(yamlString) as unknown;
+    if (!parsed) return { errors: [createError('YAML is empty or invalid.', [''])] };
+    if (!isPlainObject(parsed)) return { errors: [createError('YAML root must be an object.', [''])] };
+
+    const pipeline = parsed;
+
+    const unknownKeys = checkAllKeys(pipeline);
+    if (unknownKeys.length > 0) {
+      return { errors: unknownKeys.map(item => createError(`Validation Error: Unknown field '${item.key}'.`, [item.path])) };
+    }
+
+    const pipelineName = safeString(pipeline.name);
+    if (!pipelineName) return { errors: [createError("Validation Error: 'name' is a required field.", ['name'])] };
+
+    const allowed = /^[a-zA-Z0-9_.-]+$/;
+    if (!allowed.test(pipelineName)) {
+      return { errors: [createError(`Validation Error: Pipeline name '${pipelineName}' contains invalid characters.`, ['name'])] };
+    }
+
+    const pipelineVersion = safeString(pipeline.version);
+    if (pipelineVersion && !allowed.test(pipelineVersion)) {
+      return { errors: [createError(`Validation Error: Pipeline version '${pipelineVersion}' contains invalid characters.`, ['version'])] };
+    }
+
+    const steps = Array.isArray(pipeline.steps) ? pipeline.steps : [];
+    if (steps.length === 0) {
+      return { errors: [createError("Validation Error: At least one step is required in 'steps'.", ['steps'])] };
+    }
+
+    const stepNames = new Set<string>();
+    for (let index = 0; index < steps.length; index += 1) {
+      const step = steps[index] as unknown;
+      const stepPath = `steps[${index}]`;
+      if (!isPlainObject(step)) {
+        return { errors: [createError('Validation Error: A step is not a valid object.', [stepPath])] };
+      }
+
+      const stepName = safeString(step.name);
+      if (!stepName) {
+        return { errors: [createError('Validation Error: All steps require a name.', [`${stepPath}.name`, stepPath])] };
+      }
+      if (stepNames.has(stepName)) {
+        return { errors: [createError(`Validation Error: Duplicate step name '${stepName}' found.`, [`${stepPath}.name`, stepPath])] };
+      }
+      stepNames.add(stepName);
+
+      const hasIncludeKey = hasOwn(step, 'include');
+      const includeValue = hasIncludeKey ? step.include : null;
+      const includeValid = typeof includeValue === 'string' && includeValue.trim().length > 0;
+      if (hasIncludeKey && !includeValid) {
+        return { errors: [createError(`Validation Error: Step '${stepName}' has an empty 'include' value.`, [`${stepPath}.include`, stepPath])] };
+      }
+      const isInclude = includeValid;
+
+      const hasTasksKey = hasOwn(step, 'tasks');
+      if (hasTasksKey && !Array.isArray(step.tasks)) {
+        return { errors: [createError(`Validation Error: Step '${stepName}' has 'tasks' but the value is not an array.`, [`${stepPath}.tasks`, stepPath])] };
+      }
+      const tasks = Array.isArray(step.tasks) ? step.tasks : [];
+      const hasTasks = tasks.length > 0;
+      if (hasTasksKey && !hasTasks) {
+        return { errors: [createError(`Validation Error: Step '${stepName}' must define at least one task when using 'tasks'.`, [`${stepPath}.tasks`, stepPath])] };
+      }
+
+      const hasGoalKey = hasOwn(step, 'goal');
+      const goalValue = hasGoalKey ? step.goal : null;
+      const hasGoalContent = typeof goalValue === 'string' && goalValue.trim().length > 0;
+
+      const hasScriptKey = hasOwn(step, 'script');
+      const scriptValue = hasScriptKey ? step.script : null;
+      const hasScriptContent = typeof scriptValue === 'string' && scriptValue.trim().length > 0;
+
+      if (hasGoalKey && !hasGoalContent) {
+        return { errors: [createError(`Validation Error: Step '${stepName}' has an empty 'goal'.`, [`${stepPath}.goal`, stepPath])] };
+      }
+      if (hasScriptKey && !hasScriptContent) {
+        return { errors: [createError(`Validation Error: Step '${stepName}' has an empty 'script'.`, [`${stepPath}.script`, stepPath])] };
+      }
+
+      if (hasGoalKey && hasScriptKey) {
+        return {
+          errors: [
+            createError(`Validation Error: Step '${stepName}' cannot define both 'goal' and 'script'.`, [
+              `${stepPath}.goal`,
+              `${stepPath}.script`,
+              stepPath,
+            ]),
+          ],
+        };
+      }
+
+      const hasLegacyContent = hasGoalContent || hasScriptContent;
+
+      if (!isInclude && !hasTasks && !hasLegacyContent) {
+        return {
+          errors: [
+            createError(`Validation Error: Step '${stepName}' must contain 'include', 'tasks', 'goal', or 'script'.`, [
+              `${stepPath}.include`,
+              `${stepPath}.tasks`,
+              `${stepPath}.goal`,
+              `${stepPath}.script`,
+              stepPath,
+            ]),
+          ],
+        };
+      }
+      if (isInclude && (hasTasksKey || hasGoalKey || hasScriptKey)) {
+        return {
+          errors: [
+            createError(`Validation Error: Step '${stepName}' is an include step and cannot also contain tasks, goal, or script.`, [
+              `${stepPath}.include`,
+              `${stepPath}.tasks`,
+              `${stepPath}.goal`,
+              `${stepPath}.script`,
+              stepPath,
+            ]),
+          ],
+        };
+      }
+      if (hasTasks && (hasGoalKey || hasScriptKey)) {
+        return {
+          errors: [
+            createError(`Validation Error: Step '${stepName}' mixes tasks with goal/script.`, [
+              `${stepPath}.tasks`,
+              `${stepPath}.goal`,
+              `${stepPath}.script`,
+              stepPath,
+            ]),
+          ],
+        };
+      }
+
+      if (hasTasks) {
+        const taskNames = new Set<string>();
+        for (let taskIndex = 0; taskIndex < tasks.length; taskIndex += 1) {
+          const task = tasks[taskIndex] as unknown;
+          const taskPath = `${stepPath}.tasks[${taskIndex}]`;
+          if (!isPlainObject(task) || !safeString(task.name)) {
+            return {
+              errors: [createError(`Validation Error: A task in step '${stepName}' is missing its name.`, [`${taskPath}.name`, taskPath])],
+            };
+          }
+
+          const taskName = safeString(task.name);
+          if (taskNames.has(taskName)) {
+            return { errors: [createError(`Validation Error: Duplicate task name '${taskName}' in step '${stepName}'.`, [`${taskPath}.name`, taskPath])] };
+          }
+          taskNames.add(taskName);
+
+          const taskHasGoalKey = hasOwn(task, 'goal');
+          const taskGoalValue = taskHasGoalKey ? task.goal : null;
+          const taskHasGoalContent = typeof taskGoalValue === 'string' && taskGoalValue.trim().length > 0;
+
+          const taskHasScriptKey = hasOwn(task, 'script');
+          const taskScriptValue = taskHasScriptKey ? task.script : null;
+          const taskHasScriptContent = typeof taskScriptValue === 'string' && taskScriptValue.trim().length > 0;
+
+          if (taskHasGoalKey && taskHasScriptKey) {
+            return {
+              errors: [
+                createError(`Validation Error: Task '${taskName}' in step '${stepName}' cannot define both 'goal' and 'script'.`, [
+                  `${taskPath}.goal`,
+                  `${taskPath}.script`,
+                  taskPath,
+                ]),
+              ],
+            };
+          }
+          if (taskHasGoalKey && !taskHasGoalContent) {
+            return {
+              errors: [createError(`Validation Error: Task '${taskName}' in step '${stepName}' has an empty 'goal'.`, [`${taskPath}.goal`, taskPath])],
+            };
+          }
+          if (taskHasScriptKey && !taskHasScriptContent) {
+            return {
+              errors: [createError(`Validation Error: Task '${taskName}' in step '${stepName}' has an empty 'script'.`, [`${taskPath}.script`, taskPath])],
+            };
+          }
+          if (!taskHasGoalContent && !taskHasScriptContent) {
+            return {
+              errors: [
+                createError(`Validation Error: Task '${taskName}' in step '${stepName}' must define either 'goal' or 'script'.`, [
+                  `${taskPath}.goal`,
+                  `${taskPath}.script`,
+                  taskPath,
+                ]),
+              ],
+            };
+          }
+        }
+
+        for (let taskIndex = 0; taskIndex < tasks.length; taskIndex += 1) {
+          const task = tasks[taskIndex] as unknown;
+          if (!isPlainObject(task)) continue;
+          const taskName = safeString(task.name);
+          if (!taskName) continue;
+          if (Array.isArray(task.depends_on)) {
+            for (const dep of task.depends_on) {
+              const depName = safeString(dep);
+              if (depName && !taskNames.has(depName)) {
+                const taskPath = `${stepPath}.tasks[${taskIndex}].depends_on`;
+                return {
+                  errors: [createError(`Validation Error: Task '${taskName}' in step '${stepName}' depends on unknown task '${depName}'.`, [taskPath])],
+                };
+              }
+            }
+          }
+        }
+      }
+    }
+
+    for (let index = 0; index < steps.length; index += 1) {
+      const step = steps[index] as unknown;
+      if (!isPlainObject(step)) continue;
+      const stepName = safeString(step.name);
+      if (!stepName) continue;
+      if (Array.isArray(step.depends_on)) {
+        for (const dep of step.depends_on) {
+          const depName = safeString(dep);
+          if (depName && !stepNames.has(depName)) {
+            return {
+              errors: [
+                createError(`Validation Error: Step '${stepName}' depends on unknown step '${depName}'.`, [
+                  `steps[${index}].depends_on`,
+                  `steps[${index}]`,
+                ]),
+              ],
+            };
+          }
+        }
+      }
+    }
+
+    return { errors: [] };
+  } catch (error: unknown) {
+    const record = isPlainObject(error) ? error : null;
+    const markRecord = record && isPlainObject(record.mark) ? record.mark : null;
+    const markLine = markRecord && typeof markRecord.line === 'number' ? markRecord.line : null;
+    const message = error instanceof Error ? error.message : typeof record?.message === 'string' ? record.message : String(error);
+
+    if (typeof markLine === 'number') {
+      return { errors: [createError(`YAML Parsing Error: ${message}`, [`line:${markLine + 1}`])] };
+    }
+    return { errors: [createError(`YAML Parsing Error: ${message}`)] };
+  }
+}
+
+export type LineInfo = {
+  line: string;
+  start: number;
+  end: number;
+  column: number;
+  indent: number;
+};
+
+export function getCurrentLineInfo(text: string, pos: number): LineInfo {
+  const start = text.lastIndexOf('\n', pos - 1) + 1;
+  let end = text.indexOf('\n', pos);
+  if (end === -1) end = text.length;
+  const line = text.slice(start, end);
+  const indent = line.match(/^\s*/)?.[0].length ?? 0;
+  return { line, start, end, column: pos - start, indent };
+}
+
+export type LabSuggestionType =
+  | 'include'
+  | 'depends_on'
+  | 'secrets'
+  | 'variables'
+  | 'directive-value'
+  | 'pipeline-key'
+  | 'step-key'
+  | 'task-key';
+
+export type LabSuggestionContext = {
+  type: LabSuggestionType;
+  title: string;
+  prefix: string;
+  rangeStart: number;
+  rangeEnd: number;
+  insertSuffix?: string;
+  insertPrefix?: string;
+  key?: string;
+  existingKeys?: Set<string>;
+};
+
+export type LabSuggestionItem = {
+  value: string;
+  label?: string;
+  hint?: string;
+  snippet?: string;
+  overrideSuffix?: string;
+};
+
+export function findParentBlock(beforeText: string, targetKeys: string[], currentIndent: number, stopKeys: string[] = []): string | null {
+  const lines = beforeText.split('\n');
+  let indentCursor = currentIndent;
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+
+    const indent = line.match(/^\s*/)?.[0].length ?? 0;
+    if (indent < indentCursor) {
+      const colonIdx = trimmed.indexOf(':');
+      if (colonIdx !== -1) {
+        const key = trimmed.slice(0, colonIdx).trim();
+        if (stopKeys.includes(key)) return null;
+        if (targetKeys.includes(key)) return key;
+        if (indent === 0) return null;
+      } else if (indent === 0) {
+        return null;
+      }
+      indentCursor = indent;
+    }
+  }
+  return null;
+}
+
+function collectExistingKeysForContext(text: string, lineInfo: LineInfo, type: LabSuggestionType): Set<string> {
+  const keys = new Set<string>();
+  if (type === 'pipeline-key') return keys;
+
+  const lines = text.split('\n');
+  let currentLineIdx = 0;
+  let count = 0;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (count + lines[i].length >= lineInfo.start) {
+      currentLineIdx = i;
+      break;
+    }
+    count += lines[i].length + 1;
+  }
+
+  const targetIndent = lineInfo.indent;
+  let start = currentLineIdx;
+  while (start >= 0) {
+    const line = lines[start];
+    const indent = line.match(/^\s*/)?.[0].length ?? 0;
+    if (indent < targetIndent) break;
+    if (indent === targetIndent && line.trim().startsWith('-')) break;
+    start -= 1;
+  }
+  if (start < 0) start = 0;
+
+  for (let i = start; i < lines.length; i += 1) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const indent = line.match(/^\s*/)?.[0].length ?? 0;
+    if (i > start && indent <= targetIndent && trimmed.startsWith('-')) break;
+    if (indent < targetIndent) break;
+
+    const match = trimmed.match(/^(-\s+)?([a-zA-Z0-9_]+):/);
+    if (match) keys.add(match[2]);
+  }
+  return keys;
+}
+
+function detectDirectiveValueContext(lineInfo: LineInfo, selectionEnd: number): LabSuggestionContext | null {
+  const rawLine = lineInfo.line;
+  const colonIndex = rawLine.indexOf(':');
+  if (colonIndex === -1 || lineInfo.column <= colonIndex) return null;
+
+  const key = rawLine.slice(lineInfo.indent, colonIndex).trim();
+  const ws = rawLine.slice(colonIndex + 1).match(/^\s*/)?.[0] ?? '';
+  const valueOffsetLocal = colonIndex + 1 + ws.length;
+  const rangeStart = lineInfo.start + valueOffsetLocal;
+  const currentValue = rawLine.slice(valueOffsetLocal, lineInfo.column).trim();
+
+  const metadata = DIRECTIVE_VALUE_METADATA[key];
+  if (!metadata) return null;
+
+  return {
+    type: 'directive-value',
+    title: metadata.title,
+    key,
+    prefix: currentValue,
+    rangeStart,
+    rangeEnd: Math.max(rangeStart, selectionEnd),
+    insertSuffix: '',
+  };
+}
+
+function detectListEntryContext(lineInfo: LineInfo, selectionEnd: number, beforeLine: string, keyName: string): Omit<LabSuggestionContext, 'type' | 'title'> | null {
+  const trimmed = lineInfo.line.trimStart();
+  if (!trimmed.startsWith('-')) return null;
+  const parent = findParentBlock(beforeLine, [keyName], lineInfo.indent);
+  if (parent !== keyName) return null;
+  const dashMatch = lineInfo.line.match(/^(\s*-\s*)/);
+  const valueStart = dashMatch ? dashMatch[0].length : lineInfo.indent;
+  const rangeStart = lineInfo.start + valueStart;
+  return {
+    prefix: lineInfo.line.slice(valueStart, lineInfo.column).trim(),
+    rangeStart,
+    rangeEnd: Math.max(rangeStart, selectionEnd),
+    insertSuffix: '',
+    insertPrefix: dashMatch && /\s$/.test(dashMatch[0]) ? '' : ' ',
+  };
+}
+
+function detectVariableContext(lineInfo: LineInfo, selectionEnd: number, beforeLine: string): LabSuggestionContext | null {
+  const parent = findParentBlock(beforeLine, ['variables'], lineInfo.indent, ['steps', 'tasks']);
+  if (parent !== 'variables') return null;
+
+  const local = lineInfo.line.slice(lineInfo.indent);
+  const trimmedLocal = local.trimStart();
+
+  if (trimmedLocal.startsWith('-')) {
+    const dashMatch = local.match(/^-\s*/);
+    const dashSegment = dashMatch ? dashMatch[0] : '-';
+    const valueStartLocal = lineInfo.indent + dashSegment.length;
+    const relativeText = lineInfo.line.slice(valueStartLocal, lineInfo.column);
+    const trimmedValue = relativeText.trim();
+    const relativeOffset = trimmedValue ? relativeText.indexOf(trimmedValue) : 0;
+    const rangeStart = lineInfo.start + valueStartLocal + relativeOffset;
+    return {
+      type: 'variables',
+      title: 'Variables',
+      prefix: trimmedValue,
+      rangeStart,
+      rangeEnd: Math.max(rangeStart, selectionEnd),
+      insertSuffix: '',
+      insertPrefix: dashSegment.endsWith(' ') ? '' : ' ',
+    };
+  }
+
+  const colonIndex = lineInfo.line.indexOf(':', lineInfo.indent);
+  const hasColon = colonIndex !== -1;
+  const valueEnd = hasColon ? Math.min(colonIndex, lineInfo.column) : lineInfo.column;
+  const rawPrefix = lineInfo.line.slice(lineInfo.indent, valueEnd);
+  const prefix = rawPrefix.trim();
+  const computedRangeEnd = hasColon && colonIndex < selectionEnd ? lineInfo.start + colonIndex : selectionEnd;
+  const safeRangeEnd = Math.max(lineInfo.start + lineInfo.indent, computedRangeEnd);
+  return {
+    type: 'variables',
+    title: 'Variables',
+    prefix,
+    rangeStart: lineInfo.start + lineInfo.indent,
+    rangeEnd: safeRangeEnd,
+    insertSuffix: hasColon ? '' : ': ',
+    insertPrefix: '',
+  };
+}
+
+function detectDirectiveKeyContext(lineInfo: LineInfo, beforeLine: string, fullText: string): LabSuggestionContext | null {
+  const rawLine = lineInfo.line;
+  if (!rawLine) return null;
+  const trimmed = rawLine.trim();
+  if (trimmed.startsWith('#')) return null;
+
+  const colonIndex = rawLine.indexOf(':');
+  if (colonIndex !== -1 && lineInfo.column > colonIndex) return null;
+
+  let type: LabSuggestionType = 'pipeline-key';
+  let rangeStart = 0;
+  let rangeEnd = 0;
+  let prefix = '';
+  let parent = findParentBlock(beforeLine, ['steps', 'tasks'], lineInfo.indent);
+
+  if (trimmed.startsWith('-')) {
+    const dashMatch = rawLine.match(/^(\s*-\s*)/);
+    const dashSegment = dashMatch ? dashMatch[0] : '- ';
+    const valueStartLocal = dashSegment.length;
+    const valueSlice = rawLine.slice(valueStartLocal, Math.max(lineInfo.column, valueStartLocal));
+    rangeStart = lineInfo.start + valueStartLocal;
+    const endIndex = colonIndex !== -1 ? Math.min(colonIndex, lineInfo.column) : Math.max(lineInfo.column, valueStartLocal);
+    prefix = valueSlice.slice(0, Math.max(0, endIndex - valueStartLocal)).trim();
+    parent = findParentBlock(beforeLine, ['steps', 'tasks'], lineInfo.indent);
+    if (parent === 'steps') type = 'step-key';
+    else if (parent === 'tasks') type = 'task-key';
+    else return null;
+  } else {
+    if (parent === 'steps') type = 'step-key';
+    else if (parent === 'tasks') type = 'task-key';
+    else if (lineInfo.indent !== 0) return null;
+
+    rangeStart = lineInfo.start + lineInfo.indent;
+    const endIndex = colonIndex !== -1 ? Math.min(colonIndex, lineInfo.column) : lineInfo.column;
+    prefix = rawLine.slice(lineInfo.indent, endIndex).trim();
+  }
+
+  const colonBound = colonIndex !== -1 ? Math.min(colonIndex, lineInfo.column) : Math.max(lineInfo.column, rangeStart - lineInfo.start);
+  rangeEnd = Math.max(rangeStart, lineInfo.start + colonBound);
+
+  const title = type === 'pipeline-key' ? 'Pipeline Directives' : type === 'step-key' ? 'Step Directives' : 'Task Directives';
+  const existingKeys = collectExistingKeysForContext(fullText, lineInfo, type);
+
+  return {
+    type,
+    title,
+    prefix,
+    rangeStart,
+    rangeEnd,
+    insertSuffix: ': ',
+    existingKeys,
+  };
+}
+
+export function detectSuggestionContext(text: string, caret: number, selectionEnd: number): LabSuggestionContext | null {
+  const lineInfo = getCurrentLineInfo(text, caret);
+  const beforeLine = text.slice(0, lineInfo.start);
+  const lineStr = lineInfo.line;
+
+  const incMatch = lineStr.match(/include:\s*"?([^"]*)$/);
+  if (incMatch) {
+    const offset = incMatch.index ?? 0;
+    return {
+      type: 'include',
+      title: 'Include Targets',
+      prefix: incMatch[1],
+      rangeStart: lineInfo.start + offset + incMatch[0].length - incMatch[1].length,
+      rangeEnd: selectionEnd,
+      insertSuffix: '',
+    };
+  }
+
+  const depMatch = lineStr.match(/depends_on:\s*\[?([^\]]*)$/);
+  if (depMatch || findParentBlock(beforeLine, ['depends_on'], lineInfo.indent)) {
+    const word = lineStr.slice(0, lineInfo.column).split(/[[\s,]+/).pop() ?? '';
+    return {
+      type: 'depends_on',
+      title: 'Dependencies',
+      prefix: word,
+      rangeStart: caret - word.length,
+      rangeEnd: selectionEnd,
+      insertSuffix: '',
+    };
+  }
+
+  const secList = detectListEntryContext(lineInfo, selectionEnd, beforeLine, 'secrets');
+  if (secList) return { ...secList, type: 'secrets', title: 'Secrets' };
+
+  const variableContext = detectVariableContext(lineInfo, selectionEnd, beforeLine);
+  if (variableContext) return variableContext;
+
+  const valContext = detectDirectiveValueContext(lineInfo, selectionEnd);
+  if (valContext) return valContext;
+
+  const directiveCtx = detectDirectiveKeyContext(lineInfo, beforeLine, text);
+  if (directiveCtx) return directiveCtx;
+
+  return null;
+}
+
+function collectStepNames(text: string): string[] {
+  const names: string[] = [];
+  const regex = /^\s*-\s*name:\s*([a-zA-Z0-9_-]+)/gm;
+  let match: RegExpExecArray | null = null;
+  while ((match = regex.exec(text)) !== null) {
+    names.push(match[1]);
+  }
+  return names;
+}
+
+export function buildSuggestionItems(
+  ctx: LabSuggestionContext,
+  text: string,
+  opts: {
+    secrets: string[];
+    variables: string[];
+    reusableSteps: string[];
+    pipelineIds: string[];
+  }
+): LabSuggestionItem[] {
+  const prefix = ctx.prefix || '';
+  let pool: LabSuggestionItem[] = [];
+
+  if (ctx.type === 'depends_on') {
+    pool = collectStepNames(text).map(n => ({ value: n, label: n }));
+  } else if (ctx.type === 'secrets') {
+    pool = opts.secrets.map(s => ({ value: s, label: s }));
+  } else if (ctx.type === 'variables') {
+    pool = opts.variables.map(v => ({ value: v, label: v }));
+  } else if (ctx.type === 'include') {
+    pool = [
+      ...opts.reusableSteps.map(s => ({ value: `step:${s}`, label: `step:${s}` })),
+      ...opts.pipelineIds.map(p => ({ value: `pipeline:${p}`, label: `pipeline:${p}` })),
+    ];
+  } else if (ctx.type === 'directive-value') {
+    const metadata = ctx.key ? DIRECTIVE_VALUE_METADATA[ctx.key] : undefined;
+    if (metadata?.values?.length) {
+      pool = metadata.values.map(v => ({ value: v, label: v }));
+    }
+  } else if (ctx.type === 'pipeline-key') {
+    pool = PIPELINE_DIRECTIVES.map(d => ({ value: d.key, label: d.key, hint: d.hint }));
+  } else if (ctx.type === 'step-key') {
+    pool = STEP_DIRECTIVES.map(d => ({ value: d.key, label: d.key, hint: d.hint }));
+  } else if (ctx.type === 'task-key') {
+    pool = TASK_DIRECTIVES.map(d => ({ value: d.key, label: d.key, hint: d.hint }));
+  }
+
+  const existing = ctx.existingKeys ?? new Set<string>();
+  pool = pool.filter(item => !existing.has(item.value));
+  if (!pool.length) return [];
+
+  const normalizedPrefix = prefix.toLowerCase();
+  return pool.filter(item => item.value.toLowerCase().includes(normalizedPrefix)).slice(0, 15);
+}
+
+export function suggestionCopyForContext(contextInfo: LabSuggestionContext | null): { title: string; subtitle: string; footnote: string } {
+  const type = contextInfo?.type;
+  switch (type) {
+    case 'variables':
+      return { title: 'Variables', subtitle: 'Insert variables scoped to your env.', footnote: 'Tab to accept inline hint.' };
+    case 'secrets':
+      return { title: 'Secrets', subtitle: 'Available secret names.', footnote: 'Tab to accept inline hint.' };
+    case 'include':
+      return { title: 'Include targets', subtitle: 'Reusable steps and pipelines.', footnote: 'Click or Tab to insert.' };
+    case 'pipeline-key':
+      return { title: 'Pipeline directives', subtitle: 'Keys allowed at root level.', footnote: 'Tab to accept inline hint.' };
+    case 'step-key':
+      return { title: 'Step directives', subtitle: 'Keys allowed within steps.', footnote: 'Tab to accept inline hint.' };
+    case 'task-key':
+      return { title: 'Task directives', subtitle: 'Keys allowed within tasks.', footnote: 'Tab to accept inline hint.' };
+    case 'depends_on':
+      return { title: 'Dependencies', subtitle: 'Existing step/task names.', footnote: 'Tab to accept inline hint.' };
+    case 'directive-value':
+      return { title: 'Allowed values', subtitle: 'Insert permitted values.', footnote: 'Tab to accept inline hint.' };
+    default:
+      return { title: 'Suggestions', subtitle: 'Context-aware helpers.', footnote: 'Tab to accept inline hint.' };
+  }
+}
+
+export function applyEnterIndent(
+  value: string,
+  selectionStart: number,
+  selectionEnd: number
+): { nextValue: string; nextCursor: number } {
+  const start = selectionStart;
+  const end = selectionEnd;
+  const lineInfo = getCurrentLineInfo(value, start);
+  const before = value.slice(0, start);
+  const after = value.slice(end);
+  const currentIndent = lineInfo.line.match(/^\s*/)?.[0] ?? '';
+  const trimmed = lineInfo.line.trim();
+  const parentBlock = findParentBlock(value.slice(0, lineInfo.start), ['steps', 'tasks'], lineInfo.indent, Array.from(LIST_KEYS_SIMPLE));
+
+  let newIndent = currentIndent;
+  let listPrefix = '';
+
+  if (/^-\s*name\s*:/i.test(trimmed)) {
+    newIndent = ' '.repeat(lineInfo.indent + 2);
+  } else if (trimmed.startsWith('-')) {
+    newIndent = currentIndent;
+    const parent = findParentBlock(
+      value.slice(0, lineInfo.start),
+      ['steps', 'tasks'],
+      lineInfo.indent,
+      Array.from(LIST_KEYS_SIMPLE)
+    );
+    if (parent && LIST_KEYS_WITH_NAME_TEMPLATE.has(parent)) {
+      listPrefix = '- name: ';
+    } else {
+      listPrefix = '- ';
+    }
+  } else if (trimmed.endsWith(':')) {
+    newIndent = `${currentIndent}  `;
+    const key = trimmed.slice(0, -1).trim();
+    if (LIST_KEYS_WITH_NAME_TEMPLATE.has(key)) {
+      listPrefix = '- name: ';
+    } else if (LIST_KEYS_SIMPLE.has(key) && !parentBlock) {
+      listPrefix = '- ';
+    }
+  } else {
+    if (parentBlock && LIST_KEYS_WITH_NAME_TEMPLATE.has(parentBlock) && trimmed === '') {
+      newIndent = ' '.repeat(lineInfo.indent);
+      listPrefix = '- name: ';
+    } else {
+      newIndent = currentIndent;
+    }
+  }
+
+  const insertion = `\n${newIndent}${listPrefix}`;
+  const nextValue = before + insertion + after;
+  const nextCursor = before.length + insertion.length;
+  return { nextValue, nextCursor };
+}
