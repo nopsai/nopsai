@@ -92,17 +92,28 @@ services:
       - nopsai-net
 
   nopsai-ui:
-    image: nginx:alpine
     container_name: nopsai-ui
+    image: hoseindocker/nopsai-ui
+    build:
+      context: ./services/ui
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-""}
+    restart: always
     ports:
-      - "5173:80"
-    volumes:
-      - ./services/ui/:/usr/share/nginx/html/:ro
+      - "80:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     networks:
       - nopsai-net
+    env_file:
+      - .env
     depends_on:
-      - nopsai
-      - dispatcher
+      nopsai:
+        condition: service_started
   
   agent:
     container_name: nopsai-agent
