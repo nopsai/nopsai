@@ -99,14 +99,61 @@ export function installAuthInterceptor() {
   if ((window as any).__nopsaiAuthFetchInstalled) return;
   (window as any).__nopsaiAuthFetchInstalled = true;
   const originalFetch = window.fetch.bind(window);
-  window.fetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const session = getStoredSession();
-    const baseHeaders = init?.headers instanceof Headers ? init.headers : new Headers(init?.headers || {});
-    if (input instanceof Request) {
-      input.headers.forEach((value, key) => {
-        if (!baseHeaders.has(key)) baseHeaders.set(key, value);
-      });
+  let refreshPromise: Promise<StoredSession | null> | null = null;
+
+  const refreshSession = async (refreshToken?: string): Promise<StoredSession | null> => {
+    if (!refreshToken) return null;
+    if (!refreshPromise) {
+      refreshPromise = (async () => {
+        const response = await originalFetch(buildApiUrl('/v1/auth/refresh'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        });
+        if (!response.ok) {
+          throw new Error(`refresh failed (${response.status})`);
+        }
+        const payload: any = await response.json();
+        const current = getStoredSession();
+        const tenantChoice =
+          current.tenantId ||
+          current.defaultTenant ||
+          payload?.default_tenant ||
+          (Array.isArray(payload?.tenant_ids) && payload.tenant_ids.length > 0 ? payload.tenant_ids[0] : undefined);
+
+        persistSession({
+          accessToken: payload?.access_token || '',
+          refreshToken: payload?.refresh_token || refreshToken,
+          tenantId: tenantChoice,
+          defaultTenant: payload?.default_tenant,
+          roles: Array.isArray(payload?.roles) ? payload.roles : current.roles,
+        });
+        return getStoredSession();
+      })()
+        .catch(err => {
+          clearSession();
+          throw err;
+        })
+        .finally(() => {
+          refreshPromise = null;
+        });
     }
+    return refreshPromise;
+  };
+
+  const shouldBypassRefresh = (url: string) =>
+    url.includes('/v1/auth/login') || url.includes('/v1/auth/refresh');
+
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const baseRequest = input instanceof Request ? input : new Request(input, init);
+    const url = baseRequest.url;
+
+    const baseHeaders = init?.headers instanceof Headers ? new Headers(init.headers) : new Headers(init?.headers || {});
+    baseRequest.headers.forEach((value, key) => {
+      if (!baseHeaders.has(key)) baseHeaders.set(key, value);
+    });
+
+    const session = getStoredSession();
     if (session.accessToken && !baseHeaders.has('Authorization')) {
       baseHeaders.set('Authorization', `Bearer ${session.accessToken}`);
     }
@@ -114,11 +161,33 @@ export function installAuthInterceptor() {
     if (tenantHeader) {
       baseHeaders.set('X-Tenant-ID', tenantHeader);
     }
+
     const finalInit: RequestInit = { ...init, headers: baseHeaders };
-    if (input instanceof Request) {
-      return originalFetch(new Request(input, finalInit));
+    const sendRequest = (headers: Headers = baseHeaders) =>
+      originalFetch(new Request(baseRequest, { ...finalInit, headers }));
+
+    let response = await sendRequest();
+    if (response.status !== 401 || shouldBypassRefresh(url)) {
+      return response;
     }
-    return originalFetch(input, finalInit);
+
+    try {
+      const refreshed = await refreshSession(session.refreshToken || getStoredSession().refreshToken);
+      if (!refreshed?.accessToken) {
+        clearSession();
+        return response;
+      }
+      const retryHeaders = new Headers(baseHeaders);
+      retryHeaders.set('Authorization', `Bearer ${refreshed.accessToken}`);
+      response = await sendRequest(retryHeaders);
+      if (response.status === 401) {
+        clearSession();
+      }
+      return response;
+    } catch {
+      clearSession();
+      return response;
+    }
   };
 }
 
