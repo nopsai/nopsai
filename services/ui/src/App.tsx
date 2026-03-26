@@ -8,6 +8,7 @@ import LabPage from './pages/Lab';
 import StepsPage from './pages/Steps';
 import SystemPage from './pages/System';
 import LoginPage from './pages/Login';
+import ProfilePage from './pages/Profile';
 import { buildApiUrl, clearSession, getStoredSession, setSelectedTenant, type StoredSession } from './lib/api';
 import { PIPELINE_DRAFTS_CHANGED_EVENT, PIPELINE_DRAFTS_STORAGE_KEY, loadPipelineDrafts } from './lib/pipelineDrafts';
 import { STEP_DRAFTS_CHANGED_EVENT, STEP_DRAFTS_STORAGE_KEY, loadStepDrafts } from './lib/stepDrafts';
@@ -55,6 +56,15 @@ type ScopeTreeNode = {
 type Tenant = {
   id: string;
   name: string;
+};
+
+type CurrentUser = {
+  sub: string;
+  email?: string;
+  provider?: string;
+  tenantIds?: string[];
+  defaultTenant?: string;
+  roles?: string[];
 };
 
 type AuthSession = StoredSession;
@@ -176,6 +186,8 @@ function AppShell() {
   const [authSession, setAuthSession] = useState<AuthSession>(() => getStoredSession());
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [selectedTenant, setSelectedTenantState] = useState<string>(() => getStoredSession().tenantId || getStoredSession().defaultTenant || '');
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [currentUserLoading, setCurrentUserLoading] = useState(false);
   const isAuthenticated = useMemo(() => Boolean(authSession.accessToken), [authSession.accessToken]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
@@ -238,6 +250,47 @@ function AppShell() {
   }, [authSession.accessToken, location.pathname, navigate]);
 
   useEffect(() => {
+    if (!authSession.accessToken) {
+      setCurrentUser(null);
+      setCurrentUserLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setCurrentUserLoading(true);
+    fetch(buildApiUrl('/v1/auth/me'))
+      .then(resp => {
+        if (resp.status === 401) throw new Error('unauthorized');
+        if (!resp.ok) throw new Error(`Failed to load user (${resp.status})`);
+        return resp.json();
+      })
+      .then(data => {
+        if (cancelled) return;
+        setCurrentUser({
+          sub: data?.sub || '',
+          email: data?.email || '',
+          provider: data?.provider || '',
+          tenantIds: Array.isArray(data?.tenant_ids) ? data.tenant_ids : undefined,
+          defaultTenant: data?.default_tenant,
+          roles: Array.isArray(data?.roles) ? data.roles : undefined,
+        });
+      })
+      .catch(err => {
+        if (cancelled) return;
+        setCurrentUser(null);
+        if (err instanceof Error && err.message === 'unauthorized') {
+          clearSession();
+          setAuthSession(getStoredSession());
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setCurrentUserLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authSession.accessToken]);
+
+  useEffect(() => {
     if (!authSession.accessToken) return;
     const tenantHeader = selectedTenant || authSession.defaultTenant;
     const headers: Record<string, string> = tenantHeader ? { 'X-Tenant-ID': tenantHeader } : {};
@@ -260,6 +313,10 @@ function AppShell() {
     setSelectedTenant(tenantId);
     setAuthSession(prev => ({ ...prev, tenantId }));
   }, []);
+
+  const handleOpenProfile = useCallback(() => {
+    navigate('/profile');
+  }, [navigate]);
 
   const handleLogout = useCallback(() => {
     clearSession();
@@ -706,10 +763,11 @@ function AppShell() {
                 theme={theme}
                 onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
                 onOpenSidebar={() => setSidebarOpen(true)}
-                tenants={tenants}
                 selectedTenant={selectedTenant}
-                onTenantChange={handleTenantChange}
                 onLogout={handleLogout}
+                currentUser={currentUser}
+                userLoading={currentUserLoading}
+                onOpenProfile={handleOpenProfile}
               />
               <div id="page-content-wrapper" className="flex-1 overflow-auto">
                 <Routes>
@@ -721,6 +779,18 @@ function AppShell() {
                   <Route path="/lab/*" element={<LabPage />} />
                   <Route path="/steps/*" element={<StepsPage />} />
                   <Route path="/system/:tab?" element={<SystemPage />} />
+                  <Route
+                    path="/profile"
+                    element={
+                      <ProfilePage
+                        user={currentUser}
+                        loading={currentUserLoading}
+                        onLogout={handleLogout}
+                        tenants={tenants}
+                        selectedTenant={selectedTenant}
+                      />
+                    }
+                  />
                   <Route path="*" element={<Navigate to="/pipelineruns/main" replace />} />
                 </Routes>
               </div>
@@ -1881,23 +1951,55 @@ function Header({
   onOpenSidebar,
   theme,
   onToggleTheme,
-  tenants,
   selectedTenant,
-  onTenantChange,
   onLogout,
+  currentUser,
+  userLoading,
+  onOpenProfile,
 }: {
   title: string;
   onOpenSidebar: () => void;
   theme: Theme;
   onToggleTheme: () => void;
-  tenants: Tenant[];
   selectedTenant?: string;
-  onTenantChange?: (tenantId: string) => void;
   onLogout?: () => void;
+  currentUser?: CurrentUser | null;
+  userLoading?: boolean;
+  onOpenProfile?: () => void;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const initials = (() => {
+    const base = (currentUser?.email || currentUser?.sub || 'U').trim();
+    const cleaned = base.replace(/[^A-Za-z0-9]/g, '');
+    return (cleaned[0] || base[0] || 'U').toUpperCase();
+  })();
+  const primaryLabel = currentUser?.email || currentUser?.sub || 'User';
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handleClick = (event: MouseEvent) => {
+      if (!menuRef.current) return;
+      if (!menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [menuOpen]);
+
+  const closeMenu = () => setMenuOpen(false);
+
   return (
     <header
-      className="flex items-center justify-between px-6 py-4 themed-bg-blur backdrop-blur-sm shadow-sm z-10 border-b border-[var(--border-primary)] flex-shrink-0"
+      className="relative flex items-center justify-between px-6 py-4 themed-bg-blur backdrop-blur-sm shadow-sm z-40 border-b border-[var(--border-primary)] flex-shrink-0"
       style={{ paddingTop: '11px' }}
     >
       <button
@@ -1910,27 +2012,6 @@ function Header({
       </button>
       <div id="main-header" className="flex-1 text-xl font-semibold min-w-0 truncate">{title}</div>
       <div className="flex items-center gap-3">
-        {tenants.length > 0 && (
-          <select
-            value={selectedTenant || ''}
-            onChange={e => onTenantChange?.(e.target.value)}
-            className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-tertiary)] text-sm px-2 py-1 text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)]"
-          >
-            {tenants.map(t => (
-              <option key={t.id} value={t.id}>
-                {t.name || t.id}
-              </option>
-            ))}
-          </select>
-        )}
-        {onLogout && (
-          <button
-            onClick={onLogout}
-            className="text-sm px-3 py-2 rounded-lg border border-[var(--border-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-accent)]"
-          >
-            Logout
-          </button>
-        )}
         <button
           id="theme-toggle"
           type="button"
@@ -1940,6 +2021,60 @@ function Header({
         >
           {theme === 'dark' ? <IconSun /> : <IconMoon />}
         </button>
+        <div className="relative" ref={menuRef}>
+          <button
+            type="button"
+            onClick={() => setMenuOpen(open => !open)}
+            className={`flex items-center gap-2 px-2 h-11 rounded-full border bg-[var(--bg-secondary)] text-[var(--text-primary)] shadow-sm transition-all ${
+              menuOpen ? 'border-[var(--border-accent)]' : 'border-[var(--border-primary)] hover:border-[var(--border-accent)]'
+            } focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)]`}
+            aria-haspopup="true"
+            aria-expanded={menuOpen}
+          >
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[var(--border-accent)]/10 text-sm font-semibold text-[var(--text-primary)]">
+              {initials}
+            </span>
+            <IconChevronDown />
+          </button>
+          {menuOpen && (
+            <div className="absolute right-0 mt-2 w-72 rounded-2xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-2xl overflow-hidden z-[500]">
+              <div className="p-4 border-b border-[var(--border-primary)] bg-[var(--bg-tertiary)]/70 backdrop-blur-sm">
+                <p className="text-xs uppercase tracking-wide text-[var(--text-secondary)] mb-1">Signed in as</p>
+                <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{userLoading ? 'Loading…' : primaryLabel}</p>
+                {currentUser?.provider && (
+                  <span className="inline-flex mt-2 px-2 py-1 rounded-full text-[11px] bg-[var(--border-accent)]/10 text-[var(--border-accent)]">
+                    {currentUser.provider === 'local' ? 'Local account' : currentUser.provider}
+                  </span>
+                )}
+                <p className="text-xs text-[var(--text-secondary)] mt-2">
+                  Tenant: {selectedTenant || currentUser?.defaultTenant || currentUser?.tenantIds?.[0] || '—'}
+                </p>
+              </div>
+              <div className="p-2 space-y-1">
+                <button
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-[var(--bg-tertiary)] text-[var(--text-primary)] text-sm"
+                  onClick={() => {
+                    closeMenu();
+                    onOpenProfile?.();
+                  }}
+                >
+                  View profile
+                </button>
+                {onLogout && (
+                  <button
+                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-[var(--bg-tertiary)] text-[var(--text-primary)] text-sm"
+                    onClick={() => {
+                      closeMenu();
+                      onLogout();
+                    }}
+                  >
+                    Logout
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );
@@ -1970,6 +2105,14 @@ function IconMenu() {
   return (
     <svg className="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16m-7 6h7" />
+    </svg>
+  );
+}
+
+function IconChevronDown() {
+  return (
+    <svg className="h-4 w-4 text-[var(--text-secondary)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
     </svg>
   );
 }
