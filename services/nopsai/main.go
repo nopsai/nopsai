@@ -48,6 +48,9 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 	"gopkg.in/yaml.v3"
 
+	"nopsai/services/nopsai/pkg/audit"
+	"nopsai/services/nopsai/pkg/auth"
+	"nopsai/services/nopsai/pkg/authz"
 	"nopsai/services/nopsai/pkg/store"
 	"nopsai/services/nopsai/pkg/validation"
 )
@@ -67,6 +70,10 @@ type App struct {
 	configSyncMu     sync.Mutex
 	configSyncStatus ConfigSyncStatus
 	envFilePath      string
+
+	authService *auth.Service
+	authz       *authz.Enforcer
+	auditLogger *audit.Logger
 }
 
 type LogLine = models.LogLine
@@ -92,6 +99,71 @@ type ConfigSyncStatus struct {
 	Details     map[string]int `json:"details,omitempty"`
 	StartedAt   *time.Time     `json:"started_at,omitempty"`
 	CompletedAt *time.Time     `json:"completed_at,omitempty"`
+}
+
+type authLoginRequest struct {
+	Identifier string `json:"identifier"`
+	Password   string `json:"password"`
+}
+
+type authRefreshRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
+type authLoginResponse struct {
+	AccessToken   string    `json:"access_token"`
+	RefreshToken  string    `json:"refresh_token,omitempty"`
+	ExpiresAt     time.Time `json:"expires_at"`
+	TenantIDs     []string  `json:"tenant_ids,omitempty"`
+	Roles         []string  `json:"roles,omitempty"`
+	DefaultTenant string    `json:"default_tenant,omitempty"`
+	Provider      string    `json:"provider,omitempty"`
+	Email         string    `json:"email,omitempty"`
+	Sub           string    `json:"sub,omitempty"`
+}
+
+type tenantResponse struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type userRoleBinding struct {
+	TenantID string `json:"tenant_id"`
+	Role     string `json:"role"`
+}
+
+type userSummary struct {
+	ID        string            `json:"id"`
+	Sub       string            `json:"sub"`
+	Email     string            `json:"email"`
+	Provider  string            `json:"provider"`
+	Status    string            `json:"status"`
+	LastLogin *time.Time        `json:"last_login,omitempty"`
+	Roles     []userRoleBinding `json:"roles,omitempty"`
+}
+
+type createUserRequest struct {
+	Sub        string `json:"sub"`
+	Email      string `json:"email"`
+	Password   string `json:"password"`
+	TenantID   string `json:"tenant_id"`
+	TenantName string `json:"tenant_name"`
+	Role       string `json:"role"`
+}
+
+type userRoleRequest struct {
+	UserID     string `json:"user_id"`
+	TenantID   string `json:"tenant_id"`
+	TenantName string `json:"tenant_name"`
+	Role       string `json:"role"`
+}
+
+type createRoleRequest struct {
+	Role       string `json:"role"`
+	TenantID   string `json:"tenant_id"`
+	TenantName string `json:"tenant_name"`
+	Object     string `json:"obj"`
+	Action     string `json:"act"`
 }
 
 // Keep these local for now if not in models
@@ -243,7 +315,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*") // Allow any origin for simplicity in POC
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Tenant-ID, X-Request-ID")
 
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
@@ -254,10 +326,733 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+type requestContextKey string
+
+const (
+	ctxKeyRequestID requestContextKey = "request-id"
+)
+
+func isPublicPath(path string) bool {
+	switch path {
+	case "/v1/auth/login", "/v1/auth/refresh", "/v1/auth/logout", "/v1/auth/oidc/callback", "/v1/git/events":
+		return true
+	default:
+		return false
+	}
+}
+
+func requestIDMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqID := r.Header.Get("X-Request-ID")
+		if reqID == "" {
+			reqID = uuid.NewString()
+		}
+		w.Header().Set("X-Request-ID", reqID)
+		ctx := context.WithValue(r.Context(), ctxKeyRequestID, reqID)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+type loggingResponseWriter struct {
+	http.ResponseWriter
+	status int
+	length int
+}
+
+func (lrw *loggingResponseWriter) WriteHeader(code int) {
+	lrw.status = code
+	lrw.ResponseWriter.WriteHeader(code)
+}
+
+func (lrw *loggingResponseWriter) Write(b []byte) (int, error) {
+	n, err := lrw.ResponseWriter.Write(b)
+	lrw.length += n
+	return n, err
+}
+
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		lrw := &loggingResponseWriter{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(lrw, r)
+		reqID, _ := r.Context().Value(ctxKeyRequestID).(string)
+		log.Info().
+			Str("method", r.Method).
+			Str("path", r.URL.Path).
+			Int("status", lrw.status).
+			Int("bytes", lrw.length).
+			Str("request_id", reqID).
+			Dur("duration_ms", time.Since(start)).
+			Msg("http_request")
+	})
+}
+
+func recoveryMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Error().Interface("panic", rec).Msg("panic recovered")
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (a *App) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if isPublicPath(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if a.authService == nil {
+			http.Error(w, "authentication not configured", http.StatusServiceUnavailable)
+			return
+		}
+		authzHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+		if authzHeader == "" || !strings.HasPrefix(strings.ToLower(authzHeader), "bearer ") {
+			http.Error(w, "missing bearer token", http.StatusUnauthorized)
+			return
+		}
+		token := strings.TrimSpace(authzHeader[len("Bearer "):])
+		claims, err := a.authService.AuthenticateToken(r.Context(), token)
+		if err != nil {
+			http.Error(w, "invalid token", http.StatusUnauthorized)
+			return
+		}
+
+		ctx := auth.WithClaims(r.Context(), claims)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func (a *App) tenantMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if isPublicPath(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		claims, ok := auth.ClaimsFromContext(r.Context())
+		if !ok {
+			http.Error(w, "missing claims", http.StatusUnauthorized)
+			return
+		}
+		tenantHeader := strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
+		if tenantHeader == "" {
+			tenantHeader = claims.DefaultTenant
+		}
+		if tenantHeader == "" && len(claims.TenantIDs) == 1 {
+			tenantHeader = claims.TenantIDs[0]
+		}
+		if tenantHeader == "" {
+			http.Error(w, "tenant not specified", http.StatusBadRequest)
+			return
+		}
+		allowed := len(claims.TenantIDs) == 0
+		for _, t := range claims.TenantIDs {
+			if t == tenantHeader {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			var tenantID uuid.UUID
+			if err := a.db.QueryRow(r.Context(), `SELECT id FROM tenants WHERE name = $1`, tenantHeader).Scan(&tenantID); err == nil {
+				tenantHeader = tenantID.String()
+				for _, t := range claims.TenantIDs {
+					if t == tenantHeader {
+						allowed = true
+						break
+					}
+				}
+			}
+		}
+		if !allowed {
+			http.Error(w, "tenant access denied", http.StatusForbidden)
+			return
+		}
+		ctx := auth.WithTenant(r.Context(), tenantHeader)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func (a *App) authzMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if isPublicPath(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if a.authz == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		claims, ok := auth.ClaimsFromContext(r.Context())
+		if !ok {
+			http.Error(w, "missing claims", http.StatusUnauthorized)
+			return
+		}
+		tenantID := auth.TenantFromContext(r.Context())
+		if tenantID == "" {
+			http.Error(w, "tenant not resolved", http.StatusUnauthorized)
+			return
+		}
+		obj := r.URL.Path
+		act := r.Method
+		if !a.authz.EnforceRoles(claims.Roles, tenantID, obj, act) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+type auditRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (a *auditRecorder) WriteHeader(code int) {
+	a.status = code
+	a.ResponseWriter.WriteHeader(code)
+}
+
+func (a *App) auditMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec := &auditRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+
+		if a.auditLogger == nil {
+			return
+		}
+		claims, _ := auth.ClaimsFromContext(r.Context())
+		tenantID := auth.TenantFromContext(r.Context())
+		requestID, _ := r.Context().Value(ctxKeyRequestID).(string)
+
+		entry := audit.Entry{
+			ActorSub:   "",
+			ActorEmail: "",
+			Provider:   "",
+			TenantID:   tenantID,
+			Action:     r.Method,
+			Resource:   r.URL.Path,
+			Result:     fmt.Sprintf("%d", rec.status),
+			Metadata: map[string]any{
+				"request_id": requestID,
+				"remote_ip":  r.RemoteAddr,
+			},
+		}
+		if claims != nil {
+			entry.ActorSub = claims.Sub
+			entry.ActorEmail = claims.Email
+			entry.Provider = claims.Provider
+		}
+		_ = a.auditLogger.Write(r.Context(), entry)
+	})
+}
+
 func validatePipeline(pipeline *models.Pipeline) error {
 	return validation.ValidatePipeline(pipeline)
 }
 
+func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func (a *App) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req authLoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	result, err := a.authService.LoginLocal(r.Context(), strings.TrimSpace(req.Identifier), strings.TrimSpace(req.Password))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, authLoginResponse{
+		AccessToken:   result.AccessToken,
+		RefreshToken:  result.RefreshToken,
+		ExpiresAt:     result.ExpiresAt,
+		TenantIDs:     result.Claims.TenantIDs,
+		Roles:         result.Claims.Roles,
+		DefaultTenant: result.Claims.DefaultTenant,
+		Provider:      result.Claims.Provider,
+		Email:         result.Claims.Email,
+		Sub:           result.Claims.Sub,
+	})
+}
+
+func (a *App) handleAuthRefresh(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req authRefreshRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	result, err := a.authService.Refresh(r.Context(), strings.TrimSpace(req.RefreshToken))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	writeJSON(w, http.StatusOK, authLoginResponse{
+		AccessToken:   result.AccessToken,
+		RefreshToken:  result.RefreshToken,
+		ExpiresAt:     result.ExpiresAt,
+		TenantIDs:     result.Claims.TenantIDs,
+		Roles:         result.Claims.Roles,
+		DefaultTenant: result.Claims.DefaultTenant,
+		Provider:      result.Claims.Provider,
+		Email:         result.Claims.Email,
+		Sub:           result.Claims.Sub,
+	})
+}
+
+func (a *App) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req authRefreshRequest
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	_ = a.authService.Logout(r.Context(), strings.TrimSpace(req.RefreshToken))
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleAuthMe(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.ClaimsFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	writeJSON(w, http.StatusOK, authLoginResponse{
+		AccessToken:   "",
+		TenantIDs:     claims.TenantIDs,
+		Roles:         claims.Roles,
+		DefaultTenant: claims.DefaultTenant,
+		Provider:      claims.Provider,
+		Email:         claims.Email,
+		Sub:           claims.Sub,
+	})
+}
+
+func (a *App) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
+	http.Error(w, "oidc callback handling not implemented in this build", http.StatusNotImplemented)
+}
+
+func (a *App) handleListTenants(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.db.Query(r.Context(), `SELECT id, name FROM tenants ORDER BY name`)
+	if err != nil {
+		http.Error(w, "failed to list tenants", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	var out []tenantResponse
+	for rows.Next() {
+		var t tenantResponse
+		if err := rows.Scan(&t.ID, &t.Name); err != nil {
+			http.Error(w, "failed to scan tenants", http.StatusInternalServerError)
+			return
+		}
+		out = append(out, t)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (a *App) handleListAuditLogs(w http.ResponseWriter, r *http.Request) {
+	limit := 100
+	if v := strings.TrimSpace(r.URL.Query().Get("limit")); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 && parsed <= 500 {
+			limit = parsed
+		}
+	}
+	tenantID := auth.TenantFromContext(r.Context())
+	rows, err := a.db.Query(r.Context(), `
+		SELECT actor_sub, actor_email, provider, COALESCE(tenant_id::text, ''), action, resource, result, created_at
+		FROM audit_logs
+		WHERE ($1 = '' OR tenant_id::text = $1)
+		ORDER BY created_at DESC
+		LIMIT $2
+	`, tenantID, limit)
+	if err != nil {
+		http.Error(w, "failed to list audit logs", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	type auditRow struct {
+		ActorSub   string    `json:"actor_sub"`
+		ActorEmail string    `json:"actor_email"`
+		Provider   string    `json:"provider"`
+		TenantID   string    `json:"tenant_id"`
+		Action     string    `json:"action"`
+		Resource   string    `json:"resource"`
+		Result     string    `json:"result"`
+		CreatedAt  time.Time `json:"created_at"`
+	}
+	var out []auditRow
+	for rows.Next() {
+		var row auditRow
+		if err := rows.Scan(&row.ActorSub, &row.ActorEmail, &row.Provider, &row.TenantID, &row.Action, &row.Resource, &row.Result, &row.CreatedAt); err != nil {
+			http.Error(w, "failed to read audit logs", http.StatusInternalServerError)
+			return
+		}
+		out = append(out, row)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (a *App) resolveTenantID(ctx context.Context, tenantID, tenantName string) (string, error) {
+	if tenantID != "" {
+		return tenantID, nil
+	}
+	if tenantName == "" {
+		if strings.TrimSpace(a.cfg.DefaultTenant) != "" {
+			tenantName = strings.TrimSpace(a.cfg.DefaultTenant)
+		} else {
+			return "", fmt.Errorf("tenant is required")
+		}
+	}
+	var id string
+	err := a.db.QueryRow(ctx, `SELECT id FROM tenants WHERE name = $1`, tenantName).Scan(&id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", fmt.Errorf("tenant not found")
+		}
+		return "", err
+	}
+	return id, nil
+}
+
+func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.db.Query(r.Context(), `
+		SELECT u.id, u.sub, COALESCE(u.email, ''), u.provider, u.status, u.last_login,
+		       COALESCE(json_agg(json_build_object('tenant_id', utr.tenant_id::text, 'role', utr.role))
+		                FILTER (WHERE utr.role IS NOT NULL), '[]') AS roles
+		FROM users u
+		LEFT JOIN user_tenant_roles utr ON utr.user_id = u.id
+		GROUP BY u.id
+		ORDER BY u.sub
+	`)
+	if err != nil {
+		http.Error(w, "failed to list users", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	var users []userSummary
+	for rows.Next() {
+		var u userSummary
+		var rolesJSON []byte
+		var lastLogin sql.NullTime
+		if err := rows.Scan(&u.ID, &u.Sub, &u.Email, &u.Provider, &u.Status, &lastLogin, &rolesJSON); err != nil {
+			http.Error(w, "failed to scan users", http.StatusInternalServerError)
+			return
+		}
+		if lastLogin.Valid {
+			t := lastLogin.Time
+			u.LastLogin = &t
+		}
+		if len(rolesJSON) > 0 {
+			_ = json.Unmarshal(rolesJSON, &u.Roles)
+		}
+		users = append(users, u)
+	}
+	writeJSON(w, http.StatusOK, users)
+}
+
+func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req createUserRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	req.Sub = strings.TrimSpace(req.Sub)
+	req.Email = strings.TrimSpace(req.Email)
+	req.Role = strings.TrimSpace(req.Role)
+	req.TenantID = strings.TrimSpace(req.TenantID)
+	req.TenantName = strings.TrimSpace(req.TenantName)
+	if req.Sub == "" || req.Password == "" {
+		http.Error(w, "sub and password are required", http.StatusBadRequest)
+		return
+	}
+	userID := uuid.New()
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		http.Error(w, "failed to start transaction", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	hashed, err := auth.HashPassword(req.Password)
+	if err != nil {
+		http.Error(w, "failed to hash password", http.StatusInternalServerError)
+		return
+	}
+	_, err = tx.Exec(r.Context(), `
+		INSERT INTO users (id, sub, email, provider, password_hash, status)
+		VALUES ($1, $2, $3, 'local', $4, 'active')
+		ON CONFLICT (sub) DO UPDATE SET email = EXCLUDED.email, password_hash = EXCLUDED.password_hash, status = 'active'
+	`, userID, req.Sub, req.Email, hashed)
+	if err != nil {
+		http.Error(w, "failed to create user", http.StatusInternalServerError)
+		return
+	}
+
+	if req.Role != "" {
+		tID, err := a.resolveTenantID(r.Context(), req.TenantID, req.TenantName)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		_, err = tx.Exec(r.Context(), `
+			INSERT INTO user_tenant_roles (user_id, tenant_id, role)
+			VALUES ($1, $2, $3)
+			ON CONFLICT DO NOTHING
+		`, userID, tID, req.Role)
+		if err != nil {
+			http.Error(w, "failed to assign role", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, "failed to save user", http.StatusInternalServerError)
+		return
+	}
+	a.handleListUsers(w, r)
+}
+
+func (a *App) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := strings.TrimSpace(r.PathValue("userID"))
+	if userID == "" {
+		http.Error(w, "userID is required", http.StatusBadRequest)
+		return
+	}
+	_, err := uuid.Parse(userID)
+	if err != nil {
+		http.Error(w, "invalid userID", http.StatusBadRequest)
+		return
+	}
+	tag, err := a.db.Exec(r.Context(), `DELETE FROM users WHERE id = $1`, userID)
+	if err != nil {
+		http.Error(w, "failed to delete user", http.StatusInternalServerError)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		http.Error(w, "user not found", http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleAddUserRole(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req userRoleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	req.Role = strings.TrimSpace(req.Role)
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.TenantID = strings.TrimSpace(req.TenantID)
+	req.TenantName = strings.TrimSpace(req.TenantName)
+	if req.UserID == "" || req.Role == "" {
+		http.Error(w, "user_id and role are required", http.StatusBadRequest)
+		return
+	}
+	tenantID, err := a.resolveTenantID(r.Context(), req.TenantID, req.TenantName)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_, err = a.db.Exec(r.Context(), `
+		INSERT INTO user_tenant_roles (user_id, tenant_id, role)
+		VALUES ($1, $2, $3)
+		ON CONFLICT DO NOTHING
+	`, req.UserID, tenantID, req.Role)
+	if err != nil {
+		http.Error(w, "failed to assign role", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (a *App) handleDeleteUserRole(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req userRoleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	req.Role = strings.TrimSpace(req.Role)
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.TenantID = strings.TrimSpace(req.TenantID)
+	req.TenantName = strings.TrimSpace(req.TenantName)
+	if req.UserID == "" || req.Role == "" {
+		http.Error(w, "user_id and role are required", http.StatusBadRequest)
+		return
+	}
+	tenantID, err := a.resolveTenantID(r.Context(), req.TenantID, req.TenantName)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	tag, err := a.db.Exec(r.Context(), `
+		DELETE FROM user_tenant_roles
+		WHERE user_id = $1 AND tenant_id = $2 AND role = $3
+	`, req.UserID, tenantID, req.Role)
+	if err != nil {
+		http.Error(w, "failed to remove role", http.StatusInternalServerError)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		http.Error(w, "role assignment not found", http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleCreateRole(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req createRoleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	req.Role = strings.TrimSpace(req.Role)
+	req.TenantID = strings.TrimSpace(req.TenantID)
+	req.TenantName = strings.TrimSpace(req.TenantName)
+	req.Object = strings.TrimSpace(req.Object)
+	req.Action = strings.TrimSpace(req.Action)
+	if req.Role == "" || req.Object == "" || req.Action == "" {
+		http.Error(w, "role, obj, and act are required", http.StatusBadRequest)
+		return
+	}
+	tenantID, err := a.resolveTenantID(r.Context(), req.TenantID, req.TenantName)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_, err = a.db.Exec(r.Context(), `
+		INSERT INTO role_permissions (role, tenant_id, obj, act)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT DO NOTHING
+	`, req.Role, tenantID, req.Object, req.Action)
+	if err != nil {
+		http.Error(w, "failed to create role permission", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (a *App) handleDeleteRole(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req createRoleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	req.Role = strings.TrimSpace(req.Role)
+	req.TenantID = strings.TrimSpace(req.TenantID)
+	req.TenantName = strings.TrimSpace(req.TenantName)
+	req.Object = strings.TrimSpace(req.Object)
+	req.Action = strings.TrimSpace(req.Action)
+	if req.Role == "" || req.Object == "" || req.Action == "" {
+		http.Error(w, "role, obj, and act are required", http.StatusBadRequest)
+		return
+	}
+	tenantID, err := a.resolveTenantID(r.Context(), req.TenantID, req.TenantName)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	tag, err := a.db.Exec(r.Context(), `
+		DELETE FROM role_permissions
+		WHERE role = $1 AND tenant_id = $2 AND obj = $3 AND act = $4
+	`, req.Role, tenantID, req.Object, req.Action)
+	if err != nil {
+		http.Error(w, "failed to delete role permission", http.StatusInternalServerError)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		http.Error(w, "role permission not found", http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleListRoles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	rows, err := a.db.Query(r.Context(), `
+		SELECT role, tenant_id, obj, act
+		FROM role_permissions
+		ORDER BY role ASC, tenant_id ASC, obj ASC, act ASC
+	`)
+	if err != nil {
+		http.Error(w, "failed to list role permissions", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	type rolePerm struct {
+		Role     string `json:"role"`
+		TenantID string `json:"tenant_id"`
+		Obj      string `json:"obj"`
+		Act      string `json:"act"`
+	}
+	var perms []rolePerm
+	for rows.Next() {
+		var p rolePerm
+		if err := rows.Scan(&p.Role, &p.TenantID, &p.Obj, &p.Act); err != nil {
+			http.Error(w, "failed to scan role permission", http.StatusInternalServerError)
+			return
+		}
+		perms = append(perms, p)
+	}
+	writeJSON(w, http.StatusOK, perms)
+}
 func (a *App) encrypt(text string) (string, error) {
 	block, err := aes.NewCipher(a.encKey)
 	if err != nil {
@@ -6211,6 +7006,28 @@ func main() {
 	}
 	key := sha256.Sum256([]byte(cfg.MasterKey))
 
+	if cfg.JWTExpiryMinutes == 0 {
+		cfg.JWTExpiryMinutes = 60
+	}
+	if cfg.RefreshTokenTTLMinutes == 0 {
+		cfg.RefreshTokenTTLMinutes = 60 * 24 * 30
+	}
+	if cfg.DefaultTenant == "" {
+		cfg.DefaultTenant = "default"
+	}
+	if cfg.RateLimitLoginPerMinute == 0 {
+		cfg.RateLimitLoginPerMinute = 10
+	}
+	if cfg.LoginLockoutThreshold == 0 {
+		cfg.LoginLockoutThreshold = 5
+	}
+	if cfg.LoginLockoutWindowMin == 0 {
+		cfg.LoginLockoutWindowMin = 15
+	}
+	if !cfg.AuthProviderLocalEnabled && !cfg.AuthProviderOIDCEnabled {
+		cfg.AuthProviderLocalEnabled = true
+	}
+
 	logLevel, err := zerolog.ParseLevel(cfg.LogLevel)
 	if err != nil {
 		log.Warn().Msgf("Invalid log level '%s', defaulting to 'info'", cfg.LogLevel)
@@ -6224,6 +7041,10 @@ func main() {
 	envFilePath := os.Getenv("ENV_FILE_PATH")
 	if envFilePath == "" {
 		envFilePath = filepath.Join(filepath.Dir(configPath), ".env")
+	}
+
+	if strings.TrimSpace(cfg.NopsaiListenAddress) == "" {
+		cfg.NopsaiListenAddress = "0.0.0.0:8080"
 	}
 
 	var dbpool *pgxpool.Pool
@@ -6253,6 +7074,33 @@ func main() {
 	}
 	defer dispatcherConn.Close()
 
+	authCfg := auth.Config{
+		LocalEnabled:       cfg.AuthProviderLocalEnabled,
+		OIDCEnabled:        cfg.AuthProviderOIDCEnabled,
+		OIDCIssuer:         cfg.OIDCIssuer,
+		OIDCAudience:       cfg.OIDCAudience,
+		OIDCJwksURL:        cfg.OIDCJwksURL,
+		SigningKey:         cfg.JWTSigningKey,
+		JWTIssuer:          cfg.JWTIssuer,
+		JWTAudience:        cfg.JWTAudience,
+		AccessTTL:          time.Duration(cfg.JWTExpiryMinutes) * time.Minute,
+		RefreshTTL:         time.Duration(cfg.RefreshTokenTTLMinutes) * time.Minute,
+		DefaultTenant:      cfg.DefaultTenant,
+		LoginRateLimit:     cfg.RateLimitLoginPerMinute,
+		LoginLockoutThresh: cfg.LoginLockoutThreshold,
+		LoginLockoutWindow: time.Duration(cfg.LoginLockoutWindowMin) * time.Minute,
+	}
+
+	authService, err := auth.NewService(context.Background(), dbpool, authCfg)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to initialize authentication service")
+	}
+	authzEnforcer, err := authz.NewEnforcer(context.Background(), dbpool)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to load RBAC policies")
+	}
+	auditLogger := audit.NewLogger(dbpool)
+
 	app := &App{
 		db:          dbpool,
 		cfg:         cfg,
@@ -6262,6 +7110,9 @@ func main() {
 		store:       store.NewPGStore(dbpool),
 		configPath:  configPath,
 		envFilePath: envFilePath,
+		authService: authService,
+		authz:       authzEnforcer,
+		auditLogger: auditLogger,
 		configSyncStatus: ConfigSyncStatus{
 			Status:  "idle",
 			Message: "No configuration sync has been requested yet.",
@@ -6269,6 +7120,23 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+
+	// Authentication & tenants
+	mux.HandleFunc("POST /v1/auth/login", app.handleAuthLogin)
+	mux.HandleFunc("POST /v1/auth/refresh", app.handleAuthRefresh)
+	mux.HandleFunc("POST /v1/auth/logout", app.handleAuthLogout)
+	mux.HandleFunc("GET /v1/auth/me", app.handleAuthMe)
+	mux.HandleFunc("GET /v1/auth/oidc/callback", app.handleOIDCCallback)
+	mux.HandleFunc("GET /v1/tenants", app.handleListTenants)
+	mux.HandleFunc("GET /v1/audit", app.handleListAuditLogs)
+	mux.HandleFunc("GET /v1/admin/users", app.handleListUsers)
+	mux.HandleFunc("POST /v1/admin/users", app.handleCreateUser)
+	mux.HandleFunc("DELETE /v1/admin/users/{userID}", app.handleDeleteUser)
+	mux.HandleFunc("POST /v1/admin/user-roles", app.handleAddUserRole)
+	mux.HandleFunc("DELETE /v1/admin/user-roles", app.handleDeleteUserRole)
+	mux.HandleFunc("GET /v1/admin/roles", app.handleListRoles)
+	mux.HandleFunc("POST /v1/admin/roles", app.handleCreateRole)
+	mux.HandleFunc("DELETE /v1/admin/roles", app.handleDeleteRole)
 
 	// Group Management
 	mux.HandleFunc("POST /v1/git/events", app.handleGitEvent)
@@ -6333,9 +7201,19 @@ func main() {
 	mux.HandleFunc("GET /v1/runs/{runID}/logs", app.handleGetRunLogs)
 	mux.HandleFunc("DELETE /v1/repositories/{repoOwner}/{repoName}/branches/{branch...}", app.handleDeleteRepoBranchRuns)
 
+	var handler http.Handler = mux
+	handler = app.authzMiddleware(handler)
+	handler = app.tenantMiddleware(handler)
+	handler = app.authMiddleware(handler)
+	handler = app.auditMiddleware(handler)
+	handler = recoveryMiddleware(handler)
+	handler = loggingMiddleware(handler)
+	handler = requestIDMiddleware(handler)
+	handler = corsMiddleware(handler)
+
 	server := &http.Server{
 		Addr:    cfg.NopsaiListenAddress,
-		Handler: corsMiddleware(mux),
+		Handler: handler,
 	}
 
 	stop := make(chan os.Signal, 1)

@@ -7,7 +7,8 @@ import ScopesPage from './pages/Scopes';
 import LabPage from './pages/Lab';
 import StepsPage from './pages/Steps';
 import SystemPage from './pages/System';
-import { buildApiUrl } from './lib/api';
+import LoginPage from './pages/Login';
+import { buildApiUrl, clearSession, getStoredSession, setSelectedTenant, type StoredSession } from './lib/api';
 import { PIPELINE_DRAFTS_CHANGED_EVENT, PIPELINE_DRAFTS_STORAGE_KEY, loadPipelineDrafts } from './lib/pipelineDrafts';
 import { STEP_DRAFTS_CHANGED_EVENT, STEP_DRAFTS_STORAGE_KEY, loadStepDrafts } from './lib/stepDrafts';
 
@@ -50,6 +51,13 @@ type ScopeTreeNode = {
   children: ScopeTreeNode[];
   scopes: string[];
 };
+
+type Tenant = {
+  id: string;
+  name: string;
+};
+
+type AuthSession = StoredSession;
 
 type RunGroup = {
   id: number;
@@ -119,8 +127,14 @@ const navItems: NavItem[] = [
   {
     label: 'System',
     path: '/system/config',
-    icon: <IconCog />, 
+    icon: <IconCog />,
   },
+];
+
+const systemSubNav: NavItem[] = [
+  { label: 'Config', path: '/system/config', icon: <IconCog /> },
+  { label: 'Dispatcher', path: '/system/dispatcher', icon: <IconDispatch /> },
+  { label: 'Access', path: '/system/access', icon: <IconShield /> },
 ];
 
 const titleMap: Record<string, string> = {
@@ -159,6 +173,10 @@ function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
+  const [authSession, setAuthSession] = useState<AuthSession>(() => getStoredSession());
+  const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [selectedTenant, setSelectedTenantState] = useState<string>(() => getStoredSession().tenantId || getStoredSession().defaultTenant || '');
+  const isAuthenticated = useMemo(() => Boolean(authSession.accessToken), [authSession.accessToken]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     if (typeof window === 'undefined') return SIDEBAR_DEFAULT_WIDTH;
@@ -196,12 +214,76 @@ function AppShell() {
   }, [theme]);
 
   useEffect(() => {
+    const handleAuthChange = () => {
+      const next = getStoredSession();
+      setAuthSession(next);
+      setSelectedTenantState(next.tenantId || next.defaultTenant || '');
+    };
+    window.addEventListener('storage', handleAuthChange);
+    window.addEventListener('nopsai-auth-changed', handleAuthChange as EventListener);
+    return () => {
+      window.removeEventListener('storage', handleAuthChange);
+      window.removeEventListener('nopsai-auth-changed', handleAuthChange as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
+    const isAuthenticated = Boolean(authSession.accessToken);
+    if (!isAuthenticated && location.pathname !== '/login') {
+      navigate('/login', { replace: true });
+    }
+    if (isAuthenticated && location.pathname === '/login') {
+      navigate('/pipelineruns/main', { replace: true });
+    }
+  }, [authSession.accessToken, location.pathname, navigate]);
+
+  useEffect(() => {
+    if (!authSession.accessToken) return;
+    const tenantHeader = selectedTenant || authSession.defaultTenant;
+    const headers: Record<string, string> = tenantHeader ? { 'X-Tenant-ID': tenantHeader } : {};
+    fetch(buildApiUrl('/v1/tenants'), { headers })
+      .then(resp => (resp.ok ? resp.json() : []))
+      .then(data => {
+        if (Array.isArray(data)) setTenants(data);
+      })
+      .catch(() => {});
+  }, [authSession.accessToken, authSession.defaultTenant, selectedTenant]);
+
+  const handleLoginSuccess = useCallback(() => {
+    const session = getStoredSession();
+    setAuthSession(session);
+    setSelectedTenantState(session.tenantId || session.defaultTenant || '');
+  }, []);
+
+  const handleTenantChange = useCallback((tenantId: string) => {
+    setSelectedTenantState(tenantId);
+    setSelectedTenant(tenantId);
+    setAuthSession(prev => ({ ...prev, tenantId }));
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    clearSession();
+    setAuthSession({});
+    setSelectedTenantState('');
+    navigate('/login', { replace: true });
+  }, [navigate]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (selectedTenant) return;
+    if (tenants.length > 0) {
+      handleTenantChange(tenants[0].id);
+    }
+  }, [handleTenantChange, isAuthenticated, selectedTenant, tenants]);
+
+  useEffect(() => {
     if (!sidebarOpen) return;
     const handle = window.setTimeout(() => setSidebarOpen(false), 0);
     return () => window.clearTimeout(handle);
   }, [location.pathname, sidebarOpen]);
 
   useEffect(() => {
+    if (!isAuthenticated) return;
     const load = async () => {
       try {
         const [secretResp, variableResp] = await Promise.all([
@@ -248,9 +330,10 @@ function AppShell() {
     if (location.pathname.startsWith('/scopes')) {
       void load();
     }
-  }, [location.pathname]);
+  }, [isAuthenticated, location.pathname]);
 
   useEffect(() => {
+    if (!isAuthenticated) return;
     const load = async () => {
       try {
         const response = await fetch(buildApiUrl('/v1/pipelines'));
@@ -284,9 +367,10 @@ function AppShell() {
     if (location.pathname.startsWith('/pipelines')) {
       void load();
     }
-  }, [location.pathname]);
+  }, [isAuthenticated, location.pathname]);
 
   useEffect(() => {
+    if (!isAuthenticated) return;
     const load = async () => {
       try {
         const response = await fetch(buildApiUrl('/v1/overrides'));
@@ -304,9 +388,10 @@ function AppShell() {
     if (location.pathname.startsWith('/triggers')) {
       void load();
     }
-  }, [location.pathname]);
+  }, [isAuthenticated, location.pathname]);
 
   useEffect(() => {
+    if (!isAuthenticated) return;
     const load = async () => {
       try {
         const response = await fetch(buildApiUrl('/v1/steps'));
@@ -327,7 +412,7 @@ function AppShell() {
     if (location.pathname.startsWith('/steps')) {
       void load();
     }
-  }, [location.pathname]);
+  }, [isAuthenticated, location.pathname]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -373,6 +458,7 @@ function AppShell() {
     const key = location.pathname.split('/').filter(Boolean)[0] || 'pipelineruns';
     return titleMap[key] || 'Dashboard';
   }, [location.pathname]);
+  const isLoginRoute = location.pathname === '/login';
 
   const splitIdentifier = (id: string) => {
     const parts = id.split('/').filter(Boolean);
@@ -573,64 +659,76 @@ function AppShell() {
 
   return (
     <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
-      <div id="hover-hint" aria-hidden="true"></div>
-      <div className="flex h-screen overflow-hidden">
-        <Sidebar
-          navItems={navItems}
-          open={sidebarOpen}
-          onClose={() => setSidebarOpen(false)}
-          width={sidebarWidth}
-          pipelineTree={buildTree}
-          pipelineTreeOpen={pipelineTreeOpen}
-          onTogglePipelineNode={handleTogglePipelineNode}
-          triggerTree={buildTriggerTree}
-          triggerTreeOpen={triggerTreeOpen}
-          onToggleTriggerNode={handleToggleTriggerNode}
-          stepTree={buildStepTree}
-          stepTreeOpen={stepTreeOpen}
-          onToggleStepNode={handleToggleStepNode}
-          scopeTree={buildScopeTree}
-          scopeTreeOpen={scopeTreeOpen}
-          onToggleScopeNode={handleToggleScopeNode}
-          splitIdentifier={splitIdentifier}
-          locationPathname={location.pathname}
-          locationSearch={location.search}
-          navigateTo={navigate}
-          onSelectPipelineFolder={path => navigate(path ? `/pipelines?folder=${encodeURIComponent(path)}` : '/pipelines')}
-          onSelectTriggerFolder={path => navigate(path ? `/triggers?folder=${encodeURIComponent(path)}` : '/triggers')}
-          onSelectStepFolder={path => navigate(path ? `/steps?folder=${encodeURIComponent(path)}` : '/steps')}
-          onSelectScopeFolder={path => navigate(path ? `/scopes?folder=${encodeURIComponent(path)}` : '/scopes')}
-        />
-        <div
-          id="sidebar-resizer"
-          className={`hidden sm:block w-1.5 cursor-col-resize flex-shrink-0 transition-colors duration-200 ${isResizingSidebar ? 'bg-[var(--border-accent)]' : 'bg-[var(--bg-tertiary)] hover:bg-[var(--border-accent)]'}`}
-          onMouseDown={startSidebarResize}
-          onTouchStart={startSidebarResize}
-          aria-label="Resize sidebar"
-        ></div>
-        <main className="flex-1 flex flex-col overflow-hidden">
-          <Header
-            title={title}
-            theme={theme}
-            onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-            onOpenSidebar={() => setSidebarOpen(true)}
-          />
-          <div id="page-content-wrapper" className="flex-1 overflow-auto">
-            <Routes>
-              <Route path="/" element={<Navigate to="/pipelineruns/main" replace />} />
-              <Route path="/pipelineruns/:tab?" element={<PipelineRunsPage />} />
-              <Route path="/pipelines/*" element={<PipelinesPage />} />
-              <Route path="/triggers/*" element={<TriggersPage />} />
-              <Route path="/scopes/*" element={<ScopesPage />} />
-              <Route path="/lab/*" element={<LabPage />} />
-              <Route path="/steps/*" element={<StepsPage />} />
-              <Route path="/system/:tab?" element={<SystemPage />} />
-              <Route path="*" element={<Navigate to="/pipelineruns/main" replace />} />
-            </Routes>
+      {isLoginRoute ? (
+        <LoginPage onLogin={handleLoginSuccess} />
+      ) : !isAuthenticated ? (
+        <Navigate to="/login" replace />
+      ) : (
+        <>
+          <div id="hover-hint" aria-hidden="true"></div>
+          <div className="flex h-screen overflow-hidden">
+            <Sidebar
+              navItems={navItems}
+              open={sidebarOpen}
+              onClose={() => setSidebarOpen(false)}
+              width={sidebarWidth}
+              pipelineTree={buildTree}
+              pipelineTreeOpen={pipelineTreeOpen}
+              onTogglePipelineNode={handleTogglePipelineNode}
+              triggerTree={buildTriggerTree}
+              triggerTreeOpen={triggerTreeOpen}
+              onToggleTriggerNode={handleToggleTriggerNode}
+              stepTree={buildStepTree}
+              stepTreeOpen={stepTreeOpen}
+              onToggleStepNode={handleToggleStepNode}
+              scopeTree={buildScopeTree}
+              scopeTreeOpen={scopeTreeOpen}
+              onToggleScopeNode={handleToggleScopeNode}
+              splitIdentifier={splitIdentifier}
+              locationPathname={location.pathname}
+              locationSearch={location.search}
+              navigateTo={navigate}
+              onSelectPipelineFolder={path => navigate(path ? `/pipelines?folder=${encodeURIComponent(path)}` : '/pipelines')}
+              onSelectTriggerFolder={path => navigate(path ? `/triggers?folder=${encodeURIComponent(path)}` : '/triggers')}
+              onSelectStepFolder={path => navigate(path ? `/steps?folder=${encodeURIComponent(path)}` : '/steps')}
+              onSelectScopeFolder={path => navigate(path ? `/scopes?folder=${encodeURIComponent(path)}` : '/scopes')}
+            />
+            <div
+              id="sidebar-resizer"
+              className={`hidden sm:block w-1.5 cursor-col-resize flex-shrink-0 transition-colors duration-200 ${isResizingSidebar ? 'bg-[var(--border-accent)]' : 'bg-[var(--bg-tertiary)] hover:bg-[var(--border-accent)]'}`}
+              onMouseDown={startSidebarResize}
+              onTouchStart={startSidebarResize}
+              aria-label="Resize sidebar"
+            ></div>
+            <main className="flex-1 flex flex-col overflow-hidden">
+              <Header
+                title={title}
+                theme={theme}
+                onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                onOpenSidebar={() => setSidebarOpen(true)}
+                tenants={tenants}
+                selectedTenant={selectedTenant}
+                onTenantChange={handleTenantChange}
+                onLogout={handleLogout}
+              />
+              <div id="page-content-wrapper" className="flex-1 overflow-auto">
+                <Routes>
+                  <Route path="/" element={<Navigate to="/pipelineruns/main" replace />} />
+                  <Route path="/pipelineruns/:tab?" element={<PipelineRunsPage />} />
+                  <Route path="/pipelines/*" element={<PipelinesPage />} />
+                  <Route path="/triggers/*" element={<TriggersPage />} />
+                  <Route path="/scopes/*" element={<ScopesPage />} />
+                  <Route path="/lab/*" element={<LabPage />} />
+                  <Route path="/steps/*" element={<StepsPage />} />
+                  <Route path="/system/:tab?" element={<SystemPage />} />
+                  <Route path="*" element={<Navigate to="/pipelineruns/main" replace />} />
+                </Routes>
+              </div>
+            </main>
           </div>
-        </main>
-      </div>
-      <div id="toast-container" className="fixed top-6 right-6 z-[100] w-full max-w-sm space-y-3"></div>
+          <div id="toast-container" className="fixed top-6 right-6 z-[100] w-full max-w-sm space-y-3"></div>
+        </>
+      )}
     </div>
   );
 }
@@ -691,6 +789,7 @@ function Sidebar({
   const isStepsRoute = locationPathname.startsWith('/steps');
   const isScopesRoute = locationPathname.startsWith('/scopes');
   const isPipelineRunsRoute = locationPathname.startsWith('/pipelineruns');
+  const isSystemRoute = locationPathname.startsWith('/system');
   const searchParams = useMemo(() => new URLSearchParams(locationSearch), [locationSearch]);
   const pipelineRunsTab: RunTabKey =
     locationPathname.startsWith('/pipelineruns/recent') ? 'recent' : locationPathname.startsWith('/pipelineruns/events') ? 'events' : 'main';
@@ -1006,18 +1105,47 @@ function Sidebar({
           </button>
         </div>
         <nav id="sidebar-base-nav" className="px-4 py-4 flex-shrink-0 space-y-1">
-            {navItems.map(item => (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors sidebar-link ${isActive ? 'active text-[var(--text-primary)] bg-[var(--bg-tertiary)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'}`
-              }
-            >
-              <span className="text-[var(--text-secondary)]">{item.icon}</span>
-              <span className="truncate">{item.label}</span>
-            </NavLink>
-          ))}
+          {navItems.map(item => {
+            const isSystemItem = item.path.startsWith('/system');
+            const isActive = locationPathname.startsWith(item.path);
+            return (
+              <div key={item.path} className="space-y-1">
+                <NavLink
+                  to={item.path}
+                  className={({ isActive: linkActive }) =>
+                    `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors sidebar-link ${
+                      linkActive || (isSystemItem && isSystemRoute)
+                        ? 'active text-[var(--text-primary)] bg-[var(--bg-tertiary)]'
+                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
+                    }`
+                  }
+                >
+                  <span className="text-[var(--text-secondary)]">{item.icon}</span>
+                  <span className="truncate">{item.label}</span>
+                </NavLink>
+                {isSystemItem && (isSystemRoute || isActive) && (
+                  <div className="pl-9 space-y-1">
+                    {systemSubNav.map(sub => (
+                      <NavLink
+                        key={sub.path}
+                        to={sub.path}
+                        className={({ isActive: subActive }) =>
+                          `flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors ${
+                            subActive
+                              ? 'text-[var(--text-primary)] bg-[var(--bg-tertiary)]'
+                              : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
+                          }`
+                        }
+                      >
+                        <span className="text-[var(--text-secondary)]">{sub.icon}</span>
+                        <span className="truncate">{sub.label}</span>
+                      </NavLink>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </nav>
         <div className="flex-1 overflow-y-auto sidebar-scrollbar border-t border-[var(--border-primary)]">
           <nav id="sidebar-details-nav" className="px-4 py-4 space-y-2">
@@ -1748,7 +1876,25 @@ function summarizeStatus(runs: RunListItem[]): string {
   return ranked[0] || 'pending';
 }
 
-function Header({ title, onOpenSidebar, theme, onToggleTheme }: { title: string; onOpenSidebar: () => void; theme: Theme; onToggleTheme: () => void; }) {
+function Header({
+  title,
+  onOpenSidebar,
+  theme,
+  onToggleTheme,
+  tenants,
+  selectedTenant,
+  onTenantChange,
+  onLogout,
+}: {
+  title: string;
+  onOpenSidebar: () => void;
+  theme: Theme;
+  onToggleTheme: () => void;
+  tenants: Tenant[];
+  selectedTenant?: string;
+  onTenantChange?: (tenantId: string) => void;
+  onLogout?: () => void;
+}) {
   return (
     <header
       className="flex items-center justify-between px-6 py-4 themed-bg-blur backdrop-blur-sm shadow-sm z-10 border-b border-[var(--border-primary)] flex-shrink-0"
@@ -1763,15 +1909,38 @@ function Header({ title, onOpenSidebar, theme, onToggleTheme }: { title: string;
         <IconMenu />
       </button>
       <div id="main-header" className="flex-1 text-xl font-semibold min-w-0 truncate">{title}</div>
-      <button
-        id="theme-toggle"
-        type="button"
-        className="ml-4 p-2 rounded-full text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-accent)]"
-        aria-label="Toggle theme"
-        onClick={onToggleTheme}
-      >
-        {theme === 'dark' ? <IconSun /> : <IconMoon />}
-      </button>
+      <div className="flex items-center gap-3">
+        {tenants.length > 0 && (
+          <select
+            value={selectedTenant || ''}
+            onChange={e => onTenantChange?.(e.target.value)}
+            className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-tertiary)] text-sm px-2 py-1 text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)]"
+          >
+            {tenants.map(t => (
+              <option key={t.id} value={t.id}>
+                {t.name || t.id}
+              </option>
+            ))}
+          </select>
+        )}
+        {onLogout && (
+          <button
+            onClick={onLogout}
+            className="text-sm px-3 py-2 rounded-lg border border-[var(--border-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-accent)]"
+          >
+            Logout
+          </button>
+        )}
+        <button
+          id="theme-toggle"
+          type="button"
+          className="ml-2 p-2 rounded-full text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-accent)]"
+          aria-label="Toggle theme"
+          onClick={onToggleTheme}
+        >
+          {theme === 'dark' ? <IconSun /> : <IconMoon />}
+        </button>
+      </div>
     </header>
   );
 }
@@ -1911,6 +2080,24 @@ function IconCog() {
     <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0a1.724 1.724 0 002.573 1.02c.842-.488 1.91.27 1.662 1.2a1.724 1.724 0 001.091 2.062c.9.3.9 1.603 0 1.902a1.724 1.724 0 00-1.09 2.062c.247.93-.82 1.688-1.663 1.2a1.724 1.724 0 00-2.572 1.02c-.3.921-1.603.921-1.902 0a1.724 1.724 0 00-2.573-1.02c-.842.488-1.91-.27-1.662-1.2a1.724 1.724 0 00-1.091-2.062c-.9-.3-.9-1.603 0-1.902a1.724 1.724 0 001.09-2.062c-.247-.93.82-1.688 1.663-1.2a1.724 1.724 0 002.572-1.02z" />
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
+  );
+}
+
+function IconDispatch() {
+  return (
+    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" d="M3 12h7l-2 3m2-3-2-3m11 0h-7l2 3m-2 0 2 3" />
+      <circle cx="12" cy="12" r="9" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
+function IconShield() {
+  return (
+    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" d="M12 3l8 4v5c0 4.5-3.2 8.3-8 9-4.8-.7-8-4.5-8-9V7z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" d="M9 12l2 2 4-4" />
     </svg>
   );
 }

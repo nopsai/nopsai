@@ -1,6 +1,20 @@
 const DEV_DEFAULT_PORT = '8080';
 const DEV_PORTS = new Set(['5173', '4173']);
 
+const AUTH_TOKEN_KEY = 'nopsai.auth.token';
+const REFRESH_TOKEN_KEY = 'nopsai.auth.refresh';
+const TENANT_KEY = 'nopsai.auth.tenant';
+const DEFAULT_TENANT_KEY = 'nopsai.auth.default_tenant';
+const ROLES_KEY = 'nopsai.auth.roles';
+
+export type StoredSession = {
+  accessToken?: string;
+  refreshToken?: string;
+  tenantId?: string;
+  defaultTenant?: string;
+  roles?: string[];
+};
+
 export function getApiBaseUrl(): string {
   const envBase = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/^['"]+|['"]+$/g, '');
   if (envBase) return envBase.replace(/\/+$/, '');
@@ -27,4 +41,96 @@ export function buildApiUrl(path: string): string {
   const base = getApiBaseUrl();
   const suffix = path.startsWith('/') ? path : `/${path}`;
   return `${base}${suffix}`;
+}
+
+export function getStoredSession(): StoredSession {
+  if (typeof localStorage === 'undefined') return {};
+  const rawRoles = localStorage.getItem(ROLES_KEY);
+  let roles: string[] | undefined;
+  try {
+    roles = rawRoles ? (JSON.parse(rawRoles) as string[]) : undefined;
+  } catch {
+    roles = undefined;
+  }
+  return {
+    accessToken: localStorage.getItem(AUTH_TOKEN_KEY) || undefined,
+    refreshToken: localStorage.getItem(REFRESH_TOKEN_KEY) || undefined,
+    tenantId: localStorage.getItem(TENANT_KEY) || undefined,
+    defaultTenant: localStorage.getItem(DEFAULT_TENANT_KEY) || undefined,
+    roles,
+  };
+}
+
+function dispatchAuthChanged() {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new Event('nopsai-auth-changed'));
+}
+
+export function persistSession(session: { accessToken: string; refreshToken?: string; tenantId?: string; defaultTenant?: string; roles?: string[] }) {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.setItem(AUTH_TOKEN_KEY, session.accessToken);
+  if (session.refreshToken) localStorage.setItem(REFRESH_TOKEN_KEY, session.refreshToken);
+  else localStorage.removeItem(REFRESH_TOKEN_KEY);
+  const tenant = session.tenantId || session.defaultTenant;
+  if (tenant) localStorage.setItem(TENANT_KEY, tenant);
+  if (session.defaultTenant) localStorage.setItem(DEFAULT_TENANT_KEY, session.defaultTenant);
+  if (session.roles) localStorage.setItem(ROLES_KEY, JSON.stringify(session.roles));
+  dispatchAuthChanged();
+}
+
+export function clearSession() {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.removeItem(AUTH_TOKEN_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
+  localStorage.removeItem(TENANT_KEY);
+  localStorage.removeItem(DEFAULT_TENANT_KEY);
+  localStorage.removeItem(ROLES_KEY);
+  dispatchAuthChanged();
+}
+
+export function setSelectedTenant(tenantId: string) {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.setItem(TENANT_KEY, tenantId);
+  dispatchAuthChanged();
+}
+
+export function installAuthInterceptor() {
+  if (typeof window === 'undefined') return;
+  if ((window as any).__nopsaiAuthFetchInstalled) return;
+  (window as any).__nopsaiAuthFetchInstalled = true;
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const session = getStoredSession();
+    const baseHeaders = init?.headers instanceof Headers ? init.headers : new Headers(init?.headers || {});
+    if (input instanceof Request) {
+      input.headers.forEach((value, key) => {
+        if (!baseHeaders.has(key)) baseHeaders.set(key, value);
+      });
+    }
+    if (session.accessToken && !baseHeaders.has('Authorization')) {
+      baseHeaders.set('Authorization', `Bearer ${session.accessToken}`);
+    }
+    const tenantHeader = baseHeaders.get('X-Tenant-ID') || session.tenantId || session.defaultTenant;
+    if (tenantHeader) {
+      baseHeaders.set('X-Tenant-ID', tenantHeader);
+    }
+    const finalInit: RequestInit = { ...init, headers: baseHeaders };
+    if (input instanceof Request) {
+      return originalFetch(new Request(input, finalInit));
+    }
+    return originalFetch(input, finalInit);
+  };
+}
+
+export async function loginLocal(identifier: string, password: string) {
+  const response = await fetch(buildApiUrl('/v1/auth/login'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identifier, password }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || 'Login failed');
+  }
+  return response.json();
 }

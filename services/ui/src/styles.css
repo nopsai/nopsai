@@ -2045,6 +2045,274 @@ html.dark .pipeline-card-icon {
     box-shadow: 0 4px 14px rgba(94, 234, 212, 0.12);
 }
 
+.access-hero {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1.5rem;
+    background: linear-gradient(135deg, rgba(99,102,241,0.08), rgba(16,185,129,0.08));
+    border: 1px solid var(--border-primary);
+    box-shadow: 0 16px 38px -26px rgba(15,23,42,0.35);
+}
+
+html.dark .access-hero {
+    background: linear-gradient(135deg, rgba(99,102,241,0.16), rgba(14,165,233,0.12));
+    border-color: rgba(129,140,248,0.28);
+}
+
+.access-hero-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-shrink: 0;
+}
+
+.access-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.35rem 0.7rem;
+    border-radius: 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.access-chip svg {
+    width: 14px;
+    height: 14px;
+}
+
+.access-chip--accent {
+    background: linear-gradient(135deg, rgba(99,102,241,0.14), rgba(14,165,233,0.12));
+    color: var(--text-primary);
+    border-color: rgba(99,102,241,0.25);
+}
+
+.access-chip--muted {
+    background: rgba(148,163,184,0.12);
+}
+
+.access-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.access-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.access-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.55rem 0.9rem;
+    border-radius: 12px;
+    border: 1px solid var(--border-primary);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-weight: 600;
+    transition: all 0.18s ease;
+}
+
+.access-tab--active {
+    color: var(--text-primary);
+    border-color: var(--border-accent);
+    box-shadow: 0 12px 28px rgba(99,102,241,0.12);
+    background: linear-gradient(135deg, rgba(99,102,241,0.12), rgba(14,165,233,0.08));
+}
+
+.access-tab__badge {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border-radius: 9999px;
+    padding: 0.15rem 0.55rem;
+    font-size: 0.75rem;
+    border: 1px solid var(--border-primary);
+}
+
+.access-tab-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
+.access-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    border-radius: 14px;
+    border: 1px solid rgba(99,102,241,0.22);
+    background: linear-gradient(135deg, rgba(99,102,241,0.16), rgba(14,165,233,0.12));
+    color: var(--text-primary);
+    box-shadow: 0 10px 26px -18px rgba(15,23,42,0.35);
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.access-icon-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 16px 30px -20px rgba(99,102,241,0.35);
+    border-color: var(--border-accent);
+}
+
+.access-icon-btn--danger {
+    background: linear-gradient(135deg, rgba(248,113,113,0.16), rgba(248,113,113,0.1));
+    border-color: rgba(248,113,113,0.32);
+    color: #b91c1c;
+}
+
+.access-icon-btn--danger:hover {
+    box-shadow: 0 16px 30px -20px rgba(248,113,113,0.45);
+    border-color: rgba(248,113,113,0.45);
+}
+
+html.dark .access-icon-btn {
+    border-color: rgba(129,140,248,0.35);
+    background: linear-gradient(135deg, rgba(99,102,241,0.24), rgba(14,165,233,0.18));
+}
+
+.access-section-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.access-user-grid {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.access-role-grid {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.access-user-card,
+.access-role-card {
+    background: linear-gradient(180deg, rgba(255,255,255,0.9), rgba(248,250,252,0.9));
+}
+
+html.dark .access-user-card,
+html.dark .access-role-card {
+    background: linear-gradient(180deg, rgba(17,24,39,0.9), rgba(17,24,39,0.82));
+}
+
+.access-avatar {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    font-weight: 700;
+    color: var(--text-accent);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+}
+
+.access-status {
+    padding: 0.3rem 0.6rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border: 1px solid var(--border-primary);
+}
+
+.access-status--ok {
+    background: rgba(74,222,128,0.14);
+    color: #15803d;
+    border-color: rgba(74,222,128,0.3);
+}
+
+.access-status--warn {
+    background: rgba(251,191,36,0.18);
+    color: #92400e;
+    border-color: rgba(251,191,36,0.35);
+}
+
+.access-status--danger {
+    background: rgba(248,113,113,0.16);
+    color: #b91c1c;
+    border-color: rgba(248,113,113,0.35);
+}
+
+.access-status--muted {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
+.access-role-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.75rem;
+}
+
+.access-empty-card {
+    padding: 1.25rem;
+    border: 1px dashed rgba(148,163,184,0.45);
+    border-radius: 14px;
+    text-align: center;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
+.access-policy-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    background: linear-gradient(135deg, rgba(99,102,241,0.08), rgba(14,165,233,0.05));
+}
+
+html.dark .access-policy-preview {
+    background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(14,165,233,0.12));
+}
+
+.access-modal-card {
+    transform: translateY(0);
+    opacity: 1;
+}
+
+.access-modal-header {
+    gap: 0.75rem;
+}
+
+.access-modal-heading {
+    display: flex;
+    gap: 0.9rem;
+    align-items: center;
+}
+
+.access-modal-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    background: linear-gradient(135deg, rgba(99,102,241,0.16), rgba(14,165,233,0.16));
+    color: var(--text-primary);
+    border: 1px solid rgba(99,102,241,0.28);
+}
+
+/* Keep access modals visible (override default modal fade) */
+.pipelines-modal-card.access-modal-card {
+    opacity: 1;
+    transform: translateY(0);
+}
+
 .runner-pill {
     padding: 4px 8px;
     border-radius: 9999px;
