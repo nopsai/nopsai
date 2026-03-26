@@ -1,5 +1,5 @@
-import { Link, NavLink, useParams } from 'react-router-dom';
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
 import { buildApiUrl } from '../lib/api';
 
 type ConfigFormState = {
@@ -69,9 +69,36 @@ const POLL_INTERVAL_MS = 5000;
 const STALE_THRESHOLD_MS = 30_000;
 const MAX_VISIBLE_ACTIVE_RUNS = 3;
 
+type UserRole = {
+  tenant_id: string;
+  role: string;
+};
+
+type RolePermission = {
+  role: string;
+  tenant_id: string;
+  obj: string;
+  act: string;
+};
+
+type UserSummary = {
+  id: string;
+  sub: string;
+  email: string;
+  provider: string;
+  status: string;
+  last_login?: string;
+  roles?: UserRole[];
+};
+
+type TenantRecord = {
+  id: string;
+  name: string;
+};
+
 function SystemPage() {
   const params = useParams<{ tab?: string }>();
-  const activeTab = params.tab === 'dispatcher' ? 'dispatcher' : 'config';
+  const activeTab = params.tab === 'dispatcher' ? 'dispatcher' : params.tab === 'access' ? 'access' : 'config';
 
   const isMountedRef = useRef(true);
 
@@ -97,6 +124,18 @@ function SystemPage() {
   } | null>(null);
 
   const [runnerActionPending, setRunnerActionPending] = useState<Set<string>>(new Set());
+
+  const [users, setUsers] = useState<UserSummary[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersError, setUsersError] = useState<string | null>(null);
+  const [policies, setPolicies] = useState<RolePermission[]>([]);
+  const [policiesLoading, setPoliciesLoading] = useState(false);
+  const [policiesError, setPoliciesError] = useState<string | null>(null);
+  const [tenants, setTenants] = useState<TenantRecord[]>([]);
+  const [tenantError, setTenantError] = useState<string | null>(null);
+  const [newUser, setNewUser] = useState({ sub: '', email: '', password: '', tenant: '', role: '' });
+  const [newRole, setNewRole] = useState({ userId: '', tenant: '', role: '' });
+  const [newPermission, setNewPermission] = useState({ role: '', tenant: '', obj: '/v1/*', act: 'GET|POST|PUT|DELETE' });
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -213,6 +252,179 @@ function SystemPage() {
     [fetchJson]
   );
 
+  const loadTenants = useCallback(async () => {
+    try {
+      setTenantError(null);
+      const payload = await fetchJson('/v1/tenants');
+      if (Array.isArray(payload)) {
+        const normalized = payload
+          .map(item => (item && typeof item === 'object' ? (item as TenantRecord) : null))
+          .filter(Boolean) as TenantRecord[];
+        setTenants(normalized);
+      }
+    } catch (error) {
+      setTenantError(error instanceof Error ? error.message : 'Unable to load tenants');
+    }
+  }, [fetchJson]);
+
+  const loadUsers = useCallback(async () => {
+    setUsersLoading(true);
+    setUsersError(null);
+    try {
+      const payload = await fetchJson('/v1/admin/users');
+      if (Array.isArray(payload)) {
+        setUsers(payload as UserSummary[]);
+      } else {
+        setUsersError('Unexpected response');
+      }
+    } catch (error) {
+      setUsersError(error instanceof Error ? error.message : 'Unable to load users');
+    } finally {
+      setUsersLoading(false);
+    }
+  }, [fetchJson]);
+
+  const loadPolicies = useCallback(async () => {
+    setPoliciesLoading(true);
+    setPoliciesError(null);
+    try {
+      const payload = await fetchJson('/v1/admin/roles');
+      if (Array.isArray(payload)) {
+        setPolicies(payload as RolePermission[]);
+      } else {
+        setPoliciesError('Unexpected response');
+      }
+    } catch (error) {
+      setPoliciesError(error instanceof Error ? error.message : 'Unable to load policies');
+    } finally {
+      setPoliciesLoading(false);
+    }
+  }, [fetchJson]);
+
+  const createUser = useCallback(
+    async (e: FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
+      try {
+        await fetchJson('/v1/admin/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sub: newUser.sub.trim(),
+            email: newUser.email.trim(),
+            password: newUser.password,
+            tenant_name: newUser.tenant.trim(),
+            role: newUser.role.trim(),
+          }),
+        });
+        addToast(`User ${newUser.sub} saved`, 'success');
+        setNewUser({ sub: '', email: '', password: '', tenant: '', role: '' });
+        loadUsers();
+      } catch (error) {
+        addToast(error instanceof Error ? error.message : 'Failed to create user', 'error');
+      }
+    },
+    [addToast, fetchJson, loadUsers, newUser.email, newUser.password, newUser.role, newUser.sub, newUser.tenant]
+  );
+
+  const assignRole = useCallback(
+    async (e: FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
+      try {
+        await fetchJson('/v1/admin/user-roles', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: newRole.userId.trim(),
+            tenant_name: newRole.tenant.trim(),
+            role: newRole.role.trim(),
+          }),
+        });
+        addToast('Role added', 'success');
+        setNewRole({ userId: '', tenant: '', role: '' });
+        loadUsers();
+      } catch (error) {
+        addToast(error instanceof Error ? error.message : 'Failed to add role', 'error');
+      }
+    },
+    [addToast, fetchJson, loadUsers, newRole.role, newRole.tenant, newRole.userId]
+  );
+
+  const createPermission = useCallback(
+    async (e: FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
+      try {
+        await fetchJson('/v1/admin/roles', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            role: newPermission.role.trim(),
+            tenant_name: newPermission.tenant.trim(),
+            obj: newPermission.obj.trim(),
+            act: newPermission.act.trim(),
+          }),
+        });
+        addToast('Role permission added', 'success');
+        setNewPermission({ role: '', tenant: '', obj: '/v1/*', act: 'GET|POST|PUT|DELETE' });
+        loadPolicies();
+      } catch (error) {
+        addToast(error instanceof Error ? error.message : 'Failed to add permission', 'error');
+      }
+    },
+    [addToast, fetchJson, loadPolicies, newPermission.act, newPermission.obj, newPermission.role, newPermission.tenant]
+  );
+
+  const deleteUser = useCallback(
+    async (userId: string) => {
+      try {
+        await fetchJson(`/v1/admin/users/${encodeURIComponent(userId)}`, { method: 'DELETE' });
+        addToast('User deleted', 'success');
+        loadUsers();
+      } catch (error) {
+        addToast(error instanceof Error ? error.message : 'Failed to delete user', 'error');
+      }
+    },
+    [addToast, fetchJson, loadUsers]
+  );
+
+  const deleteUserRole = useCallback(
+    async (userId: string, tenant: string, role: string) => {
+      try {
+        await fetchJson('/v1/admin/user-roles', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId, tenant_name: tenant, role }),
+        });
+        addToast('Role removed', 'success');
+        loadUsers();
+      } catch (error) {
+        addToast(error instanceof Error ? error.message : 'Failed to remove role', 'error');
+      }
+    },
+    [addToast, fetchJson, loadUsers]
+  );
+
+  const deletePolicy = useCallback(
+    async (policy: RolePermission) => {
+      try {
+        await fetchJson('/v1/admin/roles', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            role: policy.role,
+            tenant_id: policy.tenant_id,
+            obj: policy.obj,
+            act: policy.act,
+          }),
+        });
+        addToast('Policy removed', 'success');
+        loadPolicies();
+      } catch (error) {
+        addToast(error instanceof Error ? error.message : 'Failed to remove policy', 'error');
+      }
+    },
+    [addToast, fetchJson, loadPolicies]
+  );
+
   const saveConfig = useCallback(async () => {
     if (saving) return;
     setSaving(true);
@@ -316,10 +528,21 @@ function SystemPage() {
   }, [loadSystemConfig]);
 
   useEffect(() => {
+    void loadTenants();
+  }, [loadTenants]);
+
+  useEffect(() => {
     if (activeTab === 'dispatcher') {
       void loadDispatcherStatus();
     }
   }, [activeTab, loadDispatcherStatus]);
+
+  useEffect(() => {
+    if (activeTab === 'access') {
+      void loadUsers();
+      void loadPolicies();
+    }
+  }, [activeTab, loadPolicies, loadUsers]);
 
   useEffect(() => {
     const handle = window.setInterval(() => {
@@ -341,27 +564,10 @@ function SystemPage() {
               Configure GitOps sync, runner runtime, and monitor dispatcher health.
             </p>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <button className="glass-button-subtle" type="button" onClick={triggerSync} disabled={syncBusy}>
-              {syncBusy ? 'Syncing…' : 'Sync Config'}
-            </button>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <NavLink to="/system/config" className={({ isActive }) => `system-tab-btn ${isActive ? 'system-tab-btn--active' : ''}`}>
-            Config
-          </NavLink>
-          <NavLink
-            to="/system/dispatcher"
-            className={({ isActive }) => `system-tab-btn ${isActive ? 'system-tab-btn--active' : ''}`}
-          >
-            Dispatcher
-          </NavLink>
         </div>
       </div>
 
-      {activeTab === 'config' ? (
+      {activeTab === 'config' && (
         <SystemConfig
           config={config}
           envFilePath={envFilePath}
@@ -374,8 +580,10 @@ function SystemPage() {
           onReload={loadSystemConfig}
           onRefreshSyncStatus={loadSyncStatus}
           onSave={saveConfig}
+          onTriggerSync={triggerSync}
         />
-      ) : (
+      )}
+      {activeTab === 'dispatcher' && (
         <DispatcherPanel
           loading={dispatcherLoading}
           error={dispatcherError}
@@ -383,6 +591,32 @@ function SystemPage() {
           pendingActions={runnerActionPending}
           onRefresh={() => loadDispatcherStatus()}
           onToggleRunnerDispatch={toggleRunnerDispatch}
+        />
+      )}
+      {activeTab === 'access' && (
+        <AccessPanel
+          users={users}
+          tenants={tenants}
+          loading={usersLoading}
+          error={usersError}
+          policies={policies}
+          policiesLoading={policiesLoading}
+          policiesError={policiesError}
+          tenantError={tenantError}
+          newUser={newUser}
+          newRole={newRole}
+          onChangeUser={setNewUser}
+          onChangeRole={setNewRole}
+          onCreateUser={createUser}
+          onAssignRole={assignRole}
+          onReloadUsers={loadUsers}
+          onReloadTenants={loadTenants}
+          onCreatePermission={createPermission}
+          newPermission={newPermission}
+          onChangePermission={setNewPermission}
+          onDeleteUser={deleteUser}
+          onDeleteRole={deleteUserRole}
+          onDeletePolicy={deletePolicy}
         />
       )}
 
@@ -399,8 +633,640 @@ function SystemPage() {
   );
 }
 
+function AccessPanel({
+  users,
+  tenants,
+  loading,
+  error,
+  policies,
+  policiesLoading,
+  policiesError,
+  tenantError,
+  newUser,
+  newRole,
+  onChangeUser,
+  onChangeRole,
+  onCreateUser,
+  onAssignRole,
+  onReloadUsers,
+  onReloadTenants,
+  onCreatePermission,
+  newPermission,
+  onChangePermission,
+  onDeleteUser,
+  onDeleteRole,
+  onDeletePolicy,
+}: {
+  users: UserSummary[];
+  tenants: TenantRecord[];
+  loading: boolean;
+  error: string | null;
+  policies: RolePermission[];
+  policiesLoading: boolean;
+  policiesError: string | null;
+  tenantError: string | null;
+  newUser: { sub: string; email: string; password: string; tenant: string; role: string };
+  newRole: { userId: string; tenant: string; role: string };
+  onChangeUser: (next: { sub: string; email: string; password: string; tenant: string; role: string }) => void;
+  onChangeRole: (next: { userId: string; tenant: string; role: string }) => void;
+  onCreateUser: (e: FormEvent<HTMLFormElement>) => Promise<void>;
+  onAssignRole: (e: FormEvent<HTMLFormElement>) => Promise<void>;
+  onReloadUsers: () => void;
+  onReloadTenants: () => void;
+  onCreatePermission: (e: FormEvent<HTMLFormElement>) => Promise<void>;
+  newPermission: { role: string; tenant: string; obj: string; act: string };
+  onChangePermission: (next: { role: string; tenant: string; obj: string; act: string }) => void;
+  onDeleteUser: (userId: string) => Promise<void>;
+  onDeleteRole: (userId: string, tenant: string, role: string) => Promise<void>;
+  onDeletePolicy: (policy: RolePermission) => Promise<void>;
+}) {
+  const [activeSection, setActiveSection] = useState<'users' | 'roles' | 'policies'>('users');
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [showRoleModal, setShowRoleModal] = useState(false);
+  const [showPolicyModal, setShowPolicyModal] = useState(false);
+
+  const roleAssignments = useMemo(
+    () =>
+      users
+        .flatMap(user =>
+          (user.roles || []).map(role => ({
+            id: `${user.id}-${role.role}-${role.tenant_id || 'default'}`,
+            role: role.role,
+            tenant: role.tenant_id || 'default',
+            user: user.sub,
+            userId: user.id,
+            email: user.email,
+            provider: user.provider,
+            status: user.status,
+          }))
+        )
+        .sort((a, b) => a.role.localeCompare(b.role) || a.user.localeCompare(b.user)),
+    [users]
+  );
+
+  const uniqueRoles = useMemo(() => {
+    const names = new Set<string>();
+    roleAssignments.forEach(item => names.add(item.role));
+    if (newRole.role.trim()) names.add(newRole.role.trim());
+    if (newPermission.role.trim()) names.add(newPermission.role.trim());
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [newPermission.role, newRole.role, roleAssignments]);
+
+  const tabItems = [
+    { id: 'users', label: 'Users', count: users.length },
+    { id: 'roles', label: 'Roles', count: roleAssignments.length },
+    { id: 'policies', label: 'Policies', count: policies.length },
+  ] as const;
+
+  const actionLabel = activeSection === 'users' ? 'New user' : activeSection === 'roles' ? 'Assign role' : 'New policy';
+  const openActiveModal = () => {
+    if (activeSection === 'users') setShowUserModal(true);
+    else if (activeSection === 'roles') setShowRoleModal(true);
+    else setShowPolicyModal(true);
+  };
+
+  const statusKey = (value: string) => {
+    const key = (value || '').toLowerCase();
+    if (key.includes('active')) return 'ok';
+    if (key.includes('pending')) return 'warn';
+    if (key.includes('blocked') || key.includes('disabled')) return 'danger';
+    return 'muted';
+  };
+
+  const tenantDatalistId = 'tenant-names';
+  const userDatalistId = 'access-user-ids';
+  const roleDatalistId = 'access-role-names';
+  const policyCount = policies.length;
+
+  return (
+    <div className="access-layout space-y-5 pb-24">
+      <div className="glass-card p-5 border border-[var(--border-primary)] rounded-2xl space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <p className="text-xs uppercase tracking-[0.12em] text-[var(--text-secondary)]">Access control</p>
+            <h3 className="text-xl font-semibold text-[var(--text-primary)]">Users, roles, policies</h3>
+            <p className="text-sm text-[var(--text-secondary)]">Manage identities and permissions in a single surface.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <span className="access-chip">
+              <IconUser />
+              {users.length} users
+            </span>
+            <span className="access-chip access-chip--muted">
+              <IconTenant />
+              {tenants.length} tenants
+            </span>
+            <span className="access-chip access-chip--accent">
+              <ShieldIcon />
+              {uniqueRoles.length} roles
+            </span>
+          </div>
+        </div>
+
+        <div className="access-nav">
+          <div className="access-tabs">
+            {tabItems.map(tab => (
+              <button
+                key={tab.id}
+                type="button"
+                className={`access-tab ${activeSection === tab.id ? 'access-tab--active' : ''}`}
+                onClick={() => setActiveSection(tab.id)}
+              >
+                <span className="access-tab__label">{tab.label}</span>
+                <span className="access-tab__badge">
+                  {tab.id === 'policies' ? policyCount : tab.count}
+                </span>
+              </button>
+            ))}
+          </div>
+          <div className="access-tab-actions">
+            <button className="access-icon-btn" type="button" onClick={openActiveModal} title={actionLabel}>
+              <PlusIcon />
+            </button>
+            <button
+              className="glass-button-ghost"
+              type="button"
+              onClick={activeSection === 'policies' ? onReloadTenants : onReloadUsers}
+              disabled={loading}
+            >
+              {activeSection === 'policies' ? 'Refresh tenants' : 'Refresh list'}
+            </button>
+          </div>
+        </div>
+
+        {activeSection === 'users' && (
+          <div className="space-y-4">
+            {error && <div className="text-sm text-red-500">Failed to load users: {error}</div>}
+            {tenantError && <div className="text-sm text-yellow-500">Tenant lookup: {tenantError}</div>}
+            <div className="access-user-grid">
+              {loading ? (
+                <div className="access-empty-card">
+                  <p className="font-medium text-[var(--text-primary)]">Loading users…</p>
+                  <p className="text-sm text-[var(--text-secondary)]">Fetching directory entries.</p>
+                </div>
+              ) : users.length === 0 ? (
+                <div className="access-empty-card">
+                  <p className="font-medium text-[var(--text-primary)]">No users yet</p>
+                  <p className="text-sm text-[var(--text-secondary)]">Start by creating a local account.</p>
+                </div>
+              ) : (
+                users.map(user => (
+                  <div key={user.id} className="access-user-card glass-card border border-[var(--border-primary)] rounded-xl p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="access-avatar">{(user.sub || user.email || 'U').charAt(0).toUpperCase()}</div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{user.sub}</p>
+                          <p className="text-xs text-[var(--text-secondary)] truncate">{user.email || 'No email'}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`access-status access-status--${statusKey(user.status)}`}>{user.status}</span>
+                        <button
+                          type="button"
+                          className="access-icon-btn access-icon-btn--danger"
+                          title="Delete user"
+                          onClick={() => void onDeleteUser(user.id)}
+                          disabled={loading}
+                        >
+                          <TrashIcon />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      <span className="access-chip access-chip--muted">{user.provider}</span>
+                      <span className="access-chip access-chip--muted">
+                        {user.last_login ? new Date(user.last_login).toLocaleString() : 'Never signed in'}
+                      </span>
+                    </div>
+                    <div className="access-role-row">
+                      {(user.roles || []).length ? (
+                        (user.roles || []).map(role => (
+                          <span
+                            key={`${user.id}-${role.role}-${role.tenant_id || 'default'}`}
+                            className="access-chip access-chip--accent"
+                          >
+                            {role.role}
+                            {role.tenant_id ? ` @ ${role.tenant_id.slice(0, 8)}` : ''}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-xs text-[var(--text-secondary)]">No roles assigned yet</span>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeSection === 'roles' && (
+          <div className="space-y-4">
+            {roleAssignments.length === 0 ? (
+              <div className="access-empty-card">
+                <p className="font-medium text-[var(--text-primary)]">No roles assigned</p>
+                <p className="text-sm text-[var(--text-secondary)]">Use the plus button to grant access.</p>
+              </div>
+            ) : (
+              <div className="access-role-grid">
+                {roleAssignments.map(item => (
+                  <div key={item.id} className="access-role-card glass-card border border-[var(--border-primary)] rounded-xl p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-[var(--text-primary)]">{item.role}</p>
+                        <p className="text-xs text-[var(--text-secondary)] truncate">{item.user}</p>
+                      </div>
+                    <div className="flex items-center gap-2">
+                      <span className="access-chip">{item.tenant}</span>
+                      <button
+                        type="button"
+                        className="access-icon-btn access-icon-btn--danger"
+                        title="Remove role"
+                        onClick={() => void onDeleteRole(item.userId, item.tenant, item.role)}
+                      >
+                        <TrashIcon />
+                      </button>
+                    </div>
+                  </div>
+                    <div className="flex flex-wrap gap-2 mt-3 text-xs text-[var(--text-secondary)]">
+                      <span className="access-chip access-chip--muted">{item.email || 'No email'}</span>
+                      <span className="access-chip access-chip--muted">{item.provider}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeSection === 'policies' && (
+          <div className="space-y-4">
+            {policiesError && <div className="text-sm text-red-500">Failed to load policies: {policiesError}</div>}
+            {policiesLoading ? (
+              <div className="access-empty-card">
+                <p className="font-medium text-[var(--text-primary)]">Loading policies…</p>
+                <p className="text-sm text-[var(--text-secondary)]">Fetching role permissions.</p>
+              </div>
+            ) : policies.length === 0 ? (
+              <div className="access-empty-card">
+                <p className="font-medium text-[var(--text-primary)]">No policies yet</p>
+                <p className="text-sm text-[var(--text-secondary)]">Use the plus button to define a rule.</p>
+              </div>
+            ) : (
+              <div className="access-role-grid">
+                {policies.map(policy => (
+                  <div key={`${policy.role}-${policy.tenant_id}-${policy.obj}-${policy.act}`} className="glass-card p-4 border border-[var(--border-primary)] rounded-xl space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 space-y-1">
+                        <p className="text-sm font-semibold text-[var(--text-primary)]">{policy.role}</p>
+                        <p className="text-xs text-[var(--text-secondary)]">{policy.obj}</p>
+                        <p className="text-xs text-[var(--text-secondary)]">{policy.act}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="access-chip">{policy.tenant_id || 'tenant'}</span>
+                        <button
+                          type="button"
+                          className="access-icon-btn access-icon-btn--danger"
+                          title="Delete policy"
+                          onClick={() => void onDeletePolicy(policy)}
+                        >
+                          <TrashIcon />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <datalist id={tenantDatalistId}>
+        {tenants.map(t => (
+          <option key={t.id} value={t.name || t.id} />
+        ))}
+      </datalist>
+      <datalist id={userDatalistId}>
+        {users.map(u => (
+          <option key={u.id} value={u.id} label={`${u.sub} (${u.email || u.provider})`} />
+        ))}
+      </datalist>
+      <datalist id={roleDatalistId}>
+        {uniqueRoles.map(role => (
+          <option key={role} value={role} />
+        ))}
+      </datalist>
+
+      {showUserModal && (
+        <AccessModal
+          kicker="Directory"
+          title="Create user"
+          subtitle="Provision a local account for Nopsai"
+          onClose={() => setShowUserModal(false)}
+          icon={<PlusIcon />}
+        >
+          <form className="space-y-3" onSubmit={onCreateUser}>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="flex flex-col gap-1 text-sm">
+                <span>Username (sub)</span>
+                <input
+                  className="pipelines-input"
+                  value={newUser.sub}
+                  onChange={e => onChangeUser({ ...newUser, sub: e.target.value })}
+                  required
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                <span>Email</span>
+                <input
+                  className="pipelines-input"
+                  type="email"
+                  value={newUser.email}
+                  onChange={e => onChangeUser({ ...newUser, email: e.target.value })}
+                />
+              </label>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="flex flex-col gap-1 text-sm">
+                <span>Password</span>
+                <input
+                  className="pipelines-input"
+                  type="password"
+                  value={newUser.password}
+                  onChange={e => onChangeUser({ ...newUser, password: e.target.value })}
+                  required
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                <span>Role</span>
+                <input
+                  className="pipelines-input"
+                  list={roleDatalistId}
+                  value={newUser.role}
+                  onChange={e => onChangeUser({ ...newUser, role: e.target.value })}
+                  placeholder="nopsai-admin"
+                />
+              </label>
+            </div>
+            <label className="flex flex-col gap-1 text-sm">
+              <span>Tenant name</span>
+              <input
+                className="pipelines-input"
+                list={tenantDatalistId}
+                value={newUser.tenant}
+                onChange={e => onChangeUser({ ...newUser, tenant: e.target.value })}
+                placeholder="default"
+              />
+            </label>
+            <div className="pipelines-modal-footer">
+              <div className="pipelines-modal-actions">
+                <button type="button" className="glass-button-ghost" onClick={() => setShowUserModal(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="glass-button-primary">
+                  Save user
+                </button>
+              </div>
+            </div>
+          </form>
+        </AccessModal>
+      )}
+
+      {showRoleModal && (
+        <AccessModal
+          kicker="Assignment"
+          title="Assign role"
+          subtitle="Map a user to a tenant-scoped role"
+          onClose={() => setShowRoleModal(false)}
+          icon={<ShieldIcon />}
+        >
+          <form className="space-y-3" onSubmit={onAssignRole}>
+            <label className="flex flex-col gap-1 text-sm">
+              <span>User ID</span>
+              <input
+                className="pipelines-input"
+                list={userDatalistId}
+                value={newRole.userId}
+                onChange={e => onChangeRole({ ...newRole, userId: e.target.value })}
+                placeholder="user UUID"
+                required
+              />
+            </label>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="flex flex-col gap-1 text-sm">
+                <span>Tenant name</span>
+                <input
+                  className="pipelines-input"
+                  list={tenantDatalistId}
+                  value={newRole.tenant}
+                  onChange={e => onChangeRole({ ...newRole, tenant: e.target.value })}
+                  placeholder="default"
+                  required
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                <span>Role</span>
+                <input
+                  className="pipelines-input"
+                  list={roleDatalistId}
+                  value={newRole.role}
+                  onChange={e => onChangeRole({ ...newRole, role: e.target.value })}
+                  placeholder="nopsai-admin"
+                  required
+                />
+              </label>
+            </div>
+            <div className="pipelines-modal-footer">
+              <div className="pipelines-modal-actions">
+                <button type="button" className="glass-button-ghost" onClick={() => setShowRoleModal(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="glass-button-primary">
+                  Add role
+                </button>
+              </div>
+            </div>
+          </form>
+        </AccessModal>
+      )}
+
+      {showPolicyModal && (
+        <AccessModal
+          kicker="Policy"
+          title="Create role policy"
+          subtitle="Add a minimal rule for this role"
+          onClose={() => setShowPolicyModal(false)}
+          icon={<SparkIcon />}
+        >
+          <form className="space-y-3" onSubmit={onCreatePermission}>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="flex flex-col gap-1 text-sm">
+                <span>Role</span>
+                <input
+                  className="pipelines-input"
+                  list={roleDatalistId}
+                  value={newPermission.role}
+                  onChange={e => onChangePermission({ ...newPermission, role: e.target.value })}
+                  placeholder="nopsai-editor"
+                  required
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                <span>Tenant name</span>
+                <input
+                  className="pipelines-input"
+                  list={tenantDatalistId}
+                  value={newPermission.tenant}
+                  onChange={e => onChangePermission({ ...newPermission, tenant: e.target.value })}
+                  placeholder="default"
+                />
+              </label>
+            </div>
+            <label className="flex flex-col gap-1 text-sm">
+              <span>Object pattern</span>
+              <input
+                className="pipelines-input"
+                value={newPermission.obj}
+                onChange={e => onChangePermission({ ...newPermission, obj: e.target.value })}
+                placeholder="/v1/pipelines/*"
+                required
+              />
+              <p className="text-xs text-[var(--text-secondary)]">Supports path wildcards via keyMatch2 (e.g., /v1/runs/*).</p>
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span>Action regex</span>
+              <input
+                className="pipelines-input"
+                value={newPermission.act}
+                onChange={e => onChangePermission({ ...newPermission, act: e.target.value })}
+                placeholder="GET|POST"
+                required
+              />
+            </label>
+            <div className="pipelines-modal-footer">
+              <div className="pipelines-modal-actions">
+                <button type="button" className="glass-button-ghost" onClick={() => setShowPolicyModal(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="glass-button-primary">
+                  Add permission
+                </button>
+              </div>
+            </div>
+          </form>
+        </AccessModal>
+      )}
+    </div>
+  );
+}
+
+function AccessModal({
+  kicker,
+  title,
+  subtitle,
+  icon,
+  onClose,
+  children,
+}: {
+  kicker: string;
+  title: string;
+  subtitle?: string;
+  icon?: ReactNode;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
+      <div className="pipelines-modal-card access-modal-card max-w-xl w-full">
+        <header className="pipelines-modal-header access-modal-header">
+          <div className="access-modal-heading">
+            <span className="access-modal-icon" aria-hidden="true">
+              {icon ?? <PlusIcon />}
+            </span>
+            <div className="min-w-0">
+              <p className="pipelines-modal-kicker text-xs text-[var(--text-secondary)]">{kicker}</p>
+              <h3 className="text-lg font-semibold text-[var(--text-primary)]">{title}</h3>
+              {subtitle && <p className="text-xs text-[var(--text-secondary)] mt-1">{subtitle}</p>}
+            </div>
+          </div>
+          <button className="glass-button-ghost" onClick={onClose}>
+            Close
+          </button>
+        </header>
+        <div className="pipelines-modal-body access-modal-body">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function IconUser() {
+  return (
+    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="3.5" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function IconTenant() {
+  return (
+    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M3 7h18M5 7v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M9 7V5a3 3 0 1 1 6 0v2" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M9 12h.01M15 12h.01M12 12h.01" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 6h18" />
+      <path d="M8 6v-2a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+    </svg>
+  );
+}
+
+function ShieldIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3l8 4v5c0 4.5-3.2 8.3-8 9-4.8-.7-8-4.5-8-9V7z" />
+      <path d="M9 12l2 2 4-4" />
+    </svg>
+  );
+}
+
+function SparkIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3v4" />
+      <path d="M12 17v4" />
+      <path d="M3 12h4" />
+      <path d="M17 12h4" />
+      <path d="m18.36 5.64-2.83 2.83" />
+      <path d="m8.47 15.53-2.83 2.83" />
+      <path d="m5.64 5.64 2.83 2.83" />
+      <path d="m15.53 15.53 2.83 2.83" />
+    </svg>
+  );
+}
+
 function SystemConfig({
   config,
+  envFilePath: _envFilePath,
   syncStatus,
   syncError,
   configError,
@@ -410,6 +1276,7 @@ function SystemConfig({
   onReload,
   onRefreshSyncStatus,
   onSave,
+  onTriggerSync,
 }: {
   config: ConfigFormState;
   envFilePath: string;
@@ -422,6 +1289,7 @@ function SystemConfig({
   onReload: () => Promise<void>;
   onRefreshSyncStatus: (opts?: { quiet?: boolean }) => Promise<void>;
   onSave: () => Promise<void>;
+  onTriggerSync: () => Promise<void>;
 }) {
   const repoUrl = config.config_repo_url.trim();
   const statusKey = normalizeStatus(syncStatus?.status, repoUrl);
@@ -438,190 +1306,190 @@ function SystemConfig({
 
   return (
     <div id="system-config-section" className="grid gap-6 lg:grid-cols-2 pb-24">
-      <div className="space-y-4">
-        <form id="system-config-form" className="space-y-4" onSubmit={onSubmit}>
-          <div className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs text-[var(--text-secondary)]">Configuration source</p>
-                <h3 className="text-lg font-semibold text-[var(--text-primary)]">Git sync setup</h3>
-              </div>
-            </div>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>Config repo URL</span>
-              <input
-                id="system-config-repo"
-                type="text"
-                className="pipelines-input"
-                value={config.config_repo_url}
-                onChange={handleChange('config_repo_url')}
-                placeholder="https://github.com/org/repo"
-                disabled={configLoading || saving}
-              />
-            </label>
-            <p className="text-xs text-[var(--text-secondary)]">
-              This repository is the source of truth for pipelines, triggers, and steps.
-            </p>
-          </div>
-
-          <div className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
+      <form id="system-config-form" className="space-y-4 lg:col-span-2" onSubmit={onSubmit}>
+        <div className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-xs text-[var(--text-secondary)]">Runtime tuning</p>
-              <h3 className="text-lg font-semibold text-[var(--text-primary)]">Runners & timeouts</h3>
+              <p className="text-xs text-[var(--text-secondary)]">Git sync</p>
+              <h3 className="text-lg font-semibold text-[var(--text-primary)]">Setup & status</h3>
+              <p className="text-xs text-[var(--text-secondary)]">Connect your repo and monitor sync health in one place.</p>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <label className="flex flex-col gap-1 text-sm">
-                <span>Agent image</span>
-                <input
-                  id="system-agent-image"
-                  type="text"
-                  className="pipelines-input"
-                  value={config.agent_image}
-                  onChange={handleChange('agent_image')}
-                  placeholder="nopsai-agent:latest"
-                  disabled={configLoading || saving}
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-sm">
-                <span>Docker network name</span>
-                <input
-                  id="system-docker-network"
-                  type="text"
-                  className="pipelines-input"
-                  value={config.docker_network_name}
-                  onChange={handleChange('docker_network_name')}
-                  placeholder="nopsai-net"
-                  disabled={configLoading || saving}
-                />
-	              </label>
-	              <label className="flex flex-col gap-1 text-sm">
-	                <span>Default pipeline timeout</span>
-	                <input
-	                  id="system-default-timeout"
-	                  type="text"
-	                  className="pipelines-input"
-	                  value={config.default_pipeline_timeout}
-	                  onChange={handleChange('default_pipeline_timeout')}
-	                  placeholder="30m"
-	                  disabled={configLoading || saving}
-	                />
-	              </label>
-	              <label className="flex flex-col gap-1 text-sm">
-	                <span>LLM agent timeout</span>
-	                <input
-	                  id="system-llm-timeout"
-	                  type="text"
-	                  className="pipelines-input"
-	                  value={config.llm_agent_timeout}
-	                  onChange={handleChange('llm_agent_timeout')}
-	                  placeholder="2m"
-	                  disabled={configLoading || saving}
-	                />
-	              </label>
-              <label className="flex items-center gap-2 text-sm md:col-span-2">
-                <input
-                  id="system-auto-remove"
-                  type="checkbox"
-                  checked={config.auto_removal_agent_container}
-                  onChange={handleChange('auto_removal_agent_container')}
-                  disabled={configLoading || saving}
-                />
-                <span>Auto-remove agent containers</span>
-              </label>
-            </div>
-          </div>
-
-          <div className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
-            <div>
-              <p className="text-xs text-[var(--text-secondary)]">Networking</p>
-              <h3 className="text-lg font-semibold text-[var(--text-primary)]">Service discovery</h3>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <label className="flex flex-col gap-1 text-sm">
-                <span>Agent ↔ Server API URL</span>
-                <input
-                  id="system-agent-api"
-                  type="text"
-                  className="pipelines-input"
-                  value={config.agent_nopsai_api_url}
-                  onChange={handleChange('agent_nopsai_api_url')}
-                  placeholder="http://agent:8080"
-                  disabled={configLoading || saving}
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-sm">
-                <span>GitBot ↔ Server API URL</span>
-                <input
-                  id="system-gitbot-api"
-                  type="text"
-                  className="pipelines-input"
-                  value={config.git_bot_nopsai_api_url}
-                  onChange={handleChange('git_bot_nopsai_api_url')}
-                  placeholder="http://gitbot:8080"
-                  disabled={configLoading || saving}
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-sm md:col-span-2">
-                <span>NopsAI ↔ GitBot API URL</span>
-                <input
-                  id="system-nopsai-gitbot-api"
-                  type="text"
-                  className="pipelines-input"
-                  value={config.nopsai_git_bot_api_url}
-                  onChange={handleChange('nopsai_git_bot_api_url')}
-                  placeholder="http://nopsai-gitbot:8080"
-                  disabled={configLoading || saving}
-                />
-              </label>
-            </div>
-          </div>
-
-          {configError && (
-            <div className="glass-card p-4 border border-red-500/30 rounded-xl text-sm text-red-500">
-              Failed to load or save config: {configError}
-            </div>
-          )}
-          {configLoading && <p className="text-sm text-[var(--text-secondary)]">Loading settings…</p>}
-        </form>
-      </div>
-
-      <div className="space-y-4">
-        <div className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-3">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs text-[var(--text-secondary)]">Repo status</p>
-              <h3 className="text-lg font-semibold text-[var(--text-primary)]">Sync overview</h3>
-            </div>
-            <div className="flex gap-2">
-              <button className="glass-button-ghost" type="button" onClick={() => void onRefreshSyncStatus()} disabled={false}>
+            <div className="flex gap-2 flex-wrap">
+              <button className="glass-button-ghost" type="button" onClick={() => void onRefreshSyncStatus()}>
                 Refresh status
+              </button>
+              <button className="glass-button-subtle" type="button" onClick={() => void onTriggerSync()}>
+                Sync config
               </button>
             </div>
           </div>
 
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-medium text-[var(--text-primary)]">{repoUrl || 'Not configured'}</span>
-              <span className={`system-chip ${repoUrl ? (statusKey === 'success' ? 'system-chip--success' : statusKey === 'error' ? 'system-chip--error' : statusKey === 'running' ? 'system-chip--warning' : 'system-chip--muted') : 'system-chip--muted'}`}>
-                {repoUrl ? (statusKey === 'success' ? 'Synced' : statusKey === 'error' ? 'Sync failed' : statusKey === 'running' ? 'Syncing' : 'Ready') : 'Not configured'}
-              </span>
+          <div className="grid gap-4 lg:grid-cols-[2fr_1fr] items-start">
+            <div className="space-y-2">
+              <label className="flex flex-col gap-1 text-sm">
+                <span>Config repo URL</span>
+                <input
+                  id="system-config-repo"
+                  type="text"
+                  className="pipelines-input"
+                  value={config.config_repo_url}
+                  onChange={handleChange('config_repo_url')}
+                  placeholder="https://github.com/org/repo"
+                  disabled={configLoading || saving}
+                />
+              </label>
+              <p className="text-xs text-[var(--text-secondary)]">Source of truth for pipelines, triggers, and steps.</p>
             </div>
-            <p className="text-xs text-[var(--text-secondary)]">
-              {syncStatus?.completed_at
-                ? `Last sync completed ${formatTimestamp(syncStatus.completed_at)}`
-                : syncStatus?.started_at
-                  ? `Sync started ${formatTimestamp(syncStatus.started_at)}`
-                  : repoUrl
-                    ? 'Awaiting the first sync.'
-                    : 'Set the Git URL to enable sync from source control.'}
-            </p>
-            {syncError && <p className="text-xs text-red-500">Sync status error: {syncError}</p>}
+
+            <div className="space-y-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-tertiary)] p-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-medium text-[var(--text-primary)] truncate">{repoUrl || 'Not configured'}</span>
+                <span className={`system-chip ${repoUrl ? (statusKey === 'success' ? 'system-chip--success' : statusKey === 'error' ? 'system-chip--error' : statusKey === 'running' ? 'system-chip--warning' : 'system-chip--muted') : 'system-chip--muted'}`}>
+                  {repoUrl ? (statusKey === 'success' ? 'Synced' : statusKey === 'error' ? 'Sync failed' : statusKey === 'running' ? 'Syncing' : 'Ready') : 'Not configured'}
+                </span>
+              </div>
+              <p className="text-xs text-[var(--text-secondary)]">
+                {syncStatus?.completed_at
+                  ? `Last sync completed ${formatTimestamp(syncStatus.completed_at)}`
+                  : syncStatus?.started_at
+                    ? `Sync started ${formatTimestamp(syncStatus.started_at)}`
+                    : repoUrl
+                      ? 'Awaiting the first sync.'
+                      : 'Set the Git URL to enable sync from source control.'}
+              </p>
+              {syncError && <p className="text-xs text-red-500">Sync status error: {syncError}</p>}
+              {syncStatus?.details && Object.keys(syncStatus.details).length > 0 && (
+                <ul className="sync-detail-list mt-1">
+                  {Object.entries(syncStatus.details).map(([key, value]) => (
+                    <li key={key}>
+                      <strong>{key}:</strong> <span>{String(value)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
         </div>
 
-        <SyncStatusCard status={syncStatus} repoUrl={repoUrl} />
+        <div className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
+          <div>
+            <p className="text-xs text-[var(--text-secondary)]">Runtime tuning</p>
+            <h3 className="text-lg font-semibold text-[var(--text-primary)]">Runners & timeouts</h3>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <label className="flex flex-col gap-1 text-sm">
+              <span>Agent image</span>
+              <input
+                id="system-agent-image"
+                type="text"
+                className="pipelines-input"
+                value={config.agent_image}
+                onChange={handleChange('agent_image')}
+                placeholder="nopsai-agent:latest"
+                disabled={configLoading || saving}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span>Docker network name</span>
+              <input
+                id="system-docker-network"
+                type="text"
+                className="pipelines-input"
+                value={config.docker_network_name}
+                onChange={handleChange('docker_network_name')}
+                placeholder="nopsai-net"
+                disabled={configLoading || saving}
+              />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                <span>Default pipeline timeout</span>
+                <input
+                  id="system-default-timeout"
+                  type="text"
+                  className="pipelines-input"
+                  value={config.default_pipeline_timeout}
+                  onChange={handleChange('default_pipeline_timeout')}
+                  placeholder="30m"
+                  disabled={configLoading || saving}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                <span>LLM agent timeout</span>
+                <input
+                  id="system-llm-timeout"
+                  type="text"
+                  className="pipelines-input"
+                  value={config.llm_agent_timeout}
+                  onChange={handleChange('llm_agent_timeout')}
+                  placeholder="2m"
+                  disabled={configLoading || saving}
+                />
+              </label>
+            <label className="flex items-center gap-2 text-sm md:col-span-2">
+              <input
+                id="system-auto-remove"
+                type="checkbox"
+                checked={config.auto_removal_agent_container}
+                onChange={handleChange('auto_removal_agent_container')}
+                disabled={configLoading || saving}
+              />
+              <span>Auto-remove agent containers</span>
+            </label>
+          </div>
+        </div>
 
-      </div>
+        <div className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
+          <div>
+            <p className="text-xs text-[var(--text-secondary)]">Networking</p>
+            <h3 className="text-lg font-semibold text-[var(--text-primary)]">Service discovery</h3>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <label className="flex flex-col gap-1 text-sm">
+              <span>Agent ↔ Server API URL</span>
+              <input
+                id="system-agent-api"
+                type="text"
+                className="pipelines-input"
+                value={config.agent_nopsai_api_url}
+                onChange={handleChange('agent_nopsai_api_url')}
+                placeholder="http://agent:8080"
+                disabled={configLoading || saving}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span>GitBot ↔ Server API URL</span>
+              <input
+                id="system-gitbot-api"
+                type="text"
+                className="pipelines-input"
+                value={config.git_bot_nopsai_api_url}
+                onChange={handleChange('git_bot_nopsai_api_url')}
+                placeholder="http://gitbot:8080"
+                disabled={configLoading || saving}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm md:col-span-2">
+              <span>NopsAI ↔ GitBot API URL</span>
+              <input
+                id="system-nopsai-gitbot-api"
+                type="text"
+                className="pipelines-input"
+                value={config.nopsai_git_bot_api_url}
+                onChange={handleChange('nopsai_git_bot_api_url')}
+                placeholder="http://nopsai-gitbot:8080"
+                disabled={configLoading || saving}
+              />
+            </label>
+          </div>
+        </div>
+
+        {configError && (
+          <div className="glass-card p-4 border border-red-500/30 rounded-xl text-sm text-red-500">
+            Failed to load or save config: {configError}
+          </div>
+        )}
+        {configLoading && <p className="text-sm text-[var(--text-secondary)]">Loading settings…</p>}
+      </form>
 
       <div className="fixed bottom-6 right-6 z-40 flex items-center gap-2">
         <button className="glass-button-ghost" type="button" onClick={() => void onReload()} disabled={configLoading || saving}>
@@ -818,50 +1686,6 @@ function StatCard({ label, value, id }: { label: string; value: number; id?: str
   );
 }
 
-function SyncStatusCard({ status, repoUrl }: { status: ConfigSyncStatus | null; repoUrl: string }) {
-  const statusKey = normalizeStatus(status?.status, repoUrl);
-  const message = (status && status.message) || defaultStatusMessage(statusKey);
-  const tone = statusTone(statusKey);
-  const title = syncTitle(statusKey, repoUrl);
-
-  return (
-    <div className={`pipeline-sync-card ${tone}`}>
-      <div className="sync-icon">
-        <svg
-          className="h-4 w-4"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d={chooseIcon(statusKey)} />
-        </svg>
-      </div>
-      <div className="flex-1 min-w-0">
-        <h3>{title}</h3>
-        <p>{message}</p>
-        {status?.started_at && !status?.completed_at && (
-          <p className="text-xs text-[var(--text-secondary)] mt-1">Started {formatTimestamp(status.started_at)}</p>
-        )}
-        {status?.completed_at && (
-          <p className="text-xs text-[var(--text-secondary)] mt-1">Finished {formatTimestamp(status.completed_at)}</p>
-        )}
-        {status?.details && Object.keys(status.details).length > 0 && (
-          <ul className="sync-detail-list">
-            {Object.entries(status.details).map(([key, value]) => (
-              <li key={key}>
-                <strong>{key}:</strong> <span>{String(value)}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function RoutingMap({ routing }: { routing: Record<string, string[]> }) {
   const rows = Object.entries(routing || {})
     .map(([scope, runners]) => ({
@@ -938,38 +1762,6 @@ function normalizeStatus(value: unknown, repoUrl = '') {
   if (['success', 'completed', 'complete', 'done'].includes(key)) return 'success';
   if (['error', 'failed', 'failure'].includes(key)) return 'error';
   return key || 'idle';
-}
-
-function syncTitle(statusKey: string, repoUrl: string) {
-  if (!repoUrl.trim()) return 'Not configured';
-  if (statusKey === 'success') return 'Synced';
-  if (statusKey === 'error') return 'Sync failed';
-  if (statusKey === 'running') return 'In progress';
-  if (statusKey === 'idle') return 'Ready';
-  return statusKey ? `${statusKey.charAt(0).toUpperCase()}${statusKey.slice(1)}` : 'Status';
-}
-
-function defaultStatusMessage(statusKey: string) {
-  if (statusKey === 'running') return 'Synchronization is in progress.';
-  if (statusKey === 'success') return 'Configuration synchronization completed successfully.';
-  if (statusKey === 'error') return 'Configuration synchronization failed.';
-  if (statusKey === 'missing') return 'Set a configuration repository to enable sync.';
-  return 'Awaiting the next synchronization.';
-}
-
-function statusTone(statusKey: string) {
-  if (statusKey === 'success') return 'success';
-  if (statusKey === 'error') return 'error';
-  if (statusKey === 'running') return 'loading';
-  return '';
-}
-
-function chooseIcon(statusKey: string) {
-  if (statusKey === 'success') return 'M5 13l4 4L19 7';
-  if (statusKey === 'error') return 'M12 9v4m0 4h.01M5.455 5.455l13.09 13.09';
-  if (statusKey === 'running')
-    return 'M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99';
-  return 'M12 18.5a6.5 6.5 0 1 1 6.32-8.13';
 }
 
 function normalizeConfigSyncStatus(value: unknown): ConfigSyncStatus | null {

@@ -1,0 +1,78 @@
+import { useState, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { loginLocal, persistSession, setSelectedTenant } from '../lib/api';
+
+export default function LoginPage({ onLogin }: { onLogin: () => void }) {
+  const navigate = useNavigate();
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      const resp = await loginLocal(identifier.trim(), password);
+      const tenantChoice = resp.default_tenant || (resp.tenant_ids?.[0] ?? '');
+      persistSession({
+        accessToken: resp.access_token,
+        refreshToken: resp.refresh_token,
+        tenantId: tenantChoice,
+        defaultTenant: resp.default_tenant,
+        roles: resp.roles,
+      });
+      if (tenantChoice) setSelectedTenant(tenantChoice);
+      onLogin();
+      navigate('/pipelineruns/main', { replace: true });
+    } catch (err: any) {
+      setError(err?.message || 'Login failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-[var(--bg-primary)]">
+      <div className="w-full max-w-md bg-[var(--bg-secondary)] rounded-xl shadow-lg border border-[var(--border-primary)] p-8 space-y-6">
+        <div className="text-center space-y-2">
+          <p className="text-sm uppercase tracking-wide text-[var(--text-secondary)]">NopsAI</p>
+          <h1 className="text-2xl font-semibold text-[var(--text-primary)]">Sign in</h1>
+          <p className="text-sm text-[var(--text-secondary)]">Use your local account to continue</p>
+        </div>
+        <form className="space-y-4" onSubmit={handleSubmit}>
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-[var(--text-secondary)]">Email or username</label>
+            <input
+              value={identifier}
+              onChange={e => setIdentifier(e.target.value)}
+              className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)]"
+              placeholder="you@example.com"
+              required
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-[var(--text-secondary)]">Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)]"
+              placeholder="••••••••"
+              required
+            />
+          </div>
+          {error && <div className="text-sm text-red-500">{error}</div>}
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-2 rounded-lg bg-[var(--border-accent)] text-white font-medium hover:opacity-90 disabled:opacity-60 transition"
+          >
+            {loading ? 'Signing in...' : 'Sign in'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
