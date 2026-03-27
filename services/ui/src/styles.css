@@ -2392,6 +2392,24 @@ html.dark .access-role-card {
     color: #991b1b;
 }
 
+.access-role-remove {
+    padding: 0.25rem;
+    border-radius: 10px;
+    border: none;
+    background: transparent;
+    color: #b91c1c;
+}
+
+.access-role-remove:hover {
+    color: #991b1b;
+    background: rgba(239,68,68,0.08);
+}
+
+.access-role-remove svg {
+    width: 14px;
+    height: 14px;
+}
+
 .access-policy-preview {
     display: flex;
     flex-direction: column;
