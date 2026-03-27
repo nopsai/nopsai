@@ -28,6 +28,8 @@ e = some(where (p.eft == allow))
 m = r.sub == p.sub && r.dom == p.dom && keyMatch2(r.obj, p.obj) && regexMatch(r.act, p.act)
 `
 
+const policyTemplateRole = "__policy_template__"
+
 func NewEnforcer(ctx context.Context, db *pgxpool.Pool) (*Enforcer, error) {
 	m, err := model.NewModelFromString(modelText)
 	if err != nil {
@@ -58,6 +60,9 @@ func (e *Enforcer) LoadPolicies(ctx context.Context, db *pgxpool.Pool) error {
 		var role, tenantID, obj, act string
 		if err := rows.Scan(&role, &tenantID, &obj, &act); err != nil {
 			return err
+		}
+		if role == policyTemplateRole {
+			continue
 		}
 		_, _ = e.e.AddPolicy(strings.TrimSpace(role), tenantID, strings.TrimSpace(obj), strings.TrimSpace(act))
 	}

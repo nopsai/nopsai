@@ -17,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/mail"
 	"net/url"
 	"os"
 	"os/signal"
@@ -53,6 +54,14 @@ import (
 	"nopsai/services/nopsai/pkg/authz"
 	"nopsai/services/nopsai/pkg/store"
 	"nopsai/services/nopsai/pkg/validation"
+)
+
+const (
+	defaultAdminSub          = "admin"
+	defaultAdminEmail        = "admin@example.com"
+	defaultAdminRole         = "nopsai-admin"
+	defaultAdminPasswordHash = "$2a$10$ueFOcGRKCWDeOaTwy1hmQ.WjQ70Yu8JJLcl8ZvJprx7HPKArt8ESC" // password: admin
+	defaultAdminID           = "00000000-0000-0000-0000-00000000000a"
 )
 
 // WebSocket Hub implementation
@@ -124,6 +133,15 @@ type authLoginResponse struct {
 	Sub           string    `json:"sub,omitempty"`
 }
 
+type authChangePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
+type authUpdateEmailRequest struct {
+	Email string `json:"email"`
+}
+
 type tenantResponse struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
@@ -164,6 +182,7 @@ type createRoleRequest struct {
 	Role       string `json:"role"`
 	TenantID   string `json:"tenant_id"`
 	TenantName string `json:"tenant_name"`
+	Name       string `json:"name"`
 	Object     string `json:"obj"`
 	Action     string `json:"act"`
 }
@@ -178,6 +197,25 @@ type suiteCheckRunResponse struct {
 
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
 var envKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+
+func defaultPolicyName(obj, act string) string {
+	cleanedObj := strings.Trim(strings.TrimSpace(obj), "/")
+	base := cleanedObj
+	if base == "" {
+		base = "policy"
+	} else {
+		parts := strings.Split(base, "/")
+		base = parts[len(parts)-1]
+		if base == "" {
+			base = cleanedObj
+		}
+	}
+	action := strings.TrimSpace(act)
+	if action == "" {
+		action = "ANY"
+	}
+	return fmt.Sprintf("%s • %s", base, action)
+}
 
 func deriveTriggerEventID(gitContext map[string]string) string {
 	if gitContext == nil {
@@ -675,6 +713,141 @@ func (a *App) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "oidc callback handling not implemented in this build", http.StatusNotImplemented)
 }
 
+func (a *App) handleAuthChangePassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	claims, ok := auth.ClaimsFromContext(r.Context())
+	if !ok || strings.TrimSpace(claims.Sub) == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req authChangePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	current := strings.TrimSpace(req.CurrentPassword)
+	next := strings.TrimSpace(req.NewPassword)
+	if current == "" || next == "" {
+		http.Error(w, "current_password and new_password are required", http.StatusBadRequest)
+		return
+	}
+	if len(next) < 8 {
+		http.Error(w, "new_password must be at least 8 characters", http.StatusBadRequest)
+		return
+	}
+	if current == next {
+		http.Error(w, "new password must be different from current password", http.StatusBadRequest)
+		return
+	}
+
+	var (
+		userID       uuid.UUID
+		provider     string
+		passwordHash sql.NullString
+	)
+	err := a.db.QueryRow(r.Context(), `SELECT id, provider, password_hash FROM users WHERE sub = $1`, claims.Sub).Scan(&userID, &provider, &passwordHash)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "user not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to load user", http.StatusInternalServerError)
+		return
+	}
+	if provider != "" && provider != "local" {
+		http.Error(w, "password managed by external identity provider", http.StatusBadRequest)
+		return
+	}
+	if !passwordHash.Valid {
+		http.Error(w, "password not set for this account", http.StatusBadRequest)
+		return
+	}
+	if err := auth.ComparePassword(passwordHash.String, current); err != nil {
+		http.Error(w, "invalid current password", http.StatusUnauthorized)
+		return
+	}
+	hashed, err := auth.HashPassword(next)
+	if err != nil {
+		http.Error(w, "failed to hash password", http.StatusInternalServerError)
+		return
+	}
+
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		http.Error(w, "failed to start transaction", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	if _, err := tx.Exec(r.Context(), `UPDATE users SET password_hash = $1 WHERE id = $2`, hashed, userID); err != nil {
+		http.Error(w, "failed to update password", http.StatusInternalServerError)
+		return
+	}
+	if _, err := tx.Exec(r.Context(), `DELETE FROM refresh_tokens WHERE user_id = $1`, userID); err != nil {
+		http.Error(w, "failed to revoke refresh tokens", http.StatusInternalServerError)
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, "failed to save password", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleAuthUpdateEmail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	claims, ok := auth.ClaimsFromContext(r.Context())
+	if !ok || strings.TrimSpace(claims.Sub) == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req authUpdateEmailRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	email := strings.TrimSpace(req.Email)
+	if email == "" {
+		http.Error(w, "email is required", http.StatusBadRequest)
+		return
+	}
+	parsed, err := mail.ParseAddress(email)
+	if err != nil {
+		http.Error(w, "invalid email", http.StatusBadRequest)
+		return
+	}
+	email = strings.TrimSpace(parsed.Address)
+
+	var (
+		userID   uuid.UUID
+		provider string
+	)
+	err = a.db.QueryRow(r.Context(), `SELECT id, provider FROM users WHERE sub = $1`, claims.Sub).Scan(&userID, &provider)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "user not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to load user", http.StatusInternalServerError)
+		return
+	}
+	if provider != "" && provider != "local" {
+		http.Error(w, "email managed by external identity provider", http.StatusBadRequest)
+		return
+	}
+	if _, err := a.db.Exec(r.Context(), `UPDATE users SET email = $1 WHERE id = $2`, email, userID); err != nil {
+		http.Error(w, "failed to update email", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"email": email})
+}
+
 func (a *App) handleListTenants(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query(r.Context(), `SELECT id, name FROM tenants ORDER BY name`)
 	if err != nil {
@@ -756,6 +929,64 @@ func (a *App) resolveTenantID(ctx context.Context, tenantID, tenantName string) 
 		return "", err
 	}
 	return id, nil
+}
+
+func ensureDefaultAdminPerTenant(ctx context.Context, db *pgxpool.Pool) error {
+	if db == nil {
+		return nil
+	}
+	adminID := uuid.MustParse(defaultAdminID)
+	var existingID uuid.UUID
+	var provider sql.NullString
+	err := db.QueryRow(ctx, `SELECT id, provider FROM users WHERE sub = $1`, defaultAdminSub).Scan(&existingID, &provider)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if existingID == uuid.Nil {
+		_, err = db.Exec(ctx, `
+			INSERT INTO users (id, sub, email, provider, password_hash, status)
+			VALUES ($1, $2, $3, 'local', $4, 'active')
+			ON CONFLICT (sub) DO NOTHING
+		`, adminID, defaultAdminSub, defaultAdminEmail, defaultAdminPasswordHash)
+		if err != nil {
+			return err
+		}
+		if err := db.QueryRow(ctx, `SELECT id FROM users WHERE sub = $1`, defaultAdminSub).Scan(&existingID); err != nil {
+			return err
+		}
+	} else if provider.Valid && provider.String != "local" {
+		if _, err := db.Exec(ctx, `UPDATE users SET provider = 'local' WHERE id = $1`, existingID); err != nil {
+			return err
+		}
+	}
+	rows, err := db.Query(ctx, `SELECT id FROM tenants`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var tenantID uuid.UUID
+		if err := rows.Scan(&tenantID); err != nil {
+			return err
+		}
+		if _, err := db.Exec(ctx, `
+			INSERT INTO user_tenant_roles (user_id, tenant_id, role)
+			VALUES ($1, $2, $3)
+			ON CONFLICT DO NOTHING
+		`, existingID, tenantID, defaultAdminRole); err != nil {
+			return err
+		}
+		if _, err := db.Exec(ctx, `
+			INSERT INTO role_permissions (role, tenant_id, name, obj, act)
+			SELECT $1, $2, 'All access', '/*', '.*'
+			WHERE NOT EXISTS (
+				SELECT 1 FROM role_permissions WHERE role = $1 AND tenant_id = $2 AND obj = '/*' AND act = '.*'
+			)
+		`, defaultAdminRole, tenantID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
@@ -875,6 +1106,20 @@ func (a *App) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid userID", http.StatusBadRequest)
 		return
 	}
+	var sub, provider string
+	err = a.db.QueryRow(r.Context(), `SELECT sub, provider FROM users WHERE id = $1`, userID).Scan(&sub, &provider)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			http.Error(w, "user not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to load user", http.StatusInternalServerError)
+		return
+	}
+	if sub == defaultAdminSub && provider == "local" {
+		http.Error(w, "cannot delete default admin user", http.StatusBadRequest)
+		return
+	}
 	tag, err := a.db.Exec(r.Context(), `DELETE FROM users WHERE id = $1`, userID)
 	if err != nil {
 		http.Error(w, "failed to delete user", http.StatusInternalServerError)
@@ -940,6 +1185,13 @@ func (a *App) handleDeleteUserRole(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "user_id and role are required", http.StatusBadRequest)
 		return
 	}
+	var sub, provider string
+	if err := a.db.QueryRow(r.Context(), `SELECT sub, provider FROM users WHERE id = $1`, req.UserID).Scan(&sub, &provider); err == nil {
+		if sub == defaultAdminSub && provider == "local" && req.Role == defaultAdminRole {
+			http.Error(w, "cannot remove default admin role", http.StatusBadRequest)
+			return
+		}
+	}
 	tenantID, err := a.resolveTenantID(r.Context(), req.TenantID, req.TenantName)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -973,10 +1225,22 @@ func (a *App) handleCreateRole(w http.ResponseWriter, r *http.Request) {
 	req.Role = strings.TrimSpace(req.Role)
 	req.TenantID = strings.TrimSpace(req.TenantID)
 	req.TenantName = strings.TrimSpace(req.TenantName)
+	req.Name = strings.TrimSpace(req.Name)
 	req.Object = strings.TrimSpace(req.Object)
 	req.Action = strings.TrimSpace(req.Action)
+	if req.Role == defaultAdminRole && (req.Object != "/*" || req.Action != ".*") {
+		http.Error(w, "default admin policy is fixed to /* and .*", http.StatusBadRequest)
+		return
+	}
 	if req.Role == "" || req.Object == "" || req.Action == "" {
 		http.Error(w, "role, obj, and act are required", http.StatusBadRequest)
+		return
+	}
+	if req.Name == "" {
+		req.Name = defaultPolicyName(req.Object, req.Action)
+	}
+	if req.Role == defaultAdminRole && req.Object == "/*" && req.Action == ".*" {
+		http.Error(w, "cannot delete default admin policy", http.StatusBadRequest)
 		return
 	}
 	tenantID, err := a.resolveTenantID(r.Context(), req.TenantID, req.TenantName)
@@ -985,10 +1249,9 @@ func (a *App) handleCreateRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err = a.db.Exec(r.Context(), `
-		INSERT INTO role_permissions (role, tenant_id, obj, act)
-		VALUES ($1, $2, $3, $4)
-		ON CONFLICT DO NOTHING
-	`, req.Role, tenantID, req.Object, req.Action)
+		INSERT INTO role_permissions (role, tenant_id, name, obj, act)
+		VALUES ($1, $2, $3, $4, $5)
+	`, req.Role, tenantID, req.Name, req.Object, req.Action)
 	if err != nil {
 		http.Error(w, "failed to create role permission", http.StatusInternalServerError)
 		return
@@ -1041,7 +1304,7 @@ func (a *App) handleListRoles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := a.db.Query(r.Context(), `
-		SELECT role, tenant_id, obj, act
+		SELECT role, tenant_id, COALESCE(name, ''), obj, act
 		FROM role_permissions
 		ORDER BY role ASC, tenant_id ASC, obj ASC, act ASC
 	`)
@@ -1053,13 +1316,14 @@ func (a *App) handleListRoles(w http.ResponseWriter, r *http.Request) {
 	type rolePerm struct {
 		Role     string `json:"role"`
 		TenantID string `json:"tenant_id"`
+		Name     string `json:"name"`
 		Obj      string `json:"obj"`
 		Act      string `json:"act"`
 	}
 	var perms []rolePerm
 	for rows.Next() {
 		var p rolePerm
-		if err := rows.Scan(&p.Role, &p.TenantID, &p.Obj, &p.Act); err != nil {
+		if err := rows.Scan(&p.Role, &p.TenantID, &p.Name, &p.Obj, &p.Act); err != nil {
 			http.Error(w, "failed to scan role permission", http.StatusInternalServerError)
 			return
 		}
@@ -7081,6 +7345,10 @@ func main() {
 	}
 	defer dbpool.Close()
 
+	if err := ensureDefaultAdminPerTenant(context.Background(), dbpool); err != nil {
+		log.Fatal().Err(err).Msg("Failed to ensure default admin per tenant")
+	}
+
 	dispatcherAddr := strings.TrimSpace(cfg.DispatcherAddress)
 	if dispatcherAddr == "" {
 		dispatcherAddr = "localhost:9090"
@@ -7143,6 +7411,8 @@ func main() {
 	mux.HandleFunc("POST /v1/auth/login", app.handleAuthLogin)
 	mux.HandleFunc("POST /v1/auth/refresh", app.handleAuthRefresh)
 	mux.HandleFunc("POST /v1/auth/logout", app.handleAuthLogout)
+	mux.HandleFunc("POST /v1/auth/password", app.handleAuthChangePassword)
+	mux.HandleFunc("POST /v1/auth/email", app.handleAuthUpdateEmail)
 	mux.HandleFunc("GET /v1/auth/me", app.handleAuthMe)
 	mux.HandleFunc("GET /v1/auth/oidc/callback", app.handleOIDCCallback)
 	mux.HandleFunc("GET /v1/tenants", app.handleListTenants)
