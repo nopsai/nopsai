@@ -171,6 +171,12 @@ type createUserRequest struct {
 	Role       string `json:"role"`
 }
 
+type updateUserRequest struct {
+	Email    string `json:"email"`
+	Status   string `json:"status"`
+	Password string `json:"password"`
+}
+
 type userRoleRequest struct {
 	UserID     string `json:"user_id"`
 	TenantID   string `json:"tenant_id"`
@@ -1091,6 +1097,117 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	a.handleListUsers(w, r)
 }
 
+func (a *App) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut && r.Method != http.MethodPatch {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	userIDRaw := strings.TrimSpace(r.PathValue("userID"))
+	if userIDRaw == "" {
+		http.Error(w, "userID is required", http.StatusBadRequest)
+		return
+	}
+	userID, err := uuid.Parse(userIDRaw)
+	if err != nil {
+		http.Error(w, "invalid userID", http.StatusBadRequest)
+		return
+	}
+	var req updateUserRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	req.Email = strings.TrimSpace(req.Email)
+	req.Status = strings.TrimSpace(strings.ToLower(req.Status))
+	req.Password = strings.TrimSpace(req.Password)
+
+	var currentSub, currentProvider string
+	err = a.db.QueryRow(r.Context(), `SELECT sub, provider FROM users WHERE id = $1`, userID).Scan(&currentSub, &currentProvider)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "user not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to load user", http.StatusInternalServerError)
+		return
+	}
+
+	if currentSub == defaultAdminSub && currentProvider == "local" && req.Status != "" && req.Status != "active" {
+		http.Error(w, "cannot disable default admin user", http.StatusBadRequest)
+		return
+	}
+
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		http.Error(w, "failed to start transaction", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	setParts := []string{}
+	args := []interface{}{}
+	argIdx := 1
+
+	if req.Email != "" {
+		setParts = append(setParts, fmt.Sprintf("email = $%d", argIdx))
+		args = append(args, req.Email)
+		argIdx++
+	}
+
+	if req.Status != "" {
+		switch req.Status {
+		case "active", "disabled":
+			setParts = append(setParts, fmt.Sprintf("status = $%d", argIdx))
+			args = append(args, req.Status)
+			argIdx++
+		default:
+			http.Error(w, "invalid status", http.StatusBadRequest)
+			return
+		}
+	}
+
+	var hashedPassword string
+	if req.Password != "" {
+		if currentProvider != "local" {
+			http.Error(w, "password managed by external identity provider", http.StatusBadRequest)
+			return
+		}
+		hashedPassword, err = auth.HashPassword(req.Password)
+		if err != nil {
+			http.Error(w, "failed to hash password", http.StatusInternalServerError)
+			return
+		}
+		setParts = append(setParts, fmt.Sprintf("password_hash = $%d", argIdx))
+		args = append(args, hashedPassword)
+		argIdx++
+	}
+
+	if len(setParts) == 0 {
+		http.Error(w, "no fields to update", http.StatusBadRequest)
+		return
+	}
+
+	args = append(args, userID)
+	query := fmt.Sprintf("UPDATE users SET %s WHERE id = $%d", strings.Join(setParts, ", "), argIdx)
+	if _, err := tx.Exec(r.Context(), query, args...); err != nil {
+		http.Error(w, "failed to update user", http.StatusInternalServerError)
+		return
+	}
+
+	if req.Password != "" {
+		if _, err := tx.Exec(r.Context(), `DELETE FROM refresh_tokens WHERE user_id = $1`, userID); err != nil {
+			http.Error(w, "failed to revoke refresh tokens", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, "failed to save user", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (a *App) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1239,10 +1356,6 @@ func (a *App) handleCreateRole(w http.ResponseWriter, r *http.Request) {
 	if req.Name == "" {
 		req.Name = defaultPolicyName(req.Object, req.Action)
 	}
-	if req.Role == defaultAdminRole && req.Object == "/*" && req.Action == ".*" {
-		http.Error(w, "cannot delete default admin policy", http.StatusBadRequest)
-		return
-	}
 	tenantID, err := a.resolveTenantID(r.Context(), req.TenantID, req.TenantName)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -1274,6 +1387,10 @@ func (a *App) handleDeleteRole(w http.ResponseWriter, r *http.Request) {
 	req.TenantName = strings.TrimSpace(req.TenantName)
 	req.Object = strings.TrimSpace(req.Object)
 	req.Action = strings.TrimSpace(req.Action)
+	if req.Role == defaultAdminRole && req.Object == "/*" && req.Action == ".*" {
+		http.Error(w, "cannot delete default admin policy", http.StatusBadRequest)
+		return
+	}
 	if req.Role == "" || req.Object == "" || req.Action == "" {
 		http.Error(w, "role, obj, and act are required", http.StatusBadRequest)
 		return
@@ -1281,6 +1398,15 @@ func (a *App) handleDeleteRole(w http.ResponseWriter, r *http.Request) {
 	tenantID, err := a.resolveTenantID(r.Context(), req.TenantID, req.TenantName)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var assignments int
+	if err := a.db.QueryRow(r.Context(), `SELECT COUNT(*) FROM user_tenant_roles WHERE role = $1 AND tenant_id = $2`, req.Role, tenantID).Scan(&assignments); err != nil {
+		http.Error(w, "failed to check role usage", http.StatusInternalServerError)
+		return
+	}
+	if assignments > 0 {
+		http.Error(w, "cannot delete policy from a role that is assigned to users", http.StatusBadRequest)
 		return
 	}
 	tag, err := a.db.Exec(r.Context(), `
@@ -7419,6 +7545,8 @@ func main() {
 	mux.HandleFunc("GET /v1/audit", app.handleListAuditLogs)
 	mux.HandleFunc("GET /v1/admin/users", app.handleListUsers)
 	mux.HandleFunc("POST /v1/admin/users", app.handleCreateUser)
+	mux.HandleFunc("PUT /v1/admin/users/{userID}", app.handleUpdateUser)
+	mux.HandleFunc("PATCH /v1/admin/users/{userID}", app.handleUpdateUser)
 	mux.HandleFunc("DELETE /v1/admin/users/{userID}", app.handleDeleteUser)
 	mux.HandleFunc("POST /v1/admin/user-roles", app.handleAddUserRole)
 	mux.HandleFunc("DELETE /v1/admin/user-roles", app.handleDeleteUserRole)
