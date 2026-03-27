@@ -203,3 +203,30 @@ export async function loginLocal(identifier: string, password: string) {
   }
   return response.json();
 }
+
+export async function updateEmail(email: string): Promise<{ email: string }> {
+  const response = await fetch(buildApiUrl('/v1/auth/email'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || 'Failed to update email');
+  }
+  const payload = await response.json();
+  const nextEmail = typeof payload?.email === 'string' ? payload.email : email;
+  return { email: nextEmail };
+}
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  const response = await fetch(buildApiUrl('/v1/auth/password'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || 'Failed to change password');
+  }
+}

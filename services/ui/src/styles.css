@@ -2163,6 +2163,21 @@ html.dark .access-hero {
     border-color: var(--border-accent);
 }
 
+.access-icon-btn--plain {
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    width: 40px;
+    height: 40px;
+    color: var(--text-secondary);
+    transition: color 0.12s ease, transform 0.12s ease;
+}
+
+.access-icon-btn--plain:hover {
+    color: var(--text-primary);
+    transform: translateY(-1px);
+}
+
 .access-icon-btn--danger {
     background: linear-gradient(135deg, rgba(248,113,113,0.16), rgba(248,113,113,0.1));
     border-color: rgba(248,113,113,0.32);
@@ -2221,6 +2236,12 @@ html.dark .access-role-card {
     border: 1px solid var(--border-primary);
 }
 
+.access-avatar--sm {
+    width: 34px;
+    height: 34px;
+    font-size: 0.95rem;
+}
+
 .access-status {
     padding: 0.3rem 0.6rem;
     border-radius: 9999px;
@@ -2270,6 +2291,107 @@ html.dark .access-role-card {
     color: var(--text-secondary);
 }
 
+.access-policy-row,
+.access-row {
+    transition: background 0.12s ease, transform 0.12s ease;
+}
+
+.access-policy-row:hover,
+.access-row:hover {
+    background: var(--bg-tertiary);
+    transform: translateX(2px);
+}
+
+.access-policy-line {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+.access-policy-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 9999px;
+    background: var(--border-accent);
+    box-shadow: 0 0 0 6px rgba(99,102,241,0.12);
+}
+
+.access-policy-dot--muted {
+    width: 6px;
+    height: 6px;
+    background: var(--text-tertiary);
+    box-shadow: none;
+}
+
+.access-policy-text {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    color: var(--text-primary);
+    letter-spacing: 0.01em;
+}
+
+.access-policy-text--muted {
+    color: var(--text-secondary);
+}
+
+.access-policy-chip {
+    display: inline-flex;
+    align-items: center;
+    max-width: 240px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 0.3rem 0.65rem;
+    border-radius: 9999px;
+    border: 1px solid var(--border-primary);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 12px;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.access-policy-chip--path {
+    border-color: rgba(99,102,241,0.3);
+    background: linear-gradient(135deg, rgba(99,102,241,0.14), rgba(14,165,233,0.08));
+}
+
+.access-policy-chip--act {
+    border-color: rgba(14,165,233,0.3);
+    background: linear-gradient(135deg, rgba(14,165,233,0.14), rgba(56,189,248,0.08));
+    color: var(--text-primary);
+}
+
+.access-policy-chip--muted {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border-color: var(--border-primary);
+}
+
+.access-inline-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.1rem;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    transition: color 0.12s ease, transform 0.12s ease;
+}
+
+.access-inline-btn:hover {
+    color: var(--text-primary);
+    transform: translateY(-1px);
+}
+
+.access-inline-btn--danger {
+    color: #b91c1c;
+}
+
+.access-inline-btn--danger:hover {
+    color: #991b1b;
+}
+
 .access-policy-preview {
     display: flex;
     flex-direction: column;
@@ -2311,6 +2433,99 @@ html.dark .access-policy-preview {
 .pipelines-modal-card.access-modal-card {
     opacity: 1;
     transform: translateY(0);
+}
+
+.access-modal-card--minimal {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    box-shadow: 0 22px 60px rgba(15, 23, 42, 0.28);
+    border-radius: 20px;
+}
+
+.access-modal-header--minimal {
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid var(--border-primary);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.82));
+}
+
+html.dark .access-modal-header--minimal {
+    background: linear-gradient(180deg, rgba(17, 24, 39, 0.92), rgba(17, 24, 39, 0.82));
+}
+
+.access-modal-body--minimal {
+    padding: 16px 20px 20px;
+}
+
+.access-minimal-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.access-minimal-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 12px;
+}
+
+.access-minimal-label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.access-minimal-label span {
+    font-weight: 600;
+}
+
+.access-minimal-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.access-minimal-section__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.access-minimal-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--border-primary);
+    background: var(--bg-tertiary);
+}
+
+.access-minimal-row--add {
+    background: var(--bg-secondary);
+    border-style: dashed;
+}
+
+.access-inline-btn--pill {
+    padding: 0.4rem 0.8rem;
+    border-radius: 9999px;
+    border: 1px solid var(--border-primary);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.access-inline-btn--pill:hover {
+    border-color: var(--border-accent);
+}
+
+.access-modal-footer--minimal {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    padding-top: 6px;
 }
 
 .runner-pill {
