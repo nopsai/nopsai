@@ -957,17 +957,6 @@ function SystemPage() {
 
   return (
     <div data-page="system" className="active p-6 space-y-6">
-      <div className="border-b border-[var(--border-primary)] pb-4 space-y-3">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0">
-            <h2 className="text-2xl font-semibold text-[var(--text-primary)]">Control Center</h2>
-            <p className="text-sm text-[var(--text-secondary)]">
-              Configure GitOps sync, runner runtime, and monitor dispatcher health.
-            </p>
-          </div>
-        </div>
-      </div>
-
       {activeTab === 'config' && (
         <SystemConfig
           config={config}

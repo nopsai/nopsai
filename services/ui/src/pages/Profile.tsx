@@ -120,8 +120,6 @@ export default function ProfilePage({ user, loading, onLogout, tenants = [], sel
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-sm text-[var(--text-secondary)]">Account</p>
-          <h1 className="text-3xl font-bold text-[var(--text-primary)]">Profile</h1>
           <p className="text-sm text-[var(--text-secondary)]">Manage your identity, roles, and session details.</p>
         </div>
         <div className="flex gap-2">
