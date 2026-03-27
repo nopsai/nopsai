@@ -2012,15 +2012,6 @@ function Header({
       </button>
       <div id="main-header" className="flex-1 text-xl font-semibold min-w-0 truncate">{title}</div>
       <div className="flex items-center gap-3">
-        <button
-          id="theme-toggle"
-          type="button"
-          className="ml-2 p-2 rounded-full text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-accent)]"
-          aria-label="Toggle theme"
-          onClick={onToggleTheme}
-        >
-          {theme === 'dark' ? <IconSun /> : <IconMoon />}
-        </button>
         <div className="relative" ref={menuRef}>
           <button
             type="button"
@@ -2059,6 +2050,15 @@ function Header({
                   }}
                 >
                   View profile
+                </button>
+                <button
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-[var(--bg-tertiary)] text-[var(--text-primary)] text-sm"
+                  onClick={() => {
+                    closeMenu();
+                    onToggleTheme();
+                  }}
+                >
+                  {theme === 'dark' ? 'Use light mode' : 'Use dark mode'}
                 </button>
                 {onLogout && (
                   <button
@@ -2113,22 +2113,6 @@ function IconChevronDown() {
   return (
     <svg className="h-4 w-4 text-[var(--text-secondary)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-    </svg>
-  );
-}
-
-function IconSun() {
-  return (
-    <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M12 7a5 5 0 100 10 5 5 0 000-10z" />
-    </svg>
-  );
-}
-
-function IconMoon() {
-  return (
-    <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
     </svg>
   );
 }

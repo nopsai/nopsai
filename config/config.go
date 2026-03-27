@@ -27,6 +27,7 @@ type Config struct {
 	JWTIssuer                string `yaml:"jwt_issuer" env:"JWT_ISSUER"`
 	JWTAudience              string `yaml:"jwt_audience" env:"JWT_AUDIENCE"`
 	JWTExpiryMinutes         int    `yaml:"jwt_expiry_minutes" env:"JWT_EXPIRY_MINUTES"`
+	IdleTimeoutMinutes       int    `yaml:"idle_timeout_minutes" env:"IDLE_TIMEOUT_MINUTES"`
 	RefreshTokenTTLMinutes   int    `yaml:"refresh_token_ttl_minutes" env:"REFRESH_TOKEN_TTL_MINUTES"`
 	AuthProviderLocalEnabled bool   `yaml:"auth_provider_local_enabled" env:"AUTH_PROVIDER_LOCAL_ENABLED"`
 	AuthProviderOIDCEnabled  bool   `yaml:"auth_provider_oidc_enabled" env:"AUTH_PROVIDER_OIDC_ENABLED"`

@@ -58,22 +58,24 @@ import (
 // WebSocket Hub implementation
 
 type App struct {
-	db         *pgxpool.Pool
-	cfg        *config.Config
-	dispatcher proto.DispatcherServiceClient
-	encKey     []byte
-	httpClient *http.Client
-	store      store.Store
-	configPath string
-	cfgMu      sync.RWMutex
+	db          *pgxpool.Pool
+	cfg         *config.Config
+	dispatcher  proto.DispatcherServiceClient
+	encKey      []byte
+	httpClient  *http.Client
+	store       store.Store
+	configPath  string
+	cfgMu       sync.RWMutex
+	idleTimeout time.Duration
 
 	configSyncMu     sync.Mutex
 	configSyncStatus ConfigSyncStatus
 	envFilePath      string
 
-	authService *auth.Service
-	authz       *authz.Enforcer
-	auditLogger *audit.Logger
+	authService   *auth.Service
+	authz         *authz.Enforcer
+	auditLogger   *audit.Logger
+	tokenActivity sync.Map
 }
 
 type LogLine = models.LogLine
@@ -423,6 +425,18 @@ func (a *App) authMiddleware(next http.Handler) http.Handler {
 		if err != nil {
 			http.Error(w, "invalid token", http.StatusUnauthorized)
 			return
+		}
+
+		if a.idleTimeout > 0 {
+			now := time.Now()
+			if lastRaw, ok := a.tokenActivity.Load(token); ok {
+				if lastSeen, ok := lastRaw.(time.Time); ok && now.Sub(lastSeen) > a.idleTimeout {
+					a.tokenActivity.Delete(token)
+					http.Error(w, "session expired due to inactivity", http.StatusUnauthorized)
+					return
+				}
+			}
+			a.tokenActivity.Store(token, now)
 		}
 
 		ctx := auth.WithClaims(r.Context(), claims)
@@ -7009,6 +7023,9 @@ func main() {
 	if cfg.JWTExpiryMinutes == 0 {
 		cfg.JWTExpiryMinutes = 60
 	}
+	if cfg.IdleTimeoutMinutes == 0 {
+		cfg.IdleTimeoutMinutes = 30
+	}
 	if cfg.RefreshTokenTTLMinutes == 0 {
 		cfg.RefreshTokenTTLMinutes = 60 * 24 * 30
 	}
@@ -7117,6 +7134,7 @@ func main() {
 			Status:  "idle",
 			Message: "No configuration sync has been requested yet.",
 		},
+		idleTimeout: time.Duration(cfg.IdleTimeoutMinutes) * time.Minute,
 	}
 
 	mux := http.NewServeMux()
