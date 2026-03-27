@@ -155,6 +155,7 @@ const titleMap: Record<string, string> = {
   lab: 'Lab',
   steps: 'Steps',
   system: 'System',
+  profile: 'Profile',
 };
 
 const STATUS_PRIORITY = ['failure', 'failure (ignored)', 'cancelled', 'running', 'pending', 'skipped', 'success'];
@@ -1975,11 +1976,15 @@ function Header({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const initials = (() => {
-    const base = (currentUser?.email || currentUser?.sub || 'U').trim();
+    const base = (currentUser?.sub || currentUser?.email || 'U').trim();
     const cleaned = base.replace(/[^A-Za-z0-9]/g, '');
     return (cleaned[0] || base[0] || 'U').toUpperCase();
   })();
-  const primaryLabel = currentUser?.email || currentUser?.sub || 'User';
+  const displayName = (() => {
+    const preferred = (currentUser?.sub || '').trim();
+    if (preferred && !preferred.includes('@')) return preferred;
+    return initials;
+  })();
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -2021,22 +2026,19 @@ function Header({
           <button
             type="button"
             onClick={() => setMenuOpen(open => !open)}
-            className={`flex items-center gap-2 px-2 h-11 rounded-full border bg-[var(--bg-secondary)] text-[var(--text-primary)] shadow-sm transition-all ${
+            className={`flex items-center gap-3 px-3 h-11 rounded-full border bg-[var(--bg-secondary)] text-[var(--text-primary)] shadow-sm transition-all ${
               menuOpen ? 'border-[var(--border-accent)]' : 'border-[var(--border-primary)] hover:border-[var(--border-accent)]'
             } focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)]`}
             aria-haspopup="true"
             aria-expanded={menuOpen}
           >
-            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[var(--border-accent)]/10 text-sm font-semibold text-[var(--text-primary)]">
-              {initials}
-            </span>
-            <IconChevronDown />
+            <span className="text-sm font-semibold text-[var(--text-primary)] max-w-[160px] truncate">{displayName}</span>
           </button>
           {menuOpen && (
             <div className="absolute right-0 mt-2 w-72 rounded-2xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-2xl overflow-hidden z-[500]">
               <div className="p-4 border-b border-[var(--border-primary)] bg-[var(--bg-tertiary)]/70 backdrop-blur-sm">
                 <p className="text-xs uppercase tracking-wide text-[var(--text-secondary)] mb-1">Signed in as</p>
-                <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{userLoading ? 'Loading…' : primaryLabel}</p>
+                <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{userLoading ? 'Loading…' : displayName}</p>
                 {currentUser?.provider && (
                   <span className="inline-flex mt-2 px-2 py-1 rounded-full text-[11px] bg-[var(--border-accent)]/10 text-[var(--border-accent)]">
                     {currentUser.provider === 'local' ? 'Local account' : currentUser.provider}
@@ -2110,14 +2112,6 @@ function IconMenu() {
   return (
     <svg className="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16m-7 6h7" />
-    </svg>
-  );
-}
-
-function IconChevronDown() {
-  return (
-    <svg className="h-4 w-4 text-[var(--text-secondary)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
     </svg>
   );
 }
