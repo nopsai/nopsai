@@ -1,6 +1,7 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import type { FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useState } from 'react';
+import { changePassword, updateEmail } from '../lib/api';
 
 type CurrentUser = {
   sub: string;
@@ -22,15 +23,20 @@ type Props = {
   onLogout: () => void;
   tenants?: Tenant[];
   selectedTenant?: string;
+  onUserUpdated?: (updates: Partial<CurrentUser>) => void;
 };
 
-export default function ProfilePage({ user, loading, onLogout, tenants = [], selectedTenant }: Props) {
+export default function ProfilePage({ user, loading, onLogout, tenants = [], selectedTenant, onUserUpdated }: Props) {
   const navigate = useNavigate();
   const [email, setEmail] = useState(user?.email || '');
+  const [emailDraft, setEmailDraft] = useState(user?.email || '');
+  const [editingEmail, setEditingEmail] = useState(false);
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [emailSaving, setEmailSaving] = useState(false);
+  const [passwordSaving, setPasswordSaving] = useState(false);
   const initials = useMemo(() => {
     const base = (user?.email || user?.sub || 'U').trim();
     const cleaned = base.replace(/[^A-Za-z0-9]/g, '');
@@ -38,6 +44,8 @@ export default function ProfilePage({ user, loading, onLogout, tenants = [], sel
   }, [user?.email, user?.sub]);
   useEffect(() => {
     setEmail(user?.email || '');
+    setEmailDraft(user?.email || '');
+    setEditingEmail(false);
   }, [user?.email]);
 
   const tenantName = useMemo(() => {
@@ -48,6 +56,54 @@ export default function ProfilePage({ user, loading, onLogout, tenants = [], sel
   }, [selectedTenant, tenants, user?.tenantIds]);
 
   const primaryLabel = user?.email || user?.sub || 'User';
+  const isLocalAccount = !user?.provider || user.provider === 'local';
+
+  const handleSaveEmail = async () => {
+    const nextEmail = emailDraft.trim();
+    if (!nextEmail) {
+      window.alert('Please enter an email.');
+      return;
+    }
+    if (!isLocalAccount) {
+      window.alert('Email is managed by your identity provider.');
+      return;
+    }
+    setEmailSaving(true);
+    try {
+      const result = await updateEmail(nextEmail);
+      const savedEmail = result?.email?.trim() || nextEmail;
+      setEmail(savedEmail);
+      setEmailDraft(savedEmail);
+      setEditingEmail(false);
+      onUserUpdated?.({ email: savedEmail });
+      window.alert('Email updated.');
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to update email.');
+    } finally {
+      setEmailSaving(false);
+    }
+  };
+
+  const handlePasswordSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (newPassword !== confirmPassword) {
+      window.alert('New passwords do not match.');
+      return;
+    }
+    setPasswordSaving(true);
+    try {
+      await changePassword(currentPassword, newPassword);
+      window.alert('Password updated.');
+      setPasswordModalOpen(false);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Failed to update password.');
+    } finally {
+      setPasswordSaving(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -103,40 +159,71 @@ export default function ProfilePage({ user, loading, onLogout, tenants = [], sel
                 )}
               </div>
             </div>
-          </div>
+            </div>
 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="rounded-xl border border-[var(--border-primary)] p-4 bg-[var(--bg-tertiary)] space-y-3">
               <p className="text-xs uppercase tracking-wide text-[var(--text-secondary)] mb-2">Identity</p>
-              <dl className="space-y-2 text-sm">
-                <div className="flex justify-between gap-3">
-                  <dt className="text-[var(--text-secondary)]">User ID</dt>
-                  <dd className="text-[var(--text-primary)] text-right truncate">{user.sub}</dd>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <span className="text-[var(--text-secondary)]">Email</span>
-                  <div className="flex gap-2">
-                    <input
-                      type="email"
-                      className="pipelines-input flex-1"
-                      value={email}
-                      onChange={e => setEmail(e.target.value)}
-                      placeholder="you@example.com"
-                    />
-                    <button
-                      type="button"
-                      className="glass-button-subtle whitespace-nowrap"
-                      onClick={() => window.alert('Email update is not wired to the backend yet.')}
-                    >
-                      Save
-                    </button>
-                  </div>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <dt className="text-[var(--text-secondary)]">Provider</dt>
-                  <dd className="text-[var(--text-primary)] text-right truncate">{user.provider === 'local' ? 'Local account' : user.provider || 'Local account'}</dd>
-                </div>
-                <div className="pt-2">
+              <dl className="text-sm grid grid-cols-[auto,1fr] items-center gap-x-3 gap-y-3">
+                <dt className="text-[var(--text-secondary)] whitespace-nowrap">User ID</dt>
+                <dd className="text-[var(--text-primary)] truncate">{user.sub}</dd>
+
+                <dt className="text-[var(--text-secondary)] whitespace-nowrap">Email</dt>
+                <dd>
+                  {!editingEmail ? (
+                    <div className="flex items-center gap-2 group">
+                      <span className="text-[var(--text-primary)] truncate flex-1">{email || '—'}</span>
+                      {isLocalAccount && (
+                        <button
+                          type="button"
+                          className="glass-button-subtle whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={() => {
+                            setEditingEmail(true);
+                            setEmailDraft(email);
+                          }}
+                        >
+                          Edit
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="email"
+                        className="pipelines-input flex-1"
+                        value={emailDraft}
+                        onChange={e => setEmailDraft(e.target.value)}
+                        placeholder="you@example.com"
+                        autoFocus
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          className="glass-button-subtle whitespace-nowrap disabled:opacity-50"
+                          onClick={handleSaveEmail}
+                          disabled={emailSaving || !emailDraft.trim()}
+                        >
+                          {emailSaving ? 'Saving...' : 'Save'}
+                        </button>
+                        <button
+                          type="button"
+                          className="glass-button-ghost whitespace-nowrap"
+                          onClick={() => {
+                            setEditingEmail(false);
+                            setEmailDraft(email);
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </dd>
+
+                <dt className="text-[var(--text-secondary)] whitespace-nowrap">Provider</dt>
+                <dd className="text-[var(--text-primary)] truncate">{user.provider === 'local' ? 'Local account' : user.provider || 'Local account'}</dd>
+
+                <div className="col-span-2 pt-1">
                   <button type="button" className="glass-button-subtle" onClick={() => setPasswordModalOpen(true)}>
                     Change password
                   </button>
@@ -212,18 +299,7 @@ export default function ProfilePage({ user, loading, onLogout, tenants = [], sel
             </div>
             <form
               className="space-y-3"
-              onSubmit={e => {
-                e.preventDefault();
-                if (newPassword !== confirmPassword) {
-                  window.alert('New passwords do not match.');
-                  return;
-                }
-                window.alert('Password change is not wired to the backend yet.');
-                setPasswordModalOpen(false);
-                setCurrentPassword('');
-                setNewPassword('');
-                setConfirmPassword('');
-              }}
+              onSubmit={handlePasswordSubmit}
             >
               <label className="flex flex-col gap-1 text-sm">
                 <span className="text-[var(--text-secondary)]">Current password</span>
@@ -271,8 +347,8 @@ export default function ProfilePage({ user, loading, onLogout, tenants = [], sel
                 >
                   Cancel
                 </button>
-                <button type="submit" className="glass-button-subtle">
-                  Update password
+                <button type="submit" className="glass-button-subtle disabled:opacity-50" disabled={passwordSaving}>
+                  {passwordSaving ? 'Updating...' : 'Update password'}
                 </button>
               </div>
             </form>

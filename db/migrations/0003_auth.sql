@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS user_tenant_roles (
 CREATE TABLE IF NOT EXISTS role_permissions (
     role TEXT NOT NULL,
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    name TEXT NOT NULL DEFAULT '',
     obj TEXT NOT NULL,
     act TEXT NOT NULL
 );
@@ -79,8 +80,8 @@ VALUES (
 )
 ON CONFLICT DO NOTHING;
 
-INSERT INTO role_permissions (role, tenant_id, obj, act)
-SELECT 'nopsai-admin', '00000000-0000-0000-0000-000000000001', '/*', '.*'
+INSERT INTO role_permissions (role, tenant_id, name, obj, act)
+SELECT 'nopsai-admin', '00000000-0000-0000-0000-000000000001', 'All access', '/*', '.*'
 WHERE NOT EXISTS (
     SELECT 1 FROM role_permissions WHERE role = 'nopsai-admin' AND tenant_id = '00000000-0000-0000-0000-000000000001' AND obj = '/*' AND act = '.*'
 );

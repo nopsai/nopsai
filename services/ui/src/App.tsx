@@ -325,6 +325,10 @@ function AppShell() {
     navigate('/login', { replace: true });
   }, [navigate]);
 
+  const handleUserUpdated = useCallback((updates: Partial<CurrentUser>) => {
+    setCurrentUser(prev => (prev ? { ...prev, ...updates } : prev));
+  }, []);
+
   useEffect(() => {
     if (!isAuthenticated) return;
     if (selectedTenant) return;
@@ -788,6 +792,7 @@ function AppShell() {
                         onLogout={handleLogout}
                         tenants={tenants}
                         selectedTenant={selectedTenant}
+                        onUserUpdated={handleUserUpdated}
                       />
                     }
                   />
