@@ -71,8 +71,8 @@ const MAX_VISIBLE_ACTIVE_RUNS = 3;
 const POLICY_TEMPLATE_ROLE = '__policy_template__';
 const DEFAULT_TENANT_ID = '00000000-0000-0000-0000-000000000001';
 const DEFAULT_ADMIN_ROLE = 'nopsai-admin';
-const DEFAULT_ADMIN_POLICY_OBJ = '/v1/*';
-const DEFAULT_ADMIN_POLICY_ACT = 'GET|POST|PUT|DELETE';
+const DEFAULT_ADMIN_POLICY_OBJ = '/*';
+const DEFAULT_ADMIN_POLICY_ACT = '.*';
 
 type UserRole = {
   tenant_id: string;
@@ -317,7 +317,7 @@ function SystemPage() {
       }
       const records = payload as RolePermission[];
       const templates = records.filter(p => p.role === POLICY_TEMPLATE_ROLE);
-      const rolePolicies = records.filter(p => p.role !== POLICY_TEMPLATE_ROLE);
+      const rolePolicies = normalizeAdminPolicies(records.filter(p => p.role !== POLICY_TEMPLATE_ROLE));
       setPolicyTemplates(templates);
       setPolicies(rolePolicies);
     } catch (error) {
@@ -765,6 +765,29 @@ function SystemPage() {
     [addToast, fetchJson, loadUsers]
   );
 
+  const updateUser = useCallback(
+    async (userId: string, input: { email?: string; status?: string; password?: string }) => {
+      const payload: Record<string, string> = {};
+      if (input.email) payload.email = input.email.trim();
+      if (input.status) payload.status = input.status.trim();
+      if (input.password) payload.password = input.password;
+      if (Object.keys(payload).length === 0) return;
+      try {
+        await fetchJson(`/v1/admin/users/${encodeURIComponent(userId)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        addToast('User updated', 'success');
+        await loadUsers();
+      } catch (error) {
+        addToast(error instanceof Error ? error.message : 'Failed to update user', 'error');
+        throw error;
+      }
+    },
+    [addToast, fetchJson, loadUsers]
+  );
+
   const saveConfig = useCallback(async () => {
     if (saving) return;
     setSaving(true);
@@ -1000,6 +1023,7 @@ function SystemPage() {
           onSaveRoleDefinition={saveRoleDefinition}
           onEditPolicy={editPolicy}
           onUpdateUserRoles={updateUserRoles}
+          onUpdateUser={updateUser}
         />
       )}
 
@@ -1041,6 +1065,31 @@ const policyLabel = (input: { name?: string; obj: string; act: string }) =>
 const isDefaultAdmin = (roleName: string, tenant?: string) =>
   roleName === DEFAULT_ADMIN_ROLE && normalizeTenant(tenant) === 'default';
 
+const normalizeAdminPolicies = (records: RolePermission[]): RolePermission[] => {
+  const deduped = records.filter((entry, idx, arr) => idx === arr.findIndex(other => policyKey(other) === policyKey(entry)));
+  const filtered = deduped.filter(
+    entry =>
+      !isDefaultAdmin(entry.role, entry.tenant_id ?? (entry as { tenant?: string }).tenant) ||
+      (entry.obj === DEFAULT_ADMIN_POLICY_OBJ && entry.act === DEFAULT_ADMIN_POLICY_ACT)
+  );
+  const hasCanonicalAdmin = filtered.some(
+    entry =>
+      isDefaultAdmin(entry.role, entry.tenant_id ?? (entry as { tenant?: string }).tenant) &&
+      entry.obj === DEFAULT_ADMIN_POLICY_OBJ &&
+      entry.act === DEFAULT_ADMIN_POLICY_ACT
+  );
+  if (!hasCanonicalAdmin) {
+    filtered.push({
+      role: DEFAULT_ADMIN_ROLE,
+      tenant_id: 'default',
+      name: 'Admin all access',
+      obj: DEFAULT_ADMIN_POLICY_OBJ,
+      act: DEFAULT_ADMIN_POLICY_ACT,
+    });
+  }
+  return filtered;
+};
+
 function AccessPanel({
   users,
   tenants,
@@ -1068,6 +1117,7 @@ function AccessPanel({
   onEditPolicy,
   onUpdateUserRoles,
   onReloadPolicies,
+  onUpdateUser,
 }: {
   users: UserSummary[];
   tenants: TenantRecord[];
@@ -1100,6 +1150,7 @@ function AccessPanel({
     previousRoles: { role: string; tenant: string }[]
   ) => Promise<void>;
   onReloadPolicies: () => void;
+  onUpdateUser: (userId: string, input: { email?: string; status?: string; password?: string }) => Promise<void>;
 }) {
   const [activeSection, setActiveSection] = useState<'users' | 'roles' | 'policies'>('users');
   const [showUserModal, setShowUserModal] = useState(false);
@@ -1120,10 +1171,15 @@ function AccessPanel({
     obj: string;
     act: string;
   } | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{ message: string; onConfirm: () => Promise<void> | void } | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const [userAccessEditor, setUserAccessEditor] = useState<{
     user: UserSummary;
     entries: { role: string; tenant: string }[];
     original: { role: string; tenant: string }[];
+    email: string;
+    status: string;
+    password: string;
   } | null>(null);
   const [savingRoleEditor, setSavingRoleEditor] = useState(false);
   const [savingPolicy, setSavingPolicy] = useState(false);
@@ -1305,8 +1361,15 @@ function AccessPanel({
       role: role.role,
       tenant: normalizeTenant(role.tenant_id ?? (role as { tenant?: string }).tenant),
     }));
-    const nextEntries = entries.length > 0 ? entries : [{ role: '', tenant: 'default' }];
-    setUserAccessEditor({ user, entries: nextEntries, original: entries });
+    const nextEntries = entries.length > 0 ? entries : [];
+    setUserAccessEditor({
+      user,
+      entries: nextEntries,
+      original: entries,
+      email: user.email || '',
+      status: user.status || 'active',
+      password: '',
+    });
   };
 
   const removeRolePolicyDraft = (index: number) => {
@@ -1384,6 +1447,22 @@ function AccessPanel({
     );
     setSavingUserAccess(true);
     try {
+      const updatePayload: { email?: string; status?: string; password?: string } = {};
+      const emailTrimmed = userAccessEditor.email.trim();
+      if (emailTrimmed && emailTrimmed !== userAccessEditor.user.email) {
+        updatePayload.email = emailTrimmed;
+      }
+      const statusTrimmed = userAccessEditor.status.trim();
+      if (statusTrimmed && statusTrimmed !== userAccessEditor.user.status) {
+        updatePayload.status = statusTrimmed;
+      }
+      const passwordTrimmed = userAccessEditor.password.trim();
+      if (passwordTrimmed) {
+        updatePayload.password = passwordTrimmed;
+      }
+      if (Object.keys(updatePayload).length > 0) {
+        await onUpdateUser(userAccessEditor.user.id, updatePayload);
+      }
       await onUpdateUserRoles(userAccessEditor.user.id, deduped, userAccessEditor.original);
       setUserAccessEditor(null);
     } catch (error) {
@@ -1396,24 +1475,25 @@ function AccessPanel({
   const addUserAccessEntry = () => {
     setUserAccessEditor(prev => {
       if (!prev) return prev;
-      return { ...prev, entries: [...prev.entries, { role: '', tenant: '' }] };
+      const roleName = nextAccessRole.trim();
+      if (!roleName) return prev;
+      const tenant = normalizeTenant(prev.entries[0]?.tenant || 'default');
+      const alreadyExists = prev.entries.some(entry => assignmentKey({ role: entry.role, tenant: normalizeTenant(entry.tenant || tenant) }) === assignmentKey({ role: roleName, tenant }));
+      if (alreadyExists) return prev;
+      return { ...prev, entries: [...prev.entries, { role: roleName, tenant }] };
     });
-  };
-
-  const updateUserAccessEntry = (index: number, key: 'role' | 'tenant', value: string) => {
-    setUserAccessEditor(prev => {
-      if (!prev) return prev;
-      const next = [...prev.entries];
-      next[index] = { ...next[index], [key]: value };
-      return { ...prev, entries: next };
-    });
+    setNextAccessRole('');
   };
 
   const removeUserAccessEntry = (index: number) => {
     setUserAccessEditor(prev => {
       if (!prev) return prev;
+       const entry = prev.entries[index];
+       const protectedRole =
+         entry && prev.user && isDefaultAdmin(entry.role, entry.tenant) && prev.user.sub === 'admin';
+       if (protectedRole) return prev;
       const next = prev.entries.filter((_, i) => i !== index);
-      return { ...prev, entries: next.length > 0 ? next : [{ role: '', tenant: '' }] };
+      return { ...prev, entries: next };
     });
   };
 
@@ -1453,6 +1533,7 @@ function AccessPanel({
   const policyCount = policyTemplates.length;
   const [nextPolicyKey, setNextPolicyKey] = useState('');
   const [nextUserRole, setNextUserRole] = useState('');
+  const [nextAccessRole, setNextAccessRole] = useState('');
 
   useEffect(() => {
     setNextPolicyKey('');
@@ -1461,6 +1542,37 @@ function AccessPanel({
   useEffect(() => {
     setNextUserRole('');
   }, [newUser.tenant]);
+
+  useEffect(() => {
+    setNextAccessRole('');
+  }, [userAccessEditor]);
+
+  const openConfirmDialog = (message: string, onConfirm: () => Promise<void> | void) => {
+    setConfirmDialog({ message, onConfirm });
+  };
+
+  const confirmDeleteUser = (userId: string) => {
+    openConfirmDialog('Delete this user? This cannot be undone.', () => onDeleteUser(userId));
+  };
+
+  const confirmDeleteRoleDefinition = (role: RoleDefinition) => {
+    openConfirmDialog('Delete this role and its policies? This cannot be undone.', () => onDeleteRoleDefinition(role));
+  };
+
+  const confirmDeletePolicy = (policy: RolePermission) => {
+    openConfirmDialog('Delete this policy? This cannot be undone.', () => onDeletePolicy(policy));
+  };
+
+  const handleConfirmDialog = async () => {
+    if (!confirmDialog) return;
+    setConfirming(true);
+    try {
+      await confirmDialog.onConfirm();
+    } finally {
+      setConfirming(false);
+      setConfirmDialog(null);
+    }
+  };
 
   const handleRefresh = useCallback(() => {
     if (activeSection === 'policies') {
@@ -1479,6 +1591,7 @@ function AccessPanel({
       : [];
 
   const tenantRoleOptions = useMemo(() => roleOptionsForTenant(newUser.tenant), [newUser.tenant, rolesByTenant]);
+  const accessRoleOptionsForTenant = userAccessEditor ? roleOptionsForTenant(userAccessEditor.entries[0]?.tenant || 'default') : [];
 
   return (
     <div className="access-layout space-y-5 pb-24">
@@ -1604,7 +1717,7 @@ function AccessPanel({
                             type="button"
                             className="access-inline-btn access-inline-btn--danger"
                             title="Delete user"
-                            onClick={() => void onDeleteUser(user.id)}
+                            onClick={() => confirmDeleteUser(user.id)}
                             disabled={loading}
                           >
                             <TrashIcon />
@@ -1683,7 +1796,7 @@ function AccessPanel({
                             type="button"
                             className="access-inline-btn access-inline-btn--danger"
                             title={isDefaultAdmin(role.role, role.tenant) ? 'Protected role' : 'Delete role'}
-                            onClick={() => void onDeleteRoleDefinition(role)}
+                            onClick={() => confirmDeleteRoleDefinition(role)}
                             disabled={isDefaultAdmin(role.role, role.tenant)}
                           >
                             <TrashIcon />
@@ -1748,7 +1861,7 @@ function AccessPanel({
                           type="button"
                           className="access-inline-btn access-inline-btn--danger"
                           title={isDefaultAdmin(policy.role, policy.tenant_id) ? 'Protected policy' : 'Delete policy'}
-                          onClick={() => void onDeletePolicy(policy)}
+                          onClick={() => confirmDeletePolicy(policy)}
                           disabled={isDefaultAdmin(policy.role, policy.tenant_id)}
                         >
                           <TrashIcon />
@@ -1785,6 +1898,29 @@ function AccessPanel({
           <option key={`all-${role}`} value={role} />
         ))}
       </datalist>
+
+      {confirmDialog && (
+        <AccessModal
+          kicker="Confirm"
+          title="Please confirm"
+          subtitle="This action cannot be undone."
+          onClose={() => setConfirmDialog(null)}
+          icon={<TrashIcon />}
+          variant="minimal"
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-[var(--text-primary)]">{confirmDialog.message}</p>
+            <div className="flex items-center justify-end gap-2">
+              <button type="button" className="access-inline-btn" onClick={() => setConfirmDialog(null)} disabled={confirming}>
+                Cancel
+              </button>
+              <button type="button" className="glass-button-danger" onClick={() => void handleConfirmDialog()} disabled={confirming}>
+                {confirming ? 'Working…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </AccessModal>
+      )}
 
       {roleEditor && (
         <AccessModal
@@ -1963,40 +2099,99 @@ function AccessPanel({
           icon={<ShieldIcon />}
         >
           <form className="space-y-3" onSubmit={handleSaveUserAccess}>
-            <div className="space-y-2">
-              {userAccessEditor.entries.map((entry, idx) => (
-                <div key={`user-role-${idx}`} className="grid gap-2 md:grid-cols-[1fr,1fr,auto] items-center">
-                  <input
-                    className="pipelines-input"
-                    list={roleListFor(entry.tenant)}
-                    value={entry.role}
-                    onChange={e => updateUserAccessEntry(idx, 'role', e.target.value)}
-                    placeholder="nopsai-editor"
-                    required
-                  />
-                  <input
-                    className="pipelines-input"
-                    list={tenantDatalistId}
-                    value={entry.tenant}
-                    onChange={e => updateUserAccessEntry(idx, 'tenant', tenantKeyFromInput(e.target.value))}
-                    placeholder="default"
-                  />
-                  <button
-                    type="button"
-                    className="access-icon-btn access-icon-btn--danger md:justify-self-end"
-                    onClick={() => removeUserAccessEntry(idx)}
-                    title="Remove assignment"
-                    disabled={userAccessEditor.entries.length === 1}
-                  >
-                    <TrashIcon />
-                  </button>
-                </div>
-              ))}
+            {userAccessEditor && (
+              <p className="text-[11px] text-[var(--text-secondary)]">
+                Provider: {userAccessEditor.user.provider || 'local'}
+              </p>
+            )}
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="flex flex-col gap-1 text-sm">
+                <span>Email</span>
+                <input
+                  className="pipelines-input"
+                  type="email"
+                  value={userAccessEditor.email}
+                  onChange={e => setUserAccessEditor(prev => (prev ? { ...prev, email: e.target.value } : prev))}
+                  placeholder="name@example.com"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                <span>Status</span>
+                <select
+                  className="pipelines-input"
+                  value={userAccessEditor.status}
+                  onChange={e => setUserAccessEditor(prev => (prev ? { ...prev, status: e.target.value } : prev))}
+                  disabled={userAccessEditor.user.sub === 'admin'}
+                >
+                  <option value="active">Active</option>
+                  <option value="disabled">Disabled</option>
+                </select>
+              </label>
             </div>
-            <div className="flex items-center justify-between">
-              <button type="button" className="glass-button-subtle" onClick={addUserAccessEntry}>
-                Add role
+            <label className="flex flex-col gap-1 text-sm">
+              <span>New password</span>
+              <input
+                className="pipelines-input"
+                type="password"
+                value={userAccessEditor.password}
+                onChange={e => setUserAccessEditor(prev => (prev ? { ...prev, password: e.target.value } : prev))}
+                placeholder="Leave blank to keep current password"
+                disabled={userAccessEditor.user.provider !== 'local'}
+              />
+              <span className="text-[11px] text-[var(--text-secondary)]">Resets password for local accounts.</span>
+            </label>
+            <div className="space-y-2">
+              {userAccessEditor.entries.length === 0 && (
+                <p className="text-[12px] text-[var(--text-secondary)]">No roles assigned yet.</p>
+              )}
+              {userAccessEditor.entries.map((entry, idx) => {
+                const protectedAdmin = isDefaultAdmin(entry.role, entry.tenant) && userAccessEditor.user.sub === 'admin';
+                const label = protectedAdmin ? 'Protected admin role' : 'Remove assignment';
+                return (
+                  <div key={`user-role-${idx}`} className="access-minimal-row justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-[var(--text-primary)]">{entry.role || 'Role'}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className={`access-inline-btn access-inline-btn--danger access-role-remove flex items-center gap-1 ${
+                        protectedAdmin ? 'opacity-60 cursor-not-allowed' : ''
+                      }`}
+                      onClick={() => removeUserAccessEntry(idx)}
+                      title={label}
+                      aria-label={label}
+                      disabled={protectedAdmin}
+                    >
+                      <TrashIcon />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="grid gap-2 sm:grid-cols-[1fr_auto] items-center">
+              <select
+                className="pipelines-input w-full"
+                value={nextAccessRole}
+                onChange={e => setNextAccessRole(e.target.value)}
+              >
+                <option value="">{accessRoleOptionsForTenant.length === 0 ? 'No roles available' : 'Select a role'}</option>
+                {accessRoleOptionsForTenant.map(role => (
+                  <option key={`access-role-${role}`} value={role}>
+                    {role}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="glass-button-subtle flex items-center justify-center gap-1"
+                onClick={addUserAccessEntry}
+                disabled={!nextAccessRole || accessRoleOptionsForTenant.length === 0}
+              >
+                <PlusIcon />
+                <span>Add role</span>
               </button>
+            </div>
+            <div className="flex justify-end">
               <button type="submit" className="glass-button-primary" disabled={savingUserAccess}>
                 {savingUserAccess ? 'Saving…' : 'Save access'}
               </button>

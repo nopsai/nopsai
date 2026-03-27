@@ -1369,6 +1369,7 @@ func (a *App) handleCreateRole(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to create role permission", http.StatusInternalServerError)
 		return
 	}
+	a.reloadAuthz(r.Context())
 	w.WriteHeader(http.StatusCreated)
 }
 
@@ -1421,6 +1422,7 @@ func (a *App) handleDeleteRole(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "role permission not found", http.StatusNotFound)
 		return
 	}
+	a.reloadAuthz(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1456,6 +1458,15 @@ func (a *App) handleListRoles(w http.ResponseWriter, r *http.Request) {
 		perms = append(perms, p)
 	}
 	writeJSON(w, http.StatusOK, perms)
+}
+
+func (a *App) reloadAuthz(ctx context.Context) {
+	if a == nil || a.authz == nil {
+		return
+	}
+	if err := a.authz.LoadPolicies(ctx, a.db); err != nil {
+		log.Error().Err(err).Msg("failed to reload authz policies")
+	}
 }
 func (a *App) encrypt(text string) (string, error) {
 	block, err := aes.NewCipher(a.encKey)
