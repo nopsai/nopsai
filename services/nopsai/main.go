@@ -387,6 +387,40 @@ func isPublicPath(path string) bool {
 	}
 }
 
+func isDispatcherInternalPath(path string) bool {
+	switch {
+	case path == "/v1/run":
+		return true
+	case strings.HasPrefix(path, "/v1/pipelines/"):
+		return true
+	case strings.HasPrefix(path, "/v1/runs/") && strings.HasSuffix(path, "/logs/ingest"):
+		return true
+	case strings.HasPrefix(path, "/v1/runs/") && strings.HasSuffix(path, "/finalize"):
+		return true
+	case strings.HasPrefix(path, "/v1/runs/") && strings.HasSuffix(path, "/status"):
+		return true
+	case strings.HasPrefix(path, "/v1/runs/") && strings.Contains(path, "/steps/") && strings.Contains(path, "/tasks/"):
+		return true
+	default:
+		return false
+	}
+}
+
+func isDispatcherInternalClaims(claims *auth.Claims) bool {
+	if claims == nil {
+		return false
+	}
+	return strings.TrimSpace(claims.Sub) == "dispatcher" && strings.TrimSpace(claims.Provider) == "internal-service"
+}
+
+func isTrustedInternalDispatcherRequest(r *http.Request) bool {
+	if r == nil || !isDispatcherInternalPath(r.URL.Path) {
+		return false
+	}
+	claims, ok := auth.ClaimsFromContext(r.Context())
+	return ok && isDispatcherInternalClaims(claims)
+}
+
 func requestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reqID := r.Header.Get("X-Request-ID")
@@ -503,6 +537,10 @@ func (a *App) tenantMiddleware(next http.Handler) http.Handler {
 			http.Error(w, "missing claims", http.StatusUnauthorized)
 			return
 		}
+		if isTrustedInternalDispatcherRequest(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		tenantHeader := strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
 		if tenantHeader == "" {
 			tenantHeader = claims.DefaultTenant
@@ -559,6 +597,10 @@ func (a *App) authzMiddleware(next http.Handler) http.Handler {
 		claims, ok := auth.ClaimsFromContext(r.Context())
 		if !ok {
 			http.Error(w, "missing claims", http.StatusUnauthorized)
+			return
+		}
+		if isTrustedInternalDispatcherRequest(r) {
+			next.ServeHTTP(w, r)
 			return
 		}
 		tenantID := auth.TenantFromContext(r.Context())
