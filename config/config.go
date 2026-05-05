@@ -4,8 +4,14 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
+)
+
+const (
+	LLMProviderGemini   = "gemini"
+	LLMProviderLMStudio = "lmstudio"
 )
 
 // Config holds all configuration for the application.
@@ -36,8 +42,13 @@ type Config struct {
 	LoginLockoutThreshold    int    `yaml:"login_lockout_threshold" env:"LOGIN_LOCKOUT_THRESHOLD"`
 	LoginLockoutWindowMin    int    `yaml:"login_lockout_window_minutes" env:"LOGIN_LOCKOUT_WINDOW_MINUTES"`
 
-	GeminiAPIKey string `yaml:"gemini_api_key" env:"GEMINI_API_KEY"`
-	GeminiModel  string `yaml:"gemini_model" env:"GEMINI_MODEL"`
+	LLMProvider            string `yaml:"llm_provider" env:"LLM_PROVIDER"`
+	GeminiAPIKey           string `yaml:"gemini_api_key" env:"GEMINI_API_KEY"`
+	GeminiModel            string `yaml:"gemini_model" env:"GEMINI_MODEL"`
+	LMStudioBaseURL        string `yaml:"lmstudio_base_url" env:"LMSTUDIO_BASE_URL"`
+	LMStudioAPIKey         string `yaml:"lmstudio_api_key" env:"LMSTUDIO_API_KEY"`
+	LMStudioModel          string `yaml:"lmstudio_model" env:"LMSTUDIO_MODEL"`
+	LMStudioEnableThinking bool   `yaml:"lmstudio_enable_thinking" env:"LMSTUDIO_ENABLE_THINKING"`
 
 	ConfigRepoURL string `yaml:"config_repo_url" env:"CONFIG_REPO_URL"`
 
@@ -119,5 +130,27 @@ func LoadConfig(path string) (*Config, error) {
 		}
 	}
 
+	if config.LMStudioAPIKey == "" {
+		config.LMStudioAPIKey = os.Getenv("LM_API_TOKEN")
+	}
+	config.LLMProvider = NormalizeLLMProvider(config.LLMProvider)
+
 	return config, nil
+}
+
+func NormalizeLLMProvider(raw string) string {
+	normalized := strings.ToLower(strings.TrimSpace(raw))
+
+	switch normalized {
+	case "", "gemini", "google", "google-gemini":
+		return LLMProviderGemini
+	case "lmstudio", "lm-studio", "openai-compatible", "openai_compatible":
+		return LLMProviderLMStudio
+	default:
+		return normalized
+	}
+}
+
+func (c Config) GetLLMProvider() string {
+	return NormalizeLLMProvider(c.LLMProvider)
 }
