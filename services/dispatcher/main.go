@@ -19,6 +19,7 @@ import (
 
 	"nopsai/config"
 	"nopsai/pkg/proto"
+	nopsaiAuth "nopsai/services/nopsai/pkg/auth"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -52,11 +53,12 @@ type dispatcherServer struct {
 	triggerAssignments map[string]string
 	connSeq            uint64
 
-	nopsaiBase string
-	httpClient *http.Client
+	nopsaiBase          string
+	httpClient          *http.Client
+	internalTokenSigner *nopsaiAuth.LocalJWTService
 }
 
-func newDispatcherServer(routing map[string][]string, nopsaiBase string) *dispatcherServer {
+func newDispatcherServer(routing map[string][]string, nopsaiBase string, internalTokenSigner ...*nopsaiAuth.LocalJWTService) *dispatcherServer {
 	clean := make(map[string][]string, len(routing))
 	for scope, ids := range routing {
 		scopeKey := strings.TrimSpace(scope)
@@ -65,13 +67,37 @@ func newDispatcherServer(routing map[string][]string, nopsaiBase string) *dispat
 		}
 		clean[scopeKey] = ids
 	}
-	return &dispatcherServer{
-		runners:            make(map[string]*runnerConn),
-		routing:            clean,
-		triggerAssignments: make(map[string]string),
-		nopsaiBase:         strings.TrimRight(strings.TrimSpace(nopsaiBase), "/"),
-		httpClient:         &http.Client{Timeout: 15 * time.Second},
+	var signer *nopsaiAuth.LocalJWTService
+	if len(internalTokenSigner) > 0 {
+		signer = internalTokenSigner[0]
 	}
+	return &dispatcherServer{
+		runners:             make(map[string]*runnerConn),
+		routing:             clean,
+		triggerAssignments:  make(map[string]string),
+		nopsaiBase:          strings.TrimRight(strings.TrimSpace(nopsaiBase), "/"),
+		httpClient:          &http.Client{Timeout: 15 * time.Second},
+		internalTokenSigner: signer,
+	}
+}
+
+func (d *dispatcherServer) authorizeInternalRequest(ctx context.Context, req *http.Request) error {
+	if req == nil {
+		return fmt.Errorf("request is nil")
+	}
+	if d.internalTokenSigner == nil {
+		return fmt.Errorf("internal token signer is not configured")
+	}
+
+	token, _, err := d.internalTokenSigner.MintAccessToken(ctx, nopsaiAuth.Claims{
+		Sub:      "dispatcher",
+		Provider: "internal-service",
+	})
+	if err != nil {
+		return fmt.Errorf("mint dispatcher token: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	return nil
 }
 
 func (d *dispatcherServer) nextConnectionID(base string) string {
@@ -330,6 +356,9 @@ func (d *dispatcherServer) IngestLogs(ctx context.Context, batch *proto.LogBatch
 		return nil, status.Errorf(codes.Internal, "build log ingest request: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if err := d.authorizeInternalRequest(ctx, req); err != nil {
+		return nil, status.Errorf(codes.Internal, "authorize log ingest request: %v", err)
+	}
 
 	resp, err := d.httpClient.Do(req)
 	if err != nil {
@@ -366,6 +395,9 @@ func (d *dispatcherServer) ReportTaskStatus(ctx context.Context, req *proto.Task
 		return nil, status.Errorf(codes.Internal, "build task status request: %v", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	if err := d.authorizeInternalRequest(ctx, httpReq); err != nil {
+		return nil, status.Errorf(codes.Internal, "authorize task status request: %v", err)
+	}
 
 	resp, err := d.httpClient.Do(httpReq)
 	if err != nil {
@@ -396,6 +428,9 @@ func (d *dispatcherServer) FinalizeRun(ctx context.Context, req *proto.FinalizeR
 		return nil, status.Errorf(codes.Internal, "build finalize request: %v", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	if err := d.authorizeInternalRequest(ctx, httpReq); err != nil {
+		return nil, status.Errorf(codes.Internal, "authorize finalize request: %v", err)
+	}
 
 	resp, err := d.httpClient.Do(httpReq)
 	if err != nil {
@@ -441,6 +476,9 @@ func (d *dispatcherServer) FetchPipeline(ctx context.Context, req *proto.FetchPi
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "build pipeline request: %v", err)
 	}
+	if err := d.authorizeInternalRequest(ctx, httpReq); err != nil {
+		return nil, status.Errorf(codes.Internal, "authorize pipeline request: %v", err)
+	}
 
 	resp, err := d.httpClient.Do(httpReq)
 	if err != nil {
@@ -470,6 +508,9 @@ func (d *dispatcherServer) TriggerPipeline(ctx context.Context, req *proto.Trigg
 		return nil, status.Errorf(codes.Internal, "build trigger request: %v", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/x-yaml")
+	if err := d.authorizeInternalRequest(ctx, httpReq); err != nil {
+		return nil, status.Errorf(codes.Internal, "authorize trigger request: %v", err)
+	}
 
 	if v := strings.TrimSpace(req.ParentRunId); v != "" {
 		httpReq.Header.Set("X-Nopsai-Parent-Run-ID", v)
@@ -545,6 +586,9 @@ func (d *dispatcherServer) GetRunStatus(ctx context.Context, req *proto.RunStatu
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "build run status request: %v", err)
+	}
+	if err := d.authorizeInternalRequest(ctx, httpReq); err != nil {
+		return nil, status.Errorf(codes.Internal, "authorize run status request: %v", err)
 	}
 
 	resp, err := d.httpClient.Do(httpReq)
@@ -1204,7 +1248,13 @@ func main() {
 		log.Fatal().Msg("Agent Nopsai API URL (agent_nopsai_api_url) must be configured for dispatcher")
 	}
 
-	dispatcher := newDispatcherServer(cfg.DispatcherRouting, nopsaiBase)
+	internalTokenSigner := nopsaiAuth.NewLocalJWTService(
+		[]byte(strings.TrimSpace(cfg.JWTSigningKey)),
+		strings.TrimSpace(cfg.JWTIssuer),
+		strings.TrimSpace(cfg.JWTAudience),
+		5*time.Minute,
+	)
+	dispatcher := newDispatcherServer(cfg.DispatcherRouting, nopsaiBase, internalTokenSigner)
 
 	grpcServer := grpc.NewServer()
 	proto.RegisterDispatcherServiceServer(grpcServer, dispatcher)
