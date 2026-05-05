@@ -19,9 +19,14 @@ log_format: "json" # Options: "console", "json"
 # login_lockout_window_minutes: 15
 # IdleTimeoutMinutes: 60
 
-# # --- LLM Configuration (agents call Gemini directly) ---
+# # --- LLM Configuration (agents call the configured provider directly) ---
+# llm_provider: "gemini" # Supported: "gemini", "lmstudio"
 # gemini_api_key: "AIzaSyCdyZBcvjWrroxGem8l0ER62WNPlg8s7xU"
 # gemini_model: "gemini-2.5-flash"
+# lmstudio_base_url: "http://192.168.1.143:1234"
+# lmstudio_api_key: "paste-your-lm-studio-token-here"
+# lmstudio_model: "" # Optional: leave empty to auto-discover the first loaded model
+# lmstudio_enable_thinking: false
 # config_repo_url: "https://github.com/yourorg/nopsai-config.git"
 # llm_agent_timeout: "30m" # A global default timeout for all LLM requests
 
