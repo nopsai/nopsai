@@ -7,34 +7,65 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
+	"sync"
 
+	appconfig "nopsai/config"
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
 
 	"github.com/rs/zerolog/log"
 )
 
+const (
+	lmStudioVariableValueLimit = 240
+	lmStudioFileContentLimit   = 600
+	lmStudioHistoryLimit       = 1800
+	lmStudioConditionLimit     = 1600
+	lmStudioMaxFiles           = 3
+)
+
 type LLMClient struct {
-	apiKey     string
-	model      string
-	httpClient *http.Client
+	provider       string
+	apiKey         string
+	model          string
+	baseURL        string
+	enableThinking bool
+	httpClient     *http.Client
+
+	modelMu sync.Mutex
 }
 
-func NewLLMClient(apiKey, model string) *LLMClient {
+func NewLLMClient(provider, apiKey, model, baseURL string, enableThinking bool) *LLMClient {
 	return &LLMClient{
-		apiKey:     apiKey,
-		model:      model,
-		httpClient: &http.Client{},
+		provider:       appconfig.NormalizeLLMProvider(provider),
+		apiKey:         strings.TrimSpace(apiKey),
+		model:          strings.TrimSpace(model),
+		baseURL:        strings.TrimSpace(baseURL),
+		enableThinking: enableThinking,
+		httpClient:     &http.Client{},
 	}
 }
 
 func (c *LLMClient) GetAction(ctx context.Context, req *proto.GetActionRequest) (*proto.Action, error) {
 	prompt := c.buildPrompt(req)
 
-	actionModel, err := c.callRealGemini(ctx, prompt)
+	var (
+		actionModel *models.Action
+		err         error
+	)
+
+	switch c.provider {
+	case appconfig.LLMProviderGemini:
+		actionModel, err = c.callGeminiForAction(ctx, prompt)
+	case appconfig.LLMProviderLMStudio:
+		actionModel, err = c.callLMStudioForAction(ctx, prompt)
+	default:
+		err = fmt.Errorf("unsupported llm provider: %s", c.provider)
+	}
 	if err != nil {
-		log.Error().Err(err).Msg("Error calling Gemini for GetAction")
+		log.Error().Err(err).Str("provider", c.provider).Msg("Error calling LLM provider for GetAction")
 		return nil, err
 	}
 
@@ -54,9 +85,21 @@ func (c *LLMClient) GetAction(ctx context.Context, req *proto.GetActionRequest) 
 func (c *LLMClient) EvaluateCondition(ctx context.Context, req *proto.ConditionRequest) (*proto.ConditionResponse, error) {
 	prompt := c.buildConditionPrompt(req)
 
-	result, err := c.callGeminiForBoolean(ctx, prompt)
+	var (
+		result bool
+		err    error
+	)
+
+	switch c.provider {
+	case appconfig.LLMProviderGemini:
+		result, err = c.callGeminiForBoolean(ctx, prompt)
+	case appconfig.LLMProviderLMStudio:
+		result, err = c.callLMStudioForBoolean(ctx, prompt)
+	default:
+		err = fmt.Errorf("unsupported llm provider: %s", c.provider)
+	}
 	if err != nil {
-		log.Error().Err(err).Msg("Error calling Gemini for EvaluateCondition")
+		log.Error().Err(err).Str("provider", c.provider).Msg("Error calling LLM provider for EvaluateCondition")
 		return &proto.ConditionResponse{Result: false}, err
 	}
 
@@ -64,15 +107,14 @@ func (c *LLMClient) EvaluateCondition(ctx context.Context, req *proto.ConditionR
 }
 
 func (c *LLMClient) buildConditionPrompt(req *proto.ConditionRequest) string {
-	var envBuilder strings.Builder
-	envBuilder.WriteString("**Variables:**\n")
-	for key, value := range req.GetVariables() {
-		envBuilder.WriteString(fmt.Sprintf("- %s: %s\n", key, value))
-	}
+	compact := c.provider == appconfig.LLMProviderLMStudio
 
 	history := req.GetHistory()
 	if history == "" {
 		history = "No history yet."
+	}
+	if compact {
+		history = truncateModelContext(history, lmStudioConditionLimit)
 	}
 
 	promptTemplate := `You are a CI/CD automation bot. Your task is to answer a YES/NO question based on the provided context.
@@ -89,9 +131,113 @@ You must only respond with the word "true" or "false" and nothing else.
 ---
 Based on the context, is the answer to the question YES or NO? Respond with only "true" or "false".`
 
-	fullPrompt := fmt.Sprintf(promptTemplate, envBuilder.String(), history, req.GetGoal())
-	log.Debug().Msgf("Condition prompt:\n%s", fullPrompt)
+	fullPrompt := fmt.Sprintf(promptTemplate, buildVariablesSection(req.GetVariables(), compact), history, req.GetGoal())
+	log.Debug().Str("provider", c.provider).Msgf("Condition prompt:\n%s", fullPrompt)
 	return fullPrompt
+}
+
+func (c *LLMClient) buildPrompt(req *proto.GetActionRequest) string {
+	compact := c.provider == appconfig.LLMProviderLMStudio
+
+	history := req.GetHistory()
+	if history == "" {
+		history = "No history yet."
+	}
+	if compact {
+		history = truncateModelContext(history, lmStudioHistoryLimit)
+	}
+
+	promptTemplate := `You are an expert CI/CD automation bot. Your task is to achieve a user's goal by choosing the correct action from a toolkit.
+You must only respond with a single JSON object. Inside this object, there should be a single key "action" which contains the action to perform.
+
+Here are the available actions:
+1. **EXECUTE_COMMAND**: {"action": {"type": "EXECUTE_COMMAND", "command_action": {"command": "your-bash-command-here"}}}
+2. **REPLACE_FILE**: {"action": {"type": "REPLACE_FILE", "file_action": {"path": "./path/to/file.txt", "content": "The full new content of the file."}}}
+3. **RETURN_ANSWER**: {"action": {"type": "RETURN_ANSWER", "answer_action": {"answer": "The answer to the user's question."}}}
+---
+%s
+---
+%s
+---
+**Execution History (Previous Steps):**
+%s
+---
+**Current Goal:**
+"%s"
+---
+Now, choose the single best action from your toolkit and provide the response in the required JSON format.`
+
+	fullPrompt := fmt.Sprintf(
+		promptTemplate,
+		buildVariablesSection(req.GetVariables(), compact),
+		buildDirectoryListingSection(req.GetDirectoryListing(), compact),
+		history,
+		req.GetGoal(),
+	)
+	log.Debug().Str("provider", c.provider).Msgf("Full prompt:\n%s", fullPrompt)
+	return fullPrompt
+}
+
+func buildVariablesSection(variables map[string]string, compact bool) string {
+	var builder strings.Builder
+	builder.WriteString("**Variables:**\n")
+	if len(variables) == 0 {
+		builder.WriteString("No variables provided.\n")
+		return builder.String()
+	}
+
+	keys := make([]string, 0, len(variables))
+	for key := range variables {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		value := variables[key]
+		if compact {
+			value = truncateModelContext(value, lmStudioVariableValueLimit)
+		}
+		builder.WriteString(fmt.Sprintf("- %s: %s\n", key, value))
+	}
+
+	return builder.String()
+}
+
+func buildDirectoryListingSection(directoryListing map[string]string, compact bool) string {
+	var builder strings.Builder
+	builder.WriteString("**Working Directory Contents:**\n")
+	if len(directoryListing) == 0 {
+		builder.WriteString("Directory is empty.\n")
+		return builder.String()
+	}
+
+	names := make([]string, 0, len(directoryListing))
+	for name := range directoryListing {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for idx, name := range names {
+		if compact && idx >= lmStudioMaxFiles {
+			builder.WriteString(fmt.Sprintf("[directory listing truncated: %d additional files omitted]\n", len(names)-idx))
+			break
+		}
+
+		content := directoryListing[name]
+		if compact {
+			content = truncateModelContext(content, lmStudioFileContentLimit)
+		}
+		builder.WriteString(fmt.Sprintf("--- File: %s ---\n%s\n", name, content))
+	}
+
+	return builder.String()
+}
+
+func truncateModelContext(text string, limit int) string {
+	if limit <= 0 || len(text) <= limit {
+		return text
+	}
+	return text[:limit] + "\n...[truncated]..."
 }
 
 func (c *LLMClient) callGeminiForBoolean(ctx context.Context, prompt string) (bool, error) {
@@ -135,59 +281,10 @@ func (c *LLMClient) callGeminiForBoolean(ctx context.Context, prompt string) (bo
 		return false, fmt.Errorf("invalid or empty response from gemini: %s", string(body))
 	}
 
-	responseText := strings.ToLower(strings.TrimSpace(geminiResp.Candidates[0].Content.Parts[0].Text))
-
-	return responseText == "true", nil
+	return parseBooleanText(geminiResp.Candidates[0].Content.Parts[0].Text)
 }
 
-func (c *LLMClient) buildPrompt(req *proto.GetActionRequest) string {
-	var envBuilder strings.Builder
-	envBuilder.WriteString("**Variables:**\n")
-	for key, value := range req.GetVariables() {
-		envBuilder.WriteString(fmt.Sprintf("- %s: %s\n", key, value))
-	}
-
-	var directoryListingBuilder strings.Builder
-	directoryListingBuilder.WriteString("**Working Directory Contents:**\n")
-	if len(req.GetDirectoryListing()) == 0 {
-		directoryListingBuilder.WriteString("Directory is empty.\n")
-	} else {
-		for name, content := range req.GetDirectoryListing() {
-			directoryListingBuilder.WriteString(fmt.Sprintf("--- File: %s ---\n%s\n", name, content))
-		}
-	}
-
-	promptTemplate := `You are an expert CI/CD automation bot. Your task is to achieve a user's goal by choosing the correct action from a toolkit.
-You must only respond with a single JSON object. Inside this object, there should be a single key "action" which contains the action to perform.
-
-Here are the available actions:
-1. **EXECUTE_COMMAND**: {"action": {"type": "EXECUTE_COMMAND", "command_action": {"command": "your-bash-command-here"}}}
-2. **REPLACE_FILE**: {"action": {"type": "REPLACE_FILE", "file_action": {"path": "./path/to/file.txt", "content": "The full new content of the file."}}}
-3. **RETURN_ANSWER**: {"action": {"type": "RETURN_ANSWER", "answer_action": {"answer": "The answer to the user's question."}}}
----
-%s
----
-%s
----
-**Execution History (Previous Steps):**
-%s
----
-**Current Goal:**
-"%s"
----
-Now, choose the single best action from your toolkit and provide the response in the required JSON format.`
-
-	history := req.GetHistory()
-	if history == "" {
-		history = "No history yet."
-	}
-
-	fullPrompt := fmt.Sprintf(promptTemplate, envBuilder.String(), directoryListingBuilder.String(), history, req.GetGoal())
-	log.Debug().Msgf("Full prompt:\n%s", fullPrompt)
-	return fullPrompt
-}
-
-func (c *LLMClient) callRealGemini(ctx context.Context, prompt string) (*models.Action, error) {
+func (c *LLMClient) callGeminiForAction(ctx context.Context, prompt string) (*models.Action, error) {
 	log.Debug().Msg("Calling Gemini API for action selection")
 	geminiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", c.model, c.apiKey)
 
@@ -228,16 +325,242 @@ func (c *LLMClient) callRealGemini(ctx context.Context, prompt string) (*models.
 		return nil, fmt.Errorf("invalid or empty response from gemini: %s", string(body))
 	}
 
-	actionJSON := geminiResp.Candidates[0].Content.Parts[0].Text
-	actionJSON = strings.Trim(actionJSON, " \n\r\t`")
-	actionJSON = strings.TrimPrefix(actionJSON, "json")
+	return decodeActionResponse(geminiResp.Candidates[0].Content.Parts[0].Text)
+}
+
+func (c *LLMClient) callLMStudioForBoolean(ctx context.Context, prompt string) (bool, error) {
+	responseText, err := c.callLMStudio(ctx, prompt)
+	if err != nil {
+		return false, err
+	}
+	return parseBooleanText(responseText)
+}
+
+func (c *LLMClient) callLMStudioForAction(ctx context.Context, prompt string) (*models.Action, error) {
+	responseText, err := c.callLMStudio(ctx, prompt)
+	if err != nil {
+		return nil, err
+	}
+	return decodeActionResponse(responseText)
+}
+
+func (c *LLMClient) callLMStudio(ctx context.Context, prompt string) (string, error) {
+	model, err := c.resolveLMStudioModel(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	log.Debug().Str("model", model).Msg("Calling LM Studio API")
+
+	reqPayload := struct {
+		Model          string `json:"model"`
+		EnableThinking bool   `json:"enable_thinking"`
+		Messages       []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"messages"`
+	}{
+		Model:          model,
+		EnableThinking: c.enableThinking,
+		Messages: []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		}{
+			{
+				Role:    "user",
+				Content: prepareLMStudioPromptForModel(prompt, model, c.enableThinking),
+			},
+		},
+	}
+
+	payloadBytes, err := json.Marshal(reqPayload)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal lm studio request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, buildLMStudioChatCompletionsURL(c.baseURL), bytes.NewBuffer(payloadBytes))
+	if err != nil {
+		return "", fmt.Errorf("failed to build lm studio request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return "", fmt.Errorf("failed to call lm studio api: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("lm studio api returned non-200 status: %s, body: %s", resp.Status, string(body))
+	}
+
+	var lmStudioResp struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(body, &lmStudioResp); err != nil {
+		return "", fmt.Errorf("failed to unmarshal lm studio response: %w", err)
+	}
+	if len(lmStudioResp.Choices) == 0 {
+		return "", fmt.Errorf("invalid or empty response from lm studio: %s", string(body))
+	}
+
+	return lmStudioResp.Choices[0].Message.Content, nil
+}
+
+func (c *LLMClient) resolveLMStudioModel(ctx context.Context) (string, error) {
+	c.modelMu.Lock()
+	configuredModel := strings.TrimSpace(c.model)
+	c.modelMu.Unlock()
+	if configuredModel != "" {
+		return configuredModel, nil
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, buildLMStudioModelsURL(c.baseURL), nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to build lm studio model discovery request: %w", err)
+	}
+	if c.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return "", fmt.Errorf("failed to discover lm studio models: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("lm studio model discovery returned non-200 status: %s, body: %s", resp.Status, string(body))
+	}
+
+	var modelsResp struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &modelsResp); err != nil {
+		return "", fmt.Errorf("failed to unmarshal lm studio models response: %w", err)
+	}
+	if len(modelsResp.Data) == 0 || strings.TrimSpace(modelsResp.Data[0].ID) == "" {
+		return "", fmt.Errorf("lm studio did not return any loaded models")
+	}
+
+	discoveredModel := strings.TrimSpace(modelsResp.Data[0].ID)
+
+	c.modelMu.Lock()
+	if strings.TrimSpace(c.model) == "" {
+		c.model = discoveredModel
+	} else {
+		discoveredModel = strings.TrimSpace(c.model)
+	}
+	c.modelMu.Unlock()
+
+	return discoveredModel, nil
+}
+
+func buildLMStudioChatCompletionsURL(baseURL string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	lower := strings.ToLower(trimmed)
+
+	switch {
+	case strings.HasSuffix(lower, "/v1/chat/completions"):
+		return trimmed
+	case strings.HasSuffix(lower, "/v1"):
+		return trimmed + "/chat/completions"
+	default:
+		return trimmed + "/v1/chat/completions"
+	}
+}
+
+func buildLMStudioModelsURL(baseURL string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	lower := strings.ToLower(trimmed)
+
+	switch {
+	case strings.HasSuffix(lower, "/v1/models"):
+		return trimmed
+	case strings.HasSuffix(lower, "/v1/chat/completions"):
+		return trimmed[:len(trimmed)-len("/chat/completions")] + "/models"
+	case strings.HasSuffix(lower, "/v1"):
+		return trimmed + "/models"
+	default:
+		return trimmed + "/v1/models"
+	}
+}
+
+func cleanModelTextResponse(raw string) string {
+	cleaned := strings.TrimSpace(raw)
+
+	if strings.HasPrefix(cleaned, "```") {
+		cleaned = strings.TrimPrefix(cleaned, "```")
+		cleaned = strings.TrimSpace(cleaned)
+		if len(cleaned) >= 4 && strings.EqualFold(cleaned[:4], "json") {
+			cleaned = strings.TrimSpace(cleaned[4:])
+		}
+		if idx := strings.LastIndex(cleaned, "```"); idx >= 0 {
+			cleaned = cleaned[:idx]
+		}
+	}
+
+	cleaned = strings.TrimSpace(cleaned)
+	if len(cleaned) >= 4 && strings.EqualFold(cleaned[:4], "json") {
+		cleaned = strings.TrimSpace(cleaned[4:])
+	}
+
+	return strings.Trim(cleaned, "` \n\r\t")
+}
+
+func (c *LLMClient) prepareLMStudioPrompt(prompt string) string {
+	c.modelMu.Lock()
+	model := c.model
+	c.modelMu.Unlock()
+	return prepareLMStudioPromptForModel(prompt, model, c.enableThinking)
+}
+
+func prepareLMStudioPromptForModel(prompt, model string, enableThinking bool) string {
+	if enableThinking || !strings.Contains(strings.ToLower(model), "qwen") {
+		return prompt
+	}
+
+	if strings.HasSuffix(strings.TrimSpace(prompt), "/no_think") {
+		return prompt
+	}
+
+	return strings.TrimRight(prompt, "\n") + "\n/no_think"
+}
+
+func decodeActionResponse(raw string) (*models.Action, error) {
+	actionJSON := cleanModelTextResponse(raw)
 
 	var actionWrapper struct {
 		Action models.Action `json:"action"`
 	}
 	if err := json.Unmarshal([]byte(actionJSON), &actionWrapper); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal action from gemini response: %w. Response text: %s", err, actionJSON)
+		return nil, fmt.Errorf("failed to unmarshal action response: %w. Response text: %s", err, actionJSON)
 	}
 
 	return &actionWrapper.Action, nil
+}
+
+func parseBooleanText(raw string) (bool, error) {
+	responseText := strings.ToLower(strings.TrimSpace(cleanModelTextResponse(raw)))
+	responseText = strings.Trim(responseText, "\"'` \n\r\t")
+
+	switch {
+	case strings.HasPrefix(responseText, "true"):
+		return true, nil
+	case strings.HasPrefix(responseText, "false"):
+		return false, nil
+	default:
+		return false, fmt.Errorf("unexpected boolean response: %s", raw)
+	}
 }

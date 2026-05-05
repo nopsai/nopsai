@@ -13,12 +13,14 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
+	appconfig "nopsai/config"
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
 
@@ -655,8 +657,22 @@ func run() int {
 	runID := os.Getenv("RUN_ID")
 	pipelineName := os.Getenv("PIPELINE_NAME")
 	triggerEventID := os.Getenv("GIT_TRIGGER_EVENT_ID")
+	llmProvider := appconfig.NormalizeLLMProvider(os.Getenv("LLM_PROVIDER"))
 	geminiAPIKey := os.Getenv("GEMINI_API_KEY")
 	geminiModel := os.Getenv("GEMINI_MODEL")
+	lmStudioBaseURL := os.Getenv("LMSTUDIO_BASE_URL")
+	lmStudioAPIKey := os.Getenv("LMSTUDIO_API_KEY")
+	if lmStudioAPIKey == "" {
+		lmStudioAPIKey = os.Getenv("LM_API_TOKEN")
+	}
+	lmStudioModel := os.Getenv("LMSTUDIO_MODEL")
+	lmStudioEnableThinking, err := strconv.ParseBool(os.Getenv("LMSTUDIO_ENABLE_THINKING"))
+	if os.Getenv("LMSTUDIO_ENABLE_THINKING") == "" {
+		lmStudioEnableThinking = false
+	} else if err != nil {
+		agentLog(runID, pipelineName).Error().Err(err).Msg("Invalid LMSTUDIO_ENABLE_THINKING value")
+		return 1
+	}
 	pipelineDefBase64 := os.Getenv("PIPELINE_DEFINITION")
 	parentHistoryBase64 := os.Getenv("PARENT_EXECUTION_HISTORY")
 	sharedVolumeName := os.Getenv("SHARED_VOLUME_NAME")
@@ -703,8 +719,20 @@ func run() int {
 		agentLog(runID, pipelineName).Error().Msg("Missing one or more required environment variables")
 		return 1
 	}
-	if geminiAPIKey == "" || geminiModel == "" {
-		agentLog(runID, pipelineName).Error().Msg("Missing GEMINI_API_KEY or GEMINI_MODEL")
+
+	switch llmProvider {
+	case appconfig.LLMProviderGemini:
+		if geminiAPIKey == "" || geminiModel == "" {
+			agentLog(runID, pipelineName).Error().Msg("Missing GEMINI_API_KEY or GEMINI_MODEL for Gemini provider")
+			return 1
+		}
+	case appconfig.LLMProviderLMStudio:
+		if strings.TrimSpace(lmStudioBaseURL) == "" {
+			agentLog(runID, pipelineName).Error().Msg("Missing LMSTUDIO_BASE_URL for LM Studio provider")
+			return 1
+		}
+	default:
+		agentLog(runID, pipelineName).Error().Str("llm_provider", llmProvider).Msg("Unsupported LLM provider")
 		return 1
 	}
 
@@ -736,8 +764,31 @@ func run() int {
 		triggerEventID = "N/A"
 	}
 	agentLog(runID, pipeline.Name).Info().Str("trigger_event_id", triggerEventID).Msg("Pipeline execution starting")
-	agentLog(runID, pipeline.Name).Info().Str("gemini_model", geminiModel).Msg("Agent starting with embedded LLM client")
-	llmClient := NewLLMClient(geminiAPIKey, geminiModel)
+	startupLog := agentLog(runID, pipeline.Name).Info().Str("llm_provider", llmProvider)
+	switch llmProvider {
+	case appconfig.LLMProviderGemini:
+		startupLog.Str("llm_model", geminiModel).Msg("Agent starting with embedded LLM client")
+	case appconfig.LLMProviderLMStudio:
+		logEvent := startupLog.Str("lmstudio_base_url", lmStudioBaseURL)
+		if strings.TrimSpace(lmStudioModel) != "" {
+			logEvent = logEvent.Str("llm_model", lmStudioModel)
+		} else {
+			logEvent = logEvent.Str("llm_model", "auto-discover")
+		}
+		logEvent = logEvent.Bool("enable_thinking", lmStudioEnableThinking)
+		logEvent.Msg("Agent starting with embedded LLM client")
+	}
+	llmModel := geminiModel
+	llmAPIKey := geminiAPIKey
+	llmBaseURL := ""
+	llmEnableThinking := false
+	if llmProvider == appconfig.LLMProviderLMStudio {
+		llmModel = lmStudioModel
+		llmAPIKey = lmStudioAPIKey
+		llmBaseURL = lmStudioBaseURL
+		llmEnableThinking = lmStudioEnableThinking
+	}
+	llmClient := NewLLMClient(llmProvider, llmAPIKey, llmModel, llmBaseURL, llmEnableThinking)
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {

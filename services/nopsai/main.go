@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/mail"
@@ -277,6 +278,32 @@ func (a *App) getLLMAgentTimeout() string {
 	a.cfgMu.RLock()
 	defer a.cfgMu.RUnlock()
 	return strings.TrimSpace(a.cfg.LLMAgentTimeout)
+}
+
+func containerReachableLMStudioBaseURL(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return trimmed
+	}
+
+	host := parsed.Hostname()
+	if !strings.EqualFold(host, "localhost") && host != "127.0.0.1" && host != "::1" {
+		return trimmed
+	}
+
+	port := parsed.Port()
+	if port != "" {
+		parsed.Host = net.JoinHostPort("host.docker.internal", port)
+	} else {
+		parsed.Host = "host.docker.internal"
+	}
+
+	return parsed.String()
 }
 
 func (a *App) setConfigSyncStatus(status ConfigSyncStatus) {
@@ -6342,6 +6369,7 @@ func (a *App) handleGetRunByCheckID(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID string, pipeline models.Pipeline, pipelineDef []byte, timeout time.Duration, gitContext map[string]string, parentHistory string, scope string, overrides map[string]string) {
 	ctx := context.Background()
+	cfg := a.getConfigSnapshot()
 
 	secrets, err := a.prepareSecretsForPipeline(pipeline, gitContext, scope)
 	if err != nil {
@@ -6363,8 +6391,30 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 		return
 	}
 
-	if strings.TrimSpace(a.cfg.GeminiAPIKey) == "" || strings.TrimSpace(a.cfg.GeminiModel) == "" {
-		reason := "Gemini configuration missing (GEMINI_API_KEY / GEMINI_MODEL)"
+	llmProvider := cfg.GetLLMProvider()
+	switch llmProvider {
+	case config.LLMProviderGemini:
+		if strings.TrimSpace(cfg.GeminiAPIKey) == "" || strings.TrimSpace(cfg.GeminiModel) == "" {
+			reason := "Gemini configuration missing (GEMINI_API_KEY / GEMINI_MODEL)"
+			log.Error().Str("run_id", runID).Msg(reason)
+			a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", reason, runID)
+			if gitContext["repo_owner"] != "" {
+				a.notifyGitBotOfFinalStatus("failure", "", "", reason, gitContext)
+			}
+			return
+		}
+	case config.LLMProviderLMStudio:
+		if strings.TrimSpace(cfg.LMStudioBaseURL) == "" {
+			reason := "LM Studio configuration missing (LMSTUDIO_BASE_URL)"
+			log.Error().Str("run_id", runID).Msg(reason)
+			a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", reason, runID)
+			if gitContext["repo_owner"] != "" {
+				a.notifyGitBotOfFinalStatus("failure", "", "", reason, gitContext)
+			}
+			return
+		}
+	default:
+		reason := fmt.Sprintf("Unsupported LLM provider: %s", llmProvider)
 		log.Error().Str("run_id", runID).Msg(reason)
 		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", reason, runID)
 		if gitContext["repo_owner"] != "" {
@@ -6401,16 +6451,23 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 		fmt.Sprintf("RUN_ID=%s", runID),
 		fmt.Sprintf("PIPELINE_NAME=%s", pipeline.Name),
 		fmt.Sprintf("PIPELINE_VERSION=%s", pipeline.Version),
-		fmt.Sprintf("GEMINI_API_KEY=%s", a.cfg.GeminiAPIKey),
-		fmt.Sprintf("GEMINI_MODEL=%s", a.cfg.GeminiModel),
-		fmt.Sprintf("NOPSAI_API_URL=%s", a.cfg.AgentNopsaiAPIURL),
-		fmt.Sprintf("LOG_LEVEL=%s", a.cfg.LogLevel),
-		fmt.Sprintf("LOG_FORMAT=%s", a.cfg.LogFormat),
+		fmt.Sprintf("LLM_PROVIDER=%s", llmProvider),
+		fmt.Sprintf("GEMINI_API_KEY=%s", cfg.GeminiAPIKey),
+		fmt.Sprintf("GEMINI_MODEL=%s", cfg.GeminiModel),
+		fmt.Sprintf("LMSTUDIO_BASE_URL=%s", containerReachableLMStudioBaseURL(cfg.LMStudioBaseURL)),
+		fmt.Sprintf("LMSTUDIO_MODEL=%s", cfg.LMStudioModel),
+		fmt.Sprintf("LMSTUDIO_ENABLE_THINKING=%t", cfg.LMStudioEnableThinking),
+		fmt.Sprintf("NOPSAI_API_URL=%s", cfg.AgentNopsaiAPIURL),
+		fmt.Sprintf("LOG_LEVEL=%s", cfg.LogLevel),
+		fmt.Sprintf("LOG_FORMAT=%s", cfg.LogFormat),
 		fmt.Sprintf("PIPELINE_DEFINITION=%s", base64.StdEncoding.EncodeToString(pipelineDef)),
 		fmt.Sprintf("SHARED_VOLUME_NAME=%s", sharedVolumeName),
 		fmt.Sprintf("DOCKER_NETWORK_NAME=%s", a.getDockerNetworkName()),
 		fmt.Sprintf("NOPSAI_SECRETS=%s", base64.StdEncoding.EncodeToString(secretsJSON)),
 		fmt.Sprintf("DISPATCHER_ADDRESS=%s", dispatcherAddr),
+	}
+	if strings.TrimSpace(cfg.LMStudioAPIKey) != "" {
+		envVars = append(envVars, fmt.Sprintf("LMSTUDIO_API_KEY=%s", cfg.LMStudioAPIKey))
 	}
 	if timeout > 0 {
 		envVars = append(envVars, fmt.Sprintf("PIPELINE_TIMEOUT=%s", timeout.String()))
