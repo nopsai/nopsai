@@ -23,6 +23,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"nopsai/config"
+	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
 )
@@ -775,7 +776,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	contentType := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type")))
 	var payload runRequestPayload
 	if strings.Contains(contentType, "application/json") {
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil && !errors.Is(err, io.EOF) {
+		if err := httpapi.DecodeOptionalJSON(r, &payload); err != nil {
 			http.Error(w, "Invalid JSON payload for run request", http.StatusBadRequest)
 			return
 		}
@@ -828,8 +829,13 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 			var pipelineDefStr string
 			err = a.db.QueryRow(context.Background(), "SELECT definition FROM pipelines WHERE path = $1 AND name = $2", pathPart, namePart).Scan(&pipelineDefStr)
 			if err != nil {
-				log.Error().Err(err).Str("pipeline", pipelineNameFromPath).Msg("Pipeline not found in database")
-				http.Error(w, "Pipeline not found", http.StatusNotFound)
+				if errors.Is(err, pgx.ErrNoRows) {
+					log.Info().Str("pipeline", pipelineNameFromPath).Msg("Pipeline not found in database")
+					http.Error(w, "Pipeline not found", http.StatusNotFound)
+					return
+				}
+				log.Error().Err(err).Str("pipeline", pipelineNameFromPath).Msg("Failed to load pipeline definition from database")
+				http.Error(w, "Failed to load pipeline", http.StatusInternalServerError)
 				return
 			}
 			pipelineDef = []byte(pipelineDefStr)
@@ -1476,7 +1482,7 @@ func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 	taskName := r.PathValue("taskName")
 
 	var update StepStatusUpdate
-	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
+	if err := httpapi.DecodeJSON(r, &update); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -1564,7 +1570,7 @@ func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleFinalizeRun(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("runID")
 	var req FinalizeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpapi.DecodeJSON(r, &req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -1918,7 +1924,7 @@ func (a *App) handleIngestLogs(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		Lines []string `json:"lines"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+	if err := httpapi.DecodeJSON(r, &payload); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}

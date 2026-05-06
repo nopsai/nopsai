@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"nopsai/config"
+	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
 
@@ -298,6 +299,16 @@ func containerReachableLMStudioBaseURL(raw string) string {
 func (a *App) setConfigSyncStatus(status ConfigSyncStatus) {
 	a.configSyncMu.Lock()
 	defer a.configSyncMu.Unlock()
+	a.configSyncStatus = cloneConfigSyncStatus(status)
+}
+
+func (a *App) getConfigSyncStatus() ConfigSyncStatus {
+	a.configSyncMu.Lock()
+	defer a.configSyncMu.Unlock()
+	return cloneConfigSyncStatus(a.configSyncStatus)
+}
+
+func cloneConfigSyncStatus(status ConfigSyncStatus) ConfigSyncStatus {
 	statusCopy := status
 	if status.Details != nil {
 		detailsCopy := make(map[string]int, len(status.Details))
@@ -306,25 +317,32 @@ func (a *App) setConfigSyncStatus(status ConfigSyncStatus) {
 		}
 		statusCopy.Details = detailsCopy
 	}
-	a.configSyncStatus = statusCopy
-}
-
-func (a *App) getConfigSyncStatus() ConfigSyncStatus {
-	a.configSyncMu.Lock()
-	defer a.configSyncMu.Unlock()
-	statusCopy := a.configSyncStatus
-	if statusCopy.Details != nil {
-		detailsCopy := make(map[string]int, len(statusCopy.Details))
-		for k, v := range statusCopy.Details {
-			detailsCopy[k] = v
-		}
-		statusCopy.Details = detailsCopy
+	if status.StartedAt != nil {
+		startedAt := *status.StartedAt
+		statusCopy.StartedAt = &startedAt
+	}
+	if status.CompletedAt != nil {
+		completedAt := *status.CompletedAt
+		statusCopy.CompletedAt = &completedAt
 	}
 	return statusCopy
 }
 
-func (a *App) isConfigSyncRunning() bool {
-	return strings.EqualFold(a.getConfigSyncStatus().Status, "running")
+func (a *App) startConfigSync(startedAt time.Time) (ConfigSyncStatus, bool) {
+	a.configSyncMu.Lock()
+	defer a.configSyncMu.Unlock()
+
+	if strings.EqualFold(a.configSyncStatus.Status, "running") {
+		return cloneConfigSyncStatus(a.configSyncStatus), false
+	}
+
+	status := ConfigSyncStatus{
+		Status:    "running",
+		Message:   "Configuration synchronization started.",
+		StartedAt: &startedAt,
+	}
+	a.configSyncStatus = cloneConfigSyncStatus(status)
+	return cloneConfigSyncStatus(a.configSyncStatus), true
 }
 
 // This new helper function fetches and builds a RunListItem for a given run ID.
@@ -905,7 +923,7 @@ func (a *App) handleGetSystemConfig(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleUpdateSystemConfig(w http.ResponseWriter, r *http.Request) {
 	var payload systemConfigPayload
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+	if err := httpapi.DecodeJSON(r, &payload); err != nil {
 		http.Error(w, "Invalid request payload", http.StatusBadRequest)
 		return
 	}
@@ -985,7 +1003,7 @@ func (a *App) handleUpdateRunnerDispatch(w http.ResponseWriter, r *http.Request)
 		AllowDispatch *bool  `json:"allow_dispatch"`
 		ConnectionID  string `json:"connection_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+	if err := httpapi.DecodeJSON(r, &payload); err != nil {
 		http.Error(w, "Invalid request payload", http.StatusBadRequest)
 		return
 	}
@@ -1076,21 +1094,16 @@ func (a *App) handleConfigSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if a.isConfigSyncRunning() {
+	startedAt := time.Now()
+	status, started := a.startConfigSync(startedAt)
+	if !started {
 		http.Error(w, "A configuration sync is already in progress", http.StatusConflict)
 		return
 	}
 
-	startedAt := time.Now()
-	a.setConfigSyncStatus(ConfigSyncStatus{
-		Status:    "running",
-		Message:   "Configuration synchronization started.",
-		StartedAt: &startedAt,
-	})
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	if err := json.NewEncoder(w).Encode(a.getConfigSyncStatus()); err != nil {
+	if err := json.NewEncoder(w).Encode(status); err != nil {
 		log.Warn().Err(err).Msg("Failed to encode config sync response")
 	}
 
@@ -2064,7 +2077,7 @@ func parseGitHubRepoURL(raw string) (string, string, error) {
 
 func (a *App) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 	var group Group
-	if err := json.NewDecoder(r.Body).Decode(&group); err != nil {
+	if err := httpapi.DecodeJSON(r, &group); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -2164,7 +2177,7 @@ func (a *App) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var group Group
-	if err := json.NewDecoder(r.Body).Decode(&group); err != nil {
+	if err := httpapi.DecodeJSON(r, &group); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -2195,7 +2208,7 @@ func (a *App) handleMoveGroup(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		ParentID *int `json:"parent_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+	if err := httpapi.DecodeJSON(r, &payload); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
