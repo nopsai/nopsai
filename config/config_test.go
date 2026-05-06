@@ -23,3 +23,26 @@ func TestNormalizeLLMProvider(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeLMStudioReasoning(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "empty preserved", raw: "", want: ""},
+		{name: "off preserved", raw: "off", want: "off"},
+		{name: "bool false alias", raw: "false", want: "off"},
+		{name: "bool true alias", raw: "true", want: "on"},
+		{name: "mixed case normalized", raw: "Medium", want: "medium"},
+		{name: "unknown passes through normalized", raw: "Custom", want: "custom"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := NormalizeLMStudioReasoning(tt.raw); got != tt.want {
+				t.Fatalf("NormalizeLMStudioReasoning(%q) = %q, want %q", tt.raw, got, tt.want)
+			}
+		})
+	}
+}
