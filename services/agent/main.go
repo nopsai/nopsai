@@ -608,11 +608,36 @@ func monitorPipeline(logger *zerolog.Logger, runID string) (string, error) {
 
 			status := resp.GetStatus()
 			childLogger.Info().Str("status", status).Msg("Polling child pipeline status")
-			if status == "success" || status == "failure" {
+			if status == "success" || status == "failure" || status == "cancelled" {
 				return status, nil
 			}
 		case <-ctx.Done():
 			return "failure", fmt.Errorf("timed out waiting for child pipeline %s to complete", runID)
+		}
+	}
+}
+
+func watchRunCancellation(pipelineName, runID string, onCancel func()) {
+	if dispatcherClient == nil || strings.TrimSpace(runID) == "" || onCancel == nil {
+		return
+	}
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		reqCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		resp, err := dispatcherClient.GetRunStatus(reqCtx, &proto.RunStatusRequest{RunId: runID})
+		cancel()
+		if err != nil {
+			agentLog(runID, pipelineName).Warn().Err(err).Msg("Failed to poll run status for cancellation")
+			continue
+		}
+
+		if strings.EqualFold(strings.TrimSpace(resp.GetStatus()), "cancelled") {
+			agentLog(runID, pipelineName).Warn().Msg("Run was cancelled. Cleaning up and exiting")
+			onCancel()
+			return
 		}
 	}
 }
@@ -886,6 +911,12 @@ func run() int {
 		os.Exit(0)
 	}()
 
+	go watchRunCancellation(pipeline.Name, runID, func() {
+		cancelActiveTasks("run_cancelled")
+		cleanupStepContainers("run_cancelled")
+		os.Exit(0)
+	})
+
 	var timeoutCtx context.Context
 	var timeoutCancel context.CancelFunc
 	var timeoutTriggered atomic.Bool
@@ -1081,7 +1112,7 @@ func run() int {
 						}
 						taskLogger.Info().Str("child_run_id", childRunID).Str("status", finalStatus).Msg("Child pipeline finished")
 						finalizeTask(stepName, stepName, finalStatus, 0, llmDurationMs)
-						if finalStatus == "failure" && step.GetSync() {
+						if finalStatus != "success" && step.GetSync() {
 							pipelineFailed = true
 						}
 					}

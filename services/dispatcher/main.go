@@ -117,6 +117,16 @@ func (d *dispatcherServer) SubmitJob(ctx context.Context, job *proto.JobRequest)
 	job.Scope = strings.TrimSpace(job.Scope)
 	resp := &proto.SubmitJobResponse{RunId: job.RunId}
 
+	runStatus, err := d.fetchRunStatusValue(ctx, job.RunId)
+	if err != nil {
+		log.Warn().Err(err).Str("run_id", job.RunId).Msg("Failed to verify run status before dispatch")
+	} else if !runStatusAllowsDispatch(runStatus) {
+		resp.State = proto.JobState_JOB_STATE_REJECTED
+		resp.Message = fmt.Sprintf("run status %q is terminal", runStatus)
+		log.Info().Str("run_id", job.RunId).Str("status", runStatus).Msg("Rejecting job submission for terminal run")
+		return resp, nil
+	}
+
 	runnerID := d.dispatch(job)
 	if runnerID != "" {
 		resp.State = proto.JobState_JOB_STATE_ASSIGNED
@@ -578,36 +588,12 @@ func (d *dispatcherServer) GetRunStatus(ctx context.Context, req *proto.RunStatu
 	if req == nil || strings.TrimSpace(req.RunId) == "" {
 		return nil, status.Error(codes.InvalidArgument, "run_id is required")
 	}
-	if err := d.requireNopsaiBase(); err != nil {
+	statusText, err := d.fetchRunStatusValue(ctx, req.RunId)
+	if err != nil {
 		return nil, err
 	}
 
-	target := fmt.Sprintf("%s/v1/runs/%s/status", d.nopsaiBase, strings.TrimSpace(req.RunId))
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "build run status request: %v", err)
-	}
-	if err := d.authorizeInternalRequest(ctx, httpReq); err != nil {
-		return nil, status.Errorf(codes.Internal, "authorize run status request: %v", err)
-	}
-
-	resp, err := d.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, status.Errorf(codes.Unavailable, "fetch run status: %v", err)
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, status.Errorf(codes.FailedPrecondition, "nopsai run status returned %d: %s", resp.StatusCode, string(body))
-	}
-
-	var statusResp map[string]string
-	if err := json.Unmarshal(body, &statusResp); err != nil {
-		return nil, status.Errorf(codes.Internal, "decode run status response: %v", err)
-	}
-
-	return &proto.RunStatusResponse{Status: statusResp["status"]}, nil
+	return &proto.RunStatusResponse{Status: statusText}, nil
 }
 
 func (d *dispatcherServer) handleHeartbeat(connectionID string, hb *proto.RunnerHeartbeat) {
@@ -934,6 +920,16 @@ func (d *dispatcherServer) pumpQueue() {
 		triggerID    string
 	}
 	for _, job := range d.queue {
+		dispatchCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		runStatus, err := d.fetchRunStatusValue(dispatchCtx, job.RunId)
+		cancel()
+		if err != nil {
+			log.Warn().Err(err).Str("run_id", job.RunId).Msg("Failed to verify queued run status before dispatch")
+		} else if !runStatusAllowsDispatch(runStatus) {
+			log.Info().Str("run_id", job.RunId).Str("status", runStatus).Msg("Dropping queued job for terminal run")
+			continue
+		}
+
 		runner := d.pickRunnerForJobLocked(job)
 		if runner == nil {
 			remaining = append(remaining, job)
@@ -1114,6 +1110,50 @@ func (d *dispatcherServer) requireNopsaiBase() error {
 		return status.Error(codes.FailedPrecondition, "nopsai api url is not configured on dispatcher")
 	}
 	return nil
+}
+
+func runStatusAllowsDispatch(statusText string) bool {
+	switch strings.ToLower(strings.TrimSpace(statusText)) {
+	case "", "pending", "running":
+		return true
+	case "success", "failure", "cancelled", "timed_out":
+		return false
+	default:
+		return true
+	}
+}
+
+func (d *dispatcherServer) fetchRunStatusValue(ctx context.Context, runID string) (string, error) {
+	if err := d.requireNopsaiBase(); err != nil {
+		return "", err
+	}
+
+	target := fmt.Sprintf("%s/v1/runs/%s/status", d.nopsaiBase, strings.TrimSpace(runID))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return "", status.Errorf(codes.Internal, "build run status request: %v", err)
+	}
+	if err := d.authorizeInternalRequest(ctx, httpReq); err != nil {
+		return "", status.Errorf(codes.Internal, "authorize run status request: %v", err)
+	}
+
+	resp, err := d.httpClient.Do(httpReq)
+	if err != nil {
+		return "", status.Errorf(codes.Unavailable, "fetch run status: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", status.Errorf(codes.FailedPrecondition, "nopsai run status returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var statusResp map[string]string
+	if err := json.Unmarshal(body, &statusResp); err != nil {
+		return "", status.Errorf(codes.Internal, "decode run status response: %v", err)
+	}
+
+	return statusResp["status"], nil
 }
 
 func (d *dispatcherServer) prepareJobForRunner(job *proto.JobRequest, runner *runnerConn) *proto.JobRequest {

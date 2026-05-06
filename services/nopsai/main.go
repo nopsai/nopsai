@@ -3978,10 +3978,30 @@ func sanitizeInput(name string) string {
 
 func isTerminalRunStatus(status string) bool {
 	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "success", "failure", "cancelled", "failure (ignored)":
+	case "success", "failure", "cancelled", "timed_out", "failure (ignored)":
 		return true
 	default:
 		return false
+	}
+}
+
+func isCompletedRunStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "success", "failure", "timed_out":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeFinalizeRunStatus(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "success":
+		return "success"
+	case "cancelled":
+		return "cancelled"
+	default:
+		return "failure"
 	}
 }
 
@@ -5901,6 +5921,103 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+var errRunAlreadyCompleted = errors.New("run has already completed")
+
+func (a *App) cancelRunHierarchy(ctx context.Context, runUUID uuid.UUID, reason, childReason string) error {
+	_, err := a.markRunCancelled(ctx, runUUID, reason)
+	if err != nil && !errors.Is(err, errRunAlreadyCompleted) {
+		return err
+	}
+	if errors.Is(err, errRunAlreadyCompleted) {
+		return err
+	}
+
+	rows, queryErr := a.db.Query(ctx, "SELECT run_id FROM pipeline_runs WHERE parent_run_id = $1", runUUID)
+	if queryErr != nil {
+		return queryErr
+	}
+	defer rows.Close()
+
+	var childRunIDs []uuid.UUID
+	for rows.Next() {
+		var childRunID uuid.UUID
+		if scanErr := rows.Scan(&childRunID); scanErr != nil {
+			return scanErr
+		}
+		childRunIDs = append(childRunIDs, childRunID)
+	}
+	if rows.Err() != nil {
+		return rows.Err()
+	}
+
+	for _, childRunID := range childRunIDs {
+		if childErr := a.cancelRunHierarchy(ctx, childRunID, childReason, childReason); childErr != nil && !errors.Is(childErr, errRunAlreadyCompleted) {
+			return childErr
+		}
+	}
+
+	return nil
+}
+
+func (a *App) markRunCancelled(ctx context.Context, runUUID uuid.UUID, reason string) (bool, error) {
+	var status string
+	var repoName, repoOwner, commitSHA sql.NullString
+	var checkRunID sql.NullInt64
+
+	err := a.db.QueryRow(ctx, `
+		SELECT status, git_repo_name, git_repo_owner, git_commit_sha, git_check_run_id
+		FROM pipeline_runs
+		WHERE run_id = $1`, runUUID).Scan(&status, &repoName, &repoOwner, &commitSHA, &checkRunID)
+	if err != nil {
+		return false, err
+	}
+
+	statusLower := strings.ToLower(strings.TrimSpace(status))
+	if isCompletedRunStatus(statusLower) {
+		return false, errRunAlreadyCompleted
+	}
+
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+
+	changed := statusLower != "cancelled"
+	if changed {
+		if _, err := tx.Exec(ctx, "UPDATE pipeline_runs SET status = 'cancelled', finished_at = COALESCE(finished_at, NOW()) WHERE run_id = $1", runUUID); err != nil {
+			return false, err
+		}
+		if _, err := tx.Exec(ctx, "INSERT INTO pipeline_run_logs (run_id, line) VALUES ($1, $2)", runUUID, reason); err != nil {
+			log.Warn().Err(err).Str("run_id", runUUID.String()).Msg("Failed to record cancellation log line")
+		}
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE task_runs
+		SET status = 'cancelled', finished_at = COALESCE(finished_at, NOW())
+		WHERE run_id = $1
+		  AND status NOT IN ('success', 'failure', 'failure (ignored)', 'skipped', 'cancelled')`, runUUID); err != nil {
+		return false, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+
+	if changed && checkRunID.Valid {
+		gitContext := map[string]string{
+			"repo_owner":   repoOwner.String,
+			"repo_name":    repoName.String,
+			"commit_sha":   commitSHA.String,
+			"check_run_id": strconv.FormatInt(checkRunID.Int64, 10),
+		}
+		a.notifyGitBotOfFinalStatus("cancelled", "", "", reason, gitContext)
+	}
+
+	return changed, nil
+}
+
 func (a *App) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
@@ -5914,48 +6031,17 @@ func (a *App) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var status string
-	var pipelineName, repoName, triggerEventID, repoOwner, commitSHA sql.NullString
-	var checkRunID sql.NullInt64
-
-	err = a.db.QueryRow(context.Background(), `
-		SELECT status, pipeline_name, git_repo_name, trigger_event_id, git_repo_owner, git_commit_sha, git_check_run_id
-		FROM pipeline_runs
-		WHERE run_id = $1`, runUUID).Scan(&status, &pipelineName, &repoName, &triggerEventID, &repoOwner, &commitSHA, &checkRunID)
-	if err == pgx.ErrNoRows {
-		http.Error(w, "Pipeline run not found", http.StatusNotFound)
-		return
-	}
-	if err != nil {
-		log.Error().Err(err).Str("run_id", runUUID.String()).Msg("Failed to load run for cancellation")
-		http.Error(w, "Failed to cancel run", http.StatusInternalServerError)
-		return
-	}
-
-	statusLower := strings.ToLower(strings.TrimSpace(status))
-	if statusLower == "success" || statusLower == "failure" || statusLower == "cancelled" {
-		http.Error(w, "Run has already completed", http.StatusBadRequest)
-		return
-	}
-
-	if _, err := a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'cancelled', finished_at = NOW() WHERE run_id = $1", runUUID); err != nil {
-		log.Error().Err(err).Str("run_id", runUUID.String()).Msg("Failed to mark run as cancelled")
-		http.Error(w, "Failed to cancel run", http.StatusInternalServerError)
-		return
-	}
-
-	if _, err := a.db.Exec(context.Background(), "INSERT INTO pipeline_run_logs (run_id, line) VALUES ($1, $2)", runUUID, "Run cancelled by user."); err != nil {
-		log.Warn().Err(err).Str("run_id", runUUID.String()).Msg("Failed to record cancellation log line")
-	}
-
-	if checkRunID.Valid {
-		gitContext := map[string]string{
-			"repo_owner":   repoOwner.String,
-			"repo_name":    repoName.String,
-			"commit_sha":   commitSHA.String,
-			"check_run_id": strconv.FormatInt(checkRunID.Int64, 10),
+	if err := a.cancelRunHierarchy(context.Background(), runUUID, "Run cancelled by user.", "Run cancelled because parent run was cancelled."); err != nil {
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			http.Error(w, "Pipeline run not found", http.StatusNotFound)
+		case errors.Is(err, errRunAlreadyCompleted):
+			http.Error(w, "Run has already completed", http.StatusBadRequest)
+		default:
+			log.Error().Err(err).Str("run_id", runUUID.String()).Msg("Failed to cancel run")
+			http.Error(w, "Failed to cancel run", http.StatusInternalServerError)
 		}
-		a.notifyGitBotOfFinalStatus("cancelled", "", "", "Run cancelled by user.", gitContext)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -6056,6 +6142,41 @@ func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 	var update StepStatusUpdate
 	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	var runStatus string
+	if err := a.db.QueryRow(context.Background(), "SELECT status FROM pipeline_runs WHERE run_id = $1", runID).Scan(&runStatus); err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to load run status for task update")
+		http.Error(w, "Failed to update task status", http.StatusInternalServerError)
+		return
+	}
+
+	runStatus = strings.ToLower(strings.TrimSpace(runStatus))
+	if isTerminalRunStatus(runStatus) {
+		if runStatus == "cancelled" && strings.EqualFold(update.Status, "cancelled") {
+			query := `
+				UPDATE task_runs
+				SET status = 'cancelled', finished_at = COALESCE(finished_at, NOW())
+				WHERE run_id = $1 AND step_name = $2 AND task_name = $3
+				  AND status NOT IN ('success', 'failure', 'failure (ignored)', 'skipped', 'cancelled')`
+			if _, err := a.db.Exec(context.Background(), query, runID, stepName, taskName); err != nil {
+				log.Error().Err(err).Str("run_id", runID).Str("step", stepName).Str("task", taskName).Msg("Failed to preserve cancelled task status")
+				http.Error(w, "Failed to update task status", http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		log.Info().
+			Str("run_id", runID).
+			Str("step", stepName).
+			Str("task", taskName).
+			Str("status", update.Status).
+			Str("run_status", runStatus).
+			Msg("Ignoring late task status update for terminal run")
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 
@@ -6444,10 +6565,28 @@ func (a *App) handleFinalizeRun(w http.ResponseWriter, r *http.Request) {
 
 	log.Info().Str("run_id", runID).Str("status", req.Status).Msg("Received final status from agent")
 
-	finalStatus := req.Status
+	var currentStatus string
+	if err := a.db.QueryRow(context.Background(), "SELECT status FROM pipeline_runs WHERE run_id = $1", runID).Scan(&currentStatus); err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to load run before finalization")
+		http.Error(w, "Run not found", http.StatusNotFound)
+		return
+	}
+
+	currentStatus = strings.ToLower(strings.TrimSpace(currentStatus))
+	if currentStatus == "cancelled" {
+		log.Info().Str("run_id", runID).Str("status", req.Status).Msg("Ignoring final status because run is already cancelled")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if isTerminalRunStatus(currentStatus) {
+		log.Info().Str("run_id", runID).Str("status", req.Status).Str("current_status", currentStatus).Msg("Ignoring final status for completed run")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	finalStatus := normalizeFinalizeRunStatus(req.Status)
 	var failedStep, failedTask string
-	if finalStatus != "success" {
-		finalStatus = "failure" // Normalize status
+	if finalStatus == "failure" {
 		err := a.db.QueryRow(context.Background(), "SELECT step_name, task_name FROM task_runs WHERE run_id = $1 AND status NOT IN ('success', 'pending', 'skipped', 'failure (ignored)', 'running') ORDER BY finished_at ASC, started_at ASC LIMIT 1", runID).Scan(&failedStep, &failedTask)
 		if err != nil {
 			log.Warn().Err(err).Str("run_id", runID).Msg("Could not determine the exact failed task for final status notification.")
@@ -6476,7 +6615,7 @@ func (a *App) handleFinalizeRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	_, err = a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = $1, finished_at = NOW() WHERE run_id = $2 AND finished_at IS NULL", finalStatus, runID)
+	_, err = a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = $1, finished_at = COALESCE(finished_at, NOW()) WHERE run_id = $2 AND status != 'cancelled'", finalStatus, runID)
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to update final run status in DB from agent notification")
 	}
@@ -6519,6 +6658,16 @@ func (a *App) handleGetRunByCheckID(w http.ResponseWriter, r *http.Request) {
 func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID string, pipeline models.Pipeline, pipelineDef []byte, timeout time.Duration, gitContext map[string]string, parentHistory string, scope string, overrides map[string]string) {
 	ctx := context.Background()
 	cfg := a.getConfigSnapshot()
+
+	var currentStatus string
+	if err := a.db.QueryRow(ctx, "SELECT status FROM pipeline_runs WHERE run_id = $1", runID).Scan(&currentStatus); err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to load run before agent launch")
+		return
+	}
+	if isTerminalRunStatus(currentStatus) {
+		log.Info().Str("run_id", runID).Str("status", currentStatus).Msg("Skipping agent launch for terminal run")
+		return
+	}
 
 	secrets, err := a.prepareSecretsForPipeline(pipeline, gitContext, scope)
 	if err != nil {
@@ -6729,6 +6878,12 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 		log.Info().Str("run_id", runID).Msg("No runner available; job queued")
 		appendLogs("No runner available; job queued by dispatcher")
 	default:
+		var latestStatus string
+		if err := a.db.QueryRow(context.Background(), "SELECT status FROM pipeline_runs WHERE run_id = $1", runID).Scan(&latestStatus); err == nil && isTerminalRunStatus(latestStatus) {
+			log.Info().Str("run_id", runID).Str("status", latestStatus).Msg("Dispatcher rejected job for terminal run")
+			appendLogs(fmt.Sprintf("Dispatcher skipped agent launch because run is %s", strings.ToLower(strings.TrimSpace(latestStatus))))
+			return
+		}
 		log.Error().Str("run_id", runID).Str("state", resp.State.String()).Msg("Dispatcher rejected job")
 		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", "Dispatcher rejected job", runID)
 		if gitContext["repo_owner"] != "" {

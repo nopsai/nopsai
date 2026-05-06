@@ -2418,7 +2418,7 @@ function RunDetailView({
   );
 }
 
-type GraphStatus = 'success' | 'failed' | 'running' | 'pending' | 'skipped';
+type GraphStatus = 'success' | 'failed' | 'running' | 'pending' | 'skipped' | 'cancelled';
 
 type GraphPoint = { x: number; y: number };
 type GraphSize = { width: number; height: number };
@@ -2745,7 +2745,7 @@ function StepsGraph({
       >
         {!hideStatusLegend && (
           <div className="absolute top-3 left-3 z-20 flex flex-wrap items-center gap-3 text-[11px] text-[var(--text-secondary)]">
-            {(['success', 'running', 'failed', 'pending', 'skipped'] as GraphStatus[]).map(status => (
+            {(['success', 'running', 'failed', 'cancelled', 'pending', 'skipped'] as GraphStatus[]).map(status => (
               <span key={status} className="flex items-center gap-1.5">
                 <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
                   <GraphStatusGlyph status={status} x={8} y={8} size={12} />
@@ -3048,6 +3048,7 @@ function TaskNodeRenderer({
 function getGraphStatusColor(status: GraphStatus) {
   if (status === 'success') return '#10b981';
   if (status === 'failed') return '#ef4444';
+  if (status === 'cancelled') return '#f97316';
   if (status === 'running') return '#3b82f6';
   return '#94a3b8';
 }
@@ -3055,6 +3056,7 @@ function getGraphStatusColor(status: GraphStatus) {
 function getGraphStatusLabel(status: GraphStatus) {
   if (status === 'success') return 'Success';
   if (status === 'failed') return 'Failed';
+  if (status === 'cancelled') return 'Cancelled';
   if (status === 'running') return 'Running';
   if (status === 'pending') return 'Pending';
   if (status === 'skipped') return 'Skipped';
@@ -3064,6 +3066,7 @@ function getGraphStatusLabel(status: GraphStatus) {
 function getGraphStatusIconPath(status: GraphStatus) {
   if (status === 'success') return STATUS_META.success.icon;
   if (status === 'failed') return STATUS_META.failure.icon;
+  if (status === 'cancelled') return STATUS_META.cancelled.icon;
   if (status === 'running') return STATUS_META.running.icon;
   if (status === 'pending') return STATUS_META.pending.icon;
   if (status === 'skipped') return STATUS_META.skipped.icon;
@@ -3127,6 +3130,7 @@ function calculateStepDurationFromTasks(tasks: TaskDetail[]): string | null {
 function normalizeGraphStatus(status: string | undefined, complete?: boolean): GraphStatus {
   const normalized = normalizeStatus(status, complete);
   if (normalized === 'success') return 'success';
+  if (normalized === 'cancelled') return 'cancelled';
   if (normalized === 'running') return 'running';
   if (normalized === 'skipped') return 'skipped';
   if (normalized === 'pending') return 'pending';
@@ -3143,6 +3147,7 @@ function deriveTaskGraphStatus(task: TaskDetail, stepStatus?: string): GraphStat
 
   if (base === 'skipped') return 'skipped';
   if (base === 'failed') return 'failed';
+  if (base === 'cancelled') return 'cancelled';
   if (base === 'running') return 'running';
 
   if (started && !finished) return 'running';
