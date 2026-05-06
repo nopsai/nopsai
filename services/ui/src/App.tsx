@@ -1295,6 +1295,9 @@ function PipelineRunsSidebarContent({
   const [expandedBranches, setExpandedBranches] = useState<Set<string>>(new Set());
   const [repoRunsCache, setRepoRunsCache] = useState<Map<number, Record<string, RunListItem[]>>>(new Map());
   const [loadingRepos, setLoadingRepos] = useState<Set<number>>(new Set());
+  const repoRunsCacheRef = useRef(repoRunsCache);
+  const loadingReposRef = useRef(loadingRepos);
+  const autoScrolledRunIdRef = useRef<string | null>(null);
 
   const searchTerm = (searchParams.get('q') || '').trim().toLowerCase();
   const activeRunId = searchParams.get('run');
@@ -1305,7 +1308,7 @@ function PipelineRunsSidebarContent({
 
   const fetchJson = useCallback(async <T,>(path: string): Promise<T | null> => {
     try {
-      const resp = await fetch(buildApiUrl(path));
+      const resp = await fetch(buildApiUrl(path), { cache: 'no-store' });
       if (!resp.ok) return null;
       return (await resp.json()) as T;
     } catch {
@@ -1314,26 +1317,30 @@ function PipelineRunsSidebarContent({
   }, []);
 
   const ensureRepoRuns = useCallback(
-    async (groupId: number) => {
-      if (repoRunsCache.has(groupId) || loadingRepos.has(groupId)) return;
+    async (groupId: number, options?: { force?: boolean }) => {
+      const force = options?.force ?? false;
+      if ((!force && repoRunsCacheRef.current.has(groupId)) || loadingReposRef.current.has(groupId)) return;
       setLoadingRepos(prev => {
         const next = new Set(prev);
         next.add(groupId);
+        loadingReposRef.current = next;
         return next;
       });
       const data = await fetchJson<Record<string, RunListItem[]>>(`/v1/runs?groupId=${groupId}`);
       setRepoRunsCache(prev => {
         const next = new Map(prev);
         next.set(groupId, data || {});
+        repoRunsCacheRef.current = next;
         return next;
       });
       setLoadingRepos(prev => {
         const next = new Set(prev);
         next.delete(groupId);
+        loadingReposRef.current = next;
         return next;
       });
     },
-    [fetchJson, loadingRepos, repoRunsCache]
+    [fetchJson]
   );
 
   const handleSelectGroup = useCallback(
@@ -1441,7 +1448,7 @@ function PipelineRunsSidebarContent({
     if (!activeGroupId) return;
     const group = groups.find(g => g.id === activeGroupId);
     if (!group || !group.name.includes('/')) return;
-    void ensureRepoRuns(group.id);
+    void ensureRepoRuns(group.id, { force: true });
   }, [activeGroupId, ensureRepoRuns, groups, tab]);
 
   useEffect(() => {
@@ -1459,7 +1466,7 @@ function PipelineRunsSidebarContent({
         path.forEach(g => next.add(g.id));
         return next;
       });
-      await ensureRepoRuns(repoGroup.id);
+      await ensureRepoRuns(repoGroup.id, { force: true });
       const branchName = formatBranch(info.git_ref);
       if (branchName) {
         const key = `${repoGroup.id}:${branchName}`;
@@ -1480,7 +1487,7 @@ function PipelineRunsSidebarContent({
       const willExpand = !next.has(group.id);
       if (willExpand) {
         next.add(group.id);
-        if (isRepo) void ensureRepoRuns(group.id);
+        if (isRepo) void ensureRepoRuns(group.id, { force: true });
       } else {
         next.delete(group.id);
       }
@@ -1506,7 +1513,11 @@ function PipelineRunsSidebarContent({
   }, [recentRuns, searchTerm, tab]);
 
   useEffect(() => {
-    if (!activeRunId) return;
+    if (!activeRunId) {
+      autoScrolledRunIdRef.current = null;
+      return;
+    }
+    if (autoScrolledRunIdRef.current === activeRunId) return;
     const selector = (() => {
       if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return `[data-run-id="${CSS.escape(activeRunId)}"]`;
       return `[data-run-id="${activeRunId.replace(/"/g, '\\"')}"]`;
@@ -1515,6 +1526,7 @@ function PipelineRunsSidebarContent({
       const el = document.querySelector(selector);
       if (el && 'scrollIntoView' in el) {
         (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
+        autoScrolledRunIdRef.current = activeRunId;
       }
     };
     const id = window.setTimeout(scrollToActive, 100);

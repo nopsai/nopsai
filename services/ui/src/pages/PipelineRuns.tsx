@@ -373,7 +373,7 @@ function PipelineRunsPage() {
   );
 
   const fetchJson = useCallback(async <T,>(path: string, options?: RequestInit): Promise<T> => {
-    const response = await fetch(buildApiUrl(path), options);
+    const response = await fetch(buildApiUrl(path), { cache: 'no-store', ...options });
     if (!response.ok) {
       const message = await response.text();
       throw new Error(message || `Request failed: ${response.status}`);

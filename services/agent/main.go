@@ -666,12 +666,22 @@ func run() int {
 		lmStudioAPIKey = os.Getenv("LM_API_TOKEN")
 	}
 	lmStudioModel := os.Getenv("LMSTUDIO_MODEL")
-	lmStudioEnableThinking, err := strconv.ParseBool(os.Getenv("LMSTUDIO_ENABLE_THINKING"))
-	if os.Getenv("LMSTUDIO_ENABLE_THINKING") == "" {
-		lmStudioEnableThinking = false
-	} else if err != nil {
-		agentLog(runID, pipelineName).Error().Err(err).Msg("Invalid LMSTUDIO_ENABLE_THINKING value")
+	lmStudioReasoning := appconfig.NormalizeLMStudioReasoning(os.Getenv("LMSTUDIO_REASONING"))
+	if !appconfig.IsValidLMStudioReasoning(lmStudioReasoning) {
+		agentLog(runID, pipelineName).Error().Str("lmstudio_reasoning", lmStudioReasoning).Msg("Invalid LMSTUDIO_REASONING value")
 		return 1
+	}
+	if lmStudioReasoning == "" && os.Getenv("LMSTUDIO_ENABLE_THINKING") != "" {
+		lmStudioEnableThinking, parseErr := strconv.ParseBool(os.Getenv("LMSTUDIO_ENABLE_THINKING"))
+		if parseErr != nil {
+			agentLog(runID, pipelineName).Error().Err(parseErr).Msg("Invalid LMSTUDIO_ENABLE_THINKING value")
+			return 1
+		}
+		if lmStudioEnableThinking {
+			lmStudioReasoning = "on"
+		} else {
+			lmStudioReasoning = "off"
+		}
 	}
 	pipelineDefBase64 := os.Getenv("PIPELINE_DEFINITION")
 	parentHistoryBase64 := os.Getenv("PARENT_EXECUTION_HISTORY")
@@ -775,20 +785,22 @@ func run() int {
 		} else {
 			logEvent = logEvent.Str("llm_model", "auto-discover")
 		}
-		logEvent = logEvent.Bool("enable_thinking", lmStudioEnableThinking)
+		if lmStudioReasoning != "" {
+			logEvent = logEvent.Str("lmstudio_reasoning", lmStudioReasoning)
+		}
 		logEvent.Msg("Agent starting with embedded LLM client")
 	}
 	llmModel := geminiModel
 	llmAPIKey := geminiAPIKey
 	llmBaseURL := ""
-	llmEnableThinking := false
+	llmReasoning := ""
 	if llmProvider == appconfig.LLMProviderLMStudio {
 		llmModel = lmStudioModel
 		llmAPIKey = lmStudioAPIKey
 		llmBaseURL = lmStudioBaseURL
-		llmEnableThinking = lmStudioEnableThinking
+		llmReasoning = lmStudioReasoning
 	}
-	llmClient := NewLLMClient(llmProvider, llmAPIKey, llmModel, llmBaseURL, llmEnableThinking)
+	llmClient := NewLLMClient(llmProvider, llmAPIKey, llmModel, llmBaseURL, llmReasoning)
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {

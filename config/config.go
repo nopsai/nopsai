@@ -14,6 +14,15 @@ const (
 	LLMProviderLMStudio = "lmstudio"
 )
 
+var validLMStudioReasoningLevels = map[string]struct{}{
+	"":       {},
+	"off":    {},
+	"low":    {},
+	"medium": {},
+	"high":   {},
+	"on":     {},
+}
+
 // Config holds all configuration for the application.
 type Config struct {
 	DatabaseURL string `yaml:"database_url" env:"DATABASE_URL"`
@@ -48,6 +57,7 @@ type Config struct {
 	LMStudioBaseURL        string `yaml:"lmstudio_base_url" env:"LMSTUDIO_BASE_URL"`
 	LMStudioAPIKey         string `yaml:"lmstudio_api_key" env:"LMSTUDIO_API_KEY"`
 	LMStudioModel          string `yaml:"lmstudio_model" env:"LMSTUDIO_MODEL"`
+	LMStudioReasoning      string `yaml:"lmstudio_reasoning" env:"LMSTUDIO_REASONING"`
 	LMStudioEnableThinking bool   `yaml:"lmstudio_enable_thinking" env:"LMSTUDIO_ENABLE_THINKING"`
 
 	ConfigRepoURL string `yaml:"config_repo_url" env:"CONFIG_REPO_URL"`
@@ -134,6 +144,7 @@ func LoadConfig(path string) (*Config, error) {
 		config.LMStudioAPIKey = os.Getenv("LM_API_TOKEN")
 	}
 	config.LLMProvider = NormalizeLLMProvider(config.LLMProvider)
+	config.LMStudioReasoning = NormalizeLMStudioReasoning(config.LMStudioReasoning)
 
 	return config, nil
 }
@@ -153,4 +164,23 @@ func NormalizeLLMProvider(raw string) string {
 
 func (c Config) GetLLMProvider() string {
 	return NormalizeLLMProvider(c.LLMProvider)
+}
+
+func NormalizeLMStudioReasoning(raw string) string {
+	normalized := strings.ToLower(strings.TrimSpace(raw))
+	if normalized == "true" {
+		return "on"
+	}
+	if normalized == "false" {
+		return "off"
+	}
+	if _, ok := validLMStudioReasoningLevels[normalized]; ok {
+		return normalized
+	}
+	return normalized
+}
+
+func IsValidLMStudioReasoning(raw string) bool {
+	_, ok := validLMStudioReasoningLevels[NormalizeLMStudioReasoning(raw)]
+	return ok
 }
