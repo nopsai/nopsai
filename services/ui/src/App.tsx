@@ -1295,9 +1295,14 @@ function PipelineRunsSidebarContent({
   const [expandedBranches, setExpandedBranches] = useState<Set<string>>(new Set());
   const [repoRunsCache, setRepoRunsCache] = useState<Map<number, Record<string, RunListItem[]>>>(new Map());
   const [loadingRepos, setLoadingRepos] = useState<Set<number>>(new Set());
+  const groupsRef = useRef(groups);
+  const recentRunsRef = useRef(recentRuns);
+  const expandedGroupsRef = useRef(expandedGroups);
+  const activeGroupIdRef = useRef<number | null>(null);
   const repoRunsCacheRef = useRef(repoRunsCache);
   const loadingReposRef = useRef(loadingRepos);
   const autoScrolledRunIdRef = useRef<string | null>(null);
+  const pollRef = useRef<number | null>(null);
 
   const searchTerm = (searchParams.get('q') || '').trim().toLowerCase();
   const activeRunId = searchParams.get('run');
@@ -1305,6 +1310,11 @@ function PipelineRunsSidebarContent({
     const raw = Number(searchParams.get('group'));
     return Number.isFinite(raw) ? raw : null;
   }, [searchParams]);
+
+  groupsRef.current = groups;
+  recentRunsRef.current = recentRuns;
+  expandedGroupsRef.current = expandedGroups;
+  activeGroupIdRef.current = activeGroupId;
 
   const fetchJson = useCallback(async <T,>(path: string): Promise<T | null> => {
     try {
@@ -1417,6 +1427,53 @@ function PipelineRunsSidebarContent({
     setRecentLoadingMore(false);
   }, [fetchJson, recentHasMore, recentLoadingMore, recentRuns.length, runsLoading, tab]);
 
+  const refreshRecentRuns = useCallback(async () => {
+    const limit = Math.max(SIDEBAR_RECENT_PAGE_SIZE, recentRunsRef.current.length || 0);
+    const data = await fetchJson<RunListItem[]>(`/v1/runs?offset=0&limit=${limit}`);
+    if (!Array.isArray(data)) return;
+    setRecentRuns(data);
+    setRecentHasMore(data.length === limit);
+  }, [fetchJson]);
+
+  const refreshVisibleRepoRuns = useCallback(async () => {
+    const groupsById = new Map(groupsRef.current.map(group => [group.id, group]));
+    const targetGroupIds = new Set<number>();
+
+    const activeGroup = activeGroupIdRef.current !== null ? groupsById.get(activeGroupIdRef.current) : null;
+    if (activeGroup?.name.includes('/')) {
+      targetGroupIds.add(activeGroup.id);
+    }
+
+    expandedGroupsRef.current.forEach(groupId => {
+      const group = groupsById.get(groupId);
+      if (group?.name.includes('/')) {
+        targetGroupIds.add(groupId);
+      }
+    });
+
+    const idsToRefresh = Array.from(targetGroupIds).filter(groupId => !loadingReposRef.current.has(groupId));
+    if (!idsToRefresh.length) return;
+
+    const responses = await Promise.all(
+      idsToRefresh.map(async groupId => ({
+        groupId,
+        data: await fetchJson<Record<string, RunListItem[]>>(`/v1/runs?groupId=${groupId}`),
+      }))
+    );
+
+    setRepoRunsCache(prev => {
+      let next: Map<number, Record<string, RunListItem[]>> | null = null;
+      responses.forEach(({ groupId, data }) => {
+        if (!data) return;
+        if (!next) next = new Map(prev);
+        next.set(groupId, data);
+      });
+      if (!next) return prev;
+      repoRunsCacheRef.current = next;
+      return next;
+    });
+  }, [fetchJson]);
+
   useEffect(() => {
     if (tab !== 'recent') return;
     const nav = document.getElementById('sidebar-details-nav');
@@ -1479,6 +1536,34 @@ function PipelineRunsSidebarContent({
     };
     void expandForRun();
   }, [activeRunId, ensureRepoRuns, groups]);
+
+  useEffect(() => {
+    if (pollRef.current) {
+      window.clearTimeout(pollRef.current);
+      pollRef.current = null;
+    }
+    let cancelled = false;
+    const tick = async () => {
+      if (cancelled) return;
+      if (tab === 'recent') {
+        await refreshRecentRuns();
+      } else {
+        await refreshVisibleRepoRuns();
+      }
+      if (cancelled) return;
+      const interval = document.hidden ? 12000 : 6000;
+      pollRef.current = window.setTimeout(tick, interval);
+    };
+    const interval = document.hidden ? 12000 : 6000;
+    pollRef.current = window.setTimeout(tick, interval);
+    return () => {
+      cancelled = true;
+      if (pollRef.current) {
+        window.clearTimeout(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [refreshRecentRuns, refreshVisibleRepoRuns, tab]);
 
   const toggleGroup = (group: RunGroup) => {
     const isRepo = group.name.includes('/');

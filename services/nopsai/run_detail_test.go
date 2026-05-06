@@ -33,6 +33,18 @@ func TestDeriveRunDetailStepStatusUsesChildTerminalStateWhenPlaceholderLags(t *t
 	}
 }
 
+func TestDeriveRunDetailStepStatusPreservesCancellation(t *testing.T) {
+	tasks := []TaskDetail{
+		{TaskID: "task-1", StepName: "deploy", TaskName: "build", Status: "success"},
+		{TaskID: "task-2", StepName: "deploy", TaskName: "release", Status: "cancelled"},
+	}
+
+	got := deriveRunDetailStepStatus(tasks, nil)
+	if got != "cancelled" {
+		t.Fatalf("deriveRunDetailStepStatus() = %q, want %q", got, "cancelled")
+	}
+}
+
 func TestBuildRunDetailETagChangesWhenTaskOrChildStatusChanges(t *testing.T) {
 	start := time.Unix(1_700_000_000, 0).UTC()
 	run := RunListItem{
