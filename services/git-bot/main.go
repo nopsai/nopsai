@@ -6,7 +6,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +19,7 @@ import (
 	"time"
 
 	"nopsai/config"
+	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
 
 	"github.com/bradleyfalzon/ghinstallation/v2"
@@ -105,10 +105,6 @@ type DirectoryContentsRequest struct {
 
 type DirectoryContentsResponse struct {
 	Files map[string]string `json:"files"`
-}
-
-type errorResponse struct {
-	Error string `json:"error"`
 }
 
 type RepositoryAccessRequest struct {
@@ -500,8 +496,19 @@ func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineDef, pipelineSource
 
 func (a *GitBotApp) handleCreateChildCheckRun(w http.ResponseWriter, r *http.Request) {
 	var req CreateChildCheckRunRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err := httpapi.DecodeJSON(r, &req); err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := httpapi.ValidateRequired(
+		httpapi.RequiredString("owner", req.Owner),
+		httpapi.RequiredString("repo", req.Repo),
+		httpapi.RequiredString("ref", req.Ref),
+		httpapi.RequiredString("parent_name", req.ParentName),
+		httpapi.RequiredString("include_name", req.IncludeName),
+		httpapi.RequiredString("pipeline_definition", req.PipelineDefinition),
+	); err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -515,7 +522,7 @@ func (a *GitBotApp) handleCreateChildCheckRun(w http.ResponseWriter, r *http.Req
 	checkRun, _, err := a.ghClient.Checks.CreateCheckRun(context.Background(), req.Owner, req.Repo, opts)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create child check run")
-		http.Error(w, "Failed to create child check run", http.StatusInternalServerError)
+		_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to create child check run")
 		return
 	}
 
@@ -523,7 +530,7 @@ func (a *GitBotApp) handleCreateChildCheckRun(w http.ResponseWriter, r *http.Req
 	if err := a.initializeCheckRunState(*checkRun.ID, req.Owner, req.Repo, req.PipelineDefinition, checkName); err != nil {
 		log.Error().Err(err).Msg("Failed to initialize state for child check run")
 		a.concludeCheckRun(req.Owner, req.Repo, *checkRun.ID, "failure", "Failed to initialize internal tracking state for this included pipeline.")
-		http.Error(w, "Failed to initialize internal state", http.StatusInternalServerError)
+		_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to initialize internal state")
 		return
 	}
 
@@ -533,8 +540,7 @@ func (a *GitBotApp) handleCreateChildCheckRun(w http.ResponseWriter, r *http.Req
 	}
 	a.ghClient.Checks.UpdateCheckRun(context.Background(), req.Owner, req.Repo, *checkRun.ID, inProgressOpts)
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]int64{"check_run_id": *checkRun.ID})
+	_ = httpapi.WriteJSON(w, http.StatusOK, map[string]int64{"check_run_id": *checkRun.ID})
 }
 
 func (a *GitBotApp) initializeCheckRunState(checkRunID int64, owner, repo, pipelineDef, checkName string) error {
@@ -680,13 +686,18 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 
 func (a *GitBotApp) handleFetchFile(w http.ResponseWriter, r *http.Request) {
 	var req FileContentRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err := httpapi.DecodeJSON(r, &req); err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if req.Owner == "" || req.Repo == "" || req.Path == "" || req.Ref == "" {
-		http.Error(w, "owner, repo, ref, and path are required", http.StatusBadRequest)
+	if err := httpapi.ValidateRequired(
+		httpapi.RequiredString("owner", req.Owner),
+		httpapi.RequiredString("repo", req.Repo),
+		httpapi.RequiredString("ref", req.Ref),
+		httpapi.RequiredString("path", req.Path),
+	); err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -700,38 +711,41 @@ func (a *GitBotApp) handleFetchFile(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var respErr *github.ErrorResponse
 		if errors.As(err, &respErr) && respErr.Response != nil && respErr.Response.StatusCode == http.StatusNotFound {
-			http.Error(w, "file not found", http.StatusNotFound)
+			_ = httpapi.WriteJSONError(w, http.StatusNotFound, "file not found")
 			return
 		}
 		log.Error().Err(err).Str("owner", req.Owner).Str("repo", req.Repo).Str("path", req.Path).Msg("Failed to fetch repository file")
-		http.Error(w, "Failed to fetch file", http.StatusInternalServerError)
+		_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to fetch file")
 		return
 	}
 	if fileContent == nil {
-		http.Error(w, "file not found", http.StatusNotFound)
+		_ = httpapi.WriteJSONError(w, http.StatusNotFound, "file not found")
 		return
 	}
 
 	content, err := fileContent.GetContent()
 	if err != nil {
 		log.Error().Err(err).Str("owner", req.Owner).Str("repo", req.Repo).Str("path", req.Path).Msg("Failed to decode repository file")
-		http.Error(w, "Failed to decode file", http.StatusInternalServerError)
+		_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to decode file")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(FileContentResponse{Content: content})
+	_ = httpapi.WriteJSON(w, http.StatusOK, FileContentResponse{Content: content})
 }
 
 func (a *GitBotApp) handleFetchDirectoryContents(w http.ResponseWriter, r *http.Request) {
 	var req DirectoryContentsRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err := httpapi.DecodeJSON(r, &req); err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if req.Owner == "" || req.Repo == "" || req.Path == "" {
-		http.Error(w, "owner, repo, and path are required", http.StatusBadRequest)
+	if err := httpapi.ValidateRequired(
+		httpapi.RequiredString("owner", req.Owner),
+		httpapi.RequiredString("repo", req.Repo),
+		httpapi.RequiredString("path", req.Path),
+	); err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -740,33 +754,29 @@ func (a *GitBotApp) handleFetchDirectoryContents(w http.ResponseWriter, r *http.
 	if err := a.collectRepositoryContents(context.Background(), req.Owner, req.Repo, strings.TrimPrefix(req.Path, "/"), req.Ref, files); err != nil {
 		var respErr *github.ErrorResponse
 		if errors.As(err, &respErr) && respErr.Response != nil && respErr.Response.StatusCode == http.StatusNotFound {
-			http.Error(w, "path not found", http.StatusNotFound)
+			_ = httpapi.WriteJSONError(w, http.StatusNotFound, "path not found")
 			return
 		}
 		log.Error().Err(err).Str("owner", req.Owner).Str("repo", req.Repo).Str("path", req.Path).Msg("Failed to fetch repository contents")
-		http.Error(w, "Failed to fetch repository contents", http.StatusInternalServerError)
+		_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to fetch repository contents")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(DirectoryContentsResponse{Files: files})
-}
-
-func writeJSONError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(errorResponse{Error: message})
+	_ = httpapi.WriteJSON(w, http.StatusOK, DirectoryContentsResponse{Files: files})
 }
 
 func (a *GitBotApp) handleCheckRepoAccess(w http.ResponseWriter, r *http.Request) {
 	var req RepositoryAccessRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid request body")
+	if err := httpapi.DecodeJSON(r, &req); err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if req.Owner == "" || req.Repo == "" {
-		writeJSONError(w, http.StatusBadRequest, "owner and repo are required")
+	if err := httpapi.ValidateRequired(
+		httpapi.RequiredString("owner", req.Owner),
+		httpapi.RequiredString("repo", req.Repo),
+	); err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -776,10 +786,10 @@ func (a *GitBotApp) handleCheckRepoAccess(w http.ResponseWriter, r *http.Request
 		if errors.As(err, &ghErr) && ghErr.Response != nil {
 			switch ghErr.Response.StatusCode {
 			case http.StatusNotFound:
-				writeJSONError(w, http.StatusNotFound, "repository not found or Git Bot not installed")
+				_ = httpapi.WriteJSONError(w, http.StatusNotFound, "repository not found or Git Bot not installed")
 				return
 			case http.StatusForbidden:
-				writeJSONError(w, http.StatusForbidden, "access to repository forbidden for Git Bot")
+				_ = httpapi.WriteJSONError(w, http.StatusForbidden, "access to repository forbidden for Git Bot")
 				return
 			}
 		}
@@ -794,7 +804,7 @@ func (a *GitBotApp) handleCheckRepoAccess(w http.ResponseWriter, r *http.Request
 			message = fmt.Sprintf("%s: %v", message, err)
 		}
 		log.Error().Err(err).Str("owner", req.Owner).Str("repo", req.Repo).Int("status", status).Msg("Failed to verify repository access")
-		writeJSONError(w, status, message)
+		_ = httpapi.WriteJSONError(w, status, message)
 		return
 	}
 
@@ -803,19 +813,22 @@ func (a *GitBotApp) handleCheckRepoAccess(w http.ResponseWriter, r *http.Request
 		defaultBranch = repo.GetDefaultBranch()
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(RepositoryAccessResponse{Accessible: true, DefaultBranch: defaultBranch})
+	_ = httpapi.WriteJSON(w, http.StatusOK, RepositoryAccessResponse{Accessible: true, DefaultBranch: defaultBranch})
 }
 
 func (a *GitBotApp) handleCheckBranchHasOpenPR(w http.ResponseWriter, r *http.Request) {
 	var req BranchPROpenRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid request body")
+	if err := httpapi.DecodeJSON(r, &req); err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if req.Owner == "" || req.Repo == "" || req.Branch == "" {
-		writeJSONError(w, http.StatusBadRequest, "owner, repo, and branch are required")
+	if err := httpapi.ValidateRequired(
+		httpapi.RequiredString("owner", req.Owner),
+		httpapi.RequiredString("repo", req.Repo),
+		httpapi.RequiredString("branch", req.Branch),
+	); err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -830,14 +843,13 @@ func (a *GitBotApp) handleCheckBranchHasOpenPR(w http.ResponseWriter, r *http.Re
 	prs, _, err := a.ghClient.PullRequests.List(context.Background(), req.Owner, req.Repo, options)
 	if err != nil {
 		log.Error().Err(err).Str("owner", req.Owner).Str("repo", req.Repo).Str("branch", req.Branch).Msg("Failed to check open pull requests for branch")
-		writeJSONError(w, http.StatusInternalServerError, "failed to check pull requests")
+		_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to check pull requests")
 		return
 	}
 
 	response := BranchPROpenResponse{HasOpenPR: len(prs) > 0}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
+	if err := httpapi.WriteJSON(w, http.StatusOK, response); err != nil {
 		log.Error().Err(err).Msg("Failed to encode branch PR response")
 	}
 }
@@ -898,13 +910,17 @@ func (a *GitBotApp) collectRepositoryContents(ctx context.Context, owner, repo, 
 
 func (a *GitBotApp) handleFetchPipeline(w http.ResponseWriter, r *http.Request) {
 	var req PipelineContentRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err := httpapi.DecodeJSON(r, &req); err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if req.Owner == "" || req.Repo == "" || req.Ref == "" {
-		http.Error(w, "owner, repo, and ref are required", http.StatusBadRequest)
+	if err := httpapi.ValidateRequired(
+		httpapi.RequiredString("owner", req.Owner),
+		httpapi.RequiredString("repo", req.Repo),
+		httpapi.RequiredString("ref", req.Ref),
+	); err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -912,7 +928,7 @@ func (a *GitBotApp) handleFetchPipeline(w http.ResponseWriter, r *http.Request) 
 
 	if req.Source.Path != "" {
 		if strings.HasPrefix(req.Source.Path, "http://") || strings.HasPrefix(req.Source.Path, "https://") {
-			http.Error(w, "Remote pipeline URLs are no longer supported", http.StatusBadRequest)
+			_ = httpapi.WriteJSONError(w, http.StatusBadRequest, "remote pipeline URLs are no longer supported")
 			return
 		}
 		fileContent, _, _, fetchErr := a.ghClient.Repositories.GetContents(
@@ -925,42 +941,46 @@ func (a *GitBotApp) handleFetchPipeline(w http.ResponseWriter, r *http.Request) 
 		if fetchErr != nil {
 			var respErr *github.ErrorResponse
 			if errors.As(fetchErr, &respErr) && respErr.Response != nil && respErr.Response.StatusCode == http.StatusNotFound {
-				http.Error(w, "pipeline file not found", http.StatusNotFound)
+				_ = httpapi.WriteJSONError(w, http.StatusNotFound, "pipeline file not found")
 				return
 			}
 			log.Error().Err(fetchErr).Str("owner", req.Owner).Str("repo", req.Repo).Str("path", req.Source.Path).Msg("Failed to fetch pipeline file")
-			http.Error(w, "Failed to fetch pipeline file", http.StatusInternalServerError)
+			_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to fetch pipeline file")
 			return
 		}
 		if fileContent == nil {
-			http.Error(w, "pipeline file not found", http.StatusNotFound)
+			_ = httpapi.WriteJSONError(w, http.StatusNotFound, "pipeline file not found")
 			return
 		}
 		content, decodeErr := fileContent.GetContent()
 		if decodeErr != nil {
 			log.Error().Err(decodeErr).Str("owner", req.Owner).Str("repo", req.Repo).Str("path", req.Source.Path).Msg("Failed to decode pipeline file content")
-			http.Error(w, "Failed to decode pipeline file", http.StatusInternalServerError)
+			_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to decode pipeline file")
 			return
 		}
 		pipelineYAML = []byte(content)
 	} else {
-		http.Error(w, "pipeline source must include a path", http.StatusBadRequest)
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, "pipeline source must include a path")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(PipelineContentResponse{Content: string(pipelineYAML)})
+	_ = httpapi.WriteJSON(w, http.StatusOK, PipelineContentResponse{Content: string(pipelineYAML)})
 }
 
 func (a *GitBotApp) handleCreateCheckRun(w http.ResponseWriter, r *http.Request) {
 	var req CreateCheckRunRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err := httpapi.DecodeJSON(r, &req); err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if req.Owner == "" || req.Repo == "" || req.Ref == "" || req.PipelineDefinition == "" {
-		http.Error(w, "owner, repo, ref, and pipeline_definition are required", http.StatusBadRequest)
+	if err := httpapi.ValidateRequired(
+		httpapi.RequiredString("owner", req.Owner),
+		httpapi.RequiredString("repo", req.Repo),
+		httpapi.RequiredString("ref", req.Ref),
+		httpapi.RequiredString("pipeline_definition", req.PipelineDefinition),
+	); err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -970,29 +990,34 @@ func (a *GitBotApp) handleCreateCheckRun(w http.ResponseWriter, r *http.Request)
 
 	checkRunID := a.createCheckRun(req.Owner, req.Repo, req.Ref, req.PipelineDefinition, req.PipelineSource)
 	if checkRunID == 0 {
-		http.Error(w, "Failed to create check run", http.StatusInternalServerError)
+		_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to create check run")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(CreateCheckRunResponse{CheckRunID: checkRunID})
+	_ = httpapi.WriteJSON(w, http.StatusOK, CreateCheckRunResponse{CheckRunID: checkRunID})
 }
 
 func (a *GitBotApp) handleInitializeCheckRun(w http.ResponseWriter, r *http.Request) {
 	var req InitializeCheckRunRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err := httpapi.DecodeJSON(r, &req); err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if req.Owner == "" || req.Repo == "" || req.CheckRunID == 0 || req.PipelineDefinition == "" || req.PipelineName == "" {
-		http.Error(w, "owner, repo, check_run_id, pipeline_definition, and pipeline_name are required", http.StatusBadRequest)
+	if err := httpapi.ValidateRequired(
+		httpapi.RequiredString("owner", req.Owner),
+		httpapi.RequiredString("repo", req.Repo),
+		httpapi.RequiredInt64("check_run_id", req.CheckRunID),
+		httpapi.RequiredString("pipeline_definition", req.PipelineDefinition),
+		httpapi.RequiredString("pipeline_name", req.PipelineName),
+	); err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	if err := a.initializeCheckRunState(req.CheckRunID, req.Owner, req.Repo, req.PipelineDefinition, req.PipelineName); err != nil {
 		log.Error().Err(err).Int64("check_run_id", req.CheckRunID).Msg("Failed to initialize check run state")
-		http.Error(w, "Failed to initialize check run state", http.StatusInternalServerError)
+		_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to initialize check run state")
 		return
 	}
 
@@ -1006,7 +1031,7 @@ func (a *GitBotApp) handleInitializeCheckRun(w http.ResponseWriter, r *http.Requ
 	}
 	if _, _, err := a.ghClient.Checks.UpdateCheckRun(context.Background(), req.Owner, req.Repo, req.CheckRunID, opts); err != nil {
 		log.Error().Err(err).Int64("check_run_id", req.CheckRunID).Msg("Failed to mark check run in progress")
-		http.Error(w, "Failed to update check run", http.StatusInternalServerError)
+		_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to update check run")
 		return
 	}
 
@@ -1015,13 +1040,17 @@ func (a *GitBotApp) handleInitializeCheckRun(w http.ResponseWriter, r *http.Requ
 
 func (a *GitBotApp) handleCancelStaleCheckRuns(w http.ResponseWriter, r *http.Request) {
 	var req CancelStaleCheckRunsRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err := httpapi.DecodeJSON(r, &req); err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if req.Owner == "" || req.Repo == "" || req.BeforeSHA == "" {
-		http.Error(w, "owner, repo, and before_sha are required", http.StatusBadRequest)
+	if err := httpapi.ValidateRequired(
+		httpapi.RequiredString("owner", req.Owner),
+		httpapi.RequiredString("repo", req.Repo),
+		httpapi.RequiredString("before_sha", req.BeforeSHA),
+	); err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -1029,7 +1058,7 @@ func (a *GitBotApp) handleCancelStaleCheckRuns(w http.ResponseWriter, r *http.Re
 	checkRuns, _, err := a.ghClient.Checks.ListCheckRunsForRef(context.Background(), req.Owner, req.Repo, req.BeforeSHA, opts)
 	if err != nil {
 		log.Error().Err(err).Str("owner", req.Owner).Str("repo", req.Repo).Str("sha", req.BeforeSHA).Msg("Failed to list check runs for stale commit")
-		http.Error(w, "Failed to list check runs", http.StatusInternalServerError)
+		_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to list check runs")
 		return
 	}
 
@@ -1058,35 +1087,34 @@ func (a *GitBotApp) handleCancelStaleCheckRuns(w http.ResponseWriter, r *http.Re
 		cancelled++
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(CancelStaleCheckRunsResponse{Cancelled: cancelled})
+	_ = httpapi.WriteJSON(w, http.StatusOK, CancelStaleCheckRunsResponse{Cancelled: cancelled})
 }
 
 func (a *GitBotApp) handleFindSuiteCheckRun(w http.ResponseWriter, r *http.Request) {
 	var req FindSuiteCheckRunRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err := httpapi.DecodeJSON(r, &req); err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if req.Owner == "" || req.Repo == "" || req.SuiteID == 0 {
-		http.Error(w, "owner, repo, and suite_id are required", http.StatusBadRequest)
-		return
-	}
-
-	if req.CommitSHA == "" {
-		http.Error(w, "commit_sha is required", http.StatusBadRequest)
+	if err := httpapi.ValidateRequired(
+		httpapi.RequiredString("owner", req.Owner),
+		httpapi.RequiredString("repo", req.Repo),
+		httpapi.RequiredInt64("suite_id", req.SuiteID),
+		httpapi.RequiredString("commit_sha", req.CommitSHA),
+	); err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	runsResp, _, err := a.ghClient.Checks.ListCheckRunsForRef(context.Background(), req.Owner, req.Repo, req.CommitSHA, &github.ListCheckRunsOptions{})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to list check runs for commit")
-		http.Error(w, "Failed to list check runs for commit", http.StatusInternalServerError)
+		_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to list check runs for commit")
 		return
 	}
 	if len(runsResp.CheckRuns) == 0 {
-		http.Error(w, "No check runs found for suite", http.StatusNotFound)
+		_ = httpapi.WriteJSONError(w, http.StatusNotFound, "no check runs found for suite")
 		return
 	}
 
@@ -1116,14 +1144,23 @@ func (a *GitBotApp) handleFindSuiteCheckRun(w http.ResponseWriter, r *http.Reque
 		response.PullRequestHeadRef = target.PullRequests[0].GetHead().GetRef()
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	_ = httpapi.WriteJSON(w, http.StatusOK, response)
 }
 
 func (a *GitBotApp) handleTaskStatusUpdate(w http.ResponseWriter, r *http.Request) {
 	var update TaskStatusUpdate
-	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err := httpapi.DecodeJSON(r, &update); err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := httpapi.ValidateRequired(
+		httpapi.RequiredInt64("check_run_id", update.CheckRunID),
+		httpapi.RequiredString("repo_owner", update.RepoOwner),
+		httpapi.RequiredString("repo_name", update.RepoName),
+		httpapi.RequiredString("step_name", update.StepName),
+		httpapi.RequiredString("task_name", update.TaskName),
+	); err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	log.Info().Int64("check_run_id", update.CheckRunID).Str("step", update.StepName).Str("task", update.TaskName).Msg("Received task status update")
@@ -1224,8 +1261,17 @@ func (a *GitBotApp) handleTaskStatusUpdate(w http.ResponseWriter, r *http.Reques
 // handleRunStatusUpdate now handles skipping dependent tasks.
 func (a *GitBotApp) handleRunStatusUpdate(w http.ResponseWriter, r *http.Request) {
 	var update RunStatusUpdate
-	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err := httpapi.DecodeJSON(r, &update); err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := httpapi.ValidateRequired(
+		httpapi.RequiredString("status", update.Status),
+		httpapi.RequiredInt64("check_run_id", update.CheckRunID),
+		httpapi.RequiredString("repo_owner", update.RepoOwner),
+		httpapi.RequiredString("repo_name", update.RepoName),
+	); err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
