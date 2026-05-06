@@ -1,0 +1,288 @@
+package main
+
+import (
+	"sort"
+	"strings"
+
+	"nopsai/pkg/models"
+	"nopsai/pkg/proto"
+)
+
+type taskEnvironmentSource string
+
+const (
+	taskEnvironmentSourcePipelineVariable taskEnvironmentSource = "pipeline_variable"
+	taskEnvironmentSourceInherited        taskEnvironmentSource = "inherited"
+	taskEnvironmentSourceStepVariable     taskEnvironmentSource = "step_variable"
+	taskEnvironmentSourceTaskVariable     taskEnvironmentSource = "task_variable"
+	taskEnvironmentSourceSecret           taskEnvironmentSource = "secret"
+)
+
+type taskEnvironmentValue struct {
+	Value     string
+	Sensitive bool
+}
+
+type taskExecutionContext struct {
+	values map[string]taskEnvironmentValue
+}
+
+func buildStepExecutionContext(pipeline *models.Pipeline, step *models.PipelineStep, inheritedEnv []string, variables, secrets map[string]string) (taskExecutionContext, []string) {
+	context := newTaskExecutionContext()
+	requiredKeys := make(map[string]struct{}, len(pipeline.Variables))
+	for _, key := range pipeline.Variables {
+		trimmed := strings.TrimSpace(key)
+		if trimmed == "" {
+			continue
+		}
+		requiredKeys[trimmed] = struct{}{}
+	}
+
+	for key, value := range variables {
+		trimmed := strings.TrimSpace(key)
+		if _, ok := requiredKeys[trimmed]; ok {
+			context.set(trimmed, value, taskEnvironmentSourcePipelineVariable)
+		}
+	}
+
+	for _, entry := range inheritedEnv {
+		key, value, ok := splitEnvEntry(entry)
+		if !ok {
+			continue
+		}
+		if _, isRequired := requiredKeys[key]; isRequired {
+			context.set(key, value, taskEnvironmentSourceInherited)
+			continue
+		}
+		if strings.HasPrefix(key, "GIT_") || key == "SCOPE" {
+			context.set(key, value, taskEnvironmentSourceInherited)
+		}
+	}
+
+	for key, value := range step.GetVariables() {
+		context.set(key, value, taskEnvironmentSourceStepVariable)
+	}
+
+	missingSecrets := make([]string, 0)
+	for _, secretName := range step.GetSecrets() {
+		trimmed := strings.TrimSpace(secretName)
+		if trimmed == "" {
+			continue
+		}
+		secretValue, ok := secrets[trimmed]
+		if !ok {
+			missingSecrets = append(missingSecrets, trimmed)
+			continue
+		}
+		context.set(trimmed, secretValue, taskEnvironmentSourceSecret)
+	}
+	sort.Strings(missingSecrets)
+
+	return context, missingSecrets
+}
+
+func newTaskExecutionContext() taskExecutionContext {
+	return taskExecutionContext{
+		values: make(map[string]taskEnvironmentValue),
+	}
+}
+
+func (c taskExecutionContext) withTask(task *models.Task) taskExecutionContext {
+	cloned := newTaskExecutionContext()
+	for key, value := range c.values {
+		cloned.values[key] = value
+	}
+	if task == nil {
+		return cloned
+	}
+	for key, value := range task.Variables {
+		cloned.set(key, value, taskEnvironmentSourceTaskVariable)
+	}
+	return cloned
+}
+
+func (c taskExecutionContext) containerEnv() []string {
+	if len(c.values) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(c.values))
+	for key := range c.values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	envVars := make([]string, 0, len(keys))
+	for _, key := range keys {
+		envVars = append(envVars, key+"="+c.values[key].Value)
+	}
+	return envVars
+}
+
+func (c taskExecutionContext) promptVariables() map[string]string {
+	if len(c.values) == 0 {
+		return map[string]string{}
+	}
+	variables := make(map[string]string, len(c.values))
+	for key, value := range c.values {
+		if value.Sensitive && value.Value != "" {
+			variables[key] = "[redacted]"
+			continue
+		}
+		variables[key] = value.Value
+	}
+	return variables
+}
+
+func (c taskExecutionContext) buildConditionRequest(goal, history string, secrets map[string]string) *proto.ConditionRequest {
+	return &proto.ConditionRequest{
+		Goal:      goal,
+		History:   c.maskText(history, secrets),
+		Variables: c.promptVariables(),
+	}
+}
+
+func (c taskExecutionContext) buildActionRequest(goal, history string, directoryListing map[string]string, secrets map[string]string) *proto.GetActionRequest {
+	maskValues := c.promptMaskValues(secrets)
+	return &proto.GetActionRequest{
+		Goal:             goal,
+		History:          maskSensitiveValues(history, maskValues),
+		DirectoryListing: maskDirectoryListing(directoryListing, maskValues),
+		Variables:        c.promptVariables(),
+	}
+}
+
+func (c taskExecutionContext) maskText(input string, secrets map[string]string) string {
+	return maskSensitiveValues(input, c.promptMaskValues(secrets))
+}
+
+func (c taskExecutionContext) promptMaskValues(secrets map[string]string) []string {
+	values := make([]string, 0, len(c.values)+len(secrets))
+	for _, value := range c.values {
+		if value.Sensitive {
+			values = append(values, value.Value)
+		}
+	}
+	for _, value := range secrets {
+		values = append(values, value)
+	}
+	return uniqueSensitiveValues(values)
+}
+
+func (c taskExecutionContext) set(name, value string, source taskEnvironmentSource) {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return
+	}
+	c.values[trimmed] = taskEnvironmentValue{
+		Value:     value,
+		Sensitive: source == taskEnvironmentSourceSecret || isSensitiveEnvName(trimmed),
+	}
+}
+
+func splitEnvEntry(entry string) (string, string, bool) {
+	parts := strings.SplitN(entry, "=", 2)
+	if len(parts) != 2 {
+		return "", "", false
+	}
+	key := strings.TrimSpace(parts[0])
+	if key == "" {
+		return "", "", false
+	}
+	return key, parts[1], true
+}
+
+func maskDirectoryListing(directoryListing map[string]string, maskValues []string) map[string]string {
+	if len(directoryListing) == 0 {
+		return map[string]string{}
+	}
+	masked := make(map[string]string, len(directoryListing))
+	for name, content := range directoryListing {
+		masked[name] = maskSensitiveValues(content, maskValues)
+	}
+	return masked
+}
+
+func maskSensitiveValues(input string, values []string) string {
+	if input == "" || len(values) == 0 {
+		return input
+	}
+	masked := input
+	for _, value := range values {
+		if len(value) < 4 {
+			continue
+		}
+		masked = strings.ReplaceAll(masked, value, "*****")
+
+		if strings.Contains(value, "\n") {
+			flattened := strings.ReplaceAll(value, "\r", "")
+			flattened = strings.ReplaceAll(flattened, "\n", " ")
+			if len(flattened) >= 4 {
+				masked = strings.ReplaceAll(masked, flattened, "*****")
+			}
+		}
+	}
+	return masked
+}
+
+func uniqueSensitiveValues(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	unique := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		unique = append(unique, value)
+	}
+	sort.SliceStable(unique, func(i, j int) bool {
+		return len(unique[i]) > len(unique[j])
+	})
+	return unique
+}
+
+func isSensitiveEnvName(name string) bool {
+	normalized := strings.ToUpper(strings.TrimSpace(name))
+	if normalized == "" {
+		return false
+	}
+	normalized = strings.NewReplacer("-", "_", ".", "_").Replace(normalized)
+	tokens := strings.Split(normalized, "_")
+	tokenSet := make(map[string]struct{}, len(tokens))
+	for _, token := range tokens {
+		if token == "" {
+			continue
+		}
+		tokenSet[token] = struct{}{}
+	}
+
+	has := func(token string) bool {
+		_, ok := tokenSet[token]
+		return ok
+	}
+
+	switch {
+	case has("SECRET"):
+		return true
+	case has("TOKEN"):
+		return true
+	case has("PASSWORD"):
+		return true
+	case has("PASSWD"):
+		return true
+	case has("CREDENTIAL") || has("CREDENTIALS"):
+		return true
+	case has("PRIVATE") && has("KEY"):
+		return true
+	case has("API") && has("KEY"):
+		return true
+	case has("ACCESS") && has("KEY"):
+		return true
+	case has("ACCESS") && has("TOKEN"):
+		return true
+	default:
+		return false
+	}
+}

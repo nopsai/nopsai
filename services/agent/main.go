@@ -1005,6 +1005,11 @@ func run() int {
 				stepName := step.GetName()
 				taskLogger := stepLog(runID, pipeline.Name, stepName, task.Name)
 				var llmDurationMs int64
+				inheritedEnv := os.Environ()
+				stepContext, missingSecrets := buildStepExecutionContext(&pipeline, step, inheritedEnv, variables, secrets)
+				for _, secretName := range missingSecrets {
+					taskLogger.Warn().Str("secret", secretName).Msg("Secret was requested by step but not provided")
+				}
 
 				// --- CONDITION EVALUATION LOGIC START ---
 				condition := strings.TrimSpace(step.GetCondition())
@@ -1015,19 +1020,7 @@ func run() int {
 					historySnapshot := history.String()
 					historyMutex.Unlock()
 
-					varMap := make(map[string]string)
-					for _, e := range os.Environ() {
-						parts := strings.SplitN(e, "=", 2)
-						if len(parts) == 2 {
-							varMap[parts[0]] = parts[1]
-						}
-					}
-
-					req := &proto.ConditionRequest{
-						Goal:      condition,
-						History:   historySnapshot,
-						Variables: varMap,
-					}
+					req := stepContext.buildConditionRequest(condition, historySnapshot, secrets)
 
 					var resp *proto.ConditionResponse
 					conditionStart := time.Now()
@@ -1137,54 +1130,9 @@ func run() int {
 				var stepContainerID string
 				setTaskRunning(stepName, task.Name)
 
-				var stepEnvVars []string
-				requiredEnvKeys := make(map[string]struct{})
-				for _, key := range pipeline.Variables {
-					requiredEnvKeys[key] = struct{}{}
-				}
-				for key, value := range variables {
-					if _, ok := requiredEnvKeys[key]; ok {
-						stepEnvVars = append(stepEnvVars, fmt.Sprintf("%s=%s", key, value))
-					}
-				}
-
-				for _, e := range os.Environ() {
-					parts := strings.SplitN(e, "=", 2)
-					if len(parts) == 2 {
-						key := parts[0]
-						if _, ok := requiredEnvKeys[key]; ok {
-							stepEnvVars = append(stepEnvVars, e)
-						}
-					}
-
-					if strings.HasPrefix(e, "GIT_") || strings.HasPrefix(e, "SCOPE=") {
-						stepEnvVars = append(stepEnvVars, e)
-					}
-				}
-
-				if vars := step.GetVariables(); len(vars) > 0 {
-					for k, v := range vars {
-						stepEnvVars = append(stepEnvVars, fmt.Sprintf("%s=%s", k, v))
-					}
-				}
-
-				stepSecrets := step.GetSecrets()
-				if len(stepSecrets) > 0 && len(secrets) > 0 {
-					for _, secretName := range stepSecrets {
-						if secretValue, ok := secrets[secretName]; ok {
-							stepEnvVars = append(stepEnvVars, fmt.Sprintf("%s=%s", secretName, secretValue))
-						} else {
-							taskLogger.Warn().Str("secret", secretName).Msg("Secret was requested by step but not provided")
-						}
-					}
-				}
-
-				taskEnvVars := append([]string{}, stepEnvVars...)
-				if vars := task.Variables; len(vars) > 0 {
-					for k, v := range vars {
-						taskEnvVars = append(taskEnvVars, fmt.Sprintf("%s=%s", k, v))
-					}
-				}
+				stepEnvVars := stepContext.containerEnv()
+				taskContext := stepContext.withTask(task)
+				taskEnvVars := taskContext.containerEnv()
 
 				imageName := step.GetImage()
 				if imageName == "" {
@@ -1335,21 +1283,7 @@ func run() int {
 					historyMutex.Lock()
 					historySnapshot := history.String()
 					historyMutex.Unlock()
-
-					varMap := make(map[string]string)
-					for _, e := range taskEnvVars {
-						parts := strings.SplitN(e, "=", 2)
-						if len(parts) == 2 {
-							varMap[parts[0]] = parts[1]
-						}
-					}
-
-					req := &proto.GetActionRequest{
-						Goal:             goalText,
-						History:          historySnapshot,
-						DirectoryListing: directoryListing,
-						Variables:        varMap,
-					}
+					req := taskContext.buildActionRequest(goalText, historySnapshot, directoryListing, secrets)
 
 					actionStart := time.Now()
 					err = withRetry(func() error {
@@ -1408,7 +1342,7 @@ func run() int {
 					status = "failure"
 					output = stderr + stdout
 				}
-				maskedOutput := maskSecrets(output, secrets)
+				maskedOutput := taskContext.maskText(output, secrets)
 				if zerolog.GlobalLevel() <= zerolog.InfoLevel {
 					logMsg := fmt.Sprintf(`status=%s action="%s" output="%s"`, status, actionStr, maskedOutput)
 					taskLogger.Info().Msg(logMsg)
@@ -1428,6 +1362,8 @@ func run() int {
 				if !shareOutput {
 					taskLogger.Debug().Msg("Output sharing is DISABLED for this task. Hiding output from history")
 					output = "[Output was hidden by pipeline configuration]"
+				} else {
+					output = maskedOutput
 				}
 
 				historyMutex.Lock()
@@ -1494,28 +1430,6 @@ func run() int {
 		return 1
 	}
 	return 0
-}
-
-func maskSecrets(output string, secrets map[string]string) string {
-	if len(secrets) == 0 || output == "" {
-		return output
-	}
-
-	for _, secretValue := range secrets {
-		if len(secretValue) < 4 {
-			continue
-		}
-		output = strings.ReplaceAll(output, secretValue, "*****")
-
-		if strings.Contains(secretValue, "\n") {
-			flattened := strings.ReplaceAll(secretValue, "\n", " ")
-			flattened = strings.ReplaceAll(flattened, "\r", "")
-			if len(flattened) >= 4 {
-				output = strings.ReplaceAll(output, flattened, "*****")
-			}
-		}
-	}
-	return output
 }
 
 func main() {
