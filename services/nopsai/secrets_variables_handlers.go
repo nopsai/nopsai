@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/rs/zerolog/log"
 
+	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
 )
 
@@ -248,7 +249,7 @@ func (a *App) handleCreateOrUpdateGeneralVariable(w http.ResponseWriter, r *http
 	variableName := r.PathValue("variableName")
 	scope := r.URL.Query().Get("env")
 	var req VariableRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpapi.DecodeJSON(r, &req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -362,7 +363,7 @@ func (a *App) handleCreateOrUpdateRepoVariable(w http.ResponseWriter, r *http.Re
 	variableName := r.PathValue("variableName")
 	scope := r.URL.Query().Get("env")
 	var req VariableRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpapi.DecodeJSON(r, &req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -745,7 +746,7 @@ func (a *App) handleCreateOrUpdateGeneralSecret(w http.ResponseWriter, r *http.R
 	secretName := r.PathValue("secretName")
 	env := r.URL.Query().Get("env")
 	var req SecretRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpapi.DecodeJSON(r, &req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -838,7 +839,7 @@ func (a *App) handleCreateOrUpdateRepoSecret(w http.ResponseWriter, r *http.Requ
 	secretName := r.PathValue("secretName")
 	env := r.URL.Query().Get("env")
 	var req SecretRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := httpapi.DecodeJSON(r, &req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}

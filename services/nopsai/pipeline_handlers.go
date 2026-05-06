@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -142,34 +143,15 @@ func (a *App) handleGetPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := a.db.Query(context.Background(), "SELECT definition FROM pipelines WHERE path = $1 AND name = $2", pathPart, namePart)
-	if err != nil {
-		log.Error().Err(err).Str("pipeline", pipelineIdentifier).Msg("Database query failed for pipeline")
-		http.Error(w, "Database error", http.StatusInternalServerError)
-		return
-	}
-	defer rows.Close()
-
-	var pipelineDef string
-	if rows.Next() {
-		err = rows.Scan(&pipelineDef)
-		if err != nil {
-			log.Error().Err(err).Str("pipeline", pipelineIdentifier).Msg("Database scan failed for pipeline definition")
-			http.Error(w, "Database error", http.StatusInternalServerError)
-			return
-		}
-	} else {
-		err = pgx.ErrNoRows
-	}
-
+	pipelineYAML, err := a.fetchPipelineFromDB(pathPart, namePart)
 	if err == nil {
 		w.Header().Set("Content-Type", "application/x-yaml")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(pipelineDef))
+		w.Write(pipelineYAML)
 		return
 	}
 
-	if err != pgx.ErrNoRows {
+	if !errors.Is(err, errPipelineNotFound) {
 		log.Error().Err(err).Str("pipeline", pipelineIdentifier).Msg("Database error while fetching pipeline")
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
@@ -197,16 +179,19 @@ func (a *App) handleGetPipeline(w http.ResponseWriter, r *http.Request) {
 			extensions = append(extensions, ".yaml", ".yml")
 		}
 
-		var pipelineYAML []byte
 		var fetchErr error
 		for _, extension := range extensions {
 			pipelineYAML, fetchErr = fetchWithExtension(extension)
 			if fetchErr == nil {
 				break
 			}
+			if !errors.Is(fetchErr, errPipelineNotFound) {
+				log.Error().Err(fetchErr).Str("pipeline", pipelineIdentifier).Msg("Failed to fetch pipeline from repository as fallback")
+				http.Error(w, "Failed to fetch pipeline from repository", http.StatusBadGateway)
+				return
+			}
 		}
 		if fetchErr != nil {
-			log.Error().Err(fetchErr).Str("pipeline", pipelineIdentifier).Msg("Failed to fetch pipeline from repository as fallback")
 			http.Error(w, "Pipeline not found in database or repository", http.StatusNotFound)
 			return
 		}
@@ -217,7 +202,7 @@ func (a *App) handleGetPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Error().Err(err).Str("pipeline", pipelineIdentifier).Msg("Pipeline not found in database and no git context for fallback")
+	log.Info().Str("pipeline", pipelineIdentifier).Msg("Pipeline not found in database and no git context for fallback")
 	http.Error(w, "Pipeline not found", http.StatusNotFound)
 }
 
