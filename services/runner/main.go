@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -35,6 +36,8 @@ type runner struct {
 	active         atomic.Int32
 	dockerNetwork  string
 	networkSet     bool
+	stopMu         sync.Mutex
+	stoppedRuns    map[string]struct{}
 }
 
 func main() {
@@ -100,6 +103,7 @@ func main() {
 		docker:         dockerClient,
 		dockerNetwork:  networkValue,
 		networkSet:     networkSet,
+		stoppedRuns:    make(map[string]struct{}),
 	}
 
 	for {
@@ -225,6 +229,7 @@ func (r *runner) handleJob(ctx context.Context, dispatcher proto.DispatcherServi
 
 	go func() {
 		defer r.active.Add(-1)
+		defer r.clearRunStopRequested(job.RunId)
 
 		agentImage := job.AgentImage
 		if strings.TrimSpace(agentImage) == "" {
@@ -293,9 +298,13 @@ func (r *runner) handleJob(ctx context.Context, dispatcher proto.DispatcherServi
 
 		log.Info().Str("run_id", job.RunId).Str("container_id", resp.ID).Msg("started agent container")
 
+		runCtx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		go r.monitorRunCancellation(runCtx, dispatcher, job.RunId, resp.ID)
 		go r.streamLogs(runCtx, dispatcher, job, resp.ID)
 
-		statusCh, errCh := r.docker.ContainerWait(runCtx, resp.ID, container.WaitConditionNotRunning)
+		statusCh, errCh := r.docker.ContainerWait(context.Background(), resp.ID, container.WaitConditionNotRunning)
 		select {
 		case err := <-errCh:
 			if err != nil {
@@ -311,6 +320,71 @@ func (r *runner) handleJob(ctx context.Context, dispatcher proto.DispatcherServi
 
 		sendJobResult(sendCh, job.RunId, "completed", "")
 	}()
+}
+
+func (r *runner) monitorRunCancellation(ctx context.Context, dispatcher proto.DispatcherServiceClient, runID, containerID string) {
+	if dispatcher == nil || strings.TrimSpace(runID) == "" || strings.TrimSpace(containerID) == "" {
+		return
+	}
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			reqCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			resp, err := dispatcher.GetRunStatus(reqCtx, &proto.RunStatusRequest{RunId: runID})
+			cancel()
+			if err != nil {
+				log.Warn().Err(err).Str("run_id", runID).Msg("failed to poll run status for cancellation")
+				continue
+			}
+
+			if strings.EqualFold(strings.TrimSpace(resp.GetStatus()), "cancelled") {
+				if !r.markRunStopRequested(runID) {
+					return
+				}
+				log.Warn().Str("run_id", runID).Str("container_id", containerID).Msg("run cancelled; stopping agent container")
+				r.stopContainer(containerID)
+				return
+			}
+		}
+	}
+}
+
+func (r *runner) markRunStopRequested(runID string) bool {
+	r.stopMu.Lock()
+	defer r.stopMu.Unlock()
+
+	if _, exists := r.stoppedRuns[runID]; exists {
+		return false
+	}
+	r.stoppedRuns[runID] = struct{}{}
+	return true
+}
+
+func (r *runner) clearRunStopRequested(runID string) {
+	r.stopMu.Lock()
+	defer r.stopMu.Unlock()
+
+	delete(r.stoppedRuns, runID)
+}
+
+func (r *runner) stopContainer(containerID string) {
+	if r == nil || r.docker == nil || strings.TrimSpace(containerID) == "" {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	timeout := 1
+	if err := r.docker.ContainerStop(ctx, containerID, container.StopOptions{Timeout: &timeout}); err != nil {
+		log.Warn().Err(err).Str("container_id", containerID).Msg("failed to stop agent container after cancellation")
+	}
 }
 
 func (r *runner) streamLogs(ctx context.Context, dispatcher proto.DispatcherServiceClient, job *proto.JobRequest, containerID string) {
