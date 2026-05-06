@@ -159,6 +159,101 @@ func TestPumpQueueDropsCancelledRunAndDispatchesRunnableJob(t *testing.T) {
 	}
 }
 
+func TestPrepareJobForRunnerAppliesRunnerOverridesWithoutMutatingInput(t *testing.T) {
+	d := newDispatcherServer(nil, "http://example")
+	job := &proto.JobRequest{
+		RunId:         "run-prepare",
+		Env:           []string{"KEEP=1"},
+		DockerNetwork: "original-network",
+	}
+	runner := &runnerConn{
+		id:       "runner-prepare",
+		metadata: map[string]string{"docker_network": "runner-network", "dispatcher_addr": "dispatcher:7443"},
+	}
+
+	prepared := d.prepareJobForRunner(job, runner)
+	if prepared == nil {
+		t.Fatal("prepareJobForRunner() returned nil")
+	}
+	if prepared == job {
+		t.Fatal("prepareJobForRunner() returned the original job pointer")
+	}
+	if job.DockerNetwork != "original-network" {
+		t.Fatalf("original job docker network = %q, want %q", job.DockerNetwork, "original-network")
+	}
+	if prepared.DockerNetwork != "runner-network" {
+		t.Fatalf("prepared job docker network = %q, want %q", prepared.DockerNetwork, "runner-network")
+	}
+	if strings.Join(job.Env, ",") != "KEEP=1" {
+		t.Fatalf("original job env mutated to %v", job.Env)
+	}
+	gotEnv := strings.Join(prepared.Env, ",")
+	for _, want := range []string{"KEEP=1", "DOCKER_NETWORK_NAME=runner-network", "DISPATCHER_ADDRESS=dispatcher:7443", "RUNNER_ID=runner-prepare"} {
+		if !strings.Contains(gotEnv, want) {
+			t.Fatalf("prepared env = %v, want entry %q", prepared.Env, want)
+		}
+	}
+}
+
+func TestPumpQueueDoesNotHoldDispatcherLockWhileFetchingRunStatus(t *testing.T) {
+	requestStarted := make(chan struct{}, 1)
+	releaseResponse := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestStarted <- struct{}{}
+		<-releaseResponse
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "pending"})
+	}))
+	defer server.Close()
+
+	d := newDispatcherServer(nil, server.URL, newTestJWTSigner())
+	d.httpClient = server.Client()
+	d.queue = []*proto.JobRequest{{RunId: "run-blocked"}}
+
+	pumpDone := make(chan struct{})
+	go func() {
+		defer close(pumpDone)
+		d.pumpQueue()
+	}()
+
+	select {
+	case <-requestStarted:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for run-status fetch to start")
+	}
+
+	addRunnerDone := make(chan struct{})
+	go func() {
+		d.addRunner(&runnerConn{
+			connectionID:  "conn-unblocked",
+			id:            "runner-unblocked",
+			scopes:        map[string]struct{}{},
+			capacity:      1,
+			lastHeartbeat: time.Now(),
+			inflight:      make(map[string]*proto.JobRequest),
+			sendCh:        make(chan *proto.DispatcherMessage, 1),
+			metadata:      map[string]string{},
+			allowDispatch: true,
+		})
+		close(addRunnerDone)
+	}()
+
+	select {
+	case <-addRunnerDone:
+	case <-time.After(200 * time.Millisecond):
+		close(releaseResponse)
+		t.Fatal("dispatcher lock remained blocked during queued run status fetch")
+	}
+
+	close(releaseResponse)
+
+	select {
+	case <-pumpDone:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for pumpQueue to finish")
+	}
+}
+
 func newTestJWTSigner() *nopsaiAuth.LocalJWTService {
 	return nopsaiAuth.NewLocalJWTService([]byte("test-signing-key"), "test-issuer", "test-audience", time.Minute)
 }

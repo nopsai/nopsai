@@ -278,8 +278,9 @@ func (s *Service) Refresh(ctx context.Context, rawRefresh string) (*LoginResult,
 }
 
 func (s *Service) Logout(ctx context.Context, rawRefresh string) error {
+	rawRefresh = strings.TrimSpace(rawRefresh)
 	if rawRefresh == "" {
-		return nil
+		return fmt.Errorf("refresh token required")
 	}
 	hash := HashToken(rawRefresh)
 	_, err := s.db.Exec(ctx, `UPDATE refresh_tokens SET revoked_at = NOW() WHERE token_hash = $1`, hash)
