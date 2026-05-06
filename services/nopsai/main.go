@@ -24,7 +24,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -4149,6 +4148,7 @@ func parseGitHubRepoURL(raw string) (string, string, error) {
 }
 
 func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
+	setNoStoreHeaders(w)
 	query := `
 		SELECT
 		    run_id, pipeline_name, pipeline_path, pipeline_version, status, COALESCE(git_commit_sha, ''),
@@ -4266,6 +4266,7 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
+	setNoStoreHeaders(w)
 	runID := r.PathValue("runID")
 
 	var run RunListItem
@@ -4317,15 +4318,6 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	} else {
 		run.Duration = "0s"
 		run.IsComplete = isTerminalRunStatus(run.Status)
-	}
-
-	// Calculate ETag based on RunID, Status, and timestamps
-	etag := fmt.Sprintf(`"%s-%s-%d-%d"`, run.RunID, run.Status, run.StartedAt.Unix(), run.FinishedAt.Unix())
-	w.Header().Set("ETag", etag)
-
-	if match := r.Header.Get("If-None-Match"); match == etag {
-		w.WriteHeader(http.StatusNotModified)
-		return
 	}
 
 	var parentRunInfo *ParentRunInfo
@@ -4383,6 +4375,14 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	childRunsByStep := make(map[string][]RunListItem)
+	for _, childRun := range childRuns {
+		if childRun.ParentStepName == "" {
+			continue
+		}
+		childRunsByStep[childRun.ParentStepName] = append(childRunsByStep[childRun.ParentStepName], childRun)
+	}
+
 	taskRows, err := a.db.Query(context.Background(), `
 		SELECT task_id, step_name, task_name, status, exit_code, started_at, finished_at, task_index
 		FROM task_runs
@@ -4431,43 +4431,9 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	for _, pStep := range resolvedPipeline.Steps {
 		stepName := pStep.GetName()
 		stepTasks := tasksByStep[stepName]
-
-		status := "pending"
-		var stepDuration time.Duration
-		var firstTaskStart, lastTaskFinish time.Time
-
-		if len(stepTasks) > 0 {
-			for _, t := range stepTasks {
-				if firstTaskStart.IsZero() || (!t.StartedAt.IsZero() && t.StartedAt.Before(firstTaskStart)) {
-					firstTaskStart = t.StartedAt
-				}
-				if !t.FinishedAt.IsZero() && t.FinishedAt.After(lastTaskFinish) {
-					lastTaskFinish = t.FinishedAt
-				}
-			}
-
-			if !firstTaskStart.IsZero() {
-				if !lastTaskFinish.IsZero() {
-					stepDuration = lastTaskFinish.Sub(firstTaskStart)
-				} else {
-					stepDuration = time.Since(firstTaskStart)
-				}
-			}
-
-			if slices.ContainsFunc(stepTasks, func(t TaskDetail) bool { return t.Status == "failure" && !strings.Contains(t.Status, "ignored") }) {
-				status = "failure"
-			} else if slices.ContainsFunc(stepTasks, func(t TaskDetail) bool { return t.Status == "running" }) {
-				status = "running"
-			} else if allTasksDone(stepTasks) {
-				if slices.ContainsFunc(stepTasks, func(t TaskDetail) bool { return strings.Contains(t.Status, "ignored") }) {
-					status = "failure (ignored)"
-				} else {
-					status = "success"
-				}
-			} else if slices.ContainsFunc(stepTasks, func(t TaskDetail) bool { return t.Status == "skipped" }) {
-				status = "skipped"
-			}
-		}
+		stepChildRuns := childRunsByStep[stepName]
+		status := deriveRunDetailStepStatus(stepTasks, stepChildRuns)
+		stepDuration := deriveRunDetailStepDuration(stepTasks, stepChildRuns)
 
 		originalPStep, _ := findStepByName(originalPipeline.Steps, stepName)
 
@@ -4502,8 +4468,191 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 		ParentRunInfo:          parentRunInfo,
 	}
 
+	etag := buildRunDetailETag(run, childRuns, tasksByStep)
+	w.Header().Set("ETag", etag)
+	if match := r.Header.Get("If-None-Match"); match == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+func setNoStoreHeaders(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store, max-age=0")
+	w.Header().Set("Pragma", "no-cache")
+}
+
+func normalizeRunDetailStatus(status string) string {
+	raw := strings.ToLower(strings.TrimSpace(status))
+	switch {
+	case raw == "":
+		return "pending"
+	case raw == "success" || raw == "running" || raw == "pending" || raw == "skipped" || raw == "cancelled":
+		return raw
+	case raw == "failure" || strings.Contains(raw, "not_found") || strings.Contains(raw, "timeout"):
+		return "failure"
+	case strings.Contains(raw, "ignored"):
+		return "failure (ignored)"
+	case strings.Contains(raw, "fail") || strings.Contains(raw, "error"):
+		return "failure"
+	default:
+		return raw
+	}
+}
+
+func summarizeRunDetailStatuses(statuses []string) string {
+	if len(statuses) == 0 {
+		return "pending"
+	}
+	priority := map[string]int{
+		"failure":           0,
+		"failure (ignored)": 1,
+		"cancelled":         2,
+		"running":           3,
+		"pending":           4,
+		"skipped":           5,
+		"success":           6,
+	}
+	best := "pending"
+	bestPriority := len(priority) + 1
+	for _, status := range statuses {
+		normalized := normalizeRunDetailStatus(status)
+		rank, ok := priority[normalized]
+		if !ok {
+			normalized = "failure"
+			rank = priority[normalized]
+		}
+		if rank < bestPriority {
+			best = normalized
+			bestPriority = rank
+		}
+	}
+	return best
+}
+
+func deriveRunDetailStepStatus(tasks []TaskDetail, childRuns []RunListItem) string {
+	taskStatuses := make([]string, 0, len(tasks))
+	for _, task := range tasks {
+		taskStatuses = append(taskStatuses, task.Status)
+	}
+	taskStatus := summarizeRunDetailStatuses(taskStatuses)
+
+	if len(childRuns) == 0 {
+		return taskStatus
+	}
+
+	childStatuses := make([]string, 0, len(childRuns))
+	for _, childRun := range childRuns {
+		childStatuses = append(childStatuses, childRun.Status)
+	}
+	childStatus := summarizeRunDetailStatuses(childStatuses)
+
+	if taskStatus == "failure" || taskStatus == "failure (ignored)" || taskStatus == "cancelled" {
+		return summarizeRunDetailStatuses([]string{taskStatus, childStatus})
+	}
+	if childStatus != "pending" {
+		return childStatus
+	}
+	return summarizeRunDetailStatuses([]string{taskStatus, childStatus})
+}
+
+func deriveRunDetailStepDuration(tasks []TaskDetail, childRuns []RunListItem) time.Duration {
+	var earliestStart time.Time
+	var latestFinish time.Time
+	hasActiveWork := false
+
+	for _, task := range tasks {
+		if !task.StartedAt.IsZero() && (earliestStart.IsZero() || task.StartedAt.Before(earliestStart)) {
+			earliestStart = task.StartedAt
+		}
+		if !task.FinishedAt.IsZero() && task.FinishedAt.After(latestFinish) {
+			latestFinish = task.FinishedAt
+		}
+		if !task.StartedAt.IsZero() && task.FinishedAt.IsZero() {
+			hasActiveWork = true
+		}
+	}
+
+	for _, childRun := range childRuns {
+		if !childRun.StartedAt.IsZero() && (earliestStart.IsZero() || childRun.StartedAt.Before(earliestStart)) {
+			earliestStart = childRun.StartedAt
+		}
+		if !childRun.FinishedAt.IsZero() && childRun.FinishedAt.After(latestFinish) {
+			latestFinish = childRun.FinishedAt
+		}
+		if !childRun.StartedAt.IsZero() && childRun.FinishedAt.IsZero() {
+			hasActiveWork = true
+		}
+	}
+
+	if earliestStart.IsZero() {
+		return 0
+	}
+	if !latestFinish.IsZero() && !hasActiveWork {
+		return latestFinish.Sub(earliestStart)
+	}
+	return time.Since(earliestStart)
+}
+
+func buildRunDetailETag(run RunListItem, childRuns []RunListItem, tasksByStep map[string][]TaskDetail) string {
+	hasher := sha256.New()
+	fmt.Fprintf(
+		hasher,
+		"run|%s|%s|%t|%d|%d|%s|%s|%s|",
+		run.RunID,
+		normalizeRunDetailStatus(run.Status),
+		run.IsComplete,
+		run.StartedAt.UnixNano(),
+		run.FinishedAt.UnixNano(),
+		strings.TrimSpace(run.FailureReason),
+		strings.TrimSpace(run.PipelineSource),
+		strings.TrimSpace(run.TriggerEventID),
+	)
+
+	for _, childRun := range childRuns {
+		fmt.Fprintf(
+			hasher,
+			"child|%s|%s|%t|%d|%d|%s|",
+			childRun.RunID,
+			normalizeRunDetailStatus(childRun.Status),
+			childRun.IsComplete,
+			childRun.StartedAt.UnixNano(),
+			childRun.FinishedAt.UnixNano(),
+			strings.TrimSpace(childRun.ParentStepName),
+		)
+	}
+
+	stepNames := make([]string, 0, len(tasksByStep))
+	for stepName := range tasksByStep {
+		stepNames = append(stepNames, stepName)
+	}
+	sort.Strings(stepNames)
+
+	for _, stepName := range stepNames {
+		fmt.Fprintf(hasher, "step|%s|", stepName)
+		for _, task := range tasksByStep[stepName] {
+			exitCode := ""
+			if task.ExitCode != nil {
+				exitCode = strconv.Itoa(*task.ExitCode)
+			}
+			fmt.Fprintf(
+				hasher,
+				"task|%s|%s|%s|%s|%d|%d|%d|",
+				task.TaskID,
+				task.StepName,
+				task.TaskName,
+				normalizeRunDetailStatus(task.Status),
+				task.TaskIndex,
+				task.StartedAt.UnixNano(),
+				task.FinishedAt.UnixNano(),
+			)
+			fmt.Fprintf(hasher, "exit|%s|", exitCode)
+		}
+	}
+
+	return fmt.Sprintf(`W/"%x"`, hasher.Sum(nil))
 }
 
 func allTasksDone(tasks []TaskDetail) bool {
@@ -6413,6 +6562,15 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 			}
 			return
 		}
+		if !config.IsValidLMStudioReasoning(cfg.LMStudioReasoning) {
+			reason := fmt.Sprintf("Invalid LM Studio reasoning setting: %s", cfg.LMStudioReasoning)
+			log.Error().Str("run_id", runID).Msg(reason)
+			a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", reason, runID)
+			if gitContext["repo_owner"] != "" {
+				a.notifyGitBotOfFinalStatus("failure", "", "", reason, gitContext)
+			}
+			return
+		}
 	default:
 		reason := fmt.Sprintf("Unsupported LLM provider: %s", llmProvider)
 		log.Error().Str("run_id", runID).Msg(reason)
@@ -6456,6 +6614,7 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 		fmt.Sprintf("GEMINI_MODEL=%s", cfg.GeminiModel),
 		fmt.Sprintf("LMSTUDIO_BASE_URL=%s", containerReachableLMStudioBaseURL(cfg.LMStudioBaseURL)),
 		fmt.Sprintf("LMSTUDIO_MODEL=%s", cfg.LMStudioModel),
+		fmt.Sprintf("LMSTUDIO_REASONING=%s", config.NormalizeLMStudioReasoning(cfg.LMStudioReasoning)),
 		fmt.Sprintf("LMSTUDIO_ENABLE_THINKING=%t", cfg.LMStudioEnableThinking),
 		fmt.Sprintf("NOPSAI_API_URL=%s", cfg.AgentNopsaiAPIURL),
 		fmt.Sprintf("LOG_LEVEL=%s", cfg.LogLevel),

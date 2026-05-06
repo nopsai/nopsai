@@ -18,33 +18,25 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-const (
-	lmStudioVariableValueLimit = 240
-	lmStudioFileContentLimit   = 600
-	lmStudioHistoryLimit       = 1800
-	lmStudioConditionLimit     = 1600
-	lmStudioMaxFiles           = 3
-)
-
 type LLMClient struct {
-	provider       string
-	apiKey         string
-	model          string
-	baseURL        string
-	enableThinking bool
-	httpClient     *http.Client
+	provider   string
+	apiKey     string
+	model      string
+	baseURL    string
+	reasoning  string
+	httpClient *http.Client
 
 	modelMu sync.Mutex
 }
 
-func NewLLMClient(provider, apiKey, model, baseURL string, enableThinking bool) *LLMClient {
+func NewLLMClient(provider, apiKey, model, baseURL, reasoning string) *LLMClient {
 	return &LLMClient{
-		provider:       appconfig.NormalizeLLMProvider(provider),
-		apiKey:         strings.TrimSpace(apiKey),
-		model:          strings.TrimSpace(model),
-		baseURL:        strings.TrimSpace(baseURL),
-		enableThinking: enableThinking,
-		httpClient:     &http.Client{},
+		provider:   appconfig.NormalizeLLMProvider(provider),
+		apiKey:     strings.TrimSpace(apiKey),
+		model:      strings.TrimSpace(model),
+		baseURL:    strings.TrimSpace(baseURL),
+		reasoning:  appconfig.NormalizeLMStudioReasoning(reasoning),
+		httpClient: &http.Client{},
 	}
 }
 
@@ -107,14 +99,9 @@ func (c *LLMClient) EvaluateCondition(ctx context.Context, req *proto.ConditionR
 }
 
 func (c *LLMClient) buildConditionPrompt(req *proto.ConditionRequest) string {
-	compact := c.provider == appconfig.LLMProviderLMStudio
-
 	history := req.GetHistory()
 	if history == "" {
 		history = "No history yet."
-	}
-	if compact {
-		history = truncateModelContext(history, lmStudioConditionLimit)
 	}
 
 	promptTemplate := `You are a CI/CD automation bot. Your task is to answer a YES/NO question based on the provided context.
@@ -131,20 +118,15 @@ You must only respond with the word "true" or "false" and nothing else.
 ---
 Based on the context, is the answer to the question YES or NO? Respond with only "true" or "false".`
 
-	fullPrompt := fmt.Sprintf(promptTemplate, buildVariablesSection(req.GetVariables(), compact), history, req.GetGoal())
+	fullPrompt := fmt.Sprintf(promptTemplate, buildVariablesSection(req.GetVariables()), history, req.GetGoal())
 	log.Debug().Str("provider", c.provider).Msgf("Condition prompt:\n%s", fullPrompt)
 	return fullPrompt
 }
 
 func (c *LLMClient) buildPrompt(req *proto.GetActionRequest) string {
-	compact := c.provider == appconfig.LLMProviderLMStudio
-
 	history := req.GetHistory()
 	if history == "" {
 		history = "No history yet."
-	}
-	if compact {
-		history = truncateModelContext(history, lmStudioHistoryLimit)
 	}
 
 	promptTemplate := `You are an expert CI/CD automation bot. Your task is to achieve a user's goal by choosing the correct action from a toolkit.
@@ -169,8 +151,8 @@ Now, choose the single best action from your toolkit and provide the response in
 
 	fullPrompt := fmt.Sprintf(
 		promptTemplate,
-		buildVariablesSection(req.GetVariables(), compact),
-		buildDirectoryListingSection(req.GetDirectoryListing(), compact),
+		buildVariablesSection(req.GetVariables()),
+		buildDirectoryListingSection(req.GetDirectoryListing()),
 		history,
 		req.GetGoal(),
 	)
@@ -178,7 +160,7 @@ Now, choose the single best action from your toolkit and provide the response in
 	return fullPrompt
 }
 
-func buildVariablesSection(variables map[string]string, compact bool) string {
+func buildVariablesSection(variables map[string]string) string {
 	var builder strings.Builder
 	builder.WriteString("**Variables:**\n")
 	if len(variables) == 0 {
@@ -193,17 +175,13 @@ func buildVariablesSection(variables map[string]string, compact bool) string {
 	sort.Strings(keys)
 
 	for _, key := range keys {
-		value := variables[key]
-		if compact {
-			value = truncateModelContext(value, lmStudioVariableValueLimit)
-		}
-		builder.WriteString(fmt.Sprintf("- %s: %s\n", key, value))
+		builder.WriteString(fmt.Sprintf("- %s: %s\n", key, variables[key]))
 	}
 
 	return builder.String()
 }
 
-func buildDirectoryListingSection(directoryListing map[string]string, compact bool) string {
+func buildDirectoryListingSection(directoryListing map[string]string) string {
 	var builder strings.Builder
 	builder.WriteString("**Working Directory Contents:**\n")
 	if len(directoryListing) == 0 {
@@ -217,27 +195,11 @@ func buildDirectoryListingSection(directoryListing map[string]string, compact bo
 	}
 	sort.Strings(names)
 
-	for idx, name := range names {
-		if compact && idx >= lmStudioMaxFiles {
-			builder.WriteString(fmt.Sprintf("[directory listing truncated: %d additional files omitted]\n", len(names)-idx))
-			break
-		}
-
-		content := directoryListing[name]
-		if compact {
-			content = truncateModelContext(content, lmStudioFileContentLimit)
-		}
-		builder.WriteString(fmt.Sprintf("--- File: %s ---\n%s\n", name, content))
+	for _, name := range names {
+		builder.WriteString(fmt.Sprintf("--- File: %s ---\n%s\n", name, directoryListing[name]))
 	}
 
 	return builder.String()
-}
-
-func truncateModelContext(text string, limit int) string {
-	if limit <= 0 || len(text) <= limit {
-		return text
-	}
-	return text[:limit] + "\n...[truncated]..."
 }
 
 func (c *LLMClient) callGeminiForBoolean(ctx context.Context, prompt string) (bool, error) {
@@ -350,35 +312,30 @@ func (c *LLMClient) callLMStudio(ctx context.Context, prompt string) (string, er
 		return "", err
 	}
 
-	log.Debug().Str("model", model).Msg("Calling LM Studio API")
-
 	reqPayload := struct {
-		Model          string `json:"model"`
-		EnableThinking bool   `json:"enable_thinking"`
-		Messages       []struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
-		} `json:"messages"`
+		Model     string `json:"model"`
+		Input     string `json:"input"`
+		Reasoning string `json:"reasoning,omitempty"`
+		Store     bool   `json:"store"`
 	}{
-		Model:          model,
-		EnableThinking: c.enableThinking,
-		Messages: []struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
-		}{
-			{
-				Role:    "user",
-				Content: prepareLMStudioPromptForModel(prompt, model, c.enableThinking),
-			},
-		},
+		Model:     model,
+		Input:     prompt,
+		Reasoning: c.reasoning,
+		Store:     false,
 	}
+
+	logEvent := log.Debug().Str("model", model).Str("endpoint", buildLMStudioChatURL(c.baseURL))
+	if c.reasoning != "" {
+		logEvent = logEvent.Str("reasoning", c.reasoning)
+	}
+	logEvent.Msg("Calling LM Studio native chat API")
 
 	payloadBytes, err := json.Marshal(reqPayload)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal lm studio request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, buildLMStudioChatCompletionsURL(c.baseURL), bytes.NewBuffer(payloadBytes))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, buildLMStudioChatURL(c.baseURL), bytes.NewBuffer(payloadBytes))
 	if err != nil {
 		return "", fmt.Errorf("failed to build lm studio request: %w", err)
 	}
@@ -399,20 +356,29 @@ func (c *LLMClient) callLMStudio(ctx context.Context, prompt string) (string, er
 	}
 
 	var lmStudioResp struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
+		Output []struct {
+			Type    string `json:"type"`
+			Content string `json:"content"`
+		} `json:"output"`
 	}
 	if err := json.Unmarshal(body, &lmStudioResp); err != nil {
 		return "", fmt.Errorf("failed to unmarshal lm studio response: %w", err)
 	}
-	if len(lmStudioResp.Choices) == 0 {
+	if len(lmStudioResp.Output) == 0 {
 		return "", fmt.Errorf("invalid or empty response from lm studio: %s", string(body))
 	}
 
-	return lmStudioResp.Choices[0].Message.Content, nil
+	var messages []string
+	for _, item := range lmStudioResp.Output {
+		if item.Type == "message" && strings.TrimSpace(item.Content) != "" {
+			messages = append(messages, item.Content)
+		}
+	}
+	if len(messages) == 0 {
+		return "", fmt.Errorf("lm studio response did not contain a message item: %s", string(body))
+	}
+
+	return strings.Join(messages, "\n"), nil
 }
 
 func (c *LLMClient) resolveLMStudioModel(ctx context.Context) (string, error) {
@@ -443,6 +409,10 @@ func (c *LLMClient) resolveLMStudioModel(ctx context.Context) (string, error) {
 	}
 
 	var modelsResp struct {
+		Models []struct {
+			Type string `json:"type"`
+			Key  string `json:"key"`
+		} `json:"models"`
 		Data []struct {
 			ID string `json:"id"`
 		} `json:"data"`
@@ -450,11 +420,27 @@ func (c *LLMClient) resolveLMStudioModel(ctx context.Context) (string, error) {
 	if err := json.Unmarshal(body, &modelsResp); err != nil {
 		return "", fmt.Errorf("failed to unmarshal lm studio models response: %w", err)
 	}
-	if len(modelsResp.Data) == 0 || strings.TrimSpace(modelsResp.Data[0].ID) == "" {
-		return "", fmt.Errorf("lm studio did not return any loaded models")
-	}
 
-	discoveredModel := strings.TrimSpace(modelsResp.Data[0].ID)
+	discoveredModel := ""
+	for _, candidate := range modelsResp.Models {
+		if candidate.Type == "" || candidate.Type == "llm" {
+			if strings.TrimSpace(candidate.Key) != "" {
+				discoveredModel = strings.TrimSpace(candidate.Key)
+				break
+			}
+		}
+	}
+	if discoveredModel == "" {
+		for _, candidate := range modelsResp.Data {
+			if strings.TrimSpace(candidate.ID) != "" {
+				discoveredModel = strings.TrimSpace(candidate.ID)
+				break
+			}
+		}
+	}
+	if discoveredModel == "" {
+		return "", fmt.Errorf("lm studio did not return any usable models")
+	}
 
 	c.modelMu.Lock()
 	if strings.TrimSpace(c.model) == "" {
@@ -467,17 +453,17 @@ func (c *LLMClient) resolveLMStudioModel(ctx context.Context) (string, error) {
 	return discoveredModel, nil
 }
 
-func buildLMStudioChatCompletionsURL(baseURL string) string {
+func buildLMStudioChatURL(baseURL string) string {
 	trimmed := strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	lower := strings.ToLower(trimmed)
 
 	switch {
-	case strings.HasSuffix(lower, "/v1/chat/completions"):
+	case strings.HasSuffix(lower, "/api/v1/chat"):
 		return trimmed
-	case strings.HasSuffix(lower, "/v1"):
-		return trimmed + "/chat/completions"
+	case strings.HasSuffix(lower, "/api/v1"):
+		return trimmed + "/chat"
 	default:
-		return trimmed + "/v1/chat/completions"
+		return trimmed + "/api/v1/chat"
 	}
 }
 
@@ -486,6 +472,12 @@ func buildLMStudioModelsURL(baseURL string) string {
 	lower := strings.ToLower(trimmed)
 
 	switch {
+	case strings.HasSuffix(lower, "/api/v1/models"):
+		return trimmed
+	case strings.HasSuffix(lower, "/api/v1/chat"):
+		return trimmed[:len(trimmed)-len("/chat")] + "/models"
+	case strings.HasSuffix(lower, "/api/v1"):
+		return trimmed + "/models"
 	case strings.HasSuffix(lower, "/v1/models"):
 		return trimmed
 	case strings.HasSuffix(lower, "/v1/chat/completions"):
@@ -493,7 +485,7 @@ func buildLMStudioModelsURL(baseURL string) string {
 	case strings.HasSuffix(lower, "/v1"):
 		return trimmed + "/models"
 	default:
-		return trimmed + "/v1/models"
+		return trimmed + "/api/v1/models"
 	}
 }
 
@@ -517,25 +509,6 @@ func cleanModelTextResponse(raw string) string {
 	}
 
 	return strings.Trim(cleaned, "` \n\r\t")
-}
-
-func (c *LLMClient) prepareLMStudioPrompt(prompt string) string {
-	c.modelMu.Lock()
-	model := c.model
-	c.modelMu.Unlock()
-	return prepareLMStudioPromptForModel(prompt, model, c.enableThinking)
-}
-
-func prepareLMStudioPromptForModel(prompt, model string, enableThinking bool) string {
-	if enableThinking || !strings.Contains(strings.ToLower(model), "qwen") {
-		return prompt
-	}
-
-	if strings.HasSuffix(strings.TrimSpace(prompt), "/no_think") {
-		return prompt
-	}
-
-	return strings.TrimRight(prompt, "\n") + "\n/no_think"
 }
 
 func decodeActionResponse(raw string) (*models.Action, error) {
