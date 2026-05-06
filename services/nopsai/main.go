@@ -761,8 +761,19 @@ func (a *App) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req authRefreshRequest
-	_ = json.NewDecoder(r.Body).Decode(&req)
-	_ = a.authService.Logout(r.Context(), strings.TrimSpace(req.RefreshToken))
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	refreshToken := strings.TrimSpace(req.RefreshToken)
+	if refreshToken == "" {
+		http.Error(w, "refresh token is required", http.StatusBadRequest)
+		return
+	}
+	if err := a.authService.Logout(r.Context(), refreshToken); err != nil {
+		http.Error(w, "failed to logout", http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

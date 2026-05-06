@@ -26,6 +26,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -905,13 +906,14 @@ func (d *dispatcherServer) dropTriggerAssignmentsForRunner(runnerID string) {
 
 func (d *dispatcherServer) pumpQueue() {
 	d.mu.Lock()
-	defer d.mu.Unlock()
-
 	if len(d.queue) == 0 {
+		d.mu.Unlock()
 		return
 	}
+	queuedJobs := append([]*proto.JobRequest(nil), d.queue...)
+	d.queue = nil
+	d.mu.Unlock()
 
-	var remaining []*proto.JobRequest
 	var assignments []struct {
 		runID        string
 		pipelineName string
@@ -919,7 +921,7 @@ func (d *dispatcherServer) pumpQueue() {
 		scope        string
 		triggerID    string
 	}
-	for _, job := range d.queue {
+	for _, job := range queuedJobs {
 		dispatchCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		runStatus, err := d.fetchRunStatusValue(dispatchCtx, job.RunId)
 		cancel()
@@ -930,12 +932,20 @@ func (d *dispatcherServer) pumpQueue() {
 			continue
 		}
 
+		d.mu.Lock()
 		runner := d.pickRunnerForJobLocked(job)
 		if runner == nil {
-			remaining = append(remaining, job)
+			d.queue = append(d.queue, job)
+			d.mu.Unlock()
 			continue
 		}
 		jobForRunner := d.prepareJobForRunner(job, runner)
+		if jobForRunner == nil {
+			log.Error().Str("run_id", job.RunId).Str("runner_id", runner.id).Msg("failed to prepare queued job for runner")
+			d.queue = append(d.queue, job)
+			d.mu.Unlock()
+			continue
+		}
 		affinityKey := affinityKeyForJob(job)
 		preferredRunnerID := strings.TrimSpace(job.PreferredRunnerId)
 		select {
@@ -967,12 +977,13 @@ func (d *dispatcherServer) pumpQueue() {
 				scope:        job.Scope,
 				triggerID:    job.TriggerEventId,
 			})
+			d.mu.Unlock()
 		default:
 			log.Warn().Str("runner_id", runner.id).Msg("runner send channel is full during queue dispatch")
-			remaining = append(remaining, job)
+			d.queue = append(d.queue, job)
+			d.mu.Unlock()
 		}
 	}
-	d.queue = remaining
 
 	// Send assignment log entries without holding the dispatcher lock.
 	for _, a := range assignments {
@@ -1160,8 +1171,11 @@ func (d *dispatcherServer) prepareJobForRunner(job *proto.JobRequest, runner *ru
 	if job == nil {
 		return nil
 	}
-	copyJob := *job
-	envCopy := append([]string(nil), job.Env...)
+	copyJob, ok := gproto.Clone(job).(*proto.JobRequest)
+	if !ok || copyJob == nil {
+		return nil
+	}
+	envCopy := append([]string(nil), copyJob.Env...)
 	if runner != nil {
 		if override, ok := runner.metadata["docker_network"]; ok {
 			copyJob.DockerNetwork = strings.TrimSpace(override)
@@ -1173,7 +1187,7 @@ func (d *dispatcherServer) prepareJobForRunner(job *proto.JobRequest, runner *ru
 		envCopy = upsertEnv(envCopy, "RUNNER_ID", runner.id)
 	}
 	copyJob.Env = envCopy
-	return &copyJob
+	return copyJob
 }
 
 func upsertEnv(env []string, key, val string) []string {
