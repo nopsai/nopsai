@@ -27,14 +27,16 @@ func (s *PGStore) ResolveSubject(ctx context.Context, subject model.Subject) (*m
 
 	switch model.NormalizeType(subject.Type) {
 	case model.SubjectTypeInternalService:
+		subjectID := strings.TrimSpace(subject.ID)
 		resolved := &model.ResolvedSubject{
 			Subject: model.Subject{
 				Type: model.SubjectTypeInternalService,
-				ID:   strings.TrimSpace(subject.ID),
+				ID:   subjectID,
 			},
 			Provider:    "internal-service",
 			Status:      "active",
-			DirectRoles: s.fetchBindingRoles(ctx, model.SubjectTypeInternalService, strings.TrimSpace(subject.ID)),
+			DirectRoles: s.fetchBindingRoles(ctx, model.SubjectTypeInternalService, subjectID),
+			AuthGroups:  s.fetchSubjectGroups(ctx, model.SubjectTypeInternalService, subjectID),
 		}
 		return resolved, nil
 	case model.SubjectTypeAuthGroup:
@@ -122,7 +124,7 @@ func (s *PGStore) resolveUserSubject(ctx context.Context, subject model.Subject)
 	}
 	resolved.Subject.Type = model.SubjectTypeUser
 	resolved.DirectRoles = s.fetchUserRoles(ctx, resolved.Subject.ID)
-	resolved.AuthGroups = s.fetchUserGroups(ctx, resolved.Subject.ID)
+	resolved.AuthGroups = s.fetchSubjectGroups(ctx, model.SubjectTypeUser, resolved.Subject.ID)
 
 	if !strings.EqualFold(resolved.Status, "active") {
 		return resolved, ErrSubjectInactive
@@ -190,16 +192,19 @@ func scanRoleList(rows pgx.Rows) []string {
 	return roles
 }
 
-func (s *PGStore) fetchUserGroups(ctx context.Context, userID string) []model.AuthGroupInfo {
+func (s *PGStore) fetchSubjectGroups(ctx context.Context, subjectType, subjectID string) []model.AuthGroupInfo {
+	if strings.TrimSpace(subjectType) == "" || strings.TrimSpace(subjectID) == "" {
+		return nil
+	}
 	rows, err := s.db.Query(ctx, `
 		SELECT g.id::text, g.name, COALESCE(rb.role_name, '')
 		FROM auth_group_members m
 		JOIN auth_groups g ON g.id = m.group_id
 		LEFT JOIN auth_role_bindings rb
 			ON rb.subject_type = 'auth_group' AND rb.subject_id = g.id::text
-		WHERE m.subject_type = 'user' AND m.subject_id = $1
+		WHERE m.subject_type = $1 AND m.subject_id = $2
 		ORDER BY g.name ASC, rb.role_name ASC
-	`, userID)
+	`, subjectType, subjectID)
 	if err != nil {
 		return nil
 	}

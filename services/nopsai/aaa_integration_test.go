@@ -172,6 +172,94 @@ func TestRunnerExecuteAllowedButUpdateDenied(t *testing.T) {
 	}
 }
 
+func TestDispatcherRequestsUseInternalServiceSubject(t *testing.T) {
+	client := newInMemoryAAAClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/authz/check":
+			var req model.CheckRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode check request: %v", err)
+			}
+			if req.Subject.Type != model.SubjectTypeInternalService {
+				t.Fatalf("subject type = %q, want %q", req.Subject.Type, model.SubjectTypeInternalService)
+			}
+			if req.Subject.ID != "dispatcher" {
+				t.Fatalf("subject id = %q, want dispatcher", req.Subject.ID)
+			}
+			if req.Action != "pipeline.read" {
+				t.Fatalf("action = %q, want pipeline.read", req.Action)
+			}
+			if req.Resource != routeauthz.PipelineResource("team", "build") {
+				t.Fatalf("resource = %#v, want %#v", req.Resource, routeauthz.PipelineResource("team", "build"))
+			}
+			_ = json.NewEncoder(w).Encode(model.Decision{Allowed: true, Reason: "mock"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+
+	app := &App{aaaClient: client}
+	handler := app.authzMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := withClaimsRequest(http.MethodGet, "/v1/pipelines/team/build", ``, &auth.Claims{Sub: "dispatcher", Provider: "internal-service"})
+	req.SetPathValue("pipelineName", "team/build")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+}
+
+func TestBranchRunDeletionRouteUsesAAA(t *testing.T) {
+	calls := &mockAAACalls{}
+	client := newInMemoryAAAClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/authz/check":
+			calls.checks++
+			var req model.CheckRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode check request: %v", err)
+			}
+			if req.Action != "pipeline_run.delete" {
+				t.Fatalf("action = %q, want pipeline_run.delete", req.Action)
+			}
+			if req.Resource.Type != "repository" || req.Resource.ID != "acme/widgets" {
+				t.Fatalf("resource = %#v, want repository acme/widgets", req.Resource)
+			}
+			_ = json.NewEncoder(w).Encode(model.Decision{Allowed: false, Reason: "default_deny"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+
+	app := &App{aaaClient: client}
+	nextCalled := false
+	handler := app.authzMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := withClaimsRequest(http.MethodDelete, "/v1/repositories/acme/widgets/branches/main", ``, &auth.Claims{Sub: "viewer", Email: "viewer@example.com", Provider: "local"})
+	req.SetPathValue("repoOwner", "acme")
+	req.SetPathValue("repoName", "widgets")
+	req.SetPathValue("branch", "main")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+	if nextCalled {
+		t.Fatal("next handler was called for denied branch deletion request")
+	}
+	if calls.checks != 1 {
+		t.Fatalf("AAA check calls = %d, want 1", calls.checks)
+	}
+}
+
 func TestDefaultAdminAllowedThroughMiddleware(t *testing.T) {
 	client := newInMemoryAAAClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

@@ -67,6 +67,9 @@ func main() {
 	defer dbpool.Close()
 
 	backend := store.NewPGStore(dbpool)
+	if err := backend.EnsureSchema(context.Background()); err != nil {
+		log.Fatal().Err(err).Msg("failed to ensure aaa schema")
+	}
 	evaluator := authz.NewEvaluator(backend)
 	httpServer := &http.Server{
 		Addr:    cfg.AAAAddr,
