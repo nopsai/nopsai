@@ -6,7 +6,6 @@ import { changePassword, updateEmail } from '../lib/api';
 type CurrentUser = {
   sub: string;
   email?: string;
-  provider?: string;
   tenantIds?: string[];
   defaultTenant?: string;
   roles?: string[];
@@ -56,16 +55,11 @@ export default function ProfilePage({ user, loading, onLogout, tenants = [], sel
   }, [selectedTenant, tenants, user?.tenantIds]);
 
   const primaryLabel = user?.email || user?.sub || 'User';
-  const isLocalAccount = !user?.provider || user.provider === 'local';
 
   const handleSaveEmail = async () => {
     const nextEmail = emailDraft.trim();
     if (!nextEmail) {
       window.alert('Please enter an email.');
-      return;
-    }
-    if (!isLocalAccount) {
-      window.alert('Email is managed by your identity provider.');
       return;
     }
     setEmailSaving(true);
@@ -120,7 +114,7 @@ export default function ProfilePage({ user, loading, onLogout, tenants = [], sel
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-sm text-[var(--text-secondary)]">Manage your identity, roles, and session details.</p>
+          <p className="text-sm text-[var(--text-secondary)]">Manage your account, roles, and session details.</p>
         </div>
         <div className="flex gap-2">
           <button className="glass-button-ghost" type="button" onClick={() => navigate(-1)}>
@@ -145,11 +139,6 @@ export default function ProfilePage({ user, loading, onLogout, tenants = [], sel
             <div className="min-w-0 space-y-1">
               <p className="text-lg font-semibold text-[var(--text-primary)] truncate">{primaryLabel}</p>
               <div className="flex items-center gap-2 flex-wrap">
-                {user.provider && (
-                  <span className="px-2 py-1 rounded-full text-[11px] bg-[var(--border-accent)]/10 text-[var(--border-accent)]">
-                    {user.provider === 'local' ? 'Local account' : user.provider}
-                  </span>
-                )}
                 {user.defaultTenant && (
                   <span className="px-2 py-1 rounded-full text-[11px] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
                     Tenant: {user.defaultTenant}
@@ -171,18 +160,16 @@ export default function ProfilePage({ user, loading, onLogout, tenants = [], sel
                   {!editingEmail ? (
                     <div className="flex items-center gap-2 group">
                       <span className="text-[var(--text-primary)] truncate flex-1">{email || '—'}</span>
-                      {isLocalAccount && (
-                        <button
-                          type="button"
-                          className="glass-button-subtle whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity"
-                          onClick={() => {
-                            setEditingEmail(true);
-                            setEmailDraft(email);
-                          }}
-                        >
-                          Edit
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        className="glass-button-subtle whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => {
+                          setEditingEmail(true);
+                          setEmailDraft(email);
+                        }}
+                      >
+                        Edit
+                      </button>
                     </div>
                   ) : (
                     <div className="flex gap-2 items-center">
@@ -217,9 +204,6 @@ export default function ProfilePage({ user, loading, onLogout, tenants = [], sel
                     </div>
                   )}
                 </dd>
-
-                <dt className="text-[var(--text-secondary)] whitespace-nowrap">Provider</dt>
-                <dd className="text-[var(--text-primary)] truncate">{user.provider === 'local' ? 'Local account' : user.provider || 'Local account'}</dd>
 
                 <div className="col-span-2 pt-1">
                   <button type="button" className="glass-button-subtle" onClick={() => setPasswordModalOpen(true)}>

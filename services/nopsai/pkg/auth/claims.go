@@ -13,7 +13,7 @@ const (
 	ctxKeyTenant contextKey = "nopsai-tenant"
 )
 
-// Claims is the normalized token payload used across local and external providers.
+// Claims is the normalized token payload used across authenticated requests.
 type Claims struct {
 	Sub           string   `json:"sub"`
 	Email         string   `json:"email,omitempty"`

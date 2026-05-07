@@ -425,7 +425,7 @@ const (
 
 func isPublicPath(path string) bool {
 	switch path {
-	case "/v1/auth/login", "/v1/auth/refresh", "/v1/auth/logout", "/v1/auth/oidc/callback", "/v1/git/events":
+	case "/v1/auth/login", "/v1/auth/refresh", "/v1/auth/logout", "/v1/git/events":
 		return true
 	default:
 		return false
@@ -2357,7 +2357,7 @@ func main() {
 	if cfg.LoginLockoutWindowMin == 0 {
 		cfg.LoginLockoutWindowMin = 15
 	}
-	if !cfg.AuthProviderLocalEnabled && !cfg.AuthProviderOIDCEnabled {
+	if !cfg.AuthProviderLocalEnabled {
 		cfg.AuthProviderLocalEnabled = true
 	}
 
@@ -2413,10 +2413,6 @@ func main() {
 
 	authCfg := auth.Config{
 		LocalEnabled:       cfg.AuthProviderLocalEnabled,
-		OIDCEnabled:        cfg.AuthProviderOIDCEnabled,
-		OIDCIssuer:         cfg.OIDCIssuer,
-		OIDCAudience:       cfg.OIDCAudience,
-		OIDCJwksURL:        cfg.OIDCJwksURL,
 		SigningKey:         cfg.JWTSigningKey,
 		JWTIssuer:          cfg.JWTIssuer,
 		JWTAudience:        cfg.JWTAudience,

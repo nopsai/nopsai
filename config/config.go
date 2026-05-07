@@ -32,11 +32,6 @@ type Config struct {
 	MasterKey string `yaml:"master_key" env:"NOPSAI_MASTER_KEY"`
 
 	// Authentication and authorization
-	OIDCIssuer               string `yaml:"oidc_issuer" env:"OIDC_ISSUER"`
-	OIDCAudience             string `yaml:"oidc_audience" env:"OIDC_AUDIENCE"`
-	OIDCJwksURL              string `yaml:"oidc_jwks_url" env:"OIDC_JWKS_URL"`
-	OIDCClientID             string `yaml:"oidc_client_id" env:"OIDC_CLIENT_ID"`
-	OIDCClientSecret         string `yaml:"oidc_client_secret" env:"OIDC_CLIENT_SECRET"`
 	JWTSigningKey            string `yaml:"jwt_signing_key" env:"JWT_SIGNING_KEY"`
 	JWTRSAKeyPath            string `yaml:"jwt_rsa_key_path" env:"JWT_RSA_KEY_PATH"`
 	JWTIssuer                string `yaml:"jwt_issuer" env:"JWT_ISSUER"`
@@ -45,7 +40,6 @@ type Config struct {
 	IdleTimeoutMinutes       int    `yaml:"idle_timeout_minutes" env:"IDLE_TIMEOUT_MINUTES"`
 	RefreshTokenTTLMinutes   int    `yaml:"refresh_token_ttl_minutes" env:"REFRESH_TOKEN_TTL_MINUTES"`
 	AuthProviderLocalEnabled bool   `yaml:"auth_provider_local_enabled" env:"AUTH_PROVIDER_LOCAL_ENABLED"`
-	AuthProviderOIDCEnabled  bool   `yaml:"auth_provider_oidc_enabled" env:"AUTH_PROVIDER_OIDC_ENABLED"`
 	DefaultTenant            string `yaml:"default_tenant" env:"DEFAULT_TENANT"`
 	RateLimitLoginPerMinute  int    `yaml:"rate_limit_login_per_minute" env:"RATE_LIMIT_LOGIN_PER_MINUTE"`
 	LoginLockoutThreshold    int    `yaml:"login_lockout_threshold" env:"LOGIN_LOCKOUT_THRESHOLD"`
