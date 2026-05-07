@@ -31,12 +31,15 @@ log_format: "json" # Options: "console", "json"
 # nopsai_listen_address: "0.0.0.0:8080"
 # git_bot_listen_address: "0.0.0.0:8081"
 # dispatcher_listen_address: "0.0.0.0:9090"
+# aaa_addr: ":8082"
 
 # # Connection addresses use Docker's service discovery
 # agent_nopsai_api_url: "http://nopsai:8080"
 # git_bot_nopsai_api_url: "http://nopsai:8080"
 # nopsai_git_bot_api_url: "http://nopsai-git-bot:8081"
 # dispatcher_address: "dispatcher:9090"
+# aaa_api_url: "http://aaa:8082"
+# aaa_shared_internal_token: "dev-default-for-local-only"
 # dispatcher_routing:
 #   prod: ["runner-prod-1", "runner-prod-2"]
 #   "*": ["runner-general"]
