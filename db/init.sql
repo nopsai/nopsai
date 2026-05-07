@@ -191,7 +191,7 @@ CREATE TABLE auth_groups (
 
 CREATE TABLE auth_group_members (
     group_id UUID NOT NULL REFERENCES auth_groups(id) ON DELETE CASCADE,
-    subject_type TEXT NOT NULL CHECK subject_type IN ('user', 'internal_service'),
+    subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'internal_service')),
     subject_id TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (group_id, subject_type, subject_id)
@@ -207,7 +207,7 @@ CREATE TABLE auth_roles (
 CREATE TABLE auth_role_bindings (
     id BIGSERIAL PRIMARY KEY,
     role_name TEXT NOT NULL REFERENCES auth_roles(name) ON DELETE CASCADE,
-    subject_type TEXT NOT NULL CHECK subject_type IN ('user', 'auth_group', 'internal_service'),
+    subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_group', 'internal_service')),
     subject_id TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(role_name, subject_type, subject_id)
@@ -219,7 +219,7 @@ CREATE TABLE auth_role_permissions (
     resource_type TEXT NOT NULL,
     resource_id TEXT NOT NULL DEFAULT '*',
     action TEXT NOT NULL,
-    effect TEXT NOT NULL CHECK effect IN ('allow', 'deny'),
+    effect TEXT NOT NULL CHECK (effect IN ('allow', 'deny')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(role_name, resource_type, resource_id, action, effect)
 );
@@ -228,10 +228,10 @@ CREATE TABLE resource_acl (
     id BIGSERIAL PRIMARY KEY,
     resource_type TEXT NOT NULL,
     resource_id TEXT NOT NULL,
-    subject_type TEXT NOT NULL CHECK subject_type IN ('user', 'auth_group', 'internal_service'),
+    subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_group', 'internal_service')),
     subject_id TEXT NOT NULL,
     action TEXT NOT NULL,
-    effect TEXT NOT NULL CHECK effect IN ('allow', 'deny'),
+    effect TEXT NOT NULL CHECK (effect IN ('allow', 'deny')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(resource_type, resource_id, subject_type, subject_id, action, effect)
 );
@@ -240,7 +240,7 @@ CREATE TABLE resource_ownership (
     id BIGSERIAL PRIMARY KEY,
     resource_type TEXT NOT NULL,
     resource_id TEXT NOT NULL,
-    owner_subject_type TEXT NOT NULL CHECK owner_subject_type IN ('user', 'auth_group', 'internal_service'),
+    owner_subject_type TEXT NOT NULL CHECK (owner_subject_type IN ('user', 'auth_group', 'internal_service')),
     owner_subject_id TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(resource_type, resource_id, owner_subject_type, owner_subject_id)
@@ -311,6 +311,10 @@ ON CONFLICT (role_name, subject_type, subject_id) DO NOTHING;
 INSERT INTO auth_role_permissions (role_name, resource_type, resource_id, action, effect)
 VALUES
     ('nopsai-admin', '*', '*', '*', 'allow'),
+    -- Dispatcher still orchestrates pipeline fetch, child pipeline execution, and run status polling.
+    ('dispatcher-internal', 'pipeline', '*', 'pipeline.read', 'allow'),
+    ('dispatcher-internal', 'pipeline', '*', 'pipeline.execute', 'allow'),
+    ('dispatcher-internal', 'pipeline_run', '*', 'pipeline_run.read', 'allow'),
     ('dispatcher-internal', 'pipeline_run', '*', 'pipeline_run.update_status', 'allow'),
     ('dispatcher-internal', 'pipeline_run', '*', 'pipeline_run.write_logs', 'allow'),
     ('dispatcher-internal', 'pipeline_run', '*', 'pipeline_run.finalize', 'allow'),
