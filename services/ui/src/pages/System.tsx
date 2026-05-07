@@ -91,7 +91,6 @@ type UserSummary = {
   id: string;
   sub: string;
   email: string;
-  provider: string;
   status: string;
   last_login?: string;
   roles?: UserRole[];
@@ -1226,7 +1225,6 @@ function AccessPanel({
               user: user.sub,
               userId: user.id,
               email: user.email,
-              provider: user.provider,
               status: user.status,
             };
           })
@@ -1649,7 +1647,7 @@ function AccessPanel({
               <div className="glass-card p-0 border border-[var(--border-primary)] rounded-xl overflow-hidden">
                 <div className="grid grid-cols-[1.4fr,1.2fr,1.1fr,0.8fr,auto] text-[11px] uppercase tracking-[0.08em] text-[var(--text-tertiary)] px-4 py-3 bg-[var(--bg-tertiary)] border-b border-[var(--border-primary)]">
                   <span>User</span>
-                  <span>Email / Provider</span>
+                  <span>Email</span>
                   <span>Roles</span>
                   <span className="text-center">Status</span>
                   <span className="text-right">Manage</span>
@@ -1671,7 +1669,7 @@ function AccessPanel({
                             </p>
                           </div>
                         </div>
-                        <span className="text-[var(--text-secondary)] truncate">{user.email || user.provider}</span>
+                        <span className="text-[var(--text-secondary)] truncate">{user.email || 'No email'}</span>
                         <div className="flex flex-wrap gap-1.5">
                           {userRoles.length ? (
                             userRoles.slice(0, 3).map(role => {
@@ -1872,7 +1870,7 @@ function AccessPanel({
       </datalist>
       <datalist id={userDatalistId}>
         {users.map(u => (
-          <option key={u.id} value={u.id} label={`${u.sub} (${u.email || u.provider})`} />
+          <option key={u.id} value={u.id} label={`${u.sub} (${u.email || 'No email'})`} />
         ))}
       </datalist>
       {Array.from(rolesByTenant.entries()).map(([tenantKey, roles]) => (
@@ -2088,11 +2086,6 @@ function AccessPanel({
           icon={<ShieldIcon />}
         >
           <form className="space-y-3" onSubmit={handleSaveUserAccess}>
-            {userAccessEditor && (
-              <p className="text-[11px] text-[var(--text-secondary)]">
-                Provider: {userAccessEditor.user.provider || 'local'}
-              </p>
-            )}
             <div className="grid gap-3 md:grid-cols-2">
               <label className="flex flex-col gap-1 text-sm">
                 <span>Email</span>
@@ -2125,9 +2118,8 @@ function AccessPanel({
                 value={userAccessEditor.password}
                 onChange={e => setUserAccessEditor(prev => (prev ? { ...prev, password: e.target.value } : prev))}
                 placeholder="Leave blank to keep current password"
-                disabled={userAccessEditor.user.provider !== 'local'}
               />
-              <span className="text-[11px] text-[var(--text-secondary)]">Resets password for local accounts.</span>
+              <span className="text-[11px] text-[var(--text-secondary)]">Resets the user's password.</span>
             </label>
             <div className="space-y-2">
               {userAccessEditor.entries.length === 0 && (

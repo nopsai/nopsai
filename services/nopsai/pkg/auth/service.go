@@ -16,10 +16,6 @@ import (
 
 type Config struct {
 	LocalEnabled       bool
-	OIDCEnabled        bool
-	OIDCIssuer         string
-	OIDCAudience       string
-	OIDCJwksURL        string
 	SigningKey         string
 	JWTIssuer          string
 	JWTAudience        string
@@ -34,7 +30,6 @@ type Config struct {
 type Service struct {
 	db           *pgxpool.Pool
 	local        *LocalJWTService
-	oidc         *OIDCValidator
 	cfg          Config
 	rateLimiter  *RateLimiter
 	lockout      *LockoutTracker
@@ -50,6 +45,7 @@ type LoginResult struct {
 }
 
 func NewService(ctx context.Context, db *pgxpool.Pool, cfg Config) (*Service, error) {
+	_ = ctx
 	if db == nil {
 		return nil, fmt.Errorf("db is required")
 	}
@@ -69,26 +65,14 @@ func NewService(ctx context.Context, db *pgxpool.Pool, cfg Config) (*Service, er
 		}
 		s.local = NewLocalJWTService([]byte(cfg.SigningKey), cfg.JWTIssuer, cfg.JWTAudience, accessTTL)
 	}
-	if cfg.OIDCEnabled && cfg.OIDCIssuer != "" {
-		validator, err := NewOIDCValidator(ctx, cfg.OIDCIssuer, cfg.OIDCAudience, cfg.OIDCJwksURL)
-		if err != nil {
-			return nil, fmt.Errorf("oidc validator: %w", err)
-		}
-		s.oidc = validator
-	}
 	return s, nil
 }
 
 func (s *Service) AuthenticateToken(ctx context.Context, raw string) (*Claims, error) {
+	_ = ctx
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil, fmt.Errorf("empty token")
-	}
-
-	if s.oidc != nil {
-		if claims, err := s.oidc.Verify(ctx, raw); err == nil {
-			return claims, nil
-		}
 	}
 
 	if s.local != nil {
@@ -143,7 +127,7 @@ func (s *Service) LoginLocal(ctx context.Context, identifier, password string) (
 		return nil, fmt.Errorf("account disabled")
 	}
 	if provider != "local" {
-		return nil, fmt.Errorf("account is managed by external identity provider")
+		return nil, fmt.Errorf("password login is unavailable for this account")
 	}
 	if err := ComparePassword(passwordHash.String, password); err != nil {
 		if s.lockout != nil && s.lockout.RecordFailure(identifier) {

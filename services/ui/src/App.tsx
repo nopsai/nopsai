@@ -61,7 +61,6 @@ type Tenant = {
 type CurrentUser = {
   sub: string;
   email?: string;
-  provider?: string;
   tenantIds?: string[];
   defaultTenant?: string;
   roles?: string[];
@@ -298,7 +297,6 @@ function AppShell() {
         setCurrentUser({
           sub: data?.sub || '',
           email: data?.email || '',
-          provider: data?.provider || '',
           tenantIds: Array.isArray(data?.tenant_ids) ? data.tenant_ids : undefined,
           defaultTenant: data?.default_tenant,
           roles: Array.isArray(data?.roles) ? data.roles : undefined,
@@ -2188,11 +2186,6 @@ function Header({
               <div className="p-4 border-b border-[var(--border-primary)] bg-[var(--bg-tertiary)]/70 backdrop-blur-sm">
                 <p className="text-xs uppercase tracking-wide text-[var(--text-secondary)] mb-1">Signed in as</p>
                 <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{userLoading ? 'Loading…' : displayName}</p>
-                {currentUser?.provider && (
-                  <span className="inline-flex mt-2 px-2 py-1 rounded-full text-[11px] bg-[var(--border-accent)]/10 text-[var(--border-accent)]">
-                    {currentUser.provider === 'local' ? 'Local account' : currentUser.provider}
-                  </span>
-                )}
                 <p className="text-xs text-[var(--text-secondary)] mt-2">
                   Tenant: {selectedTenant || currentUser?.defaultTenant || currentUser?.tenantIds?.[0] || '—'}
                 </p>
