@@ -9,7 +9,6 @@ func (a *App) registerAuthRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/auth/password", a.handleAuthChangePassword)
 	mux.HandleFunc("POST /v1/auth/email", a.handleAuthUpdateEmail)
 	mux.HandleFunc("GET /v1/auth/me", a.handleAuthMe)
-	mux.HandleFunc("GET /v1/tenants", a.handleListTenants)
 	mux.HandleFunc("GET /v1/audit", a.handleListAuditLogs)
 	mux.HandleFunc("GET /v1/admin/users", a.handleListUsers)
 	mux.HandleFunc("POST /v1/admin/users", a.handleCreateUser)
@@ -110,7 +109,6 @@ func (a *App) buildHTTPHandler() http.Handler {
 
 	var handler http.Handler = mux
 	handler = a.authzMiddleware(handler)
-	handler = a.tenantMiddleware(handler)
 	handler = a.authMiddleware(handler)
 	handler = a.auditMiddleware(handler)
 	handler = recoveryMiddleware(handler)

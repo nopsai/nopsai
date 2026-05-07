@@ -9,7 +9,6 @@ log_format: "json" # Options: "console", "json"
 # jwt_audience: "nopsai-api"
 # jwt_expiry_minutes: 60
 # refresh_token_ttl_minutes: 43200 # 30 days
-# default_tenant: "default"
 # auth_provider_local_enabled: true
 # rate_limit_login_per_minute: 10
 # login_lockout_threshold: 5
