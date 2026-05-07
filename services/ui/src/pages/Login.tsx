@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { loginLocal, persistSession, setSelectedTenant } from '../lib/api';
+import { loginLocal, persistSession } from '../lib/api';
 
 export default function LoginPage({ onLogin }: { onLogin: () => void }) {
   const navigate = useNavigate();
@@ -15,16 +15,12 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
     setLoading(true);
     try {
       const resp = await loginLocal(identifier.trim(), password);
-      const tenantChoice = resp.default_tenant || (resp.tenant_ids?.[0] ?? '');
       persistSession({
         accessToken: resp.access_token,
         refreshToken: resp.refresh_token,
-        tenantId: tenantChoice,
-        defaultTenant: resp.default_tenant,
         roles: resp.roles,
         sub: resp.sub,
       });
-      if (tenantChoice) setSelectedTenant(tenantChoice);
       onLogin();
       navigate('/pipelineruns/main', { replace: true });
     } catch (err: any) {

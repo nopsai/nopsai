@@ -21,7 +21,6 @@ type Config struct {
 	JWTAudience        string
 	AccessTTL          time.Duration
 	RefreshTTL         time.Duration
-	DefaultTenant      string
 	LoginRateLimit     int
 	LoginLockoutThresh int
 	LoginLockoutWindow time.Duration
@@ -143,21 +142,16 @@ func (s *Service) LoginLocal(ctx context.Context, identifier, password string) (
 		s.rateLimiter.Reset(identifier)
 	}
 
-	tenantIDs, roles, err := s.fetchRoles(ctx, userID)
+	roles, err := s.fetchRoles(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("fetch roles: %w", err)
 	}
-	if len(tenantIDs) == 0 && s.cfg.DefaultTenant != "" {
-		tenantIDs = []string{s.cfg.DefaultTenant}
-	}
 
 	claims := &Claims{
-		Sub:           sub,
-		Email:         email.String,
-		Provider:      "local",
-		TenantIDs:     tenantIDs,
-		Roles:         roles,
-		DefaultTenant: s.cfg.DefaultTenant,
+		Sub:      sub,
+		Email:    email.String,
+		Provider: "local",
+		Roles:    roles,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: sub,
 			Issuer:  s.cfg.JWTIssuer,
@@ -221,21 +215,16 @@ func (s *Service) Refresh(ctx context.Context, rawRefresh string) (*LoginResult,
 		return nil, err
 	}
 
-	tenantIDs, roles, err := s.fetchRoles(ctx, userID)
+	roles, err := s.fetchRoles(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	if len(tenantIDs) == 0 && s.cfg.DefaultTenant != "" {
-		tenantIDs = []string{s.cfg.DefaultTenant}
-	}
 
 	claims := &Claims{
-		Sub:           sub,
-		Email:         email.String,
-		Provider:      provider,
-		TenantIDs:     tenantIDs,
-		Roles:         roles,
-		DefaultTenant: s.cfg.DefaultTenant,
+		Sub:      sub,
+		Email:    email.String,
+		Provider: provider,
+		Roles:    roles,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: sub,
 			Issuer:  s.cfg.JWTIssuer,
@@ -271,28 +260,26 @@ func (s *Service) Logout(ctx context.Context, rawRefresh string) error {
 	return err
 }
 
-func (s *Service) fetchRoles(ctx context.Context, userID uuid.UUID) ([]string, []string, error) {
-	rows, err := s.db.Query(ctx, `SELECT tenant_id, role FROM user_tenant_roles WHERE user_id = $1`, userID)
+func (s *Service) fetchRoles(ctx context.Context, userID uuid.UUID) ([]string, error) {
+	rows, err := s.db.Query(ctx, `SELECT role FROM user_roles WHERE user_id = $1`, userID)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	defer rows.Close()
-	tenantSet := make(map[string]struct{})
 	var roles []string
+	seen := make(map[string]struct{})
 	for rows.Next() {
-		var tenantID uuid.UUID
 		var role string
-		if err := rows.Scan(&tenantID, &role); err != nil {
-			return nil, nil, err
+		if err := rows.Scan(&role); err != nil {
+			return nil, err
 		}
-		tenantSet[tenantID.String()] = struct{}{}
+		if _, ok := seen[role]; ok {
+			continue
+		}
+		seen[role] = struct{}{}
 		roles = append(roles, role)
 	}
-	var tenantIDs []string
-	for id := range tenantSet {
-		tenantIDs = append(tenantIDs, id)
-	}
-	return tenantIDs, roles, nil
+	return roles, nil
 }
 
 func (s *Service) persistRefreshToken(ctx context.Context, userID uuid.UUID) (string, error) {

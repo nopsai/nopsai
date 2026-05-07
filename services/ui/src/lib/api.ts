@@ -3,16 +3,12 @@ const DEV_PORTS = new Set(['5173', '4173']);
 
 const AUTH_TOKEN_KEY = 'nopsai.auth.token';
 const REFRESH_TOKEN_KEY = 'nopsai.auth.refresh';
-const TENANT_KEY = 'nopsai.auth.tenant';
-const DEFAULT_TENANT_KEY = 'nopsai.auth.default_tenant';
 const ROLES_KEY = 'nopsai.auth.roles';
 const SUB_KEY = 'nopsai.auth.sub';
 
 export type StoredSession = {
   accessToken?: string;
   refreshToken?: string;
-  tenantId?: string;
-  defaultTenant?: string;
   roles?: string[];
   sub?: string;
 };
@@ -57,8 +53,6 @@ export function getStoredSession(): StoredSession {
   return {
     accessToken: localStorage.getItem(AUTH_TOKEN_KEY) || undefined,
     refreshToken: localStorage.getItem(REFRESH_TOKEN_KEY) || undefined,
-    tenantId: localStorage.getItem(TENANT_KEY) || undefined,
-    defaultTenant: localStorage.getItem(DEFAULT_TENANT_KEY) || undefined,
     roles,
     sub: localStorage.getItem(SUB_KEY) || undefined,
   };
@@ -72,8 +66,6 @@ function dispatchAuthChanged() {
 export function persistSession(session: {
   accessToken: string;
   refreshToken?: string;
-  tenantId?: string;
-  defaultTenant?: string;
   roles?: string[];
   sub?: string;
 }) {
@@ -81,9 +73,6 @@ export function persistSession(session: {
   localStorage.setItem(AUTH_TOKEN_KEY, session.accessToken);
   if (session.refreshToken) localStorage.setItem(REFRESH_TOKEN_KEY, session.refreshToken);
   else localStorage.removeItem(REFRESH_TOKEN_KEY);
-  const tenant = session.tenantId || session.defaultTenant;
-  if (tenant) localStorage.setItem(TENANT_KEY, tenant);
-  if (session.defaultTenant) localStorage.setItem(DEFAULT_TENANT_KEY, session.defaultTenant);
   if (session.roles) localStorage.setItem(ROLES_KEY, JSON.stringify(session.roles));
   else localStorage.removeItem(ROLES_KEY);
   if (session.sub) localStorage.setItem(SUB_KEY, session.sub);
@@ -95,16 +84,8 @@ export function clearSession() {
   if (typeof localStorage === 'undefined') return;
   localStorage.removeItem(AUTH_TOKEN_KEY);
   localStorage.removeItem(REFRESH_TOKEN_KEY);
-  localStorage.removeItem(TENANT_KEY);
-  localStorage.removeItem(DEFAULT_TENANT_KEY);
   localStorage.removeItem(ROLES_KEY);
   localStorage.removeItem(SUB_KEY);
-  dispatchAuthChanged();
-}
-
-export function setSelectedTenant(tenantId: string) {
-  if (typeof localStorage === 'undefined') return;
-  localStorage.setItem(TENANT_KEY, tenantId);
   dispatchAuthChanged();
 }
 
@@ -129,17 +110,10 @@ export function installAuthInterceptor() {
         }
         const payload: any = await response.json();
         const current = getStoredSession();
-        const tenantChoice =
-          current.tenantId ||
-          current.defaultTenant ||
-          payload?.default_tenant ||
-          (Array.isArray(payload?.tenant_ids) && payload.tenant_ids.length > 0 ? payload.tenant_ids[0] : undefined);
 
         persistSession({
           accessToken: payload?.access_token || '',
           refreshToken: payload?.refresh_token || refreshToken,
-          tenantId: tenantChoice,
-          defaultTenant: payload?.default_tenant,
           roles: Array.isArray(payload?.roles) ? payload.roles : current.roles,
           sub: typeof payload?.sub === 'string' ? payload.sub : current.sub,
         });
@@ -171,10 +145,6 @@ export function installAuthInterceptor() {
     const session = getStoredSession();
     if (session.accessToken && !baseHeaders.has('Authorization')) {
       baseHeaders.set('Authorization', `Bearer ${session.accessToken}`);
-    }
-    const tenantHeader = baseHeaders.get('X-Tenant-ID') || session.tenantId || session.defaultTenant;
-    if (tenantHeader) {
-      baseHeaders.set('X-Tenant-ID', tenantHeader);
     }
 
     const finalInit: RequestInit = { ...init, headers: baseHeaders };

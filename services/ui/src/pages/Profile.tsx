@@ -6,26 +6,17 @@ import { changePassword, updateEmail } from '../lib/api';
 type CurrentUser = {
   sub: string;
   email?: string;
-  tenantIds?: string[];
-  defaultTenant?: string;
   roles?: string[];
-};
-
-type Tenant = {
-  id: string;
-  name: string;
 };
 
 type Props = {
   user: CurrentUser | null;
   loading?: boolean;
   onLogout: () => void;
-  tenants?: Tenant[];
-  selectedTenant?: string;
   onUserUpdated?: (updates: Partial<CurrentUser>) => void;
 };
 
-export default function ProfilePage({ user, loading, onLogout, tenants = [], selectedTenant, onUserUpdated }: Props) {
+export default function ProfilePage({ user, loading, onLogout, onUserUpdated }: Props) {
   const navigate = useNavigate();
   const [email, setEmail] = useState(user?.email || '');
   const [emailDraft, setEmailDraft] = useState(user?.email || '');
@@ -46,13 +37,6 @@ export default function ProfilePage({ user, loading, onLogout, tenants = [], sel
     setEmailDraft(user?.email || '');
     setEditingEmail(false);
   }, [user?.email]);
-
-  const tenantName = useMemo(() => {
-    if (!user?.tenantIds || user.tenantIds.length === 0) return 'None';
-    const resolveName = (id: string) => tenants.find(t => t.id === id)?.name || id;
-    const preferredId = selectedTenant && user.tenantIds.includes(selectedTenant) ? selectedTenant : user.tenantIds[0];
-    return resolveName(preferredId);
-  }, [selectedTenant, tenants, user?.tenantIds]);
 
   const primaryLabel = user?.email || user?.sub || 'User';
 
@@ -138,13 +122,6 @@ export default function ProfilePage({ user, loading, onLogout, tenants = [], sel
             </div>
             <div className="min-w-0 space-y-1">
               <p className="text-lg font-semibold text-[var(--text-primary)] truncate">{primaryLabel}</p>
-              <div className="flex items-center gap-2 flex-wrap">
-                {user.defaultTenant && (
-                  <span className="px-2 py-1 rounded-full text-[11px] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
-                    Tenant: {user.defaultTenant}
-                  </span>
-                )}
-              </div>
             </div>
             </div>
 
@@ -211,21 +188,6 @@ export default function ProfilePage({ user, loading, onLogout, tenants = [], sel
                   </button>
                 </div>
               </dl>
-            </div>
-
-            <div className="rounded-xl border border-[var(--border-primary)] p-4 bg-[var(--bg-tertiary)]">
-              <p className="text-xs uppercase tracking-wide text-[var(--text-secondary)] mb-2">Tenants</p>
-              <p className="text-sm text-[var(--text-primary)]">Active: {tenantName || 'None'}</p>
-              <div className="flex flex-wrap gap-2 mt-3">
-                {(user.tenantIds || []).map(id => (
-                  <span key={id} className="px-2 py-1 rounded-lg bg-[var(--border-accent)]/10 text-[var(--text-primary)] text-xs">
-                    {tenants.find(t => t.id === id)?.name || id}
-                  </span>
-                ))}
-                {(!user.tenantIds || user.tenantIds.length === 0) && (
-                  <span className="text-xs text-[var(--text-secondary)]">No tenant memberships</span>
-                )}
-              </div>
             </div>
 
             <div className="rounded-xl border border-[var(--border-primary)] p-4 bg-[var(--bg-tertiary)]">

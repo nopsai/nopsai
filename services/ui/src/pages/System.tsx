@@ -69,19 +69,16 @@ const POLL_INTERVAL_MS = 5000;
 const STALE_THRESHOLD_MS = 30_000;
 const MAX_VISIBLE_ACTIVE_RUNS = 3;
 const POLICY_TEMPLATE_ROLE = '__policy_template__';
-const DEFAULT_TENANT_ID = '00000000-0000-0000-0000-000000000001';
 const DEFAULT_ADMIN_ROLE = 'nopsai-admin';
 const DEFAULT_ADMIN_POLICY_OBJ = '/*';
 const DEFAULT_ADMIN_POLICY_ACT = '.*';
 
 type UserRole = {
-  tenant_id: string;
   role: string;
 };
 
 type RolePermission = {
   role: string;
-  tenant_id: string;
   name?: string;
   obj: string;
   act: string;
@@ -96,11 +93,6 @@ type UserSummary = {
   roles?: UserRole[];
 };
 
-type TenantRecord = {
-  id: string;
-  name: string;
-};
-
 type RolePolicyDraft = {
   name: string;
   obj: string;
@@ -110,7 +102,6 @@ type RolePolicyDraft = {
 type RoleDefinition = {
   id: string;
   role: string;
-  tenant: string;
   policies: RolePermission[];
 };
 
@@ -150,11 +141,9 @@ function SystemPage() {
   const [policyTemplates, setPolicyTemplates] = useState<RolePermission[]>([]);
   const [policiesLoading, setPoliciesLoading] = useState(false);
   const [policiesError, setPoliciesError] = useState<string | null>(null);
-  const [tenants, setTenants] = useState<TenantRecord[]>([]);
-  const [tenantError, setTenantError] = useState<string | null>(null);
-  const [newUser, setNewUser] = useState({ sub: '', email: '', password: '', tenant: 'default', roles: [] as { role: string; tenant: string }[] });
-  const [newRole, setNewRole] = useState({ userId: '', tenant: '', role: '' });
-  const [newPermission, setNewPermission] = useState({ tenant: '', name: '', obj: '/v1/*', act: 'GET|POST|PUT|DELETE' });
+  const [newUser, setNewUser] = useState({ sub: '', email: '', password: '', roles: [] as string[] });
+  const [newRole, setNewRole] = useState({ userId: '', role: '' });
+  const [newPermission, setNewPermission] = useState({ name: '', obj: '/v1/*', act: 'GET|POST|PUT|DELETE' });
   const [ensuringDefaultAdmin, setEnsuringDefaultAdmin] = useState(false);
 
   useEffect(() => {
@@ -272,21 +261,6 @@ function SystemPage() {
     [fetchJson]
   );
 
-  const loadTenants = useCallback(async () => {
-    try {
-      setTenantError(null);
-      const payload = await fetchJson('/v1/tenants');
-      if (Array.isArray(payload)) {
-        const normalized = payload
-          .map(item => (item && typeof item === 'object' ? (item as TenantRecord) : null))
-          .filter(Boolean) as TenantRecord[];
-        setTenants(normalized);
-      }
-    } catch (error) {
-      setTenantError(error instanceof Error ? error.message : 'Unable to load tenants');
-    }
-  }, [fetchJson]);
-
   const loadUsers = useCallback(async () => {
     setUsersLoading(true);
     setUsersError(null);
@@ -328,22 +302,16 @@ function SystemPage() {
   const createUser = useCallback(
     async (e: FormEvent<HTMLFormElement>) => {
       e.preventDefault();
-      const tenantName = normalizeTenant(newUser.tenant);
-      const roleAssignmentsInput = (newUser.roles || []).map(entry => ({ role: entry.role.trim(), tenant: tenantName }));
-      const roleAssignments = roleAssignmentsInput.filter(entry => entry.role);
-      const seenRoles = new Set<string>();
-      const dedupedAssignments = roleAssignments.filter(entry => {
-        const key = `${entry.role}::${entry.tenant}`;
-        if (seenRoles.has(key)) return false;
-        seenRoles.add(key);
-        return true;
-      });
-      if (dedupedAssignments.length === 0) {
+      const roleAssignments = (newUser.roles || [])
+        .map(role => role.trim())
+        .filter(Boolean)
+        .filter((role, index, roles) => roles.indexOf(role) === index);
+      if (roleAssignments.length === 0) {
         addToast('Add at least one role before creating a user.', 'error');
         return;
       }
       try {
-        const primaryAssignment = dedupedAssignments[0];
+        const primaryRole = roleAssignments[0];
         const created = (await fetchJson('/v1/admin/users', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -351,8 +319,7 @@ function SystemPage() {
             sub: newUser.sub.trim(),
             email: newUser.email.trim(),
             password: newUser.password,
-            tenant_name: tenantName,
-            role: primaryAssignment?.role,
+            role: primaryRole,
           }),
         })) as Partial<UserSummary> & { user_id?: string; userId?: string };
 
@@ -377,30 +344,29 @@ function SystemPage() {
           return;
         }
 
-        for (const entry of dedupedAssignments) {
+        for (const role of roleAssignments.slice(1)) {
           try {
             await fetchJson('/v1/admin/user-roles', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 user_id: userId,
-                tenant_name: entry.tenant,
-                role: entry.role,
+                role,
               }),
             });
-          } catch (err) {
-            console.error('Failed to assign role', entry, err);
+          } catch (error) {
+            console.error('Failed to assign role', role, error);
           }
         }
 
-        addToast(`User ${newUser.sub} saved with ${dedupedAssignments.length} role(s)`, 'success');
-        setNewUser({ sub: '', email: '', password: '', tenant: tenantName, roles: [] });
-        loadUsers();
+        addToast(`User ${newUser.sub} saved with ${roleAssignments.length} role(s)`, 'success');
+        setNewUser({ sub: '', email: '', password: '', roles: [] });
+        await loadUsers();
       } catch (error) {
         addToast(error instanceof Error ? error.message : 'Failed to create user', 'error');
       }
     },
-    [addToast, fetchJson, loadUsers, newUser.email, newUser.password, newUser.roles, newUser.sub, newUser.tenant]
+    [addToast, fetchJson, loadUsers, newUser.email, newUser.password, newUser.roles, newUser.sub]
   );
 
   const assignRole = useCallback(
@@ -412,24 +378,22 @@ function SystemPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             user_id: newRole.userId.trim(),
-            tenant_name: newRole.tenant.trim(),
             role: newRole.role.trim(),
           }),
         });
         addToast('Role added', 'success');
-        setNewRole({ userId: '', tenant: '', role: '' });
-        loadUsers();
+        setNewRole({ userId: '', role: '' });
+        await loadUsers();
       } catch (error) {
         addToast(error instanceof Error ? error.message : 'Failed to add role', 'error');
       }
     },
-    [addToast, fetchJson, loadUsers, newRole.role, newRole.tenant, newRole.userId]
+    [addToast, fetchJson, loadUsers, newRole.role, newRole.userId]
   );
 
   const createPermission = useCallback(
     async (e: FormEvent<HTMLFormElement>) => {
       e.preventDefault();
-      const tenant = newPermission.tenant.trim();
       const obj = newPermission.obj.trim();
       const act = newPermission.act.trim();
       const name = newPermission.name.trim();
@@ -443,20 +407,19 @@ function SystemPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             role: POLICY_TEMPLATE_ROLE,
-            tenant_name: tenant,
             name,
             obj,
             act,
           }),
         });
         addToast('Policy added', 'success');
-        setNewPermission({ tenant: '', name: '', obj: '/v1/*', act: 'GET|POST|PUT|DELETE' });
-        loadPolicies();
+        setNewPermission({ name: '', obj: '/v1/*', act: 'GET|POST|PUT|DELETE' });
+        await loadPolicies();
       } catch (error) {
         addToast(error instanceof Error ? error.message : 'Failed to add policy', 'error');
       }
     },
-    [addToast, fetchJson, loadPolicies, newPermission.act, newPermission.name, newPermission.obj, newPermission.tenant]
+    [addToast, fetchJson, loadPolicies, newPermission.act, newPermission.name, newPermission.obj]
   );
 
   const deleteUser = useCallback(
@@ -474,7 +437,7 @@ function SystemPage() {
 
   const deletePolicy = useCallback(
     async (policy: RolePermission) => {
-      if (isDefaultAdmin(policy.role, policy.tenant_id)) {
+      if (isDefaultAdmin(policy.role)) {
         addToast('Default admin policy cannot be deleted.', 'error');
         return;
       }
@@ -484,31 +447,26 @@ function SystemPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             role: policy.role,
-            tenant_id: policy.tenant_id,
             obj: policy.obj,
             act: policy.act,
           }),
         });
         addToast('Policy removed', 'success');
-        loadPolicies();
+        await loadPolicies();
       } catch (error) {
         addToast(error instanceof Error ? error.message : 'Failed to remove policy', 'error');
       }
     },
-    [addToast, fetchJson, loadPolicies, policyTemplates]
+    [addToast, fetchJson, loadPolicies]
   );
 
   const deleteRoleDefinition = useCallback(
     async (role: RoleDefinition) => {
-      if (isDefaultAdmin(role.role, role.tenant)) {
+      if (isDefaultAdmin(role.role)) {
         addToast('Default admin role cannot be deleted.', 'error');
         return;
       }
-      const inUse = users.some(user =>
-        (user.roles || []).some(
-          r => r.role === role.role && normalizeTenant(r.tenant_id ?? (r as { tenant?: string }).tenant) === normalizeTenant(role.tenant)
-        )
-      );
+      const inUse = users.some(user => (user.roles || []).some(r => r.role === role.role));
       if (inUse) {
         addToast('Cannot delete a role that is still assigned to users. Remove assignments first.', 'error');
         return;
@@ -520,15 +478,13 @@ function SystemPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               role: entry.role,
-              tenant_id: entry.tenant_id || role.tenant,
-              tenant_name: role.tenant,
               obj: entry.obj,
               act: entry.act,
             }),
           });
         }
         addToast('Role removed', 'success');
-        loadPolicies();
+        await loadPolicies();
       } catch (error) {
         addToast(error instanceof Error ? error.message : 'Failed to remove role', 'error');
       }
@@ -537,17 +493,13 @@ function SystemPage() {
   );
 
   const saveRoleDefinition = useCallback(
-    async ({ role, tenant, policies: drafts, original }: { role: string; tenant: string; policies: RolePolicyDraft[]; original?: RolePermission[] }) => {
+    async ({ role, policies: drafts, original }: { role: string; policies: RolePolicyDraft[]; original?: RolePermission[] }) => {
       const roleName = role.trim();
-      const tenantName = tenant.trim() || 'default';
-      const tenantKey = normalizeTenant(tenantName);
       const templateByName = new Map<string, RolePermission>();
-      policyTemplates
-        .filter(template => normalizeTenant(template.tenant_id) === tenantKey)
-        .forEach(template => {
-          const key = (template.name || policyLabel(template)).trim();
-          if (key) templateByName.set(key, template);
-        });
+      policyTemplates.forEach(template => {
+        const key = (template.name || policyLabel(template)).trim();
+        if (key) templateByName.set(key, template);
+      });
       const resolved = drafts
         .map(item => {
           const name = (item.name || '').trim();
@@ -570,7 +522,7 @@ function SystemPage() {
       const normalizeName = (input: { name?: string; obj: string; act: string }) => (input.name || '').trim() || policyName(input.obj, input.act);
       const existing = original || [];
       const existingKeys = new Set(existing.map(policyKey));
-      const nextPolicies = resolved.map(item => ({ role: roleName, tenant: tenantName, name: item.name, obj: item.obj, act: item.act }));
+      const nextPolicies = resolved.map(item => ({ role: roleName, name: item.name, obj: item.obj, act: item.act }));
       const nextKeys = new Set(nextPolicies.map(policyKey));
       const toRemove = existing.filter(item => !nextKeys.has(policyKey(item)));
       const toAdd = nextPolicies.filter(item => !existingKeys.has(policyKey(item)));
@@ -592,8 +544,6 @@ function SystemPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               role: entry.role,
-              tenant_id: entry.tenant_id,
-              tenant_name: tenantName || entry.tenant_id,
               obj: entry.obj,
               act: entry.act,
             }),
@@ -605,8 +555,6 @@ function SystemPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               role: entry.previous.role,
-              tenant_id: entry.previous.tenant_id,
-              tenant_name: tenantName || entry.previous.tenant_id,
               obj: entry.previous.obj,
               act: entry.previous.act,
             }),
@@ -618,7 +566,6 @@ function SystemPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               role: entry.role,
-              tenant_name: tenantName,
               name: entry.name,
               obj: entry.obj,
               act: entry.act,
@@ -631,7 +578,6 @@ function SystemPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               role: entry.next.role,
-              tenant_name: tenantName,
               name: entry.next.name,
               obj: entry.next.obj,
               act: entry.next.act,
@@ -649,9 +595,8 @@ function SystemPage() {
   );
 
   const editPolicy = useCallback(
-    async (current: RolePermission, next: { role: string; tenant: string; name: string; obj: string; act: string }) => {
+    async (current: RolePermission, next: { role: string; name: string; obj: string; act: string }) => {
       const nextRole = next.role.trim();
-      const nextTenant = next.tenant.trim();
       const nextObj = next.obj.trim();
       const nextAct = next.act.trim();
       const nextName = next.name.trim() || policyName(nextObj, nextAct);
@@ -661,13 +606,11 @@ function SystemPage() {
       }
       const sameKey = policyKey({
         role: current.role,
-        tenant_id: current.tenant_id,
         obj: current.obj,
         act: current.act,
       }) ===
         policyKey({
           role: nextRole,
-          tenant: nextTenant,
           obj: nextObj,
           act: nextAct,
         });
@@ -682,7 +625,6 @@ function SystemPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             role: current.role,
-            tenant_id: current.tenant_id,
             obj: current.obj,
             act: current.act,
           }),
@@ -692,7 +634,6 @@ function SystemPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             role: nextRole,
-            tenant_name: nextTenant,
             name: nextName,
             obj: nextObj,
             act: nextAct,
@@ -709,44 +650,34 @@ function SystemPage() {
   );
 
   const updateUserRoles = useCallback(
-    async (
-      userId: string,
-      nextRoles: { role: string; tenant: string }[],
-      previousRoles: { role: string; tenant: string }[]
-    ) => {
-      const normalize = (entry: { role: string; tenant: string }) => ({
-        role: entry.role.trim(),
-        tenant: entry.tenant.trim(),
-      });
-      const cleanedPrev = previousRoles.map(normalize).filter(item => item.role);
+    async (userId: string, nextRoles: string[], previousRoles: string[]) => {
+      const cleanedPrev = previousRoles.map(role => role.trim()).filter(Boolean);
       const cleanedNext = nextRoles
-        .map(normalize)
-        .filter(item => item.role)
-        .filter((item, index, arr) => index === arr.findIndex(other => assignmentKey(other) === assignmentKey(item)));
-      const prevKeys = new Set(cleanedPrev.map(assignmentKey));
-      const nextKeys = new Set(cleanedNext.map(assignmentKey));
-      const toRemove = cleanedPrev.filter(item => !nextKeys.has(assignmentKey(item)));
-      const toAdd = cleanedNext.filter(item => !prevKeys.has(assignmentKey(item)));
+        .map(role => role.trim())
+        .filter(Boolean)
+        .filter((role, index, roles) => roles.indexOf(role) === index);
+      const prevKeys = new Set(cleanedPrev);
+      const nextKeys = new Set(cleanedNext);
+      const toRemove = cleanedPrev.filter(role => !nextKeys.has(role));
+      const toAdd = cleanedNext.filter(role => !prevKeys.has(role));
       try {
-        for (const entry of toRemove) {
+        for (const role of toRemove) {
           await fetchJson('/v1/admin/user-roles', {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               user_id: userId,
-              tenant_name: entry.tenant,
-              role: entry.role,
+              role,
             }),
           });
         }
-        for (const entry of toAdd) {
+        for (const role of toAdd) {
           await fetchJson('/v1/admin/user-roles', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               user_id: userId,
-              tenant_name: entry.tenant,
-              role: entry.role,
+              role,
             }),
           });
         }
@@ -890,10 +821,6 @@ function SystemPage() {
   }, [loadSystemConfig]);
 
   useEffect(() => {
-    void loadTenants();
-  }, [loadTenants]);
-
-  useEffect(() => {
     if (activeTab === 'dispatcher') {
       void loadDispatcherStatus();
     }
@@ -908,13 +835,7 @@ function SystemPage() {
 
   const defaultAdminPolicyExists = useMemo(
     () =>
-      policies.some(
-        p =>
-          p.role === DEFAULT_ADMIN_ROLE &&
-          isDefaultAdmin(p.role, p.tenant_id ?? (p as { tenant?: string }).tenant) &&
-          p.obj === DEFAULT_ADMIN_POLICY_OBJ &&
-          p.act === DEFAULT_ADMIN_POLICY_ACT
-      ),
+      policies.some(p => p.role === DEFAULT_ADMIN_ROLE && isDefaultAdmin(p.role) && p.obj === DEFAULT_ADMIN_POLICY_OBJ && p.act === DEFAULT_ADMIN_POLICY_ACT),
     [policies]
   );
 
@@ -929,7 +850,6 @@ function SystemPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             role: DEFAULT_ADMIN_ROLE,
-            tenant_name: 'default',
             name: 'Admin all access',
             obj: DEFAULT_ADMIN_POLICY_OBJ,
             act: DEFAULT_ADMIN_POLICY_ACT,
@@ -985,13 +905,11 @@ function SystemPage() {
       {activeTab === 'access' && (
         <AccessPanel
           users={users}
-          tenants={tenants}
           loading={usersLoading}
           error={usersError}
           policies={policies}
           policiesLoading={policiesLoading}
           policiesError={policiesError}
-          tenantError={tenantError}
           newUser={newUser}
           newRole={newRole}
           policyTemplates={policyTemplates}
@@ -1000,7 +918,6 @@ function SystemPage() {
           onCreateUser={createUser}
           onAssignRole={assignRole}
           onReloadUsers={loadUsers}
-          onReloadTenants={loadTenants}
           onReloadPolicies={loadPolicies}
           onCreatePermission={createPermission}
           newPermission={newPermission}
@@ -1028,17 +945,10 @@ function SystemPage() {
   );
 }
 
-const policyKey = (input: { role: string; tenant?: string; tenant_id?: string; obj: string; act: string }) =>
-  `${(input.role || '').trim()}::${(input.tenant_id || input.tenant || '').trim()}::${(input.obj || '').trim()}::${(input.act || '').trim()}`;
+const policyKey = (input: { role: string; obj: string; act: string }) =>
+  `${(input.role || '').trim()}::${(input.obj || '').trim()}::${(input.act || '').trim()}`;
 
-const assignmentKey = (input: { role: string; tenant?: string }) =>
-  `${(input.role || '').trim()}::${(input.tenant || '').trim()}`;
-
-const normalizeTenant = (value?: string) => {
-  const trimmed = (value || '').trim();
-  if (!trimmed || trimmed === DEFAULT_TENANT_ID) return 'default';
-  return trimmed;
-};
+const assignmentKey = (role: string) => (role || '').trim();
 
 const policyName = (obj: string, act: string) => {
   const trimmed = (obj || '').replace(/^\/+|\/+$/g, '').trim();
@@ -1050,26 +960,19 @@ const policyName = (obj: string, act: string) => {
 
 const policyLabel = (input: { name?: string; obj: string; act: string }) =>
   (input.name && input.name.trim()) || policyName(input.obj, input.act);
-const isDefaultAdmin = (roleName: string, tenant?: string) =>
-  roleName === DEFAULT_ADMIN_ROLE && normalizeTenant(tenant) === 'default';
+const isDefaultAdmin = (roleName: string) => roleName === DEFAULT_ADMIN_ROLE;
 
 const normalizeAdminPolicies = (records: RolePermission[]): RolePermission[] => {
   const deduped = records.filter((entry, idx, arr) => idx === arr.findIndex(other => policyKey(other) === policyKey(entry)));
   const filtered = deduped.filter(
-    entry =>
-      !isDefaultAdmin(entry.role, entry.tenant_id ?? (entry as { tenant?: string }).tenant) ||
-      (entry.obj === DEFAULT_ADMIN_POLICY_OBJ && entry.act === DEFAULT_ADMIN_POLICY_ACT)
+    entry => !isDefaultAdmin(entry.role) || (entry.obj === DEFAULT_ADMIN_POLICY_OBJ && entry.act === DEFAULT_ADMIN_POLICY_ACT)
   );
   const hasCanonicalAdmin = filtered.some(
-    entry =>
-      isDefaultAdmin(entry.role, entry.tenant_id ?? (entry as { tenant?: string }).tenant) &&
-      entry.obj === DEFAULT_ADMIN_POLICY_OBJ &&
-      entry.act === DEFAULT_ADMIN_POLICY_ACT
+    entry => isDefaultAdmin(entry.role) && entry.obj === DEFAULT_ADMIN_POLICY_OBJ && entry.act === DEFAULT_ADMIN_POLICY_ACT
   );
   if (!hasCanonicalAdmin) {
     filtered.push({
       role: DEFAULT_ADMIN_ROLE,
-      tenant_id: 'default',
       name: 'Admin all access',
       obj: DEFAULT_ADMIN_POLICY_OBJ,
       act: DEFAULT_ADMIN_POLICY_ACT,
@@ -1080,13 +983,11 @@ const normalizeAdminPolicies = (records: RolePermission[]): RolePermission[] => 
 
 function AccessPanel({
   users,
-  tenants,
   loading,
   error,
   policies,
   policiesLoading,
   policiesError,
-  tenantError,
   newUser,
   newRole,
   policyTemplates,
@@ -1108,35 +1009,28 @@ function AccessPanel({
   onUpdateUser,
 }: {
   users: UserSummary[];
-  tenants: TenantRecord[];
   loading: boolean;
   error: string | null;
   policies: RolePermission[];
   policiesLoading: boolean;
   policiesError: string | null;
-  tenantError: string | null;
-  newUser: { sub: string; email: string; password: string; tenant: string; roles: { role: string; tenant: string }[] };
-  newRole: { userId: string; tenant: string; role: string };
+  newUser: { sub: string; email: string; password: string; roles: string[] };
+  newRole: { userId: string; role: string };
   policyTemplates: RolePermission[];
-  onChangeUser: (next: { sub: string; email: string; password: string; tenant: string; roles: { role: string; tenant: string }[] }) => void;
-  onChangeRole: (next: { userId: string; tenant: string; role: string }) => void;
+  onChangeUser: (next: { sub: string; email: string; password: string; roles: string[] }) => void;
+  onChangeRole: (next: { userId: string; role: string }) => void;
   onCreateUser: (e: FormEvent<HTMLFormElement>) => Promise<void>;
   onAssignRole: (e: FormEvent<HTMLFormElement>) => Promise<void>;
   onReloadUsers: () => void;
-  onReloadTenants: () => void;
   onCreatePermission: (e: FormEvent<HTMLFormElement>) => Promise<void>;
-  newPermission: { tenant: string; name: string; obj: string; act: string };
-  onChangePermission: (next: { tenant: string; name: string; obj: string; act: string }) => void;
+  newPermission: { name: string; obj: string; act: string };
+  onChangePermission: (next: { name: string; obj: string; act: string }) => void;
   onDeleteUser: (userId: string) => Promise<void>;
   onDeletePolicy: (policy: RolePermission) => Promise<void>;
   onDeleteRoleDefinition: (role: RoleDefinition) => Promise<void>;
-  onSaveRoleDefinition: (input: { role: string; tenant: string; policies: RolePolicyDraft[]; original?: RolePermission[] }) => Promise<void>;
-  onEditPolicy: (current: RolePermission, next: { role: string; tenant: string; name: string; obj: string; act: string }) => Promise<void>;
-  onUpdateUserRoles: (
-    userId: string,
-    nextRoles: { role: string; tenant: string }[],
-    previousRoles: { role: string; tenant: string }[]
-  ) => Promise<void>;
+  onSaveRoleDefinition: (input: { role: string; policies: RolePolicyDraft[]; original?: RolePermission[] }) => Promise<void>;
+  onEditPolicy: (current: RolePermission, next: { role: string; name: string; obj: string; act: string }) => Promise<void>;
+  onUpdateUserRoles: (userId: string, nextRoles: string[], previousRoles: string[]) => Promise<void>;
   onReloadPolicies: () => void;
   onUpdateUser: (userId: string, input: { email?: string; status?: string; password?: string }) => Promise<void>;
 }) {
@@ -1147,14 +1041,12 @@ function AccessPanel({
   const [roleEditor, setRoleEditor] = useState<{
     mode: 'create' | 'edit';
     role: string;
-    tenant: string;
     policies: RolePolicyDraft[];
     original?: RolePermission[];
   } | null>(null);
   const [policyEditor, setPolicyEditor] = useState<{
     original: RolePermission;
     role: string;
-    tenant: string;
     name: string;
     obj: string;
     act: string;
@@ -1163,8 +1055,8 @@ function AccessPanel({
   const [confirming, setConfirming] = useState(false);
   const [userAccessEditor, setUserAccessEditor] = useState<{
     user: UserSummary;
-    entries: { role: string; tenant: string }[];
-    original: { role: string; tenant: string }[];
+    entries: string[];
+    original: string[];
     email: string;
     status: string;
     password: string;
@@ -1172,62 +1064,31 @@ function AccessPanel({
   const [savingRoleEditor, setSavingRoleEditor] = useState(false);
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [savingUserAccess, setSavingUserAccess] = useState(false);
-  const tenantLabel = useMemo(() => {
-    const map = new Map<string, string>();
-    tenants.forEach(t => {
-      const key = (t.id || '').trim();
-      const value = (t.name || t.id || '').trim();
-      if (key) map.set(key, value || key);
-    });
-    map.set('default', 'default');
-    map.set(DEFAULT_TENANT_ID, 'default');
-    return (tenantId?: string) => {
-      const key = (tenantId || '').trim();
-      if (!key || key === DEFAULT_TENANT_ID) return 'default';
-      return map.get(key) || key;
-    };
-  }, [tenants]);
-  const tenantKeyFromInput = useCallback(
-    (value?: string) => {
-      const raw = (value || '').trim();
-      if (!raw || raw === DEFAULT_TENANT_ID) return 'default';
-      const match = tenants.find(t => t.id === raw || t.name === raw);
-      return normalizeTenant(match?.id || raw);
-    },
-    [tenants]
-  );
-  const policyOptionsByTenant = useMemo(() => {
-    const map = new Map<string, { key: string; obj: string; act: string; name?: string; label: string }[]>();
-    policyTemplates.forEach(p => {
-      const tenantKey = normalizeTenant(p.tenant_id || (p as { tenant?: string }).tenant);
-      const entryKey = `${p.obj}::${p.act}`;
-      const existing = map.get(tenantKey) || [];
-      const alreadyIncluded = existing.some(item => item.key === entryKey);
-      if (!alreadyIncluded) {
-        existing.push({ key: entryKey, obj: p.obj, act: p.act, name: p.name, label: policyLabel(p) });
-      }
-      map.set(tenantKey, existing);
-    });
-    map.forEach(list => list.sort((a, b) => a.label.localeCompare(b.label)));
-    return map;
+  const policyOptions = useMemo(() => {
+    const seen = new Set<string>();
+    return policyTemplates
+      .filter(policy => {
+        const key = `${policy.obj}::${policy.act}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map(policy => ({ key: `${policy.obj}::${policy.act}`, obj: policy.obj, act: policy.act, name: policy.name, label: policyLabel(policy) }))
+      .sort((a, b) => a.label.localeCompare(b.label));
   }, [policyTemplates]);
 
   const roleAssignments = useMemo(
     () =>
       users
         .flatMap(user =>
-          (user.roles || []).map(role => {
-            const tenantValue = normalizeTenant(role.tenant_id ?? (role as { tenant?: string }).tenant);
-            return {
-              id: `${user.id}-${role.role}-${tenantValue || 'default'}`,
-              role: role.role,
-              tenant: tenantValue,
-              user: user.sub,
-              userId: user.id,
-              email: user.email,
-              status: user.status,
-            };
-          })
+          (user.roles || []).map(role => ({
+            id: `${user.id}-${role.role}`,
+            role: role.role,
+            user: user.sub,
+            userId: user.id,
+            email: user.email,
+            status: user.status,
+          }))
         )
         .sort((a, b) => a.role.localeCompare(b.role) || a.user.localeCompare(b.user)),
     [users]
@@ -1236,61 +1097,30 @@ function AccessPanel({
   const roleDefinitions = useMemo(() => {
     const map = new Map<string, RoleDefinition>();
     policies.forEach(policy => {
-      const tenant = normalizeTenant(policy.tenant_id ?? (policy as { tenant?: string }).tenant);
-      const key = `${policy.role}::${tenant}`;
-      if (!map.has(key)) {
-        map.set(key, { id: key, role: policy.role, tenant, policies: [] });
+      if (!map.has(policy.role)) {
+        map.set(policy.role, { id: policy.role, role: policy.role, policies: [] });
       }
-      map.get(key)?.policies.push(policy);
+      map.get(policy.role)?.policies.push(policy);
     });
-    return Array.from(map.values()).sort((a, b) => a.role.localeCompare(b.role) || a.tenant.localeCompare(b.tenant));
+    return Array.from(map.values()).sort((a, b) => a.role.localeCompare(b.role));
   }, [policies]);
-
-  const rolesByTenant = useMemo(() => {
-    const map = new Map<string, Set<string>>();
-    const addRole = (tenant: string, role: string) => {
-      const trimmedRole = (role || '').trim();
-      if (!trimmedRole) return;
-      const key = normalizeTenant(tenant);
-      if (!map.has(key)) {
-        map.set(key, new Set());
-      }
-      map.get(key)?.add(trimmedRole);
-    };
-    roleDefinitions.forEach(role => addRole(role.tenant, role.role));
-    addRole('default', DEFAULT_ADMIN_ROLE);
-    return new Map(
-      Array.from(map.entries()).map(([tenant, set]) => [tenant, Array.from(set).sort((a, b) => a.localeCompare(b))])
-    );
-  }, [roleDefinitions]);
-
-  const safeHtmlId = (value: string) => value.replace(/[^a-zA-Z0-9_-]/g, '-');
-  const roleDatalistBaseId = 'access-role-names';
-  const roleListIdForTenant = (tenant?: string) => `${roleDatalistBaseId}-${safeHtmlId(normalizeTenant(tenant) || 'default')}`;
-  const roleOptionsForTenant = (tenant?: string) => {
-    const key = tenantKeyFromInput(tenant);
-    return rolesByTenant.get(key) || rolesByTenant.get('default') || [];
-  };
-  const roleDatalistId = roleDatalistBaseId;
-  const roleListFor = (tenant?: string) => {
-    const key = tenantKeyFromInput(tenant);
-    const options = roleOptionsForTenant(key);
-    return options.length > 0 ? roleListIdForTenant(key) : roleDatalistId;
-  };
 
   const allRoleOptions = useMemo(() => {
     const set = new Set<string>();
-    rolesByTenant.forEach(list => list.forEach(role => set.add(role)));
+    roleDefinitions.forEach(role => set.add(role.role));
+    set.add(DEFAULT_ADMIN_ROLE);
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [rolesByTenant]);
+  }, [roleDefinitions]);
+
+  const roleDatalistBaseId = 'access-role-names';
+  const roleDatalistId = roleDatalistBaseId;
 
   const roleUserMap = useMemo(() => {
     const map = new Map<string, { user: string; userId: string; email: string }[]>();
     roleAssignments.forEach(item => {
-      const key = `${item.role}::${item.tenant}`;
-      const existing = map.get(key) || [];
+      const existing = map.get(item.role) || [];
       existing.push({ user: item.user, userId: item.userId, email: item.email });
-      map.set(key, existing);
+      map.set(item.role, existing);
     });
     return map;
   }, [roleAssignments]);
@@ -1308,7 +1138,6 @@ function AccessPanel({
       setRoleEditor({
         mode: 'create',
         role: '',
-        tenant: '',
         policies: [],
       }),
     []
@@ -1321,22 +1150,20 @@ function AccessPanel({
   };
 
   const openEditRoleEditor = (role: RoleDefinition) => {
-    if (isDefaultAdmin(role.role, role.tenant)) return;
+    if (isDefaultAdmin(role.role)) return;
     setRoleEditor({
       mode: 'edit',
       role: role.role,
-      tenant: role.tenant,
       policies: role.policies.map(p => ({ name: p.name || policyLabel(p), obj: p.obj, act: p.act })),
       original: role.policies,
     });
   };
 
   const openPolicyEditModal = (policy: RolePermission) => {
-    if (isDefaultAdmin(policy.role, policy.tenant_id ?? (policy as { tenant?: string }).tenant)) return;
+    if (isDefaultAdmin(policy.role)) return;
     setPolicyEditor({
       original: policy,
       role: policy.role,
-      tenant: normalizeTenant(policy.tenant_id),
       name: policy.name || policyLabel(policy),
       obj: policy.obj,
       act: policy.act,
@@ -1344,10 +1171,7 @@ function AccessPanel({
   };
 
   const openUserAccessModal = (user: UserSummary) => {
-    const entries = (user.roles || []).map(role => ({
-      role: role.role,
-      tenant: normalizeTenant(role.tenant_id ?? (role as { tenant?: string }).tenant),
-    }));
+    const entries = (user.roles || []).map(role => role.role);
     const nextEntries = entries.length > 0 ? entries : [];
     setUserAccessEditor({
       user,
@@ -1373,9 +1197,7 @@ function AccessPanel({
   const addExistingPolicyDraft = (key: string) => {
     setRoleEditor(prev => {
       if (!prev) return prev;
-      const tenantKey = normalizeTenant(prev.tenant);
-      const available = policyOptionsByTenant.get(tenantKey) || policyOptionsByTenant.get('default') || [];
-      const match = available.find(p => p.key === key);
+      const match = policyOptions.find(p => p.key === key);
       if (!match) return prev;
       const already = prev.policies.some(p => p.obj === match.obj && p.act === match.act);
       if (already) return prev;
@@ -1386,12 +1208,11 @@ function AccessPanel({
   const handleSaveRoleEditor = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!roleEditor) return;
-    if (isDefaultAdmin(roleEditor.role, roleEditor.tenant)) return;
+    if (isDefaultAdmin(roleEditor.role)) return;
     setSavingRoleEditor(true);
     try {
       await onSaveRoleDefinition({
         role: roleEditor.role,
-        tenant: roleEditor.tenant,
         policies: roleEditor.policies,
         original: roleEditor.original,
       });
@@ -1410,7 +1231,6 @@ function AccessPanel({
     try {
       await onEditPolicy(policyEditor.original, {
         role: policyEditor.role,
-        tenant: policyEditor.tenant,
         name: policyEditor.name,
         obj: policyEditor.obj,
         act: policyEditor.act,
@@ -1426,12 +1246,10 @@ function AccessPanel({
   const handleSaveUserAccess = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!userAccessEditor) return;
-    const normalized = userAccessEditor.entries
-      .map(entry => ({ role: entry.role.trim(), tenant: entry.tenant.trim() }))
-      .filter(entry => entry.role);
-    const deduped = normalized.filter(
-      (entry, idx) => idx === normalized.findIndex(other => assignmentKey(other) === assignmentKey(entry))
-    );
+    const deduped = userAccessEditor.entries
+      .map(role => role.trim())
+      .filter(Boolean)
+      .filter((role, index, roles) => roles.indexOf(role) === index);
     setSavingUserAccess(true);
     try {
       const updatePayload: { email?: string; status?: string; password?: string } = {};
@@ -1464,10 +1282,8 @@ function AccessPanel({
       if (!prev) return prev;
       const roleName = nextAccessRole.trim();
       if (!roleName) return prev;
-      const tenant = normalizeTenant(prev.entries[0]?.tenant || 'default');
-      const alreadyExists = prev.entries.some(entry => assignmentKey({ role: entry.role, tenant: normalizeTenant(entry.tenant || tenant) }) === assignmentKey({ role: roleName, tenant }));
-      if (alreadyExists) return prev;
-      return { ...prev, entries: [...prev.entries, { role: roleName, tenant }] };
+      if (prev.entries.some(entry => assignmentKey(entry) === assignmentKey(roleName))) return prev;
+      return { ...prev, entries: [...prev.entries, roleName] };
     });
     setNextAccessRole('');
   };
@@ -1475,10 +1291,9 @@ function AccessPanel({
   const removeUserAccessEntry = (index: number) => {
     setUserAccessEditor(prev => {
       if (!prev) return prev;
-       const entry = prev.entries[index];
-       const protectedRole =
-         entry && prev.user && isDefaultAdmin(entry.role, entry.tenant) && prev.user.sub === 'admin';
-       if (protectedRole) return prev;
+      const entry = prev.entries[index];
+      const protectedRole = entry && prev.user && isDefaultAdmin(entry) && prev.user.sub === 'admin';
+      if (protectedRole) return prev;
       const next = prev.entries.filter((_, i) => i !== index);
       return { ...prev, entries: next };
     });
@@ -1486,7 +1301,7 @@ function AccessPanel({
 
   const updateNewUserRoleEntry = (index: number, value: string) => {
     const next = [...(newUser.roles || [])];
-    next[index] = { ...next[index], role: value, tenant: newUser.tenant };
+    next[index] = value;
     onChangeUser({ ...newUser, roles: next });
   };
 
@@ -1498,12 +1313,12 @@ function AccessPanel({
   const appendUserRoleFromPicker = () => {
     const roleName = nextUserRole.trim();
     if (!roleName) return;
-    const existing = (newUser.roles || []).some(entry => entry.role.trim().toLowerCase() === roleName.toLowerCase());
+    const existing = (newUser.roles || []).some(entry => entry.trim().toLowerCase() === roleName.toLowerCase());
     if (existing) {
       setNextUserRole('');
       return;
     }
-    onChangeUser({ ...newUser, roles: [...(newUser.roles || []), { role: roleName, tenant: newUser.tenant }] });
+    onChangeUser({ ...newUser, roles: [...(newUser.roles || []), roleName] });
     setNextUserRole('');
   };
 
@@ -1515,20 +1330,11 @@ function AccessPanel({
     return 'muted';
   };
 
-  const tenantDatalistId = 'tenant-names';
   const userDatalistId = 'access-user-ids';
   const policyCount = policyTemplates.length;
   const [nextPolicyKey, setNextPolicyKey] = useState('');
   const [nextUserRole, setNextUserRole] = useState('');
   const [nextAccessRole, setNextAccessRole] = useState('');
-
-  useEffect(() => {
-    setNextPolicyKey('');
-  }, [roleEditor?.tenant]);
-
-  useEffect(() => {
-    setNextUserRole('');
-  }, [newUser.tenant]);
 
   useEffect(() => {
     setNextAccessRole('');
@@ -1572,13 +1378,7 @@ function AccessPanel({
     }
   }, [activeSection, onReloadPolicies, onReloadUsers]);
 
-  const availablePoliciesForRoleEditor =
-    roleEditor && policyOptionsByTenant.size > 0
-      ? policyOptionsByTenant.get(normalizeTenant(roleEditor.tenant)) || policyOptionsByTenant.get('default') || []
-      : [];
-
-  const tenantRoleOptions = useMemo(() => roleOptionsForTenant(newUser.tenant), [newUser.tenant, rolesByTenant]);
-  const accessRoleOptionsForTenant = userAccessEditor ? roleOptionsForTenant(userAccessEditor.entries[0]?.tenant || 'default') : [];
+  const availablePoliciesForRoleEditor = roleEditor ? policyOptions : [];
 
   return (
     <div className="access-layout space-y-5 pb-24">
@@ -1632,7 +1432,6 @@ function AccessPanel({
         {activeSection === 'users' && (
           <div className="space-y-4">
             {error && <div className="text-sm text-red-500">Failed to load users: {error}</div>}
-            {tenantError && <div className="text-sm text-yellow-500">Tenant lookup: {tenantError}</div>}
             {loading ? (
               <div className="access-empty-card">
                 <p className="font-medium text-[var(--text-primary)]">Loading users…</p>
@@ -1672,15 +1471,11 @@ function AccessPanel({
                         <span className="text-[var(--text-secondary)] truncate">{user.email || 'No email'}</span>
                         <div className="flex flex-wrap gap-1.5">
                           {userRoles.length ? (
-                            userRoles.slice(0, 3).map(role => {
-                              const tenant = tenantLabel(role.tenant_id);
-                              return (
-                                <span key={`${user.id}-${role.role}-${role.tenant_id || 'default'}`} className="access-chip access-chip--muted">
-                                  {role.role}
-                                  {tenant ? ` @ ${tenant}` : ''}
-                                </span>
-                              );
-                            })
+                            userRoles.slice(0, 3).map(role => (
+                              <span key={`${user.id}-${role.role}`} className="access-chip access-chip--muted">
+                                {role.role}
+                              </span>
+                            ))
                           ) : (
                             <span className="text-xs text-[var(--text-secondary)]">No roles</span>
                           )}
@@ -1728,11 +1523,10 @@ function AccessPanel({
               </div>
             ) : (
               <div className="glass-card p-0 border border-[var(--border-primary)] rounded-xl overflow-hidden">
-                <div className="grid grid-cols-[1.3fr,1.3fr,1fr,0.8fr,auto] text-[11px] uppercase tracking-[0.08em] text-[var(--text-tertiary)] px-4 py-3 bg-[var(--bg-tertiary)] border-b border-[var(--border-primary)]">
+                <div className="grid grid-cols-[1.5fr,1.4fr,1fr,auto] text-[11px] uppercase tracking-[0.08em] text-[var(--text-tertiary)] px-4 py-3 bg-[var(--bg-tertiary)] border-b border-[var(--border-primary)]">
                   <span>Role</span>
                   <span>Policies</span>
                   <span>Users</span>
-                  <span className="text-center">Tenant</span>
                   <span className="text-right">Manage</span>
                 </div>
                 <div className="divide-y divide-[var(--border-primary)]">
@@ -1741,7 +1535,7 @@ function AccessPanel({
                     return (
                       <div
                         key={role.id}
-                        className="grid grid-cols-[1.3fr,1.3fr,1fr,0.8fr,auto] items-center px-4 py-3 gap-3 text-sm text-[var(--text-primary)] access-row"
+                        className="grid grid-cols-[1.5fr,1.4fr,1fr,auto] items-center px-4 py-3 gap-3 text-sm text-[var(--text-primary)] access-row"
                       >
                         <div className="min-w-0">
                           <p className="font-semibold truncate">{role.role}</p>
@@ -1768,23 +1562,22 @@ function AccessPanel({
                           )}
                           {assignedUsers.length === 0 && <span className="text-xs text-[var(--text-secondary)]">No users</span>}
                         </div>
-                        <span className="text-[var(--text-secondary)] text-center truncate">{tenantLabel(role.tenant)}</span>
                         <div className="flex justify-end items-center gap-3">
                           <button
                             type="button"
                             className="access-inline-btn"
-                            title={isDefaultAdmin(role.role, role.tenant) ? 'Protected role' : 'Edit role policies'}
+                            title={isDefaultAdmin(role.role) ? 'Protected role' : 'Edit role policies'}
                             onClick={() => openEditRoleEditor(role)}
-                            disabled={isDefaultAdmin(role.role, role.tenant)}
+                            disabled={isDefaultAdmin(role.role)}
                           >
                             <EditIcon />
                           </button>
                           <button
                             type="button"
                             className="access-inline-btn access-inline-btn--danger"
-                            title={isDefaultAdmin(role.role, role.tenant) ? 'Protected role' : 'Delete role'}
+                            title={isDefaultAdmin(role.role) ? 'Protected role' : 'Delete role'}
                             onClick={() => confirmDeleteRoleDefinition(role)}
-                            disabled={isDefaultAdmin(role.role, role.tenant)}
+                            disabled={isDefaultAdmin(role.role)}
                           >
                             <TrashIcon />
                           </button>
@@ -1813,43 +1606,45 @@ function AccessPanel({
               </div>
             ) : (
               <div className="glass-card p-0 border border-[var(--border-primary)] rounded-xl overflow-hidden">
-                <div className="grid grid-cols-[1.5fr,1.1fr,1fr,0.9fr,auto] text-[11px] uppercase tracking-[0.08em] text-[var(--text-tertiary)] px-4 py-3 bg-[var(--bg-tertiary)] border-b border-[var(--border-primary)]">
+                <div className="grid grid-cols-[1.4fr,1fr,1.1fr,1fr,auto] text-[11px] uppercase tracking-[0.08em] text-[var(--text-tertiary)] px-4 py-3 bg-[var(--bg-tertiary)] border-b border-[var(--border-primary)]">
                   <span>Policy</span>
+                  <span>Role</span>
                   <span>Object</span>
                   <span>Action</span>
-                  <span className="text-center">Tenant</span>
                   <span className="text-right">Manage</span>
                 </div>
                 <div className="divide-y divide-[var(--border-primary)]">
                   {policyTemplates.map(policy => (
                     <div
-                      key={`${policy.role}-${policy.tenant_id}-${policy.obj}-${policy.act}`}
-                      className="grid grid-cols-[1.5fr,1.1fr,1fr,0.9fr,auto] items-center px-4 py-3 gap-3 text-sm text-[var(--text-primary)] access-policy-row"
+                      key={`${policy.role}-${policy.obj}-${policy.act}`}
+                      className="grid grid-cols-[1.4fr,1fr,1.1fr,1fr,auto] items-center px-4 py-3 gap-3 text-sm text-[var(--text-primary)] access-policy-row"
                     >
                       <div className="min-w-0 font-semibold truncate">{policyLabel(policy)}</div>
+                      <span className="access-policy-text access-policy-text--muted truncate" title={policy.role}>
+                        {policy.role}
+                      </span>
                       <span className="access-policy-text truncate" title={policy.obj}>
                         {policy.obj}
                       </span>
                       <span className="access-policy-text access-policy-text--muted truncate" title={policy.act}>
                         {policy.act}
                       </span>
-                      <span className="text-[var(--text-secondary)] text-center truncate">{tenantLabel(policy.tenant_id)}</span>
                       <div className="flex justify-end items-center gap-3">
                         <button
                           type="button"
                           className="access-inline-btn"
-                          title={isDefaultAdmin(policy.role, policy.tenant_id) ? 'Protected policy' : 'Edit policy'}
+                          title={isDefaultAdmin(policy.role) ? 'Protected policy' : 'Edit policy'}
                           onClick={() => openPolicyEditModal(policy)}
-                          disabled={isDefaultAdmin(policy.role, policy.tenant_id)}
+                          disabled={isDefaultAdmin(policy.role)}
                         >
                           <EditIcon />
                         </button>
                         <button
                           type="button"
                           className="access-inline-btn access-inline-btn--danger"
-                          title={isDefaultAdmin(policy.role, policy.tenant_id) ? 'Protected policy' : 'Delete policy'}
+                          title={isDefaultAdmin(policy.role) ? 'Protected policy' : 'Delete policy'}
                           onClick={() => confirmDeletePolicy(policy)}
-                          disabled={isDefaultAdmin(policy.role, policy.tenant_id)}
+                          disabled={isDefaultAdmin(policy.role)}
                         >
                           <TrashIcon />
                         </button>
@@ -1863,23 +1658,11 @@ function AccessPanel({
         )}
       </div>
 
-      <datalist id={tenantDatalistId}>
-        {tenants.map(t => (
-          <option key={t.id} value={t.name || t.id} />
-        ))}
-      </datalist>
       <datalist id={userDatalistId}>
         {users.map(u => (
           <option key={u.id} value={u.id} label={`${u.sub} (${u.email || 'No email'})`} />
         ))}
       </datalist>
-      {Array.from(rolesByTenant.entries()).map(([tenantKey, roles]) => (
-        <datalist key={tenantKey} id={roleListIdForTenant(tenantKey)}>
-          {roles.map(role => (
-            <option key={`${tenantKey}-${role}`} value={role} />
-          ))}
-        </datalist>
-      ))}
       <datalist id={roleDatalistId}>
         {allRoleOptions.map(role => (
           <option key={`all-${role}`} value={role} />
@@ -1919,29 +1702,17 @@ function AccessPanel({
           variant="minimal"
         >
           <form className="access-minimal-form" onSubmit={handleSaveRoleEditor}>
-            <div className="access-minimal-grid">
-              <label className="access-minimal-label">
-                <span>Role name</span>
-                <input
-                  className="pipelines-input"
-                  value={roleEditor.role}
-                  onChange={e => setRoleEditor(prev => (prev ? { ...prev, role: e.target.value } : prev))}
-                  placeholder="nopsai-editor"
-                  required
-                  disabled={roleEditor.mode === 'edit'}
-                />
-              </label>
-              <label className="access-minimal-label">
-                <span>Tenant</span>
-                <input
-                  className="pipelines-input"
-                  list={tenantDatalistId}
-                  value={roleEditor.tenant}
-                  onChange={e => setRoleEditor(prev => (prev ? { ...prev, tenant: e.target.value } : prev))}
-                  placeholder="default"
-                />
-              </label>
-            </div>
+            <label className="access-minimal-label">
+              <span>Role name</span>
+              <input
+                className="pipelines-input"
+                value={roleEditor.role}
+                onChange={e => setRoleEditor(prev => (prev ? { ...prev, role: e.target.value } : prev))}
+                placeholder="nopsai-editor"
+                required
+                disabled={roleEditor.mode === 'edit'}
+              />
+            </label>
             <div className="access-minimal-section">
               <div className="access-minimal-section__header">
                 <p className="text-sm font-medium text-[var(--text-primary)]">Policies</p>
@@ -2027,16 +1798,6 @@ function AccessPanel({
         >
           <form className="space-y-3" onSubmit={handleSavePolicyEdit}>
             <label className="flex flex-col gap-1 text-sm">
-              <span>Tenant</span>
-              <input
-                className="pipelines-input"
-                list={tenantDatalistId}
-                value={policyEditor.tenant}
-                onChange={e => setPolicyEditor(prev => (prev ? { ...prev, tenant: e.target.value } : prev))}
-                placeholder="default"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
               <span>Policy name</span>
               <input
                 className="pipelines-input"
@@ -2081,7 +1842,7 @@ function AccessPanel({
         <AccessModal
           kicker="User access"
           title={`Manage ${userAccessEditor.user.sub}`}
-          subtitle="Add or remove tenant-scoped roles"
+          subtitle="Add or remove roles"
           onClose={() => setUserAccessEditor(null)}
           icon={<ShieldIcon />}
         >
@@ -2126,12 +1887,12 @@ function AccessPanel({
                 <p className="text-[12px] text-[var(--text-secondary)]">No roles assigned yet.</p>
               )}
               {userAccessEditor.entries.map((entry, idx) => {
-                const protectedAdmin = isDefaultAdmin(entry.role, entry.tenant) && userAccessEditor.user.sub === 'admin';
+                const protectedAdmin = isDefaultAdmin(entry) && userAccessEditor.user.sub === 'admin';
                 const label = protectedAdmin ? 'Protected admin role' : 'Remove assignment';
                 return (
                   <div key={`user-role-${idx}`} className="access-minimal-row justify-between">
                     <div className="flex items-center gap-2">
-                      <span className="font-semibold text-[var(--text-primary)]">{entry.role || 'Role'}</span>
+                      <span className="font-semibold text-[var(--text-primary)]">{entry || 'Role'}</span>
                     </div>
                     <button
                       type="button"
@@ -2155,8 +1916,8 @@ function AccessPanel({
                 value={nextAccessRole}
                 onChange={e => setNextAccessRole(e.target.value)}
               >
-                <option value="">{accessRoleOptionsForTenant.length === 0 ? 'No roles available' : 'Select a role'}</option>
-                {accessRoleOptionsForTenant.map(role => (
+                <option value="">{allRoleOptions.length === 0 ? 'No roles available' : 'Select a role'}</option>
+                {allRoleOptions.map(role => (
                   <option key={`access-role-${role}`} value={role}>
                     {role}
                   </option>
@@ -2166,7 +1927,7 @@ function AccessPanel({
                 type="button"
                 className="glass-button-subtle flex items-center justify-center gap-1"
                 onClick={addUserAccessEntry}
-                disabled={!nextAccessRole || accessRoleOptionsForTenant.length === 0}
+                disabled={!nextAccessRole || allRoleOptions.length === 0}
               >
                 <PlusIcon />
                 <span>Add role</span>
@@ -2225,36 +1986,13 @@ function AccessPanel({
                   required
                 />
               </label>
-              <label className="access-minimal-label">
-                <span>Tenant</span>
-                <input
-                  className="pipelines-input"
-                  list={tenantDatalistId}
-                  value={newUser.tenant}
-                  onChange={e => {
-                    const nextTenant = tenantKeyFromInput(e.target.value);
-                    onChangeUser({
-                      ...newUser,
-                      tenant: nextTenant,
-                      roles: [],
-                    });
-                    setNextUserRole('');
-                  }}
-                  placeholder="default"
-                />
-              </label>
             </div>
             <div className="access-minimal-section">
               <div className="access-minimal-section__header">
-                <div className="space-y-1">
-                  <p className="text-sm font-medium text-[var(--text-primary)]">Roles</p>
-                  <p className="text-[11px] text-[var(--text-secondary)]">
-                    Scoped to tenant {tenantLabel(newUser.tenant || 'default')}
-                  </p>
-                </div>
+                <p className="text-sm font-medium text-[var(--text-primary)]">Roles</p>
               </div>
-              {tenantRoleOptions.length === 0 && (
-                <p className="text-[11px] text-[var(--text-secondary)]">No roles available for this tenant.</p>
+              {allRoleOptions.length === 0 && (
+                <p className="text-[11px] text-[var(--text-secondary)]">No roles available yet.</p>
               )}
               {newUser.roles.length === 0 && (
                 <p className="text-[11px] text-[var(--text-secondary)]">Pick at least one role to create this user.</p>
@@ -2264,23 +2002,20 @@ function AccessPanel({
                   <div key={`new-user-role-${idx}`} className="access-minimal-row">
                     <select
                       className="pipelines-input flex-1"
-                      value={entry.role}
+                      value={entry}
                       onChange={e => updateNewUserRoleEntry(idx, e.target.value)}
                       required
-                      disabled={tenantRoleOptions.length === 0}
+                      disabled={allRoleOptions.length === 0}
                     >
                       <option value="" disabled>
-                        {tenantRoleOptions.length === 0 ? 'No roles in tenant' : 'Pick a role'}
+                        {allRoleOptions.length === 0 ? 'No roles available' : 'Pick a role'}
                       </option>
-                      {tenantRoleOptions.map(role => (
+                      {allRoleOptions.map(role => (
                         <option key={`role-opt-${role}`} value={role}>
                           {role}
                         </option>
                       ))}
                     </select>
-                    <span className="text-[11px] text-[var(--text-secondary)] min-w-[88px] text-right">
-                      {tenantLabel(newUser.tenant || 'default')}
-                    </span>
                     <button
                       type="button"
                       className="access-inline-btn access-inline-btn--danger"
@@ -2296,12 +2031,12 @@ function AccessPanel({
                     className="pipelines-input flex-1"
                     value={nextUserRole}
                     onChange={e => setNextUserRole(e.target.value)}
-                    disabled={tenantRoleOptions.length === 0}
+                    disabled={allRoleOptions.length === 0}
                   >
                     <option value="">
-                      {tenantRoleOptions.length === 0 ? 'No roles available' : 'Pick a role'}
+                      {allRoleOptions.length === 0 ? 'No roles available' : 'Pick a role'}
                     </option>
-                    {tenantRoleOptions.map(role => (
+                    {allRoleOptions.map(role => (
                       <option key={`new-role-opt-${role}`} value={role}>
                         {role}
                       </option>
@@ -2312,7 +2047,7 @@ function AccessPanel({
                     className="access-inline-btn access-inline-btn--pill"
                     onClick={appendUserRoleFromPicker}
                     title="Add role"
-                    disabled={tenantRoleOptions.length === 0}
+                    disabled={allRoleOptions.length === 0}
                   >
                     <PlusIcon />
                   </button>
@@ -2335,7 +2070,7 @@ function AccessPanel({
         <AccessModal
           kicker="Assignment"
           title="Assign role"
-          subtitle="Map a user to a tenant-scoped role"
+          subtitle="Map a user to a role"
           onClose={() => setShowRoleModal(false)}
           icon={<ShieldIcon />}
         >
@@ -2351,30 +2086,17 @@ function AccessPanel({
                 required
               />
             </label>
-            <div className="grid gap-3 md:grid-cols-2">
-              <label className="flex flex-col gap-1 text-sm">
-                <span>Tenant name</span>
-                <input
-                  className="pipelines-input"
-                  list={tenantDatalistId}
-                  value={newRole.tenant}
-                    onChange={e => onChangeRole({ ...newRole, tenant: tenantKeyFromInput(e.target.value) })}
-                    placeholder="default"
-                    required
-                  />
-              </label>
-              <label className="flex flex-col gap-1 text-sm">
-                <span>Role</span>
-                <input
-                  className="pipelines-input"
-                  list={roleListFor(newRole.tenant)}
-                  value={newRole.role}
-                  onChange={e => onChangeRole({ ...newRole, role: e.target.value })}
-                  placeholder="nopsai-admin"
-                  required
-                />
-              </label>
-            </div>
+            <label className="flex flex-col gap-1 text-sm">
+              <span>Role</span>
+              <input
+                className="pipelines-input"
+                list={roleDatalistId}
+                value={newRole.role}
+                onChange={e => onChangeRole({ ...newRole, role: e.target.value })}
+                placeholder="nopsai-admin"
+                required
+              />
+            </label>
             <div className="pipelines-modal-footer">
               <div className="pipelines-modal-actions">
                 <button type="button" className="glass-button-ghost" onClick={() => setShowRoleModal(false)}>
@@ -2398,16 +2120,6 @@ function AccessPanel({
           icon={<SparkIcon />}
         >
           <form className="space-y-3" onSubmit={onCreatePermission}>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>Tenant name</span>
-              <input
-                className="pipelines-input"
-                list={tenantDatalistId}
-                value={newPermission.tenant}
-                onChange={e => onChangePermission({ ...newPermission, tenant: e.target.value })}
-                placeholder="default"
-              />
-            </label>
             <label className="flex flex-col gap-1 text-sm">
               <span>Policy name</span>
               <input

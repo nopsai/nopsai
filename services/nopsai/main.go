@@ -113,16 +113,14 @@ type authRefreshRequest struct {
 }
 
 type authLoginResponse struct {
-	AccessToken   string                    `json:"access_token"`
-	RefreshToken  string                    `json:"refresh_token,omitempty"`
-	ExpiresAt     time.Time                 `json:"expires_at"`
-	TenantIDs     []string                  `json:"tenant_ids,omitempty"`
-	Roles         []string                  `json:"roles,omitempty"`
-	DefaultTenant string                    `json:"default_tenant,omitempty"`
-	Provider      string                    `json:"provider,omitempty"`
-	Email         string                    `json:"email,omitempty"`
-	Sub           string                    `json:"sub,omitempty"`
-	Capabilities  *authCapabilitiesResponse `json:"capabilities,omitempty"`
+	AccessToken  string                    `json:"access_token"`
+	RefreshToken string                    `json:"refresh_token,omitempty"`
+	ExpiresAt    time.Time                 `json:"expires_at"`
+	Roles        []string                  `json:"roles,omitempty"`
+	Provider     string                    `json:"provider,omitempty"`
+	Email        string                    `json:"email,omitempty"`
+	Sub          string                    `json:"sub,omitempty"`
+	Capabilities *authCapabilitiesResponse `json:"capabilities,omitempty"`
 }
 
 type authCapabilitiesResponse struct {
@@ -144,14 +142,8 @@ type authUpdateEmailRequest struct {
 	Email string `json:"email"`
 }
 
-type tenantResponse struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-}
-
 type userRoleBinding struct {
-	TenantID string `json:"tenant_id"`
-	Role     string `json:"role"`
+	Role string `json:"role"`
 }
 
 type userSummary struct {
@@ -165,12 +157,10 @@ type userSummary struct {
 }
 
 type createUserRequest struct {
-	Sub        string `json:"sub"`
-	Email      string `json:"email"`
-	Password   string `json:"password"`
-	TenantID   string `json:"tenant_id"`
-	TenantName string `json:"tenant_name"`
-	Role       string `json:"role"`
+	Sub      string `json:"sub"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	Role     string `json:"role"`
 }
 
 type updateUserRequest struct {
@@ -180,19 +170,15 @@ type updateUserRequest struct {
 }
 
 type userRoleRequest struct {
-	UserID     string `json:"user_id"`
-	TenantID   string `json:"tenant_id"`
-	TenantName string `json:"tenant_name"`
-	Role       string `json:"role"`
+	UserID string `json:"user_id"`
+	Role   string `json:"role"`
 }
 
 type createRoleRequest struct {
-	Role       string `json:"role"`
-	TenantID   string `json:"tenant_id"`
-	TenantName string `json:"tenant_name"`
-	Name       string `json:"name"`
-	Object     string `json:"obj"`
-	Action     string `json:"act"`
+	Role   string `json:"role"`
+	Name   string `json:"name"`
+	Object string `json:"obj"`
+	Action string `json:"act"`
 }
 
 // Keep these local for now if not in models
@@ -406,7 +392,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*") // Allow any origin for simplicity in POC
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Tenant-ID, X-Request-ID")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID")
 
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
@@ -567,64 +553,6 @@ func (a *App) authMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func (a *App) tenantMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodOptions {
-			next.ServeHTTP(w, r)
-			return
-		}
-		if isPublicPath(r.URL.Path) {
-			next.ServeHTTP(w, r)
-			return
-		}
-		claims, ok := auth.ClaimsFromContext(r.Context())
-		if !ok {
-			http.Error(w, "missing claims", http.StatusUnauthorized)
-			return
-		}
-		if isTrustedInternalDispatcherRequest(r) {
-			next.ServeHTTP(w, r)
-			return
-		}
-		tenantHeader := strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
-		if tenantHeader == "" {
-			tenantHeader = claims.DefaultTenant
-		}
-		if tenantHeader == "" && len(claims.TenantIDs) == 1 {
-			tenantHeader = claims.TenantIDs[0]
-		}
-		if tenantHeader == "" {
-			http.Error(w, "tenant not specified", http.StatusBadRequest)
-			return
-		}
-		allowed := len(claims.TenantIDs) == 0
-		for _, t := range claims.TenantIDs {
-			if t == tenantHeader {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			var tenantID uuid.UUID
-			if err := a.db.QueryRow(r.Context(), `SELECT id FROM tenants WHERE name = $1`, tenantHeader).Scan(&tenantID); err == nil {
-				tenantHeader = tenantID.String()
-				for _, t := range claims.TenantIDs {
-					if t == tenantHeader {
-						allowed = true
-						break
-					}
-				}
-			}
-		}
-		if !allowed {
-			http.Error(w, "tenant access denied", http.StatusForbidden)
-			return
-		}
-		ctx := auth.WithTenant(r.Context(), tenantHeader)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
 func (a *App) authzMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodOptions {
@@ -648,14 +576,9 @@ func (a *App) authzMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		tenantID := auth.TenantFromContext(r.Context())
-		if tenantID == "" {
-			http.Error(w, "tenant not resolved", http.StatusUnauthorized)
-			return
-		}
 		obj := r.URL.Path
 		act := r.Method
-		if !a.authz.EnforceRoles(claims.Roles, tenantID, obj, act) {
+		if !a.authz.EnforceRoles(claims.Roles, obj, act) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
@@ -682,14 +605,12 @@ func (a *App) auditMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		claims, _ := auth.ClaimsFromContext(r.Context())
-		tenantID := auth.TenantFromContext(r.Context())
 		requestID, _ := r.Context().Value(ctxKeyRequestID).(string)
 
 		entry := audit.Entry{
 			ActorSub:   "",
 			ActorEmail: "",
 			Provider:   "",
-			TenantID:   tenantID,
 			Action:     r.Method,
 			Resource:   r.URL.Path,
 			Result:     fmt.Sprintf("%d", rec.status),
@@ -2345,9 +2266,6 @@ func main() {
 	if cfg.RefreshTokenTTLMinutes == 0 {
 		cfg.RefreshTokenTTLMinutes = 60 * 24 * 30
 	}
-	if cfg.DefaultTenant == "" {
-		cfg.DefaultTenant = "default"
-	}
 	if cfg.RateLimitLoginPerMinute == 0 {
 		cfg.RateLimitLoginPerMinute = 10
 	}
@@ -2397,8 +2315,8 @@ func main() {
 	}
 	defer dbpool.Close()
 
-	if err := ensureDefaultAdminPerTenant(context.Background(), dbpool); err != nil {
-		log.Fatal().Err(err).Msg("Failed to ensure default admin per tenant")
+	if err := ensureDefaultAdmin(context.Background(), dbpool); err != nil {
+		log.Fatal().Err(err).Msg("Failed to ensure default admin")
 	}
 
 	dispatcherAddr := strings.TrimSpace(cfg.DispatcherAddress)
@@ -2418,7 +2336,6 @@ func main() {
 		JWTAudience:        cfg.JWTAudience,
 		AccessTTL:          time.Duration(cfg.JWTExpiryMinutes) * time.Minute,
 		RefreshTTL:         time.Duration(cfg.RefreshTokenTTLMinutes) * time.Minute,
-		DefaultTenant:      cfg.DefaultTenant,
 		LoginRateLimit:     cfg.RateLimitLoginPerMinute,
 		LoginLockoutThresh: cfg.LoginLockoutThreshold,
 		LoginLockoutWindow: time.Duration(cfg.LoginLockoutWindowMin) * time.Minute,

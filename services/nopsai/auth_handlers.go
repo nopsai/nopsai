@@ -38,15 +38,13 @@ func (a *App) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = httpapi.WriteJSON(w, http.StatusOK, authLoginResponse{
-		AccessToken:   result.AccessToken,
-		RefreshToken:  result.RefreshToken,
-		ExpiresAt:     result.ExpiresAt,
-		TenantIDs:     result.Claims.TenantIDs,
-		Roles:         result.Claims.Roles,
-		DefaultTenant: result.Claims.DefaultTenant,
-		Provider:      result.Claims.Provider,
-		Email:         result.Claims.Email,
-		Sub:           result.Claims.Sub,
+		AccessToken:  result.AccessToken,
+		RefreshToken: result.RefreshToken,
+		ExpiresAt:    result.ExpiresAt,
+		Roles:        result.Claims.Roles,
+		Provider:     result.Claims.Provider,
+		Email:        result.Claims.Email,
+		Sub:          result.Claims.Sub,
 	})
 }
 
@@ -66,15 +64,13 @@ func (a *App) handleAuthRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = httpapi.WriteJSON(w, http.StatusOK, authLoginResponse{
-		AccessToken:   result.AccessToken,
-		RefreshToken:  result.RefreshToken,
-		ExpiresAt:     result.ExpiresAt,
-		TenantIDs:     result.Claims.TenantIDs,
-		Roles:         result.Claims.Roles,
-		DefaultTenant: result.Claims.DefaultTenant,
-		Provider:      result.Claims.Provider,
-		Email:         result.Claims.Email,
-		Sub:           result.Claims.Sub,
+		AccessToken:  result.AccessToken,
+		RefreshToken: result.RefreshToken,
+		ExpiresAt:    result.ExpiresAt,
+		Roles:        result.Claims.Roles,
+		Provider:     result.Claims.Provider,
+		Email:        result.Claims.Email,
+		Sub:          result.Claims.Sub,
 	})
 }
 
@@ -106,31 +102,18 @@ func (a *App) handleAuthMe(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	tenantID := strings.TrimSpace(auth.TenantFromContext(r.Context()))
-	if tenantID == "" {
-		tenantID = strings.TrimSpace(claims.DefaultTenant)
-	}
 	_ = httpapi.WriteJSON(w, http.StatusOK, authLoginResponse{
-		AccessToken:   "",
-		TenantIDs:     claims.TenantIDs,
-		Roles:         claims.Roles,
-		DefaultTenant: claims.DefaultTenant,
-		Provider:      claims.Provider,
-		Email:         claims.Email,
-		Sub:           claims.Sub,
-		Capabilities:  a.authCapabilities(claims, tenantID),
+		AccessToken:  "",
+		Roles:        claims.Roles,
+		Provider:     claims.Provider,
+		Email:        claims.Email,
+		Sub:          claims.Sub,
+		Capabilities: a.authCapabilities(claims),
 	})
 }
 
-func (a *App) authCapabilities(claims *auth.Claims, tenantID string) *authCapabilitiesResponse {
+func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 	if claims == nil {
-		return &authCapabilitiesResponse{}
-	}
-	tenantID = strings.TrimSpace(tenantID)
-	if tenantID == "" {
-		tenantID = strings.TrimSpace(claims.DefaultTenant)
-	}
-	if tenantID == "" {
 		return &authCapabilitiesResponse{}
 	}
 	if a == nil || a.authz == nil {
@@ -141,12 +124,12 @@ func (a *App) authCapabilities(claims *auth.Claims, tenantID string) *authCapabi
 	}
 	return &authCapabilitiesResponse{
 		Pipelines: authResourceCapabilities{
-			Write:  a.authz.EnforceRoles(claims.Roles, tenantID, "/v1/pipelines/__capability_probe__", http.MethodPut),
-			Delete: a.authz.EnforceRoles(claims.Roles, tenantID, "/v1/pipelines/__capability_probe__", http.MethodDelete),
+			Write:  a.authz.EnforceRoles(claims.Roles, "/v1/pipelines/__capability_probe__", http.MethodPut),
+			Delete: a.authz.EnforceRoles(claims.Roles, "/v1/pipelines/__capability_probe__", http.MethodDelete),
 		},
 		Steps: authResourceCapabilities{
-			Write:  a.authz.EnforceRoles(claims.Roles, tenantID, "/v1/steps/__capability_probe__", http.MethodPut),
-			Delete: a.authz.EnforceRoles(claims.Roles, tenantID, "/v1/steps/__capability_probe__", http.MethodDelete),
+			Write:  a.authz.EnforceRoles(claims.Roles, "/v1/steps/__capability_probe__", http.MethodPut),
+			Delete: a.authz.EnforceRoles(claims.Roles, "/v1/steps/__capability_probe__", http.MethodDelete),
 		},
 	}
 }
@@ -289,25 +272,6 @@ func (a *App) handleAuthUpdateEmail(w http.ResponseWriter, r *http.Request) {
 	_ = httpapi.WriteJSON(w, http.StatusOK, map[string]string{"email": email})
 }
 
-func (a *App) handleListTenants(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(r.Context(), `SELECT id, name FROM tenants ORDER BY name`)
-	if err != nil {
-		http.Error(w, "failed to list tenants", http.StatusInternalServerError)
-		return
-	}
-	defer rows.Close()
-	var out []tenantResponse
-	for rows.Next() {
-		var t tenantResponse
-		if err := rows.Scan(&t.ID, &t.Name); err != nil {
-			http.Error(w, "failed to scan tenants", http.StatusInternalServerError)
-			return
-		}
-		out = append(out, t)
-	}
-	_ = httpapi.WriteJSON(w, http.StatusOK, out)
-}
-
 func (a *App) handleListAuditLogs(w http.ResponseWriter, r *http.Request) {
 	limit := 100
 	if v := strings.TrimSpace(r.URL.Query().Get("limit")); v != "" {
@@ -315,14 +279,12 @@ func (a *App) handleListAuditLogs(w http.ResponseWriter, r *http.Request) {
 			limit = parsed
 		}
 	}
-	tenantID := auth.TenantFromContext(r.Context())
 	rows, err := a.db.Query(r.Context(), `
-		SELECT actor_sub, actor_email, provider, COALESCE(tenant_id::text, ''), action, resource, result, created_at
+		SELECT actor_sub, actor_email, provider, action, resource, result, created_at
 		FROM audit_logs
-		WHERE ($1 = '' OR tenant_id::text = $1)
 		ORDER BY created_at DESC
-		LIMIT $2
-	`, tenantID, limit)
+		LIMIT $1
+	`, limit)
 	if err != nil {
 		http.Error(w, "failed to list audit logs", http.StatusInternalServerError)
 		return
@@ -332,7 +294,6 @@ func (a *App) handleListAuditLogs(w http.ResponseWriter, r *http.Request) {
 		ActorSub   string    `json:"actor_sub"`
 		ActorEmail string    `json:"actor_email"`
 		Provider   string    `json:"provider"`
-		TenantID   string    `json:"tenant_id"`
 		Action     string    `json:"action"`
 		Resource   string    `json:"resource"`
 		Result     string    `json:"result"`
@@ -341,7 +302,7 @@ func (a *App) handleListAuditLogs(w http.ResponseWriter, r *http.Request) {
 	var out []auditRow
 	for rows.Next() {
 		var row auditRow
-		if err := rows.Scan(&row.ActorSub, &row.ActorEmail, &row.Provider, &row.TenantID, &row.Action, &row.Resource, &row.Result, &row.CreatedAt); err != nil {
+		if err := rows.Scan(&row.ActorSub, &row.ActorEmail, &row.Provider, &row.Action, &row.Resource, &row.Result, &row.CreatedAt); err != nil {
 			http.Error(w, "failed to read audit logs", http.StatusInternalServerError)
 			return
 		}
@@ -350,29 +311,7 @@ func (a *App) handleListAuditLogs(w http.ResponseWriter, r *http.Request) {
 	_ = httpapi.WriteJSON(w, http.StatusOK, out)
 }
 
-func (a *App) resolveTenantID(ctx context.Context, tenantID, tenantName string) (string, error) {
-	if tenantID != "" {
-		return tenantID, nil
-	}
-	if tenantName == "" {
-		if strings.TrimSpace(a.cfg.DefaultTenant) != "" {
-			tenantName = strings.TrimSpace(a.cfg.DefaultTenant)
-		} else {
-			return "", fmt.Errorf("tenant is required")
-		}
-	}
-	var id string
-	err := a.db.QueryRow(ctx, `SELECT id FROM tenants WHERE name = $1`, tenantName).Scan(&id)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return "", fmt.Errorf("tenant not found")
-		}
-		return "", err
-	}
-	return id, nil
-}
-
-func ensureDefaultAdminPerTenant(ctx context.Context, db *pgxpool.Pool) error {
+func ensureDefaultAdmin(ctx context.Context, db *pgxpool.Pool) error {
 	if db == nil {
 		return nil
 	}
@@ -400,32 +339,21 @@ func ensureDefaultAdminPerTenant(ctx context.Context, db *pgxpool.Pool) error {
 			return err
 		}
 	}
-	rows, err := db.Query(ctx, `SELECT id FROM tenants`)
-	if err != nil {
+	if _, err := db.Exec(ctx, `
+		INSERT INTO user_roles (user_id, role)
+		VALUES ($1, $2)
+		ON CONFLICT DO NOTHING
+	`, existingID, defaultAdminRole); err != nil {
 		return err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var tenantID uuid.UUID
-		if err := rows.Scan(&tenantID); err != nil {
-			return err
-		}
-		if _, err := db.Exec(ctx, `
-			INSERT INTO user_tenant_roles (user_id, tenant_id, role)
-			VALUES ($1, $2, $3)
-			ON CONFLICT DO NOTHING
-		`, existingID, tenantID, defaultAdminRole); err != nil {
-			return err
-		}
-		if _, err := db.Exec(ctx, `
-			INSERT INTO role_permissions (role, tenant_id, name, obj, act)
-			SELECT $1, $2, 'All access', '/*', '.*'
-			WHERE NOT EXISTS (
-				SELECT 1 FROM role_permissions WHERE role = $1 AND tenant_id = $2 AND obj = '/*' AND act = '.*'
-			)
-		`, defaultAdminRole, tenantID); err != nil {
-			return err
-		}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO role_permissions (role, name, obj, act)
+		SELECT $1, 'All access', '/*', '.*'
+		WHERE NOT EXISTS (
+			SELECT 1 FROM role_permissions WHERE role = $1 AND obj = '/*' AND act = '.*'
+		)
+	`, defaultAdminRole); err != nil {
+		return err
 	}
 	return nil
 }
@@ -433,10 +361,10 @@ func ensureDefaultAdminPerTenant(ctx context.Context, db *pgxpool.Pool) error {
 func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query(r.Context(), `
 		SELECT u.id, u.sub, COALESCE(u.email, ''), u.provider, u.status, u.last_login,
-		       COALESCE(json_agg(json_build_object('tenant_id', utr.tenant_id::text, 'role', utr.role))
-		                FILTER (WHERE utr.role IS NOT NULL), '[]') AS roles
+		       COALESCE(json_agg(json_build_object('role', ur.role))
+		                FILTER (WHERE ur.role IS NOT NULL), '[]') AS roles
 		FROM users u
-		LEFT JOIN user_tenant_roles utr ON utr.user_id = u.id
+		LEFT JOIN user_roles ur ON ur.user_id = u.id
 		GROUP BY u.id
 		ORDER BY u.sub
 	`)
@@ -479,8 +407,6 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	req.Sub = strings.TrimSpace(req.Sub)
 	req.Email = strings.TrimSpace(req.Email)
 	req.Role = strings.TrimSpace(req.Role)
-	req.TenantID = strings.TrimSpace(req.TenantID)
-	req.TenantName = strings.TrimSpace(req.TenantName)
 	if err := httpapi.ValidateRequired(
 		httpapi.RequiredString("sub", req.Sub),
 		httpapi.RequiredString("password", req.Password),
@@ -512,16 +438,11 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Role != "" {
-		tID, err := a.resolveTenantID(r.Context(), req.TenantID, req.TenantName)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
 		_, err = tx.Exec(r.Context(), `
-			INSERT INTO user_tenant_roles (user_id, tenant_id, role)
-			VALUES ($1, $2, $3)
+			INSERT INTO user_roles (user_id, role)
+			VALUES ($1, $2)
 			ON CONFLICT DO NOTHING
-		`, userID, tID, req.Role)
+		`, userID, req.Role)
 		if err != nil {
 			http.Error(w, "failed to assign role", http.StatusInternalServerError)
 			return
@@ -699,8 +620,6 @@ func (a *App) handleAddUserRole(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Role = strings.TrimSpace(req.Role)
 	req.UserID = strings.TrimSpace(req.UserID)
-	req.TenantID = strings.TrimSpace(req.TenantID)
-	req.TenantName = strings.TrimSpace(req.TenantName)
 	if err := httpapi.ValidateRequired(
 		httpapi.RequiredString("user_id", req.UserID),
 		httpapi.RequiredString("role", req.Role),
@@ -708,16 +627,11 @@ func (a *App) handleAddUserRole(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	tenantID, err := a.resolveTenantID(r.Context(), req.TenantID, req.TenantName)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	_, err = a.db.Exec(r.Context(), `
-		INSERT INTO user_tenant_roles (user_id, tenant_id, role)
-		VALUES ($1, $2, $3)
+	_, err := a.db.Exec(r.Context(), `
+		INSERT INTO user_roles (user_id, role)
+		VALUES ($1, $2)
 		ON CONFLICT DO NOTHING
-	`, req.UserID, tenantID, req.Role)
+	`, req.UserID, req.Role)
 	if err != nil {
 		http.Error(w, "failed to assign role", http.StatusInternalServerError)
 		return
@@ -737,8 +651,6 @@ func (a *App) handleDeleteUserRole(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Role = strings.TrimSpace(req.Role)
 	req.UserID = strings.TrimSpace(req.UserID)
-	req.TenantID = strings.TrimSpace(req.TenantID)
-	req.TenantName = strings.TrimSpace(req.TenantName)
 	if err := httpapi.ValidateRequired(
 		httpapi.RequiredString("user_id", req.UserID),
 		httpapi.RequiredString("role", req.Role),
@@ -753,15 +665,10 @@ func (a *App) handleDeleteUserRole(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	tenantID, err := a.resolveTenantID(r.Context(), req.TenantID, req.TenantName)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
 	tag, err := a.db.Exec(r.Context(), `
-		DELETE FROM user_tenant_roles
-		WHERE user_id = $1 AND tenant_id = $2 AND role = $3
-	`, req.UserID, tenantID, req.Role)
+		DELETE FROM user_roles
+		WHERE user_id = $1 AND role = $2
+	`, req.UserID, req.Role)
 	if err != nil {
 		http.Error(w, "failed to remove role", http.StatusInternalServerError)
 		return
@@ -784,8 +691,6 @@ func (a *App) handleCreateRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Role = strings.TrimSpace(req.Role)
-	req.TenantID = strings.TrimSpace(req.TenantID)
-	req.TenantName = strings.TrimSpace(req.TenantName)
 	req.Name = strings.TrimSpace(req.Name)
 	req.Object = strings.TrimSpace(req.Object)
 	req.Action = strings.TrimSpace(req.Action)
@@ -804,15 +709,10 @@ func (a *App) handleCreateRole(w http.ResponseWriter, r *http.Request) {
 	if req.Name == "" {
 		req.Name = defaultPolicyName(req.Object, req.Action)
 	}
-	tenantID, err := a.resolveTenantID(r.Context(), req.TenantID, req.TenantName)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	_, err = a.db.Exec(r.Context(), `
-		INSERT INTO role_permissions (role, tenant_id, name, obj, act)
-		VALUES ($1, $2, $3, $4, $5)
-	`, req.Role, tenantID, req.Name, req.Object, req.Action)
+	_, err := a.db.Exec(r.Context(), `
+		INSERT INTO role_permissions (role, name, obj, act)
+		VALUES ($1, $2, $3, $4)
+	`, req.Role, req.Name, req.Object, req.Action)
 	if err != nil {
 		http.Error(w, "failed to create role permission", http.StatusInternalServerError)
 		return
@@ -832,8 +732,6 @@ func (a *App) handleDeleteRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Role = strings.TrimSpace(req.Role)
-	req.TenantID = strings.TrimSpace(req.TenantID)
-	req.TenantName = strings.TrimSpace(req.TenantName)
 	req.Object = strings.TrimSpace(req.Object)
 	req.Action = strings.TrimSpace(req.Action)
 	if req.Role == defaultAdminRole && req.Object == "/*" && req.Action == ".*" {
@@ -848,13 +746,8 @@ func (a *App) handleDeleteRole(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	tenantID, err := a.resolveTenantID(r.Context(), req.TenantID, req.TenantName)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
 	var assignments int
-	if err := a.db.QueryRow(r.Context(), `SELECT COUNT(*) FROM user_tenant_roles WHERE role = $1 AND tenant_id = $2`, req.Role, tenantID).Scan(&assignments); err != nil {
+	if err := a.db.QueryRow(r.Context(), `SELECT COUNT(*) FROM user_roles WHERE role = $1`, req.Role).Scan(&assignments); err != nil {
 		http.Error(w, "failed to check role usage", http.StatusInternalServerError)
 		return
 	}
@@ -864,8 +757,8 @@ func (a *App) handleDeleteRole(w http.ResponseWriter, r *http.Request) {
 	}
 	tag, err := a.db.Exec(r.Context(), `
 		DELETE FROM role_permissions
-		WHERE role = $1 AND tenant_id = $2 AND obj = $3 AND act = $4
-	`, req.Role, tenantID, req.Object, req.Action)
+		WHERE role = $1 AND obj = $2 AND act = $3
+	`, req.Role, req.Object, req.Action)
 	if err != nil {
 		http.Error(w, "failed to delete role permission", http.StatusInternalServerError)
 		return
@@ -884,9 +777,9 @@ func (a *App) handleListRoles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := a.db.Query(r.Context(), `
-		SELECT role, tenant_id, COALESCE(name, ''), obj, act
+		SELECT role, COALESCE(name, ''), obj, act
 		FROM role_permissions
-		ORDER BY role ASC, tenant_id ASC, obj ASC, act ASC
+		ORDER BY role ASC, obj ASC, act ASC
 	`)
 	if err != nil {
 		http.Error(w, "failed to list role permissions", http.StatusInternalServerError)
@@ -894,16 +787,15 @@ func (a *App) handleListRoles(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 	type rolePerm struct {
-		Role     string `json:"role"`
-		TenantID string `json:"tenant_id"`
-		Name     string `json:"name"`
-		Obj      string `json:"obj"`
-		Act      string `json:"act"`
+		Role string `json:"role"`
+		Name string `json:"name"`
+		Obj  string `json:"obj"`
+		Act  string `json:"act"`
 	}
 	var perms []rolePerm
 	for rows.Next() {
 		var p rolePerm
-		if err := rows.Scan(&p.Role, &p.TenantID, &p.Name, &p.Obj, &p.Act); err != nil {
+		if err := rows.Scan(&p.Role, &p.Name, &p.Obj, &p.Act); err != nil {
 			http.Error(w, "failed to scan role permission", http.StatusInternalServerError)
 			return
 		}
