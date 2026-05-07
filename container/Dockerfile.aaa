@@ -1,0 +1,27 @@
+FROM golang:1.23-alpine AS builder
+
+WORKDIR /src
+RUN apk add --no-cache git
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY config config
+COPY services services
+COPY config.yml .
+
+ENV CGO_ENABLED=0
+ENV GOOS=linux
+RUN go build -ldflags="-s -w" -o /out/nopsai-aaa ./services/aaa
+
+FROM alpine:3.20
+
+RUN apk add --no-cache ca-certificates && \
+  addgroup -S nopsai && adduser -S nopsai -G nopsai
+
+WORKDIR /app
+COPY --from=builder /out/nopsai-aaa /usr/local/bin/nopsai-aaa
+COPY --from=builder /src/config.yml /app/config.yml
+
+USER nopsai
+ENTRYPOINT ["nopsai-aaa"]

@@ -59,12 +59,15 @@ type Config struct {
 	NopsaiListenAddress     string `yaml:"nopsai_listen_address" env:"NOPSAI_LISTEN_ADDRESS"`
 	GitBotListenAddress     string `yaml:"git_bot_listen_address" env:"GIT_BOT_LISTEN_ADDRESS"`
 	DispatcherListenAddress string `yaml:"dispatcher_listen_address" env:"DISPATCHER_LISTEN_ADDRESS"`
+	AAAAddr                 string `yaml:"aaa_addr" env:"AAA_ADDR"`
 
 	// Addresses for services to connect to each other
 	AgentLlmAgentAddress string `yaml:"agent_llm_agent_address" env:"AGENT_LLM_AGENT_ADDRESS"`
 	AgentNopsaiAPIURL    string `yaml:"agent_nopsai_api_url" env:"AGENT_NOPSAI_API_URL"`
 	GitBotNopsaiAPIURL   string `yaml:"git_bot_nopsai_api_url" env:"GIT_BOT_NOPSAI_API_URL"`
 	DispatcherAddress    string `yaml:"dispatcher_address" env:"DISPATCHER_ADDRESS"`
+	AAAAPIURL            string `yaml:"aaa_api_url" env:"AAA_API_URL"`
+	AAASharedToken       string `yaml:"aaa_shared_internal_token" env:"AAA_SHARED_INTERNAL_TOKEN"`
 
 	// Git Bot specific configuration
 	GitHubWebhookSecret  string `yaml:"github_webhook_secret" env:"GITHUB_WEBHOOK_SECRET"`

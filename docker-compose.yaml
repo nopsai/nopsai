@@ -51,8 +51,26 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      aaa:
+        condition: service_started
       base:
         condition: service_completed_successfully
+    env_file:
+      - .env
+    networks:
+      - nopsai-net
+
+  aaa:
+    container_name: nopsai-aaa
+    build:
+      context: .
+      dockerfile: container/Dockerfile.aaa
+    restart: always
+    expose:
+      - "8082"
+    depends_on:
+      db:
+        condition: service_healthy
     env_file:
       - .env
     networks:
