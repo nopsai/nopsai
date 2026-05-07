@@ -16,16 +16,16 @@ type Enforcer struct {
 
 const modelText = `
 [request_definition]
-r = sub, dom, obj, act
+r = sub, obj, act
 
 [policy_definition]
-p = sub, dom, obj, act
+p = sub, obj, act
 
 [policy_effect]
 e = some(where (p.eft == allow))
 
 [matchers]
-m = r.sub == p.sub && r.dom == p.dom && keyMatch2(r.obj, p.obj) && regexMatch(r.act, p.act)
+m = r.sub == p.sub && keyMatch2(r.obj, p.obj) && regexMatch(r.act, p.act)
 `
 
 const policyTemplateRole = "__policy_template__"
@@ -51,30 +51,30 @@ func (e *Enforcer) LoadPolicies(ctx context.Context, db *pgxpool.Pool) error {
 		return nil
 	}
 	e.e.ClearPolicy()
-	rows, err := db.Query(ctx, `SELECT role, tenant_id, obj, act FROM role_permissions`)
+	rows, err := db.Query(ctx, `SELECT role, obj, act FROM role_permissions`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var role, tenantID, obj, act string
-		if err := rows.Scan(&role, &tenantID, &obj, &act); err != nil {
+		var role, obj, act string
+		if err := rows.Scan(&role, &obj, &act); err != nil {
 			return err
 		}
 		if role == policyTemplateRole {
 			continue
 		}
-		_, _ = e.e.AddPolicy(strings.TrimSpace(role), tenantID, strings.TrimSpace(obj), strings.TrimSpace(act))
+		_, _ = e.e.AddPolicy(strings.TrimSpace(role), strings.TrimSpace(obj), strings.TrimSpace(act))
 	}
 	return nil
 }
 
-func (e *Enforcer) EnforceRoles(roles []string, tenantID, obj, act string) bool {
+func (e *Enforcer) EnforceRoles(roles []string, obj, act string) bool {
 	if e == nil || e.e == nil {
 		return true
 	}
 	for _, role := range roles {
-		ok, err := e.e.Enforce(role, tenantID, obj, act)
+		ok, err := e.e.Enforce(role, obj, act)
 		if err == nil && ok {
 			return true
 		}

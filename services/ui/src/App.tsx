@@ -9,7 +9,7 @@ import StepsPage from './pages/Steps';
 import SystemPage from './pages/System';
 import LoginPage from './pages/Login';
 import ProfilePage from './pages/Profile';
-import { buildApiUrl, clearSession, getStoredSession, setSelectedTenant, type StoredSession } from './lib/api';
+import { buildApiUrl, clearSession, getStoredSession, type StoredSession } from './lib/api';
 import { PIPELINE_DRAFTS_CHANGED_EVENT, getPipelineDraftStorageKey, loadPipelineDrafts } from './lib/pipelineDrafts';
 import { STEP_DRAFTS_CHANGED_EVENT, getStepDraftStorageKey, loadStepDrafts } from './lib/stepDrafts';
 
@@ -53,16 +53,9 @@ type ScopeTreeNode = {
   scopes: string[];
 };
 
-type Tenant = {
-  id: string;
-  name: string;
-};
-
 type CurrentUser = {
   sub: string;
   email?: string;
-  tenantIds?: string[];
-  defaultTenant?: string;
   roles?: string[];
   capabilities?: {
     pipelines?: {
@@ -194,8 +187,6 @@ function AppShell() {
   const navigate = useNavigate();
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [authSession, setAuthSession] = useState<AuthSession>(() => getStoredSession());
-  const [tenants, setTenants] = useState<Tenant[]>([]);
-  const [selectedTenant, setSelectedTenantState] = useState<string>(() => getStoredSession().tenantId || getStoredSession().defaultTenant || '');
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [currentUserLoading, setCurrentUserLoading] = useState(false);
   const isAuthenticated = useMemo(() => Boolean(authSession.accessToken), [authSession.accessToken]);
@@ -237,9 +228,7 @@ function AppShell() {
 
   useEffect(() => {
     const handleAuthChange = () => {
-      const next = getStoredSession();
-      setAuthSession(next);
-      setSelectedTenantState(next.tenantId || next.defaultTenant || '');
+      setAuthSession(getStoredSession());
     };
     window.addEventListener('storage', handleAuthChange);
     window.addEventListener('nopsai-auth-changed', handleAuthChange as EventListener);
@@ -297,8 +286,6 @@ function AppShell() {
         setCurrentUser({
           sub: data?.sub || '',
           email: data?.email || '',
-          tenantIds: Array.isArray(data?.tenant_ids) ? data.tenant_ids : undefined,
-          defaultTenant: data?.default_tenant,
           roles: Array.isArray(data?.roles) ? data.roles : undefined,
           capabilities,
         });
@@ -317,30 +304,10 @@ function AppShell() {
     return () => {
       cancelled = true;
     };
-  }, [authSession.accessToken, authSession.defaultTenant, selectedTenant]);
-
-  useEffect(() => {
-    if (!authSession.accessToken) return;
-    const tenantHeader = selectedTenant || authSession.defaultTenant;
-    const headers: Record<string, string> = tenantHeader ? { 'X-Tenant-ID': tenantHeader } : {};
-    fetch(buildApiUrl('/v1/tenants'), { headers })
-      .then(resp => (resp.ok ? resp.json() : []))
-      .then(data => {
-        if (Array.isArray(data)) setTenants(data);
-      })
-      .catch(() => {});
-  }, [authSession.accessToken, authSession.defaultTenant, selectedTenant]);
+  }, [authSession.accessToken]);
 
   const handleLoginSuccess = useCallback(() => {
-    const session = getStoredSession();
-    setAuthSession(session);
-    setSelectedTenantState(session.tenantId || session.defaultTenant || '');
-  }, []);
-
-  const handleTenantChange = useCallback((tenantId: string) => {
-    setSelectedTenantState(tenantId);
-    setSelectedTenant(tenantId);
-    setAuthSession(prev => ({ ...prev, tenantId }));
+    setAuthSession(getStoredSession());
   }, []);
 
   const handleOpenProfile = useCallback(() => {
@@ -350,7 +317,6 @@ function AppShell() {
   const handleLogout = useCallback(() => {
     clearSession();
     setAuthSession({});
-    setSelectedTenantState('');
     navigate('/login', { replace: true });
   }, [navigate]);
 
@@ -360,23 +326,13 @@ function AppShell() {
 
   const draftScope = useMemo(() => {
     const sub = (authSession.sub || currentUser?.sub || '').trim();
-    if (!sub) return '';
-    const tenant = (selectedTenant || authSession.tenantId || authSession.defaultTenant || currentUser?.defaultTenant || '').trim();
-    return tenant ? `${sub}:${tenant}` : sub;
-  }, [authSession.defaultTenant, authSession.sub, authSession.tenantId, currentUser?.defaultTenant, currentUser?.sub, selectedTenant]);
+    return sub;
+  }, [authSession.sub, currentUser?.sub]);
 
   const canWritePipelines = Boolean(currentUser?.capabilities?.pipelines?.write);
   const canDeletePipelines = Boolean(currentUser?.capabilities?.pipelines?.delete);
   const canWriteSteps = Boolean(currentUser?.capabilities?.steps?.write);
   const canDeleteSteps = Boolean(currentUser?.capabilities?.steps?.delete);
-
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    if (selectedTenant) return;
-    if (tenants.length > 0) {
-      handleTenantChange(tenants[0].id);
-    }
-  }, [handleTenantChange, isAuthenticated, selectedTenant, tenants]);
 
   useEffect(() => {
     if (!sidebarOpen) return;
@@ -812,7 +768,6 @@ function AppShell() {
                 theme={theme}
                 onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
                 onOpenSidebar={() => setSidebarOpen(true)}
-                selectedTenant={selectedTenant}
                 onLogout={handleLogout}
                 currentUser={currentUser}
                 userLoading={currentUserLoading}
@@ -841,8 +796,6 @@ function AppShell() {
                         user={currentUser}
                         loading={currentUserLoading}
                         onLogout={handleLogout}
-                        tenants={tenants}
-                        selectedTenant={selectedTenant}
                         onUserUpdated={handleUserUpdated}
                       />
                     }
@@ -2104,7 +2057,6 @@ function Header({
   onOpenSidebar,
   theme,
   onToggleTheme,
-  selectedTenant,
   onLogout,
   currentUser,
   userLoading,
@@ -2114,7 +2066,6 @@ function Header({
   onOpenSidebar: () => void;
   theme: Theme;
   onToggleTheme: () => void;
-  selectedTenant?: string;
   onLogout?: () => void;
   currentUser?: CurrentUser | null;
   userLoading?: boolean;
@@ -2186,9 +2137,7 @@ function Header({
               <div className="p-4 border-b border-[var(--border-primary)] bg-[var(--bg-tertiary)]/70 backdrop-blur-sm">
                 <p className="text-xs uppercase tracking-wide text-[var(--text-secondary)] mb-1">Signed in as</p>
                 <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{userLoading ? 'Loading…' : displayName}</p>
-                <p className="text-xs text-[var(--text-secondary)] mt-2">
-                  Tenant: {selectedTenant || currentUser?.defaultTenant || currentUser?.tenantIds?.[0] || '—'}
-                </p>
+                <p className="text-xs text-[var(--text-secondary)] mt-2">Global access model</p>
               </div>
               <div className="p-2 space-y-1">
                 <button

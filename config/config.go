@@ -40,7 +40,6 @@ type Config struct {
 	IdleTimeoutMinutes       int    `yaml:"idle_timeout_minutes" env:"IDLE_TIMEOUT_MINUTES"`
 	RefreshTokenTTLMinutes   int    `yaml:"refresh_token_ttl_minutes" env:"REFRESH_TOKEN_TTL_MINUTES"`
 	AuthProviderLocalEnabled bool   `yaml:"auth_provider_local_enabled" env:"AUTH_PROVIDER_LOCAL_ENABLED"`
-	DefaultTenant            string `yaml:"default_tenant" env:"DEFAULT_TENANT"`
 	RateLimitLoginPerMinute  int    `yaml:"rate_limit_login_per_minute" env:"RATE_LIMIT_LOGIN_PER_MINUTE"`
 	LoginLockoutThreshold    int    `yaml:"login_lockout_threshold" env:"LOGIN_LOCKOUT_THRESHOLD"`
 	LoginLockoutWindowMin    int    `yaml:"login_lockout_window_minutes" env:"LOGIN_LOCKOUT_WINDOW_MINUTES"`
