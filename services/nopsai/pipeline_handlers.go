@@ -16,6 +16,8 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"nopsai/pkg/models"
+	"nopsai/services/aaa/pkg/model"
+	"nopsai/services/nopsai/pkg/routeauthz"
 )
 
 func (a *App) handleListPipelines(w http.ResponseWriter, r *http.Request) {
@@ -33,10 +35,13 @@ func (a *App) handleListPipelines(w http.ResponseWriter, r *http.Request) {
 		Source string `json:"source"`
 	}
 
-	var (
-		pipelineNames []string
-		pipelineItems []pipelineListItem
-	)
+	type pipelineEntry struct {
+		identifier string
+		source     string
+		resource   model.ResourceRef
+	}
+
+	var entries []pipelineEntry
 
 	for rows.Next() {
 		var path, name, source string
@@ -45,11 +50,35 @@ func (a *App) handleListPipelines(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to process pipelines", http.StatusInternalServerError)
 			return
 		}
-		identifier := buildPipelineIdentifier(path, name)
+		entries = append(entries, pipelineEntry{
+			identifier: buildPipelineIdentifier(path, name),
+			source:     source,
+			resource:   routeauthz.PipelineResource(path, name),
+		})
+	}
+
+	resources := make([]model.ResourceRef, 0, len(entries))
+	for _, entry := range entries {
+		resources = append(resources, entry.resource)
+	}
+	allowedSet, err := a.allowedResourceSet(r, "pipeline.list", resources)
+	if err != nil {
+		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	var (
+		pipelineNames []string
+		pipelineItems []pipelineListItem
+	)
+	for _, entry := range entries {
+		if _, ok := allowedSet[resourceKey(entry.resource)]; !ok {
+			continue
+		}
 		if includeSource {
-			pipelineItems = append(pipelineItems, pipelineListItem{ID: identifier, Source: source})
+			pipelineItems = append(pipelineItems, pipelineListItem{ID: entry.identifier, Source: entry.source})
 		} else {
-			pipelineNames = append(pipelineNames, identifier)
+			pipelineNames = append(pipelineNames, entry.identifier)
 		}
 	}
 
@@ -349,6 +378,13 @@ func (a *App) handleCreateOrUpdatePipeline(w http.ResponseWriter, r *http.Reques
 	if lookupErr != nil && lookupErr != pgx.ErrNoRows {
 		log.Error().Err(lookupErr).Msg("Failed to inspect existing pipeline source")
 		http.Error(w, "Failed to save pipeline", http.StatusInternalServerError)
+		return
+	}
+	action := "pipeline.update"
+	if lookupErr == pgx.ErrNoRows {
+		action = "pipeline.create"
+	}
+	if !a.requireAAADecision(w, r, action, routeauthz.PipelineResource(dbPath, storedName)) {
 		return
 	}
 
