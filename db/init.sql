@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 CREATE TABLE groups (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
@@ -179,6 +181,96 @@ CREATE TABLE refresh_tokens (
 CREATE INDEX idx_refresh_tokens_user ON refresh_tokens(user_id);
 CREATE INDEX idx_refresh_tokens_expiry ON refresh_tokens(expires_at);
 
+CREATE TABLE auth_groups (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT UNIQUE NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE auth_group_members (
+    group_id UUID NOT NULL REFERENCES auth_groups(id) ON DELETE CASCADE,
+    subject_type TEXT NOT NULL CHECK subject_type IN ('user', 'internal_service'),
+    subject_id TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (group_id, subject_type, subject_id)
+);
+
+CREATE TABLE auth_roles (
+    name TEXT PRIMARY KEY,
+    description TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE auth_role_bindings (
+    id BIGSERIAL PRIMARY KEY,
+    role_name TEXT NOT NULL REFERENCES auth_roles(name) ON DELETE CASCADE,
+    subject_type TEXT NOT NULL CHECK subject_type IN ('user', 'auth_group', 'internal_service'),
+    subject_id TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(role_name, subject_type, subject_id)
+);
+
+CREATE TABLE auth_role_permissions (
+    id BIGSERIAL PRIMARY KEY,
+    role_name TEXT NOT NULL REFERENCES auth_roles(name) ON DELETE CASCADE,
+    resource_type TEXT NOT NULL,
+    resource_id TEXT NOT NULL DEFAULT '*',
+    action TEXT NOT NULL,
+    effect TEXT NOT NULL CHECK effect IN ('allow', 'deny'),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(role_name, resource_type, resource_id, action, effect)
+);
+
+CREATE TABLE resource_acl (
+    id BIGSERIAL PRIMARY KEY,
+    resource_type TEXT NOT NULL,
+    resource_id TEXT NOT NULL,
+    subject_type TEXT NOT NULL CHECK subject_type IN ('user', 'auth_group', 'internal_service'),
+    subject_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    effect TEXT NOT NULL CHECK effect IN ('allow', 'deny'),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(resource_type, resource_id, subject_type, subject_id, action, effect)
+);
+
+CREATE TABLE resource_ownership (
+    id BIGSERIAL PRIMARY KEY,
+    resource_type TEXT NOT NULL,
+    resource_id TEXT NOT NULL,
+    owner_subject_type TEXT NOT NULL CHECK owner_subject_type IN ('user', 'auth_group', 'internal_service'),
+    owner_subject_id TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(resource_type, resource_id, owner_subject_type, owner_subject_id)
+);
+
+CREATE TABLE authz_decision_logs (
+    id BIGSERIAL PRIMARY KEY,
+    request_id TEXT,
+    subject_type TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    resource_type TEXT NOT NULL,
+    resource_id TEXT NOT NULL,
+    allowed BOOLEAN NOT NULL,
+    reason TEXT NOT NULL,
+    matched_policy JSONB,
+    sensitive BOOLEAN NOT NULL DEFAULT FALSE,
+    context JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_auth_group_members_subject ON auth_group_members(subject_type, subject_id);
+CREATE INDEX idx_auth_role_bindings_subject ON auth_role_bindings(subject_type, subject_id);
+CREATE INDEX idx_auth_role_permissions_role_name ON auth_role_permissions(role_name);
+CREATE INDEX idx_auth_role_permissions_resource_lookup ON auth_role_permissions(resource_type, resource_id, action);
+CREATE INDEX idx_resource_acl_resource_lookup ON resource_acl(resource_type, resource_id, action);
+CREATE INDEX idx_resource_acl_subject_lookup ON resource_acl(subject_type, subject_id);
+CREATE INDEX idx_authz_decision_logs_created_at ON authz_decision_logs(created_at);
+CREATE INDEX idx_authz_decision_logs_request_id ON authz_decision_logs(request_id);
+
 -- Seed default admin user with password 'admin' (change after first login).
 INSERT INTO users (id, sub, email, provider, password_hash, status)
 VALUES (
@@ -203,3 +295,24 @@ SELECT 'nopsai-admin', 'All access', '/*', '.*'
 WHERE NOT EXISTS (
     SELECT 1 FROM role_permissions WHERE role = 'nopsai-admin' AND obj = '/*' AND act = '.*'
 );
+
+INSERT INTO auth_roles (name, description)
+VALUES
+    ('nopsai-admin', 'Default platform administrator'),
+    ('dispatcher-internal', 'Internal dispatcher service permissions')
+ON CONFLICT (name) DO NOTHING;
+
+INSERT INTO auth_role_bindings (role_name, subject_type, subject_id)
+VALUES
+    ('nopsai-admin', 'user', '00000000-0000-0000-0000-00000000000a'),
+    ('dispatcher-internal', 'internal_service', 'dispatcher')
+ON CONFLICT (role_name, subject_type, subject_id) DO NOTHING;
+
+INSERT INTO auth_role_permissions (role_name, resource_type, resource_id, action, effect)
+VALUES
+    ('nopsai-admin', '*', '*', '*', 'allow'),
+    ('dispatcher-internal', 'pipeline_run', '*', 'pipeline_run.update_status', 'allow'),
+    ('dispatcher-internal', 'pipeline_run', '*', 'pipeline_run.write_logs', 'allow'),
+    ('dispatcher-internal', 'pipeline_run', '*', 'pipeline_run.finalize', 'allow'),
+    ('dispatcher-internal', 'pipeline_run', '*', 'pipeline_run.task_update', 'allow')
+ON CONFLICT (role_name, resource_type, resource_id, action, effect) DO NOTHING;
