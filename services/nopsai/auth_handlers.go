@@ -106,6 +106,10 @@ func (a *App) handleAuthMe(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	tenantID := strings.TrimSpace(auth.TenantFromContext(r.Context()))
+	if tenantID == "" {
+		tenantID = strings.TrimSpace(claims.DefaultTenant)
+	}
 	_ = httpapi.WriteJSON(w, http.StatusOK, authLoginResponse{
 		AccessToken:   "",
 		TenantIDs:     claims.TenantIDs,
@@ -114,7 +118,37 @@ func (a *App) handleAuthMe(w http.ResponseWriter, r *http.Request) {
 		Provider:      claims.Provider,
 		Email:         claims.Email,
 		Sub:           claims.Sub,
+		Capabilities:  a.authCapabilities(claims, tenantID),
 	})
+}
+
+func (a *App) authCapabilities(claims *auth.Claims, tenantID string) *authCapabilitiesResponse {
+	if claims == nil {
+		return &authCapabilitiesResponse{}
+	}
+	tenantID = strings.TrimSpace(tenantID)
+	if tenantID == "" {
+		tenantID = strings.TrimSpace(claims.DefaultTenant)
+	}
+	if tenantID == "" {
+		return &authCapabilitiesResponse{}
+	}
+	if a == nil || a.authz == nil {
+		return &authCapabilitiesResponse{
+			Pipelines: authResourceCapabilities{Write: true, Delete: true},
+			Steps:     authResourceCapabilities{Write: true, Delete: true},
+		}
+	}
+	return &authCapabilitiesResponse{
+		Pipelines: authResourceCapabilities{
+			Write:  a.authz.EnforceRoles(claims.Roles, tenantID, "/v1/pipelines/__capability_probe__", http.MethodPut),
+			Delete: a.authz.EnforceRoles(claims.Roles, tenantID, "/v1/pipelines/__capability_probe__", http.MethodDelete),
+		},
+		Steps: authResourceCapabilities{
+			Write:  a.authz.EnforceRoles(claims.Roles, tenantID, "/v1/steps/__capability_probe__", http.MethodPut),
+			Delete: a.authz.EnforceRoles(claims.Roles, tenantID, "/v1/steps/__capability_probe__", http.MethodDelete),
+		},
+	}
 }
 
 func (a *App) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {

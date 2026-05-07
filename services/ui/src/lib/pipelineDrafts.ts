@@ -5,7 +5,7 @@ export type PipelineDraft = {
   updatedAt: string;
 };
 
-export const PIPELINE_DRAFTS_STORAGE_KEY = 'nopsai:pipelines:drafts:v1';
+const PIPELINE_DRAFTS_STORAGE_PREFIX = 'nopsai:pipelines:drafts:v2';
 export const PIPELINE_DRAFTS_CHANGED_EVENT = 'nopsai:pipelines:drafts:changed';
 
 function notifyDraftsChanged() {
@@ -38,9 +38,20 @@ function safeParse(raw: string): unknown {
   }
 }
 
-export function loadPipelineDrafts(): PipelineDraft[] {
+function normalizeScope(scope: string): string {
+  return encodeURIComponent(scope.trim());
+}
+
+export function getPipelineDraftStorageKey(scope: string): string {
+  const normalizedScope = normalizeScope(scope);
+  return normalizedScope ? `${PIPELINE_DRAFTS_STORAGE_PREFIX}:${normalizedScope}` : PIPELINE_DRAFTS_STORAGE_PREFIX;
+}
+
+export function loadPipelineDrafts(scope: string): PipelineDraft[] {
   if (typeof window === 'undefined') return [];
-  const raw = localStorage.getItem(PIPELINE_DRAFTS_STORAGE_KEY);
+  const normalizedScope = scope.trim();
+  if (!normalizedScope) return [];
+  const raw = localStorage.getItem(getPipelineDraftStorageKey(normalizedScope));
   if (!raw) return [];
   const parsed = safeParse(raw);
   if (Array.isArray(parsed)) {
@@ -54,30 +65,32 @@ export function loadPipelineDrafts(): PipelineDraft[] {
   return [];
 }
 
-export function savePipelineDrafts(drafts: PipelineDraft[]) {
+export function savePipelineDrafts(drafts: PipelineDraft[], scope: string) {
   if (typeof window === 'undefined') return;
+  const normalizedScope = scope.trim();
+  if (!normalizedScope) return;
   const unique = new Map<string, PipelineDraft>();
   drafts.forEach(draft => {
     const normalized = normalizeDraft(draft);
     if (normalized) unique.set(normalized.id, normalized);
   });
   const sorted = Array.from(unique.values()).sort((a, b) => a.id.localeCompare(b.id));
-  localStorage.setItem(PIPELINE_DRAFTS_STORAGE_KEY, JSON.stringify(sorted));
+  localStorage.setItem(getPipelineDraftStorageKey(normalizedScope), JSON.stringify(sorted));
   notifyDraftsChanged();
 }
 
-export function getPipelineDraft(id: string): PipelineDraft | null {
+export function getPipelineDraft(id: string, scope: string): PipelineDraft | null {
   const normalizedId = id.trim();
   if (!normalizedId) return null;
-  const drafts = loadPipelineDrafts();
+  const drafts = loadPipelineDrafts(scope);
   return drafts.find(draft => draft.id === normalizedId) || null;
 }
 
-export function upsertPipelineDraft(next: { id: string; yaml: string }): PipelineDraft[] {
+export function upsertPipelineDraft(next: { id: string; yaml: string }, scope: string): PipelineDraft[] {
   const normalizedId = next.id.trim();
-  if (!normalizedId) return loadPipelineDrafts();
+  if (!normalizedId) return loadPipelineDrafts(scope);
   const now = new Date().toISOString();
-  const drafts = loadPipelineDrafts();
+  const drafts = loadPipelineDrafts(scope);
   const existing = drafts.find(draft => draft.id === normalizedId);
   const updated: PipelineDraft = {
     id: normalizedId,
@@ -87,15 +100,14 @@ export function upsertPipelineDraft(next: { id: string; yaml: string }): Pipelin
   };
   const merged = drafts.filter(draft => draft.id !== normalizedId);
   merged.push(updated);
-  savePipelineDrafts(merged);
+  savePipelineDrafts(merged, scope);
   return merged;
 }
 
-export function deletePipelineDraft(id: string): PipelineDraft[] {
+export function deletePipelineDraft(id: string, scope: string): PipelineDraft[] {
   const normalizedId = id.trim();
-  if (!normalizedId) return loadPipelineDrafts();
-  const drafts = loadPipelineDrafts().filter(draft => draft.id !== normalizedId);
-  savePipelineDrafts(drafts);
+  if (!normalizedId) return loadPipelineDrafts(scope);
+  const drafts = loadPipelineDrafts(scope).filter(draft => draft.id !== normalizedId);
+  savePipelineDrafts(drafts, scope);
   return drafts;
 }
-
