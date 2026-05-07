@@ -1686,6 +1686,9 @@ func (a *App) handleGetRunByCheckID(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Run not found for this check run ID", http.StatusNotFound)
 		return
 	}
+	if !a.requireAAADecision(w, r, "pipeline_run.read", routeauthz.RunResource(runID)) {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"run_id": runID})
 }
