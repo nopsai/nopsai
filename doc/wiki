@@ -1,5 +1,14 @@
 # Nopsai: Control Plane + Data Plane Guide
 
+Related docs:
+
+- `doc/README.md`
+- `doc/architecture-overview.md`
+- `doc/service-reference.md`
+- `doc/runtime-flows.md`
+- `doc/feature-reference.md`
+- `doc/decision-architecture.md`
+
 This guide documents the current architecture, how to run the stack, and how to use every major feature after the dispatcher/runner split.
 
 ---
@@ -9,7 +18,7 @@ This guide documents the current architecture, how to run the stack, and how to 
 - **Core API (`services/nopsai`)** – Brain + database owner. Receives run requests, validates pipelines, resolves secrets/variables, records runs/logs, and now hands execution to the Dispatcher instead of calling Docker directly.
 - **Dispatcher (`services/dispatcher`)** – Control plane switchboard. Tracks connected runners, heartbeats, and capacity; routes jobs by scope using `dispatcher_routing`; requeues on disconnect.
 - **Runner (`services/runner`)** – Long-lived daemon on Docker-capable hosts. Opens an outbound gRPC stream to the Dispatcher, receives jobs, starts the agent container with the supplied env/volume config, forwards logs to Nopsai, and reports job results.
-- **Agent (`services/agent`)** – Per-run container that orchestrates pipeline steps/tasks, calls Gemini for LLM actions, masks secrets, and reports step/task status back to Nopsai/GitHub.
+- **Agent (`services/agent`)** – Per-run container that orchestrates pipeline steps/tasks, calls the configured LLM provider for LLM actions, masks secrets, and reports step/task status back to Nopsai/GitHub.
 - **Git Bot (`services/git-bot`)** – GitHub App webhook handler; creates check runs, fetches pipeline sources, posts status, supports reruns/cancels, and cancels stale checks.
 - **UI (`services/ui`)** – Reads REST + WebSocket feeds for runs, graphs, logs, groups, and branch hygiene actions.
 - **PostgreSQL** – Stores pipelines, triggers, reusable steps, secrets/variables, runs, tasks, logs, and groups.
@@ -57,7 +66,7 @@ Flow: GitHub event → git-bot → Nopsai validates + enqueues → Dispatcher se
 
 ## Working With Pipelines
 
-- **Definitions** live under `.nopsai/` in repos or the DB (overrides). Fields: `name`, `version`, `description`, `timeout`, `container_image`, `display_options`, `llm_*` flags, steps/tasks with `goal`/`script`, `condition`, `depends_on`, `secrets`, `volumes`, `environment`, and `include` for nested pipelines/steps.
+- **Definitions** live under `.nopsai/` in repos or the DB (overrides). Fields: `name`, `version`, `description`, `timeout`, `container_image`, `display_options`, `llm_*` flags, top-level `variables`, steps/tasks with `goal`/`script`, `condition`, `depends_on`, `secrets`, `volumes`, and `include` for nested pipelines/steps.
 - **Triggers** in `.nopsai/triggers.yaml` map Git events to pipelines and scopes with branch/tag globs.
   - Branch and tag globs cannot coexist in a single `on: push` rule; use separate rules for branch pushes vs. tag pushes.
 - **Overrides**: Store pipelines or triggers in DB; git-bot and core will prefer overrides when present.
