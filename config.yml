@@ -9,11 +9,8 @@ log_format: "json" # Options: "console", "json"
 # jwt_audience: "nopsai-api"
 # jwt_expiry_minutes: 60
 # refresh_token_ttl_minutes: 43200 # 30 days
-# oidc_issuer: "https://your-idp.example.com"
-# oidc_client_id: "your-client-id"
 # default_tenant: "default"
 # auth_provider_local_enabled: true
-# auth_provider_oidc_enabled: true
 # rate_limit_login_per_minute: 10
 # login_lockout_threshold: 5
 # login_lockout_window_minutes: 15

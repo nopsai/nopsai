@@ -9,7 +9,6 @@ func (a *App) registerAuthRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/auth/password", a.handleAuthChangePassword)
 	mux.HandleFunc("POST /v1/auth/email", a.handleAuthUpdateEmail)
 	mux.HandleFunc("GET /v1/auth/me", a.handleAuthMe)
-	mux.HandleFunc("GET /v1/auth/oidc/callback", a.handleOIDCCallback)
 	mux.HandleFunc("GET /v1/tenants", a.handleListTenants)
 	mux.HandleFunc("GET /v1/audit", a.handleListAuditLogs)
 	mux.HandleFunc("GET /v1/admin/users", a.handleListUsers)

@@ -7,7 +7,6 @@ toolchain go1.23.1
 require (
 	github.com/bradleyfalzon/ghinstallation/v2 v2.16.0
 	github.com/casbin/casbin/v2 v2.92.0
-	github.com/coreos/go-oidc/v3 v3.11.0
 	github.com/docker/docker v27.1.1+incompatible
 	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/google/go-github/v53 v53.2.0
@@ -30,7 +29,6 @@ require (
 	github.com/docker/go-connections v0.5.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
-	github.com/go-jose/go-jose/v4 v4.0.5 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect

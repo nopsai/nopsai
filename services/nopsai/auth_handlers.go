@@ -151,10 +151,6 @@ func (a *App) authCapabilities(claims *auth.Claims, tenantID string) *authCapabi
 	}
 }
 
-func (a *App) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "oidc callback handling not implemented in this build", http.StatusNotImplemented)
-}
-
 func (a *App) handleAuthChangePassword(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -203,7 +199,7 @@ func (a *App) handleAuthChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if provider != "" && provider != "local" {
-		http.Error(w, "password managed by external identity provider", http.StatusBadRequest)
+		http.Error(w, "password changes are unavailable for this account", http.StatusBadRequest)
 		return
 	}
 	if !passwordHash.Valid {
@@ -283,7 +279,7 @@ func (a *App) handleAuthUpdateEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if provider != "" && provider != "local" {
-		http.Error(w, "email managed by external identity provider", http.StatusBadRequest)
+		http.Error(w, "email changes are unavailable for this account", http.StatusBadRequest)
 		return
 	}
 	if _, err := a.db.Exec(r.Context(), `UPDATE users SET email = $1 WHERE id = $2`, email, userID); err != nil {
@@ -611,7 +607,7 @@ func (a *App) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	var hashedPassword string
 	if req.Password != "" {
 		if currentProvider != "local" {
-			http.Error(w, "password managed by external identity provider", http.StatusBadRequest)
+			http.Error(w, "password changes are unavailable for this account", http.StatusBadRequest)
 			return
 		}
 		hashedPassword, err = auth.HashPassword(req.Password)
