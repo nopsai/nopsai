@@ -4,8 +4,8 @@ import yaml from 'js-yaml';
 import { buildApiUrl } from '../lib/api';
 import {
   PIPELINE_DRAFTS_CHANGED_EVENT,
-  PIPELINE_DRAFTS_STORAGE_KEY,
   deletePipelineDraft,
+  getPipelineDraftStorageKey,
   loadPipelineDrafts,
   type PipelineDraft,
   upsertPipelineDraft,
@@ -135,7 +135,13 @@ type TreeNode = {
   pipelineIds: string[];
 };
 
-function PipelinesPage() {
+type PipelinesPageProps = {
+  draftScope: string;
+  canWritePipelines: boolean;
+  canDeletePipelines: boolean;
+};
+
+function PipelinesPage({ draftScope, canWritePipelines, canDeletePipelines }: PipelinesPageProps) {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -1094,14 +1100,20 @@ function PipelinesPage() {
   );
 
   useEffect(() => {
-    setDraftPipelines(loadPipelineDrafts());
-  }, []);
+    if (!canWritePipelines || !draftScope) {
+      setDraftPipelines([]);
+      return;
+    }
+    setDraftPipelines(loadPipelineDrafts(draftScope));
+  }, [canWritePipelines, draftScope]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const refreshDrafts = () => setDraftPipelines(loadPipelineDrafts());
+    if (!canWritePipelines || !draftScope) return;
+    const storageKey = getPipelineDraftStorageKey(draftScope);
+    const refreshDrafts = () => setDraftPipelines(loadPipelineDrafts(draftScope));
     const onStorage = (event: StorageEvent) => {
-      if (event.key !== PIPELINE_DRAFTS_STORAGE_KEY) return;
+      if (event.key !== storageKey) return;
       refreshDrafts();
     };
     window.addEventListener(PIPELINE_DRAFTS_CHANGED_EVENT, refreshDrafts);
@@ -1110,7 +1122,7 @@ function PipelinesPage() {
       window.removeEventListener(PIPELINE_DRAFTS_CHANGED_EVENT, refreshDrafts);
       window.removeEventListener('storage', onStorage);
     };
-  }, []);
+  }, [canWritePipelines, draftScope]);
 
   const pipelines = useMemo(() => {
     const merged = new Map<string, PipelineListItem>();
@@ -1180,13 +1192,14 @@ function PipelinesPage() {
 
   useEffect(() => {
     if (!detail || !isEditing) return;
+    if (!canWritePipelines || !draftScope) return;
     if (normalizeSource(detail.source) !== 'draft') return;
     const draftId = detail.id;
     const handle = window.setTimeout(() => {
-      setDraftPipelines(upsertPipelineDraft({ id: draftId, yaml: editorValue }));
+      setDraftPipelines(upsertPipelineDraft({ id: draftId, yaml: editorValue }, draftScope));
     }, 800);
     return () => window.clearTimeout(handle);
-  }, [detail, editorValue, isEditing]);
+  }, [canWritePipelines, detail, draftScope, editorValue, isEditing]);
 
   useEffect(() => {
     if (!isEditing) return;
@@ -1304,6 +1317,10 @@ function PipelinesPage() {
 
   const handleSave = async () => {
     if (!detail || !editorValue.trim()) return;
+    if (!canWritePipelines) {
+      addToast('You have read-only access to pipelines.', 'info');
+      return;
+    }
     if (normalizeSource(detail.source) === 'git') {
       addToast('Git-managed pipelines are read-only. Clone it to create an editable draft.', 'info');
       return;
@@ -1327,7 +1344,7 @@ function PipelinesPage() {
       addToast('Pipeline saved.', 'success');
       const wasDraft = normalizeSource(detail.source) === 'draft';
       if (wasDraft) {
-        setDraftPipelines(deletePipelineDraft(detail.id));
+        setDraftPipelines(deletePipelineDraft(detail.id, draftScope));
       }
       const resolvedSource = wasDraft ? 'database' : pipelines.find(item => item.id === detail.id)?.source;
       const updated = parsePipelineYaml(editorValue, detail.id, resolvedSource);
@@ -1343,8 +1360,18 @@ function PipelinesPage() {
     }
   };
 
-  const openCreateModal = () => setFormModal({ mode: 'create', path: activeFolder, name: '', pending: false });
+  const openCreateModal = () => {
+    if (!canWritePipelines) {
+      addToast('You have read-only access to pipelines.', 'info');
+      return;
+    }
+    setFormModal({ mode: 'create', path: activeFolder, name: '', pending: false });
+  };
   const openCloneModal = () => {
+    if (!canWritePipelines) {
+      addToast('You have read-only access to pipelines.', 'info');
+      return;
+    }
     if (!detail) {
       addToast('Select a pipeline to clone.', 'info');
       return;
@@ -1361,6 +1388,10 @@ function PipelinesPage() {
 
   const submitFormModal = async () => {
     if (!formModal) return;
+    if (!canWritePipelines || !draftScope) {
+      setFormModal(prev => prev ? { ...prev, error: 'You have read-only access to pipelines.' } : prev);
+      return;
+    }
     const identifier = buildIdentifier(formModal.path, formModal.name);
     if (!identifier) {
       setFormModal(prev => prev ? { ...prev, error: 'Pipeline name is required.' } : prev);
@@ -1379,7 +1410,7 @@ function PipelinesPage() {
       const yamlBody = formModal.mode === 'clone' && formModal.baseYaml
         ? updateYamlName(formModal.baseYaml, formModal.name.trim())
         : buildTemplateYaml(formModal.name.trim());
-      setDraftPipelines(upsertPipelineDraft({ id: identifier, yaml: yamlBody }));
+      setDraftPipelines(upsertPipelineDraft({ id: identifier, yaml: yamlBody }, draftScope));
       addToast(`Draft pipeline ${formModal.mode === 'create' ? 'created' : 'cloned'}.`, 'success');
       setFormModal(null);
       handleSelect(identifier);
@@ -1396,12 +1427,19 @@ function PipelinesPage() {
     setDeleteModal(prev => prev ? { ...prev, pending: true, error: undefined } : prev);
     try {
       const source = pipelines.find(item => item.id === deleteModal.pipelineId)?.source;
-      if (normalizeSource(source) === 'git') {
+      const normalizedSource = normalizeSource(source);
+      if (normalizedSource === 'git') {
         throw new Error('This pipeline is managed via Git. Clone it to customize instead of deleting.');
       }
-      if (normalizeSource(source) === 'draft') {
-        setDraftPipelines(deletePipelineDraft(deleteModal.pipelineId));
+      if (normalizedSource === 'draft') {
+        if (!canWritePipelines || !draftScope) {
+          throw new Error('You have read-only access to pipelines.');
+        }
+        setDraftPipelines(deletePipelineDraft(deleteModal.pipelineId, draftScope));
       } else {
+        if (!canDeletePipelines) {
+          throw new Error('You do not have permission to delete pipelines.');
+        }
         const response = await fetch(buildApiUrl(`/v1/pipelines/${encodeId(deleteModal.pipelineId)}`), { method: 'DELETE' });
         if (!response.ok) {
           const text = await response.text();
@@ -1425,6 +1463,7 @@ function PipelinesPage() {
   const renderPipelineCard = (pipeline: PipelineListItem) => {
     const { name, path } = splitIdentifier(pipeline.id);
     const source = normalizeSource(pipeline.source);
+    const canDeleteThisPipeline = source === 'draft' ? canWritePipelines : canDeletePipelines && source !== 'git';
     return (
       <article
         key={pipeline.id}
@@ -1446,24 +1485,24 @@ function PipelinesPage() {
             </div>
           </div>
           <div className="pipeline-card-actions">
-            <button
-              type="button"
-              className="pipelines-delete-button"
-              aria-disabled={source === 'git'}
-              title={source === 'git' ? 'This pipeline is managed via Git. Clone it to customize.' : 'Delete pipeline'}
-              onClick={event => {
-                event.stopPropagation();
-                if (source === 'git') return;
-                setDeleteModal({ pipelineId: pipeline.id, pipelineName: name || pipeline.id, pending: false });
-              }}
-              aria-label="Delete pipeline"
-            >
-              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6" />
-                <path d="M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
-                <path d="M4 7h16" />
-              </svg>
-            </button>
+            {canDeleteThisPipeline ? (
+              <button
+                type="button"
+                className="pipelines-delete-button"
+                title={source === 'draft' ? 'Discard draft' : 'Delete pipeline'}
+                onClick={event => {
+                  event.stopPropagation();
+                  setDeleteModal({ pipelineId: pipeline.id, pipelineName: name || pipeline.id, pending: false });
+                }}
+                aria-label={source === 'draft' ? 'Discard draft pipeline' : 'Delete pipeline'}
+              >
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6" />
+                  <path d="M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                  <path d="M4 7h16" />
+                </svg>
+              </button>
+            ) : null}
           </div>
         </div>
         <div className="pipeline-card-meta">
@@ -1539,7 +1578,9 @@ function PipelinesPage() {
             {!visiblePipelines.length && !activeFolderNode.children.length && (
               <div id="pipelines-empty" className="pipelines-empty">
                 <h3 className="text-base font-semibold text-[var(--text-primary)]">No pipelines found</h3>
-                <p className="text-sm text-[var(--text-secondary)]">Create a new pipeline or adjust your filters.</p>
+                <p className="text-sm text-[var(--text-secondary)]">
+                  {canWritePipelines ? 'Create a new pipeline or adjust your filters.' : 'Adjust your filters or check your access.'}
+                </p>
               </div>
             )}
           </>
@@ -1604,7 +1645,7 @@ function PipelinesPage() {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                           </svg>
                         </button>
-                        {isGitSource ? (
+                        {!canWritePipelines ? null : isGitSource ? (
                           <button className="glass-button-primary" onClick={openCloneModal}>
                             Clone
                           </button>
@@ -1627,8 +1668,8 @@ function PipelinesPage() {
                             const resetYaml = editSessionOriginalYamlRef.current || detail.rawYaml;
                             setEditorSuggestion(null);
                             setEditorValue(resetYaml);
-                            if (normalizeSource(detail.source) === 'draft') {
-                              setDraftPipelines(upsertPipelineDraft({ id: detail.id, yaml: resetYaml }));
+                            if (normalizeSource(detail.source) === 'draft' && draftScope) {
+                              setDraftPipelines(upsertPipelineDraft({ id: detail.id, yaml: resetYaml }, draftScope));
                             }
                             setIsEditing(false);
                           }}
@@ -2076,18 +2117,20 @@ function PipelinesPage() {
                 </button>
               )}
             </div>
-            <button
-              id="pipelines-new-btn"
-              type="button"
-              className="pipelines-icon-only"
-              aria-label="Create new pipeline"
-              title="New Pipeline"
-              onClick={openCreateModal}
-            >
-              <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v14M5 12h14" />
-              </svg>
-            </button>
+            {canWritePipelines ? (
+              <button
+                id="pipelines-new-btn"
+                type="button"
+                className="pipelines-icon-only"
+                aria-label="Create new pipeline"
+                title="New Pipeline"
+                onClick={openCreateModal}
+              >
+                <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v14M5 12h14" />
+                </svg>
+              </button>
+            ) : null}
           </div>
         </div>
       )}

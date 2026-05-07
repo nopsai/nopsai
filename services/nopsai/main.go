@@ -113,15 +113,26 @@ type authRefreshRequest struct {
 }
 
 type authLoginResponse struct {
-	AccessToken   string    `json:"access_token"`
-	RefreshToken  string    `json:"refresh_token,omitempty"`
-	ExpiresAt     time.Time `json:"expires_at"`
-	TenantIDs     []string  `json:"tenant_ids,omitempty"`
-	Roles         []string  `json:"roles,omitempty"`
-	DefaultTenant string    `json:"default_tenant,omitempty"`
-	Provider      string    `json:"provider,omitempty"`
-	Email         string    `json:"email,omitempty"`
-	Sub           string    `json:"sub,omitempty"`
+	AccessToken   string                    `json:"access_token"`
+	RefreshToken  string                    `json:"refresh_token,omitempty"`
+	ExpiresAt     time.Time                 `json:"expires_at"`
+	TenantIDs     []string                  `json:"tenant_ids,omitempty"`
+	Roles         []string                  `json:"roles,omitempty"`
+	DefaultTenant string                    `json:"default_tenant,omitempty"`
+	Provider      string                    `json:"provider,omitempty"`
+	Email         string                    `json:"email,omitempty"`
+	Sub           string                    `json:"sub,omitempty"`
+	Capabilities  *authCapabilitiesResponse `json:"capabilities,omitempty"`
+}
+
+type authCapabilitiesResponse struct {
+	Pipelines authResourceCapabilities `json:"pipelines"`
+	Steps     authResourceCapabilities `json:"steps"`
+}
+
+type authResourceCapabilities struct {
+	Write  bool `json:"write"`
+	Delete bool `json:"delete"`
 }
 
 type authChangePasswordRequest struct {
