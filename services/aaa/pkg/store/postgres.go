@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/url"
 	"strings"
 
 	"nopsai/services/aaa/pkg/model"
@@ -81,35 +82,13 @@ func (s *PGStore) resolveUserSubject(ctx context.Context, subject model.Subject)
 		LIMIT 1
 	`
 
-	var (
-		query string
-		args  []any
-	)
-
-	userID := strings.TrimSpace(subject.ID)
-	sub := strings.TrimSpace(subject.Sub)
-	email := strings.TrimSpace(subject.Email)
-
-	switch {
-	case userID != "":
-		query = baseQuery
-		args = []any{userID}
-		query = formatQuery(query, "id::text = $1")
-	case sub != "" && email != "":
-		query = formatQuery(baseQuery, "(sub = $1 OR email = $2)")
-		args = []any{sub, email}
-	case sub != "":
-		query = formatQuery(baseQuery, "sub = $1")
-		args = []any{sub}
-	case email != "":
-		query = formatQuery(baseQuery, "email = $1")
-		args = []any{email}
-	default:
-		return nil, ErrSubjectNotFound
+	query, args, err := buildUserSubjectLookup(baseQuery, subject)
+	if err != nil {
+		return nil, err
 	}
 
 	resolved := &model.ResolvedSubject{}
-	err := s.db.QueryRow(ctx, query, args...).Scan(
+	err = s.db.QueryRow(ctx, query, args...).Scan(
 		&resolved.Subject.ID,
 		&resolved.Subject.Sub,
 		&resolved.Subject.Email,
@@ -130,6 +109,25 @@ func (s *PGStore) resolveUserSubject(ctx context.Context, subject model.Subject)
 		return resolved, ErrSubjectInactive
 	}
 	return resolved, nil
+}
+
+func buildUserSubjectLookup(baseQuery string, subject model.Subject) (string, []any, error) {
+	userID := strings.TrimSpace(subject.ID)
+	sub := strings.TrimSpace(subject.Sub)
+	email := strings.TrimSpace(subject.Email)
+
+	switch {
+	case userID != "":
+		return formatQuery(baseQuery, "id::text = $1"), []any{userID}, nil
+	case sub != "":
+		// Prefer the stable subject identifier over email to avoid resolving the wrong user
+		// when an email is stale, duplicated, or shared across records.
+		return formatQuery(baseQuery, "sub = $1"), []any{sub}, nil
+	case email != "":
+		return formatQuery(baseQuery, "email = $1"), []any{email}, nil
+	default:
+		return "", nil, ErrSubjectNotFound
+	}
 }
 
 func formatQuery(base, predicate string) string {
@@ -251,6 +249,10 @@ func (s *PGStore) FindRolePermissionMatch(ctx context.Context, roleNames []strin
 		return nil, nil
 	}
 
+	if supportsNamedResourceSubsetMatch(resource.Type) {
+		return s.findNamedResourceRolePermissionMatch(ctx, roleNames, resource, action, effect)
+	}
+
 	row := s.db.QueryRow(ctx, `
 		SELECT role_name, resource_type, resource_id, action, effect
 		FROM auth_role_permissions
@@ -276,6 +278,179 @@ func (s *PGStore) FindRolePermissionMatch(ctx context.Context, roleNames []strin
 	}
 	policy.Source = "role_permission"
 	return &policy, nil
+}
+
+type rolePermissionMatchSpecificity struct {
+	exactResourceType bool
+	resourceIDScore   int
+	exactAction       bool
+	roleName          string
+}
+
+func supportsNamedResourceSubsetMatch(resourceType string) bool {
+	switch strings.TrimSpace(resourceType) {
+	case "secret", "variable":
+		return true
+	default:
+		return false
+	}
+}
+
+func namedResourceQueryValues(raw string) (url.Values, error) {
+	values, err := url.ParseQuery(strings.TrimSpace(raw))
+	if err != nil {
+		return nil, err
+	}
+	return values, nil
+}
+
+func namedResourceSubsetMatch(policyID, resourceID string) bool {
+	policyID = strings.TrimSpace(policyID)
+	resourceID = strings.TrimSpace(resourceID)
+	if policyID == "" {
+		return false
+	}
+	if policyID == "*" || policyID == resourceID {
+		return true
+	}
+
+	policyValues, err := namedResourceQueryValues(policyID)
+	if err != nil || len(policyValues) == 0 {
+		return false
+	}
+	resourceValues, err := namedResourceQueryValues(resourceID)
+	if err != nil {
+		return false
+	}
+
+	for key, values := range policyValues {
+		policyValue := ""
+		if len(values) > 0 {
+			policyValue = strings.TrimSpace(values[0])
+		}
+		resourceValue := strings.TrimSpace(resourceValues.Get(key))
+		if policyValue != resourceValue {
+			return false
+		}
+	}
+
+	return true
+}
+
+func namedResourceMatchScore(policyID, resourceID string) int {
+	policyID = strings.TrimSpace(policyID)
+	resourceID = strings.TrimSpace(resourceID)
+	switch {
+	case policyID == "*" || policyID == "":
+		return 0
+	case policyID == resourceID:
+		return 1000
+	}
+
+	values, err := namedResourceQueryValues(policyID)
+	if err != nil {
+		return -1
+	}
+	score := 0
+	for range values {
+		score += 10
+	}
+	return score
+}
+
+func rolePermissionSpecificity(policy model.MatchedPolicy, resource model.ResourceRef, action string) rolePermissionMatchSpecificity {
+	score := 0
+	switch {
+	case policy.ResourceID == "*":
+		score = 0
+	case supportsNamedResourceSubsetMatch(resource.Type) && policy.ResourceType == resource.Type:
+		score = namedResourceMatchScore(policy.ResourceID, resource.ID)
+	default:
+		score = 1000
+	}
+
+	return rolePermissionMatchSpecificity{
+		exactResourceType: policy.ResourceType == resource.Type,
+		resourceIDScore:   score,
+		exactAction:       policy.Action == action,
+		roleName:          policy.RoleName,
+	}
+}
+
+func (m rolePermissionMatchSpecificity) betterThan(other rolePermissionMatchSpecificity) bool {
+	switch {
+	case m.exactResourceType != other.exactResourceType:
+		return m.exactResourceType
+	case m.resourceIDScore != other.resourceIDScore:
+		return m.resourceIDScore > other.resourceIDScore
+	case m.exactAction != other.exactAction:
+		return m.exactAction
+	default:
+		return m.roleName < other.roleName
+	}
+}
+
+func rolePermissionResourceMatches(policyType, policyID string, resource model.ResourceRef) bool {
+	policyType = strings.TrimSpace(policyType)
+	policyID = strings.TrimSpace(policyID)
+	resourceType := strings.TrimSpace(resource.Type)
+	resourceID := strings.TrimSpace(resource.ID)
+
+	switch {
+	case policyType == "*":
+		return policyID == "*" || policyID == resourceID
+	case policyType != resourceType:
+		return false
+	case policyID == "*" || policyID == resourceID:
+		return true
+	case supportsNamedResourceSubsetMatch(resourceType):
+		return namedResourceSubsetMatch(policyID, resourceID)
+	default:
+		return false
+	}
+}
+
+func (s *PGStore) findNamedResourceRolePermissionMatch(ctx context.Context, roleNames []string, resource model.ResourceRef, action, effect string) (*model.MatchedPolicy, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT role_name, resource_type, resource_id, action, effect
+		FROM auth_role_permissions
+		WHERE role_name = ANY($1)
+			AND effect = $2
+			AND (resource_type = $3 OR resource_type = '*')
+			AND (action = $4 OR action = '*')
+	`, roleNames, effect, resource.Type, action)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var (
+		bestMatch       *model.MatchedPolicy
+		bestSpecificity rolePermissionMatchSpecificity
+	)
+
+	for rows.Next() {
+		var policy model.MatchedPolicy
+		if err := rows.Scan(&policy.RoleName, &policy.ResourceType, &policy.ResourceID, &policy.Action, &policy.Effect); err != nil {
+			return nil, err
+		}
+		if !rolePermissionResourceMatches(policy.ResourceType, policy.ResourceID, resource) {
+			continue
+		}
+		policy.Source = "role_permission"
+		specificity := rolePermissionSpecificity(policy, resource, action)
+		if bestMatch == nil || specificity.betterThan(bestSpecificity) {
+			policyCopy := policy
+			bestMatch = &policyCopy
+			bestSpecificity = specificity
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return bestMatch, nil
 }
 
 func (s *PGStore) FindACLMatch(ctx context.Context, subject model.SubjectRef, resource model.ResourceRef, action, effect string) (*model.MatchedPolicy, error) {

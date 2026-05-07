@@ -90,9 +90,9 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 	case strings.HasPrefix(path, "/v1/runs/") && r.Method == http.MethodDelete:
 		return "pipeline_run.delete", model.ResourceRef{Type: "pipeline_run", ID: strings.TrimSpace(r.PathValue("runID"))}, false, nil
 	case strings.HasPrefix(path, "/v1/runs-by-check/"):
-		return "pipeline_run.read", model.ResourceRef{Type: "pipeline_run", ID: "*"}, false, nil
+		return "", model.ResourceRef{}, false, nil
 	case path == "/v1/overrides" && r.Method == http.MethodGet:
-		return "trigger.read", model.ResourceRef{Type: "trigger", ID: "*"}, false, nil
+		return "trigger.read", model.ResourceRef{Type: "trigger", ID: "*"}, true, nil
 	case strings.HasPrefix(path, "/v1/overrides/"):
 		resource = model.ResourceRef{Type: "trigger", ID: buildRepositoryID(r.PathValue("repoOwner"), r.PathValue("repoName"))}
 		switch r.Method {
@@ -106,7 +106,7 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 	case path == "/v1/secrets" && r.Method == http.MethodGet:
 		return "secret.list_metadata", model.ResourceRef{Type: "secret", ID: "*"}, true, nil
 	case path == "/v1/secrets/scopes" && r.Method == http.MethodGet:
-		return "secret.list_metadata", model.ResourceRef{Type: "secret", ID: "*"}, false, nil
+		return "secret.list_metadata", model.ResourceRef{Type: "secret", ID: "*"}, true, nil
 	case strings.HasPrefix(path, "/v1/secrets/"):
 		resource = BuildSecretResource("", r.URL.Query().Get("env"), r.PathValue("secretName"))
 		switch r.Method {
@@ -130,7 +130,7 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 	case path == "/v1/variables" && r.Method == http.MethodGet:
 		return "variable.list_metadata", model.ResourceRef{Type: "variable", ID: "*"}, true, nil
 	case path == "/v1/variables/scopes" && r.Method == http.MethodGet:
-		return "variable.list_metadata", model.ResourceRef{Type: "variable", ID: "*"}, false, nil
+		return "variable.list_metadata", model.ResourceRef{Type: "variable", ID: "*"}, true, nil
 	case strings.HasPrefix(path, "/v1/variables/"):
 		resource = BuildVariableResource("", r.URL.Query().Get("env"), r.PathValue("variableName"))
 		switch r.Method {

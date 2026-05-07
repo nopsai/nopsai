@@ -1,4 +1,4 @@
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
 import { buildApiUrl } from '../lib/api';
 
@@ -70,8 +70,8 @@ const STALE_THRESHOLD_MS = 30_000;
 const MAX_VISIBLE_ACTIVE_RUNS = 3;
 const POLICY_TEMPLATE_ROLE = '__policy_template__';
 const DEFAULT_ADMIN_ROLE = 'nopsai-admin';
-const DEFAULT_ADMIN_POLICY_OBJ = '/*';
-const DEFAULT_ADMIN_POLICY_ACT = '.*';
+const DEFAULT_ADMIN_POLICY_OBJ = '*:*';
+const DEFAULT_ADMIN_POLICY_ACT = '*';
 
 type UserRole = {
   role: string;
@@ -105,9 +105,32 @@ type RoleDefinition = {
   policies: RolePermission[];
 };
 
-function SystemPage() {
+type ResourceGroup = {
+  id: number;
+  name: string;
+  parent_id?: number | null;
+};
+
+type SystemPagePermissions = {
+  canViewConfig: boolean;
+  canManageConfig: boolean;
+  canViewDispatcher: boolean;
+  canManageDispatcher: boolean;
+  canViewAccess: boolean;
+};
+
+function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
   const params = useParams<{ tab?: string }>();
+  const navigate = useNavigate();
   const activeTab = params.tab === 'dispatcher' ? 'dispatcher' : params.tab === 'access' ? 'access' : 'config';
+  const allowedTabs = useMemo(() => {
+    const tabs: Array<'config' | 'dispatcher' | 'access'> = [];
+    if (permissions.canViewConfig) tabs.push('config');
+    if (permissions.canViewDispatcher) tabs.push('dispatcher');
+    if (permissions.canViewAccess) tabs.push('access');
+    return tabs;
+  }, [permissions.canViewAccess, permissions.canViewConfig, permissions.canViewDispatcher]);
+  const visibleTab = allowedTabs.includes(activeTab) ? activeTab : allowedTabs[0] ?? activeTab;
 
   const isMountedRef = useRef(true);
 
@@ -143,7 +166,7 @@ function SystemPage() {
   const [policiesError, setPoliciesError] = useState<string | null>(null);
   const [newUser, setNewUser] = useState({ sub: '', email: '', password: '', roles: [] as string[] });
   const [newRole, setNewRole] = useState({ userId: '', role: '' });
-  const [newPermission, setNewPermission] = useState({ name: '', obj: '/v1/*', act: 'GET|POST|PUT|DELETE' });
+  const [newPermission, setNewPermission] = useState({ name: '', obj: 'pipeline:*', act: 'pipeline.read' });
   const [ensuringDefaultAdmin, setEnsuringDefaultAdmin] = useState(false);
 
   useEffect(() => {
@@ -152,6 +175,13 @@ function SystemPage() {
       isMountedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (allowedTabs.includes(activeTab)) return;
+    const nextTab = allowedTabs[0];
+    if (!nextTab) return;
+    navigate(`/system/${nextTab}`, { replace: true });
+  }, [activeTab, allowedTabs, navigate]);
 
   const addToast = useCallback((message: string, tone: ToastMessage['tone'] = 'info') => {
     const id = Date.now() + Math.random();
@@ -398,7 +428,7 @@ function SystemPage() {
       const act = newPermission.act.trim();
       const name = newPermission.name.trim();
       if (!name || !obj || !act) {
-        addToast('Policy name, object, and action are required.', 'error');
+        addToast('Policy label, resource, and action are required.', 'error');
         return;
       }
       try {
@@ -413,7 +443,7 @@ function SystemPage() {
           }),
         });
         addToast('Policy added', 'success');
-        setNewPermission({ name: '', obj: '/v1/*', act: 'GET|POST|PUT|DELETE' });
+        setNewPermission({ name: '', obj: 'pipeline:*', act: 'pipeline.read' });
         await loadPolicies();
       } catch (error) {
         addToast(error instanceof Error ? error.message : 'Failed to add policy', 'error');
@@ -601,7 +631,7 @@ function SystemPage() {
       const nextAct = next.act.trim();
       const nextName = next.name.trim() || policyName(nextObj, nextAct);
       if (!nextRole || !nextObj || !nextAct) {
-        addToast('Role, object, and action are required.', 'error');
+        addToast('Role, resource, and action are required.', 'error');
         throw new Error('Policy validation failed');
       }
       const sameKey = policyKey({
@@ -817,21 +847,22 @@ function SystemPage() {
   );
 
   useEffect(() => {
+    if (!permissions.canViewConfig || visibleTab !== 'config') return;
     void loadSystemConfig();
-  }, [loadSystemConfig]);
+  }, [loadSystemConfig, permissions.canViewConfig, visibleTab]);
 
   useEffect(() => {
-    if (activeTab === 'dispatcher') {
+    if (permissions.canViewDispatcher && visibleTab === 'dispatcher') {
       void loadDispatcherStatus();
     }
-  }, [activeTab, loadDispatcherStatus]);
+  }, [loadDispatcherStatus, permissions.canViewDispatcher, visibleTab]);
 
   useEffect(() => {
-    if (activeTab === 'access') {
+    if (permissions.canViewAccess && visibleTab === 'access') {
       void loadUsers();
       void loadPolicies();
     }
-  }, [activeTab, loadPolicies, loadUsers]);
+  }, [loadPolicies, loadUsers, permissions.canViewAccess, visibleTab]);
 
   const defaultAdminPolicyExists = useMemo(
     () =>
@@ -840,6 +871,7 @@ function SystemPage() {
   );
 
   useEffect(() => {
+    if (!permissions.canViewAccess || visibleTab !== 'access') return;
     if (policiesLoading || ensuringDefaultAdmin) return;
     if (defaultAdminPolicyExists) return;
     setEnsuringDefaultAdmin(true);
@@ -862,21 +894,23 @@ function SystemPage() {
         setEnsuringDefaultAdmin(false);
       }
     })();
-  }, [defaultAdminPolicyExists, ensuringDefaultAdmin, fetchJson, loadPolicies, policiesLoading]);
+  }, [defaultAdminPolicyExists, ensuringDefaultAdmin, fetchJson, loadPolicies, permissions.canViewAccess, policiesLoading, visibleTab]);
 
   useEffect(() => {
     const handle = window.setInterval(() => {
-      void loadSyncStatus({ quiet: true });
-      if (activeTab === 'dispatcher') {
+      if (permissions.canViewConfig && visibleTab === 'config') {
+        void loadSyncStatus({ quiet: true });
+      }
+      if (permissions.canViewDispatcher && visibleTab === 'dispatcher') {
         void loadDispatcherStatus({ quiet: true });
       }
     }, POLL_INTERVAL_MS);
     return () => window.clearInterval(handle);
-  }, [activeTab, loadDispatcherStatus, loadSyncStatus]);
+  }, [loadDispatcherStatus, loadSyncStatus, permissions.canViewConfig, permissions.canViewDispatcher, visibleTab]);
 
   return (
     <div data-page="system" className="active p-6 space-y-6">
-      {activeTab === 'config' && (
+      {visibleTab === 'config' && (
         <SystemConfig
           config={config}
           envFilePath={envFilePath}
@@ -890,9 +924,10 @@ function SystemPage() {
           onRefreshSyncStatus={loadSyncStatus}
           onSave={saveConfig}
           onTriggerSync={triggerSync}
+          canManageConfig={permissions.canManageConfig}
         />
       )}
-      {activeTab === 'dispatcher' && (
+      {visibleTab === 'dispatcher' && (
         <DispatcherPanel
           loading={dispatcherLoading}
           error={dispatcherError}
@@ -900,9 +935,10 @@ function SystemPage() {
           pendingActions={runnerActionPending}
           onRefresh={() => loadDispatcherStatus()}
           onToggleRunnerDispatch={toggleRunnerDispatch}
+          canManageDispatcher={permissions.canManageDispatcher}
         />
       )}
-      {activeTab === 'access' && (
+      {visibleTab === 'access' && (
         <AccessPanel
           users={users}
           loading={usersLoading}
@@ -980,6 +1016,961 @@ const normalizeAdminPolicies = (records: RolePermission[]): RolePermission[] => 
   }
   return filtered;
 };
+
+type AAAEffect = 'allow' | 'deny';
+
+type AAAOption = {
+  value: string;
+  label: string;
+};
+
+type AAAOptionGroup = {
+  label: string;
+  options: AAAOption[];
+};
+
+type AAAResourceCatalog = {
+  folderOptions: AAAOption[];
+  pipelineOptions: AAAOption[];
+  triggerOptions: AAAOption[];
+  repositoryOptions: AAAOption[];
+  secretScopeOptions: AAAOption[];
+  variableScopeOptions: AAAOption[];
+};
+
+type AAAResourceTypeConfig = {
+  value: string;
+  label: string;
+  targetLabel: string;
+  allowAll?: boolean;
+  allLabel?: string;
+  presets?: AAAOption[];
+  dynamicSource?: keyof AAAResourceCatalog;
+  customPlaceholder?: string;
+};
+
+type AAANamedResourceDraft = {
+  repoName: string;
+  scope: string;
+  name: string;
+  hasScope: boolean;
+};
+
+type AAAScopeResponse = {
+  scope?: string | null;
+};
+
+type AAASecretScopeSummary = {
+  scope?: string | null;
+  secret_count?: number | null;
+};
+
+const AAA_CUSTOM_VALUE = '__custom__';
+const AAA_ANY_SCOPE_VALUE = '__any_scope__';
+const AAA_DEFAULT_SCOPE_VALUE = '__default_scope__';
+
+const AAA_RESOURCE_TYPE_CONFIGS: AAAResourceTypeConfig[] = [
+  {
+    value: '*',
+    label: 'All resources',
+    targetLabel: 'Scope',
+    allowAll: true,
+    allLabel: 'All resources',
+  },
+  {
+    value: 'iam',
+    label: 'IAM',
+    targetLabel: 'Area',
+    presets: [{ value: 'admin', label: 'Admin' }],
+    customPlaceholder: 'admin',
+  },
+  {
+    value: 'audit',
+    label: 'Audit',
+    targetLabel: 'Log',
+    presets: [{ value: 'authz', label: 'Authorization log' }],
+    customPlaceholder: 'authz',
+  },
+  {
+    value: 'system',
+    label: 'System',
+    targetLabel: 'Area',
+    presets: [
+      { value: 'config', label: 'Config' },
+      { value: 'config-sync', label: 'Config sync' },
+      { value: 'steps', label: 'Step catalog' },
+    ],
+    customPlaceholder: 'config',
+  },
+  {
+    value: 'dispatcher',
+    label: 'Dispatcher',
+    targetLabel: 'Area',
+    presets: [
+      { value: 'status', label: 'Status' },
+      { value: 'runners', label: 'Runners' },
+    ],
+    customPlaceholder: 'status',
+  },
+  {
+    value: 'folder',
+    label: 'Folder',
+    targetLabel: 'Folder',
+    allowAll: true,
+    allLabel: 'All folders',
+    dynamicSource: 'folderOptions',
+    customPlaceholder: 'team/platform',
+  },
+  {
+    value: 'pipeline',
+    label: 'Pipeline',
+    targetLabel: 'Pipeline',
+    allowAll: true,
+    allLabel: 'All pipelines',
+    dynamicSource: 'pipelineOptions',
+    customPlaceholder: 'team/build',
+  },
+  {
+    value: 'pipeline_run',
+    label: 'Pipeline run',
+    targetLabel: 'Run',
+    allowAll: true,
+    allLabel: 'All runs',
+    customPlaceholder: 'run-123',
+  },
+  {
+    value: 'trigger',
+    label: 'Trigger',
+    targetLabel: 'Repository',
+    allowAll: true,
+    allLabel: 'All triggers',
+    dynamicSource: 'triggerOptions',
+    customPlaceholder: 'owner/repo',
+  },
+  {
+    value: 'repository',
+    label: 'Repository',
+    targetLabel: 'Repository',
+    allowAll: true,
+    allLabel: 'All repositories',
+    dynamicSource: 'repositoryOptions',
+    customPlaceholder: 'owner/repo',
+  },
+  {
+    value: 'secret',
+    label: 'Secret',
+    targetLabel: 'Scope',
+    allowAll: true,
+    allLabel: 'All secrets',
+    customPlaceholder: 'repo=owner/repo&scope=prod&name=TOKEN',
+  },
+  {
+    value: 'variable',
+    label: 'Variable',
+    targetLabel: 'Scope',
+    allowAll: true,
+    allLabel: 'All variables',
+    customPlaceholder: 'repo=owner/repo&scope=prod&name=TIMEOUT',
+  },
+];
+
+const AAA_ALL_ACTION_OPTION_GROUPS: AAAOptionGroup[] = [
+  {
+    label: 'Global',
+    options: [{ value: '*', label: 'All actions (*)' }],
+  },
+  {
+    label: 'Administration',
+    options: [
+      { value: 'iam.admin', label: 'admin' },
+      { value: 'audit.read', label: 'read' },
+    ],
+  },
+  {
+    label: 'System',
+    options: [
+      { value: 'system.read', label: 'read' },
+      { value: 'system.update', label: 'update' },
+    ],
+  },
+  {
+    label: 'Folders',
+    options: [
+      { value: 'folder.list', label: 'list' },
+      { value: 'folder.create', label: 'create' },
+      { value: 'folder.move', label: 'move' },
+      { value: 'folder.update', label: 'update' },
+      { value: 'folder.delete', label: 'delete' },
+    ],
+  },
+  {
+    label: 'Pipelines',
+    options: [
+      { value: 'pipeline.list', label: 'list' },
+      { value: 'pipeline.read', label: 'read' },
+      { value: 'pipeline.create', label: 'create' },
+      { value: 'pipeline.update', label: 'update' },
+      { value: 'pipeline.delete', label: 'delete' },
+      { value: 'pipeline.execute', label: 'execute' },
+    ],
+  },
+  {
+    label: 'Pipeline Runs',
+    options: [
+      { value: 'pipeline_run.list', label: 'list' },
+      { value: 'pipeline_run.read', label: 'read' },
+      { value: 'pipeline_run.rerun', label: 'rerun' },
+      { value: 'pipeline_run.cancel', label: 'cancel' },
+      { value: 'pipeline_run.finalize', label: 'finalize' },
+      { value: 'pipeline_run.write_logs', label: 'write logs' },
+      { value: 'pipeline_run.task_update', label: 'update task' },
+      { value: 'pipeline_run.delete', label: 'delete' },
+    ],
+  },
+  {
+    label: 'Triggers',
+    options: [
+      { value: 'trigger.read', label: 'read' },
+      { value: 'trigger.update', label: 'update' },
+      { value: 'trigger.delete', label: 'delete' },
+    ],
+  },
+  {
+    label: 'Secrets',
+    options: [
+      { value: 'secret.list_metadata', label: 'list metadata' },
+      { value: 'secret.read_value', label: 'read value' },
+      { value: 'secret.write_value', label: 'write value' },
+      { value: 'secret.delete', label: 'delete' },
+    ],
+  },
+  {
+    label: 'Variables',
+    options: [
+      { value: 'variable.list_metadata', label: 'list metadata' },
+      { value: 'variable.read_value', label: 'read value' },
+      { value: 'variable.write_value', label: 'write value' },
+      { value: 'variable.delete', label: 'delete' },
+    ],
+  },
+];
+
+const AAA_ACTION_OPTION_GROUPS_BY_SELECTOR: Record<string, AAAOptionGroup[]> = {
+  '*:*': AAA_ALL_ACTION_OPTION_GROUPS,
+  'iam:admin': [{ label: 'IAM actions', options: [{ value: 'iam.admin', label: 'admin' }] }],
+  'audit:authz': [{ label: 'Audit actions', options: [{ value: 'audit.read', label: 'read' }] }],
+  'system:config': [{ label: 'System actions', options: [{ value: 'system.read', label: 'read' }, { value: 'system.update', label: 'update' }] }],
+  'system:config-sync': [{ label: 'System actions', options: [{ value: 'system.read', label: 'read' }, { value: 'system.update', label: 'update' }] }],
+  'system:steps': [{ label: 'System actions', options: [{ value: 'system.read', label: 'read' }, { value: 'system.update', label: 'update' }] }],
+  'dispatcher:status': [{ label: 'Dispatcher actions', options: [{ value: 'system.read', label: 'read' }] }],
+  'dispatcher:runners': [{ label: 'Dispatcher actions', options: [{ value: 'system.update', label: 'update' }] }],
+  'repository:*': [{ label: 'Repository actions', options: [{ value: 'system.read', label: 'read' }] }],
+};
+
+const AAA_ACTION_OPTION_GROUPS_BY_RESOURCE_TYPE: Record<string, AAAOptionGroup[]> = {
+  '*': AAA_ALL_ACTION_OPTION_GROUPS,
+  folder: [{ label: 'Folder actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Folders')?.options || [] }],
+  pipeline: [{ label: 'Pipeline actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Pipelines')?.options || [] }],
+  pipeline_run: [{ label: 'Pipeline run actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Pipeline Runs')?.options || [] }],
+  trigger: [{ label: 'Trigger actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Triggers')?.options || [] }],
+  secret: [{ label: 'Secret actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Secrets')?.options || [] }],
+  variable: [{ label: 'Variable actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Variables')?.options || [] }],
+  system: [{ label: 'System actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'System')?.options || [] }],
+  repository: [{ label: 'Repository actions', options: [{ value: 'system.read', label: 'read' }] }],
+  audit: [{ label: 'Audit actions', options: [{ value: 'audit.read', label: 'read' }] }],
+  iam: [{ label: 'IAM actions', options: [{ value: 'iam.admin', label: 'admin' }] }],
+};
+
+const getAAAResourceTypeConfig = (resourceType: string) =>
+  AAA_RESOURCE_TYPE_CONFIGS.find(config => config.value === resourceType);
+
+const dedupeAAAOptions = (options: AAAOption[]) => {
+  const seen = new Set<string>();
+  return options.filter(option => {
+    const value = option.value.trim();
+    if (!value || seen.has(value)) return false;
+    seen.add(value);
+    return true;
+  });
+};
+
+const hasAAAOptionValue = (groups: AAAOptionGroup[], value: string) => {
+  const normalized = (value || '').trim();
+  return groups.some(group => group.options.some(option => option.value === normalized));
+};
+
+const parseAAAResourceSelector = (value: string): { resourceType: string; resourceID: string } => {
+  const normalized = (value || '').trim();
+  if (!normalized) return { resourceType: '', resourceID: '' };
+  if (normalized === '*:*' || normalized === '*') return { resourceType: '*', resourceID: '*' };
+  const separatorIndex = normalized.indexOf(':');
+  const resourceType = separatorIndex >= 0 ? normalized.slice(0, separatorIndex) : normalized;
+  const resourceID = separatorIndex >= 0 ? normalized.slice(separatorIndex + 1) : '*';
+  return {
+    resourceType: (resourceType || '').trim(),
+    resourceID: separatorIndex >= 0 ? resourceID.trim() : '*',
+  };
+};
+
+const buildAAAResourceSelector = (resourceType: string, resourceID: string, opts?: { preserveEmpty?: boolean }) => {
+  const normalizedType = (resourceType || '').trim();
+  const normalizedID = (resourceID || '').trim();
+  if (!normalizedType) {
+    return normalizedID;
+  }
+  if (normalizedType === '*') {
+    return '*:*';
+  }
+  if (!normalizedID) {
+    return opts?.preserveEmpty ? `${normalizedType}:` : `${normalizedType}:*`;
+  }
+  if (normalizedID === '*') {
+    return `${normalizedType}:*`;
+  }
+  return `${normalizedType}:${normalizedID}`;
+};
+
+const flattenAAAOptionGroups = (groups: AAAOptionGroup[]) => groups.flatMap(group => group.options);
+
+const buildAAAGroupOptions = (groups: ResourceGroup[]): AAAOption[] => {
+  const byID = new Map(groups.map(group => [group.id, group]));
+
+  const buildPath = (group: ResourceGroup, trail = new Set<number>()): string => {
+    const name = (group.name || '').trim();
+    if (!name) return '';
+    if (trail.has(group.id)) return name;
+    const nextTrail = new Set(trail);
+    nextTrail.add(group.id);
+    const parentID = group.parent_id ?? null;
+    if (parentID == null) return name;
+    const parent = byID.get(parentID);
+    if (!parent) return name;
+    const parentPath = buildPath(parent, nextTrail);
+    return parentPath ? `${parentPath}/${name}` : name;
+  };
+
+  return dedupeAAAOptions(
+    groups
+      .map(group => {
+        const path = buildPath(group);
+        return path ? { value: path, label: `/${path}` } : null;
+      })
+      .filter(Boolean) as AAAOption[]
+  ).sort((a, b) => a.value.localeCompare(b.value));
+};
+
+const buildAAAStringOptions = (values: string[]) =>
+  dedupeAAAOptions(
+    values
+      .map(value => value.trim())
+      .filter(Boolean)
+      .map(value => ({ value, label: value }))
+  ).sort((a, b) => a.value.localeCompare(b.value));
+
+const normalizeAAAScopeOptionValue = (scope: string) => {
+  const normalized = (scope || '').trim();
+  return normalized || AAA_DEFAULT_SCOPE_VALUE;
+};
+
+const denormalizeAAAScopeOptionValue = (value: string) => (value === AAA_DEFAULT_SCOPE_VALUE ? '' : (value || '').trim());
+
+const buildAAAScopeOptions = (values: string[]) =>
+  dedupeAAAOptions(
+    ['', ...values].map(value => {
+      const normalized = (value || '').trim();
+      return {
+        value: normalizeAAAScopeOptionValue(normalized),
+        label: normalized || 'Default scope',
+      };
+    })
+  ).sort((a, b) => {
+    if (a.value === AAA_DEFAULT_SCOPE_VALUE) return -1;
+    if (b.value === AAA_DEFAULT_SCOPE_VALUE) return 1;
+    return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
+  });
+
+const parseAAANamedResourceID = (value: string): AAANamedResourceDraft => {
+  const normalized = (value || '').trim();
+  if (!normalized || normalized === '*') {
+    return {
+      repoName: '',
+      scope: '',
+      name: '',
+      hasScope: false,
+    };
+  }
+
+  const params = new URLSearchParams(normalized);
+  return {
+    repoName: (params.get('repo') || '').trim(),
+    scope: (params.get('scope') || '').trim(),
+    name: (params.get('name') || '').trim(),
+    hasScope: params.has('scope'),
+  };
+};
+
+const buildAAANamedResourceID = ({ repoName, scope, name, hasScope }: AAANamedResourceDraft) => {
+  const params = new URLSearchParams();
+  const normalizedRepoName = (repoName || '').trim();
+  const normalizedScope = (scope || '').trim();
+  if (normalizedRepoName) {
+    params.set('repo', normalizedRepoName);
+  }
+  if (hasScope) {
+    params.set('scope', normalizedScope);
+  }
+  const normalizedName = (name || '').trim();
+  if (normalizedName) {
+    params.set('name', normalizedName);
+  }
+  return params.toString() || '*';
+};
+
+const buildAAANamedResourceSelector = (resourceType: string, parts: AAANamedResourceDraft) =>
+  buildAAAResourceSelector(resourceType, buildAAANamedResourceID(parts));
+
+const buildAAAParentPathOptionGroups = (options: AAAOption[], labels: { root: string; parentPrefix: string }) => {
+  const groups = new Map<string, { sortKey: string; label: string; options: AAAOption[] }>();
+
+  options.forEach(option => {
+    const normalizedValue = option.value.trim();
+    if (!normalizedValue) return;
+
+    const lastSlash = normalizedValue.lastIndexOf('/');
+    const parentPath = lastSlash >= 0 ? normalizedValue.slice(0, lastSlash) : '';
+    const itemLabel = lastSlash >= 0 ? normalizedValue.slice(lastSlash + 1) : normalizedValue;
+    const groupKey = parentPath || '';
+    const groupLabel = parentPath ? `${labels.parentPrefix}${parentPath}` : labels.root;
+    const existing = groups.get(groupKey);
+
+    if (existing) {
+      existing.options.push({ value: normalizedValue, label: itemLabel || option.label || normalizedValue });
+      return;
+    }
+
+    groups.set(groupKey, {
+      sortKey: groupKey,
+      label: groupLabel,
+      options: [{ value: normalizedValue, label: itemLabel || option.label || normalizedValue }],
+    });
+  });
+
+  return Array.from(groups.values())
+    .sort((a, b) => {
+      if (!a.sortKey) return -1;
+      if (!b.sortKey) return 1;
+      return a.sortKey.localeCompare(b.sortKey);
+    })
+    .map(group => ({
+      label: group.label,
+      options: group.options.sort((a, b) => a.label.localeCompare(b.label)),
+    }));
+};
+
+const buildAAARepositoryOptionGroups = (options: AAAOption[], labels: { root: string; ownerPrefix: string }) => {
+  const groups = new Map<string, { sortKey: string; label: string; options: AAAOption[] }>();
+
+  options.forEach(option => {
+    const normalizedValue = option.value.trim();
+    if (!normalizedValue) return;
+
+    const separatorIndex = normalizedValue.indexOf('/');
+    const owner = separatorIndex >= 0 ? normalizedValue.slice(0, separatorIndex) : '';
+    const repoName = separatorIndex >= 0 ? normalizedValue.slice(separatorIndex + 1) : normalizedValue;
+    const groupKey = owner || '';
+    const groupLabel = owner ? `${labels.ownerPrefix}${owner}` : labels.root;
+    const existing = groups.get(groupKey);
+
+    if (existing) {
+      existing.options.push({ value: normalizedValue, label: repoName || option.label || normalizedValue });
+      return;
+    }
+
+    groups.set(groupKey, {
+      sortKey: groupKey,
+      label: groupLabel,
+      options: [{ value: normalizedValue, label: repoName || option.label || normalizedValue }],
+    });
+  });
+
+  return Array.from(groups.values())
+    .sort((a, b) => {
+      if (!a.sortKey) return -1;
+      if (!b.sortKey) return 1;
+      return a.sortKey.localeCompare(b.sortKey);
+    })
+    .map(group => ({
+      label: group.label,
+      options: group.options.sort((a, b) => a.label.localeCompare(b.label)),
+    }));
+};
+
+const buildAAAResourceTargetOptionGroups = (config: AAAResourceTypeConfig, catalog: AAAResourceCatalog) => {
+  const groups: AAAOptionGroup[] = [];
+  const scopeOptions: AAAOption[] = [];
+  if (config.allowAll) {
+    scopeOptions.push({ value: '*', label: config.allLabel || 'All' });
+  }
+  if (config.presets) {
+    scopeOptions.push(...config.presets);
+  }
+
+  const normalizedScopeOptions = dedupeAAAOptions(scopeOptions);
+  if (normalizedScopeOptions.length > 0) {
+    groups.push({
+      label: config.dynamicSource ? 'Scope' : 'Available targets',
+      options: normalizedScopeOptions,
+    });
+  }
+
+  if (config.dynamicSource) {
+    const dynamicOptions = dedupeAAAOptions(catalog[config.dynamicSource]);
+    switch (config.dynamicSource) {
+      case 'folderOptions':
+        groups.push(...buildAAAParentPathOptionGroups(dynamicOptions, { root: 'Top-level folders', parentPrefix: 'Inside /' }));
+        break;
+      case 'pipelineOptions':
+        groups.push(...buildAAAParentPathOptionGroups(dynamicOptions, { root: 'Top-level pipelines', parentPrefix: 'Folder /' }));
+        break;
+      case 'triggerOptions':
+        groups.push(...buildAAARepositoryOptionGroups(dynamicOptions, { root: 'Ungrouped triggers', ownerPrefix: 'Owner ' }));
+        break;
+      case 'repositoryOptions':
+        groups.push(...buildAAARepositoryOptionGroups(dynamicOptions, { root: 'Ungrouped repositories', ownerPrefix: 'Owner ' }));
+        break;
+      default:
+        if (dynamicOptions.length > 0) {
+          groups.push({ label: 'Known targets', options: dynamicOptions });
+        }
+        break;
+    }
+  }
+
+  return groups;
+};
+
+const getAAAActionOptionGroups = (resourceSelector: string): AAAOptionGroup[] => {
+  const normalized = (resourceSelector || '').trim();
+  if (!normalized) return [];
+  if (AAA_ACTION_OPTION_GROUPS_BY_SELECTOR[normalized]) {
+    return AAA_ACTION_OPTION_GROUPS_BY_SELECTOR[normalized];
+  }
+  const { resourceType } = parseAAAResourceSelector(normalized);
+  return AAA_ACTION_OPTION_GROUPS_BY_RESOURCE_TYPE[resourceType] || [];
+};
+
+const actionLabelFromAAAValue = (value: string) => {
+  const trimmed = (value || '').trim();
+  if (!trimmed || trimmed === '*') return trimmed;
+  const actionPart = trimmed.includes('.') ? trimmed.slice(trimmed.lastIndexOf('.') + 1) : trimmed;
+  switch (actionPart) {
+    case 'list_metadata':
+      return 'list metadata';
+    case 'read_value':
+      return 'read value';
+    case 'write_value':
+      return 'write value';
+    case 'write_logs':
+      return 'write logs';
+    case 'task_update':
+      return 'update task';
+    default:
+      return actionPart.replace(/_/g, ' ');
+  }
+};
+
+const normalizeAAAActionForResource = (resourceSelector: string, actionValue: string, effect: AAAEffect) => {
+  const options = flattenAAAOptionGroups(getAAAActionOptionGroups(resourceSelector));
+  if (options.length === 0) return formatAAAActionValue(effect, actionValue);
+  const trimmed = (actionValue || '').trim();
+  if (trimmed && options.some(option => option.value === trimmed)) {
+    return formatAAAActionValue(effect, trimmed);
+  }
+  const currentLabel = actionLabelFromAAAValue(trimmed);
+  if (currentLabel) {
+    const matchingVerb = options.find(option => option.label === currentLabel);
+    if (matchingVerb) {
+      return formatAAAActionValue(effect, matchingVerb.value);
+    }
+  }
+  return formatAAAActionValue(effect, options[0].value);
+};
+
+const customAAAActionPlaceholder = (resourceSelector: string) => {
+  const options = flattenAAAOptionGroups(getAAAActionOptionGroups(resourceSelector));
+  if (options.length > 0) return options[0].value;
+  const { resourceType } = parseAAAResourceSelector(resourceSelector);
+  if (!resourceType || resourceType === '*') return 'pipeline.read';
+  return `${resourceType}.read`;
+};
+
+const parseAAAActionValue = (value: string): { effect: AAAEffect; action: string } => {
+  const trimmed = (value || '').trim();
+  if (!trimmed) return { effect: 'allow', action: '' };
+  if (trimmed.startsWith('deny ')) {
+    return {
+      effect: 'deny',
+      action: trimmed.slice('deny '.length).trim(),
+    };
+  }
+  return { effect: 'allow', action: trimmed };
+};
+
+const formatAAAActionValue = (effect: AAAEffect, action: string) => {
+  const trimmed = (action || '').trim();
+  if (!trimmed) return '';
+  return effect === 'deny' ? `deny ${trimmed}` : trimmed;
+};
+
+const selectValueForAAAOptions = (groups: AAAOptionGroup[], value: string) =>
+  hasAAAOptionValue(groups, value) ? (value || '').trim() : AAA_CUSTOM_VALUE;
+
+function AAAPolicyRuleFields({
+  policy,
+  onChange,
+  resourceCatalog,
+}: {
+  policy: { name: string; obj: string; act: string };
+  onChange: (next: { name: string; obj: string; act: string }) => void;
+  resourceCatalog: AAAResourceCatalog;
+}) {
+  const normalizedResource = (policy.obj || '').trim();
+  const parsedResource = parseAAAResourceSelector(normalizedResource);
+  const parsedAction = parseAAAActionValue(policy.act);
+  const resourceTypeConfig = getAAAResourceTypeConfig(parsedResource.resourceType);
+  const selectedResourceType = resourceTypeConfig ? resourceTypeConfig.value : AAA_CUSTOM_VALUE;
+  const isNamedScopedResourceType = resourceTypeConfig?.value === 'secret' || resourceTypeConfig?.value === 'variable';
+  const [forceCustomNamedScope, setForceCustomNamedScope] = useState(false);
+  const namedResourceParts = isNamedScopedResourceType ? parseAAANamedResourceID(parsedResource.resourceID) : { repoName: '', scope: '', name: '', hasScope: false };
+  const namedScopeOptions =
+    resourceTypeConfig?.value === 'secret'
+      ? resourceCatalog.secretScopeOptions
+      : resourceTypeConfig?.value === 'variable'
+        ? resourceCatalog.variableScopeOptions
+        : [];
+  const resourceTargetOptionGroups =
+    resourceTypeConfig && !isNamedScopedResourceType ? buildAAAResourceTargetOptionGroups(resourceTypeConfig, resourceCatalog) : [];
+  const resourceTargetOptions = flattenAAAOptionGroups(resourceTargetOptionGroups);
+  const selectedResourceTarget =
+    isNamedScopedResourceType
+      ? ''
+      : selectedResourceType === '*'
+      ? '*'
+      : selectedResourceType !== AAA_CUSTOM_VALUE && resourceTargetOptions.some(option => option.value === parsedResource.resourceID)
+      ? parsedResource.resourceID
+      : AAA_CUSTOM_VALUE;
+  const normalizedNamedScope = normalizeAAAScopeOptionValue(namedResourceParts.scope);
+  const derivedSelectedNamedScope =
+    !isNamedScopedResourceType
+      ? ''
+      : !namedResourceParts.hasScope
+        ? AAA_ANY_SCOPE_VALUE
+        : namedScopeOptions.some(option => option.value === normalizedNamedScope)
+          ? normalizedNamedScope
+          : AAA_CUSTOM_VALUE;
+  const selectedNamedScope = forceCustomNamedScope && isNamedScopedResourceType ? AAA_CUSTOM_VALUE : derivedSelectedNamedScope;
+  const allowCustomTarget = resourceTypeConfig?.value !== '*';
+  const actionOptions = getAAAActionOptionGroups(normalizedResource);
+  const selectedAction = selectValueForAAAOptions(actionOptions, parsedAction.action);
+  const customResourceDraft =
+    selectedResourceType === AAA_CUSTOM_VALUE
+      ? normalizedResource
+      : normalizedResource.endsWith(':')
+        ? ''
+        : parsedResource.resourceID;
+  const customNamedScopeDraft = selectedNamedScope === AAA_CUSTOM_VALUE ? namedResourceParts.scope : '';
+  const namedResourceLabel = resourceTypeConfig?.value === 'secret' ? 'Secret name' : 'Variable name';
+  const buildNamedResourceSelector = (next: Partial<AAANamedResourceDraft>) =>
+    buildAAANamedResourceSelector(resourceTypeConfig?.value || '', {
+      repoName: 'repoName' in next ? next.repoName ?? '' : namedResourceParts.repoName,
+      scope: 'scope' in next ? next.scope ?? '' : namedResourceParts.scope,
+      name: 'name' in next ? next.name ?? '' : namedResourceParts.name,
+      hasScope: 'hasScope' in next ? Boolean(next.hasScope) : namedResourceParts.hasScope,
+    });
+
+  useEffect(() => {
+    if (!isNamedScopedResourceType) {
+      setForceCustomNamedScope(false);
+    }
+  }, [isNamedScopedResourceType]);
+
+  return (
+    <>
+      <label className="flex flex-col gap-1 text-sm">
+        <span>Policy label</span>
+        <input
+          className="pipelines-input"
+          value={policy.name}
+          onChange={e => onChange({ name: e.target.value, obj: policy.obj, act: policy.act })}
+          placeholder="Pipeline reader"
+          required
+        />
+      </label>
+      <div className="grid gap-3 md:grid-cols-[0.56fr_1fr]">
+        <label className="flex flex-col gap-1 text-sm">
+          <span>Resource type</span>
+          <select
+            className="pipelines-input"
+            value={selectedResourceType}
+            onChange={e => {
+              const nextType = e.target.value;
+              if (nextType === AAA_CUSTOM_VALUE) {
+                onChange({ name: policy.name, obj: normalizedResource, act: policy.act });
+                return;
+              }
+              const nextConfig = getAAAResourceTypeConfig(nextType);
+              const nextTarget = nextConfig?.allowAll ? '*' : nextConfig?.presets?.[0]?.value || '';
+              const nextObj = buildAAAResourceSelector(nextType, nextTarget, { preserveEmpty: nextTarget === '' });
+              onChange({
+                name: policy.name,
+                obj: nextObj,
+                act: normalizeAAAActionForResource(nextObj, parsedAction.action, parsedAction.effect),
+              });
+            }}
+          >
+            {AAA_RESOURCE_TYPE_CONFIGS.map(option => (
+              <option key={`resource-type-${option.value}`} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+            <option value={AAA_CUSTOM_VALUE}>Custom selector…</option>
+          </select>
+        </label>
+        {selectedResourceType === AAA_CUSTOM_VALUE ? (
+          <label className="flex flex-col gap-1 text-sm">
+            <span>Resource selector</span>
+            <input
+              className="pipelines-input"
+              value={normalizedResource}
+              onChange={e => onChange({ name: policy.name, obj: e.target.value, act: policy.act })}
+              placeholder="pipeline:team/build"
+              required
+            />
+          </label>
+        ) : isNamedScopedResourceType ? (
+          <div className="space-y-3">
+            <label className="flex flex-col gap-1 text-sm">
+              <span>{resourceTypeConfig?.targetLabel || 'Scope'}</span>
+              <select
+                className="pipelines-input"
+                value={selectedNamedScope}
+                onChange={e => {
+                  const value = e.target.value;
+                  if (!resourceTypeConfig) return;
+                  if (value === AAA_ANY_SCOPE_VALUE) {
+                    setForceCustomNamedScope(false);
+                    const nextObj = buildNamedResourceSelector({ hasScope: false, scope: '' });
+                    onChange({
+                      name: policy.name,
+                      obj: nextObj,
+                      act: normalizeAAAActionForResource(nextObj, parsedAction.action, parsedAction.effect),
+                    });
+                    return;
+                  }
+                  if (value === AAA_CUSTOM_VALUE) {
+                    setForceCustomNamedScope(true);
+                    return;
+                  }
+                  setForceCustomNamedScope(false);
+                  const nextObj = buildNamedResourceSelector({
+                    hasScope: true,
+                    scope: denormalizeAAAScopeOptionValue(value),
+                  });
+                  onChange({
+                    name: policy.name,
+                    obj: nextObj,
+                    act: normalizeAAAActionForResource(nextObj, parsedAction.action, parsedAction.effect),
+                  });
+                }}
+              >
+                <option value={AAA_ANY_SCOPE_VALUE}>Any scope</option>
+                {namedScopeOptions.map(option => (
+                  <option key={`resource-scope-${resourceTypeConfig?.value}-${option.value}`} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+                <option value={AAA_CUSTOM_VALUE}>Custom scope…</option>
+              </select>
+            </label>
+            {selectedNamedScope === AAA_CUSTOM_VALUE && (
+              <label className="flex flex-col gap-1 text-sm">
+                <span>Custom scope</span>
+                <input
+                  className="pipelines-input"
+                  value={customNamedScopeDraft}
+                  onChange={e =>
+                    onChange({
+                      name: policy.name,
+                      obj: buildNamedResourceSelector({
+                        hasScope: true,
+                        scope: e.target.value,
+                      }),
+                      act: policy.act,
+                    })
+                  }
+                  placeholder="prod"
+                />
+              </label>
+            )}
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="flex flex-col gap-1 text-sm">
+                <span>{namedResourceLabel} (optional)</span>
+                <input
+                  className="pipelines-input"
+                  value={namedResourceParts.name}
+                  onChange={e =>
+                    onChange({
+                      name: policy.name,
+                      obj: buildNamedResourceSelector({
+                        name: e.target.value,
+                      }),
+                      act: policy.act,
+                    })
+                  }
+                  placeholder={resourceTypeConfig?.value === 'secret' ? 'TOKEN' : 'TIMEOUT'}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                <span>Repository (optional)</span>
+                <input
+                  className="pipelines-input"
+                  value={namedResourceParts.repoName}
+                  onChange={e =>
+                    onChange({
+                      name: policy.name,
+                      obj: buildNamedResourceSelector({
+                        repoName: e.target.value,
+                      }),
+                      act: policy.act,
+                    })
+                  }
+                  placeholder="owner/repo"
+                />
+              </label>
+            </div>
+          </div>
+        ) : (
+          <label className="flex flex-col gap-1 text-sm">
+            <span>{resourceTypeConfig?.targetLabel || 'Target'}</span>
+            <select
+              className="pipelines-input"
+              value={selectedResourceTarget}
+              onChange={e => {
+                const value = e.target.value;
+                if (!resourceTypeConfig) return;
+                if (value === AAA_CUSTOM_VALUE) {
+                  const nextObj = buildAAAResourceSelector(resourceTypeConfig.value, parsedResource.resourceID === '*' ? '' : parsedResource.resourceID, {
+                    preserveEmpty: true,
+                  });
+                  onChange({ name: policy.name, obj: nextObj, act: policy.act });
+                  return;
+                }
+                const nextObj = buildAAAResourceSelector(resourceTypeConfig.value, value);
+                onChange({
+                  name: policy.name,
+                  obj: nextObj,
+                  act: normalizeAAAActionForResource(nextObj, parsedAction.action, parsedAction.effect),
+                });
+              }}
+            >
+              {resourceTargetOptionGroups.map(group => (
+                <optgroup key={`resource-target-group-${resourceTypeConfig?.value}-${group.label}`} label={group.label}>
+                  {group.options.map(option => (
+                    <option key={`resource-target-${resourceTypeConfig?.value}-${option.value}`} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+              {allowCustomTarget && <option value={AAA_CUSTOM_VALUE}>Custom…</option>}
+            </select>
+            {allowCustomTarget && selectedResourceTarget === AAA_CUSTOM_VALUE && (
+              <input
+                className="pipelines-input"
+                value={customResourceDraft}
+                onChange={e =>
+                  onChange({
+                    name: policy.name,
+                    obj: buildAAAResourceSelector(resourceTypeConfig?.value || '', e.target.value, { preserveEmpty: true }),
+                    act: policy.act,
+                  })
+                }
+                placeholder={resourceTypeConfig?.customPlaceholder || 'team/build'}
+                required
+              />
+            )}
+          </label>
+        )}
+      </div>
+      <p className="text-xs text-[var(--text-secondary)]">
+        Pick a resource type first, then narrow it with a second selector for scope, existing items, or a custom identifier.
+      </p>
+      {isNamedScopedResourceType && selectedResourceType !== AAA_CUSTOM_VALUE && (
+        <p className="text-xs text-[var(--text-secondary)]">
+          Leave the name blank to target all secrets or variables that match the selected scope and optional repository filter.
+        </p>
+      )}
+      <div className="grid gap-3 md:grid-cols-[0.42fr_1fr]">
+        <label className="flex flex-col gap-1 text-sm">
+          <span>Effect</span>
+          <select
+            className="pipelines-input"
+            value={parsedAction.effect}
+            onChange={e => onChange({ name: policy.name, obj: policy.obj, act: formatAAAActionValue(e.target.value as AAAEffect, parsedAction.action) })}
+          >
+            <option value="allow">Allow</option>
+            <option value="deny">Deny</option>
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span>Action</span>
+          <select
+            className="pipelines-input"
+            value={selectedAction}
+            onChange={e => {
+              const value = e.target.value;
+              if (value === AAA_CUSTOM_VALUE) {
+                onChange({
+                  name: policy.name,
+                  obj: policy.obj,
+                  act: formatAAAActionValue(parsedAction.effect, selectedAction === AAA_CUSTOM_VALUE ? parsedAction.action : ''),
+                });
+                return;
+              }
+              onChange({ name: policy.name, obj: policy.obj, act: formatAAAActionValue(parsedAction.effect, value) });
+            }}
+          >
+            {actionOptions.map(group => (
+              <optgroup key={`action-${group.label}`} label={group.label}>
+                {group.options.map(option => (
+                  <option key={`action-${group.label}-${option.value}`} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+            <option value={AAA_CUSTOM_VALUE}>Custom action…</option>
+          </select>
+          {selectedAction === AAA_CUSTOM_VALUE && (
+            <input
+              className="pipelines-input"
+              value={parsedAction.action}
+              onChange={e => onChange({ name: policy.name, obj: policy.obj, act: formatAAAActionValue(parsedAction.effect, e.target.value) })}
+              placeholder={customAAAActionPlaceholder(normalizedResource)}
+              required
+            />
+          )}
+          <p className="text-xs text-[var(--text-secondary)]">
+            Actions are filtered by the selected resource. The dropdown shows simple verbs, while custom mode accepts the full AAA action value.
+          </p>
+        </label>
+      </div>
+      <p className="text-xs text-[var(--text-secondary)]">
+        Rule preview: <code>{policy.obj || 'resource:*'}</code> → <code>{policy.act || 'action'}</code>
+      </p>
+    </>
+  );
+}
 
 function AccessPanel({
   users,
@@ -1064,6 +2055,14 @@ function AccessPanel({
   const [savingRoleEditor, setSavingRoleEditor] = useState(false);
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [savingUserAccess, setSavingUserAccess] = useState(false);
+  const [resourceCatalog, setResourceCatalog] = useState<AAAResourceCatalog>({
+    folderOptions: [],
+    pipelineOptions: [],
+    triggerOptions: [],
+    repositoryOptions: [],
+    secretScopeOptions: [],
+    variableScopeOptions: [],
+  });
   const policyOptions = useMemo(() => {
     const seen = new Set<string>();
     return policyTemplates
@@ -1111,9 +2110,6 @@ function AccessPanel({
     set.add(DEFAULT_ADMIN_ROLE);
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [roleDefinitions]);
-
-  const roleDatalistBaseId = 'access-role-names';
-  const roleDatalistId = roleDatalistBaseId;
 
   const roleUserMap = useMemo(() => {
     const map = new Map<string, { user: string; userId: string; email: string }[]>();
@@ -1330,11 +2326,76 @@ function AccessPanel({
     return 'muted';
   };
 
-  const userDatalistId = 'access-user-ids';
   const policyCount = policyTemplates.length;
   const [nextPolicyKey, setNextPolicyKey] = useState('');
   const [nextUserRole, setNextUserRole] = useState('');
   const [nextAccessRole, setNextAccessRole] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const readJson = async <T,>(path: string): Promise<T> => {
+      const response = await fetch(buildApiUrl(path));
+      if (!response.ok) {
+        throw new Error(`Request failed (${response.status})`);
+      }
+      return response.json() as Promise<T>;
+    };
+
+    void (async () => {
+      const [groupsResult, pipelinesResult, triggersResult, secretScopesResult, variableScopesResult] = await Promise.allSettled([
+        readJson<ResourceGroup[]>('/v1/groups'),
+        readJson<string[]>('/v1/pipelines'),
+        readJson<string[]>('/v1/overrides'),
+        readJson<AAASecretScopeSummary[]>('/v1/secrets/scopes'),
+        readJson<AAAScopeResponse[]>('/v1/variables/scopes'),
+      ]);
+
+      if (cancelled) return;
+
+      const groups = groupsResult.status === 'fulfilled' && Array.isArray(groupsResult.value) ? groupsResult.value : [];
+      const pipelines = pipelinesResult.status === 'fulfilled' && Array.isArray(pipelinesResult.value) ? pipelinesResult.value : [];
+      const triggers = triggersResult.status === 'fulfilled' && Array.isArray(triggersResult.value) ? triggersResult.value : [];
+      const secretScopes =
+        secretScopesResult.status === 'fulfilled' && Array.isArray(secretScopesResult.value)
+          ? secretScopesResult.value.map(entry => (typeof entry?.scope === 'string' ? entry.scope : ''))
+          : [];
+      const variableScopes =
+        variableScopesResult.status === 'fulfilled' && Array.isArray(variableScopesResult.value)
+          ? variableScopesResult.value.map(entry => (typeof entry?.scope === 'string' ? entry.scope : ''))
+          : [];
+
+      if (groupsResult.status === 'rejected') {
+        console.error('Failed to load AAA folders', groupsResult.reason);
+      }
+      if (pipelinesResult.status === 'rejected') {
+        console.error('Failed to load AAA pipelines', pipelinesResult.reason);
+      }
+      if (triggersResult.status === 'rejected') {
+        console.error('Failed to load AAA triggers', triggersResult.reason);
+      }
+      if (secretScopesResult.status === 'rejected') {
+        console.error('Failed to load AAA secret scopes', secretScopesResult.reason);
+      }
+      if (variableScopesResult.status === 'rejected') {
+        console.error('Failed to load AAA variable scopes', variableScopesResult.reason);
+      }
+
+      const triggerOptions = buildAAAStringOptions(triggers);
+      setResourceCatalog({
+        folderOptions: buildAAAGroupOptions(groups),
+        pipelineOptions: buildAAAStringOptions(pipelines),
+        triggerOptions,
+        repositoryOptions: triggerOptions,
+        secretScopeOptions: buildAAAScopeOptions(secretScopes),
+        variableScopeOptions: buildAAAScopeOptions(variableScopes),
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     setNextAccessRole('');
@@ -1387,7 +2448,7 @@ function AccessPanel({
           <div className="space-y-1">
             <p className="text-xs uppercase tracking-[0.12em] text-[var(--text-secondary)]">Access control</p>
             <h3 className="text-xl font-semibold text-[var(--text-primary)]">Users, roles, policies</h3>
-            <p className="text-sm text-[var(--text-secondary)]">Define policies, bundle them into roles, and grant users access.</p>
+            <p className="text-sm text-[var(--text-secondary)]">Define AAA resource rules, bundle them into roles, and grant users access.</p>
           </div>
         </div>
         <div className="access-nav">
@@ -1609,7 +2670,7 @@ function AccessPanel({
                 <div className="grid grid-cols-[1.4fr,1fr,1.1fr,1fr,auto] text-[11px] uppercase tracking-[0.08em] text-[var(--text-tertiary)] px-4 py-3 bg-[var(--bg-tertiary)] border-b border-[var(--border-primary)]">
                   <span>Policy</span>
                   <span>Role</span>
-                  <span>Object</span>
+                  <span>Resource</span>
                   <span>Action</span>
                   <span className="text-right">Manage</span>
                 </div>
@@ -1657,17 +2718,6 @@ function AccessPanel({
           </div>
         )}
       </div>
-
-      <datalist id={userDatalistId}>
-        {users.map(u => (
-          <option key={u.id} value={u.id} label={`${u.sub} (${u.email || 'No email'})`} />
-        ))}
-      </datalist>
-      <datalist id={roleDatalistId}>
-        {allRoleOptions.map(role => (
-          <option key={`all-${role}`} value={role} />
-        ))}
-      </datalist>
 
       {confirmDialog && (
         <AccessModal
@@ -1717,7 +2767,7 @@ function AccessPanel({
               <div className="access-minimal-section__header">
                 <p className="text-sm font-medium text-[var(--text-primary)]">Policies</p>
                 <div className="flex gap-2 flex-wrap items-center">
-                  <span className="text-[11px] text-[var(--text-secondary)]">Current policies</span>
+                  <span className="text-[11px] text-[var(--text-secondary)]">Current rules</span>
                 </div>
               </div>
               <div className="space-y-2">
@@ -1792,38 +2842,16 @@ function AccessPanel({
         <AccessModal
           kicker="Policy"
           title="Edit policy"
-          subtitle="Update role binding for this rule"
+          subtitle="Update the AAA rule for this role"
           onClose={() => setPolicyEditor(null)}
           icon={<SparkIcon />}
         >
           <form className="space-y-3" onSubmit={handleSavePolicyEdit}>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>Policy name</span>
-              <input
-                className="pipelines-input"
-                value={policyEditor.name}
-                onChange={e => setPolicyEditor(prev => (prev ? { ...prev, name: e.target.value } : prev))}
-                required
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>Object pattern</span>
-              <input
-                className="pipelines-input"
-                value={policyEditor.obj}
-                onChange={e => setPolicyEditor(prev => (prev ? { ...prev, obj: e.target.value } : prev))}
-                required
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>Action regex</span>
-              <input
-                className="pipelines-input"
-                value={policyEditor.act}
-                onChange={e => setPolicyEditor(prev => (prev ? { ...prev, act: e.target.value } : prev))}
-                required
-              />
-            </label>
+            <AAAPolicyRuleFields
+              policy={policyEditor}
+              onChange={next => setPolicyEditor(prev => (prev ? { ...prev, ...next } : prev))}
+              resourceCatalog={resourceCatalog}
+            />
             <div className="pipelines-modal-footer">
               <div className="pipelines-modal-actions">
                 <button type="button" className="glass-button-ghost" onClick={() => setPolicyEditor(null)}>
@@ -2076,33 +3104,46 @@ function AccessPanel({
         >
           <form className="space-y-3" onSubmit={onAssignRole}>
             <label className="flex flex-col gap-1 text-sm">
-              <span>User ID</span>
-              <input
+              <span>User</span>
+              <select
                 className="pipelines-input"
-                list={userDatalistId}
                 value={newRole.userId}
                 onChange={e => onChangeRole({ ...newRole, userId: e.target.value })}
-                placeholder="user UUID"
                 required
-              />
+                disabled={users.length === 0}
+              >
+                <option value="">{users.length === 0 ? 'No users available' : 'Select a user'}</option>
+                {users.map(user => (
+                  <option key={`assign-user-${user.id}`} value={user.id}>
+                    {user.sub}
+                    {user.email ? ` • ${user.email}` : ''}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="flex flex-col gap-1 text-sm">
               <span>Role</span>
-              <input
+              <select
                 className="pipelines-input"
-                list={roleDatalistId}
                 value={newRole.role}
                 onChange={e => onChangeRole({ ...newRole, role: e.target.value })}
-                placeholder="nopsai-admin"
                 required
-              />
+                disabled={allRoleOptions.length === 0}
+              >
+                <option value="">{allRoleOptions.length === 0 ? 'No roles available' : 'Select a role'}</option>
+                {allRoleOptions.map(role => (
+                  <option key={`assign-role-${role}`} value={role}>
+                    {role}
+                  </option>
+                ))}
+              </select>
             </label>
             <div className="pipelines-modal-footer">
               <div className="pipelines-modal-actions">
                 <button type="button" className="glass-button-ghost" onClick={() => setShowRoleModal(false)}>
                   Cancel
                 </button>
-                <button type="submit" className="glass-button-primary">
+                <button type="submit" className="glass-button-primary" disabled={users.length === 0 || allRoleOptions.length === 0}>
                   Add role
                 </button>
               </div>
@@ -2115,42 +3156,16 @@ function AccessPanel({
         <AccessModal
           kicker="Policy"
           title="Create role policy"
-          subtitle="Add a minimal rule for this role"
+          subtitle="Add a reusable AAA rule"
           onClose={() => setShowPolicyModal(false)}
           icon={<SparkIcon />}
         >
           <form className="space-y-3" onSubmit={onCreatePermission}>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>Policy name</span>
-              <input
-                className="pipelines-input"
-                value={newPermission.name}
-                onChange={e => onChangePermission({ ...newPermission, name: e.target.value })}
-                placeholder="Editor API access"
-                required
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>Object pattern</span>
-              <input
-                className="pipelines-input"
-                value={newPermission.obj}
-                onChange={e => onChangePermission({ ...newPermission, obj: e.target.value })}
-                placeholder="/v1/pipelines/*"
-                required
-              />
-              <p className="text-xs text-[var(--text-secondary)]">Supports path wildcards via keyMatch2 (e.g., /v1/runs/*).</p>
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>Action regex</span>
-              <input
-                className="pipelines-input"
-                value={newPermission.act}
-                onChange={e => onChangePermission({ ...newPermission, act: e.target.value })}
-                placeholder="GET|POST"
-                required
-              />
-            </label>
+            <AAAPolicyRuleFields
+              policy={newPermission}
+              onChange={onChangePermission}
+              resourceCatalog={resourceCatalog}
+            />
             <div className="pipelines-modal-footer">
               <div className="pipelines-modal-actions">
                 <button type="button" className="glass-button-ghost" onClick={() => setShowPolicyModal(false)}>
@@ -2299,6 +3314,7 @@ function SystemConfig({
   onRefreshSyncStatus,
   onSave,
   onTriggerSync,
+  canManageConfig,
 }: {
   config: ConfigFormState;
   envFilePath: string;
@@ -2312,6 +3328,7 @@ function SystemConfig({
   onRefreshSyncStatus: (opts?: { quiet?: boolean }) => Promise<void>;
   onSave: () => Promise<void>;
   onTriggerSync: () => Promise<void>;
+  canManageConfig: boolean;
 }) {
   const repoUrl = config.config_repo_url.trim();
   const statusKey = normalizeStatus(syncStatus?.status, repoUrl);
@@ -2341,7 +3358,7 @@ function SystemConfig({
               <button className="glass-button-ghost" type="button" onClick={() => void onRefreshSyncStatus()}>
                 Refresh status
               </button>
-              <button className="glass-button-subtle" type="button" onClick={() => void onTriggerSync()}>
+              <button className="glass-button-subtle" type="button" onClick={() => void onTriggerSync()} disabled={!canManageConfig}>
                 Sync config
               </button>
             </div>
@@ -2358,7 +3375,7 @@ function SystemConfig({
                   value={config.config_repo_url}
                   onChange={handleChange('config_repo_url')}
                   placeholder="https://github.com/org/repo"
-                  disabled={configLoading || saving}
+                  disabled={!canManageConfig || configLoading || saving}
                 />
               </label>
               <p className="text-xs text-[var(--text-secondary)]">Source of truth for pipelines, triggers, and steps.</p>
@@ -2410,7 +3427,7 @@ function SystemConfig({
                 value={config.agent_image}
                 onChange={handleChange('agent_image')}
                 placeholder="nopsai-agent:latest"
-                disabled={configLoading || saving}
+                disabled={!canManageConfig || configLoading || saving}
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
@@ -2422,7 +3439,7 @@ function SystemConfig({
                 value={config.docker_network_name}
                 onChange={handleChange('docker_network_name')}
                 placeholder="nopsai-net"
-                disabled={configLoading || saving}
+                disabled={!canManageConfig || configLoading || saving}
               />
               </label>
               <label className="flex flex-col gap-1 text-sm">
@@ -2434,7 +3451,7 @@ function SystemConfig({
                   value={config.default_pipeline_timeout}
                   onChange={handleChange('default_pipeline_timeout')}
                   placeholder="30m"
-                  disabled={configLoading || saving}
+                  disabled={!canManageConfig || configLoading || saving}
                 />
               </label>
               <label className="flex flex-col gap-1 text-sm">
@@ -2446,7 +3463,7 @@ function SystemConfig({
                   value={config.llm_agent_timeout}
                   onChange={handleChange('llm_agent_timeout')}
                   placeholder="2m"
-                  disabled={configLoading || saving}
+                  disabled={!canManageConfig || configLoading || saving}
                 />
               </label>
             <label className="flex items-center gap-2 text-sm md:col-span-2">
@@ -2455,7 +3472,7 @@ function SystemConfig({
                 type="checkbox"
                 checked={config.auto_removal_agent_container}
                 onChange={handleChange('auto_removal_agent_container')}
-                disabled={configLoading || saving}
+                disabled={!canManageConfig || configLoading || saving}
               />
               <span>Auto-remove agent containers</span>
             </label>
@@ -2477,7 +3494,7 @@ function SystemConfig({
                 value={config.agent_nopsai_api_url}
                 onChange={handleChange('agent_nopsai_api_url')}
                 placeholder="http://agent:8080"
-                disabled={configLoading || saving}
+                disabled={!canManageConfig || configLoading || saving}
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
@@ -2489,7 +3506,7 @@ function SystemConfig({
                 value={config.git_bot_nopsai_api_url}
                 onChange={handleChange('git_bot_nopsai_api_url')}
                 placeholder="http://gitbot:8080"
-                disabled={configLoading || saving}
+                disabled={!canManageConfig || configLoading || saving}
               />
             </label>
             <label className="flex flex-col gap-1 text-sm md:col-span-2">
@@ -2501,7 +3518,7 @@ function SystemConfig({
                 value={config.nopsai_git_bot_api_url}
                 onChange={handleChange('nopsai_git_bot_api_url')}
                 placeholder="http://nopsai-gitbot:8080"
-                disabled={configLoading || saving}
+                disabled={!canManageConfig || configLoading || saving}
               />
             </label>
           </div>
@@ -2519,7 +3536,7 @@ function SystemConfig({
         <button className="glass-button-ghost" type="button" onClick={() => void onReload()} disabled={configLoading || saving}>
           Reload
         </button>
-        <button className="glass-button-primary" type="button" onClick={() => void onSave()} disabled={configLoading || saving}>
+        <button className="glass-button-primary" type="button" onClick={() => void onSave()} disabled={!canManageConfig || configLoading || saving}>
           {saving ? 'Saving…' : 'Save settings'}
         </button>
       </div>
@@ -2534,6 +3551,7 @@ function DispatcherPanel({
   pendingActions,
   onRefresh,
   onToggleRunnerDispatch,
+  canManageDispatcher,
 }: {
   loading: boolean;
   error: string | null;
@@ -2541,6 +3559,7 @@ function DispatcherPanel({
   pendingActions: Set<string>;
   onRefresh: () => void;
   onToggleRunnerDispatch: (runner: Runner) => Promise<void>;
+  canManageDispatcher: boolean;
 }) {
   const runners = status?.runners ?? [];
   const runnerCount = runners.length;
@@ -2579,6 +3598,7 @@ function DispatcherPanel({
               runner={runner}
               pendingActions={pendingActions}
               onToggleDispatch={onToggleRunnerDispatch}
+              canManageDispatcher={canManageDispatcher}
             />
           ))}
         </div>
@@ -2605,11 +3625,13 @@ function RunnerCard({
   runner,
   pendingActions,
   onToggleDispatch,
+  canManageDispatcher,
 }: {
   nowMs: number;
   runner: Runner;
   pendingActions: Set<string>;
   onToggleDispatch: (runner: Runner) => Promise<void>;
+  canManageDispatcher: boolean;
 }) {
   const stale = isStale(nowMs, runner.lastHeartbeatUnix);
   const paused = !runner.allowDispatch;
@@ -2645,7 +3667,7 @@ function RunnerCard({
           <button
             type="button"
             className={`${toggleTone} text-xs ${pending ? 'opacity-60 cursor-wait' : ''}`}
-            disabled={pending}
+            disabled={!canManageDispatcher || pending}
             onClick={() => void onToggleDispatch(runner)}
           >
             {actionLabel}
