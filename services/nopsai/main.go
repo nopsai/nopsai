@@ -40,9 +40,11 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 	"gopkg.in/yaml.v3"
 
+	"nopsai/services/nopsai/pkg/aaaclient"
 	"nopsai/services/nopsai/pkg/audit"
 	"nopsai/services/nopsai/pkg/auth"
 	"nopsai/services/nopsai/pkg/authz"
+	"nopsai/services/nopsai/pkg/routeauthz"
 	"nopsai/services/nopsai/pkg/store"
 	"nopsai/services/nopsai/pkg/validation"
 )
@@ -73,6 +75,7 @@ type App struct {
 	envFilePath      string
 
 	authService   *auth.Service
+	aaaClient     *aaaclient.Client
 	authz         *authz.Enforcer
 	auditLogger   *audit.Logger
 	tokenActivity sync.Map
@@ -563,26 +566,43 @@ func (a *App) authzMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if a.authz == nil {
-			next.ServeHTTP(w, r)
-			return
-		}
 		claims, ok := auth.ClaimsFromContext(r.Context())
 		if !ok {
 			http.Error(w, "missing claims", http.StatusUnauthorized)
 			return
 		}
-		if isTrustedInternalDispatcherRequest(r) {
-			next.ServeHTTP(w, r)
+
+		subject := a.buildAAASubject(claims)
+		ctx := withAAASubject(r.Context(), subject)
+		if isAuthenticatedOnlyPath(r.URL.Path) {
+			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
-		obj := r.URL.Path
-		act := r.Method
-		if !a.authz.EnforceRoles(claims.Roles, obj, act) {
+		if a.aaaClient == nil {
+			http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		action, resource, requiresFilter, err := routeauthz.MapRequest(r)
+		if err != nil {
+			http.Error(w, "invalid authorization mapping", http.StatusBadRequest)
+			return
+		}
+		if action == "" || requiresFilter {
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+
+		decision, err := a.aaaClient.Check(ctx, subject, action, resource, a.aaaRequestContext(r))
+		if err != nil {
+			http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if !decision.Allowed {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -2349,6 +2369,7 @@ func main() {
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to load RBAC policies")
 	}
+	aaaClient := aaaclient.New(cfg.AAAAPIURL, cfg.AAASharedToken)
 	auditLogger := audit.NewLogger(dbpool)
 
 	app := &App{
@@ -2361,6 +2382,7 @@ func main() {
 		configPath:  configPath,
 		envFilePath: envFilePath,
 		authService: authService,
+		aaaClient:   aaaClient,
 		authz:       authzEnforcer,
 		auditLogger: auditLogger,
 		configSyncStatus: ConfigSyncStatus{

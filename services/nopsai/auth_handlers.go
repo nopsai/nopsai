@@ -18,6 +18,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"nopsai/pkg/httpapi"
+	"nopsai/services/aaa/pkg/model"
 	"nopsai/services/nopsai/pkg/auth"
 )
 
@@ -116,22 +117,31 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 	if claims == nil {
 		return &authCapabilitiesResponse{}
 	}
-	if a == nil || a.authz == nil {
-		return &authCapabilitiesResponse{
-			Pipelines: authResourceCapabilities{Write: true, Delete: true},
-			Steps:     authResourceCapabilities{Write: true, Delete: true},
-		}
+	if a == nil || a.aaaClient == nil {
+		return &authCapabilitiesResponse{}
 	}
+
+	subject := a.buildAAASubject(claims)
+	pipelineWrite := a.checkCapability(subject, "pipeline.update", model.ResourceRef{Type: "pipeline", ID: "*"})
+	if !pipelineWrite {
+		pipelineWrite = a.checkCapability(subject, "pipeline.create", model.ResourceRef{Type: "pipeline", ID: "*"})
+	}
+
 	return &authCapabilitiesResponse{
 		Pipelines: authResourceCapabilities{
-			Write:  a.authz.EnforceRoles(claims.Roles, "/v1/pipelines/__capability_probe__", http.MethodPut),
-			Delete: a.authz.EnforceRoles(claims.Roles, "/v1/pipelines/__capability_probe__", http.MethodDelete),
+			Write:  pipelineWrite,
+			Delete: a.checkCapability(subject, "pipeline.delete", model.ResourceRef{Type: "pipeline", ID: "*"}),
 		},
 		Steps: authResourceCapabilities{
-			Write:  a.authz.EnforceRoles(claims.Roles, "/v1/steps/__capability_probe__", http.MethodPut),
-			Delete: a.authz.EnforceRoles(claims.Roles, "/v1/steps/__capability_probe__", http.MethodDelete),
+			Write:  a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "steps"}),
+			Delete: a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "steps"}),
 		},
 	}
+}
+
+func (a *App) checkCapability(subject model.Subject, action string, resource model.ResourceRef) bool {
+	decision, err := a.aaaClient.Check(context.Background(), subject, action, resource, nil)
+	return err == nil && decision.Allowed
 }
 
 func (a *App) handleAuthChangePassword(w http.ResponseWriter, r *http.Request) {
