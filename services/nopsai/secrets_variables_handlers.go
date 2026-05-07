@@ -21,6 +21,8 @@ import (
 
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
+	"nopsai/services/aaa/pkg/model"
+	"nopsai/services/nopsai/pkg/routeauthz"
 )
 
 func (a *App) encrypt(text string) (string, error) {
@@ -97,30 +99,16 @@ func (a *App) handleListGeneralVariables(w http.ResponseWriter, r *http.Request)
 		UpdatedAt string `json:"updated_at,omitempty"`
 	}
 
-	nameSet := make(map[string]struct{})
-	var names []string
-	var items []variableListItem
-
-	addEntry := func(name, source string, createdAt, updatedAt time.Time) {
-		trimmed := strings.TrimSpace(name)
-		if trimmed == "" {
-			return
-		}
-		if _, exists := nameSet[trimmed]; exists {
-			return
-		}
-		nameSet[trimmed] = struct{}{}
-		if includeSource {
-			items = append(items, variableListItem{
-				Name:      trimmed,
-				Source:    normalizeVariableSourceKey(source),
-				CreatedAt: createdAt.Format(time.RFC3339),
-				UpdatedAt: updatedAt.Format(time.RFC3339),
-			})
-		} else {
-			names = append(names, trimmed)
-		}
+	type variableCandidate struct {
+		repoName  string
+		name      string
+		source    string
+		createdAt time.Time
+		updatedAt time.Time
+		resource  model.ResourceRef
 	}
+
+	var candidates []variableCandidate
 
 	for rows.Next() {
 		var name, source string
@@ -130,7 +118,13 @@ func (a *App) handleListGeneralVariables(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "Failed to process variables", http.StatusInternalServerError)
 			return
 		}
-		addEntry(name, source, createdAt, updatedAt)
+		candidates = append(candidates, variableCandidate{
+			name:      name,
+			source:    source,
+			createdAt: createdAt,
+			updatedAt: updatedAt,
+			resource:  routeauthz.BuildVariableResource("", scope, name),
+		})
 	}
 
 	rows.Close()
@@ -158,11 +152,58 @@ func (a *App) handleListGeneralVariables(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		repo := strings.TrimSpace(repoName)
-		name := strings.TrimSpace(varName)
-		if repo == "" || name == "" {
+		varName = strings.TrimSpace(varName)
+		if repo == "" || varName == "" {
 			continue
 		}
-		addEntry(repo+"/"+name, source, createdAt, updatedAt)
+		candidates = append(candidates, variableCandidate{
+			repoName:  repo,
+			name:      varName,
+			source:    source,
+			createdAt: createdAt,
+			updatedAt: updatedAt,
+			resource:  routeauthz.BuildVariableResource(repo, scope, varName),
+		})
+	}
+
+	resources := make([]model.ResourceRef, 0, len(candidates))
+	for _, candidate := range candidates {
+		resources = append(resources, candidate.resource)
+	}
+	allowedSet, err := a.allowedResourceSet(r, "variable.list_metadata", resources)
+	if err != nil {
+		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	nameSet := make(map[string]struct{})
+	var names []string
+	var items []variableListItem
+	for _, candidate := range candidates {
+		if _, ok := allowedSet[resourceKey(candidate.resource)]; !ok {
+			continue
+		}
+		displayName := strings.TrimSpace(candidate.name)
+		if candidate.repoName != "" {
+			displayName = candidate.repoName + "/" + displayName
+		}
+		if displayName == "" {
+			continue
+		}
+		if _, exists := nameSet[displayName]; exists {
+			continue
+		}
+		nameSet[displayName] = struct{}{}
+		if includeSource {
+			items = append(items, variableListItem{
+				Name:      displayName,
+				Source:    normalizeVariableSourceKey(candidate.source),
+				CreatedAt: candidate.createdAt.Format(time.RFC3339),
+				UpdatedAt: candidate.updatedAt.Format(time.RFC3339),
+			})
+		} else {
+			names = append(names, displayName)
+		}
 	}
 
 	sort.Slice(names, func(i, j int) bool {
@@ -341,6 +382,7 @@ func (a *App) handleListRepoVariables(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	var names []string
+	var resources []model.ResourceRef
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
@@ -349,11 +391,26 @@ func (a *App) handleListRepoVariables(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		names = append(names, name)
+		resources = append(resources, routeauthz.BuildVariableResource(fullName, scope, name))
+	}
+
+	allowedSet, err := a.allowedResourceSet(r, "variable.list_metadata", resources)
+	if err != nil {
+		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	filtered := make([]string, 0, len(names))
+	for idx, name := range names {
+		if _, ok := allowedSet[resourceKey(resources[idx])]; !ok {
+			continue
+		}
+		filtered = append(filtered, name)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(names)
+	json.NewEncoder(w).Encode(filtered)
 }
 
 func (a *App) handleCreateOrUpdateRepoVariable(w http.ResponseWriter, r *http.Request) {
@@ -531,31 +588,15 @@ func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt string `json:"updated_at,omitempty"`
 	}
 
-	const defaultSecretSource = "database"
-	nameSet := make(map[string]struct{})
-	var names []string
-	var items []secretListItem
-
-	addEntry := func(name string, createdAt, updatedAt time.Time) {
-		trimmed := strings.TrimSpace(name)
-		if trimmed == "" {
-			return
-		}
-		if _, exists := nameSet[trimmed]; exists {
-			return
-		}
-		nameSet[trimmed] = struct{}{}
-		if includeSource {
-			items = append(items, secretListItem{
-				Name:      trimmed,
-				Source:    defaultSecretSource,
-				CreatedAt: createdAt.Format(time.RFC3339),
-				UpdatedAt: updatedAt.Format(time.RFC3339),
-			})
-		} else {
-			names = append(names, trimmed)
-		}
+	type secretCandidate struct {
+		repoName  string
+		name      string
+		createdAt time.Time
+		updatedAt time.Time
+		resource  model.ResourceRef
 	}
+
+	var candidates []secretCandidate
 
 	condition := "scope IS NULL"
 	args := []interface{}{}
@@ -580,7 +621,12 @@ func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to process secrets", http.StatusInternalServerError)
 			return
 		}
-		addEntry(name, createdAt, updatedAt)
+		candidates = append(candidates, secretCandidate{
+			name:      name,
+			createdAt: createdAt,
+			updatedAt: updatedAt,
+			resource:  routeauthz.BuildSecretResource("", env, name),
+		})
 	}
 	rows.Close()
 
@@ -607,13 +653,60 @@ func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		repo := strings.TrimSpace(repoName)
-		name := strings.TrimSpace(secretName)
-		if repo == "" || name == "" {
+		secretName = strings.TrimSpace(secretName)
+		if repo == "" || secretName == "" {
 			continue
 		}
-		addEntry(repo+"/"+name, createdAt, updatedAt)
+		candidates = append(candidates, secretCandidate{
+			repoName:  repo,
+			name:      secretName,
+			createdAt: createdAt,
+			updatedAt: updatedAt,
+			resource:  routeauthz.BuildSecretResource(repo, env, secretName),
+		})
 	}
 	rows.Close()
+
+	resources := make([]model.ResourceRef, 0, len(candidates))
+	for _, candidate := range candidates {
+		resources = append(resources, candidate.resource)
+	}
+	allowedSet, err := a.allowedResourceSet(r, "secret.list_metadata", resources)
+	if err != nil {
+		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	const defaultSecretSource = "database"
+	nameSet := make(map[string]struct{})
+	var names []string
+	var items []secretListItem
+	for _, candidate := range candidates {
+		if _, ok := allowedSet[resourceKey(candidate.resource)]; !ok {
+			continue
+		}
+		displayName := strings.TrimSpace(candidate.name)
+		if candidate.repoName != "" {
+			displayName = candidate.repoName + "/" + displayName
+		}
+		if displayName == "" {
+			continue
+		}
+		if _, exists := nameSet[displayName]; exists {
+			continue
+		}
+		nameSet[displayName] = struct{}{}
+		if includeSource {
+			items = append(items, secretListItem{
+				Name:      displayName,
+				Source:    defaultSecretSource,
+				CreatedAt: candidate.createdAt.Format(time.RFC3339),
+				UpdatedAt: candidate.updatedAt.Format(time.RFC3339),
+			})
+		} else {
+			names = append(names, displayName)
+		}
+	}
 
 	if includeSource {
 		w.Header().Set("Content-Type", "application/json")
@@ -817,6 +910,7 @@ func (a *App) handleListRepoSecrets(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	var secretNames []string
+	var resources []model.ResourceRef
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
@@ -825,11 +919,26 @@ func (a *App) handleListRepoSecrets(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		secretNames = append(secretNames, name)
+		resources = append(resources, routeauthz.BuildSecretResource(fullName, env, name))
+	}
+
+	allowedSet, err := a.allowedResourceSet(r, "secret.list_metadata", resources)
+	if err != nil {
+		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	filtered := make([]string, 0, len(secretNames))
+	for idx, name := range secretNames {
+		if _, ok := allowedSet[resourceKey(resources[idx])]; !ok {
+			continue
+		}
+		filtered = append(filtered, name)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(secretNames)
+	json.NewEncoder(w).Encode(filtered)
 }
 
 func (a *App) handleCreateOrUpdateRepoSecret(w http.ResponseWriter, r *http.Request) {
