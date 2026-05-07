@@ -5,7 +5,7 @@ export type StepDraft = {
   updatedAt: string;
 };
 
-export const STEP_DRAFTS_STORAGE_KEY = 'nopsai:steps:drafts:v1';
+const STEP_DRAFTS_STORAGE_PREFIX = 'nopsai:steps:drafts:v2';
 export const STEP_DRAFTS_CHANGED_EVENT = 'nopsai:steps:drafts:changed';
 
 function notifyDraftsChanged() {
@@ -38,9 +38,20 @@ function safeParse(raw: string): unknown {
   }
 }
 
-export function loadStepDrafts(): StepDraft[] {
+function normalizeScope(scope: string): string {
+  return encodeURIComponent(scope.trim());
+}
+
+export function getStepDraftStorageKey(scope: string): string {
+  const normalizedScope = normalizeScope(scope);
+  return normalizedScope ? `${STEP_DRAFTS_STORAGE_PREFIX}:${normalizedScope}` : STEP_DRAFTS_STORAGE_PREFIX;
+}
+
+export function loadStepDrafts(scope: string): StepDraft[] {
   if (typeof window === 'undefined') return [];
-  const raw = localStorage.getItem(STEP_DRAFTS_STORAGE_KEY);
+  const normalizedScope = scope.trim();
+  if (!normalizedScope) return [];
+  const raw = localStorage.getItem(getStepDraftStorageKey(normalizedScope));
   if (!raw) return [];
   const parsed = safeParse(raw);
   if (Array.isArray(parsed)) {
@@ -54,30 +65,32 @@ export function loadStepDrafts(): StepDraft[] {
   return [];
 }
 
-export function saveStepDrafts(drafts: StepDraft[]) {
+export function saveStepDrafts(drafts: StepDraft[], scope: string) {
   if (typeof window === 'undefined') return;
+  const normalizedScope = scope.trim();
+  if (!normalizedScope) return;
   const unique = new Map<string, StepDraft>();
   drafts.forEach(draft => {
     const normalized = normalizeDraft(draft);
     if (normalized) unique.set(normalized.id, normalized);
   });
   const sorted = Array.from(unique.values()).sort((a, b) => a.id.localeCompare(b.id));
-  localStorage.setItem(STEP_DRAFTS_STORAGE_KEY, JSON.stringify(sorted));
+  localStorage.setItem(getStepDraftStorageKey(normalizedScope), JSON.stringify(sorted));
   notifyDraftsChanged();
 }
 
-export function getStepDraft(id: string): StepDraft | null {
+export function getStepDraft(id: string, scope: string): StepDraft | null {
   const normalizedId = id.trim();
   if (!normalizedId) return null;
-  const drafts = loadStepDrafts();
+  const drafts = loadStepDrafts(scope);
   return drafts.find(draft => draft.id === normalizedId) || null;
 }
 
-export function upsertStepDraft(next: { id: string; yaml: string }): StepDraft[] {
+export function upsertStepDraft(next: { id: string; yaml: string }, scope: string): StepDraft[] {
   const normalizedId = next.id.trim();
-  if (!normalizedId) return loadStepDrafts();
+  if (!normalizedId) return loadStepDrafts(scope);
   const now = new Date().toISOString();
-  const drafts = loadStepDrafts();
+  const drafts = loadStepDrafts(scope);
   const existing = drafts.find(draft => draft.id === normalizedId);
   const updated: StepDraft = {
     id: normalizedId,
@@ -87,15 +100,14 @@ export function upsertStepDraft(next: { id: string; yaml: string }): StepDraft[]
   };
   const merged = drafts.filter(draft => draft.id !== normalizedId);
   merged.push(updated);
-  saveStepDrafts(merged);
+  saveStepDrafts(merged, scope);
   return merged;
 }
 
-export function deleteStepDraft(id: string): StepDraft[] {
+export function deleteStepDraft(id: string, scope: string): StepDraft[] {
   const normalizedId = id.trim();
-  if (!normalizedId) return loadStepDrafts();
-  const drafts = loadStepDrafts().filter(draft => draft.id !== normalizedId);
-  saveStepDrafts(drafts);
+  if (!normalizedId) return loadStepDrafts(scope);
+  const drafts = loadStepDrafts(scope).filter(draft => draft.id !== normalizedId);
+  saveStepDrafts(drafts, scope);
   return drafts;
 }
-

@@ -4,8 +4,8 @@ import yaml from 'js-yaml';
 import { buildApiUrl } from '../lib/api';
 import {
   STEP_DRAFTS_CHANGED_EVENT,
-  STEP_DRAFTS_STORAGE_KEY,
   deleteStepDraft,
+  getStepDraftStorageKey,
   loadStepDrafts,
   type StepDraft,
   upsertStepDraft,
@@ -101,6 +101,12 @@ type TreeNode = {
   fullPath: string;
   children: TreeNode[];
   stepIds: string[];
+};
+
+type StepsPageProps = {
+  draftScope: string;
+  canWriteSteps: boolean;
+  canDeleteSteps: boolean;
 };
 
 type ValidationError = {
@@ -359,7 +365,7 @@ function validateStepYaml(rawYaml: string, opts?: { expectedName?: string }): Va
   return { errors: [] };
 }
 
-function StepsPage() {
+function StepsPage({ draftScope, canWriteSteps, canDeleteSteps }: StepsPageProps) {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -905,14 +911,20 @@ function StepsPage() {
   }, []);
 
   useEffect(() => {
-    setDraftSteps(loadStepDrafts());
-  }, []);
+    if (!canWriteSteps || !draftScope) {
+      setDraftSteps([]);
+      return;
+    }
+    setDraftSteps(loadStepDrafts(draftScope));
+  }, [canWriteSteps, draftScope]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const refreshDrafts = () => setDraftSteps(loadStepDrafts());
+    if (!canWriteSteps || !draftScope) return;
+    const storageKey = getStepDraftStorageKey(draftScope);
+    const refreshDrafts = () => setDraftSteps(loadStepDrafts(draftScope));
     const onStorage = (event: StorageEvent) => {
-      if (event.key !== STEP_DRAFTS_STORAGE_KEY) return;
+      if (event.key !== storageKey) return;
       refreshDrafts();
     };
     window.addEventListener(STEP_DRAFTS_CHANGED_EVENT, refreshDrafts);
@@ -921,7 +933,7 @@ function StepsPage() {
       window.removeEventListener(STEP_DRAFTS_CHANGED_EVENT, refreshDrafts);
       window.removeEventListener('storage', onStorage);
     };
-  }, []);
+  }, [canWriteSteps, draftScope]);
 
   const steps = useMemo(() => {
     const merged = new Map<string, StepListItem>();
@@ -999,13 +1011,14 @@ function StepsPage() {
 
   useEffect(() => {
     if (!detail || !isEditing) return;
+    if (!canWriteSteps || !draftScope) return;
     if (normalizeSource(detail.source) !== 'draft') return;
     const draftId = detail.id;
     const handle = window.setTimeout(() => {
-      setDraftSteps(upsertStepDraft({ id: draftId, yaml: editorValue }));
+      setDraftSteps(upsertStepDraft({ id: draftId, yaml: editorValue }, draftScope));
     }, 800);
     return () => window.clearTimeout(handle);
-  }, [detail, editorValue, isEditing]);
+  }, [canWriteSteps, detail, draftScope, editorValue, isEditing]);
 
   useEffect(() => {
     if (!isEditing) return;
@@ -1157,6 +1170,10 @@ function StepsPage() {
 
   const handleSave = async () => {
     if (!detail || !editorValue.trim()) return;
+    if (!canWriteSteps) {
+      addToast('You have read-only access to steps.', 'info');
+      return;
+    }
     if (normalizeSource(detail.source) === 'git') {
       addToast('Git-managed steps are read-only. Clone it to create an editable draft.', 'info');
       return;
@@ -1179,7 +1196,7 @@ function StepsPage() {
       addToast('Step saved.', 'success');
       const wasDraft = normalizeSource(detail.source) === 'draft';
       if (wasDraft) {
-        setDraftSteps(deleteStepDraft(detail.id));
+        setDraftSteps(deleteStepDraft(detail.id, draftScope));
       }
       const resolvedSource = wasDraft ? 'database' : steps.find(item => item.id === detail.id)?.source;
       const savedAt = new Date().toISOString();
@@ -1196,8 +1213,18 @@ function StepsPage() {
     }
   };
 
-  const openCreateModal = () => setFormModal({ mode: 'create', path: activeFolder, name: '', pending: false });
+  const openCreateModal = () => {
+    if (!canWriteSteps) {
+      addToast('You have read-only access to steps.', 'info');
+      return;
+    }
+    setFormModal({ mode: 'create', path: activeFolder, name: '', pending: false });
+  };
   const openCloneModal = () => {
+    if (!canWriteSteps) {
+      addToast('You have read-only access to steps.', 'info');
+      return;
+    }
     if (!detail) {
       addToast('Select a step to clone.', 'info');
       return;
@@ -1214,6 +1241,10 @@ function StepsPage() {
 
   const submitFormModal = async () => {
     if (!formModal) return;
+    if (!canWriteSteps || !draftScope) {
+      setFormModal(prev => (prev ? { ...prev, error: 'You have read-only access to steps.' } : prev));
+      return;
+    }
     const identifier = buildIdentifier(formModal.path, formModal.name);
     if (!identifier) {
       setFormModal(prev => (prev ? { ...prev, error: 'Step name is required.' } : prev));
@@ -1237,7 +1268,7 @@ function StepsPage() {
         formModal.mode === 'clone' && formModal.baseYaml
           ? updateYamlName(formModal.baseYaml, formModal.name.trim())
           : buildTemplateYaml(formModal.name.trim());
-      setDraftSteps(upsertStepDraft({ id: identifier, yaml: yamlBody }));
+      setDraftSteps(upsertStepDraft({ id: identifier, yaml: yamlBody }, draftScope));
       addToast(`Draft step ${formModal.mode === 'create' ? 'created' : 'cloned'}.`, 'success');
       setFormModal(null);
       handleSelect(identifier);
@@ -1254,12 +1285,19 @@ function StepsPage() {
     setDeleteModal(prev => (prev ? { ...prev, pending: true, error: undefined } : prev));
     try {
       const source = steps.find(item => item.id === deleteModal.stepId)?.source;
-      if (normalizeSource(source) === 'git') {
+      const normalizedSource = normalizeSource(source);
+      if (normalizedSource === 'git') {
         throw new Error('This step is managed via Git. Clone it to customize instead of deleting.');
       }
-      if (normalizeSource(source) === 'draft') {
-        setDraftSteps(deleteStepDraft(deleteModal.stepId));
+      if (normalizedSource === 'draft') {
+        if (!canWriteSteps || !draftScope) {
+          throw new Error('You have read-only access to steps.');
+        }
+        setDraftSteps(deleteStepDraft(deleteModal.stepId, draftScope));
       } else {
+        if (!canDeleteSteps) {
+          throw new Error('You do not have permission to delete steps.');
+        }
         const response = await fetch(buildApiUrl(`/v1/steps/${encodeId(deleteModal.stepId)}`), { method: 'DELETE' });
         if (!response.ok) {
           const text = await response.text();
@@ -1283,6 +1321,7 @@ function StepsPage() {
   const renderStepCard = (step: StepListItem) => {
     const { name, path } = splitIdentifier(step.id);
     const source = normalizeSource(step.source);
+    const canDeleteThisStep = source === 'draft' ? canWriteSteps : canDeleteSteps && source !== 'git';
     return (
       <article
         key={step.id}
@@ -1305,24 +1344,24 @@ function StepsPage() {
             </div>
           </div>
           <div className="pipeline-card-actions">
-            <button
-              type="button"
-              className="pipelines-delete-button"
-              aria-disabled={source === 'git'}
-              title={source === 'git' ? 'This step is managed via Git. Clone it to customize.' : 'Delete step'}
-              onClick={event => {
-                event.stopPropagation();
-                if (source === 'git') return;
-                setDeleteModal({ stepId: step.id, stepName: name || step.id, pending: false });
-              }}
-              aria-label="Delete step"
-            >
-              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6" />
-                <path d="M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
-                <path d="M4 7h16" />
-              </svg>
-            </button>
+            {canDeleteThisStep ? (
+              <button
+                type="button"
+                className="pipelines-delete-button"
+                title={source === 'draft' ? 'Discard draft' : 'Delete step'}
+                onClick={event => {
+                  event.stopPropagation();
+                  setDeleteModal({ stepId: step.id, stepName: name || step.id, pending: false });
+                }}
+                aria-label={source === 'draft' ? 'Discard draft step' : 'Delete step'}
+              >
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6" />
+                  <path d="M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                  <path d="M4 7h16" />
+                </svg>
+              </button>
+            ) : null}
           </div>
         </div>
         <div className="pipeline-card-meta">
@@ -1392,7 +1431,9 @@ function StepsPage() {
             {!visibleSteps.length && !activeFolderNode.children.length && (
               <div id="steps-empty" className="pipelines-empty">
                 <h3 className="text-base font-semibold text-[var(--text-primary)]">No steps found</h3>
-                <p className="text-sm text-[var(--text-secondary)]">Create a new step or adjust your filters.</p>
+                <p className="text-sm text-[var(--text-secondary)]">
+                  {canWriteSteps ? 'Create a new step or adjust your filters.' : 'Adjust your filters or check your access.'}
+                </p>
               </div>
             )}
           </>
@@ -1476,7 +1517,7 @@ function StepsPage() {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                           </svg>
                         </button>
-                        {isGitSource ? (
+                        {!canWriteSteps ? null : isGitSource ? (
                           <button className="glass-button-primary" onClick={openCloneModal}>
                             Clone
                           </button>
@@ -1499,8 +1540,8 @@ function StepsPage() {
                             const resetYaml = editSessionOriginalYamlRef.current || detail.rawYaml;
                             setEditorSuggestion(null);
                             setEditorValue(resetYaml);
-                            if (normalizeSource(detail.source) === 'draft') {
-                              setDraftSteps(upsertStepDraft({ id: detail.id, yaml: resetYaml }));
+                            if (normalizeSource(detail.source) === 'draft' && draftScope) {
+                              setDraftSteps(upsertStepDraft({ id: detail.id, yaml: resetYaml }, draftScope));
                             }
                             setIsEditing(false);
                           }}
@@ -1796,11 +1837,13 @@ function StepsPage() {
                 </button>
               )}
             </div>
-            <button id="steps-new-btn" type="button" className="pipelines-icon-only" aria-label="Create new step" title="New Step" onClick={openCreateModal}>
-              <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v14M5 12h14" />
-              </svg>
-            </button>
+            {canWriteSteps ? (
+              <button id="steps-new-btn" type="button" className="pipelines-icon-only" aria-label="Create new step" title="New Step" onClick={openCreateModal}>
+                <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v14M5 12h14" />
+                </svg>
+              </button>
+            ) : null}
           </div>
         </div>
       )}

@@ -10,8 +10,8 @@ import SystemPage from './pages/System';
 import LoginPage from './pages/Login';
 import ProfilePage from './pages/Profile';
 import { buildApiUrl, clearSession, getStoredSession, setSelectedTenant, type StoredSession } from './lib/api';
-import { PIPELINE_DRAFTS_CHANGED_EVENT, PIPELINE_DRAFTS_STORAGE_KEY, loadPipelineDrafts } from './lib/pipelineDrafts';
-import { STEP_DRAFTS_CHANGED_EVENT, STEP_DRAFTS_STORAGE_KEY, loadStepDrafts } from './lib/stepDrafts';
+import { PIPELINE_DRAFTS_CHANGED_EVENT, getPipelineDraftStorageKey, loadPipelineDrafts } from './lib/pipelineDrafts';
+import { STEP_DRAFTS_CHANGED_EVENT, getStepDraftStorageKey, loadStepDrafts } from './lib/stepDrafts';
 
 type Theme = 'light' | 'dark';
 
@@ -65,6 +65,16 @@ type CurrentUser = {
   tenantIds?: string[];
   defaultTenant?: string;
   roles?: string[];
+  capabilities?: {
+    pipelines?: {
+      write?: boolean;
+      delete?: boolean;
+    };
+    steps?: {
+      write?: boolean;
+      delete?: boolean;
+    };
+  };
 };
 
 type AuthSession = StoredSession;
@@ -266,6 +276,25 @@ function AppShell() {
       })
       .then(data => {
         if (cancelled) return;
+        const capabilities =
+          data?.capabilities && typeof data.capabilities === 'object'
+            ? {
+                pipelines:
+                  data.capabilities.pipelines && typeof data.capabilities.pipelines === 'object'
+                    ? {
+                        write: Boolean(data.capabilities.pipelines.write),
+                        delete: Boolean(data.capabilities.pipelines.delete),
+                      }
+                    : undefined,
+                steps:
+                  data.capabilities.steps && typeof data.capabilities.steps === 'object'
+                    ? {
+                        write: Boolean(data.capabilities.steps.write),
+                        delete: Boolean(data.capabilities.steps.delete),
+                      }
+                    : undefined,
+              }
+            : undefined;
         setCurrentUser({
           sub: data?.sub || '',
           email: data?.email || '',
@@ -273,6 +302,7 @@ function AppShell() {
           tenantIds: Array.isArray(data?.tenant_ids) ? data.tenant_ids : undefined,
           defaultTenant: data?.default_tenant,
           roles: Array.isArray(data?.roles) ? data.roles : undefined,
+          capabilities,
         });
       })
       .catch(err => {
@@ -289,7 +319,7 @@ function AppShell() {
     return () => {
       cancelled = true;
     };
-  }, [authSession.accessToken]);
+  }, [authSession.accessToken, authSession.defaultTenant, selectedTenant]);
 
   useEffect(() => {
     if (!authSession.accessToken) return;
@@ -329,6 +359,18 @@ function AppShell() {
   const handleUserUpdated = useCallback((updates: Partial<CurrentUser>) => {
     setCurrentUser(prev => (prev ? { ...prev, ...updates } : prev));
   }, []);
+
+  const draftScope = useMemo(() => {
+    const sub = (authSession.sub || currentUser?.sub || '').trim();
+    if (!sub) return '';
+    const tenant = (selectedTenant || authSession.tenantId || authSession.defaultTenant || currentUser?.defaultTenant || '').trim();
+    return tenant ? `${sub}:${tenant}` : sub;
+  }, [authSession.defaultTenant, authSession.sub, authSession.tenantId, currentUser?.defaultTenant, currentUser?.sub, selectedTenant]);
+
+  const canWritePipelines = Boolean(currentUser?.capabilities?.pipelines?.write);
+  const canDeletePipelines = Boolean(currentUser?.capabilities?.pipelines?.delete);
+  const canWriteSteps = Boolean(currentUser?.capabilities?.steps?.write);
+  const canDeleteSteps = Boolean(currentUser?.capabilities?.steps?.delete);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -419,7 +461,7 @@ function AppShell() {
           : [];
         ids.sort((a, b) => a.localeCompare(b));
         serverPipelinesRef.current = ids;
-        const draftIds = loadPipelineDrafts().map(draft => draft.id);
+        const draftIds = canWritePipelines && draftScope ? loadPipelineDrafts(draftScope).map(draft => draft.id) : [];
         const merged = Array.from(new Set([...ids, ...draftIds])).sort((a, b) => a.localeCompare(b));
         setPipelines(merged);
       } catch (error) {
@@ -429,7 +471,7 @@ function AppShell() {
     if (location.pathname.startsWith('/pipelines')) {
       void load();
     }
-  }, [isAuthenticated, location.pathname]);
+  }, [canWritePipelines, draftScope, isAuthenticated, location.pathname]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -464,7 +506,7 @@ function AppShell() {
           : [];
         ids.sort((a, b) => a.localeCompare(b));
         serverStepsRef.current = ids;
-        const draftIds = loadStepDrafts().map(draft => draft.id);
+        const draftIds = canWriteSteps && draftScope ? loadStepDrafts(draftScope).map(draft => draft.id) : [];
         const merged = Array.from(new Set([...ids, ...draftIds])).sort((a, b) => a.localeCompare(b));
         setSteps(merged);
       } catch (error) {
@@ -474,18 +516,20 @@ function AppShell() {
     if (location.pathname.startsWith('/steps')) {
       void load();
     }
-  }, [isAuthenticated, location.pathname]);
+  }, [canWriteSteps, draftScope, isAuthenticated, location.pathname]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    if (!canWritePipelines || !draftScope) return;
+    const storageKey = getPipelineDraftStorageKey(draftScope);
     const handleDraftsChanged = () => {
       if (!location.pathname.startsWith('/pipelines')) return;
-      const draftIds = loadPipelineDrafts().map(draft => draft.id);
+      const draftIds = loadPipelineDrafts(draftScope).map(draft => draft.id);
       const merged = Array.from(new Set([...serverPipelinesRef.current, ...draftIds])).sort((a, b) => a.localeCompare(b));
       setPipelines(merged);
     };
     const handleStorage = (event: StorageEvent) => {
-      if (event.key !== PIPELINE_DRAFTS_STORAGE_KEY) return;
+      if (event.key !== storageKey) return;
       handleDraftsChanged();
     };
     window.addEventListener(PIPELINE_DRAFTS_CHANGED_EVENT, handleDraftsChanged);
@@ -494,18 +538,20 @@ function AppShell() {
       window.removeEventListener(PIPELINE_DRAFTS_CHANGED_EVENT, handleDraftsChanged);
       window.removeEventListener('storage', handleStorage);
     };
-  }, [location.pathname]);
+  }, [canWritePipelines, draftScope, location.pathname]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    if (!canWriteSteps || !draftScope) return;
+    const storageKey = getStepDraftStorageKey(draftScope);
     const handleDraftsChanged = () => {
       if (!location.pathname.startsWith('/steps')) return;
-      const draftIds = loadStepDrafts().map(draft => draft.id);
+      const draftIds = loadStepDrafts(draftScope).map(draft => draft.id);
       const merged = Array.from(new Set([...serverStepsRef.current, ...draftIds])).sort((a, b) => a.localeCompare(b));
       setSteps(merged);
     };
     const handleStorage = (event: StorageEvent) => {
-      if (event.key !== STEP_DRAFTS_STORAGE_KEY) return;
+      if (event.key !== storageKey) return;
       handleDraftsChanged();
     };
     window.addEventListener(STEP_DRAFTS_CHANGED_EVENT, handleDraftsChanged);
@@ -514,7 +560,7 @@ function AppShell() {
       window.removeEventListener(STEP_DRAFTS_CHANGED_EVENT, handleDraftsChanged);
       window.removeEventListener('storage', handleStorage);
     };
-  }, [location.pathname]);
+  }, [canWriteSteps, draftScope, location.pathname]);
 
   const title = useMemo(() => {
     const key = location.pathname.split('/').filter(Boolean)[0] || 'pipelineruns';
@@ -778,11 +824,17 @@ function AppShell() {
                 <Routes>
                   <Route path="/" element={<Navigate to="/pipelineruns/main" replace />} />
                   <Route path="/pipelineruns/:tab?" element={<PipelineRunsPage />} />
-                  <Route path="/pipelines/*" element={<PipelinesPage />} />
+                  <Route
+                    path="/pipelines/*"
+                    element={<PipelinesPage draftScope={draftScope} canWritePipelines={canWritePipelines} canDeletePipelines={canDeletePipelines} />}
+                  />
                   <Route path="/triggers/*" element={<TriggersPage />} />
                   <Route path="/scopes/*" element={<ScopesPage />} />
                   <Route path="/lab/*" element={<LabPage />} />
-                  <Route path="/steps/*" element={<StepsPage />} />
+                  <Route
+                    path="/steps/*"
+                    element={<StepsPage draftScope={draftScope} canWriteSteps={canWriteSteps} canDeleteSteps={canDeleteSteps} />}
+                  />
                   <Route path="/system/:tab?" element={<SystemPage />} />
                   <Route
                     path="/profile"

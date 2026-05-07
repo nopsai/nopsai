@@ -22,6 +22,7 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
         tenantId: tenantChoice,
         defaultTenant: resp.default_tenant,
         roles: resp.roles,
+        sub: resp.sub,
       });
       if (tenantChoice) setSelectedTenant(tenantChoice);
       onLogin();

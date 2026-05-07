@@ -6,6 +6,7 @@ const REFRESH_TOKEN_KEY = 'nopsai.auth.refresh';
 const TENANT_KEY = 'nopsai.auth.tenant';
 const DEFAULT_TENANT_KEY = 'nopsai.auth.default_tenant';
 const ROLES_KEY = 'nopsai.auth.roles';
+const SUB_KEY = 'nopsai.auth.sub';
 
 export type StoredSession = {
   accessToken?: string;
@@ -13,6 +14,7 @@ export type StoredSession = {
   tenantId?: string;
   defaultTenant?: string;
   roles?: string[];
+  sub?: string;
 };
 
 export function getApiBaseUrl(): string {
@@ -58,6 +60,7 @@ export function getStoredSession(): StoredSession {
     tenantId: localStorage.getItem(TENANT_KEY) || undefined,
     defaultTenant: localStorage.getItem(DEFAULT_TENANT_KEY) || undefined,
     roles,
+    sub: localStorage.getItem(SUB_KEY) || undefined,
   };
 }
 
@@ -66,7 +69,14 @@ function dispatchAuthChanged() {
   window.dispatchEvent(new Event('nopsai-auth-changed'));
 }
 
-export function persistSession(session: { accessToken: string; refreshToken?: string; tenantId?: string; defaultTenant?: string; roles?: string[] }) {
+export function persistSession(session: {
+  accessToken: string;
+  refreshToken?: string;
+  tenantId?: string;
+  defaultTenant?: string;
+  roles?: string[];
+  sub?: string;
+}) {
   if (typeof localStorage === 'undefined') return;
   localStorage.setItem(AUTH_TOKEN_KEY, session.accessToken);
   if (session.refreshToken) localStorage.setItem(REFRESH_TOKEN_KEY, session.refreshToken);
@@ -75,6 +85,9 @@ export function persistSession(session: { accessToken: string; refreshToken?: st
   if (tenant) localStorage.setItem(TENANT_KEY, tenant);
   if (session.defaultTenant) localStorage.setItem(DEFAULT_TENANT_KEY, session.defaultTenant);
   if (session.roles) localStorage.setItem(ROLES_KEY, JSON.stringify(session.roles));
+  else localStorage.removeItem(ROLES_KEY);
+  if (session.sub) localStorage.setItem(SUB_KEY, session.sub);
+  else localStorage.removeItem(SUB_KEY);
   dispatchAuthChanged();
 }
 
@@ -85,6 +98,7 @@ export function clearSession() {
   localStorage.removeItem(TENANT_KEY);
   localStorage.removeItem(DEFAULT_TENANT_KEY);
   localStorage.removeItem(ROLES_KEY);
+  localStorage.removeItem(SUB_KEY);
   dispatchAuthChanged();
 }
 
@@ -127,6 +141,7 @@ export function installAuthInterceptor() {
           tenantId: tenantChoice,
           defaultTenant: payload?.default_tenant,
           roles: Array.isArray(payload?.roles) ? payload.roles : current.roles,
+          sub: typeof payload?.sub === 'string' ? payload.sub : current.sub,
         });
         return getStoredSession();
       })()
