@@ -153,6 +153,11 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		case http.MethodDelete:
 			return "variable.delete", resource, false, nil
 		}
+	case strings.HasPrefix(path, "/v1/repositories/") && strings.Contains(path, "/branches/") && r.Method == http.MethodDelete:
+		return "pipeline_run.delete", model.ResourceRef{
+			Type: "repository",
+			ID:   buildRepositoryID(r.PathValue("repoOwner"), r.PathValue("repoName")),
+		}, false, nil
 	case strings.HasPrefix(path, "/v1/repositories/") && strings.HasSuffix(path, "/branches") && r.Method == http.MethodGet:
 		return "system.read", model.ResourceRef{Type: "repository", ID: buildRepositoryID(r.PathValue("repoOwner"), r.PathValue("repoName"))}, false, nil
 	case path == "/v1/steps" && r.Method == http.MethodGet:
