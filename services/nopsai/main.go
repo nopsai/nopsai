@@ -129,11 +129,26 @@ type authLoginResponse struct {
 type authCapabilitiesResponse struct {
 	Pipelines authResourceCapabilities `json:"pipelines"`
 	Steps     authResourceCapabilities `json:"steps"`
+	Triggers  authReadCapabilities     `json:"triggers"`
+	Scopes    authReadCapabilities     `json:"scopes"`
+	System    authSystemCapabilities   `json:"system"`
 }
 
 type authResourceCapabilities struct {
 	Write  bool `json:"write"`
 	Delete bool `json:"delete"`
+}
+
+type authReadCapabilities struct {
+	Read bool `json:"read"`
+}
+
+type authSystemCapabilities struct {
+	ConfigRead      bool `json:"config_read"`
+	ConfigWrite     bool `json:"config_write"`
+	DispatcherRead  bool `json:"dispatcher_read"`
+	DispatcherWrite bool `json:"dispatcher_write"`
+	Access          bool `json:"access"`
 }
 
 type authChangePasswordRequest struct {
@@ -178,10 +193,13 @@ type userRoleRequest struct {
 }
 
 type createRoleRequest struct {
-	Role   string `json:"role"`
-	Name   string `json:"name"`
-	Object string `json:"obj"`
-	Action string `json:"act"`
+	Role         string `json:"role"`
+	Name         string `json:"name"`
+	Object       string `json:"obj"`
+	Action       string `json:"act"`
+	Effect       string `json:"effect"`
+	ResourceType string `json:"resource_type"`
+	ResourceID   string `json:"resource_id"`
 }
 
 // Keep these local for now if not in models

@@ -117,9 +117,16 @@ func (a *App) handleListTriggerOverrides(w http.ResponseWriter, r *http.Request)
 		Source string `json:"source"`
 	}
 
+	type triggerEntry struct {
+		name     string
+		source   string
+		resource model.ResourceRef
+	}
+
 	var (
 		repoNames []string
 		items     []triggerOverrideItem
+		entries   []triggerEntry
 	)
 
 	for rows.Next() {
@@ -144,15 +151,43 @@ func (a *App) handleListTriggerOverrides(w http.ResponseWriter, r *http.Request)
 			default:
 				source = "database"
 			}
-			items = append(items, triggerOverrideItem{Name: name, Source: source})
+			entries = append(entries, triggerEntry{
+				name:     name,
+				source:   source,
+				resource: routeauthz.BuildTriggerResource("", name),
+			})
 		} else {
 			if err := rows.Scan(&name); err != nil {
 				log.Error().Err(err).Msg("Failed to scan repository name")
 				http.Error(w, "Failed to process trigger overrides", http.StatusInternalServerError)
 				return
 			}
-			repoNames = append(repoNames, name)
+			entries = append(entries, triggerEntry{
+				name:     name,
+				resource: routeauthz.BuildTriggerResource("", name),
+			})
 		}
+	}
+
+	resources := make([]model.ResourceRef, 0, len(entries))
+	for _, entry := range entries {
+		resources = append(resources, entry.resource)
+	}
+	allowedSet, err := a.allowedResourceSet(r, "trigger.read", resources)
+	if err != nil {
+		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	for _, entry := range entries {
+		if _, ok := allowedSet[resourceKey(entry.resource)]; !ok {
+			continue
+		}
+		if includeSource {
+			items = append(items, triggerOverrideItem{Name: entry.name, Source: entry.source})
+			continue
+		}
+		repoNames = append(repoNames, entry.name)
 	}
 
 	w.Header().Set("Content-Type", "application/json")

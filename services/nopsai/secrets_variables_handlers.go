@@ -5,7 +5,6 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -224,7 +223,11 @@ func (a *App) handleListGeneralVariables(w http.ResponseWriter, r *http.Request)
 
 func (a *App) handleListVariableScopes(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
-	rows, err := a.db.Query(ctx, "SELECT DISTINCT scope FROM variables WHERE repository_name IS NULL")
+	rows, err := a.db.Query(ctx, `
+		SELECT COALESCE(repository_name, ''), COALESCE(scope, ''), name
+		FROM variables
+		ORDER BY repository_name ASC NULLS FIRST, scope ASC NULLS FIRST, name ASC
+	`)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query scope list from database")
 		http.Error(w, "Failed to retrieve scopes", http.StatusInternalServerError)
@@ -232,27 +235,54 @@ func (a *App) handleListVariableScopes(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	scopeSet := make(map[string]struct{})
-	scopeSet[""] = struct{}{}
+	type variableScopeCandidate struct {
+		scope    string
+		resource model.ResourceRef
+	}
+
+	var candidates []variableScopeCandidate
 
 	for rows.Next() {
-		var env sql.NullString
-		if err := rows.Scan(&env); err != nil {
+		var repoName, scope, name string
+		if err := rows.Scan(&repoName, &scope, &name); err != nil {
 			log.Error().Err(err).Msg("Failed to scan scope name")
 			http.Error(w, "Failed to process scopes", http.StatusInternalServerError)
 			return
 		}
-		value := ""
-		if env.Valid {
-			value = strings.TrimSpace(env.String)
+		repoName = strings.TrimSpace(repoName)
+		scope = strings.TrimSpace(scope)
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
 		}
-		scopeSet[value] = struct{}{}
+		candidates = append(candidates, variableScopeCandidate{
+			scope:    scope,
+			resource: routeauthz.BuildVariableResource(repoName, scope, name),
+		})
 	}
 
 	if err := rows.Err(); err != nil {
 		log.Error().Err(err).Msg("Failed during scope iteration")
 		http.Error(w, "Failed to process scopes", http.StatusInternalServerError)
 		return
+	}
+
+	resources := make([]model.ResourceRef, 0, len(candidates))
+	for _, candidate := range candidates {
+		resources = append(resources, candidate.resource)
+	}
+	allowedSet, err := a.allowedResourceSet(r, "variable.list_metadata", resources)
+	if err != nil {
+		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	scopeSet := make(map[string]struct{})
+	for _, candidate := range candidates {
+		if _, ok := allowedSet[resourceKey(candidate.resource)]; !ok {
+			continue
+		}
+		scopeSet[candidate.scope] = struct{}{}
 	}
 
 	scopes := make([]string, 0, len(scopeSet))
@@ -733,10 +763,9 @@ type SecretScopeSummary struct {
 
 func (a *App) handleListSecretScopes(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query(context.Background(), `
-		SELECT COALESCE(scope, '') AS scope_value, COUNT(*) AS secret_count
+		SELECT COALESCE(repository_name, ''), COALESCE(scope, ''), name
 		FROM secrets
-		GROUP BY scope_value
-		ORDER BY scope_value NULLS FIRST`)
+		ORDER BY repository_name ASC NULLS FIRST, scope ASC NULLS FIRST, name ASC`)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query secret scopes from database")
 		http.Error(w, "Failed to retrieve secret scopes", http.StatusInternalServerError)
@@ -744,28 +773,54 @@ func (a *App) handleListSecretScopes(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	scopeCounts := make(map[string]int)
-	scopeCounts[""] = 0
+	type secretScopeCandidate struct {
+		scope    string
+		resource model.ResourceRef
+	}
+
+	var candidates []secretScopeCandidate
 
 	for rows.Next() {
-		var env sql.NullString
-		var count int
-		if scanErr := rows.Scan(&env, &count); scanErr != nil {
+		var repoName, scope, name string
+		if scanErr := rows.Scan(&repoName, &scope, &name); scanErr != nil {
 			log.Error().Err(scanErr).Msg("Failed to scan secret scope row")
 			http.Error(w, "Failed to process secret scopes", http.StatusInternalServerError)
 			return
 		}
-		envValue := ""
-		if env.Valid {
-			envValue = strings.TrimSpace(env.String)
+		repoName = strings.TrimSpace(repoName)
+		scope = strings.TrimSpace(scope)
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
 		}
-		scopeCounts[envValue] += count
+		candidates = append(candidates, secretScopeCandidate{
+			scope:    scope,
+			resource: routeauthz.BuildSecretResource(repoName, scope, name),
+		})
 	}
 
 	if err := rows.Err(); err != nil {
 		log.Error().Err(err).Msg("Failed during secret scope iteration")
 		http.Error(w, "Failed to process secret scopes", http.StatusInternalServerError)
 		return
+	}
+
+	resources := make([]model.ResourceRef, 0, len(candidates))
+	for _, candidate := range candidates {
+		resources = append(resources, candidate.resource)
+	}
+	allowedSet, err := a.allowedResourceSet(r, "secret.list_metadata", resources)
+	if err != nil {
+		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	scopeCounts := make(map[string]int)
+	for _, candidate := range candidates {
+		if _, ok := allowedSet[resourceKey(candidate.resource)]; !ok {
+			continue
+		}
+		scopeCounts[candidate.scope]++
 	}
 
 	scopes := make([]SecretScopeSummary, 0, len(scopeCounts))
