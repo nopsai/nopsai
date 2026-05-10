@@ -165,7 +165,6 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
   const [policiesLoading, setPoliciesLoading] = useState(false);
   const [policiesError, setPoliciesError] = useState<string | null>(null);
   const [newUser, setNewUser] = useState({ sub: '', email: '', password: '', roles: [] as string[] });
-  const [newRole, setNewRole] = useState({ userId: '', role: '' });
   const [newPermission, setNewPermission] = useState({ name: '', obj: 'pipeline:*', act: 'pipeline.read' });
   const [ensuringDefaultAdmin, setEnsuringDefaultAdmin] = useState(false);
 
@@ -397,28 +396,6 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
       }
     },
     [addToast, fetchJson, loadUsers, newUser.email, newUser.password, newUser.roles, newUser.sub]
-  );
-
-  const assignRole = useCallback(
-    async (e: FormEvent<HTMLFormElement>) => {
-      e.preventDefault();
-      try {
-        await fetchJson('/v1/admin/user-roles', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            user_id: newRole.userId.trim(),
-            role: newRole.role.trim(),
-          }),
-        });
-        addToast('Role added', 'success');
-        setNewRole({ userId: '', role: '' });
-        await loadUsers();
-      } catch (error) {
-        addToast(error instanceof Error ? error.message : 'Failed to add role', 'error');
-      }
-    },
-    [addToast, fetchJson, loadUsers, newRole.role, newRole.userId]
   );
 
   const createPermission = useCallback(
@@ -947,12 +924,9 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
           policiesLoading={policiesLoading}
           policiesError={policiesError}
           newUser={newUser}
-          newRole={newRole}
           policyTemplates={policyTemplates}
           onChangeUser={setNewUser}
-          onChangeRole={setNewRole}
           onCreateUser={createUser}
-          onAssignRole={assignRole}
           onReloadUsers={loadUsers}
           onReloadPolicies={loadPolicies}
           onCreatePermission={createPermission}
@@ -997,6 +971,114 @@ const policyName = (obj: string, act: string) => {
 const policyLabel = (input: { name?: string; obj: string; act: string }) =>
   (input.name && input.name.trim()) || policyName(input.obj, input.act);
 const isDefaultAdmin = (roleName: string) => roleName === DEFAULT_ADMIN_ROLE;
+
+type AccessPresetID = 'viewer' | 'developer' | 'owner' | 'admin';
+
+const ACCESS_ROLE_PRESETS: Array<{
+  id: AccessPresetID;
+  label: string;
+  description: string;
+}> = [
+  {
+    id: 'viewer',
+    label: 'Viewer',
+    description: 'Read-only access to folders, pipelines, runs, logs, triggers, and metadata.',
+  },
+  {
+    id: 'developer',
+    label: 'Developer',
+    description: 'Viewer access plus create, update, execute, and write access for day-to-day delivery work.',
+  },
+  {
+    id: 'owner',
+    label: 'Owner',
+    description: 'Developer access plus deletes, secret reads, and ACL management inside an owned scope.',
+  },
+  {
+    id: 'admin',
+    label: 'Admin',
+    description: 'Platform-wide access through the normal AAA path, with sensitive actions still audited.',
+  },
+];
+
+const ACCESS_SECTION_CONTENT: Record<
+  'users' | 'roles' | 'policies',
+  { title: string; description: string; searchPlaceholder: string; resultsLabel: string }
+> = {
+  users: {
+    title: 'People and accounts',
+    description: 'See who can sign in, what they can do, and which accounts still need access assigned.',
+    searchPlaceholder: 'Search by username, email, or role',
+    resultsLabel: 'people',
+  },
+  roles: {
+    title: 'Reusable role bundles',
+    description: 'Shape access around simple roles like viewer and developer, then map those bundles to people.',
+    searchPlaceholder: 'Search roles, included policies, or assigned users',
+    resultsLabel: 'roles',
+  },
+  policies: {
+    title: 'Underlying AAA rules',
+    description: 'Low-level resource and action rules that power your friendlier product roles.',
+    searchPlaceholder: 'Search policies, resources, actions, or role names',
+    resultsLabel: 'policies',
+  },
+};
+
+const accessPresetIDForRole = (roleName: string): AccessPresetID | null => {
+  const normalized = (roleName || '').trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === DEFAULT_ADMIN_ROLE || normalized === 'admin' || normalized.endsWith('-admin')) return 'admin';
+  if (normalized === 'owner' || normalized.endsWith('-owner')) return 'owner';
+  if (normalized === 'developer' || normalized.endsWith('-developer')) return 'developer';
+  if (normalized === 'viewer' || normalized.endsWith('-viewer')) return 'viewer';
+  return null;
+};
+
+const accessPresetForRole = (roleName: string) => {
+  const presetID = accessPresetIDForRole(roleName);
+  return presetID ? ACCESS_ROLE_PRESETS.find(preset => preset.id === presetID) ?? null : null;
+};
+
+const accessPresetToneClass = (roleName: string) => {
+  const presetID = accessPresetIDForRole(roleName);
+  return presetID ? `access-chip--tone-${presetID}` : 'access-chip--muted';
+};
+
+const matchesAccessSearch = (query: string, ...values: Array<string | undefined>) => {
+  if (!query) return true;
+  return values.some(value => (value || '').toLowerCase().includes(query));
+};
+
+const formatAccessCount = (count: number, singular: string, plural = `${singular}s`) => `${count} ${count === 1 ? singular : plural}`;
+
+const formatAccessResourceSummary = (value: string) => {
+  const { resourceType, resourceID } = parseAAAResourceSelector(value);
+  if (!resourceType || resourceType === '*') return 'all resources';
+  const config = getAAAResourceTypeConfig(resourceType);
+  const label = (config?.label || resourceType).toLowerCase();
+  if (!resourceID || resourceID === '*') return `all ${label}`;
+  return `${label} ${resourceID}`;
+};
+
+const formatAccessActionSummary = (value: string) => {
+  const parsed = parseAAAActionValue(value);
+  const label = actionLabelFromAAAValue(parsed.action || value) || parsed.action || value || 'action';
+  return parsed.effect === 'deny' ? `deny ${label}` : label;
+};
+
+const summarizeRoleCoverage = (policies: RolePermission[]) => {
+  const labels = Array.from(
+    new Set(
+      policies.map(policy => {
+        const { resourceType } = parseAAAResourceSelector(policy.obj);
+        if (!resourceType || resourceType === '*') return 'All resources';
+        return getAAAResourceTypeConfig(resourceType)?.label || resourceType;
+      })
+    )
+  );
+  return labels.slice(0, 4);
+};
 
 const normalizeAdminPolicies = (records: RolePermission[]): RolePermission[] => {
   const deduped = records.filter((entry, idx, arr) => idx === arr.findIndex(other => policyKey(other) === policyKey(entry)));
@@ -1980,12 +2062,9 @@ function AccessPanel({
   policiesLoading,
   policiesError,
   newUser,
-  newRole,
   policyTemplates,
   onChangeUser,
-  onChangeRole,
   onCreateUser,
-  onAssignRole,
   onReloadUsers,
   onCreatePermission,
   newPermission,
@@ -2006,12 +2085,9 @@ function AccessPanel({
   policiesLoading: boolean;
   policiesError: string | null;
   newUser: { sub: string; email: string; password: string; roles: string[] };
-  newRole: { userId: string; role: string };
   policyTemplates: RolePermission[];
   onChangeUser: (next: { sub: string; email: string; password: string; roles: string[] }) => void;
-  onChangeRole: (next: { userId: string; role: string }) => void;
   onCreateUser: (e: FormEvent<HTMLFormElement>) => Promise<void>;
-  onAssignRole: (e: FormEvent<HTMLFormElement>) => Promise<void>;
   onReloadUsers: () => void;
   onCreatePermission: (e: FormEvent<HTMLFormElement>) => Promise<void>;
   newPermission: { name: string; obj: string; act: string };
@@ -2027,7 +2103,6 @@ function AccessPanel({
 }) {
   const [activeSection, setActiveSection] = useState<'users' | 'roles' | 'policies'>('users');
   const [showUserModal, setShowUserModal] = useState(false);
-  const [showRoleModal, setShowRoleModal] = useState(false);
   const [showPolicyModal, setShowPolicyModal] = useState(false);
   const [roleEditor, setRoleEditor] = useState<{
     mode: 'create' | 'edit';
@@ -2055,6 +2130,10 @@ function AccessPanel({
   const [savingRoleEditor, setSavingRoleEditor] = useState(false);
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [savingUserAccess, setSavingUserAccess] = useState(false);
+  const [creatingUserInline, setCreatingUserInline] = useState(false);
+  const [creatingPolicyInline, setCreatingPolicyInline] = useState(false);
+  const [awaitingUserCreateReset, setAwaitingUserCreateReset] = useState(false);
+  const [awaitingPolicyCreateReset, setAwaitingPolicyCreateReset] = useState(false);
   const [resourceCatalog, setResourceCatalog] = useState<AAAResourceCatalog>({
     folderOptions: [],
     pipelineOptions: [],
@@ -2127,26 +2206,31 @@ function AccessPanel({
     { id: 'policies', label: 'Policies', count: policyTemplates.length },
   ] as const;
 
-  const actionLabel = activeSection === 'users' ? 'New user' : activeSection === 'roles' ? 'New role' : 'New policy';
+  const openCreateRoleEditor = useCallback(() => {
+    setNextPolicyKey('');
+    setRoleEditor({
+      mode: 'create',
+      role: '',
+      policies: [],
+    });
+  }, []);
 
-  const openCreateRoleEditor = useCallback(
-    () =>
-      setRoleEditor({
-        mode: 'create',
-        role: '',
-        policies: [],
-      }),
-    []
-  );
+  const openCreateUserEditor = useCallback(() => {
+    setNextUserRole('');
+    setAwaitingUserCreateReset(false);
+    setUserAccessEditor(null);
+    setShowUserModal(true);
+  }, []);
 
-  const openActiveModal = () => {
-    if (activeSection === 'users') setShowUserModal(true);
-    else if (activeSection === 'roles') openCreateRoleEditor();
-    else setShowPolicyModal(true);
-  };
+  const openCreatePolicyEditor = useCallback(() => {
+    setAwaitingPolicyCreateReset(false);
+    setPolicyEditor(null);
+    setShowPolicyModal(true);
+  }, []);
 
   const openEditRoleEditor = (role: RoleDefinition) => {
     if (isDefaultAdmin(role.role)) return;
+    setShowPolicyModal(false);
     setRoleEditor({
       mode: 'edit',
       role: role.role,
@@ -2157,6 +2241,8 @@ function AccessPanel({
 
   const openPolicyEditModal = (policy: RolePermission) => {
     if (isDefaultAdmin(policy.role)) return;
+    setAwaitingPolicyCreateReset(false);
+    setShowPolicyModal(false);
     setPolicyEditor({
       original: policy,
       role: policy.role,
@@ -2167,6 +2253,8 @@ function AccessPanel({
   };
 
   const openUserAccessModal = (user: UserSummary) => {
+    setAwaitingUserCreateReset(false);
+    setShowUserModal(false);
     const entries = (user.roles || []).map(role => role.role);
     const nextEntries = entries.length > 0 ? entries : [];
     setUserAccessEditor({
@@ -2330,6 +2418,62 @@ function AccessPanel({
   const [nextPolicyKey, setNextPolicyKey] = useState('');
   const [nextUserRole, setNextUserRole] = useState('');
   const [nextAccessRole, setNextAccessRole] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const searchQuery = searchTerm.trim().toLowerCase();
+
+  const sectionContent = ACCESS_SECTION_CONTENT[activeSection];
+  const filteredUsers = useMemo(() => {
+    if (!searchQuery) return users;
+    return users.filter(user =>
+      matchesAccessSearch(
+        searchQuery,
+        user.sub,
+        user.email,
+        user.status,
+        (user.roles || []).map(role => role.role).join(' ')
+      )
+    );
+  }, [searchQuery, users]);
+
+  const filteredRoleDefinitions = useMemo(() => {
+    if (!searchQuery) return roleDefinitions;
+    return roleDefinitions.filter(role => {
+      const assignedUsers = roleUserMap.get(role.id) || [];
+      const preset = accessPresetForRole(role.role);
+      return matchesAccessSearch(
+        searchQuery,
+        role.role,
+        preset?.label,
+        preset?.description,
+        role.policies.map(policy => `${policyLabel(policy)} ${policy.obj} ${policy.act}`).join(' '),
+        assignedUsers.map(item => `${item.user} ${item.email}`).join(' ')
+      );
+    });
+  }, [roleDefinitions, roleUserMap, searchQuery]);
+
+  const filteredPolicyTemplates = useMemo(() => {
+    if (!searchQuery) return policyTemplates;
+    return policyTemplates.filter(policy =>
+      matchesAccessSearch(
+        searchQuery,
+        policy.role,
+        policy.name,
+        policy.obj,
+        policy.act,
+        policyLabel(policy),
+        formatAccessResourceSummary(policy.obj),
+        formatAccessActionSummary(policy.act)
+      )
+    );
+  }, [policyTemplates, searchQuery]);
+
+  const visibleResultsCount =
+    activeSection === 'users' ? filteredUsers.length : activeSection === 'roles' ? filteredRoleDefinitions.length : filteredPolicyTemplates.length;
+  const totalResultsCount = activeSection === 'users' ? users.length : activeSection === 'roles' ? roleDefinitions.length : policyTemplates.length;
+  const roleEditorPreset = roleEditor ? accessPresetForRole(roleEditor.role) : null;
+  const isNewUserPristine = !newUser.sub.trim() && !newUser.email.trim() && !newUser.password && (newUser.roles || []).length === 0;
+  const isNewPolicyPristine =
+    !newPermission.name.trim() && newPermission.obj.trim() === 'pipeline:*' && newPermission.act.trim() === 'pipeline.read';
 
   useEffect(() => {
     let cancelled = false;
@@ -2401,6 +2545,49 @@ function AccessPanel({
     setNextAccessRole('');
   }, [userAccessEditor]);
 
+  useEffect(() => {
+    setSearchTerm('');
+    setShowUserModal(false);
+    setShowPolicyModal(false);
+    setRoleEditor(null);
+    setPolicyEditor(null);
+    setUserAccessEditor(null);
+    setAwaitingUserCreateReset(false);
+    setAwaitingPolicyCreateReset(false);
+  }, [activeSection]);
+
+  useEffect(() => {
+    if (!showUserModal || !awaitingUserCreateReset || !isNewUserPristine) return;
+    setShowUserModal(false);
+    setAwaitingUserCreateReset(false);
+  }, [awaitingUserCreateReset, isNewUserPristine, showUserModal]);
+
+  useEffect(() => {
+    if (!showPolicyModal || !awaitingPolicyCreateReset || !isNewPolicyPristine) return;
+    setShowPolicyModal(false);
+    setAwaitingPolicyCreateReset(false);
+  }, [awaitingPolicyCreateReset, isNewPolicyPristine, showPolicyModal]);
+
+  const handleCreateUserInline = async (e: FormEvent<HTMLFormElement>) => {
+    setCreatingUserInline(true);
+    setAwaitingUserCreateReset(true);
+    try {
+      await onCreateUser(e);
+    } finally {
+      setCreatingUserInline(false);
+    }
+  };
+
+  const handleCreatePolicyInline = async (e: FormEvent<HTMLFormElement>) => {
+    setCreatingPolicyInline(true);
+    setAwaitingPolicyCreateReset(true);
+    try {
+      await onCreatePermission(e);
+    } finally {
+      setCreatingPolicyInline(false);
+    }
+  };
+
   const openConfirmDialog = (message: string, onConfirm: () => Promise<void> | void) => {
     setConfirmDialog({ message, onConfirm });
   };
@@ -2443,14 +2630,37 @@ function AccessPanel({
 
   return (
     <div className="access-layout space-y-5 pb-24">
-      <div className="glass-card p-5 border border-[var(--border-primary)] rounded-2xl space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="space-y-1">
-            <p className="text-xs uppercase tracking-[0.12em] text-[var(--text-secondary)]">Access control</p>
-            <h3 className="text-xl font-semibold text-[var(--text-primary)]">Users, roles, policies</h3>
-            <p className="text-sm text-[var(--text-secondary)]">Define AAA resource rules, bundle them into roles, and grant users access.</p>
+      <div className="glass-card p-5 border border-[var(--border-primary)] rounded-2xl space-y-5">
+        <div className="access-header">
+          <div className="space-y-2">
+            <p className="text-xs uppercase tracking-[0.16em] text-[var(--text-secondary)]">Access control</p>
+            <h3 className="access-header__title">Users, roles, policies</h3>
+            <p className="access-header__text">
+              Manage access with simple roles like <code>viewer</code> and <code>developer</code>. Use policies only when you need raw AAA
+              detail.
+            </p>
+          </div>
+          <div className="access-header__actions">
+            <button
+              className="glass-button-ghost access-toolbar-btn"
+              type="button"
+              onClick={handleRefresh}
+              disabled={loading || policiesLoading}
+            >
+              <RefreshIcon />
+              <span>Refresh</span>
+            </button>
           </div>
         </div>
+        <div className="access-role-legend">
+          {ACCESS_ROLE_PRESETS.map(preset => (
+            <span key={preset.id} className={`access-chip ${accessPresetToneClass(preset.id)}`}>
+              {preset.label}
+            </span>
+          ))}
+          <span className="access-role-legend__text">Prefer these names in the UI. Low-level AAA rules stay available in Policies.</span>
+        </div>
+
         <div className="access-nav">
           <div className="access-tabs">
             {tabItems.map(tab => (
@@ -2461,262 +2671,713 @@ function AccessPanel({
                 onClick={() => setActiveSection(tab.id)}
               >
                 <span className="access-tab__label">{tab.label}</span>
-                <span className="access-tab__badge">
-                  {tab.id === 'policies' ? policyCount : tab.count}
-                </span>
+                <span className="access-tab__badge">{tab.id === 'policies' ? policyCount : tab.count}</span>
               </button>
             ))}
           </div>
-          <div className="access-tab-actions">
-            <button
-              className="access-icon-btn access-icon-btn--plain"
-              type="button"
-              onClick={openActiveModal}
-              title={actionLabel}
-              aria-label={actionLabel}
-            >
-              <PlusIcon />
-            </button>
-            <button
-              className="access-icon-btn access-icon-btn--plain"
-              type="button"
-              onClick={handleRefresh}
-              disabled={loading}
-              title="Refresh"
-              aria-label="Refresh"
-            >
-              <RefreshIcon />
-            </button>
-          </div>
+          <label className="access-search">
+            <SearchIcon />
+            <input
+              className="pipelines-input access-search__input"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              placeholder={sectionContent.searchPlaceholder}
+              aria-label={sectionContent.searchPlaceholder}
+            />
+          </label>
         </div>
 
-        {activeSection === 'users' && (
-          <div className="space-y-4">
-            {error && <div className="text-sm text-red-500">Failed to load users: {error}</div>}
-            {loading ? (
-              <div className="access-empty-card">
-                <p className="font-medium text-[var(--text-primary)]">Loading users…</p>
-                <p className="text-sm text-[var(--text-secondary)]">Fetching directory entries.</p>
+        <div className="access-panel-card">
+          <div className="access-section-header">
+            <div className="space-y-1">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--text-tertiary)]">{tabItems.find(tab => tab.id === activeSection)?.label}</p>
+              <h4 className="text-lg font-semibold text-[var(--text-primary)]">{sectionContent.title}</h4>
+              <p className="text-sm text-[var(--text-secondary)]">{sectionContent.description}</p>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="access-chip access-chip--muted">
+                {visibleResultsCount} of {totalResultsCount} {sectionContent.resultsLabel}
+              </span>
+              {searchQuery && (
+                <button type="button" className="access-inline-btn access-inline-btn--pill" onClick={() => setSearchTerm('')}>
+                  Clear search
+                </button>
+              )}
+            </div>
+          </div>
+
+          {activeSection === 'users' && (
+            <div className="access-workspace">
+              <div className="space-y-4 access-workspace__list">
+                {error && <div className="access-error-banner">Failed to load users: {error}</div>}
+                {loading ? (
+                  <div className="access-empty-card">
+                    <p className="font-medium text-[var(--text-primary)]">Loading people…</p>
+                    <p className="text-sm text-[var(--text-secondary)]">Fetching directory entries and current role assignments.</p>
+                  </div>
+                ) : users.length === 0 ? (
+                  <div className="access-empty-card">
+                    <p className="font-medium text-[var(--text-primary)]">No users yet</p>
+                    <p className="text-sm text-[var(--text-secondary)]">Create a local account, then assign a product role like viewer or developer.</p>
+                  </div>
+                ) : filteredUsers.length === 0 ? (
+                  <div className="access-empty-card">
+                    <p className="font-medium text-[var(--text-primary)]">No people match this search</p>
+                    <p className="text-sm text-[var(--text-secondary)]">Try a username, email address, or one of the assigned roles.</p>
+                  </div>
+                ) : (
+                  <div className="access-entity-grid access-entity-grid--users">
+                    {filteredUsers.map(user => {
+                      const userRoles = user.roles || [];
+                      const isSelected = userAccessEditor?.user.id === user.id;
+                      return (
+                        <article key={user.id} className={`access-card access-card--user ${isSelected ? 'access-card--selected' : ''}`}>
+                          <div className="access-card__header">
+                            <div className="min-w-0 flex items-center gap-3">
+                              <div className="access-avatar">{(user.sub || user.email || 'U').charAt(0).toUpperCase()}</div>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="access-card__title">{user.sub}</p>
+                                  <span className={`access-status access-status--${statusKey(user.status)}`}>{user.status || 'unknown'}</span>
+                                </div>
+                                <p className="access-card__subtitle">{user.email || 'No email address'}</p>
+                                <p className="access-card__meta-line">
+                                  {user.last_login ? `Last sign-in ${formatTimestamp(user.last_login)}` : 'Never signed in'}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="access-card__actions">
+                              <button type="button" className="access-card-action" title="Manage access" onClick={() => openUserAccessModal(user)}>
+                                <EditIcon />
+                                <span>Edit</span>
+                              </button>
+                              <button
+                                type="button"
+                                className="access-card-action access-card-action--danger"
+                                title="Delete user"
+                                onClick={() => confirmDeleteUser(user.id)}
+                                disabled={loading}
+                              >
+                                <TrashIcon />
+                                <span>Delete</span>
+                              </button>
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <p className="access-card__label">Access roles</p>
+                            <div className="flex flex-wrap gap-2">
+                              {userRoles.length > 0 ? (
+                                userRoles.map(role => (
+                                  <span key={`${user.id}-${role.role}`} className={`access-chip ${accessPresetToneClass(role.role)}`}>
+                                    {role.role}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-sm text-[var(--text-secondary)]">No roles assigned yet</span>
+                              )}
+                            </div>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            ) : users.length === 0 ? (
-              <div className="access-empty-card">
-                <p className="font-medium text-[var(--text-primary)]">No users yet</p>
-                <p className="text-sm text-[var(--text-secondary)]">Start by creating a local account.</p>
-              </div>
-            ) : (
-              <div className="glass-card p-0 border border-[var(--border-primary)] rounded-xl overflow-hidden">
-                <div className="grid grid-cols-[1.4fr,1.2fr,1.1fr,0.8fr,auto] text-[11px] uppercase tracking-[0.08em] text-[var(--text-tertiary)] px-4 py-3 bg-[var(--bg-tertiary)] border-b border-[var(--border-primary)]">
-                  <span>User</span>
-                  <span>Email</span>
-                  <span>Roles</span>
-                  <span className="text-center">Status</span>
-                  <span className="text-right">Manage</span>
-                </div>
-                <div className="divide-y divide-[var(--border-primary)]">
-                  {users.map(user => {
-                    const userRoles = user.roles || [];
-                    return (
-                      <div
-                        key={user.id}
-                        className="grid grid-cols-[1.4fr,1.2fr,1.1fr,0.8fr,auto] items-center px-4 py-3 gap-3 text-sm text-[var(--text-primary)] access-row"
-                      >
-                        <div className="min-w-0 flex items-center gap-3">
-                          <div className="access-avatar access-avatar--sm">{(user.sub || user.email || 'U').charAt(0).toUpperCase()}</div>
-                          <div className="min-w-0">
-                            <p className="font-semibold truncate">{user.sub}</p>
-                            <p className="text-[11px] text-[var(--text-secondary)] truncate">
-                              {user.last_login ? new Date(user.last_login).toLocaleString() : 'Never signed in'}
-                            </p>
+              <aside className="access-editor-pane">
+                {userAccessEditor ? (
+                  <div className="access-editor-surface">
+                    <div className="access-editor-header">
+                      <div>
+                        <p className="access-editor-kicker">Edit user</p>
+                        <h5 className="access-editor-title">{userAccessEditor.user.sub}</h5>
+                        <p className="access-editor-text">Update account details and assign the smallest role set that still works.</p>
+                      </div>
+                      <button type="button" className="access-inline-btn access-inline-btn--pill" onClick={() => setUserAccessEditor(null)}>
+                        Close
+                      </button>
+                    </div>
+                    <form className="access-editor-form" onSubmit={handleSaveUserAccess}>
+                      <div className="access-editor-grid">
+                        <label className="access-minimal-label">
+                          <span>Email</span>
+                          <input
+                            className="pipelines-input"
+                            type="email"
+                            value={userAccessEditor.email}
+                            onChange={e => setUserAccessEditor(prev => (prev ? { ...prev, email: e.target.value } : prev))}
+                            placeholder="name@example.com"
+                          />
+                        </label>
+                        <label className="access-minimal-label">
+                          <span>Status</span>
+                          <select
+                            className="pipelines-input"
+                            value={userAccessEditor.status}
+                            onChange={e => setUserAccessEditor(prev => (prev ? { ...prev, status: e.target.value } : prev))}
+                            disabled={userAccessEditor.user.sub === 'admin'}
+                          >
+                            <option value="active">Active</option>
+                            <option value="disabled">Disabled</option>
+                          </select>
+                        </label>
+                      </div>
+                      <label className="access-minimal-label">
+                        <span>New password</span>
+                        <input
+                          className="pipelines-input"
+                          type="password"
+                          value={userAccessEditor.password}
+                          onChange={e => setUserAccessEditor(prev => (prev ? { ...prev, password: e.target.value } : prev))}
+                          placeholder="Leave blank to keep current password"
+                        />
+                      </label>
+                      <div className="access-editor-section">
+                        <div className="access-minimal-section__header">
+                          <p className="text-sm font-medium text-[var(--text-primary)]">Roles</p>
+                          <span className="text-[11px] text-[var(--text-secondary)]">Add or remove assignments</span>
+                        </div>
+                        <div className="space-y-2">
+                          {userAccessEditor.entries.length === 0 && <p className="text-[12px] text-[var(--text-secondary)]">No roles assigned yet.</p>}
+                          {userAccessEditor.entries.map((entry, idx) => {
+                            const protectedAdmin = isDefaultAdmin(entry) && userAccessEditor.user.sub === 'admin';
+                            const label = protectedAdmin ? 'Protected admin role' : 'Remove assignment';
+                            return (
+                              <div key={`user-role-${idx}`} className="access-minimal-row justify-between">
+                                <span className={`access-chip ${accessPresetToneClass(entry)}`}>{entry || 'Role'}</span>
+                                <button
+                                  type="button"
+                                  className={`access-inline-btn access-inline-btn--danger access-role-remove ${protectedAdmin ? 'opacity-60 cursor-not-allowed' : ''}`}
+                                  onClick={() => removeUserAccessEntry(idx)}
+                                  title={label}
+                                  aria-label={label}
+                                  disabled={protectedAdmin}
+                                >
+                                  <TrashIcon />
+                                </button>
+                              </div>
+                            );
+                          })}
+                          <div className="access-editor-inline-add">
+                            <select className="pipelines-input w-full" value={nextAccessRole} onChange={e => setNextAccessRole(e.target.value)}>
+                              <option value="">{allRoleOptions.length === 0 ? 'No roles available' : 'Select a role'}</option>
+                              {allRoleOptions.map(role => (
+                                <option key={`access-role-${role}`} value={role}>
+                                  {role}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              className="glass-button-subtle"
+                              onClick={addUserAccessEntry}
+                              disabled={!nextAccessRole || allRoleOptions.length === 0}
+                            >
+                              Add role
+                            </button>
                           </div>
                         </div>
-                        <span className="text-[var(--text-secondary)] truncate">{user.email || 'No email'}</span>
-                        <div className="flex flex-wrap gap-1.5">
-                          {userRoles.length ? (
-                            userRoles.slice(0, 3).map(role => (
-                              <span key={`${user.id}-${role.role}`} className="access-chip access-chip--muted">
-                                {role.role}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-xs text-[var(--text-secondary)]">No roles</span>
-                          )}
-                          {userRoles.length > 3 && (
-                            <span className="access-chip access-chip--muted">+ {userRoles.length - 3} more</span>
-                          )}
-                        </div>
-                        <div className="flex justify-center">
-                          <span className={`access-status access-status--${statusKey(user.status)}`}>{user.status}</span>
-                        </div>
-                        <div className="flex justify-end items-center gap-3">
-                          <button
-                            type="button"
-                            className="access-inline-btn"
-                            title="Manage access"
-                            onClick={() => openUserAccessModal(user)}
-                          >
-                            <EditIcon />
-                          </button>
-                          <button
-                            type="button"
-                            className="access-inline-btn access-inline-btn--danger"
-                            title="Delete user"
-                            onClick={() => confirmDeleteUser(user.id)}
-                            disabled={loading}
-                          >
-                            <TrashIcon />
-                          </button>
-                        </div>
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeSection === 'roles' && (
-          <div className="space-y-4">
-            {roleDefinitions.length === 0 ? (
-              <div className="access-empty-card">
-                <p className="font-medium text-[var(--text-primary)]">No roles yet</p>
-                <p className="text-sm text-[var(--text-secondary)]">Create a role and attach policies.</p>
-              </div>
-            ) : (
-              <div className="glass-card p-0 border border-[var(--border-primary)] rounded-xl overflow-hidden">
-                <div className="grid grid-cols-[1.5fr,1.4fr,1fr,auto] text-[11px] uppercase tracking-[0.08em] text-[var(--text-tertiary)] px-4 py-3 bg-[var(--bg-tertiary)] border-b border-[var(--border-primary)]">
-                  <span>Role</span>
-                  <span>Policies</span>
-                  <span>Users</span>
-                  <span className="text-right">Manage</span>
-                </div>
-                <div className="divide-y divide-[var(--border-primary)]">
-                  {roleDefinitions.map(role => {
-                    const assignedUsers = roleUserMap.get(role.id) || [];
-                    return (
-                      <div
-                        key={role.id}
-                        className="grid grid-cols-[1.5fr,1.4fr,1fr,auto] items-center px-4 py-3 gap-3 text-sm text-[var(--text-primary)] access-row"
+                      <div className="access-editor-footer">
+                        <button type="submit" className="glass-button-primary" disabled={savingUserAccess}>
+                          {savingUserAccess ? 'Saving…' : 'Save changes'}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                ) : showUserModal ? (
+                  <div className="access-editor-surface">
+                    <div className="access-editor-header">
+                      <div>
+                        <p className="access-editor-kicker">Create user</p>
+                        <h5 className="access-editor-title">New local account</h5>
+                        <p className="access-editor-text">Create the account and start with a small, understandable role set.</p>
+                      </div>
+                      <button
+                        type="button"
+                        className="access-inline-btn access-inline-btn--pill"
+                        onClick={() => {
+                          setAwaitingUserCreateReset(false);
+                          setShowUserModal(false);
+                        }}
                       >
-                        <div className="min-w-0">
-                          <p className="font-semibold truncate">{role.role}</p>
-                          <p className="text-[11px] text-[var(--text-secondary)] truncate">{role.policies.length} policy(ies)</p>
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {role.policies.slice(0, 3).map(policy => (
-                            <span key={policyKey(policy)} className="access-chip access-chip--muted">
-                              {policyLabel(policy)}
-                            </span>
-                          ))}
-                          {role.policies.length > 3 && (
-                            <span className="access-chip access-chip--muted">+ {role.policies.length - 3} more</span>
-                          )}
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {assignedUsers.slice(0, 3).map(item => (
-                            <span key={`${role.id}-${item.userId}`} className="access-chip access-chip--muted">
-                              {item.user}
-                            </span>
-                          ))}
-                          {assignedUsers.length > 3 && (
-                            <span className="access-chip access-chip--muted">+ {assignedUsers.length - 3} more</span>
-                          )}
-                          {assignedUsers.length === 0 && <span className="text-xs text-[var(--text-secondary)]">No users</span>}
-                        </div>
-                        <div className="flex justify-end items-center gap-3">
-                          <button
-                            type="button"
-                            className="access-inline-btn"
-                            title={isDefaultAdmin(role.role) ? 'Protected role' : 'Edit role policies'}
-                            onClick={() => openEditRoleEditor(role)}
-                            disabled={isDefaultAdmin(role.role)}
-                          >
-                            <EditIcon />
-                          </button>
-                          <button
-                            type="button"
-                            className="access-inline-btn access-inline-btn--danger"
-                            title={isDefaultAdmin(role.role) ? 'Protected role' : 'Delete role'}
-                            onClick={() => confirmDeleteRoleDefinition(role)}
-                            disabled={isDefaultAdmin(role.role)}
-                          >
-                            <TrashIcon />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeSection === 'policies' && (
-          <div className="space-y-4">
-            {policiesError && <div className="text-sm text-red-500">Failed to load policies: {policiesError}</div>}
-            {policiesLoading ? (
-              <div className="access-empty-card">
-                <p className="font-medium text-[var(--text-primary)]">Loading policies…</p>
-                <p className="text-sm text-[var(--text-secondary)]">Fetching policies.</p>
-              </div>
-            ) : policyTemplates.length === 0 ? (
-              <div className="access-empty-card">
-                <p className="font-medium text-[var(--text-primary)]">No policies yet</p>
-                <p className="text-sm text-[var(--text-secondary)]">Use the plus button to define a rule.</p>
-              </div>
-            ) : (
-              <div className="glass-card p-0 border border-[var(--border-primary)] rounded-xl overflow-hidden">
-                <div className="grid grid-cols-[1.4fr,1fr,1.1fr,1fr,auto] text-[11px] uppercase tracking-[0.08em] text-[var(--text-tertiary)] px-4 py-3 bg-[var(--bg-tertiary)] border-b border-[var(--border-primary)]">
-                  <span>Policy</span>
-                  <span>Role</span>
-                  <span>Resource</span>
-                  <span>Action</span>
-                  <span className="text-right">Manage</span>
-                </div>
-                <div className="divide-y divide-[var(--border-primary)]">
-                  {policyTemplates.map(policy => (
-                    <div
-                      key={`${policy.role}-${policy.obj}-${policy.act}`}
-                      className="grid grid-cols-[1.4fr,1fr,1.1fr,1fr,auto] items-center px-4 py-3 gap-3 text-sm text-[var(--text-primary)] access-policy-row"
-                    >
-                      <div className="min-w-0 font-semibold truncate">{policyLabel(policy)}</div>
-                      <span className="access-policy-text access-policy-text--muted truncate" title={policy.role}>
-                        {policy.role}
-                      </span>
-                      <span className="access-policy-text truncate" title={policy.obj}>
-                        {policy.obj}
-                      </span>
-                      <span className="access-policy-text access-policy-text--muted truncate" title={policy.act}>
-                        {policy.act}
-                      </span>
-                      <div className="flex justify-end items-center gap-3">
-                        <button
-                          type="button"
-                          className="access-inline-btn"
-                          title={isDefaultAdmin(policy.role) ? 'Protected policy' : 'Edit policy'}
-                          onClick={() => openPolicyEditModal(policy)}
-                          disabled={isDefaultAdmin(policy.role)}
-                        >
-                          <EditIcon />
-                        </button>
-                        <button
-                          type="button"
-                          className="access-inline-btn access-inline-btn--danger"
-                          title={isDefaultAdmin(policy.role) ? 'Protected policy' : 'Delete policy'}
-                          onClick={() => confirmDeletePolicy(policy)}
-                          disabled={isDefaultAdmin(policy.role)}
-                        >
-                          <TrashIcon />
-                        </button>
-                      </div>
+                        Close
+                      </button>
                     </div>
-                  ))}
-                </div>
+                    <form className="access-editor-form" onSubmit={handleCreateUserInline}>
+                      <div className="access-editor-grid">
+                        <label className="access-minimal-label">
+                          <span>Username (sub)</span>
+                          <input
+                            className="pipelines-input"
+                            value={newUser.sub}
+                            onChange={e => onChangeUser({ ...newUser, sub: e.target.value })}
+                            placeholder="alice"
+                            required
+                          />
+                        </label>
+                        <label className="access-minimal-label">
+                          <span>Email</span>
+                          <input
+                            className="pipelines-input"
+                            type="email"
+                            value={newUser.email}
+                            onChange={e => onChangeUser({ ...newUser, email: e.target.value })}
+                            placeholder="name@example.com"
+                          />
+                        </label>
+                      </div>
+                      <label className="access-minimal-label">
+                        <span>Password</span>
+                        <input
+                          className="pipelines-input"
+                          type="password"
+                          value={newUser.password}
+                          onChange={e => onChangeUser({ ...newUser, password: e.target.value })}
+                          placeholder="••••••••"
+                          required
+                        />
+                      </label>
+                      <div className="access-editor-section">
+                        <div className="access-minimal-section__header">
+                          <p className="text-sm font-medium text-[var(--text-primary)]">Roles</p>
+                          <span className="text-[11px] text-[var(--text-secondary)]">Prefer viewer, developer, owner, admin</span>
+                        </div>
+                        <div className="space-y-2">
+                          {newUser.roles.length === 0 && (
+                            <p className="text-[11px] text-[var(--text-secondary)]">Pick at least one role to create this user.</p>
+                          )}
+                          {newUser.roles.map((entry, idx) => (
+                            <div key={`new-user-role-${idx}`} className="access-minimal-row">
+                              <select
+                                className="pipelines-input flex-1"
+                                value={entry}
+                                onChange={e => updateNewUserRoleEntry(idx, e.target.value)}
+                                required
+                                disabled={allRoleOptions.length === 0}
+                              >
+                                <option value="" disabled>
+                                  {allRoleOptions.length === 0 ? 'No roles available' : 'Pick a role'}
+                                </option>
+                                {allRoleOptions.map(role => (
+                                  <option key={`role-opt-${role}`} value={role}>
+                                    {role}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                className="access-inline-btn access-inline-btn--danger"
+                                onClick={() => removeNewUserRoleEntry(idx)}
+                                title="Remove role"
+                              >
+                                <TrashIcon />
+                              </button>
+                            </div>
+                          ))}
+                          <div className="access-editor-inline-add">
+                            <select
+                              className="pipelines-input flex-1"
+                              value={nextUserRole}
+                              onChange={e => setNextUserRole(e.target.value)}
+                              disabled={allRoleOptions.length === 0}
+                            >
+                              <option value="">{allRoleOptions.length === 0 ? 'No roles available' : 'Pick a role'}</option>
+                              {allRoleOptions.map(role => (
+                                <option key={`new-role-opt-${role}`} value={role}>
+                                  {role}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              className="glass-button-subtle"
+                              onClick={appendUserRoleFromPicker}
+                              disabled={allRoleOptions.length === 0}
+                            >
+                              Add role
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="access-editor-footer">
+                        <button type="submit" className="glass-button-primary" disabled={creatingUserInline}>
+                          {creatingUserInline ? 'Saving…' : 'Save user'}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                ) : (
+                  <div className="access-editor-empty">
+                    <p className="access-editor-kicker">User workspace</p>
+                    <h5 className="access-editor-title">Create or edit without leaving the page</h5>
+                    <p className="access-editor-text">Pick a person from the list to edit access, or start a new account here.</p>
+                    <button type="button" className="glass-button-primary" onClick={openCreateUserEditor}>
+                      <PlusIcon />
+                      <span>Create user</span>
+                    </button>
+                  </div>
+                )}
+              </aside>
+            </div>
+          )}
+
+          {activeSection === 'roles' && (
+            <div className="access-workspace">
+              <div className="space-y-4 access-workspace__list">
+                {(policiesError || error) && <div className="access-error-banner">Failed to load roles: {policiesError || error}</div>}
+                {loading || policiesLoading ? (
+                  <div className="access-empty-card">
+                    <p className="font-medium text-[var(--text-primary)]">Loading roles…</p>
+                    <p className="text-sm text-[var(--text-secondary)]">Collecting reusable bundles and their current assignees.</p>
+                  </div>
+                ) : roleDefinitions.length === 0 ? (
+                  <div className="access-empty-card">
+                    <p className="font-medium text-[var(--text-primary)]">No roles yet</p>
+                    <p className="text-sm text-[var(--text-secondary)]">Create a role and attach policies that match the language your operators already use.</p>
+                  </div>
+                ) : filteredRoleDefinitions.length === 0 ? (
+                  <div className="access-empty-card">
+                    <p className="font-medium text-[var(--text-primary)]">No roles match this search</p>
+                    <p className="text-sm text-[var(--text-secondary)]">Try a role name, policy label, or one of the assigned people.</p>
+                  </div>
+                ) : (
+                  <div className="access-entity-grid access-entity-grid--roles">
+                    {filteredRoleDefinitions.map(role => {
+                      const assignedUsers = roleUserMap.get(role.id) || [];
+                      const preset = accessPresetForRole(role.role);
+                      const coverage = summarizeRoleCoverage(role.policies);
+                      const protectedRole = isDefaultAdmin(role.role);
+                      const isSelected = roleEditor?.role === role.role;
+                      return (
+                        <article key={role.id} className={`access-card access-card--role ${isSelected ? 'access-card--selected' : ''}`}>
+                          <div className="access-card__header">
+                            <div className="space-y-2 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="access-card__title">{role.role}</p>
+                                {preset && <span className={`access-chip ${accessPresetToneClass(role.role)}`}>{preset.label}</span>}
+                                {protectedRole && <span className="access-chip access-chip--muted">Protected</span>}
+                              </div>
+                              <p className="access-card__subtitle">
+                                {preset?.description || 'Reusable role bundle for assigning multiple low-level AAA policies together.'}
+                              </p>
+                              <p className="access-card__meta-line">
+                                {formatAccessCount(role.policies.length, 'policy', 'policies')} · {formatAccessCount(assignedUsers.length, 'person', 'people')}
+                              </p>
+                            </div>
+                            <div className="access-card__actions">
+                              {protectedRole ? (
+                                <span className="access-chip access-chip--muted">Protected</span>
+                              ) : (
+                                <>
+                                  <button type="button" className="access-card-action" title="Edit role" onClick={() => openEditRoleEditor(role)}>
+                                    <EditIcon />
+                                    <span>Edit</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="access-card-action access-card-action--danger"
+                                    title="Delete role"
+                                    onClick={() => confirmDeleteRoleDefinition(role)}
+                                  >
+                                    <TrashIcon />
+                                    <span>Delete</span>
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <p className="access-card__label">Coverage</p>
+                            <div className="flex flex-wrap gap-2">
+                              {coverage.map(label => (
+                                <span key={`${role.id}-coverage-${label}`} className="access-chip access-chip--muted">
+                                  {label}
+                                </span>
+                              ))}
+                              {coverage.length === 0 && <span className="text-sm text-[var(--text-secondary)]">No coverage yet</span>}
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <p className="access-card__label">Includes</p>
+                            <div className="flex flex-wrap gap-2">
+                              {role.policies.slice(0, 4).map(policy => (
+                                <span key={policyKey(policy)} className="access-chip access-chip--muted">
+                                  {policyLabel(policy)}
+                                </span>
+                              ))}
+                              {role.policies.length > 4 && <span className="access-chip access-chip--muted">+ {role.policies.length - 4} more</span>}
+                            </div>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        )}
+              <aside className="access-editor-pane">
+                {roleEditor ? (
+                  <div className="access-editor-surface">
+                    <div className="access-editor-header">
+                      <div>
+                        <p className="access-editor-kicker">{roleEditor.mode === 'create' ? 'Create role' : 'Edit role'}</p>
+                        <h5 className="access-editor-title">{roleEditor.mode === 'create' ? 'Role definition' : roleEditor.role}</h5>
+                        <p className="access-editor-text">Use the full page width to shape a reusable role bundle instead of managing it in a popup.</p>
+                      </div>
+                      <button type="button" className="access-inline-btn access-inline-btn--pill" onClick={() => setRoleEditor(null)}>
+                        Close
+                      </button>
+                    </div>
+                    <form className="access-editor-form" onSubmit={handleSaveRoleEditor}>
+                      <label className="access-minimal-label">
+                        <span>Role name</span>
+                        <input
+                          className="pipelines-input"
+                          value={roleEditor.role}
+                          onChange={e => setRoleEditor(prev => (prev ? { ...prev, role: e.target.value } : prev))}
+                          placeholder="developer"
+                          required
+                          disabled={roleEditor.mode === 'edit'}
+                        />
+                      </label>
+                      <div className="access-modal-callout">
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold text-[var(--text-primary)]">
+                            {roleEditorPreset ? `${roleEditorPreset.label} pattern` : 'Keep names simple and recognizable'}
+                          </p>
+                          <p className="text-xs text-[var(--text-secondary)]">
+                            {roleEditorPreset
+                              ? roleEditorPreset.description
+                              : 'Prefer clear product-role names like viewer, developer, or owner so access is easier to review.'}
+                          </p>
+                        </div>
+                        <div className="access-modal-callout__meta">
+                          <span>{formatAccessCount(roleEditor.policies.length, 'policy', 'policies')}</span>
+                          <span>{formatAccessCount(availablePoliciesForRoleEditor.length, 'reusable rule', 'reusable rules')}</span>
+                        </div>
+                      </div>
+                      <div className="access-editor-section">
+                        <div className="access-minimal-section__header">
+                          <p className="text-sm font-medium text-[var(--text-primary)]">Policies</p>
+                          <span className="text-[11px] text-[var(--text-secondary)]">Add rules to this role</span>
+                        </div>
+                        <div className="space-y-2">
+                          {roleEditor.policies.map((policy, idx) => (
+                            <div key={`policy-${idx}`} className="access-minimal-row">
+                              <div className="flex-1 space-y-1">
+                                <p className="font-semibold truncate">{policyLabel(policy)}</p>
+                                <p className="text-[11px] text-[var(--text-secondary)] truncate">{policy.obj || 'Select an object'}</p>
+                                <p className="text-[11px] text-[var(--text-secondary)] truncate">{policy.act || 'Select an action'}</p>
+                              </div>
+                              <button
+                                type="button"
+                                className="access-inline-btn access-inline-btn--danger"
+                                onClick={() => removeRolePolicyDraft(idx)}
+                                title="Remove policy"
+                              >
+                                <TrashIcon />
+                              </button>
+                            </div>
+                          ))}
+                          <div className="access-editor-inline-add">
+                            {availablePoliciesForRoleEditor.length > 0 ? (
+                              <>
+                                <select className="pipelines-input w-full" value={nextPolicyKey} onChange={e => setNextPolicyKey(e.target.value)}>
+                                  <option value="" disabled>
+                                    Add policy…
+                                  </option>
+                                  {availablePoliciesForRoleEditor.map(item => (
+                                    <option key={item.key} value={item.key}>
+                                      {item.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                <button
+                                  type="button"
+                                  className="glass-button-subtle"
+                                  onClick={() => {
+                                    if (nextPolicyKey) {
+                                      addExistingPolicyDraft(nextPolicyKey);
+                                      setNextPolicyKey('');
+                                    }
+                                  }}
+                                  disabled={!nextPolicyKey}
+                                >
+                                  Add
+                                </button>
+                              </>
+                            ) : (
+                              <p className="text-sm text-[var(--text-secondary)]">No reusable policies available</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="access-editor-footer">
+                        <button type="submit" className="glass-button-primary" disabled={savingRoleEditor}>
+                          {savingRoleEditor ? 'Saving…' : 'Save role'}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                ) : (
+                  <div className="access-editor-empty">
+                    <p className="access-editor-kicker">Role workspace</p>
+                    <h5 className="access-editor-title">Design reusable access bundles</h5>
+                    <p className="access-editor-text">Select a role from the list to edit it, or start a new role in this workspace.</p>
+                    <button type="button" className="glass-button-primary" onClick={openCreateRoleEditor}>
+                      <PlusIcon />
+                      <span>Create role</span>
+                    </button>
+                  </div>
+                )}
+              </aside>
+            </div>
+          )}
+
+          {activeSection === 'policies' && (
+            <div className="access-workspace">
+              <div className="space-y-4 access-workspace__list">
+                {policiesError && <div className="access-error-banner">Failed to load policies: {policiesError}</div>}
+                {policiesLoading ? (
+                  <div className="access-empty-card">
+                    <p className="font-medium text-[var(--text-primary)]">Loading policies…</p>
+                    <p className="text-sm text-[var(--text-secondary)]">Fetching the low-level rules behind each role bundle.</p>
+                  </div>
+                ) : policyTemplates.length === 0 ? (
+                  <div className="access-empty-card">
+                    <p className="font-medium text-[var(--text-primary)]">No policies yet</p>
+                    <p className="text-sm text-[var(--text-secondary)]">Create a rule, then attach it to roles like viewer or developer.</p>
+                  </div>
+                ) : filteredPolicyTemplates.length === 0 ? (
+                  <div className="access-empty-card">
+                    <p className="font-medium text-[var(--text-primary)]">No policies match this search</p>
+                    <p className="text-sm text-[var(--text-secondary)]">Search by role, resource selector, action, or policy label.</p>
+                  </div>
+                ) : (
+                  <div className="access-policy-stack">
+                    {filteredPolicyTemplates.map(policy => {
+                      const protectedPolicy = isDefaultAdmin(policy.role);
+                      const parsedAction = parseAAAActionValue(policy.act);
+                      const preset = accessPresetForRole(policy.role);
+                      const isSelected =
+                        policyEditor?.original.role === policy.role &&
+                        policyEditor?.original.obj === policy.obj &&
+                        policyEditor?.original.act === policy.act;
+                      return (
+                        <article key={`${policy.role}-${policy.obj}-${policy.act}`} className={`access-card access-card--policy ${isSelected ? 'access-card--selected' : ''}`}>
+                          <div className="access-card__header">
+                            <div className="space-y-2 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="access-card__title">{policyLabel(policy)}</p>
+                                <span className={`access-chip ${accessPresetToneClass(policy.role)}`}>{policy.role}</span>
+                                {parsedAction.effect === 'deny' && <span className="access-chip access-chip--danger">Deny</span>}
+                                {protectedPolicy && <span className="access-chip access-chip--muted">Protected</span>}
+                              </div>
+                              <p className="access-card__subtitle">
+                                {preset ? `${preset.label} role` : 'Role'} can {formatAccessActionSummary(policy.act)} on {formatAccessResourceSummary(policy.obj)}.
+                              </p>
+                            </div>
+                            <div className="access-card__actions">
+                              {protectedPolicy ? (
+                                <span className="access-chip access-chip--muted">Protected</span>
+                              ) : (
+                                <>
+                                  <button type="button" className="access-card-action" title="Edit policy" onClick={() => openPolicyEditModal(policy)}>
+                                    <EditIcon />
+                                    <span>Edit</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="access-card-action access-card-action--danger"
+                                    title="Delete policy"
+                                    onClick={() => confirmDeletePolicy(policy)}
+                                  >
+                                    <TrashIcon />
+                                    <span>Delete</span>
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          <div className="access-policy-preview access-policy-preview--minimal">
+                            <span className="access-policy-chip access-policy-chip--path">{policy.obj}</span>
+                            <span className="access-policy-arrow">-&gt;</span>
+                            <span className="access-policy-chip access-policy-chip--act">{policy.act}</span>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              <aside className="access-editor-pane">
+                {policyEditor ? (
+                  <div className="access-editor-surface">
+                    <div className="access-editor-header">
+                      <div>
+                        <p className="access-editor-kicker">Edit policy</p>
+                        <h5 className="access-editor-title">{policyEditor.name || policyLabel(policyEditor)}</h5>
+                        <p className="access-editor-text">Refine the raw AAA rule in a full-width editor instead of a small popup.</p>
+                      </div>
+                      <button type="button" className="access-inline-btn access-inline-btn--pill" onClick={() => setPolicyEditor(null)}>
+                        Close
+                      </button>
+                    </div>
+                    <form className="access-editor-form" onSubmit={handleSavePolicyEdit}>
+                      <AAAPolicyRuleFields
+                        policy={policyEditor}
+                        onChange={next => setPolicyEditor(prev => (prev ? { ...prev, ...next } : prev))}
+                        resourceCatalog={resourceCatalog}
+                      />
+                      <div className="access-editor-footer">
+                        <button type="submit" className="glass-button-primary" disabled={savingPolicy}>
+                          {savingPolicy ? 'Saving…' : 'Save changes'}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                ) : showPolicyModal ? (
+                  <div className="access-editor-surface">
+                    <div className="access-editor-header">
+                      <div>
+                        <p className="access-editor-kicker">Create policy</p>
+                        <h5 className="access-editor-title">Reusable AAA rule</h5>
+                        <p className="access-editor-text">Define a low-level rule once, then bundle it into roles like viewer or developer.</p>
+                      </div>
+                      <button
+                        type="button"
+                        className="access-inline-btn access-inline-btn--pill"
+                        onClick={() => {
+                          setAwaitingPolicyCreateReset(false);
+                          setShowPolicyModal(false);
+                        }}
+                      >
+                        Close
+                      </button>
+                    </div>
+                    <form className="access-editor-form" onSubmit={handleCreatePolicyInline}>
+                      <AAAPolicyRuleFields policy={newPermission} onChange={onChangePermission} resourceCatalog={resourceCatalog} />
+                      <div className="access-editor-footer">
+                        <button type="submit" className="glass-button-primary" disabled={creatingPolicyInline}>
+                          {creatingPolicyInline ? 'Adding…' : 'Add policy'}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                ) : (
+                  <div className="access-editor-empty">
+                    <p className="access-editor-kicker">Policy workspace</p>
+                    <h5 className="access-editor-title">Work on raw AAA rules in one place</h5>
+                    <p className="access-editor-text">Select a policy from the list to edit it, or create a new reusable rule here.</p>
+                    <button type="button" className="glass-button-primary" onClick={openCreatePolicyEditor}>
+                      <PlusIcon />
+                      <span>Create policy</span>
+                    </button>
+                  </div>
+                )}
+              </aside>
+            </div>
+          )}
+        </div>
       </div>
 
       {confirmDialog && (
@@ -2739,444 +3400,6 @@ function AccessPanel({
               </button>
             </div>
           </div>
-        </AccessModal>
-      )}
-
-      {roleEditor && (
-        <AccessModal
-          kicker={roleEditor.mode === 'create' ? 'Role' : 'Role policies'}
-          title={roleEditor.mode === 'create' ? 'Create role' : `Edit ${roleEditor.role}`}
-          subtitle="Bundle policies and reuse them across users"
-          onClose={() => setRoleEditor(null)}
-          icon={<ShieldIcon />}
-          variant="minimal"
-        >
-          <form className="access-minimal-form" onSubmit={handleSaveRoleEditor}>
-            <label className="access-minimal-label">
-              <span>Role name</span>
-              <input
-                className="pipelines-input"
-                value={roleEditor.role}
-                onChange={e => setRoleEditor(prev => (prev ? { ...prev, role: e.target.value } : prev))}
-                placeholder="nopsai-editor"
-                required
-                disabled={roleEditor.mode === 'edit'}
-              />
-            </label>
-            <div className="access-minimal-section">
-              <div className="access-minimal-section__header">
-                <p className="text-sm font-medium text-[var(--text-primary)]">Policies</p>
-                <div className="flex gap-2 flex-wrap items-center">
-                  <span className="text-[11px] text-[var(--text-secondary)]">Current rules</span>
-                </div>
-              </div>
-              <div className="space-y-2">
-                {roleEditor.policies.map((policy, idx) => (
-                  <div key={`policy-${idx}`} className="access-minimal-row">
-                    <div className="flex-1 space-y-1">
-                      <p className="font-semibold truncate">{policyLabel(policy)}</p>
-                      <p className="text-[11px] text-[var(--text-secondary)] truncate">{policy.obj || 'Select an object'}</p>
-                      <p className="text-[11px] text-[var(--text-secondary)] truncate">{policy.act || 'Select an action'}</p>
-                    </div>
-                    <button
-                      type="button"
-                      className="access-inline-btn access-inline-btn--danger"
-                      onClick={() => removeRolePolicyDraft(idx)}
-                      title="Remove policy"
-                    >
-                      <TrashIcon />
-                    </button>
-                  </div>
-                ))}
-                <div className="access-minimal-row access-minimal-row--add">
-                  {availablePoliciesForRoleEditor.length > 0 ? (
-                    <>
-                      <select
-                        className="pipelines-input w-full"
-                        value={nextPolicyKey}
-                        onChange={e => setNextPolicyKey(e.target.value)}
-                      >
-                        <option value="" disabled>
-                          Add new policy…
-                        </option>
-                        {availablePoliciesForRoleEditor.map(item => (
-                          <option key={item.key} value={item.key}>
-                            {item.label}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        className="access-inline-btn access-inline-btn--pill"
-                        onClick={() => {
-                          if (nextPolicyKey) {
-                            addExistingPolicyDraft(nextPolicyKey);
-                            setNextPolicyKey('');
-                          }
-                        }}
-                        disabled={!nextPolicyKey}
-                        title="Add policy"
-                      >
-                        <PlusIcon />
-                      </button>
-                    </>
-                  ) : (
-                    <p className="text-sm text-[var(--text-secondary)]">No reusable policies available</p>
-                  )}
-                </div>
-              </div>
-            </div>
-            <div className="access-modal-footer access-modal-footer--minimal">
-              <button type="button" className="access-inline-btn" onClick={() => setRoleEditor(null)}>
-                Cancel
-              </button>
-              <button type="submit" className="glass-button-primary" disabled={savingRoleEditor}>
-                {savingRoleEditor ? 'Saving…' : 'Save role'}
-              </button>
-            </div>
-          </form>
-        </AccessModal>
-      )}
-
-      {policyEditor && (
-        <AccessModal
-          kicker="Policy"
-          title="Edit policy"
-          subtitle="Update the AAA rule for this role"
-          onClose={() => setPolicyEditor(null)}
-          icon={<SparkIcon />}
-        >
-          <form className="space-y-3" onSubmit={handleSavePolicyEdit}>
-            <AAAPolicyRuleFields
-              policy={policyEditor}
-              onChange={next => setPolicyEditor(prev => (prev ? { ...prev, ...next } : prev))}
-              resourceCatalog={resourceCatalog}
-            />
-            <div className="pipelines-modal-footer">
-              <div className="pipelines-modal-actions">
-                <button type="button" className="glass-button-ghost" onClick={() => setPolicyEditor(null)}>
-                  Cancel
-                </button>
-                <button type="submit" className="glass-button-primary" disabled={savingPolicy}>
-                  {savingPolicy ? 'Saving…' : 'Save changes'}
-                </button>
-              </div>
-            </div>
-          </form>
-        </AccessModal>
-      )}
-
-      {userAccessEditor && (
-        <AccessModal
-          kicker="User access"
-          title={`Manage ${userAccessEditor.user.sub}`}
-          subtitle="Add or remove roles"
-          onClose={() => setUserAccessEditor(null)}
-          icon={<ShieldIcon />}
-        >
-          <form className="space-y-3" onSubmit={handleSaveUserAccess}>
-            <div className="grid gap-3 md:grid-cols-2">
-              <label className="flex flex-col gap-1 text-sm">
-                <span>Email</span>
-                <input
-                  className="pipelines-input"
-                  type="email"
-                  value={userAccessEditor.email}
-                  onChange={e => setUserAccessEditor(prev => (prev ? { ...prev, email: e.target.value } : prev))}
-                  placeholder="name@example.com"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-sm">
-                <span>Status</span>
-                <select
-                  className="pipelines-input"
-                  value={userAccessEditor.status}
-                  onChange={e => setUserAccessEditor(prev => (prev ? { ...prev, status: e.target.value } : prev))}
-                  disabled={userAccessEditor.user.sub === 'admin'}
-                >
-                  <option value="active">Active</option>
-                  <option value="disabled">Disabled</option>
-                </select>
-              </label>
-            </div>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>New password</span>
-              <input
-                className="pipelines-input"
-                type="password"
-                value={userAccessEditor.password}
-                onChange={e => setUserAccessEditor(prev => (prev ? { ...prev, password: e.target.value } : prev))}
-                placeholder="Leave blank to keep current password"
-              />
-              <span className="text-[11px] text-[var(--text-secondary)]">Resets the user's password.</span>
-            </label>
-            <div className="space-y-2">
-              {userAccessEditor.entries.length === 0 && (
-                <p className="text-[12px] text-[var(--text-secondary)]">No roles assigned yet.</p>
-              )}
-              {userAccessEditor.entries.map((entry, idx) => {
-                const protectedAdmin = isDefaultAdmin(entry) && userAccessEditor.user.sub === 'admin';
-                const label = protectedAdmin ? 'Protected admin role' : 'Remove assignment';
-                return (
-                  <div key={`user-role-${idx}`} className="access-minimal-row justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-[var(--text-primary)]">{entry || 'Role'}</span>
-                    </div>
-                    <button
-                      type="button"
-                      className={`access-inline-btn access-inline-btn--danger access-role-remove flex items-center gap-1 ${
-                        protectedAdmin ? 'opacity-60 cursor-not-allowed' : ''
-                      }`}
-                      onClick={() => removeUserAccessEntry(idx)}
-                      title={label}
-                      aria-label={label}
-                      disabled={protectedAdmin}
-                    >
-                      <TrashIcon />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="grid gap-2 sm:grid-cols-[1fr_auto] items-center">
-              <select
-                className="pipelines-input w-full"
-                value={nextAccessRole}
-                onChange={e => setNextAccessRole(e.target.value)}
-              >
-                <option value="">{allRoleOptions.length === 0 ? 'No roles available' : 'Select a role'}</option>
-                {allRoleOptions.map(role => (
-                  <option key={`access-role-${role}`} value={role}>
-                    {role}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                className="glass-button-subtle flex items-center justify-center gap-1"
-                onClick={addUserAccessEntry}
-                disabled={!nextAccessRole || allRoleOptions.length === 0}
-              >
-                <PlusIcon />
-                <span>Add role</span>
-              </button>
-            </div>
-            <div className="flex justify-end">
-              <button type="submit" className="glass-button-primary" disabled={savingUserAccess}>
-                {savingUserAccess ? 'Saving…' : 'Save access'}
-              </button>
-            </div>
-          </form>
-        </AccessModal>
-      )}
-
-      {showUserModal && (
-        <AccessModal
-          kicker="Directory"
-          title="Create user"
-          subtitle="Provision a local account for Nopsai"
-          onClose={() => setShowUserModal(false)}
-          icon={<PlusIcon />}
-          variant="minimal"
-        >
-          <form className="access-minimal-form" onSubmit={onCreateUser}>
-            <div className="access-minimal-grid">
-              <label className="access-minimal-label">
-                <span>Username (sub)</span>
-                <input
-                  className="pipelines-input"
-                  value={newUser.sub}
-                  onChange={e => onChangeUser({ ...newUser, sub: e.target.value })}
-                  placeholder="admin"
-                  required
-                />
-              </label>
-              <label className="access-minimal-label">
-                <span>Email</span>
-                <input
-                  className="pipelines-input"
-                  type="email"
-                  value={newUser.email}
-                  onChange={e => onChangeUser({ ...newUser, email: e.target.value })}
-                  placeholder="name@example.com"
-                />
-              </label>
-            </div>
-            <div className="access-minimal-grid">
-              <label className="access-minimal-label">
-                <span>Password</span>
-                <input
-                  className="pipelines-input"
-                  type="password"
-                  value={newUser.password}
-                  onChange={e => onChangeUser({ ...newUser, password: e.target.value })}
-                  placeholder="••••••••"
-                  required
-                />
-              </label>
-            </div>
-            <div className="access-minimal-section">
-              <div className="access-minimal-section__header">
-                <p className="text-sm font-medium text-[var(--text-primary)]">Roles</p>
-              </div>
-              {allRoleOptions.length === 0 && (
-                <p className="text-[11px] text-[var(--text-secondary)]">No roles available yet.</p>
-              )}
-              {newUser.roles.length === 0 && (
-                <p className="text-[11px] text-[var(--text-secondary)]">Pick at least one role to create this user.</p>
-              )}
-              <div className="space-y-2">
-                {newUser.roles.map((entry, idx) => (
-                  <div key={`new-user-role-${idx}`} className="access-minimal-row">
-                    <select
-                      className="pipelines-input flex-1"
-                      value={entry}
-                      onChange={e => updateNewUserRoleEntry(idx, e.target.value)}
-                      required
-                      disabled={allRoleOptions.length === 0}
-                    >
-                      <option value="" disabled>
-                        {allRoleOptions.length === 0 ? 'No roles available' : 'Pick a role'}
-                      </option>
-                      {allRoleOptions.map(role => (
-                        <option key={`role-opt-${role}`} value={role}>
-                          {role}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      className="access-inline-btn access-inline-btn--danger"
-                      onClick={() => removeNewUserRoleEntry(idx)}
-                      title="Remove role"
-                    >
-                      <TrashIcon />
-                    </button>
-                  </div>
-                ))}
-                <div className="access-minimal-row access-minimal-row--add">
-                  <select
-                    className="pipelines-input flex-1"
-                    value={nextUserRole}
-                    onChange={e => setNextUserRole(e.target.value)}
-                    disabled={allRoleOptions.length === 0}
-                  >
-                    <option value="">
-                      {allRoleOptions.length === 0 ? 'No roles available' : 'Pick a role'}
-                    </option>
-                    {allRoleOptions.map(role => (
-                      <option key={`new-role-opt-${role}`} value={role}>
-                        {role}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    className="access-inline-btn access-inline-btn--pill"
-                    onClick={appendUserRoleFromPicker}
-                    title="Add role"
-                    disabled={allRoleOptions.length === 0}
-                  >
-                    <PlusIcon />
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div className="access-modal-footer access-modal-footer--minimal">
-              <button type="button" className="access-inline-btn" onClick={() => setShowUserModal(false)}>
-                Cancel
-              </button>
-              <button type="submit" className="glass-button-primary">
-                Save user
-              </button>
-            </div>
-          </form>
-        </AccessModal>
-      )}
-
-      {showRoleModal && (
-        <AccessModal
-          kicker="Assignment"
-          title="Assign role"
-          subtitle="Map a user to a role"
-          onClose={() => setShowRoleModal(false)}
-          icon={<ShieldIcon />}
-        >
-          <form className="space-y-3" onSubmit={onAssignRole}>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>User</span>
-              <select
-                className="pipelines-input"
-                value={newRole.userId}
-                onChange={e => onChangeRole({ ...newRole, userId: e.target.value })}
-                required
-                disabled={users.length === 0}
-              >
-                <option value="">{users.length === 0 ? 'No users available' : 'Select a user'}</option>
-                {users.map(user => (
-                  <option key={`assign-user-${user.id}`} value={user.id}>
-                    {user.sub}
-                    {user.email ? ` • ${user.email}` : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>Role</span>
-              <select
-                className="pipelines-input"
-                value={newRole.role}
-                onChange={e => onChangeRole({ ...newRole, role: e.target.value })}
-                required
-                disabled={allRoleOptions.length === 0}
-              >
-                <option value="">{allRoleOptions.length === 0 ? 'No roles available' : 'Select a role'}</option>
-                {allRoleOptions.map(role => (
-                  <option key={`assign-role-${role}`} value={role}>
-                    {role}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="pipelines-modal-footer">
-              <div className="pipelines-modal-actions">
-                <button type="button" className="glass-button-ghost" onClick={() => setShowRoleModal(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="glass-button-primary" disabled={users.length === 0 || allRoleOptions.length === 0}>
-                  Add role
-                </button>
-              </div>
-            </div>
-          </form>
-        </AccessModal>
-      )}
-
-      {showPolicyModal && (
-        <AccessModal
-          kicker="Policy"
-          title="Create role policy"
-          subtitle="Add a reusable AAA rule"
-          onClose={() => setShowPolicyModal(false)}
-          icon={<SparkIcon />}
-        >
-          <form className="space-y-3" onSubmit={onCreatePermission}>
-            <AAAPolicyRuleFields
-              policy={newPermission}
-              onChange={onChangePermission}
-              resourceCatalog={resourceCatalog}
-            />
-            <div className="pipelines-modal-footer">
-              <div className="pipelines-modal-actions">
-                <button type="button" className="glass-button-ghost" onClick={() => setShowPolicyModal(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="glass-button-primary">
-                  Add policy
-                </button>
-              </div>
-            </div>
-          </form>
         </AccessModal>
       )}
     </div>
@@ -3277,26 +3500,11 @@ function RefreshIcon() {
   );
 }
 
-function ShieldIcon() {
+function SearchIcon() {
   return (
     <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 3l8 4v5c0 4.5-3.2 8.3-8 9-4.8-.7-8-4.5-8-9V7z" />
-      <path d="M9 12l2 2 4-4" />
-    </svg>
-  );
-}
-
-function SparkIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 3v4" />
-      <path d="M12 17v4" />
-      <path d="M3 12h4" />
-      <path d="M17 12h4" />
-      <path d="m18.36 5.64-2.83 2.83" />
-      <path d="m8.47 15.53-2.83 2.83" />
-      <path d="m5.64 5.64 2.83 2.83" />
-      <path d="m15.53 15.53 2.83 2.83" />
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
     </svg>
   );
 }
