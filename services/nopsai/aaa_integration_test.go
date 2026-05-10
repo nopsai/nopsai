@@ -97,7 +97,7 @@ func TestAuthzMiddlewareFailsClosedWhenAAAUnavailable(t *testing.T) {
 	}
 }
 
-func TestAuthzMiddlewareFallsBackToLocalEvaluatorForGroups(t *testing.T) {
+func TestAuthzMiddlewareDefersFolderListAuthorizationToHandlerFiltering(t *testing.T) {
 	remoteCalls := 0
 	localCalls := 0
 	app := &App{
@@ -138,10 +138,10 @@ func TestAuthzMiddlewareFallsBackToLocalEvaluatorForGroups(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
 	}
 	if !nextCalled {
-		t.Fatal("next handler was not called after fallback authorization")
+		t.Fatal("next handler was not called for filtered folder list request")
 	}
-	if remoteCalls != 1 || localCalls != 1 {
-		t.Fatalf("remote/local calls = %d/%d, want 1/1", remoteCalls, localCalls)
+	if remoteCalls != 0 || localCalls != 0 {
+		t.Fatalf("remote/local calls = %d/%d, want 0/0 until handler filtering", remoteCalls, localCalls)
 	}
 }
 

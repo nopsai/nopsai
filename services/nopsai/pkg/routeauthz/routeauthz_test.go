@@ -1,6 +1,7 @@
 package routeauthz
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"testing"
 )
@@ -46,5 +47,86 @@ func TestMapRequestDefersRunByCheckAuthorizationToConcreteRun(t *testing.T) {
 	}
 	if resource.Type != "" || resource.ID != "" {
 		t.Fatalf("MapRequest() resource = %#v, want empty", resource)
+	}
+}
+
+func TestMapRequestUsesUpdatedLowLevelActions(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		pathValues map[string]string
+		wantAction string
+		wantType   string
+		wantID     string
+		wantFilter bool
+	}{
+		{
+			name:       "group list uses filter",
+			method:     http.MethodGet,
+			path:       "/v1/groups",
+			wantAction: "folder.list",
+			wantType:   "folder",
+			wantID:     "*",
+			wantFilter: true,
+		},
+		{
+			name:       "run logs use read logs action",
+			method:     http.MethodGet,
+			path:       "/v1/runs/run-123/logs",
+			pathValues: map[string]string{"runID": "run-123"},
+			wantAction: "pipeline_run.read_logs",
+			wantType:   "pipeline_run",
+			wantID:     "run-123",
+		},
+		{
+			name:       "repository branches use repository read",
+			method:     http.MethodGet,
+			path:       "/v1/repositories/acme/widgets/branches",
+			pathValues: map[string]string{"repoOwner": "acme", "repoName": "widgets"},
+			wantAction: "repository.read",
+			wantType:   "repository",
+			wantID:     "acme/widgets",
+		},
+		{
+			name:       "step list uses filter",
+			method:     http.MethodGet,
+			path:       "/v1/steps",
+			wantAction: "step.read",
+			wantType:   "step",
+			wantID:     "*",
+			wantFilter: true,
+		},
+		{
+			name:       "step detail trims usage suffix",
+			method:     http.MethodGet,
+			path:       "/v1/steps/shared/util/archive/usage",
+			pathValues: map[string]string{"stepPath": "shared/util/archive/usage"},
+			wantAction: "step.read",
+			wantType:   "step",
+			wantID:     "shared/util/archive",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			for key, value := range tt.pathValues {
+				req.SetPathValue(key, value)
+			}
+			action, resource, requiresFilter, err := MapRequest(req)
+			if err != nil {
+				t.Fatalf("MapRequest() error = %v", err)
+			}
+			if action != tt.wantAction {
+				t.Fatalf("MapRequest() action = %q, want %q", action, tt.wantAction)
+			}
+			if resource.Type != tt.wantType || resource.ID != tt.wantID {
+				t.Fatalf("MapRequest() resource = %#v, want %s:%s", resource, tt.wantType, tt.wantID)
+			}
+			if requiresFilter != tt.wantFilter {
+				t.Fatalf("MapRequest() requiresFilter = %t, want %t", requiresFilter, tt.wantFilter)
+			}
+		})
 	}
 }
