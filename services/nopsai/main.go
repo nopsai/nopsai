@@ -26,6 +26,7 @@ import (
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
+	"nopsai/pkg/proxyhttp"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -40,6 +41,8 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 	"gopkg.in/yaml.v3"
 
+	aaaauthz "nopsai/services/aaa/pkg/authz"
+	aaastore "nopsai/services/aaa/pkg/store"
 	"nopsai/services/nopsai/pkg/aaaclient"
 	"nopsai/services/nopsai/pkg/audit"
 	"nopsai/services/nopsai/pkg/auth"
@@ -75,7 +78,10 @@ type App struct {
 	envFilePath      string
 
 	authService   *auth.Service
-	aaaClient     *aaaclient.Client
+	aaaClient     aaaAuthorizer
+	aaaLocal      aaaAuthorizer
+	aaaRemoteMu   sync.Mutex
+	aaaRetryAfter time.Time
 	authz         *authz.Enforcer
 	auditLogger   *audit.Logger
 	tokenActivity sync.Map
@@ -596,7 +602,7 @@ func (a *App) authzMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
-		if a.aaaClient == nil {
+		if !a.aaaAvailable() {
 			http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
 			return
 		}
@@ -611,7 +617,7 @@ func (a *App) authzMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		decision, err := a.aaaClient.Check(ctx, subject, action, resource, a.aaaRequestContext(r))
+		decision, err := a.aaaCheck(ctx, subject, action, resource, a.aaaRequestContext(r))
 		if err != nil {
 			http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
 			return
@@ -2388,6 +2394,7 @@ func main() {
 		log.Warn().Err(err).Msg("Failed to load RBAC policies")
 	}
 	aaaClient := aaaclient.New(cfg.AAAAPIURL, cfg.AAASharedToken)
+	aaaLocal := aaaauthz.NewEvaluator(aaastore.NewPGStore(dbpool))
 	auditLogger := audit.NewLogger(dbpool)
 
 	app := &App{
@@ -2395,12 +2402,13 @@ func main() {
 		cfg:         cfg,
 		dispatcher:  proto.NewDispatcherServiceClient(dispatcherConn),
 		encKey:      key[:],
-		httpClient:  &http.Client{Timeout: 10 * time.Second},
+		httpClient:  proxyhttp.NewInternalAwareClient(10 * time.Second),
 		store:       store.NewPGStore(dbpool),
 		configPath:  configPath,
 		envFilePath: envFilePath,
 		authService: authService,
 		aaaClient:   aaaClient,
+		aaaLocal:    aaaLocal,
 		authz:       authzEnforcer,
 		auditLogger: auditLogger,
 		configSyncStatus: ConfigSyncStatus{
