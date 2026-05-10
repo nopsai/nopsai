@@ -422,6 +422,11 @@ func (a *App) handleCreateOrUpdatePipeline(w http.ResponseWriter, r *http.Reques
 	if !a.requireAAADecision(w, r, action, routeauthz.PipelineResource(dbPath, storedName)) {
 		return
 	}
+	for _, stepIdentifier := range collectReferencedStepIdentifiers(&pipeline) {
+		if !a.requireAAADecision(w, r, "step.use", routeauthz.StepResource(stepIdentifier)) {
+			return
+		}
+	}
 
 	desiredSource := "database"
 	if strings.EqualFold(existingSource, "git") {
@@ -543,7 +548,12 @@ func (a *App) handleListReusableSteps(w http.ResponseWriter, r *http.Request) {
 			UpdatedAt  time.Time `json:"updated_at"`
 		}
 
-		var items []stepListItem
+		type stepEntry struct {
+			item     stepListItem
+			resource model.ResourceRef
+		}
+
+		var entries []stepEntry
 		for rows.Next() {
 			var path, name, source string
 			var updatedAt time.Time
@@ -552,20 +562,47 @@ func (a *App) handleListReusableSteps(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "Failed to process reusable steps", http.StatusInternalServerError)
 				return
 			}
-			items = append(items, stepListItem{
-				Identifier: buildStepIdentifier(path, name),
-				Path:       path,
-				Name:       name,
-				Source:     source,
-				UpdatedAt:  updatedAt,
+			identifier := buildStepIdentifier(path, name)
+			entries = append(entries, stepEntry{
+				item: stepListItem{
+					Identifier: identifier,
+					Path:       path,
+					Name:       name,
+					Source:     source,
+					UpdatedAt:  updatedAt,
+				},
+				resource: routeauthz.StepResource(identifier),
 			})
+		}
+
+		resources := make([]model.ResourceRef, 0, len(entries))
+		for _, entry := range entries {
+			resources = append(resources, entry.resource)
+		}
+		allowedSet, err := a.allowedResourceSet(r, "step.read", resources)
+		if err != nil {
+			http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		items := make([]stepListItem, 0, len(entries))
+		for _, entry := range entries {
+			if _, ok := allowedSet[resourceKey(entry.resource)]; !ok {
+				continue
+			}
+			items = append(items, entry.item)
 		}
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(items)
 		return
 	}
 
-	var stepNames []string
+	type stepEntry struct {
+		identifier string
+		resource   model.ResourceRef
+	}
+
+	var entries []stepEntry
 	for rows.Next() {
 		var path, name string
 		if err := rows.Scan(&path, &name); err != nil {
@@ -573,7 +610,29 @@ func (a *App) handleListReusableSteps(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to process reusable steps", http.StatusInternalServerError)
 			return
 		}
-		stepNames = append(stepNames, buildStepIdentifier(path, name))
+		identifier := buildStepIdentifier(path, name)
+		entries = append(entries, stepEntry{
+			identifier: identifier,
+			resource:   routeauthz.StepResource(identifier),
+		})
+	}
+
+	resources := make([]model.ResourceRef, 0, len(entries))
+	for _, entry := range entries {
+		resources = append(resources, entry.resource)
+	}
+	allowedSet, err := a.allowedResourceSet(r, "step.read", resources)
+	if err != nil {
+		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	stepNames := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if _, ok := allowedSet[resourceKey(entry.resource)]; !ok {
+			continue
+		}
+		stepNames = append(stepNames, entry.identifier)
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -713,6 +772,40 @@ func pipelineIncludesStep(pipeline *models.Pipeline, targetIdentifier, targetNam
 		}
 	}
 	return false
+}
+
+func collectReferencedStepIdentifiers(pipeline *models.Pipeline) []string {
+	if pipeline == nil {
+		return nil
+	}
+
+	seen := make(map[string]struct{})
+	var identifiers []string
+	for _, step := range pipeline.Steps {
+		includeValue := strings.TrimSpace(step.GetInclude())
+		if includeValue == "" {
+			continue
+		}
+
+		lower := strings.ToLower(includeValue)
+		if strings.HasPrefix(lower, "pipeline:") {
+			continue
+		}
+		if strings.HasPrefix(lower, "step:") {
+			includeValue = strings.TrimSpace(includeValue[len("step:"):])
+		}
+
+		includeValue = strings.Trim(includeValue, "/")
+		if includeValue == "" {
+			continue
+		}
+		if _, ok := seen[includeValue]; ok {
+			continue
+		}
+		seen[includeValue] = struct{}{}
+		identifiers = append(identifiers, includeValue)
+	}
+	return identifiers
 }
 
 func (a *App) handleCreateOrUpdateReusableStep(w http.ResponseWriter, r *http.Request) {

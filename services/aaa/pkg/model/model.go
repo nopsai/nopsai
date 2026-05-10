@@ -241,17 +241,19 @@ func ParseNamedResourceID(id string) (repoName, scope, name string) {
 }
 
 func IsSensitiveAction(action string) bool {
-	switch strings.TrimSpace(action) {
+	action = strings.TrimSpace(action)
+	if action == "" {
+		return false
+	}
+	if strings.HasSuffix(action, ".manage_acl") {
+		return true
+	}
+	switch action {
 	case "iam.admin",
-		"folder.manage_acl",
-		"pipeline.manage_acl",
-		"secret.read_value",
-		"secret.write_value",
-		"secret.delete",
-		"variable.write_value",
-		"variable.delete",
 		"system.update",
 		"system.admin",
+		"audit.read",
+		"audit.export",
 		"pipeline.execute",
 		"pipeline.delete",
 		"pipeline_run.rerun",
@@ -259,8 +261,14 @@ func IsSensitiveAction(action string) bool {
 		"pipeline_run.delete",
 		"trigger.update",
 		"trigger.delete",
+		"secret.read_value",
+		"secret.write_value",
+		"secret.delete",
+		"variable.write_value",
+		"variable.delete",
 		"folder.move",
-		"folder.delete":
+		"folder.delete",
+		"step.manage":
 		return true
 	default:
 		return false

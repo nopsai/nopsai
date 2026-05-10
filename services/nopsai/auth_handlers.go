@@ -232,8 +232,8 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 			Delete: a.checkCapability(subject, "pipeline.delete", model.ResourceRef{Type: "pipeline", ID: "*"}),
 		},
 		Steps: authResourceCapabilities{
-			Write:  a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "steps"}),
-			Delete: a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "steps"}),
+			Write:  a.checkCapability(subject, "step.manage", model.ResourceRef{Type: "step", ID: "*"}),
+			Delete: a.checkCapability(subject, "step.manage", model.ResourceRef{Type: "step", ID: "*"}),
 		},
 		Triggers: authReadCapabilities{
 			Read: a.checkCapability(subject, "trigger.read", model.ResourceRef{Type: "trigger", ID: "*"}),

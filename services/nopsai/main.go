@@ -42,6 +42,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	aaaauthz "nopsai/services/aaa/pkg/authz"
+	"nopsai/services/aaa/pkg/model"
 	aaastore "nopsai/services/aaa/pkg/store"
 	"nopsai/services/nopsai/pkg/aaaclient"
 	"nopsai/services/nopsai/pkg/audit"
@@ -2060,6 +2061,23 @@ func (a *App) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 
 	group.Description = strings.TrimSpace(group.Description)
 
+	if group.ParentID != nil {
+		parentResource, err := a.folderGrantResourceByGroupID(r.Context(), *group.ParentID)
+		if err != nil {
+			status := http.StatusInternalServerError
+			if strings.Contains(err.Error(), "not found") {
+				status = http.StatusNotFound
+			}
+			http.Error(w, err.Error(), status)
+			return
+		}
+		if !a.requireAAADecision(w, r, "folder.create", model.ResourceRef{Type: grantResourceFolder, ID: parentResource.ID}) {
+			return
+		}
+	} else if !a.requireAAADecision(w, r, "folder.create", model.ResourceRef{Type: grantResourceFolder, ID: "*"}) {
+		return
+	}
+
 	query := `INSERT INTO groups (name, parent_id, description) VALUES ($1, $2, $3) RETURNING id`
 	err := a.db.QueryRow(context.Background(), query, group.Name, group.ParentID, group.Description).Scan(&group.ID)
 	if err != nil {
@@ -2117,6 +2135,30 @@ func (a *App) handleGetGroups(w http.ResponseWriter, r *http.Request) {
 		groupMap[allGroups[i].ID] = &allGroups[i]
 	}
 
+	pathRecords, err := a.folderPathRecords(r.Context())
+	if err != nil {
+		http.Error(w, "Failed to resolve folder paths", http.StatusInternalServerError)
+		return
+	}
+
+	resources := make([]model.ResourceRef, 0, len(allGroups))
+	resourceByGroupID := make(map[int]model.ResourceRef, len(allGroups))
+	for _, group := range allGroups {
+		record, ok := pathRecords[group.ID]
+		if !ok || strings.TrimSpace(record.Path) == "" {
+			continue
+		}
+		resource := model.ResourceRef{Type: grantResourceFolder, ID: record.Path}
+		resources = append(resources, resource)
+		resourceByGroupID[group.ID] = resource
+	}
+
+	allowedSet, err := a.allowedResourceSet(r, "folder.list", resources)
+	if err != nil {
+		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
 	query := `
         SELECT g.id, MAX(r.started_at)
         FROM groups g
@@ -2141,8 +2183,20 @@ func (a *App) handleGetGroups(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	filtered := make([]Group, 0, len(allGroups))
+	for _, group := range allGroups {
+		resource, ok := resourceByGroupID[group.ID]
+		if !ok {
+			continue
+		}
+		if _, ok := allowedSet[resourceKey(resource)]; !ok {
+			continue
+		}
+		filtered = append(filtered, group)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(allGroups)
+	json.NewEncoder(w).Encode(filtered)
 }
 
 func (a *App) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {
@@ -2159,6 +2213,19 @@ func (a *App) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	group.Description = strings.TrimSpace(group.Description)
+
+	resource, err := a.folderGrantResourceByGroupID(r.Context(), groupID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	if !a.requireAAADecision(w, r, "folder.update", model.ResourceRef{Type: grantResourceFolder, ID: resource.ID}) {
+		return
+	}
 
 	query := `UPDATE groups SET name = $1, parent_id = $2, description = $3, updated_at = NOW() WHERE id = $4`
 	_, err = a.db.Exec(context.Background(), query, group.Name, group.ParentID, group.Description, groupID)
@@ -2186,6 +2253,35 @@ func (a *App) handleMoveGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := httpapi.DecodeJSON(r, &payload); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	resource, err := a.folderGrantResourceByGroupID(r.Context(), groupID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	if !a.requireAAADecision(w, r, "folder.move", model.ResourceRef{Type: grantResourceFolder, ID: resource.ID}) {
+		return
+	}
+	if payload.ParentID != nil {
+		parentResource, err := a.folderGrantResourceByGroupID(r.Context(), *payload.ParentID)
+		if err != nil {
+			status := http.StatusInternalServerError
+			if strings.Contains(err.Error(), "not found") {
+				status = http.StatusNotFound
+			}
+			http.Error(w, err.Error(), status)
+			return
+		}
+		if !a.requireAAADecision(w, r, "folder.create", model.ResourceRef{Type: grantResourceFolder, ID: parentResource.ID}) {
+			return
+		}
+	} else if !a.requireAAADecision(w, r, "folder.create", model.ResourceRef{Type: grantResourceFolder, ID: "*"}) {
 		return
 	}
 
@@ -2236,6 +2332,19 @@ func (a *App) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 	groupID, err := strconv.Atoi(r.PathValue("groupID"))
 	if err != nil {
 		http.Error(w, "Invalid group ID", http.StatusBadRequest)
+		return
+	}
+
+	resource, err := a.folderGrantResourceByGroupID(r.Context(), groupID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	if !a.requireAAADecision(w, r, "folder.delete", model.ResourceRef{Type: grantResourceFolder, ID: resource.ID}) {
 		return
 	}
 
@@ -2361,6 +2470,9 @@ func main() {
 
 	if err := ensureDefaultAdmin(context.Background(), dbpool); err != nil {
 		log.Fatal().Err(err).Msg("Failed to ensure default admin")
+	}
+	if err := ensureProductAccessBootstrap(context.Background(), dbpool); err != nil {
+		log.Fatal().Err(err).Msg("Failed to ensure product access roles")
 	}
 
 	dispatcherAddr := strings.TrimSpace(cfg.DispatcherAddress)

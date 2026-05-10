@@ -455,23 +455,39 @@ func (s *PGStore) findNamedResourceRolePermissionMatch(ctx context.Context, role
 
 func (s *PGStore) FindACLMatch(ctx context.Context, subject model.SubjectRef, resource model.ResourceRef, action, effect string) (*model.MatchedPolicy, error) {
 	row := s.db.QueryRow(ctx, `
-		SELECT resource_type, resource_id, subject_type, subject_id, action, effect
-		FROM resource_acl
-		WHERE subject_type = $1
-			AND subject_id = $2
-			AND effect = $3
-			AND (resource_type = $4 OR resource_type = '*')
-			AND (resource_id = $5 OR resource_id = '*')
-			AND (action = $6 OR action = '*')
+		SELECT
+			ra.resource_type,
+			COALESCE(NULLIF(ag.resource_display, ''), ra.resource_id),
+			ra.subject_type,
+			COALESCE(NULLIF(ag.subject_display, ''), ra.subject_id),
+			ra.action,
+			ra.effect,
+			COALESCE(ag.role_name, '')
+		FROM resource_acl ra
+		LEFT JOIN access_grants ag ON ag.id = ra.access_grant_id
+		WHERE ra.subject_type = $1
+			AND ra.subject_id = $2
+			AND ra.effect = $3
+			AND (ra.resource_type = $4 OR ra.resource_type = '*')
+			AND (ra.resource_id = $5 OR ra.resource_id = '*')
+			AND (ra.action = $6 OR ra.action = '*')
 		ORDER BY
-			CASE WHEN resource_type = $4 THEN 0 ELSE 1 END,
-			CASE WHEN resource_id = $5 THEN 0 ELSE 1 END,
-			CASE WHEN action = $6 THEN 0 ELSE 1 END
+			CASE WHEN ra.resource_type = $4 THEN 0 ELSE 1 END,
+			CASE WHEN ra.resource_id = $5 THEN 0 ELSE 1 END,
+			CASE WHEN ra.action = $6 THEN 0 ELSE 1 END
 		LIMIT 1
 	`, subject.Type, subject.ID, effect, resource.Type, resource.ID, action)
 
 	var policy model.MatchedPolicy
-	if err := row.Scan(&policy.ResourceType, &policy.ResourceID, &policy.SubjectType, &policy.SubjectID, &policy.Action, &policy.Effect); err != nil {
+	if err := row.Scan(
+		&policy.ResourceType,
+		&policy.ResourceID,
+		&policy.SubjectType,
+		&policy.SubjectID,
+		&policy.Action,
+		&policy.Effect,
+		&policy.RoleName,
+	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
@@ -513,15 +529,25 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 		return s.folderAncestors(ctx, pipelinePath)
 	case "folder":
 		return s.folderAncestors(ctx, resource.ID)
+	case "step":
+		stepPath, _ := model.SplitPipelineID(resource.ID)
+		return s.folderAncestors(ctx, stepPath)
+	case "repository":
+		return s.repositoryFolderAncestors(ctx, resource.ID)
 	case "trigger":
 		repoID := strings.TrimSpace(resource.ID)
 		if repoID == "" {
 			return nil, nil
 		}
-		return []model.InheritedResource{{
+		out := []model.InheritedResource{{
 			Resource: model.ResourceRef{Type: "repository", ID: repoID},
 			Reason:   "repository_inheritance",
-		}}, nil
+		}}
+		folderAncestors, err := s.repositoryFolderAncestors(ctx, repoID)
+		if err != nil {
+			return nil, err
+		}
+		return append(out, folderAncestors...), nil
 	case "secret", "variable":
 		repoName, scope, _ := model.ParseNamedResourceID(resource.ID)
 		var out []model.InheritedResource
@@ -530,6 +556,11 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 				Resource: model.ResourceRef{Type: "repository", ID: repoName},
 				Reason:   "repository_inheritance",
 			})
+			folderAncestors, err := s.repositoryFolderAncestors(ctx, repoName)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, folderAncestors...)
 		}
 		if scope != "" {
 			out = append(out, model.InheritedResource{
@@ -618,6 +649,78 @@ func prefixFolderAncestors(segments []string) []model.InheritedResource {
 		})
 	}
 	return out
+}
+
+func (s *PGStore) repositoryFolderAncestors(ctx context.Context, repoID string) ([]model.InheritedResource, error) {
+	repoID = strings.TrimSpace(repoID)
+	if repoID == "" {
+		return nil, nil
+	}
+
+	var parentID *int
+	if err := s.db.QueryRow(ctx, `
+		SELECT parent_id
+		FROM groups
+		WHERE name = $1
+	`, repoID).Scan(&parentID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return s.groupParentFolderAncestors(ctx, parentID)
+}
+
+func (s *PGStore) groupParentFolderAncestors(ctx context.Context, parentID *int) ([]model.InheritedResource, error) {
+	if parentID == nil {
+		return nil, nil
+	}
+
+	var names []string
+	currentID := *parentID
+	for {
+		var (
+			name         string
+			nextParentID *int
+		)
+		if err := s.db.QueryRow(ctx, `
+			SELECT name, parent_id
+			FROM groups
+			WHERE id = $1
+		`, currentID).Scan(&name, &nextParentID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, nil
+			}
+			return nil, err
+		}
+
+		name = strings.Trim(strings.TrimSpace(name), "/")
+		if name != "" {
+			names = append(names, name)
+		}
+		if nextParentID == nil {
+			break
+		}
+		currentID = *nextParentID
+	}
+
+	if len(names) == 0 {
+		return nil, nil
+	}
+
+	for left, right := 0, len(names)-1; left < right; left, right = left+1, right-1 {
+		names[left], names[right] = names[right], names[left]
+	}
+
+	out := make([]model.InheritedResource, 0, len(names))
+	for i := len(names); i > 0; i-- {
+		out = append(out, model.InheritedResource{
+			Resource: model.ResourceRef{Type: "folder", ID: strings.Join(names[:i], "/")},
+			Reason:   "folder_inheritance",
+		})
+	}
+	return out, nil
 }
 
 func (s *PGStore) WriteDecisionLog(ctx context.Context, entry model.DecisionLogEntry) error {
