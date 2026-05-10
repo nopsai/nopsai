@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"nopsai/pkg/proxyhttp"
 	"nopsai/services/aaa/pkg/model"
 )
 
@@ -25,9 +26,7 @@ type Client struct {
 }
 
 func New(baseURL, token string) *Client {
-	return NewWithHTTPClient(baseURL, token, &http.Client{
-		Timeout: 2 * time.Second,
-	})
+	return NewWithHTTPClient(baseURL, token, proxyhttp.NewInternalAwareClient(2*time.Second))
 }
 
 func NewWithHTTPClient(baseURL, token string, httpClient *http.Client) *Client {
@@ -40,7 +39,7 @@ func NewWithHTTPClient(baseURL, token string, httpClient *http.Client) *Client {
 		token = defaultInternalToken
 	}
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 2 * time.Second}
+		httpClient = proxyhttp.NewInternalAwareClient(2 * time.Second)
 	}
 	return &Client{
 		baseURL:    baseURL,

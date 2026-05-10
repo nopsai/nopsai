@@ -132,11 +132,11 @@ func (a *App) resolveAAARoles(ctx context.Context, claims *auth.Claims) []string
 	if claims == nil {
 		return nil
 	}
-	if a == nil || a.aaaClient == nil {
+	if a == nil || !a.aaaAvailable() {
 		return claims.Roles
 	}
 
-	resp, err := a.aaaClient.Introspect(ctx, a.buildAAASubject(claims))
+	resp, err := a.aaaIntrospect(ctx, a.buildAAASubject(claims))
 	if err != nil || resp == nil || len(resp.Roles) == 0 {
 		return claims.Roles
 	}
@@ -208,7 +208,7 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 	if claims == nil {
 		return &authCapabilitiesResponse{}
 	}
-	if a == nil || a.aaaClient == nil {
+	if a == nil || !a.aaaAvailable() {
 		return &authCapabilitiesResponse{}
 	}
 
@@ -252,7 +252,10 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 }
 
 func (a *App) checkCapability(subject model.Subject, action string, resource model.ResourceRef) bool {
-	decision, err := a.aaaClient.Check(context.Background(), subject, action, resource, nil)
+	if a == nil || !a.aaaAvailable() {
+		return false
+	}
+	decision, err := a.aaaCheck(context.Background(), subject, action, resource, nil)
 	return err == nil && decision.Allowed
 }
 
