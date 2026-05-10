@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,6 +19,33 @@ import (
 type mockAAACalls struct {
 	checks  int
 	filters int
+}
+
+type stubAAAAuthorizer struct {
+	introspectFn func(context.Context, model.Subject) (*model.IntrospectResponse, error)
+	checkFn      func(context.Context, model.Subject, string, model.ResourceRef, map[string]any) (model.Decision, error)
+	filterFn     func(context.Context, model.Subject, string, []model.ResourceRef, map[string]any) ([]model.ResourceRef, error)
+}
+
+func (s stubAAAAuthorizer) Introspect(ctx context.Context, subject model.Subject) (*model.IntrospectResponse, error) {
+	if s.introspectFn == nil {
+		return nil, fmt.Errorf("unexpected introspect call")
+	}
+	return s.introspectFn(ctx, subject)
+}
+
+func (s stubAAAAuthorizer) Check(ctx context.Context, subject model.Subject, action string, resource model.ResourceRef, requestContext map[string]any) (model.Decision, error) {
+	if s.checkFn == nil {
+		return model.Decision{}, fmt.Errorf("unexpected check call")
+	}
+	return s.checkFn(ctx, subject, action, resource, requestContext)
+}
+
+func (s stubAAAAuthorizer) Filter(ctx context.Context, subject model.Subject, action string, resources []model.ResourceRef, requestContext map[string]any) ([]model.ResourceRef, error) {
+	if s.filterFn == nil {
+		return nil, fmt.Errorf("unexpected filter call")
+	}
+	return s.filterFn(ctx, subject, action, resources, requestContext)
 }
 
 func TestAuthzMiddlewareDeniesNonAdminAdminEndpoint(t *testing.T) {
@@ -65,6 +94,54 @@ func TestAuthzMiddlewareFailsClosedWhenAAAUnavailable(t *testing.T) {
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestAuthzMiddlewareFallsBackToLocalEvaluatorForGroups(t *testing.T) {
+	remoteCalls := 0
+	localCalls := 0
+	app := &App{
+		aaaClient: stubAAAAuthorizer{
+			checkFn: func(context.Context, model.Subject, string, model.ResourceRef, map[string]any) (model.Decision, error) {
+				remoteCalls++
+				return model.Decision{}, errors.New("aaa unavailable")
+			},
+		},
+		aaaLocal: stubAAAAuthorizer{
+			checkFn: func(_ context.Context, subject model.Subject, action string, resource model.ResourceRef, _ map[string]any) (model.Decision, error) {
+				localCalls++
+				if subject.Sub != "admin" {
+					t.Fatalf("subject sub = %q, want admin", subject.Sub)
+				}
+				if action != "folder.list" {
+					t.Fatalf("action = %q, want folder.list", action)
+				}
+				if resource.Type != "folder" || resource.ID != "*" {
+					t.Fatalf("resource = %#v, want folder:*", resource)
+				}
+				return model.Decision{Allowed: true, Reason: "fallback"}, nil
+			},
+		},
+	}
+
+	nextCalled := false
+	handler := app.authzMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := withClaimsRequest(http.MethodGet, "/v1/groups", ``, &auth.Claims{Sub: "admin", Email: "admin@example.com", Provider: "local"})
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+	if !nextCalled {
+		t.Fatal("next handler was not called after fallback authorization")
+	}
+	if remoteCalls != 1 || localCalls != 1 {
+		t.Fatalf("remote/local calls = %d/%d, want 1/1", remoteCalls, localCalls)
 	}
 }
 
@@ -126,6 +203,46 @@ func TestPipelineListFilteringDoesNotLeakUnauthorizedNames(t *testing.T) {
 	}
 	if calls.filters != 1 || calls.checks != 0 {
 		t.Fatalf("AAA calls = %#v, want filter-only", calls)
+	}
+}
+
+func TestAllowedResourceSetFallsBackToLocalEvaluator(t *testing.T) {
+	allowedPipeline := routeauthz.PipelineResource("team", "alpha")
+	app := &App{
+		aaaClient: stubAAAAuthorizer{
+			filterFn: func(context.Context, model.Subject, string, []model.ResourceRef, map[string]any) ([]model.ResourceRef, error) {
+				return nil, errors.New("aaa unavailable")
+			},
+		},
+		aaaLocal: stubAAAAuthorizer{
+			filterFn: func(_ context.Context, subject model.Subject, action string, resources []model.ResourceRef, _ map[string]any) ([]model.ResourceRef, error) {
+				if subject.Sub != "viewer" {
+					t.Fatalf("subject sub = %q, want viewer", subject.Sub)
+				}
+				if action != "pipeline.list" {
+					t.Fatalf("action = %q, want pipeline.list", action)
+				}
+				if len(resources) != 2 {
+					t.Fatalf("resources = %d, want 2", len(resources))
+				}
+				return []model.ResourceRef{allowedPipeline}, nil
+			},
+		},
+	}
+
+	req := withClaimsRequest(http.MethodGet, "/v1/pipelines", ``, &auth.Claims{Sub: "viewer", Email: "viewer@example.com", Provider: "local"})
+	allowed, err := app.allowedResourceSet(req, "pipeline.list", []model.ResourceRef{
+		allowedPipeline,
+		routeauthz.PipelineResource("team", "beta"),
+	})
+	if err != nil {
+		t.Fatalf("allowedResourceSet() error = %v", err)
+	}
+	if len(allowed) != 1 {
+		t.Fatalf("allowed set size = %d, want 1", len(allowed))
+	}
+	if _, ok := allowed[resourceKey(allowedPipeline)]; !ok {
+		t.Fatalf("allowed set = %#v, want %q", allowed, resourceKey(allowedPipeline))
 	}
 }
 

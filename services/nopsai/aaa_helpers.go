@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
+
+	"github.com/rs/zerolog/log"
 
 	"nopsai/services/aaa/pkg/model"
 	"nopsai/services/nopsai/pkg/auth"
@@ -13,6 +16,14 @@ import (
 type aaaContextKey string
 
 const ctxKeyAAASubject aaaContextKey = "aaa-subject"
+
+const aaaRetryBackoff = 10 * time.Second
+
+type aaaAuthorizer interface {
+	Introspect(ctx context.Context, subject model.Subject) (*model.IntrospectResponse, error)
+	Check(ctx context.Context, subject model.Subject, action string, resource model.ResourceRef, requestContext map[string]any) (model.Decision, error)
+	Filter(ctx context.Context, subject model.Subject, action string, resources []model.ResourceRef, requestContext map[string]any) ([]model.ResourceRef, error)
+}
 
 func isAuthenticatedOnlyPath(path string) bool {
 	switch strings.TrimSpace(path) {
@@ -77,6 +88,112 @@ func (a *App) aaaRequestContext(r *http.Request) map[string]any {
 	}
 }
 
+func (a *App) aaaAvailable() bool {
+	return a != nil && (a.aaaClient != nil || a.aaaLocal != nil)
+}
+
+func (a *App) shouldTryRemoteAAA() bool {
+	if a == nil || a.aaaClient == nil {
+		return false
+	}
+	if a.aaaLocal == nil {
+		return true
+	}
+	a.aaaRemoteMu.Lock()
+	defer a.aaaRemoteMu.Unlock()
+	return a.aaaRetryAfter.IsZero() || !time.Now().Before(a.aaaRetryAfter)
+}
+
+func (a *App) markAAARemoteHealthy() {
+	if a == nil || a.aaaLocal == nil {
+		return
+	}
+	a.aaaRemoteMu.Lock()
+	defer a.aaaRemoteMu.Unlock()
+	a.aaaRetryAfter = time.Time{}
+}
+
+func (a *App) markAAARemoteUnavailable() {
+	if a == nil || a.aaaLocal == nil {
+		return
+	}
+	a.aaaRemoteMu.Lock()
+	defer a.aaaRemoteMu.Unlock()
+	a.aaaRetryAfter = time.Now().Add(aaaRetryBackoff)
+}
+
+func (a *App) aaaFallback(op string, err error) (aaaAuthorizer, bool) {
+	if a == nil || a.aaaLocal == nil {
+		return nil, false
+	}
+	a.markAAARemoteUnavailable()
+	log.Warn().Err(err).Str("operation", op).Msg("AAA service unavailable; falling back to in-process evaluator")
+	return a.aaaLocal, true
+}
+
+func (a *App) aaaIntrospect(ctx context.Context, subject model.Subject) (*model.IntrospectResponse, error) {
+	if a == nil {
+		return nil, fmt.Errorf("authorization unavailable")
+	}
+	if a.shouldTryRemoteAAA() {
+		resp, err := a.aaaClient.Introspect(ctx, subject)
+		if err == nil {
+			a.markAAARemoteHealthy()
+			return resp, nil
+		}
+		if fallback, ok := a.aaaFallback("introspect", err); ok {
+			return fallback.Introspect(ctx, subject)
+		}
+		return nil, err
+	}
+	if a.aaaLocal != nil {
+		return a.aaaLocal.Introspect(ctx, subject)
+	}
+	return nil, fmt.Errorf("authorization unavailable")
+}
+
+func (a *App) aaaCheck(ctx context.Context, subject model.Subject, action string, resource model.ResourceRef, requestContext map[string]any) (model.Decision, error) {
+	if a == nil {
+		return model.Decision{}, fmt.Errorf("authorization unavailable")
+	}
+	if a.shouldTryRemoteAAA() {
+		decision, err := a.aaaClient.Check(ctx, subject, action, resource, requestContext)
+		if err == nil {
+			a.markAAARemoteHealthy()
+			return decision, nil
+		}
+		if fallback, ok := a.aaaFallback("check", err); ok {
+			return fallback.Check(ctx, subject, action, resource, requestContext)
+		}
+		return model.Decision{}, err
+	}
+	if a.aaaLocal != nil {
+		return a.aaaLocal.Check(ctx, subject, action, resource, requestContext)
+	}
+	return model.Decision{}, fmt.Errorf("authorization unavailable")
+}
+
+func (a *App) aaaFilter(ctx context.Context, subject model.Subject, action string, resources []model.ResourceRef, requestContext map[string]any) ([]model.ResourceRef, error) {
+	if a == nil {
+		return nil, fmt.Errorf("authorization unavailable")
+	}
+	if a.shouldTryRemoteAAA() {
+		allowed, err := a.aaaClient.Filter(ctx, subject, action, resources, requestContext)
+		if err == nil {
+			a.markAAARemoteHealthy()
+			return allowed, nil
+		}
+		if fallback, ok := a.aaaFallback("filter", err); ok {
+			return fallback.Filter(ctx, subject, action, resources, requestContext)
+		}
+		return nil, err
+	}
+	if a.aaaLocal != nil {
+		return a.aaaLocal.Filter(ctx, subject, action, resources, requestContext)
+	}
+	return nil, fmt.Errorf("authorization unavailable")
+}
+
 func (a *App) requireAAADecision(w http.ResponseWriter, r *http.Request, action string, resource model.ResourceRef) bool {
 	subject, ok := a.currentAAASubject(r)
 	if !ok {
@@ -84,11 +201,13 @@ func (a *App) requireAAADecision(w http.ResponseWriter, r *http.Request, action 
 		return false
 	}
 	if a.aaaClient == nil {
-		http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
-		return false
+		if a.aaaLocal == nil {
+			http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
+			return false
+		}
 	}
 
-	decision, err := a.aaaClient.Check(r.Context(), subject, action, resource, a.aaaRequestContext(r))
+	decision, err := a.aaaCheck(r.Context(), subject, action, resource, a.aaaRequestContext(r))
 	if err != nil {
 		http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
 		return false
@@ -105,11 +224,11 @@ func (a *App) allowedResourceSet(r *http.Request, action string, resources []mod
 	if !ok {
 		return nil, fmt.Errorf("missing authorization subject")
 	}
-	if a.aaaClient == nil {
+	if !a.aaaAvailable() {
 		return nil, fmt.Errorf("authorization unavailable")
 	}
 
-	allowed, err := a.aaaClient.Filter(r.Context(), subject, action, resources, a.aaaRequestContext(r))
+	allowed, err := a.aaaFilter(r.Context(), subject, action, resources, a.aaaRequestContext(r))
 	if err != nil {
 		return nil, err
 	}
