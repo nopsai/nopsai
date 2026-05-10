@@ -224,12 +224,28 @@ CREATE TABLE auth_role_permissions (
     UNIQUE(role_name, resource_type, resource_id, action, effect)
 );
 
+CREATE TABLE access_grants (
+    id BIGSERIAL PRIMARY KEY,
+    subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_group', 'internal_service')),
+    subject_id TEXT NOT NULL,
+    subject_display TEXT NOT NULL DEFAULT '',
+    role_name TEXT NOT NULL,
+    resource_type TEXT NOT NULL,
+    resource_id TEXT NOT NULL,
+    resource_display TEXT NOT NULL DEFAULT '',
+    inherit BOOLEAN NOT NULL DEFAULT TRUE,
+    granted_by TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(subject_type, subject_id, resource_type, resource_id)
+);
+
 CREATE TABLE resource_acl (
     id BIGSERIAL PRIMARY KEY,
     resource_type TEXT NOT NULL,
     resource_id TEXT NOT NULL,
     subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_group', 'internal_service')),
     subject_id TEXT NOT NULL,
+    access_grant_id BIGINT REFERENCES access_grants(id) ON DELETE CASCADE,
     action TEXT NOT NULL,
     effect TEXT NOT NULL CHECK (effect IN ('allow', 'deny')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -242,6 +258,7 @@ CREATE TABLE resource_ownership (
     resource_id TEXT NOT NULL,
     owner_subject_type TEXT NOT NULL CHECK (owner_subject_type IN ('user', 'auth_group', 'internal_service')),
     owner_subject_id TEXT NOT NULL,
+    access_grant_id BIGINT REFERENCES access_grants(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(resource_type, resource_id, owner_subject_type, owner_subject_id)
 );
@@ -266,6 +283,8 @@ CREATE INDEX idx_auth_group_members_subject ON auth_group_members(subject_type, 
 CREATE INDEX idx_auth_role_bindings_subject ON auth_role_bindings(subject_type, subject_id);
 CREATE INDEX idx_auth_role_permissions_role_name ON auth_role_permissions(role_name);
 CREATE INDEX idx_auth_role_permissions_resource_lookup ON auth_role_permissions(resource_type, resource_id, action);
+CREATE INDEX idx_access_grants_subject_lookup ON access_grants(subject_type, subject_id);
+CREATE INDEX idx_access_grants_resource_lookup ON access_grants(resource_type, resource_id);
 CREATE INDEX idx_resource_acl_resource_lookup ON resource_acl(resource_type, resource_id, action);
 CREATE INDEX idx_resource_acl_subject_lookup ON resource_acl(subject_type, subject_id);
 CREATE INDEX idx_authz_decision_logs_created_at ON authz_decision_logs(created_at);

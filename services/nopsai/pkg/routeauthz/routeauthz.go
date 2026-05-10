@@ -40,18 +40,18 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 	case path == "/v1/groups":
 		switch r.Method {
 		case http.MethodGet:
-			return "folder.list", model.ResourceRef{Type: "folder", ID: "*"}, false, nil
+			return "folder.list", model.ResourceRef{Type: "folder", ID: "*"}, true, nil
 		case http.MethodPost:
-			return "folder.create", model.ResourceRef{Type: "folder", ID: "*"}, false, nil
+			return "", model.ResourceRef{}, false, nil
 		}
 	case strings.HasPrefix(path, "/v1/groups/") && strings.HasSuffix(path, "/move"):
-		return "folder.move", model.ResourceRef{Type: "folder", ID: strings.TrimSpace(r.PathValue("groupID"))}, false, nil
+		return "", model.ResourceRef{}, false, nil
 	case strings.HasPrefix(path, "/v1/groups/"):
 		switch r.Method {
 		case http.MethodPut, http.MethodPatch:
-			return "folder.update", model.ResourceRef{Type: "folder", ID: strings.TrimSpace(r.PathValue("groupID"))}, false, nil
+			return "", model.ResourceRef{}, false, nil
 		case http.MethodDelete:
-			return "folder.delete", model.ResourceRef{Type: "folder", ID: strings.TrimSpace(r.PathValue("groupID"))}, false, nil
+			return "", model.ResourceRef{}, false, nil
 		}
 	case path == "/v1/pipelines" && r.Method == http.MethodGet:
 		return "pipeline.list", model.ResourceRef{Type: "pipeline", ID: "*"}, true, nil
@@ -84,7 +84,7 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 	case strings.HasPrefix(path, "/v1/runs/") && strings.HasSuffix(path, "/status"):
 		return "pipeline_run.read", model.ResourceRef{Type: "pipeline_run", ID: strings.TrimSpace(r.PathValue("runID"))}, false, nil
 	case strings.HasPrefix(path, "/v1/runs/") && strings.HasSuffix(path, "/logs"):
-		return "pipeline_run.read", model.ResourceRef{Type: "pipeline_run", ID: strings.TrimSpace(r.PathValue("runID"))}, false, nil
+		return "pipeline_run.read_logs", model.ResourceRef{Type: "pipeline_run", ID: strings.TrimSpace(r.PathValue("runID"))}, false, nil
 	case strings.HasPrefix(path, "/v1/runs/") && r.Method == http.MethodGet:
 		return "pipeline_run.read", model.ResourceRef{Type: "pipeline_run", ID: strings.TrimSpace(r.PathValue("runID"))}, false, nil
 	case strings.HasPrefix(path, "/v1/runs/") && r.Method == http.MethodDelete:
@@ -159,16 +159,19 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 			ID:   buildRepositoryID(r.PathValue("repoOwner"), r.PathValue("repoName")),
 		}, false, nil
 	case strings.HasPrefix(path, "/v1/repositories/") && strings.HasSuffix(path, "/branches") && r.Method == http.MethodGet:
-		return "system.read", model.ResourceRef{Type: "repository", ID: buildRepositoryID(r.PathValue("repoOwner"), r.PathValue("repoName"))}, false, nil
+		return "repository.read", model.ResourceRef{Type: "repository", ID: buildRepositoryID(r.PathValue("repoOwner"), r.PathValue("repoName"))}, false, nil
 	case path == "/v1/steps" && r.Method == http.MethodGet:
-		return "system.read", model.ResourceRef{Type: "system", ID: "steps"}, false, nil
+		return "step.read", model.ResourceRef{Type: "step", ID: "*"}, true, nil
 	case strings.HasPrefix(path, "/v1/steps/"):
+		resource = StepResource(stepIdentifierFromPathValue(r.PathValue("stepPath"), r.PathValue("stepName")))
 		switch r.Method {
 		case http.MethodGet:
-			return "system.read", model.ResourceRef{Type: "system", ID: "steps"}, false, nil
+			return "step.read", resource, false, nil
 		case http.MethodPut, http.MethodDelete:
-			return "system.update", model.ResourceRef{Type: "system", ID: "steps"}, false, nil
+			return "step.manage", resource, false, nil
 		}
+	case strings.HasPrefix(path, "/v1/access/"):
+		return "", model.ResourceRef{}, false, nil
 	}
 
 	return "", model.ResourceRef{}, false, nil
@@ -209,6 +212,13 @@ func BuildTriggerResource(repoOwner, repoName string) model.ResourceRef {
 	}
 }
 
+func StepResource(identifier string) model.ResourceRef {
+	return model.ResourceRef{
+		Type: "step",
+		ID:   normalizeStepIdentifier(identifier),
+	}
+}
+
 func buildRepositoryID(repoOwner, repoName string) string {
 	repoOwner = strings.Trim(strings.TrimSpace(repoOwner), "/")
 	repoName = strings.Trim(strings.TrimSpace(repoName), "/")
@@ -220,4 +230,20 @@ func buildRepositoryID(repoOwner, repoName string) string {
 
 func normalizePathIdentifier(value string) string {
 	return strings.Trim(strings.TrimSpace(value), "/")
+}
+
+func normalizeStepIdentifier(value string) string {
+	value = normalizePathIdentifier(value)
+	if strings.HasSuffix(value, "/usage") {
+		value = strings.TrimSuffix(value, "/usage")
+		value = normalizePathIdentifier(value)
+	}
+	return value
+}
+
+func stepIdentifierFromPathValue(stepPath, stepName string) string {
+	if strings.TrimSpace(stepPath) != "" {
+		return stepPath
+	}
+	return stepName
 }

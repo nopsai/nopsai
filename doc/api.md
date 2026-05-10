@@ -16,6 +16,125 @@ curl -X POST http://localhost:8080/v1/internal/config/sync
 
 ---
 
+## Access Control
+
+NopsAI keeps the existing AAA policy engine as the decision point and layers product roles on top of it.
+
+Predefined product roles:
+
+- `viewer`: read-only access to folder metadata, pipelines, runs, logs, triggers, repository metadata, step metadata, secret metadata, and variable metadata
+- `developer`: viewer permissions plus pipeline create/update/execute, rerun/cancel, trigger updates, secret value writes, variable writes, repository updates, scope updates, and reusable step usage
+- `owner`: developer permissions plus delete operations, secret value reads, and permission management inside the owned scope
+- `admin`: platform-wide access through the normal AAA `Check` path, with sensitive actions still audited
+
+Important behavior:
+
+- Product roles are expanded to low-level AAA permissions when the grant is created.
+- Folder grants inherit to child folders, pipelines, runs, triggers, repositories, scoped secrets, scoped variables, and reusable steps under that folder path.
+- `developer` can write secret values but cannot read them.
+- `developer` and `viewer` cannot manage ACLs.
+- `owner` cannot grant `admin`.
+- `admin` is platform-scoped only.
+- Deny rules still win before allows.
+- Denied requests and sensitive allowed requests are still audit logged.
+
+Supported access-grant subject types:
+
+- `user`
+- `auth_group`
+- `internal_service`
+
+Folder grants target folder paths, not numeric `group_id` values. Example: `/payments/backend`.
+
+---
+
+## Access Grants
+
+Use these endpoints to assign product roles to subjects on resources.
+
+```bash
+# Grant developer to an auth group on a folder subtree
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "subject_type":"auth_group",
+    "subject_id":"payments-devs",
+    "role":"developer",
+    "resource_type":"folder",
+    "resource_id":"/payments",
+    "inherit":true
+  }' \
+  http://localhost:8080/v1/access/grants
+
+# List grants for a folder
+curl "http://localhost:8080/v1/access/grants?resource_type=folder&resource_id=/payments"
+
+# Delete a grant
+curl -X DELETE http://localhost:8080/v1/access/grants/grant_123
+```
+
+Grant request fields:
+
+- `subject_type`: `user`, `auth_group`, or `internal_service`
+- `subject_id`: user subject, email, UUID, auth-group name/UUID, or service id
+- `role`: `viewer`, `developer`, `owner`, or `admin`
+- `resource_type`: `folder`, `pipeline`, `trigger`, `secret`, `variable`, `scope`, `repository`, `step`, or `platform`
+- `resource_id`: folder path such as `/payments`, pipeline id such as `team-1/dev/build`, repository id such as `owner/repo`, or `platform`
+- `inherit`: required for folder-style subtree grants; folder grants should normally use `true`
+
+Example response:
+
+```json
+{
+  "id": "grant_123",
+  "subject_type": "auth_group",
+  "subject_id": "payments-devs",
+  "role": "developer",
+  "resource_type": "folder",
+  "resource_id": "/payments",
+  "inherit": true,
+  "granted_by": "admin"
+}
+```
+
+Validation and guardrails:
+
+- The target subject and resource must already exist.
+- Every folder must retain at least one `owner`.
+- Only `owner` or `admin` can manage grants.
+- `admin` grants are only valid on `platform`.
+
+---
+
+## Effective Permissions
+
+Use `GET /v1/access/effective-permissions` when you want to see why a request is allowed or denied.
+
+```bash
+curl "http://localhost:8080/v1/access/effective-permissions?action=pipeline.update&resource_type=pipeline&resource_id=payments/deploy-api"
+```
+
+Example response:
+
+```json
+{
+  "allowed": true,
+  "action": "pipeline.update",
+  "resource": "pipeline:payments/deploy-api",
+  "reason": "group payments-devs has developer on folder:/payments, inherited by pipeline:payments/deploy-api",
+  "matched_role": "developer",
+  "matched_subject": "group payments-devs",
+  "matched_resource": "folder:/payments",
+  "inherited": true,
+  "source_parent_resource": "folder:/payments",
+  "low_level_permission": "pipeline.update"
+}
+```
+
+This endpoint is the product-facing explanation layer on top of the existing AAA `Check` and inheritance logic.
+
+---
+
 ## Secrets
 
 Secrets are encrypted at rest using the master key. They can be scoped globally, per environment, or per repository.
@@ -47,6 +166,7 @@ curl -X PUT \
 - Repository-scoped entries returned by `GET /v1/secrets` are prefixed with `owner/repo/SECRET`, so the UI can group them under the same scope as global secrets.
 - `GET /v1/secrets/scopes` reports only scopes (default, prod, etc.) to mirror the Scopes page.
 - Secrets resolve in the following order: repo+env → repo → global+env → global.
+- Predefined product roles expose secret metadata broadly, but secret value reads remain owner/admin-level by default.
 
 ---
 
@@ -70,6 +190,7 @@ curl "http://localhost:8080/v1/variables?env=prod"
 - The list endpoint now returns both global variables (e.g. `DATABASE_URL`) and repository-scoped entries in the form `owner/repo/NAME`.
 - Duplicate keys inside the same scope are rejected during config sync.
 - The config repo may define scope folders under `environments/<scope>/env.yaml`; the sync endpoint imports them automatically.
+- Predefined product roles allow variable metadata reads and writes, but do not grant variable value reads by default.
 
 ---
 
@@ -95,6 +216,7 @@ curl -X DELETE http://localhost:8080/v1/pipelines/team-1/dev/main-pipeline
 
 - Paths containing slashes map to nested folders (e.g. `team-1/dev`).
 - Pipeline responses include metadata such as version, description, steps, tasks, timeout, container image, and LLM controls.
+- Folder-level product grants inherit to pipelines below that folder path.
 
 ---
 
@@ -145,6 +267,7 @@ curl -X DELETE http://localhost:8080/v1/steps/shared/utilities/archive-step
 
 - Reusable steps can be referenced from pipelines through the `include:` directive.
 - When `include_source=true` each item includes `identifier`, `path`, `name`, `source`, and `updated_at`, allowing the UI to distinguish Git-managed definitions from database overrides.
+- Using a reusable step from a pipeline requires `step.use`. Managing step definitions is effectively admin-only in the predefined role set.
 
 ---
 
@@ -182,6 +305,7 @@ curl -X POST http://localhost:8080/v1/run/team-1/dev/main-pipeline
 curl http://localhost:8080/v1/runs
 curl http://localhost:8080/v1/runs/<run-id>
 curl http://localhost:8080/v1/runs/<run-id>/status
+curl http://localhost:8080/v1/runs/<run-id>/logs
 curl http://localhost:8080/v1/runs-by-check/<check-run-id>
 
 # Rerun, cancel, or finalise
@@ -191,8 +315,7 @@ curl -X POST -H 'Content-Type: application/json' \
   -d '{"status":"success"}' \
   http://localhost:8080/v1/runs/<run-id>/finalize
 
-# Logs & cleanup
-curl http://localhost:8080/v1/runs/<run-id>/logs
+# Cleanup
 curl -X DELETE http://localhost:8080/v1/runs/<run-id>
 curl -X DELETE \
   http://localhost:8080/v1/repositories/<owner>/<repo>/branches/<branch>
@@ -200,6 +323,7 @@ curl -X DELETE \
 
 - Step/task status updates are posted by the agent to `/v1/runs/{runID}/steps/{step}/tasks/{task}` (payload includes status, exit code, and LLM timing).
 - Run listings return summary metadata used by the UI cards and WebSocket broadcasts.
+- Run log access is authorized separately from run-detail access in the low-level AAA layer.
 - Branch cleanup removes historical runs for the specified branch while leaving the repository intact.
 
 ---
@@ -218,13 +342,15 @@ curl -X PUT -H 'Content-Type: application/json' \
   http://localhost:8080/v1/groups/<group-id>
 
 curl -X PUT -H 'Content-Type: application/json' \
-  -d '{"new_parent_id":42}' \
+  -d '{"parent_id":42}' \
   http://localhost:8080/v1/groups/<group-id>/move
 
 curl -X DELETE http://localhost:8080/v1/groups/<group-id>
 ```
 
 - Groups power the “Main” dashboard’s folder hierarchy. Each run card can be assigned to a group path.
+- Access grants should target the resolved folder path, not the numeric `group_id`.
+- `GET /v1/groups` is filtered by the caller’s folder visibility.
 
 ---
 
