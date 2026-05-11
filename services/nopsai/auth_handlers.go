@@ -729,6 +729,10 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to validate user", http.StatusInternalServerError)
 		return
 	}
+	if strings.EqualFold(req.Sub, defaultAdminSub) && req.Role != "" {
+		http.Error(w, "cannot modify default admin role assignments", http.StatusBadRequest)
+		return
+	}
 	inUse, err := a.userEmailInUse(r.Context(), req.Email, excludeUserID)
 	if err != nil {
 		http.Error(w, "failed to validate email", http.StatusInternalServerError)
@@ -988,6 +992,19 @@ func (a *App) handleAddUserRole(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid user_id", http.StatusBadRequest)
 		return
 	}
+	var sub, provider string
+	if err := a.db.QueryRow(r.Context(), `SELECT sub, provider FROM users WHERE id = $1`, req.UserID).Scan(&sub, &provider); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "user not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to load user", http.StatusInternalServerError)
+		return
+	}
+	if sub == defaultAdminSub && provider == "local" {
+		http.Error(w, "cannot modify default admin role assignments", http.StatusBadRequest)
+		return
+	}
 
 	tx, err := a.db.Begin(r.Context())
 	if err != nil {
@@ -1047,11 +1064,17 @@ func (a *App) handleDeleteUserRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var sub, provider string
-	if err := a.db.QueryRow(r.Context(), `SELECT sub, provider FROM users WHERE id = $1`, req.UserID).Scan(&sub, &provider); err == nil {
-		if sub == defaultAdminSub && provider == "local" && req.Role == defaultAdminRole {
-			http.Error(w, "cannot remove default admin role", http.StatusBadRequest)
+	if err := a.db.QueryRow(r.Context(), `SELECT sub, provider FROM users WHERE id = $1`, req.UserID).Scan(&sub, &provider); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "user not found", http.StatusNotFound)
 			return
 		}
+		http.Error(w, "failed to load user", http.StatusInternalServerError)
+		return
+	}
+	if sub == defaultAdminSub && provider == "local" {
+		http.Error(w, "cannot modify default admin role assignments", http.StatusBadRequest)
+		return
 	}
 	tx, err := a.db.Begin(r.Context())
 	if err != nil {
@@ -1110,9 +1133,8 @@ func (a *App) handleCreateRole(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if permission.Role == defaultAdminRole &&
-		(permission.ResourceType != "*" || permission.ResourceID != "*" || permission.Action != "*" || permission.Effect != "allow") {
-		http.Error(w, "default admin policy is fixed to *:* and *", http.StatusBadRequest)
+	if isProtectedAdminRoleName(permission.Role) {
+		http.Error(w, "default roles cannot be modified", http.StatusBadRequest)
 		return
 	}
 
@@ -1191,9 +1213,8 @@ func (a *App) handleDeleteRole(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if permission.Role == defaultAdminRole &&
-		permission.ResourceType == "*" && permission.ResourceID == "*" && permission.Action == "*" && permission.Effect == "allow" {
-		http.Error(w, "cannot delete default admin policy", http.StatusBadRequest)
+	if isProtectedAdminRoleName(permission.Role) {
+		http.Error(w, "default roles cannot be deleted", http.StatusBadRequest)
 		return
 	}
 	var assignments int

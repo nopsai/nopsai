@@ -136,3 +136,23 @@ func adminPermissionDisplayName(fallback, object, action string) string {
 	}
 	return defaultPolicyName(object, action)
 }
+
+func isProtectedAdminRoleName(roleName string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(roleName))
+	if normalized == "" {
+		return false
+	}
+	if normalized == strings.ToLower(defaultAdminRole) {
+		return true
+	}
+	_, protected := productRoleDefinitions[normalized]
+	return protected
+}
+
+func isDefaultAdminAllAccessPermission(permission adminRolePermission) bool {
+	return strings.EqualFold(strings.TrimSpace(permission.Role), defaultAdminRole) &&
+		permission.ResourceType == "*" &&
+		permission.ResourceID == "*" &&
+		permission.Action == "*" &&
+		permission.Effect == "allow"
+}

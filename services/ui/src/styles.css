@@ -2099,6 +2099,10 @@ html.dark .pipeline-card-icon {
     flex-wrap: wrap;
 }
 
+.access-header__actions .access-mode-switch {
+    flex: 0 0 auto;
+}
+
 .access-toolbar-btn {
     display: inline-flex;
     align-items: center;
@@ -2207,6 +2211,12 @@ html.dark .pipeline-card-icon {
 
 .access-editor-surface {
     min-height: 0;
+}
+
+.access-editor-surface--minimal {
+    gap: 0.8rem;
+    padding: 0.9rem;
+    box-shadow: none;
 }
 
 .access-editor-empty {
@@ -2355,6 +2365,10 @@ html.dark .access-editor-empty__button:hover {
     gap: 1rem;
 }
 
+.access-editor-form--compact {
+    gap: 0.8rem;
+}
+
 .access-editor-grid {
     display: grid;
     gap: 0.75rem;
@@ -2365,6 +2379,12 @@ html.dark .access-editor-empty__button:hover {
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
+}
+
+.access-editor-section--plain {
+    gap: 0.65rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-primary);
 }
 
 .access-editor-inline-add {
@@ -2378,6 +2398,11 @@ html.dark .access-editor-empty__button:hover {
     display: flex;
     justify-content: flex-end;
     padding-top: 0.25rem;
+}
+
+.access-editor-footer--inline {
+    justify-content: flex-start;
+    padding-top: 0.1rem;
 }
 
 .access-chip {
@@ -2544,6 +2569,10 @@ html.dark .access-chip--tone-admin {
     gap: 0.55rem;
     flex-wrap: wrap;
     margin-left: auto;
+}
+
+.access-search-shell {
+    flex: 0 0 auto;
 }
 
 .access-section-action {
@@ -2894,33 +2923,6 @@ html.dark .access-modal-header--minimal {
     padding: 16px 20px 20px;
 }
 
-.access-modal-callout {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 0.9rem;
-    padding: 0.85rem 0.9rem;
-    border-radius: 8px;
-    border: 1px solid var(--border-primary);
-    background: var(--bg-tertiary);
-}
-
-.access-modal-callout__meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.45rem;
-    justify-content: flex-end;
-}
-
-.access-modal-callout__meta span {
-    padding: 0.24rem 0.5rem;
-    border-radius: 6px;
-    border: 1px solid var(--border-primary);
-    background: var(--bg-secondary);
-    font-size: 0.76rem;
-    color: var(--text-primary);
-}
-
 .access-minimal-form {
     display: flex;
     flex-direction: column;
@@ -3049,6 +3051,14 @@ html.dark .access-modal-header--minimal {
         flex: 1;
     }
 
+    .access-header__actions .access-mode-switch {
+        width: auto;
+    }
+
+    .access-header__actions .access-mode-switch__option {
+        flex: 0 0 auto;
+    }
+
     .access-section-tools {
         width: 100%;
         justify-content: flex-start;
@@ -3059,13 +3069,11 @@ html.dark .access-modal-header--minimal {
         align-items: stretch;
     }
 
-    .access-card__header,
-    .access-modal-callout {
+    .access-card__header {
         flex-direction: column;
     }
 
-    .access-card__actions,
-    .access-modal-callout__meta {
+    .access-card__actions {
         width: 100%;
         justify-content: flex-start;
     }
