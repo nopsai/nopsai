@@ -110,15 +110,7 @@ func (s *Service) LoginLocal(ctx context.Context, identifier, password string) (
 		status       string
 	)
 
-	row := s.db.QueryRow(ctx, `
-		SELECT id, sub, email, provider, password_hash, status
-		FROM users
-		WHERE email = $1 OR sub = $1
-	`, identifier)
-	if err := row.Scan(&userID, &sub, &email, &provider, &passwordHash, &status); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("invalid credentials")
-		}
+	if err := s.lookupLoginUser(ctx, identifier, &userID, &sub, &email, &provider, &passwordHash, &status); err != nil {
 		return nil, err
 	}
 
@@ -210,9 +202,13 @@ func (s *Service) Refresh(ctx context.Context, rawRefresh string) (*LoginResult,
 	var sub string
 	var email sql.NullString
 	var provider string
-	row = s.db.QueryRow(ctx, `SELECT sub, email, provider FROM users WHERE id = $1`, userID)
-	if err := row.Scan(&sub, &email, &provider); err != nil {
+	var status string
+	row = s.db.QueryRow(ctx, `SELECT sub, email, provider, status FROM users WHERE id = $1`, userID)
+	if err := row.Scan(&sub, &email, &provider, &status); err != nil {
 		return nil, err
+	}
+	if status != "active" {
+		return nil, fmt.Errorf("account disabled")
 	}
 
 	roles, err := s.fetchRoles(ctx, userID)
@@ -258,6 +254,56 @@ func (s *Service) Logout(ctx context.Context, rawRefresh string) error {
 	hash := HashToken(rawRefresh)
 	_, err := s.db.Exec(ctx, `UPDATE refresh_tokens SET revoked_at = NOW() WHERE token_hash = $1`, hash)
 	return err
+}
+
+func (s *Service) lookupLoginUser(
+	ctx context.Context,
+	identifier string,
+	userID *uuid.UUID,
+	sub *string,
+	email *sql.NullString,
+	provider *string,
+	passwordHash *sql.NullString,
+	status *string,
+) error {
+	row := s.db.QueryRow(ctx, `
+		SELECT id, sub, email, provider, password_hash, status
+		FROM users
+		WHERE sub = $1
+	`, identifier)
+	if err := row.Scan(userID, sub, email, provider, passwordHash, status); err == nil {
+		return nil
+	} else if !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+
+	rows, err := s.db.Query(ctx, `
+		SELECT id, sub, email, provider, password_hash, status
+		FROM users
+		WHERE LOWER(email) = LOWER($1)
+		ORDER BY id ASC
+		LIMIT 2
+	`, identifier)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		return fmt.Errorf("invalid credentials")
+	}
+	if err := rows.Scan(userID, sub, email, provider, passwordHash, status); err != nil {
+		return err
+	}
+	if rows.Next() {
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		return fmt.Errorf("account lookup is ambiguous; contact an administrator")
+	}
+	return rows.Err()
 }
 
 func (s *Service) fetchRoles(ctx context.Context, userID uuid.UUID) ([]string, error) {

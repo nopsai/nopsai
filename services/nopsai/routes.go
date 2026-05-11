@@ -22,6 +22,13 @@ func (a *App) registerAuthRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /v1/admin/roles", a.handleDeleteRole)
 }
 
+func (a *App) registerAccessRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("POST /v1/access/grants", a.handleCreateAccessGrant)
+	mux.HandleFunc("GET /v1/access/grants", a.handleListAccessGrants)
+	mux.HandleFunc("DELETE /v1/access/grants/{grantID}", a.handleDeleteAccessGrant)
+	mux.HandleFunc("GET /v1/access/effective-permissions", a.handleGetEffectivePermissions)
+}
+
 func (a *App) registerGitHubRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/git/events", a.handleGitEvent)
 }
@@ -100,6 +107,7 @@ func (a *App) registerRunRoutes(mux *http.ServeMux) {
 func (a *App) buildHTTPHandler() http.Handler {
 	mux := http.NewServeMux()
 	a.registerAuthRoutes(mux)
+	a.registerAccessRoutes(mux)
 	a.registerGitHubRoutes(mux)
 	a.registerGroupRoutes(mux)
 	a.registerSystemRoutes(mux)

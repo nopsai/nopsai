@@ -11,11 +11,13 @@ Primary role:
 Responsibilities:
 
 - Exposes REST endpoints for auth, runs, pipelines, steps, triggers, secrets, variables, groups, and system operations.
+- Exposes product access-management endpoints for role grants and effective-permission inspection.
 - Stores and reads all durable state from Postgres.
 - Validates pipelines and resolves reusable `step:` includes.
 - Resolves required secrets and variables before a run is dispatched.
 - Creates run records, task records, and log records.
 - Starts config sync from the Git-backed config repo.
+- Seeds predefined product roles and expands role grants into low-level AAA ACLs.
 - Talks to the dispatcher as a gRPC client.
 - Talks to `git-bot` over HTTP for GitHub checks and repository content access.
 
@@ -36,12 +38,21 @@ Important subpackages:
 - `pkg/audit`: Audit-log persistence.
 - `pkg/store`: Small storage abstraction, currently centered on Postgres.
 - `pkg/validation`: Pipeline validation.
+- `services/aaa/pkg/authz`: Evaluator that handles `Check`, `BatchCheck`, `Filter`, and `Introspect`.
+- `services/aaa/pkg/store`: Postgres-backed AAA storage, inheritance resolution, and decision logging.
 
 Inbound interfaces:
 
 - Browser/UI HTTP traffic
 - `git-bot` forwarded GitHub events
 - Internal dispatcher-authenticated HTTP calls for logs, task updates, finalization, pipeline fetches, and child pipeline creation
+
+Authorization notes:
+
+- Product roles are seeded as predefined templates: `viewer`, `developer`, `owner`, and `admin`.
+- Access grants are written at grant time into existing AAA tables instead of changing evaluator behavior.
+- Folder-targeted grants inherit by path to child resources.
+- Sensitive allowed actions and all denied actions are written to authorization decision logs.
 
 Outbound interfaces:
 
@@ -207,6 +218,7 @@ Responsibilities:
 - Reusable step library
 - Lab for ad-hoc YAML execution and quick runs
 - System pages for config sync, dispatcher status, runner controls, and access management
+- Access-grant management for product roles and effective-permission inspection
 - Profile page for email and password changes
 
 Key files:
@@ -233,6 +245,7 @@ Primary role:
 Responsibilities:
 
 - Stores runs, tasks, logs, configuration, groups, users, roles, refresh tokens, and audit logs.
+- Stores AAA subjects, role bindings, grant metadata, expanded ACLs, ownership metadata, and authorization decision logs.
 - Keeps the execution record durable even though agents and step containers are ephemeral.
 
 Key files:

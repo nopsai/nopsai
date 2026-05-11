@@ -61,6 +61,8 @@ const TASK_DIRECTIVES = [
   'variables',
 ];
 
+const PIPELINE_PERMISSION_PROBE_NAME = '__nopsai_permission_probe__';
+
 type PipelineListItem = { id: string; source?: string };
 type PipelineDetail = {
   id: string;
@@ -137,11 +139,10 @@ type TreeNode = {
 
 type PipelinesPageProps = {
   draftScope: string;
-  canWritePipelines: boolean;
   canDeletePipelines: boolean;
 };
 
-function PipelinesPage({ draftScope, canWritePipelines, canDeletePipelines }: PipelinesPageProps) {
+function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -156,6 +157,8 @@ function PipelinesPage({ draftScope, canWritePipelines, canDeletePipelines }: Pi
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedIdRef = useRef<string | null>(null);
+  const [folderCreateAllowed, setFolderCreateAllowed] = useState(false);
+  const [selectedUpdateAllowed, setSelectedUpdateAllowed] = useState(false);
 
   const [detail, setDetail] = useState<PipelineDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -727,6 +730,23 @@ function PipelinesPage({ draftScope, canWritePipelines, canDeletePipelines }: Pi
     return { name, path };
   };
 
+  const buildPermissionProbeIdentifier = (folder: string) => {
+    const cleaned = folder.trim().replace(/^\/+|\/+$/g, '');
+    return cleaned ? `${cleaned}/${PIPELINE_PERMISSION_PROBE_NAME}` : PIPELINE_PERMISSION_PROBE_NAME;
+  };
+
+  const checkPipelinePermission = useCallback(async (action: string, resourceID: string) => {
+    const params = new URLSearchParams({
+      action,
+      resource_type: 'pipeline',
+      resource_id: resourceID,
+    });
+    const response = await fetch(buildApiUrl(`/v1/access/effective-permissions?${params.toString()}`));
+    if (!response.ok) return false;
+    const payload = await response.json();
+    return Boolean(payload?.allowed);
+  }, []);
+
   const normalizeSource = (source?: string) => {
     const key = (source || '').trim().toLowerCase();
     if (!key) return 'database';
@@ -1099,17 +1119,62 @@ function PipelinesPage({ draftScope, canWritePipelines, canDeletePipelines }: Pi
     [draftsById]
   );
 
+  const permissionFolder = selectedId ? splitIdentifier(selectedId).path : activeFolder;
+
   useEffect(() => {
-    if (!canWritePipelines || !draftScope) {
+    let cancelled = false;
+    setFolderCreateAllowed(false);
+    void checkPipelinePermission('pipeline.create', buildPermissionProbeIdentifier(permissionFolder))
+      .then(allowed => {
+        if (!cancelled) setFolderCreateAllowed(allowed);
+      })
+      .catch(() => {
+        if (!cancelled) setFolderCreateAllowed(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [checkPipelinePermission, permissionFolder]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedId) {
+      setSelectedUpdateAllowed(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setSelectedUpdateAllowed(false);
+    void checkPipelinePermission('pipeline.update', selectedId)
+      .then(allowed => {
+        if (!cancelled) setSelectedUpdateAllowed(allowed);
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedUpdateAllowed(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [checkPipelinePermission, selectedId]);
+
+  const canCreatePipelineHere = folderCreateAllowed;
+  const canUpdateSelectedPipeline = selectedUpdateAllowed;
+  const canUsePipelineDrafts = canCreatePipelineHere || canUpdateSelectedPipeline;
+
+  useEffect(() => {
+    if (!canUsePipelineDrafts || !draftScope) {
       setDraftPipelines([]);
       return;
     }
     setDraftPipelines(loadPipelineDrafts(draftScope));
-  }, [canWritePipelines, draftScope]);
+  }, [canUsePipelineDrafts, draftScope]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (!canWritePipelines || !draftScope) return;
+    if (!canUsePipelineDrafts || !draftScope) return;
     const storageKey = getPipelineDraftStorageKey(draftScope);
     const refreshDrafts = () => setDraftPipelines(loadPipelineDrafts(draftScope));
     const onStorage = (event: StorageEvent) => {
@@ -1122,7 +1187,7 @@ function PipelinesPage({ draftScope, canWritePipelines, canDeletePipelines }: Pi
       window.removeEventListener(PIPELINE_DRAFTS_CHANGED_EVENT, refreshDrafts);
       window.removeEventListener('storage', onStorage);
     };
-  }, [canWritePipelines, draftScope]);
+  }, [canUsePipelineDrafts, draftScope]);
 
   const pipelines = useMemo(() => {
     const merged = new Map<string, PipelineListItem>();
@@ -1192,14 +1257,14 @@ function PipelinesPage({ draftScope, canWritePipelines, canDeletePipelines }: Pi
 
   useEffect(() => {
     if (!detail || !isEditing) return;
-    if (!canWritePipelines || !draftScope) return;
+    if (!canUsePipelineDrafts || !draftScope) return;
     if (normalizeSource(detail.source) !== 'draft') return;
     const draftId = detail.id;
     const handle = window.setTimeout(() => {
       setDraftPipelines(upsertPipelineDraft({ id: draftId, yaml: editorValue }, draftScope));
     }, 800);
     return () => window.clearTimeout(handle);
-  }, [canWritePipelines, detail, draftScope, editorValue, isEditing]);
+  }, [canUsePipelineDrafts, detail, draftScope, editorValue, isEditing]);
 
   useEffect(() => {
     if (!isEditing) return;
@@ -1317,11 +1382,13 @@ function PipelinesPage({ draftScope, canWritePipelines, canDeletePipelines }: Pi
 
   const handleSave = async () => {
     if (!detail || !editorValue.trim()) return;
-    if (!canWritePipelines) {
+    const detailSource = normalizeSource(detail.source);
+    const canPersistPipeline = detailSource === 'draft' ? canCreatePipelineHere : canUpdateSelectedPipeline;
+    if (!canPersistPipeline) {
       addToast('You have read-only access to pipelines.', 'info');
       return;
     }
-    if (normalizeSource(detail.source) === 'git') {
+    if (detailSource === 'git') {
       addToast('Git-managed pipelines are read-only. Clone it to create an editable draft.', 'info');
       return;
     }
@@ -1361,14 +1428,14 @@ function PipelinesPage({ draftScope, canWritePipelines, canDeletePipelines }: Pi
   };
 
   const openCreateModal = () => {
-    if (!canWritePipelines) {
+    if (!canCreatePipelineHere) {
       addToast('You have read-only access to pipelines.', 'info');
       return;
     }
-    setFormModal({ mode: 'create', path: activeFolder, name: '', pending: false });
+    setFormModal({ mode: 'create', path: permissionFolder, name: '', pending: false });
   };
   const openCloneModal = () => {
-    if (!canWritePipelines) {
+    if (!canCreatePipelineHere) {
       addToast('You have read-only access to pipelines.', 'info');
       return;
     }
@@ -1388,7 +1455,7 @@ function PipelinesPage({ draftScope, canWritePipelines, canDeletePipelines }: Pi
 
   const submitFormModal = async () => {
     if (!formModal) return;
-    if (!canWritePipelines || !draftScope) {
+    if (!canCreatePipelineHere || !draftScope) {
       setFormModal(prev => prev ? { ...prev, error: 'You have read-only access to pipelines.' } : prev);
       return;
     }
@@ -1403,6 +1470,11 @@ function PipelinesPage({ draftScope, canWritePipelines, canDeletePipelines }: Pi
     }
     if (pipelines.some(item => item.id === identifier)) {
       setFormModal(prev => prev ? { ...prev, error: 'A pipeline with that identifier already exists.' } : prev);
+      return;
+    }
+    const allowed = await checkPipelinePermission('pipeline.create', identifier);
+    if (!allowed) {
+      setFormModal(prev => prev ? { ...prev, error: 'You do not have permission to create pipelines in this path.' } : prev);
       return;
     }
     setFormModal(prev => prev ? { ...prev, pending: true, error: undefined } : prev);
@@ -1432,7 +1504,7 @@ function PipelinesPage({ draftScope, canWritePipelines, canDeletePipelines }: Pi
         throw new Error('This pipeline is managed via Git. Clone it to customize instead of deleting.');
       }
       if (normalizedSource === 'draft') {
-        if (!canWritePipelines || !draftScope) {
+        if (!canUsePipelineDrafts || !draftScope) {
           throw new Error('You have read-only access to pipelines.');
         }
         setDraftPipelines(deletePipelineDraft(deleteModal.pipelineId, draftScope));
@@ -1463,7 +1535,7 @@ function PipelinesPage({ draftScope, canWritePipelines, canDeletePipelines }: Pi
   const renderPipelineCard = (pipeline: PipelineListItem) => {
     const { name, path } = splitIdentifier(pipeline.id);
     const source = normalizeSource(pipeline.source);
-    const canDeleteThisPipeline = source === 'draft' ? canWritePipelines : canDeletePipelines && source !== 'git';
+    const canDeleteThisPipeline = source === 'draft' ? canUsePipelineDrafts : canDeletePipelines && source !== 'git';
     return (
       <article
         key={pipeline.id}
@@ -1579,7 +1651,7 @@ function PipelinesPage({ draftScope, canWritePipelines, canDeletePipelines }: Pi
               <div id="pipelines-empty" className="pipelines-empty">
                 <h3 className="text-base font-semibold text-[var(--text-primary)]">No pipelines found</h3>
                 <p className="text-sm text-[var(--text-secondary)]">
-                  {canWritePipelines ? 'Create a new pipeline or adjust your filters.' : 'Adjust your filters or check your access.'}
+                  {canCreatePipelineHere ? 'Create a new pipeline or adjust your filters.' : 'Adjust your filters or check your access.'}
                 </p>
               </div>
             )}
@@ -1645,18 +1717,24 @@ function PipelinesPage({ draftScope, canWritePipelines, canDeletePipelines }: Pi
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                           </svg>
                         </button>
-                        {!canWritePipelines ? null : isGitSource ? (
-                          <button className="glass-button-primary" onClick={openCloneModal}>
-                            Clone
-                          </button>
-                        ) : (
-                          <>
-                            <button className="glass-button-primary" onClick={() => setIsEditing(true)}>
-                              Edit
-                            </button>
-                            <button className="glass-button-subtle" onClick={openCloneModal}>
+                        {!canUpdateSelectedPipeline && !canCreatePipelineHere ? null : isGitSource ? (
+                          canCreatePipelineHere ? (
+                            <button className="glass-button-primary" onClick={openCloneModal}>
                               Clone
                             </button>
+                          ) : null
+                        ) : (
+                          <>
+                            {canUpdateSelectedPipeline ? (
+                              <button className="glass-button-primary" onClick={() => setIsEditing(true)}>
+                                Edit
+                              </button>
+                            ) : null}
+                            {canCreatePipelineHere ? (
+                              <button className="glass-button-subtle" onClick={openCloneModal}>
+                                Clone
+                              </button>
+                            ) : null}
                           </>
                         )}
                       </>
@@ -2117,7 +2195,7 @@ function PipelinesPage({ draftScope, canWritePipelines, canDeletePipelines }: Pi
                 </button>
               )}
             </div>
-            {canWritePipelines ? (
+            {canCreatePipelineHere ? (
               <button
                 id="pipelines-new-btn"
                 type="button"
