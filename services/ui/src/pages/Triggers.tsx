@@ -296,7 +296,13 @@ function buildNewTriggerYaml(pipelinePath: string): string {
   return `triggers:\n  - on: push\n    branches:\n      - main\n    pipelines:\n      - ${path}\n`;
 }
 
-function TriggersPage() {
+function TriggersPage({
+  canWriteTriggers = false,
+  canDeleteTriggers = false,
+}: {
+  canWriteTriggers?: boolean;
+  canDeleteTriggers?: boolean;
+}) {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -1034,11 +1040,13 @@ function TriggersPage() {
   };
 
   const openCreateModal = () => {
+    if (!canWriteTriggers) return;
     const yamlPreview = buildNewTriggerYaml(deriveDefaultPipelinePath(''));
     setCreateModal({ repository: '', yamlPreview, pending: false });
   };
 
   const openCloneModal = () => {
+    if (!canWriteTriggers) return;
     if (!detail) {
       addToast('Select a trigger to clone.', 'info');
       return;
@@ -1047,6 +1055,7 @@ function TriggersPage() {
   };
 
   const openDeleteModal = (slug: string) => {
+    if (!canDeleteTriggers) return;
     const source = normalizeSource(serverTriggers.find(item => item.slug === slug)?.source);
     if (source === 'git') {
       addToast('This trigger is managed via Git. Clone it to customize instead of deleting.', 'info');
@@ -1080,6 +1089,10 @@ function TriggersPage() {
   };
 
   const handleSave = async () => {
+    if (!canWriteTriggers) {
+      addToast('You do not have permission to update triggers.', 'error');
+      return;
+    }
     if (!detail) return;
     if (normalizeSource(detail.source) === 'git') {
       addToast('Git-managed triggers are read-only. Clone it to customize.', 'info');
@@ -1122,6 +1135,7 @@ function TriggersPage() {
   };
 
   const submitCreateModal = async () => {
+    if (!canWriteTriggers) return;
     if (!createModal) return;
     const repoSlug = createModal.repository.trim();
     if (!repoSlug) {
@@ -1163,6 +1177,7 @@ function TriggersPage() {
   };
 
   const submitCloneModal = async () => {
+    if (!canWriteTriggers) return;
     if (!cloneModal || !detail) return;
     const targetSlug = cloneModal.repository.trim();
     if (!targetSlug) {
@@ -1204,6 +1219,7 @@ function TriggersPage() {
   };
 
   const confirmDelete = async () => {
+    if (!canDeleteTriggers) return;
     if (!deleteModal) return;
     const slug = deleteModal.slug;
     let owner: string;
@@ -1432,24 +1448,26 @@ function TriggersPage() {
             </div>
           </div>
           <div className="pipeline-card-actions">
-            <button
-              type="button"
-              className="pipelines-delete-button"
-              aria-disabled={sourceKey === 'git'}
-              title={sourceKey === 'git' ? 'This trigger is managed via Git. Clone it to customize.' : 'Delete trigger'}
-              onClick={event => {
-                event.stopPropagation();
-                if (sourceKey === 'git') return;
-                openDeleteModal(item.slug);
-              }}
-              aria-label="Delete trigger"
-            >
-              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6" />
-                <path d="M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
-                <path d="M4 7h16" />
-              </svg>
-            </button>
+            {canDeleteTriggers && (
+              <button
+                type="button"
+                className="pipelines-delete-button"
+                aria-disabled={sourceKey === 'git'}
+                title={sourceKey === 'git' ? 'This trigger is managed via Git. Clone it to customize.' : 'Delete trigger'}
+                onClick={event => {
+                  event.stopPropagation();
+                  if (sourceKey === 'git') return;
+                  openDeleteModal(item.slug);
+                }}
+                aria-label="Delete trigger"
+              >
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6" />
+                  <path d="M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                  <path d="M4 7h16" />
+                </svg>
+              </button>
+            )}
           </div>
         </div>
         <div className="pipeline-card-meta">
@@ -1490,7 +1508,9 @@ function TriggersPage() {
             {!visibleTriggers.length && !activeFolderNode.children.length && (
               <div id="triggers-empty" className="pipelines-empty">
                 <h3 className="text-base font-semibold text-[var(--text-primary)]">No triggers found</h3>
-                <p className="text-sm text-[var(--text-secondary)]">Create a new trigger or adjust your filters.</p>
+                <p className="text-sm text-[var(--text-secondary)]">
+                  {canWriteTriggers ? 'Create a new trigger or adjust your filters.' : 'Adjust your filters or browse another folder.'}
+                </p>
               </div>
             )}
           </>
@@ -1655,22 +1675,23 @@ function TriggersPage() {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                           </svg>
                         </button>
-                        {isGitSource ? (
-                          <button className="glass-button-primary" onClick={openCloneModal}>
-                            Clone
-                          </button>
-                        ) : (
-                          <>
-                            <button className="glass-button-primary" onClick={() => setIsEditing(true)}>
-                              Edit
-                            </button>
-                            <button className="glass-button-subtle" onClick={openCloneModal}>
+                        {canWriteTriggers &&
+                          (isGitSource ? (
+                            <button className="glass-button-primary" onClick={openCloneModal}>
                               Clone
                             </button>
-                          </>
-                        )}
+                          ) : (
+                            <>
+                              <button className="glass-button-primary" onClick={() => setIsEditing(true)}>
+                                Edit
+                              </button>
+                              <button className="glass-button-subtle" onClick={openCloneModal}>
+                                Clone
+                              </button>
+                            </>
+                          ))}
                       </>
-                    ) : (
+                    ) : canWriteTriggers ? (
                       <>
                         <button
                           className="glass-button-ghost"
@@ -1687,7 +1708,7 @@ function TriggersPage() {
                           {saving ? 'Saving…' : 'Save'}
                         </button>
                       </>
-                    )}
+                    ) : null}
                   </div>
                 </div>
                 <div className="p-4 space-y-3">
@@ -1987,18 +2008,20 @@ function TriggersPage() {
                 </button>
               )}
             </div>
-            <button
-              id="triggers-new-btn"
-              type="button"
-              className="pipelines-icon-only"
-              aria-label="Create new trigger"
-              title="New Trigger"
-              onClick={openCreateModal}
-            >
-              <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v14M5 12h14" />
-              </svg>
-            </button>
+            {canWriteTriggers && (
+              <button
+                id="triggers-new-btn"
+                type="button"
+                className="pipelines-icon-only"
+                aria-label="Create new trigger"
+                title="New Trigger"
+                onClick={openCreateModal}
+              >
+                <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v14M5 12h14" />
+                </svg>
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -2013,7 +2036,7 @@ function TriggersPage() {
         )}
       </div>
 
-      {createModal && (
+      {canWriteTriggers && createModal && (
         <div id="triggers-new-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
           <div className="pipelines-modal-card trigger-modal-card max-w-lg w-full">
             <header className="pipelines-modal-header trigger-modal-header">
@@ -2071,7 +2094,7 @@ function TriggersPage() {
         </div>
       )}
 
-      {cloneModal && (
+      {canWriteTriggers && cloneModal && (
         <div id="triggers-clone-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
           <div className="pipelines-modal-card trigger-modal-card max-w-md w-full">
             <header className="pipelines-modal-header trigger-modal-header">
@@ -2117,7 +2140,7 @@ function TriggersPage() {
         </div>
       )}
 
-      {deleteModal && (
+      {canDeleteTriggers && deleteModal && (
         <div id="triggers-delete-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
           <div className="pipelines-modal-card max-w-md w-full">
             <header className="pipelines-modal-header">

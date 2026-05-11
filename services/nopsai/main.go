@@ -147,7 +147,9 @@ type authResourceCapabilities struct {
 }
 
 type authReadCapabilities struct {
-	Read bool `json:"read"`
+	Read   bool `json:"read"`
+	Write  bool `json:"write"`
+	Delete bool `json:"delete"`
 }
 
 type authSystemCapabilities struct {
