@@ -21,6 +21,7 @@ import (
 	"nopsai/config"
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
+	"nopsai/pkg/proxyhttp"
 
 	"github.com/bradleyfalzon/ghinstallation/v2"
 	"github.com/google/go-github/v53/github"
@@ -1440,7 +1441,7 @@ func main() {
 		Timeout:   15 * time.Second,
 	}
 	ghClient := github.NewClient(githubHTTPClient)
-	httpClient := &http.Client{Timeout: 10 * time.Second}
+	httpClient := proxyhttp.NewInternalAwareClient(10 * time.Second)
 
 	app := &GitBotApp{
 		cfg:            cfg,

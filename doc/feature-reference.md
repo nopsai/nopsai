@@ -139,14 +139,24 @@ Current auth/access features:
 - email updates
 - login rate limiting
 - login lockout after repeated failures
-- Casbin-backed RBAC policies
+- AAA evaluator with `Check`, `BatchCheck`, `Filter`, and `Introspect`
+- predefined product roles: `viewer`, `developer`, `owner`, `admin`
+- access-grant management API for subject -> role -> resource bindings
+- folder-path inheritance for child pipelines, runs, repositories, triggers, secrets, variables, and steps
+- deny-before-allow evaluation
+- effective-permission introspection with human-readable reasons
+- legacy Casbin-backed RBAC metadata compatibility
 - admin user bootstrap
-- audit logging for protected operations
+- audit logging for denied requests and sensitive allowed operations
 
 Important behavior:
 
 - dispatcher-internal calls are trusted only when they carry an internally minted JWT with the expected claims
 - UI fetches automatically retry once with refresh-token renewal on `401`
+- `developer` can write secret values but cannot read them
+- `viewer` and `developer` cannot manage ACLs
+- `owner` can manage permissions only inside owned scope
+- `admin` remains observable through the normal AAA check path rather than bypassing authorization
 
 ## UI Features
 

@@ -26,6 +26,8 @@ import (
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
+	"nopsai/services/aaa/pkg/model"
+	"nopsai/services/nopsai/pkg/routeauthz"
 )
 
 func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
@@ -129,8 +131,26 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		allRuns = append(allRuns, run)
 	}
 
+	runResources := make([]model.ResourceRef, 0, len(allRuns))
+	for _, run := range allRuns {
+		runResources = append(runResources, routeauthz.RunResource(run.RunID))
+	}
+	allowedSet, err := a.allowedResourceSet(r, "pipeline_run.list", runResources)
+	if err != nil {
+		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	filteredRuns := make([]RunListItem, 0, len(allRuns))
+	for _, run := range allRuns {
+		if _, ok := allowedSet[resourceKey(routeauthz.RunResource(run.RunID))]; !ok {
+			continue
+		}
+		filteredRuns = append(filteredRuns, run)
+	}
+
 	if r.URL.Query().Get("groupId") != "" {
-		for _, run := range allRuns {
+		for _, run := range filteredRuns {
 			branch := "Others"
 			if run.GitRef != "" {
 				branch = strings.TrimPrefix(run.GitRef, "refs/heads/")
@@ -142,7 +162,7 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	} else {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(allRuns)
+		json.NewEncoder(w).Encode(filteredRuns)
 	}
 }
 
@@ -869,6 +889,9 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 
 	pipeline.Name = sanitizeInput(pipeline.Name)
 	pipeline.Version = normalizePipelineVersion(pipeline.Version)
+	if !a.requireAAADecision(w, r, "pipeline.execute", routeauthz.PipelineResource(pipelinePathForRun, pipeline.Name)) {
+		return
+	}
 
 	gitContext := map[string]string{
 		"repo_owner":             r.Header.Get("X-Git-Repo-Owner"),
@@ -1661,6 +1684,9 @@ func (a *App) handleGetRunByCheckID(w http.ResponseWriter, r *http.Request) {
 		checkRunID).Scan(&runID)
 	if err != nil {
 		http.Error(w, "Run not found for this check run ID", http.StatusNotFound)
+		return
+	}
+	if !a.requireAAADecision(w, r, "pipeline_run.read", routeauthz.RunResource(runID)) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

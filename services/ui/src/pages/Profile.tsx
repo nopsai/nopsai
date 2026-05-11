@@ -14,9 +14,11 @@ type Props = {
   loading?: boolean;
   onLogout: () => void;
   onUserUpdated?: (updates: Partial<CurrentUser>) => void;
+  canAccessSystem?: boolean;
+  systemPath?: string;
 };
 
-export default function ProfilePage({ user, loading, onLogout, onUserUpdated }: Props) {
+export default function ProfilePage({ user, loading, onLogout, onUserUpdated, canAccessSystem, systemPath }: Props) {
   const navigate = useNavigate();
   const [email, setEmail] = useState(user?.email || '');
   const [emailDraft, setEmailDraft] = useState(user?.email || '');
@@ -208,9 +210,11 @@ export default function ProfilePage({ user, loading, onLogout, onUserUpdated }: 
               <p className="text-xs uppercase tracking-wide text-[var(--text-secondary)] mb-2">Session</p>
               <p className="text-sm text-[var(--text-secondary)]">Access tokens refresh automatically when they expire.</p>
               <div className="mt-3 flex gap-2">
-                <button className="glass-button-subtle" type="button" onClick={() => navigate('/system/config')}>
-                  System settings
-                </button>
+                {canAccessSystem && (
+                  <button className="glass-button-subtle" type="button" onClick={() => navigate(systemPath || '/system/config')}>
+                    System settings
+                  </button>
+                )}
                 <button className="glass-button-ghost" type="button" onClick={onLogout}>
                   Logout
                 </button>
