@@ -106,6 +106,15 @@ func TestMapRequestUsesUpdatedLowLevelActions(t *testing.T) {
 			wantType:   "step",
 			wantID:     "shared/util/archive",
 		},
+		{
+			name:       "step delete uses delete action",
+			method:     http.MethodDelete,
+			path:       "/v1/steps/shared/util/archive",
+			pathValues: map[string]string{"stepPath": "shared/util/archive"},
+			wantAction: "step.delete",
+			wantType:   "step",
+			wantID:     "shared/util/archive",
+		},
 	}
 
 	for _, tt := range tests {
@@ -128,5 +137,23 @@ func TestMapRequestUsesUpdatedLowLevelActions(t *testing.T) {
 				t.Fatalf("MapRequest() requiresFilter = %t, want %t", requiresFilter, tt.wantFilter)
 			}
 		})
+	}
+}
+
+func TestMapRequestDefersStepPutAuthorizationToHandler(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPut, "/v1/steps/shared/util/archive", nil)
+	req.SetPathValue("stepName", "shared/util/archive")
+	action, resource, requiresFilter, err := MapRequest(req)
+	if err != nil {
+		t.Fatalf("MapRequest() error = %v", err)
+	}
+	if action != "" {
+		t.Fatalf("action = %q, want empty", action)
+	}
+	if resource.Type != "step" || resource.ID != "shared/util/archive" {
+		t.Fatalf("resource = %#v, want step:shared/util/archive", resource)
+	}
+	if requiresFilter {
+		t.Fatal("requiresFilter = true, want false")
 	}
 }

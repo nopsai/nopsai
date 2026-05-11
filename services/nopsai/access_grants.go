@@ -181,6 +181,8 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"variable.write_value",
 			"scope.update",
 			"repository.update",
+			"step.create",
+			"step.update",
 			"step.use",
 		},
 	},
@@ -210,6 +212,8 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"variable.write_value",
 			"scope.update",
 			"repository.update",
+			"step.create",
+			"step.update",
 			"step.use",
 			"folder.create",
 			"folder.update",
@@ -229,6 +233,8 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"scope.delete",
 			"scope.manage_acl",
 			"repository.manage_acl",
+			"step.delete",
+			"step.manage_acl",
 		},
 	},
 	productRoleAdmin: {
@@ -265,7 +271,10 @@ func ensureProductAccessBootstrap(ctx context.Context, db *pgxpool.Pool) error {
 	if err := ensureAccessGrantSchema(ctx, db); err != nil {
 		return err
 	}
-	return seedProductRoleTemplates(ctx, db)
+	if err := seedProductRoleTemplates(ctx, db); err != nil {
+		return err
+	}
+	return reconcileProductAccessGrants(ctx, db)
 }
 
 func ensureAccessGrantSchema(ctx context.Context, db *pgxpool.Pool) error {
@@ -336,6 +345,106 @@ func seedProductRoleTemplates(ctx context.Context, db *pgxpool.Pool) error {
 				INSERT INTO role_permissions (role, name, obj, act)
 				VALUES ($1, $2, $3, $4)
 			`, roleName, displayName, objectValue, actionValue); err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit(ctx)
+}
+
+func reconcileProductAccessGrants(ctx context.Context, db *pgxpool.Pool) error {
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	rows, err := tx.Query(ctx, `
+		SELECT id, subject_type, subject_id, role_name, resource_type, resource_id
+		FROM access_grants
+		ORDER BY id ASC
+	`)
+	if err != nil {
+		return err
+	}
+
+	type grantRow struct {
+		id           int64
+		subjectType  string
+		subjectID    string
+		roleName     string
+		resourceType string
+		resourceID   string
+	}
+
+	var grants []grantRow
+	for rows.Next() {
+		var grant grantRow
+		if err := rows.Scan(
+			&grant.id,
+			&grant.subjectType,
+			&grant.subjectID,
+			&grant.roleName,
+			&grant.resourceType,
+			&grant.resourceID,
+		); err != nil {
+			rows.Close()
+			return err
+		}
+		grants = append(grants, grant)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	for _, grant := range grants {
+		if _, ok := productRoleDefinitions[grant.roleName]; !ok {
+			continue
+		}
+
+		if _, err := tx.Exec(ctx, `DELETE FROM resource_acl WHERE access_grant_id = $1`, grant.id); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM resource_ownership WHERE access_grant_id = $1`, grant.id); err != nil {
+			return err
+		}
+
+		if grant.roleName == productRoleAdmin {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO auth_role_bindings (role_name, subject_type, subject_id)
+				VALUES ($1, $2, $3)
+				ON CONFLICT (role_name, subject_type, subject_id) DO NOTHING
+			`, productRoleAdmin, grant.subjectType, grant.subjectID); err != nil {
+				return err
+			}
+			continue
+		}
+
+		for _, action := range applicableProductRoleActions(grant.roleName, grant.resourceType) {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO resource_acl (
+					resource_type, resource_id, subject_type, subject_id, access_grant_id, action, effect
+				)
+				VALUES ($1, $2, $3, $4, $5, $6, 'allow')
+				ON CONFLICT (resource_type, resource_id, subject_type, subject_id, action, effect)
+				DO UPDATE SET access_grant_id = EXCLUDED.access_grant_id
+			`, grant.resourceType, grant.resourceID, grant.subjectType, grant.subjectID, grant.id, action); err != nil {
+				return err
+			}
+		}
+
+		if grant.roleName == productRoleOwner {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO resource_ownership (
+					resource_type, resource_id, owner_subject_type, owner_subject_id, access_grant_id
+				)
+				VALUES ($1, $2, $3, $4, $5)
+				ON CONFLICT (resource_type, resource_id, owner_subject_type, owner_subject_id)
+				DO UPDATE SET access_grant_id = EXCLUDED.access_grant_id
+			`, grant.resourceType, grant.resourceID, grant.subjectType, grant.subjectID, grant.id); err != nil {
 				return err
 			}
 		}
@@ -1167,7 +1276,7 @@ func managementActionForGrantResource(resource accessGrantResource) (string, mod
 	case grantResourceRepo:
 		return "repository.manage_acl", model.ResourceRef{Type: grantResourceRepo, ID: resource.ID}, nil
 	case grantResourceStep:
-		return "step.manage", model.ResourceRef{Type: grantResourceStep, ID: resource.ID}, nil
+		return "step.manage_acl", model.ResourceRef{Type: grantResourceStep, ID: resource.ID}, nil
 	default:
 		return "", model.ResourceRef{}, fmt.Errorf("unsupported grant resource")
 	}

@@ -117,9 +117,13 @@ func TestProductRolePermissions(t *testing.T) {
 		assertAction(t, actions, "pipeline.update", true)
 		assertAction(t, actions, "pipeline.execute", true)
 		assertAction(t, actions, "secret.write_value", true)
+		assertAction(t, actions, "step.create", true)
+		assertAction(t, actions, "step.update", true)
 		assertAction(t, actions, "secret.read_value", false)
 		assertAction(t, actions, "pipeline.delete", false)
 		assertAction(t, actions, "pipeline.manage_acl", false)
+		assertAction(t, actions, "step.delete", false)
+		assertAction(t, actions, "step.manage_acl", false)
 	})
 
 	t.Run("owner", func(t *testing.T) {
@@ -127,6 +131,8 @@ func TestProductRolePermissions(t *testing.T) {
 		assertAction(t, actions, "pipeline.delete", true)
 		assertAction(t, actions, "pipeline.manage_acl", true)
 		assertAction(t, actions, "secret.read_value", true)
+		assertAction(t, actions, "step.delete", true)
+		assertAction(t, actions, "step.manage_acl", true)
 	})
 
 	t.Run("admin", func(t *testing.T) {
@@ -419,6 +425,40 @@ func TestAdminGrantRequiresPlatformAdmin(t *testing.T) {
 	}, nil)
 	if err == nil || err.Error() != "forbidden" {
 		t.Fatalf("authorizeGrantOperation() error = %v, want forbidden", err)
+	}
+}
+
+func TestStepGrantManagementUsesManageACLAction(t *testing.T) {
+	action, resource, err := managementActionForGrantResource(accessGrantResource{
+		Type: grantResourceStep,
+		ID:   "payments/build",
+	})
+	if err != nil {
+		t.Fatalf("managementActionForGrantResource() error = %v", err)
+	}
+	if action != "step.manage_acl" {
+		t.Fatalf("action = %q, want step.manage_acl", action)
+	}
+	if resource.Type != grantResourceStep || resource.ID != "payments/build" {
+		t.Fatalf("resource = %#v, want step:payments/build", resource)
+	}
+}
+
+func TestScopedProductGrantCapabilityUsesGrantRoleDefinition(t *testing.T) {
+	if !productGrantIncludesAction(productRoleDeveloper, grantResourceFolder, "pipeline.create") {
+		t.Fatal("developer folder grant should include pipeline.create")
+	}
+	if !productGrantIncludesAction(productRoleDeveloper, grantResourceFolder, "scope.update") {
+		t.Fatal("developer folder grant should include scope.update")
+	}
+	if !productGrantIncludesAction(productRoleDeveloper, grantResourceFolder, "step.update") {
+		t.Fatal("developer folder grant should include step.update")
+	}
+	if productGrantIncludesAction(productRoleViewer, grantResourceFolder, "pipeline.create") {
+		t.Fatal("viewer folder grant should not include pipeline.create")
+	}
+	if productGrantIncludesAction(productRoleDeveloper, grantResourceFolder, "pipeline.delete") {
+		t.Fatal("developer folder grant should not include pipeline.delete")
 	}
 }
 

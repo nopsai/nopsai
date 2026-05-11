@@ -213,36 +213,37 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 	}
 
 	subject := a.buildAAASubject(claims)
-	pipelineWrite := a.checkCapability(subject, "pipeline.update", model.ResourceRef{Type: "pipeline", ID: "*"})
-	if !pipelineWrite {
-		pipelineWrite = a.checkCapability(subject, "pipeline.create", model.ResourceRef{Type: "pipeline", ID: "*"})
-	}
+	ctx := context.Background()
+	pipelineWrite := a.checkCapabilityOrScopedGrant(ctx, subject, "pipeline.update", model.ResourceRef{Type: "pipeline", ID: "*"}) ||
+		a.checkCapabilityOrScopedGrant(ctx, subject, "pipeline.create", model.ResourceRef{Type: "pipeline", ID: "*"})
 	configRead := a.checkCapability(subject, "system.read", model.ResourceRef{Type: "system", ID: "config"}) &&
 		a.checkCapability(subject, "system.read", model.ResourceRef{Type: "system", ID: "config-sync"})
 	configWrite := a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "config"}) &&
 		a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "config-sync"})
 	dispatcherRead := a.checkCapability(subject, "system.read", model.ResourceRef{Type: "dispatcher", ID: "status"})
 	dispatcherWrite := a.checkCapability(subject, "system.update", model.ResourceRef{Type: "dispatcher", ID: "runners"})
-	triggerRead := a.checkCapability(subject, "trigger.read", model.ResourceRef{Type: "trigger", ID: "*"})
-	triggerWrite := a.checkCapability(subject, "trigger.update", model.ResourceRef{Type: "trigger", ID: "*"})
-	triggerDelete := a.checkCapability(subject, "trigger.delete", model.ResourceRef{Type: "trigger", ID: "*"})
-	scopeRead := a.checkCapability(subject, "secret.list_metadata", model.ResourceRef{Type: "secret", ID: "*"}) ||
-		a.checkCapability(subject, "variable.list_metadata", model.ResourceRef{Type: "variable", ID: "*"})
-	scopeWrite := a.checkCapability(subject, "scope.update", model.ResourceRef{Type: "scope", ID: "*"}) ||
-		a.checkCapability(subject, "secret.write_value", model.ResourceRef{Type: "secret", ID: "*"}) ||
-		a.checkCapability(subject, "variable.write_value", model.ResourceRef{Type: "variable", ID: "*"})
-	scopeDelete := a.checkCapability(subject, "scope.delete", model.ResourceRef{Type: "scope", ID: "*"}) ||
-		a.checkCapability(subject, "secret.delete", model.ResourceRef{Type: "secret", ID: "*"}) ||
-		a.checkCapability(subject, "variable.delete", model.ResourceRef{Type: "variable", ID: "*"})
+	triggerRead := a.checkCapabilityOrScopedGrant(ctx, subject, "trigger.read", model.ResourceRef{Type: "trigger", ID: "*"})
+	triggerWrite := a.checkCapabilityOrScopedGrant(ctx, subject, "trigger.update", model.ResourceRef{Type: "trigger", ID: "*"})
+	triggerDelete := a.checkCapabilityOrScopedGrant(ctx, subject, "trigger.delete", model.ResourceRef{Type: "trigger", ID: "*"})
+	scopeRead := a.checkCapabilityOrScopedGrant(ctx, subject, "secret.list_metadata", model.ResourceRef{Type: "secret", ID: "*"}) ||
+		a.checkCapabilityOrScopedGrant(ctx, subject, "variable.list_metadata", model.ResourceRef{Type: "variable", ID: "*"}) ||
+		a.hasScopedProductGrantCapability(ctx, subject, "scope.read")
+	scopeWrite := a.checkCapabilityOrScopedGrant(ctx, subject, "scope.update", model.ResourceRef{Type: "scope", ID: "*"}) ||
+		a.checkCapabilityOrScopedGrant(ctx, subject, "secret.write_value", model.ResourceRef{Type: "secret", ID: "*"}) ||
+		a.checkCapabilityOrScopedGrant(ctx, subject, "variable.write_value", model.ResourceRef{Type: "variable", ID: "*"})
+	scopeDelete := a.checkCapabilityOrScopedGrant(ctx, subject, "scope.delete", model.ResourceRef{Type: "scope", ID: "*"}) ||
+		a.checkCapabilityOrScopedGrant(ctx, subject, "secret.delete", model.ResourceRef{Type: "secret", ID: "*"}) ||
+		a.checkCapabilityOrScopedGrant(ctx, subject, "variable.delete", model.ResourceRef{Type: "variable", ID: "*"})
 
 	return &authCapabilitiesResponse{
 		Pipelines: authResourceCapabilities{
 			Write:  pipelineWrite,
-			Delete: a.checkCapability(subject, "pipeline.delete", model.ResourceRef{Type: "pipeline", ID: "*"}),
+			Delete: a.checkCapabilityOrScopedGrant(ctx, subject, "pipeline.delete", model.ResourceRef{Type: "pipeline", ID: "*"}),
 		},
 		Steps: authResourceCapabilities{
-			Write:  a.checkCapability(subject, "step.manage", model.ResourceRef{Type: "step", ID: "*"}),
-			Delete: a.checkCapability(subject, "step.manage", model.ResourceRef{Type: "step", ID: "*"}),
+			Write: a.checkCapabilityOrScopedGrant(ctx, subject, "step.update", model.ResourceRef{Type: "step", ID: "*"}) ||
+				a.checkCapabilityOrScopedGrant(ctx, subject, "step.create", model.ResourceRef{Type: "step", ID: "*"}),
+			Delete: a.checkCapabilityOrScopedGrant(ctx, subject, "step.delete", model.ResourceRef{Type: "step", ID: "*"}),
 		},
 		Triggers: authReadCapabilities{
 			Read:   triggerRead,
@@ -262,6 +263,129 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 			Access:          a.checkCapability(subject, "iam.admin", model.ResourceRef{Type: "iam", ID: "admin"}),
 		},
 	}
+}
+
+func (a *App) checkCapabilityOrScopedGrant(ctx context.Context, subject model.Subject, action string, resource model.ResourceRef) bool {
+	if a.checkCapability(subject, action, resource) {
+		return true
+	}
+	return a.hasScopedProductGrantCapability(ctx, subject, action)
+}
+
+func (a *App) hasScopedProductGrantCapability(ctx context.Context, subject model.Subject, action string) bool {
+	if a == nil || a.db == nil {
+		return false
+	}
+
+	refs := a.scopedGrantSubjectRefs(ctx, subject)
+	if len(refs) == 0 {
+		return false
+	}
+
+	conditions := make([]string, 0, len(refs))
+	args := make([]any, 0, len(refs)*2)
+	for _, ref := range refs {
+		if strings.TrimSpace(ref.Type) == "" || strings.TrimSpace(ref.ID) == "" {
+			continue
+		}
+		args = append(args, ref.Type, ref.ID)
+		conditions = append(conditions, fmt.Sprintf("(subject_type = $%d AND subject_id = $%d)", len(args)-1, len(args)))
+	}
+	if len(conditions) == 0 {
+		return false
+	}
+
+	rows, err := a.db.Query(ctx, `
+		SELECT role_name, resource_type
+		FROM access_grants
+		WHERE `+strings.Join(conditions, " OR "), args...)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var roleName, resourceType string
+		if err := rows.Scan(&roleName, &resourceType); err != nil {
+			return false
+		}
+		if productGrantIncludesAction(roleName, resourceType, action) {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *App) scopedGrantSubjectRefs(ctx context.Context, subject model.Subject) []model.SubjectRef {
+	subjectType := model.NormalizeType(subject.Type)
+	subjectID := strings.TrimSpace(subject.ID)
+
+	switch subjectType {
+	case model.SubjectTypeUser:
+		resolvedID, err := a.lookupScopedGrantUserID(ctx, subject)
+		if err != nil || resolvedID == "" {
+			return nil
+		}
+		subjectID = resolvedID
+	case model.SubjectTypeAuthGroup, model.SubjectTypeInternalService:
+		if subjectID == "" {
+			return nil
+		}
+	default:
+		return nil
+	}
+
+	refs := []model.SubjectRef{{Type: subjectType, ID: subjectID}}
+	rows, err := a.db.Query(ctx, `
+		SELECT group_id::text
+		FROM auth_group_members
+		WHERE subject_type = $1 AND subject_id = $2
+		ORDER BY group_id ASC
+	`, subjectType, subjectID)
+	if err != nil {
+		return refs
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var groupID string
+		if err := rows.Scan(&groupID); err != nil {
+			return refs
+		}
+		groupID = strings.TrimSpace(groupID)
+		if groupID == "" {
+			continue
+		}
+		refs = append(refs, model.SubjectRef{Type: model.SubjectTypeAuthGroup, ID: groupID})
+	}
+	return refs
+}
+
+func (a *App) lookupScopedGrantUserID(ctx context.Context, subject model.Subject) (string, error) {
+	switch {
+	case strings.TrimSpace(subject.ID) != "":
+		return strings.TrimSpace(subject.ID), nil
+	case strings.TrimSpace(subject.Sub) != "":
+		var id string
+		err := a.db.QueryRow(ctx, `SELECT id::text FROM users WHERE sub = $1 LIMIT 1`, strings.TrimSpace(subject.Sub)).Scan(&id)
+		return id, err
+	case strings.TrimSpace(subject.Email) != "":
+		var id string
+		err := a.db.QueryRow(ctx, `SELECT id::text FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1`, strings.TrimSpace(subject.Email)).Scan(&id)
+		return id, err
+	default:
+		return "", pgx.ErrNoRows
+	}
+}
+
+func productGrantIncludesAction(roleName, resourceType, action string) bool {
+	actions := applicableProductRoleActions(strings.TrimSpace(roleName), strings.TrimSpace(resourceType))
+	for _, candidate := range actions {
+		if candidate == "*" || candidate == action {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *App) checkCapability(subject model.Subject, action string, resource model.ResourceRef) bool {
