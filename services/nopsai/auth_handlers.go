@@ -223,8 +223,17 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 		a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "config-sync"})
 	dispatcherRead := a.checkCapability(subject, "system.read", model.ResourceRef{Type: "dispatcher", ID: "status"})
 	dispatcherWrite := a.checkCapability(subject, "system.update", model.ResourceRef{Type: "dispatcher", ID: "runners"})
+	triggerRead := a.checkCapability(subject, "trigger.read", model.ResourceRef{Type: "trigger", ID: "*"})
+	triggerWrite := a.checkCapability(subject, "trigger.update", model.ResourceRef{Type: "trigger", ID: "*"})
+	triggerDelete := a.checkCapability(subject, "trigger.delete", model.ResourceRef{Type: "trigger", ID: "*"})
 	scopeRead := a.checkCapability(subject, "secret.list_metadata", model.ResourceRef{Type: "secret", ID: "*"}) ||
 		a.checkCapability(subject, "variable.list_metadata", model.ResourceRef{Type: "variable", ID: "*"})
+	scopeWrite := a.checkCapability(subject, "scope.update", model.ResourceRef{Type: "scope", ID: "*"}) ||
+		a.checkCapability(subject, "secret.write_value", model.ResourceRef{Type: "secret", ID: "*"}) ||
+		a.checkCapability(subject, "variable.write_value", model.ResourceRef{Type: "variable", ID: "*"})
+	scopeDelete := a.checkCapability(subject, "scope.delete", model.ResourceRef{Type: "scope", ID: "*"}) ||
+		a.checkCapability(subject, "secret.delete", model.ResourceRef{Type: "secret", ID: "*"}) ||
+		a.checkCapability(subject, "variable.delete", model.ResourceRef{Type: "variable", ID: "*"})
 
 	return &authCapabilitiesResponse{
 		Pipelines: authResourceCapabilities{
@@ -236,10 +245,14 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 			Delete: a.checkCapability(subject, "step.manage", model.ResourceRef{Type: "step", ID: "*"}),
 		},
 		Triggers: authReadCapabilities{
-			Read: a.checkCapability(subject, "trigger.read", model.ResourceRef{Type: "trigger", ID: "*"}),
+			Read:   triggerRead,
+			Write:  triggerWrite,
+			Delete: triggerDelete,
 		},
 		Scopes: authReadCapabilities{
-			Read: scopeRead,
+			Read:   scopeRead,
+			Write:  scopeWrite,
+			Delete: scopeDelete,
 		},
 		System: authSystemCapabilities{
 			ConfigRead:      configRead,

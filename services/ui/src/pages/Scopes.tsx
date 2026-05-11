@@ -602,7 +602,13 @@ function normalizeOverrideSlugs(payload: unknown): string[] {
   return Array.from(new Set(slugs.filter(Boolean))).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
 }
 
-function ScopesPage() {
+function ScopesPage({
+  canWriteScopes = false,
+  canDeleteScopes = false,
+}: {
+  canWriteScopes?: boolean;
+  canDeleteScopes?: boolean;
+}) {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -1169,6 +1175,7 @@ function ScopesPage() {
   };
 
   const openNewScopeModal = () => {
+    if (!canWriteScopes) return;
     setScopeModal({ parent: normalizeScopeLabel(activeFolder), name: '', pending: false });
   };
 
@@ -1190,6 +1197,7 @@ function ScopesPage() {
   };
 
   const submitScopeModal = async () => {
+    if (!canWriteScopes) return;
     const modal = scopeModal;
     if (!modal) return;
 
@@ -1308,6 +1316,7 @@ function ScopesPage() {
   };
 
   const openVariableCreateModal = (scopeLabel: string, options?: { repository?: string; nameSuggestion?: string; valuePreset?: string }) => {
+    if (!canWriteScopes) return;
     setVariableModal({
       mode: 'create',
       scope: normalizeScopeLabel(scopeLabel),
@@ -1319,6 +1328,7 @@ function ScopesPage() {
   };
 
   const openVariableUpdateModal = (scopeLabel: string, fullName: string) => {
+    if (!canWriteScopes) return;
     const scope = normalizeScopeLabel(scopeLabel);
     const identity = parseScopedIdentity(fullName);
     setVariableModal({
@@ -1333,6 +1343,7 @@ function ScopesPage() {
   };
 
   const openVariableCloneModal = (scopeLabel: string, fullName: string) => {
+    if (!canWriteScopes) return;
     const scope = normalizeScopeLabel(scopeLabel);
     const identity = parseScopedIdentity(fullName);
     const scopeVars = scopeDataByScope[scope]?.variables || [];
@@ -1344,6 +1355,7 @@ function ScopesPage() {
   };
 
   const openSecretCreateModal = (scopeLabel: string, options?: { repository?: string; nameSuggestion?: string; valuePreset?: string }) => {
+    if (!canWriteScopes) return;
     setSecretModal({
       mode: 'create',
       scope: normalizeScopeLabel(scopeLabel),
@@ -1355,6 +1367,7 @@ function ScopesPage() {
   };
 
   const openSecretUpdateModal = (scopeLabel: string, fullName: string) => {
+    if (!canWriteScopes) return;
     const scope = normalizeScopeLabel(scopeLabel);
     const identity = parseScopedIdentity(fullName);
     setSecretModal({
@@ -1369,6 +1382,7 @@ function ScopesPage() {
   };
 
   const openSecretCloneModal = (scopeLabel: string, fullName: string) => {
+    if (!canWriteScopes) return;
     const scope = normalizeScopeLabel(scopeLabel);
     const identity = parseScopedIdentity(fullName);
     const scopeSecrets = scopeDataByScope[scope]?.secrets || [];
@@ -1380,6 +1394,7 @@ function ScopesPage() {
   };
 
   const submitVariableModal = async () => {
+    if (!canWriteScopes) return;
     const modal = variableModal;
     if (!modal) return;
 
@@ -1456,6 +1471,7 @@ function ScopesPage() {
   };
 
   const submitSecretModal = async () => {
+    if (!canWriteScopes) return;
     const modal = secretModal;
     if (!modal) return;
 
@@ -1537,6 +1553,7 @@ function ScopesPage() {
   };
 
   const confirmDelete = async () => {
+    if (!canDeleteScopes) return;
     const modal = deleteModal;
     if (!modal) return;
     const scope = normalizeScopeLabel(modal.scope);
@@ -1694,7 +1711,11 @@ function ScopesPage() {
                 <div id="scopes-empty" className="pipelines-empty">
                   <h3 className="text-base font-semibold text-[var(--text-primary)]">No scopes found</h3>
                   <p className="text-sm text-[var(--text-secondary)]">
-                    {hasSearch ? `No scope folders matched “${searchTerm.trim()}”.` : 'Create a new scope or adjust your filters.'}
+                    {hasSearch
+                      ? `No scope folders matched “${searchTerm.trim()}”.`
+                      : canWriteScopes
+                        ? 'Create a new scope or adjust your filters.'
+                        : 'Adjust your filters or browse another folder.'}
                   </p>
                 </div>
               )}
@@ -1763,42 +1784,46 @@ function ScopesPage() {
 
                   {editable ? (
                     <>
-                      <button
-                        type="button"
-                        className="env-inline-icon"
-                        title="Edit variable"
-                        onClick={event => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          selectVariable(item.full);
-                          openVariableUpdateModal(scopeLabel, item.full);
-                        }}
-                      >
-                        <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L13.196 5.232z" />
-                        </svg>
-                      </button>
-                      <button
-                        type="button"
-                        className="env-inline-icon env-inline-icon--danger"
-                        title="Delete variable"
-                        onClick={event => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          selectVariable(item.full);
-                          setDeleteModal({ kind: 'variable', scope: scopeLabel, name: item.full, pending: false });
-                        }}
-                      >
-                        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="3 6 5 6 21 6" />
-                          <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
-                          <path d="M10 11v6" />
-                          <path d="M14 11v6" />
-                          <path d="M9 6l1-3h4l1 3" />
-                        </svg>
-                      </button>
+                      {canWriteScopes && (
+                        <button
+                          type="button"
+                          className="env-inline-icon"
+                          title="Edit variable"
+                          onClick={event => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            selectVariable(item.full);
+                            openVariableUpdateModal(scopeLabel, item.full);
+                          }}
+                        >
+                          <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L13.196 5.232z" />
+                          </svg>
+                        </button>
+                      )}
+                      {canDeleteScopes && (
+                        <button
+                          type="button"
+                          className="env-inline-icon env-inline-icon--danger"
+                          title="Delete variable"
+                          onClick={event => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            selectVariable(item.full);
+                            setDeleteModal({ kind: 'variable', scope: scopeLabel, name: item.full, pending: false });
+                          }}
+                        >
+                          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                            <path d="M10 11v6" />
+                            <path d="M14 11v6" />
+                            <path d="M9 6l1-3h4l1 3" />
+                          </svg>
+                        </button>
+                      )}
                     </>
-                  ) : (
+                  ) : canWriteScopes ? (
                     <button
                       type="button"
                       className="env-inline-icon"
@@ -1813,7 +1838,7 @@ function ScopesPage() {
                         <path d="M16 7h-1V4a1 1 0 00-1-1H9a1 1 0 00-1 1v3H7a1 1 0 00-1 1v12a1 1 0 001 1h9a1 1 0 001-1V8a1 1 0 00-1-1zM9 4h5v3H9V4zm2.5 12a2.5 2.5 0 110-5 2.5 2.5 0 010 5z" />
                       </svg>
                     </button>
-                  )}
+                  ) : null}
                 </div>
                 <div className="env-variable-value">{isExpanded ? displayValue : ''}</div>
               </div>
@@ -1849,42 +1874,46 @@ function ScopesPage() {
                 <div className="env-variable-inline-actions">
                   {editable ? (
                     <>
-                      <button
-                        type="button"
-                        className="env-inline-icon"
-                        title="Edit secret"
-                        onClick={event => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          selectSecret(item.full);
-                          openSecretUpdateModal(scopeLabel, item.full);
-                        }}
-                      >
-                        <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L13.196 5.232z" />
-                        </svg>
-                      </button>
-                      <button
-                        type="button"
-                        className="env-inline-icon env-inline-icon--danger"
-                        title="Delete secret"
-                        onClick={event => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          selectSecret(item.full);
-                          setDeleteModal({ kind: 'secret', scope: scopeLabel, name: item.full, pending: false });
-                        }}
-                      >
-                        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="3 6 5 6 21 6" />
-                          <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
-                          <path d="M10 11v6" />
-                          <path d="M14 11v6" />
-                          <path d="M9 6l1-3h4l1 3" />
-                        </svg>
-                      </button>
+                      {canWriteScopes && (
+                        <button
+                          type="button"
+                          className="env-inline-icon"
+                          title="Edit secret"
+                          onClick={event => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            selectSecret(item.full);
+                            openSecretUpdateModal(scopeLabel, item.full);
+                          }}
+                        >
+                          <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L13.196 5.232z" />
+                          </svg>
+                        </button>
+                      )}
+                      {canDeleteScopes && (
+                        <button
+                          type="button"
+                          className="env-inline-icon env-inline-icon--danger"
+                          title="Delete secret"
+                          onClick={event => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            selectSecret(item.full);
+                            setDeleteModal({ kind: 'secret', scope: scopeLabel, name: item.full, pending: false });
+                          }}
+                        >
+                          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                            <path d="M10 11v6" />
+                            <path d="M14 11v6" />
+                            <path d="M9 6l1-3h4l1 3" />
+                          </svg>
+                        </button>
+                      )}
                     </>
-                  ) : (
+                  ) : canWriteScopes ? (
                     <button
                       type="button"
                       className="env-inline-icon"
@@ -1899,7 +1928,7 @@ function ScopesPage() {
                         <path d="M16 7h-1V4a1 1 0 00-1-1H9a1 1 0 00-1 1v3H7a1 1 0 00-1 1v12a1 1 0 001 1h9a1 1 0 001-1V8a1 1 0 00-1-1zM9 4h5v3H9V4zm2.5 12a2.5 2.5 0 110-5 2.5 2.5 0 010 5z" />
                       </svg>
                     </button>
-                  )}
+                  ) : null}
                 </div>
               </div>
             );
@@ -2016,9 +2045,11 @@ function ScopesPage() {
                   <p className="text-sm font-semibold text-[var(--text-primary)]">Variables</p>
                   <p className="text-xs text-[var(--text-secondary)]">Plain text values.</p>
                 </div>
-                <button className="glass-button-primary" onClick={() => openVariableCreateModal(scopeLabel)}>
-                  New
-                </button>
+                {canWriteScopes && (
+                  <button className="glass-button-primary" onClick={() => openVariableCreateModal(scopeLabel)}>
+                    New
+                  </button>
+                )}
               </div>
               {!data.variablesLoading && !data.variables.length ? <div className="env-card-empty">No variables configured yet.</div> : null}
               {data.variablesLoading && !data.variablesLoaded ? <div className="env-card-empty">Loading variables…</div> : null}
@@ -2034,9 +2065,11 @@ function ScopesPage() {
                   <p className="text-sm font-semibold text-[var(--text-primary)]">Secrets</p>
                   <p className="text-xs text-[var(--text-secondary)]">Encrypted values.</p>
                 </div>
-                <button className="glass-button-primary" onClick={() => openSecretCreateModal(scopeLabel)}>
-                  New
-                </button>
+                {canWriteScopes && (
+                  <button className="glass-button-primary" onClick={() => openSecretCreateModal(scopeLabel)}>
+                    New
+                  </button>
+                )}
               </div>
               {!data.secretsLoading && !data.secrets.length ? <div className="env-card-empty">No secrets configured yet.</div> : null}
               {data.secretsLoading && !data.secretsLoaded ? <div className="env-card-empty">Loading secrets…</div> : null}
@@ -2153,7 +2186,7 @@ function ScopesPage() {
               )}
             </div>
 
-            {!searchTerm.trim() && (
+            {!searchTerm.trim() && canWriteScopes && (
               <button
                 id="scopes-new-btn"
                 type="button"
@@ -2173,7 +2206,7 @@ function ScopesPage() {
 
       <div className="flex-1 overflow-auto px-6 pb-8 triggers-content">{selectedScope === null ? renderList() : renderDetail()}</div>
 
-      {scopeModal && (
+      {canWriteScopes && scopeModal && (
         <div id="scope-new-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
           <div className="pipelines-modal-card max-w-md w-full">
             <header className="pipelines-modal-header">
@@ -2227,7 +2260,7 @@ function ScopesPage() {
         </div>
       )}
 
-      {variableModal && (
+      {canWriteScopes && variableModal && (
         <div id="variable-edit-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
           <div className="pipelines-modal-card max-w-10xl w-full overflow-hidden rounded-2xl border border-[var(--border-primary)] shadow-2xl">
             <header className="flex items-start justify-between gap-3 px-6 py-4 border-b border-[var(--border-primary)] bg-[var(--bg-secondary)]">
@@ -2372,7 +2405,7 @@ function ScopesPage() {
         </div>
       )}
 
-      {secretModal && (
+      {canWriteScopes && secretModal && (
         <div id="secret-edit-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
           <div className="pipelines-modal-card max-w-6xl w-full overflow-hidden rounded-xl border border-[var(--border-primary)] shadow-2xl">
             <header className="flex items-start justify-between gap-3 px-6 py-4 border-b border-[var(--border-primary)] bg-[var(--bg-secondary)]">
@@ -2518,7 +2551,7 @@ function ScopesPage() {
         </div>
       )}
 
-      {deleteModal && (
+      {canDeleteScopes && deleteModal && (
         <div
           id={deleteModal.kind === 'variable' ? 'variable-delete-modal' : 'secret-delete-modal'}
           className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show"

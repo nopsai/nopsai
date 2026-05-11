@@ -12,7 +12,8 @@ const (
 	SubjectTypeRole            = "role"
 	SubjectTypeInternalService = "internal_service"
 
-	RoleNameAdmin = "nopsai-admin"
+	RoleNameAdmin   = "nopsai-admin"
+	FolderGeneralID = "__general__"
 )
 
 type Subject struct {

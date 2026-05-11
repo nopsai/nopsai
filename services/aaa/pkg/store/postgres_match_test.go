@@ -1,6 +1,7 @@
 package store
 
 import (
+	"reflect"
 	"testing"
 
 	"nopsai/services/aaa/pkg/model"
@@ -73,5 +74,26 @@ func TestRolePermissionSpecificityPrefersMoreSpecificNamedSelector(t *testing.T)
 	exactSpecificity := rolePermissionSpecificity(exactPolicy, resource, "secret.read_value")
 	if !exactSpecificity.betterThan(scopeSpecificity) {
 		t.Fatal("expected exact named resource selector to outrank scope-only selector")
+	}
+}
+
+func TestPrefixFolderResourcesIncludesContainingFolderWhenRequested(t *testing.T) {
+	got := prefixFolderResources([]string{"team-1", "dev"}, true)
+	want := []model.InheritedResource{
+		{Resource: model.ResourceRef{Type: "folder", ID: "team-1/dev"}, Reason: "folder_inheritance"},
+		{Resource: model.ResourceRef{Type: "folder", ID: "team-1"}, Reason: "folder_inheritance"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("prefixFolderResources(includeSelf=true) = %#v, want %#v", got, want)
+	}
+}
+
+func TestPrefixFolderAncestorsExcludesCurrentFolder(t *testing.T) {
+	got := prefixFolderAncestors([]string{"team-1", "dev"})
+	want := []model.InheritedResource{
+		{Resource: model.ResourceRef{Type: "folder", ID: "team-1"}, Reason: "folder_inheritance"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("prefixFolderAncestors() = %#v, want %#v", got, want)
 	}
 }

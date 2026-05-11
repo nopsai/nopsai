@@ -519,19 +519,31 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 				Reason:   "pipeline_inheritance",
 			})
 		}
-		folderAncestors, err := s.folderAncestors(ctx, pipelinePath)
+		if strings.TrimSpace(pipelinePath) == "" {
+			return append(out, generalFolderAncestors()...), nil
+		}
+		folderAncestors, err := s.containingFolderAncestors(ctx, pipelinePath)
 		if err != nil {
 			return nil, err
 		}
 		return append(out, folderAncestors...), nil
 	case "pipeline":
 		pipelinePath, _ := model.SplitPipelineID(resource.ID)
-		return s.folderAncestors(ctx, pipelinePath)
+		if strings.TrimSpace(pipelinePath) == "" {
+			return generalFolderAncestors(), nil
+		}
+		return s.containingFolderAncestors(ctx, pipelinePath)
 	case "folder":
+		if strings.TrimSpace(resource.ID) == model.FolderGeneralID {
+			return nil, nil
+		}
 		return s.folderAncestors(ctx, resource.ID)
 	case "step":
 		stepPath, _ := model.SplitPipelineID(resource.ID)
-		return s.folderAncestors(ctx, stepPath)
+		if strings.TrimSpace(stepPath) == "" {
+			return generalFolderAncestors(), nil
+		}
+		return s.containingFolderAncestors(ctx, stepPath)
 	case "repository":
 		return s.repositoryFolderAncestors(ctx, resource.ID)
 	case "trigger":
@@ -568,10 +580,20 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 				Reason:   "scope_inheritance",
 			})
 		}
+		if repoName == "" {
+			out = append(out, generalFolderAncestors()...)
+		}
 		return out, nil
 	default:
 		return nil, nil
 	}
+}
+
+func generalFolderAncestors() []model.InheritedResource {
+	return []model.InheritedResource{{
+		Resource: model.ResourceRef{Type: "folder", ID: model.FolderGeneralID},
+		Reason:   "folder_inheritance",
+	}}
 }
 
 func (s *PGStore) folderAncestors(ctx context.Context, path string) ([]model.InheritedResource, error) {
@@ -591,6 +613,19 @@ func (s *PGStore) folderAncestors(ctx context.Context, path string) ([]model.Inh
 	}
 
 	return prefixFolderAncestors(segments), nil
+}
+
+func (s *PGStore) containingFolderAncestors(ctx context.Context, path string) ([]model.InheritedResource, error) {
+	path = strings.Trim(strings.TrimSpace(path), "/")
+	if path == "" {
+		return nil, nil
+	}
+	segments := strings.Split(path, "/")
+
+	if _, err := s.folderPathExists(ctx, segments); err != nil {
+		return nil, err
+	}
+	return prefixFolderResources(segments, true), nil
 }
 
 func (s *PGStore) folderPathExists(ctx context.Context, segments []string) (bool, error) {
@@ -641,8 +676,20 @@ func (s *PGStore) folderPathExists(ctx context.Context, segments []string) (bool
 }
 
 func prefixFolderAncestors(segments []string) []model.InheritedResource {
-	out := make([]model.InheritedResource, 0, len(segments)-1)
-	for i := len(segments) - 1; i > 0; i-- {
+	return prefixFolderResources(segments, false)
+}
+
+func prefixFolderResources(segments []string, includeSelf bool) []model.InheritedResource {
+	start := len(segments) - 1
+	if includeSelf {
+		start = len(segments)
+	}
+	if start <= 0 {
+		return nil
+	}
+
+	out := make([]model.InheritedResource, 0, start)
+	for i := start; i > 0; i-- {
 		out = append(out, model.InheritedResource{
 			Resource: model.ResourceRef{Type: "folder", ID: strings.Join(segments[:i], "/")},
 			Reason:   "folder_inheritance",
@@ -664,9 +711,12 @@ func (s *PGStore) repositoryFolderAncestors(ctx context.Context, repoID string) 
 		WHERE name = $1
 	`, repoID).Scan(&parentID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
+			return generalFolderAncestors(), nil
 		}
 		return nil, err
+	}
+	if parentID == nil {
+		return generalFolderAncestors(), nil
 	}
 
 	return s.groupParentFolderAncestors(ctx, parentID)

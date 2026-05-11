@@ -43,6 +43,7 @@ const (
 	grantSubjectUser    = "user"
 
 	platformGrantID = "default"
+	generalGrantID  = model.FolderGeneralID
 )
 
 type productRoleDefinition struct {
@@ -576,16 +577,20 @@ func validateFolderOwnerGuard(ctx context.Context, runner queryRunner, roleName 
 	if resource.Type != grantResourceFolder {
 		return nil
 	}
+	if resource.ID == generalGrantID {
+		return nil
+	}
 
 	var ownerCount int
+	ownerResourceIDs := folderOwnerGuardResourceIDs(resource.ID)
 	err := runner.QueryRow(ctx, `
 		SELECT COUNT(*)
 		FROM access_grants
 		WHERE resource_type = $1
-		  AND resource_id = $2
+		  AND resource_id = ANY($2)
 		  AND role_name = $3
 		  AND id <> $4
-	`, grantResourceFolder, resource.ID, productRoleOwner, excludeGrantID).Scan(&ownerCount)
+	`, grantResourceFolder, ownerResourceIDs, productRoleOwner, excludeGrantID).Scan(&ownerCount)
 	if err != nil {
 		return err
 	}
@@ -598,6 +603,23 @@ func validateFolderOwnerGuard(ctx context.Context, runner queryRunner, roleName 
 	default:
 		return nil
 	}
+}
+
+func folderOwnerGuardResourceIDs(folderID string) []string {
+	folderID = strings.Trim(strings.TrimSpace(folderID), "/")
+	if folderID == "" {
+		return nil
+	}
+
+	segments := strings.Split(folderID, "/")
+	resourceIDs := make([]string, 0, len(segments))
+	for size := len(segments); size >= 1; size-- {
+		resourceID := strings.TrimSpace(strings.Join(segments[:size], "/"))
+		if resourceID != "" {
+			resourceIDs = append(resourceIDs, resourceID)
+		}
+	}
+	return resourceIDs
 }
 
 func applicableProductRoleActions(roleName, resourceType string) []string {
@@ -925,6 +947,13 @@ func resolveAccessGrantResource(ctx context.Context, runner queryRunner, rawType
 
 func resolveAccessGrantFolder(ctx context.Context, runner queryRunner, rawID string, requireExists bool) (accessGrantResource, error) {
 	rawID = strings.TrimSpace(rawID)
+	if isGeneralGrantResourceID(rawID) {
+		return accessGrantResource{
+			Type:    grantResourceFolder,
+			ID:      generalGrantID,
+			Display: "general",
+		}, nil
+	}
 	if rawID == "" {
 		return accessGrantResource{}, fmt.Errorf("resource_id is required")
 	}
@@ -1493,6 +1522,9 @@ func accessGrantResponseFromRecord(record accessGrantRecord) accessGrantResponse
 }
 
 func externalGrantResourceID(resourceType, display, internalID string) string {
+	if resourceType == grantResourceFolder && internalID == generalGrantID {
+		return "general"
+	}
 	if strings.TrimSpace(display) != "" {
 		return display
 	}
@@ -1530,10 +1562,22 @@ func formatSubjectLabel(subjectType, subjectID string) string {
 func formatResourceLabel(resourceType, resourceID string) string {
 	resourceType = strings.TrimSpace(resourceType)
 	resourceID = strings.TrimSpace(resourceID)
-	if resourceType == grantResourceFolder && resourceID != "" && !strings.HasPrefix(resourceID, "/") {
+	if resourceType == grantResourceFolder && resourceID == generalGrantID {
+		resourceID = "general"
+	}
+	if resourceType == grantResourceFolder && resourceID != "" && resourceID != "general" && !strings.HasPrefix(resourceID, "/") {
 		resourceID = "/" + strings.Trim(resourceID, "/")
 	}
 	return resourceType + ":" + resourceID
+}
+
+func isGeneralGrantResourceID(raw string) bool {
+	switch strings.ToLower(strings.Trim(strings.TrimSpace(raw), "/")) {
+	case "", ".", "general", strings.ToLower(generalGrantID):
+		return strings.TrimSpace(raw) != ""
+	default:
+		return false
+	}
 }
 
 func firstNonEmptyString(values ...string) string {
