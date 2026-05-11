@@ -60,6 +60,8 @@ type ResourceCapabilities = {
 
 type ReadCapabilities = {
   read?: boolean;
+  write?: boolean;
+  delete?: boolean;
 };
 
 type SystemCapabilities = {
@@ -299,12 +301,16 @@ function AppShell() {
                   data.capabilities.triggers && typeof data.capabilities.triggers === 'object'
                     ? {
                         read: Boolean(data.capabilities.triggers.read),
+                        write: Boolean(data.capabilities.triggers.write),
+                        delete: Boolean(data.capabilities.triggers.delete),
                       }
                     : undefined,
                 scopes:
                   data.capabilities.scopes && typeof data.capabilities.scopes === 'object'
                     ? {
                         read: Boolean(data.capabilities.scopes.read),
+                        write: Boolean(data.capabilities.scopes.write),
+                        delete: Boolean(data.capabilities.scopes.delete),
                       }
                     : undefined,
                 system:
@@ -370,7 +376,11 @@ function AppShell() {
   const canWriteSteps = Boolean(currentUser?.capabilities?.steps?.write);
   const canDeleteSteps = Boolean(currentUser?.capabilities?.steps?.delete);
   const canViewTriggers = Boolean(currentUser?.capabilities?.triggers?.read);
+  const canWriteTriggers = Boolean(currentUser?.capabilities?.triggers?.write);
+  const canDeleteTriggers = Boolean(currentUser?.capabilities?.triggers?.delete);
   const canViewScopes = Boolean(currentUser?.capabilities?.scopes?.read);
+  const canWriteScopes = Boolean(currentUser?.capabilities?.scopes?.write);
+  const canDeleteScopes = Boolean(currentUser?.capabilities?.scopes?.delete);
   const canViewSystemConfig = Boolean(currentUser?.capabilities?.system?.configRead);
   const canManageSystemConfig = Boolean(currentUser?.capabilities?.system?.configWrite);
   const canViewSystemDispatcher = Boolean(currentUser?.capabilities?.system?.dispatcherRead);
@@ -863,8 +873,20 @@ function AppShell() {
                     path="/pipelines/*"
                     element={<PipelinesPage draftScope={draftScope} canWritePipelines={canWritePipelines} canDeletePipelines={canDeletePipelines} />}
                   />
-                  <Route path="/triggers/*" element={renderAccessControlledPage(canViewTriggers, <TriggersPage />)} />
-                  <Route path="/scopes/*" element={renderAccessControlledPage(canViewScopes, <ScopesPage />)} />
+                  <Route
+                    path="/triggers/*"
+                    element={renderAccessControlledPage(
+                      canViewTriggers,
+                      <TriggersPage canWriteTriggers={canWriteTriggers} canDeleteTriggers={canDeleteTriggers} />
+                    )}
+                  />
+                  <Route
+                    path="/scopes/*"
+                    element={renderAccessControlledPage(
+                      canViewScopes,
+                      <ScopesPage canWriteScopes={canWriteScopes} canDeleteScopes={canDeleteScopes} />
+                    )}
+                  />
                   <Route path="/lab/*" element={<LabPage />} />
                   <Route
                     path="/steps/*"

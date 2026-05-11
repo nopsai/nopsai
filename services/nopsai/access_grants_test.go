@@ -3,7 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	aaaauthz "nopsai/services/aaa/pkg/authz"
 	"nopsai/services/aaa/pkg/model"
@@ -205,6 +209,91 @@ func TestProductRoleFolderInheritance(t *testing.T) {
 	}
 }
 
+func TestGeneralFolderGrantInheritance(t *testing.T) {
+	backend := newUserGrantBackend()
+	backend.aclPolicies = append(backend.aclPolicies, grantACLPolicies(productRoleDeveloper, model.SubjectTypeUser, "user-1", grantResourceFolder, model.FolderGeneralID)...)
+	backend.inheritance[grantResourceKey(model.ResourceRef{Type: "pipeline", ID: "root-pipeline"})] = []model.InheritedResource{{
+		Resource: model.ResourceRef{Type: grantResourceFolder, ID: model.FolderGeneralID},
+		Reason:   "folder_inheritance",
+	}}
+	backend.inheritance[grantResourceKey(model.ResourceRef{Type: "pipeline", ID: "dev/root-pipeline"})] = []model.InheritedResource{{
+		Resource: model.ResourceRef{Type: grantResourceFolder, ID: "dev"},
+		Reason:   "folder_inheritance",
+	}}
+
+	evaluator := aaaauthz.NewEvaluator(backend)
+
+	decision, err := evaluator.Check(context.Background(), backend.resolved.Subject, "pipeline.update", model.ResourceRef{Type: "pipeline", ID: "root-pipeline"}, nil)
+	if err != nil {
+		t.Fatalf("root pipeline Check() error = %v", err)
+	}
+	if !decision.Allowed {
+		t.Fatalf("root pipeline decision = %#v, want allowed", decision)
+	}
+
+	decision, err = evaluator.Check(context.Background(), backend.resolved.Subject, "pipeline.update", model.ResourceRef{Type: "pipeline", ID: "dev/root-pipeline"}, nil)
+	if err != nil {
+		t.Fatalf("nested pipeline Check() error = %v", err)
+	}
+	if decision.Allowed {
+		t.Fatalf("nested pipeline decision = %#v, want denied", decision)
+	}
+}
+
+func TestResolveAccessGrantFolderGeneralAlias(t *testing.T) {
+	tests := []string{"general", "/general", "/", ".", model.FolderGeneralID}
+	for _, raw := range tests {
+		resource, err := resolveAccessGrantFolder(context.Background(), &noopQueryRunner{}, raw, false)
+		if err != nil {
+			t.Fatalf("resolveAccessGrantFolder(%q) error = %v", raw, err)
+		}
+		if resource.ID != model.FolderGeneralID || resource.Display != "general" {
+			t.Fatalf("resolveAccessGrantFolder(%q) = %#v, want general folder resource", raw, resource)
+		}
+	}
+}
+
+func TestValidateFolderOwnerGuardUsesInheritedFolderOwner(t *testing.T) {
+	runner := &ownerGuardQueryRunner{ownerCounts: map[string]int{"team-1": 1}}
+	err := validateFolderOwnerGuard(context.Background(), runner, productRoleDeveloper, accessGrantResource{
+		Type:    grantResourceFolder,
+		ID:      "team-1/dev",
+		Display: "/team-1/dev",
+	}, 0)
+	if err != nil {
+		t.Fatalf("validateFolderOwnerGuard() error = %v, want inherited owner to satisfy guard", err)
+	}
+
+	wantQueried := []string{"team-1/dev", "team-1"}
+	if !reflect.DeepEqual(runner.queriedResourceIDs, wantQueried) {
+		t.Fatalf("queried owner resource IDs = %#v, want %#v", runner.queriedResourceIDs, wantQueried)
+	}
+}
+
+func TestValidateFolderOwnerGuardRejectsWithoutExactOrParentOwner(t *testing.T) {
+	runner := &ownerGuardQueryRunner{ownerCounts: map[string]int{"team-1/dev": 1}}
+	err := validateFolderOwnerGuard(context.Background(), runner, productRoleDeveloper, accessGrantResource{
+		Type:    grantResourceFolder,
+		ID:      "team-1",
+		Display: "/team-1",
+	}, 0)
+	if err == nil || err.Error() != "grant an owner on /team-1 before assigning other roles" {
+		t.Fatalf("validateFolderOwnerGuard() error = %v, want owner guard rejection", err)
+	}
+}
+
+func TestValidateFolderOwnerGuardAllowsDeletingChildOwnerWhenParentOwnerRemains(t *testing.T) {
+	runner := &ownerGuardQueryRunner{ownerCounts: map[string]int{"team-1": 1}}
+	err := validateFolderOwnerGuard(context.Background(), runner, productRoleOwner, accessGrantResource{
+		Type:    grantResourceFolder,
+		ID:      "team-1/dev",
+		Display: "/team-1/dev",
+	}, 42)
+	if err != nil {
+		t.Fatalf("validateFolderOwnerGuard() error = %v, want parent owner to satisfy delete guard", err)
+	}
+}
+
 func TestExplicitDenyOverridesProductGrant(t *testing.T) {
 	backend := newUserGrantBackend()
 	backend.resolved.AuthGroups = []model.AuthGroupInfo{{ID: "group-1", Name: "payments-devs"}}
@@ -395,4 +484,44 @@ func grantMatches(policyValue, requestValue string) bool {
 
 func grantResourceKey(resource model.ResourceRef) string {
 	return fmt.Sprintf("%s|%s", resource.Type, resource.ID)
+}
+
+type ownerGuardQueryRunner struct {
+	ownerCounts        map[string]int
+	queriedResourceIDs []string
+}
+
+func (r *ownerGuardQueryRunner) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, fmt.Errorf("unsupported")
+}
+
+func (r *ownerGuardQueryRunner) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	return nil, fmt.Errorf("unsupported")
+}
+
+func (r *ownerGuardQueryRunner) QueryRow(_ context.Context, _ string, args ...any) pgx.Row {
+	resourceIDs, _ := args[1].([]string)
+	r.queriedResourceIDs = append([]string(nil), resourceIDs...)
+
+	count := 0
+	for _, resourceID := range resourceIDs {
+		count += r.ownerCounts[resourceID]
+	}
+	return ownerGuardCountRow{count: count}
+}
+
+type ownerGuardCountRow struct {
+	count int
+}
+
+func (r ownerGuardCountRow) Scan(dest ...any) error {
+	if len(dest) != 1 {
+		return fmt.Errorf("expected one destination, got %d", len(dest))
+	}
+	count, ok := dest[0].(*int)
+	if !ok {
+		return fmt.Errorf("expected *int destination")
+	}
+	*count = r.count
+	return nil
 }

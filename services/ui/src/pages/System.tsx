@@ -1,5 +1,6 @@
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
+import { Edit3, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import { buildApiUrl } from '../lib/api';
 
 type ConfigFormState = {
@@ -72,6 +73,12 @@ const POLICY_TEMPLATE_ROLE = '__policy_template__';
 const DEFAULT_ADMIN_ROLE = 'nopsai-admin';
 const DEFAULT_ADMIN_POLICY_OBJ = '*:*';
 const DEFAULT_ADMIN_POLICY_ACT = '*';
+const GENERAL_ACCESS_SCOPE = '__general__';
+const BASIC_ROLE_VIEWER = 'viewer';
+const BASIC_ROLE_DEVELOPER = 'developer';
+const BASIC_ROLE_OWNER = 'owner';
+const BASIC_ROLE_ADMIN = 'admin';
+const ACCESS_UI_BUILD_ID = 'access-basic-roles-2026-05-11-2';
 
 type UserRole = {
   role: string;
@@ -91,6 +98,28 @@ type UserSummary = {
   status: string;
   last_login?: string;
   roles?: UserRole[];
+};
+
+type AccessGrantRecord = {
+  id: string;
+  subjectType: string;
+  subjectID: string;
+  role: string;
+  resourceType: string;
+  resourceID: string;
+  inherit: boolean;
+  grantedBy?: string;
+  createdAt?: string;
+};
+
+type EditableAccessGrant = {
+  localID: string;
+  id?: string;
+  role: string;
+  resourceType: string;
+  resourceID: string;
+  inherit: boolean;
+  grantedBy?: string;
 };
 
 type RolePolicyDraft = {
@@ -160,6 +189,9 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
   const [users, setUsers] = useState<UserSummary[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState<string | null>(null);
+  const [accessGrants, setAccessGrants] = useState<AccessGrantRecord[]>([]);
+  const [accessGrantsLoading, setAccessGrantsLoading] = useState(false);
+  const [accessGrantsError, setAccessGrantsError] = useState<string | null>(null);
   const [policies, setPolicies] = useState<RolePermission[]>([]);
   const [policyTemplates, setPolicyTemplates] = useState<RolePermission[]>([]);
   const [policiesLoading, setPoliciesLoading] = useState(false);
@@ -307,6 +339,24 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     }
   }, [fetchJson]);
 
+  const loadAccessGrants = useCallback(async () => {
+    setAccessGrantsLoading(true);
+    setAccessGrantsError(null);
+    try {
+      const payload = await fetchJson('/v1/access/grants');
+      if (!Array.isArray(payload)) {
+        setAccessGrantsError('Unexpected response');
+        setAccessGrantsLoading(false);
+        return;
+      }
+      setAccessGrants(payload.map(item => normalizeAccessGrantRecord(item)).filter(Boolean) as AccessGrantRecord[]);
+    } catch (error) {
+      setAccessGrantsError(error instanceof Error ? error.message : 'Unable to load basic roles');
+    } finally {
+      setAccessGrantsLoading(false);
+    }
+  }, [fetchJson]);
+
   const loadPolicies = useCallback(async () => {
     setPoliciesLoading(true);
     setPoliciesError(null);
@@ -440,6 +490,38 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
       }
     },
     [addToast, fetchJson, loadUsers]
+  );
+
+  const createAccessGrant = useCallback(
+    async (input: { userID: string; role: string; resourceType: string; resourceID: string; inherit?: boolean }) => {
+      const role = input.role.trim().toLowerCase();
+      const resourceType = input.resourceType.trim();
+      const resourceID = input.resourceID.trim();
+      await fetchJson('/v1/access/grants', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject_type: 'user',
+          subject_id: input.userID,
+          role,
+          resource_type: resourceType,
+          resource_id: resourceID,
+          inherit: input.inherit,
+        }),
+      });
+      addToast('Basic role saved', 'success');
+      await loadAccessGrants();
+    },
+    [addToast, fetchJson, loadAccessGrants]
+  );
+
+  const deleteAccessGrant = useCallback(
+    async (grantID: string) => {
+      await fetchJson(`/v1/access/grants/${encodeURIComponent(grantID)}`, { method: 'DELETE' });
+      addToast('Basic role removed', 'success');
+      await loadAccessGrants();
+    },
+    [addToast, fetchJson, loadAccessGrants]
   );
 
   const deletePolicy = useCallback(
@@ -837,9 +919,10 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
   useEffect(() => {
     if (permissions.canViewAccess && visibleTab === 'access') {
       void loadUsers();
+      void loadAccessGrants();
       void loadPolicies();
     }
-  }, [loadPolicies, loadUsers, permissions.canViewAccess, visibleTab]);
+  }, [loadAccessGrants, loadPolicies, loadUsers, permissions.canViewAccess, visibleTab]);
 
   const defaultAdminPolicyExists = useMemo(
     () =>
@@ -920,6 +1003,9 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
           users={users}
           loading={usersLoading}
           error={usersError}
+          accessGrants={accessGrants}
+          accessGrantsLoading={accessGrantsLoading}
+          accessGrantsError={accessGrantsError}
           policies={policies}
           policiesLoading={policiesLoading}
           policiesError={policiesError}
@@ -938,6 +1024,9 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
           onSaveRoleDefinition={saveRoleDefinition}
           onEditPolicy={editPolicy}
           onUpdateUserRoles={updateUserRoles}
+          onCreateAccessGrant={createAccessGrant}
+          onDeleteAccessGrant={deleteAccessGrant}
+          onReloadAccessGrants={loadAccessGrants}
           onUpdateUser={updateUser}
         />
       )}
@@ -1043,6 +1132,86 @@ const accessPresetForRole = (roleName: string) => {
 const accessPresetToneClass = (roleName: string) => {
   const presetID = accessPresetIDForRole(roleName);
   return presetID ? `access-chip--tone-${presetID}` : 'access-chip--muted';
+};
+
+const normalizeBasicGrantResourceLabel = (grant: Pick<AccessGrantRecord, 'resourceType' | 'resourceID'>) => {
+  const resourceType = (grant.resourceType || '').trim();
+  const resourceID = (grant.resourceID || '').trim().replace(/^\/+|\/+$/g, '');
+  if (resourceType === 'platform') return 'Platform';
+  if (!resourceID || resourceID === 'general' || resourceID === GENERAL_ACCESS_SCOPE) return 'General';
+  return `/${resourceID}`;
+};
+
+const basicAccessGrantLabel = (grant: Pick<AccessGrantRecord, 'role' | 'resourceType' | 'resourceID'>) =>
+  `${grant.role} • ${normalizeBasicGrantResourceLabel(grant)}`;
+
+const accessGrantResourceSummary = (grant: Pick<AccessGrantRecord, 'resourceType' | 'resourceID'>) => {
+  if ((grant.resourceType || '').trim() === 'platform') return 'Platform wide';
+  const label = normalizeBasicGrantResourceLabel(grant);
+  return label === 'General' ? 'General (without folder)' : label;
+};
+
+const basicAccessGrantDescription = (grant: Pick<AccessGrantRecord, 'role' | 'resourceType' | 'resourceID' | 'grantedBy'>) => {
+  const label = accessGrantResourceSummary(grant);
+  if ((grant.resourceType || '').trim() === 'platform') {
+    return 'This basic role gives platform-wide administrator access.';
+  }
+  if (label === 'General (without folder)') {
+    return `This ${grant.role} basic role applies to items that are not inside any folder.`;
+  }
+  return `This ${grant.role} basic role applies to ${label} and anything nested below it.`;
+};
+
+const accessGrantSortLabel = (grant: AccessGrantRecord) => `${normalizeBasicGrantResourceLabel(grant)}::${grant.role}`;
+
+const normalizedAccessGrantResourceKey = (grant: Pick<AccessGrantRecord, 'resourceType' | 'resourceID'>) => {
+  const resourceType = (grant.resourceType || '').trim().toLowerCase();
+  const resourceID = (grant.resourceID || '').trim();
+  if (resourceType === 'folder') {
+    const folderID = resourceID.replace(/^\/+|\/+$/g, '');
+    if (!folderID || folderID === 'general' || folderID === GENERAL_ACCESS_SCOPE) {
+      return { resourceType, resourceID: GENERAL_ACCESS_SCOPE };
+    }
+    return { resourceType, resourceID: folderID };
+  }
+  if (resourceType === 'platform') {
+    return { resourceType, resourceID: 'platform' };
+  }
+  return { resourceType, resourceID };
+};
+
+const accessGrantEditKey = (grant: Pick<AccessGrantRecord, 'role' | 'resourceType' | 'resourceID'>) =>
+  `${(grant.role || '').trim().toLowerCase()}::${accessGrantTargetKey(grant)}`;
+
+const accessGrantTargetKey = (grant: Pick<AccessGrantRecord, 'resourceType' | 'resourceID'>) => {
+  const { resourceType, resourceID } = normalizedAccessGrantResourceKey(grant);
+  return `${resourceType}::${resourceID}`;
+};
+
+const editableAccessGrantFromRecord = (grant: AccessGrantRecord): EditableAccessGrant => ({
+  localID: grant.id,
+  id: grant.id,
+  role: grant.role,
+  resourceType: grant.resourceType,
+  resourceID: grant.resourceID,
+  inherit: grant.inherit,
+  grantedBy: grant.grantedBy,
+});
+
+const isBasicAccessGrant = (grant: AccessGrantRecord) => {
+  const role = (grant.role || '').trim().toLowerCase();
+  const resourceType = (grant.resourceType || '').trim();
+  return (
+    (resourceType === 'folder' || resourceType === 'platform') &&
+    (role === BASIC_ROLE_VIEWER || role === BASIC_ROLE_DEVELOPER || role === BASIC_ROLE_OWNER || role === BASIC_ROLE_ADMIN)
+  );
+};
+
+const accessGrantMatchesUser = (grant: AccessGrantRecord, user: UserSummary) => {
+  const subjectType = (grant.subjectType || '').trim();
+  const subjectID = (grant.subjectID || '').trim();
+  if (subjectType !== 'user' || !subjectID) return false;
+  return subjectID === user.id || subjectID === user.sub || subjectID === user.email;
 };
 
 const matchesAccessSearch = (query: string, ...values: Array<string | undefined>) => {
@@ -2058,6 +2227,9 @@ function AccessPanel({
   users,
   loading,
   error,
+  accessGrants,
+  accessGrantsLoading,
+  accessGrantsError,
   policies,
   policiesLoading,
   policiesError,
@@ -2075,12 +2247,18 @@ function AccessPanel({
   onSaveRoleDefinition,
   onEditPolicy,
   onUpdateUserRoles,
+  onCreateAccessGrant,
+  onDeleteAccessGrant,
+  onReloadAccessGrants,
   onReloadPolicies,
   onUpdateUser,
 }: {
   users: UserSummary[];
   loading: boolean;
   error: string | null;
+  accessGrants: AccessGrantRecord[];
+  accessGrantsLoading: boolean;
+  accessGrantsError: string | null;
   policies: RolePermission[];
   policiesLoading: boolean;
   policiesError: string | null;
@@ -2098,9 +2276,13 @@ function AccessPanel({
   onSaveRoleDefinition: (input: { role: string; policies: RolePolicyDraft[]; original?: RolePermission[] }) => Promise<void>;
   onEditPolicy: (current: RolePermission, next: { role: string; name: string; obj: string; act: string }) => Promise<void>;
   onUpdateUserRoles: (userId: string, nextRoles: string[], previousRoles: string[]) => Promise<void>;
+  onCreateAccessGrant: (input: { userID: string; role: string; resourceType: string; resourceID: string; inherit?: boolean }) => Promise<void>;
+  onDeleteAccessGrant: (grantID: string) => Promise<void>;
+  onReloadAccessGrants: () => void;
   onReloadPolicies: () => void;
   onUpdateUser: (userId: string, input: { email?: string; status?: string; password?: string }) => Promise<void>;
 }) {
+  const [accessMode, setAccessMode] = useState<'basic' | 'advanced'>('basic');
   const [activeSection, setActiveSection] = useState<'users' | 'roles' | 'policies'>('users');
   const [showUserModal, setShowUserModal] = useState(false);
   const [showPolicyModal, setShowPolicyModal] = useState(false);
@@ -2134,6 +2316,11 @@ function AccessPanel({
   const [creatingPolicyInline, setCreatingPolicyInline] = useState(false);
   const [awaitingUserCreateReset, setAwaitingUserCreateReset] = useState(false);
   const [awaitingPolicyCreateReset, setAwaitingPolicyCreateReset] = useState(false);
+  const [selectedBasicUserID, setSelectedBasicUserID] = useState('');
+  const [basicGrantDraft, setBasicGrantDraft] = useState({ role: '', scope: GENERAL_ACCESS_SCOPE });
+  const [basicGrantEntries, setBasicGrantEntries] = useState<EditableAccessGrant[]>([]);
+  const [basicGrantSaving, setBasicGrantSaving] = useState(false);
+  const [basicGrantError, setBasicGrantError] = useState<string | null>(null);
   const [resourceCatalog, setResourceCatalog] = useState<AAAResourceCatalog>({
     folderOptions: [],
     pipelineOptions: [],
@@ -2420,8 +2607,45 @@ function AccessPanel({
   const [nextAccessRole, setNextAccessRole] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const searchQuery = searchTerm.trim().toLowerCase();
+  const basicAccessGrants = useMemo(() => accessGrants.filter(isBasicAccessGrant), [accessGrants]);
+  const basicGrantOptions = useMemo(
+    () => [{ value: GENERAL_ACCESS_SCOPE, label: 'General (without folder)' }, ...resourceCatalog.folderOptions],
+    [resourceCatalog.folderOptions]
+  );
+  const basicUserGrantMap = useMemo(() => {
+    const map = new Map<string, AccessGrantRecord[]>();
+    basicAccessGrants.forEach(grant => {
+      const user = users.find(entry => accessGrantMatchesUser(grant, entry));
+      const key = user?.id || grant.subjectID;
+      const entries = map.get(key) || [];
+      entries.push(grant);
+      map.set(key, entries);
+    });
+    map.forEach(entries => {
+      entries.sort(
+        (a, b) =>
+          accessGrantSortLabel(a).localeCompare(accessGrantSortLabel(b), undefined, { sensitivity: 'base' }) ||
+          a.role.localeCompare(b.role, undefined, { sensitivity: 'base' })
+      );
+    });
+    return map;
+  }, [basicAccessGrants, users]);
 
   const sectionContent = ACCESS_SECTION_CONTENT[activeSection];
+  const filteredBasicUsers = useMemo(() => {
+    if (!searchQuery) return users;
+    return users.filter(user => {
+      const grants = basicUserGrantMap.get(user.id) || [];
+      return matchesAccessSearch(
+        searchQuery,
+        user.sub,
+        user.email,
+        user.status,
+        (user.roles || []).map(role => role.role).join(' '),
+        grants.map(grant => basicAccessGrantLabel(grant)).join(' ')
+      );
+    });
+  }, [basicUserGrantMap, searchQuery, users]);
   const filteredUsers = useMemo(() => {
     if (!searchQuery) return users;
     return users.filter(user =>
@@ -2468,12 +2692,44 @@ function AccessPanel({
   }, [policyTemplates, searchQuery]);
 
   const visibleResultsCount =
-    activeSection === 'users' ? filteredUsers.length : activeSection === 'roles' ? filteredRoleDefinitions.length : filteredPolicyTemplates.length;
-  const totalResultsCount = activeSection === 'users' ? users.length : activeSection === 'roles' ? roleDefinitions.length : policyTemplates.length;
+    accessMode === 'basic'
+      ? filteredBasicUsers.length
+      : activeSection === 'users'
+        ? filteredUsers.length
+        : activeSection === 'roles'
+          ? filteredRoleDefinitions.length
+          : filteredPolicyTemplates.length;
+  const totalResultsCount =
+    accessMode === 'basic' ? users.length : activeSection === 'users' ? users.length : activeSection === 'roles' ? roleDefinitions.length : policyTemplates.length;
   const roleEditorPreset = roleEditor ? accessPresetForRole(roleEditor.role) : null;
   const isNewUserPristine = !newUser.sub.trim() && !newUser.email.trim() && !newUser.password && (newUser.roles || []).length === 0;
   const isNewPolicyPristine =
     !newPermission.name.trim() && newPermission.obj.trim() === 'pipeline:*' && newPermission.act.trim() === 'pipeline.read';
+  const selectedBasicUser = useMemo(
+    () => filteredBasicUsers.find(user => user.id === selectedBasicUserID) ?? null,
+    [filteredBasicUsers, selectedBasicUserID]
+  );
+  const selectedBasicUserGrants = useMemo(
+    () => (selectedBasicUser ? basicUserGrantMap.get(selectedBasicUser.id) || [] : []),
+    [basicUserGrantMap, selectedBasicUser]
+  );
+  const basicGrantDirty = useMemo(() => {
+    const originalKeys = new Set(selectedBasicUserGrants.map(grant => accessGrantEditKey(grant)));
+    const draftKeys = new Set(basicGrantEntries.map(grant => accessGrantEditKey(grant)));
+    if (originalKeys.size !== draftKeys.size) return true;
+    return Array.from(originalKeys).some(key => !draftKeys.has(key));
+  }, [basicGrantEntries, selectedBasicUserGrants]);
+  const basicGrantDraftDuplicate = useMemo(() => {
+    const role = basicGrantDraft.role.trim().toLowerCase();
+    if (!role) return false;
+    const draftGrant = {
+      role,
+      resourceType: role === BASIC_ROLE_ADMIN ? 'platform' : 'folder',
+      resourceID: role === BASIC_ROLE_ADMIN ? 'platform' : basicGrantDraft.scope || GENERAL_ACCESS_SCOPE,
+    };
+    const draftKey = accessGrantEditKey(draftGrant);
+    return basicGrantEntries.some(grant => accessGrantEditKey(grant) === draftKey);
+  }, [basicGrantDraft, basicGrantEntries]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2546,6 +2802,22 @@ function AccessPanel({
   }, [userAccessEditor]);
 
   useEffect(() => {
+    setBasicGrantEntries(selectedBasicUserGrants.map(editableAccessGrantFromRecord));
+  }, [selectedBasicUserGrants]);
+
+  useEffect(() => {
+    setSearchTerm('');
+    setBasicGrantError(null);
+    setSelectedBasicUserID('');
+    setBasicGrantEntries([]);
+  }, [accessMode]);
+
+  useEffect(() => {
+    setBasicGrantError(null);
+    setBasicGrantDraft({ role: '', scope: GENERAL_ACCESS_SCOPE });
+  }, [selectedBasicUserID]);
+
+  useEffect(() => {
     setSearchTerm('');
     setShowUserModal(false);
     setShowPolicyModal(false);
@@ -2616,6 +2888,11 @@ function AccessPanel({
   };
 
   const handleRefresh = useCallback(() => {
+    if (accessMode === 'basic') {
+      void onReloadUsers();
+      void onReloadAccessGrants();
+      return;
+    }
     if (activeSection === 'policies') {
       void onReloadPolicies();
       return;
@@ -2624,87 +2901,583 @@ function AccessPanel({
     if (activeSection === 'roles') {
       void onReloadPolicies();
     }
-  }, [activeSection, onReloadPolicies, onReloadUsers]);
+  }, [accessMode, activeSection, onReloadAccessGrants, onReloadPolicies, onReloadUsers]);
+
+  const handleStageBasicGrant = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!selectedBasicUser) {
+      setBasicGrantError('Select a user first.');
+      return;
+    }
+
+    const normalizedRole = basicGrantDraft.role.trim().toLowerCase();
+    if (!normalizedRole) {
+      setBasicGrantError('Choose an access level.');
+      return;
+    }
+
+    setBasicGrantError(null);
+    const nextGrant: EditableAccessGrant = {
+      localID: `draft-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      role: normalizedRole,
+      resourceType: normalizedRole === BASIC_ROLE_ADMIN ? 'platform' : 'folder',
+      resourceID: normalizedRole === BASIC_ROLE_ADMIN ? 'platform' : basicGrantDraft.scope || GENERAL_ACCESS_SCOPE,
+      inherit: normalizedRole !== BASIC_ROLE_ADMIN,
+    };
+    const nextKey = accessGrantEditKey(nextGrant);
+    if (basicGrantEntries.some(grant => accessGrantEditKey(grant) === nextKey)) {
+      setBasicGrantError('This basic role is already listed.');
+      return;
+    }
+    const nextTargetKey = accessGrantTargetKey(nextGrant);
+    setBasicGrantEntries(prev => {
+      let replaced = false;
+      const nextEntries: EditableAccessGrant[] = [];
+      prev.forEach(grant => {
+        if (accessGrantTargetKey(grant) !== nextTargetKey) {
+          nextEntries.push(grant);
+          return;
+        }
+        if (replaced) return;
+        nextEntries.push({
+          ...nextGrant,
+          localID: grant.localID,
+          id: grant.id,
+          grantedBy: grant.grantedBy,
+        });
+        replaced = true;
+      });
+      return replaced ? nextEntries : [...prev, nextGrant];
+    });
+    setBasicGrantDraft(prev => ({ ...prev, role: '' }));
+  };
+
+  const removeBasicGrantDraft = (localID: string) => {
+    setBasicGrantEntries(prev => prev.filter(grant => grant.localID !== localID));
+    setBasicGrantError(null);
+  };
+
+  const resetBasicGrantDrafts = () => {
+    setBasicGrantEntries(selectedBasicUserGrants.map(editableAccessGrantFromRecord));
+    setBasicGrantError(null);
+  };
+
+  const handleSaveBasicGrants = async () => {
+    if (!selectedBasicUser) {
+      setBasicGrantError('Select a user first.');
+      return;
+    }
+    if (!basicGrantDirty) return;
+    const normalizedDraftEntries = Array.from(
+      basicGrantEntries.reduce((entries, grant) => entries.set(accessGrantTargetKey(grant), grant), new Map<string, EditableAccessGrant>()).values()
+    );
+    const draftKeys = new Set(normalizedDraftEntries.map(grant => accessGrantEditKey(grant)));
+    const originalByKey = new Map(selectedBasicUserGrants.map(grant => [accessGrantEditKey(grant), grant]));
+    const grantsToDelete = selectedBasicUserGrants.filter(grant => !draftKeys.has(accessGrantEditKey(grant)));
+    const grantsToAdd = normalizedDraftEntries.filter(grant => !originalByKey.has(accessGrantEditKey(grant)));
+
+    setBasicGrantSaving(true);
+    setBasicGrantError(null);
+    try {
+      for (const grant of grantsToDelete) {
+        await onDeleteAccessGrant(grant.id);
+      }
+      for (const grant of grantsToAdd) {
+        await onCreateAccessGrant({
+          userID: selectedBasicUser.id,
+          role: grant.role,
+          resourceType: grant.resourceType,
+          resourceID: grant.resourceID,
+          inherit: grant.inherit,
+        });
+      }
+    } catch (error) {
+      setBasicGrantError(error instanceof Error ? error.message : 'Failed to save basic roles');
+    } finally {
+      setBasicGrantSaving(false);
+    }
+  };
 
   const availablePoliciesForRoleEditor = roleEditor ? policyOptions : [];
+  const selectBasicUser = (userId: string) => {
+    setAwaitingUserCreateReset(false);
+    setShowUserModal(false);
+    setSelectedBasicUserID(userId);
+    setBasicGrantEntries((basicUserGrantMap.get(userId) || []).map(editableAccessGrantFromRecord));
+  };
+
+  const createUserEditor = (
+    <div className="access-editor-surface">
+      <div className="access-editor-header">
+        <div>
+          <p className="access-editor-kicker">Create user</p>
+          <h5 className="access-editor-title">New local account</h5>
+          <p className="access-editor-text">Create a local account.</p>
+        </div>
+        <button
+          type="button"
+          className="access-inline-btn access-inline-btn--pill"
+          onClick={() => {
+            setAwaitingUserCreateReset(false);
+            setShowUserModal(false);
+          }}
+        >
+          Close
+        </button>
+      </div>
+      <form className="access-editor-form" onSubmit={handleCreateUserInline}>
+        <div className="access-editor-grid">
+          <label className="access-minimal-label">
+            <span>Username (sub)</span>
+            <input
+              className="pipelines-input"
+              value={newUser.sub}
+              onChange={e => onChangeUser({ ...newUser, sub: e.target.value })}
+              placeholder="alice"
+              required
+            />
+          </label>
+          <label className="access-minimal-label">
+            <span>Email</span>
+            <input
+              className="pipelines-input"
+              type="email"
+              value={newUser.email}
+              onChange={e => onChangeUser({ ...newUser, email: e.target.value })}
+              placeholder="name@example.com"
+            />
+          </label>
+        </div>
+        <label className="access-minimal-label">
+          <span>Password</span>
+          <input
+            className="pipelines-input"
+            type="password"
+            value={newUser.password}
+            onChange={e => onChangeUser({ ...newUser, password: e.target.value })}
+            placeholder="••••••••"
+            required
+          />
+        </label>
+        <div className="access-editor-section">
+          <div className="access-minimal-section__header">
+            <p className="text-sm font-medium text-[var(--text-primary)]">Roles</p>
+            <span className="text-[11px] text-[var(--text-secondary)]">Assign at least one</span>
+          </div>
+          <div className="space-y-2">
+            {newUser.roles.length === 0 && <p className="text-[11px] text-[var(--text-secondary)]">Pick at least one role to create this user.</p>}
+            {newUser.roles.map((entry, idx) => (
+              <div key={`new-user-role-${idx}`} className="access-minimal-row">
+                <select
+                  className="pipelines-input flex-1"
+                  value={entry}
+                  onChange={e => updateNewUserRoleEntry(idx, e.target.value)}
+                  required
+                  disabled={allRoleOptions.length === 0}
+                >
+                  <option value="" disabled>
+                    {allRoleOptions.length === 0 ? 'No roles available' : 'Pick a role'}
+                  </option>
+                  {allRoleOptions.map(role => (
+                    <option key={`role-opt-${role}`} value={role}>
+                      {role}
+                    </option>
+                  ))}
+                </select>
+                <button type="button" className="access-inline-btn access-inline-btn--danger" onClick={() => removeNewUserRoleEntry(idx)} title="Remove role">
+                  <TrashIcon />
+                </button>
+              </div>
+            ))}
+            <div className="access-editor-inline-add">
+              <select
+                className="pipelines-input flex-1"
+                value={nextUserRole}
+                onChange={e => setNextUserRole(e.target.value)}
+                disabled={allRoleOptions.length === 0}
+              >
+                <option value="">{allRoleOptions.length === 0 ? 'No roles available' : 'Pick a role'}</option>
+                {allRoleOptions.map(role => (
+                  <option key={`new-role-opt-${role}`} value={role}>
+                    {role}
+                  </option>
+                ))}
+              </select>
+              <button type="button" className="glass-button-subtle" onClick={appendUserRoleFromPicker} disabled={allRoleOptions.length === 0}>
+                Add role
+              </button>
+            </div>
+          </div>
+        </div>
+        <div className="access-editor-footer">
+          <button type="submit" className="glass-button-primary" disabled={creatingUserInline}>
+            {creatingUserInline ? 'Saving…' : 'Save user'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
 
   return (
-    <div className="access-layout space-y-5 pb-24">
-      <div className="glass-card p-5 border border-[var(--border-primary)] rounded-2xl space-y-5">
+    <div className="access-layout pb-24" data-access-build={ACCESS_UI_BUILD_ID}>
+      <div className="access-shell">
         <div className="access-header">
-          <div className="space-y-2">
-            <p className="text-xs uppercase tracking-[0.16em] text-[var(--text-secondary)]">Access control</p>
-            <h3 className="access-header__title">Users, roles, policies</h3>
-            <p className="access-header__text">
-              Manage access with simple roles like <code>viewer</code> and <code>developer</code>. Use policies only when you need raw AAA
-              detail.
-            </p>
+          <div className="access-title-group">
+            <h3 className="access-header__title">Access</h3>
           </div>
           <div className="access-header__actions">
             <button
               className="glass-button-ghost access-toolbar-btn"
               type="button"
               onClick={handleRefresh}
-              disabled={loading || policiesLoading}
+              disabled={loading || accessGrantsLoading || policiesLoading}
             >
               <RefreshIcon />
               <span>Refresh</span>
             </button>
           </div>
         </div>
-        <div className="access-role-legend">
-          {ACCESS_ROLE_PRESETS.map(preset => (
-            <span key={preset.id} className={`access-chip ${accessPresetToneClass(preset.id)}`}>
-              {preset.label}
-            </span>
-          ))}
-          <span className="access-role-legend__text">Prefer these names in the UI. Low-level AAA rules stay available in Policies.</span>
+        <div className="access-mode-switch" role="tablist" aria-label="Access mode">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={accessMode === 'basic'}
+            className={`access-mode-switch__option ${accessMode === 'basic' ? 'access-mode-switch__option--active' : ''}`}
+            onClick={() => setAccessMode('basic')}
+          >
+            <span className="access-mode-switch__title">Basic</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={accessMode === 'advanced'}
+            className={`access-mode-switch__option ${accessMode === 'advanced' ? 'access-mode-switch__option--active' : ''}`}
+            onClick={() => setAccessMode('advanced')}
+          >
+            <span className="access-mode-switch__title">Advanced</span>
+          </button>
         </div>
 
-        <div className="access-nav">
-          <div className="access-tabs">
-            {tabItems.map(tab => (
-              <button
-                key={tab.id}
-                type="button"
-                className={`access-tab ${activeSection === tab.id ? 'access-tab--active' : ''}`}
-                onClick={() => setActiveSection(tab.id)}
-              >
-                <span className="access-tab__label">{tab.label}</span>
-                <span className="access-tab__badge">{tab.id === 'policies' ? policyCount : tab.count}</span>
-              </button>
-            ))}
-          </div>
-          <label className="access-search">
-            <SearchIcon />
-            <input
-              className="pipelines-input access-search__input"
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              placeholder={sectionContent.searchPlaceholder}
-              aria-label={sectionContent.searchPlaceholder}
-            />
-          </label>
-        </div>
-
-        <div className="access-panel-card">
-          <div className="access-section-header">
-            <div className="space-y-1">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--text-tertiary)]">{tabItems.find(tab => tab.id === activeSection)?.label}</p>
-              <h4 className="text-lg font-semibold text-[var(--text-primary)]">{sectionContent.title}</h4>
-              <p className="text-sm text-[var(--text-secondary)]">{sectionContent.description}</p>
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="access-chip access-chip--muted">
-                {visibleResultsCount} of {totalResultsCount} {sectionContent.resultsLabel}
-              </span>
-              {searchQuery && (
-                <button type="button" className="access-inline-btn access-inline-btn--pill" onClick={() => setSearchTerm('')}>
-                  Clear search
+        {accessMode === 'advanced' && (
+          <div className="access-nav">
+            <div className="access-tabs">
+              {tabItems.map(tab => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  className={`access-tab ${activeSection === tab.id ? 'access-tab--active' : ''}`}
+                  onClick={() => setActiveSection(tab.id)}
+                >
+                  <span className="access-tab__label">{tab.label}</span>
+                  <span className="access-tab__badge">{tab.id === 'policies' ? policyCount : tab.count}</span>
                 </button>
-              )}
+              ))}
+            </div>
+            <label className="access-search">
+              <SearchIcon />
+              <input
+                className="pipelines-input access-search__input"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                placeholder={sectionContent.searchPlaceholder}
+                aria-label={sectionContent.searchPlaceholder}
+              />
+            </label>
+          </div>
+        )}
+
+        {accessMode === 'basic' ? (
+          <div className="access-panel-card">
+            <div className="access-section-header">
+              <div className="space-y-1">
+                <h4 className="access-section-title">People and basic roles</h4>
+              </div>
+              <div className="access-section-tools">
+                <label className="access-search">
+                  <SearchIcon />
+                  <input
+                    className="pipelines-input access-search__input"
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                    placeholder="Search by username, email, role, or folder"
+                    aria-label="Search by username, email, role, or folder"
+                  />
+                </label>
+                <span className="access-chip access-chip--muted">
+                  {visibleResultsCount} of {totalResultsCount} people
+                </span>
+                {searchQuery && (
+                  <button type="button" className="access-inline-btn access-inline-btn--pill" onClick={() => setSearchTerm('')}>
+                    Clear search
+                  </button>
+                )}
+                <button type="button" className="glass-button-primary access-section-action" onClick={openCreateUserEditor}>
+                  <PlusIcon />
+                  <span>Add user</span>
+                </button>
+              </div>
+            </div>
+            <div className="access-workspace">
+              <div className="space-y-4 access-workspace__list">
+                {(error || accessGrantsError) && (
+                  <div className="access-error-banner">
+                    {error ? `Failed to load users: ${error}` : `Failed to load basic roles: ${accessGrantsError}`}
+                  </div>
+                )}
+                {loading || accessGrantsLoading ? (
+                  <div className="access-empty-card">
+                    <p className="font-medium text-[var(--text-primary)]">Loading basic access…</p>
+                    <p className="text-sm text-[var(--text-secondary)]">Fetching people and their current basic roles.</p>
+                  </div>
+                ) : users.length === 0 ? (
+                  <div className="access-empty-card">
+                    <p className="font-medium text-[var(--text-primary)]">No users yet</p>
+                    <p className="text-sm text-[var(--text-secondary)]">Create a user first, then assign viewer or developer access.</p>
+                  </div>
+                ) : filteredBasicUsers.length === 0 ? (
+                  <div className="access-empty-card">
+                    <p className="font-medium text-[var(--text-primary)]">No people match this search</p>
+                    <p className="text-sm text-[var(--text-secondary)]">Search by username, email, role, or folder path.</p>
+                  </div>
+                ) : (
+                  <div className="access-entity-grid access-entity-grid--users">
+                    {filteredBasicUsers.map(user => {
+                      const grants = basicUserGrantMap.get(user.id) || [];
+                      const userRoles = user.roles || [];
+                      const isSelected = !showUserModal && selectedBasicUser?.id === user.id;
+                      return (
+                        <article
+                          key={user.id}
+                          className={`access-card access-card--user ${isSelected ? 'access-card--selected' : ''}`}
+                        >
+                          <div className="access-card__header">
+                            <div className="min-w-0 flex items-center gap-3">
+                              <div className="access-avatar">{(user.sub || user.email || 'U').charAt(0).toUpperCase()}</div>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="access-card__title">{user.sub}</p>
+                                  <span className={`access-status access-status--${statusKey(user.status)}`}>{user.status || 'unknown'}</span>
+                                </div>
+                                <p className="access-card__subtitle">{user.email || 'No email address'}</p>
+                              </div>
+                            </div>
+                            <div className="access-card__actions">
+                              <button
+                                type="button"
+                                className="access-card-action"
+                                onClick={() => selectBasicUser(user.id)}
+                                title="Edit access"
+                                aria-label={`Edit access for ${user.sub || user.email || 'user'}`}
+                              >
+                                <EditIcon />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <p className="access-card__label">Access roles</p>
+                            <div className="flex flex-wrap gap-2">
+                              {userRoles.length > 0 ? (
+                                userRoles.map(role => (
+                                  <span key={`${user.id}-${role.role}`} className={`access-chip ${accessPresetToneClass(role.role)}`}>
+                                    {role.role}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-sm text-[var(--text-secondary)]">No roles assigned yet</span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <p className="access-card__label">Basic roles</p>
+                            <div className="flex flex-wrap gap-2">
+                              {grants.length > 0 ? (
+                                grants.slice(0, 4).map(grant => (
+                                  <span key={grant.id} className={`access-chip ${accessPresetToneClass(grant.role)}`}>
+                                    {basicAccessGrantLabel(grant)}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-sm text-[var(--text-secondary)]">No basic roles yet</span>
+                              )}
+                              {grants.length > 4 && <span className="access-chip access-chip--muted">+ {grants.length - 4} more</span>}
+                            </div>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              <aside className="access-editor-pane">
+                {showUserModal ? (
+                  createUserEditor
+                ) : selectedBasicUser ? (
+                  <div className="access-editor-surface">
+                    <div className="access-editor-header">
+                      <div>
+                        <p className="access-editor-kicker">Basic access</p>
+                        <h5 className="access-editor-title">{selectedBasicUser.sub}</h5>
+                        <p className="access-editor-text">Choose a basic role and folder target.</p>
+                      </div>
+                    </div>
+                    <div className="access-editor-section">
+                      <div className="access-minimal-section__header">
+                        <p className="text-sm font-medium text-[var(--text-primary)]">Account roles</p>
+                        <span className="text-[11px] text-[var(--text-secondary)]">{(selectedBasicUser.roles || []).length} assigned</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {(selectedBasicUser.roles || []).length > 0 ? (
+                          (selectedBasicUser.roles || []).map(role => (
+                            <span key={`${selectedBasicUser.id}-editor-role-${role.role}`} className={`access-chip ${accessPresetToneClass(role.role)}`}>
+                              {role.role}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-sm text-[var(--text-secondary)]">No roles assigned yet</span>
+                        )}
+                      </div>
+                    </div>
+                    <form className="access-editor-form" onSubmit={handleStageBasicGrant}>
+                      <div className="access-editor-grid">
+                        <label className="access-minimal-label">
+                          <span>Access level</span>
+                          <select
+                            className="pipelines-input"
+                            value={basicGrantDraft.role}
+                            onChange={e => {
+                              const role = e.target.value;
+                              setBasicGrantDraft(prev => ({
+                                ...prev,
+                                role,
+                                scope: role === BASIC_ROLE_ADMIN ? prev.scope : prev.scope || GENERAL_ACCESS_SCOPE,
+                              }));
+                            }}
+                            required
+                          >
+                            <option value="">Select role</option>
+                            <option value={BASIC_ROLE_VIEWER}>Viewer</option>
+                            <option value={BASIC_ROLE_DEVELOPER}>Developer</option>
+                            <option value={BASIC_ROLE_OWNER}>Owner</option>
+                            <option value={BASIC_ROLE_ADMIN}>Admin</option>
+                          </select>
+                        </label>
+                        <label className="access-minimal-label">
+                          <span>Folder target</span>
+                          <select
+                            className="pipelines-input"
+                            value={basicGrantDraft.role === BASIC_ROLE_ADMIN ? 'platform' : basicGrantDraft.scope}
+                            onChange={e => setBasicGrantDraft(prev => ({ ...prev, scope: e.target.value }))}
+                            disabled={basicGrantDraft.role === BASIC_ROLE_ADMIN}
+                          >
+                            {basicGrantDraft.role === BASIC_ROLE_ADMIN ? (
+                              <option value="platform">Platform wide</option>
+                            ) : (
+                              basicGrantOptions.map(option => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))
+                            )}
+                          </select>
+                        </label>
+                      </div>
+                      {basicGrantError && <div className="access-error-banner">{basicGrantError}</div>}
+                      <div className="access-editor-footer">
+                        <button type="submit" className="glass-button-subtle" disabled={basicGrantSaving || !basicGrantDraft.role || basicGrantDraftDuplicate}>
+                          Add
+                        </button>
+                      </div>
+                    </form>
+                    <div className="access-editor-section">
+                      <div className="access-minimal-section__header">
+                        <p className="text-sm font-medium text-[var(--text-primary)]">Basic roles</p>
+                        <span className="text-[11px] text-[var(--text-secondary)]">{basicGrantEntries.length} listed</span>
+                      </div>
+                      <div className="space-y-2">
+                        {basicGrantEntries.length === 0 ? (
+                          <p className="text-[12px] text-[var(--text-secondary)]">No basic roles listed.</p>
+                        ) : (
+                          basicGrantEntries.map(grant => (
+                            <div key={grant.localID} className="access-minimal-row access-minimal-row--stack">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className={`access-chip ${accessPresetToneClass(grant.role)}`}>{grant.role}</span>
+                                  <span className="access-chip access-chip--muted">{accessGrantResourceSummary(grant)}</span>
+                                  {grant.inherit && grant.resourceType === 'folder' && grant.resourceID !== 'general' && (
+                                    <span className="access-chip access-chip--muted">Includes children</span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-[var(--text-secondary)] mt-2">
+                                  {basicAccessGrantDescription(grant)}
+                                  {grant.grantedBy ? ` Granted by ${grant.grantedBy}.` : ''}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                className="access-inline-btn access-inline-btn--danger"
+                                onClick={() => removeBasicGrantDraft(grant.localID)}
+                                disabled={basicGrantSaving}
+                              >
+                                <TrashIcon />
+                                <span>Remove</span>
+                              </button>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                      <div className="access-editor-footer gap-2">
+                        {basicGrantDirty && (
+                          <button type="button" className="access-inline-btn access-inline-btn--pill" onClick={resetBasicGrantDrafts} disabled={basicGrantSaving}>
+                            Reset
+                          </button>
+                        )}
+                        <button type="button" className="glass-button-primary" onClick={handleSaveBasicGrants} disabled={basicGrantSaving || !basicGrantDirty}>
+                          {basicGrantSaving ? 'Saving…' : 'Save changes'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <AccessEditorEmptyState sectionLabel="Basic role details" hint="Click edit on a user to manage access." />
+                )}
+              </aside>
             </div>
           </div>
+        ) : (
+          <div className="access-panel-card">
+            <div className="access-section-header">
+              <div className="space-y-1">
+                <h4 className="access-section-title">{sectionContent.title}</h4>
+              </div>
+              <div className="access-section-tools">
+                <span className="access-chip access-chip--muted">
+                  {visibleResultsCount} of {totalResultsCount} {sectionContent.resultsLabel}
+                </span>
+                {searchQuery && (
+                  <button type="button" className="access-inline-btn access-inline-btn--pill" onClick={() => setSearchTerm('')}>
+                    Clear search
+                  </button>
+                )}
+                {activeSection === 'users' && (
+                  <button type="button" className="glass-button-primary access-section-action" onClick={openCreateUserEditor}>
+                    <PlusIcon />
+                    <span>Add user</span>
+                  </button>
+                )}
+                {activeSection === 'roles' && (
+                  <button type="button" className="glass-button-primary access-section-action" onClick={openCreateRoleEditor}>
+                    <PlusIcon />
+                    <span>Add role</span>
+                  </button>
+                )}
+                {activeSection === 'policies' && (
+                  <button type="button" className="glass-button-primary access-section-action" onClick={openCreatePolicyEditor}>
+                    <PlusIcon />
+                    <span>Add policy</span>
+                  </button>
+                )}
+              </div>
+            </div>
 
           {activeSection === 'users' && (
             <div className="access-workspace">
@@ -2747,19 +3520,24 @@ function AccessPanel({
                               </div>
                             </div>
                             <div className="access-card__actions">
-                              <button type="button" className="access-card-action" title="Manage access" onClick={() => openUserAccessModal(user)}>
+                              <button
+                                type="button"
+                                className="access-card-action"
+                                title="Edit user"
+                                aria-label={`Edit ${user.sub || user.email || 'user'}`}
+                                onClick={() => openUserAccessModal(user)}
+                              >
                                 <EditIcon />
-                                <span>Edit</span>
                               </button>
                               <button
                                 type="button"
                                 className="access-card-action access-card-action--danger"
                                 title="Delete user"
+                                aria-label={`Delete ${user.sub || user.email || 'user'}`}
                                 onClick={() => confirmDeleteUser(user.id)}
                                 disabled={loading}
                               >
                                 <TrashIcon />
-                                <span>Delete</span>
                               </button>
                             </div>
                           </div>
@@ -2790,7 +3568,7 @@ function AccessPanel({
                       <div>
                         <p className="access-editor-kicker">Edit user</p>
                         <h5 className="access-editor-title">{userAccessEditor.user.sub}</h5>
-                        <p className="access-editor-text">Update account details and assign the smallest role set that still works.</p>
+                        <p className="access-editor-text">Update account and roles.</p>
                       </div>
                       <button type="button" className="access-inline-btn access-inline-btn--pill" onClick={() => setUserAccessEditor(null)}>
                         Close
@@ -2885,137 +3663,9 @@ function AccessPanel({
                     </form>
                   </div>
                 ) : showUserModal ? (
-                  <div className="access-editor-surface">
-                    <div className="access-editor-header">
-                      <div>
-                        <p className="access-editor-kicker">Create user</p>
-                        <h5 className="access-editor-title">New local account</h5>
-                        <p className="access-editor-text">Create the account and start with a small, understandable role set.</p>
-                      </div>
-                      <button
-                        type="button"
-                        className="access-inline-btn access-inline-btn--pill"
-                        onClick={() => {
-                          setAwaitingUserCreateReset(false);
-                          setShowUserModal(false);
-                        }}
-                      >
-                        Close
-                      </button>
-                    </div>
-                    <form className="access-editor-form" onSubmit={handleCreateUserInline}>
-                      <div className="access-editor-grid">
-                        <label className="access-minimal-label">
-                          <span>Username (sub)</span>
-                          <input
-                            className="pipelines-input"
-                            value={newUser.sub}
-                            onChange={e => onChangeUser({ ...newUser, sub: e.target.value })}
-                            placeholder="alice"
-                            required
-                          />
-                        </label>
-                        <label className="access-minimal-label">
-                          <span>Email</span>
-                          <input
-                            className="pipelines-input"
-                            type="email"
-                            value={newUser.email}
-                            onChange={e => onChangeUser({ ...newUser, email: e.target.value })}
-                            placeholder="name@example.com"
-                          />
-                        </label>
-                      </div>
-                      <label className="access-minimal-label">
-                        <span>Password</span>
-                        <input
-                          className="pipelines-input"
-                          type="password"
-                          value={newUser.password}
-                          onChange={e => onChangeUser({ ...newUser, password: e.target.value })}
-                          placeholder="••••••••"
-                          required
-                        />
-                      </label>
-                      <div className="access-editor-section">
-                        <div className="access-minimal-section__header">
-                          <p className="text-sm font-medium text-[var(--text-primary)]">Roles</p>
-                          <span className="text-[11px] text-[var(--text-secondary)]">Prefer viewer, developer, owner, admin</span>
-                        </div>
-                        <div className="space-y-2">
-                          {newUser.roles.length === 0 && (
-                            <p className="text-[11px] text-[var(--text-secondary)]">Pick at least one role to create this user.</p>
-                          )}
-                          {newUser.roles.map((entry, idx) => (
-                            <div key={`new-user-role-${idx}`} className="access-minimal-row">
-                              <select
-                                className="pipelines-input flex-1"
-                                value={entry}
-                                onChange={e => updateNewUserRoleEntry(idx, e.target.value)}
-                                required
-                                disabled={allRoleOptions.length === 0}
-                              >
-                                <option value="" disabled>
-                                  {allRoleOptions.length === 0 ? 'No roles available' : 'Pick a role'}
-                                </option>
-                                {allRoleOptions.map(role => (
-                                  <option key={`role-opt-${role}`} value={role}>
-                                    {role}
-                                  </option>
-                                ))}
-                              </select>
-                              <button
-                                type="button"
-                                className="access-inline-btn access-inline-btn--danger"
-                                onClick={() => removeNewUserRoleEntry(idx)}
-                                title="Remove role"
-                              >
-                                <TrashIcon />
-                              </button>
-                            </div>
-                          ))}
-                          <div className="access-editor-inline-add">
-                            <select
-                              className="pipelines-input flex-1"
-                              value={nextUserRole}
-                              onChange={e => setNextUserRole(e.target.value)}
-                              disabled={allRoleOptions.length === 0}
-                            >
-                              <option value="">{allRoleOptions.length === 0 ? 'No roles available' : 'Pick a role'}</option>
-                              {allRoleOptions.map(role => (
-                                <option key={`new-role-opt-${role}`} value={role}>
-                                  {role}
-                                </option>
-                              ))}
-                            </select>
-                            <button
-                              type="button"
-                              className="glass-button-subtle"
-                              onClick={appendUserRoleFromPicker}
-                              disabled={allRoleOptions.length === 0}
-                            >
-                              Add role
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="access-editor-footer">
-                        <button type="submit" className="glass-button-primary" disabled={creatingUserInline}>
-                          {creatingUserInline ? 'Saving…' : 'Save user'}
-                        </button>
-                      </div>
-                    </form>
-                  </div>
+                  createUserEditor
                 ) : (
-                  <div className="access-editor-empty">
-                    <p className="access-editor-kicker">User workspace</p>
-                    <h5 className="access-editor-title">Create or edit without leaving the page</h5>
-                    <p className="access-editor-text">Pick a person from the list to edit access, or start a new account here.</p>
-                    <button type="button" className="glass-button-primary" onClick={openCreateUserEditor}>
-                      <PlusIcon />
-                      <span>Create user</span>
-                    </button>
-                  </div>
+                  <AccessEditorEmptyState sectionLabel="User details" hint="Select a user to edit access." />
                 )}
               </aside>
             </div>
@@ -3069,18 +3719,23 @@ function AccessPanel({
                                 <span className="access-chip access-chip--muted">Protected</span>
                               ) : (
                                 <>
-                                  <button type="button" className="access-card-action" title="Edit role" onClick={() => openEditRoleEditor(role)}>
+                                  <button
+                                    type="button"
+                                    className="access-card-action"
+                                    title="Edit role"
+                                    aria-label={`Edit ${role.role}`}
+                                    onClick={() => openEditRoleEditor(role)}
+                                  >
                                     <EditIcon />
-                                    <span>Edit</span>
                                   </button>
                                   <button
                                     type="button"
                                     className="access-card-action access-card-action--danger"
                                     title="Delete role"
+                                    aria-label={`Delete ${role.role}`}
                                     onClick={() => confirmDeleteRoleDefinition(role)}
                                   >
                                     <TrashIcon />
-                                    <span>Delete</span>
                                   </button>
                                 </>
                               )}
@@ -3121,7 +3776,7 @@ function AccessPanel({
                       <div>
                         <p className="access-editor-kicker">{roleEditor.mode === 'create' ? 'Create role' : 'Edit role'}</p>
                         <h5 className="access-editor-title">{roleEditor.mode === 'create' ? 'Role definition' : roleEditor.role}</h5>
-                        <p className="access-editor-text">Use the full page width to shape a reusable role bundle instead of managing it in a popup.</p>
+                        <p className="access-editor-text">Set the policies in this role.</p>
                       </div>
                       <button type="button" className="access-inline-btn access-inline-btn--pill" onClick={() => setRoleEditor(null)}>
                         Close
@@ -3219,15 +3874,7 @@ function AccessPanel({
                     </form>
                   </div>
                 ) : (
-                  <div className="access-editor-empty">
-                    <p className="access-editor-kicker">Role workspace</p>
-                    <h5 className="access-editor-title">Design reusable access bundles</h5>
-                    <p className="access-editor-text">Select a role from the list to edit it, or start a new role in this workspace.</p>
-                    <button type="button" className="glass-button-primary" onClick={openCreateRoleEditor}>
-                      <PlusIcon />
-                      <span>Create role</span>
-                    </button>
-                  </div>
+                  <AccessEditorEmptyState sectionLabel="Role details" hint="Select a role to edit policies." />
                 )}
               </aside>
             </div>
@@ -3281,18 +3928,23 @@ function AccessPanel({
                                 <span className="access-chip access-chip--muted">Protected</span>
                               ) : (
                                 <>
-                                  <button type="button" className="access-card-action" title="Edit policy" onClick={() => openPolicyEditModal(policy)}>
+                                  <button
+                                    type="button"
+                                    className="access-card-action"
+                                    title="Edit policy"
+                                    aria-label={`Edit ${policyLabel(policy)}`}
+                                    onClick={() => openPolicyEditModal(policy)}
+                                  >
                                     <EditIcon />
-                                    <span>Edit</span>
                                   </button>
                                   <button
                                     type="button"
                                     className="access-card-action access-card-action--danger"
                                     title="Delete policy"
+                                    aria-label={`Delete ${policyLabel(policy)}`}
                                     onClick={() => confirmDeletePolicy(policy)}
                                   >
                                     <TrashIcon />
-                                    <span>Delete</span>
                                   </button>
                                 </>
                               )}
@@ -3316,7 +3968,7 @@ function AccessPanel({
                       <div>
                         <p className="access-editor-kicker">Edit policy</p>
                         <h5 className="access-editor-title">{policyEditor.name || policyLabel(policyEditor)}</h5>
-                        <p className="access-editor-text">Refine the raw AAA rule in a full-width editor instead of a small popup.</p>
+                        <p className="access-editor-text">Edit the role, resource, and action.</p>
                       </div>
                       <button type="button" className="access-inline-btn access-inline-btn--pill" onClick={() => setPolicyEditor(null)}>
                         Close
@@ -3341,7 +3993,7 @@ function AccessPanel({
                       <div>
                         <p className="access-editor-kicker">Create policy</p>
                         <h5 className="access-editor-title">Reusable AAA rule</h5>
-                        <p className="access-editor-text">Define a low-level rule once, then bundle it into roles like viewer or developer.</p>
+                        <p className="access-editor-text">Add a reusable AAA rule.</p>
                       </div>
                       <button
                         type="button"
@@ -3364,20 +4016,13 @@ function AccessPanel({
                     </form>
                   </div>
                 ) : (
-                  <div className="access-editor-empty">
-                    <p className="access-editor-kicker">Policy workspace</p>
-                    <h5 className="access-editor-title">Work on raw AAA rules in one place</h5>
-                    <p className="access-editor-text">Select a policy from the list to edit it, or create a new reusable rule here.</p>
-                    <button type="button" className="glass-button-primary" onClick={openCreatePolicyEditor}>
-                      <PlusIcon />
-                      <span>Create policy</span>
-                    </button>
-                  </div>
+                  <AccessEditorEmptyState sectionLabel="Policy details" hint="Select a policy to edit rules." />
                 )}
               </aside>
             </div>
           )}
-        </div>
+          </div>
+        )}
       </div>
 
       {confirmDialog && (
@@ -3401,6 +4046,35 @@ function AccessPanel({
             </div>
           </div>
         </AccessModal>
+      )}
+    </div>
+  );
+}
+
+function AccessEditorEmptyState({
+  sectionLabel,
+  hint,
+  actionLabel,
+  onAction,
+}: {
+  sectionLabel: string;
+  hint: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <div className="access-editor-empty">
+      <div className="access-editor-empty__meta">
+        <span className="access-editor-empty__badge">{sectionLabel}</span>
+        <p className="access-editor-empty__hint">{hint}</p>
+      </div>
+      {actionLabel && onAction && (
+        <div className="access-editor-empty__footer">
+          <button type="button" className="glass-button-primary access-editor-empty__button" onClick={onAction}>
+            <PlusIcon />
+            <span>{actionLabel}</span>
+          </button>
+        </div>
       )}
     </div>
   );
@@ -3450,8 +4124,9 @@ function AccessModal({
               )}
             </div>
           </div>
-          <button className={minimal ? 'access-inline-btn' : 'glass-button-ghost'} onClick={onClose}>
-            Close
+          <button className={minimal ? 'access-inline-btn' : 'glass-button-ghost'} onClick={onClose} aria-label="Close">
+            <X className="h-4 w-4" />
+            {!minimal && <span>Close</span>}
           </button>
         </header>
         <div className={`pipelines-modal-body access-modal-body ${minimal ? 'access-modal-body--minimal' : ''}`}>{children}</div>
@@ -3461,52 +4136,23 @@ function AccessModal({
 }
 
 function PlusIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 5v14M5 12h14" />
-    </svg>
-  );
+  return <Plus className="h-4 w-4" strokeWidth={2} aria-hidden="true" />;
 }
 
 function TrashIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 6h18" />
-      <path d="M8 6v-2a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-      <path d="M10 11v6" />
-      <path d="M14 11v6" />
-    </svg>
-  );
+  return <Trash2 className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />;
 }
 
 function EditIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 20h9" />
-      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z" />
-    </svg>
-  );
+  return <Edit3 className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />;
 }
 
 function RefreshIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 8 5" />
-      <path d="M21 3v5h-5" />
-      <path d="M21 12a9 9 0 0 1-9 9 9 9 0 0 1-8-5" />
-      <path d="M3 21v-5h5" />
-    </svg>
-  );
+  return <RefreshCw className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />;
 }
 
 function SearchIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="11" cy="11" r="7" />
-      <path d="m20 20-3.5-3.5" />
-    </svg>
-  );
+  return <Search className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />;
 }
 
 function SystemConfig({
@@ -4168,6 +4814,24 @@ function normalizeRouting(value: unknown): Record<string, string[]> {
     }
   });
   return normalized;
+}
+
+function normalizeAccessGrantRecord(value: unknown): AccessGrantRecord | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const id = readString(record.id);
+  if (!id) return null;
+  return {
+    id,
+    subjectType: readString(record.subject_type),
+    subjectID: readString(record.subject_id),
+    role: readString(record.role),
+    resourceType: readString(record.resource_type),
+    resourceID: readString(record.resource_id),
+    inherit: Boolean(record.inherit),
+    grantedBy: readOptionalString(record.granted_by),
+    createdAt: readOptionalString(record.created_at),
+  };
 }
 
 export default SystemPage;
