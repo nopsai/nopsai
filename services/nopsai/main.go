@@ -2337,7 +2337,7 @@ func (a *App) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resource, err := a.folderGrantResourceByGroupID(r.Context(), groupID)
+	action, resource, err := a.groupDeleteAuthorizationTarget(r.Context(), groupID)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if strings.Contains(err.Error(), "not found") {
@@ -2346,7 +2346,7 @@ func (a *App) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), status)
 		return
 	}
-	if !a.requireAAADecision(w, r, "folder.delete", model.ResourceRef{Type: grantResourceFolder, ID: resource.ID}) {
+	if !a.requireAAADecision(w, r, action, resource) {
 		return
 	}
 
@@ -2357,6 +2357,35 @@ func (a *App) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) groupDeleteAuthorizationTarget(ctx context.Context, groupID int) (string, model.ResourceRef, error) {
+	if a == nil || a.db == nil {
+		return "", model.ResourceRef{}, fmt.Errorf("database unavailable")
+	}
+
+	var groupName string
+	if err := a.db.QueryRow(ctx, `SELECT name FROM groups WHERE id = $1`, groupID).Scan(&groupName); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+			return "", model.ResourceRef{}, fmt.Errorf("resource not found")
+		}
+		return "", model.ResourceRef{}, err
+	}
+
+	resource, err := a.folderGrantResourceByGroupID(ctx, groupID)
+	if err != nil {
+		return "", model.ResourceRef{}, err
+	}
+	action, resourceRef := groupDeleteAuthorizationTargetFromName(groupName, resource)
+	return action, resourceRef, nil
+}
+
+func groupDeleteAuthorizationTargetFromName(groupName string, folderResource accessGrantResource) (string, model.ResourceRef) {
+	repositoryID := strings.Trim(strings.TrimSpace(groupName), "/")
+	if strings.Contains(repositoryID, "/") {
+		return "repository.delete", model.ResourceRef{Type: grantResourceRepo, ID: repositoryID}
+	}
+	return "folder.delete", model.ResourceRef{Type: grantResourceFolder, ID: folderResource.ID}
 }
 
 func (a *App) handleListRepoBranches(w http.ResponseWriter, r *http.Request) {

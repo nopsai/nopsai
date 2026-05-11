@@ -128,9 +128,16 @@ func TestProductRolePermissions(t *testing.T) {
 
 	t.Run("owner", func(t *testing.T) {
 		actions := actionSet(applicableProductRoleActions(productRoleOwner, grantResourceFolder))
+		assertAction(t, actions, "folder.delete", false)
 		assertAction(t, actions, "pipeline.delete", true)
+		assertAction(t, actions, "pipeline_run.delete", true)
+		assertAction(t, actions, "trigger.delete", true)
+		assertAction(t, actions, "scope.delete", true)
 		assertAction(t, actions, "pipeline.manage_acl", true)
 		assertAction(t, actions, "secret.read_value", true)
+		assertAction(t, actions, "secret.delete", true)
+		assertAction(t, actions, "variable.delete", true)
+		assertAction(t, actions, "repository.delete", true)
 		assertAction(t, actions, "step.delete", true)
 		assertAction(t, actions, "step.manage_acl", true)
 	})
@@ -459,6 +466,39 @@ func TestScopedProductGrantCapabilityUsesGrantRoleDefinition(t *testing.T) {
 	}
 	if productGrantIncludesAction(productRoleDeveloper, grantResourceFolder, "pipeline.delete") {
 		t.Fatal("developer folder grant should not include pipeline.delete")
+	}
+	if productGrantIncludesAction(productRoleOwner, grantResourceFolder, "folder.delete") {
+		t.Fatal("owner folder grant should not include folder.delete")
+	}
+	if !productGrantIncludesAction(productRoleOwner, grantResourceFolder, "pipeline.delete") {
+		t.Fatal("owner folder grant should include pipeline.delete")
+	}
+	if !productGrantIncludesAction(productRoleOwner, grantResourceFolder, "repository.delete") {
+		t.Fatal("owner folder grant should include repository.delete")
+	}
+}
+
+func TestGroupDeleteAuthorizationTargetFromName(t *testing.T) {
+	action, resource := groupDeleteAuthorizationTargetFromName("acme/widgets", accessGrantResource{
+		Type: grantResourceFolder,
+		ID:   "platform/acme/widgets",
+	})
+	if action != "repository.delete" {
+		t.Fatalf("action = %q, want repository.delete", action)
+	}
+	if resource.Type != grantResourceRepo || resource.ID != "acme/widgets" {
+		t.Fatalf("resource = %#v, want repository:acme/widgets", resource)
+	}
+
+	action, resource = groupDeleteAuthorizationTargetFromName("platform", accessGrantResource{
+		Type: grantResourceFolder,
+		ID:   "platform",
+	})
+	if action != "folder.delete" {
+		t.Fatalf("action = %q, want folder.delete", action)
+	}
+	if resource.Type != grantResourceFolder || resource.ID != "platform" {
+		t.Fatalf("resource = %#v, want folder:platform", resource)
 	}
 }
 

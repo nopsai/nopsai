@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"nopsai/services/aaa/pkg/model"
@@ -49,6 +51,78 @@ func TestParseAdminRolePermissionRejectsLegacyPathPolicies(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected legacy path policy to be rejected")
+	}
+}
+
+func TestProtectedAdminRoleNames(t *testing.T) {
+	for _, role := range []string{"viewer", "developer", "owner", "admin", defaultAdminRole} {
+		if !isProtectedAdminRoleName(role) {
+			t.Fatalf("isProtectedAdminRoleName(%q) = false, want true", role)
+		}
+	}
+	if isProtectedAdminRoleName("release-manager") {
+		t.Fatal("custom role should not be protected")
+	}
+}
+
+func TestDefaultAdminAllAccessPermission(t *testing.T) {
+	permission, err := parseAdminRolePermission(createRoleRequest{
+		Role:   defaultAdminRole,
+		Object: "*:*",
+		Action: "*",
+	})
+	if err != nil {
+		t.Fatalf("parseAdminRolePermission() error = %v", err)
+	}
+	if !isDefaultAdminAllAccessPermission(permission) {
+		t.Fatal("default admin all-access permission should be recognized")
+	}
+	permission.Action = "pipeline.read"
+	if isDefaultAdminAllAccessPermission(permission) {
+		t.Fatal("non-wildcard default admin permission should not be recognized")
+	}
+}
+
+func TestRoleHandlersRejectProtectedDefaultRoles(t *testing.T) {
+	app := &App{}
+	for _, tt := range []struct {
+		name   string
+		method string
+		body   string
+		handle func(http.ResponseWriter, *http.Request)
+	}{
+		{
+			name:   "create product role policy",
+			method: http.MethodPost,
+			body:   `{"role":"viewer","obj":"pipeline:*","act":"pipeline.read"}`,
+			handle: app.handleCreateRole,
+		},
+		{
+			name:   "create default admin policy",
+			method: http.MethodPost,
+			body:   `{"role":"` + defaultAdminRole + `","obj":"*:*","act":"*"}`,
+			handle: app.handleCreateRole,
+		},
+		{
+			name:   "delete product role policy",
+			method: http.MethodDelete,
+			body:   `{"role":"owner","obj":"pipeline:*","act":"pipeline.delete"}`,
+			handle: app.handleDeleteRole,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, "/v1/admin/roles", strings.NewReader(tt.body))
+			rec := httptest.NewRecorder()
+
+			tt.handle(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+			}
+			if !strings.Contains(rec.Body.String(), "default roles cannot be") {
+				t.Fatalf("body = %q, want protected default role message", rec.Body.String())
+			}
+		})
 	}
 }
 
