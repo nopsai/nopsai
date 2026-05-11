@@ -167,8 +167,10 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		switch r.Method {
 		case http.MethodGet:
 			return "step.read", resource, false, nil
-		case http.MethodPut, http.MethodDelete:
-			return "step.manage", resource, false, nil
+		case http.MethodPut:
+			return "", resource, false, nil
+		case http.MethodDelete:
+			return "step.delete", resource, false, nil
 		}
 	case strings.HasPrefix(path, "/v1/access/"):
 		return "", model.ResourceRef{}, false, nil

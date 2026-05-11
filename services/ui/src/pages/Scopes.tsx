@@ -7,6 +7,7 @@ const VARIABLE_NAME_PATTERN = /^[A-Za-z0-9_.-]+$/;
 const SECRET_NAME_PATTERN = /^[A-Za-z0-9_.-]+$/;
 const SAMPLE_SCOPE_VARIABLE = 'sample_variable';
 const SAMPLE_SCOPE_VALUE = 'Replace with your %SCOPE% scope value.';
+const SCOPE_PERMISSION_PROBE_NAME = '__nopsai_permission_probe__';
 
 type ScopeEntry = {
   scope: string;
@@ -603,10 +604,8 @@ function normalizeOverrideSlugs(payload: unknown): string[] {
 }
 
 function ScopesPage({
-  canWriteScopes = false,
   canDeleteScopes = false,
 }: {
-  canWriteScopes?: boolean;
   canDeleteScopes?: boolean;
 }) {
   const navigate = useNavigate();
@@ -629,6 +628,9 @@ function ScopesPage({
   const [selectedScope, setSelectedScope] = useState<string | null>(null);
   const selectedScopeRef = useRef<string | null>(null);
   const preloadScopesRef = useRef<Set<string>>(new Set());
+  const [folderScopeCreateAllowed, setFolderScopeCreateAllowed] = useState(false);
+  const [selectedVariableWriteAllowed, setSelectedVariableWriteAllowed] = useState(false);
+  const [selectedSecretWriteAllowed, setSelectedSecretWriteAllowed] = useState(false);
 
   const [selectedVariable, setSelectedVariable] = useState<string | null>(null);
   const [selectedSecret, setSelectedSecret] = useState<string | null>(null);
@@ -671,6 +673,31 @@ function ScopesPage({
     window.setTimeout(() => {
       setToasts(prev => prev.filter(toast => toast.id !== id));
     }, 3200);
+  }, []);
+
+  const buildScopePermissionProbe = (folder: string) => {
+    const cleaned = normalizeScopeLabel(folder);
+    return cleaned ? `${cleaned}/${SCOPE_PERMISSION_PROBE_NAME}` : SCOPE_PERMISSION_PROBE_NAME;
+  };
+
+  const buildNamedResourceID = (repoName: string, scope: string, name: string) => {
+    const params = new URLSearchParams();
+    if (repoName.trim()) params.set('repo', repoName.trim());
+    if (normalizeScopeLabel(scope)) params.set('scope', normalizeScopeLabel(scope));
+    params.set('name', name.trim());
+    return params.toString();
+  };
+
+  const checkAccessPermission = useCallback(async (action: string, resourceType: string, resourceID: string) => {
+    const params = new URLSearchParams({
+      action,
+      resource_type: resourceType,
+      resource_id: resourceID,
+    });
+    const response = await fetch(buildApiUrl(`/v1/access/effective-permissions?${params.toString()}`));
+    if (!response.ok) return false;
+    const payload = await response.json();
+    return Boolean(payload?.allowed);
   }, []);
 
   useEffect(() => {
@@ -1082,6 +1109,59 @@ function ScopesPage({
     void buildUsageIndexes();
   }, [buildUsageIndexes, selectedScope]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setFolderScopeCreateAllowed(false);
+    void checkAccessPermission('scope.update', 'scope', buildScopePermissionProbe(activeFolder))
+      .then(allowed => {
+        if (!cancelled) setFolderScopeCreateAllowed(allowed);
+      })
+      .catch(() => {
+        if (!cancelled) setFolderScopeCreateAllowed(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeFolder, checkAccessPermission]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (selectedScope == null) {
+      setSelectedVariableWriteAllowed(false);
+      setSelectedSecretWriteAllowed(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const scope = normalizeScopeLabel(selectedScope);
+    setSelectedVariableWriteAllowed(false);
+    setSelectedSecretWriteAllowed(false);
+    void Promise.all([
+      checkAccessPermission('variable.write_value', 'variable', buildNamedResourceID('', scope, SCOPE_PERMISSION_PROBE_NAME)),
+      checkAccessPermission('secret.write_value', 'secret', buildNamedResourceID('', scope, SCOPE_PERMISSION_PROBE_NAME)),
+    ])
+      .then(([variableAllowed, secretAllowed]) => {
+        if (cancelled) return;
+        setSelectedVariableWriteAllowed(variableAllowed);
+        setSelectedSecretWriteAllowed(secretAllowed);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSelectedVariableWriteAllowed(false);
+        setSelectedSecretWriteAllowed(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [checkAccessPermission, selectedScope]);
+
+  const canCreateScopeHere = folderScopeCreateAllowed;
+  const canWriteVariablesInSelectedScope = selectedVariableWriteAllowed;
+  const canWriteSecretsInSelectedScope = selectedSecretWriteAllowed;
+
   const scopesByLabel = useMemo(() => {
     const map = new Map<string, ScopeEntry>();
     scopes.forEach(scope => map.set(scope.scope, scope));
@@ -1175,7 +1255,7 @@ function ScopesPage({
   };
 
   const openNewScopeModal = () => {
-    if (!canWriteScopes) return;
+    if (!canCreateScopeHere) return;
     setScopeModal({ parent: normalizeScopeLabel(activeFolder), name: '', pending: false });
   };
 
@@ -1197,7 +1277,7 @@ function ScopesPage({
   };
 
   const submitScopeModal = async () => {
-    if (!canWriteScopes) return;
+    if (!canCreateScopeHere) return;
     const modal = scopeModal;
     if (!modal) return;
 
@@ -1218,6 +1298,15 @@ function ScopesPage({
 
     if (scopesByLabel.has(normalizedLabel)) {
       setScopeModal(prev => (prev ? { ...prev, error: `Scope “/${normalizedLabel}” already exists.` } : prev));
+      return;
+    }
+
+    const [scopeAllowed, variableAllowed] = await Promise.all([
+      checkAccessPermission('scope.update', 'scope', normalizedLabel),
+      checkAccessPermission('variable.write_value', 'variable', buildNamedResourceID('', normalizedLabel, SAMPLE_SCOPE_VARIABLE)),
+    ]);
+    if (!scopeAllowed || !variableAllowed) {
+      setScopeModal(prev => (prev ? { ...prev, error: 'You do not have permission to create scopes in this path.' } : prev));
       return;
     }
 
@@ -1316,7 +1405,7 @@ function ScopesPage({
   };
 
   const openVariableCreateModal = (scopeLabel: string, options?: { repository?: string; nameSuggestion?: string; valuePreset?: string }) => {
-    if (!canWriteScopes) return;
+    if (!canWriteVariablesInSelectedScope) return;
     setVariableModal({
       mode: 'create',
       scope: normalizeScopeLabel(scopeLabel),
@@ -1328,7 +1417,7 @@ function ScopesPage({
   };
 
   const openVariableUpdateModal = (scopeLabel: string, fullName: string) => {
-    if (!canWriteScopes) return;
+    if (!canWriteVariablesInSelectedScope) return;
     const scope = normalizeScopeLabel(scopeLabel);
     const identity = parseScopedIdentity(fullName);
     setVariableModal({
@@ -1343,7 +1432,7 @@ function ScopesPage({
   };
 
   const openVariableCloneModal = (scopeLabel: string, fullName: string) => {
-    if (!canWriteScopes) return;
+    if (!canWriteVariablesInSelectedScope) return;
     const scope = normalizeScopeLabel(scopeLabel);
     const identity = parseScopedIdentity(fullName);
     const scopeVars = scopeDataByScope[scope]?.variables || [];
@@ -1355,7 +1444,7 @@ function ScopesPage({
   };
 
   const openSecretCreateModal = (scopeLabel: string, options?: { repository?: string; nameSuggestion?: string; valuePreset?: string }) => {
-    if (!canWriteScopes) return;
+    if (!canWriteSecretsInSelectedScope) return;
     setSecretModal({
       mode: 'create',
       scope: normalizeScopeLabel(scopeLabel),
@@ -1367,7 +1456,7 @@ function ScopesPage({
   };
 
   const openSecretUpdateModal = (scopeLabel: string, fullName: string) => {
-    if (!canWriteScopes) return;
+    if (!canWriteSecretsInSelectedScope) return;
     const scope = normalizeScopeLabel(scopeLabel);
     const identity = parseScopedIdentity(fullName);
     setSecretModal({
@@ -1382,7 +1471,7 @@ function ScopesPage({
   };
 
   const openSecretCloneModal = (scopeLabel: string, fullName: string) => {
-    if (!canWriteScopes) return;
+    if (!canWriteSecretsInSelectedScope) return;
     const scope = normalizeScopeLabel(scopeLabel);
     const identity = parseScopedIdentity(fullName);
     const scopeSecrets = scopeDataByScope[scope]?.secrets || [];
@@ -1394,7 +1483,7 @@ function ScopesPage({
   };
 
   const submitVariableModal = async () => {
-    if (!canWriteScopes) return;
+    if (!canWriteVariablesInSelectedScope) return;
     const modal = variableModal;
     if (!modal) return;
 
@@ -1429,13 +1518,18 @@ function ScopesPage({
       return;
     }
 
+    const identity =
+      modal.mode === 'update' && modal.originalName ? parseScopedIdentity(modal.originalName) : { ...parseScopedIdentity(nameInput), repoSlug };
+    const finalRepoSlug = modal.mode === 'create' ? repoSlug : identity.repoSlug;
+    const finalName = modal.mode === 'create' ? nameInput : identity.name;
+    const allowed = await checkAccessPermission('variable.write_value', 'variable', buildNamedResourceID(finalRepoSlug, scope, finalName));
+    if (!allowed) {
+      setVariableModal(prev => (prev ? { ...prev, error: 'You do not have permission to save variables in this scope.' } : prev));
+      return;
+    }
+
     setVariableModal(prev => (prev ? { ...prev, pending: true, error: undefined } : prev));
     try {
-      const identity =
-        modal.mode === 'update' && modal.originalName ? parseScopedIdentity(modal.originalName) : { ...parseScopedIdentity(nameInput), repoSlug };
-      const finalRepoSlug = modal.mode === 'create' ? repoSlug : identity.repoSlug;
-      const finalName = modal.mode === 'create' ? nameInput : identity.name;
-
       let urlBase = '';
       if (finalRepoSlug) {
         const [owner, repo] = finalRepoSlug.split('/');
@@ -1471,7 +1565,7 @@ function ScopesPage({
   };
 
   const submitSecretModal = async () => {
-    if (!canWriteScopes) return;
+    if (!canWriteSecretsInSelectedScope) return;
     const modal = secretModal;
     if (!modal) return;
 
@@ -1512,13 +1606,18 @@ function ScopesPage({
       return;
     }
 
+    const identity =
+      modal.mode === 'update' && modal.originalName ? parseScopedIdentity(modal.originalName) : { ...parseScopedIdentity(nameInput), repoSlug };
+    const finalRepoSlug = modal.mode === 'create' ? repoSlug : identity.repoSlug;
+    const finalName = modal.mode === 'create' ? nameInput : identity.name;
+    const allowed = await checkAccessPermission('secret.write_value', 'secret', buildNamedResourceID(finalRepoSlug, scope, finalName));
+    if (!allowed) {
+      setSecretModal(prev => (prev ? { ...prev, error: 'You do not have permission to save secrets in this scope.' } : prev));
+      return;
+    }
+
     setSecretModal(prev => (prev ? { ...prev, pending: true, error: undefined } : prev));
     try {
-      const identity =
-        modal.mode === 'update' && modal.originalName ? parseScopedIdentity(modal.originalName) : { ...parseScopedIdentity(nameInput), repoSlug };
-      const finalRepoSlug = modal.mode === 'create' ? repoSlug : identity.repoSlug;
-      const finalName = modal.mode === 'create' ? nameInput : identity.name;
-
       let urlBase = '';
       if (finalRepoSlug) {
         const [owner, repo] = finalRepoSlug.split('/');
@@ -1711,11 +1810,11 @@ function ScopesPage({
                 <div id="scopes-empty" className="pipelines-empty">
                   <h3 className="text-base font-semibold text-[var(--text-primary)]">No scopes found</h3>
                   <p className="text-sm text-[var(--text-secondary)]">
-                    {hasSearch
-                      ? `No scope folders matched “${searchTerm.trim()}”.`
-                      : canWriteScopes
-                        ? 'Create a new scope or adjust your filters.'
-                        : 'Adjust your filters or browse another folder.'}
+	                    {hasSearch
+	                      ? `No scope folders matched “${searchTerm.trim()}”.`
+	                      : canCreateScopeHere
+	                        ? 'Create a new scope or adjust your filters.'
+	                        : 'Adjust your filters or browse another folder.'}
                   </p>
                 </div>
               )}
@@ -1784,7 +1883,7 @@ function ScopesPage({
 
                   {editable ? (
                     <>
-                      {canWriteScopes && (
+	                      {canWriteVariablesInSelectedScope && (
                         <button
                           type="button"
                           className="env-inline-icon"
@@ -1823,7 +1922,7 @@ function ScopesPage({
                         </button>
                       )}
                     </>
-                  ) : canWriteScopes ? (
+	                  ) : canWriteVariablesInSelectedScope ? (
                     <button
                       type="button"
                       className="env-inline-icon"
@@ -1874,7 +1973,7 @@ function ScopesPage({
                 <div className="env-variable-inline-actions">
                   {editable ? (
                     <>
-                      {canWriteScopes && (
+	                      {canWriteSecretsInSelectedScope && (
                         <button
                           type="button"
                           className="env-inline-icon"
@@ -1913,7 +2012,7 @@ function ScopesPage({
                         </button>
                       )}
                     </>
-                  ) : canWriteScopes ? (
+	                  ) : canWriteSecretsInSelectedScope ? (
                     <button
                       type="button"
                       className="env-inline-icon"
@@ -2045,7 +2144,7 @@ function ScopesPage({
                   <p className="text-sm font-semibold text-[var(--text-primary)]">Variables</p>
                   <p className="text-xs text-[var(--text-secondary)]">Plain text values.</p>
                 </div>
-                {canWriteScopes && (
+	                {canWriteVariablesInSelectedScope && (
                   <button className="glass-button-primary" onClick={() => openVariableCreateModal(scopeLabel)}>
                     New
                   </button>
@@ -2065,7 +2164,7 @@ function ScopesPage({
                   <p className="text-sm font-semibold text-[var(--text-primary)]">Secrets</p>
                   <p className="text-xs text-[var(--text-secondary)]">Encrypted values.</p>
                 </div>
-                {canWriteScopes && (
+	                {canWriteSecretsInSelectedScope && (
                   <button className="glass-button-primary" onClick={() => openSecretCreateModal(scopeLabel)}>
                     New
                   </button>
@@ -2186,7 +2285,7 @@ function ScopesPage({
               )}
             </div>
 
-            {!searchTerm.trim() && canWriteScopes && (
+	            {!searchTerm.trim() && canCreateScopeHere && (
               <button
                 id="scopes-new-btn"
                 type="button"
@@ -2206,7 +2305,7 @@ function ScopesPage({
 
       <div className="flex-1 overflow-auto px-6 pb-8 triggers-content">{selectedScope === null ? renderList() : renderDetail()}</div>
 
-      {canWriteScopes && scopeModal && (
+	      {scopeModal && (
         <div id="scope-new-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
           <div className="pipelines-modal-card max-w-md w-full">
             <header className="pipelines-modal-header">
@@ -2260,7 +2359,7 @@ function ScopesPage({
         </div>
       )}
 
-      {canWriteScopes && variableModal && (
+	      {variableModal && (
         <div id="variable-edit-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
           <div className="pipelines-modal-card max-w-10xl w-full overflow-hidden rounded-2xl border border-[var(--border-primary)] shadow-2xl">
             <header className="flex items-start justify-between gap-3 px-6 py-4 border-b border-[var(--border-primary)] bg-[var(--bg-secondary)]">
@@ -2405,7 +2504,7 @@ function ScopesPage({
         </div>
       )}
 
-      {canWriteScopes && secretModal && (
+	      {secretModal && (
         <div id="secret-edit-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
           <div className="pipelines-modal-card max-w-6xl w-full overflow-hidden rounded-xl border border-[var(--border-primary)] shadow-2xl">
             <header className="flex items-start justify-between gap-3 px-6 py-4 border-b border-[var(--border-primary)] bg-[var(--bg-secondary)]">
