@@ -12,7 +12,7 @@ NopsAI is a Git-aware pipeline orchestration platform built around a control-pla
 
 ## System Layers
 
-- `services/nopsai`: Main API, source-of-truth database access, auth, RBAC, config sync, run creation, run tracking.
+- `services/nopsai`: Main API, source-of-truth database access, auth, AAA-backed product access control, config sync, run creation, run tracking.
 - `services/git-bot`: GitHub App integration, webhook ingress, repository file access, check-run updates.
 - `services/dispatcher`: Scheduler and bridge between HTTP-oriented control-plane APIs and gRPC-oriented runners and agents.
 - `services/runner`: Long-lived worker that starts agent containers on Docker-capable hosts.
@@ -111,7 +111,32 @@ Main tables from `db/init.sql`:
 - `pipelines`, `steps`, `triggers`: Stored configuration and overrides.
 - `variables`, `secrets`: Runtime configuration data, with secrets encrypted before storage.
 - `groups`: Folder/repository tree used by the UI’s pipeline-runs organization.
-- `users`, `user_roles`, `role_permissions`, `refresh_tokens`, `audit_logs`: Local auth, RBAC, session, and audit data.
+- `users`, `user_roles`, `role_permissions`, `refresh_tokens`, `audit_logs`: Local auth, legacy RBAC metadata, session, and audit data.
+- `auth_groups`, `auth_group_members`, `auth_roles`, `auth_role_bindings`, `auth_role_permissions`: AAA subject/group/role data used by the policy engine.
+- `access_grants`, `resource_acl`, `resource_ownership`, `authz_decision_logs`: Product-role grants, expanded ACLs, ownership metadata, and authorization decision audit logs.
+
+## Authorization Model
+
+NopsAI now uses a two-layer authorization shape:
+
+- The AAA evaluator remains the policy decision point.
+- Product roles such as `viewer`, `developer`, `owner`, and `admin` are a UX layer that expands into low-level AAA permissions when a grant is created.
+
+Important evaluator properties that remain unchanged:
+
+- default deny
+- deny before allow
+- direct role permissions
+- direct resource ACLs
+- auth-group expansion
+- resource inheritance
+- audit logging for denied and sensitive allowed decisions
+
+Important product-layer properties:
+
+- Folder grants are stored once at the parent folder path and inherited by child folders, pipelines, runs, repositories, scoped secrets, scoped variables, triggers, and reusable steps.
+- Product grants do not require evaluator-specific awareness; they are written into existing AAA tables as ACL-style policies.
+- Platform admin still flows through normal `Check` decisions, so sensitive admin actions remain visible in audit logs.
 
 ## Configuration Sources
 
@@ -161,7 +186,8 @@ The main operational assumption is that runners have Docker access and can start
 - `pkg/models`: Pipeline DSL and API payload models.
 - `pkg/proto`: gRPC contracts between control and data plane.
 - `services/nopsai/pkg/auth`: Local JWT auth, refresh tokens, password hashing, rate limiting, and lockout logic.
-- `services/nopsai/pkg/authz`: Casbin-backed RBAC enforcement.
+- `services/nopsai/pkg/authz`: Casbin-backed legacy RBAC enforcement still used by older role metadata paths.
+- `services/aaa/pkg/authz` and `services/aaa/pkg/store`: The current AAA evaluator, inheritance resolution, and decision logging implementation.
 - `services/nopsai/pkg/validation`: Pipeline validation rules.
 
 ## Architectural Summary

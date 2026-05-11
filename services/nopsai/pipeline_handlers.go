@@ -16,6 +16,8 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"nopsai/pkg/models"
+	"nopsai/services/aaa/pkg/model"
+	"nopsai/services/nopsai/pkg/routeauthz"
 )
 
 func (a *App) handleListPipelines(w http.ResponseWriter, r *http.Request) {
@@ -33,10 +35,13 @@ func (a *App) handleListPipelines(w http.ResponseWriter, r *http.Request) {
 		Source string `json:"source"`
 	}
 
-	var (
-		pipelineNames []string
-		pipelineItems []pipelineListItem
-	)
+	type pipelineEntry struct {
+		identifier string
+		source     string
+		resource   model.ResourceRef
+	}
+
+	var entries []pipelineEntry
 
 	for rows.Next() {
 		var path, name, source string
@@ -45,11 +50,35 @@ func (a *App) handleListPipelines(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to process pipelines", http.StatusInternalServerError)
 			return
 		}
-		identifier := buildPipelineIdentifier(path, name)
+		entries = append(entries, pipelineEntry{
+			identifier: buildPipelineIdentifier(path, name),
+			source:     source,
+			resource:   routeauthz.PipelineResource(path, name),
+		})
+	}
+
+	resources := make([]model.ResourceRef, 0, len(entries))
+	for _, entry := range entries {
+		resources = append(resources, entry.resource)
+	}
+	allowedSet, err := a.allowedResourceSet(r, "pipeline.list", resources)
+	if err != nil {
+		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	var (
+		pipelineNames []string
+		pipelineItems []pipelineListItem
+	)
+	for _, entry := range entries {
+		if _, ok := allowedSet[resourceKey(entry.resource)]; !ok {
+			continue
+		}
 		if includeSource {
-			pipelineItems = append(pipelineItems, pipelineListItem{ID: identifier, Source: source})
+			pipelineItems = append(pipelineItems, pipelineListItem{ID: entry.identifier, Source: entry.source})
 		} else {
-			pipelineNames = append(pipelineNames, identifier)
+			pipelineNames = append(pipelineNames, entry.identifier)
 		}
 	}
 
@@ -88,9 +117,16 @@ func (a *App) handleListTriggerOverrides(w http.ResponseWriter, r *http.Request)
 		Source string `json:"source"`
 	}
 
+	type triggerEntry struct {
+		name     string
+		source   string
+		resource model.ResourceRef
+	}
+
 	var (
 		repoNames []string
 		items     []triggerOverrideItem
+		entries   []triggerEntry
 	)
 
 	for rows.Next() {
@@ -115,15 +151,43 @@ func (a *App) handleListTriggerOverrides(w http.ResponseWriter, r *http.Request)
 			default:
 				source = "database"
 			}
-			items = append(items, triggerOverrideItem{Name: name, Source: source})
+			entries = append(entries, triggerEntry{
+				name:     name,
+				source:   source,
+				resource: routeauthz.BuildTriggerResource("", name),
+			})
 		} else {
 			if err := rows.Scan(&name); err != nil {
 				log.Error().Err(err).Msg("Failed to scan repository name")
 				http.Error(w, "Failed to process trigger overrides", http.StatusInternalServerError)
 				return
 			}
-			repoNames = append(repoNames, name)
+			entries = append(entries, triggerEntry{
+				name:     name,
+				resource: routeauthz.BuildTriggerResource("", name),
+			})
 		}
+	}
+
+	resources := make([]model.ResourceRef, 0, len(entries))
+	for _, entry := range entries {
+		resources = append(resources, entry.resource)
+	}
+	allowedSet, err := a.allowedResourceSet(r, "trigger.read", resources)
+	if err != nil {
+		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	for _, entry := range entries {
+		if _, ok := allowedSet[resourceKey(entry.resource)]; !ok {
+			continue
+		}
+		if includeSource {
+			items = append(items, triggerOverrideItem{Name: entry.name, Source: entry.source})
+			continue
+		}
+		repoNames = append(repoNames, entry.name)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -351,6 +415,18 @@ func (a *App) handleCreateOrUpdatePipeline(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "Failed to save pipeline", http.StatusInternalServerError)
 		return
 	}
+	action := "pipeline.update"
+	if lookupErr == pgx.ErrNoRows {
+		action = "pipeline.create"
+	}
+	if !a.requireAAADecision(w, r, action, routeauthz.PipelineResource(dbPath, storedName)) {
+		return
+	}
+	for _, stepIdentifier := range collectReferencedStepIdentifiers(&pipeline) {
+		if !a.requireAAADecision(w, r, "step.use", routeauthz.StepResource(stepIdentifier)) {
+			return
+		}
+	}
 
 	desiredSource := "database"
 	if strings.EqualFold(existingSource, "git") {
@@ -472,7 +548,12 @@ func (a *App) handleListReusableSteps(w http.ResponseWriter, r *http.Request) {
 			UpdatedAt  time.Time `json:"updated_at"`
 		}
 
-		var items []stepListItem
+		type stepEntry struct {
+			item     stepListItem
+			resource model.ResourceRef
+		}
+
+		var entries []stepEntry
 		for rows.Next() {
 			var path, name, source string
 			var updatedAt time.Time
@@ -481,20 +562,47 @@ func (a *App) handleListReusableSteps(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "Failed to process reusable steps", http.StatusInternalServerError)
 				return
 			}
-			items = append(items, stepListItem{
-				Identifier: buildStepIdentifier(path, name),
-				Path:       path,
-				Name:       name,
-				Source:     source,
-				UpdatedAt:  updatedAt,
+			identifier := buildStepIdentifier(path, name)
+			entries = append(entries, stepEntry{
+				item: stepListItem{
+					Identifier: identifier,
+					Path:       path,
+					Name:       name,
+					Source:     source,
+					UpdatedAt:  updatedAt,
+				},
+				resource: routeauthz.StepResource(identifier),
 			})
+		}
+
+		resources := make([]model.ResourceRef, 0, len(entries))
+		for _, entry := range entries {
+			resources = append(resources, entry.resource)
+		}
+		allowedSet, err := a.allowedResourceSet(r, "step.read", resources)
+		if err != nil {
+			http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		items := make([]stepListItem, 0, len(entries))
+		for _, entry := range entries {
+			if _, ok := allowedSet[resourceKey(entry.resource)]; !ok {
+				continue
+			}
+			items = append(items, entry.item)
 		}
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(items)
 		return
 	}
 
-	var stepNames []string
+	type stepEntry struct {
+		identifier string
+		resource   model.ResourceRef
+	}
+
+	var entries []stepEntry
 	for rows.Next() {
 		var path, name string
 		if err := rows.Scan(&path, &name); err != nil {
@@ -502,7 +610,29 @@ func (a *App) handleListReusableSteps(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to process reusable steps", http.StatusInternalServerError)
 			return
 		}
-		stepNames = append(stepNames, buildStepIdentifier(path, name))
+		identifier := buildStepIdentifier(path, name)
+		entries = append(entries, stepEntry{
+			identifier: identifier,
+			resource:   routeauthz.StepResource(identifier),
+		})
+	}
+
+	resources := make([]model.ResourceRef, 0, len(entries))
+	for _, entry := range entries {
+		resources = append(resources, entry.resource)
+	}
+	allowedSet, err := a.allowedResourceSet(r, "step.read", resources)
+	if err != nil {
+		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	stepNames := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if _, ok := allowedSet[resourceKey(entry.resource)]; !ok {
+			continue
+		}
+		stepNames = append(stepNames, entry.identifier)
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -644,6 +774,40 @@ func pipelineIncludesStep(pipeline *models.Pipeline, targetIdentifier, targetNam
 	return false
 }
 
+func collectReferencedStepIdentifiers(pipeline *models.Pipeline) []string {
+	if pipeline == nil {
+		return nil
+	}
+
+	seen := make(map[string]struct{})
+	var identifiers []string
+	for _, step := range pipeline.Steps {
+		includeValue := strings.TrimSpace(step.GetInclude())
+		if includeValue == "" {
+			continue
+		}
+
+		lower := strings.ToLower(includeValue)
+		if strings.HasPrefix(lower, "pipeline:") {
+			continue
+		}
+		if strings.HasPrefix(lower, "step:") {
+			includeValue = strings.TrimSpace(includeValue[len("step:"):])
+		}
+
+		includeValue = strings.Trim(includeValue, "/")
+		if includeValue == "" {
+			continue
+		}
+		if _, ok := seen[includeValue]; ok {
+			continue
+		}
+		seen[includeValue] = struct{}{}
+		identifiers = append(identifiers, includeValue)
+	}
+	return identifiers
+}
+
 func (a *App) handleCreateOrUpdateReusableStep(w http.ResponseWriter, r *http.Request) {
 	identifier := r.PathValue("stepName")
 	var (
@@ -686,9 +850,30 @@ func (a *App) handleCreateOrUpdateReusableStep(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	query := `INSERT INTO steps (path, name, definition, source, updated_at) VALUES ($1, $2, $3, 'database', NOW())
-			  ON CONFLICT (path, name) DO UPDATE SET definition = $3, source = 'database', updated_at = NOW()`
-	_, err = a.db.Exec(context.Background(), query, dbPath, storedName, string(stepDef))
+	var existingSource string
+	lookupErr := a.db.QueryRow(context.Background(), "SELECT source FROM steps WHERE path = $1 AND name = $2", dbPath, storedName).Scan(&existingSource)
+	if lookupErr != nil && lookupErr != pgx.ErrNoRows {
+		log.Error().Err(lookupErr).Msg("Failed to inspect existing step source")
+		http.Error(w, "Failed to save reusable step", http.StatusInternalServerError)
+		return
+	}
+
+	action := "step.update"
+	if lookupErr == pgx.ErrNoRows {
+		action = "step.create"
+	}
+	if !a.requireAAADecision(w, r, action, routeauthz.StepResource(buildStepIdentifier(dbPath, storedName))) {
+		return
+	}
+
+	desiredSource := "database"
+	if strings.EqualFold(existingSource, "git") {
+		desiredSource = existingSource
+	}
+
+	query := `INSERT INTO steps (path, name, definition, source, updated_at) VALUES ($1, $2, $3, $4, NOW())
+			  ON CONFLICT (path, name) DO UPDATE SET definition = $3, source = $4, updated_at = NOW()`
+	_, err = a.db.Exec(context.Background(), query, dbPath, storedName, string(stepDef), desiredSource)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to save reusable step to database")
 		http.Error(w, "Failed to save reusable step", http.StatusInternalServerError)

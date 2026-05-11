@@ -5,7 +5,6 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -21,6 +20,8 @@ import (
 
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
+	"nopsai/services/aaa/pkg/model"
+	"nopsai/services/nopsai/pkg/routeauthz"
 )
 
 func (a *App) encrypt(text string) (string, error) {
@@ -97,30 +98,16 @@ func (a *App) handleListGeneralVariables(w http.ResponseWriter, r *http.Request)
 		UpdatedAt string `json:"updated_at,omitempty"`
 	}
 
-	nameSet := make(map[string]struct{})
-	var names []string
-	var items []variableListItem
-
-	addEntry := func(name, source string, createdAt, updatedAt time.Time) {
-		trimmed := strings.TrimSpace(name)
-		if trimmed == "" {
-			return
-		}
-		if _, exists := nameSet[trimmed]; exists {
-			return
-		}
-		nameSet[trimmed] = struct{}{}
-		if includeSource {
-			items = append(items, variableListItem{
-				Name:      trimmed,
-				Source:    normalizeVariableSourceKey(source),
-				CreatedAt: createdAt.Format(time.RFC3339),
-				UpdatedAt: updatedAt.Format(time.RFC3339),
-			})
-		} else {
-			names = append(names, trimmed)
-		}
+	type variableCandidate struct {
+		repoName  string
+		name      string
+		source    string
+		createdAt time.Time
+		updatedAt time.Time
+		resource  model.ResourceRef
 	}
+
+	var candidates []variableCandidate
 
 	for rows.Next() {
 		var name, source string
@@ -130,7 +117,13 @@ func (a *App) handleListGeneralVariables(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "Failed to process variables", http.StatusInternalServerError)
 			return
 		}
-		addEntry(name, source, createdAt, updatedAt)
+		candidates = append(candidates, variableCandidate{
+			name:      name,
+			source:    source,
+			createdAt: createdAt,
+			updatedAt: updatedAt,
+			resource:  routeauthz.BuildVariableResource("", scope, name),
+		})
 	}
 
 	rows.Close()
@@ -158,11 +151,58 @@ func (a *App) handleListGeneralVariables(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		repo := strings.TrimSpace(repoName)
-		name := strings.TrimSpace(varName)
-		if repo == "" || name == "" {
+		varName = strings.TrimSpace(varName)
+		if repo == "" || varName == "" {
 			continue
 		}
-		addEntry(repo+"/"+name, source, createdAt, updatedAt)
+		candidates = append(candidates, variableCandidate{
+			repoName:  repo,
+			name:      varName,
+			source:    source,
+			createdAt: createdAt,
+			updatedAt: updatedAt,
+			resource:  routeauthz.BuildVariableResource(repo, scope, varName),
+		})
+	}
+
+	resources := make([]model.ResourceRef, 0, len(candidates))
+	for _, candidate := range candidates {
+		resources = append(resources, candidate.resource)
+	}
+	allowedSet, err := a.allowedResourceSet(r, "variable.list_metadata", resources)
+	if err != nil {
+		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	nameSet := make(map[string]struct{})
+	var names []string
+	var items []variableListItem
+	for _, candidate := range candidates {
+		if _, ok := allowedSet[resourceKey(candidate.resource)]; !ok {
+			continue
+		}
+		displayName := strings.TrimSpace(candidate.name)
+		if candidate.repoName != "" {
+			displayName = candidate.repoName + "/" + displayName
+		}
+		if displayName == "" {
+			continue
+		}
+		if _, exists := nameSet[displayName]; exists {
+			continue
+		}
+		nameSet[displayName] = struct{}{}
+		if includeSource {
+			items = append(items, variableListItem{
+				Name:      displayName,
+				Source:    normalizeVariableSourceKey(candidate.source),
+				CreatedAt: candidate.createdAt.Format(time.RFC3339),
+				UpdatedAt: candidate.updatedAt.Format(time.RFC3339),
+			})
+		} else {
+			names = append(names, displayName)
+		}
 	}
 
 	sort.Slice(names, func(i, j int) bool {
@@ -183,7 +223,11 @@ func (a *App) handleListGeneralVariables(w http.ResponseWriter, r *http.Request)
 
 func (a *App) handleListVariableScopes(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
-	rows, err := a.db.Query(ctx, "SELECT DISTINCT scope FROM variables WHERE repository_name IS NULL")
+	rows, err := a.db.Query(ctx, `
+		SELECT COALESCE(repository_name, ''), COALESCE(scope, ''), name
+		FROM variables
+		ORDER BY repository_name ASC NULLS FIRST, scope ASC NULLS FIRST, name ASC
+	`)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query scope list from database")
 		http.Error(w, "Failed to retrieve scopes", http.StatusInternalServerError)
@@ -191,27 +235,54 @@ func (a *App) handleListVariableScopes(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	scopeSet := make(map[string]struct{})
-	scopeSet[""] = struct{}{}
+	type variableScopeCandidate struct {
+		scope    string
+		resource model.ResourceRef
+	}
+
+	var candidates []variableScopeCandidate
 
 	for rows.Next() {
-		var env sql.NullString
-		if err := rows.Scan(&env); err != nil {
+		var repoName, scope, name string
+		if err := rows.Scan(&repoName, &scope, &name); err != nil {
 			log.Error().Err(err).Msg("Failed to scan scope name")
 			http.Error(w, "Failed to process scopes", http.StatusInternalServerError)
 			return
 		}
-		value := ""
-		if env.Valid {
-			value = strings.TrimSpace(env.String)
+		repoName = strings.TrimSpace(repoName)
+		scope = strings.TrimSpace(scope)
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
 		}
-		scopeSet[value] = struct{}{}
+		candidates = append(candidates, variableScopeCandidate{
+			scope:    scope,
+			resource: routeauthz.BuildVariableResource(repoName, scope, name),
+		})
 	}
 
 	if err := rows.Err(); err != nil {
 		log.Error().Err(err).Msg("Failed during scope iteration")
 		http.Error(w, "Failed to process scopes", http.StatusInternalServerError)
 		return
+	}
+
+	resources := make([]model.ResourceRef, 0, len(candidates))
+	for _, candidate := range candidates {
+		resources = append(resources, candidate.resource)
+	}
+	allowedSet, err := a.allowedResourceSet(r, "variable.list_metadata", resources)
+	if err != nil {
+		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	scopeSet := make(map[string]struct{})
+	for _, candidate := range candidates {
+		if _, ok := allowedSet[resourceKey(candidate.resource)]; !ok {
+			continue
+		}
+		scopeSet[candidate.scope] = struct{}{}
 	}
 
 	scopes := make([]string, 0, len(scopeSet))
@@ -341,6 +412,7 @@ func (a *App) handleListRepoVariables(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	var names []string
+	var resources []model.ResourceRef
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
@@ -349,11 +421,26 @@ func (a *App) handleListRepoVariables(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		names = append(names, name)
+		resources = append(resources, routeauthz.BuildVariableResource(fullName, scope, name))
+	}
+
+	allowedSet, err := a.allowedResourceSet(r, "variable.list_metadata", resources)
+	if err != nil {
+		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	filtered := make([]string, 0, len(names))
+	for idx, name := range names {
+		if _, ok := allowedSet[resourceKey(resources[idx])]; !ok {
+			continue
+		}
+		filtered = append(filtered, name)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(names)
+	json.NewEncoder(w).Encode(filtered)
 }
 
 func (a *App) handleCreateOrUpdateRepoVariable(w http.ResponseWriter, r *http.Request) {
@@ -531,31 +618,15 @@ func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt string `json:"updated_at,omitempty"`
 	}
 
-	const defaultSecretSource = "database"
-	nameSet := make(map[string]struct{})
-	var names []string
-	var items []secretListItem
-
-	addEntry := func(name string, createdAt, updatedAt time.Time) {
-		trimmed := strings.TrimSpace(name)
-		if trimmed == "" {
-			return
-		}
-		if _, exists := nameSet[trimmed]; exists {
-			return
-		}
-		nameSet[trimmed] = struct{}{}
-		if includeSource {
-			items = append(items, secretListItem{
-				Name:      trimmed,
-				Source:    defaultSecretSource,
-				CreatedAt: createdAt.Format(time.RFC3339),
-				UpdatedAt: updatedAt.Format(time.RFC3339),
-			})
-		} else {
-			names = append(names, trimmed)
-		}
+	type secretCandidate struct {
+		repoName  string
+		name      string
+		createdAt time.Time
+		updatedAt time.Time
+		resource  model.ResourceRef
 	}
+
+	var candidates []secretCandidate
 
 	condition := "scope IS NULL"
 	args := []interface{}{}
@@ -580,7 +651,12 @@ func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to process secrets", http.StatusInternalServerError)
 			return
 		}
-		addEntry(name, createdAt, updatedAt)
+		candidates = append(candidates, secretCandidate{
+			name:      name,
+			createdAt: createdAt,
+			updatedAt: updatedAt,
+			resource:  routeauthz.BuildSecretResource("", env, name),
+		})
 	}
 	rows.Close()
 
@@ -607,13 +683,60 @@ func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		repo := strings.TrimSpace(repoName)
-		name := strings.TrimSpace(secretName)
-		if repo == "" || name == "" {
+		secretName = strings.TrimSpace(secretName)
+		if repo == "" || secretName == "" {
 			continue
 		}
-		addEntry(repo+"/"+name, createdAt, updatedAt)
+		candidates = append(candidates, secretCandidate{
+			repoName:  repo,
+			name:      secretName,
+			createdAt: createdAt,
+			updatedAt: updatedAt,
+			resource:  routeauthz.BuildSecretResource(repo, env, secretName),
+		})
 	}
 	rows.Close()
+
+	resources := make([]model.ResourceRef, 0, len(candidates))
+	for _, candidate := range candidates {
+		resources = append(resources, candidate.resource)
+	}
+	allowedSet, err := a.allowedResourceSet(r, "secret.list_metadata", resources)
+	if err != nil {
+		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	const defaultSecretSource = "database"
+	nameSet := make(map[string]struct{})
+	var names []string
+	var items []secretListItem
+	for _, candidate := range candidates {
+		if _, ok := allowedSet[resourceKey(candidate.resource)]; !ok {
+			continue
+		}
+		displayName := strings.TrimSpace(candidate.name)
+		if candidate.repoName != "" {
+			displayName = candidate.repoName + "/" + displayName
+		}
+		if displayName == "" {
+			continue
+		}
+		if _, exists := nameSet[displayName]; exists {
+			continue
+		}
+		nameSet[displayName] = struct{}{}
+		if includeSource {
+			items = append(items, secretListItem{
+				Name:      displayName,
+				Source:    defaultSecretSource,
+				CreatedAt: candidate.createdAt.Format(time.RFC3339),
+				UpdatedAt: candidate.updatedAt.Format(time.RFC3339),
+			})
+		} else {
+			names = append(names, displayName)
+		}
+	}
 
 	if includeSource {
 		w.Header().Set("Content-Type", "application/json")
@@ -640,10 +763,9 @@ type SecretScopeSummary struct {
 
 func (a *App) handleListSecretScopes(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query(context.Background(), `
-		SELECT COALESCE(scope, '') AS scope_value, COUNT(*) AS secret_count
+		SELECT COALESCE(repository_name, ''), COALESCE(scope, ''), name
 		FROM secrets
-		GROUP BY scope_value
-		ORDER BY scope_value NULLS FIRST`)
+		ORDER BY repository_name ASC NULLS FIRST, scope ASC NULLS FIRST, name ASC`)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query secret scopes from database")
 		http.Error(w, "Failed to retrieve secret scopes", http.StatusInternalServerError)
@@ -651,28 +773,54 @@ func (a *App) handleListSecretScopes(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	scopeCounts := make(map[string]int)
-	scopeCounts[""] = 0
+	type secretScopeCandidate struct {
+		scope    string
+		resource model.ResourceRef
+	}
+
+	var candidates []secretScopeCandidate
 
 	for rows.Next() {
-		var env sql.NullString
-		var count int
-		if scanErr := rows.Scan(&env, &count); scanErr != nil {
+		var repoName, scope, name string
+		if scanErr := rows.Scan(&repoName, &scope, &name); scanErr != nil {
 			log.Error().Err(scanErr).Msg("Failed to scan secret scope row")
 			http.Error(w, "Failed to process secret scopes", http.StatusInternalServerError)
 			return
 		}
-		envValue := ""
-		if env.Valid {
-			envValue = strings.TrimSpace(env.String)
+		repoName = strings.TrimSpace(repoName)
+		scope = strings.TrimSpace(scope)
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
 		}
-		scopeCounts[envValue] += count
+		candidates = append(candidates, secretScopeCandidate{
+			scope:    scope,
+			resource: routeauthz.BuildSecretResource(repoName, scope, name),
+		})
 	}
 
 	if err := rows.Err(); err != nil {
 		log.Error().Err(err).Msg("Failed during secret scope iteration")
 		http.Error(w, "Failed to process secret scopes", http.StatusInternalServerError)
 		return
+	}
+
+	resources := make([]model.ResourceRef, 0, len(candidates))
+	for _, candidate := range candidates {
+		resources = append(resources, candidate.resource)
+	}
+	allowedSet, err := a.allowedResourceSet(r, "secret.list_metadata", resources)
+	if err != nil {
+		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	scopeCounts := make(map[string]int)
+	for _, candidate := range candidates {
+		if _, ok := allowedSet[resourceKey(candidate.resource)]; !ok {
+			continue
+		}
+		scopeCounts[candidate.scope]++
 	}
 
 	scopes := make([]SecretScopeSummary, 0, len(scopeCounts))
@@ -817,6 +965,7 @@ func (a *App) handleListRepoSecrets(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	var secretNames []string
+	var resources []model.ResourceRef
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
@@ -825,11 +974,26 @@ func (a *App) handleListRepoSecrets(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		secretNames = append(secretNames, name)
+		resources = append(resources, routeauthz.BuildSecretResource(fullName, env, name))
+	}
+
+	allowedSet, err := a.allowedResourceSet(r, "secret.list_metadata", resources)
+	if err != nil {
+		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	filtered := make([]string, 0, len(secretNames))
+	for idx, name := range secretNames {
+		if _, ok := allowedSet[resourceKey(resources[idx])]; !ok {
+			continue
+		}
+		filtered = append(filtered, name)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(secretNames)
+	json.NewEncoder(w).Encode(filtered)
 }
 
 func (a *App) handleCreateOrUpdateRepoSecret(w http.ResponseWriter, r *http.Request) {

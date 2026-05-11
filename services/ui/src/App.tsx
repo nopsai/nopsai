@@ -53,19 +53,35 @@ type ScopeTreeNode = {
   scopes: string[];
 };
 
+type ResourceCapabilities = {
+  write?: boolean;
+  delete?: boolean;
+};
+
+type ReadCapabilities = {
+  read?: boolean;
+  write?: boolean;
+  delete?: boolean;
+};
+
+type SystemCapabilities = {
+  configRead?: boolean;
+  configWrite?: boolean;
+  dispatcherRead?: boolean;
+  dispatcherWrite?: boolean;
+  access?: boolean;
+};
+
 type CurrentUser = {
   sub: string;
   email?: string;
   roles?: string[];
   capabilities?: {
-    pipelines?: {
-      write?: boolean;
-      delete?: boolean;
-    };
-    steps?: {
-      write?: boolean;
-      delete?: boolean;
-    };
+    pipelines?: ResourceCapabilities;
+    steps?: ResourceCapabilities;
+    triggers?: ReadCapabilities;
+    scopes?: ReadCapabilities;
+    system?: SystemCapabilities;
   };
 };
 
@@ -105,7 +121,7 @@ type RunDetail = {
 
 type RunTabKey = 'main' | 'recent' | 'events';
 
-const navItems: NavItem[] = [
+const baseNavItems: NavItem[] = [
   {
     label: 'Pipeline runs',
     path: '/pipelineruns/main',
@@ -143,7 +159,7 @@ const navItems: NavItem[] = [
   },
 ];
 
-const systemSubNav: NavItem[] = [
+const baseSystemSubNav: NavItem[] = [
   { label: 'Config', path: '/system/config', icon: <IconCog /> },
   { label: 'Dispatcher', path: '/system/dispatcher', icon: <IconDispatch /> },
   { label: 'Access', path: '/system/access', icon: <IconShield /> },
@@ -188,7 +204,7 @@ function AppShell() {
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [authSession, setAuthSession] = useState<AuthSession>(() => getStoredSession());
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
-  const [currentUserLoading, setCurrentUserLoading] = useState(false);
+  const [currentUserLoading, setCurrentUserLoading] = useState(() => Boolean(getStoredSession().accessToken));
   const isAuthenticated = useMemo(() => Boolean(authSession.accessToken), [authSession.accessToken]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
@@ -258,7 +274,7 @@ function AppShell() {
     setCurrentUserLoading(true);
     fetch(buildApiUrl('/v1/auth/me'))
       .then(resp => {
-        if (resp.status === 401) throw new Error('unauthorized');
+        if (resp.status === 401 || resp.status === 403 || resp.status === 404) throw new Error('session-invalid');
         if (!resp.ok) throw new Error(`Failed to load user (${resp.status})`);
         return resp.json();
       })
@@ -281,6 +297,32 @@ function AppShell() {
                         delete: Boolean(data.capabilities.steps.delete),
                       }
                     : undefined,
+                triggers:
+                  data.capabilities.triggers && typeof data.capabilities.triggers === 'object'
+                    ? {
+                        read: Boolean(data.capabilities.triggers.read),
+                        write: Boolean(data.capabilities.triggers.write),
+                        delete: Boolean(data.capabilities.triggers.delete),
+                      }
+                    : undefined,
+                scopes:
+                  data.capabilities.scopes && typeof data.capabilities.scopes === 'object'
+                    ? {
+                        read: Boolean(data.capabilities.scopes.read),
+                        write: Boolean(data.capabilities.scopes.write),
+                        delete: Boolean(data.capabilities.scopes.delete),
+                      }
+                    : undefined,
+                system:
+                  data.capabilities.system && typeof data.capabilities.system === 'object'
+                    ? {
+                        configRead: Boolean(data.capabilities.system.config_read),
+                        configWrite: Boolean(data.capabilities.system.config_write),
+                        dispatcherRead: Boolean(data.capabilities.system.dispatcher_read),
+                        dispatcherWrite: Boolean(data.capabilities.system.dispatcher_write),
+                        access: Boolean(data.capabilities.system.access),
+                      }
+                    : undefined,
               }
             : undefined;
         setCurrentUser({
@@ -293,7 +335,7 @@ function AppShell() {
       .catch(err => {
         if (cancelled) return;
         setCurrentUser(null);
-        if (err instanceof Error && err.message === 'unauthorized') {
+        if (err instanceof Error && err.message === 'session-invalid') {
           clearSession();
           setAuthSession(getStoredSession());
         }
@@ -333,6 +375,43 @@ function AppShell() {
   const canDeletePipelines = Boolean(currentUser?.capabilities?.pipelines?.delete);
   const canWriteSteps = Boolean(currentUser?.capabilities?.steps?.write);
   const canDeleteSteps = Boolean(currentUser?.capabilities?.steps?.delete);
+  const canViewTriggers = Boolean(currentUser?.capabilities?.triggers?.read);
+  const canDeleteTriggers = Boolean(currentUser?.capabilities?.triggers?.delete);
+  const canViewScopes = Boolean(currentUser?.capabilities?.scopes?.read);
+  const canDeleteScopes = Boolean(currentUser?.capabilities?.scopes?.delete);
+  const canViewSystemConfig = Boolean(currentUser?.capabilities?.system?.configRead);
+  const canManageSystemConfig = Boolean(currentUser?.capabilities?.system?.configWrite);
+  const canViewSystemDispatcher = Boolean(currentUser?.capabilities?.system?.dispatcherRead);
+  const canManageSystemDispatcher = Boolean(currentUser?.capabilities?.system?.dispatcherWrite);
+  const canViewSystemAccess = Boolean(currentUser?.capabilities?.system?.access);
+  const canViewAnySystem = canViewSystemConfig || canViewSystemDispatcher || canViewSystemAccess;
+  const preferredSystemPath = canViewSystemConfig
+    ? '/system/config'
+    : canViewSystemDispatcher
+      ? '/system/dispatcher'
+      : canViewSystemAccess
+        ? '/system/access'
+        : '/system/config';
+  const navItems = useMemo(() => {
+    return baseNavItems
+      .map(item => (item.path.startsWith('/system') ? { ...item, path: preferredSystemPath } : item))
+      .filter(item => {
+        if (item.path.startsWith('/system')) return canViewAnySystem;
+        if (item.path === '/triggers') return canViewTriggers;
+        if (item.path === '/scopes') return canViewScopes;
+        return true;
+      });
+  }, [canViewAnySystem, canViewScopes, canViewTriggers, preferredSystemPath]);
+  const systemSubNav = useMemo(
+    () =>
+      baseSystemSubNav.filter(item => {
+        if (item.path === '/system/config') return canViewSystemConfig;
+        if (item.path === '/system/dispatcher') return canViewSystemDispatcher;
+        if (item.path === '/system/access') return canViewSystemAccess;
+        return false;
+      }),
+    [canViewSystemAccess, canViewSystemConfig, canViewSystemDispatcher]
+  );
 
   useEffect(() => {
     if (!sidebarOpen) return;
@@ -719,6 +798,16 @@ function AppShell() {
     };
   }, [isResizingSidebar]);
 
+  const renderAccessControlledPage = useCallback(
+    (allowed: boolean, element: ReactNode) => {
+      if (currentUserLoading) {
+        return <div className="p-6 text-sm text-[var(--text-secondary)]">Loading access…</div>;
+      }
+      return allowed ? element : <Navigate to="/pipelineruns/main" replace />;
+    },
+    [currentUserLoading]
+  );
+
   return (
     <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
       {isLoginRoute ? (
@@ -731,6 +820,7 @@ function AppShell() {
           <div className="flex h-screen overflow-hidden">
             <Sidebar
               navItems={navItems}
+              systemSubNav={systemSubNav}
               open={sidebarOpen}
               onClose={() => setSidebarOpen(false)}
               width={sidebarWidth}
@@ -779,16 +869,42 @@ function AppShell() {
                   <Route path="/pipelineruns/:tab?" element={<PipelineRunsPage />} />
                   <Route
                     path="/pipelines/*"
-                    element={<PipelinesPage draftScope={draftScope} canWritePipelines={canWritePipelines} canDeletePipelines={canDeletePipelines} />}
+                    element={<PipelinesPage draftScope={draftScope} canDeletePipelines={canDeletePipelines} />}
                   />
-                  <Route path="/triggers/*" element={<TriggersPage />} />
-                  <Route path="/scopes/*" element={<ScopesPage />} />
+	                  <Route
+	                    path="/triggers/*"
+	                    element={renderAccessControlledPage(
+	                      canViewTriggers,
+	                      <TriggersPage canDeleteTriggers={canDeleteTriggers} />
+	                    )}
+	                  />
+	                  <Route
+	                    path="/scopes/*"
+	                    element={renderAccessControlledPage(
+	                      canViewScopes,
+	                      <ScopesPage canDeleteScopes={canDeleteScopes} />
+	                    )}
+	                  />
                   <Route path="/lab/*" element={<LabPage />} />
+	                  <Route
+	                    path="/steps/*"
+	                    element={<StepsPage draftScope={draftScope} canDeleteSteps={canDeleteSteps} />}
+	                  />
                   <Route
-                    path="/steps/*"
-                    element={<StepsPage draftScope={draftScope} canWriteSteps={canWriteSteps} canDeleteSteps={canDeleteSteps} />}
+                    path="/system/:tab?"
+                    element={renderAccessControlledPage(
+                      canViewAnySystem,
+                      <SystemPage
+                        permissions={{
+                          canViewConfig: canViewSystemConfig,
+                          canManageConfig: canManageSystemConfig,
+                          canViewDispatcher: canViewSystemDispatcher,
+                          canManageDispatcher: canManageSystemDispatcher,
+                          canViewAccess: canViewSystemAccess,
+                        }}
+                      />
+                    )}
                   />
-                  <Route path="/system/:tab?" element={<SystemPage />} />
                   <Route
                     path="/profile"
                     element={
@@ -797,6 +913,8 @@ function AppShell() {
                         loading={currentUserLoading}
                         onLogout={handleLogout}
                         onUserUpdated={handleUserUpdated}
+                        canAccessSystem={canViewAnySystem}
+                        systemPath={preferredSystemPath}
                       />
                     }
                   />
@@ -814,6 +932,7 @@ function AppShell() {
 
 function Sidebar({
   navItems,
+  systemSubNav,
   open,
   onClose,
   width,
@@ -839,6 +958,7 @@ function Sidebar({
   onSelectScopeFolder,
 }: {
   navItems: NavItem[];
+  systemSubNav: NavItem[];
   open: boolean;
   onClose: () => void;
   width: number;

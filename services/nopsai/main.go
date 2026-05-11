@@ -26,6 +26,7 @@ import (
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
+	"nopsai/pkg/proxyhttp"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -40,9 +41,14 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 	"gopkg.in/yaml.v3"
 
+	aaaauthz "nopsai/services/aaa/pkg/authz"
+	"nopsai/services/aaa/pkg/model"
+	aaastore "nopsai/services/aaa/pkg/store"
+	"nopsai/services/nopsai/pkg/aaaclient"
 	"nopsai/services/nopsai/pkg/audit"
 	"nopsai/services/nopsai/pkg/auth"
 	"nopsai/services/nopsai/pkg/authz"
+	"nopsai/services/nopsai/pkg/routeauthz"
 	"nopsai/services/nopsai/pkg/store"
 	"nopsai/services/nopsai/pkg/validation"
 )
@@ -73,6 +79,10 @@ type App struct {
 	envFilePath      string
 
 	authService   *auth.Service
+	aaaClient     aaaAuthorizer
+	aaaLocal      aaaAuthorizer
+	aaaRemoteMu   sync.Mutex
+	aaaRetryAfter time.Time
 	authz         *authz.Enforcer
 	auditLogger   *audit.Logger
 	tokenActivity sync.Map
@@ -126,11 +136,28 @@ type authLoginResponse struct {
 type authCapabilitiesResponse struct {
 	Pipelines authResourceCapabilities `json:"pipelines"`
 	Steps     authResourceCapabilities `json:"steps"`
+	Triggers  authReadCapabilities     `json:"triggers"`
+	Scopes    authReadCapabilities     `json:"scopes"`
+	System    authSystemCapabilities   `json:"system"`
 }
 
 type authResourceCapabilities struct {
 	Write  bool `json:"write"`
 	Delete bool `json:"delete"`
+}
+
+type authReadCapabilities struct {
+	Read   bool `json:"read"`
+	Write  bool `json:"write"`
+	Delete bool `json:"delete"`
+}
+
+type authSystemCapabilities struct {
+	ConfigRead      bool `json:"config_read"`
+	ConfigWrite     bool `json:"config_write"`
+	DispatcherRead  bool `json:"dispatcher_read"`
+	DispatcherWrite bool `json:"dispatcher_write"`
+	Access          bool `json:"access"`
 }
 
 type authChangePasswordRequest struct {
@@ -175,10 +202,13 @@ type userRoleRequest struct {
 }
 
 type createRoleRequest struct {
-	Role   string `json:"role"`
-	Name   string `json:"name"`
-	Object string `json:"obj"`
-	Action string `json:"act"`
+	Role         string `json:"role"`
+	Name         string `json:"name"`
+	Object       string `json:"obj"`
+	Action       string `json:"act"`
+	Effect       string `json:"effect"`
+	ResourceType string `json:"resource_type"`
+	ResourceID   string `json:"resource_id"`
 }
 
 // Keep these local for now if not in models
@@ -563,26 +593,43 @@ func (a *App) authzMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if a.authz == nil {
-			next.ServeHTTP(w, r)
-			return
-		}
 		claims, ok := auth.ClaimsFromContext(r.Context())
 		if !ok {
 			http.Error(w, "missing claims", http.StatusUnauthorized)
 			return
 		}
-		if isTrustedInternalDispatcherRequest(r) {
-			next.ServeHTTP(w, r)
+
+		subject := a.buildAAASubject(claims)
+		ctx := withAAASubject(r.Context(), subject)
+		if isAuthenticatedOnlyPath(r.URL.Path) {
+			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
-		obj := r.URL.Path
-		act := r.Method
-		if !a.authz.EnforceRoles(claims.Roles, obj, act) {
+		if !a.aaaAvailable() {
+			http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		action, resource, requiresFilter, err := routeauthz.MapRequest(r)
+		if err != nil {
+			http.Error(w, "invalid authorization mapping", http.StatusBadRequest)
+			return
+		}
+		if action == "" || requiresFilter {
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+
+		decision, err := a.aaaCheck(ctx, subject, action, resource, a.aaaRequestContext(r))
+		if err != nil {
+			http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if !decision.Allowed {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -2016,6 +2063,23 @@ func (a *App) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 
 	group.Description = strings.TrimSpace(group.Description)
 
+	if group.ParentID != nil {
+		parentResource, err := a.folderGrantResourceByGroupID(r.Context(), *group.ParentID)
+		if err != nil {
+			status := http.StatusInternalServerError
+			if strings.Contains(err.Error(), "not found") {
+				status = http.StatusNotFound
+			}
+			http.Error(w, err.Error(), status)
+			return
+		}
+		if !a.requireAAADecision(w, r, "folder.create", model.ResourceRef{Type: grantResourceFolder, ID: parentResource.ID}) {
+			return
+		}
+	} else if !a.requireAAADecision(w, r, "folder.create", model.ResourceRef{Type: grantResourceFolder, ID: "*"}) {
+		return
+	}
+
 	query := `INSERT INTO groups (name, parent_id, description) VALUES ($1, $2, $3) RETURNING id`
 	err := a.db.QueryRow(context.Background(), query, group.Name, group.ParentID, group.Description).Scan(&group.ID)
 	if err != nil {
@@ -2073,6 +2137,30 @@ func (a *App) handleGetGroups(w http.ResponseWriter, r *http.Request) {
 		groupMap[allGroups[i].ID] = &allGroups[i]
 	}
 
+	pathRecords, err := a.folderPathRecords(r.Context())
+	if err != nil {
+		http.Error(w, "Failed to resolve folder paths", http.StatusInternalServerError)
+		return
+	}
+
+	resources := make([]model.ResourceRef, 0, len(allGroups))
+	resourceByGroupID := make(map[int]model.ResourceRef, len(allGroups))
+	for _, group := range allGroups {
+		record, ok := pathRecords[group.ID]
+		if !ok || strings.TrimSpace(record.Path) == "" {
+			continue
+		}
+		resource := model.ResourceRef{Type: grantResourceFolder, ID: record.Path}
+		resources = append(resources, resource)
+		resourceByGroupID[group.ID] = resource
+	}
+
+	allowedSet, err := a.allowedResourceSet(r, "folder.list", resources)
+	if err != nil {
+		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
 	query := `
         SELECT g.id, MAX(r.started_at)
         FROM groups g
@@ -2097,8 +2185,20 @@ func (a *App) handleGetGroups(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	filtered := make([]Group, 0, len(allGroups))
+	for _, group := range allGroups {
+		resource, ok := resourceByGroupID[group.ID]
+		if !ok {
+			continue
+		}
+		if _, ok := allowedSet[resourceKey(resource)]; !ok {
+			continue
+		}
+		filtered = append(filtered, group)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(allGroups)
+	json.NewEncoder(w).Encode(filtered)
 }
 
 func (a *App) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {
@@ -2115,6 +2215,19 @@ func (a *App) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	group.Description = strings.TrimSpace(group.Description)
+
+	resource, err := a.folderGrantResourceByGroupID(r.Context(), groupID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	if !a.requireAAADecision(w, r, "folder.update", model.ResourceRef{Type: grantResourceFolder, ID: resource.ID}) {
+		return
+	}
 
 	query := `UPDATE groups SET name = $1, parent_id = $2, description = $3, updated_at = NOW() WHERE id = $4`
 	_, err = a.db.Exec(context.Background(), query, group.Name, group.ParentID, group.Description, groupID)
@@ -2142,6 +2255,35 @@ func (a *App) handleMoveGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := httpapi.DecodeJSON(r, &payload); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	resource, err := a.folderGrantResourceByGroupID(r.Context(), groupID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	if !a.requireAAADecision(w, r, "folder.move", model.ResourceRef{Type: grantResourceFolder, ID: resource.ID}) {
+		return
+	}
+	if payload.ParentID != nil {
+		parentResource, err := a.folderGrantResourceByGroupID(r.Context(), *payload.ParentID)
+		if err != nil {
+			status := http.StatusInternalServerError
+			if strings.Contains(err.Error(), "not found") {
+				status = http.StatusNotFound
+			}
+			http.Error(w, err.Error(), status)
+			return
+		}
+		if !a.requireAAADecision(w, r, "folder.create", model.ResourceRef{Type: grantResourceFolder, ID: parentResource.ID}) {
+			return
+		}
+	} else if !a.requireAAADecision(w, r, "folder.create", model.ResourceRef{Type: grantResourceFolder, ID: "*"}) {
 		return
 	}
 
@@ -2195,6 +2337,19 @@ func (a *App) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	action, resource, err := a.groupDeleteAuthorizationTarget(r.Context(), groupID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	if !a.requireAAADecision(w, r, action, resource) {
+		return
+	}
+
 	_, err = a.db.Exec(context.Background(), "DELETE FROM groups WHERE id = $1", groupID)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to delete group")
@@ -2202,6 +2357,35 @@ func (a *App) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) groupDeleteAuthorizationTarget(ctx context.Context, groupID int) (string, model.ResourceRef, error) {
+	if a == nil || a.db == nil {
+		return "", model.ResourceRef{}, fmt.Errorf("database unavailable")
+	}
+
+	var groupName string
+	if err := a.db.QueryRow(ctx, `SELECT name FROM groups WHERE id = $1`, groupID).Scan(&groupName); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+			return "", model.ResourceRef{}, fmt.Errorf("resource not found")
+		}
+		return "", model.ResourceRef{}, err
+	}
+
+	resource, err := a.folderGrantResourceByGroupID(ctx, groupID)
+	if err != nil {
+		return "", model.ResourceRef{}, err
+	}
+	action, resourceRef := groupDeleteAuthorizationTargetFromName(groupName, resource)
+	return action, resourceRef, nil
+}
+
+func groupDeleteAuthorizationTargetFromName(groupName string, folderResource accessGrantResource) (string, model.ResourceRef) {
+	repositoryID := strings.Trim(strings.TrimSpace(groupName), "/")
+	if strings.Contains(repositoryID, "/") {
+		return "repository.delete", model.ResourceRef{Type: grantResourceRepo, ID: repositoryID}
+	}
+	return "folder.delete", model.ResourceRef{Type: grantResourceFolder, ID: folderResource.ID}
 }
 
 func (a *App) handleListRepoBranches(w http.ResponseWriter, r *http.Request) {
@@ -2318,6 +2502,9 @@ func main() {
 	if err := ensureDefaultAdmin(context.Background(), dbpool); err != nil {
 		log.Fatal().Err(err).Msg("Failed to ensure default admin")
 	}
+	if err := ensureProductAccessBootstrap(context.Background(), dbpool); err != nil {
+		log.Fatal().Err(err).Msg("Failed to ensure product access roles")
+	}
 
 	dispatcherAddr := strings.TrimSpace(cfg.DispatcherAddress)
 	if dispatcherAddr == "" {
@@ -2349,6 +2536,8 @@ func main() {
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to load RBAC policies")
 	}
+	aaaClient := aaaclient.New(cfg.AAAAPIURL, cfg.AAASharedToken)
+	aaaLocal := aaaauthz.NewEvaluator(aaastore.NewPGStore(dbpool))
 	auditLogger := audit.NewLogger(dbpool)
 
 	app := &App{
@@ -2356,11 +2545,13 @@ func main() {
 		cfg:         cfg,
 		dispatcher:  proto.NewDispatcherServiceClient(dispatcherConn),
 		encKey:      key[:],
-		httpClient:  &http.Client{Timeout: 10 * time.Second},
+		httpClient:  proxyhttp.NewInternalAwareClient(10 * time.Second),
 		store:       store.NewPGStore(dbpool),
 		configPath:  configPath,
 		envFilePath: envFilePath,
 		authService: authService,
+		aaaClient:   aaaClient,
+		aaaLocal:    aaaLocal,
 		authz:       authzEnforcer,
 		auditLogger: auditLogger,
 		configSyncStatus: ConfigSyncStatus{
