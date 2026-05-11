@@ -218,7 +218,6 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"folder.create",
 			"folder.update",
 			"folder.move",
-			"folder.delete",
 			"folder.manage_acl",
 			"pipeline.delete",
 			"pipeline.manage_acl",
@@ -232,6 +231,7 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"variable.manage_acl",
 			"scope.delete",
 			"scope.manage_acl",
+			"repository.delete",
 			"repository.manage_acl",
 			"step.delete",
 			"step.manage_acl",
@@ -473,6 +473,11 @@ func (a *App) GrantProductRole(ctx context.Context, input GrantProductRoleInput)
 	if err != nil {
 		return record, err
 	}
+	if locked, err := isDefaultAdminGrantSubject(ctx, tx, subject.Type, subject.ID); err != nil {
+		return record, err
+	} else if locked {
+		return record, fmt.Errorf("cannot modify default admin role assignments")
+	}
 	resource, err := resolveAccessGrantResource(ctx, tx, input.ResourceType, input.ResourceID, true)
 	if err != nil {
 		return record, err
@@ -580,6 +585,11 @@ func (a *App) deleteProductRoleGrant(ctx context.Context, grantID int64) (access
 	if err != nil {
 		return record, err
 	}
+	if locked, err := isDefaultAdminGrantSubject(ctx, tx, record.SubjectType, record.SubjectID); err != nil {
+		return record, err
+	} else if locked {
+		return record, fmt.Errorf("cannot modify default admin role assignments")
+	}
 	if err := validateFolderOwnerGuard(ctx, tx, record.RoleName, accessGrantResource{
 		Type:    record.ResourceType,
 		ID:      record.ResourceID,
@@ -645,6 +655,34 @@ func loadAccessGrantRecord(ctx context.Context, runner queryRunner, grantID int6
 		return accessGrantRecord{}, err
 	}
 	return record, nil
+}
+
+func isDefaultAdminGrantSubject(ctx context.Context, runner queryRunner, subjectType, subjectID string) (bool, error) {
+	if model.NormalizeType(subjectType) != model.SubjectTypeUser {
+		return false, nil
+	}
+	subjectID = strings.TrimSpace(subjectID)
+	if subjectID == "" {
+		return false, nil
+	}
+
+	var exists int
+	err := runner.QueryRow(ctx, `
+		SELECT 1
+		FROM users
+		WHERE id::text = $1
+		  AND sub = $2
+		  AND LOWER(provider) = 'local'
+		LIMIT 1
+	`, subjectID, defaultAdminSub).Scan(&exists)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows), errors.Is(err, sql.ErrNoRows):
+		return false, nil
+	case err != nil:
+		return false, err
+	default:
+		return true, nil
+	}
 }
 
 func ensureUniqueAdminBinding(ctx context.Context, runner queryRunner, subject accessGrantSubject) error {
