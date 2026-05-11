@@ -544,6 +544,8 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 			return generalFolderAncestors(), nil
 		}
 		return s.containingFolderAncestors(ctx, stepPath)
+	case "scope":
+		return scopeFolderAncestors(resource.ID), nil
 	case "repository":
 		return s.repositoryFolderAncestors(ctx, resource.ID)
 	case "trigger":
@@ -579,14 +581,25 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 				Resource: model.ResourceRef{Type: "scope", ID: scope},
 				Reason:   "scope_inheritance",
 			})
+			out = append(out, scopeFolderAncestors(scope)...)
 		}
 		if repoName == "" {
-			out = append(out, generalFolderAncestors()...)
+			if scope == "" {
+				out = append(out, generalFolderAncestors()...)
+			}
 		}
 		return out, nil
 	default:
 		return nil, nil
 	}
+}
+
+func scopeFolderAncestors(scope string) []model.InheritedResource {
+	scope = strings.Trim(strings.TrimSpace(scope), "/")
+	if scope == "" {
+		return generalFolderAncestors()
+	}
+	return prefixFolderResources(strings.Split(scope, "/"), true)
 }
 
 func generalFolderAncestors() []model.InheritedResource {
@@ -711,7 +724,7 @@ func (s *PGStore) repositoryFolderAncestors(ctx context.Context, repoID string) 
 		WHERE name = $1
 	`, repoID).Scan(&parentID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return generalFolderAncestors(), nil
+			return repositoryIDFolderAncestors(repoID), nil
 		}
 		return nil, err
 	}
@@ -720,6 +733,18 @@ func (s *PGStore) repositoryFolderAncestors(ctx context.Context, repoID string) 
 	}
 
 	return s.groupParentFolderAncestors(ctx, parentID)
+}
+
+func repositoryIDFolderAncestors(repoID string) []model.InheritedResource {
+	repoID = strings.Trim(strings.TrimSpace(repoID), "/")
+	if repoID == "" {
+		return generalFolderAncestors()
+	}
+	segments := strings.Split(repoID, "/")
+	if len(segments) <= 1 {
+		return generalFolderAncestors()
+	}
+	return prefixFolderResources(segments[:len(segments)-1], true)
 }
 
 func (s *PGStore) groupParentFolderAncestors(ctx context.Context, parentID *int) ([]model.InheritedResource, error) {

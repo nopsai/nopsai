@@ -269,6 +269,7 @@ func IsSensitiveAction(action string) bool {
 		"variable.delete",
 		"folder.move",
 		"folder.delete",
+		"step.delete",
 		"step.manage":
 		return true
 	default:

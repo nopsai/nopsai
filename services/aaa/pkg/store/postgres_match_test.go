@@ -88,6 +88,48 @@ func TestPrefixFolderResourcesIncludesContainingFolderWhenRequested(t *testing.T
 	}
 }
 
+func TestScopeFolderAncestorsUsesScopePathAsContainingFolder(t *testing.T) {
+	got := scopeFolderAncestors("team-1/dev")
+	want := []model.InheritedResource{
+		{Resource: model.ResourceRef{Type: "folder", ID: "team-1/dev"}, Reason: "folder_inheritance"},
+		{Resource: model.ResourceRef{Type: "folder", ID: "team-1"}, Reason: "folder_inheritance"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("scopeFolderAncestors() = %#v, want %#v", got, want)
+	}
+}
+
+func TestScopeFolderAncestorsUsesGeneralFolderForDefaultScope(t *testing.T) {
+	got := scopeFolderAncestors("")
+	want := []model.InheritedResource{
+		{Resource: model.ResourceRef{Type: "folder", ID: model.FolderGeneralID}, Reason: "folder_inheritance"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("scopeFolderAncestors(default) = %#v, want %#v", got, want)
+	}
+}
+
+func TestRepositoryIDFolderAncestorsUsesRepositoryPathPrefix(t *testing.T) {
+	got := repositoryIDFolderAncestors("team-1/dev/app")
+	want := []model.InheritedResource{
+		{Resource: model.ResourceRef{Type: "folder", ID: "team-1/dev"}, Reason: "folder_inheritance"},
+		{Resource: model.ResourceRef{Type: "folder", ID: "team-1"}, Reason: "folder_inheritance"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("repositoryIDFolderAncestors() = %#v, want %#v", got, want)
+	}
+}
+
+func TestRepositoryIDFolderAncestorsUsesGeneralForRootRepository(t *testing.T) {
+	got := repositoryIDFolderAncestors("app")
+	want := []model.InheritedResource{
+		{Resource: model.ResourceRef{Type: "folder", ID: model.FolderGeneralID}, Reason: "folder_inheritance"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("repositoryIDFolderAncestors(root) = %#v, want %#v", got, want)
+	}
+}
+
 func TestPrefixFolderAncestorsExcludesCurrentFolder(t *testing.T) {
 	got := prefixFolderAncestors([]string{"team-1", "dev"})
 	want := []model.InheritedResource{

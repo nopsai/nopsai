@@ -850,9 +850,30 @@ func (a *App) handleCreateOrUpdateReusableStep(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	query := `INSERT INTO steps (path, name, definition, source, updated_at) VALUES ($1, $2, $3, 'database', NOW())
-			  ON CONFLICT (path, name) DO UPDATE SET definition = $3, source = 'database', updated_at = NOW()`
-	_, err = a.db.Exec(context.Background(), query, dbPath, storedName, string(stepDef))
+	var existingSource string
+	lookupErr := a.db.QueryRow(context.Background(), "SELECT source FROM steps WHERE path = $1 AND name = $2", dbPath, storedName).Scan(&existingSource)
+	if lookupErr != nil && lookupErr != pgx.ErrNoRows {
+		log.Error().Err(lookupErr).Msg("Failed to inspect existing step source")
+		http.Error(w, "Failed to save reusable step", http.StatusInternalServerError)
+		return
+	}
+
+	action := "step.update"
+	if lookupErr == pgx.ErrNoRows {
+		action = "step.create"
+	}
+	if !a.requireAAADecision(w, r, action, routeauthz.StepResource(buildStepIdentifier(dbPath, storedName))) {
+		return
+	}
+
+	desiredSource := "database"
+	if strings.EqualFold(existingSource, "git") {
+		desiredSource = existingSource
+	}
+
+	query := `INSERT INTO steps (path, name, definition, source, updated_at) VALUES ($1, $2, $3, $4, NOW())
+			  ON CONFLICT (path, name) DO UPDATE SET definition = $3, source = $4, updated_at = NOW()`
+	_, err = a.db.Exec(context.Background(), query, dbPath, storedName, string(stepDef), desiredSource)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to save reusable step to database")
 		http.Error(w, "Failed to save reusable step", http.StatusInternalServerError)

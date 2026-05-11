@@ -376,10 +376,8 @@ function AppShell() {
   const canWriteSteps = Boolean(currentUser?.capabilities?.steps?.write);
   const canDeleteSteps = Boolean(currentUser?.capabilities?.steps?.delete);
   const canViewTriggers = Boolean(currentUser?.capabilities?.triggers?.read);
-  const canWriteTriggers = Boolean(currentUser?.capabilities?.triggers?.write);
   const canDeleteTriggers = Boolean(currentUser?.capabilities?.triggers?.delete);
   const canViewScopes = Boolean(currentUser?.capabilities?.scopes?.read);
-  const canWriteScopes = Boolean(currentUser?.capabilities?.scopes?.write);
   const canDeleteScopes = Boolean(currentUser?.capabilities?.scopes?.delete);
   const canViewSystemConfig = Boolean(currentUser?.capabilities?.system?.configRead);
   const canManageSystemConfig = Boolean(currentUser?.capabilities?.system?.configWrite);
@@ -871,27 +869,27 @@ function AppShell() {
                   <Route path="/pipelineruns/:tab?" element={<PipelineRunsPage />} />
                   <Route
                     path="/pipelines/*"
-                    element={<PipelinesPage draftScope={draftScope} canWritePipelines={canWritePipelines} canDeletePipelines={canDeletePipelines} />}
+                    element={<PipelinesPage draftScope={draftScope} canDeletePipelines={canDeletePipelines} />}
                   />
-                  <Route
-                    path="/triggers/*"
-                    element={renderAccessControlledPage(
-                      canViewTriggers,
-                      <TriggersPage canWriteTriggers={canWriteTriggers} canDeleteTriggers={canDeleteTriggers} />
-                    )}
-                  />
-                  <Route
-                    path="/scopes/*"
-                    element={renderAccessControlledPage(
-                      canViewScopes,
-                      <ScopesPage canWriteScopes={canWriteScopes} canDeleteScopes={canDeleteScopes} />
-                    )}
-                  />
+	                  <Route
+	                    path="/triggers/*"
+	                    element={renderAccessControlledPage(
+	                      canViewTriggers,
+	                      <TriggersPage canDeleteTriggers={canDeleteTriggers} />
+	                    )}
+	                  />
+	                  <Route
+	                    path="/scopes/*"
+	                    element={renderAccessControlledPage(
+	                      canViewScopes,
+	                      <ScopesPage canDeleteScopes={canDeleteScopes} />
+	                    )}
+	                  />
                   <Route path="/lab/*" element={<LabPage />} />
-                  <Route
-                    path="/steps/*"
-                    element={<StepsPage draftScope={draftScope} canWriteSteps={canWriteSteps} canDeleteSteps={canDeleteSteps} />}
-                  />
+	                  <Route
+	                    path="/steps/*"
+	                    element={<StepsPage draftScope={draftScope} canDeleteSteps={canDeleteSteps} />}
+	                  />
                   <Route
                     path="/system/:tab?"
                     element={renderAccessControlledPage(

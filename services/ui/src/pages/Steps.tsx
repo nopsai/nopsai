@@ -16,6 +16,7 @@ import { findLineNumberForKey, findLineNumberForTaskName, parseYamlWithLocation 
 
 const STEP_NAME_PATTERN = /^[a-zA-Z0-9_.-]+$/;
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
+const STEP_PERMISSION_PROBE_NAME = '__nopsai_permission_probe__';
 
 const STEP_DIRECTIVES = [
   'name',
@@ -105,7 +106,6 @@ type TreeNode = {
 
 type StepsPageProps = {
   draftScope: string;
-  canWriteSteps: boolean;
   canDeleteSteps: boolean;
 };
 
@@ -365,7 +365,7 @@ function validateStepYaml(rawYaml: string, opts?: { expectedName?: string }): Va
   return { errors: [] };
 }
 
-function StepsPage({ draftScope, canWriteSteps, canDeleteSteps }: StepsPageProps) {
+function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -381,6 +381,8 @@ function StepsPage({ draftScope, canWriteSteps, canDeleteSteps }: StepsPageProps
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedIdRef = useRef<string | null>(null);
+  const [folderCreateAllowed, setFolderCreateAllowed] = useState(false);
+  const [selectedUpdateAllowed, setSelectedUpdateAllowed] = useState(false);
 
   const [detail, setDetail] = useState<StepDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -435,6 +437,23 @@ function StepsPage({ draftScope, canWriteSteps, canDeleteSteps }: StepsPageProps
     window.setTimeout(() => {
       setToasts(prev => prev.filter(toast => toast.id !== id));
     }, 3200);
+  }, []);
+
+  const buildPermissionProbeIdentifier = (folder: string) => {
+    const cleaned = folder.trim().replace(/^\/+|\/+$/g, '');
+    return cleaned ? `${cleaned}/${STEP_PERMISSION_PROBE_NAME}` : STEP_PERMISSION_PROBE_NAME;
+  };
+
+  const checkStepPermission = useCallback(async (action: string, resourceID: string) => {
+    const params = new URLSearchParams({
+      action,
+      resource_type: 'step',
+      resource_id: resourceID,
+    });
+    const response = await fetch(buildApiUrl(`/v1/access/effective-permissions?${params.toString()}`));
+    if (!response.ok) return false;
+    const payload = await response.json();
+    return Boolean(payload?.allowed);
   }, []);
 
   const draftsById = useMemo(() => {
@@ -910,17 +929,62 @@ function StepsPage({ draftScope, canWriteSteps, canDeleteSteps }: StepsPageProps
     }
   }, []);
 
+  const permissionFolder = selectedId ? splitIdentifier(selectedId).path : activeFolder;
+
   useEffect(() => {
-    if (!canWriteSteps || !draftScope) {
+    let cancelled = false;
+    setFolderCreateAllowed(false);
+    void checkStepPermission('step.create', buildPermissionProbeIdentifier(permissionFolder))
+      .then(allowed => {
+        if (!cancelled) setFolderCreateAllowed(allowed);
+      })
+      .catch(() => {
+        if (!cancelled) setFolderCreateAllowed(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [checkStepPermission, permissionFolder]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedId) {
+      setSelectedUpdateAllowed(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setSelectedUpdateAllowed(false);
+    void checkStepPermission('step.update', selectedId)
+      .then(allowed => {
+        if (!cancelled) setSelectedUpdateAllowed(allowed);
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedUpdateAllowed(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [checkStepPermission, selectedId]);
+
+  const canCreateStepHere = folderCreateAllowed;
+  const canUpdateSelectedStep = selectedUpdateAllowed;
+  const canUseStepDrafts = canCreateStepHere || canUpdateSelectedStep;
+
+  useEffect(() => {
+    if (!canUseStepDrafts || !draftScope) {
       setDraftSteps([]);
       return;
     }
     setDraftSteps(loadStepDrafts(draftScope));
-  }, [canWriteSteps, draftScope]);
+  }, [canUseStepDrafts, draftScope]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (!canWriteSteps || !draftScope) return;
+    if (!canUseStepDrafts || !draftScope) return;
     const storageKey = getStepDraftStorageKey(draftScope);
     const refreshDrafts = () => setDraftSteps(loadStepDrafts(draftScope));
     const onStorage = (event: StorageEvent) => {
@@ -933,7 +997,7 @@ function StepsPage({ draftScope, canWriteSteps, canDeleteSteps }: StepsPageProps
       window.removeEventListener(STEP_DRAFTS_CHANGED_EVENT, refreshDrafts);
       window.removeEventListener('storage', onStorage);
     };
-  }, [canWriteSteps, draftScope]);
+  }, [canUseStepDrafts, draftScope]);
 
   const steps = useMemo(() => {
     const merged = new Map<string, StepListItem>();
@@ -1011,14 +1075,14 @@ function StepsPage({ draftScope, canWriteSteps, canDeleteSteps }: StepsPageProps
 
   useEffect(() => {
     if (!detail || !isEditing) return;
-    if (!canWriteSteps || !draftScope) return;
+    if (!canUseStepDrafts || !draftScope) return;
     if (normalizeSource(detail.source) !== 'draft') return;
     const draftId = detail.id;
     const handle = window.setTimeout(() => {
       setDraftSteps(upsertStepDraft({ id: draftId, yaml: editorValue }, draftScope));
     }, 800);
     return () => window.clearTimeout(handle);
-  }, [canWriteSteps, detail, draftScope, editorValue, isEditing]);
+  }, [canUseStepDrafts, detail, draftScope, editorValue, isEditing]);
 
   useEffect(() => {
     if (!isEditing) return;
@@ -1170,11 +1234,13 @@ function StepsPage({ draftScope, canWriteSteps, canDeleteSteps }: StepsPageProps
 
   const handleSave = async () => {
     if (!detail || !editorValue.trim()) return;
-    if (!canWriteSteps) {
+    const detailSource = normalizeSource(detail.source);
+    const canPersistStep = detailSource === 'draft' ? canCreateStepHere : canUpdateSelectedStep;
+    if (!canPersistStep) {
       addToast('You have read-only access to steps.', 'info');
       return;
     }
-    if (normalizeSource(detail.source) === 'git') {
+    if (detailSource === 'git') {
       addToast('Git-managed steps are read-only. Clone it to create an editable draft.', 'info');
       return;
     }
@@ -1214,14 +1280,14 @@ function StepsPage({ draftScope, canWriteSteps, canDeleteSteps }: StepsPageProps
   };
 
   const openCreateModal = () => {
-    if (!canWriteSteps) {
+    if (!canCreateStepHere) {
       addToast('You have read-only access to steps.', 'info');
       return;
     }
-    setFormModal({ mode: 'create', path: activeFolder, name: '', pending: false });
+    setFormModal({ mode: 'create', path: permissionFolder, name: '', pending: false });
   };
   const openCloneModal = () => {
-    if (!canWriteSteps) {
+    if (!canCreateStepHere) {
       addToast('You have read-only access to steps.', 'info');
       return;
     }
@@ -1241,7 +1307,7 @@ function StepsPage({ draftScope, canWriteSteps, canDeleteSteps }: StepsPageProps
 
   const submitFormModal = async () => {
     if (!formModal) return;
-    if (!canWriteSteps || !draftScope) {
+    if (!canCreateStepHere || !draftScope) {
       setFormModal(prev => (prev ? { ...prev, error: 'You have read-only access to steps.' } : prev));
       return;
     }
@@ -1260,6 +1326,11 @@ function StepsPage({ draftScope, canWriteSteps, canDeleteSteps }: StepsPageProps
     }
     if (steps.some(item => item.id === identifier)) {
       setFormModal(prev => (prev ? { ...prev, error: 'A step with that identifier already exists.' } : prev));
+      return;
+    }
+    const allowed = await checkStepPermission('step.create', identifier);
+    if (!allowed) {
+      setFormModal(prev => (prev ? { ...prev, error: 'You do not have permission to create steps in this path.' } : prev));
       return;
     }
     setFormModal(prev => (prev ? { ...prev, pending: true, error: undefined } : prev));
@@ -1290,7 +1361,7 @@ function StepsPage({ draftScope, canWriteSteps, canDeleteSteps }: StepsPageProps
         throw new Error('This step is managed via Git. Clone it to customize instead of deleting.');
       }
       if (normalizedSource === 'draft') {
-        if (!canWriteSteps || !draftScope) {
+        if (!canUseStepDrafts || !draftScope) {
           throw new Error('You have read-only access to steps.');
         }
         setDraftSteps(deleteStepDraft(deleteModal.stepId, draftScope));
@@ -1321,7 +1392,7 @@ function StepsPage({ draftScope, canWriteSteps, canDeleteSteps }: StepsPageProps
   const renderStepCard = (step: StepListItem) => {
     const { name, path } = splitIdentifier(step.id);
     const source = normalizeSource(step.source);
-    const canDeleteThisStep = source === 'draft' ? canWriteSteps : canDeleteSteps && source !== 'git';
+    const canDeleteThisStep = source === 'draft' ? canUseStepDrafts : canDeleteSteps && source !== 'git';
     return (
       <article
         key={step.id}
@@ -1432,7 +1503,7 @@ function StepsPage({ draftScope, canWriteSteps, canDeleteSteps }: StepsPageProps
               <div id="steps-empty" className="pipelines-empty">
                 <h3 className="text-base font-semibold text-[var(--text-primary)]">No steps found</h3>
                 <p className="text-sm text-[var(--text-secondary)]">
-                  {canWriteSteps ? 'Create a new step or adjust your filters.' : 'Adjust your filters or check your access.'}
+                  {canCreateStepHere ? 'Create a new step or adjust your filters.' : 'Adjust your filters or check your access.'}
                 </p>
               </div>
             )}
@@ -1517,18 +1588,24 @@ function StepsPage({ draftScope, canWriteSteps, canDeleteSteps }: StepsPageProps
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                           </svg>
                         </button>
-                        {!canWriteSteps ? null : isGitSource ? (
-                          <button className="glass-button-primary" onClick={openCloneModal}>
-                            Clone
-                          </button>
-                        ) : (
-                          <>
-                            <button className="glass-button-primary" onClick={() => setIsEditing(true)}>
-                              Edit
-                            </button>
-                            <button className="glass-button-subtle" onClick={openCloneModal}>
+                        {!canUpdateSelectedStep && !canCreateStepHere ? null : isGitSource ? (
+                          canCreateStepHere ? (
+                            <button className="glass-button-primary" onClick={openCloneModal}>
                               Clone
                             </button>
+                          ) : null
+                        ) : (
+                          <>
+                            {canUpdateSelectedStep ? (
+                              <button className="glass-button-primary" onClick={() => setIsEditing(true)}>
+                                Edit
+                              </button>
+                            ) : null}
+                            {canCreateStepHere ? (
+                              <button className="glass-button-subtle" onClick={openCloneModal}>
+                                Clone
+                              </button>
+                            ) : null}
                           </>
                         )}
                       </>
@@ -1837,7 +1914,7 @@ function StepsPage({ draftScope, canWriteSteps, canDeleteSteps }: StepsPageProps
                 </button>
               )}
             </div>
-            {canWriteSteps ? (
+            {canCreateStepHere ? (
               <button id="steps-new-btn" type="button" className="pipelines-icon-only" aria-label="Create new step" title="New Step" onClick={openCreateModal}>
                 <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v14M5 12h14" />

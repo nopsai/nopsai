@@ -9,6 +9,7 @@ const INITIAL_RECENT_RUNS = 5;
 const RUNS_PAGE_SIZE = 10;
 const RUNS_CACHE_TTL = 60 * 1000;
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
+const TRIGGER_PERMISSION_PROBE_NAME = '__nopsai_permission_probe__';
 
 const TRIGGER_ROOT_KEYS = ['triggers'];
 const TRIGGER_KEYS = ['on', 'branches', 'skip_branches', 'tags', 'pipelines', 'scope'];
@@ -297,10 +298,8 @@ function buildNewTriggerYaml(pipelinePath: string): string {
 }
 
 function TriggersPage({
-  canWriteTriggers = false,
   canDeleteTriggers = false,
 }: {
-  canWriteTriggers?: boolean;
   canDeleteTriggers?: boolean;
 }) {
   const navigate = useNavigate();
@@ -317,6 +316,8 @@ function TriggersPage({
 
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
   const selectedSlugRef = useRef<string | null>(null);
+  const [folderWriteAllowed, setFolderWriteAllowed] = useState(false);
+  const [selectedWriteAllowed, setSelectedWriteAllowed] = useState(false);
 
   const [detail, setDetail] = useState<TriggerDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -379,6 +380,23 @@ function TriggersPage({
     window.setTimeout(() => {
       setToasts(prev => prev.filter(toast => toast.id !== id));
     }, 3200);
+  }, []);
+
+  const buildPermissionProbeRepository = (folder: string) => {
+    const cleaned = folder.trim().replace(/^\/+|\/+$/g, '');
+    return cleaned ? `${cleaned}/${TRIGGER_PERMISSION_PROBE_NAME}` : TRIGGER_PERMISSION_PROBE_NAME;
+  };
+
+  const checkTriggerPermission = useCallback(async (action: string, resourceID: string) => {
+    const params = new URLSearchParams({
+      action,
+      resource_type: 'trigger',
+      resource_id: resourceID,
+    });
+    const response = await fetch(buildApiUrl(`/v1/access/effective-permissions?${params.toString()}`));
+    if (!response.ok) return false;
+    const payload = await response.json();
+    return Boolean(payload?.allowed);
   }, []);
 
   const encodeSlug = (slug: string) => slug.split('/').map(encodeURIComponent).join('/');
@@ -1039,14 +1057,59 @@ function TriggersPage({
     openFolder(folderForSlug(detail.slug));
   };
 
+  const permissionFolder = selectedSlug ? folderForSlug(selectedSlug) : activeFolder;
+
+  useEffect(() => {
+    let cancelled = false;
+    setFolderWriteAllowed(false);
+    void checkTriggerPermission('trigger.update', buildPermissionProbeRepository(permissionFolder))
+      .then(allowed => {
+        if (!cancelled) setFolderWriteAllowed(allowed);
+      })
+      .catch(() => {
+        if (!cancelled) setFolderWriteAllowed(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [checkTriggerPermission, permissionFolder]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedSlug) {
+      setSelectedWriteAllowed(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setSelectedWriteAllowed(false);
+    void checkTriggerPermission('trigger.update', selectedSlug)
+      .then(allowed => {
+        if (!cancelled) setSelectedWriteAllowed(allowed);
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedWriteAllowed(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [checkTriggerPermission, selectedSlug]);
+
+  const canCreateTriggerHere = folderWriteAllowed;
+  const canUpdateSelectedTrigger = selectedWriteAllowed;
+
   const openCreateModal = () => {
-    if (!canWriteTriggers) return;
-    const yamlPreview = buildNewTriggerYaml(deriveDefaultPipelinePath(''));
-    setCreateModal({ repository: '', yamlPreview, pending: false });
+    if (!canCreateTriggerHere) return;
+    const repository = permissionFolder ? `${permissionFolder}/new-repository` : '';
+    const yamlPreview = buildNewTriggerYaml(deriveDefaultPipelinePath(repository));
+    setCreateModal({ repository, yamlPreview, pending: false });
   };
 
   const openCloneModal = () => {
-    if (!canWriteTriggers) return;
+    if (!canCreateTriggerHere) return;
     if (!detail) {
       addToast('Select a trigger to clone.', 'info');
       return;
@@ -1089,7 +1152,7 @@ function TriggersPage({
   };
 
   const handleSave = async () => {
-    if (!canWriteTriggers) {
+    if (!canUpdateSelectedTrigger) {
       addToast('You do not have permission to update triggers.', 'error');
       return;
     }
@@ -1135,7 +1198,7 @@ function TriggersPage({
   };
 
   const submitCreateModal = async () => {
-    if (!canWriteTriggers) return;
+    if (!canCreateTriggerHere) return;
     if (!createModal) return;
     const repoSlug = createModal.repository.trim();
     if (!repoSlug) {
@@ -1148,6 +1211,12 @@ function TriggersPage({
       ({ owner, repo } = splitSlug(repoSlug));
     } catch (error) {
       setCreateModal(prev => (prev ? { ...prev, error: error instanceof Error ? error.message : 'Invalid repository.' } : prev));
+      return;
+    }
+
+    const allowed = await checkTriggerPermission('trigger.update', repoSlug);
+    if (!allowed) {
+      setCreateModal(prev => (prev ? { ...prev, error: 'You do not have permission to create triggers for this repository.' } : prev));
       return;
     }
 
@@ -1177,7 +1246,7 @@ function TriggersPage({
   };
 
   const submitCloneModal = async () => {
-    if (!canWriteTriggers) return;
+    if (!canCreateTriggerHere) return;
     if (!cloneModal || !detail) return;
     const targetSlug = cloneModal.repository.trim();
     if (!targetSlug) {
@@ -1191,6 +1260,12 @@ function TriggersPage({
       ({ owner, repo } = splitSlug(targetSlug));
     } catch (error) {
       setCloneModal(prev => (prev ? { ...prev, error: error instanceof Error ? error.message : 'Invalid repository.' } : prev));
+      return;
+    }
+
+    const allowed = await checkTriggerPermission('trigger.update', targetSlug);
+    if (!allowed) {
+      setCloneModal(prev => (prev ? { ...prev, error: 'You do not have permission to create triggers for this repository.' } : prev));
       return;
     }
 
@@ -1509,7 +1584,7 @@ function TriggersPage({
               <div id="triggers-empty" className="pipelines-empty">
                 <h3 className="text-base font-semibold text-[var(--text-primary)]">No triggers found</h3>
                 <p className="text-sm text-[var(--text-secondary)]">
-                  {canWriteTriggers ? 'Create a new trigger or adjust your filters.' : 'Adjust your filters or browse another folder.'}
+                  {canCreateTriggerHere ? 'Create a new trigger or adjust your filters.' : 'Adjust your filters or browse another folder.'}
                 </p>
               </div>
             )}
@@ -1675,23 +1750,29 @@ function TriggersPage({
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                           </svg>
                         </button>
-                        {canWriteTriggers &&
+                        {(canUpdateSelectedTrigger || canCreateTriggerHere) &&
                           (isGitSource ? (
-                            <button className="glass-button-primary" onClick={openCloneModal}>
-                              Clone
-                            </button>
-                          ) : (
-                            <>
-                              <button className="glass-button-primary" onClick={() => setIsEditing(true)}>
-                                Edit
-                              </button>
-                              <button className="glass-button-subtle" onClick={openCloneModal}>
+                            canCreateTriggerHere ? (
+                              <button className="glass-button-primary" onClick={openCloneModal}>
                                 Clone
                               </button>
+                            ) : null
+                          ) : (
+                            <>
+                              {canUpdateSelectedTrigger ? (
+                                <button className="glass-button-primary" onClick={() => setIsEditing(true)}>
+                                  Edit
+                                </button>
+                              ) : null}
+                              {canCreateTriggerHere ? (
+                                <button className="glass-button-subtle" onClick={openCloneModal}>
+                                  Clone
+                                </button>
+                              ) : null}
                             </>
                           ))}
                       </>
-                    ) : canWriteTriggers ? (
+                    ) : canUpdateSelectedTrigger ? (
                       <>
                         <button
                           className="glass-button-ghost"
@@ -2008,7 +2089,7 @@ function TriggersPage({
                 </button>
               )}
             </div>
-            {canWriteTriggers && (
+            {canCreateTriggerHere && (
               <button
                 id="triggers-new-btn"
                 type="button"
@@ -2036,7 +2117,7 @@ function TriggersPage({
         )}
       </div>
 
-      {canWriteTriggers && createModal && (
+      {createModal && (
         <div id="triggers-new-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
           <div className="pipelines-modal-card trigger-modal-card max-w-lg w-full">
             <header className="pipelines-modal-header trigger-modal-header">
@@ -2094,7 +2175,7 @@ function TriggersPage({
         </div>
       )}
 
-      {canWriteTriggers && cloneModal && (
+      {cloneModal && (
         <div id="triggers-clone-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
           <div className="pipelines-modal-card trigger-modal-card max-w-md w-full">
             <header className="pipelines-modal-header trigger-modal-header">
