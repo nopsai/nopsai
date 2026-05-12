@@ -5,6 +5,7 @@ Related docs:
 - `doc/README.md`
 - `doc/architecture-overview.md`
 - `doc/service-reference.md`
+- `doc/access-control.md`
 - `doc/runtime-flows.md`
 - `doc/feature-reference.md`
 - `doc/decision-architecture.md`
@@ -16,14 +17,15 @@ This guide documents the current architecture, how to run the stack, and how to 
 ## Architecture at a Glance
 
 - **Core API (`services/nopsai`)** – Brain + database owner. Receives run requests, validates pipelines, resolves secrets/variables, records runs/logs, and now hands execution to the Dispatcher instead of calling Docker directly.
+- **AAA (`services/aaa`)** – Internal authorization decision service. Handles subject introspection, checks, filtering, and authorization decision logging from Postgres-backed policy data.
 - **Dispatcher (`services/dispatcher`)** – Control plane switchboard. Tracks connected runners, heartbeats, and capacity; routes jobs by scope using `dispatcher_routing`; requeues on disconnect.
 - **Runner (`services/runner`)** – Long-lived daemon on Docker-capable hosts. Opens an outbound gRPC stream to the Dispatcher, receives jobs, starts the agent container with the supplied env/volume config, forwards logs to Nopsai, and reports job results.
 - **Agent (`services/agent`)** – Per-run container that orchestrates pipeline steps/tasks, calls the configured LLM provider for LLM actions, masks secrets, and reports step/task status back to Nopsai/GitHub.
 - **Git Bot (`services/git-bot`)** – GitHub App webhook handler; creates check runs, fetches pipeline sources, posts status, supports reruns/cancels, and cancels stale checks.
-- **UI (`services/ui`)** – Reads REST + WebSocket feeds for runs, graphs, logs, groups, and branch hygiene actions.
+- **UI (`services/ui`)** – Reads authenticated REST APIs for runs, graphs, logs, groups, access management, and branch hygiene actions.
 - **PostgreSQL** – Stores pipelines, triggers, reusable steps, secrets/variables, runs, tasks, logs, and groups.
 
-Flow: GitHub event → git-bot → Nopsai validates + enqueues → Dispatcher selects a runner (by scope/capacity) → Runner launches Agent → Agent talks back to Nopsai + Git Bot → Logs stream to Nopsai DB/UI.
+Flow: GitHub event or user request → Nopsai authenticates and checks AAA → Nopsai validates + enqueues → Dispatcher selects a runner by scope/capacity → Runner launches Agent → Agent talks back through Dispatcher → Nopsai persists logs/status and Git Bot updates checks.
 
 ---
 
@@ -32,13 +34,14 @@ Flow: GitHub event → git-bot → Nopsai validates + enqueues → Dispatcher se
 1. **Prereqs**: Docker + Docker Compose, Gemini key, GitHub App credentials, and a generated `NOPSAI_MASTER_KEY`.
 2. **Config**: Set `.env` (or environment) for values defined in `config/config.go`. Key additions:
    - `DISPATCHER_LISTEN_ADDRESS` (default `:9090`), `DISPATCHER_ADDRESS` (what clients dial, default `dispatcher:9090`).
+   - `AAA_ADDR` (default `:8082`), `AAA_API_URL` (default `http://aaa:8082`), and `AAA_SHARED_INTERNAL_TOKEN` for Nopsai-to-AAA calls.
    - `DISPATCHER_ROUTING` (YAML in `config.yml`) maps scope → allowed runner IDs; `RUNNER_ID`, `RUNNER_SCOPES` (comma list), `RUNNER_CAPACITY`.
    - Existing fields still apply: DB URL, Gemini model/key, service listen addresses, Docker network name, agent image, log format/level, GitBot URLs, config repo URL, defaults for timeouts.
 3. **Compose up**:
    ```bash
    docker-compose up --build -d
    ```
-   Services: `nopsai`, `dispatcher`, `runner`, `git-bot`, `nopsai-ui`, Postgres, plus build-only images (`agent`, `pipeline`).
+   Services: `nopsai`, `aaa`, `dispatcher`, `runner`, `git-bot`, `nopsai-ui`, Postgres, plus build-only images (`agent`, `pipeline`).
 4. **Verify**:
    - Dispatcher: `nc -z localhost 9090` (or check logs for “dispatcher listening”).
    - Runner: logs should show registration + heartbeats; ensure `/var/run/docker.sock` is mounted.
@@ -50,7 +53,8 @@ Flow: GitHub event → git-bot → Nopsai validates + enqueues → Dispatcher se
 ## Config Reference (selected)
 
 - **Networking**: `nopsai_listen_address`, `git_bot_listen_address`, `dispatcher_listen_address`.
-- **Service-to-service URLs**: `agent_nopsai_api_url`, `git_bot_nopsai_api_url`, `nopsai_git_bot_api_url`, `dispatcher_address`.
+- **Service-to-service URLs**: `agent_nopsai_api_url`, `git_bot_nopsai_api_url`, `nopsai_git_bot_api_url`, `dispatcher_address`, `aaa_api_url`.
+- **AAA**: `aaa_addr`, `aaa_shared_internal_token`; protected AAA endpoints require `X-Internal-Token`.
 - **Dispatcher routing**: In `config.yml`:
   ```yaml
   dispatcher_routing:
@@ -78,9 +82,10 @@ Flow: GitHub event → git-bot → Nopsai validates + enqueues → Dispatcher se
 
 - **Manual run**: `curl -X POST http://localhost:8080/v1/run -H 'Content-Type: application/json' -d '{"pipeline":"main-pipeline","scope":"dev"}'`
 - **Rerun / cancel**: POST to `/v1/runs/{runID}/rerun` or `/v1/runs/{runID}/cancel`.
-- **Logs**: UI streams live logs via WebSockets; runners post batches to `/v1/runs/{runID}/logs/ingest`; history available at `/v1/runs/{runID}/logs`.
+- **Logs**: runners post batches to `/v1/runs/{runID}/logs/ingest`; the UI polls `/v1/runs/{runID}/logs?since_line=...` for incremental history.
 - **Status**: `/v1/runs/{runID}/status` or `/v1/runs-by-check/{checkRunID}`.
 - **Groups/Folders**: Manage via `/v1/groups` endpoints to organize repos/runs.
+- **Access**: Manage product-role grants through `/v1/access/grants` and inspect decisions with `/v1/access/effective-permissions`.
 - **Branch hygiene**: `DELETE /v1/repositories/{owner}/{repo}/branches/{branch...}` to prune runs for obsolete branches.
 
 ---
@@ -89,7 +94,7 @@ Flow: GitHub event → git-bot → Nopsai validates + enqueues → Dispatcher se
 
 1. GitHub App receives webhook → git-bot validates HMAC.
 2. git-bot fetches pipeline/triggers, creates/updates check run, posts run request to Nopsai.
-3. Nopsai records run, resolves includes/variables/secrets, submits job to Dispatcher.
+3. Nopsai records run, checks AAA, resolves includes/variables/secrets, submits job to Dispatcher.
 4. Dispatcher picks a runner (scope + least-active + routing).
 5. Runner launches Agent, streams logs back, reports job status to Dispatcher, Agent reports task status to Nopsai/GitHub.
 6. git-bot updates check runs with step/task progress, failures, and rerun/cancel actions; stale checks are cancelled.
@@ -108,6 +113,7 @@ Flow: GitHub event → git-bot → Nopsai validates + enqueues → Dispatcher se
 ## Security Notes
 
 - Secrets stay encrypted at rest; logs are masked before leaving the agent.
+- AAA denies before allows, logs denied decisions and sensitive allowed decisions, and is reachable only through the internal token-protected service interface.
 - Use TLS/mTLS on gRPC endpoints in production (current defaults use insecure creds for local/dev).
 - Protect the API/git-bot ingress with auth if exposed beyond trusted networks.
 
