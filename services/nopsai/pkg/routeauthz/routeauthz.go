@@ -3,6 +3,7 @@ package routeauthz
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"nopsai/services/aaa/pkg/model"
@@ -31,12 +32,30 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 			return "system.read", model.ResourceRef{Type: "system", ID: "config-sync"}, false, nil
 		}
 		return "system.update", model.ResourceRef{Type: "system", ID: "config-sync"}, false, nil
+	case path == "/v1/system/config-repos":
+		return "system.read", model.ResourceRef{Type: "system", ID: "config-repos"}, false, nil
+	case path == "/v1/system/config-repos/sync":
+		return "system.update", model.ResourceRef{Type: "system", ID: "config-repos"}, false, nil
 	case path == "/v1/internal/config/sync":
 		return "system.update", model.ResourceRef{Type: "system", ID: "config-sync"}, false, nil
 	case path == "/v1/system/dispatcher":
 		return "system.read", model.ResourceRef{Type: "dispatcher", ID: "status"}, false, nil
 	case strings.HasPrefix(path, "/v1/system/dispatcher/runners/"):
 		return "system.update", model.ResourceRef{Type: "dispatcher", ID: "runners"}, false, nil
+	case strings.HasPrefix(path, "/v1/folders/") && strings.HasSuffix(path, "/config-repo/sync"):
+		resource = model.ResourceRef{Type: "folder", ID: folderIDFromConfigRepoPath(path, "/config-repo/sync")}
+		if r.Method == http.MethodGet {
+			return "config_repo.read", resource, false, nil
+		}
+		return "config_repo.sync", resource, false, nil
+	case strings.HasPrefix(path, "/v1/folders/") && strings.HasSuffix(path, "/config-repo"):
+		resource = model.ResourceRef{Type: "folder", ID: folderIDFromConfigRepoPath(path, "/config-repo")}
+		switch r.Method {
+		case http.MethodGet:
+			return "config_repo.read", resource, false, nil
+		case http.MethodPut, http.MethodPatch, http.MethodDelete:
+			return "config_repo.manage", resource, false, nil
+		}
 	case path == "/v1/groups":
 		switch r.Method {
 		case http.MethodGet:
@@ -232,6 +251,15 @@ func buildRepositoryID(repoOwner, repoName string) string {
 
 func normalizePathIdentifier(value string) string {
 	return strings.Trim(strings.TrimSpace(value), "/")
+}
+
+func folderIDFromConfigRepoPath(path, suffix string) string {
+	folderID := strings.TrimPrefix(strings.TrimSpace(path), "/v1/folders/")
+	folderID = strings.TrimSuffix(folderID, suffix)
+	if decoded, err := url.PathUnescape(folderID); err == nil {
+		folderID = decoded
+	}
+	return normalizePathIdentifier(folderID)
 }
 
 func normalizeStepIdentifier(value string) string {

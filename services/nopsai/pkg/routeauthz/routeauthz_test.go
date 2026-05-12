@@ -115,6 +115,38 @@ func TestMapRequestUsesUpdatedLowLevelActions(t *testing.T) {
 			wantType:   "step",
 			wantID:     "shared/util/archive",
 		},
+		{
+			name:       "folder config repo read uses folder resource",
+			method:     http.MethodGet,
+			path:       "/v1/folders/team-1/config-repo",
+			wantAction: "config_repo.read",
+			wantType:   "folder",
+			wantID:     "team-1",
+		},
+		{
+			name:       "folder config repo manage uses folder resource",
+			method:     http.MethodPut,
+			path:       "/v1/folders/team-1/config-repo",
+			wantAction: "config_repo.manage",
+			wantType:   "folder",
+			wantID:     "team-1",
+		},
+		{
+			name:       "folder config repo sync uses folder resource",
+			method:     http.MethodPost,
+			path:       "/v1/folders/team-1/config-repo/sync",
+			wantAction: "config_repo.sync",
+			wantType:   "folder",
+			wantID:     "team-1",
+		},
+		{
+			name:       "folder config repo decodes slash in folder resource",
+			method:     http.MethodGet,
+			path:       "/v1/folders/team-1%2Fplatform/config-repo",
+			wantAction: "config_repo.read",
+			wantType:   "folder",
+			wantID:     "team-1/platform",
+		},
 	}
 
 	for _, tt := range tests {
