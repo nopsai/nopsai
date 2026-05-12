@@ -4,7 +4,6 @@ import { Edit3, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import { buildApiUrl } from '../lib/api';
 
 type ConfigFormState = {
-  config_repo_url: string;
   agent_image: string;
   docker_network_name: string;
   default_pipeline_timeout: string;
@@ -19,14 +18,6 @@ type ToastMessage = {
   id: number;
   message: string;
   tone: 'success' | 'error' | 'info';
-};
-
-type ConfigSyncStatus = {
-  status: string;
-  message?: string;
-  details?: Record<string, number>;
-  started_at?: string;
-  completed_at?: string;
 };
 
 type Runner = {
@@ -55,7 +46,6 @@ type RunnerMeta = {
 };
 
 const initialConfig: ConfigFormState = {
-  config_repo_url: '',
   agent_image: '',
   docker_network_name: '',
   default_pipeline_timeout: '',
@@ -172,10 +162,6 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
   const [configError, setConfigError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const [syncStatus, setSyncStatus] = useState<ConfigSyncStatus | null>(null);
-  const [syncBusy, setSyncBusy] = useState(false);
-  const [syncError, setSyncError] = useState<string | null>(null);
-
   const [dispatcherLoading, setDispatcherLoading] = useState(false);
   const [dispatcherError, setDispatcherError] = useState<string | null>(null);
   const [dispatcherStatus, setDispatcherStatus] = useState<{
@@ -242,7 +228,6 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     if (!record) throw new Error('Unexpected system config response');
 
     const nextConfig: ConfigFormState = {
-      config_repo_url: readString(record.config_repo_url),
       agent_image: readString(record.agent_image),
       docker_network_name: readString(record.docker_network_name),
       default_pipeline_timeout: readString(record.default_pipeline_timeout),
@@ -254,9 +239,6 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     };
     setConfig(nextConfig);
     setEnvFilePath(readString(record.env_file_path));
-
-    const nextSyncStatus = normalizeConfigSyncStatus(record.config_sync_status);
-    setSyncStatus(nextSyncStatus);
   }, []);
 
   const loadSystemConfig = useCallback(async () => {
@@ -275,27 +257,6 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
       }
     }
   }, [applySystemConfigResponse, fetchJson]);
-
-  const loadSyncStatus = useCallback(
-    async (opts?: { quiet?: boolean }) => {
-      if (!opts?.quiet) {
-        setSyncError(null);
-      }
-      try {
-        const payload = await fetchJson('/v1/system/config/sync');
-        const nextStatus = normalizeConfigSyncStatus(payload);
-        if (isMountedRef.current) {
-          setSyncStatus(nextStatus);
-          setSyncError(null);
-        }
-      } catch (error) {
-        console.error('Failed to load sync status', error);
-        if (!isMountedRef.current) return;
-        setSyncError(error instanceof Error ? error.message : 'Unable to load sync status');
-      }
-    },
-    [fetchJson]
-  );
 
   const loadDispatcherStatus = useCallback(
     async (opts?: { quiet?: boolean }) => {
@@ -873,7 +834,6 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          config_repo_url: config.config_repo_url.trim(),
           agent_image: config.agent_image.trim(),
           docker_network_name: config.docker_network_name.trim(),
           default_pipeline_timeout: config.default_pipeline_timeout.trim(),
@@ -898,30 +858,6 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
       }
     }
   }, [addToast, applySystemConfigResponse, config, fetchJson, saving]);
-
-  const triggerSync = useCallback(async () => {
-    if (syncBusy) return;
-    setSyncBusy(true);
-    setSyncError(null);
-    try {
-      const payload = await fetchJson('/v1/system/config/sync', { method: 'POST' });
-      const status = normalizeConfigSyncStatus(payload);
-      if (isMountedRef.current) {
-        setSyncStatus(status);
-      }
-      addToast('Config sync requested.', 'info');
-    } catch (error) {
-      console.error('Failed to trigger config sync', error);
-      addToast('Unable to start config sync.', 'error');
-      if (isMountedRef.current) {
-        setSyncError(error instanceof Error ? error.message : 'Unable to start config sync');
-      }
-    } finally {
-      if (isMountedRef.current) {
-        setSyncBusy(false);
-      }
-    }
-  }, [addToast, fetchJson, syncBusy]);
 
   const setRunnerPending = useCallback((runnerId: string, connectionId: string, pending: boolean) => {
     const key = runnerActionKey(runnerId, connectionId);
@@ -1015,15 +951,12 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
 
   useEffect(() => {
     const handle = window.setInterval(() => {
-      if (permissions.canViewConfig && visibleTab === 'config') {
-        void loadSyncStatus({ quiet: true });
-      }
       if (permissions.canViewDispatcher && visibleTab === 'dispatcher') {
         void loadDispatcherStatus({ quiet: true });
       }
     }, POLL_INTERVAL_MS);
     return () => window.clearInterval(handle);
-  }, [loadDispatcherStatus, loadSyncStatus, permissions.canViewConfig, permissions.canViewDispatcher, visibleTab]);
+  }, [loadDispatcherStatus, permissions.canViewDispatcher, visibleTab]);
 
   return (
     <div data-page="system" className="active p-6 space-y-6">
@@ -1031,16 +964,12 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
         <SystemConfig
           config={config}
           envFilePath={envFilePath}
-          syncStatus={syncStatus}
-          syncError={syncError}
           configError={configError}
           configLoading={configLoading}
           saving={saving}
           onChange={setConfig}
           onReload={loadSystemConfig}
-          onRefreshSyncStatus={loadSyncStatus}
           onSave={saveConfig}
-          onTriggerSync={triggerSync}
           canManageConfig={permissions.canManageConfig}
         />
       )}
@@ -1511,6 +1440,9 @@ const AAA_ALL_ACTION_OPTION_GROUPS: AAAOptionGroup[] = [
       { value: 'folder.move', label: 'move' },
       { value: 'folder.update', label: 'update' },
       { value: 'folder.delete', label: 'delete' },
+      { value: 'config_repo.read', label: 'read config repo' },
+      { value: 'config_repo.manage', label: 'manage config repo' },
+      { value: 'config_repo.sync', label: 'sync config repo' },
     ],
   },
   {
@@ -4054,34 +3986,24 @@ function SearchIcon() {
 function SystemConfig({
   config,
   envFilePath,
-  syncStatus,
-  syncError,
   configError,
   configLoading,
   saving,
   onChange,
   onReload,
-  onRefreshSyncStatus,
   onSave,
-  onTriggerSync,
   canManageConfig,
 }: {
   config: ConfigFormState;
   envFilePath: string;
-  syncStatus: ConfigSyncStatus | null;
-  syncError: string | null;
   configError: string | null;
   configLoading: boolean;
   saving: boolean;
   onChange: (next: ConfigFormState) => void;
   onReload: () => Promise<void>;
-  onRefreshSyncStatus: (opts?: { quiet?: boolean }) => Promise<void>;
   onSave: () => Promise<void>;
-  onTriggerSync: () => Promise<void>;
   canManageConfig: boolean;
 }) {
-  const repoUrl = config.config_repo_url.trim();
-  const statusKey = normalizeStatus(syncStatus?.status, repoUrl);
   const envPath = (envFilePath || '').trim();
 
   const handleChange = (key: keyof ConfigFormState) => (event: ChangeEvent<HTMLInputElement>) => {
@@ -4097,71 +4019,6 @@ function SystemConfig({
   return (
     <div id="system-config-section" className="grid gap-6 lg:grid-cols-2 pb-24">
       <form id="system-config-form" className="space-y-4 lg:col-span-2" onSubmit={onSubmit}>
-        <div className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-xs text-[var(--text-secondary)]">Git sync</p>
-              <h3 className="text-lg font-semibold text-[var(--text-primary)]">Setup & status</h3>
-              <p className="text-xs text-[var(--text-secondary)]">Connect your repo and monitor sync health in one place.</p>
-            </div>
-            <div className="flex gap-2 flex-wrap">
-              <button className="glass-button-ghost" type="button" onClick={() => void onRefreshSyncStatus()}>
-                Refresh status
-              </button>
-              <button className="glass-button-subtle" type="button" onClick={() => void onTriggerSync()} disabled={!canManageConfig}>
-                Sync config
-              </button>
-            </div>
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-[2fr_1fr] items-start">
-            <div className="space-y-2">
-              <label className="flex flex-col gap-1 text-sm">
-                <span>Config repo URL</span>
-                <input
-                  id="system-config-repo"
-                  type="text"
-                  className="pipelines-input"
-                  value={config.config_repo_url}
-                  onChange={handleChange('config_repo_url')}
-                  placeholder="https://github.com/org/repo"
-                  disabled={!canManageConfig || configLoading || saving}
-                />
-              </label>
-              <p className="text-xs text-[var(--text-secondary)]">Source of truth for pipelines, triggers, and steps.</p>
-            </div>
-
-            <div className="space-y-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-tertiary)] p-3">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-medium text-[var(--text-primary)] truncate">{repoUrl || 'Not configured'}</span>
-                <span className={`system-chip ${repoUrl ? (statusKey === 'success' ? 'system-chip--success' : statusKey === 'error' ? 'system-chip--error' : statusKey === 'running' ? 'system-chip--warning' : 'system-chip--muted') : 'system-chip--muted'}`}>
-                  {repoUrl ? (statusKey === 'success' ? 'Synced' : statusKey === 'error' ? 'Sync failed' : statusKey === 'running' ? 'Syncing' : 'Ready') : 'Not configured'}
-                </span>
-              </div>
-              <p className="text-xs text-[var(--text-secondary)]">
-                {syncStatus?.completed_at
-                  ? `Last sync completed ${formatTimestamp(syncStatus.completed_at)}`
-                  : syncStatus?.started_at
-                    ? `Sync started ${formatTimestamp(syncStatus.started_at)}`
-                    : repoUrl
-                      ? 'Awaiting the first sync.'
-                      : 'Set the Git URL to enable sync from source control.'}
-              </p>
-              {syncError && <p className="text-xs text-red-500">Sync status error: {syncError}</p>}
-              {syncStatus?.details && Object.keys(syncStatus.details).length > 0 && (
-                <ul className="sync-detail-list mt-1">
-                  {Object.entries(syncStatus.details).map(([key, value]) => (
-                    <li key={key}>
-                      <strong>{key}:</strong> <span>{String(value)}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {envPath && <p className="text-xs text-[var(--text-secondary)]">Env file: {envPath}</p>}
-            </div>
-          </div>
-        </div>
-
         <div className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
           <div>
             <p className="text-xs text-[var(--text-secondary)]">Runtime tuning</p>
@@ -4273,6 +4130,8 @@ function SystemConfig({
             </label>
           </div>
         </div>
+
+        {envPath && <p className="text-xs text-[var(--text-secondary)]">Env file: {envPath}</p>}
 
         {configError && (
           <div className="glass-card p-4 border border-red-500/30 rounded-xl text-sm text-red-500">
@@ -4549,42 +4408,6 @@ function formatSince(nowMs: number, unixSeconds: number) {
   if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.floor(minutes / 60);
   return `${hours}h ago`;
-}
-
-function normalizeStatus(value: unknown, repoUrl = '') {
-  const key = String(value ?? '').toLowerCase().trim();
-  if (!key && !repoUrl.trim()) return 'missing';
-  if (['running', 'loading', 'in_progress'].includes(key)) return 'running';
-  if (['success', 'completed', 'complete', 'done'].includes(key)) return 'success';
-  if (['error', 'failed', 'failure'].includes(key)) return 'error';
-  return key || 'idle';
-}
-
-function normalizeConfigSyncStatus(value: unknown): ConfigSyncStatus | null {
-  const record = asRecord(value);
-  if (!record) return null;
-  const status = readString(record.status);
-  if (!status) return null;
-
-  const detailsRaw = asRecord(record.details);
-  const details: Record<string, number> = {};
-  if (detailsRaw) {
-    Object.entries(detailsRaw).forEach(([key, val]) => {
-      const num = typeof val === 'number' ? val : Number(val);
-      if (Number.isFinite(num)) {
-        details[key] = num;
-      }
-    });
-  }
-
-  const normalized: ConfigSyncStatus = {
-    status,
-    message: readOptionalString(record.message),
-    started_at: readOptionalString(record.started_at),
-    completed_at: readOptionalString(record.completed_at),
-  };
-  if (Object.keys(details).length > 0) normalized.details = details;
-  return normalized;
 }
 
 function normalizeDispatcherStatus(value: unknown): { queuedJobs: number; runners: Runner[]; routing: Record<string, string[]> } {

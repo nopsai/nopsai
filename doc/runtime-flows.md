@@ -193,25 +193,27 @@ Rerun:
 
 ## 12. Config Sync From Git
 
-1. A user calls `POST /v1/system/config/sync` or `POST /v1/internal/config/sync`.
-2. `nopsai` validates that `CONFIG_REPO_URL` is configured.
+1. A folder owner calls `POST /v1/folders/{folderID}/config-repo/sync`, or an admin calls `POST /v1/system/config-repos/sync`.
+2. `nopsai` loads the scoped config repository binding and validates folder ownership for folder-scoped sync.
 3. It asks `git-bot` to verify repository access.
-4. It fetches directories from the config repo:
+4. It fetches directories from the config repo under the binding base path:
    - `pipelines/`
    - `steps/`
    - `triggers/`
    - `environments/`
-   - `pipelineruns/`
+   - `pipelineruns/` for system-scoped repos
 5. It parses and validates each file class:
    - pipelines must parse and pass pipeline validation
    - reusable steps must parse and have matching names
    - triggers must parse as manifests
    - environment files are turned into scoped variables
-   - `pipelineruns/structure.yaml` becomes the run-group tree
-6. It upserts Git-sourced rows into Postgres.
-7. It prunes Git-sourced pipelines, steps, triggers, and variables that disappeared from the repo.
-8. It does not prune user-created groups, even when syncing the run-group structure.
-9. It records sync status for the UI.
+   - `pipelineruns/structure.yaml` becomes the run-group tree for system-scoped repos
+6. Folder-scoped resources are normalized under the bound folder before writing.
+7. It refuses to overwrite resources that are unmanaged or already managed by another config repository.
+8. It upserts rows with config-source metadata into Postgres.
+9. It prunes rows managed by the same config repository that disappeared from the repo.
+10. It does not prune user-created groups, even when syncing the run-group structure.
+11. It records sync status per config repository for the UI.
 
 ## 13. Failure Boundaries
 

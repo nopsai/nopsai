@@ -108,6 +108,8 @@ func TestProductRolePermissions(t *testing.T) {
 		assertAction(t, actions, "pipeline.read", true)
 		assertAction(t, actions, "pipeline.update", false)
 		assertAction(t, actions, "pipeline.execute", false)
+		assertAction(t, actions, "config_repo.read", true)
+		assertAction(t, actions, "config_repo.manage", false)
 		assertAction(t, actions, "secret.read_value", false)
 	})
 
@@ -119,6 +121,9 @@ func TestProductRolePermissions(t *testing.T) {
 		assertAction(t, actions, "secret.write_value", true)
 		assertAction(t, actions, "step.create", true)
 		assertAction(t, actions, "step.update", true)
+		assertAction(t, actions, "config_repo.read", true)
+		assertAction(t, actions, "config_repo.manage", false)
+		assertAction(t, actions, "config_repo.sync", false)
 		assertAction(t, actions, "secret.read_value", false)
 		assertAction(t, actions, "pipeline.delete", false)
 		assertAction(t, actions, "pipeline.manage_acl", false)
@@ -140,6 +145,9 @@ func TestProductRolePermissions(t *testing.T) {
 		assertAction(t, actions, "repository.delete", true)
 		assertAction(t, actions, "step.delete", true)
 		assertAction(t, actions, "step.manage_acl", true)
+		assertAction(t, actions, "config_repo.read", true)
+		assertAction(t, actions, "config_repo.manage", true)
+		assertAction(t, actions, "config_repo.sync", true)
 	})
 
 	t.Run("admin", func(t *testing.T) {

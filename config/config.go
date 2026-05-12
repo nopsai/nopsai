@@ -53,8 +53,6 @@ type Config struct {
 	LMStudioReasoning      string `yaml:"lmstudio_reasoning" env:"LMSTUDIO_REASONING"`
 	LMStudioEnableThinking bool   `yaml:"lmstudio_enable_thinking" env:"LMSTUDIO_ENABLE_THINKING"`
 
-	ConfigRepoURL string `yaml:"config_repo_url" env:"CONFIG_REPO_URL"`
-
 	// Addresses for services to listen on
 	NopsaiListenAddress     string `yaml:"nopsai_listen_address" env:"NOPSAI_LISTEN_ADDRESS"`
 	GitBotListenAddress     string `yaml:"git_bot_listen_address" env:"GIT_BOT_LISTEN_ADDRESS"`
