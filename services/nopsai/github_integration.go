@@ -849,10 +849,11 @@ func (a *App) requestGitBotFile(owner, repo, ref, path string, notFoundErr error
 	}
 }
 
-func (a *App) requestGitBotDirectory(owner, repo, path string) (map[string]string, error) {
+func (a *App) requestGitBotDirectory(owner, repo, ref, path string) (map[string]string, error) {
 	payload := map[string]string{
 		"owner": owner,
 		"repo":  repo,
+		"ref":   ref,
 		"path":  path,
 	}
 	body, _ := json.Marshal(payload)

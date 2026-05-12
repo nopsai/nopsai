@@ -75,8 +75,37 @@ CREATE TABLE triggers (
     repository_name VARCHAR(255) UNIQUE NOT NULL,
     trigger_definition TEXT NOT NULL,
     source VARCHAR(32) NOT NULL DEFAULT 'database',
+    config_repo_id BIGINT,
+    config_source_path TEXT NOT NULL DEFAULT '',
+    config_source_commit_sha TEXT NOT NULL DEFAULT '',
+    managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS config_repositories (
+    id BIGSERIAL PRIMARY KEY,
+    scope_type TEXT NOT NULL CHECK (scope_type IN ('folder', 'system')),
+    scope_id TEXT NOT NULL,
+    repo_url TEXT NOT NULL,
+    branch TEXT NOT NULL DEFAULT 'main',
+    base_path TEXT NOT NULL DEFAULT '',
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    last_sync_status TEXT NOT NULL DEFAULT '',
+    last_sync_message TEXT NOT NULL DEFAULT '',
+    last_sync_started_at TIMESTAMPTZ,
+    last_sync_completed_at TIMESTAMPTZ,
+    last_sync_commit_sha TEXT NOT NULL DEFAULT '',
+    created_by TEXT NOT NULL DEFAULT '',
+    updated_by TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(scope_type, scope_id),
+    UNIQUE(repo_url, branch, base_path)
+);
+
+ALTER TABLE triggers
+    ADD CONSTRAINT triggers_config_repo_id_fkey
+    FOREIGN KEY (config_repo_id) REFERENCES config_repositories(id) ON DELETE SET NULL;
 
 CREATE TABLE pipelines (
     id SERIAL PRIMARY KEY,
@@ -85,6 +114,10 @@ CREATE TABLE pipelines (
     version VARCHAR(255) NOT NULL DEFAULT 'latest',
     definition TEXT NOT NULL,
     source VARCHAR(32) NOT NULL DEFAULT 'database',
+    config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
+    config_source_path TEXT NOT NULL DEFAULT '',
+    config_source_commit_sha TEXT NOT NULL DEFAULT '',
+    managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (path, name)
@@ -96,6 +129,10 @@ CREATE TABLE steps (
     name VARCHAR(255) NOT NULL,
     definition TEXT NOT NULL,
     source VARCHAR(32) NOT NULL DEFAULT 'database',
+    config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
+    config_source_path TEXT NOT NULL DEFAULT '',
+    config_source_commit_sha TEXT NOT NULL DEFAULT '',
+    managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (path, name)
@@ -107,6 +144,10 @@ CREATE TABLE secrets (
     value TEXT NOT NULL,
     scope VARCHAR(255),
     repository_name VARCHAR(255),
+    config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
+    config_source_path TEXT NOT NULL DEFAULT '',
+    config_source_commit_sha TEXT NOT NULL DEFAULT '',
+    managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE NULLS NOT DISTINCT (name, repository_name, scope)
@@ -119,6 +160,10 @@ CREATE TABLE variables (
     repository_name VARCHAR(255),
     scope VARCHAR(255),
     source VARCHAR(32) NOT NULL DEFAULT 'database',
+    config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
+    config_source_path TEXT NOT NULL DEFAULT '',
+    config_source_commit_sha TEXT NOT NULL DEFAULT '',
+    managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE NULLS NOT DISTINCT (name, repository_name, scope)
@@ -289,6 +334,12 @@ CREATE INDEX idx_resource_acl_resource_lookup ON resource_acl(resource_type, res
 CREATE INDEX idx_resource_acl_subject_lookup ON resource_acl(subject_type, subject_id);
 CREATE INDEX idx_authz_decision_logs_created_at ON authz_decision_logs(created_at);
 CREATE INDEX idx_authz_decision_logs_request_id ON authz_decision_logs(request_id);
+CREATE INDEX idx_config_repositories_scope ON config_repositories(scope_type, scope_id);
+CREATE INDEX idx_pipelines_config_repo_id ON pipelines(config_repo_id);
+CREATE INDEX idx_steps_config_repo_id ON steps(config_repo_id);
+CREATE INDEX idx_triggers_config_repo_id ON triggers(config_repo_id);
+CREATE INDEX idx_variables_config_repo_id ON variables(config_repo_id);
+CREATE INDEX idx_secrets_config_repo_id ON secrets(config_repo_id);
 
 -- Seed default admin user with password 'admin' (change after first login).
 INSERT INTO users (id, sub, email, provider, password_hash, status)

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { FormEvent } from 'react';
+import type { Dispatch, FormEvent, SetStateAction } from 'react';
 import { Link, NavLink, useParams, useSearchParams } from 'react-router-dom';
 import yaml from 'js-yaml';
 import { buildApiUrl } from '../lib/api';
@@ -139,6 +139,28 @@ type RepoSummary = {
   started_at?: string;
 };
 
+type ConfigRepository = {
+  id: number;
+  scope_type: string;
+  scope_id: string;
+  repo_url: string;
+  branch: string;
+  base_path: string;
+  enabled: boolean;
+  last_sync_status: string;
+  last_sync_message?: string;
+  last_sync_started_at?: string;
+  last_sync_completed_at?: string;
+  last_sync_commit_sha?: string;
+};
+
+type ConfigRepositoryFormState = {
+  repo_url: string;
+  branch: string;
+  base_path: string;
+  enabled: boolean;
+};
+
 const tabs = [
   { id: 'main', label: 'Main' },
   { id: 'recent', label: 'Recent' },
@@ -149,6 +171,13 @@ const STATUS_PRIORITY = ['failure', 'failure (ignored)', 'cancelled', 'running',
 const RECENT_FETCH_SIZE = 60;
 const RECENT_INITIAL_BATCH = 30;
 const RECENT_BATCH_SIZE = 20;
+
+const emptyConfigRepositoryForm: ConfigRepositoryFormState = {
+  repo_url: '',
+  branch: 'main',
+  base_path: '',
+  enabled: true,
+};
 
 const STATUS_META: Record<
   string,
@@ -254,6 +283,15 @@ function PipelineRunsPage() {
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderError, setNewFolderError] = useState<string | null>(null);
   const [newFolderPending, setNewFolderPending] = useState(false);
+  const [configRepoFolder, setConfigRepoFolder] = useState<{ group: Group; folderPath: string } | null>(null);
+  const [configRepo, setConfigRepo] = useState<ConfigRepository | null>(null);
+  const [configRepoForm, setConfigRepoForm] = useState<ConfigRepositoryFormState>(emptyConfigRepositoryForm);
+  const [configRepoLoading, setConfigRepoLoading] = useState(false);
+  const [configRepoSaving, setConfigRepoSaving] = useState(false);
+  const [configRepoSyncing, setConfigRepoSyncing] = useState(false);
+  const [configRepoError, setConfigRepoError] = useState<string | null>(null);
+  const [configRepoManageAllowed, setConfigRepoManageAllowed] = useState(false);
+  const [configRepoSyncAllowed, setConfigRepoSyncAllowed] = useState(false);
   const [selectedRunIds, setSelectedRunIds] = useState<Set<string>>(new Set());
   const [repoSummaries, setRepoSummaries] = useState<Map<number, RepoSummary>>(new Map());
 
@@ -387,6 +425,78 @@ function PipelineRunsPage() {
     }
   }, []);
 
+  const checkAccessPermission = useCallback(async (action: string, resourceType: string, resourceID: string) => {
+    const params = new URLSearchParams({
+      action,
+      resource_type: resourceType,
+      resource_id: resourceID,
+    });
+    try {
+      const payload = await fetchJson<{ allowed?: boolean }>(`/v1/access/effective-permissions?${params.toString()}`);
+      return Boolean(payload?.allowed);
+    } catch {
+      return false;
+    }
+  }, [fetchJson]);
+
+  const normalizeConfigRepository = useCallback((payload: unknown): ConfigRepository | null => {
+    if (!payload || typeof payload !== 'object') return null;
+    const record = payload as Record<string, unknown>;
+    const id = typeof record.id === 'number' ? record.id : Number(record.id);
+    return {
+      id: Number.isFinite(id) ? id : 0,
+      scope_type: typeof record.scope_type === 'string' ? record.scope_type : '',
+      scope_id: typeof record.scope_id === 'string' ? record.scope_id : '',
+      repo_url: typeof record.repo_url === 'string' ? record.repo_url : '',
+      branch: typeof record.branch === 'string' && record.branch.trim() ? record.branch : 'main',
+      base_path: typeof record.base_path === 'string' ? record.base_path : '',
+      enabled: Boolean(record.enabled),
+      last_sync_status: typeof record.last_sync_status === 'string' ? record.last_sync_status : '',
+      last_sync_message: typeof record.last_sync_message === 'string' ? record.last_sync_message : undefined,
+      last_sync_started_at: typeof record.last_sync_started_at === 'string' ? record.last_sync_started_at : undefined,
+      last_sync_completed_at: typeof record.last_sync_completed_at === 'string' ? record.last_sync_completed_at : undefined,
+      last_sync_commit_sha: typeof record.last_sync_commit_sha === 'string' ? record.last_sync_commit_sha : undefined,
+    };
+  }, []);
+
+  const loadFolderConfigRepository = useCallback(
+    async (folderPath: string, opts?: { quiet?: boolean }) => {
+      if (!opts?.quiet) {
+        setConfigRepoLoading(true);
+        setConfigRepoError(null);
+      }
+      try {
+        const encodedFolder = encodeURIComponent(folderPath);
+        const response = await fetch(buildApiUrl(`/v1/folders/${encodedFolder}/config-repo`), { cache: 'no-store' });
+        if (response.status === 404) {
+          setConfigRepo(null);
+          setConfigRepoForm(emptyConfigRepositoryForm);
+          return;
+        }
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || `Unable to load config repository (${response.status})`);
+        }
+        const repo = normalizeConfigRepository(await response.json());
+        setConfigRepo(repo);
+        setConfigRepoForm(repo ? {
+          repo_url: repo.repo_url,
+          branch: repo.branch || 'main',
+          base_path: repo.base_path || '',
+          enabled: repo.enabled,
+        } : emptyConfigRepositoryForm);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unable to load config repository';
+        setConfigRepoError(message);
+      } finally {
+        if (!opts?.quiet) {
+          setConfigRepoLoading(false);
+        }
+      }
+    },
+    [normalizeConfigRepository]
+  );
+
   useLayoutEffect(() => {
     // Capture the scrollable wrapper used by the app layout so we can attach listeners there too.
     pageWrapperRef.current = (mainContentRef.current?.closest('#page-content-wrapper') as HTMLElement | null) ?? null;
@@ -499,6 +609,35 @@ function PipelineRunsPage() {
   useEffect(() => {
     void loadGroups();
   }, [loadGroups]);
+
+  useEffect(() => {
+    if (!configRepoFolder) return undefined;
+    let cancelled = false;
+    setConfigRepoManageAllowed(false);
+    setConfigRepoSyncAllowed(false);
+
+    void Promise.all([
+      loadFolderConfigRepository(configRepoFolder.folderPath),
+      checkAccessPermission('config_repo.manage', 'folder', configRepoFolder.folderPath),
+      checkAccessPermission('config_repo.sync', 'folder', configRepoFolder.folderPath),
+    ]).then(([, manageAllowed, syncAllowed]) => {
+      if (cancelled) return;
+      setConfigRepoManageAllowed(manageAllowed);
+      setConfigRepoSyncAllowed(syncAllowed);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [checkAccessPermission, configRepoFolder, loadFolderConfigRepository]);
+
+  useEffect(() => {
+    if (!configRepoFolder || configRepo?.last_sync_status !== 'running') return undefined;
+    const handle = window.setInterval(() => {
+      void loadFolderConfigRepository(configRepoFolder.folderPath, { quiet: true });
+    }, 3000);
+    return () => window.clearInterval(handle);
+  }, [configRepo?.last_sync_status, configRepoFolder, loadFolderConfigRepository]);
 
   useEffect(() => {
     if (pollingRef.current) {
@@ -840,6 +979,108 @@ function PipelineRunsPage() {
     [activeGroupId, fetchJson, loadGroups]
   );
 
+  const openFolderConfigRepository = useCallback(
+    (group: Group) => {
+      const folderPath = buildGroupPath(group.id, groups).map(item => item.name).join('/');
+      if (!folderPath) return;
+      setConfigRepoFolder({ group, folderPath });
+      setConfigRepo(null);
+      setConfigRepoForm(emptyConfigRepositoryForm);
+      setConfigRepoError(null);
+      setConfigRepoManageAllowed(false);
+      setConfigRepoSyncAllowed(false);
+    },
+    [groups]
+  );
+
+  const closeFolderConfigRepository = useCallback(() => {
+    setConfigRepoFolder(null);
+    setConfigRepo(null);
+    setConfigRepoForm(emptyConfigRepositoryForm);
+    setConfigRepoError(null);
+    setConfigRepoSaving(false);
+    setConfigRepoSyncing(false);
+  }, []);
+
+  const saveFolderConfigRepository = useCallback(async () => {
+    if (!configRepoFolder || !configRepoManageAllowed || configRepoSaving) return;
+    const repoURL = configRepoForm.repo_url.trim();
+    if (!repoURL) {
+      setConfigRepoError('Repository URL is required.');
+      return;
+    }
+    setConfigRepoSaving(true);
+    setConfigRepoError(null);
+    try {
+      const repo = await fetchJson<ConfigRepository>(`/v1/folders/${encodeURIComponent(configRepoFolder.folderPath)}/config-repo`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repo_url: repoURL,
+          branch: configRepoForm.branch.trim() || 'main',
+          base_path: configRepoForm.base_path.trim(),
+          enabled: Boolean(configRepoForm.enabled),
+        }),
+      });
+      const normalized = normalizeConfigRepository(repo);
+      setConfigRepo(normalized);
+      if (normalized) {
+        setConfigRepoForm({
+          repo_url: normalized.repo_url,
+          branch: normalized.branch || 'main',
+          base_path: normalized.base_path || '',
+          enabled: normalized.enabled,
+        });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to save config repository';
+      setConfigRepoError(message);
+    } finally {
+      setConfigRepoSaving(false);
+    }
+  }, [configRepoFolder, configRepoForm, configRepoManageAllowed, configRepoSaving, fetchJson, normalizeConfigRepository]);
+
+  const deleteFolderConfigRepository = useCallback(async () => {
+    if (!configRepoFolder || !configRepoManageAllowed || configRepoSaving) return;
+    if (!window.confirm('Remove the config repository from this folder? Synced resources will remain available.')) return;
+    setConfigRepoSaving(true);
+    setConfigRepoError(null);
+    try {
+      await fetchJson<void>(`/v1/folders/${encodeURIComponent(configRepoFolder.folderPath)}/config-repo`, { method: 'DELETE' });
+      setConfigRepo(null);
+      setConfigRepoForm(emptyConfigRepositoryForm);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to remove config repository';
+      setConfigRepoError(message);
+    } finally {
+      setConfigRepoSaving(false);
+    }
+  }, [configRepoFolder, configRepoManageAllowed, configRepoSaving, fetchJson]);
+
+  const syncFolderConfigRepository = useCallback(async () => {
+    if (!configRepoFolder || !configRepoSyncAllowed || configRepoSyncing || configRepo?.last_sync_status === 'running') return;
+    setConfigRepoSyncing(true);
+    setConfigRepoError(null);
+    try {
+      await fetchJson(`/v1/folders/${encodeURIComponent(configRepoFolder.folderPath)}/config-repo/sync`, { method: 'POST' });
+      setConfigRepo(prev => prev ? {
+        ...prev,
+        last_sync_status: 'running',
+        last_sync_message: 'Configuration synchronization started.',
+        last_sync_started_at: new Date().toISOString(),
+        last_sync_completed_at: undefined,
+      } : prev);
+      window.setTimeout(() => {
+        void loadFolderConfigRepository(configRepoFolder.folderPath, { quiet: true });
+      }, 1000);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to start config repository sync';
+      setConfigRepoError(message);
+    } finally {
+      setConfigRepoSyncing(false);
+    }
+  }, [configRepo?.last_sync_status, configRepoFolder, configRepoSyncAllowed, configRepoSyncing, fetchJson, loadFolderConfigRepository]);
+
   const handleCancelRun = useCallback(
     async (runId: string) => {
       try {
@@ -1064,6 +1305,7 @@ function PipelineRunsPage() {
               repoSummaries={repoSummaries}
               fetchRepoSummary={fetchRepoSummary}
               onDeleteFolder={handleDeleteFolder}
+              onOpenConfigRepository={openFolderConfigRepository}
               onOpenRun={handleOpenRun}
               onSelectRun={handleRunSelect}
               selectedRunIds={selectedRunIds}
@@ -1132,6 +1374,25 @@ function PipelineRunsPage() {
           onSubmit={submitNewFolder}
         />
       )}
+
+      {configRepoFolder && (
+        <FolderConfigRepositoryModal
+          folderLabel={configRepoFolder.folderPath}
+          repo={configRepo}
+          form={configRepoForm}
+          loading={configRepoLoading}
+          saving={configRepoSaving}
+          syncing={configRepoSyncing}
+          error={configRepoError}
+          canManage={configRepoManageAllowed}
+          canSync={configRepoSyncAllowed}
+          onChange={setConfigRepoForm}
+          onSave={saveFolderConfigRepository}
+          onDelete={deleteFolderConfigRepository}
+          onSync={syncFolderConfigRepository}
+          onClose={closeFolderConfigRepository}
+        />
+      )}
     </div>
   );
 }
@@ -1154,6 +1415,7 @@ function Dashboard({
   repoSummaries,
   fetchRepoSummary,
   onDeleteFolder,
+  onOpenConfigRepository,
   onOpenRun,
   onSelectRun,
   selectedRunIds,
@@ -1182,6 +1444,7 @@ function Dashboard({
   repoSummaries: Map<number, RepoSummary>;
   fetchRepoSummary: (groupId: number) => Promise<void>;
   onDeleteFolder: (id: number) => void;
+  onOpenConfigRepository: (group: Group) => void;
   onOpenRun: (id: string) => void;
   onSelectRun: (id: string) => void;
   selectedRunIds: Set<string>;
@@ -1237,32 +1500,45 @@ function Dashboard({
     const hasSearch = Boolean(term);
     const mainSearchRuns = hasSearch ? recentRuns : [];
 
+    const activeFolder = activeGroupPath.length ? activeGroupPath[activeGroupPath.length - 1] : null;
+
     return (
       <div className="space-y-4">
         {groupsError && <div className="text-red-500 text-sm">{groupsError}</div>}
 
         {activeGroupPath.length > 0 && (
-          <div className="flex items-center flex-wrap gap-2 text-sm text-[var(--text-secondary)]">
-            <button
-              type="button"
-              className="runner-pill runner-pill--muted"
-              onClick={() => onSelectGroup(null)}
-              aria-label="Back to root folders"
-            >
-              All folders
-            </button>
-            {activeGroupPath.map((group: Group) => (
-              <div key={group.id} className="flex items-center gap-2">
-                <span className="text-[var(--border-primary)]">/</span>
-                <button
-                  type="button"
-                  className={`runner-pill ${group.id === activeGroupId ? 'runner-pill--muted' : 'runner-pill--ghost'}`}
-                  onClick={() => onSelectGroup(group.id)}
-                >
-                  {group.name}
-                </button>
-              </div>
-            ))}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center flex-wrap gap-2 text-sm text-[var(--text-secondary)]">
+              <button
+                type="button"
+                className="runner-pill runner-pill--muted"
+                onClick={() => onSelectGroup(null)}
+                aria-label="Back to root folders"
+              >
+                All folders
+              </button>
+              {activeGroupPath.map((group: Group) => (
+                <div key={group.id} className="flex items-center gap-2">
+                  <span className="text-[var(--border-primary)]">/</span>
+                  <button
+                    type="button"
+                    className={`runner-pill ${group.id === activeGroupId ? 'runner-pill--muted' : 'runner-pill--ghost'}`}
+                    onClick={() => onSelectGroup(group.id)}
+                  >
+                    {group.name}
+                  </button>
+                </div>
+              ))}
+            </div>
+            {activeFolder && !activeFolder.name.includes('/') && (
+              <button
+                type="button"
+                className="glass-button-subtle"
+                onClick={() => onOpenConfigRepository(activeFolder)}
+              >
+                Config Repository
+              </button>
+            )}
           </div>
         )}
 
@@ -1279,6 +1555,7 @@ function Dashboard({
               repoSummaries={repoSummaries}
               onSelect={onSelectGroup}
               onDelete={onDeleteFolder}
+              onOpenConfigRepository={onOpenConfigRepository}
             />
             <GroupGrid
               groups={folderGroups}
@@ -1287,6 +1564,7 @@ function Dashboard({
               repoSummaries={repoSummaries}
               onSelect={onSelectGroup}
               onDelete={onDeleteFolder}
+              onOpenConfigRepository={onOpenConfigRepository}
             />
           </div>
         )}
@@ -1367,6 +1645,7 @@ function GroupGrid({
   repoSummaries,
   onSelect,
   onDelete,
+  onOpenConfigRepository,
 }: {
   groups: Group[];
   allGroups: Group[];
@@ -1374,6 +1653,7 @@ function GroupGrid({
   repoSummaries: Map<number, RepoSummary>;
   onSelect: (id: number) => void;
   onDelete: (id: number) => void;
+  onOpenConfigRepository: (group: Group) => void;
 }) {
   if (!groups.length) return null;
   return (
@@ -1475,6 +1755,21 @@ function GroupGrid({
                     <path d="M9 5l7 7-7 7" />
                   </svg>
                 </span>
+                <button
+                  className="pipelines-delete-button pipeline-folder-delete-btn"
+                  type="button"
+                  title="Config repository"
+                  aria-label={`Config repository for ${displayName}`}
+                  onClick={event => {
+                    event.stopPropagation();
+                    onOpenConfigRepository(group);
+                  }}
+                >
+                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="3" />
+                    <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 005 15.08a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1A1.65 1.65 0 004.27 7.2l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 008.92 4a1.65 1.65 0 001-1.51V2a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019 8.92a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+                  </svg>
+                </button>
                 <button
                   className="pipelines-delete-button pipeline-folder-delete-btn delete-group-btn"
                   type="button"
@@ -5030,6 +5325,201 @@ function NewFolderModal({
       </div>
     </div>
   );
+}
+
+function FolderConfigRepositoryModal({
+  folderLabel,
+  repo,
+  form,
+  loading,
+  saving,
+  syncing,
+  error,
+  canManage,
+  canSync,
+  onChange,
+  onSave,
+  onDelete,
+  onSync,
+  onClose,
+}: {
+  folderLabel: string;
+  repo: ConfigRepository | null;
+  form: ConfigRepositoryFormState;
+  loading: boolean;
+  saving: boolean;
+  syncing: boolean;
+  error: string | null;
+  canManage: boolean;
+  canSync: boolean;
+  onChange: Dispatch<SetStateAction<ConfigRepositoryFormState>>;
+  onSave: () => Promise<void>;
+  onDelete: () => Promise<void>;
+  onSync: () => Promise<void>;
+  onClose: () => void;
+}) {
+  const inputClass = 'w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)] disabled:cursor-not-allowed disabled:opacity-70';
+  const isRunning = repo?.last_sync_status === 'running';
+  const canEdit = canManage && !loading && !saving;
+  const syncDisabled = !repo || !canSync || syncing || saving || isRunning;
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    await onSave();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] px-4">
+      <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-[var(--border-primary)] overflow-hidden">
+        <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-[var(--border-primary)]">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-[var(--text-secondary)] font-semibold">Folder Settings</p>
+            <h3 className="text-lg font-semibold text-[var(--text-primary)]">Config Repository</h3>
+            <p className="text-xs text-[var(--text-secondary)] break-all">{folderLabel}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {!canManage && <span className="runner-pill runner-pill--muted">Read-only</span>}
+            <button type="button" className="pipelines-icon-only" aria-label="Close" onClick={onClose}>
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 6L6 18" />
+                <path d="M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-5 space-y-5">
+          {loading ? (
+            <div className="text-sm text-[var(--text-secondary)]">Loading config repository...</div>
+          ) : (
+            <>
+              {!repo && (
+                <div className="rounded-lg border border-dashed border-[var(--border-primary)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+                  No config repository connected.
+                </div>
+              )}
+
+              {repo && (
+                <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-4 py-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <p className="text-xs text-[var(--text-secondary)]">Status</p>
+                      <p className="font-semibold text-[var(--text-primary)]">{repo.last_sync_status || 'Not synced'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-[var(--text-secondary)]">Completed</p>
+                      <p className="font-semibold text-[var(--text-primary)]">{formatConfigRepoTimestamp(repo.last_sync_completed_at)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-[var(--text-secondary)]">Started</p>
+                      <p className="font-semibold text-[var(--text-primary)]">{formatConfigRepoTimestamp(repo.last_sync_started_at)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-[var(--text-secondary)]">Commit</p>
+                      <p className="font-semibold text-[var(--text-primary)] truncate" title={repo.last_sync_commit_sha || ''}>
+                        {repo.last_sync_commit_sha || '-'}
+                      </p>
+                    </div>
+                  </div>
+                  {repo.last_sync_message && (
+                    <p className="mt-3 text-xs text-[var(--text-secondary)] break-words">{repo.last_sync_message}</p>
+                  )}
+                </div>
+              )}
+
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label htmlFor="folder-config-repo-url" className="text-sm font-medium text-[var(--text-primary)]">
+                    Repository URL
+                  </label>
+                  <input
+                    id="folder-config-repo-url"
+                    type="url"
+                    required={canManage}
+                    value={form.repo_url}
+                    onChange={event => onChange(prev => ({ ...prev, repo_url: event.target.value }))}
+                    disabled={!canEdit}
+                    className={inputClass}
+                    placeholder="https://github.com/org/config-repo"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label htmlFor="folder-config-repo-branch" className="text-sm font-medium text-[var(--text-primary)]">
+                      Branch
+                    </label>
+                    <input
+                      id="folder-config-repo-branch"
+                      value={form.branch}
+                      onChange={event => onChange(prev => ({ ...prev, branch: event.target.value }))}
+                      disabled={!canEdit}
+                      className={inputClass}
+                      placeholder="main"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label htmlFor="folder-config-repo-base-path" className="text-sm font-medium text-[var(--text-primary)]">
+                      Base path
+                    </label>
+                    <input
+                      id="folder-config-repo-base-path"
+                      value={form.base_path}
+                      onChange={event => onChange(prev => ({ ...prev, base_path: event.target.value }))}
+                      disabled={!canEdit}
+                      className={inputClass}
+                      placeholder="configs/team-1"
+                    />
+                  </div>
+                </div>
+
+                <label className="inline-flex items-center gap-2 text-sm text-[var(--text-primary)]">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-[var(--border-primary)] text-indigo-600 focus:ring-indigo-500"
+                    checked={form.enabled}
+                    onChange={event => onChange(prev => ({ ...prev, enabled: event.target.checked }))}
+                    disabled={!canEdit}
+                  />
+                  Enabled
+                </label>
+              </div>
+            </>
+          )}
+
+          {error && <div className="text-sm text-red-600 break-words">{error}</div>}
+
+          <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
+            {repo && canManage && (
+              <button type="button" className="glass-button-danger mr-auto" onClick={onDelete} disabled={saving || syncing}>
+                {saving ? 'Removing...' : 'Remove'}
+              </button>
+            )}
+            {repo && canSync && (
+              <button type="button" className="glass-button-subtle" onClick={onSync} disabled={syncDisabled}>
+                {isRunning || syncing ? 'Syncing...' : 'Sync Now'}
+              </button>
+            )}
+            <button type="button" className="glass-button-subtle" onClick={onClose} disabled={saving || syncing}>
+              Close
+            </button>
+            {canManage && (
+              <button type="submit" className="glass-button-primary" disabled={!canEdit}>
+                {saving ? 'Saving...' : repo ? 'Save Repository' : 'Connect Repository'}
+              </button>
+            )}
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function formatConfigRepoTimestamp(value?: string) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
 }
 
 function buildGroupPath(groupId: number | null, groups: Group[]): Group[] {
