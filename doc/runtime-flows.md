@@ -2,6 +2,19 @@
 
 This document explains how the tool works step by step.
 
+## Request Authentication And Authorization
+
+Most API routes pass through the same middleware stack before reaching a handler.
+
+1. Public paths such as `/v1/auth/login`, `/v1/auth/refresh`, `/v1/auth/logout`, and `/v1/git/events` skip bearer-token authentication.
+2. Other requests must include a bearer token produced by the local auth service.
+3. `nopsai` validates the token, enforces idle-session timeout when configured, and places claims in the request context.
+4. Authenticated-only profile routes (`/v1/auth/me`, `/v1/auth/password`, `/v1/auth/email`) stop here.
+5. Other protected routes are mapped by `routeauthz.MapRequest` to an action/resource pair.
+6. `nopsai` calls the AAA service for a `Check`, or defers to handler-level `Filter` for list endpoints.
+7. If the AAA service is unavailable, `nopsai` temporarily falls back to an in-process evaluator backed by the same Postgres tables.
+8. Denied decisions return `403`; denied decisions and sensitive allowed decisions are written to `authz_decision_logs`.
+
 ## 1. GitHub Webhook To Pipeline Run
 
 1. GitHub sends a webhook to `git-bot` at `/webhook`.
@@ -18,7 +31,7 @@ This document explains how the tool works step by step.
 ## 2. Manual API Run
 
 1. A user or UI calls `POST /v1/run` or `POST /v1/run/{pipeline}`.
-2. `nopsai` accepts either a pipeline identifier, raw YAML, or a JSON payload with `pipeline`, `definition`, `scope`, and variable overrides.
+2. `nopsai` authorizes the request for `pipeline.execute`, then accepts either a pipeline identifier, raw YAML, or a JSON payload with `pipeline`, `definition`, `scope`, and variable overrides.
 3. The pipeline is parsed and normalized.
 4. `nopsai` creates the initial `pipeline_runs` record in `pending`.
 5. `step:` includes are expanded from the reusable `steps` table.
@@ -160,6 +173,7 @@ For a `step:<identifier>` include:
 7. `git-bot` updates its in-memory check-run state and renders the GitHub check output.
 8. When the agent finishes, it calls `dispatcher.FinalizeRun`.
 9. The dispatcher forwards that to `nopsai`, which finalizes the run and notifies `git-bot` of the final result.
+10. The UI refreshes run lists and details over REST polling, and log modals poll `/v1/runs/{runID}/logs?since_line=<id>` for incremental log lines.
 
 ## 11. Cancellation And Reruns
 
@@ -203,6 +217,8 @@ Rerun:
 
 Where failures stop the flow:
 
+- Missing or invalid bearer token: stopped in `nopsai`
+- AAA denial: stopped in `nopsai` with `403`
 - Invalid webhook signature: stopped at `git-bot`
 - Trigger mismatch: stopped in `nopsai`
 - Invalid pipeline YAML or validation failure: stopped in `nopsai`
@@ -218,6 +234,7 @@ The simplest way to think about the tool is:
 
 - `git-bot` knows GitHub
 - `nopsai` knows configuration and state
+- `aaa` knows authorization decisions
 - `dispatcher` knows scheduling
 - `runner` knows Docker hosts
 - `agent` knows pipeline execution and LLM-assisted decisions

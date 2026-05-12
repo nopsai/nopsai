@@ -1,6 +1,41 @@
 # Nopsai API Guide
 
-The core service exposes its REST and WebSocket APIs on `http://localhost:8080`. This guide summarises the high-impact endpoints that power day-to-day automation. All examples assume local development defaults.
+The core service exposes its REST API on `http://localhost:8080`. This guide summarises the high-impact endpoints that power day-to-day automation. All examples assume local development defaults.
+
+Except for login, token refresh, logout, and forwarded Git events, API calls require a bearer token:
+
+```bash
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" http://localhost:8080/v1/runs
+```
+
+---
+
+## Authentication
+
+```bash
+# Login with the default local admin account in a fresh dev database
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"identifier":"admin@example.com","password":"admin"}' \
+  http://localhost:8080/v1/auth/login
+
+# Refresh an access token
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"refresh_token":"<refresh-token>"}' \
+  http://localhost:8080/v1/auth/refresh
+
+# Current user and profile updates
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" http://localhost:8080/v1/auth/me
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"new@example.com"}' \
+  http://localhost:8080/v1/auth/email
+```
+
+- Local auth issues an access token and optional refresh token.
+- Protected UI calls automatically attach the access token and retry once after refresh on `401`.
+- Profile routes require authentication but do not require an extra AAA resource decision.
 
 ---
 
@@ -8,17 +43,19 @@ The core service exposes its REST and WebSocket APIs on `http://localhost:8080`.
 
 ```bash
 # Refresh pipelines, reusable steps, environments, and triggers from the config repo
-curl -X POST http://localhost:8080/v1/internal/config/sync
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  http://localhost:8080/v1/internal/config/sync
 ```
 
 - Use this after updating the configuration repository or when bootstrapping a fresh database.
 - The call is idempotent and can be triggered manually or by Git events.
+- The caller needs `system.update` on `system:config-sync`.
 
 ---
 
 ## Access Control
 
-NopsAI keeps the existing AAA policy engine as the decision point and layers product roles on top of it.
+NopsAI calls the internal AAA service for authorization decisions and layers product roles on top of the low-level policy model.
 
 Predefined product roles:
 
@@ -37,6 +74,7 @@ Important behavior:
 - `admin` is platform-scoped only.
 - Deny rules still win before allows.
 - Denied requests and sensitive allowed requests are still audit logged.
+- If the standalone AAA service is briefly unavailable, `nopsai` falls back to an in-process evaluator that reads the same Postgres policy tables.
 
 Supported access-grant subject types:
 
@@ -132,6 +170,37 @@ Example response:
 ```
 
 This endpoint is the product-facing explanation layer on top of the existing AAA `Check` and inheritance logic.
+
+---
+
+## Internal AAA Service
+
+The standalone `aaa` service is internal to the stack and listens on `AAA_ADDR`, defaulting to `:8082`.
+
+```bash
+# From another container on the compose network
+curl http://aaa:8082/healthz
+
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -H "X-Internal-Token: $AAA_SHARED_INTERNAL_TOKEN" \
+  -d '{
+    "subject":{"type":"user","sub":"admin","email":"admin@example.com"},
+    "action":"pipeline.read",
+    "resource":{"type":"pipeline","id":"team-1/dev/main-pipeline"}
+  }' \
+  http://aaa:8082/v1/authz/check
+```
+
+Internal endpoints:
+
+- `POST /v1/authn/introspect`
+- `POST /v1/authz/check`
+- `POST /v1/authz/batch-check`
+- `POST /v1/authz/filter`
+- `POST /v1/audit/record`
+
+Normal clients should use the `nopsai` API rather than calling AAA directly.
 
 ---
 
@@ -322,7 +391,7 @@ curl -X DELETE \
 ```
 
 - Step/task status updates are posted by the agent to `/v1/runs/{runID}/steps/{step}/tasks/{task}` (payload includes status, exit code, and LLM timing).
-- Run listings return summary metadata used by the UI cards and WebSocket broadcasts.
+- Run listings return summary metadata used by the UI cards and periodic refreshes.
 - Run log access is authorized separately from run-detail access in the low-level AAA layer.
 - Branch cleanup removes historical runs for the specified branch while leaving the repository intact.
 
@@ -370,18 +439,16 @@ curl http://localhost:8080/v1/repositories/hosein-yousefii/test-app/branches
 
 ---
 
-## WebSocket Stream
+## UI Refresh And Log Polling
 
 ```bash
-# Connect (browser or CLI using wscat or websocat)
-ws://localhost:8080/v1/ws
-
-# Subscribe to a specific run
-{"type":"subscribe", "payload":{"runId":"<run-id>"}}
+# Fetch new log lines after the last line id you have seen
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  "http://localhost:8080/v1/runs/<run-id>/logs?since_line=<last-line-id>"
 ```
 
-- Events include `new_run_started`, `run_update`, `run_summary_update`, and `log_line` payloads.
-- The UI automatically replays subscriptions after reconnects; automation clients should mimic the same behaviour.
+- The current UI refreshes run lists and details with REST polling.
+- The log modal polls the run logs endpoint with `since_line` to append new lines incrementally.
 
 ---
 

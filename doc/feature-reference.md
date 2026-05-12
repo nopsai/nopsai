@@ -139,7 +139,9 @@ Current auth/access features:
 - email updates
 - login rate limiting
 - login lockout after repeated failures
-- AAA evaluator with `Check`, `BatchCheck`, `Filter`, and `Introspect`
+- standalone AAA service with `Check`, `BatchCheck`, `Filter`, and `Introspect`
+- in-process AAA fallback in `nopsai` for short service outages
+- route-level action/resource mapping for protected REST endpoints
 - predefined product roles: `viewer`, `developer`, `owner`, `admin`
 - access-grant management API for subject -> role -> resource bindings
 - folder-path inheritance for child pipelines, runs, repositories, triggers, secrets, variables, and steps
@@ -177,11 +179,13 @@ Pages present in the current UI:
 Operational support already in the code:
 
 - Docker Compose stack for local deployment
+- dedicated `aaa` service for internal authorization decisions
 - dedicated runner capacities and scope declarations
 - dispatcher queue visibility
 - active runner metadata display
 - active-run inspection from runner metadata
 - log batching from runner to API
+- REST polling for run lists, details, and incremental log views
 - automatic image pre-pull in the agent
 - descriptive container naming for agents and step containers
 
