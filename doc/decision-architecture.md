@@ -193,7 +193,42 @@ Tradeoffs:
 - Dispatcher must share JWT signing config with `nopsai`
 - Internal auth is still only as strong as the current network and secret handling
 
-## 12. Keep Postgres As The Durable Source Of Operational Truth
+## 12. Run AAA As A Service With Local Fallback
+
+Decision:
+
+- Put the primary authorization decision point in `services/aaa`, while keeping an in-process evaluator fallback in `nopsai`.
+
+Why:
+
+- Authorization logic has a clear service boundary and HTTP contract.
+- The UI/API can use the same `Check`, `Filter`, and `Introspect` behavior everywhere.
+- Short AAA service outages do not have to block all protected requests, because the fallback uses the same Postgres policy data.
+
+Tradeoffs:
+
+- There is another runtime service and shared internal token to configure.
+- `nopsai` still imports AAA evaluator/store packages for fallback, so the boundary is operational rather than a fully independent deployment boundary.
+- Operators must monitor both the AAA service health and authorization decision logs.
+
+## 13. Expand Product Roles Into Low-Level ACLs
+
+Decision:
+
+- Represent `viewer`, `developer`, `owner`, and `admin` as product-level grants, then expand non-admin grants into `resource_acl` rows.
+
+Why:
+
+- The evaluator can stay generic and does not need product-role special cases.
+- Product access management stays understandable for UI users.
+- Folder inheritance works through the same resource inheritance path as other ACLs.
+
+Tradeoffs:
+
+- Grant changes write multiple rows and need reconciliation on startup.
+- Explaining an effective permission requires mapping low-level ACL matches back to product-role language.
+
+## 14. Keep Postgres As The Durable Source Of Operational Truth
 
 Decision:
 
@@ -210,7 +245,7 @@ Tradeoffs:
 - High write volume from logs and status updates lands in the main DB
 - Future scaling may require more specialized event/log storage
 
-## 13. Favor Simple Local-First Infrastructure Defaults
+## 15. Favor Simple Local-First Infrastructure Defaults
 
 Decision:
 
@@ -227,7 +262,7 @@ Tradeoffs:
 - Production-hardening still requires extra work
 - Security boundaries are weaker than in a hardened multi-tenant design
 
-## 14. Design Intent Visible In The Code
+## 16. Design Intent Visible In The Code
 
 Taken together, these decisions show a clear intent:
 
