@@ -1,0 +1,31 @@
+team-1:
+  config:
+    repo_url: https://github.com/hosein-yousefii/nopsai-config-team-1.git
+    branch: main
+    base_path: ""
+    enabled: true
+  description: Description for team-1 folder
+  repos:
+    - hosein-yousefii/test-app
+    - hosein-yousefii/general-app
+  dev:
+    description: This is new
+    repos:
+      - hosein-yousefii/t-app
+data-team:
+  description: Owns data-team scoped configuration
+  config:
+    repo_url: https://github.com/hosein-yousefii/nopsai-config-data-team.git
+    branch: main
+    base_path: ""
+    enabled: true
+team-2:
+  bank:
+    description: Handles bank-facing apps
+    repos:
+      - hosein-yousefii/all-app
+    config:
+      repo_url: https://github.com/hosein-yousefii/nopsai-config-bank-team.git
+      branch: main
+      base_path: ""
+      enabled: true
