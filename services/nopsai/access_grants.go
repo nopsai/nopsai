@@ -45,6 +45,8 @@ const (
 	generalGrantID  = model.FolderGeneralID
 )
 
+var errEveryFolderMustRetainOwner = errors.New("every folder must retain at least one owner")
+
 type productRoleDefinition struct {
 	Description string
 	Actions     []string
@@ -766,6 +768,9 @@ func validateFolderOwnerGuard(ctx context.Context, runner queryRunner, roleName 
 	if resource.ID == generalGrantID {
 		return nil
 	}
+	if roleName != productRoleOwner {
+		return nil
+	}
 
 	var ownerCount int
 	ownerResourceIDs := folderOwnerGuardResourceIDs(resource.ID)
@@ -783,12 +788,22 @@ func validateFolderOwnerGuard(ctx context.Context, runner queryRunner, roleName 
 
 	switch {
 	case roleName == productRoleOwner && excludeGrantID > 0 && ownerCount == 0:
-		return fmt.Errorf("every folder must retain at least one owner")
-	case roleName != productRoleOwner && ownerCount == 0:
-		return fmt.Errorf("grant an owner on %s before assigning other roles", resource.Display)
+		return errEveryFolderMustRetainOwner
 	default:
 		return nil
 	}
+}
+
+func validateFolderOwnerUpsert(ctx context.Context, runner queryRunner, previousRole, nextRole string, resource accessGrantResource, existingGrantID int64) error {
+	previousRole = strings.ToLower(strings.TrimSpace(previousRole))
+	nextRole = strings.ToLower(strings.TrimSpace(nextRole))
+	if nextRole == productRoleOwner {
+		return nil
+	}
+	if existingGrantID > 0 && previousRole == productRoleOwner {
+		return validateFolderOwnerGuard(ctx, runner, productRoleOwner, resource, existingGrantID)
+	}
+	return validateFolderOwnerGuard(ctx, runner, nextRole, resource, 0)
 }
 
 func folderOwnerGuardResourceIDs(folderID string) []string {
