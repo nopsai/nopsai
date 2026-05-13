@@ -42,7 +42,7 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 ## Quick Start
 
 ```bash
-# Refresh pipelines, reusable steps, environments, and triggers from the config repo
+# Refresh config repositories, pipelines, reusable steps, environments, and triggers from Git
 curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
   http://localhost:8080/v1/internal/config/sync
 ```
@@ -50,6 +50,7 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - Use this after updating the configuration repository or when bootstrapping a fresh database.
 - The call is idempotent and can be triggered manually or by Git events.
 - The caller needs `system.update` on `system:config-sync`.
+- For the global GitOps entrypoint, use `PUT /v1/system/config-repo` with `scope_id=global`.
 
 ---
 
@@ -59,7 +60,7 @@ NopsAI calls the internal AAA service for authorization decisions and layers pro
 
 Predefined product roles:
 
-- `viewer`: read-only access to folder metadata, pipelines, runs, logs, triggers, repository metadata, step metadata, secret metadata, and variable metadata
+- `viewer`: read-only access to group metadata, pipelines, runs, logs, triggers, repository metadata, step metadata, secret metadata, and variable metadata
 - `developer`: viewer permissions plus pipeline create/update/execute, rerun/cancel, trigger updates, secret value writes, variable writes, repository updates, scope updates, and reusable step usage
 - `owner`: developer permissions plus delete operations, secret value reads, and permission management inside the owned scope
 - `admin`: platform-wide access through the normal AAA `Check` path, with sensitive actions still audited
@@ -67,7 +68,7 @@ Predefined product roles:
 Important behavior:
 
 - Product roles are expanded to low-level AAA permissions when the grant is created.
-- Folder grants inherit to child folders, pipelines, runs, triggers, repositories, scoped secrets, scoped variables, and reusable steps under that folder path.
+- Group grants inherit to child groups, pipelines, runs, triggers, repositories, scoped secrets, scoped variables, and reusable steps under that group path.
 - `developer` can write secret values but cannot read them.
 - `developer` and `viewer` cannot manage ACLs.
 - `owner` cannot grant `admin`.
@@ -82,7 +83,7 @@ Supported access-grant subject types:
 - `auth_group`
 - `internal_service`
 
-Folder grants target folder paths, not numeric `group_id` values. Example: `/payments/backend`.
+Group grants use the internal `folder` resource type and target group paths, not numeric `group_id` values. Example: `/payments/backend`.
 
 ---
 
@@ -91,7 +92,7 @@ Folder grants target folder paths, not numeric `group_id` values. Example: `/pay
 Use these endpoints to assign product roles to subjects on resources.
 
 ```bash
-# Grant developer to an auth group on a folder subtree
+# Grant developer to an auth group on a group subtree
 curl -X POST \
   -H "Content-Type: application/json" \
   -d '{
@@ -104,7 +105,7 @@ curl -X POST \
   }' \
   http://localhost:8080/v1/access/grants
 
-# List grants for a folder
+# List grants for a group
 curl "http://localhost:8080/v1/access/grants?resource_type=folder&resource_id=/payments"
 
 # Delete a grant
@@ -116,9 +117,9 @@ Grant request fields:
 - `subject_type`: `user`, `auth_group`, or `internal_service`
 - `subject_id`: user subject, email, UUID, auth-group name/UUID, or service id
 - `role`: `viewer`, `developer`, `owner`, or `admin`
-- `resource_type`: `folder`, `pipeline`, `trigger`, `secret`, `variable`, `scope`, `repository`, `step`, or `platform`
-- `resource_id`: folder path such as `/payments`, pipeline id such as `team-1/dev/build`, repository id such as `owner/repo`, or `platform`
-- `inherit`: required for folder-style subtree grants; folder grants should normally use `true`
+- `resource_type`: `folder` for groups, `pipeline`, `trigger`, `secret`, `variable`, `scope`, `repository`, `step`, or `platform`
+- `resource_id`: group path such as `/payments`, pipeline id such as `team-1/dev/build`, repository id such as `owner/repo`, or `platform`
+- `inherit`: required for group subtree grants; group grants should normally use `true`
 
 Example response:
 
@@ -138,7 +139,7 @@ Example response:
 Validation and guardrails:
 
 - The target subject and resource must already exist.
-- Every folder must retain at least one `owner`.
+- Every group must retain at least one `owner`.
 - Only `owner` or `admin` can manage grants.
 - `admin` grants are only valid on `platform`.
 
@@ -258,7 +259,7 @@ curl "http://localhost:8080/v1/variables?env=prod"
 
 - The list endpoint now returns both global variables (e.g. `DATABASE_URL`) and repository-scoped entries in the form `owner/repo/NAME`.
 - Duplicate keys inside the same scope are rejected during config sync.
-- The config repo may define scope folders under `environments/<scope>/env.yaml`; the sync endpoint imports them automatically.
+- The config repo may define scoped variables under `environments/<scope>/env.yaml`; the sync endpoint imports them automatically.
 - Predefined product roles allow variable metadata reads and writes, but do not grant variable value reads by default.
 
 ---
@@ -283,16 +284,16 @@ curl -X PUT \
 curl -X DELETE http://localhost:8080/v1/pipelines/team-1/dev/main-pipeline
 ```
 
-- Paths containing slashes map to nested folders (e.g. `team-1/dev`).
+- Paths containing slashes map to nested groups (e.g. `team-1/dev`).
 - Pipeline responses include metadata such as version, description, steps, tasks, timeout, container image, and LLM controls.
-- Folder-level product grants inherit to pipelines below that folder path.
+- Group-level product grants inherit to pipelines below that group path.
 
 ---
 
 ## Pipeline Run Structure
 
-- The GitOps config repository can now define the folder and repository hierarchy for the Pipeline Runs UI via `pipelineruns/structure.yaml`.
-- Each top-level key is a folder. Nest folders by adding child keys, and assign repositories under a folder with a `repos:` list.
+- The GitOps config repository can define the group and repository hierarchy for the Pipeline Runs UI via `pipelineruns/structure.yaml`.
+- Each top-level key is a group. Nest groups by adding child keys, and assign repositories under a group with a `repos:` list.
 - Repository entries should use the same `owner/repo` strings that appear in triggers and run metadata.
 - Example:
 
@@ -300,7 +301,7 @@ curl -X DELETE http://localhost:8080/v1/pipelines/team-1/dev/main-pipeline
 general:
   description: General workflows
 team-1:
-  description: Description for team-1 folder
+  description: Description for team-1 group
   repos:
     - hosein-yousefii/general-app
   dev:
@@ -315,7 +316,32 @@ team-2:
       - hosein-yousefii/all-app
 ```
 
-- Running `POST /v1/internal/config/sync` now ingests this file, creating or updating the folders in the `groups` table and assigning repositories to their Git-defined parents. Existing manual folders not referenced in the file are left untouched.
+- Running `POST /v1/internal/config/sync` ingests this file, creating or updating groups in the `groups` table and assigning repositories to their Git-defined parents. Existing manual groups not referenced in the file are left untouched.
+
+---
+
+## Config Repositories
+
+```bash
+# Configure the global/system config repo
+curl -X PUT -H "Content-Type: application/json" \
+  -d '{"repo_url":"https://github.com/acme/nopsai-global-config","branch":"main","base_path":"nopsai","enabled":true}' \
+  http://localhost:8080/v1/system/config-repo
+
+# Sync only the global/system config repo
+curl -X POST http://localhost:8080/v1/system/config-repo/sync
+
+# Sync all enabled config repos; system repos run first, then group repos
+curl -X POST http://localhost:8080/v1/system/config-repos/sync
+```
+
+- The global repo uses `scope_type=system` and `scope_id=global`.
+- System- and group-scoped repos may define group repo bindings under `config-repositories/groups/<group>.yaml`.
+- A binding file contains `repo_url`, optional `branch`, optional `base_path`, and optional `enabled`.
+- Nested groups are represented by nested paths, for example `config-repositories/groups/team-2/platform.yaml` creates a binding for `team-2/platform`.
+- Once a group repo is assigned and synced, it is authoritative for resources under that group path. Parent or global repos skip and prune their own managed resources inside delegated groups.
+- Only owners of the target group, including inherited parent owners, can sync that group repo.
+- Complete examples live under `doc/sample-config-repo`.
 
 ---
 
@@ -397,7 +423,7 @@ curl -X DELETE \
 
 ---
 
-## Run Groups (UI Folders)
+## Run Groups
 
 ```bash
 curl -X POST -H 'Content-Type: application/json' \
@@ -417,9 +443,9 @@ curl -X PUT -H 'Content-Type: application/json' \
 curl -X DELETE http://localhost:8080/v1/groups/<group-id>
 ```
 
-- Groups power the “Main” dashboard’s folder hierarchy. Each run card can be assigned to a group path.
-- Access grants should target the resolved folder path, not the numeric `group_id`.
-- `GET /v1/groups` is filtered by the caller’s folder visibility.
+- Groups power the “Main” dashboard hierarchy. Each run card can be assigned to a group path.
+- Access grants should target the resolved group path, not the numeric `group_id`.
+- `GET /v1/groups` is filtered by the caller’s group visibility.
 
 ---
 

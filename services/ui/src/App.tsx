@@ -67,6 +67,8 @@ type ReadCapabilities = {
 type SystemCapabilities = {
   configRead?: boolean;
   configWrite?: boolean;
+  configReposRead?: boolean;
+  configReposWrite?: boolean;
   dispatcherRead?: boolean;
   dispatcherWrite?: boolean;
   access?: boolean;
@@ -318,6 +320,8 @@ function AppShell() {
                     ? {
                         configRead: Boolean(data.capabilities.system.config_read),
                         configWrite: Boolean(data.capabilities.system.config_write),
+                        configReposRead: Boolean(data.capabilities.system.config_repos_read),
+                        configReposWrite: Boolean(data.capabilities.system.config_repos_write),
                         dispatcherRead: Boolean(data.capabilities.system.dispatcher_read),
                         dispatcherWrite: Boolean(data.capabilities.system.dispatcher_write),
                         access: Boolean(data.capabilities.system.access),
@@ -379,8 +383,11 @@ function AppShell() {
   const canDeleteTriggers = Boolean(currentUser?.capabilities?.triggers?.delete);
   const canViewScopes = Boolean(currentUser?.capabilities?.scopes?.read);
   const canDeleteScopes = Boolean(currentUser?.capabilities?.scopes?.delete);
-  const canViewSystemConfig = Boolean(currentUser?.capabilities?.system?.configRead);
-  const canManageSystemConfig = Boolean(currentUser?.capabilities?.system?.configWrite);
+  const canViewSystemRuntimeConfig = Boolean(currentUser?.capabilities?.system?.configRead);
+  const canManageSystemRuntimeConfig = Boolean(currentUser?.capabilities?.system?.configWrite);
+  const canViewSystemConfigRepo = Boolean(currentUser?.capabilities?.system?.configReposRead);
+  const canManageSystemConfigRepo = Boolean(currentUser?.capabilities?.system?.configReposWrite);
+  const canViewSystemConfig = canViewSystemRuntimeConfig || canViewSystemConfigRepo;
   const canViewSystemDispatcher = Boolean(currentUser?.capabilities?.system?.dispatcherRead);
   const canManageSystemDispatcher = Boolean(currentUser?.capabilities?.system?.dispatcherWrite);
   const canViewSystemAccess = Boolean(currentUser?.capabilities?.system?.access);
@@ -897,7 +904,10 @@ function AppShell() {
                       <SystemPage
                         permissions={{
                           canViewConfig: canViewSystemConfig,
-                          canManageConfig: canManageSystemConfig,
+                          canViewRuntimeConfig: canViewSystemRuntimeConfig,
+                          canManageRuntimeConfig: canManageSystemRuntimeConfig,
+                          canViewGlobalConfigRepo: canViewSystemConfigRepo,
+                          canManageGlobalConfigRepo: canManageSystemConfigRepo,
                           canViewDispatcher: canViewSystemDispatcher,
                           canManageDispatcher: canManageSystemDispatcher,
                           canViewAccess: canViewSystemAccess,
@@ -1005,7 +1015,7 @@ function Sidebar({
             <button
               className="pipeline-tree-toggle inline-flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1"
               onClick={() => onTogglePipelineNode(node.id)}
-              aria-label="Toggle folder"
+              aria-label="Toggle group"
             >
               <svg
                 className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-90' : ''}`}
@@ -1071,7 +1081,7 @@ function Sidebar({
             <button
               className="pipeline-tree-toggle inline-flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1"
               onClick={() => onToggleTriggerNode(node.id)}
-              aria-label="Toggle folder"
+              aria-label="Toggle group"
             >
               <svg
                 className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-90' : ''}`}
@@ -1136,7 +1146,7 @@ function Sidebar({
             <button
               className="pipeline-tree-toggle inline-flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1"
               onClick={() => onToggleStepNode(node.id)}
-              aria-label="Toggle folder"
+              aria-label="Toggle group"
             >
               <svg
                 className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-90' : ''}`}
@@ -1213,7 +1223,7 @@ function Sidebar({
             <button
               className="pipeline-tree-toggle inline-flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1"
               onClick={() => onToggleScopeNode(node.id)}
-              aria-label="Toggle folder"
+              aria-label="Toggle group"
             >
               <svg
                 className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-90' : ''}`}
@@ -1834,7 +1844,7 @@ function PipelineRunsSidebarContent({
             className="flex items-center gap-2 flex-1 min-w-0 text-left"
             onClick={() => handleSelectGroup(group.id)}
             aria-expanded={expanded}
-            title={isRepo ? 'Open in main view' : 'Open folder in main view'}
+            title={isRepo ? 'Open in main view' : 'Open group in main view'}
           >
             <span className={`h-4 w-4 flex items-center justify-center ${isRepo ? 'text-[var(--text-accent)]' : 'text-[var(--text-secondary)]'}`}>
               {isRepo ? (
@@ -1914,8 +1924,8 @@ function PipelineRunsSidebarContent({
             Root
           </button>
         </div>
-          {groupsLoading && <div className="text-xs text-[var(--text-secondary)]">Loading folders…</div>}
-          {!groupsLoading && rootGroups.length === 0 && <div className="text-xs text-[var(--text-secondary)]">No folders defined yet.</div>}
+          {groupsLoading && <div className="text-xs text-[var(--text-secondary)]">Loading groups…</div>}
+          {!groupsLoading && rootGroups.length === 0 && <div className="text-xs text-[var(--text-secondary)]">No groups defined yet.</div>}
           {!groupsLoading && rootGroups.map(group => renderGroupNode(group))}
         </>
       )}

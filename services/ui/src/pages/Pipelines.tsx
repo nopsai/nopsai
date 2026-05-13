@@ -1618,7 +1618,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
             <span className="pipeline-card-meta-value">{node.pipelineIds.length}</span>
           </div>
           <div className="pipeline-folder-meta-row">
-            <span className="pipeline-card-meta-label">Sub folders:</span>
+            <span className="pipeline-card-meta-label">Sub groups:</span>
             <span className="pipeline-card-meta-value">{node.children.length}</span>
           </div>
         </div>
@@ -2249,7 +2249,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                   value={formModal.path}
                   onChange={event => setFormModal(prev => prev ? { ...prev, path: event.target.value } : prev)}
                 />
-                <p className="text-xs text-[var(--text-secondary)] mt-1">Optional folder-style path. Leave blank for root.</p>
+                <p className="text-xs text-[var(--text-secondary)] mt-1">Optional group path. Leave blank for root.</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-[var(--text-secondary)]">Pipeline Name</label>

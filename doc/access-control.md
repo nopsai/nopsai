@@ -46,12 +46,12 @@ Internal endpoints require the `X-Internal-Token` header, configured with `AAA_S
 
 The product roles are templates seeded by `nopsai` startup:
 
-- `viewer`: read/list access for folders, pipelines, runs, logs, triggers, repositories, steps, scopes, secret metadata, and variable metadata.
+- `viewer`: read/list access for groups, pipelines, runs, logs, triggers, repositories, steps, scopes, secret metadata, and variable metadata.
 - `developer`: viewer access plus non-destructive creation, updates, execution, rerun/cancel, trigger updates, secret writes, variable writes, repository updates, scope updates, and reusable step usage.
 - `owner`: developer access plus deletes, secret value reads, ownership, and ACL management inside the owned scope.
 - `admin`: platform-wide access through the normal AAA `Check` path.
 
-The `admin` role can only be granted on the `platform` resource. Folder grants must inherit.
+The `admin` role can only be granted on the `platform` resource. Group grants must inherit.
 
 ## Subjects And Resources
 
@@ -63,7 +63,7 @@ Supported grant subjects:
 
 Supported grant resources:
 
-- `folder`
+- `folder` (the internal resource type for UI groups)
 - `pipeline`
 - `trigger`
 - `secret`
@@ -73,7 +73,7 @@ Supported grant resources:
 - `step`
 - `platform`
 
-Folder grant requests may use paths with a leading slash, such as `/payments/backend`; the stored internal ID is normalized without the leading slash. The special folder `general` maps to the internal general folder resource.
+Group grant requests use the internal `folder` resource type and may use paths with a leading slash, such as `/payments/backend`; the stored internal ID is normalized without the leading slash. The special group `general` maps to the internal general group resource.
 
 Named secret and variable resources use query-style internal IDs built from repository, scope, and name. The public grant API accepts the same logical IDs shown in the UI.
 
@@ -99,14 +99,14 @@ Deleting a grant removes its expanded ACL and ownership rows through the grant f
 
 ## Inheritance
 
-The evaluator resolves parent resources before checking ACLs. A folder grant can authorize:
+The evaluator resolves parent resources before checking ACLs. A group grant can authorize:
 
-- child folders
-- pipelines and runs under the folder path
-- repositories assigned under the folder path
+- child groups
+- pipelines and runs under the group path
+- repositories assigned under the group path
 - triggers for inherited repositories
 - scoped secrets and variables
-- reusable steps under the folder path
+- reusable steps under the group path
 
 Specific deny policies still win before inherited allow policies.
 
@@ -117,7 +117,7 @@ Authorization decisions are written to `authz_decision_logs` when:
 - the decision is denied
 - the decision is allowed for a sensitive action
 
-Sensitive actions include ACL management, admin/system operations, pipeline execution or deletion, run rerun/cancel/delete, trigger writes, secret value access, variable writes/deletes, folder moves, repository deletes, and step deletes.
+Sensitive actions include ACL management, admin/system operations, pipeline execution or deletion, run rerun/cancel/delete, trigger writes, secret value access, variable writes/deletes, group moves, repository deletes, and step deletes.
 
 The normal request audit trail still writes to `audit_logs`.
 

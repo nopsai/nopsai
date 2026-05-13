@@ -1,0 +1,12 @@
+triggers:
+  - on: push
+    branches:
+      - main
+    scope: dev
+    pipelines:
+      - platform-maintenance
+
+  - on: pull_request
+    scope: dev
+    pipelines:
+      - platform-maintenance
