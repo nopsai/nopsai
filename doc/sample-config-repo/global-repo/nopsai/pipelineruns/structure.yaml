@@ -1,0 +1,18 @@
+platform:
+  description: Shared platform workflows
+  repos:
+    - acme/service-api
+team-1:
+  description: Team 1 delivery workflows
+  repos:
+    - team-1/service-api
+  services:
+    description: Service repositories owned by Team 1
+    repos:
+      - team-1/service-api
+      - team-1/worker
+team-2:
+  platform:
+    description: Team 2 platform workflows
+    repos:
+      - team-2/platform-api

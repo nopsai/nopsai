@@ -93,13 +93,16 @@ GitOps-style configuration sync supports:
 - `steps/` -> reusable step definitions
 - `triggers/` -> trigger overrides
 - `environments/` -> scoped variables
-- `pipelineruns/structure.yaml` -> UI folder hierarchy
+- `pipelineruns/structure.yaml` -> UI group hierarchy
+- `config-repositories/` -> group config repo bindings
 
 Sync behavior:
 
 - upsert Git-sourced items into the database
 - prune Git-sourced items removed from the config repo
 - preserve non-Git groups to avoid deleting user-managed structure
+- sync system/global config repositories before group config repositories, so group bindings defined in Git can be picked up during the same sync-all run
+- group config repositories are authoritative for resources under their group path; parent repos prune their own managed resources in delegated groups
 
 ## API And Run Management
 
@@ -144,7 +147,7 @@ Current auth/access features:
 - route-level action/resource mapping for protected REST endpoints
 - predefined product roles: `viewer`, `developer`, `owner`, `admin`
 - access-grant management API for subject -> role -> resource bindings
-- folder-path inheritance for child pipelines, runs, repositories, triggers, secrets, variables, and steps
+- group-path inheritance for child pipelines, runs, repositories, triggers, secrets, variables, and steps
 - deny-before-allow evaluation
 - effective-permission introspection with human-readable reasons
 - legacy Casbin-backed RBAC metadata compatibility

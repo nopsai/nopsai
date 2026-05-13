@@ -1,0 +1,36 @@
+name: build-and-test
+version: "1.0.0"
+description: Build, test, and package the service application.
+container_image: alpine:3.20
+working_directory: /workspace
+timeout: 15m
+display_options:
+  github_view: mermaid
+variables:
+  - API_VERSION
+  - IMAGE_NAME
+steps:
+  - name: checkout
+    include: step:team-1/shared/checkout
+
+  - name: test
+    script: |
+      #!/bin/sh
+      set -e
+      echo "Running tests for API_VERSION=$API_VERSION"
+      echo "Tests completed"
+    depends_on:
+      - checkout
+
+  - name: package
+    script: |
+      #!/bin/sh
+      set -e
+      echo "Packaging image $IMAGE_NAME"
+    depends_on:
+      - test
+
+  - name: notify
+    include: step:team-1/shared/notify
+    depends_on:
+      - package
