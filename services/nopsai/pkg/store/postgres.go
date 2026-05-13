@@ -100,10 +100,15 @@ func (s *PGStore) CreateOrUpdateConfigRepository(ctx context.Context, input mode
 			branch = EXCLUDED.branch,
 			base_path = EXCLUDED.base_path,
 			enabled = EXCLUDED.enabled,
+			config_repo_id = NULL,
+			config_source_path = '',
+			config_source_commit_sha = '',
+			managed_by_config_repo = FALSE,
 			updated_by = EXCLUDED.updated_by,
 			updated_at = NOW()
 		RETURNING
 			id, scope_type, scope_id, repo_url, branch, base_path, enabled,
+			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo,
 			last_sync_status, last_sync_message, last_sync_started_at, last_sync_completed_at,
 			last_sync_commit_sha, created_by, updated_by, created_at, updated_at
 	`
@@ -123,6 +128,7 @@ func (s *PGStore) GetConfigRepositoryByScope(ctx context.Context, scopeType, sco
 	const query = `
 		SELECT
 			id, scope_type, scope_id, repo_url, branch, base_path, enabled,
+			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo,
 			last_sync_status, last_sync_message, last_sync_started_at, last_sync_completed_at,
 			last_sync_commit_sha, created_by, updated_by, created_at, updated_at
 		FROM config_repositories
@@ -203,6 +209,7 @@ func (s *PGStore) ListConfigRepositories(ctx context.Context, filter models.Conf
 	query := `
 		SELECT
 			id, scope_type, scope_id, repo_url, branch, base_path, enabled,
+			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo,
 			last_sync_status, last_sync_message, last_sync_started_at, last_sync_completed_at,
 			last_sync_commit_sha, created_by, updated_by, created_at, updated_at
 		FROM config_repositories
@@ -249,7 +256,7 @@ func (s *PGStore) UpdateConfigRepositorySyncStatus(ctx context.Context, id int64
 	return nil
 }
 
-var configManagedResourceTables = []string{"pipelines", "steps", "triggers", "variables", "secrets"}
+var configManagedResourceTables = []string{"config_repositories", "pipelines", "steps", "triggers", "variables", "secrets"}
 
 type configRepositoryScanner interface {
 	Scan(dest ...any) error
@@ -258,6 +265,7 @@ type configRepositoryScanner interface {
 func scanConfigRepository(row configRepositoryScanner) (models.ConfigRepository, error) {
 	var repo models.ConfigRepository
 	var startedAt, completedAt sql.NullTime
+	var configRepoID sql.NullInt64
 	err := row.Scan(
 		&repo.ID,
 		&repo.ScopeType,
@@ -266,6 +274,10 @@ func scanConfigRepository(row configRepositoryScanner) (models.ConfigRepository,
 		&repo.Branch,
 		&repo.BasePath,
 		&repo.Enabled,
+		&configRepoID,
+		&repo.ConfigSourcePath,
+		&repo.ConfigSourceCommitSHA,
+		&repo.ManagedByConfigRepo,
 		&repo.LastSyncStatus,
 		&repo.LastSyncMessage,
 		&startedAt,
@@ -278,6 +290,10 @@ func scanConfigRepository(row configRepositoryScanner) (models.ConfigRepository,
 	)
 	if err != nil {
 		return models.ConfigRepository{}, err
+	}
+	if configRepoID.Valid {
+		id := configRepoID.Int64
+		repo.ConfigRepoID = &id
 	}
 	if startedAt.Valid {
 		repo.LastSyncStartedAt = &startedAt.Time

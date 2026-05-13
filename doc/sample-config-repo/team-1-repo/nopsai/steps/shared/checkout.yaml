@@ -1,0 +1,7 @@
+name: checkout
+image: alpine/git:latest
+script: |
+  #!/bin/sh
+  set -e
+  git --version
+  echo "Repository content is available in the run workspace."

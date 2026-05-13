@@ -32,6 +32,16 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 			return "system.read", model.ResourceRef{Type: "system", ID: "config-sync"}, false, nil
 		}
 		return "system.update", model.ResourceRef{Type: "system", ID: "config-sync"}, false, nil
+	case path == "/v1/system/config-repo":
+		if r.Method == http.MethodGet {
+			return "system.read", model.ResourceRef{Type: "system", ID: "config-repos"}, false, nil
+		}
+		return "system.update", model.ResourceRef{Type: "system", ID: "config-repos"}, false, nil
+	case path == "/v1/system/config-repo/sync":
+		if r.Method == http.MethodGet {
+			return "system.read", model.ResourceRef{Type: "system", ID: "config-repos"}, false, nil
+		}
+		return "system.update", model.ResourceRef{Type: "system", ID: "config-repos"}, false, nil
 	case path == "/v1/system/config-repos":
 		return "system.read", model.ResourceRef{Type: "system", ID: "config-repos"}, false, nil
 	case path == "/v1/system/config-repos/sync":
@@ -42,13 +52,13 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		return "system.read", model.ResourceRef{Type: "dispatcher", ID: "status"}, false, nil
 	case strings.HasPrefix(path, "/v1/system/dispatcher/runners/"):
 		return "system.update", model.ResourceRef{Type: "dispatcher", ID: "runners"}, false, nil
-	case strings.HasPrefix(path, "/v1/folders/") && strings.HasSuffix(path, "/config-repo/sync"):
+	case strings.HasPrefix(path, "/v1/groups/") && strings.HasSuffix(path, "/config-repo/sync"):
 		resource = model.ResourceRef{Type: "folder", ID: folderIDFromConfigRepoPath(path, "/config-repo/sync")}
 		if r.Method == http.MethodGet {
 			return "config_repo.read", resource, false, nil
 		}
 		return "config_repo.sync", resource, false, nil
-	case strings.HasPrefix(path, "/v1/folders/") && strings.HasSuffix(path, "/config-repo"):
+	case strings.HasPrefix(path, "/v1/groups/") && strings.HasSuffix(path, "/config-repo"):
 		resource = model.ResourceRef{Type: "folder", ID: folderIDFromConfigRepoPath(path, "/config-repo")}
 		switch r.Method {
 		case http.MethodGet:
@@ -254,7 +264,8 @@ func normalizePathIdentifier(value string) string {
 }
 
 func folderIDFromConfigRepoPath(path, suffix string) string {
-	folderID := strings.TrimPrefix(strings.TrimSpace(path), "/v1/folders/")
+	folderID := strings.TrimSpace(path)
+	folderID = strings.TrimPrefix(folderID, "/v1/groups/")
 	folderID = strings.TrimSuffix(folderID, suffix)
 	if decoded, err := url.PathUnescape(folderID); err == nil {
 		folderID = decoded

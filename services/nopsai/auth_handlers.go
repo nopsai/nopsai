@@ -220,6 +220,8 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 		a.checkCapability(subject, "system.read", model.ResourceRef{Type: "system", ID: "config-sync"})
 	configWrite := a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "config"}) &&
 		a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "config-sync"})
+	configReposRead := a.checkCapability(subject, "system.read", model.ResourceRef{Type: "system", ID: "config-repos"})
+	configReposWrite := a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "config-repos"})
 	dispatcherRead := a.checkCapability(subject, "system.read", model.ResourceRef{Type: "dispatcher", ID: "status"})
 	dispatcherWrite := a.checkCapability(subject, "system.update", model.ResourceRef{Type: "dispatcher", ID: "runners"})
 	triggerRead := a.checkCapabilityOrScopedGrant(ctx, subject, "trigger.read", model.ResourceRef{Type: "trigger", ID: "*"})
@@ -256,11 +258,13 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 			Delete: scopeDelete,
 		},
 		System: authSystemCapabilities{
-			ConfigRead:      configRead,
-			ConfigWrite:     configWrite,
-			DispatcherRead:  dispatcherRead,
-			DispatcherWrite: dispatcherWrite,
-			Access:          a.checkCapability(subject, "iam.admin", model.ResourceRef{Type: "iam", ID: "admin"}),
+			ConfigRead:       configRead,
+			ConfigWrite:      configWrite,
+			ConfigReposRead:  configReposRead,
+			ConfigReposWrite: configReposWrite,
+			DispatcherRead:   dispatcherRead,
+			DispatcherWrite:  dispatcherWrite,
+			Access:           a.checkCapability(subject, "iam.admin", model.ResourceRef{Type: "iam", ID: "admin"}),
 		},
 	}
 }

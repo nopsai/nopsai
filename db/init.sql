@@ -90,6 +90,10 @@ CREATE TABLE IF NOT EXISTS config_repositories (
     branch TEXT NOT NULL DEFAULT 'main',
     base_path TEXT NOT NULL DEFAULT '',
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
+    config_source_path TEXT NOT NULL DEFAULT '',
+    config_source_commit_sha TEXT NOT NULL DEFAULT '',
+    managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE,
     last_sync_status TEXT NOT NULL DEFAULT '',
     last_sync_message TEXT NOT NULL DEFAULT '',
     last_sync_started_at TIMESTAMPTZ,
@@ -335,6 +339,7 @@ CREATE INDEX idx_resource_acl_subject_lookup ON resource_acl(subject_type, subje
 CREATE INDEX idx_authz_decision_logs_created_at ON authz_decision_logs(created_at);
 CREATE INDEX idx_authz_decision_logs_request_id ON authz_decision_logs(request_id);
 CREATE INDEX idx_config_repositories_scope ON config_repositories(scope_type, scope_id);
+CREATE INDEX idx_config_repositories_config_repo_id ON config_repositories(config_repo_id);
 CREATE INDEX idx_pipelines_config_repo_id ON pipelines(config_repo_id);
 CREATE INDEX idx_steps_config_repo_id ON steps(config_repo_id);
 CREATE INDEX idx_triggers_config_repo_id ON triggers(config_repo_id);

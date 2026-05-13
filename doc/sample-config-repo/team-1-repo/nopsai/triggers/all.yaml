@@ -1,0 +1,9 @@
+triggers:
+  - on: push
+    branches:
+      - main
+    skip_repos:
+      - legacy-*
+    scope: team-1/dev
+    pipelines:
+      - team-1/build-and-test

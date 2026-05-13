@@ -26,6 +26,56 @@ type upsertConfigRepositoryRequest struct {
 	Enabled  *bool  `json:"enabled"`
 }
 
+func (a *App) handleGetGlobalConfigRepository(w http.ResponseWriter, r *http.Request) {
+	repo, err := a.store.GetConfigRepositoryByScope(r.Context(), models.ConfigRepositoryScopeSystem, models.ConfigRepositorySystemGlobalID)
+	if err != nil {
+		writeConfigRepositoryStoreError(w, err, "failed to load global config repository")
+		return
+	}
+	writeJSON(w, http.StatusOK, repo)
+}
+
+func (a *App) handleUpsertGlobalConfigRepository(w http.ResponseWriter, r *http.Request) {
+	var req upsertConfigRepositoryRequest
+	if err := httpapi.DecodeJSON(r, &req); err != nil {
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+	input, err := buildConfigRepositoryInput(req, models.ConfigRepositoryScopeSystem, models.ConfigRepositorySystemGlobalID, actorIDFromRequest(r))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	repo, err := a.store.CreateOrUpdateConfigRepository(r.Context(), input)
+	if err != nil {
+		writeConfigRepositoryStoreError(w, err, "failed to save global config repository")
+		return
+	}
+	writeJSON(w, http.StatusOK, repo)
+}
+
+func (a *App) handleDeleteGlobalConfigRepository(w http.ResponseWriter, r *http.Request) {
+	if err := a.store.DeleteConfigRepositoryByScope(r.Context(), models.ConfigRepositoryScopeSystem, models.ConfigRepositorySystemGlobalID); err != nil {
+		writeConfigRepositoryStoreError(w, err, "failed to delete global config repository")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleGetGlobalConfigRepositorySyncStatus(w http.ResponseWriter, r *http.Request) {
+	repo, err := a.store.GetConfigRepositoryByScope(r.Context(), models.ConfigRepositoryScopeSystem, models.ConfigRepositorySystemGlobalID)
+	if err != nil {
+		writeConfigRepositoryStoreError(w, err, "failed to load global config repository")
+		return
+	}
+	writeJSON(w, http.StatusOK, syncStatusFromConfigRepository(repo))
+}
+
+func (a *App) handleSyncGlobalConfigRepository(w http.ResponseWriter, r *http.Request) {
+	a.handleSyncConfigRepositoryByScope(w, r, models.ConfigRepositoryScopeSystem, models.ConfigRepositorySystemGlobalID)
+}
+
 func (a *App) handleGetFolderConfigRepository(w http.ResponseWriter, r *http.Request) {
 	resource, ok := a.requireFolderConfigRepositoryDecision(w, r, "config_repo.read")
 	if !ok {
@@ -97,8 +147,14 @@ func (a *App) handleSyncFolderConfigRepository(w http.ResponseWriter, r *http.Re
 	if !ok {
 		return
 	}
+	if !a.requireFolderConfigRepositoryOwner(w, r, resource.ID) {
+		return
+	}
+	a.handleSyncConfigRepositoryByScope(w, r, models.ConfigRepositoryScopeFolder, resource.ID)
+}
 
-	repo, err := a.store.GetConfigRepositoryByScope(r.Context(), models.ConfigRepositoryScopeFolder, resource.ID)
+func (a *App) handleSyncConfigRepositoryByScope(w http.ResponseWriter, r *http.Request, scopeType, scopeID string) {
+	repo, err := a.store.GetConfigRepositoryByScope(r.Context(), scopeType, scopeID)
 	if err != nil {
 		writeConfigRepositoryStoreError(w, err, "failed to load config repository")
 		return
@@ -163,6 +219,81 @@ func (a *App) requireFolderConfigRepositoryDecision(w http.ResponseWriter, r *ht
 
 func (a *App) folderConfigRepositoryResource(ctx context.Context, raw string) (accessGrantResource, error) {
 	return resolveAccessGrantFolder(ctx, a.db, raw, true)
+}
+
+func (a *App) requireFolderConfigRepositoryOwner(w http.ResponseWriter, r *http.Request, folderID string) bool {
+	allowed, err := a.isFolderConfigRepositoryOwner(r.Context(), r, folderID)
+	if err != nil {
+		log.Error().Err(err).Str("folder_id", folderID).Msg("Failed to check config repository ownership")
+		http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
+		return false
+	}
+	if !allowed {
+		http.Error(w, "only group owners can sync this config repository", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
+func (a *App) isFolderConfigRepositoryOwner(ctx context.Context, r *http.Request, folderID string) (bool, error) {
+	if a == nil || a.db == nil {
+		return false, fmt.Errorf("database unavailable")
+	}
+	subject, ok := a.currentAAASubject(r)
+	if !ok {
+		return false, fmt.Errorf("missing authorization subject")
+	}
+	introspection, err := a.aaaIntrospect(ctx, subject)
+	if err != nil {
+		return false, err
+	}
+
+	subjects := map[string]struct{}{}
+	addSubject := func(subjectType, subjectID string) {
+		subjectType = strings.TrimSpace(subjectType)
+		subjectID = strings.TrimSpace(subjectID)
+		if subjectType == "" || subjectID == "" {
+			return
+		}
+		subjects[subjectType+"|"+subjectID] = struct{}{}
+	}
+	if introspection != nil {
+		addSubject(model.SubjectTypeUser, introspection.ID)
+		for _, group := range introspection.AuthGroups {
+			addSubject(model.SubjectTypeAuthGroup, group.ID)
+		}
+	}
+	addSubject(subject.Type, subject.ID)
+
+	resourceIDs := folderOwnerGuardResourceIDs(folderID)
+	if len(resourceIDs) == 0 || len(subjects) == 0 {
+		return false, nil
+	}
+
+	rows, err := a.db.Query(ctx, `
+		SELECT owner_subject_type, owner_subject_id
+		FROM resource_ownership
+		WHERE resource_type = $1
+		  AND resource_id = ANY($2)
+	`, grantResourceFolder, resourceIDs)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var subjectType, subjectID string
+		if err := rows.Scan(&subjectType, &subjectID); err != nil {
+			return false, err
+		}
+		if _, ok := subjects[strings.TrimSpace(subjectType)+"|"+strings.TrimSpace(subjectID)]; ok {
+			return true, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	return false, nil
 }
 
 func buildConfigRepositoryInput(req upsertConfigRepositoryRequest, scopeType, scopeID, actor string) (models.ConfigRepositoryInput, error) {

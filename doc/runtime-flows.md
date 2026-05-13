@@ -193,27 +193,30 @@ Rerun:
 
 ## 12. Config Sync From Git
 
-1. A folder owner calls `POST /v1/folders/{folderID}/config-repo/sync`, or an admin calls `POST /v1/system/config-repos/sync`.
-2. `nopsai` loads the scoped config repository binding and validates folder ownership for folder-scoped sync.
+1. A group owner calls `POST /v1/groups/{groupPath}/config-repo/sync`, or an admin calls `POST /v1/system/config-repos/sync`.
+2. `nopsai` loads the scoped config repository binding and validates group ownership for group-scoped sync.
 3. It asks `git-bot` to verify repository access.
 4. It fetches directories from the config repo under the binding base path:
    - `pipelines/`
    - `steps/`
    - `triggers/`
    - `environments/`
-   - `pipelineruns/` for system-scoped repos
+   - `pipelineruns/`
+   - `config-repositories/`
 5. It parses and validates each file class:
    - pipelines must parse and pass pipeline validation
    - reusable steps must parse and have matching names
    - triggers must parse as manifests
    - environment files are turned into scoped variables
-   - `pipelineruns/structure.yaml` becomes the run-group tree for system-scoped repos
-6. Folder-scoped resources are normalized under the bound folder before writing.
-7. It refuses to overwrite resources that are unmanaged or already managed by another config repository.
-8. It upserts rows with config-source metadata into Postgres.
-9. It prunes rows managed by the same config repository that disappeared from the repo.
-10. It does not prune user-created groups, even when syncing the run-group structure.
-11. It records sync status per config repository for the UI.
+   - `pipelineruns/structure.yaml` becomes the run-group tree
+   - `config-repositories/groups/<group>.yaml` becomes a group config repo binding
+6. System/global repositories are synced before group repositories during sync-all, so newly defined group bindings can be used immediately.
+7. Group-scoped resources are normalized under the bound group before writing.
+8. It refuses to overwrite resources that are unmanaged or already managed by an unrelated config repository; delegated child group repos can override parent-managed resources in their group.
+9. It upserts rows with config-source metadata into Postgres.
+10. It prunes rows managed by the same config repository that disappeared from the repo.
+11. It does not prune user-created groups, even when syncing the run-group structure.
+12. It records sync status per config repository for the UI.
 
 ## 13. Failure Boundaries
 

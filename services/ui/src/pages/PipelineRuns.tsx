@@ -467,7 +467,7 @@ function PipelineRunsPage() {
       }
       try {
         const encodedFolder = encodeURIComponent(folderPath);
-        const response = await fetch(buildApiUrl(`/v1/folders/${encodedFolder}/config-repo`), { cache: 'no-store' });
+        const response = await fetch(buildApiUrl(`/v1/groups/${encodedFolder}/config-repo`), { cache: 'no-store' });
         if (response.status === 404) {
           setConfigRepo(null);
           setConfigRepoForm(emptyConfigRepositoryForm);
@@ -554,7 +554,7 @@ function PipelineRunsPage() {
       const payload = await fetchJson<Group[]>('/v1/groups');
       setGroups(Array.isArray(payload) ? payload : []);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to load folders';
+      const message = error instanceof Error ? error.message : 'Unable to load groups';
       setGroupsError(message);
     } finally {
       setGroupsLoading(false);
@@ -902,13 +902,13 @@ function PipelineRunsPage() {
 
   const handleDeleteFolder = useCallback(
     async (groupId: number) => {
-      if (!window.confirm('Delete this folder? Runs will remain attached to the repository.')) return;
+      if (!window.confirm('Delete this group? Runs will remain attached to the repository.')) return;
       try {
         await fetchJson(`/v1/groups/${groupId}`, { method: 'DELETE' });
         if (activeGroupId === groupId) updateSearchParams({ group: null });
         await Promise.all([loadGroups(), loadRuns()]);
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unable to delete folder';
+        const message = error instanceof Error ? error.message : 'Unable to delete group';
         alert(message);
       }
     },
@@ -956,7 +956,7 @@ function PipelineRunsPage() {
       const trimmedName = name.trim();
       const trimmedDescription = description.trim();
       if (!trimmedName) {
-        setNewFolderError('Folder name is required.');
+        setNewFolderError('Group name is required.');
         return;
       }
       setNewFolderPending(true);
@@ -971,7 +971,7 @@ function PipelineRunsPage() {
         setNewFolderPending(false);
         await loadGroups();
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unable to create folder';
+        const message = error instanceof Error ? error.message : 'Unable to create group';
         setNewFolderError(message);
         setNewFolderPending(false);
       }
@@ -1012,7 +1012,7 @@ function PipelineRunsPage() {
     setConfigRepoSaving(true);
     setConfigRepoError(null);
     try {
-      const repo = await fetchJson<ConfigRepository>(`/v1/folders/${encodeURIComponent(configRepoFolder.folderPath)}/config-repo`, {
+      const repo = await fetchJson<ConfigRepository>(`/v1/groups/${encodeURIComponent(configRepoFolder.folderPath)}/config-repo`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1042,11 +1042,11 @@ function PipelineRunsPage() {
 
   const deleteFolderConfigRepository = useCallback(async () => {
     if (!configRepoFolder || !configRepoManageAllowed || configRepoSaving) return;
-    if (!window.confirm('Remove the config repository from this folder? Synced resources will remain available.')) return;
+    if (!window.confirm('Remove the config repository from this group? Synced resources will remain available.')) return;
     setConfigRepoSaving(true);
     setConfigRepoError(null);
     try {
-      await fetchJson<void>(`/v1/folders/${encodeURIComponent(configRepoFolder.folderPath)}/config-repo`, { method: 'DELETE' });
+      await fetchJson<void>(`/v1/groups/${encodeURIComponent(configRepoFolder.folderPath)}/config-repo`, { method: 'DELETE' });
       setConfigRepo(null);
       setConfigRepoForm(emptyConfigRepositoryForm);
     } catch (error) {
@@ -1062,7 +1062,7 @@ function PipelineRunsPage() {
     setConfigRepoSyncing(true);
     setConfigRepoError(null);
     try {
-      await fetchJson(`/v1/folders/${encodeURIComponent(configRepoFolder.folderPath)}/config-repo/sync`, { method: 'POST' });
+      await fetchJson(`/v1/groups/${encodeURIComponent(configRepoFolder.folderPath)}/config-repo/sync`, { method: 'POST' });
       setConfigRepo(prev => prev ? {
         ...prev,
         last_sync_status: 'running',
@@ -1218,9 +1218,9 @@ function PipelineRunsPage() {
                     type="button"
                     className="pipelines-icon-only"
                     onClick={handleNewFolder}
-                    aria-label="New Folder"
+                    aria-label="New Group"
                     disabled={Boolean(trimmedSearch)}
-                    title={trimmedSearch ? 'Clear search to create a folder' : 'New Folder'}
+                    title={trimmedSearch ? 'Clear search to create a group' : 'New Group'}
                   >
                     <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v14M5 12h14" />
@@ -1513,9 +1513,9 @@ function Dashboard({
                 type="button"
                 className="runner-pill runner-pill--muted"
                 onClick={() => onSelectGroup(null)}
-                aria-label="Back to root folders"
+                aria-label="Back to root groups"
               >
-                All folders
+                All groups
               </button>
               {activeGroupPath.map((group: Group) => (
                 <div key={group.id} className="flex items-center gap-2">
@@ -1545,7 +1545,7 @@ function Dashboard({
         {hasSearch ? (
           <RunCollection runs={mainSearchRuns} viewMode={viewMode} onOpenRun={onOpenRun} onSelectRun={onSelectRun} selectedRunIds={selectedRunIds} />
         ) : groupsLoading && !groups.length ? (
-          <div className="text-sm text-[var(--text-secondary)]">Loading folders…</div>
+          <div className="text-sm text-[var(--text-secondary)]">Loading groups…</div>
         ) : (
           <div className="space-y-4">
             <GroupGrid
@@ -1773,7 +1773,7 @@ function GroupGrid({
                 <button
                   className="pipelines-delete-button pipeline-folder-delete-btn delete-group-btn"
                   type="button"
-                  title="Delete folder"
+                  title="Delete group"
                   aria-label={`Delete ${displayName}`}
                   onClick={event => {
                     event.stopPropagation();
@@ -1795,7 +1795,7 @@ function GroupGrid({
                 <span className="pipeline-folder-meta-value">{applications}</span>
               </div>
               <div className="pipeline-folder-meta-row">
-                <span className="pipeline-folder-meta-label">Sub folders:</span>
+                <span className="pipeline-folder-meta-label">Sub groups:</span>
                 <span className="pipeline-folder-meta-value">{subfolders}</span>
               </div>
             </div>
@@ -5271,7 +5271,7 @@ function NewFolderModal({
       <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-[var(--border-primary)] overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-primary)]">
           <div>
-            <h3 className="text-lg font-semibold text-[var(--text-primary)]">Create New Folder</h3>
+            <h3 className="text-lg font-semibold text-[var(--text-primary)]">Create New Group</h3>
             <p className="text-xs text-[var(--text-secondary)]">Parent: {parentLabel || 'Root'}</p>
           </div>
           <button type="button" className="pipelines-icon-only" aria-label="Close" onClick={onClose}>
@@ -5284,7 +5284,7 @@ function NewFolderModal({
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           <div className="space-y-2">
             <label htmlFor="new-folder-name" className="text-sm font-medium text-[var(--text-primary)]">
-              Folder Name
+              Group Name
             </label>
             <input
               ref={nameInputRef}
@@ -5295,7 +5295,7 @@ function NewFolderModal({
               value={name}
               onChange={event => setName(event.target.value)}
               className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)]"
-              placeholder="Enter folder name"
+              placeholder="Enter group name"
             />
           </div>
           <div className="space-y-2">
@@ -5309,7 +5309,7 @@ function NewFolderModal({
               onChange={event => setDescription(event.target.value)}
               rows={3}
               className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)]"
-              placeholder="Add a short summary for this folder"
+              placeholder="Add a short summary for this group"
             />
           </div>
           {error && <div className="text-sm text-red-600">{error}</div>}
@@ -5373,7 +5373,7 @@ function FolderConfigRepositoryModal({
       <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-[var(--border-primary)] overflow-hidden">
         <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-[var(--border-primary)]">
           <div>
-            <p className="text-xs uppercase tracking-wide text-[var(--text-secondary)] font-semibold">Folder Settings</p>
+            <p className="text-xs uppercase tracking-wide text-[var(--text-secondary)] font-semibold">Group Settings</p>
             <h3 className="text-lg font-semibold text-[var(--text-primary)]">Config Repository</h3>
             <p className="text-xs text-[var(--text-secondary)] break-all">{folderLabel}</p>
           </div>

@@ -1,0 +1,21 @@
+triggers:
+  - on: push
+    branches:
+      - main
+    scope: team-1/dev
+    pipelines:
+      - team-1/build-and-test
+      - team-1/services/api/deploy
+
+  - on: push
+    tags:
+      - "v*"
+    scope: team-1/prod
+    pipelines:
+      - team-1/build-and-test
+      - team-1/services/api/deploy
+
+  - on: pull_request
+    scope: team-1/dev
+    pipelines:
+      - team-1/build-and-test
