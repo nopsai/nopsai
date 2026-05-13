@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import yaml from 'js-yaml';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { buildApiUrl } from '../lib/api';
+import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups';
 
 const VARIABLE_NAME_PATTERN = /^[A-Za-z0-9_.-]+$/;
 const SECRET_NAME_PATTERN = /^[A-Za-z0-9_.-]+$/;
@@ -254,8 +255,11 @@ function parentFolder(path: string): string {
   return parts.join('/');
 }
 
-function buildScopeTree(scopes: ScopeEntry[]): ScopeTreeNode {
+function buildScopeTree(scopes: ScopeEntry[], groupPaths: string[] = []): ScopeTreeNode {
   const root: ScopeTreeNode = { id: '__root__', name: 'All scopes', fullPath: '', children: [], scopes: [] };
+  groupPaths.forEach(path => {
+    insertGroupPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], scopes: [] }));
+  });
   scopes.forEach(scope => {
     const normalized = normalizeScopeLabel(scope.scope);
     const parts = normalized.split('/').filter(Boolean);
@@ -623,6 +627,7 @@ function ScopesPage({
   const [activeFolder, setActiveFolder] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
+  const [resourceGroupPaths, setResourceGroupPaths] = useState<string[]>([]);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const [selectedScope, setSelectedScope] = useState<string | null>(null);
@@ -1030,6 +1035,21 @@ function ScopesPage({
   }, [loadScopes]);
 
   useEffect(() => {
+    let cancelled = false;
+    void fetchResourceGroupPaths()
+      .then(paths => {
+        if (!cancelled) setResourceGroupPaths(paths);
+      })
+      .catch(error => {
+        console.warn('Failed to load groups for scope tree', error);
+        if (!cancelled) setResourceGroupPaths([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!scopes.length) return;
     const tasks: Array<() => Promise<void>> = [];
     scopes.forEach(scope => {
@@ -1213,7 +1233,7 @@ function ScopesPage({
     return entries;
   }, [scopeDataByScope]);
 
-  const scopeTree = useMemo(() => buildScopeTree(scopes), [scopes]);
+  const scopeTree = useMemo(() => buildScopeTree(scopes, resourceGroupPaths), [resourceGroupPaths, scopes]);
 
   const filteredScopes = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
@@ -1728,7 +1748,7 @@ function ScopesPage({
             <span className="pipeline-card-meta-value">{totalScopes}</span>
           </div>
           <div className="pipeline-folder-meta-row">
-            <span className="pipeline-card-meta-label">Sub folders:</span>
+            <span className="pipeline-card-meta-label">Sub groups:</span>
             <span className="pipeline-card-meta-value">{node.children.length}</span>
           </div>
         </div>
@@ -1798,23 +1818,23 @@ function ScopesPage({
             <div className="glass-card p-5 text-sm text-red-500">Failed to load scopes: {listError}</div>
           ) : (
             <>
-            {scopeEntries.length ? (
-              <div className="pipelines-card-grid pipelines-card-grid--pipelines">{scopeEntries.map(scope => renderScopeCard(scope))}</div>
-            ) : null}
+              {scopeEntries.length ? (
+                <div className="pipelines-card-grid pipelines-card-grid--pipelines">{scopeEntries.map(scope => renderScopeCard(scope))}</div>
+              ) : null}
 
-            {!hasSearch && folders.length ? (
-              <div className="pipelines-card-grid pipelines-card-grid--pipelines mt-4">{folders.map(child => renderFolderCard(child))}</div>
-            ) : null}
+              {!hasSearch && folders.length ? (
+                <div className="pipelines-card-grid pipelines-card-grid--pipelines mt-4">{folders.map(child => renderFolderCard(child))}</div>
+              ) : null}
 
               {!scopeEntries.length && !folders.length && (
                 <div id="scopes-empty" className="pipelines-empty">
                   <h3 className="text-base font-semibold text-[var(--text-primary)]">No scopes found</h3>
                   <p className="text-sm text-[var(--text-secondary)]">
-	                    {hasSearch
-	                      ? `No scope folders matched “${searchTerm.trim()}”.`
-	                      : canCreateScopeHere
-	                        ? 'Create a new scope or adjust your filters.'
-	                        : 'Adjust your filters or browse another folder.'}
+                    {hasSearch
+                      ? `No scope groups matched “${searchTerm.trim()}”.`
+                      : canCreateScopeHere
+                        ? 'Create a new scope or adjust your filters.'
+                        : 'Adjust your filters or browse another group.'}
                   </p>
                 </div>
               )}
@@ -2336,7 +2356,7 @@ function ScopesPage({
                   disabled={scopeModal.pending}
                 />
                 <p className="text-xs text-[var(--text-secondary)] mt-1">
-                  Only letters, numbers, dots, underscores, and hyphens are allowed. Use slashes for nested folders.
+                  Only letters, numbers, dots, underscores, and hyphens are allowed. Use slashes for nested groups.
                 </p>
               </div>
               <div className="space-y-2 bg-[var(--bg-tertiary)] rounded-md p-3 text-xs text-[var(--text-secondary)]">

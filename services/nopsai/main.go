@@ -1556,6 +1556,10 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		return nil, commitSHA, err
 	}
 	filterDelegatedConfigResources(binding, overrideScopes, pipelines, steps, generalEnvs, repoEnvs, triggers)
+	effectivePipelineRunStructure, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, pipelineRunStructure, overrideScopes)
+	if err != nil {
+		return nil, commitSHA, err
+	}
 
 	const pipelineUpsert = `INSERT INTO pipelines (
 			path, name, version, definition, source,
@@ -1909,8 +1913,8 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	}
 
 	// Sync UI groups. Groups do not have a source column, so we do not prune them to avoid deleting user-created groups.
-	if len(pipelineRunStructure) > 0 {
-		if err := a.syncPipelineRunGroups(ctx, tx, pipelineRunStructure, details); err != nil {
+	if len(effectivePipelineRunStructure) > 0 {
+		if err := a.syncPipelineRunGroups(ctx, tx, effectivePipelineRunStructure, details); err != nil {
 			return nil, commitSHA, err
 		}
 	}
@@ -2079,6 +2083,186 @@ func configRepositoryOverrideScopes(ctx context.Context, tx pgx.Tx, binding mode
 	return scopes, nil
 }
 
+func effectivePipelineRunStructureForConfigSync(
+	binding models.ConfigRepository,
+	configRepositories map[string]storedConfigRepository,
+	pipelineRunStructure map[string]*pipelineRunStructureNode,
+	overrideScopes []string,
+) (map[string]*pipelineRunStructureNode, error) {
+	effective, err := configRepositoryGroupStructure(binding, configRepositories)
+	if err != nil {
+		return nil, err
+	}
+
+	structure := pipelineRunStructure
+	if binding.ScopeType == models.ConfigRepositoryScopeSystem && containsGroupConfigRepository(configRepositories) {
+		structure = nil
+	} else {
+		structure = filterPipelineRunStructureByScopes(structure, configRepositoryStructureFilterScopes(binding, configRepositories, overrideScopes))
+	}
+
+	mergePipelineRunStructure(effective, structure)
+	return effective, nil
+}
+
+func containsGroupConfigRepository(configRepositories map[string]storedConfigRepository) bool {
+	for _, repo := range configRepositories {
+		if repo.scopeType == models.ConfigRepositoryScopeFolder {
+			return true
+		}
+	}
+	return false
+}
+
+func configRepositoryStructureFilterScopes(binding models.ConfigRepository, configRepositories map[string]storedConfigRepository, overrideScopes []string) []string {
+	scopeSet := map[string]struct{}{}
+	addScope := func(scope string) {
+		scope = strings.Trim(strings.TrimSpace(scope), "/")
+		if scope == "" {
+			return
+		}
+		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+			boundScope := strings.Trim(strings.TrimSpace(binding.ScopeID), "/")
+			if scope == boundScope || !configResourceUnderScope(scope, boundScope) {
+				return
+			}
+		}
+		scopeSet[scope] = struct{}{}
+	}
+
+	for _, scope := range overrideScopes {
+		addScope(scope)
+	}
+	for _, repo := range configRepositories {
+		if repo.scopeType == models.ConfigRepositoryScopeFolder {
+			addScope(repo.scopeID)
+		}
+	}
+
+	scopes := make([]string, 0, len(scopeSet))
+	for scope := range scopeSet {
+		scopes = append(scopes, scope)
+	}
+	return scopes
+}
+
+func configRepositoryGroupStructure(binding models.ConfigRepository, configRepositories map[string]storedConfigRepository) (map[string]*pipelineRunStructureNode, error) {
+	result := map[string]*pipelineRunStructureNode{}
+	addPath := func(path string) error {
+		segments, err := cleanConfigPathSegments(path, false)
+		if err != nil {
+			return err
+		}
+		ensurePipelineRunStructurePath(result, segments)
+		return nil
+	}
+
+	if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+		if err := addPath(binding.ScopeID); err != nil {
+			return nil, fmt.Errorf("invalid group-scoped config repository group path %q: %w", binding.ScopeID, err)
+		}
+	}
+	for _, repo := range configRepositories {
+		if repo.scopeType != models.ConfigRepositoryScopeFolder {
+			continue
+		}
+		if err := addPath(repo.scopeID); err != nil {
+			return nil, fmt.Errorf("invalid config repository group path %q: %w", repo.scopeID, err)
+		}
+	}
+	return result, nil
+}
+
+func ensurePipelineRunStructurePath(structure map[string]*pipelineRunStructureNode, segments []string) *pipelineRunStructureNode {
+	children := structure
+	var current *pipelineRunStructureNode
+	for _, segment := range segments {
+		if node, ok := children[segment]; ok {
+			current = node
+		} else {
+			current = &pipelineRunStructureNode{Children: map[string]*pipelineRunStructureNode{}}
+			children[segment] = current
+		}
+		if current.Children == nil {
+			current.Children = map[string]*pipelineRunStructureNode{}
+		}
+		children = current.Children
+	}
+	return current
+}
+
+func mergePipelineRunStructure(dst map[string]*pipelineRunStructureNode, src map[string]*pipelineRunStructureNode) {
+	if len(src) == 0 {
+		return
+	}
+	var mergeNode func(target *pipelineRunStructureNode, source *pipelineRunStructureNode)
+	mergeNode = func(target *pipelineRunStructureNode, source *pipelineRunStructureNode) {
+		if target.Children == nil {
+			target.Children = map[string]*pipelineRunStructureNode{}
+		}
+		if source == nil {
+			return
+		}
+		if description := strings.TrimSpace(source.Description); description != "" {
+			target.Description = description
+		}
+		if len(source.Repos) > 0 {
+			target.Repos = append([]string{}, source.Repos...)
+		}
+		for childName, childSource := range source.Children {
+			childTarget, ok := target.Children[childName]
+			if !ok {
+				childTarget = &pipelineRunStructureNode{Children: map[string]*pipelineRunStructureNode{}}
+				target.Children[childName] = childTarget
+			}
+			mergeNode(childTarget, childSource)
+		}
+	}
+
+	for name, source := range src {
+		target, ok := dst[name]
+		if !ok {
+			target = &pipelineRunStructureNode{Children: map[string]*pipelineRunStructureNode{}}
+			dst[name] = target
+		}
+		mergeNode(target, source)
+	}
+}
+
+func filterPipelineRunStructureByScopes(structure map[string]*pipelineRunStructureNode, scopes []string) map[string]*pipelineRunStructureNode {
+	if len(structure) == 0 || len(scopes) == 0 {
+		return structure
+	}
+
+	var filterNode func(path []string, node *pipelineRunStructureNode) *pipelineRunStructureNode
+	filterNode = func(path []string, node *pipelineRunStructureNode) *pipelineRunStructureNode {
+		if configResourceUnderAnyScope(strings.Join(path, "/"), scopes) {
+			return nil
+		}
+		filtered := &pipelineRunStructureNode{Children: map[string]*pipelineRunStructureNode{}}
+		if node != nil {
+			filtered.Description = node.Description
+			filtered.Repos = append([]string{}, node.Repos...)
+			for childName, childNode := range node.Children {
+				child := filterNode(append(append([]string{}, path...), childName), childNode)
+				if child != nil {
+					filtered.Children[childName] = child
+				}
+			}
+		}
+		return filtered
+	}
+
+	filtered := map[string]*pipelineRunStructureNode{}
+	for name, node := range structure {
+		child := filterNode([]string{name}, node)
+		if child != nil {
+			filtered[name] = child
+		}
+	}
+	return filtered
+}
+
 func filterDelegatedConfigResources(
 	binding models.ConfigRepository,
 	overrideScopes []string,
@@ -2108,7 +2292,7 @@ func filterDelegatedConfigResources(
 		}
 	}
 	for key := range repoEnvs {
-		if configResourceUnderAnyScope(key.repo, overrideScopes) {
+		if configResourceUnderAnyScope(key.repo, overrideScopes) || configResourceUnderAnyScope(key.envPath, overrideScopes) {
 			delete(repoEnvs, key)
 		}
 	}
