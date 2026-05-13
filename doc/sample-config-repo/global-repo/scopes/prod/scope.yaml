@@ -1,0 +1,2 @@
+PLATFORM_SCOPE: "production"
+hosein-yousefii/test-app/TEST_SCOPE: "ghcr.io/acme/service-api:stable"

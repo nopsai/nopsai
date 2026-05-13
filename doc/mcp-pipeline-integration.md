@@ -119,7 +119,7 @@ Recommended `type` values:
 
 - `external`: connect to an already-running MCP server.
 - `managed`: start a per-run or per-step sidecar container/process.
-- `local`: start a command inside the execution environment.
+- `local`: start a command inside the execution runtime.
 
 Recommended `transport` values:
 
@@ -228,7 +228,7 @@ step or task, then stops it.
 
 ### Local Command
 
-The pipeline describes a command to spawn inside the execution environment.
+The pipeline describes a command to spawn inside the execution runtime.
 
 ```yaml
 mcp_servers:
@@ -301,4 +301,3 @@ Recommended first implementation:
 
 This keeps the first version small while preserving a clean path toward sidecar
 containers and local stdio servers.
-

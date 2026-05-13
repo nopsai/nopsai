@@ -236,12 +236,12 @@ func (r *runner) handleJob(ctx context.Context, dispatcher proto.DispatcherServi
 			agentImage = "nopsai-agent:latest"
 		}
 
-		envVars := append([]string(nil), job.Env...)
+		runtimeVars := append([]string(nil), job.Env...)
 		if strings.TrimSpace(r.dispatcherAddr) != "" {
-			envVars = upsertEnv(envVars, "DISPATCHER_ADDRESS", strings.TrimSpace(r.dispatcherAddr))
+			runtimeVars = upsertRuntimeVar(runtimeVars, "DISPATCHER_ADDRESS", strings.TrimSpace(r.dispatcherAddr))
 		}
 		if r.networkSet {
-			envVars = upsertEnv(envVars, "DOCKER_NETWORK_NAME", strings.TrimSpace(job.DockerNetwork))
+			runtimeVars = upsertRuntimeVar(runtimeVars, "DOCKER_NETWORK_NAME", strings.TrimSpace(job.DockerNetwork))
 		}
 
 		runCtx := context.Background()
@@ -284,7 +284,7 @@ func (r *runner) handleJob(ctx context.Context, dispatcher proto.DispatcherServi
 
 		resp, err := r.docker.ContainerCreate(runCtx, &container.Config{
 			Image: agentImage,
-			Env:   envVars,
+			Env:   runtimeVars,
 		}, hostConfig, networking, nil, containerName)
 		if err != nil {
 			sendJobResult(sendCh, job.RunId, "failed", fmt.Sprintf("container create: %v", err))
@@ -519,13 +519,13 @@ func ensureImageExists(ctx context.Context, cli *client.Client, imageName string
 	return nil
 }
 
-func upsertEnv(env []string, key, val string) []string {
+func upsertRuntimeVar(runtimeVars []string, key, val string) []string {
 	prefix := key + "="
-	for i, e := range env {
+	for i, e := range runtimeVars {
 		if strings.HasPrefix(e, prefix) {
-			env[i] = prefix + val
-			return env
+			runtimeVars[i] = prefix + val
+			return runtimeVars
 		}
 	}
-	return append(env, prefix+val)
+	return append(runtimeVars, prefix+val)
 }

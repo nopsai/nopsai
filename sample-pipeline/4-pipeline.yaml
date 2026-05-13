@@ -20,7 +20,7 @@ steps:
     ignore_failure: false
     
   - name: write-secret
-    goal: write the value of TEST_SECRET env to sample.txt
+    goal: write the value of TEST_SECRET runtime variable to sample.txt
     image: ubuntu:latest
     session: ubuntu-latest-usage
     secrets:
@@ -33,13 +33,13 @@ steps:
     depends_on:
     - git-clone
 
-  - name: list-envs-containers
+  - name: list-runtime-vars-containers
     session: pipeline-image
     secrets:
       - TEST_SECRET
     script: |
       #!/bin/bash
-      env
+      export -p
       echo $TEST_SECRET
     depends_on:
     - git-clone

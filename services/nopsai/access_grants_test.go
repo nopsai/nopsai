@@ -108,6 +108,8 @@ func TestProductRolePermissions(t *testing.T) {
 		assertAction(t, actions, "pipeline.read", true)
 		assertAction(t, actions, "pipeline.update", false)
 		assertAction(t, actions, "pipeline.execute", false)
+		assertAction(t, actions, "config_repo.read", true)
+		assertAction(t, actions, "config_repo.manage", false)
 		assertAction(t, actions, "secret.read_value", false)
 	})
 
@@ -119,6 +121,9 @@ func TestProductRolePermissions(t *testing.T) {
 		assertAction(t, actions, "secret.write_value", true)
 		assertAction(t, actions, "step.create", true)
 		assertAction(t, actions, "step.update", true)
+		assertAction(t, actions, "config_repo.read", true)
+		assertAction(t, actions, "config_repo.manage", false)
+		assertAction(t, actions, "config_repo.sync", false)
 		assertAction(t, actions, "secret.read_value", false)
 		assertAction(t, actions, "pipeline.delete", false)
 		assertAction(t, actions, "pipeline.manage_acl", false)
@@ -128,18 +133,46 @@ func TestProductRolePermissions(t *testing.T) {
 
 	t.Run("owner", func(t *testing.T) {
 		actions := actionSet(applicableProductRoleActions(productRoleOwner, grantResourceFolder))
-		assertAction(t, actions, "folder.delete", false)
+		assertAction(t, actions, "folder.delete", true)
 		assertAction(t, actions, "pipeline.delete", true)
 		assertAction(t, actions, "pipeline_run.delete", true)
+		assertAction(t, actions, "pipeline_run.finalize", true)
+		assertAction(t, actions, "pipeline_run.write_logs", true)
+		assertAction(t, actions, "pipeline_run.task_update", true)
 		assertAction(t, actions, "trigger.delete", true)
 		assertAction(t, actions, "scope.delete", true)
 		assertAction(t, actions, "pipeline.manage_acl", true)
 		assertAction(t, actions, "secret.read_value", true)
 		assertAction(t, actions, "secret.delete", true)
+		assertAction(t, actions, "variable.read_value", true)
 		assertAction(t, actions, "variable.delete", true)
 		assertAction(t, actions, "repository.delete", true)
 		assertAction(t, actions, "step.delete", true)
 		assertAction(t, actions, "step.manage_acl", true)
+		assertAction(t, actions, "config_repo.read", true)
+		assertAction(t, actions, "config_repo.manage", true)
+		assertAction(t, actions, "config_repo.sync", true)
+	})
+
+	t.Run("pipeline run", func(t *testing.T) {
+		actions := actionSet(applicableProductRoleActions(productRoleViewer, grantResourceRun))
+		assertAction(t, actions, "pipeline_run.list", true)
+		assertAction(t, actions, "pipeline_run.read", true)
+		assertAction(t, actions, "pipeline.read", false)
+	})
+
+	t.Run("repository related runs", func(t *testing.T) {
+		viewerActions := actionSet(applicableProductRoleActions(productRoleViewer, grantResourceRepo))
+		assertAction(t, viewerActions, "pipeline_run.list", true)
+		assertAction(t, viewerActions, "pipeline_run.read", true)
+		assertAction(t, viewerActions, "pipeline_run.read_logs", true)
+
+		developerActions := actionSet(applicableProductRoleActions(productRoleDeveloper, grantResourceRepo))
+		assertAction(t, developerActions, "pipeline_run.rerun", true)
+		assertAction(t, developerActions, "pipeline_run.cancel", true)
+
+		ownerActions := actionSet(applicableProductRoleActions(productRoleOwner, grantResourceRepo))
+		assertAction(t, ownerActions, "pipeline_run.delete", true)
 	})
 
 	t.Run("admin", func(t *testing.T) {
@@ -148,6 +181,22 @@ func TestProductRolePermissions(t *testing.T) {
 			t.Fatalf("admin actions = %#v, want wildcard", actions)
 		}
 	})
+}
+
+func TestProductRoleHierarchy(t *testing.T) {
+	assertRoleIncludesRole(t, productRoleDeveloper, productRoleViewer, grantResourceFolder)
+	assertRoleIncludesRole(t, productRoleOwner, productRoleDeveloper, grantResourceFolder)
+	assertRoleIncludesRole(t, productRoleOwner, productRoleViewer, grantResourceRepo)
+}
+
+func TestNormalizeAccessGrantResourceTypeSupportsPipelineRun(t *testing.T) {
+	got, err := normalizeAccessGrantResourceType("pipeline_run")
+	if err != nil {
+		t.Fatalf("normalizeAccessGrantResourceType() error = %v", err)
+	}
+	if got != grantResourceRun {
+		t.Fatalf("normalizeAccessGrantResourceType() = %q, want %q", got, grantResourceRun)
+	}
 }
 
 func TestProductRoleFolderInheritance(t *testing.T) {
@@ -219,6 +268,24 @@ func TestProductRoleFolderInheritance(t *testing.T) {
 	}
 	if decision.Allowed {
 		t.Fatalf("other-team folder.manage_acl decision = %#v, want denied", decision)
+	}
+}
+
+func TestRepositoryRunInheritanceAllowsFolderOwnerToExploreRuns(t *testing.T) {
+	backend := newUserGrantBackend()
+	backend.aclPolicies = append(backend.aclPolicies, grantACLPolicies(productRoleOwner, model.SubjectTypeUser, "user-1", grantResourceFolder, "hosein-yousefii")...)
+	backend.inheritance[grantResourceKey(model.ResourceRef{Type: "pipeline_run", ID: "run-1"})] = []model.InheritedResource{
+		{Resource: model.ResourceRef{Type: grantResourceRepo, ID: "hosein-yousefii/test-app"}, Reason: "repository_inheritance"},
+		{Resource: model.ResourceRef{Type: grantResourceFolder, ID: "hosein-yousefii"}, Reason: "folder_inheritance"},
+	}
+
+	evaluator := aaaauthz.NewEvaluator(backend)
+	decision, err := evaluator.Check(context.Background(), backend.resolved.Subject, "pipeline_run.read", model.ResourceRef{Type: "pipeline_run", ID: "run-1"}, nil)
+	if err != nil {
+		t.Fatalf("pipeline run read Check() error = %v", err)
+	}
+	if !decision.Allowed {
+		t.Fatalf("pipeline run read decision = %#v, want allowed through repository folder inheritance", decision)
 	}
 }
 
@@ -467,8 +534,8 @@ func TestScopedProductGrantCapabilityUsesGrantRoleDefinition(t *testing.T) {
 	if productGrantIncludesAction(productRoleDeveloper, grantResourceFolder, "pipeline.delete") {
 		t.Fatal("developer folder grant should not include pipeline.delete")
 	}
-	if productGrantIncludesAction(productRoleOwner, grantResourceFolder, "folder.delete") {
-		t.Fatal("owner folder grant should not include folder.delete")
+	if !productGrantIncludesAction(productRoleOwner, grantResourceFolder, "folder.delete") {
+		t.Fatal("owner folder grant should include folder.delete")
 	}
 	if !productGrantIncludesAction(productRoleOwner, grantResourceFolder, "pipeline.delete") {
 		t.Fatal("owner folder grant should include pipeline.delete")
@@ -546,6 +613,16 @@ func assertAction(t *testing.T, actions map[string]struct{}, action string, want
 	_, ok := actions[action]
 	if ok != want {
 		t.Fatalf("action %q present = %t, want %t", action, ok, want)
+	}
+}
+
+func assertRoleIncludesRole(t *testing.T, roleName, includedRoleName, resourceType string) {
+	t.Helper()
+	roleActions := actionSet(applicableProductRoleActions(roleName, resourceType))
+	for _, action := range applicableProductRoleActions(includedRoleName, resourceType) {
+		if _, ok := roleActions[action]; !ok {
+			t.Fatalf("%s actions for %s missing inherited %s action %q", roleName, resourceType, includedRoleName, action)
+		}
 	}
 }
 

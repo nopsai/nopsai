@@ -47,7 +47,7 @@ curl -X POST \
 ```
 
 - A `202 Accepted` response confirms the git-bot has queued the event for processing.
-- The core API should emit a new pipeline run; look for toast notifications in the UI or inspect `/v1/runs`.
+- The core API should create a new pipeline run; refresh the UI or inspect `/v1/runs`.
 - Git-bot logs (container `nopsai-git-bot`) will show signature validation, repository lookup, and check-run coordination.
 
 ---
@@ -62,8 +62,8 @@ curl -X POST \
 
 ## Troubleshooting
 
-- **Signature mismatch**: Confirm both the git-bot environment (`GITHUB_WEBHOOK_SECRET`) and your shell export use the same value.
+- **Signature mismatch**: Confirm both the git-bot OS variable (`GITHUB_WEBHOOK_SECRET`) and your shell export use the same value.
 - **Run not created**: Check the git-bot logs for repository access issues or trigger mismatches. The API logs (container `nopsai`) will also record trigger evaluations.
-- **No UI updates**: Verify the UI is connected to the WebSocket (`ws://localhost:8080/v1/ws`) and that the API container shows `new_run_started` broadcasts.
+- **No UI updates**: Refresh the Pipeline runs page and verify authenticated `/v1/runs` requests are succeeding.
 
 When integrating with GitHub cloud, expose the git-bot via a tunnelling service (ngrok, Cloudflare Tunnel, etc.) and point the GitHub App webhook URL to that public address.

@@ -13,6 +13,7 @@ NopsAI is a Git-aware pipeline orchestration platform built around a control-pla
 ## System Layers
 
 - `services/nopsai`: Main API, source-of-truth database access, auth, AAA-backed product access control, config sync, run creation, run tracking.
+- `services/aaa`: Internal authorization service for subject introspection, checks, filtering, and authz decision audit writes.
 - `services/git-bot`: GitHub App integration, webhook ingress, repository file access, check-run updates.
 - `services/dispatcher`: Scheduler and bridge between HTTP-oriented control-plane APIs and gRPC-oriented runners and agents.
 - `services/runner`: Long-lived worker that starts agent containers on Docker-capable hosts.
@@ -29,7 +30,9 @@ GitHub / User
 git-bot or UI/API
     |
     v
-nopsai (validation, DB, config resolution)
+nopsai (auth, validation, DB, config resolution)
+    | \
+    |  -> aaa (authorization checks)
     |
     v
 dispatcher (queue, affinity, scope routing)
@@ -47,17 +50,19 @@ step containers + child pipeline runs
 Feedback flows in the opposite direction:
 
 - Agent -> dispatcher -> nopsai for logs, task status, and final status
+- nopsai -> aaa for authorization checks and filtered list decisions
 - nopsai -> git-bot for GitHub check-run updates
-- nopsai -> UI through REST reads and live updates
+- nopsai -> UI through authenticated REST reads and periodic polling
 
 ## Core Runtime Model
 
 ### Control plane
 
-The control plane lives mostly in `services/nopsai`, `services/git-bot`, and `services/dispatcher`.
+The control plane lives mostly in `services/nopsai`, `services/aaa`, `services/git-bot`, and `services/dispatcher`.
 
 - `nopsai` receives manual run requests and forwarded GitHub events.
-- It resolves reusable step includes, validates pipeline shape, creates DB records, resolves secrets and variables, and submits jobs to the dispatcher.
+- It authenticates requests, asks AAA for route-level decisions, resolves reusable step includes, validates pipeline shape, creates DB records, resolves secrets and variables, and submits jobs to the dispatcher.
+- `aaa` is the internal policy decision service. It handles introspection, check, batch-check, filter, and audit-record requests behind a shared internal token.
 - `git-bot` is the GitHub-facing edge. It validates webhook signatures, proxies webhook payloads to `nopsai`, fetches repository contents for config-driven features, and keeps GitHub checks in sync.
 - `dispatcher` keeps runners connected over gRPC, chooses an eligible runner, and forwards agent updates back into protected `nopsai` endpoints using an internal JWT.
 
@@ -65,7 +70,7 @@ The control plane lives mostly in `services/nopsai`, `services/git-bot`, and `se
 
 The data plane lives in `services/runner` and `services/agent`.
 
-- A runner is long-lived and bound to a Docker environment.
+- A runner is long-lived and bound to a Docker runtime.
 - For each run, the runner starts one agent container.
 - The agent creates or reuses one step container per step and runs commands inside it.
 - Pipeline state is therefore durable in Postgres, while execution state is transient in containers and shared Docker volumes.
@@ -119,7 +124,7 @@ Main tables from `db/init.sql`:
 
 NopsAI now uses a two-layer authorization shape:
 
-- The AAA evaluator remains the policy decision point.
+- The standalone AAA service is the primary policy decision point, with an in-process evaluator fallback in `nopsai` for temporary AAA service outages.
 - Product roles such as `viewer`, `developer`, `owner`, and `admin` are a UX layer that expands into low-level AAA permissions when a grant is created.
 
 Important evaluator properties that remain unchanged:
@@ -171,6 +176,7 @@ The dispatcher uses a few simple but important rules:
 `docker-compose.yaml` builds and starts:
 
 - `nopsai`
+- `aaa`
 - `dispatcher`
 - `runner`
 - `git-bot`
@@ -182,12 +188,14 @@ The main operational assumption is that runners have Docker access and can start
 
 ## Supporting Packages
 
-- `config`: Central config loading and env override behavior.
+- `config`: Central config loading and OS override behavior.
 - `pkg/models`: Pipeline DSL and API payload models.
 - `pkg/proto`: gRPC contracts between control and data plane.
 - `services/nopsai/pkg/auth`: Local JWT auth, refresh tokens, password hashing, rate limiting, and lockout logic.
 - `services/nopsai/pkg/authz`: Casbin-backed legacy RBAC enforcement still used by older role metadata paths.
-- `services/aaa/pkg/authz` and `services/aaa/pkg/store`: The current AAA evaluator, inheritance resolution, and decision logging implementation.
+- `services/nopsai/pkg/aaaclient`: HTTP client for the internal AAA service.
+- `services/nopsai/pkg/routeauthz`: HTTP route to action/resource mapping.
+- `services/aaa/pkg/authz`, `services/aaa/pkg/server`, and `services/aaa/pkg/store`: The current AAA server, evaluator, inheritance resolution, and decision logging implementation.
 - `services/nopsai/pkg/validation`: Pipeline validation rules.
 
 ## Architectural Summary

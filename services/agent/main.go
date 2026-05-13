@@ -212,7 +212,7 @@ func getDirectoryListing(logger *zerolog.Logger, root string, ignorePatterns []s
 }
 
 // executeAction runs the given action inside the pipeline container.
-func executeAction(cli *client.Client, containerID string, action *proto.Action, env []string) (string, string, int) {
+func executeAction(cli *client.Client, containerID string, action *proto.Action, runtimeVars []string) (string, string, int) {
 	var cmdStr string
 
 	switch action.Type {
@@ -235,7 +235,7 @@ func executeAction(cli *client.Client, containerID string, action *proto.Action,
 
 	execConfig := container.ExecOptions{
 		Cmd:          []string{"sh", "-c", cmdStr},
-		Env:          env,
+		Env:          runtimeVars,
 		AttachStdout: true,
 		AttachStderr: true,
 		Tty:          false,
@@ -751,7 +751,7 @@ func run() int {
 	}
 
 	if runID == "" || pipelineDefBase64 == "" || pipelineName == "" || sharedVolumeName == "" {
-		agentLog(runID, pipelineName).Error().Msg("Missing one or more required environment variables")
+		agentLog(runID, pipelineName).Error().Msg("Missing one or more required runtime variables")
 		return 1
 	}
 
@@ -773,7 +773,7 @@ func run() int {
 
 	dispatcherAddr := os.Getenv("DISPATCHER_ADDRESS")
 	if dispatcherAddr == "" {
-		agentLog(runID, pipelineName).Error().Msg("DISPATCHER_ADDRESS environment variable not set. Cannot contact dispatcher")
+		agentLog(runID, pipelineName).Error().Msg("DISPATCHER_ADDRESS OS variable not set. Cannot contact dispatcher")
 		return 1
 	}
 	conn, err := grpc.Dial(dispatcherAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -1130,9 +1130,9 @@ func run() int {
 				var stepContainerID string
 				setTaskRunning(stepName, task.Name)
 
-				stepEnvVars := stepContext.containerEnv()
+				stepRuntimeVars := stepContext.containerVariables()
 				taskContext := stepContext.withTask(task)
-				taskEnvVars := taskContext.containerEnv()
+				taskRuntimeVars := taskContext.containerVariables()
 
 				imageName := step.GetImage()
 				if imageName == "" {
@@ -1195,7 +1195,7 @@ func run() int {
 						Image:      imageName,
 						WorkingDir: "/workspace",
 						Entrypoint: []string{"tail", "-f", "/dev/null"},
-						Env:        stepEnvVars,
+						Env:        stepRuntimeVars,
 						Tty:        false,
 					}, &container.HostConfig{
 						Binds:       binds,
@@ -1327,7 +1327,7 @@ func run() int {
 
 				// Retry logic for potential race conditions (e.g. filesystem locks)
 				for attempt := 0; attempt < 10; attempt++ {
-					stdout, stderr, exitCode = executeAction(cli, stepContainerID, action, taskEnvVars)
+					stdout, stderr, exitCode = executeAction(cli, stepContainerID, action, taskRuntimeVars)
 					if exitCode == 0 {
 						break
 					}

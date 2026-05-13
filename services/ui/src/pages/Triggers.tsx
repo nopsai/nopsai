@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, 
 import { useLocation, useNavigate } from 'react-router-dom';
 import yaml from 'js-yaml';
 import { buildApiUrl } from '../lib/api';
+import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups';
 import { escapeRegExp, findLineNumberByRegex, findLineNumberForKey, parseYamlWithLocation } from '../lib/yamlValidation';
 import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
 
@@ -162,9 +163,6 @@ function parseTriggerYaml(raw: string): Record<string, unknown> {
     if (!triggerRecord) {
       throw new Error(`Trigger #${idx + 1} must be an object.`);
     }
-    if (Object.prototype.hasOwnProperty.call(triggerRecord, 'environment')) {
-      throw new Error(`Trigger #${idx + 1} uses deprecated 'environment'. Rename it to 'scope'.`);
-    }
   });
   return parsed;
 }
@@ -312,6 +310,7 @@ function TriggersPage({
   const [activeFolder, setActiveFolder] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
+  const [resourceGroupPaths, setResourceGroupPaths] = useState<string[]>([]);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
@@ -559,13 +558,6 @@ function TriggersPage({
           });
         }
       });
-
-      if (Object.prototype.hasOwnProperty.call(triggerRecord, 'environment')) {
-        errors.push({
-          message: `Trigger #${index + 1} uses deprecated 'environment'. Rename it to 'scope'.`,
-          line: findLineNumberForKey(rawYaml, 'environment') ?? triggerLine,
-        });
-      }
 
       if (triggerRecord.scope != null) {
         const scopeValue = typeof triggerRecord.scope === 'string' ? triggerRecord.scope.trim() : '';
@@ -1332,6 +1324,21 @@ function TriggersPage({
   }, [loadTriggers]);
 
   useEffect(() => {
+    let cancelled = false;
+    void fetchResourceGroupPaths()
+      .then(paths => {
+        if (!cancelled) setResourceGroupPaths(paths);
+      })
+      .catch(error => {
+        console.warn('Failed to load groups for trigger tree', error);
+        if (!cancelled) setResourceGroupPaths([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     const segments = location.pathname.split('/').filter(Boolean);
     if (segments[0] !== 'triggers') return;
     if (segments.length > 1) {
@@ -1428,6 +1435,9 @@ function TriggersPage({
 
   const buildTree = useMemo(() => {
     const root: TreeNode = { id: '__root__', name: '', fullPath: '', children: [], triggerSlugs: [] };
+    resourceGroupPaths.forEach(path => {
+      insertGroupPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], triggerSlugs: [] }));
+    });
     serverTriggers.forEach(item => {
       const parts = item.slug.split('/').filter(Boolean);
       const triggerName = parts.pop();
@@ -1448,7 +1458,7 @@ function TriggersPage({
       current.triggerSlugs.sort((a, b) => a.localeCompare(b));
     });
     return root;
-  }, [serverTriggers]);
+  }, [resourceGroupPaths, serverTriggers]);
 
   const activeFolderNode = useMemo(() => {
     if (!activeFolder) return buildTree;
@@ -1494,7 +1504,7 @@ function TriggersPage({
           <span className="pipeline-card-meta-value">{countTriggersRecursive(node)}</span>
         </div>
         <div className="pipeline-folder-meta-row">
-          <span className="pipeline-card-meta-label">Sub folders:</span>
+          <span className="pipeline-card-meta-label">Sub groups:</span>
           <span className="pipeline-card-meta-value">{node.children.length}</span>
         </div>
       </div>
@@ -1584,7 +1594,7 @@ function TriggersPage({
               <div id="triggers-empty" className="pipelines-empty">
                 <h3 className="text-base font-semibold text-[var(--text-primary)]">No triggers found</h3>
                 <p className="text-sm text-[var(--text-secondary)]">
-                  {canCreateTriggerHere ? 'Create a new trigger or adjust your filters.' : 'Adjust your filters or browse another folder.'}
+                  {canCreateTriggerHere ? 'Create a new trigger or adjust your filters.' : 'Adjust your filters or browse another group.'}
                 </p>
               </div>
             )}
@@ -1890,31 +1900,31 @@ function TriggersPage({
                             left: 'auto',
                           }}
                         >
-                          <div className="env-suggestion-panel">
-                            <div className="env-suggestion-heading">
-                              <p className="env-suggestion-kicker">Autocomplete</p>
-                              <p className="env-suggestion-title">{editorSuggestion.title}</p>
-                              <p className="env-suggestion-subtitle">
+                          <div className="scope-suggestion-panel">
+                            <div className="scope-suggestion-heading">
+                              <p className="scope-suggestion-kicker">Autocomplete</p>
+                              <p className="scope-suggestion-title">{editorSuggestion.title}</p>
+                              <p className="scope-suggestion-subtitle">
                                 Ctrl+Space • Enter to insert • Esc to close
                                 {autocompleteMeta.loading ? ' • Loading…' : ''}
                               </p>
                             </div>
-                            <div className="env-suggestion-body">
+                            <div className="scope-suggestion-body">
                               {editorSuggestion.items.length ? (
-                                <div className="env-suggestion-list">
+                                <div className="scope-suggestion-list">
                                   {editorSuggestion.items.map((item, idx) => (
                                     <div
                                       key={`sg-${item}-${idx}`}
-                                      className={`env-suggestion-item ${idx === editorSuggestion.activeIndex ? 'env-suggestion-item--active' : ''}`}
+                                      className={`scope-suggestion-item ${idx === editorSuggestion.activeIndex ? 'scope-suggestion-item--active' : ''}`}
                                     >
-                                      <button type="button" className="env-suggestion-pill env-suggestion-pill--action" onClick={() => applyEditorSuggestion(item)}>
+                                      <button type="button" className="scope-suggestion-pill scope-suggestion-pill--action" onClick={() => applyEditorSuggestion(item)}>
                                         {item}
                                       </button>
                                     </div>
                                   ))}
                                 </div>
                               ) : (
-                                <p className="env-suggestion-empty">No suggestions available.</p>
+                                <p className="scope-suggestion-empty">No suggestions available.</p>
                               )}
                             </div>
                           </div>
