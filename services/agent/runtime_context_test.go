@@ -39,7 +39,7 @@ func TestBuildStepExecutionContextRedactsSecretsForPrompt(t *testing.T) {
 		t.Fatalf("promptVariables[API_TOKEN] = %q, want [redacted]", got)
 	}
 
-	env := strings.Join(context.containerEnv(), "\n")
+	runtimeDump := strings.Join(context.containerVariables(), "\n")
 	for _, expected := range []string{
 		"GLOBAL_VAR=plain",
 		"API_TOKEN=pipeline-token",
@@ -48,16 +48,16 @@ func TestBuildStepExecutionContextRedactsSecretsForPrompt(t *testing.T) {
 		"GIT_REPO_NAME=demo",
 		"SCOPE=prod",
 	} {
-		if !strings.Contains(env, expected) {
-			t.Fatalf("expected container env to contain %q, got %s", expected, env)
+		if !strings.Contains(runtimeDump, expected) {
+			t.Fatalf("expected container variables to contain %q, got %s", expected, runtimeDump)
 		}
 	}
 }
 
 func TestBuildActionRequestMasksSensitiveHistoryAndDirectoryContent(t *testing.T) {
 	context := newTaskExecutionContext()
-	context.set("STEP_SECRET", "super-secret-value", taskEnvironmentSourceSecret)
-	context.set("VISIBLE_VAR", "plain", taskEnvironmentSourceTaskVariable)
+	context.set("STEP_SECRET", "super-secret-value", taskRuntimeSourceSecret)
+	context.set("VISIBLE_VAR", "plain", taskRuntimeSourceTaskVariable)
 
 	req := context.buildActionRequest(
 		"deploy",
@@ -82,8 +82,8 @@ func TestBuildActionRequestMasksSensitiveHistoryAndDirectoryContent(t *testing.T
 
 func TestTaskExecutionContextTaskOverridesWin(t *testing.T) {
 	base := newTaskExecutionContext()
-	base.set("SHARED", "step", taskEnvironmentSourceStepVariable)
-	base.set("SAFE_VALUE", "safe", taskEnvironmentSourceStepVariable)
+	base.set("SHARED", "step", taskRuntimeSourceStepVariable)
+	base.set("SAFE_VALUE", "safe", taskRuntimeSourceStepVariable)
 
 	task := &models.Task{
 		Variables: map[string]string{
@@ -92,11 +92,11 @@ func TestTaskExecutionContextTaskOverridesWin(t *testing.T) {
 	}
 	context := base.withTask(task)
 
-	env := strings.Join(context.containerEnv(), "\n")
-	if strings.Contains(env, "SHARED=step") {
-		t.Fatalf("expected step value to be replaced, got %s", env)
+	runtimeDump := strings.Join(context.containerVariables(), "\n")
+	if strings.Contains(runtimeDump, "SHARED=step") {
+		t.Fatalf("expected step value to be replaced, got %s", runtimeDump)
 	}
-	if !strings.Contains(env, "SHARED=task") {
-		t.Fatalf("expected task override in env, got %s", env)
+	if !strings.Contains(runtimeDump, "SHARED=task") {
+		t.Fatalf("expected task override in runtime variables, got %s", runtimeDump)
 	}
 }

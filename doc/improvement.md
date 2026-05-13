@@ -6,9 +6,9 @@ This document captures the current feature set and hardening work that has lande
 - **Authenticated REST control plane**: Handles login, token refresh, route authorization, config sync, run creation, and system management through the REST API.
 - **AAA integration**: Maps routes to action/resource pairs, calls the internal AAA service, filters list responses, and falls back to a local evaluator during short AAA outages.
 - **Dispatcher handoff**: Creates run records and submits jobs to the dispatcher instead of launching agent containers directly.
-- **Secrets & environment resolution**: Derives scoped secrets and environment variables (global, environment-specific, repo-specific) and encrypts secrets at rest with the `NOPSAI_MASTER_KEY` before persisting them.
+- **Secrets & scope resolution**: Derives scoped secrets and scope variables (global, scope-specific, repo-specific) and encrypts secrets at rest with the `NOPSAI_MASTER_KEY` before persisting them.
 - **Pipeline & trigger APIs**: Exposes CRUD endpoints for pipelines, reusable steps, trigger overrides, run groups, run logs, reruns, cancellations, and branch-level clean-up.
-- **Git-driven orchestration**: Receives Git events, ensures the config repository is synced (pipelines, steps, environments, triggers), and coordinates with the git-bot for GitHub check updates.
+- **Git-driven orchestration**: Receives Git events, ensures the config repository is synced (pipelines, steps, scopes, triggers), and coordinates with the git-bot for GitHub check updates.
 
 ### AAA (`services/aaa`)
 - **Policy decision service**: Provides internal introspection, check, batch-check, filter, and audit-record endpoints protected by `X-Internal-Token`.
@@ -19,7 +19,7 @@ This document captures the current feature set and hardening work that has lande
 - **LLM-assisted execution**: Resolves natural-language goals via the embedded Gemini client, while falling back to explicit scripts when provided.
 - **Task graph engine**: Understands nested step/task dependencies, honours per-task `depends_on`, and tracks partial progress so multiple independent tasks can run without blocking each other.
 - **Workspace sharing controls**: Shares a sanitised directory listing with the LLM, respecting `llm_content_ignore`, and honours both pipeline-level and task-level `llm_output_sharing` settings.
-- **Container orchestration**: Ensures required images exist, reuses warm containers per step, supports additional volume mounts, and injects scoped secrets/environment variables safely.
+- **Container orchestration**: Ensures required images exist, reuses warm containers per step, supports additional volume mounts, and injects scoped secrets/variables safely.
 - **Operational telemetry**: Masks secrets in command output, batches logs back to the server, and reports granular task status (with exit codes and LLM latency) to the API.
 
 ### Git Bot (`services/git-bot`)
@@ -37,7 +37,7 @@ This document captures the current feature set and hardening work that has lande
 ### Configuration & Deployment
 - **Single compose stack**: Docker Compose provisions Postgres, the Go services, the AAA service, the UI (served via nginx), plus build-only helper images (`base`, `agent`, `pipeline`).
 - **Shared network & volumes**: All services join `nopsai-net`; run workspaces use throwaway Docker volumes, and Postgres writes to a named volume for persistence.
-- **Unified config loader**: `config/config.go` reads YAML defaults and lets environment variables override per deployment, covering ports, service URLs, Gemini credentials, Docker preferences, and timeout knobs.
+- **Unified config loader**: `config/config.go` reads YAML defaults and lets OS variables override per deployment, covering ports, service URLs, Gemini credentials, Docker preferences, and timeout knobs.
 
 ### Feature Highlights
 - **Pipeline DSL**: Supports step includes, per-step containers, secret injection, volume mounts, multi-task steps, AI gating via `condition`, and fine-grained LLM sharing controls.

@@ -890,7 +890,7 @@ export function suggestionCopyForContext(contextInfo: LabSuggestionContext | nul
   const type = contextInfo?.type;
   switch (type) {
     case 'variables':
-      return { title: 'Variables', subtitle: 'Insert variables scoped to your env.', footnote: 'Tab to accept inline hint.' };
+      return { title: 'Variables', subtitle: 'Insert variables scoped to your scope.', footnote: 'Tab to accept inline hint.' };
     case 'secrets':
       return { title: 'Secrets', subtitle: 'Available secret names.', footnote: 'Tab to accept inline hint.' };
     case 'include':

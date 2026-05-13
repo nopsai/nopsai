@@ -100,7 +100,7 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 
-	// Override with environment variables
+	// Override with OS variables
 	val := reflect.ValueOf(config).Elem()
 	for i := 0; i < val.NumField(); i++ {
 		field := val.Type().Field(i)

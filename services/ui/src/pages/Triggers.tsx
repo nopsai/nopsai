@@ -163,9 +163,6 @@ function parseTriggerYaml(raw: string): Record<string, unknown> {
     if (!triggerRecord) {
       throw new Error(`Trigger #${idx + 1} must be an object.`);
     }
-    if (Object.prototype.hasOwnProperty.call(triggerRecord, 'environment')) {
-      throw new Error(`Trigger #${idx + 1} uses deprecated 'environment'. Rename it to 'scope'.`);
-    }
   });
   return parsed;
 }
@@ -561,13 +558,6 @@ function TriggersPage({
           });
         }
       });
-
-      if (Object.prototype.hasOwnProperty.call(triggerRecord, 'environment')) {
-        errors.push({
-          message: `Trigger #${index + 1} uses deprecated 'environment'. Rename it to 'scope'.`,
-          line: findLineNumberForKey(rawYaml, 'environment') ?? triggerLine,
-        });
-      }
 
       if (triggerRecord.scope != null) {
         const scopeValue = typeof triggerRecord.scope === 'string' ? triggerRecord.scope.trim() : '';
@@ -1910,31 +1900,31 @@ function TriggersPage({
                             left: 'auto',
                           }}
                         >
-                          <div className="env-suggestion-panel">
-                            <div className="env-suggestion-heading">
-                              <p className="env-suggestion-kicker">Autocomplete</p>
-                              <p className="env-suggestion-title">{editorSuggestion.title}</p>
-                              <p className="env-suggestion-subtitle">
+                          <div className="scope-suggestion-panel">
+                            <div className="scope-suggestion-heading">
+                              <p className="scope-suggestion-kicker">Autocomplete</p>
+                              <p className="scope-suggestion-title">{editorSuggestion.title}</p>
+                              <p className="scope-suggestion-subtitle">
                                 Ctrl+Space • Enter to insert • Esc to close
                                 {autocompleteMeta.loading ? ' • Loading…' : ''}
                               </p>
                             </div>
-                            <div className="env-suggestion-body">
+                            <div className="scope-suggestion-body">
                               {editorSuggestion.items.length ? (
-                                <div className="env-suggestion-list">
+                                <div className="scope-suggestion-list">
                                   {editorSuggestion.items.map((item, idx) => (
                                     <div
                                       key={`sg-${item}-${idx}`}
-                                      className={`env-suggestion-item ${idx === editorSuggestion.activeIndex ? 'env-suggestion-item--active' : ''}`}
+                                      className={`scope-suggestion-item ${idx === editorSuggestion.activeIndex ? 'scope-suggestion-item--active' : ''}`}
                                     >
-                                      <button type="button" className="env-suggestion-pill env-suggestion-pill--action" onClick={() => applyEditorSuggestion(item)}>
+                                      <button type="button" className="scope-suggestion-pill scope-suggestion-pill--action" onClick={() => applyEditorSuggestion(item)}>
                                         {item}
                                       </button>
                                     </div>
                                   ))}
                                 </div>
                               ) : (
-                                <p className="env-suggestion-empty">No suggestions available.</p>
+                                <p className="scope-suggestion-empty">No suggestions available.</p>
                               )}
                             </div>
                           </div>

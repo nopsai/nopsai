@@ -70,7 +70,7 @@ The control plane lives mostly in `services/nopsai`, `services/aaa`, `services/g
 
 The data plane lives in `services/runner` and `services/agent`.
 
-- A runner is long-lived and bound to a Docker environment.
+- A runner is long-lived and bound to a Docker runtime.
 - For each run, the runner starts one agent container.
 - The agent creates or reuses one step container per step and runs commands inside it.
 - Pipeline state is therefore durable in Postgres, while execution state is transient in containers and shared Docker volumes.
@@ -188,7 +188,7 @@ The main operational assumption is that runners have Docker access and can start
 
 ## Supporting Packages
 
-- `config`: Central config loading and env override behavior.
+- `config`: Central config loading and OS override behavior.
 - `pkg/models`: Pipeline DSL and API payload models.
 - `pkg/proto`: gRPC contracts between control and data plane.
 - `services/nopsai/pkg/auth`: Local JWT auth, refresh tokens, password hashing, rate limiting, and lockout logic.

@@ -63,7 +63,7 @@ Most API routes pass through the same middleware stack before reaching a handler
 5. It starts an agent container with:
    - the shared workspace mounted at `/workspace`
    - Docker socket access
-   - the full environment payload from `nopsai`
+   - the full runtime variable payload from `nopsai`
 6. It starts two background loops:
    - log streaming back through `dispatcher.IngestLogs`
    - run-cancellation polling through `dispatcher.GetRunStatus`
@@ -71,7 +71,7 @@ Most API routes pass through the same middleware stack before reaching a handler
 
 ## 5. Agent Startup And Preparation
 
-1. The agent reads its environment variables, including:
+1. The agent reads its runtime variables, including:
    - run ID
    - pipeline definition
    - secrets payload
@@ -96,7 +96,7 @@ The agent runs tasks in dependency order, not strictly line order.
 2. It repeatedly asks `getNextRunnableTasks` for all currently unblocked tasks.
 3. Tasks from independent steps can run in parallel.
 4. For each runnable task, the agent builds a step execution context from:
-   - inherited environment
+   - inherited runtime variables
    - resolved variables
    - resolved secrets
    - step-level overrides
@@ -200,14 +200,14 @@ Rerun:
    - `pipelines/`
    - `steps/`
    - `triggers/`
-   - `environments/`
+   - `scopes/`
    - `pipelineruns/`
    - `config-repositories/`
 5. It parses and validates each file class:
    - pipelines must parse and pass pipeline validation
    - reusable steps must parse and have matching names
    - triggers must parse as manifests
-   - environment files are turned into scoped variables
+   - scope files are turned into scoped variables
    - legacy `pipelineruns/structure.yaml` becomes the run-group tree for groups owned by that repo
    - `config-repositories/groups/<group>.yaml` becomes a group config repo binding and group shell
    - `config-repositories/groups/structure.yaml` and `config-repositories/groups/<group>/structure.yaml` place repositories under group shells and can define inline group repo `config:` blocks

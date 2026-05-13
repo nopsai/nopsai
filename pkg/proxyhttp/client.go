@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// NewInternalAwareClient returns an HTTP client that bypasses environment
+// NewInternalAwareClient returns an HTTP client that bypasses configured
 // proxies for Docker-style internal hosts while still honoring them for
 // external traffic.
 func NewInternalAwareClient(timeout time.Duration) *http.Client {

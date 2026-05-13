@@ -8,26 +8,26 @@ import (
 	"nopsai/pkg/proto"
 )
 
-type taskEnvironmentSource string
+type taskRuntimeSource string
 
 const (
-	taskEnvironmentSourcePipelineVariable taskEnvironmentSource = "pipeline_variable"
-	taskEnvironmentSourceInherited        taskEnvironmentSource = "inherited"
-	taskEnvironmentSourceStepVariable     taskEnvironmentSource = "step_variable"
-	taskEnvironmentSourceTaskVariable     taskEnvironmentSource = "task_variable"
-	taskEnvironmentSourceSecret           taskEnvironmentSource = "secret"
+	taskRuntimeSourcePipelineVariable taskRuntimeSource = "pipeline_variable"
+	taskRuntimeSourceInherited        taskRuntimeSource = "inherited"
+	taskRuntimeSourceStepVariable     taskRuntimeSource = "step_variable"
+	taskRuntimeSourceTaskVariable     taskRuntimeSource = "task_variable"
+	taskRuntimeSourceSecret           taskRuntimeSource = "secret"
 )
 
-type taskEnvironmentValue struct {
+type taskRuntimeValue struct {
 	Value     string
 	Sensitive bool
 }
 
 type taskExecutionContext struct {
-	values map[string]taskEnvironmentValue
+	values map[string]taskRuntimeValue
 }
 
-func buildStepExecutionContext(pipeline *models.Pipeline, step *models.PipelineStep, inheritedEnv []string, variables, secrets map[string]string) (taskExecutionContext, []string) {
+func buildStepExecutionContext(pipeline *models.Pipeline, step *models.PipelineStep, inheritedVars []string, variables, secrets map[string]string) (taskExecutionContext, []string) {
 	context := newTaskExecutionContext()
 	requiredKeys := make(map[string]struct{}, len(pipeline.Variables))
 	for _, key := range pipeline.Variables {
@@ -41,26 +41,26 @@ func buildStepExecutionContext(pipeline *models.Pipeline, step *models.PipelineS
 	for key, value := range variables {
 		trimmed := strings.TrimSpace(key)
 		if _, ok := requiredKeys[trimmed]; ok {
-			context.set(trimmed, value, taskEnvironmentSourcePipelineVariable)
+			context.set(trimmed, value, taskRuntimeSourcePipelineVariable)
 		}
 	}
 
-	for _, entry := range inheritedEnv {
-		key, value, ok := splitEnvEntry(entry)
+	for _, entry := range inheritedVars {
+		key, value, ok := splitRuntimeEntry(entry)
 		if !ok {
 			continue
 		}
 		if _, isRequired := requiredKeys[key]; isRequired {
-			context.set(key, value, taskEnvironmentSourceInherited)
+			context.set(key, value, taskRuntimeSourceInherited)
 			continue
 		}
 		if strings.HasPrefix(key, "GIT_") || key == "SCOPE" {
-			context.set(key, value, taskEnvironmentSourceInherited)
+			context.set(key, value, taskRuntimeSourceInherited)
 		}
 	}
 
 	for key, value := range step.GetVariables() {
-		context.set(key, value, taskEnvironmentSourceStepVariable)
+		context.set(key, value, taskRuntimeSourceStepVariable)
 	}
 
 	missingSecrets := make([]string, 0)
@@ -74,7 +74,7 @@ func buildStepExecutionContext(pipeline *models.Pipeline, step *models.PipelineS
 			missingSecrets = append(missingSecrets, trimmed)
 			continue
 		}
-		context.set(trimmed, secretValue, taskEnvironmentSourceSecret)
+		context.set(trimmed, secretValue, taskRuntimeSourceSecret)
 	}
 	sort.Strings(missingSecrets)
 
@@ -83,7 +83,7 @@ func buildStepExecutionContext(pipeline *models.Pipeline, step *models.PipelineS
 
 func newTaskExecutionContext() taskExecutionContext {
 	return taskExecutionContext{
-		values: make(map[string]taskEnvironmentValue),
+		values: make(map[string]taskRuntimeValue),
 	}
 }
 
@@ -96,12 +96,12 @@ func (c taskExecutionContext) withTask(task *models.Task) taskExecutionContext {
 		return cloned
 	}
 	for key, value := range task.Variables {
-		cloned.set(key, value, taskEnvironmentSourceTaskVariable)
+		cloned.set(key, value, taskRuntimeSourceTaskVariable)
 	}
 	return cloned
 }
 
-func (c taskExecutionContext) containerEnv() []string {
+func (c taskExecutionContext) containerVariables() []string {
 	if len(c.values) == 0 {
 		return nil
 	}
@@ -111,11 +111,11 @@ func (c taskExecutionContext) containerEnv() []string {
 	}
 	sort.Strings(keys)
 
-	envVars := make([]string, 0, len(keys))
+	runtimeVars := make([]string, 0, len(keys))
 	for _, key := range keys {
-		envVars = append(envVars, key+"="+c.values[key].Value)
+		runtimeVars = append(runtimeVars, key+"="+c.values[key].Value)
 	}
-	return envVars
+	return runtimeVars
 }
 
 func (c taskExecutionContext) promptVariables() map[string]string {
@@ -168,18 +168,18 @@ func (c taskExecutionContext) promptMaskValues(secrets map[string]string) []stri
 	return uniqueSensitiveValues(values)
 }
 
-func (c taskExecutionContext) set(name, value string, source taskEnvironmentSource) {
+func (c taskExecutionContext) set(name, value string, source taskRuntimeSource) {
 	trimmed := strings.TrimSpace(name)
 	if trimmed == "" {
 		return
 	}
-	c.values[trimmed] = taskEnvironmentValue{
+	c.values[trimmed] = taskRuntimeValue{
 		Value:     value,
-		Sensitive: source == taskEnvironmentSourceSecret || isSensitiveEnvName(trimmed),
+		Sensitive: source == taskRuntimeSourceSecret || isSensitiveVariableName(trimmed),
 	}
 }
 
-func splitEnvEntry(entry string) (string, string, bool) {
+func splitRuntimeEntry(entry string) (string, string, bool) {
 	parts := strings.SplitN(entry, "=", 2)
 	if len(parts) != 2 {
 		return "", "", false
@@ -243,7 +243,7 @@ func uniqueSensitiveValues(values []string) []string {
 	return unique
 }
 
-func isSensitiveEnvName(name string) bool {
+func isSensitiveVariableName(name string) bool {
 	normalized := strings.ToUpper(strings.TrimSpace(name))
 	if normalized == "" {
 		return false

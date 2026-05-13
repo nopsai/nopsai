@@ -441,15 +441,15 @@ data-team:
 	}
 }
 
-func TestFilterDelegatedConfigResourcesFiltersRepoEnvByEnvironmentScope(t *testing.T) {
+func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T) {
 	binding := models.ConfigRepository{ID: 1, ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID}
-	generalEnvs := map[generalEnvKey]storedEnvVar{
-		{envPath: "data-team/dev", name: "API_VERSION"}: {},
-		{envPath: "prod", name: "API_VERSION"}:          {},
+	generalScopeVars := map[generalScopeVarKey]storedScopeVar{
+		{scopePath: "data-team/dev", name: "API_VERSION"}: {},
+		{scopePath: "prod", name: "API_VERSION"}:          {},
 	}
-	repoEnvs := map[repoEnvKey]storedEnvVar{
-		{repo: "hosein-yousefii/test-app", envPath: "data-team/dev", name: "TEST_ENV"}: {},
-		{repo: "hosein-yousefii/test-app", envPath: "prod", name: "TEST_ENV"}:          {},
+	repoScopeVars := map[repoScopeVarKey]storedScopeVar{
+		{repo: "hosein-yousefii/test-app", scopePath: "data-team/dev", name: "TEST_SCOPE"}: {},
+		{repo: "hosein-yousefii/test-app", scopePath: "prod", name: "TEST_SCOPE"}:          {},
 	}
 
 	filterDelegatedConfigResources(
@@ -457,21 +457,21 @@ func TestFilterDelegatedConfigResourcesFiltersRepoEnvByEnvironmentScope(t *testi
 		[]string{"data-team"},
 		map[string]storedPipeline{},
 		map[string]storedStep{},
-		generalEnvs,
-		repoEnvs,
+		generalScopeVars,
+		repoScopeVars,
 		map[string]storedTrigger{},
 	)
 
-	if _, ok := generalEnvs[generalEnvKey{envPath: "data-team/dev", name: "API_VERSION"}]; ok {
-		t.Fatal("expected delegated general environment variable to be filtered")
+	if _, ok := generalScopeVars[generalScopeVarKey{scopePath: "data-team/dev", name: "API_VERSION"}]; ok {
+		t.Fatal("expected delegated general scope variable to be filtered")
 	}
-	if _, ok := repoEnvs[repoEnvKey{repo: "hosein-yousefii/test-app", envPath: "data-team/dev", name: "TEST_ENV"}]; ok {
-		t.Fatal("expected delegated repository environment variable to be filtered by environment scope")
+	if _, ok := repoScopeVars[repoScopeVarKey{repo: "hosein-yousefii/test-app", scopePath: "data-team/dev", name: "TEST_SCOPE"}]; ok {
+		t.Fatal("expected delegated repository scope variable to be filtered by scope")
 	}
-	if _, ok := generalEnvs[generalEnvKey{envPath: "prod", name: "API_VERSION"}]; !ok {
-		t.Fatal("expected unrelated general environment variable to remain")
+	if _, ok := generalScopeVars[generalScopeVarKey{scopePath: "prod", name: "API_VERSION"}]; !ok {
+		t.Fatal("expected unrelated general scope variable to remain")
 	}
-	if _, ok := repoEnvs[repoEnvKey{repo: "hosein-yousefii/test-app", envPath: "prod", name: "TEST_ENV"}]; !ok {
-		t.Fatal("expected unrelated repository environment variable to remain")
+	if _, ok := repoScopeVars[repoScopeVarKey{repo: "hosein-yousefii/test-app", scopePath: "prod", name: "TEST_SCOPE"}]; !ok {
+		t.Fatal("expected unrelated repository scope variable to remain")
 	}
 }
