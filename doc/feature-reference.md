@@ -93,8 +93,8 @@ GitOps-style configuration sync supports:
 - `steps/` -> reusable step definitions
 - `triggers/` -> trigger overrides
 - `environments/` -> scoped variables
-- `pipelineruns/structure.yaml` -> UI group hierarchy
-- `config-repositories/` -> group config repo bindings
+- `pipelineruns/structure.yaml` -> UI group hierarchy for groups owned by the syncing repo
+- `config-repositories/` -> group config repo bindings and group shells
 
 Sync behavior:
 
@@ -103,6 +103,7 @@ Sync behavior:
 - preserve non-Git groups to avoid deleting user-managed structure
 - sync system/global config repositories before group config repositories, so group bindings defined in Git can be picked up during the same sync-all run
 - group config repositories are authoritative for resources under their group path; parent repos prune their own managed resources in delegated groups
+- global `pipelineruns/structure.yaml` does not apply delegated group subtrees; those groups are created from `config-repositories/groups` and owned by their group repos
 
 ## API And Run Management
 

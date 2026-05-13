@@ -1323,7 +1323,7 @@ func (a *App) handleListRoles(w http.ResponseWriter, r *http.Request) {
 		Act    string `json:"act"`
 		Effect string `json:"effect,omitempty"`
 	}
-	var perms []rolePerm
+	perms := make([]rolePerm, 0)
 	for rows.Next() {
 		var roleName, resourceType, resourceID, action, effect string
 		if err := rows.Scan(&roleName, &resourceType, &resourceID, &action, &effect); err != nil {

@@ -260,3 +260,128 @@ func TestConfigRepositoryPrecedence(t *testing.T) {
 		t.Fatal("unrelated group repo should not take over another group")
 	}
 }
+
+func TestEffectivePipelineRunStructureForSystemUsesConfigRepositoryGroups(t *testing.T) {
+	binding := models.ConfigRepository{ID: 1, ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID}
+	configRepositories := map[string]storedConfigRepository{
+		"folder/team-1": {
+			scopeType: models.ConfigRepositoryScopeFolder,
+			scopeID:   "team-1",
+			enabled:   true,
+		},
+		"folder/team-2/platform": {
+			scopeType: models.ConfigRepositoryScopeFolder,
+			scopeID:   "team-2/platform",
+			enabled:   true,
+		},
+	}
+	structure := map[string]*pipelineRunStructureNode{
+		"team-1": {
+			Description: "Should not be applied from global structure",
+			Repos:       []string{"acme/team-1"},
+			Children: map[string]*pipelineRunStructureNode{
+				"dev": {Description: "Should not be created", Children: map[string]*pipelineRunStructureNode{}},
+			},
+		},
+		"general": {Description: "Should not be created", Children: map[string]*pipelineRunStructureNode{}},
+	}
+
+	got, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, structure, []string{"team-1", "team-2/platform"})
+	if err != nil {
+		t.Fatalf("effectivePipelineRunStructureForConfigSync() error = %v", err)
+	}
+	team1, ok := got["team-1"]
+	if !ok {
+		t.Fatal("expected team-1 shell from config repository binding")
+	}
+	if team1.Description != "" || len(team1.Repos) != 0 || len(team1.Children) != 0 {
+		t.Fatalf("team-1 structure = %#v, want empty shell", team1)
+	}
+	team2, ok := got["team-2"]
+	if !ok {
+		t.Fatal("expected team-2 parent shell from nested config repository binding")
+	}
+	if _, ok := team2.Children["platform"]; !ok {
+		t.Fatal("expected team-2/platform shell from nested config repository binding")
+	}
+	if _, ok := got["general"]; ok {
+		t.Fatal("did not expect unbound general group from global structure")
+	}
+}
+
+func TestEffectivePipelineRunStructureForGroupFiltersNestedConfigRepositoryGroups(t *testing.T) {
+	binding := models.ConfigRepository{ID: 2, ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"}
+	configRepositories := map[string]storedConfigRepository{
+		"folder/team-1/platform": {
+			scopeType: models.ConfigRepositoryScopeFolder,
+			scopeID:   "team-1/platform",
+			enabled:   true,
+		},
+	}
+	structure := map[string]*pipelineRunStructureNode{
+		"team-1": {
+			Description: "Owned by team-1 repo",
+			Children: map[string]*pipelineRunStructureNode{
+				"dev":      {Description: "Owned by team-1 repo", Children: map[string]*pipelineRunStructureNode{}},
+				"platform": {Description: "Owned by nested repo", Children: map[string]*pipelineRunStructureNode{}},
+			},
+		},
+	}
+
+	got, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, structure, []string{"team-1/platform"})
+	if err != nil {
+		t.Fatalf("effectivePipelineRunStructureForConfigSync() error = %v", err)
+	}
+	team1, ok := got["team-1"]
+	if !ok {
+		t.Fatal("expected team-1 root group")
+	}
+	if team1.Description != "Owned by team-1 repo" {
+		t.Fatalf("team-1 description = %q", team1.Description)
+	}
+	if _, ok := team1.Children["dev"]; !ok {
+		t.Fatal("expected non-delegated team-1/dev structure to be applied")
+	}
+	platform, ok := team1.Children["platform"]
+	if !ok {
+		t.Fatal("expected delegated team-1/platform shell from config repository binding")
+	}
+	if platform.Description != "" || len(platform.Children) != 0 {
+		t.Fatalf("platform structure = %#v, want empty shell", platform)
+	}
+}
+
+func TestFilterDelegatedConfigResourcesFiltersRepoEnvByEnvironmentScope(t *testing.T) {
+	binding := models.ConfigRepository{ID: 1, ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID}
+	generalEnvs := map[generalEnvKey]storedEnvVar{
+		{envPath: "data-team/dev", name: "API_VERSION"}: {},
+		{envPath: "prod", name: "API_VERSION"}:          {},
+	}
+	repoEnvs := map[repoEnvKey]storedEnvVar{
+		{repo: "hosein-yousefii/test-app", envPath: "data-team/dev", name: "TEST_ENV"}: {},
+		{repo: "hosein-yousefii/test-app", envPath: "prod", name: "TEST_ENV"}:          {},
+	}
+
+	filterDelegatedConfigResources(
+		binding,
+		[]string{"data-team"},
+		map[string]storedPipeline{},
+		map[string]storedStep{},
+		generalEnvs,
+		repoEnvs,
+		map[string]storedTrigger{},
+	)
+
+	if _, ok := generalEnvs[generalEnvKey{envPath: "data-team/dev", name: "API_VERSION"}]; ok {
+		t.Fatal("expected delegated general environment variable to be filtered")
+	}
+	if _, ok := repoEnvs[repoEnvKey{repo: "hosein-yousefii/test-app", envPath: "data-team/dev", name: "TEST_ENV"}]; ok {
+		t.Fatal("expected delegated repository environment variable to be filtered by environment scope")
+	}
+	if _, ok := generalEnvs[generalEnvKey{envPath: "prod", name: "API_VERSION"}]; !ok {
+		t.Fatal("expected unrelated general environment variable to remain")
+	}
+	if _, ok := repoEnvs[repoEnvKey{repo: "hosein-yousefii/test-app", envPath: "prod", name: "TEST_ENV"}]; !ok {
+		t.Fatal("expected unrelated repository environment variable to remain")
+	}
+}
