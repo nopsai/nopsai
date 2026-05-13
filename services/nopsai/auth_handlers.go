@@ -947,8 +947,15 @@ func (a *App) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid userID", http.StatusBadRequest)
 		return
 	}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		http.Error(w, "failed to delete user", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
 	var sub, provider string
-	err = a.db.QueryRow(r.Context(), `SELECT sub, provider FROM users WHERE id = $1`, userID).Scan(&sub, &provider)
+	err = tx.QueryRow(r.Context(), `SELECT sub, provider FROM users WHERE id = $1`, userID).Scan(&sub, &provider)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			http.Error(w, "user not found", http.StatusNotFound)
@@ -961,13 +968,21 @@ func (a *App) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cannot delete default admin user", http.StatusBadRequest)
 		return
 	}
-	tag, err := a.db.Exec(r.Context(), `DELETE FROM users WHERE id = $1`, userID)
+	if err := deleteUserAccessArtifacts(r.Context(), tx, userID); err != nil {
+		http.Error(w, "failed to delete user access", http.StatusInternalServerError)
+		return
+	}
+	tag, err := tx.Exec(r.Context(), `DELETE FROM users WHERE id = $1`, userID)
 	if err != nil {
 		http.Error(w, "failed to delete user", http.StatusInternalServerError)
 		return
 	}
 	if tag.RowsAffected() == 0 {
 		http.Error(w, "user not found", http.StatusNotFound)
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, "failed to delete user", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

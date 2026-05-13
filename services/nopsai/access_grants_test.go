@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -37,6 +38,15 @@ type fakeGrantBackend struct {
 	aclPolicies  []fakeGrantACLPolicy
 	inheritance  map[string][]model.InheritedResource
 	logs         []model.DecisionLogEntry
+}
+
+type recordingExecRunner struct {
+	statements []string
+}
+
+func (r *recordingExecRunner) Exec(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+	r.statements = append(r.statements, sql)
+	return pgconn.NewCommandTag("DELETE 1"), nil
 }
 
 func (f *fakeGrantBackend) ResolveSubject(context.Context, model.Subject) (*model.ResolvedSubject, error) {
@@ -196,6 +206,49 @@ func TestNormalizeAccessGrantResourceTypeSupportsPipelineRun(t *testing.T) {
 	}
 	if got != grantResourceRun {
 		t.Fatalf("normalizeAccessGrantResourceType() = %q, want %q", got, grantResourceRun)
+	}
+}
+
+func TestNormalizeAccessGrantSubjectTypeRejectsAuthGroup(t *testing.T) {
+	if _, err := normalizeAccessGrantSubjectType("auth_group"); err == nil {
+		t.Fatal("expected auth_group product grant subjects to be rejected")
+	}
+	if _, err := normalizeAccessGrantSubjectType("group"); err == nil {
+		t.Fatal("expected group product grant subjects to be rejected")
+	}
+}
+
+func TestAccessGrantResponseUsesInternalSubjectID(t *testing.T) {
+	response := accessGrantResponseFromRecord(accessGrantRecord{
+		ID:             42,
+		SubjectType:    model.SubjectTypeUser,
+		SubjectID:      "user-uuid",
+		SubjectDisplay: "alice",
+		RoleName:       productRoleDeveloper,
+		ResourceType:   grantResourceFolder,
+		ResourceID:     generalGrantID,
+		Inherit:        true,
+	})
+
+	if response.SubjectID != "user-uuid" {
+		t.Fatalf("SubjectID = %q, want internal subject id", response.SubjectID)
+	}
+	if response.SubjectDisplay != "alice" {
+		t.Fatalf("SubjectDisplay = %q, want display label", response.SubjectDisplay)
+	}
+}
+
+func TestDeleteUserAccessArtifactsRemovesGrantRows(t *testing.T) {
+	runner := &recordingExecRunner{}
+	if err := deleteUserAccessArtifacts(context.Background(), runner, "user-uuid"); err != nil {
+		t.Fatalf("deleteUserAccessArtifacts() error = %v", err)
+	}
+
+	joined := strings.Join(runner.statements, "\n")
+	for _, want := range []string{"access_grants", "resource_acl", "resource_ownership", "auth_role_bindings", "user_roles"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("delete statements did not include %s: %s", want, joined)
+		}
 	}
 }
 

@@ -42,6 +42,7 @@ triggers/              Trigger override manifests
 scopes/                Scope variable files
 pipelineruns/          Run group structure
 config-repositories/   Group config repo bindings
+access/                Users, advanced roles, policies, and basic role grants
 ```
 
 Secrets are not imported from Git. Pipelines may declare required secrets, but
@@ -67,6 +68,9 @@ global-repo/config-repositories/groups/team-2/platform.yaml
 
 global-repo/config-repositories/groups/structure.yaml
   -> Pipeline Runs group structure, repositories under group shells, and inline group config repo binding for team-1
+
+global-repo/access/*.yaml
+  -> global users, advanced roles, policies, advanced role bindings, and basic role grants
 ```
 
 When the global repo defines group bindings under `config-repositories/groups`,
@@ -95,7 +99,26 @@ team-1-repo/triggers/service-api.yaml
 
 team-1-repo/scopes/prod/scope.yaml
   -> variables in scope team-1/prod
+
+team-1-repo/access/*.yaml
+  -> basic role grants scoped to team-1
 ```
 
 Pipeline and step file names must match their `name` fields. Group repo trigger
 manifests and includes should reference the final group-prefixed IDs.
+
+Nopsai reads every `.yaml` and `.yml` file under `access/`; file names such as
+`all.yaml` or `grants.yaml` are only examples, so teams can split manifests by
+owner, environment, or workflow.
+
+Global config repos may manage basic role grants even when the target group has
+its own delegated config repo. Group-owned config repos may manage basic role
+grants for their own group subtree. User, advanced-role, policy, and direct
+advanced-role-binding management remain global-repo only. In group repos, grant
+resource IDs are prefixed with the bound group automatically, so
+`resource: folder:dev` in the `team-1` repo targets `folder:team-1/dev`.
+
+User `advanced_roles` are global access-role assignments and may reference
+custom roles or protected built-in bundles such as `viewer`, `developer`,
+`owner`, and `admin`. Use `basic_roles` when those same product role names
+should be scoped to a folder/group target.
