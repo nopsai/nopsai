@@ -117,7 +117,7 @@ Main tables from `db/init.sql`:
 - `variables`, `secrets`: Runtime configuration data, with secrets encrypted before storage.
 - `groups`: Folder/repository tree used by the UI’s pipeline-runs organization.
 - `users`, `user_roles`, `role_permissions`, `refresh_tokens`, `audit_logs`: Local auth, legacy RBAC metadata, session, and audit data.
-- `auth_groups`, `auth_group_members`, `auth_roles`, `auth_role_bindings`, `auth_role_permissions`: AAA subject/group/role data used by the policy engine.
+- `auth_groups`, `auth_group_members`, `auth_roles`, `auth_role_bindings`, `auth_role_permissions`: legacy/internal AAA role data used by the policy engine; product access grants expose users and folder/group targets instead of auth-group subjects.
 - `access_grants`, `resource_acl`, `resource_ownership`, `authz_decision_logs`: Product-role grants, expanded ACLs, ownership metadata, and authorization decision audit logs.
 
 ## Authorization Model

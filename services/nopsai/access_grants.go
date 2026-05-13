@@ -38,7 +38,6 @@ const (
 	grantResourceCompany  = "company"
 	grantResourcePlatform = "platform"
 
-	grantSubjectGroup   = "group"
 	grantSubjectService = "service"
 	grantSubjectUser    = "user"
 
@@ -85,15 +84,16 @@ type createAccessGrantRequest struct {
 }
 
 type accessGrantResponse struct {
-	ID           string    `json:"id"`
-	SubjectType  string    `json:"subject_type"`
-	SubjectID    string    `json:"subject_id"`
-	Role         string    `json:"role"`
-	ResourceType string    `json:"resource_type"`
-	ResourceID   string    `json:"resource_id"`
-	Inherit      bool      `json:"inherit"`
-	GrantedBy    string    `json:"granted_by,omitempty"`
-	CreatedAt    time.Time `json:"created_at,omitempty"`
+	ID             string    `json:"id"`
+	SubjectType    string    `json:"subject_type"`
+	SubjectID      string    `json:"subject_id"`
+	SubjectDisplay string    `json:"subject_display,omitempty"`
+	Role           string    `json:"role"`
+	ResourceType   string    `json:"resource_type"`
+	ResourceID     string    `json:"resource_id"`
+	Inherit        bool      `json:"inherit"`
+	GrantedBy      string    `json:"granted_by,omitempty"`
+	CreatedAt      time.Time `json:"created_at,omitempty"`
 }
 
 type effectivePermissionResponse struct {
@@ -134,6 +134,10 @@ type queryRunner interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+type execRunner interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 }
 
 var productRoleDefinitions = map[string]productRoleDefinition{
@@ -529,7 +533,7 @@ func (a *App) GrantProductRole(ctx context.Context, input GrantProductRoleInput)
 	}
 
 	record.SubjectType = subject.Type
-	record.SubjectID = subject.Display
+	record.SubjectID = subject.ID
 	record.SubjectDisplay = subject.Display
 	record.RoleName = roleName
 	record.ResourceType = resource.Type
@@ -631,6 +635,26 @@ func (a *App) deleteProductRoleGrant(ctx context.Context, grantID int64) (access
 		return accessGrantRecord{}, err
 	}
 	return record, nil
+}
+
+func deleteUserAccessArtifacts(ctx context.Context, runner execRunner, userID string) error {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil
+	}
+	statements := []string{
+		`DELETE FROM access_grants WHERE subject_type = 'user' AND subject_id = $1`,
+		`DELETE FROM resource_acl WHERE subject_type = 'user' AND subject_id = $1`,
+		`DELETE FROM resource_ownership WHERE owner_subject_type = 'user' AND owner_subject_id = $1`,
+		`DELETE FROM auth_role_bindings WHERE subject_type = 'user' AND subject_id = $1`,
+		`DELETE FROM user_roles WHERE user_id = $1::uuid`,
+	}
+	for _, stmt := range statements {
+		if _, err := runner.Exec(ctx, stmt, userID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func loadAccessGrantRecord(ctx context.Context, runner queryRunner, grantID int64) (accessGrantRecord, error) {
@@ -888,12 +912,10 @@ func normalizeAccessGrantSubjectType(raw string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case grantSubjectUser:
 		return model.SubjectTypeUser, nil
-	case grantSubjectGroup, model.SubjectTypeAuthGroup:
-		return model.SubjectTypeAuthGroup, nil
 	case grantSubjectService, model.SubjectTypeInternalService:
 		return model.SubjectTypeInternalService, nil
 	default:
-		return "", fmt.Errorf("subject_type must be user, auth_group, or internal_service")
+		return "", fmt.Errorf("subject_type must be user or internal_service")
 	}
 }
 
@@ -937,8 +959,6 @@ func resolveAccessGrantSubject(ctx context.Context, runner queryRunner, rawType,
 	switch subjectType {
 	case model.SubjectTypeUser:
 		return resolveAccessGrantUser(ctx, runner, rawID)
-	case model.SubjectTypeAuthGroup:
-		return resolveAccessGrantGroup(ctx, runner, rawID)
 	case model.SubjectTypeInternalService:
 		return resolveAccessGrantService(ctx, runner, rawID)
 	default:
@@ -978,38 +998,6 @@ func resolveAccessGrantUser(ctx context.Context, runner queryRunner, rawID strin
 		return accessGrantSubject{}, err
 	}
 	subject.Type = model.SubjectTypeUser
-	return subject, nil
-}
-
-func resolveAccessGrantGroup(ctx context.Context, runner queryRunner, rawID string) (accessGrantSubject, error) {
-	var subject accessGrantSubject
-	query := `
-		SELECT id::text, name
-		FROM auth_groups
-		WHERE %s
-		LIMIT 1
-	`
-
-	var (
-		lookup string
-		args   []any
-	)
-	if _, err := uuid.Parse(rawID); err == nil {
-		lookup = "id::text = $1"
-		args = []any{rawID}
-	} else {
-		lookup = "name = $1"
-		args = []any{rawID}
-	}
-
-	err := runner.QueryRow(ctx, fmt.Sprintf(query, lookup), args...).Scan(&subject.ID, &subject.Display)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
-			return accessGrantSubject{}, fmt.Errorf("subject not found")
-		}
-		return accessGrantSubject{}, err
-	}
-	subject.Type = model.SubjectTypeAuthGroup
 	return subject, nil
 }
 
@@ -1729,15 +1717,16 @@ func buildHumanReadableDecisionReason(resp effectivePermissionResponse, decision
 
 func accessGrantResponseFromRecord(record accessGrantRecord) accessGrantResponse {
 	return accessGrantResponse{
-		ID:           formatAccessGrantID(record.ID),
-		SubjectType:  record.SubjectType,
-		SubjectID:    firstNonEmptyString(record.SubjectDisplay, record.SubjectID),
-		Role:         record.RoleName,
-		ResourceType: record.ResourceType,
-		ResourceID:   externalGrantResourceID(record.ResourceType, record.ResourceDisplay, record.ResourceID),
-		Inherit:      record.Inherit,
-		GrantedBy:    record.GrantedBy,
-		CreatedAt:    record.CreatedAt,
+		ID:             formatAccessGrantID(record.ID),
+		SubjectType:    record.SubjectType,
+		SubjectID:      record.SubjectID,
+		SubjectDisplay: record.SubjectDisplay,
+		Role:           record.RoleName,
+		ResourceType:   record.ResourceType,
+		ResourceID:     externalGrantResourceID(record.ResourceType, record.ResourceDisplay, record.ResourceID),
+		Inherit:        record.Inherit,
+		GrantedBy:      record.GrantedBy,
+		CreatedAt:      record.CreatedAt,
 	}
 }
 

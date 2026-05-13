@@ -58,7 +58,6 @@ The `admin` role can only be granted on the `platform` resource. Group grants mu
 Supported grant subjects:
 
 - `user`
-- `auth_group`
 - `internal_service`
 
 Supported grant resources:
@@ -97,6 +96,56 @@ When a grant is created:
 6. Admin grants write `auth_role_bindings` for the platform role instead of resource ACLs.
 
 Deleting a grant removes its expanded ACL and ownership rows through the grant foreign key.
+
+## GitOps Access Manifests
+
+Config repositories can manage access records from YAML under `access/`.
+Every `*.yaml` or `*.yml` file under that directory is read; `all.yaml` is only
+a sample name. Manifests may use top-level `users`, `advanced_roles`,
+`policies`, `advanced_role_bindings`, and `basic_roles` keys.
+
+Example global manifest:
+
+```yaml
+users:
+  - sub: alice
+    email: alice@example.com
+    advanced_roles: [release-manager]
+  - sub: bob
+    email: bob@example.com
+    advanced_roles: [viewer]
+
+advanced_roles:
+  - name: release-manager
+    policies:
+      - resource: pipeline:team-1/*
+        action: pipeline.execute
+
+basic_roles:
+  - user: alice
+    role: owner
+    resource: folder:team-1
+```
+
+Global config repositories can manage users, advanced role definitions,
+policies, advanced role bindings, and basic role grants, including grants that
+target delegated groups/folders. Group-scoped config repositories can manage
+`basic_roles` only for their own group subtree; user, advanced-role, policy,
+and direct advanced-role-binding management remains global.
+In a group repo, grant resource IDs are normalized under the bound group, so a
+grant with `resource_type: folder` in the `team-1` repo targets `folder:team-1`.
+
+User-level `advanced_roles` assignments can reference custom roles from the
+manifest or protected built-in role bundles such as `viewer`, `developer`,
+`owner`, and `admin`. These assignments are global access-role bindings. Use
+`basic_roles` when the same product role name should be scoped to a
+folder/group target.
+
+GitOps `basic_roles` use the same product roles as the API: `viewer`,
+`developer`, `owner`, and `admin`. The group/folder is the grant target, not a
+separate subject type. Non-admin basic roles are expanded into `resource_acl`;
+owner grants also write `resource_ownership`. `admin` grants remain
+platform-only and are rejected in group-scoped config repositories.
 
 ## Inheritance
 

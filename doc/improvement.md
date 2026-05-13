@@ -12,7 +12,7 @@ This document captures the current feature set and hardening work that has lande
 
 ### AAA (`services/aaa`)
 - **Policy decision service**: Provides internal introspection, check, batch-check, filter, and audit-record endpoints protected by `X-Internal-Token`.
-- **Product-role backing model**: Uses Postgres tables for auth groups, role bindings, role permissions, access grants, expanded ACLs, ownership, and authz decision logs.
+- **Product-role backing model**: Uses Postgres tables for role bindings, role permissions, access grants, expanded ACLs, ownership, and authz decision logs.
 - **Auditability**: Logs denied decisions and sensitive allowed decisions while preserving deny-before-allow semantics.
 
 ### Agent (`services/agent`)
