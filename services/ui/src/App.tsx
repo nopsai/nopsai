@@ -11,6 +11,7 @@ import LoginPage from './pages/Login';
 import ProfilePage from './pages/Profile';
 import { buildApiUrl, clearSession, getStoredSession, type StoredSession } from './lib/api';
 import { PIPELINE_DRAFTS_CHANGED_EVENT, getPipelineDraftStorageKey, loadPipelineDrafts } from './lib/pipelineDrafts';
+import { fetchResourceGroupPaths, insertGroupPath } from './lib/resourceGroups';
 import { STEP_DRAFTS_CHANGED_EVENT, getStepDraftStorageKey, loadStepDrafts } from './lib/stepDrafts';
 
 type Theme = 'light' | 'dark';
@@ -232,6 +233,7 @@ function AppShell() {
   const [scopes, setScopes] = useState<string[]>([]);
   const serverScopesRef = useRef<string[]>([]);
   const [scopeTreeOpen, setScopeTreeOpen] = useState<Set<string>>(new Set());
+  const [resourceGroupPaths, setResourceGroupPaths] = useState<string[]>([]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -427,6 +429,25 @@ function AppShell() {
   }, [location.pathname, sidebarOpen]);
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      setResourceGroupPaths([]);
+      return;
+    }
+    let cancelled = false;
+    void fetchResourceGroupPaths()
+      .then(paths => {
+        if (!cancelled) setResourceGroupPaths(paths);
+      })
+      .catch(error => {
+        console.warn('Failed to load groups for resource trees', error);
+        if (!cancelled) setResourceGroupPaths([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated]);
+
+  useEffect(() => {
     if (!isAuthenticated) return;
     const load = async () => {
       try {
@@ -617,6 +638,9 @@ function AppShell() {
 
   const buildTree = useMemo(() => {
     const root: PipelineTreeNode = { id: '__root__', name: 'All pipelines', fullPath: '', children: [], pipelineIds: [] };
+    resourceGroupPaths.forEach(path => {
+      insertGroupPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], pipelineIds: [] }));
+    });
     pipelines.forEach(id => {
       const parts = id.split('/').filter(Boolean);
       const pipelineName = parts.pop();
@@ -637,10 +661,13 @@ function AppShell() {
       current.pipelineIds.sort((a, b) => a.localeCompare(b));
     });
     return root;
-  }, [pipelines]);
+  }, [pipelines, resourceGroupPaths]);
 
   const buildTriggerTree = useMemo(() => {
     const root: TriggerTreeNode = { id: '__root__', name: 'All triggers', fullPath: '', children: [], triggerSlugs: [] };
+    resourceGroupPaths.forEach(path => {
+      insertGroupPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], triggerSlugs: [] }));
+    });
     triggers.forEach(slug => {
       const parts = slug.split('/').filter(Boolean);
       const repoName = parts.pop();
@@ -661,10 +688,13 @@ function AppShell() {
       current.triggerSlugs.sort((a, b) => a.localeCompare(b));
     });
     return root;
-  }, [triggers]);
+  }, [resourceGroupPaths, triggers]);
 
   const buildStepTree = useMemo(() => {
     const root: StepTreeNode = { id: '__root__', name: 'All steps', fullPath: '', children: [], stepIds: [] };
+    resourceGroupPaths.forEach(path => {
+      insertGroupPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], stepIds: [] }));
+    });
     steps.forEach(id => {
       const parts = id.split('/').filter(Boolean);
       const stepName = parts.pop();
@@ -685,10 +715,13 @@ function AppShell() {
       current.stepIds.sort((a, b) => a.localeCompare(b));
     });
     return root;
-  }, [steps]);
+  }, [resourceGroupPaths, steps]);
 
   const buildScopeTree = useMemo(() => {
     const root: ScopeTreeNode = { id: '__root__', name: 'All scopes', fullPath: '', children: [], scopes: [] };
+    resourceGroupPaths.forEach(path => {
+      insertGroupPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], scopes: [] }));
+    });
     scopes.forEach(scope => {
       const normalized = scope.replace(/^\/+|\/+$/g, '');
       const parts = normalized.split('/').filter(Boolean);
@@ -712,7 +745,7 @@ function AppShell() {
       current.scopes.sort((a, b) => a.localeCompare(b));
     });
     return root;
-  }, [scopes]);
+  }, [resourceGroupPaths, scopes]);
 
   const handleTogglePipelineNode = (id: string) => {
     setPipelineTreeOpen(prev => {

@@ -295,6 +295,9 @@ curl -X DELETE http://localhost:8080/v1/pipelines/team-1/dev/main-pipeline
 - The GitOps config repository can define the group and repository hierarchy for the Pipeline Runs UI via `pipelineruns/structure.yaml`.
 - Each top-level key is a group. Nest groups by adding child keys, and assign repositories under a group with a `repos:` list.
 - Repository entries should use the same `owner/repo` strings that appear in triggers and run metadata.
+- Group repo bindings under `config-repositories/groups/...` always create matching group shells, even when `pipelineruns/structure.yaml` does not mention them.
+- In the global repo, when group repo bindings exist, those bindings are the source of truth for Pipeline Runs groups; matching `structure.yaml` subtrees are not applied because the group repo owns that group.
+- In a group-scoped repo, `structure.yaml` may define groups inside the bound group, except for nested groups that have their own config repo binding.
 - Example:
 
 ```yaml
@@ -316,7 +319,7 @@ team-2:
       - hosein-yousefii/all-app
 ```
 
-- Running `POST /v1/internal/config/sync` ingests this file, creating or updating groups in the `groups` table and assigning repositories to their Git-defined parents. Existing manual groups not referenced in the file are left untouched.
+- Running config sync ingests this file, creating or updating groups in the `groups` table and assigning repositories to their Git-defined parents. Existing manual groups not referenced in the file are left untouched.
 
 ---
 
@@ -339,6 +342,7 @@ curl -X POST http://localhost:8080/v1/system/config-repos/sync
 - System- and group-scoped repos may define group repo bindings under `config-repositories/groups/<group>.yaml`.
 - A binding file contains `repo_url`, optional `branch`, optional `base_path`, and optional `enabled`.
 - Nested groups are represented by nested paths, for example `config-repositories/groups/team-2/platform.yaml` creates a binding for `team-2/platform`.
+- Group bindings also create matching group shells used by the Pipelines, Steps, Triggers, Scopes, and Pipeline Runs views.
 - Once a group repo is assigned and synced, it is authoritative for resources under that group path. Parent or global repos skip and prune their own managed resources inside delegated groups.
 - Only owners of the target group, including inherited parent owners, can sync that group repo.
 - Complete examples live under `doc/sample-config-repo`.

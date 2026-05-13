@@ -1467,7 +1467,7 @@ func (a *App) handleListAccessGrants(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var records []accessGrantResponse
+	records := make([]accessGrantResponse, 0)
 	for rows.Next() {
 		var record accessGrantRecord
 		if err := rows.Scan(

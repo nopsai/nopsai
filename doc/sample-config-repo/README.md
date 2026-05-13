@@ -63,14 +63,19 @@ global-repo/nopsai/environments/dev/env.yaml
   -> variables in scope dev
 
 global-repo/nopsai/pipelineruns/structure.yaml
-  -> Pipeline Runs group structure
+  -> Pipeline Runs group structure for non-delegated groups
 
 global-repo/nopsai/config-repositories/groups/team-1.yaml
-  -> config repo binding for group team-1
+  -> config repo binding and group shell for group team-1
 
 global-repo/nopsai/config-repositories/groups/team-2/platform.yaml
-  -> config repo binding for group team-2/platform
+  -> config repo binding and group shell for group team-2/platform
 ```
+
+When the global repo defines group bindings under `config-repositories/groups`,
+those bindings are the source of truth for delegated group shells. A matching
+`pipelineruns/structure.yaml` subtree is ignored for that delegated group
+because the group repo owns its own run structure.
 
 ## Group Repo File Map
 

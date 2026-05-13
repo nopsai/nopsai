@@ -10,6 +10,7 @@ import {
   type StepDraft,
   upsertStepDraft,
 } from '../lib/stepDrafts';
+import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups';
 import { applyEnterIndent, findParentBlock } from '../lib/lab';
 import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
 import { findLineNumberForKey, findLineNumberForTaskName, parseYamlWithLocation } from '../lib/yamlValidation';
@@ -377,6 +378,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
   const [activeFolder, setActiveFolder] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
+  const [resourceGroupPaths, setResourceGroupPaths] = useState<string[]>([]);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -1011,6 +1013,21 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
   }, [loadSteps]);
 
   useEffect(() => {
+    let cancelled = false;
+    void fetchResourceGroupPaths()
+      .then(paths => {
+        if (!cancelled) setResourceGroupPaths(paths);
+      })
+      .catch(error => {
+        console.warn('Failed to load groups for step tree', error);
+        if (!cancelled) setResourceGroupPaths([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (listLoading || listError) return;
     const activeId = selectedIdRef.current;
     if (!activeId) return;
@@ -1115,6 +1132,9 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
 
   const buildTree = useMemo(() => {
     const root: TreeNode = { id: '__root__', name: '', fullPath: '', children: [], stepIds: [] };
+    resourceGroupPaths.forEach(path => {
+      insertGroupPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], stepIds: [] }));
+    });
     steps.forEach(item => {
       const parts = item.id.split('/').filter(Boolean);
       const leafName = parts.pop();
@@ -1135,7 +1155,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
       current.stepIds.sort((a, b) => a.localeCompare(b));
     });
     return root;
-  }, [steps]);
+  }, [resourceGroupPaths, steps]);
 
   const activeFolderNode = useMemo(() => {
     if (!activeFolder) return buildTree;
@@ -1472,7 +1492,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
             <span className="pipeline-card-meta-value">{node.stepIds.length}</span>
           </div>
           <div className="pipeline-folder-meta-row">
-            <span className="pipeline-card-meta-label">Sub folders:</span>
+            <span className="pipeline-card-meta-label">Sub groups:</span>
             <span className="pipeline-card-meta-value">{node.children.length}</span>
           </div>
         </div>
@@ -1961,7 +1981,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
                   value={formModal.path}
                   onChange={event => setFormModal(prev => (prev ? { ...prev, path: event.target.value } : prev))}
                 />
-                <p className="text-xs text-[var(--text-secondary)] mt-1">Optional folder-style path. Leave blank for root.</p>
+                <p className="text-xs text-[var(--text-secondary)] mt-1">Optional group path. Leave blank for root.</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-[var(--text-secondary)]">Step Name</label>

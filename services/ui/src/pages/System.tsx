@@ -144,6 +144,13 @@ type EditableAccessGrant = {
   grantedBy?: string;
 };
 
+type BasicGrantInput = {
+  role: string;
+  resourceType: string;
+  resourceID: string;
+  inherit?: boolean;
+};
+
 type RolePolicyDraft = {
   name: string;
   obj: string;
@@ -225,7 +232,6 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
   const [policiesError, setPoliciesError] = useState<string | null>(null);
   const [newUser, setNewUser] = useState({ sub: '', email: '', password: '', roles: [] as string[] });
   const [newPermission, setNewPermission] = useState({ name: '', obj: 'pipeline:*', act: 'pipeline.read' });
-  const [ensuringDefaultAdmin, setEnsuringDefaultAdmin] = useState(false);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -389,11 +395,12 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     setUsersError(null);
     try {
       const payload = await fetchJson('/v1/admin/users');
-      if (Array.isArray(payload)) {
-        setUsers(payload as UserSummary[]);
-      } else {
+      const records = normalizeListPayload(payload, ['users', 'items', 'data', 'records', 'results']);
+      if (!records) {
         setUsersError('Unexpected response');
+        return;
       }
+      setUsers(records as UserSummary[]);
     } catch (error) {
       setUsersError(error instanceof Error ? error.message : 'Unable to load users');
     } finally {
@@ -406,12 +413,12 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     setAccessGrantsError(null);
     try {
       const payload = await fetchJson('/v1/access/grants');
-      if (!Array.isArray(payload)) {
+      const records = normalizeListPayload(payload, ['grants', 'access_grants', 'accessGrants', 'items', 'data', 'records', 'results']);
+      if (!records) {
         setAccessGrantsError('Unexpected response');
-        setAccessGrantsLoading(false);
         return;
       }
-      setAccessGrants(payload.map(item => normalizeAccessGrantRecord(item)).filter(Boolean) as AccessGrantRecord[]);
+      setAccessGrants(records.map(item => normalizeAccessGrantRecord(item)).filter(Boolean) as AccessGrantRecord[]);
     } catch (error) {
       setAccessGrantsError(error instanceof Error ? error.message : 'Unable to load basic roles');
     } finally {
@@ -424,14 +431,14 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     setPoliciesError(null);
     try {
       const payload = await fetchJson('/v1/admin/roles');
-      if (!Array.isArray(payload)) {
+      const records = normalizeListPayload(payload, ['roles', 'permissions', 'items', 'data', 'records', 'results']);
+      if (!records) {
         setPoliciesError('Unexpected response');
-        setPoliciesLoading(false);
         return;
       }
-      const records = payload as RolePermission[];
-      const templates = records.filter(p => p.role === POLICY_TEMPLATE_ROLE);
-      const rolePolicies = normalizeAdminPolicies(records.filter(p => p.role !== POLICY_TEMPLATE_ROLE));
+      const rolePermissions = records as RolePermission[];
+      const templates = rolePermissions.filter(p => p.role === POLICY_TEMPLATE_ROLE);
+      const rolePolicies = normalizeAdminPolicies(rolePermissions.filter(p => p.role !== POLICY_TEMPLATE_ROLE));
       setPolicyTemplates(templates);
       setPolicies(rolePolicies);
     } catch (error) {
@@ -441,24 +448,27 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
   }, [fetchJson]);
 
   const createUser = useCallback(
-    async (e: FormEvent<HTMLFormElement>) => {
+    async (e: FormEvent<HTMLFormElement>, options?: { basicGrants?: BasicGrantInput[] }): Promise<boolean> => {
       e.preventDefault();
       const roleAssignments = (newUser.roles || [])
         .map(role => role.trim())
         .filter(Boolean)
         .filter((role, index, roles) => roles.indexOf(role) === index);
-      if (roleAssignments.length === 0) {
-        addToast('Add at least one role before creating a user.', 'error');
-        return;
+      const basicGrants = normalizeBasicGrantInputs(options?.basicGrants || []);
+      if (roleAssignments.length === 0 && basicGrants.length === 0) {
+        addToast('Add at least one access role or basic role before creating a user.', 'error');
+        return false;
       }
       try {
-        const primaryRole = roleAssignments[0];
+        const sub = newUser.sub.trim();
+        const email = newUser.email.trim();
+        const primaryRole = roleAssignments[0] || '';
         const created = (await fetchJson('/v1/admin/users', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            sub: newUser.sub.trim(),
-            email: newUser.email.trim(),
+            sub,
+            email,
             password: newUser.password,
             role: primaryRole,
           }),
@@ -468,10 +478,21 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
           (created && (created.id || created.user_id || created.userId)) || undefined;
 
         if (!userId) {
+          const createdRecords = normalizeListPayload(created, ['users', 'items', 'data', 'records', 'results']);
+          const match = createdRecords?.find(item => {
+            const record = asRecord(item);
+            if (!record) return false;
+            return readString(record.sub) === sub || readString(record.email) === email;
+          });
+          userId = match ? readString(asRecord(match)?.id) : undefined;
+        }
+
+        if (!userId) {
           try {
             const list = await fetchJson('/v1/admin/users');
-            if (Array.isArray(list)) {
-              const match = (list as UserSummary[]).find(u => u.sub === newUser.sub || u.email === newUser.email);
+            const records = normalizeListPayload(list, ['users', 'items', 'data', 'records', 'results']);
+            if (records) {
+              const match = (records as UserSummary[]).find(u => u.sub === sub || u.email === email);
               userId = match?.id;
             }
           } catch {
@@ -482,7 +503,7 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
         if (!userId) {
           addToast('User created but ID not found; roles not assigned.', 'error');
           await loadUsers();
-          return;
+          return false;
         }
 
         for (const role of roleAssignments.slice(1)) {
@@ -500,14 +521,45 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
           }
         }
 
-        addToast(`User ${newUser.sub} saved with ${roleAssignments.length} role(s)`, 'success');
+        for (const grant of basicGrants) {
+          try {
+            await fetchJson('/v1/access/grants', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                subject_type: 'user',
+                subject_id: userId,
+                role: grant.role,
+                resource_type: grant.resourceType,
+                resource_id: grant.resourceID,
+                inherit: grant.inherit,
+              }),
+            });
+          } catch (error) {
+            if (error instanceof Error && error.message.toLowerCase().includes('already exists')) {
+              continue;
+            }
+            throw error;
+          }
+        }
+
+        const savedParts = [
+          roleAssignments.length ? `${roleAssignments.length} access role(s)` : '',
+          basicGrants.length ? `${basicGrants.length} basic role(s)` : '',
+        ].filter(Boolean);
+        addToast(`User ${sub} saved with ${savedParts.join(' and ')}`, 'success');
         setNewUser({ sub: '', email: '', password: '', roles: [] });
         await loadUsers();
+        if (basicGrants.length > 0) {
+          await loadAccessGrants();
+        }
+        return true;
       } catch (error) {
         addToast(error instanceof Error ? error.message : 'Failed to create user', 'error');
+        return false;
       }
     },
-    [addToast, fetchJson, loadUsers, newUser.email, newUser.password, newUser.roles, newUser.sub]
+    [addToast, fetchJson, loadAccessGrants, loadUsers, newUser.email, newUser.password, newUser.roles, newUser.sub]
   );
 
   const createPermission = useCallback(
@@ -1116,38 +1168,6 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     }
   }, [loadAccessGrants, loadPolicies, loadUsers, permissions.canViewAccess, visibleTab]);
 
-  const defaultAdminPolicyExists = useMemo(
-    () =>
-      policies.some(p => p.role === DEFAULT_ADMIN_ROLE && isDefaultAdmin(p.role) && p.obj === DEFAULT_ADMIN_POLICY_OBJ && p.act === DEFAULT_ADMIN_POLICY_ACT),
-    [policies]
-  );
-
-  useEffect(() => {
-    if (!permissions.canViewAccess || visibleTab !== 'access') return;
-    if (policiesLoading || ensuringDefaultAdmin) return;
-    if (defaultAdminPolicyExists) return;
-    setEnsuringDefaultAdmin(true);
-    void (async () => {
-      try {
-        await fetchJson('/v1/admin/roles', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            role: DEFAULT_ADMIN_ROLE,
-            name: 'Admin all access',
-            obj: DEFAULT_ADMIN_POLICY_OBJ,
-            act: DEFAULT_ADMIN_POLICY_ACT,
-          }),
-        });
-        await loadPolicies();
-      } catch (error) {
-        console.error('Failed to ensure default admin policy', error);
-      } finally {
-        setEnsuringDefaultAdmin(false);
-      }
-    })();
-  }, [defaultAdminPolicyExists, ensuringDefaultAdmin, fetchJson, loadPolicies, permissions.canViewAccess, policiesLoading, visibleTab]);
-
   useEffect(() => {
     const handle = window.setInterval(() => {
       if (permissions.canViewDispatcher && visibleTab === 'dispatcher') {
@@ -1398,6 +1418,34 @@ const editableAccessGrantFromRecord = (grant: AccessGrantRecord): EditableAccess
   inherit: grant.inherit,
   grantedBy: grant.grantedBy,
 });
+
+const normalizeBasicGrantInputs = (entries: BasicGrantInput[]): BasicGrantInput[] =>
+  Array.from(
+    entries.reduce((map, entry) => {
+      const role = (entry.role || '').trim().toLowerCase();
+      const resourceType = (entry.resourceType || '').trim().toLowerCase();
+      const resourceID = (entry.resourceID || '').trim();
+      if (!role || !resourceType || !resourceID) return map;
+      const normalized = {
+        role,
+        resourceType,
+        resourceID: resourceType === 'folder' ? normalizedAccessGrantResourceKey({ resourceType, resourceID }).resourceID : resourceID,
+        inherit: entry.inherit,
+      };
+      map.set(accessGrantEditKey(normalized), normalized);
+      return map;
+    }, new Map<string, BasicGrantInput>())
+  ).map(([, entry]) => entry);
+
+const normalizeEditableBasicGrants = (entries: EditableAccessGrant[]): BasicGrantInput[] =>
+  normalizeBasicGrantInputs(
+    entries.map(entry => ({
+      role: entry.role,
+      resourceType: entry.resourceType,
+      resourceID: entry.resourceID,
+      inherit: entry.inherit,
+    }))
+  );
 
 const isBasicAccessGrant = (grant: AccessGrantRecord) => {
   const role = (grant.role || '').trim().toLowerCase();
@@ -2431,7 +2479,7 @@ function AccessPanel({
   newUser: { sub: string; email: string; password: string; roles: string[] };
   policyTemplates: RolePermission[];
   onChangeUser: (next: { sub: string; email: string; password: string; roles: string[] }) => void;
-  onCreateUser: (e: FormEvent<HTMLFormElement>) => Promise<void>;
+  onCreateUser: (e: FormEvent<HTMLFormElement>, options?: { basicGrants?: BasicGrantInput[] }) => Promise<boolean>;
   onReloadUsers: () => void;
   onCreatePermission: (e: FormEvent<HTMLFormElement>) => Promise<void>;
   newPermission: { name: string; obj: string; act: string };
@@ -2571,6 +2619,9 @@ function AccessPanel({
     setNextUserRole('');
     setAwaitingUserCreateReset(false);
     setUserAccessEditor(null);
+    setBasicGrantError(null);
+    setBasicGrantDraft({ role: '', scope: GENERAL_ACCESS_SCOPE });
+    setBasicGrantEntries([]);
     setShowUserModal(true);
   }, []);
 
@@ -2852,7 +2903,12 @@ function AccessPanel({
     );
   }, [policyTemplates, searchQuery]);
 
-  const isNewUserPristine = !newUser.sub.trim() && !newUser.email.trim() && !newUser.password && (newUser.roles || []).length === 0;
+  const isNewUserPristine =
+    !newUser.sub.trim() &&
+    !newUser.email.trim() &&
+    !newUser.password &&
+    (newUser.roles || []).length === 0 &&
+    basicGrantEntries.length === 0;
   const isNewPolicyPristine =
     !newPermission.name.trim() && newPermission.obj.trim() === 'pipeline:*' && newPermission.act.trim() === 'pipeline.read';
   const selectedBasicUserID = userAccessEditor?.user.id || '';
@@ -2997,7 +3053,12 @@ function AccessPanel({
     setCreatingUserInline(true);
     setAwaitingUserCreateReset(true);
     try {
-      await onCreateUser(e);
+      const created = await onCreateUser(e, { basicGrants: normalizeEditableBasicGrants(basicGrantEntries) });
+      if (created) {
+        setBasicGrantError(null);
+        setBasicGrantDraft({ role: '', scope: GENERAL_ACCESS_SCOPE });
+        setBasicGrantEntries([]);
+      }
     } finally {
       setCreatingUserInline(false);
     }
@@ -3065,11 +3126,16 @@ function AccessPanel({
 
   const handleStageBasicGrant = (e?: FormEvent<HTMLFormElement>) => {
     e?.preventDefault();
-    if (!selectedBasicUser) {
+    const creatingUser = showUserModal && !userAccessEditor;
+    if (!selectedBasicUser && !creatingUser) {
       setBasicGrantError('Select a user first.');
       return;
     }
-    if (isDefaultAdminUser(selectedBasicUser)) {
+    if (selectedBasicUser && isDefaultAdminUser(selectedBasicUser)) {
+      setBasicGrantError('Default admin role assignments are locked.');
+      return;
+    }
+    if (creatingUser && newUser.sub.trim().toLowerCase() === 'admin') {
       setBasicGrantError('Default admin role assignments are locked.');
       return;
     }
@@ -3185,6 +3251,9 @@ function AccessPanel({
           onClick={() => {
             setAwaitingUserCreateReset(false);
             setShowUserModal(false);
+            setBasicGrantError(null);
+            setBasicGrantDraft({ role: '', scope: GENERAL_ACCESS_SCOPE });
+            setBasicGrantEntries([]);
           }}
         >
           Close
@@ -3226,11 +3295,11 @@ function AccessPanel({
         </label>
         <div className="access-editor-section">
           <div className="access-minimal-section__header">
-            <p className="text-sm font-medium text-[var(--text-primary)]">Roles</p>
-            <span className="text-[11px] text-[var(--text-secondary)]">Assign at least one</span>
+            <p className="text-sm font-medium text-[var(--text-primary)]">Access roles</p>
+            <span className="text-[11px] text-[var(--text-secondary)]">Optional with basic roles</span>
           </div>
           <div className="space-y-2">
-            {newUser.roles.length === 0 && <p className="text-[11px] text-[var(--text-secondary)]">Pick at least one role to create this user.</p>}
+            {newUser.roles.length === 0 && <p className="text-[11px] text-[var(--text-secondary)]">Add access roles here or use basic roles below.</p>}
             {newUser.roles.map((entry, idx) => (
               <div key={`new-user-role-${idx}`} className="access-minimal-row">
                 <select
@@ -3269,9 +3338,87 @@ function AccessPanel({
                 ))}
               </select>
               <button type="button" className="glass-button-subtle" onClick={appendUserRoleFromPicker} disabled={allRoleOptions.length === 0}>
-                Add role
+                Add access role
               </button>
             </div>
+          </div>
+        </div>
+        <div className="access-editor-section">
+          <div className="access-minimal-section__header">
+            <p className="text-sm font-medium text-[var(--text-primary)]">Basic roles</p>
+            <span className="text-[11px] text-[var(--text-secondary)]">{basicGrantEntries.length} listed</span>
+          </div>
+          <div className="access-editor-grid">
+            <label className="access-minimal-label">
+              <span>Access level</span>
+              <select
+                className="pipelines-input"
+                value={basicGrantDraft.role}
+                onChange={e => {
+                  const role = e.target.value;
+                  setBasicGrantDraft(prev => ({
+                    ...prev,
+                    role,
+                    scope: role === BASIC_ROLE_ADMIN ? prev.scope : prev.scope || GENERAL_ACCESS_SCOPE,
+                  }));
+                }}
+              >
+                <option value="">Select role</option>
+                <option value={BASIC_ROLE_VIEWER}>Viewer</option>
+                <option value={BASIC_ROLE_DEVELOPER}>Developer</option>
+                <option value={BASIC_ROLE_OWNER}>Owner</option>
+                <option value={BASIC_ROLE_ADMIN}>Admin</option>
+              </select>
+            </label>
+            <label className="access-minimal-label">
+              <span>Group target</span>
+              <select
+                className="pipelines-input"
+                value={basicGrantDraft.role === BASIC_ROLE_ADMIN ? 'platform' : basicGrantDraft.scope}
+                onChange={e => setBasicGrantDraft(prev => ({ ...prev, scope: e.target.value }))}
+                disabled={basicGrantDraft.role === BASIC_ROLE_ADMIN}
+              >
+                {basicGrantDraft.role === BASIC_ROLE_ADMIN ? (
+                  <option value="platform">Platform wide</option>
+                ) : (
+                  basicGrantOptions.map(option => (
+                    <option key={`new-user-basic-${option.value}`} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))
+                )}
+              </select>
+            </label>
+          </div>
+          <div className="access-editor-footer access-editor-footer--inline">
+            <button type="button" className="glass-button-subtle" onClick={() => handleStageBasicGrant()} disabled={creatingUserInline || !basicGrantDraft.role || basicGrantDraftDuplicate}>
+              Add basic role
+            </button>
+          </div>
+          {basicGrantError && <div className="access-error-banner">{basicGrantError}</div>}
+          <div className="space-y-2">
+            {basicGrantEntries.length === 0 ? (
+              <p className="text-[12px] text-[var(--text-secondary)]">No basic roles listed.</p>
+            ) : (
+              basicGrantEntries.map(grant => (
+                <div key={grant.localID} className="access-minimal-row access-minimal-row--stack">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`access-chip ${accessPresetToneClass(grant.role)}`}>{grant.role}</span>
+                      <span className="access-chip access-chip--muted">{accessGrantResourceSummary(grant)}</span>
+                      {grant.inherit && grant.resourceType === 'folder' && grant.resourceID !== 'general' && (
+                        <span className="access-chip access-chip--muted">Includes children</span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-[var(--text-secondary)] mt-2">{basicAccessGrantDescription(grant)}</p>
+                  </div>
+                  <button type="button" className="access-inline-btn access-inline-btn--danger" onClick={() => removeBasicGrantDraft(grant.localID)} disabled={creatingUserInline}>
+                    <TrashIcon />
+                    <span>Remove</span>
+                  </button>
+                </div>
+              ))
+            )}
           </div>
         </div>
         <div className="access-editor-footer">
@@ -4882,6 +5029,33 @@ function readString(value: unknown): string {
 function readOptionalString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   return value;
+}
+
+function normalizeListPayload(payload: unknown, keys: string[] = []): unknown[] | null {
+  let value = payload;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed || trimmed === 'null') return [];
+    if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+      try {
+        value = JSON.parse(trimmed);
+      } catch {
+        return null;
+      }
+    }
+  }
+  if (value == null) return [];
+  if (Array.isArray(value)) return value;
+
+  const record = asRecord(value);
+  if (!record) return null;
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(record, key)) continue;
+    const candidate = record[key];
+    if (candidate == null) return [];
+    if (Array.isArray(candidate)) return candidate;
+  }
+  return null;
 }
 
 function normalizeNumber(value: unknown): number {
