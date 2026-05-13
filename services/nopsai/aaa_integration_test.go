@@ -330,6 +330,48 @@ func TestDispatcherRequestsUseInternalServiceSubject(t *testing.T) {
 	}
 }
 
+func TestSyntheticGitRunRequestsUseDispatcherInternalSubject(t *testing.T) {
+	calls := 0
+	client := newInMemoryAAAClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/authz/check":
+			calls++
+			var req model.CheckRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode check request: %v", err)
+			}
+			if req.Subject.Type != model.SubjectTypeInternalService {
+				t.Fatalf("subject type = %q, want %q", req.Subject.Type, model.SubjectTypeInternalService)
+			}
+			if req.Subject.ID != "dispatcher" {
+				t.Fatalf("subject id = %q, want dispatcher", req.Subject.ID)
+			}
+			if req.Action != "pipeline.execute" {
+				t.Fatalf("action = %q, want pipeline.execute", req.Action)
+			}
+			if req.Resource != routeauthz.PipelineResource("", "reference-pipeline") {
+				t.Fatalf("resource = %#v, want %#v", req.Resource, routeauthz.PipelineResource("", "reference-pipeline"))
+			}
+			_ = json.NewEncoder(w).Encode(model.Decision{Allowed: true, Reason: "mock"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+
+	app := &App{aaaClient: client}
+	req := httptest.NewRequest(http.MethodPost, "/v1/run/reference-pipeline", nil)
+	req.SetPathValue("pipelineName", "reference-pipeline")
+	req = app.withDispatcherInternalSubject(req)
+
+	rec := httptest.NewRecorder()
+	if !app.requireAAADecision(rec, req, "pipeline.execute", routeauthz.PipelineResource("", "reference-pipeline")) {
+		t.Fatalf("expected synthetic git run request to be authorized, got status %d", rec.Code)
+	}
+	if calls != 1 {
+		t.Fatalf("AAA check calls = %d, want 1", calls)
+	}
+}
+
 func TestBranchRunDeletionRouteUsesAAA(t *testing.T) {
 	calls := &mockAAACalls{}
 	client := newInMemoryAAAClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
