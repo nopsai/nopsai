@@ -895,7 +895,7 @@ func upsertAccessPolicy(ctx context.Context, tx pgx.Tx, binding models.ConfigRep
 	if err := ensureGlobalConfigObjectWritable(ctx, tx, binding, "role_permissions", "role policy metadata", policy.role, "role = $1 AND obj = $2 AND act = $3", policy.role, objectValue, actionValue); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM role_permissions WHERE role = $1 AND obj = $2 AND act = $3 AND managed_by_config_repo = TRUE`, policy.role, objectValue, actionValue); err != nil {
+	if _, err := tx.Exec(ctx, `DELETE FROM role_permissions WHERE role = $1 AND obj = $2 AND act = $3`, policy.role, objectValue, actionValue); err != nil {
 		return fmt.Errorf("failed to refresh role policy metadata: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
@@ -1037,7 +1037,7 @@ func (a *App) upsertManagedProductRoleGrant(ctx context.Context, tx pgx.Tx, bind
 		repoName, scope, _ := model.ParseNamedResourceID(resource.ID)
 		resourceScope = firstNonEmptyString(repoName, scope)
 	}
-	writable, err := ensureConfigResourceWritable(ctx, tx, "access_grants", "access grant", subject.Type+":"+subject.ID+" "+resource.Type+":"+resource.ID, binding, resourceScope, "subject_type = $1 AND subject_id = $2 AND resource_type = $3 AND resource_id = $4", subject.Type, subject.ID, resource.Type, resource.ID)
+	writable, err := ensureAccessGrantConfigWritable(ctx, tx, binding, resourceScope, subject.Type, subject.ID, resource.Type, resource.ID)
 	if err != nil {
 		return resolvedAccessGrantKey{}, err
 	}
@@ -1058,9 +1058,6 @@ func (a *App) upsertManagedProductRoleGrant(ctx context.Context, tx pgx.Tx, bind
 		WHERE subject_type = $1 AND subject_id = $2 AND resource_type = $3 AND resource_id = $4
 	`, subject.Type, subject.ID, resource.Type, resource.ID).Scan(&existingID, &previousRole)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
-		return resolvedAccessGrantKey{}, err
-	}
-	if err := validateFolderOwnerGuard(ctx, tx, roleName, resource, existingID); err != nil {
 		return resolvedAccessGrantKey{}, err
 	}
 
@@ -1087,7 +1084,10 @@ func (a *App) upsertManagedProductRoleGrant(ctx context.Context, tx pgx.Tx, bind
 		if previousRole == productRoleAdmin {
 			if _, err := tx.Exec(ctx, `
 				DELETE FROM auth_role_bindings
-				WHERE role_name = $1 AND subject_type = $2 AND subject_id = $3 AND managed_by_config_repo = TRUE AND config_repo_id = $4
+				WHERE role_name = $1
+				  AND subject_type = $2
+				  AND subject_id = $3
+				  AND (managed_by_config_repo = FALSE OR config_repo_id = $4)
 			`, productRoleAdmin, subject.Type, subject.ID, binding.ID); err != nil {
 				return resolvedAccessGrantKey{}, err
 			}
@@ -1154,8 +1154,48 @@ func (a *App) upsertManagedProductRoleGrant(ctx context.Context, tx pgx.Tx, bind
 	return resolvedAccessGrantKey{subjectType: subject.Type, subjectID: subject.ID, resourceType: resource.Type, resourceID: resource.ID}, nil
 }
 
+func ensureAccessGrantConfigWritable(ctx context.Context, tx pgx.Tx, binding models.ConfigRepository, resourceScope, subjectType, subjectID, resourceType, resourceID string) (bool, error) {
+	displayID := subjectType + ":" + subjectID + " " + resourceType + ":" + resourceID
+	var existingRepoID sql.NullInt64
+	var managed bool
+	err := tx.QueryRow(ctx, `
+		SELECT config_repo_id, managed_by_config_repo
+		FROM access_grants
+		WHERE subject_type = $1 AND subject_id = $2 AND resource_type = $3 AND resource_id = $4
+		LIMIT 1
+	`, subjectType, subjectID, resourceType, resourceID).Scan(&existingRepoID, &managed)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows), errors.Is(err, sql.ErrNoRows):
+		return true, nil
+	case err != nil:
+		return false, err
+	}
+	if !managed {
+		return true, nil
+	}
+	if !existingRepoID.Valid {
+		return false, fmt.Errorf("access grant %s is already managed by an unknown config repository", displayID)
+	}
+	if existingRepoID.Int64 == binding.ID {
+		return true, nil
+	}
+
+	existing, err := loadConfigRepositoryByID(ctx, tx, existingRepoID.Int64)
+	if err != nil {
+		return false, err
+	}
+	if canConfigRepositoryWriteOver(binding, existing, resourceScope) {
+		return true, nil
+	}
+	if configRepositoryShadowsCurrent(existing, binding, resourceScope) {
+		return false, nil
+	}
+
+	return false, fmt.Errorf("access grant %s is already managed by config repository %d", displayID, existingRepoID.Int64)
+}
+
 func pruneManagedAccessConfiguration(ctx context.Context, tx pgx.Tx, binding models.ConfigRepository, plan accessSyncPlan, grantKeys map[resolvedAccessGrantKey]struct{}) error {
-	if err := pruneManagedAccessGrants(ctx, tx, binding.ID, grantKeys); err != nil {
+	if err := pruneManagedAccessGrants(ctx, tx, binding, grantKeys); err != nil {
 		return err
 	}
 	if err := pruneManagedUsers(ctx, tx, binding.ID, plan.users); err != nil {
@@ -1167,12 +1207,13 @@ func pruneManagedAccessConfiguration(ctx context.Context, tx pgx.Tx, binding mod
 	return nil
 }
 
-func pruneManagedAccessGrants(ctx context.Context, tx pgx.Tx, configRepoID int64, keep map[resolvedAccessGrantKey]struct{}) error {
+func pruneManagedAccessGrants(ctx context.Context, tx pgx.Tx, binding models.ConfigRepository, keep map[resolvedAccessGrantKey]struct{}) error {
 	rows, err := tx.Query(ctx, `
-		SELECT id, subject_type, subject_id, role_name, resource_type, resource_id, resource_display
+		SELECT id, subject_type, subject_id, role_name, resource_type, resource_id, resource_display, managed_by_config_repo
 		FROM access_grants
-		WHERE managed_by_config_repo = TRUE AND config_repo_id = $1
-	`, configRepoID)
+		WHERE (managed_by_config_repo = TRUE AND config_repo_id = $1)
+		   OR managed_by_config_repo = FALSE
+	`, binding.ID)
 	if err != nil {
 		return fmt.Errorf("failed to load managed access grants for pruning: %w", err)
 	}
@@ -1186,12 +1227,16 @@ func pruneManagedAccessGrants(ctx context.Context, tx pgx.Tx, configRepoID int64
 		resourceType    string
 		resourceID      string
 		resourceDisplay string
+		managed         bool
 	}
 	var prune []grantRow
 	for rows.Next() {
 		var row grantRow
-		if err := rows.Scan(&row.id, &row.subjectType, &row.subjectID, &row.roleName, &row.resourceType, &row.resourceID, &row.resourceDisplay); err != nil {
+		if err := rows.Scan(&row.id, &row.subjectType, &row.subjectID, &row.roleName, &row.resourceType, &row.resourceID, &row.resourceDisplay, &row.managed); err != nil {
 			return err
+		}
+		if !row.managed && !accessGrantResourceInConfigBindingScope(row.resourceType, row.resourceID, binding) {
+			continue
 		}
 		key := resolvedAccessGrantKey{
 			subjectType:  row.subjectType,
@@ -1208,18 +1253,14 @@ func pruneManagedAccessGrants(ctx context.Context, tx pgx.Tx, configRepoID int64
 	}
 
 	for _, row := range prune {
-		if err := validateFolderOwnerGuard(ctx, tx, row.roleName, accessGrantResource{
-			Type:    row.resourceType,
-			ID:      row.resourceID,
-			Display: row.resourceDisplay,
-		}, row.id); err != nil {
-			return err
-		}
 		if row.roleName == productRoleAdmin {
 			if _, err := tx.Exec(ctx, `
 				DELETE FROM auth_role_bindings
-				WHERE role_name = $1 AND subject_type = $2 AND subject_id = $3 AND managed_by_config_repo = TRUE AND config_repo_id = $4
-			`, productRoleAdmin, row.subjectType, row.subjectID, configRepoID); err != nil {
+				WHERE role_name = $1
+				  AND subject_type = $2
+				  AND subject_id = $3
+				  AND (managed_by_config_repo = FALSE OR config_repo_id = $4)
+			`, productRoleAdmin, row.subjectType, row.subjectID, binding.ID); err != nil {
 				return err
 			}
 		}
@@ -1228,6 +1269,17 @@ func pruneManagedAccessGrants(ctx context.Context, tx pgx.Tx, configRepoID int64
 		}
 	}
 	return nil
+}
+
+func accessGrantResourceInConfigBindingScope(resourceType, resourceID string, binding models.ConfigRepository) bool {
+	switch binding.ScopeType {
+	case models.ConfigRepositoryScopeSystem:
+		return true
+	case models.ConfigRepositoryScopeFolder:
+		return accessGrantResourceUnderBindingScope(resourceType, resourceID, binding.ScopeID)
+	default:
+		return false
+	}
 }
 
 func pruneStaleAccessGrantsForManagedUsers(ctx context.Context, tx pgx.Tx, users map[string]storedAccessUser) error {
@@ -1375,24 +1427,28 @@ func pruneManagedRoles(ctx context.Context, tx pgx.Tx, configRepoID int64, plan 
 }
 
 func ensureGlobalConfigObjectWritable(ctx context.Context, tx pgx.Tx, binding models.ConfigRepository, tableName, resourceKind, resourceID, whereClause string, args ...any) error {
-	query := fmt.Sprintf("SELECT config_repo_id, managed_by_config_repo FROM %s WHERE %s LIMIT 1", tableName, whereClause)
-	var existingRepoID sql.NullInt64
-	var managed bool
-	err := tx.QueryRow(ctx, query, args...).Scan(&existingRepoID, &managed)
-	switch {
-	case errors.Is(err, pgx.ErrNoRows), errors.Is(err, sql.ErrNoRows):
-		return nil
-	case err != nil:
+	query := fmt.Sprintf("SELECT config_repo_id, managed_by_config_repo FROM %s WHERE %s", tableName, whereClause)
+	rows, err := tx.Query(ctx, query, args...)
+	if err != nil {
 		return err
 	}
-	if !managed {
-		return fmt.Errorf("%s %s is not managed by a config repository", resourceKind, resourceID)
+	defer rows.Close()
+
+	for rows.Next() {
+		var existingRepoID sql.NullInt64
+		var managed bool
+		if err := rows.Scan(&existingRepoID, &managed); err != nil {
+			return err
+		}
+		if !managed {
+			continue
+		}
+		if !existingRepoID.Valid {
+			return fmt.Errorf("%s %s is already managed by an unknown config repository", resourceKind, resourceID)
+		}
+		if existingRepoID.Int64 != binding.ID {
+			return fmt.Errorf("%s %s is already managed by config repository %d", resourceKind, resourceID, existingRepoID.Int64)
+		}
 	}
-	if !existingRepoID.Valid {
-		return fmt.Errorf("%s %s is already managed by an unknown config repository", resourceKind, resourceID)
-	}
-	if existingRepoID.Int64 != binding.ID {
-		return fmt.Errorf("%s %s is already managed by config repository %d", resourceKind, resourceID, existingRepoID.Int64)
-	}
-	return nil
+	return rows.Err()
 }
