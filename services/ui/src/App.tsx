@@ -477,11 +477,9 @@ function AppShell() {
             const record = entry as Record<string, unknown>;
             const scopeLabel = typeof record.scope === 'string'
               ? record.scope
-              : typeof record.env === 'string'
-                ? record.env
-                : typeof record.name === 'string'
-                  ? record.name
-                  : '';
+              : typeof record.name === 'string'
+                ? record.name
+                : '';
             scopeSet.add(scopeLabel.trim());
           });
         }

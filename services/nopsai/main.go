@@ -1215,7 +1215,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	pipelineDir := configRepoJoinPath(basePath, "pipelines")
 	stepDir := configRepoJoinPath(basePath, "steps")
 	triggerDir := configRepoJoinPath(basePath, "triggers")
-	environmentDir := configRepoJoinPath(basePath, "environments")
+	scopeDir := configRepoJoinPath(basePath, "scopes")
 	pipelineRunDir := configRepoJoinPath(basePath, "pipelineruns")
 	configRepositoryDir := configRepoJoinPath(basePath, "config-repositories")
 
@@ -1231,9 +1231,9 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	if err != nil {
 		return nil, commitSHA, fmt.Errorf("failed to fetch trigger manifests: %w", err)
 	}
-	environmentFiles, err := a.requestGitBotDirectory(owner, repo, branch, environmentDir)
+	scopeFiles, err := a.requestGitBotDirectory(owner, repo, branch, scopeDir)
 	if err != nil {
-		return nil, commitSHA, fmt.Errorf("failed to fetch environment definitions: %w", err)
+		return nil, commitSHA, fmt.Errorf("failed to fetch scope definitions: %w", err)
 	}
 
 	pipelineRunFiles, err := a.requestGitBotDirectory(owner, repo, branch, pipelineRunDir)
@@ -1457,12 +1457,12 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		}
 	}
 
-	generalEnvs := make(map[generalEnvKey]storedEnvVar)
-	repoEnvs := make(map[repoEnvKey]storedEnvVar)
+	generalScopeVars := make(map[generalScopeVarKey]storedScopeVar)
+	repoScopeVars := make(map[repoScopeVarKey]storedScopeVar)
 
-	for path, content := range environmentFiles {
+	for path, content := range scopeFiles {
 		normalized := filepath.ToSlash(path)
-		rel, ok := relativeConfigPath(normalized, environmentDir)
+		rel, ok := relativeConfigPath(normalized, scopeDir)
 		if !ok {
 			continue
 		}
@@ -1470,49 +1470,49 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 			continue
 		}
 
-		envPath, ok, err := parseEnvironmentFilePath(rel)
+		scopePath, ok, err := parseScopeFilePath(rel)
 		if err != nil {
-			return nil, commitSHA, fmt.Errorf("invalid environment file '%s': %w", normalized, err)
+			return nil, commitSHA, fmt.Errorf("invalid scope file '%s': %w", normalized, err)
 		}
 		if !ok {
 			continue
 		}
 		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
-			envPath, err = normalizeConfigPathForFolder(boundFolder, envPath)
+			scopePath, err = normalizeConfigPathForFolder(boundFolder, scopePath)
 			if err != nil {
-				return nil, commitSHA, fmt.Errorf("invalid group-scoped environment path '%s': %w", normalized, err)
+				return nil, commitSHA, fmt.Errorf("invalid group-scoped scope path '%s': %w", normalized, err)
 			}
 		}
 
 		var raw map[string]interface{}
 		if err := yaml.Unmarshal([]byte(content), &raw); err != nil {
-			return nil, commitSHA, fmt.Errorf("failed to parse environment file '%s': %w", normalized, err)
+			return nil, commitSHA, fmt.Errorf("failed to parse scope file '%s': %w", normalized, err)
 		}
 
 		for key, value := range raw {
 			trimmedKey := strings.TrimSpace(key)
 			if trimmedKey == "" {
-				return nil, commitSHA, fmt.Errorf("environment file '%s' contains an empty key", normalized)
+				return nil, commitSHA, fmt.Errorf("scope file '%s' contains an empty key", normalized)
 			}
 
 			strValue, ok := value.(string)
 			if !ok {
-				return nil, commitSHA, fmt.Errorf("environment entry '%s' in '%s' must be a string", trimmedKey, normalized)
+				return nil, commitSHA, fmt.Errorf("scope entry '%s' in '%s' must be a string", trimmedKey, normalized)
 			}
 
 			parts := strings.Split(trimmedKey, "/")
 			switch len(parts) {
 			case 1:
-				gKey := generalEnvKey{envPath: envPath, name: trimmedKey}
-				if _, exists := generalEnvs[gKey]; exists {
-					return nil, commitSHA, fmt.Errorf("duplicate environment variable '%s' for '%s' detected", trimmedKey, envPath)
+				gKey := generalScopeVarKey{scopePath: scopePath, name: trimmedKey}
+				if _, exists := generalScopeVars[gKey]; exists {
+					return nil, commitSHA, fmt.Errorf("duplicate scope variable '%s' for '%s' detected", trimmedKey, scopePath)
 				}
-				generalEnvs[gKey] = storedEnvVar{value: strValue, sourcePath: normalized}
+				generalScopeVars[gKey] = storedScopeVar{value: strValue, sourcePath: normalized}
 			case 3:
 				repoName := fmt.Sprintf("%s/%s", strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
 				varName := strings.TrimSpace(parts[2])
 				if repoName == "" || varName == "" {
-					return nil, commitSHA, fmt.Errorf("invalid repository-scoped environment key '%s' in '%s'", trimmedKey, normalized)
+					return nil, commitSHA, fmt.Errorf("invalid repository-scoped variable key '%s' in '%s'", trimmedKey, normalized)
 				}
 				if binding.ScopeType == models.ConfigRepositoryScopeFolder {
 					repoName, err = normalizeConfigPathForFolder(boundFolder, repoName)
@@ -1520,13 +1520,13 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 						return nil, commitSHA, fmt.Errorf("invalid group-scoped repository variable key '%s' in '%s': %w", trimmedKey, normalized, err)
 					}
 				}
-				rKey := repoEnvKey{repo: repoName, envPath: envPath, name: varName}
-				if _, exists := repoEnvs[rKey]; exists {
-					return nil, commitSHA, fmt.Errorf("duplicate repository environment variable '%s' for '%s' detected", trimmedKey, envPath)
+				rKey := repoScopeVarKey{repo: repoName, scopePath: scopePath, name: varName}
+				if _, exists := repoScopeVars[rKey]; exists {
+					return nil, commitSHA, fmt.Errorf("duplicate repository scope variable '%s' for '%s' detected", trimmedKey, scopePath)
 				}
-				repoEnvs[rKey] = storedEnvVar{value: strValue, sourcePath: normalized}
+				repoScopeVars[rKey] = storedScopeVar{value: strValue, sourcePath: normalized}
 			default:
-				return nil, commitSHA, fmt.Errorf("environment key '%s' in '%s' has an unsupported format", trimmedKey, normalized)
+				return nil, commitSHA, fmt.Errorf("scope key '%s' in '%s' has an unsupported format", trimmedKey, normalized)
 			}
 		}
 	}
@@ -1580,7 +1580,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	if err != nil {
 		return nil, commitSHA, err
 	}
-	filterDelegatedConfigResources(binding, overrideScopes, pipelines, steps, generalEnvs, repoEnvs, triggers)
+	filterDelegatedConfigResources(binding, overrideScopes, pipelines, steps, generalScopeVars, repoScopeVars, triggers)
 	effectivePipelineRunStructure, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, pipelineRunStructure, configRepositoryPipelineRunStructure, overrideScopes)
 	if err != nil {
 		return nil, commitSHA, err
@@ -1696,42 +1696,42 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		details["steps_synced"]++
 	}
 
-	// D. Upsert General Envs
-	for key, stored := range generalEnvs {
-		var envParam interface{}
-		if key.envPath != "" {
-			envParam = key.envPath
+	// D. Upsert General Scope Vars
+	for key, stored := range generalScopeVars {
+		var scopeParam interface{}
+		if key.scopePath != "" {
+			scopeParam = key.scopePath
 		}
-		resourceID := fmt.Sprintf("scope=%s name=%s", key.envPath, key.name)
-		writable, err := ensureConfigResourceWritable(ctx, tx, "variables", "variable", resourceID, binding, key.envPath, "name = $1 AND repository_name IS NULL AND scope IS NOT DISTINCT FROM $2", key.name, envParam)
+		resourceID := fmt.Sprintf("scope=%s name=%s", key.scopePath, key.name)
+		writable, err := ensureConfigResourceWritable(ctx, tx, "variables", "variable", resourceID, binding, key.scopePath, "name = $1 AND repository_name IS NULL AND scope IS NOT DISTINCT FROM $2", key.name, scopeParam)
 		if err != nil {
 			return nil, commitSHA, err
 		}
 		if !writable {
 			continue
 		}
-		if _, err := tx.Exec(ctx, envUpsert, key.name, stored.value, nil, envParam, binding.ID, stored.sourcePath, commitSHA); err != nil {
-			return nil, commitSHA, fmt.Errorf("failed to upsert variable '%s' for scope '%s': %w", key.name, key.envPath, err)
+		if _, err := tx.Exec(ctx, envUpsert, key.name, stored.value, nil, scopeParam, binding.ID, stored.sourcePath, commitSHA); err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to upsert variable '%s' for scope '%s': %w", key.name, key.scopePath, err)
 		}
 		details["general_vars_synced"]++
 	}
 
-	// E. Upsert Repo Envs
-	for key, stored := range repoEnvs {
-		var envParam interface{}
-		if key.envPath != "" {
-			envParam = key.envPath
+	// E. Upsert Repo Scope Vars
+	for key, stored := range repoScopeVars {
+		var scopeParam interface{}
+		if key.scopePath != "" {
+			scopeParam = key.scopePath
 		}
-		resourceID := fmt.Sprintf("repo=%s scope=%s name=%s", key.repo, key.envPath, key.name)
-		writable, err := ensureConfigResourceWritable(ctx, tx, "variables", "variable", resourceID, binding, key.repo, "name = $1 AND repository_name = $2 AND scope IS NOT DISTINCT FROM $3", key.name, key.repo, envParam)
+		resourceID := fmt.Sprintf("repo=%s scope=%s name=%s", key.repo, key.scopePath, key.name)
+		writable, err := ensureConfigResourceWritable(ctx, tx, "variables", "variable", resourceID, binding, key.repo, "name = $1 AND repository_name = $2 AND scope IS NOT DISTINCT FROM $3", key.name, key.repo, scopeParam)
 		if err != nil {
 			return nil, commitSHA, err
 		}
 		if !writable {
 			continue
 		}
-		if _, err := tx.Exec(ctx, envUpsert, key.name, stored.value, key.repo, envParam, binding.ID, stored.sourcePath, commitSHA); err != nil {
-			return nil, commitSHA, fmt.Errorf("failed to upsert repository variable '%s' for repo '%s' scope '%s': %w", key.name, key.repo, key.envPath, err)
+		if _, err := tx.Exec(ctx, envUpsert, key.name, stored.value, key.repo, scopeParam, binding.ID, stored.sourcePath, commitSHA); err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to upsert repository variable '%s' for repo '%s' scope '%s': %w", key.name, key.repo, key.scopePath, err)
 		}
 		details["repo_vars_synced"]++
 	}
@@ -1892,7 +1892,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		}
 	}
 
-	// 4. Prune Variables (Environment Variables)
+	// 4. Prune Variables (Scope Variables)
 	{
 		var names []string
 		var repos []*string
@@ -1909,12 +1909,12 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 			}
 		}
 
-		for key := range generalEnvs {
-			addVar(key.name, nil, key.envPath)
+		for key := range generalScopeVars {
+			addVar(key.name, nil, key.scopePath)
 		}
-		for key := range repoEnvs {
+		for key := range repoScopeVars {
 			r := key.repo // copy loop variable
-			addVar(key.name, &r, key.envPath)
+			addVar(key.name, &r, key.scopePath)
 		}
 
 		if len(names) == 0 {
@@ -1964,15 +1964,15 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	return details, commitSHA, nil
 }
 
-type generalEnvKey struct {
-	envPath string
-	name    string
+type generalScopeVarKey struct {
+	scopePath string
+	name      string
 }
 
-type repoEnvKey struct {
-	repo    string
-	envPath string
-	name    string
+type repoScopeVarKey struct {
+	repo      string
+	scopePath string
+	name      string
 }
 
 type storedPipeline struct {
@@ -2000,7 +2000,7 @@ type storedConfigRepository struct {
 	sourcePath string
 }
 
-type storedEnvVar struct {
+type storedScopeVar struct {
 	value      string
 	sourcePath string
 }
@@ -2371,8 +2371,8 @@ func filterDelegatedConfigResources(
 	overrideScopes []string,
 	pipelines map[string]storedPipeline,
 	steps map[string]storedStep,
-	generalEnvs map[generalEnvKey]storedEnvVar,
-	repoEnvs map[repoEnvKey]storedEnvVar,
+	generalScopeVars map[generalScopeVarKey]storedScopeVar,
+	repoScopeVars map[repoScopeVarKey]storedScopeVar,
 	triggers map[string]storedTrigger,
 ) {
 	if len(overrideScopes) == 0 {
@@ -2389,14 +2389,14 @@ func filterDelegatedConfigResources(
 			delete(steps, key)
 		}
 	}
-	for key := range generalEnvs {
-		if configResourceUnderAnyScope(key.envPath, overrideScopes) {
-			delete(generalEnvs, key)
+	for key := range generalScopeVars {
+		if configResourceUnderAnyScope(key.scopePath, overrideScopes) {
+			delete(generalScopeVars, key)
 		}
 	}
-	for key := range repoEnvs {
-		if configResourceUnderAnyScope(key.repo, overrideScopes) || configResourceUnderAnyScope(key.envPath, overrideScopes) {
-			delete(repoEnvs, key)
+	for key := range repoScopeVars {
+		if configResourceUnderAnyScope(key.repo, overrideScopes) || configResourceUnderAnyScope(key.scopePath, overrideScopes) {
+			delete(repoScopeVars, key)
 		}
 	}
 	for key := range triggers {
@@ -2590,7 +2590,7 @@ func stripConfigResourcePrefix(path string) string {
 		return path
 	}
 	switch strings.ToLower(strings.TrimSpace(parts[0])) {
-	case "pipelines", "steps", "triggers", "environments", "pipelineruns":
+	case "pipelines", "steps", "triggers", "scopes", "pipelineruns":
 		return strings.Join(parts[1:], "/")
 	default:
 		return path
@@ -3227,33 +3227,33 @@ func buildStepIdentifier(path, name string) string {
 	return buildPipelineIdentifier(path, name)
 }
 
-func parseEnvironmentFilePath(rel string) (string, bool, error) {
+func parseScopeFilePath(rel string) (string, bool, error) {
 	lower := strings.ToLower(rel)
-	if !strings.HasSuffix(lower, "env.yaml") && !strings.HasSuffix(lower, "env.yml") {
+	if !strings.HasSuffix(lower, "scope.yaml") && !strings.HasSuffix(lower, "scope.yml") {
 		return "", false, nil
 	}
 
 	base := filepath.Base(rel)
-	if !strings.EqualFold(base, "env.yaml") && !strings.EqualFold(base, "env.yml") {
+	if !strings.EqualFold(base, "scope.yaml") && !strings.EqualFold(base, "scope.yml") {
 		return "", false, nil
 	}
 
-	envPath := strings.TrimSuffix(rel[:len(rel)-len(base)], "/")
-	envPath = strings.Trim(envPath, "/")
-	if envPath != "" {
-		if strings.Contains(envPath, "..") {
-			return "", false, fmt.Errorf("environment path contains invalid segments")
+	scopePath := strings.TrimSuffix(rel[:len(rel)-len(base)], "/")
+	scopePath = strings.Trim(scopePath, "/")
+	if scopePath != "" {
+		if strings.Contains(scopePath, "..") {
+			return "", false, fmt.Errorf("scope path contains invalid segments")
 		}
-		segments := strings.Split(envPath, "/")
+		segments := strings.Split(scopePath, "/")
 		for _, segment := range segments {
 			if segment == "" {
-				return "", false, fmt.Errorf("environment path contains empty segments")
+				return "", false, fmt.Errorf("scope path contains empty segments")
 			}
 		}
-		envPath = filepath.ToSlash(envPath)
+		scopePath = filepath.ToSlash(scopePath)
 	}
 
-	return envPath, true, nil
+	return scopePath, true, nil
 }
 
 func parseGitHubRepoURL(raw string) (string, string, error) {
@@ -3677,7 +3677,7 @@ func main() {
 	}
 
 	if cfg.MasterKey == "" {
-		log.Fatal().Msg("NOPSAI_MASTER_KEY environment variable is not set. This is required for secret encryption.")
+		log.Fatal().Msg("NOPSAI_MASTER_KEY OS variable is not set. This is required for secret encryption.")
 	}
 	key := sha256.Sum256([]byte(cfg.MasterKey))
 

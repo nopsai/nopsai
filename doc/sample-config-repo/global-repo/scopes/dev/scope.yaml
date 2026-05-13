@@ -1,0 +1,2 @@
+PLATFORM_SCOPE: "development"
+hosein-yousefii/test-app/TEST_SCOPE: "ghcr.io/acme/service-api:dev"

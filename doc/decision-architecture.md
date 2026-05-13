@@ -12,7 +12,7 @@ Why:
 
 - The API layer can stay durable and stateful.
 - Execution can scale independently on Docker-capable hosts.
-- Runner hosts can be placed closer to the environments they operate on.
+- Runner hosts can be placed closer to the scopes they operate on.
 
 Tradeoffs:
 
@@ -52,7 +52,7 @@ Why:
 Tradeoffs:
 
 - Tasks in the same step are less isolated from each other.
-- A task can affect the environment seen by later tasks in that step.
+- A task can affect the runtime context seen by later tasks in that step.
 
 ## 4. Resolve Reusable `step:` Includes Before Dispatch
 
@@ -98,7 +98,7 @@ Why:
 
 - Fewer runtime services to deploy
 - Simpler data flow for prompt building, secret masking, and retry logic
-- Keeps LLM context close to the execution environment
+- Keeps LLM context close to the execution runtime
 
 Tradeoffs:
 
@@ -134,8 +134,8 @@ Decision:
 
 Why:
 
-- Prevents accidental leakage of default credentials/config into environments like `prod`.
-- Makes missing environment-specific setup fail fast.
+- Prevents accidental leakage of default credentials/config into scopes like `prod`.
+- Makes missing scope-specific setup fail fast.
 
 Tradeoffs:
 
@@ -152,7 +152,7 @@ Why:
 
 - Child pipelines often benefit from locality with their parent.
 - Affinity reduces surprising cross-run placement changes during a single event tree.
-- Helps when runners have environment-specific tooling or caches.
+- Helps when runners have scope-specific tooling or caches.
 
 Tradeoffs:
 

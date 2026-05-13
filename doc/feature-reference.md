@@ -92,7 +92,7 @@ GitOps-style configuration sync supports:
 - `pipelines/` -> pipeline definitions
 - `steps/` -> reusable step definitions
 - `triggers/` -> trigger overrides
-- `environments/` -> scoped variables
+- `scopes/` -> scoped variables
 - `pipelineruns/structure.yaml` -> legacy UI group hierarchy for groups owned by the syncing repo
 - `config-repositories/` -> group config repo bindings, group shells, and colocated group structure files
 

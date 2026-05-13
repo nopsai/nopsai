@@ -62,7 +62,7 @@ curl -X POST \
 
 ## Troubleshooting
 
-- **Signature mismatch**: Confirm both the git-bot environment (`GITHUB_WEBHOOK_SECRET`) and your shell export use the same value.
+- **Signature mismatch**: Confirm both the git-bot OS variable (`GITHUB_WEBHOOK_SECRET`) and your shell export use the same value.
 - **Run not created**: Check the git-bot logs for repository access issues or trigger mismatches. The API logs (container `nopsai`) will also record trigger evaluations.
 - **No UI updates**: Refresh the Pipeline runs page and verify authenticated `/v1/runs` requests are succeeding.
 

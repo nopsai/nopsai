@@ -142,7 +142,7 @@ Notable behavior:
 
 Primary role:
 
-- Long-lived execution daemon attached to a Docker environment.
+- Long-lived execution daemon attached to a Docker runtime.
 
 Responsibilities:
 
@@ -180,7 +180,7 @@ Primary role:
 
 Responsibilities:
 
-- Starts once per run with the resolved pipeline definition and runtime context encoded in environment variables.
+- Starts once per run with the resolved pipeline definition and runtime context encoded in OS variables.
 - Connects to the dispatcher for status reporting, pipeline fetches, child pipeline triggers, and cancellation polling.
 - Decodes secrets and variables already prepared by `nopsai`.
 - Evaluates step conditions with the configured LLM provider.
@@ -198,7 +198,7 @@ Key files:
 
 Inbound interfaces:
 
-- Environment variables injected by the runner/job payload
+- Runtime variables injected by the runner/job payload
 
 Outbound interfaces:
 
@@ -302,7 +302,7 @@ Key files:
 
 `config`:
 
-- Central config loading from `config.yml` with environment override support.
+- Central config loading from `config.yml` with OS override support.
 
 ## Service Relationship Summary
 

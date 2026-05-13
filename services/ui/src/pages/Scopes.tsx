@@ -141,10 +141,10 @@ function sourceLabel(source: SourceKey): string {
 
 function sourcePillClass(source: SourceKey): string {
   const normalized = normalizeSourceKey(source);
-  if (normalized === 'git') return 'env-variable-source-pill--git';
-  if (normalized === 'draft') return 'env-variable-source-pill--draft';
-  if (normalized === 'local') return 'env-variable-source-pill--local';
-  return 'env-variable-source-pill--database';
+  if (normalized === 'git') return 'scope-variable-source-pill--git';
+  if (normalized === 'draft') return 'scope-variable-source-pill--draft';
+  if (normalized === 'local') return 'scope-variable-source-pill--local';
+  return 'scope-variable-source-pill--database';
 }
 
 function formatTimestamp(value?: string): string {
@@ -758,7 +758,7 @@ function ScopesPage({
           }
           if (!entry || typeof entry !== 'object') return;
           const record = entry as Record<string, unknown>;
-          scopeSet.add(normalizeScopeLabel(record.scope ?? record.env ?? record.name ?? record.value));
+          scopeSet.add(normalizeScopeLabel(record.scope ?? record.name ?? record.value));
         });
       }
       secretCounts.forEach((_, scopeLabel) => scopeSet.add(scopeLabel));
@@ -812,7 +812,7 @@ function ScopesPage({
     const promise = (async () => {
       try {
         const path = scope
-          ? `/v1/variables?env=${encodeURIComponent(scope)}&include_source=true`
+          ? `/v1/variables?scope=${encodeURIComponent(scope)}&include_source=true`
           : '/v1/variables?include_source=true';
         const response = await fetch(buildApiUrl(path));
         if (!response.ok) {
@@ -879,7 +879,7 @@ function ScopesPage({
     const promise = (async () => {
       try {
         const path = scope
-          ? `/v1/secrets?env=${encodeURIComponent(scope)}&include_source=true`
+          ? `/v1/secrets?scope=${encodeURIComponent(scope)}&include_source=true`
           : '/v1/secrets?include_source=true';
         const response = await fetch(buildApiUrl(path));
         if (!response.ok) {
@@ -1283,7 +1283,7 @@ function ScopesPage({
     const normalized = normalizeScopeLabel(scopeLabel);
     const sampleValue = SAMPLE_SCOPE_VALUE.replace('%SCOPE%', normalized || 'default');
     const urlBase = `/v1/variables/${encodeURIComponent(SAMPLE_SCOPE_VARIABLE)}`;
-    const url = normalized ? `${urlBase}?env=${encodeURIComponent(normalized)}` : urlBase;
+    const url = normalized ? `${urlBase}?scope=${encodeURIComponent(normalized)}` : urlBase;
 
     const response = await fetch(buildApiUrl(url), {
       method: 'PUT',
@@ -1377,7 +1377,7 @@ function ScopesPage({
         } else {
           urlBase = `/v1/variables/${encodeURIComponent(identity.name)}`;
         }
-        const url = scope ? `${urlBase}?env=${encodeURIComponent(scope)}` : urlBase;
+        const url = scope ? `${urlBase}?scope=${encodeURIComponent(scope)}` : urlBase;
         const response = await fetch(buildApiUrl(url));
         if (response.status === 404) return '';
         if (!response.ok) {
@@ -1557,7 +1557,7 @@ function ScopesPage({
       } else {
         urlBase = `/v1/variables/${encodeURIComponent(finalName)}`;
       }
-      const url = scope ? `${urlBase}?env=${encodeURIComponent(scope)}` : urlBase;
+      const url = scope ? `${urlBase}?scope=${encodeURIComponent(scope)}` : urlBase;
 
       const response = await fetch(buildApiUrl(url), {
         method: 'PUT',
@@ -1645,7 +1645,7 @@ function ScopesPage({
       } else {
         urlBase = `/v1/secrets/${encodeURIComponent(finalName)}`;
       }
-      const url = scope ? `${urlBase}?env=${encodeURIComponent(scope)}` : urlBase;
+      const url = scope ? `${urlBase}?scope=${encodeURIComponent(scope)}` : urlBase;
 
       const response = await fetch(buildApiUrl(url), {
         method: 'PUT',
@@ -1692,7 +1692,7 @@ function ScopesPage({
       } else {
         urlBase = `/v1/secrets/${encodeURIComponent(identity.name)}`;
       }
-      const url = scope ? `${urlBase}?env=${encodeURIComponent(scope)}` : urlBase;
+      const url = scope ? `${urlBase}?scope=${encodeURIComponent(scope)}` : urlBase;
 
       const response = await fetch(buildApiUrl(url), { method: 'DELETE' });
       if (!response.ok) {
@@ -1856,7 +1856,7 @@ function ScopesPage({
     const renderVariableSection = (title: string, items: GroupedScopedItem[]) => (
       <section key={`var-section-${title || 'global'}`} className="space-y-2">
         {title ? <p className="text-xs uppercase tracking-[0.18em] text-[var(--text-secondary)]">{title}</p> : null}
-        <div className="env-variable-buttons">
+        <div className="scope-variable-buttons">
           {items.map(item => {
             const isActive = item.full === selectedVariable;
             const cacheKey = `${item.full}@@${scopeLabel}`;
@@ -1869,22 +1869,22 @@ function ScopesPage({
             return (
               <div
                 key={`var-${item.full}`}
-                className={`env-variable-item rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] ${isActive ? 'env-variable-item--active' : ''} ${isExpanded ? 'env-variable-item--expanded' : ''}`}
+                className={`scope-variable-item rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] ${isActive ? 'scope-variable-item--active' : ''} ${isExpanded ? 'scope-variable-item--expanded' : ''}`}
               >
-                <div className="env-variable-info">
+                <div className="scope-variable-info">
                   <button
                     type="button"
-                    className={`env-variable-btn${isActive ? ' env-variable-btn--active' : ''}`}
+                    className={`scope-variable-btn${isActive ? ' scope-variable-btn--active' : ''}`}
                     onClick={() => selectVariable(item.full)}
                   >
                     <span className="truncate">{item.display}</span>
                   </button>
-                  <span className={`env-variable-source-pill ${sourcePillClass(meta?.source || 'database')}`}>{sourceLabel(meta?.source || 'database')}</span>
+                  <span className={`scope-variable-source-pill ${sourcePillClass(meta?.source || 'database')}`}>{sourceLabel(meta?.source || 'database')}</span>
                 </div>
-                <div className="env-variable-inline-actions">
+                <div className="scope-variable-inline-actions">
                   <button
                     type="button"
-                    className={`env-inline-icon${isLoading ? ' loading' : ''}${isExpanded ? ' env-inline-icon--active' : ''}`}
+                    className={`scope-inline-icon${isLoading ? ' loading' : ''}${isExpanded ? ' scope-inline-icon--active' : ''}`}
                     title={isExpanded ? 'Hide value' : 'Show value'}
                     aria-label={isExpanded ? 'Hide value' : 'Show value'}
                     disabled={isLoading}
@@ -1906,7 +1906,7 @@ function ScopesPage({
 	                      {canWriteVariablesInSelectedScope && (
                         <button
                           type="button"
-                          className="env-inline-icon"
+                          className="scope-inline-icon"
                           title="Edit variable"
                           onClick={event => {
                             event.preventDefault();
@@ -1923,7 +1923,7 @@ function ScopesPage({
                       {canDeleteScopes && (
                         <button
                           type="button"
-                          className="env-inline-icon env-inline-icon--danger"
+                          className="scope-inline-icon scope-inline-icon--danger"
                           title="Delete variable"
                           onClick={event => {
                             event.preventDefault();
@@ -1945,7 +1945,7 @@ function ScopesPage({
 	                  ) : canWriteVariablesInSelectedScope ? (
                     <button
                       type="button"
-                      className="env-inline-icon"
+                      className="scope-inline-icon"
                       title="Clone"
                       onClick={event => {
                         event.preventDefault();
@@ -1959,7 +1959,7 @@ function ScopesPage({
                     </button>
                   ) : null}
                 </div>
-                <div className="env-variable-value">{isExpanded ? displayValue : ''}</div>
+                <div className="scope-variable-value">{isExpanded ? displayValue : ''}</div>
               </div>
             );
           })}
@@ -1970,7 +1970,7 @@ function ScopesPage({
     const renderSecretSection = (title: string, items: GroupedScopedItem[]) => (
       <section key={`secret-section-${title || 'global'}`} className="space-y-2">
         {title ? <p className="text-xs uppercase tracking-[0.18em] text-[var(--text-secondary)]">{title}</p> : null}
-        <div className="env-variable-buttons">
+        <div className="scope-variable-buttons">
           {items.map(item => {
             const isActive = item.full === selectedSecret;
             const meta = data.secretMeta[item.full];
@@ -1978,25 +1978,25 @@ function ScopesPage({
             return (
               <div
                 key={`secret-${item.full}`}
-                className={`env-variable-item rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] ${isActive ? ' env-variable-item--active' : ''}`}
+                className={`scope-variable-item rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] ${isActive ? ' scope-variable-item--active' : ''}`}
               >
-                <div className="env-variable-info">
+                <div className="scope-variable-info">
                   <button
                     type="button"
-                    className={`env-variable-btn${isActive ? ' env-variable-btn--active' : ''}`}
+                    className={`scope-variable-btn${isActive ? ' scope-variable-btn--active' : ''}`}
                     onClick={() => selectSecret(item.full)}
                   >
                     <span className="truncate">{item.display}</span>
                   </button>
-                  <span className={`env-variable-source-pill ${sourcePillClass(meta?.source || 'database')}`}>{sourceLabel(meta?.source || 'database')}</span>
+                  <span className={`scope-variable-source-pill ${sourcePillClass(meta?.source || 'database')}`}>{sourceLabel(meta?.source || 'database')}</span>
                 </div>
-                <div className="env-variable-inline-actions">
+                <div className="scope-variable-inline-actions">
                   {editable ? (
                     <>
 	                      {canWriteSecretsInSelectedScope && (
                         <button
                           type="button"
-                          className="env-inline-icon"
+                          className="scope-inline-icon"
                           title="Edit secret"
                           onClick={event => {
                             event.preventDefault();
@@ -2013,7 +2013,7 @@ function ScopesPage({
                       {canDeleteScopes && (
                         <button
                           type="button"
-                          className="env-inline-icon env-inline-icon--danger"
+                          className="scope-inline-icon scope-inline-icon--danger"
                           title="Delete secret"
                           onClick={event => {
                             event.preventDefault();
@@ -2035,7 +2035,7 @@ function ScopesPage({
 	                  ) : canWriteSecretsInSelectedScope ? (
                     <button
                       type="button"
-                      className="env-inline-icon"
+                      className="scope-inline-icon"
                       title="Clone"
                       onClick={event => {
                         event.preventDefault();
@@ -2071,20 +2071,20 @@ function ScopesPage({
       const description = meta?.description || '';
       const href = `#/pipelines/${identifier.split('/').map(encodeURIComponent).join('/')}`;
       return (
-        <a key={`pipe-${identifier}`} className="env-related-card" href={href}>
+        <a key={`pipe-${identifier}`} className="scope-related-card" href={href}>
           <div>
-            <h5 className="env-related-card__title">{title}</h5>
-            <p className="env-related-card__path">{pathDisplay}</p>
-            {description ? <p className="env-related-card__description">{description}</p> : null}
+            <h5 className="scope-related-card__title">{title}</h5>
+            <p className="scope-related-card__path">{pathDisplay}</p>
+            {description ? <p className="scope-related-card__description">{description}</p> : null}
           </div>
-          <div className="env-related-card__meta">
-            <div className="env-related-card__meta-row">
-              <span className="env-related-card__meta-label">version:</span>
-              <span className="env-related-card__meta-value">{versionDisplay}</span>
+          <div className="scope-related-card__meta">
+            <div className="scope-related-card__meta-row">
+              <span className="scope-related-card__meta-label">version:</span>
+              <span className="scope-related-card__meta-value">{versionDisplay}</span>
             </div>
-            <div className="env-related-card__meta-row">
-              <span className="env-related-card__meta-label">source:</span>
-              <span className="env-related-card__meta-value">{sourceDisplay}</span>
+            <div className="scope-related-card__meta-row">
+              <span className="scope-related-card__meta-label">source:</span>
+              <span className="scope-related-card__meta-value">{sourceDisplay}</span>
             </div>
           </div>
         </a>
@@ -2099,27 +2099,27 @@ function ScopesPage({
       const tags = trigger.tags.length ? trigger.tags.join(', ') : 'No tags';
       const scopeDisplay = trigger.scope ? `/${trigger.scope}` : '/';
       return (
-        <a key={`tr-${trigger.slug}-${trigger.scope}-${trigger.event}`} className="env-related-card" href={href}>
+        <a key={`tr-${trigger.slug}-${trigger.scope}-${trigger.event}`} className="scope-related-card" href={href}>
           <div>
-            <h5 className="env-related-card__title">{trigger.slug}</h5>
-            <p className="env-related-card__path">{scopeDisplay}</p>
+            <h5 className="scope-related-card__title">{trigger.slug}</h5>
+            <p className="scope-related-card__path">{scopeDisplay}</p>
           </div>
-          <div className="env-related-card__meta">
-            <div className="env-related-card__meta-row">
-              <span className="env-related-card__meta-label">event:</span>
-              <span className="env-related-card__meta-value">{trigger.event}</span>
+          <div className="scope-related-card__meta">
+            <div className="scope-related-card__meta-row">
+              <span className="scope-related-card__meta-label">event:</span>
+              <span className="scope-related-card__meta-value">{trigger.event}</span>
             </div>
-            <div className="env-related-card__meta-row">
-              <span className="env-related-card__meta-label">pipelines:</span>
-              <span className="env-related-card__meta-value">{pipelineSummary}</span>
+            <div className="scope-related-card__meta-row">
+              <span className="scope-related-card__meta-label">pipelines:</span>
+              <span className="scope-related-card__meta-value">{pipelineSummary}</span>
             </div>
-            <div className="env-related-card__meta-row">
-              <span className="env-related-card__meta-label">branches:</span>
-              <span className="env-related-card__meta-value">{branches}</span>
+            <div className="scope-related-card__meta-row">
+              <span className="scope-related-card__meta-label">branches:</span>
+              <span className="scope-related-card__meta-value">{branches}</span>
             </div>
-            <div className="env-related-card__meta-row">
-              <span className="env-related-card__meta-label">tags:</span>
-              <span className="env-related-card__meta-value">{tags}</span>
+            <div className="scope-related-card__meta-row">
+              <span className="scope-related-card__meta-label">tags:</span>
+              <span className="scope-related-card__meta-value">{tags}</span>
             </div>
           </div>
         </a>
@@ -2170,9 +2170,9 @@ function ScopesPage({
                   </button>
                 )}
               </div>
-              {!data.variablesLoading && !data.variables.length ? <div className="env-card-empty">No variables configured yet.</div> : null}
-              {data.variablesLoading && !data.variablesLoaded ? <div className="env-card-empty">Loading variables…</div> : null}
-              <div className="env-variable-list space-y-4">
+              {!data.variablesLoading && !data.variables.length ? <div className="scope-panel-empty">No variables configured yet.</div> : null}
+              {data.variablesLoading && !data.variablesLoaded ? <div className="scope-panel-empty">Loading variables…</div> : null}
+              <div className="scope-variable-list space-y-4">
                 {variableGroups.global.length ? renderVariableSection('Global', variableGroups.global) : null}
                 {variableGroups.repositories.map(group => renderVariableSection(group.repo, group.items))}
               </div>
@@ -2190,9 +2190,9 @@ function ScopesPage({
                   </button>
                 )}
               </div>
-              {!data.secretsLoading && !data.secrets.length ? <div className="env-card-empty">No secrets configured yet.</div> : null}
-              {data.secretsLoading && !data.secretsLoaded ? <div className="env-card-empty">Loading secrets…</div> : null}
-              <div className="env-variable-list space-y-4">
+              {!data.secretsLoading && !data.secrets.length ? <div className="scope-panel-empty">No secrets configured yet.</div> : null}
+              {data.secretsLoading && !data.secretsLoaded ? <div className="scope-panel-empty">Loading secrets…</div> : null}
+              <div className="scope-variable-list space-y-4">
                 {secretGroups.global.length ? renderSecretSection('Global', secretGroups.global) : null}
                 {secretGroups.repositories.map(group => renderSecretSection(group.repo, group.items))}
               </div>
@@ -2222,16 +2222,16 @@ function ScopesPage({
               ) : (
                 <p className="text-sm text-[var(--text-secondary)] mt-3">Pick a variable or secret to see details and usage.</p>
               )}
-              <div className="env-main-content mt-4">
+              <div className="scope-main-content mt-4">
                 <section>
                   <h4>Related Pipelines</h4>
-                  <div className="env-related-list" data-empty={activeSelection ? (activeSelection.type === 'variable' ? variablePipelinesEmpty : secretPipelinesEmpty) : 'Select an item'}>
+                  <div className="scope-related-list" data-empty={activeSelection ? (activeSelection.type === 'variable' ? variablePipelinesEmpty : secretPipelinesEmpty) : 'Select an item'}>
                     {!usageLoading && !usageError && activeSelection ? activeSelection.pipelines.map(renderPipelineCard) : null}
                   </div>
                 </section>
                 <section>
                   <h4>Related Triggers</h4>
-                  <div className="env-related-list" data-empty={triggersEmpty}>
+                  <div className="scope-related-list" data-empty={triggersEmpty}>
                     {!usageLoading && !usageError ? scopeTriggers.map(renderTriggerCard) : null}
                   </div>
                 </section>
@@ -2470,23 +2470,23 @@ function ScopesPage({
                   </div>
                   <span className="text-xs text-[var(--text-secondary)]">{variableSuggestionEntries.length} scopes</span>
                 </div>
-                <div className="env-suggestion-body">
+                <div className="scope-suggestion-body">
                   {variableSuggestionEntries.length ? (
-                    <div className="env-suggestion-list">
+                    <div className="scope-suggestion-list">
                       {variableSuggestionEntries.map(entry => {
                         const remaining = entry.count - entry.preview.length;
                         return (
                           <article
                             key={`var-suggestion-${entry.scope}`}
-                            className={`env-suggestion-item${entry.scope === variableModal.scope ? ' env-suggestion-item--active' : ''}`}
+                            className={`scope-suggestion-item${entry.scope === variableModal.scope ? ' scope-suggestion-item--active' : ''}`}
                           >
-                            <div className="env-suggestion-env">
-                              <span className="env-suggestion-env-label">{entry.label}</span>
-                              <span className="env-suggestion-env-count">
+                            <div className="scope-suggestion-scope">
+                              <span className="scope-suggestion-scope-label">{entry.label}</span>
+                              <span className="scope-suggestion-scope-count">
                                 {entry.count} {entry.count === 1 ? 'variable' : 'variables'}
                               </span>
                             </div>
-                            <div className="env-suggestion-variables">
+                            <div className="scope-suggestion-variables">
                               {entry.preview.map(name => {
                                 const identity = parseScopedIdentity(name);
                                 const display = identity.repoSlug ? `${identity.repoSlug}/${identity.name}` : identity.name;
@@ -2494,7 +2494,7 @@ function ScopesPage({
                                   <button
                                     key={`var-suggestion-pill-${entry.scope}-${name}`}
                                     type="button"
-                                    className="env-suggestion-pill env-suggestion-pill--action"
+                                    className="scope-suggestion-pill scope-suggestion-pill--action"
                                     onClick={() => {
                                       if (variableModal.mode !== 'create') return;
                                       setVariableModal(prev => {
@@ -2508,14 +2508,14 @@ function ScopesPage({
                                   </button>
                                 );
                               })}
-                              {remaining > 0 ? <span className="env-suggestion-pill env-suggestion-pill--more">+{remaining} more</span> : null}
+                              {remaining > 0 ? <span className="scope-suggestion-pill scope-suggestion-pill--more">+{remaining} more</span> : null}
                             </div>
                           </article>
                         );
                       })}
                     </div>
                   ) : (
-                    <p className="env-suggestion-empty">No variables have been defined yet.</p>
+                    <p className="scope-suggestion-empty">No variables have been defined yet.</p>
                   )}
                 </div>
               </section>
@@ -2616,23 +2616,23 @@ function ScopesPage({
                   </div>
                   <span className="text-xs text-[var(--text-secondary)]">{secretSuggestionEntries.length} scopes</span>
                 </div>
-                <div className="env-suggestion-body">
+                <div className="scope-suggestion-body">
                   {secretSuggestionEntries.length ? (
-                    <div className="env-suggestion-list">
+                    <div className="scope-suggestion-list">
                       {secretSuggestionEntries.map(entry => {
                         const remaining = entry.count - entry.preview.length;
                         return (
                           <article
                             key={`secret-suggestion-${entry.scope}`}
-                            className={`env-suggestion-item${entry.scope === secretModal.scope ? ' env-suggestion-item--active' : ''}`}
+                            className={`scope-suggestion-item${entry.scope === secretModal.scope ? ' scope-suggestion-item--active' : ''}`}
                           >
-                            <div className="env-suggestion-env">
-                              <span className="env-suggestion-env-label">{entry.label}</span>
-                              <span className="env-suggestion-env-count">
+                            <div className="scope-suggestion-scope">
+                              <span className="scope-suggestion-scope-label">{entry.label}</span>
+                              <span className="scope-suggestion-scope-count">
                                 {entry.count} {entry.count === 1 ? 'secret' : 'secrets'}
                               </span>
                             </div>
-                            <div className="env-suggestion-variables">
+                            <div className="scope-suggestion-variables">
                               {entry.preview.map(name => {
                                 const identity = parseScopedIdentity(name);
                                 const display = identity.repoSlug ? `${identity.repoSlug}/${identity.name}` : identity.name;
@@ -2640,7 +2640,7 @@ function ScopesPage({
                                   <button
                                     key={`secret-suggestion-pill-${entry.scope}-${name}`}
                                     type="button"
-                                    className="env-suggestion-pill env-suggestion-pill--action"
+                                    className="scope-suggestion-pill scope-suggestion-pill--action"
                                     onClick={() => {
                                       if (secretModal.mode !== 'create') return;
                                       setSecretModal(prev => {
@@ -2654,14 +2654,14 @@ function ScopesPage({
                                   </button>
                                 );
                               })}
-                              {remaining > 0 ? <span className="env-suggestion-pill env-suggestion-pill--more">+{remaining} more</span> : null}
+                              {remaining > 0 ? <span className="scope-suggestion-pill scope-suggestion-pill--more">+{remaining} more</span> : null}
                             </div>
                           </article>
                         );
                       })}
                     </div>
                   ) : (
-                    <p className="env-suggestion-empty">No secrets have been created yet.</p>
+                    <p className="scope-suggestion-empty">No secrets have been created yet.</p>
                   )}
                 </div>
               </section>

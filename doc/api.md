@@ -42,7 +42,7 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 ## Quick Start
 
 ```bash
-# Refresh config repositories, pipelines, reusable steps, environments, and triggers from Git
+# Refresh config repositories, pipelines, reusable steps, scopes, and triggers from Git
 curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
   http://localhost:8080/v1/internal/config/sync
 ```
@@ -207,20 +207,20 @@ Normal clients should use the `nopsai` API rather than calling AAA directly.
 
 ## Secrets
 
-Secrets are encrypted at rest using the master key. They can be scoped globally, per environment, or per repository.
+Secrets are encrypted at rest using the master key. They can be scoped globally, per scope, or per repository.
 
 ```bash
-# List secrets (add ?env=scope and ?include_source=true for metadata)
-curl "http://localhost:8080/v1/secrets?env=prod&include_source=true"
+# List secrets (add ?scope=scope and ?include_source=true for metadata)
+curl "http://localhost:8080/v1/secrets?scope=prod&include_source=true"
 
-# Discover environments that currently hold secrets
+# Discover scopes that currently hold secrets
 curl http://localhost:8080/v1/secrets/scopes
 
-# Upsert a global secret (optionally scoped to an environment)
+# Upsert a global secret (optionally scoped)
 curl -X PUT \
   -H "Content-Type: application/json" \
-  -d '{"value":"General level secret prod env"}' \
-  "http://localhost:8080/v1/secrets/TEST_SECRET?env=prod"
+  -d '{"value":"General level secret prod scope"}' \
+  "http://localhost:8080/v1/secrets/TEST_SECRET?scope=prod"
 
 # Delete a global secret
 curl -X DELETE http://localhost:8080/v1/secrets/TEST_SECRET
@@ -232,10 +232,10 @@ curl -X PUT \
   "http://localhost:8080/v1/repositories/hosein-yousefii/test-app/secrets/TEST_SECRET"
 ```
 
-- Repository endpoints also accept `?env=` to target scoped environments.
+- Repository endpoints also accept `?scope=` to target scoped values.
 - Repository-scoped entries returned by `GET /v1/secrets` are prefixed with `owner/repo/SECRET`, so the UI can group them under the same scope as global secrets.
 - `GET /v1/secrets/scopes` reports only scopes (default, prod, etc.) to mirror the Scopes page.
-- Secrets resolve in the following order: repo+env → repo → global+env → global.
+- Secrets resolve in the following order: repo+scope -> repo -> global+scope -> global.
 - Predefined product roles expose secret metadata broadly, but secret value reads remain owner/admin-level by default.
 
 ---
@@ -247,19 +247,19 @@ Scope variables mirror the scoping rules used for secrets.
 ```bash
 # Global scope variable
 curl -X PUT -d '{"value":"general"}' \
-  "http://localhost:8080/v1/variables/TEST_ENV"
+  "http://localhost:8080/v1/variables/TEST_SCOPE"
 
 # Repository scope variable
 curl -X PUT -d '{"value":"repo"}' \
-  "http://localhost:8080/v1/repositories/hosein-yousefii/test-app/variables/TEST_ENV"
+  "http://localhost:8080/v1/repositories/hosein-yousefii/test-app/variables/TEST_SCOPE"
 
 # Fetch scoped variables
-curl "http://localhost:8080/v1/variables?env=prod"
+curl "http://localhost:8080/v1/variables?scope=prod"
 ```
 
 - The list endpoint now returns both global variables (e.g. `DATABASE_URL`) and repository-scoped entries in the form `owner/repo/NAME`.
 - Duplicate keys inside the same scope are rejected during config sync.
-- The config repo may define scoped variables under `environments/<scope>/env.yaml`; the sync endpoint imports them automatically.
+- The config repo may define scoped variables under `scopes/<scope>/scope.yaml`; the sync endpoint imports them automatically.
 - Predefined product roles allow variable metadata reads and writes, but do not grant variable value reads by default.
 
 ---
@@ -488,7 +488,7 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 
 ---
 
-## Environment Reset (Optional)
+## Local Reset (Optional)
 
 For local testing, you can clear Docker state with:
 
@@ -499,4 +499,4 @@ docker volume prune -f -a
 docker image prune -f -a
 ```
 
-> Warning: these commands remove **all** containers, volumes, and images on your machine. Use them only on disposable environments.
+> Warning: these commands remove **all** containers, volumes, and images on your machine. Use them only on disposable local systems.

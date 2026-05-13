@@ -519,9 +519,9 @@ func (ps *PipelineStep) SetLlmOutputSharing(value *bool) {
 	}
 }
 
-func (ps *PipelineStep) SetVariables(env map[string]string) {
+func (ps *PipelineStep) SetVariables(variables map[string]string) {
 	if base := ps.baseStep(); base != nil {
-		base.Variables = env
+		base.Variables = variables
 	}
 }
 
@@ -538,38 +538,6 @@ type Pipeline struct {
 	LlmContentSharing *bool          `yaml:"llm_content_sharing,omitempty" json:"llm_content_sharing,omitempty"`
 	LlmOutputSharing  *bool          `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
 	LlmContentIgnore  []string       `yaml:"llm_content_ignore,omitempty" json:"llm_content_ignore,omitempty"`
-}
-
-func (p *Pipeline) UnmarshalYAML(value *yaml.Node) error {
-	type rawPipeline Pipeline
-	aux := struct {
-		rawPipeline `yaml:",inline"`
-		Environment []string `yaml:"environment"`
-	}{}
-	if err := value.Decode(&aux); err != nil {
-		return err
-	}
-	if len(aux.Environment) > 0 {
-		return fmt.Errorf("the 'environment' key is deprecated; use 'variables'")
-	}
-	*p = Pipeline(aux.rawPipeline)
-	return nil
-}
-
-func (p *Pipeline) UnmarshalJSON(data []byte) error {
-	type rawPipeline Pipeline
-	aux := struct {
-		rawPipeline
-		Environment []string `json:"environment"`
-	}{}
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-	if len(aux.Environment) > 0 {
-		return fmt.Errorf("the 'environment' key is deprecated; use 'variables'")
-	}
-	*p = Pipeline(aux.rawPipeline)
-	return nil
 }
 
 // DisplayOptions defines how the pipeline progress is displayed in integrations like GitHub.
