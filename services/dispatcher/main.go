@@ -1175,30 +1175,30 @@ func (d *dispatcherServer) prepareJobForRunner(job *proto.JobRequest, runner *ru
 	if !ok || copyJob == nil {
 		return nil
 	}
-	envCopy := append([]string(nil), copyJob.Env...)
+	runtimeVars := append([]string(nil), copyJob.Env...)
 	if runner != nil {
 		if override, ok := runner.metadata["docker_network"]; ok {
 			copyJob.DockerNetwork = strings.TrimSpace(override)
-			envCopy = upsertEnv(envCopy, "DOCKER_NETWORK_NAME", copyJob.DockerNetwork)
+			runtimeVars = upsertRuntimeVar(runtimeVars, "DOCKER_NETWORK_NAME", copyJob.DockerNetwork)
 		}
 		if addr, ok := runner.metadata["dispatcher_addr"]; ok {
-			envCopy = upsertEnv(envCopy, "DISPATCHER_ADDRESS", strings.TrimSpace(addr))
+			runtimeVars = upsertRuntimeVar(runtimeVars, "DISPATCHER_ADDRESS", strings.TrimSpace(addr))
 		}
-		envCopy = upsertEnv(envCopy, "RUNNER_ID", runner.id)
+		runtimeVars = upsertRuntimeVar(runtimeVars, "RUNNER_ID", runner.id)
 	}
-	copyJob.Env = envCopy
+	copyJob.Env = runtimeVars
 	return copyJob
 }
 
-func upsertEnv(env []string, key, val string) []string {
+func upsertRuntimeVar(runtimeVars []string, key, val string) []string {
 	prefix := key + "="
-	for i, e := range env {
+	for i, e := range runtimeVars {
 		if strings.HasPrefix(e, prefix) {
-			env[i] = prefix + val
-			return env
+			runtimeVars[i] = prefix + val
+			return runtimeVars
 		}
 	}
-	return append(env, prefix+val)
+	return append(runtimeVars, prefix+val)
 }
 
 func pipelinePath(identifier string) string {

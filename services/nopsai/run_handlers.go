@@ -589,13 +589,19 @@ func (a *App) resolveGroupIDForRepo(repoOwner, repoName string) (sql.NullInt32, 
 	}
 
 	repoOwner = strings.TrimSpace(repoOwner)
-	fullRepoName := repoName
-	if repoOwner != "" {
-		fullRepoName = fmt.Sprintf("%s/%s", repoOwner, repoName)
+	fullRepoName := repositoryFullName(repoOwner, repoName)
+	matches, err := a.repositoryGroupMatches(context.Background(), repoOwner, repoName)
+	if err != nil {
+		return groupID, err
+	}
+	if len(matches) > 0 {
+		groupID.Int32 = int32(matches[0].ID)
+		groupID.Valid = true
+		return groupID, nil
 	}
 
 	var existingID int32
-	err := a.db.QueryRow(context.Background(), "SELECT id FROM groups WHERE name = $1", fullRepoName).Scan(&existingID)
+	err = a.db.QueryRow(context.Background(), "SELECT id FROM groups WHERE name = $1", fullRepoName).Scan(&existingID)
 	if err == pgx.ErrNoRows {
 		if repoOwner != "" {
 			err = a.db.QueryRow(context.Background(), "SELECT id FROM groups WHERE name = $1", repoName).Scan(&existingID)
@@ -1214,16 +1220,10 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 
 	runID := uuid.New()
 
-	var groupID sql.NullInt32
-	if name, ok := gitContext["repo_name"]; ok && name != "" {
-		owner := gitContext["repo_owner"]
-		fullRepoName := fmt.Sprintf("%s/%s", owner, name)
-		var existingID int32
-		err := a.db.QueryRow(context.Background(), "SELECT id FROM groups WHERE name = $1", fullRepoName).Scan(&existingID)
-		if err == nil {
-			groupID.Int32 = existingID
-			groupID.Valid = true
-		}
+	groupID, groupErr := a.resolveGroupIDForRepo(gitContext["repo_owner"], gitContext["repo_name"])
+	if groupErr != nil {
+		repoFullName := repositoryFullName(gitContext["repo_owner"], gitContext["repo_name"])
+		log.Error().Err(groupErr).Str("repo", repoFullName).Msg("Failed to find or create group for rerun repository")
 	}
 	var triggerEventIDSQL sql.NullString
 	newTriggerID := runID.String()

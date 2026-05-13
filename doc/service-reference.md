@@ -34,12 +34,12 @@ Key files:
 Important subpackages:
 
 - `pkg/auth`: Local JWT auth, refresh tokens, password hashing, rate limits, lockout rules.
-- `pkg/authz`: Casbin RBAC policy loading and enforcement.
+- `pkg/authz`: Casbin-backed legacy RBAC metadata compatibility.
 - `pkg/audit`: Audit-log persistence.
 - `pkg/store`: Small storage abstraction, currently centered on Postgres.
 - `pkg/validation`: Pipeline validation.
-- `services/aaa/pkg/authz`: Evaluator that handles `Check`, `BatchCheck`, `Filter`, and `Introspect`.
-- `services/aaa/pkg/store`: Postgres-backed AAA storage, inheritance resolution, and decision logging.
+- `pkg/aaaclient`: HTTP client for the internal AAA service.
+- `pkg/routeauthz`: Route-to-action/resource mapping used by the authorization middleware.
 
 Inbound interfaces:
 
@@ -58,7 +58,45 @@ Outbound interfaces:
 
 - gRPC to `dispatcher`
 - HTTP to `git-bot`
+- HTTP to `aaa`
 - Postgres
+
+## `services/aaa`
+
+Primary role:
+
+- Internal policy decision point for authorization.
+
+Responsibilities:
+
+- Serves internal HTTP endpoints for subject introspection, single checks, batch checks, resource filtering, and audit recording.
+- Enforces deny-before-allow behavior across direct roles, auth-group roles, direct ACLs, auth-group ACLs, and inherited ACLs.
+- Resolves users, groups, roles, resource ACLs, ownership, and inheritance from Postgres.
+- Writes authorization decision logs for denied decisions and sensitive allowed decisions.
+- Ensures the AAA schema and default internal roles exist at startup.
+
+Key files:
+
+- `services/aaa/main.go`
+- `services/aaa/pkg/server/server.go`
+- `services/aaa/pkg/authz/evaluator.go`
+- `services/aaa/pkg/store/postgres.go`
+- `services/aaa/pkg/store/schema.go`
+- `services/aaa/pkg/model/model.go`
+
+Inbound interfaces:
+
+- HTTP from `nopsai` with `X-Internal-Token`
+
+Outbound interfaces:
+
+- Postgres
+
+Notable behavior:
+
+- `GET /healthz` is public for health checks.
+- All `/v1/authn/*`, `/v1/authz/*`, and `/v1/audit/*` endpoints require the shared internal token.
+- `nopsai` keeps an in-process evaluator fallback using the same store, so short AAA service outages do not have to stop authorization checks.
 
 ## `services/dispatcher`
 
@@ -104,7 +142,7 @@ Notable behavior:
 
 Primary role:
 
-- Long-lived execution daemon attached to a Docker environment.
+- Long-lived execution daemon attached to a Docker runtime.
 
 Responsibilities:
 
@@ -142,7 +180,7 @@ Primary role:
 
 Responsibilities:
 
-- Starts once per run with the resolved pipeline definition and runtime context encoded in environment variables.
+- Starts once per run with the resolved pipeline definition and runtime context encoded in OS variables.
 - Connects to the dispatcher for status reporting, pipeline fetches, child pipeline triggers, and cancellation polling.
 - Decodes secrets and variables already prepared by `nopsai`.
 - Evaluates step conditions with the configured LLM provider.
@@ -160,7 +198,7 @@ Key files:
 
 Inbound interfaces:
 
-- Environment variables injected by the runner/job payload
+- Runtime variables injected by the runner/job payload
 
 Outbound interfaces:
 
@@ -264,12 +302,13 @@ Key files:
 
 `config`:
 
-- Central config loading from `config.yml` with environment override support.
+- Central config loading from `config.yml` with OS override support.
 
 ## Service Relationship Summary
 
 - `git-bot` is the GitHub-facing adapter.
 - `nopsai` is the durable control-plane API and state owner.
+- `aaa` is the internal authorization decision service.
 - `dispatcher` is the scheduler and bridge.
 - `runner` is the long-lived Docker worker.
 - `agent` is the ephemeral per-run orchestrator.

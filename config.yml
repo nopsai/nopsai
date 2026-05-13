@@ -24,7 +24,6 @@ log_format: "json" # Options: "console", "json"
 # lmstudio_model: "" # Optional: leave empty to auto-discover the first loaded model
 # lmstudio_reasoning: "off" # Supported: "off", "low", "medium", "high", "on"
 # lmstudio_enable_thinking: false # Legacy compatibility fallback; prefer lmstudio_reasoning
-# config_repo_url: "https://github.com/yourorg/nopsai-config.git"
 # llm_agent_timeout: "30m" # A global default timeout for all LLM requests
 
 # # --- Service Addresses ---

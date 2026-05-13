@@ -1,10 +1,9 @@
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type Dispatch, type FormEvent, type ReactNode, type SetStateAction } from 'react';
 import { Edit3, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import { buildApiUrl } from '../lib/api';
 
 type ConfigFormState = {
-  config_repo_url: string;
   agent_image: string;
   docker_network_name: string;
   default_pipeline_timeout: string;
@@ -15,18 +14,34 @@ type ConfigFormState = {
   nopsai_git_bot_api_url: string;
 };
 
+type ConfigRepository = {
+  id: number;
+  scope_type: string;
+  scope_id: string;
+  repo_url: string;
+  branch: string;
+  base_path: string;
+  enabled: boolean;
+  managed_by_config_repo?: boolean;
+  config_source_path?: string;
+  last_sync_status: string;
+  last_sync_message?: string;
+  last_sync_started_at?: string;
+  last_sync_completed_at?: string;
+  last_sync_commit_sha?: string;
+};
+
+type ConfigRepositoryFormState = {
+  repo_url: string;
+  branch: string;
+  base_path: string;
+  enabled: boolean;
+};
+
 type ToastMessage = {
   id: number;
   message: string;
   tone: 'success' | 'error' | 'info';
-};
-
-type ConfigSyncStatus = {
-  status: string;
-  message?: string;
-  details?: Record<string, number>;
-  started_at?: string;
-  completed_at?: string;
 };
 
 type Runner = {
@@ -55,7 +70,6 @@ type RunnerMeta = {
 };
 
 const initialConfig: ConfigFormState = {
-  config_repo_url: '',
   agent_image: '',
   docker_network_name: '',
   default_pipeline_timeout: '',
@@ -64,6 +78,13 @@ const initialConfig: ConfigFormState = {
   agent_nopsai_api_url: '',
   git_bot_nopsai_api_url: '',
   nopsai_git_bot_api_url: '',
+};
+
+const emptyConfigRepositoryForm: ConfigRepositoryFormState = {
+  repo_url: '',
+  branch: 'main',
+  base_path: '',
+  enabled: true,
 };
 
 const POLL_INTERVAL_MS = 5000;
@@ -123,6 +144,13 @@ type EditableAccessGrant = {
   grantedBy?: string;
 };
 
+type BasicGrantInput = {
+  role: string;
+  resourceType: string;
+  resourceID: string;
+  inherit?: boolean;
+};
+
 type RolePolicyDraft = {
   name: string;
   obj: string;
@@ -143,7 +171,10 @@ type ResourceGroup = {
 
 type SystemPagePermissions = {
   canViewConfig: boolean;
-  canManageConfig: boolean;
+  canViewRuntimeConfig: boolean;
+  canManageRuntimeConfig: boolean;
+  canViewGlobalConfigRepo: boolean;
+  canManageGlobalConfigRepo: boolean;
   canViewDispatcher: boolean;
   canManageDispatcher: boolean;
   canViewAccess: boolean;
@@ -171,10 +202,12 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
   const [configLoading, setConfigLoading] = useState(true);
   const [configError, setConfigError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-
-  const [syncStatus, setSyncStatus] = useState<ConfigSyncStatus | null>(null);
-  const [syncBusy, setSyncBusy] = useState(false);
-  const [syncError, setSyncError] = useState<string | null>(null);
+  const [globalConfigRepo, setGlobalConfigRepo] = useState<ConfigRepository | null>(null);
+  const [globalConfigRepoForm, setGlobalConfigRepoForm] = useState<ConfigRepositoryFormState>(emptyConfigRepositoryForm);
+  const [globalConfigRepoLoading, setGlobalConfigRepoLoading] = useState(false);
+  const [globalConfigRepoSaving, setGlobalConfigRepoSaving] = useState(false);
+  const [globalConfigRepoSyncing, setGlobalConfigRepoSyncing] = useState(false);
+  const [globalConfigRepoError, setGlobalConfigRepoError] = useState<string | null>(null);
 
   const [dispatcherLoading, setDispatcherLoading] = useState(false);
   const [dispatcherError, setDispatcherError] = useState<string | null>(null);
@@ -199,7 +232,6 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
   const [policiesError, setPoliciesError] = useState<string | null>(null);
   const [newUser, setNewUser] = useState({ sub: '', email: '', password: '', roles: [] as string[] });
   const [newPermission, setNewPermission] = useState({ name: '', obj: 'pipeline:*', act: 'pipeline.read' });
-  const [ensuringDefaultAdmin, setEnsuringDefaultAdmin] = useState(false);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -242,7 +274,6 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     if (!record) throw new Error('Unexpected system config response');
 
     const nextConfig: ConfigFormState = {
-      config_repo_url: readString(record.config_repo_url),
       agent_image: readString(record.agent_image),
       docker_network_name: readString(record.docker_network_name),
       default_pipeline_timeout: readString(record.default_pipeline_timeout),
@@ -254,9 +285,28 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     };
     setConfig(nextConfig);
     setEnvFilePath(readString(record.env_file_path));
+  }, []);
 
-    const nextSyncStatus = normalizeConfigSyncStatus(record.config_sync_status);
-    setSyncStatus(nextSyncStatus);
+  const normalizeConfigRepository = useCallback((payload: unknown): ConfigRepository | null => {
+    const record = asRecord(payload);
+    if (!record) return null;
+    const id = normalizeNumber(record.id);
+    return {
+      id,
+      scope_type: readString(record.scope_type),
+      scope_id: readString(record.scope_id),
+      repo_url: readString(record.repo_url),
+      branch: readString(record.branch).trim() || 'main',
+      base_path: readString(record.base_path),
+      enabled: Boolean(record.enabled),
+      managed_by_config_repo: Boolean(record.managed_by_config_repo),
+      config_source_path: readOptionalString(record.config_source_path),
+      last_sync_status: readString(record.last_sync_status),
+      last_sync_message: readOptionalString(record.last_sync_message),
+      last_sync_started_at: readOptionalString(record.last_sync_started_at),
+      last_sync_completed_at: readOptionalString(record.last_sync_completed_at),
+      last_sync_commit_sha: readOptionalString(record.last_sync_commit_sha),
+    };
   }, []);
 
   const loadSystemConfig = useCallback(async () => {
@@ -276,25 +326,42 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     }
   }, [applySystemConfigResponse, fetchJson]);
 
-  const loadSyncStatus = useCallback(
+  const loadGlobalConfigRepository = useCallback(
     async (opts?: { quiet?: boolean }) => {
       if (!opts?.quiet) {
-        setSyncError(null);
+        setGlobalConfigRepoLoading(true);
+        setGlobalConfigRepoError(null);
       }
       try {
-        const payload = await fetchJson('/v1/system/config/sync');
-        const nextStatus = normalizeConfigSyncStatus(payload);
-        if (isMountedRef.current) {
-          setSyncStatus(nextStatus);
-          setSyncError(null);
+        const response = await fetch(buildApiUrl('/v1/system/config-repo'), { cache: 'no-store' });
+        if (response.status === 404) {
+          setGlobalConfigRepo(null);
+          setGlobalConfigRepoForm(emptyConfigRepositoryForm);
+          return;
         }
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || `Unable to load global config repository (${response.status})`);
+        }
+        const repo = normalizeConfigRepository(await response.json());
+        setGlobalConfigRepo(repo);
+        setGlobalConfigRepoForm(repo ? {
+          repo_url: repo.repo_url,
+          branch: repo.branch || 'main',
+          base_path: repo.base_path || '',
+          enabled: repo.enabled,
+        } : emptyConfigRepositoryForm);
       } catch (error) {
-        console.error('Failed to load sync status', error);
+        console.error('Failed to load global config repository', error);
         if (!isMountedRef.current) return;
-        setSyncError(error instanceof Error ? error.message : 'Unable to load sync status');
+        setGlobalConfigRepoError(error instanceof Error ? error.message : 'Unable to load global config repository');
+      } finally {
+        if (isMountedRef.current && !opts?.quiet) {
+          setGlobalConfigRepoLoading(false);
+        }
       }
     },
-    [fetchJson]
+    [normalizeConfigRepository]
   );
 
   const loadDispatcherStatus = useCallback(
@@ -328,11 +395,12 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     setUsersError(null);
     try {
       const payload = await fetchJson('/v1/admin/users');
-      if (Array.isArray(payload)) {
-        setUsers(payload as UserSummary[]);
-      } else {
+      const records = normalizeListPayload(payload, ['users', 'items', 'data', 'records', 'results']);
+      if (!records) {
         setUsersError('Unexpected response');
+        return;
       }
+      setUsers(records as UserSummary[]);
     } catch (error) {
       setUsersError(error instanceof Error ? error.message : 'Unable to load users');
     } finally {
@@ -345,12 +413,12 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     setAccessGrantsError(null);
     try {
       const payload = await fetchJson('/v1/access/grants');
-      if (!Array.isArray(payload)) {
+      const records = normalizeListPayload(payload, ['grants', 'access_grants', 'accessGrants', 'items', 'data', 'records', 'results']);
+      if (!records) {
         setAccessGrantsError('Unexpected response');
-        setAccessGrantsLoading(false);
         return;
       }
-      setAccessGrants(payload.map(item => normalizeAccessGrantRecord(item)).filter(Boolean) as AccessGrantRecord[]);
+      setAccessGrants(records.map(item => normalizeAccessGrantRecord(item)).filter(Boolean) as AccessGrantRecord[]);
     } catch (error) {
       setAccessGrantsError(error instanceof Error ? error.message : 'Unable to load basic roles');
     } finally {
@@ -363,14 +431,14 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     setPoliciesError(null);
     try {
       const payload = await fetchJson('/v1/admin/roles');
-      if (!Array.isArray(payload)) {
+      const records = normalizeListPayload(payload, ['roles', 'permissions', 'items', 'data', 'records', 'results']);
+      if (!records) {
         setPoliciesError('Unexpected response');
-        setPoliciesLoading(false);
         return;
       }
-      const records = payload as RolePermission[];
-      const templates = records.filter(p => p.role === POLICY_TEMPLATE_ROLE);
-      const rolePolicies = normalizeAdminPolicies(records.filter(p => p.role !== POLICY_TEMPLATE_ROLE));
+      const rolePermissions = records as RolePermission[];
+      const templates = rolePermissions.filter(p => p.role === POLICY_TEMPLATE_ROLE);
+      const rolePolicies = normalizeAdminPolicies(rolePermissions.filter(p => p.role !== POLICY_TEMPLATE_ROLE));
       setPolicyTemplates(templates);
       setPolicies(rolePolicies);
     } catch (error) {
@@ -380,24 +448,27 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
   }, [fetchJson]);
 
   const createUser = useCallback(
-    async (e: FormEvent<HTMLFormElement>) => {
+    async (e: FormEvent<HTMLFormElement>, options?: { basicGrants?: BasicGrantInput[] }): Promise<boolean> => {
       e.preventDefault();
       const roleAssignments = (newUser.roles || [])
         .map(role => role.trim())
         .filter(Boolean)
         .filter((role, index, roles) => roles.indexOf(role) === index);
-      if (roleAssignments.length === 0) {
-        addToast('Add at least one role before creating a user.', 'error');
-        return;
+      const basicGrants = normalizeBasicGrantInputs(options?.basicGrants || []);
+      if (roleAssignments.length === 0 && basicGrants.length === 0) {
+        addToast('Add at least one access role or basic role before creating a user.', 'error');
+        return false;
       }
       try {
-        const primaryRole = roleAssignments[0];
+        const sub = newUser.sub.trim();
+        const email = newUser.email.trim();
+        const primaryRole = roleAssignments[0] || '';
         const created = (await fetchJson('/v1/admin/users', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            sub: newUser.sub.trim(),
-            email: newUser.email.trim(),
+            sub,
+            email,
             password: newUser.password,
             role: primaryRole,
           }),
@@ -407,10 +478,21 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
           (created && (created.id || created.user_id || created.userId)) || undefined;
 
         if (!userId) {
+          const createdRecords = normalizeListPayload(created, ['users', 'items', 'data', 'records', 'results']);
+          const match = createdRecords?.find(item => {
+            const record = asRecord(item);
+            if (!record) return false;
+            return readString(record.sub) === sub || readString(record.email) === email;
+          });
+          userId = match ? readString(asRecord(match)?.id) : undefined;
+        }
+
+        if (!userId) {
           try {
             const list = await fetchJson('/v1/admin/users');
-            if (Array.isArray(list)) {
-              const match = (list as UserSummary[]).find(u => u.sub === newUser.sub || u.email === newUser.email);
+            const records = normalizeListPayload(list, ['users', 'items', 'data', 'records', 'results']);
+            if (records) {
+              const match = (records as UserSummary[]).find(u => u.sub === sub || u.email === email);
               userId = match?.id;
             }
           } catch {
@@ -421,7 +503,7 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
         if (!userId) {
           addToast('User created but ID not found; roles not assigned.', 'error');
           await loadUsers();
-          return;
+          return false;
         }
 
         for (const role of roleAssignments.slice(1)) {
@@ -439,14 +521,45 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
           }
         }
 
-        addToast(`User ${newUser.sub} saved with ${roleAssignments.length} role(s)`, 'success');
+        for (const grant of basicGrants) {
+          try {
+            await fetchJson('/v1/access/grants', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                subject_type: 'user',
+                subject_id: userId,
+                role: grant.role,
+                resource_type: grant.resourceType,
+                resource_id: grant.resourceID,
+                inherit: grant.inherit,
+              }),
+            });
+          } catch (error) {
+            if (error instanceof Error && error.message.toLowerCase().includes('already exists')) {
+              continue;
+            }
+            throw error;
+          }
+        }
+
+        const savedParts = [
+          roleAssignments.length ? `${roleAssignments.length} access role(s)` : '',
+          basicGrants.length ? `${basicGrants.length} basic role(s)` : '',
+        ].filter(Boolean);
+        addToast(`User ${sub} saved with ${savedParts.join(' and ')}`, 'success');
         setNewUser({ sub: '', email: '', password: '', roles: [] });
         await loadUsers();
+        if (basicGrants.length > 0) {
+          await loadAccessGrants();
+        }
+        return true;
       } catch (error) {
         addToast(error instanceof Error ? error.message : 'Failed to create user', 'error');
+        return false;
       }
     },
-    [addToast, fetchJson, loadUsers, newUser.email, newUser.password, newUser.roles, newUser.sub]
+    [addToast, fetchJson, loadAccessGrants, loadUsers, newUser.email, newUser.password, newUser.roles, newUser.sub]
   );
 
   const createPermission = useCallback(
@@ -873,7 +986,6 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          config_repo_url: config.config_repo_url.trim(),
           agent_image: config.agent_image.trim(),
           docker_network_name: config.docker_network_name.trim(),
           default_pipeline_timeout: config.default_pipeline_timeout.trim(),
@@ -899,29 +1011,97 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     }
   }, [addToast, applySystemConfigResponse, config, fetchJson, saving]);
 
-  const triggerSync = useCallback(async () => {
-    if (syncBusy) return;
-    setSyncBusy(true);
-    setSyncError(null);
+  const saveGlobalConfigRepository = useCallback(async () => {
+    if (globalConfigRepoSaving || !permissions.canManageGlobalConfigRepo) return;
+    const repoURL = globalConfigRepoForm.repo_url.trim();
+    if (!repoURL) {
+      setGlobalConfigRepoError('Repository URL is required.');
+      return;
+    }
+    setGlobalConfigRepoSaving(true);
+    setGlobalConfigRepoError(null);
     try {
-      const payload = await fetchJson('/v1/system/config/sync', { method: 'POST' });
-      const status = normalizeConfigSyncStatus(payload);
-      if (isMountedRef.current) {
-        setSyncStatus(status);
-      }
-      addToast('Config sync requested.', 'info');
+      const payload = await fetchJson('/v1/system/config-repo', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repo_url: repoURL,
+          branch: globalConfigRepoForm.branch.trim() || 'main',
+          base_path: globalConfigRepoForm.base_path.trim(),
+          enabled: Boolean(globalConfigRepoForm.enabled),
+        }),
+      });
+      const repo = normalizeConfigRepository(payload);
+      setGlobalConfigRepo(repo);
+      setGlobalConfigRepoForm(repo ? {
+        repo_url: repo.repo_url,
+        branch: repo.branch || 'main',
+        base_path: repo.base_path || '',
+        enabled: repo.enabled,
+      } : emptyConfigRepositoryForm);
+      addToast('Global config repository saved.', 'success');
     } catch (error) {
-      console.error('Failed to trigger config sync', error);
-      addToast('Unable to start config sync.', 'error');
-      if (isMountedRef.current) {
-        setSyncError(error instanceof Error ? error.message : 'Unable to start config sync');
-      }
+      console.error('Failed to save global config repository', error);
+      const message = error instanceof Error ? error.message : 'Unable to save global config repository';
+      setGlobalConfigRepoError(message);
+      addToast('Failed to save global config repository.', 'error');
     } finally {
       if (isMountedRef.current) {
-        setSyncBusy(false);
+        setGlobalConfigRepoSaving(false);
       }
     }
-  }, [addToast, fetchJson, syncBusy]);
+  }, [addToast, fetchJson, globalConfigRepoForm, globalConfigRepoSaving, normalizeConfigRepository, permissions.canManageGlobalConfigRepo]);
+
+  const deleteGlobalConfigRepository = useCallback(async () => {
+    if (globalConfigRepoSaving || !permissions.canManageGlobalConfigRepo || !globalConfigRepo) return;
+    if (!window.confirm('Remove the global config repository? Synced resources will remain available.')) return;
+    setGlobalConfigRepoSaving(true);
+    setGlobalConfigRepoError(null);
+    try {
+      await fetchJson('/v1/system/config-repo', { method: 'DELETE' });
+      setGlobalConfigRepo(null);
+      setGlobalConfigRepoForm(emptyConfigRepositoryForm);
+      addToast('Global config repository removed.', 'success');
+    } catch (error) {
+      console.error('Failed to remove global config repository', error);
+      const message = error instanceof Error ? error.message : 'Unable to remove global config repository';
+      setGlobalConfigRepoError(message);
+      addToast('Failed to remove global config repository.', 'error');
+    } finally {
+      if (isMountedRef.current) {
+        setGlobalConfigRepoSaving(false);
+      }
+    }
+  }, [addToast, fetchJson, globalConfigRepo, globalConfigRepoSaving, permissions.canManageGlobalConfigRepo]);
+
+  const syncGlobalConfigRepository = useCallback(async () => {
+    if (!permissions.canManageGlobalConfigRepo || globalConfigRepoSyncing || globalConfigRepo?.last_sync_status === 'running') return;
+    setGlobalConfigRepoSyncing(true);
+    setGlobalConfigRepoError(null);
+    try {
+      await fetchJson('/v1/system/config-repo/sync', { method: 'POST' });
+      setGlobalConfigRepo(prev => prev ? {
+        ...prev,
+        last_sync_status: 'running',
+        last_sync_message: 'Configuration synchronization started.',
+        last_sync_started_at: new Date().toISOString(),
+        last_sync_completed_at: undefined,
+      } : prev);
+      window.setTimeout(() => {
+        void loadGlobalConfigRepository({ quiet: true });
+      }, 1000);
+      addToast('Global config repository sync started.', 'success');
+    } catch (error) {
+      console.error('Failed to start global config repository sync', error);
+      const message = error instanceof Error ? error.message : 'Unable to start global config repository sync';
+      setGlobalConfigRepoError(message);
+      addToast('Failed to start global config repository sync.', 'error');
+    } finally {
+      if (isMountedRef.current) {
+        setGlobalConfigRepoSyncing(false);
+      }
+    }
+  }, [addToast, fetchJson, globalConfigRepo?.last_sync_status, globalConfigRepoSyncing, loadGlobalConfigRepository, permissions.canManageGlobalConfigRepo]);
 
   const setRunnerPending = useCallback((runnerId: string, connectionId: string, pending: boolean) => {
     const key = runnerActionKey(runnerId, connectionId);
@@ -964,8 +1144,15 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
 
   useEffect(() => {
     if (!permissions.canViewConfig || visibleTab !== 'config') return;
-    void loadSystemConfig();
-  }, [loadSystemConfig, permissions.canViewConfig, visibleTab]);
+    if (permissions.canViewRuntimeConfig) {
+      void loadSystemConfig();
+    } else {
+      setConfigLoading(false);
+    }
+    if (permissions.canViewGlobalConfigRepo) {
+      void loadGlobalConfigRepository();
+    }
+  }, [loadGlobalConfigRepository, loadSystemConfig, permissions.canViewConfig, permissions.canViewGlobalConfigRepo, permissions.canViewRuntimeConfig, visibleTab]);
 
   useEffect(() => {
     if (permissions.canViewDispatcher && visibleTab === 'dispatcher') {
@@ -981,49 +1168,22 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     }
   }, [loadAccessGrants, loadPolicies, loadUsers, permissions.canViewAccess, visibleTab]);
 
-  const defaultAdminPolicyExists = useMemo(
-    () =>
-      policies.some(p => p.role === DEFAULT_ADMIN_ROLE && isDefaultAdmin(p.role) && p.obj === DEFAULT_ADMIN_POLICY_OBJ && p.act === DEFAULT_ADMIN_POLICY_ACT),
-    [policies]
-  );
-
-  useEffect(() => {
-    if (!permissions.canViewAccess || visibleTab !== 'access') return;
-    if (policiesLoading || ensuringDefaultAdmin) return;
-    if (defaultAdminPolicyExists) return;
-    setEnsuringDefaultAdmin(true);
-    void (async () => {
-      try {
-        await fetchJson('/v1/admin/roles', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            role: DEFAULT_ADMIN_ROLE,
-            name: 'Admin all access',
-            obj: DEFAULT_ADMIN_POLICY_OBJ,
-            act: DEFAULT_ADMIN_POLICY_ACT,
-          }),
-        });
-        await loadPolicies();
-      } catch (error) {
-        console.error('Failed to ensure default admin policy', error);
-      } finally {
-        setEnsuringDefaultAdmin(false);
-      }
-    })();
-  }, [defaultAdminPolicyExists, ensuringDefaultAdmin, fetchJson, loadPolicies, permissions.canViewAccess, policiesLoading, visibleTab]);
-
   useEffect(() => {
     const handle = window.setInterval(() => {
-      if (permissions.canViewConfig && visibleTab === 'config') {
-        void loadSyncStatus({ quiet: true });
-      }
       if (permissions.canViewDispatcher && visibleTab === 'dispatcher') {
         void loadDispatcherStatus({ quiet: true });
       }
     }, POLL_INTERVAL_MS);
     return () => window.clearInterval(handle);
-  }, [loadDispatcherStatus, loadSyncStatus, permissions.canViewConfig, permissions.canViewDispatcher, visibleTab]);
+  }, [loadDispatcherStatus, permissions.canViewDispatcher, visibleTab]);
+
+  useEffect(() => {
+    if (!permissions.canViewGlobalConfigRepo || visibleTab !== 'config' || globalConfigRepo?.last_sync_status !== 'running') return undefined;
+    const handle = window.setInterval(() => {
+      void loadGlobalConfigRepository({ quiet: true });
+    }, 3000);
+    return () => window.clearInterval(handle);
+  }, [globalConfigRepo?.last_sync_status, loadGlobalConfigRepository, permissions.canViewGlobalConfigRepo, visibleTab]);
 
   return (
     <div data-page="system" className="active p-6 space-y-6">
@@ -1031,17 +1191,26 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
         <SystemConfig
           config={config}
           envFilePath={envFilePath}
-          syncStatus={syncStatus}
-          syncError={syncError}
           configError={configError}
           configLoading={configLoading}
           saving={saving}
+          globalConfigRepo={globalConfigRepo}
+          globalConfigRepoForm={globalConfigRepoForm}
+          globalConfigRepoLoading={globalConfigRepoLoading}
+          globalConfigRepoSaving={globalConfigRepoSaving}
+          globalConfigRepoSyncing={globalConfigRepoSyncing}
+          globalConfigRepoError={globalConfigRepoError}
           onChange={setConfig}
           onReload={loadSystemConfig}
-          onRefreshSyncStatus={loadSyncStatus}
           onSave={saveConfig}
-          onTriggerSync={triggerSync}
-          canManageConfig={permissions.canManageConfig}
+          onGlobalConfigRepoChange={setGlobalConfigRepoForm}
+          onSaveGlobalConfigRepo={saveGlobalConfigRepository}
+          onDeleteGlobalConfigRepo={deleteGlobalConfigRepository}
+          onSyncGlobalConfigRepo={syncGlobalConfigRepository}
+          canViewRuntimeConfig={permissions.canViewRuntimeConfig}
+          canManageRuntimeConfig={permissions.canManageRuntimeConfig}
+          canViewGlobalConfigRepo={permissions.canViewGlobalConfigRepo}
+          canManageGlobalConfigRepo={permissions.canManageGlobalConfigRepo}
         />
       )}
       {visibleTab === 'dispatcher' && (
@@ -1130,7 +1299,7 @@ const ACCESS_ROLE_PRESETS: Array<{
   {
     id: 'viewer',
     label: 'Viewer',
-    description: 'Read-only access to folders, pipelines, runs, logs, triggers, and metadata.',
+    description: 'Read-only access to groups, pipelines, runs, logs, triggers, and metadata.',
   },
   {
     id: 'developer',
@@ -1207,7 +1376,7 @@ const basicAccessGrantLabel = (grant: Pick<AccessGrantRecord, 'role' | 'resource
 const accessGrantResourceSummary = (grant: Pick<AccessGrantRecord, 'resourceType' | 'resourceID'>) => {
   if ((grant.resourceType || '').trim() === 'platform') return 'Platform wide';
   const label = normalizeBasicGrantResourceLabel(grant);
-  return label === 'General' ? 'General (without folder)' : label;
+  return label === 'General' ? 'General (without group)' : label;
 };
 
 const basicAccessGrantDescription = (grant: Pick<AccessGrantRecord, 'role' | 'resourceType' | 'resourceID' | 'grantedBy'>) => {
@@ -1215,8 +1384,8 @@ const basicAccessGrantDescription = (grant: Pick<AccessGrantRecord, 'role' | 're
   if ((grant.resourceType || '').trim() === 'platform') {
     return 'This basic role gives platform-wide administrator access.';
   }
-  if (label === 'General (without folder)') {
-    return `This ${grant.role} basic role applies to items that are not inside any folder.`;
+  if (label === 'General (without group)') {
+    return `This ${grant.role} basic role applies to items that are not inside any group.`;
   }
   return `This ${grant.role} basic role applies to ${label} and anything nested below it.`;
 };
@@ -1256,6 +1425,34 @@ const editableAccessGrantFromRecord = (grant: AccessGrantRecord): EditableAccess
   inherit: grant.inherit,
   grantedBy: grant.grantedBy,
 });
+
+const normalizeBasicGrantInputs = (entries: BasicGrantInput[]): BasicGrantInput[] =>
+  Array.from(
+    entries.reduce((map, entry) => {
+      const role = (entry.role || '').trim().toLowerCase();
+      const resourceType = (entry.resourceType || '').trim().toLowerCase();
+      const resourceID = (entry.resourceID || '').trim();
+      if (!role || !resourceType || !resourceID) return map;
+      const normalized = {
+        role,
+        resourceType,
+        resourceID: resourceType === 'folder' ? normalizedAccessGrantResourceKey({ resourceType, resourceID }).resourceID : resourceID,
+        inherit: entry.inherit,
+      };
+      map.set(accessGrantEditKey(normalized), normalized);
+      return map;
+    }, new Map<string, BasicGrantInput>())
+  ).map(([, entry]) => entry);
+
+const normalizeEditableBasicGrants = (entries: EditableAccessGrant[]): BasicGrantInput[] =>
+  normalizeBasicGrantInputs(
+    entries.map(entry => ({
+      role: entry.role,
+      resourceType: entry.resourceType,
+      resourceID: entry.resourceID,
+      inherit: entry.inherit,
+    }))
+  );
 
 const isBasicAccessGrant = (grant: AccessGrantRecord) => {
   const role = (grant.role || '').trim().toLowerCase();
@@ -1408,6 +1605,7 @@ const AAA_RESOURCE_TYPE_CONFIGS: AAAResourceTypeConfig[] = [
     presets: [
       { value: 'config', label: 'Config' },
       { value: 'config-sync', label: 'Config sync' },
+      { value: 'config-repos', label: 'Config repositories' },
       { value: 'steps', label: 'Step catalog' },
     ],
     customPlaceholder: 'config',
@@ -1424,10 +1622,10 @@ const AAA_RESOURCE_TYPE_CONFIGS: AAAResourceTypeConfig[] = [
   },
   {
     value: 'folder',
-    label: 'Folder',
-    targetLabel: 'Folder',
+    label: 'Group',
+    targetLabel: 'Group',
     allowAll: true,
-    allLabel: 'All folders',
+    allLabel: 'All groups',
     dynamicSource: 'folderOptions',
     customPlaceholder: 'team/platform',
   },
@@ -1504,13 +1702,16 @@ const AAA_ALL_ACTION_OPTION_GROUPS: AAAOptionGroup[] = [
     ],
   },
   {
-    label: 'Folders',
+    label: 'Groups',
     options: [
       { value: 'folder.list', label: 'list' },
       { value: 'folder.create', label: 'create' },
       { value: 'folder.move', label: 'move' },
       { value: 'folder.update', label: 'update' },
       { value: 'folder.delete', label: 'delete' },
+      { value: 'config_repo.read', label: 'read config repo' },
+      { value: 'config_repo.manage', label: 'manage config repo' },
+      { value: 'config_repo.sync', label: 'sync config repo' },
     ],
   },
   {
@@ -1579,7 +1780,7 @@ const AAA_ACTION_OPTION_GROUPS_BY_SELECTOR: Record<string, AAAOptionGroup[]> = {
 
 const AAA_ACTION_OPTION_GROUPS_BY_RESOURCE_TYPE: Record<string, AAAOptionGroup[]> = {
   '*': AAA_ALL_ACTION_OPTION_GROUPS,
-  folder: [{ label: 'Folder actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Folders')?.options || [] }],
+  folder: [{ label: 'Group actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Groups')?.options || [] }],
   pipeline: [{ label: 'Pipeline actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Pipelines')?.options || [] }],
   pipeline_run: [{ label: 'Pipeline run actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Pipeline Runs')?.options || [] }],
   trigger: [{ label: 'Trigger actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Triggers')?.options || [] }],
@@ -1837,10 +2038,10 @@ const buildAAAResourceTargetOptionGroups = (config: AAAResourceTypeConfig, catal
     const dynamicOptions = dedupeAAAOptions(catalog[config.dynamicSource]);
     switch (config.dynamicSource) {
       case 'folderOptions':
-        groups.push(...buildAAAParentPathOptionGroups(dynamicOptions, { root: 'Top-level folders', parentPrefix: 'Inside /' }));
+        groups.push(...buildAAAParentPathOptionGroups(dynamicOptions, { root: 'Top-level groups', parentPrefix: 'Inside /' }));
         break;
       case 'pipelineOptions':
-        groups.push(...buildAAAParentPathOptionGroups(dynamicOptions, { root: 'Top-level pipelines', parentPrefix: 'Folder /' }));
+        groups.push(...buildAAAParentPathOptionGroups(dynamicOptions, { root: 'Top-level pipelines', parentPrefix: 'Group /' }));
         break;
       case 'triggerOptions':
         groups.push(...buildAAARepositoryOptionGroups(dynamicOptions, { root: 'Ungrouped triggers', ownerPrefix: 'Owner ' }));
@@ -2285,7 +2486,7 @@ function AccessPanel({
   newUser: { sub: string; email: string; password: string; roles: string[] };
   policyTemplates: RolePermission[];
   onChangeUser: (next: { sub: string; email: string; password: string; roles: string[] }) => void;
-  onCreateUser: (e: FormEvent<HTMLFormElement>) => Promise<void>;
+  onCreateUser: (e: FormEvent<HTMLFormElement>, options?: { basicGrants?: BasicGrantInput[] }) => Promise<boolean>;
   onReloadUsers: () => void;
   onCreatePermission: (e: FormEvent<HTMLFormElement>) => Promise<void>;
   newPermission: { name: string; obj: string; act: string };
@@ -2425,6 +2626,9 @@ function AccessPanel({
     setNextUserRole('');
     setAwaitingUserCreateReset(false);
     setUserAccessEditor(null);
+    setBasicGrantError(null);
+    setBasicGrantDraft({ role: '', scope: GENERAL_ACCESS_SCOPE });
+    setBasicGrantEntries([]);
     setShowUserModal(true);
   }, []);
 
@@ -2636,7 +2840,7 @@ function AccessPanel({
   const searchQuery = searchTerm.trim().toLowerCase();
   const basicAccessGrants = useMemo(() => accessGrants.filter(isBasicAccessGrant), [accessGrants]);
   const basicGrantOptions = useMemo(
-    () => [{ value: GENERAL_ACCESS_SCOPE, label: 'General (without folder)' }, ...resourceCatalog.folderOptions],
+    () => [{ value: GENERAL_ACCESS_SCOPE, label: 'General (without group)' }, ...resourceCatalog.folderOptions],
     [resourceCatalog.folderOptions]
   );
   const basicUserGrantMap = useMemo(() => {
@@ -2706,7 +2910,12 @@ function AccessPanel({
     );
   }, [policyTemplates, searchQuery]);
 
-  const isNewUserPristine = !newUser.sub.trim() && !newUser.email.trim() && !newUser.password && (newUser.roles || []).length === 0;
+  const isNewUserPristine =
+    !newUser.sub.trim() &&
+    !newUser.email.trim() &&
+    !newUser.password &&
+    (newUser.roles || []).length === 0 &&
+    basicGrantEntries.length === 0;
   const isNewPolicyPristine =
     !newPermission.name.trim() && newPermission.obj.trim() === 'pipeline:*' && newPermission.act.trim() === 'pipeline.read';
   const selectedBasicUserID = userAccessEditor?.user.id || '';
@@ -2769,7 +2978,7 @@ function AccessPanel({
           : [];
 
       if (groupsResult.status === 'rejected') {
-        console.error('Failed to load AAA folders', groupsResult.reason);
+        console.error('Failed to load AAA groups', groupsResult.reason);
       }
       if (pipelinesResult.status === 'rejected') {
         console.error('Failed to load AAA pipelines', pipelinesResult.reason);
@@ -2851,7 +3060,12 @@ function AccessPanel({
     setCreatingUserInline(true);
     setAwaitingUserCreateReset(true);
     try {
-      await onCreateUser(e);
+      const created = await onCreateUser(e, { basicGrants: normalizeEditableBasicGrants(basicGrantEntries) });
+      if (created) {
+        setBasicGrantError(null);
+        setBasicGrantDraft({ role: '', scope: GENERAL_ACCESS_SCOPE });
+        setBasicGrantEntries([]);
+      }
     } finally {
       setCreatingUserInline(false);
     }
@@ -2919,11 +3133,16 @@ function AccessPanel({
 
   const handleStageBasicGrant = (e?: FormEvent<HTMLFormElement>) => {
     e?.preventDefault();
-    if (!selectedBasicUser) {
+    const creatingUser = showUserModal && !userAccessEditor;
+    if (!selectedBasicUser && !creatingUser) {
       setBasicGrantError('Select a user first.');
       return;
     }
-    if (isDefaultAdminUser(selectedBasicUser)) {
+    if (selectedBasicUser && isDefaultAdminUser(selectedBasicUser)) {
+      setBasicGrantError('Default admin role assignments are locked.');
+      return;
+    }
+    if (creatingUser && newUser.sub.trim().toLowerCase() === 'admin') {
       setBasicGrantError('Default admin role assignments are locked.');
       return;
     }
@@ -3039,6 +3258,9 @@ function AccessPanel({
           onClick={() => {
             setAwaitingUserCreateReset(false);
             setShowUserModal(false);
+            setBasicGrantError(null);
+            setBasicGrantDraft({ role: '', scope: GENERAL_ACCESS_SCOPE });
+            setBasicGrantEntries([]);
           }}
         >
           Close
@@ -3080,11 +3302,11 @@ function AccessPanel({
         </label>
         <div className="access-editor-section">
           <div className="access-minimal-section__header">
-            <p className="text-sm font-medium text-[var(--text-primary)]">Roles</p>
-            <span className="text-[11px] text-[var(--text-secondary)]">Assign at least one</span>
+            <p className="text-sm font-medium text-[var(--text-primary)]">Access roles</p>
+            <span className="text-[11px] text-[var(--text-secondary)]">Optional with basic roles</span>
           </div>
           <div className="space-y-2">
-            {newUser.roles.length === 0 && <p className="text-[11px] text-[var(--text-secondary)]">Pick at least one role to create this user.</p>}
+            {newUser.roles.length === 0 && <p className="text-[11px] text-[var(--text-secondary)]">Add access roles here or use basic roles below.</p>}
             {newUser.roles.map((entry, idx) => (
               <div key={`new-user-role-${idx}`} className="access-minimal-row">
                 <select
@@ -3123,9 +3345,87 @@ function AccessPanel({
                 ))}
               </select>
               <button type="button" className="glass-button-subtle" onClick={appendUserRoleFromPicker} disabled={allRoleOptions.length === 0}>
-                Add role
+                Add access role
               </button>
             </div>
+          </div>
+        </div>
+        <div className="access-editor-section">
+          <div className="access-minimal-section__header">
+            <p className="text-sm font-medium text-[var(--text-primary)]">Basic roles</p>
+            <span className="text-[11px] text-[var(--text-secondary)]">{basicGrantEntries.length} listed</span>
+          </div>
+          <div className="access-editor-grid">
+            <label className="access-minimal-label">
+              <span>Access level</span>
+              <select
+                className="pipelines-input"
+                value={basicGrantDraft.role}
+                onChange={e => {
+                  const role = e.target.value;
+                  setBasicGrantDraft(prev => ({
+                    ...prev,
+                    role,
+                    scope: role === BASIC_ROLE_ADMIN ? prev.scope : prev.scope || GENERAL_ACCESS_SCOPE,
+                  }));
+                }}
+              >
+                <option value="">Select role</option>
+                <option value={BASIC_ROLE_VIEWER}>Viewer</option>
+                <option value={BASIC_ROLE_DEVELOPER}>Developer</option>
+                <option value={BASIC_ROLE_OWNER}>Owner</option>
+                <option value={BASIC_ROLE_ADMIN}>Admin</option>
+              </select>
+            </label>
+            <label className="access-minimal-label">
+              <span>Group target</span>
+              <select
+                className="pipelines-input"
+                value={basicGrantDraft.role === BASIC_ROLE_ADMIN ? 'platform' : basicGrantDraft.scope}
+                onChange={e => setBasicGrantDraft(prev => ({ ...prev, scope: e.target.value }))}
+                disabled={basicGrantDraft.role === BASIC_ROLE_ADMIN}
+              >
+                {basicGrantDraft.role === BASIC_ROLE_ADMIN ? (
+                  <option value="platform">Platform wide</option>
+                ) : (
+                  basicGrantOptions.map(option => (
+                    <option key={`new-user-basic-${option.value}`} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))
+                )}
+              </select>
+            </label>
+          </div>
+          <div className="access-editor-footer access-editor-footer--inline">
+            <button type="button" className="glass-button-subtle" onClick={() => handleStageBasicGrant()} disabled={creatingUserInline || !basicGrantDraft.role || basicGrantDraftDuplicate}>
+              Add basic role
+            </button>
+          </div>
+          {basicGrantError && <div className="access-error-banner">{basicGrantError}</div>}
+          <div className="space-y-2">
+            {basicGrantEntries.length === 0 ? (
+              <p className="text-[12px] text-[var(--text-secondary)]">No basic roles listed.</p>
+            ) : (
+              basicGrantEntries.map(grant => (
+                <div key={grant.localID} className="access-minimal-row access-minimal-row--stack">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`access-chip ${accessPresetToneClass(grant.role)}`}>{grant.role}</span>
+                      <span className="access-chip access-chip--muted">{accessGrantResourceSummary(grant)}</span>
+                      {grant.inherit && grant.resourceType === 'folder' && grant.resourceID !== 'general' && (
+                        <span className="access-chip access-chip--muted">Includes children</span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-[var(--text-secondary)] mt-2">{basicAccessGrantDescription(grant)}</p>
+                  </div>
+                  <button type="button" className="access-inline-btn access-inline-btn--danger" onClick={() => removeBasicGrantDraft(grant.localID)} disabled={creatingUserInline}>
+                    <TrashIcon />
+                    <span>Remove</span>
+                  </button>
+                </div>
+              ))
+            )}
           </div>
         </div>
         <div className="access-editor-footer">
@@ -3136,7 +3436,7 @@ function AccessPanel({
       </form>
     </div>
   );
-  const accessSearchPlaceholder = accessMode === 'basic' ? 'Search by username, email, role, or folder' : sectionContent.searchPlaceholder;
+  const accessSearchPlaceholder = accessMode === 'basic' ? 'Search by username, email, role, or group' : sectionContent.searchPlaceholder;
   const accessSearchControl = (
     <div className={`pipelines-search-shell access-search-shell ${searchOpen ? 'open' : ''}`}>
       <button
@@ -3202,7 +3502,7 @@ function AccessPanel({
         ) : filteredUsers.length === 0 ? (
           <div className="access-empty-card">
             <p className="font-medium text-[var(--text-primary)]">No people match this search</p>
-            <p className="text-sm text-[var(--text-secondary)]">Try a username, email address, role, or folder path.</p>
+            <p className="text-sm text-[var(--text-secondary)]">Try a username, email address, role, or group path.</p>
           </div>
         ) : (
           <div className="access-entity-grid access-entity-grid--users">
@@ -3290,7 +3590,7 @@ function AccessPanel({
               <div>
                 <p className="access-editor-kicker">Edit user</p>
                 <h5 className="access-editor-title">{userAccessEditor.user.sub}</h5>
-                <p className="access-editor-text">Manage account details, access roles, and folder-scoped basic roles.</p>
+                <p className="access-editor-text">Manage account details, access roles, and group-scoped basic roles.</p>
               </div>
               <button type="button" className="access-inline-btn access-inline-btn--pill" onClick={() => setUserAccessEditor(null)}>
                 Close
@@ -3404,7 +3704,7 @@ function AccessPanel({
                     </select>
                   </label>
                   <label className="access-minimal-label">
-                    <span>Folder target</span>
+                    <span>Group target</span>
                     <select
                       className="pipelines-input"
                       value={basicGrantDraft.role === BASIC_ROLE_ADMIN ? 'platform' : basicGrantDraft.scope}
@@ -4054,39 +4354,63 @@ function SearchIcon() {
 function SystemConfig({
   config,
   envFilePath,
-  syncStatus,
-  syncError,
   configError,
   configLoading,
   saving,
+  globalConfigRepo,
+  globalConfigRepoForm,
+  globalConfigRepoLoading,
+  globalConfigRepoSaving,
+  globalConfigRepoSyncing,
+  globalConfigRepoError,
   onChange,
   onReload,
-  onRefreshSyncStatus,
   onSave,
-  onTriggerSync,
-  canManageConfig,
+  onGlobalConfigRepoChange,
+  onSaveGlobalConfigRepo,
+  onDeleteGlobalConfigRepo,
+  onSyncGlobalConfigRepo,
+  canViewRuntimeConfig,
+  canManageRuntimeConfig,
+  canViewGlobalConfigRepo,
+  canManageGlobalConfigRepo,
 }: {
   config: ConfigFormState;
   envFilePath: string;
-  syncStatus: ConfigSyncStatus | null;
-  syncError: string | null;
   configError: string | null;
   configLoading: boolean;
   saving: boolean;
+  globalConfigRepo: ConfigRepository | null;
+  globalConfigRepoForm: ConfigRepositoryFormState;
+  globalConfigRepoLoading: boolean;
+  globalConfigRepoSaving: boolean;
+  globalConfigRepoSyncing: boolean;
+  globalConfigRepoError: string | null;
   onChange: (next: ConfigFormState) => void;
   onReload: () => Promise<void>;
-  onRefreshSyncStatus: (opts?: { quiet?: boolean }) => Promise<void>;
   onSave: () => Promise<void>;
-  onTriggerSync: () => Promise<void>;
-  canManageConfig: boolean;
+  onGlobalConfigRepoChange: Dispatch<SetStateAction<ConfigRepositoryFormState>>;
+  onSaveGlobalConfigRepo: () => Promise<void>;
+  onDeleteGlobalConfigRepo: () => Promise<void>;
+  onSyncGlobalConfigRepo: () => Promise<void>;
+  canViewRuntimeConfig: boolean;
+  canManageRuntimeConfig: boolean;
+  canViewGlobalConfigRepo: boolean;
+  canManageGlobalConfigRepo: boolean;
 }) {
-  const repoUrl = config.config_repo_url.trim();
-  const statusKey = normalizeStatus(syncStatus?.status, repoUrl);
   const envPath = (envFilePath || '').trim();
+  const globalRepoRunning = globalConfigRepo?.last_sync_status === 'running';
+  const globalRepoCanEdit = canManageGlobalConfigRepo && !globalConfigRepoLoading && !globalConfigRepoSaving;
+  const globalRepoSyncDisabled = !globalConfigRepo || !canManageGlobalConfigRepo || globalConfigRepoSyncing || globalConfigRepoSaving || globalRepoRunning;
 
   const handleChange = (key: keyof ConfigFormState) => (event: ChangeEvent<HTMLInputElement>) => {
     const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
     onChange({ ...config, [key]: value } as ConfigFormState);
+  };
+
+  const handleGlobalRepoChange = (key: keyof ConfigRepositoryFormState) => (event: ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
+    onGlobalConfigRepoChange(prev => ({ ...prev, [key]: value } as ConfigRepositoryFormState));
   };
 
   const onSubmit = (event: FormEvent) => {
@@ -4096,72 +4420,8 @@ function SystemConfig({
 
   return (
     <div id="system-config-section" className="grid gap-6 lg:grid-cols-2 pb-24">
+      {canViewRuntimeConfig && (
       <form id="system-config-form" className="space-y-4 lg:col-span-2" onSubmit={onSubmit}>
-        <div className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-xs text-[var(--text-secondary)]">Git sync</p>
-              <h3 className="text-lg font-semibold text-[var(--text-primary)]">Setup & status</h3>
-              <p className="text-xs text-[var(--text-secondary)]">Connect your repo and monitor sync health in one place.</p>
-            </div>
-            <div className="flex gap-2 flex-wrap">
-              <button className="glass-button-ghost" type="button" onClick={() => void onRefreshSyncStatus()}>
-                Refresh status
-              </button>
-              <button className="glass-button-subtle" type="button" onClick={() => void onTriggerSync()} disabled={!canManageConfig}>
-                Sync config
-              </button>
-            </div>
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-[2fr_1fr] items-start">
-            <div className="space-y-2">
-              <label className="flex flex-col gap-1 text-sm">
-                <span>Config repo URL</span>
-                <input
-                  id="system-config-repo"
-                  type="text"
-                  className="pipelines-input"
-                  value={config.config_repo_url}
-                  onChange={handleChange('config_repo_url')}
-                  placeholder="https://github.com/org/repo"
-                  disabled={!canManageConfig || configLoading || saving}
-                />
-              </label>
-              <p className="text-xs text-[var(--text-secondary)]">Source of truth for pipelines, triggers, and steps.</p>
-            </div>
-
-            <div className="space-y-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-tertiary)] p-3">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-medium text-[var(--text-primary)] truncate">{repoUrl || 'Not configured'}</span>
-                <span className={`system-chip ${repoUrl ? (statusKey === 'success' ? 'system-chip--success' : statusKey === 'error' ? 'system-chip--error' : statusKey === 'running' ? 'system-chip--warning' : 'system-chip--muted') : 'system-chip--muted'}`}>
-                  {repoUrl ? (statusKey === 'success' ? 'Synced' : statusKey === 'error' ? 'Sync failed' : statusKey === 'running' ? 'Syncing' : 'Ready') : 'Not configured'}
-                </span>
-              </div>
-              <p className="text-xs text-[var(--text-secondary)]">
-                {syncStatus?.completed_at
-                  ? `Last sync completed ${formatTimestamp(syncStatus.completed_at)}`
-                  : syncStatus?.started_at
-                    ? `Sync started ${formatTimestamp(syncStatus.started_at)}`
-                    : repoUrl
-                      ? 'Awaiting the first sync.'
-                      : 'Set the Git URL to enable sync from source control.'}
-              </p>
-              {syncError && <p className="text-xs text-red-500">Sync status error: {syncError}</p>}
-              {syncStatus?.details && Object.keys(syncStatus.details).length > 0 && (
-                <ul className="sync-detail-list mt-1">
-                  {Object.entries(syncStatus.details).map(([key, value]) => (
-                    <li key={key}>
-                      <strong>{key}:</strong> <span>{String(value)}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {envPath && <p className="text-xs text-[var(--text-secondary)]">Env file: {envPath}</p>}
-            </div>
-          </div>
-        </div>
-
         <div className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
           <div>
             <p className="text-xs text-[var(--text-secondary)]">Runtime tuning</p>
@@ -4177,7 +4437,7 @@ function SystemConfig({
                 value={config.agent_image}
                 onChange={handleChange('agent_image')}
                 placeholder="nopsai-agent:latest"
-                disabled={!canManageConfig || configLoading || saving}
+                disabled={!canManageRuntimeConfig || configLoading || saving}
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
@@ -4189,7 +4449,7 @@ function SystemConfig({
                 value={config.docker_network_name}
                 onChange={handleChange('docker_network_name')}
                 placeholder="nopsai-net"
-                disabled={!canManageConfig || configLoading || saving}
+                disabled={!canManageRuntimeConfig || configLoading || saving}
               />
               </label>
               <label className="flex flex-col gap-1 text-sm">
@@ -4201,7 +4461,7 @@ function SystemConfig({
                   value={config.default_pipeline_timeout}
                   onChange={handleChange('default_pipeline_timeout')}
                   placeholder="30m"
-                  disabled={!canManageConfig || configLoading || saving}
+                  disabled={!canManageRuntimeConfig || configLoading || saving}
                 />
               </label>
               <label className="flex flex-col gap-1 text-sm">
@@ -4213,7 +4473,7 @@ function SystemConfig({
                   value={config.llm_agent_timeout}
                   onChange={handleChange('llm_agent_timeout')}
                   placeholder="2m"
-                  disabled={!canManageConfig || configLoading || saving}
+                  disabled={!canManageRuntimeConfig || configLoading || saving}
                 />
               </label>
             <label className="flex items-center gap-2 text-sm md:col-span-2">
@@ -4222,7 +4482,7 @@ function SystemConfig({
                 type="checkbox"
                 checked={config.auto_removal_agent_container}
                 onChange={handleChange('auto_removal_agent_container')}
-                disabled={!canManageConfig || configLoading || saving}
+                disabled={!canManageRuntimeConfig || configLoading || saving}
               />
               <span>Auto-remove agent containers</span>
             </label>
@@ -4244,7 +4504,7 @@ function SystemConfig({
                 value={config.agent_nopsai_api_url}
                 onChange={handleChange('agent_nopsai_api_url')}
                 placeholder="http://agent:8080"
-                disabled={!canManageConfig || configLoading || saving}
+                disabled={!canManageRuntimeConfig || configLoading || saving}
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
@@ -4256,7 +4516,7 @@ function SystemConfig({
                 value={config.git_bot_nopsai_api_url}
                 onChange={handleChange('git_bot_nopsai_api_url')}
                 placeholder="http://gitbot:8080"
-                disabled={!canManageConfig || configLoading || saving}
+                disabled={!canManageRuntimeConfig || configLoading || saving}
               />
             </label>
             <label className="flex flex-col gap-1 text-sm md:col-span-2">
@@ -4268,11 +4528,13 @@ function SystemConfig({
                 value={config.nopsai_git_bot_api_url}
                 onChange={handleChange('nopsai_git_bot_api_url')}
                 placeholder="http://nopsai-gitbot:8080"
-                disabled={!canManageConfig || configLoading || saving}
+                disabled={!canManageRuntimeConfig || configLoading || saving}
               />
             </label>
           </div>
         </div>
+
+        {envPath && <p className="text-xs text-[var(--text-secondary)]">Env file: {envPath}</p>}
 
         {configError && (
           <div className="glass-card p-4 border border-red-500/30 rounded-xl text-sm text-red-500">
@@ -4281,15 +4543,146 @@ function SystemConfig({
         )}
         {configLoading && <p className="text-sm text-[var(--text-secondary)]">Loading settings…</p>}
       </form>
+      )}
 
+      {canViewGlobalConfigRepo && (
+        <section className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4 lg:col-span-2">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs text-[var(--text-secondary)]">GitOps source</p>
+              <h3 className="text-lg font-semibold text-[var(--text-primary)]">Global config repository</h3>
+            </div>
+            {!canManageGlobalConfigRepo && <span className="runner-pill runner-pill--muted self-start">Read-only</span>}
+          </div>
+
+          {globalConfigRepoLoading ? (
+            <p className="text-sm text-[var(--text-secondary)]">Loading global config repository…</p>
+          ) : (
+            <>
+              {!globalConfigRepo && (
+                <div className="rounded-lg border border-dashed border-[var(--border-primary)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+                  No global config repository connected.
+                </div>
+              )}
+
+              {globalConfigRepo && (
+                <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-4 py-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                    <div>
+                      <p className="text-xs text-[var(--text-secondary)]">Status</p>
+                      <p className="font-semibold text-[var(--text-primary)]">{globalConfigRepo.last_sync_status || 'Not synced'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-[var(--text-secondary)]">Completed</p>
+                      <p className="font-semibold text-[var(--text-primary)]">{formatTimestamp(globalConfigRepo.last_sync_completed_at)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-[var(--text-secondary)]">Started</p>
+                      <p className="font-semibold text-[var(--text-primary)]">{formatTimestamp(globalConfigRepo.last_sync_started_at)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-[var(--text-secondary)]">Commit</p>
+                      <p className="font-semibold text-[var(--text-primary)] truncate" title={globalConfigRepo.last_sync_commit_sha || ''}>
+                        {globalConfigRepo.last_sync_commit_sha || '-'}
+                      </p>
+                    </div>
+                  </div>
+                  {globalConfigRepo.last_sync_message && (
+                    <p className="mt-3 text-xs text-[var(--text-secondary)] break-words">{globalConfigRepo.last_sync_message}</p>
+                  )}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <label className="flex flex-col gap-1 text-sm md:col-span-2">
+                  <span>Repository URL</span>
+                  <input
+                    id="system-global-config-repo-url"
+                    type="url"
+                    required={canManageGlobalConfigRepo}
+                    className="pipelines-input"
+                    value={globalConfigRepoForm.repo_url}
+                    onChange={handleGlobalRepoChange('repo_url')}
+                    placeholder="https://github.com/org/nopsai-config"
+                    disabled={!globalRepoCanEdit}
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span>Branch</span>
+                  <input
+                    id="system-global-config-repo-branch"
+                    type="text"
+                    className="pipelines-input"
+                    value={globalConfigRepoForm.branch}
+                    onChange={handleGlobalRepoChange('branch')}
+                    placeholder="main"
+                    disabled={!globalRepoCanEdit}
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span>Base path</span>
+                  <input
+                    id="system-global-config-repo-base-path"
+                    type="text"
+                    className="pipelines-input"
+                    value={globalConfigRepoForm.base_path}
+                    onChange={handleGlobalRepoChange('base_path')}
+                    placeholder="nopsai"
+                    disabled={!globalRepoCanEdit}
+                  />
+                </label>
+                <label className="flex items-center gap-2 text-sm md:col-span-2">
+                  <input
+                    id="system-global-config-repo-enabled"
+                    type="checkbox"
+                    checked={globalConfigRepoForm.enabled}
+                    onChange={handleGlobalRepoChange('enabled')}
+                    disabled={!globalRepoCanEdit}
+                  />
+                  <span>Enabled</span>
+                </label>
+              </div>
+
+              {globalConfigRepo?.managed_by_config_repo && globalConfigRepo.config_source_path && (
+                <p className="text-xs text-[var(--text-secondary)]">Managed by Git: {globalConfigRepo.config_source_path}</p>
+              )}
+
+              {globalConfigRepoError && (
+                <div className="rounded-lg border border-red-500/30 px-4 py-3 text-sm text-red-500">
+                  {globalConfigRepoError}
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {globalConfigRepo && canManageGlobalConfigRepo && (
+                  <button type="button" className="glass-button-danger mr-auto" onClick={() => void onDeleteGlobalConfigRepo()} disabled={globalConfigRepoSaving || globalConfigRepoSyncing}>
+                    Remove
+                  </button>
+                )}
+                <button type="button" className="glass-button-subtle" onClick={() => void onSyncGlobalConfigRepo()} disabled={globalRepoSyncDisabled}>
+                  {globalConfigRepoSyncing || globalRepoRunning ? 'Syncing…' : 'Sync'}
+                </button>
+                {canManageGlobalConfigRepo && (
+                  <button type="button" className="glass-button-primary" onClick={() => void onSaveGlobalConfigRepo()} disabled={!globalRepoCanEdit}>
+                    {globalConfigRepoSaving ? 'Saving…' : 'Save repository'}
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </section>
+      )}
+
+      {canViewRuntimeConfig && (
       <div className="fixed bottom-6 right-6 z-40 flex items-center gap-2">
         <button className="glass-button-ghost" type="button" onClick={() => void onReload()} disabled={configLoading || saving}>
           Reload
         </button>
-        <button className="glass-button-primary" type="button" onClick={() => void onSave()} disabled={!canManageConfig || configLoading || saving}>
+        <button className="glass-button-primary" type="button" onClick={() => void onSave()} disabled={!canManageRuntimeConfig || configLoading || saving}>
           {saving ? 'Saving…' : 'Save settings'}
         </button>
       </div>
+      )}
     </div>
   );
 }
@@ -4551,42 +4944,6 @@ function formatSince(nowMs: number, unixSeconds: number) {
   return `${hours}h ago`;
 }
 
-function normalizeStatus(value: unknown, repoUrl = '') {
-  const key = String(value ?? '').toLowerCase().trim();
-  if (!key && !repoUrl.trim()) return 'missing';
-  if (['running', 'loading', 'in_progress'].includes(key)) return 'running';
-  if (['success', 'completed', 'complete', 'done'].includes(key)) return 'success';
-  if (['error', 'failed', 'failure'].includes(key)) return 'error';
-  return key || 'idle';
-}
-
-function normalizeConfigSyncStatus(value: unknown): ConfigSyncStatus | null {
-  const record = asRecord(value);
-  if (!record) return null;
-  const status = readString(record.status);
-  if (!status) return null;
-
-  const detailsRaw = asRecord(record.details);
-  const details: Record<string, number> = {};
-  if (detailsRaw) {
-    Object.entries(detailsRaw).forEach(([key, val]) => {
-      const num = typeof val === 'number' ? val : Number(val);
-      if (Number.isFinite(num)) {
-        details[key] = num;
-      }
-    });
-  }
-
-  const normalized: ConfigSyncStatus = {
-    status,
-    message: readOptionalString(record.message),
-    started_at: readOptionalString(record.started_at),
-    completed_at: readOptionalString(record.completed_at),
-  };
-  if (Object.keys(details).length > 0) normalized.details = details;
-  return normalized;
-}
-
 function normalizeDispatcherStatus(value: unknown): { queuedJobs: number; runners: Runner[]; routing: Record<string, string[]> } {
   const record = asRecord(value);
   const runnersRaw = record && Array.isArray(record.runners) ? record.runners : [];
@@ -4674,6 +5031,33 @@ function readString(value: unknown): string {
 function readOptionalString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   return value;
+}
+
+function normalizeListPayload(payload: unknown, keys: string[] = []): unknown[] | null {
+  let value = payload;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed || trimmed === 'null') return [];
+    if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+      try {
+        value = JSON.parse(trimmed);
+      } catch {
+        return null;
+      }
+    }
+  }
+  if (value == null) return [];
+  if (Array.isArray(value)) return value;
+
+  const record = asRecord(value);
+  if (!record) return null;
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(record, key)) continue;
+    const candidate = record[key];
+    if (candidate == null) return [];
+    if (Array.isArray(candidate)) return candidate;
+  }
+  return null;
 }
 
 function normalizeNumber(value: unknown): number {

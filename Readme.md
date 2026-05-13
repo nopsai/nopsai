@@ -16,7 +16,7 @@
 
 * **Declarative Variables**: A pipeline's YAML file declares a list of required variables under the `variables` key. It does not define the values, creating a clean separation between the pipeline's logic and its configuration.
 * **Natural Language or Scripts**: Steps can be defined using a simple `goal` in natural language or a traditional `script` for direct command execution.
-* **Per-Step Container Images**: Each step can run in its own dedicated container image, allowing you to use the perfect environment and toolset for every task. A default image can be set for the entire pipeline.
+* **Per-Step Container Images**: Each step can run in its own dedicated container image, allowing you to use the right runtime and toolset for every task. A default image can be set for the entire pipeline.
 * **Persistent Volume Mounting**: Steps can define `volumes` to be mounted, allowing for data persistence and sharing across runs. The agent automatically creates any specified volumes that do not already exist.
 * **Dependency Management**: Steps can define dependencies on other steps using `depends_on`, ensuring they run in the correct order.
 * **Parallel Execution**: Independent steps in the pipeline are automatically executed in parallel to reduce build times.
@@ -26,18 +26,18 @@
 * **Informative Container Naming**: Agent and step containers are now given descriptive names for easier debugging and monitoring, using the format `agent-<repo>-<pipeline>-<run_id>` and `<repo>-<pipeline>-<step>-<run_id>` respectively.
 
 ---
-### Environment & Secret Management
+### Scope & Secret Management
 
-Nopsai features a powerful, hierarchical system for managing both secrets and plaintext environment variables across different environments (`dev`, `prod`, etc.).
+Nopsai features a powerful, hierarchical system for managing both secrets and plaintext scope variables across different scopes (`dev`, `prod`, etc.).
 
-* **Self-Hosted & Secure**: Nopsai includes a built-in, self-hosted management system. Secrets are stored encrypted (using AES-256-GCM) in its database, while environment variables are stored in plaintext.
+* **Self-Hosted & Secure**: Nopsai includes a built-in, self-hosted management system. Secrets are stored encrypted (using AES-256-GCM) in its database, while scope variables are stored in plaintext.
 * **Four-Layer Hierarchy**: The system uses a strict, four-layer hierarchy to resolve the value of any required variable, ensuring that specific contexts always override general ones. The layers are:
     1.  Repository-specific, for a specific scope (e.g., `prod` secret for `my-org/my-repo`).
     2.  General, for a specific scope (e.g., a global `prod` secret).
     3.  Repository-specific, with no scope (falls back to the default scope).
     4.  General, with no scope.
 * **Strict Scope Isolation**: Scopes are treated as isolated contexts. A trigger for a specific scope (e.g., `prod`) will **only** resolve variables tagged for that scope. It will **never** fall back to an unscoped value, preventing accidental configuration leaks. If a required variable is not found for the specified scope, the pipeline will fail immediately.
-* **Scoped Injection**: A step must explicitly declare which secrets it needs via a `secrets` block. The agent will only inject the requested secrets into that specific step's environment.
+* **Scoped Injection**: A step must explicitly declare which secrets it needs via a `secrets` block. The agent will only inject the requested secrets into that specific step's runtime context.
 * **Log Masking**: The agent automatically redacts secret values from all logs, preventing accidental exposure.
 
 ---

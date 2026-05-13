@@ -517,6 +517,7 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 				req.Header.Set(key, value)
 			}
 		}
+		req = a.withDispatcherInternalSubject(req)
 
 		recorder := httptest.NewRecorder()
 		a.handleRunPipeline(recorder, req)
@@ -525,7 +526,15 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 		result.Body.Close()
 
 		if result.StatusCode != http.StatusCreated {
-			summary := fmt.Sprintf("Failed to trigger Nopsai pipeline. The nopsai service responded with status %d.\n\nError: %s", result.StatusCode, strings.TrimSpace(string(responseBody)))
+			responseText := strings.TrimSpace(string(responseBody))
+			log.Warn().
+				Str("repository", repoFullName).
+				Str("pipeline", originalPath).
+				Str("scope", effectiveScope).
+				Int("status", result.StatusCode).
+				Str("response", responseText).
+				Msg("Failed to trigger Nopsai pipeline from Git event")
+			summary := fmt.Sprintf("Failed to trigger Nopsai pipeline. The nopsai service responded with status %d.\n\nError: %s", result.StatusCode, responseText)
 			if checkRunIDStr != "" {
 				if parsedID, err := strconv.ParseInt(checkRunIDStr, 10, 64); err == nil {
 					a.notifyImmediateCheckFailure(owner, repo, parsedID, commitSHA, summary)
@@ -771,30 +780,52 @@ func isRepoSkipped(repoName string, skipList []string) bool {
 }
 
 func (a *App) fetchTriggerManifest(owner, repo, commitSHA string) (models.Manifest, string, error) {
-	fullName := fmt.Sprintf("%s/%s", owner, repo)
+	fullName := repositoryFullName(owner, repo)
 	var manifest models.Manifest
+	matches, err := a.repositoryGroupMatches(context.Background(), owner, repo)
+	if err != nil {
+		return manifest, "", err
+	}
+	groupPaths := make([]string, 0, len(matches))
+	for _, match := range matches {
+		groupPaths = append(groupPaths, match.Path)
+	}
+	specificKeys, ownerWideKeys := repositoryTriggerOverrideKeys(owner, repo, groupPaths)
+	dbSpecificKeys, err := a.triggerOverrideKeysEndingWith(context.Background(), fullName)
+	if err != nil {
+		return manifest, "", err
+	}
+	dbOwnerWideKeys, err := a.triggerOverrideKeysEndingWith(context.Background(), repositoryFullName(owner, "all"))
+	if err != nil {
+		return manifest, "", err
+	}
+	specificKeys = sortTriggerKeysBySpecificity(appendUniqueStrings(specificKeys, dbSpecificKeys))
+	ownerWideKeys = sortTriggerKeysBySpecificity(appendUniqueStrings(ownerWideKeys, dbOwnerWideKeys))
 
 	// 1. Try Specific Repo Override
-	if overrideDef, err := a.getTriggerOverride(fullName); err != nil {
-		return manifest, "", err
-	} else if overrideDef != "" {
-		if err := yaml.Unmarshal([]byte(overrideDef), &manifest); err != nil {
+	for _, key := range specificKeys {
+		if overrideDef, err := a.getTriggerOverride(key); err != nil {
 			return manifest, "", err
+		} else if overrideDef != "" {
+			if err := yaml.Unmarshal([]byte(overrideDef), &manifest); err != nil {
+				return manifest, "", err
+			}
+			log.Info().Str("repository", fullName).Str("trigger", key).Msg("Using trigger override from database")
+			return manifest, "database override", nil
 		}
-		log.Info().Str("repository", fullName).Msg("Using trigger override from database")
-		return manifest, "database override", nil
 	}
 
 	// 2. Try Owner-Wide "all" Override
-	ownerAll := fmt.Sprintf("%s/all", owner)
-	if overrideDef, err := a.getTriggerOverride(ownerAll); err != nil {
-		return manifest, "", err
-	} else if overrideDef != "" {
-		if err := yaml.Unmarshal([]byte(overrideDef), &manifest); err != nil {
+	for _, key := range ownerWideKeys {
+		if overrideDef, err := a.getTriggerOverride(key); err != nil {
 			return manifest, "", err
+		} else if overrideDef != "" {
+			if err := yaml.Unmarshal([]byte(overrideDef), &manifest); err != nil {
+				return manifest, "", err
+			}
+			log.Info().Str("repository", fullName).Str("owner_trigger", key).Msg("Using owner-wide trigger override from database")
+			return manifest, "database owner override", nil
 		}
-		log.Info().Str("repository", fullName).Str("owner_trigger", ownerAll).Msg("Using owner-wide trigger override from database")
-		return manifest, "database owner override", nil
 	}
 
 	// 3. Fallback to Git
@@ -849,10 +880,11 @@ func (a *App) requestGitBotFile(owner, repo, ref, path string, notFoundErr error
 	}
 }
 
-func (a *App) requestGitBotDirectory(owner, repo, path string) (map[string]string, error) {
+func (a *App) requestGitBotDirectory(owner, repo, ref, path string) (map[string]string, error) {
 	payload := map[string]string{
 		"owner": owner,
 		"repo":  repo,
+		"ref":   ref,
 		"path":  path,
 	}
 	body, _ := json.Marshal(payload)

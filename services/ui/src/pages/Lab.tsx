@@ -314,7 +314,7 @@ function LabPage() {
     setAutocompleteMeta(prev => ({ ...prev, loading: true }));
     try {
       const promise = (async () => {
-        const scopeParam = scopeValue ? `?env=${encodeURIComponent(scopeValue)}` : '';
+        const scopeParam = scopeValue ? `?scope=${encodeURIComponent(scopeValue)}` : '';
         const [secretsResp, varsResp, stepsResp] = await Promise.all([
           fetch(buildApiUrl(`/v1/secrets${scopeParam}`)).then(r => (r.ok ? r.json() : [])),
           fetch(buildApiUrl(`/v1/variables${scopeParam}`)).then(r => (r.ok ? r.json() : [])),
@@ -412,7 +412,7 @@ function LabPage() {
           }
           if (!entry || typeof entry !== 'object') return;
           const record = entry as Record<string, unknown>;
-          const label = normalizeScopeLabel(record.scope ?? record.env ?? record.name ?? record.value);
+          const label = normalizeScopeLabel(record.scope ?? record.name ?? record.value);
           scopeSet.add(label);
         });
       }
@@ -1253,42 +1253,42 @@ function LabPage() {
           <section
             id="lab-suggestion-panel"
             ref={suggestionPanelRef}
-            className="env-suggestion-panel pipeline-suggestion-panel pipeline-suggestion-overlay"
+            className="scope-suggestion-panel pipeline-suggestion-panel pipeline-suggestion-overlay"
             aria-live="polite"
             data-base-width="260"
           >
-            <div className="env-suggestion-heading">
+            <div className="scope-suggestion-heading">
               <div>
-                <h3 id="lab-suggestion-title" className="env-suggestion-title">
+                <h3 id="lab-suggestion-title" className="scope-suggestion-title">
                   {suggestionContext?.title || suggestionCopy.title}
                 </h3>
               </div>
-              <p id="lab-suggestion-subtitle" className="env-suggestion-subtitle">
+              <p id="lab-suggestion-subtitle" className="scope-suggestion-subtitle">
                 {suggestionCopy.subtitle}
               </p>
             </div>
 
-            <div className="env-suggestion-body">
-              <p id="lab-suggestion-empty" className={`env-suggestion-empty ${suggestionItems.length ? 'hidden' : ''}`}>
+            <div className="scope-suggestion-body">
+              <p id="lab-suggestion-empty" className={`scope-suggestion-empty ${suggestionItems.length ? 'hidden' : ''}`}>
                 {autocompleteMeta.loading ? 'Loading suggestions…' : 'No suggestions available yet.'}
               </p>
-              <div id="lab-suggestion-list" className={`env-suggestion-list ${suggestionItems.length ? '' : 'hidden'}`}>
+              <div id="lab-suggestion-list" className={`scope-suggestion-list ${suggestionItems.length ? '' : 'hidden'}`}>
                 {suggestionItems.length > 0 && (
-                  <article className="env-suggestion-item">
-                    <div className="env-suggestion-env">
-                      <span className="env-suggestion-env-label">{suggestionContext?.title || suggestionCopy.title}</span>
-                      <span className="env-suggestion-env-count">{suggestionItems.length} items</span>
+                  <article className="scope-suggestion-item">
+                    <div className="scope-suggestion-scope">
+                      <span className="scope-suggestion-scope-label">{suggestionContext?.title || suggestionCopy.title}</span>
+                      <span className="scope-suggestion-scope-count">{suggestionItems.length} items</span>
                     </div>
-                    <div className="env-suggestion-variables">
+                    <div className="scope-suggestion-variables">
                       {suggestionItems.map(item => (
                         <button
                           key={`${item.value}`}
                           type="button"
-                          className="env-suggestion-pill env-suggestion-pill--action"
+                          className="scope-suggestion-pill scope-suggestion-pill--action"
                           onClick={() => applySuggestion(item)}
                         >
                           <span>{item.label ?? item.value}</span>
-                          {item.hint && <span className="env-suggestion-hint">{item.hint}</span>}
+                          {item.hint && <span className="scope-suggestion-hint">{item.hint}</span>}
                         </button>
                       ))}
                     </div>

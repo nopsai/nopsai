@@ -153,6 +153,7 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"scope.read",
 			"repository.read",
 			"step.read",
+			"config_repo.read",
 		},
 	},
 	productRoleDeveloper: {
@@ -171,6 +172,7 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"scope.read",
 			"repository.read",
 			"step.read",
+			"config_repo.read",
 			"pipeline.create",
 			"pipeline.update",
 			"pipeline.execute",
@@ -202,13 +204,18 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"scope.read",
 			"repository.read",
 			"step.read",
+			"config_repo.read",
 			"pipeline.create",
 			"pipeline.update",
 			"pipeline.execute",
 			"pipeline_run.rerun",
 			"pipeline_run.cancel",
+			"pipeline_run.finalize",
+			"pipeline_run.write_logs",
+			"pipeline_run.task_update",
 			"trigger.update",
 			"secret.write_value",
+			"variable.read_value",
 			"variable.write_value",
 			"scope.update",
 			"repository.update",
@@ -218,7 +225,10 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"folder.create",
 			"folder.update",
 			"folder.move",
+			"folder.delete",
 			"folder.manage_acl",
+			"config_repo.manage",
+			"config_repo.sync",
 			"pipeline.delete",
 			"pipeline.manage_acl",
 			"pipeline_run.delete",
@@ -241,6 +251,11 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 		Description: "Platform-wide administrator.",
 		Actions:     []string{"*"},
 	},
+}
+
+var productRoleIncludes = map[string][]string{
+	productRoleDeveloper: {productRoleViewer},
+	productRoleOwner:     {productRoleDeveloper},
 }
 
 var accessGrantSchemaStatements = []string{
@@ -321,7 +336,7 @@ func seedProductRoleTemplates(ctx context.Context, db *pgxpool.Pool) error {
 	}
 
 	for _, roleName := range roleNames {
-		for _, action := range productRoleDefinitions[roleName].Actions {
+		for _, action := range effectiveProductRoleActions(roleName) {
 			resourceType := "*"
 			resourceID := "*"
 			if roleName != productRoleAdmin {
@@ -770,16 +785,54 @@ func folderOwnerGuardResourceIDs(folderID string) []string {
 }
 
 func applicableProductRoleActions(roleName, resourceType string) []string {
-	definition, ok := productRoleDefinitions[roleName]
-	if !ok {
+	roleName = strings.ToLower(strings.TrimSpace(roleName))
+	if _, ok := productRoleDefinitions[roleName]; !ok {
 		return nil
 	}
-	actions := make([]string, 0, len(definition.Actions))
-	for _, action := range definition.Actions {
+	actionCandidates := effectiveProductRoleActions(roleName)
+	actions := make([]string, 0, len(actionCandidates))
+	for _, action := range actionCandidates {
 		if actionAppliesToGrantResource(action, resourceType) {
 			actions = append(actions, action)
 		}
 	}
+	return actions
+}
+
+func effectiveProductRoleActions(roleName string) []string {
+	roleName = strings.ToLower(strings.TrimSpace(roleName))
+	visited := make(map[string]bool)
+	seenActions := make(map[string]struct{})
+	var actions []string
+
+	var visit func(string)
+	visit = func(current string) {
+		current = strings.ToLower(strings.TrimSpace(current))
+		if current == "" || visited[current] {
+			return
+		}
+		visited[current] = true
+		for _, includedRole := range productRoleIncludes[current] {
+			visit(includedRole)
+		}
+		definition, ok := productRoleDefinitions[current]
+		if !ok {
+			return
+		}
+		for _, action := range definition.Actions {
+			action = strings.TrimSpace(action)
+			if action == "" {
+				continue
+			}
+			if _, exists := seenActions[action]; exists {
+				continue
+			}
+			seenActions[action] = struct{}{}
+			actions = append(actions, action)
+		}
+	}
+
+	visit(roleName)
 	return actions
 }
 
@@ -797,16 +850,19 @@ func actionAppliesToGrantResource(action, resourceType string) bool {
 			!strings.HasPrefix(action, "system.")
 	case grantResourcePipeline:
 		return strings.HasPrefix(action, "pipeline.") || strings.HasPrefix(action, "pipeline_run.")
+	case grantResourceRun:
+		return strings.HasPrefix(action, "pipeline_run.")
 	case grantResourceRepo:
 		return strings.HasPrefix(action, "repository.") ||
 			strings.HasPrefix(action, "trigger.") ||
 			strings.HasPrefix(action, "secret.") ||
 			strings.HasPrefix(action, "variable.") ||
-			action == "pipeline_run.delete"
+			strings.HasPrefix(action, "pipeline_run.")
 	case grantResourceScope:
 		return strings.HasPrefix(action, "scope.") ||
 			strings.HasPrefix(action, "secret.") ||
-			strings.HasPrefix(action, "variable.")
+			strings.HasPrefix(action, "variable.") ||
+			strings.HasPrefix(action, "pipeline_run.")
 	case grantResourceSecret:
 		return strings.HasPrefix(action, "secret.")
 	case grantResourceVariable:
@@ -847,6 +903,8 @@ func normalizeAccessGrantResourceType(raw string) (string, error) {
 		return grantResourceFolder, nil
 	case grantResourcePipeline:
 		return grantResourcePipeline, nil
+	case grantResourceRun:
+		return grantResourceRun, nil
 	case grantResourceTrigger:
 		return grantResourceTrigger, nil
 	case grantResourceSecret:
@@ -1001,6 +1059,21 @@ func resolveAccessGrantResource(ctx context.Context, runner queryRunner, rawType
 		return resolveAccessGrantFolder(ctx, runner, rawID, requireExists)
 	case grantResourcePipeline:
 		return resolvePipelineOrStepGrantResource(ctx, runner, grantResourcePipeline, rawID, requireExists, "pipelines")
+	case grantResourceRun:
+		if rawID == "" {
+			return accessGrantResource{}, fmt.Errorf("resource_id is required")
+		}
+		if requireExists && rawID != "*" {
+			var exists int
+			err := runner.QueryRow(ctx, `SELECT 1 FROM pipeline_runs WHERE run_id::text = $1 LIMIT 1`, rawID).Scan(&exists)
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+					return accessGrantResource{}, fmt.Errorf("resource not found")
+				}
+				return accessGrantResource{}, err
+			}
+		}
+		return accessGrantResource{Type: grantResourceRun, ID: rawID, Display: rawID}, nil
 	case grantResourceStep:
 		return resolvePipelineOrStepGrantResource(ctx, runner, grantResourceStep, rawID, requireExists, "steps")
 	case grantResourceTrigger:
@@ -1462,7 +1535,7 @@ func (a *App) handleListAccessGrants(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var records []accessGrantResponse
+	records := make([]accessGrantResponse, 0)
 	for rows.Next() {
 		var record accessGrantRecord
 		if err := rows.Scan(

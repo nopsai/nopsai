@@ -28,7 +28,7 @@ steps:
     image: alpine:latest
     script: |
       #!/bin/bash
-      env
+      export -p
     depends_on:
     - git-clone
 

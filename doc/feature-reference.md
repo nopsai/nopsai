@@ -92,14 +92,19 @@ GitOps-style configuration sync supports:
 - `pipelines/` -> pipeline definitions
 - `steps/` -> reusable step definitions
 - `triggers/` -> trigger overrides
-- `environments/` -> scoped variables
-- `pipelineruns/structure.yaml` -> UI folder hierarchy
+- `scopes/` -> scoped variables
+- `pipelineruns/structure.yaml` -> legacy UI group hierarchy for groups owned by the syncing repo
+- `config-repositories/` -> group config repo bindings, group shells, and colocated group structure files
 
 Sync behavior:
 
 - upsert Git-sourced items into the database
 - prune Git-sourced items removed from the config repo
 - preserve non-Git groups to avoid deleting user-managed structure
+- sync system/global config repositories before group config repositories, so group bindings defined in Git can be picked up during the same sync-all run
+- group config repositories are authoritative for resources under their group path; parent repos prune their own managed resources in delegated groups
+- `config-repositories/groups/structure.yaml` and `config-repositories/groups/<group>/structure.yaml` can place repositories under group shells and include inline `config:` blocks for group repo bindings
+- global legacy `pipelineruns/structure.yaml` does not apply delegated group subtrees; those groups are created from `config-repositories/groups` and owned by their group repos
 
 ## API And Run Management
 
@@ -139,10 +144,12 @@ Current auth/access features:
 - email updates
 - login rate limiting
 - login lockout after repeated failures
-- AAA evaluator with `Check`, `BatchCheck`, `Filter`, and `Introspect`
+- standalone AAA service with `Check`, `BatchCheck`, `Filter`, and `Introspect`
+- in-process AAA fallback in `nopsai` for short service outages
+- route-level action/resource mapping for protected REST endpoints
 - predefined product roles: `viewer`, `developer`, `owner`, `admin`
 - access-grant management API for subject -> role -> resource bindings
-- folder-path inheritance for child pipelines, runs, repositories, triggers, secrets, variables, and steps
+- group-path inheritance for child pipelines, runs, repositories, triggers, secrets, variables, and steps
 - deny-before-allow evaluation
 - effective-permission introspection with human-readable reasons
 - legacy Casbin-backed RBAC metadata compatibility
@@ -177,11 +184,13 @@ Pages present in the current UI:
 Operational support already in the code:
 
 - Docker Compose stack for local deployment
+- dedicated `aaa` service for internal authorization decisions
 - dedicated runner capacities and scope declarations
 - dispatcher queue visibility
 - active runner metadata display
 - active-run inspection from runner metadata
 - log batching from runner to API
+- REST polling for run lists, details, and incremental log views
 - automatic image pre-pull in the agent
 - descriptive container naming for agents and step containers
 
