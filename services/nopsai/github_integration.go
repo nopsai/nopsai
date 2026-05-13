@@ -517,6 +517,7 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 				req.Header.Set(key, value)
 			}
 		}
+		req = a.withDispatcherInternalSubject(req)
 
 		recorder := httptest.NewRecorder()
 		a.handleRunPipeline(recorder, req)
@@ -525,7 +526,15 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 		result.Body.Close()
 
 		if result.StatusCode != http.StatusCreated {
-			summary := fmt.Sprintf("Failed to trigger Nopsai pipeline. The nopsai service responded with status %d.\n\nError: %s", result.StatusCode, strings.TrimSpace(string(responseBody)))
+			responseText := strings.TrimSpace(string(responseBody))
+			log.Warn().
+				Str("repository", repoFullName).
+				Str("pipeline", originalPath).
+				Str("scope", effectiveScope).
+				Int("status", result.StatusCode).
+				Str("response", responseText).
+				Msg("Failed to trigger Nopsai pipeline from Git event")
+			summary := fmt.Sprintf("Failed to trigger Nopsai pipeline. The nopsai service responded with status %d.\n\nError: %s", result.StatusCode, responseText)
 			if checkRunIDStr != "" {
 				if parsedID, err := strconv.ParseInt(checkRunIDStr, 10, 64); err == nil {
 					a.notifyImmediateCheckFailure(owner, repo, parsedID, commitSHA, summary)

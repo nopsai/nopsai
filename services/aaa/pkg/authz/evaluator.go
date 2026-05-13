@@ -9,6 +9,8 @@ import (
 	"nopsai/services/aaa/pkg/store"
 )
 
+const productAdminRoleName = "admin"
+
 type Backend interface {
 	ResolveSubject(ctx context.Context, subject model.Subject) (*model.ResolvedSubject, error)
 	FindRolePermissionMatch(ctx context.Context, roleNames []string, resource model.ResourceRef, action, effect string) (*model.MatchedPolicy, error)
@@ -50,6 +52,12 @@ func (e *Evaluator) Check(ctx context.Context, subject model.Subject, action str
 	resolved, err := e.backend.ResolveSubject(ctx, subject)
 	if err != nil {
 		return e.handleSubjectResolutionError(ctx, err, subject, action, resource, requestContext, resolved)
+	}
+
+	if decision, ok, err := e.findAdminAllow(ctx, resolved, action, resource); err != nil {
+		return model.Decision{}, err
+	} else if ok {
+		return decision, e.logDecision(ctx, resolved, decision, action, resource, requestContext)
 	}
 
 	inherited, err := e.backend.ResolveResourceInheritance(ctx, resource)
@@ -206,14 +214,6 @@ func (e *Evaluator) findAllow(ctx context.Context, resolved *model.ResolvedSubje
 		return model.Decision{}, false, nil
 	}
 
-	if containsRole(resolved.EffectiveRoles(), model.RoleNameAdmin) {
-		if match, err := e.backend.FindRolePermissionMatch(ctx, []string{model.RoleNameAdmin}, resource, action, "allow"); err != nil {
-			return model.Decision{}, false, err
-		} else if match != nil {
-			return model.Decision{Allowed: true, Reason: "admin_role_allow", MatchedPolicy: match.AsMap()}, true, nil
-		}
-	}
-
 	if match, err := e.backend.FindRolePermissionMatch(ctx, resolved.DirectRoles, resource, action, "allow"); err != nil {
 		return model.Decision{}, false, err
 	} else if match != nil {
@@ -259,6 +259,45 @@ func (e *Evaluator) findAllow(ctx context.Context, resolved *model.ResolvedSubje
 	return model.Decision{}, false, nil
 }
 
+func (e *Evaluator) findAdminAllow(ctx context.Context, resolved *model.ResolvedSubject, action string, resource model.ResourceRef) (model.Decision, bool, error) {
+	adminRoles := effectiveAdminRoles(resolved)
+	if len(adminRoles) == 0 {
+		return model.Decision{}, false, nil
+	}
+	if match, err := e.backend.FindRolePermissionMatch(ctx, adminRoles, resource, action, "allow"); err != nil {
+		return model.Decision{}, false, err
+	} else if match != nil {
+		return model.Decision{Allowed: true, Reason: "admin_role_allow", MatchedPolicy: match.AsMap()}, true, nil
+	}
+	return model.Decision{Allowed: true, Reason: "admin_role_allow"}, true, nil
+}
+
+func effectiveAdminRoles(resolved *model.ResolvedSubject) []string {
+	if resolved == nil {
+		return nil
+	}
+	roles := resolved.EffectiveRoles()
+	adminRoles := make([]string, 0, 2)
+	for _, role := range roles {
+		switch {
+		case strings.EqualFold(strings.TrimSpace(role), model.RoleNameAdmin):
+			adminRoles = appendUniqueRole(adminRoles, model.RoleNameAdmin)
+		case strings.EqualFold(strings.TrimSpace(role), productAdminRoleName):
+			adminRoles = appendUniqueRole(adminRoles, productAdminRoleName)
+		}
+	}
+	return adminRoles
+}
+
+func appendUniqueRole(roles []string, role string) []string {
+	for _, existing := range roles {
+		if existing == role {
+			return roles
+		}
+	}
+	return append(roles, role)
+}
+
 func inheritedReason(reason string, allowed bool) string {
 	switch strings.TrimSpace(reason) {
 	case "pipeline_inheritance":
@@ -282,15 +321,6 @@ func inheritedReason(reason string, allowed bool) string {
 		}
 		return "inherited_folder_acl_deny"
 	}
-}
-
-func containsRole(roles []string, target string) bool {
-	for _, role := range roles {
-		if strings.TrimSpace(role) == target {
-			return true
-		}
-	}
-	return false
 }
 
 func (e *Evaluator) logDecision(ctx context.Context, resolved *model.ResolvedSubject, decision model.Decision, action string, resource model.ResourceRef, requestContext map[string]any) error {

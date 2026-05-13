@@ -47,8 +47,8 @@ Internal endpoints require the `X-Internal-Token` header, configured with `AAA_S
 The product roles are templates seeded by `nopsai` startup:
 
 - `viewer`: read/list access for groups, pipelines, runs, logs, triggers, repositories, steps, scopes, secret metadata, and variable metadata.
-- `developer`: viewer access plus non-destructive creation, updates, execution, rerun/cancel, trigger updates, secret writes, variable writes, repository updates, scope updates, and reusable step usage.
-- `owner`: developer access plus deletes, secret value reads, ownership, and ACL management inside the owned scope.
+- `developer`: includes all viewer access plus non-destructive creation, updates, execution, rerun/cancel, trigger updates, secret writes, variable writes, repository updates, scope updates, and reusable step usage.
+- `owner`: includes all developer and viewer access plus all scoped non-admin actions, deletes, secret and variable value reads, ownership, and ACL management inside the owned scope.
 - `admin`: platform-wide access through the normal AAA `Check` path.
 
 The `admin` role can only be granted on the `platform` resource. Group grants must inherit.
@@ -65,6 +65,7 @@ Supported grant resources:
 
 - `folder` (the internal resource type for UI groups)
 - `pipeline`
+- `pipeline_run`
 - `trigger`
 - `secret`
 - `variable`
@@ -104,6 +105,7 @@ The evaluator resolves parent resources before checking ACLs. A group grant can 
 - child groups
 - pipelines and runs under the group path
 - repositories assigned under the group path
+- runs associated with repositories under the group path
 - triggers for inherited repositories
 - scoped secrets and variables
 - reusable steps under the group path

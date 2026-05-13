@@ -62,13 +62,13 @@ Predefined product roles:
 
 - `viewer`: read-only access to group metadata, pipelines, runs, logs, triggers, repository metadata, step metadata, secret metadata, and variable metadata
 - `developer`: viewer permissions plus pipeline create/update/execute, rerun/cancel, trigger updates, secret value writes, variable writes, repository updates, scope updates, and reusable step usage
-- `owner`: developer permissions plus delete operations, secret value reads, and permission management inside the owned scope
+- `owner`: developer and viewer permissions plus all scoped non-admin actions, delete operations, secret and variable value reads, and permission management inside the owned scope
 - `admin`: platform-wide access through the normal AAA `Check` path, with sensitive actions still audited
 
 Important behavior:
 
 - Product roles are expanded to low-level AAA permissions when the grant is created.
-- Group grants inherit to child groups, pipelines, runs, triggers, repositories, scoped secrets, scoped variables, and reusable steps under that group path.
+- Group grants inherit to child groups, pipelines, runs, repository-associated runs, triggers, repositories, scoped secrets, scoped variables, and reusable steps under that group path.
 - `developer` can write secret values but cannot read them.
 - `developer` and `viewer` cannot manage ACLs.
 - `owner` cannot grant `admin`.
