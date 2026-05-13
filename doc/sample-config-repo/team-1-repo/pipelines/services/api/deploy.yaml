@@ -1,6 +1,6 @@
 name: deploy
 version: "1.0.0"
-description: Deploy the API service to the selected group-scoped environment.
+description: Deploy the API service to the selected group scope.
 container_image: alpine:3.20
 working_directory: /workspace
 timeout: 20m

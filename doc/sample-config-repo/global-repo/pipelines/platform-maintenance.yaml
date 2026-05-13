@@ -7,7 +7,7 @@ timeout: 10m
 display_options:
   github_view: flat
 variables:
-  - PLATFORM_ENV
+  - PLATFORM_SCOPE
 steps:
   - name: announce
     include: step:shared/announce
@@ -16,6 +16,6 @@ steps:
     script: |
       #!/bin/sh
       set -e
-      echo "Checking platform environment $PLATFORM_ENV"
+      echo "Checking platform scope $PLATFORM_SCOPE"
     depends_on:
       - announce

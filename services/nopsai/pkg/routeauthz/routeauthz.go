@@ -137,7 +137,7 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 	case path == "/v1/secrets/scopes" && r.Method == http.MethodGet:
 		return "secret.list_metadata", model.ResourceRef{Type: "secret", ID: "*"}, true, nil
 	case strings.HasPrefix(path, "/v1/secrets/"):
-		resource = BuildSecretResource("", r.URL.Query().Get("env"), r.PathValue("secretName"))
+		resource = BuildSecretResource("", r.URL.Query().Get("scope"), r.PathValue("secretName"))
 		switch r.Method {
 		case http.MethodGet:
 			return "secret.read_value", resource, false, nil
@@ -149,7 +149,7 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 	case strings.HasPrefix(path, "/v1/repositories/") && strings.HasSuffix(path, "/secrets") && r.Method == http.MethodGet:
 		return "secret.list_metadata", model.ResourceRef{Type: "secret", ID: "*"}, true, nil
 	case strings.Contains(path, "/secrets/"):
-		resource = BuildSecretResource(buildRepositoryID(r.PathValue("repoOwner"), r.PathValue("repoName")), r.URL.Query().Get("env"), r.PathValue("secretName"))
+		resource = BuildSecretResource(buildRepositoryID(r.PathValue("repoOwner"), r.PathValue("repoName")), r.URL.Query().Get("scope"), r.PathValue("secretName"))
 		switch r.Method {
 		case http.MethodPut:
 			return "secret.write_value", resource, false, nil
@@ -161,7 +161,7 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 	case path == "/v1/variables/scopes" && r.Method == http.MethodGet:
 		return "variable.list_metadata", model.ResourceRef{Type: "variable", ID: "*"}, true, nil
 	case strings.HasPrefix(path, "/v1/variables/"):
-		resource = BuildVariableResource("", r.URL.Query().Get("env"), r.PathValue("variableName"))
+		resource = BuildVariableResource("", r.URL.Query().Get("scope"), r.PathValue("variableName"))
 		switch r.Method {
 		case http.MethodGet:
 			return "variable.read_value", resource, false, nil
@@ -173,7 +173,7 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 	case strings.HasPrefix(path, "/v1/repositories/") && strings.HasSuffix(path, "/variables") && r.Method == http.MethodGet:
 		return "variable.list_metadata", model.ResourceRef{Type: "variable", ID: "*"}, true, nil
 	case strings.Contains(path, "/variables/"):
-		resource = BuildVariableResource(buildRepositoryID(r.PathValue("repoOwner"), r.PathValue("repoName")), r.URL.Query().Get("env"), r.PathValue("variableName"))
+		resource = BuildVariableResource(buildRepositoryID(r.PathValue("repoOwner"), r.PathValue("repoName")), r.URL.Query().Get("scope"), r.PathValue("variableName"))
 		switch r.Method {
 		case http.MethodGet:
 			return "variable.read_value", resource, false, nil
