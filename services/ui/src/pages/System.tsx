@@ -126,6 +126,7 @@ type AccessGrantRecord = {
   id: string;
   subjectType: string;
   subjectID: string;
+  subjectDisplay?: string;
   role: string;
   resourceType: string;
   resourceID: string;
@@ -5105,6 +5106,7 @@ function normalizeAccessGrantRecord(value: unknown): AccessGrantRecord | null {
     id,
     subjectType: readString(record.subject_type),
     subjectID: readString(record.subject_id),
+    subjectDisplay: readOptionalString(record.subject_display),
     role: readString(record.role),
     resourceType: readString(record.resource_type),
     resourceID: readString(record.resource_id),

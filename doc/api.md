@@ -80,7 +80,6 @@ Important behavior:
 Supported access-grant subject types:
 
 - `user`
-- `auth_group`
 - `internal_service`
 
 Group grants use the internal `folder` resource type and target group paths, not numeric `group_id` values. Example: `/payments/backend`.
@@ -92,12 +91,12 @@ Group grants use the internal `folder` resource type and target group paths, not
 Use these endpoints to assign product roles to subjects on resources.
 
 ```bash
-# Grant developer to an auth group on a group subtree
+# Grant developer to a user on a group subtree
 curl -X POST \
   -H "Content-Type: application/json" \
   -d '{
-    "subject_type":"auth_group",
-    "subject_id":"payments-devs",
+    "subject_type":"user",
+    "subject_id":"alice",
     "role":"developer",
     "resource_type":"folder",
     "resource_id":"/payments",
@@ -114,8 +113,8 @@ curl -X DELETE http://localhost:8080/v1/access/grants/grant_123
 
 Grant request fields:
 
-- `subject_type`: `user`, `auth_group`, or `internal_service`
-- `subject_id`: user subject, email, UUID, auth-group name/UUID, or service id
+- `subject_type`: `user` or `internal_service`
+- `subject_id`: user subject, email, UUID, or service id
 - `role`: `viewer`, `developer`, `owner`, or `admin`
 - `resource_type`: `folder` for groups, `pipeline`, `trigger`, `secret`, `variable`, `scope`, `repository`, `step`, or `platform`
 - `resource_id`: group path such as `/payments`, pipeline id such as `team-1/dev/build`, repository id such as `owner/repo`, or `platform`
@@ -126,8 +125,8 @@ Example response:
 ```json
 {
   "id": "grant_123",
-  "subject_type": "auth_group",
-  "subject_id": "payments-devs",
+  "subject_type": "user",
+  "subject_id": "alice",
   "role": "developer",
   "resource_type": "folder",
   "resource_id": "/payments",
@@ -160,9 +159,9 @@ Example response:
   "allowed": true,
   "action": "pipeline.update",
   "resource": "pipeline:payments/deploy-api",
-  "reason": "group payments-devs has developer on folder:/payments, inherited by pipeline:payments/deploy-api",
+  "reason": "user alice has developer on folder:/payments, inherited by pipeline:payments/deploy-api",
   "matched_role": "developer",
-  "matched_subject": "group payments-devs",
+  "matched_subject": "user alice",
   "matched_resource": "folder:/payments",
   "inherited": true,
   "source_parent_resource": "folder:/payments",

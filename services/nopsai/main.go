@@ -1177,14 +1177,19 @@ func (a *App) syncConfigRepository(ctx context.Context, repo models.ConfigReposi
 
 func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.ConfigRepository) (map[string]int, string, error) {
 	details := map[string]int{
-		"pipelines_synced":           0,
-		"steps_synced":               0,
-		"general_vars_synced":        0,
-		"repo_vars_synced":           0,
-		"triggers_synced":            0,
-		"config_repositories_synced": 0,
-		"run_groups_created":         0,
-		"run_groups_updated":         0,
+		"pipelines_synced":            0,
+		"steps_synced":                0,
+		"general_vars_synced":         0,
+		"repo_vars_synced":            0,
+		"triggers_synced":             0,
+		"config_repositories_synced":  0,
+		"run_groups_created":          0,
+		"run_groups_updated":          0,
+		"access_users_synced":         0,
+		"access_roles_synced":         0,
+		"access_policies_synced":      0,
+		"access_role_bindings_synced": 0,
+		"access_grants_synced":        0,
 	}
 
 	repoURL := strings.TrimSpace(binding.RepoURL)
@@ -1218,6 +1223,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	scopeDir := configRepoJoinPath(basePath, "scopes")
 	pipelineRunDir := configRepoJoinPath(basePath, "pipelineruns")
 	configRepositoryDir := configRepoJoinPath(basePath, "config-repositories")
+	accessDir := configRepoJoinPath(basePath, "access")
 
 	pipelineFiles, err := a.requestGitBotDirectory(owner, repo, branch, pipelineDir)
 	if err != nil {
@@ -1244,6 +1250,11 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	configRepositoryFiles, err := a.requestGitBotDirectory(owner, repo, branch, configRepositoryDir)
 	if err != nil {
 		return nil, commitSHA, fmt.Errorf("failed to fetch config repository bindings: %w", err)
+	}
+
+	accessFiles, err := a.requestGitBotDirectory(owner, repo, branch, accessDir)
+	if err != nil {
+		return nil, commitSHA, fmt.Errorf("failed to fetch access manifests: %w", err)
 	}
 
 	var pipelineRunStructure map[string]*pipelineRunStructureNode
@@ -1569,6 +1580,11 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		triggers[repoKey] = storedTrigger{definition: content, sourcePath: normalized}
 	}
 
+	accessPlan, err := parseAccessSyncPlan(accessFiles, accessDir, binding, boundFolder)
+	if err != nil {
+		return nil, commitSHA, err
+	}
+
 	// --- 3. Database Transaction (Upsert + Prune) ---
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
@@ -1581,6 +1597,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		return nil, commitSHA, err
 	}
 	filterDelegatedConfigResources(binding, overrideScopes, pipelines, steps, generalScopeVars, repoScopeVars, triggers)
+	filterDelegatedAccessResources(accessPlan, binding, overrideScopes)
 	effectivePipelineRunStructure, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, pipelineRunStructure, configRepositoryPipelineRunStructure, overrideScopes)
 	if err != nil {
 		return nil, commitSHA, err
@@ -1944,6 +1961,10 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		}
 	}
 
+	if err := a.syncAccessConfiguration(ctx, tx, binding, accessPlan, commitSHA, details); err != nil {
+		return nil, commitSHA, err
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, commitSHA, fmt.Errorf("failed to commit configuration synchronization transaction: %w", err)
 	}
@@ -1959,6 +1980,11 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		Int("config_repositories_synced", details["config_repositories_synced"]).
 		Int("run_groups_created", details["run_groups_created"]).
 		Int("run_groups_updated", details["run_groups_updated"]).
+		Int("access_users_synced", details["access_users_synced"]).
+		Int("access_roles_synced", details["access_roles_synced"]).
+		Int("access_policies_synced", details["access_policies_synced"]).
+		Int("access_role_bindings_synced", details["access_role_bindings_synced"]).
+		Int("access_grants_synced", details["access_grants_synced"]).
 		Msg("Configuration synchronization from Git completed")
 
 	return details, commitSHA, nil
