@@ -153,11 +153,13 @@ type authReadCapabilities struct {
 }
 
 type authSystemCapabilities struct {
-	ConfigRead      bool `json:"config_read"`
-	ConfigWrite     bool `json:"config_write"`
-	DispatcherRead  bool `json:"dispatcher_read"`
-	DispatcherWrite bool `json:"dispatcher_write"`
-	Access          bool `json:"access"`
+	ConfigRead       bool `json:"config_read"`
+	ConfigWrite      bool `json:"config_write"`
+	ConfigReposRead  bool `json:"config_repos_read"`
+	ConfigReposWrite bool `json:"config_repos_write"`
+	DispatcherRead   bool `json:"dispatcher_read"`
+	DispatcherWrite  bool `json:"dispatcher_write"`
+	Access           bool `json:"access"`
 }
 
 type authChangePasswordRequest struct {
@@ -259,12 +261,6 @@ func (a *App) getConfigSnapshot() config.Config {
 	a.cfgMu.RLock()
 	defer a.cfgMu.RUnlock()
 	return *a.cfg
-}
-
-func (a *App) getConfigRepoURL() string {
-	a.cfgMu.RLock()
-	defer a.cfgMu.RUnlock()
-	return strings.TrimSpace(a.cfg.ConfigRepoURL)
 }
 
 func (a *App) getAutoRemovalAgentContainer() bool {
@@ -680,7 +676,6 @@ func validatePipeline(pipeline *models.Pipeline) error {
 }
 
 type systemConfigPayload struct {
-	ConfigRepoURL             *string `json:"config_repo_url"`
 	AgentNopsaiAPIURL         *string `json:"agent_nopsai_api_url"`
 	GitBotNopsaiAPIURL        *string `json:"git_bot_nopsai_api_url"`
 	NopsaiGitBotAPIURL        *string `json:"nopsai_git_bot_api_url"`
@@ -693,7 +688,6 @@ type systemConfigPayload struct {
 
 func (a *App) buildSystemConfigResponse(cfg config.Config) map[string]interface{} {
 	return map[string]interface{}{
-		"config_repo_url":              cfg.ConfigRepoURL,
 		"agent_nopsai_api_url":         cfg.AgentNopsaiAPIURL,
 		"git_bot_nopsai_api_url":       cfg.GitBotNopsaiAPIURL,
 		"nopsai_git_bot_api_url":       cfg.NopsaiGitBotAPIURL,
@@ -702,8 +696,6 @@ func (a *App) buildSystemConfigResponse(cfg config.Config) map[string]interface{
 		"auto_removal_agent_container": cfg.AutoRemovalAgentContainer,
 		"default_pipeline_timeout":     cfg.DefaultPipelineTimeout,
 		"llm_agent_timeout":            cfg.LLMAgentTimeout,
-		"config_repo_configured":       strings.TrimSpace(cfg.ConfigRepoURL) != "",
-		"config_sync_status":           a.getConfigSyncStatus(),
 		"env_file_path":                a.envFilePath,
 	}
 }
@@ -712,9 +704,6 @@ func (a *App) applySystemConfig(payload systemConfigPayload) config.Config {
 	a.cfgMu.Lock()
 	defer a.cfgMu.Unlock()
 
-	if payload.ConfigRepoURL != nil {
-		a.cfg.ConfigRepoURL = strings.TrimSpace(*payload.ConfigRepoURL)
-	}
 	if payload.AgentNopsaiAPIURL != nil {
 		a.cfg.AgentNopsaiAPIURL = strings.TrimSpace(*payload.AgentNopsaiAPIURL)
 	}
@@ -759,9 +748,6 @@ func (a *App) persistSystemConfig(cfg config.Config, payload systemConfigPayload
 		return err
 	}
 
-	if payload.ConfigRepoURL != nil {
-		existing["config_repo_url"] = cfg.ConfigRepoURL
-	}
 	if payload.AgentImage != nil {
 		existing["agent_image"] = cfg.AgentImage
 	}
@@ -802,9 +788,6 @@ func (a *App) persistEnvOverrides(cfg config.Config, payload systemConfigPayload
 
 	updates := map[string]string{}
 
-	if payload.ConfigRepoURL != nil {
-		updates["CONFIG_REPO_URL"] = cfg.ConfigRepoURL
-	}
 	if payload.AgentNopsaiAPIURL != nil {
 		updates["AGENT_NOPSAI_API_URL"] = cfg.AgentNopsaiAPIURL
 	}
@@ -1067,12 +1050,6 @@ func (a *App) prepareSecretsForPipeline(pipeline models.Pipeline, gitContext map
 }
 
 func (a *App) handleConfigSync(w http.ResponseWriter, r *http.Request) {
-	repoURL := a.getConfigRepoURL()
-	if repoURL == "" {
-		http.Error(w, "CONFIG_REPO_URL is not configured", http.StatusBadRequest)
-		return
-	}
-
 	startedAt := time.Now()
 	status, started := a.startConfigSync(startedAt)
 	if !started {
@@ -1087,243 +1064,480 @@ func (a *App) handleConfigSync(w http.ResponseWriter, r *http.Request) {
 	}
 
 	go func(started time.Time) {
-		log.Info().Msg("Starting configuration synchronization from Git")
-		details, syncErr := a.syncConfigurationFromGit(context.Background())
-
-		completedAt := time.Now()
-		if syncErr != nil {
-			log.Error().Err(syncErr).Msg("Configuration synchronization failed")
-			a.setConfigSyncStatus(ConfigSyncStatus{
-				Status:      "error",
-				Message:     fmt.Sprintf("Configuration synchronization failed: %v", syncErr),
-				StartedAt:   &started,
-				CompletedAt: &completedAt,
-			})
-			return
-		}
-		log.Info().Interface("details", details).Msg("Configuration synchronization succeeded")
-		a.setConfigSyncStatus(ConfigSyncStatus{
-			Status:      "success",
-			Message:     "Configuration synchronization completed successfully.",
-			Details:     details,
-			StartedAt:   &started,
-			CompletedAt: &completedAt,
-		})
+		log.Info().Msg("Starting synchronization for all config repositories")
+		a.setConfigSyncStatus(a.syncAllConfigRepositories(context.Background(), started))
 	}(startedAt)
 }
 
-func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, error) {
+func (a *App) syncAllConfigRepositories(ctx context.Context, started time.Time) ConfigSyncStatus {
 	details := map[string]int{
-		"pipelines_synced":    0,
-		"steps_synced":        0,
-		"general_vars_synced": 0,
-		"repo_vars_synced":    0,
-		"triggers_synced":     0,
-		"run_groups_created":  0,
-		"run_groups_updated":  0,
+		"repositories_synced": 0,
+		"repositories_failed": 0,
+	}
+	var messages []string
+
+	enabled := true
+	syncedRepoIDs := map[int64]struct{}{}
+	syncRepos := func(scopeType string) {
+		repos, err := a.store.ListConfigRepositories(ctx, models.ConfigRepositoryFilter{ScopeType: scopeType, Enabled: &enabled})
+		if err != nil {
+			details["repositories_failed"]++
+			messages = append(messages, fmt.Sprintf("%s:*: %v", scopeType, err))
+			return
+		}
+		for _, repo := range repos {
+			if _, alreadySynced := syncedRepoIDs[repo.ID]; alreadySynced {
+				continue
+			}
+			syncedRepoIDs[repo.ID] = struct{}{}
+			repoStartedAt := time.Now()
+			if err := a.store.UpdateConfigRepositorySyncStatus(ctx, repo.ID, "running", "Configuration synchronization started.", repo.LastSyncCommitSHA, &repoStartedAt, nil); err != nil {
+				details["repositories_failed"]++
+				messages = append(messages, fmt.Sprintf("%s:%s: %v", repo.ScopeType, repo.ScopeID, err))
+				continue
+			}
+			status := a.syncConfigRepository(ctx, repo, repoStartedAt)
+			if strings.EqualFold(status.Status, "success") {
+				details["repositories_synced"]++
+				for key, value := range status.Details {
+					details[key] += value
+				}
+				continue
+			}
+			details["repositories_failed"]++
+			messages = append(messages, fmt.Sprintf("%s:%s: %s", repo.ScopeType, repo.ScopeID, status.Message))
+		}
 	}
 
-	repoURL := a.getConfigRepoURL()
+	syncRepos(models.ConfigRepositoryScopeSystem)
+	for {
+		before := len(syncedRepoIDs)
+		syncRepos(models.ConfigRepositoryScopeFolder)
+		if len(syncedRepoIDs) == before {
+			break
+		}
+	}
+
+	completedAt := time.Now()
+	if details["repositories_failed"] > 0 {
+		return ConfigSyncStatus{
+			Status:      "error",
+			Message:     "One or more config repositories failed to synchronize: " + strings.Join(messages, "; "),
+			Details:     details,
+			StartedAt:   &started,
+			CompletedAt: &completedAt,
+		}
+	}
+
+	return ConfigSyncStatus{
+		Status:      "success",
+		Message:     "Configuration synchronization completed successfully.",
+		Details:     details,
+		StartedAt:   &started,
+		CompletedAt: &completedAt,
+	}
+}
+
+func (a *App) syncConfigRepository(ctx context.Context, repo models.ConfigRepository, started time.Time) ConfigSyncStatus {
+	log.Info().
+		Int64("config_repo_id", repo.ID).
+		Str("scope_type", repo.ScopeType).
+		Str("scope_id", repo.ScopeID).
+		Msg("Starting configuration synchronization from Git")
+
+	details, commitSHA, syncErr := a.syncConfigurationFromGit(ctx, repo)
+	completedAt := time.Now()
+	if syncErr != nil {
+		message := fmt.Sprintf("Configuration synchronization failed: %v", syncErr)
+		log.Error().Err(syncErr).Int64("config_repo_id", repo.ID).Msg("Configuration synchronization failed")
+		if err := a.store.UpdateConfigRepositorySyncStatus(ctx, repo.ID, "error", message, commitSHA, &started, &completedAt); err != nil {
+			log.Warn().Err(err).Int64("config_repo_id", repo.ID).Msg("Failed to update config repository sync status")
+		}
+		return ConfigSyncStatus{
+			Status:      "error",
+			Message:     message,
+			StartedAt:   &started,
+			CompletedAt: &completedAt,
+		}
+	}
+
+	message := "Configuration synchronization completed successfully."
+	if err := a.store.UpdateConfigRepositorySyncStatus(ctx, repo.ID, "success", message, commitSHA, &started, &completedAt); err != nil {
+		log.Warn().Err(err).Int64("config_repo_id", repo.ID).Msg("Failed to update config repository sync status")
+	}
+	log.Info().Interface("details", details).Int64("config_repo_id", repo.ID).Msg("Configuration synchronization succeeded")
+	return ConfigSyncStatus{
+		Status:      "success",
+		Message:     message,
+		Details:     details,
+		StartedAt:   &started,
+		CompletedAt: &completedAt,
+	}
+}
+
+func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.ConfigRepository) (map[string]int, string, error) {
+	details := map[string]int{
+		"pipelines_synced":           0,
+		"steps_synced":               0,
+		"general_vars_synced":        0,
+		"repo_vars_synced":           0,
+		"triggers_synced":            0,
+		"config_repositories_synced": 0,
+		"run_groups_created":         0,
+		"run_groups_updated":         0,
+	}
+
+	repoURL := strings.TrimSpace(binding.RepoURL)
 	if repoURL == "" {
-		return nil, fmt.Errorf("CONFIG_REPO_URL is not configured")
+		return nil, "", fmt.Errorf("config repository URL is not configured")
+	}
+	branch := strings.TrimSpace(binding.Branch)
+	if branch == "" {
+		branch = "main"
+	}
+	basePath := normalizeConfigRepositoryBasePathValue(binding.BasePath)
+	commitSHA := ""
+	boundFolder := strings.Trim(strings.TrimSpace(binding.ScopeID), "/")
+	if binding.ScopeType == models.ConfigRepositoryScopeFolder && boundFolder == "" {
+		return nil, commitSHA, fmt.Errorf("group-scoped config repository is missing its scope_id")
 	}
 
 	owner, repo, err := parseGitHubRepoURL(repoURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse CONFIG_REPO_URL: %w", err)
+		return nil, commitSHA, fmt.Errorf("failed to parse config repository URL: %w", err)
 	}
 	if err := a.ensureConfigRepoAccessible(owner, repo); err != nil {
-		return nil, err
+		return nil, commitSHA, err
 	}
 
 	// --- 1. Fetch all configurations from Git ---
 
-	pipelineFiles, err := a.requestGitBotDirectory(owner, repo, "pipelines")
+	pipelineDir := configRepoJoinPath(basePath, "pipelines")
+	stepDir := configRepoJoinPath(basePath, "steps")
+	triggerDir := configRepoJoinPath(basePath, "triggers")
+	scopeDir := configRepoJoinPath(basePath, "scopes")
+	pipelineRunDir := configRepoJoinPath(basePath, "pipelineruns")
+	configRepositoryDir := configRepoJoinPath(basePath, "config-repositories")
+
+	pipelineFiles, err := a.requestGitBotDirectory(owner, repo, branch, pipelineDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch pipeline definitions: %w", err)
+		return nil, commitSHA, fmt.Errorf("failed to fetch pipeline definitions: %w", err)
 	}
-	stepFiles, err := a.requestGitBotDirectory(owner, repo, "steps")
+	stepFiles, err := a.requestGitBotDirectory(owner, repo, branch, stepDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch reusable steps: %w", err)
+		return nil, commitSHA, fmt.Errorf("failed to fetch reusable steps: %w", err)
 	}
-	triggerFiles, err := a.requestGitBotDirectory(owner, repo, "triggers")
+	triggerFiles, err := a.requestGitBotDirectory(owner, repo, branch, triggerDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch trigger manifests: %w", err)
+		return nil, commitSHA, fmt.Errorf("failed to fetch trigger manifests: %w", err)
 	}
-	environmentFiles, err := a.requestGitBotDirectory(owner, repo, "environments")
+	scopeFiles, err := a.requestGitBotDirectory(owner, repo, branch, scopeDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch environment definitions: %w", err)
+		return nil, commitSHA, fmt.Errorf("failed to fetch scope definitions: %w", err)
 	}
-	pipelineRunFiles, err := a.requestGitBotDirectory(owner, repo, "pipelineruns")
+
+	pipelineRunFiles, err := a.requestGitBotDirectory(owner, repo, branch, pipelineRunDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch pipeline run structure definitions: %w", err)
+		return nil, commitSHA, fmt.Errorf("failed to fetch pipeline run structure definitions: %w", err)
+	}
+
+	configRepositoryFiles, err := a.requestGitBotDirectory(owner, repo, branch, configRepositoryDir)
+	if err != nil {
+		return nil, commitSHA, fmt.Errorf("failed to fetch config repository bindings: %w", err)
 	}
 
 	var pipelineRunStructure map[string]*pipelineRunStructureNode
 	for path, content := range pipelineRunFiles {
 		normalized := filepath.ToSlash(path)
-		rel := strings.TrimPrefix(normalized, "pipelineruns/")
+		rel, ok := relativeConfigPath(normalized, pipelineRunDir)
+		if !ok {
+			continue
+		}
 		if rel == "structure.yaml" || rel == "structure.yml" {
 			parsed, err := parsePipelineRunStructure(content)
 			if err != nil {
-				return nil, fmt.Errorf("failed to parse pipeline run structure '%s': %w", normalized, err)
+				return nil, commitSHA, fmt.Errorf("failed to parse pipeline run structure '%s': %w", normalized, err)
+			}
+			if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+				parsed, err = normalizePipelineRunStructureForFolder(boundFolder, parsed)
+				if err != nil {
+					return nil, commitSHA, fmt.Errorf("failed to normalize pipeline run structure '%s': %w", normalized, err)
+				}
 			}
 			pipelineRunStructure = parsed
 			break
 		}
 	}
 
-	type storedPipeline struct {
-		definition string
-		version    string
-		path       string
-		name       string
-	}
-	type storedStep struct {
-		definition string
-		path       string
-		name       string
-	}
-
 	// --- 2. Parse Files ---
+
+	configRepositoryPipelineRunStructure := map[string]*pipelineRunStructureNode{}
+	configRepositories := make(map[string]storedConfigRepository)
+	for path, content := range configRepositoryFiles {
+		normalized := filepath.ToSlash(path)
+		rel, ok := relativeConfigPath(normalized, configRepositoryDir)
+		if !ok {
+			continue
+		}
+		if rel == "" || strings.HasSuffix(rel, "/") || !isYAMLFile(rel) {
+			continue
+		}
+		structure, isStructureFile, err := parseConfigRepositoryGroupPipelineRunStructure(rel, content)
+		if err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to parse config repository group structure '%s': %w", normalized, err)
+		}
+		if isStructureFile {
+			if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+				structure, err = normalizePipelineRunStructureForFolder(boundFolder, structure)
+				if err != nil {
+					return nil, commitSHA, fmt.Errorf("failed to normalize config repository group structure '%s': %w", normalized, err)
+				}
+			}
+			inlineConfigRepositories, err := configRepositoryBindingsFromPipelineRunStructure(structure, normalized)
+			if err != nil {
+				return nil, commitSHA, err
+			}
+			for key, stored := range inlineConfigRepositories {
+				if _, exists := configRepositories[key]; exists {
+					return nil, commitSHA, fmt.Errorf("duplicate config repository binding for '%s' detected", key)
+				}
+				configRepositories[key] = stored
+			}
+			mergePipelineRunStructure(configRepositoryPipelineRunStructure, structure)
+			continue
+		}
+
+		scopeType, scopeID, err := parseConfigRepositoryBindingPath(rel)
+		if err != nil {
+			return nil, commitSHA, fmt.Errorf("invalid config repository binding '%s': %w", normalized, err)
+		}
+
+		var file configRepositoryBindingFile
+		if err := yaml.Unmarshal([]byte(content), &file); err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to parse config repository binding '%s': %w", normalized, err)
+		}
+		if err := validateConfigRepositoryBindingFile(file, scopeType, scopeID, normalized); err != nil {
+			return nil, commitSHA, err
+		}
+		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+			scopeID, err = normalizeConfigPathForFolder(boundFolder, scopeID)
+			if err != nil {
+				return nil, commitSHA, fmt.Errorf("invalid group-scoped config repository binding '%s': %w", normalized, err)
+			}
+		}
+		basePath, err := normalizeConfigRepositoryBasePathForRequest(file.BasePath)
+		if err != nil {
+			return nil, commitSHA, fmt.Errorf("invalid base_path in config repository binding '%s': %w", normalized, err)
+		}
+		enabled := true
+		if file.Enabled != nil {
+			enabled = *file.Enabled
+		}
+		branch := strings.TrimSpace(file.Branch)
+		if branch == "" {
+			branch = "main"
+		}
+
+		key := scopeType + "/" + scopeID
+		if _, exists := configRepositories[key]; exists {
+			return nil, commitSHA, fmt.Errorf("duplicate config repository binding for '%s' detected", key)
+		}
+		configRepositories[key] = storedConfigRepository{
+			scopeType:  scopeType,
+			scopeID:    scopeID,
+			repoURL:    strings.TrimSpace(file.RepoURL),
+			branch:     branch,
+			basePath:   basePath,
+			enabled:    enabled,
+			sourcePath: normalized,
+		}
+	}
 
 	pipelines := make(map[string]storedPipeline)
 	for path, content := range pipelineFiles {
 		normalized := filepath.ToSlash(path)
-		rel := strings.TrimPrefix(normalized, "pipelines/")
+		rel, ok := relativeConfigPath(normalized, pipelineDir)
+		if !ok {
+			continue
+		}
 		if rel == "" || strings.HasSuffix(rel, "/") || !isYAMLFile(rel) {
 			continue
 		}
 
 		var pipeline models.Pipeline
 		if err := yaml.Unmarshal([]byte(content), &pipeline); err != nil {
-			return nil, fmt.Errorf("failed to parse pipeline '%s': %w", normalized, err)
+			return nil, commitSHA, fmt.Errorf("failed to parse pipeline '%s': %w", normalized, err)
 		}
 		if err := validatePipeline(&pipeline); err != nil {
-			return nil, fmt.Errorf("pipeline validation failed for '%s': %w", normalized, err)
+			return nil, commitSHA, fmt.Errorf("pipeline validation failed for '%s': %w", normalized, err)
 		}
 
 		pipelinePath, fileBase, _, err := splitPipelineIdentifier(rel)
 		if err != nil {
-			return nil, fmt.Errorf("invalid pipeline path '%s': %w", normalized, err)
+			return nil, commitSHA, fmt.Errorf("invalid pipeline path '%s': %w", normalized, err)
 		}
 		if pipeline.Name != fileBase {
-			return nil, fmt.Errorf("pipeline '%s' name '%s' must match file name '%s'", normalized, pipeline.Name, fileBase)
+			return nil, commitSHA, fmt.Errorf("pipeline '%s' name '%s' must match file name '%s'", normalized, pipeline.Name, fileBase)
 		}
 
-		key := buildPipelineIdentifier(pipelinePath, pipeline.Name)
+		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+			targetID, err := normalizeConfigPathForFolder(boundFolder, rel)
+			if err != nil {
+				return nil, commitSHA, fmt.Errorf("invalid group-scoped pipeline path '%s': %w", normalized, err)
+			}
+			pipelinePath, fileBase, _, err = splitPipelineIdentifier(targetID)
+			if err != nil {
+				return nil, commitSHA, fmt.Errorf("invalid normalized pipeline path '%s': %w", targetID, err)
+			}
+		}
+
+		key := buildPipelineIdentifier(pipelinePath, fileBase)
 		if _, exists := pipelines[key]; exists {
-			return nil, fmt.Errorf("duplicate pipeline '%s' detected in config repository", key)
+			return nil, commitSHA, fmt.Errorf("duplicate pipeline '%s' detected in config repository", key)
 		}
 
 		pipelines[key] = storedPipeline{
 			definition: content,
 			version:    normalizePipelineVersion(pipeline.Version),
 			path:       pipelinePath,
-			name:       pipeline.Name,
+			name:       fileBase,
+			sourcePath: normalized,
 		}
 	}
 
 	steps := make(map[string]storedStep)
 	for path, content := range stepFiles {
 		normalized := filepath.ToSlash(path)
-		rel := strings.TrimPrefix(normalized, "steps/")
+		rel, ok := relativeConfigPath(normalized, stepDir)
+		if !ok {
+			continue
+		}
 		if rel == "" || strings.HasSuffix(rel, "/") || !isYAMLFile(rel) {
 			continue
 		}
 
 		var step models.PipelineStep
 		if err := yaml.Unmarshal([]byte(content), &step); err != nil {
-			return nil, fmt.Errorf("failed to parse reusable step '%s': %w", normalized, err)
+			return nil, commitSHA, fmt.Errorf("failed to parse reusable step '%s': %w", normalized, err)
 		}
 		stepName := step.GetName()
 		if stepName == "" {
-			return nil, fmt.Errorf("reusable step '%s' is missing the required 'name' field", normalized)
+			return nil, commitSHA, fmt.Errorf("reusable step '%s' is missing the required 'name' field", normalized)
 		}
 
 		stepPath, fileBase, _, err := splitStepIdentifier(rel)
 		if err != nil {
-			return nil, fmt.Errorf("invalid reusable step path '%s': %w", normalized, err)
+			return nil, commitSHA, fmt.Errorf("invalid reusable step path '%s': %w", normalized, err)
 		}
 		if stepName != fileBase {
-			return nil, fmt.Errorf("reusable step '%s' name '%s' must match file name '%s'", normalized, stepName, fileBase)
+			return nil, commitSHA, fmt.Errorf("reusable step '%s' name '%s' must match file name '%s'", normalized, stepName, fileBase)
 		}
 
-		key := buildStepIdentifier(stepPath, stepName)
+		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+			targetID, err := normalizeConfigPathForFolder(boundFolder, rel)
+			if err != nil {
+				return nil, commitSHA, fmt.Errorf("invalid group-scoped reusable step path '%s': %w", normalized, err)
+			}
+			stepPath, fileBase, _, err = splitStepIdentifier(targetID)
+			if err != nil {
+				return nil, commitSHA, fmt.Errorf("invalid normalized reusable step path '%s': %w", targetID, err)
+			}
+		}
+
+		key := buildStepIdentifier(stepPath, fileBase)
 		if _, exists := steps[key]; exists {
-			return nil, fmt.Errorf("duplicate reusable step '%s' detected in config repository", key)
+			return nil, commitSHA, fmt.Errorf("duplicate reusable step '%s' detected in config repository", key)
 		}
 
 		steps[key] = storedStep{
 			definition: content,
 			path:       stepPath,
-			name:       stepName,
+			name:       fileBase,
+			sourcePath: normalized,
 		}
 	}
 
-	generalEnvs := make(map[generalEnvKey]string)
-	repoEnvs := make(map[repoEnvKey]string)
+	generalScopeVars := make(map[generalScopeVarKey]storedScopeVar)
+	repoScopeVars := make(map[repoScopeVarKey]storedScopeVar)
 
-	for path, content := range environmentFiles {
+	for path, content := range scopeFiles {
 		normalized := filepath.ToSlash(path)
-		rel := strings.TrimPrefix(normalized, "environments/")
+		rel, ok := relativeConfigPath(normalized, scopeDir)
+		if !ok {
+			continue
+		}
 		if rel == "" || strings.HasSuffix(rel, "/") {
 			continue
 		}
 
-		envPath, ok, err := parseEnvironmentFilePath(rel)
+		scopePath, ok, err := parseScopeFilePath(rel)
 		if err != nil {
-			return nil, fmt.Errorf("invalid environment file '%s': %w", normalized, err)
+			return nil, commitSHA, fmt.Errorf("invalid scope file '%s': %w", normalized, err)
 		}
 		if !ok {
 			continue
 		}
+		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+			scopePath, err = normalizeConfigPathForFolder(boundFolder, scopePath)
+			if err != nil {
+				return nil, commitSHA, fmt.Errorf("invalid group-scoped scope path '%s': %w", normalized, err)
+			}
+		}
 
 		var raw map[string]interface{}
 		if err := yaml.Unmarshal([]byte(content), &raw); err != nil {
-			return nil, fmt.Errorf("failed to parse environment file '%s': %w", normalized, err)
+			return nil, commitSHA, fmt.Errorf("failed to parse scope file '%s': %w", normalized, err)
 		}
 
 		for key, value := range raw {
 			trimmedKey := strings.TrimSpace(key)
 			if trimmedKey == "" {
-				return nil, fmt.Errorf("environment file '%s' contains an empty key", normalized)
+				return nil, commitSHA, fmt.Errorf("scope file '%s' contains an empty key", normalized)
 			}
 
 			strValue, ok := value.(string)
 			if !ok {
-				return nil, fmt.Errorf("environment entry '%s' in '%s' must be a string", trimmedKey, normalized)
+				return nil, commitSHA, fmt.Errorf("scope entry '%s' in '%s' must be a string", trimmedKey, normalized)
 			}
 
 			parts := strings.Split(trimmedKey, "/")
 			switch len(parts) {
 			case 1:
-				gKey := generalEnvKey{envPath: envPath, name: trimmedKey}
-				if _, exists := generalEnvs[gKey]; exists {
-					return nil, fmt.Errorf("duplicate environment variable '%s' for '%s' detected", trimmedKey, envPath)
+				gKey := generalScopeVarKey{scopePath: scopePath, name: trimmedKey}
+				if _, exists := generalScopeVars[gKey]; exists {
+					return nil, commitSHA, fmt.Errorf("duplicate scope variable '%s' for '%s' detected", trimmedKey, scopePath)
 				}
-				generalEnvs[gKey] = strValue
+				generalScopeVars[gKey] = storedScopeVar{value: strValue, sourcePath: normalized}
 			case 3:
 				repoName := fmt.Sprintf("%s/%s", strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
 				varName := strings.TrimSpace(parts[2])
 				if repoName == "" || varName == "" {
-					return nil, fmt.Errorf("invalid repository-scoped environment key '%s' in '%s'", trimmedKey, normalized)
+					return nil, commitSHA, fmt.Errorf("invalid repository-scoped variable key '%s' in '%s'", trimmedKey, normalized)
 				}
-				rKey := repoEnvKey{repo: repoName, envPath: envPath, name: varName}
-				if _, exists := repoEnvs[rKey]; exists {
-					return nil, fmt.Errorf("duplicate repository environment variable '%s' for '%s' detected", trimmedKey, envPath)
+				if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+					repoName, err = normalizeConfigPathForFolder(boundFolder, repoName)
+					if err != nil {
+						return nil, commitSHA, fmt.Errorf("invalid group-scoped repository variable key '%s' in '%s': %w", trimmedKey, normalized, err)
+					}
 				}
-				repoEnvs[rKey] = strValue
+				rKey := repoScopeVarKey{repo: repoName, scopePath: scopePath, name: varName}
+				if _, exists := repoScopeVars[rKey]; exists {
+					return nil, commitSHA, fmt.Errorf("duplicate repository scope variable '%s' for '%s' detected", trimmedKey, scopePath)
+				}
+				repoScopeVars[rKey] = storedScopeVar{value: strValue, sourcePath: normalized}
 			default:
-				return nil, fmt.Errorf("environment key '%s' in '%s' has an unsupported format", trimmedKey, normalized)
+				return nil, commitSHA, fmt.Errorf("scope key '%s' in '%s' has an unsupported format", trimmedKey, normalized)
 			}
 		}
 	}
 
-	triggers := make(map[string]string)
+	triggers := make(map[string]storedTrigger)
 	for path, content := range triggerFiles {
 		normalized := filepath.ToSlash(path)
-		rel := strings.TrimPrefix(normalized, "triggers/")
+		rel, ok := relativeConfigPath(normalized, triggerDir)
+		if !ok {
+			continue
+		}
 		if rel == "" || strings.HasSuffix(rel, "/") || !isYAMLFile(rel) {
 			continue
 		}
@@ -1331,89 +1545,285 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 		repoKey := strings.TrimSuffix(rel, filepath.Ext(rel))
 		repoKey = strings.Trim(repoKey, "/")
 		if repoKey == "" {
-			return nil, fmt.Errorf("trigger file '%s' does not specify a repository", normalized)
+			return nil, commitSHA, fmt.Errorf("trigger file '%s' does not specify a repository", normalized)
 		}
 		if strings.Contains(repoKey, "..") {
-			return nil, fmt.Errorf("trigger file '%s' contains invalid path segments", normalized)
+			return nil, commitSHA, fmt.Errorf("trigger file '%s' contains invalid path segments", normalized)
 		}
 		repoKey = filepath.ToSlash(repoKey)
+		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+			repoKey, err = normalizeConfigPathForFolder(boundFolder, repoKey)
+			if err != nil {
+				return nil, commitSHA, fmt.Errorf("invalid group-scoped trigger path '%s': %w", normalized, err)
+			}
+		}
 
 		if err := yaml.Unmarshal([]byte(content), &models.Manifest{}); err != nil {
-			return nil, fmt.Errorf("failed to parse trigger manifest '%s': %w", normalized, err)
+			return nil, commitSHA, fmt.Errorf("failed to parse trigger manifest '%s': %w", normalized, err)
 		}
 
 		if _, exists := triggers[repoKey]; exists {
-			return nil, fmt.Errorf("duplicate trigger manifest for repository '%s' detected", repoKey)
+			return nil, commitSHA, fmt.Errorf("duplicate trigger manifest for repository '%s' detected", repoKey)
 		}
 
-		triggers[repoKey] = content
+		triggers[repoKey] = storedTrigger{definition: content, sourcePath: normalized}
 	}
 
 	// --- 3. Database Transaction (Upsert + Prune) ---
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to start transaction: %w", err)
+		return nil, commitSHA, fmt.Errorf("failed to start transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	const pipelineUpsert = `INSERT INTO pipelines (path, name, version, definition, source, updated_at) VALUES ($1, $2, $3, $4, 'git', NOW())
-		ON CONFLICT (path, name) DO UPDATE SET version = EXCLUDED.version, definition = EXCLUDED.definition, source = 'git', updated_at = NOW()`
-	const stepUpsert = `INSERT INTO steps (path, name, definition, source, updated_at) VALUES ($1, $2, $3, 'git', NOW())
-		ON CONFLICT (path, name) DO UPDATE SET definition = EXCLUDED.definition, source = 'git', updated_at = NOW()`
-	const envUpsert = `INSERT INTO variables (name, value, repository_name, scope, source, updated_at) VALUES ($1, $2, $3, $4, 'git', NOW())
-		ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, source = 'git', updated_at = NOW()`
-	const triggerUpsert = `INSERT INTO triggers (repository_name, trigger_definition, source) VALUES ($1, $2, 'git')
-		ON CONFLICT (repository_name) DO UPDATE SET trigger_definition = EXCLUDED.trigger_definition, source = 'git'`
+	overrideScopes, err := configRepositoryOverrideScopes(ctx, tx, binding, configRepositories)
+	if err != nil {
+		return nil, commitSHA, err
+	}
+	filterDelegatedConfigResources(binding, overrideScopes, pipelines, steps, generalScopeVars, repoScopeVars, triggers)
+	effectivePipelineRunStructure, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, pipelineRunStructure, configRepositoryPipelineRunStructure, overrideScopes)
+	if err != nil {
+		return nil, commitSHA, err
+	}
 
-	// A. Upsert Pipelines
+	const pipelineUpsert = `INSERT INTO pipelines (
+			path, name, version, definition, source,
+			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at
+		) VALUES ($1, $2, $3, $4, 'git', $5, $6, $7, TRUE, NOW())
+		ON CONFLICT (path, name) DO UPDATE SET
+			version = EXCLUDED.version,
+			definition = EXCLUDED.definition,
+			source = 'git',
+			config_repo_id = EXCLUDED.config_repo_id,
+			config_source_path = EXCLUDED.config_source_path,
+			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
+			managed_by_config_repo = TRUE,
+			updated_at = NOW()`
+	const stepUpsert = `INSERT INTO steps (
+			path, name, definition, source,
+			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at
+		) VALUES ($1, $2, $3, 'git', $4, $5, $6, TRUE, NOW())
+		ON CONFLICT (path, name) DO UPDATE SET
+			definition = EXCLUDED.definition,
+			source = 'git',
+			config_repo_id = EXCLUDED.config_repo_id,
+			config_source_path = EXCLUDED.config_source_path,
+			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
+			managed_by_config_repo = TRUE,
+			updated_at = NOW()`
+	const envUpsert = `INSERT INTO variables (
+			name, value, repository_name, scope, source,
+			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at
+		) VALUES ($1, $2, $3, $4, 'git', $5, $6, $7, TRUE, NOW())
+		ON CONFLICT (name, repository_name, scope) DO UPDATE SET
+			value = EXCLUDED.value,
+			source = 'git',
+			config_repo_id = EXCLUDED.config_repo_id,
+			config_source_path = EXCLUDED.config_source_path,
+			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
+			managed_by_config_repo = TRUE,
+			updated_at = NOW()`
+	const triggerUpsert = `INSERT INTO triggers (
+			repository_name, trigger_definition, source,
+			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo
+		) VALUES ($1, $2, 'git', $3, $4, $5, TRUE)
+		ON CONFLICT (repository_name) DO UPDATE SET
+			trigger_definition = EXCLUDED.trigger_definition,
+			source = 'git',
+			config_repo_id = EXCLUDED.config_repo_id,
+			config_source_path = EXCLUDED.config_source_path,
+			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
+			managed_by_config_repo = TRUE`
+	const configRepositoryUpsert = `INSERT INTO config_repositories (
+			scope_type, scope_id, repo_url, branch, base_path, enabled,
+			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo,
+			created_by, updated_by
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, 'config-repo', 'config-repo')
+		ON CONFLICT (scope_type, scope_id) DO UPDATE SET
+			repo_url = EXCLUDED.repo_url,
+			branch = EXCLUDED.branch,
+			base_path = EXCLUDED.base_path,
+			enabled = EXCLUDED.enabled,
+			config_repo_id = EXCLUDED.config_repo_id,
+			config_source_path = EXCLUDED.config_source_path,
+			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
+			managed_by_config_repo = TRUE,
+			updated_by = EXCLUDED.updated_by,
+			updated_at = NOW()`
+
+	// A. Upsert Config Repository Bindings
+	for key, stored := range configRepositories {
+		writable, err := ensureConfigResourceWritable(ctx, tx, "config_repositories", "config repository", key, binding, stored.scopeID, "scope_type = $1 AND scope_id = $2", stored.scopeType, stored.scopeID)
+		if err != nil {
+			return nil, commitSHA, err
+		}
+		if !writable {
+			continue
+		}
+		if _, err := tx.Exec(ctx, configRepositoryUpsert, stored.scopeType, stored.scopeID, stored.repoURL, stored.branch, stored.basePath, stored.enabled, binding.ID, stored.sourcePath, commitSHA); err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to upsert config repository binding '%s': %w", key, err)
+		}
+		details["config_repositories_synced"]++
+	}
+
+	// B. Upsert Pipelines
 	for key, stored := range pipelines {
-		if _, err := tx.Exec(ctx, pipelineUpsert, stored.path, stored.name, stored.version, stored.definition); err != nil {
-			return nil, fmt.Errorf("failed to upsert pipeline '%s': %w", key, err)
+		writable, err := ensureConfigResourceWritable(ctx, tx, "pipelines", "pipeline", key, binding, key, "path = $1 AND name = $2", stored.path, stored.name)
+		if err != nil {
+			return nil, commitSHA, err
+		}
+		if !writable {
+			continue
+		}
+		if _, err := tx.Exec(ctx, pipelineUpsert, stored.path, stored.name, stored.version, stored.definition, binding.ID, stored.sourcePath, commitSHA); err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to upsert pipeline '%s': %w", key, err)
 		}
 		details["pipelines_synced"]++
 	}
 
-	// B. Upsert Steps
+	// C. Upsert Steps
 	for key, stored := range steps {
-		if _, err := tx.Exec(ctx, stepUpsert, stored.path, stored.name, stored.definition); err != nil {
-			return nil, fmt.Errorf("failed to upsert reusable step '%s': %w", key, err)
+		writable, err := ensureConfigResourceWritable(ctx, tx, "steps", "reusable step", key, binding, key, "path = $1 AND name = $2", stored.path, stored.name)
+		if err != nil {
+			return nil, commitSHA, err
+		}
+		if !writable {
+			continue
+		}
+		if _, err := tx.Exec(ctx, stepUpsert, stored.path, stored.name, stored.definition, binding.ID, stored.sourcePath, commitSHA); err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to upsert reusable step '%s': %w", key, err)
 		}
 		details["steps_synced"]++
 	}
 
-	// C. Upsert General Envs
-	for key, value := range generalEnvs {
-		var envParam interface{}
-		if key.envPath != "" {
-			envParam = key.envPath
+	// D. Upsert General Scope Vars
+	for key, stored := range generalScopeVars {
+		var scopeParam interface{}
+		if key.scopePath != "" {
+			scopeParam = key.scopePath
 		}
-		if _, err := tx.Exec(ctx, envUpsert, key.name, value, nil, envParam); err != nil {
-			return nil, fmt.Errorf("failed to upsert variable '%s' for scope '%s': %w", key.name, key.envPath, err)
+		resourceID := fmt.Sprintf("scope=%s name=%s", key.scopePath, key.name)
+		writable, err := ensureConfigResourceWritable(ctx, tx, "variables", "variable", resourceID, binding, key.scopePath, "name = $1 AND repository_name IS NULL AND scope IS NOT DISTINCT FROM $2", key.name, scopeParam)
+		if err != nil {
+			return nil, commitSHA, err
+		}
+		if !writable {
+			continue
+		}
+		if _, err := tx.Exec(ctx, envUpsert, key.name, stored.value, nil, scopeParam, binding.ID, stored.sourcePath, commitSHA); err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to upsert variable '%s' for scope '%s': %w", key.name, key.scopePath, err)
 		}
 		details["general_vars_synced"]++
 	}
 
-	// D. Upsert Repo Envs
-	for key, value := range repoEnvs {
-		var envParam interface{}
-		if key.envPath != "" {
-			envParam = key.envPath
+	// E. Upsert Repo Scope Vars
+	for key, stored := range repoScopeVars {
+		var scopeParam interface{}
+		if key.scopePath != "" {
+			scopeParam = key.scopePath
 		}
-		if _, err := tx.Exec(ctx, envUpsert, key.name, value, key.repo, envParam); err != nil {
-			return nil, fmt.Errorf("failed to upsert repository variable '%s' for repo '%s' scope '%s': %w", key.name, key.repo, key.envPath, err)
+		resourceID := fmt.Sprintf("repo=%s scope=%s name=%s", key.repo, key.scopePath, key.name)
+		writable, err := ensureConfigResourceWritable(ctx, tx, "variables", "variable", resourceID, binding, key.repo, "name = $1 AND repository_name = $2 AND scope IS NOT DISTINCT FROM $3", key.name, key.repo, scopeParam)
+		if err != nil {
+			return nil, commitSHA, err
+		}
+		if !writable {
+			continue
+		}
+		if _, err := tx.Exec(ctx, envUpsert, key.name, stored.value, key.repo, scopeParam, binding.ID, stored.sourcePath, commitSHA); err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to upsert repository variable '%s' for repo '%s' scope '%s': %w", key.name, key.repo, key.scopePath, err)
 		}
 		details["repo_vars_synced"]++
 	}
 
-	// E. Upsert Triggers
-	for repoName, definition := range triggers {
-		if _, err := tx.Exec(ctx, triggerUpsert, repoName, definition); err != nil {
-			return nil, fmt.Errorf("failed to upsert trigger override '%s': %w", repoName, err)
+	// F. Upsert Triggers
+	for repoName, stored := range triggers {
+		writable, err := ensureConfigResourceWritable(ctx, tx, "triggers", "trigger", repoName, binding, repoName, "repository_name = $1", repoName)
+		if err != nil {
+			return nil, commitSHA, err
+		}
+		if !writable {
+			continue
+		}
+		if _, err := tx.Exec(ctx, triggerUpsert, repoName, stored.definition, binding.ID, stored.sourcePath, commitSHA); err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to upsert trigger override '%s': %w", repoName, err)
 		}
 		details["triggers_synced"]++
 	}
 
 	// --- PRUNING PHASE: Remove items that exist in DB as source='git' but were not in the Git payload ---
+
+	// 0. Prune Config Repository Bindings
+	if binding.ScopeType == models.ConfigRepositoryScopeSystem {
+		var scopeTypes, scopeIDs []string
+		for _, cfgRepo := range configRepositories {
+			scopeTypes = append(scopeTypes, cfgRepo.scopeType)
+			scopeIDs = append(scopeIDs, cfgRepo.scopeID)
+		}
+		prunedRepoIDs := []int64{}
+		if len(scopeTypes) == 0 {
+			rows, err := tx.Query(ctx, "SELECT id FROM config_repositories WHERE managed_by_config_repo = TRUE AND config_repo_id = $1", binding.ID)
+			if err != nil {
+				return nil, commitSHA, fmt.Errorf("failed to prune config repository bindings: %w", err)
+			}
+			for rows.Next() {
+				var id int64
+				if err := rows.Scan(&id); err != nil {
+					rows.Close()
+					return nil, commitSHA, fmt.Errorf("failed to scan pruned config repository binding: %w", err)
+				}
+				prunedRepoIDs = append(prunedRepoIDs, id)
+			}
+			if err := rows.Err(); err != nil {
+				rows.Close()
+				return nil, commitSHA, fmt.Errorf("failed to read pruned config repository bindings: %w", err)
+			}
+			rows.Close()
+		} else {
+			rows, err := tx.Query(ctx, `
+				SELECT id FROM config_repositories
+				WHERE managed_by_config_repo = TRUE
+				AND config_repo_id = $3
+				AND NOT EXISTS (
+					SELECT 1 FROM unnest($1::text[], $2::text[]) AS t(scope_type, scope_id)
+					WHERE config_repositories.scope_type = t.scope_type
+					AND config_repositories.scope_id = t.scope_id
+				)`, scopeTypes, scopeIDs, binding.ID)
+			if err != nil {
+				return nil, commitSHA, fmt.Errorf("failed to prune config repository bindings: %w", err)
+			}
+			for rows.Next() {
+				var id int64
+				if err := rows.Scan(&id); err != nil {
+					rows.Close()
+					return nil, commitSHA, fmt.Errorf("failed to scan pruned config repository binding: %w", err)
+				}
+				prunedRepoIDs = append(prunedRepoIDs, id)
+			}
+			if err := rows.Err(); err != nil {
+				rows.Close()
+				return nil, commitSHA, fmt.Errorf("failed to read pruned config repository bindings: %w", err)
+			}
+			rows.Close()
+		}
+		if len(prunedRepoIDs) > 0 {
+			for _, tableName := range []string{"config_repositories", "pipelines", "steps", "triggers", "variables", "secrets"} {
+				if _, err := tx.Exec(ctx, fmt.Sprintf(`
+					UPDATE %s
+					SET config_repo_id = NULL,
+						config_source_path = '',
+						config_source_commit_sha = '',
+						managed_by_config_repo = FALSE
+					WHERE config_repo_id = ANY($1)
+				`, tableName), prunedRepoIDs); err != nil {
+					return nil, commitSHA, fmt.Errorf("failed to detach resources from pruned config repository bindings: %w", err)
+				}
+			}
+			if _, err := tx.Exec(ctx, "DELETE FROM config_repositories WHERE id = ANY($1)", prunedRepoIDs); err != nil {
+				return nil, commitSHA, fmt.Errorf("failed to prune config repository bindings: %w", err)
+			}
+		}
+	}
 
 	// 1. Prune Pipelines
 	{
@@ -1423,19 +1833,19 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 			names = append(names, p.name)
 		}
 		if len(paths) == 0 {
-			if _, err := tx.Exec(ctx, "DELETE FROM pipelines WHERE source = 'git'"); err != nil {
-				return nil, fmt.Errorf("failed to prune pipelines: %w", err)
+			if _, err := tx.Exec(ctx, "DELETE FROM pipelines WHERE managed_by_config_repo = TRUE AND config_repo_id = $1", binding.ID); err != nil {
+				return nil, commitSHA, fmt.Errorf("failed to prune pipelines: %w", err)
 			}
 		} else {
-			// Delete where source='git' AND (path, name) NOT IN the lists we just processed
 			if _, err := tx.Exec(ctx, `
 				DELETE FROM pipelines 
-				WHERE source = 'git' 
+				WHERE managed_by_config_repo = TRUE
+				AND config_repo_id = $3
 				AND NOT EXISTS (
 					SELECT 1 FROM unnest($1::text[], $2::text[]) AS t(p, n) 
 					WHERE pipelines.path = t.p AND pipelines.name = t.n
-				)`, paths, names); err != nil {
-				return nil, fmt.Errorf("failed to prune pipelines: %w", err)
+				)`, paths, names, binding.ID); err != nil {
+				return nil, commitSHA, fmt.Errorf("failed to prune pipelines: %w", err)
 			}
 		}
 	}
@@ -1448,18 +1858,19 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 			names = append(names, s.name)
 		}
 		if len(paths) == 0 {
-			if _, err := tx.Exec(ctx, "DELETE FROM steps WHERE source = 'git'"); err != nil {
-				return nil, fmt.Errorf("failed to prune steps: %w", err)
+			if _, err := tx.Exec(ctx, "DELETE FROM steps WHERE managed_by_config_repo = TRUE AND config_repo_id = $1", binding.ID); err != nil {
+				return nil, commitSHA, fmt.Errorf("failed to prune steps: %w", err)
 			}
 		} else {
 			if _, err := tx.Exec(ctx, `
 				DELETE FROM steps 
-				WHERE source = 'git' 
+				WHERE managed_by_config_repo = TRUE
+				AND config_repo_id = $3
 				AND NOT EXISTS (
 					SELECT 1 FROM unnest($1::text[], $2::text[]) AS t(p, n) 
 					WHERE steps.path = t.p AND steps.name = t.n
-				)`, paths, names); err != nil {
-				return nil, fmt.Errorf("failed to prune steps: %w", err)
+				)`, paths, names, binding.ID); err != nil {
+				return nil, commitSHA, fmt.Errorf("failed to prune steps: %w", err)
 			}
 		}
 	}
@@ -1471,17 +1882,17 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 			repos = append(repos, repo)
 		}
 		if len(repos) == 0 {
-			if _, err := tx.Exec(ctx, "DELETE FROM triggers WHERE source = 'git'"); err != nil {
-				return nil, fmt.Errorf("failed to prune triggers: %w", err)
+			if _, err := tx.Exec(ctx, "DELETE FROM triggers WHERE managed_by_config_repo = TRUE AND config_repo_id = $1", binding.ID); err != nil {
+				return nil, commitSHA, fmt.Errorf("failed to prune triggers: %w", err)
 			}
 		} else {
-			if _, err := tx.Exec(ctx, "DELETE FROM triggers WHERE source = 'git' AND repository_name != ALL($1)", repos); err != nil {
-				return nil, fmt.Errorf("failed to prune triggers: %w", err)
+			if _, err := tx.Exec(ctx, "DELETE FROM triggers WHERE managed_by_config_repo = TRUE AND config_repo_id = $2 AND repository_name != ALL($1)", repos, binding.ID); err != nil {
+				return nil, commitSHA, fmt.Errorf("failed to prune triggers: %w", err)
 			}
 		}
 	}
 
-	// 4. Prune Variables (Environment Variables)
+	// 4. Prune Variables (Scope Variables)
 	{
 		var names []string
 		var repos []*string
@@ -1498,42 +1909,43 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 			}
 		}
 
-		for key := range generalEnvs {
-			addVar(key.name, nil, key.envPath)
+		for key := range generalScopeVars {
+			addVar(key.name, nil, key.scopePath)
 		}
-		for key := range repoEnvs {
+		for key := range repoScopeVars {
 			r := key.repo // copy loop variable
-			addVar(key.name, &r, key.envPath)
+			addVar(key.name, &r, key.scopePath)
 		}
 
 		if len(names) == 0 {
-			if _, err := tx.Exec(ctx, "DELETE FROM variables WHERE source = 'git'"); err != nil {
-				return nil, fmt.Errorf("failed to prune variables: %w", err)
+			if _, err := tx.Exec(ctx, "DELETE FROM variables WHERE managed_by_config_repo = TRUE AND config_repo_id = $1", binding.ID); err != nil {
+				return nil, commitSHA, fmt.Errorf("failed to prune variables: %w", err)
 			}
 		} else {
 			if _, err := tx.Exec(ctx, `
 				DELETE FROM variables 
-				WHERE source = 'git' 
+				WHERE managed_by_config_repo = TRUE
+				AND config_repo_id = $4
 				AND NOT EXISTS (
 					SELECT 1 FROM unnest($1::text[], $2::text[], $3::text[]) AS t(n, r, s) 
 					WHERE variables.name = t.n 
 					AND variables.repository_name IS NOT DISTINCT FROM t.r 
 					AND variables.scope IS NOT DISTINCT FROM t.s
-				)`, names, repos, scopes); err != nil {
-				return nil, fmt.Errorf("failed to prune variables: %w", err)
+				)`, names, repos, scopes, binding.ID); err != nil {
+				return nil, commitSHA, fmt.Errorf("failed to prune variables: %w", err)
 			}
 		}
 	}
 
-	// Sync groups (UI folders) - Note: Groups do not have a 'source' column, so we do not prune them to avoid deleting user-created folders.
-	if len(pipelineRunStructure) > 0 {
-		if err := a.syncPipelineRunGroups(ctx, tx, pipelineRunStructure, details); err != nil {
-			return nil, err
+	// Sync UI groups. Groups do not have a source column, so we do not prune them to avoid deleting user-created groups.
+	if len(effectivePipelineRunStructure) > 0 {
+		if err := a.syncPipelineRunGroups(ctx, tx, effectivePipelineRunStructure, details); err != nil {
+			return nil, commitSHA, err
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("failed to commit configuration synchronization transaction: %w", err)
+		return nil, commitSHA, fmt.Errorf("failed to commit configuration synchronization transaction: %w", err)
 	}
 
 	log.Info().
@@ -1544,28 +1956,687 @@ func (a *App) syncConfigurationFromGit(ctx context.Context) (map[string]int, err
 		Int("general_vars_synced", details["general_vars_synced"]).
 		Int("repo_vars_synced", details["repo_vars_synced"]).
 		Int("triggers_synced", details["triggers_synced"]).
+		Int("config_repositories_synced", details["config_repositories_synced"]).
 		Int("run_groups_created", details["run_groups_created"]).
 		Int("run_groups_updated", details["run_groups_updated"]).
 		Msg("Configuration synchronization from Git completed")
 
-	return details, nil
+	return details, commitSHA, nil
 }
 
-type generalEnvKey struct {
-	envPath string
-	name    string
+type generalScopeVarKey struct {
+	scopePath string
+	name      string
 }
 
-type repoEnvKey struct {
-	repo    string
-	envPath string
-	name    string
+type repoScopeVarKey struct {
+	repo      string
+	scopePath string
+	name      string
+}
+
+type storedPipeline struct {
+	definition string
+	version    string
+	path       string
+	name       string
+	sourcePath string
+}
+
+type storedStep struct {
+	definition string
+	path       string
+	name       string
+	sourcePath string
+}
+
+type storedConfigRepository struct {
+	scopeType  string
+	scopeID    string
+	repoURL    string
+	branch     string
+	basePath   string
+	enabled    bool
+	sourcePath string
+}
+
+type storedScopeVar struct {
+	value      string
+	sourcePath string
+}
+
+type storedTrigger struct {
+	definition string
+	sourcePath string
+}
+
+type configRepositoryBindingFile struct {
+	ScopeType string `yaml:"scope_type" json:"scope_type"`
+	ScopeID   string `yaml:"scope_id" json:"scope_id"`
+	RepoURL   string `yaml:"repo_url" json:"repo_url"`
+	Branch    string `yaml:"branch" json:"branch"`
+	BasePath  string `yaml:"base_path" json:"base_path"`
+	Enabled   *bool  `yaml:"enabled" json:"enabled"`
+}
+
+func parseConfigRepositoryBindingPath(rel string) (string, string, error) {
+	path, name, _, err := splitYAMLIdentifier(rel)
+	if err != nil {
+		return "", "", err
+	}
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		return "", "", fmt.Errorf("binding path must start with groups/")
+	}
+	switch parts[0] {
+	case "groups":
+		scopeID := strings.Trim(strings.Join(append(parts[1:], name), "/"), "/")
+		if scopeID == "" {
+			return "", "", fmt.Errorf("group binding is missing a group path")
+		}
+		if _, err := cleanConfigPathSegments(scopeID, false); err != nil {
+			return "", "", err
+		}
+		return models.ConfigRepositoryScopeFolder, scopeID, nil
+	default:
+		return "", "", fmt.Errorf("unsupported config repository binding scope %q", parts[0])
+	}
+}
+
+func validateConfigRepositoryBindingFile(file configRepositoryBindingFile, scopeType, scopeID, sourcePath string) error {
+	if declaredScopeType := strings.TrimSpace(file.ScopeType); declaredScopeType != "" && declaredScopeType != scopeType {
+		return fmt.Errorf("config repository binding '%s' declares scope_type %q but path implies %q", sourcePath, declaredScopeType, scopeType)
+	}
+	if declaredScopeID := strings.Trim(strings.TrimSpace(file.ScopeID), "/"); declaredScopeID != "" && declaredScopeID != scopeID {
+		return fmt.Errorf("config repository binding '%s' declares scope_id %q but path implies %q", sourcePath, declaredScopeID, scopeID)
+	}
+	if strings.TrimSpace(file.RepoURL) == "" {
+		return fmt.Errorf("config repository binding '%s' is missing repo_url", sourcePath)
+	}
+	return nil
+}
+
+func configRepositoryBindingsFromPipelineRunStructure(structure map[string]*pipelineRunStructureNode, sourcePath string) (map[string]storedConfigRepository, error) {
+	result := map[string]storedConfigRepository{}
+
+	var walk func(path []string, node *pipelineRunStructureNode) error
+	walk = func(path []string, node *pipelineRunStructureNode) error {
+		if node == nil {
+			return nil
+		}
+		scopeID := strings.Trim(strings.Join(path, "/"), "/")
+		if node.Config != nil {
+			if scopeID == "" {
+				return fmt.Errorf("config repository binding '%s' is missing a group path", sourcePath)
+			}
+			if _, err := cleanConfigPathSegments(scopeID, false); err != nil {
+				return fmt.Errorf("invalid config repository binding '%s': %w", sourcePath, err)
+			}
+			file := *node.Config
+			if err := validateConfigRepositoryBindingFile(file, models.ConfigRepositoryScopeFolder, scopeID, sourcePath); err != nil {
+				return err
+			}
+			basePath, err := normalizeConfigRepositoryBasePathForRequest(file.BasePath)
+			if err != nil {
+				return fmt.Errorf("invalid base_path in config repository binding '%s': %w", sourcePath, err)
+			}
+			enabled := true
+			if file.Enabled != nil {
+				enabled = *file.Enabled
+			}
+			branch := strings.TrimSpace(file.Branch)
+			if branch == "" {
+				branch = "main"
+			}
+
+			key := models.ConfigRepositoryScopeFolder + "/" + scopeID
+			if _, exists := result[key]; exists {
+				return fmt.Errorf("duplicate config repository binding for '%s' detected", key)
+			}
+			result[key] = storedConfigRepository{
+				scopeType:  models.ConfigRepositoryScopeFolder,
+				scopeID:    scopeID,
+				repoURL:    strings.TrimSpace(file.RepoURL),
+				branch:     branch,
+				basePath:   basePath,
+				enabled:    enabled,
+				sourcePath: sourcePath,
+			}
+		}
+
+		for childName, childNode := range node.Children {
+			childSegments, err := cleanConfigPathSegments(childName, false)
+			if err != nil {
+				return err
+			}
+			if err := walk(append(append([]string{}, path...), childSegments...), childNode); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	for name, node := range structure {
+		segments, err := cleanConfigPathSegments(name, false)
+		if err != nil {
+			return nil, err
+		}
+		if err := walk(segments, node); err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
+}
+
+func configRepositoryOverrideScopes(ctx context.Context, tx pgx.Tx, binding models.ConfigRepository, parsed map[string]storedConfigRepository) ([]string, error) {
+	scopeSet := map[string]struct{}{}
+	addScope := func(scope string) {
+		scope = strings.Trim(strings.TrimSpace(scope), "/")
+		if scope == "" {
+			return
+		}
+		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+			boundScope := strings.Trim(strings.TrimSpace(binding.ScopeID), "/")
+			if scope == boundScope || !configResourceUnderScope(scope, boundScope) {
+				return
+			}
+		}
+		scopeSet[scope] = struct{}{}
+	}
+
+	for _, repo := range parsed {
+		if repo.enabled && repo.scopeType == models.ConfigRepositoryScopeFolder {
+			addScope(repo.scopeID)
+		}
+	}
+
+	rows, err := tx.Query(ctx, `
+		SELECT scope_id
+		FROM config_repositories
+		WHERE scope_type = $1
+		  AND enabled = TRUE
+		  AND id <> $2
+	`, models.ConfigRepositoryScopeFolder, binding.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load delegated config repository scopes: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var scopeID string
+		if err := rows.Scan(&scopeID); err != nil {
+			return nil, err
+		}
+		addScope(scopeID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	scopes := make([]string, 0, len(scopeSet))
+	for scope := range scopeSet {
+		scopes = append(scopes, scope)
+	}
+	return scopes, nil
+}
+
+func effectivePipelineRunStructureForConfigSync(
+	binding models.ConfigRepository,
+	configRepositories map[string]storedConfigRepository,
+	pipelineRunStructure map[string]*pipelineRunStructureNode,
+	configRepositoryPipelineRunStructure map[string]*pipelineRunStructureNode,
+	overrideScopes []string,
+) (map[string]*pipelineRunStructureNode, error) {
+	effective, err := configRepositoryGroupStructure(binding, configRepositories)
+	if err != nil {
+		return nil, err
+	}
+
+	structure := pipelineRunStructure
+	if binding.ScopeType == models.ConfigRepositoryScopeSystem && containsGroupConfigRepository(configRepositories) {
+		structure = nil
+	} else {
+		structure = filterPipelineRunStructureByScopes(structure, configRepositoryStructureFilterScopes(binding, configRepositories, overrideScopes))
+	}
+
+	mergePipelineRunStructure(effective, structure)
+	mergePipelineRunStructure(effective, configRepositoryPipelineRunStructure)
+	return effective, nil
+}
+
+func containsGroupConfigRepository(configRepositories map[string]storedConfigRepository) bool {
+	for _, repo := range configRepositories {
+		if repo.scopeType == models.ConfigRepositoryScopeFolder {
+			return true
+		}
+	}
+	return false
+}
+
+func configRepositoryStructureFilterScopes(binding models.ConfigRepository, configRepositories map[string]storedConfigRepository, overrideScopes []string) []string {
+	scopeSet := map[string]struct{}{}
+	addScope := func(scope string) {
+		scope = strings.Trim(strings.TrimSpace(scope), "/")
+		if scope == "" {
+			return
+		}
+		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+			boundScope := strings.Trim(strings.TrimSpace(binding.ScopeID), "/")
+			if scope == boundScope || !configResourceUnderScope(scope, boundScope) {
+				return
+			}
+		}
+		scopeSet[scope] = struct{}{}
+	}
+
+	for _, scope := range overrideScopes {
+		addScope(scope)
+	}
+	for _, repo := range configRepositories {
+		if repo.scopeType == models.ConfigRepositoryScopeFolder {
+			addScope(repo.scopeID)
+		}
+	}
+
+	scopes := make([]string, 0, len(scopeSet))
+	for scope := range scopeSet {
+		scopes = append(scopes, scope)
+	}
+	return scopes
+}
+
+func configRepositoryGroupStructure(binding models.ConfigRepository, configRepositories map[string]storedConfigRepository) (map[string]*pipelineRunStructureNode, error) {
+	result := map[string]*pipelineRunStructureNode{}
+	addPath := func(path string) error {
+		segments, err := cleanConfigPathSegments(path, false)
+		if err != nil {
+			return err
+		}
+		ensurePipelineRunStructurePath(result, segments)
+		return nil
+	}
+
+	if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+		if err := addPath(binding.ScopeID); err != nil {
+			return nil, fmt.Errorf("invalid group-scoped config repository group path %q: %w", binding.ScopeID, err)
+		}
+	}
+	for _, repo := range configRepositories {
+		if repo.scopeType != models.ConfigRepositoryScopeFolder {
+			continue
+		}
+		if err := addPath(repo.scopeID); err != nil {
+			return nil, fmt.Errorf("invalid config repository group path %q: %w", repo.scopeID, err)
+		}
+	}
+	return result, nil
+}
+
+func ensurePipelineRunStructurePath(structure map[string]*pipelineRunStructureNode, segments []string) *pipelineRunStructureNode {
+	children := structure
+	var current *pipelineRunStructureNode
+	for _, segment := range segments {
+		if node, ok := children[segment]; ok {
+			current = node
+		} else {
+			current = &pipelineRunStructureNode{Children: map[string]*pipelineRunStructureNode{}}
+			children[segment] = current
+		}
+		if current.Children == nil {
+			current.Children = map[string]*pipelineRunStructureNode{}
+		}
+		children = current.Children
+	}
+	return current
+}
+
+func mergePipelineRunStructureNode(target *pipelineRunStructureNode, source *pipelineRunStructureNode) {
+	if target == nil || source == nil {
+		return
+	}
+	if target.Children == nil {
+		target.Children = map[string]*pipelineRunStructureNode{}
+	}
+	if description := strings.TrimSpace(source.Description); description != "" {
+		target.Description = description
+	}
+	if source.Config != nil {
+		target.Config = copyConfigRepositoryBindingFile(source.Config)
+	}
+	if len(source.Repos) > 0 {
+		target.Repos = append([]string{}, source.Repos...)
+	}
+	for childName, childSource := range source.Children {
+		childTarget, ok := target.Children[childName]
+		if !ok {
+			childTarget = &pipelineRunStructureNode{Children: map[string]*pipelineRunStructureNode{}}
+			target.Children[childName] = childTarget
+		}
+		mergePipelineRunStructureNode(childTarget, childSource)
+	}
+}
+
+func mergePipelineRunStructure(dst map[string]*pipelineRunStructureNode, src map[string]*pipelineRunStructureNode) {
+	if len(src) == 0 {
+		return
+	}
+
+	for name, source := range src {
+		target, ok := dst[name]
+		if !ok {
+			target = &pipelineRunStructureNode{Children: map[string]*pipelineRunStructureNode{}}
+			dst[name] = target
+		}
+		mergePipelineRunStructureNode(target, source)
+	}
+}
+
+func filterPipelineRunStructureByScopes(structure map[string]*pipelineRunStructureNode, scopes []string) map[string]*pipelineRunStructureNode {
+	if len(structure) == 0 || len(scopes) == 0 {
+		return structure
+	}
+
+	var filterNode func(path []string, node *pipelineRunStructureNode) *pipelineRunStructureNode
+	filterNode = func(path []string, node *pipelineRunStructureNode) *pipelineRunStructureNode {
+		if configResourceUnderAnyScope(strings.Join(path, "/"), scopes) {
+			return nil
+		}
+		filtered := &pipelineRunStructureNode{Children: map[string]*pipelineRunStructureNode{}}
+		if node != nil {
+			filtered.Description = node.Description
+			filtered.Repos = append([]string{}, node.Repos...)
+			filtered.Config = copyConfigRepositoryBindingFile(node.Config)
+			for childName, childNode := range node.Children {
+				child := filterNode(append(append([]string{}, path...), childName), childNode)
+				if child != nil {
+					filtered.Children[childName] = child
+				}
+			}
+		}
+		return filtered
+	}
+
+	filtered := map[string]*pipelineRunStructureNode{}
+	for name, node := range structure {
+		child := filterNode([]string{name}, node)
+		if child != nil {
+			filtered[name] = child
+		}
+	}
+	return filtered
+}
+
+func filterDelegatedConfigResources(
+	binding models.ConfigRepository,
+	overrideScopes []string,
+	pipelines map[string]storedPipeline,
+	steps map[string]storedStep,
+	generalScopeVars map[generalScopeVarKey]storedScopeVar,
+	repoScopeVars map[repoScopeVarKey]storedScopeVar,
+	triggers map[string]storedTrigger,
+) {
+	if len(overrideScopes) == 0 {
+		return
+	}
+
+	for key := range pipelines {
+		if configResourceUnderAnyScope(key, overrideScopes) {
+			delete(pipelines, key)
+		}
+	}
+	for key := range steps {
+		if configResourceUnderAnyScope(key, overrideScopes) {
+			delete(steps, key)
+		}
+	}
+	for key := range generalScopeVars {
+		if configResourceUnderAnyScope(key.scopePath, overrideScopes) {
+			delete(generalScopeVars, key)
+		}
+	}
+	for key := range repoScopeVars {
+		if configResourceUnderAnyScope(key.repo, overrideScopes) || configResourceUnderAnyScope(key.scopePath, overrideScopes) {
+			delete(repoScopeVars, key)
+		}
+	}
+	for key := range triggers {
+		if configResourceUnderAnyScope(key, overrideScopes) {
+			delete(triggers, key)
+		}
+	}
+}
+
+func configResourceUnderAnyScope(resource string, scopes []string) bool {
+	for _, scope := range scopes {
+		if configResourceUnderScope(resource, scope) {
+			return true
+		}
+	}
+	return false
+}
+
+func configResourceUnderScope(resource, scope string) bool {
+	resource = strings.Trim(strings.TrimSpace(resource), "/")
+	scope = strings.Trim(strings.TrimSpace(scope), "/")
+	if resource == "" || scope == "" {
+		return false
+	}
+	if resource == scope {
+		return true
+	}
+	return strings.HasPrefix(resource, scope+"/")
+}
+
+func canConfigRepositoryWriteOver(current, existing models.ConfigRepository, resourceScope string) bool {
+	if existing.ID == 0 || existing.ID == current.ID {
+		return true
+	}
+	if !configResourceUnderBindingScope(resourceScope, current) {
+		return false
+	}
+	if current.ScopeType == models.ConfigRepositoryScopeFolder {
+		return existing.ScopeType == models.ConfigRepositoryScopeSystem ||
+			(existing.ScopeType == models.ConfigRepositoryScopeFolder &&
+				configResourceUnderScope(current.ScopeID, existing.ScopeID))
+	}
+	return false
+}
+
+func configRepositoryShadowsCurrent(existing, current models.ConfigRepository, resourceScope string) bool {
+	if existing.ID == 0 || existing.ID == current.ID {
+		return false
+	}
+	if !configResourceUnderBindingScope(resourceScope, existing) {
+		return false
+	}
+	if existing.ScopeType == models.ConfigRepositoryScopeFolder {
+		return current.ScopeType == models.ConfigRepositoryScopeSystem ||
+			(current.ScopeType == models.ConfigRepositoryScopeFolder &&
+				configResourceUnderScope(existing.ScopeID, current.ScopeID))
+	}
+	return false
+}
+
+func configResourceUnderBindingScope(resourceScope string, binding models.ConfigRepository) bool {
+	switch binding.ScopeType {
+	case models.ConfigRepositoryScopeSystem:
+		return true
+	case models.ConfigRepositoryScopeFolder:
+		return configResourceUnderScope(resourceScope, binding.ScopeID)
+	default:
+		return false
+	}
+}
+
+func loadConfigRepositoryByID(ctx context.Context, tx pgx.Tx, id int64) (models.ConfigRepository, error) {
+	var repo models.ConfigRepository
+	err := tx.QueryRow(ctx, `
+		SELECT id, scope_type, scope_id
+		FROM config_repositories
+		WHERE id = $1
+	`, id).Scan(&repo.ID, &repo.ScopeType, &repo.ScopeID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return models.ConfigRepository{}, fmt.Errorf("config repository %d not found", id)
+		}
+		return models.ConfigRepository{}, err
+	}
+	return repo, nil
+}
+
+func ensureConfigResourceWritable(ctx context.Context, tx pgx.Tx, tableName, resourceKind, resourceID string, binding models.ConfigRepository, resourceScope string, whereClause string, args ...any) (bool, error) {
+	query := fmt.Sprintf("SELECT config_repo_id, managed_by_config_repo FROM %s WHERE %s LIMIT 1", tableName, whereClause)
+	var existingRepoID sql.NullInt64
+	var managed bool
+	if err := tx.QueryRow(ctx, query, args...).Scan(&existingRepoID, &managed); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return true, nil
+		}
+		return false, err
+	}
+	if !managed {
+		return false, fmt.Errorf("%s %s is not managed by a config repository", resourceKind, resourceID)
+	}
+	if !existingRepoID.Valid {
+		return false, fmt.Errorf("%s %s is already managed by an unknown config repository", resourceKind, resourceID)
+	}
+	if existingRepoID.Int64 == binding.ID {
+		return true, nil
+	}
+
+	existing, err := loadConfigRepositoryByID(ctx, tx, existingRepoID.Int64)
+	if err != nil {
+		return false, err
+	}
+	if canConfigRepositoryWriteOver(binding, existing, resourceScope) {
+		return true, nil
+	}
+	if configRepositoryShadowsCurrent(existing, binding, resourceScope) {
+		return false, nil
+	}
+
+	owner := strconv.FormatInt(existingRepoID.Int64, 10)
+	return false, fmt.Errorf("%s %s is already managed by config repository %s", resourceKind, resourceID, owner)
+}
+
+func normalizeConfigRepositoryBasePathValue(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.ReplaceAll(value, "\\", "/")
+	value = strings.Trim(value, "/")
+	if value == "." {
+		return ""
+	}
+	return value
+}
+
+func configRepoJoinPath(basePath, child string) string {
+	basePath = normalizeConfigRepositoryBasePathValue(basePath)
+	child = strings.Trim(strings.ReplaceAll(strings.TrimSpace(child), "\\", "/"), "/")
+	if basePath == "" {
+		return child
+	}
+	if child == "" {
+		return basePath
+	}
+	return basePath + "/" + child
+}
+
+func relativeConfigPath(path, dir string) (string, bool) {
+	path = strings.Trim(strings.ReplaceAll(filepath.ToSlash(path), "\\", "/"), "/")
+	dir = strings.Trim(strings.ReplaceAll(filepath.ToSlash(dir), "\\", "/"), "/")
+	if dir == "" {
+		return path, true
+	}
+	if path == dir {
+		return "", true
+	}
+	prefix := dir + "/"
+	if !strings.HasPrefix(path, prefix) {
+		return "", false
+	}
+	return strings.TrimPrefix(path, prefix), true
+}
+
+func normalizeConfigPathForFolder(boundFolder string, repoRelativePath string) (string, error) {
+	boundSegments, err := cleanConfigPathSegments(boundFolder, false)
+	if err != nil {
+		return "", fmt.Errorf("invalid bound folder: %w", err)
+	}
+	if len(boundSegments) == 0 {
+		return "", fmt.Errorf("bound folder is required")
+	}
+
+	relative := strings.Trim(strings.ReplaceAll(filepath.ToSlash(repoRelativePath), "\\", "/"), "/")
+	if relative == "" {
+		return strings.Join(boundSegments, "/"), nil
+	}
+	relative = stripConfigResourcePrefix(relative)
+	relative = strings.TrimSuffix(relative, filepath.Ext(relative))
+	relSegments, err := cleanConfigPathSegments(relative, true)
+	if err != nil {
+		return "", err
+	}
+	if hasPathSegmentPrefix(relSegments, boundSegments) {
+		relSegments = relSegments[len(boundSegments):]
+	}
+
+	finalSegments := append(append([]string{}, boundSegments...), relSegments...)
+	return strings.Join(finalSegments, "/"), nil
+}
+
+func stripConfigResourcePrefix(path string) string {
+	parts := strings.Split(path, "/")
+	if len(parts) <= 1 {
+		return path
+	}
+	switch strings.ToLower(strings.TrimSpace(parts[0])) {
+	case "pipelines", "steps", "triggers", "scopes", "pipelineruns":
+		return strings.Join(parts[1:], "/")
+	default:
+		return path
+	}
+}
+
+func cleanConfigPathSegments(path string, allowEmpty bool) ([]string, error) {
+	path = strings.Trim(strings.ReplaceAll(filepath.ToSlash(path), "\\", "/"), "/")
+	if path == "" {
+		if allowEmpty {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("path is required")
+	}
+	if filepath.IsAbs(path) {
+		return nil, fmt.Errorf("path must be relative")
+	}
+	parts := strings.Split(path, "/")
+	segments := make([]string, 0, len(parts))
+	for _, segment := range parts {
+		segment = strings.TrimSpace(segment)
+		if segment == "" || segment == "." || segment == ".." {
+			return nil, fmt.Errorf("path contains invalid segment %q", segment)
+		}
+		segments = append(segments, segment)
+	}
+	return segments, nil
+}
+
+func hasPathSegmentPrefix(path, prefix []string) bool {
+	if len(prefix) == 0 || len(path) < len(prefix) {
+		return false
+	}
+	for idx := range prefix {
+		if path[idx] != prefix[idx] {
+			return false
+		}
+	}
+	return true
 }
 
 type pipelineRunStructureNode struct {
 	Description string
 	Repos       []string
 	Children    map[string]*pipelineRunStructureNode
+	Config      *configRepositoryBindingFile
 }
 
 type groupRecord struct {
@@ -1598,6 +2669,142 @@ func parsePipelineRunStructure(content string) (map[string]*pipelineRunStructure
 			return nil, fmt.Errorf("folder '%s': %w", normalized, err)
 		}
 		result[normalized] = node
+	}
+	return result, nil
+}
+
+func parseConfigRepositoryGroupPipelineRunStructure(rel, content string) (map[string]*pipelineRunStructureNode, bool, error) {
+	scope, ok, err := configRepositoryGroupStructureFileScope(rel)
+	if err != nil || !ok {
+		return nil, ok, err
+	}
+	if scope == "" {
+		structure, err := parsePipelineRunStructure(content)
+		return structure, true, err
+	}
+
+	node, err := parsePipelineRunStructureNode(content)
+	if err != nil {
+		return nil, true, err
+	}
+	segments, err := cleanConfigPathSegments(scope, false)
+	if err != nil {
+		return nil, true, err
+	}
+	structure := map[string]*pipelineRunStructureNode{}
+	target := ensurePipelineRunStructurePath(structure, segments)
+	mergePipelineRunStructureNode(target, node)
+	return structure, true, nil
+}
+
+func configRepositoryGroupStructureFileScope(rel string) (string, bool, error) {
+	path := strings.Trim(strings.ReplaceAll(filepath.ToSlash(rel), "\\", "/"), "/")
+	if path == "" || !isYAMLFile(path) {
+		return "", false, nil
+	}
+	parts := strings.Split(path, "/")
+	if len(parts) < 2 || parts[0] != "groups" {
+		return "", false, nil
+	}
+	fileName := strings.ToLower(parts[len(parts)-1])
+	if fileName != "structure.yaml" && fileName != "structure.yml" {
+		return "", false, nil
+	}
+	if len(parts) == 2 {
+		return "", true, nil
+	}
+	scope := strings.Trim(strings.Join(parts[1:len(parts)-1], "/"), "/")
+	if _, err := cleanConfigPathSegments(scope, false); err != nil {
+		return "", true, err
+	}
+	return scope, true, nil
+}
+
+func parsePipelineRunStructureNode(content string) (*pipelineRunStructureNode, error) {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		return &pipelineRunStructureNode{Children: map[string]*pipelineRunStructureNode{}}, nil
+	}
+
+	var raw interface{}
+	if err := yaml.Unmarshal([]byte(content), &raw); err != nil {
+		return nil, err
+	}
+	return decodePipelineRunStructureNode(raw)
+}
+
+func normalizePipelineRunStructureForFolder(boundFolder string, structure map[string]*pipelineRunStructureNode) (map[string]*pipelineRunStructureNode, error) {
+	if len(structure) == 0 {
+		return structure, nil
+	}
+	boundSegments, err := cleanConfigPathSegments(boundFolder, false)
+	if err != nil {
+		return nil, err
+	}
+	result := map[string]*pipelineRunStructureNode{}
+
+	var ensurePath func(path []string) *pipelineRunStructureNode
+	ensurePath = func(path []string) *pipelineRunStructureNode {
+		children := result
+		var current *pipelineRunStructureNode
+		for _, segment := range path {
+			if node, ok := children[segment]; ok {
+				current = node
+			} else {
+				current = &pipelineRunStructureNode{Children: map[string]*pipelineRunStructureNode{}}
+				children[segment] = current
+			}
+			if current.Children == nil {
+				current.Children = map[string]*pipelineRunStructureNode{}
+			}
+			children = current.Children
+		}
+		return current
+	}
+
+	var mergeNode func(path []string, node *pipelineRunStructureNode) error
+	mergeNode = func(path []string, node *pipelineRunStructureNode) error {
+		normalizedPath, err := normalizeConfigPathForFolder(boundFolder, strings.Join(path, "/"))
+		if err != nil {
+			return err
+		}
+		targetSegments, err := cleanConfigPathSegments(normalizedPath, false)
+		if err != nil {
+			return err
+		}
+		target := ensurePath(targetSegments)
+		if node != nil {
+			if description := strings.TrimSpace(node.Description); description != "" {
+				target.Description = description
+			}
+			if node.Config != nil {
+				target.Config = copyConfigRepositoryBindingFile(node.Config)
+			}
+			target.Repos = append(target.Repos, node.Repos...)
+			for childName, childNode := range node.Children {
+				childSegments, err := cleanConfigPathSegments(childName, false)
+				if err != nil {
+					return err
+				}
+				if err := mergeNode(append(append([]string{}, path...), childSegments...), childNode); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+
+	for name, node := range structure {
+		segments, err := cleanConfigPathSegments(name, false)
+		if err != nil {
+			return nil, err
+		}
+		if !hasPathSegmentPrefix(segments, boundSegments) {
+			segments = append(append([]string{}, boundSegments...), segments...)
+		}
+		if err := mergeNode(segments, node); err != nil {
+			return nil, err
+		}
 	}
 	return result, nil
 }
@@ -1639,6 +2846,12 @@ func decodePipelineRunStructureMap(node *pipelineRunStructureNode, childMap map[
 				return nil, fmt.Errorf("description must be a string, got %T", raw)
 			}
 			node.Description = strings.TrimSpace(text)
+		case "config":
+			config, err := parseStructureConfigRepositoryBinding(raw)
+			if err != nil {
+				return nil, err
+			}
+			node.Config = config
 		default:
 			childName, err := normalizeStructureName(key)
 			if err != nil {
@@ -1656,6 +2869,33 @@ func decodePipelineRunStructureMap(node *pipelineRunStructureNode, childMap map[
 	}
 
 	return node, nil
+}
+
+func parseStructureConfigRepositoryBinding(raw interface{}) (*configRepositoryBindingFile, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	encoded, err := yaml.Marshal(raw)
+	if err != nil {
+		return nil, fmt.Errorf("config must be a mapping: %w", err)
+	}
+	var file configRepositoryBindingFile
+	if err := yaml.Unmarshal(encoded, &file); err != nil {
+		return nil, fmt.Errorf("config must match config repository binding schema: %w", err)
+	}
+	return &file, nil
+}
+
+func copyConfigRepositoryBindingFile(file *configRepositoryBindingFile) *configRepositoryBindingFile {
+	if file == nil {
+		return nil
+	}
+	copied := *file
+	if file.Enabled != nil {
+		enabled := *file.Enabled
+		copied.Enabled = &enabled
+	}
+	return &copied
 }
 
 func parseStructureRepoList(value interface{}) ([]string, error) {
@@ -1987,33 +3227,33 @@ func buildStepIdentifier(path, name string) string {
 	return buildPipelineIdentifier(path, name)
 }
 
-func parseEnvironmentFilePath(rel string) (string, bool, error) {
+func parseScopeFilePath(rel string) (string, bool, error) {
 	lower := strings.ToLower(rel)
-	if !strings.HasSuffix(lower, "env.yaml") && !strings.HasSuffix(lower, "env.yml") {
+	if !strings.HasSuffix(lower, "scope.yaml") && !strings.HasSuffix(lower, "scope.yml") {
 		return "", false, nil
 	}
 
 	base := filepath.Base(rel)
-	if !strings.EqualFold(base, "env.yaml") && !strings.EqualFold(base, "env.yml") {
+	if !strings.EqualFold(base, "scope.yaml") && !strings.EqualFold(base, "scope.yml") {
 		return "", false, nil
 	}
 
-	envPath := strings.TrimSuffix(rel[:len(rel)-len(base)], "/")
-	envPath = strings.Trim(envPath, "/")
-	if envPath != "" {
-		if strings.Contains(envPath, "..") {
-			return "", false, fmt.Errorf("environment path contains invalid segments")
+	scopePath := strings.TrimSuffix(rel[:len(rel)-len(base)], "/")
+	scopePath = strings.Trim(scopePath, "/")
+	if scopePath != "" {
+		if strings.Contains(scopePath, "..") {
+			return "", false, fmt.Errorf("scope path contains invalid segments")
 		}
-		segments := strings.Split(envPath, "/")
+		segments := strings.Split(scopePath, "/")
 		for _, segment := range segments {
 			if segment == "" {
-				return "", false, fmt.Errorf("environment path contains empty segments")
+				return "", false, fmt.Errorf("scope path contains empty segments")
 			}
 		}
-		envPath = filepath.ToSlash(envPath)
+		scopePath = filepath.ToSlash(scopePath)
 	}
 
-	return envPath, true, nil
+	return scopePath, true, nil
 }
 
 func parseGitHubRepoURL(raw string) (string, string, error) {
@@ -2437,7 +3677,7 @@ func main() {
 	}
 
 	if cfg.MasterKey == "" {
-		log.Fatal().Msg("NOPSAI_MASTER_KEY environment variable is not set. This is required for secret encryption.")
+		log.Fatal().Msg("NOPSAI_MASTER_KEY OS variable is not set. This is required for secret encryption.")
 	}
 	key := sha256.Sum256([]byte(cfg.MasterKey))
 
@@ -2504,6 +3744,9 @@ func main() {
 	}
 	if err := ensureProductAccessBootstrap(context.Background(), dbpool); err != nil {
 		log.Fatal().Err(err).Msg("Failed to ensure product access roles")
+	}
+	if err := ensureConfigRepositorySchema(context.Background(), dbpool); err != nil {
+		log.Fatal().Err(err).Msg("Failed to ensure config repository schema")
 	}
 
 	dispatcherAddr := strings.TrimSpace(cfg.DispatcherAddress)

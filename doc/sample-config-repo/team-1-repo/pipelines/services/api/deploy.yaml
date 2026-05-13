@@ -1,0 +1,33 @@
+name: deploy
+version: "1.0.0"
+description: Deploy the API service to the selected group scope.
+container_image: alpine:3.20
+working_directory: /workspace
+timeout: 20m
+display_options:
+  github_view: tree
+variables:
+  - API_VERSION
+  - DEPLOY_TARGET
+  - IMAGE_NAME
+steps:
+  - name: plan
+    script: |
+      #!/bin/sh
+      set -e
+      echo "Planning deployment of $IMAGE_NAME to $DEPLOY_TARGET"
+
+  - name: deploy
+    script: |
+      #!/bin/sh
+      set -e
+      echo "Deploying API_VERSION=$API_VERSION to $DEPLOY_TARGET"
+    secrets:
+      - DEPLOY_TOKEN
+    depends_on:
+      - plan
+
+  - name: notify
+    include: step:team-1/shared/notify
+    depends_on:
+      - deploy

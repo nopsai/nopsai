@@ -28,6 +28,7 @@ type fakeACLPolicy struct {
 type fakeBackend struct {
 	resolved     *model.ResolvedSubject
 	resolveErr   error
+	inheritErr   error
 	rolePolicies []fakeRolePolicy
 	aclPolicies  []fakeACLPolicy
 	inheritance  map[string][]model.InheritedResource
@@ -80,6 +81,9 @@ func (f *fakeBackend) FindACLMatch(_ context.Context, subject model.SubjectRef, 
 }
 
 func (f *fakeBackend) ResolveResourceInheritance(_ context.Context, resource model.ResourceRef) ([]model.InheritedResource, error) {
+	if f.inheritErr != nil {
+		return nil, f.inheritErr
+	}
 	if inheritance, ok := f.inheritance[resourceKey(resource)]; ok {
 		return inheritance, nil
 	}
@@ -136,6 +140,39 @@ func TestEvaluatorAdminAllowLogsSensitiveDecision(t *testing.T) {
 	}
 	if len(backend.logs) != 1 || !backend.logs[0].Sensitive {
 		t.Fatalf("sensitive allow was not logged correctly: %#v", backend.logs)
+	}
+}
+
+func TestEvaluatorProductAdminBypassesDeniesAndMissingResources(t *testing.T) {
+	backend := newUserBackend()
+	backend.resolved.DirectRoles = []string{"admin"}
+	backend.inheritErr = store.ErrResourceNotFound
+	backend.rolePolicies = append(backend.rolePolicies, fakeRolePolicy{
+		roleName:     "admin",
+		resourceType: "*",
+		resourceID:   "*",
+		action:       "*",
+		effect:       "allow",
+	})
+	backend.aclPolicies = append(backend.aclPolicies, fakeACLPolicy{
+		subjectType:  model.SubjectTypeUser,
+		subjectID:    "user-1",
+		resourceType: "pipeline_run",
+		resourceID:   "run-1",
+		action:       "pipeline_run.read",
+		effect:       "deny",
+	})
+	evaluator := NewEvaluator(backend)
+
+	decision, err := evaluator.Check(context.Background(), model.Subject{Type: model.SubjectTypeUser, ID: "user-1"}, "pipeline_run.read", model.ResourceRef{Type: "pipeline_run", ID: "run-1"}, map[string]any{"request_id": "admin-run-1"})
+	if err != nil {
+		t.Fatalf("Check() error = %v", err)
+	}
+	if !decision.Allowed || decision.Reason != "admin_role_allow" {
+		t.Fatalf("Check() = %#v, want admin allow", decision)
+	}
+	if len(backend.logs) != 0 {
+		t.Fatalf("non-sensitive admin allow should not be logged: %#v", backend.logs)
 	}
 }
 
@@ -425,6 +462,29 @@ func TestEvaluatorFilterReturnsOnlyAllowedResources(t *testing.T) {
 	}
 	if len(allowed) != 1 || allowed[0].ID != alpha.ID {
 		t.Fatalf("Filter() = %#v, want only alpha", allowed)
+	}
+}
+
+func TestEvaluatorAdminFilterReturnsAllResources(t *testing.T) {
+	backend := newUserBackend()
+	backend.resolved.DirectRoles = []string{"admin"}
+	backend.rolePolicies = append(backend.rolePolicies, fakeRolePolicy{
+		roleName:     "admin",
+		resourceType: "*",
+		resourceID:   "*",
+		action:       "*",
+		effect:       "allow",
+	})
+	alpha := model.ResourceRef{Type: "pipeline_run", ID: "run-alpha"}
+	beta := model.ResourceRef{Type: "pipeline_run", ID: "run-beta"}
+	evaluator := NewEvaluator(backend)
+
+	allowed, err := evaluator.Filter(context.Background(), model.Subject{Type: model.SubjectTypeUser, ID: "user-1"}, "pipeline_run.list", []model.ResourceRef{alpha, beta}, nil)
+	if err != nil {
+		t.Fatalf("Filter() error = %v", err)
+	}
+	if len(allowed) != 2 || allowed[0].ID != alpha.ID || allowed[1].ID != beta.ID {
+		t.Fatalf("Filter() = %#v, want both resources", allowed)
 	}
 }
 

@@ -14,8 +14,8 @@ export type StoredSession = {
 };
 
 export function getApiBaseUrl(): string {
-  const envBase = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/^['"]+|['"]+$/g, '');
-  if (envBase) return envBase.replace(/\/+$/, '');
+  const configuredBase = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/^['"]+|['"]+$/g, '');
+  if (configuredBase) return configuredBase.replace(/\/+$/, '');
 
   if (typeof window !== 'undefined') {
     const { protocol, hostname, port } = window.location;

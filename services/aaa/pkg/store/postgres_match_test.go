@@ -130,6 +130,39 @@ func TestRepositoryIDFolderAncestorsUsesGeneralForRootRepository(t *testing.T) {
 	}
 }
 
+func TestRepositoryResourceIDRequiresRepositoryName(t *testing.T) {
+	if got := repositoryResourceID("hosein-yousefii", "test-app"); got != "hosein-yousefii/test-app" {
+		t.Fatalf("repositoryResourceID() = %q, want hosein-yousefii/test-app", got)
+	}
+	if got := repositoryResourceID("", "test-app"); got != "test-app" {
+		t.Fatalf("repositoryResourceID(root) = %q, want test-app", got)
+	}
+	if got := repositoryResourceID("hosein-yousefii", ""); got != "" {
+		t.Fatalf("repositoryResourceID(missing name) = %q, want empty", got)
+	}
+}
+
+func TestAppendInheritedResourcesDedupesResources(t *testing.T) {
+	folder := model.InheritedResource{Resource: model.ResourceRef{Type: "folder", ID: "team-1"}, Reason: "folder_inheritance"}
+	got := appendInheritedResources([]model.InheritedResource{folder}, []model.InheritedResource{folder})
+	if len(got) != 1 {
+		t.Fatalf("appendInheritedResources() len = %d, want 1", len(got))
+	}
+}
+
+func TestGroupSelfAndParentFolderAncestorsIncludesRepositoryLeaf(t *testing.T) {
+	got := groupSelfAndParentFolderAncestors("hosein-yousefii/test-app", []model.InheritedResource{
+		{Resource: model.ResourceRef{Type: "folder", ID: "team-1"}, Reason: "folder_inheritance"},
+	})
+	want := []model.InheritedResource{
+		{Resource: model.ResourceRef{Type: "folder", ID: "team-1/hosein-yousefii/test-app"}, Reason: "folder_inheritance"},
+		{Resource: model.ResourceRef{Type: "folder", ID: "team-1"}, Reason: "folder_inheritance"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("groupSelfAndParentFolderAncestors() = %#v, want %#v", got, want)
+	}
+}
+
 func TestPrefixFolderAncestorsExcludesCurrentFolder(t *testing.T) {
 	got := prefixFolderAncestors([]string{"team-1", "dev"})
 	want := []model.InheritedResource{

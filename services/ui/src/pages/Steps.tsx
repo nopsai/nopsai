@@ -10,6 +10,7 @@ import {
   type StepDraft,
   upsertStepDraft,
 } from '../lib/stepDrafts';
+import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups';
 import { applyEnterIndent, findParentBlock } from '../lib/lab';
 import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
 import { findLineNumberForKey, findLineNumberForTaskName, parseYamlWithLocation } from '../lib/yamlValidation';
@@ -377,6 +378,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
   const [activeFolder, setActiveFolder] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
+  const [resourceGroupPaths, setResourceGroupPaths] = useState<string[]>([]);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -687,7 +689,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
           if (typeof entry === 'string') return entry.trim().replace(/^\/+|\/+$/g, '');
           if (typeof entry === 'object') {
             const record = entry as Record<string, unknown>;
-            const raw = record.scope ?? record.env ?? record.name ?? record.value;
+            const raw = record.scope ?? record.name ?? record.value;
             if (typeof raw === 'string') return raw.trim().replace(/^\/+|\/+$/g, '');
           }
           return '';
@@ -714,7 +716,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
         };
 
         const fetchScopedList = async (path: string, scope: string) => {
-          const suffix = scope ? `?env=${encodeURIComponent(scope)}` : '';
+          const suffix = scope ? `?scope=${encodeURIComponent(scope)}` : '';
           const response = await fetch(buildApiUrl(`${path}${suffix}`));
           if (!response.ok) return [];
           const payload = await response.json();
@@ -1011,6 +1013,21 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
   }, [loadSteps]);
 
   useEffect(() => {
+    let cancelled = false;
+    void fetchResourceGroupPaths()
+      .then(paths => {
+        if (!cancelled) setResourceGroupPaths(paths);
+      })
+      .catch(error => {
+        console.warn('Failed to load groups for step tree', error);
+        if (!cancelled) setResourceGroupPaths([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (listLoading || listError) return;
     const activeId = selectedIdRef.current;
     if (!activeId) return;
@@ -1115,6 +1132,9 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
 
   const buildTree = useMemo(() => {
     const root: TreeNode = { id: '__root__', name: '', fullPath: '', children: [], stepIds: [] };
+    resourceGroupPaths.forEach(path => {
+      insertGroupPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], stepIds: [] }));
+    });
     steps.forEach(item => {
       const parts = item.id.split('/').filter(Boolean);
       const leafName = parts.pop();
@@ -1135,7 +1155,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
       current.stepIds.sort((a, b) => a.localeCompare(b));
     });
     return root;
-  }, [steps]);
+  }, [resourceGroupPaths, steps]);
 
   const activeFolderNode = useMemo(() => {
     if (!activeFolder) return buildTree;
@@ -1472,7 +1492,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
             <span className="pipeline-card-meta-value">{node.stepIds.length}</span>
           </div>
           <div className="pipeline-folder-meta-row">
-            <span className="pipeline-card-meta-label">Sub folders:</span>
+            <span className="pipeline-card-meta-label">Sub groups:</span>
             <span className="pipeline-card-meta-value">{node.children.length}</span>
           </div>
         </div>
@@ -1722,18 +1742,18 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
                             left: 'auto',
                           }}
                         >
-                          <div className="env-suggestion-panel">
-                            <div className="env-suggestion-heading">
-                              <p className="env-suggestion-kicker">Autocomplete</p>
-                              <p className="env-suggestion-title">{editorSuggestion.title}</p>
-                              <p className="env-suggestion-subtitle">
+                          <div className="scope-suggestion-panel">
+                            <div className="scope-suggestion-heading">
+                              <p className="scope-suggestion-kicker">Autocomplete</p>
+                              <p className="scope-suggestion-title">{editorSuggestion.title}</p>
+                              <p className="scope-suggestion-subtitle">
                                 Ctrl+Space • Enter to insert • Esc to close
                                 {autocompleteMeta.loading ? ' • Loading…' : ''}
                               </p>
                             </div>
-                            <div className="env-suggestion-body">
+                            <div className="scope-suggestion-body">
                               {editorSuggestion.items.length ? (
-                                <div className="env-suggestion-list">
+                                <div className="scope-suggestion-list">
                                   {editorSuggestion.groupedSections && editorSuggestion.groupedSections.length > 0 ? (
                                     (() => {
                                       let runningIndex = 0;
@@ -1747,7 +1767,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
                                             <button
                                               key={`${section.label}-${item}-${idx}`}
                                               type="button"
-                                              className={`env-suggestion-pill env-suggestion-pill--action ${isActive ? 'env-suggestion-pill--active' : ''}`}
+                                              className={`scope-suggestion-pill scope-suggestion-pill--action ${isActive ? 'scope-suggestion-pill--active' : ''}`}
                                               onClick={() => applyEditorSuggestion(item)}
                                             >
                                               {item}
@@ -1761,18 +1781,18 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
                                         return (
                                           <article
                                             key={`section-${section.label}`}
-                                            className={`env-suggestion-item ${hasActive ? 'env-suggestion-item--active' : ''}`}
+                                            className={`scope-suggestion-item ${hasActive ? 'scope-suggestion-item--active' : ''}`}
                                           >
-                                            <div className="env-suggestion-env">
-                                              <span className="env-suggestion-env-label">{section.label}</span>
-                                              <span className="env-suggestion-env-count">
+                                            <div className="scope-suggestion-scope">
+                                              <span className="scope-suggestion-scope-label">{section.label}</span>
+                                              <span className="scope-suggestion-scope-count">
                                                 {section.totalCount} {section.totalCount === 1 ? 'item' : 'items'}
                                               </span>
                                             </div>
-                                            <div className="env-suggestion-variables">
+                                            <div className="scope-suggestion-variables">
                                               {pills}
                                               {remaining > 0 && (
-                                                <span className="env-suggestion-pill env-suggestion-pill--more">+{remaining} more</span>
+                                                <span className="scope-suggestion-pill scope-suggestion-pill--more">+{remaining} more</span>
                                               )}
                                             </div>
                                           </article>
@@ -1783,11 +1803,11 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
                                     editorSuggestion.items.map((item, idx) => (
                                       <div
                                         key={`sg-${item}-${idx}`}
-                                        className={`env-suggestion-item ${idx === editorSuggestion.activeIndex ? 'env-suggestion-item--active' : ''}`}
+                                        className={`scope-suggestion-item ${idx === editorSuggestion.activeIndex ? 'scope-suggestion-item--active' : ''}`}
                                       >
                                         <button
                                           type="button"
-                                          className="env-suggestion-pill env-suggestion-pill--action"
+                                          className="scope-suggestion-pill scope-suggestion-pill--action"
                                           onClick={() => applyEditorSuggestion(item)}
                                         >
                                           {item}
@@ -1797,7 +1817,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
                                   )}
                                 </div>
                               ) : (
-                                <p className="env-suggestion-empty">No suggestions available.</p>
+                                <p className="scope-suggestion-empty">No suggestions available.</p>
                               )}
                             </div>
                           </div>
@@ -1961,7 +1981,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
                   value={formModal.path}
                   onChange={event => setFormModal(prev => (prev ? { ...prev, path: event.target.value } : prev))}
                 />
-                <p className="text-xs text-[var(--text-secondary)] mt-1">Optional folder-style path. Leave blank for root.</p>
+                <p className="text-xs text-[var(--text-secondary)] mt-1">Optional group path. Leave blank for root.</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-[var(--text-secondary)]">Step Name</label>

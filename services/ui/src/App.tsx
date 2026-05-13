@@ -11,6 +11,7 @@ import LoginPage from './pages/Login';
 import ProfilePage from './pages/Profile';
 import { buildApiUrl, clearSession, getStoredSession, type StoredSession } from './lib/api';
 import { PIPELINE_DRAFTS_CHANGED_EVENT, getPipelineDraftStorageKey, loadPipelineDrafts } from './lib/pipelineDrafts';
+import { fetchResourceGroupPaths, insertGroupPath } from './lib/resourceGroups';
 import { STEP_DRAFTS_CHANGED_EVENT, getStepDraftStorageKey, loadStepDrafts } from './lib/stepDrafts';
 
 type Theme = 'light' | 'dark';
@@ -67,6 +68,8 @@ type ReadCapabilities = {
 type SystemCapabilities = {
   configRead?: boolean;
   configWrite?: boolean;
+  configReposRead?: boolean;
+  configReposWrite?: boolean;
   dispatcherRead?: boolean;
   dispatcherWrite?: boolean;
   access?: boolean;
@@ -230,6 +233,7 @@ function AppShell() {
   const [scopes, setScopes] = useState<string[]>([]);
   const serverScopesRef = useRef<string[]>([]);
   const [scopeTreeOpen, setScopeTreeOpen] = useState<Set<string>>(new Set());
+  const [resourceGroupPaths, setResourceGroupPaths] = useState<string[]>([]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -318,6 +322,8 @@ function AppShell() {
                     ? {
                         configRead: Boolean(data.capabilities.system.config_read),
                         configWrite: Boolean(data.capabilities.system.config_write),
+                        configReposRead: Boolean(data.capabilities.system.config_repos_read),
+                        configReposWrite: Boolean(data.capabilities.system.config_repos_write),
                         dispatcherRead: Boolean(data.capabilities.system.dispatcher_read),
                         dispatcherWrite: Boolean(data.capabilities.system.dispatcher_write),
                         access: Boolean(data.capabilities.system.access),
@@ -379,8 +385,11 @@ function AppShell() {
   const canDeleteTriggers = Boolean(currentUser?.capabilities?.triggers?.delete);
   const canViewScopes = Boolean(currentUser?.capabilities?.scopes?.read);
   const canDeleteScopes = Boolean(currentUser?.capabilities?.scopes?.delete);
-  const canViewSystemConfig = Boolean(currentUser?.capabilities?.system?.configRead);
-  const canManageSystemConfig = Boolean(currentUser?.capabilities?.system?.configWrite);
+  const canViewSystemRuntimeConfig = Boolean(currentUser?.capabilities?.system?.configRead);
+  const canManageSystemRuntimeConfig = Boolean(currentUser?.capabilities?.system?.configWrite);
+  const canViewSystemConfigRepo = Boolean(currentUser?.capabilities?.system?.configReposRead);
+  const canManageSystemConfigRepo = Boolean(currentUser?.capabilities?.system?.configReposWrite);
+  const canViewSystemConfig = canViewSystemRuntimeConfig || canViewSystemConfigRepo;
   const canViewSystemDispatcher = Boolean(currentUser?.capabilities?.system?.dispatcherRead);
   const canManageSystemDispatcher = Boolean(currentUser?.capabilities?.system?.dispatcherWrite);
   const canViewSystemAccess = Boolean(currentUser?.capabilities?.system?.access);
@@ -420,6 +429,25 @@ function AppShell() {
   }, [location.pathname, sidebarOpen]);
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      setResourceGroupPaths([]);
+      return;
+    }
+    let cancelled = false;
+    void fetchResourceGroupPaths()
+      .then(paths => {
+        if (!cancelled) setResourceGroupPaths(paths);
+      })
+      .catch(error => {
+        console.warn('Failed to load groups for resource trees', error);
+        if (!cancelled) setResourceGroupPaths([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated]);
+
+  useEffect(() => {
     if (!isAuthenticated) return;
     const load = async () => {
       try {
@@ -449,11 +477,9 @@ function AppShell() {
             const record = entry as Record<string, unknown>;
             const scopeLabel = typeof record.scope === 'string'
               ? record.scope
-              : typeof record.env === 'string'
-                ? record.env
-                : typeof record.name === 'string'
-                  ? record.name
-                  : '';
+              : typeof record.name === 'string'
+                ? record.name
+                : '';
             scopeSet.add(scopeLabel.trim());
           });
         }
@@ -610,6 +636,9 @@ function AppShell() {
 
   const buildTree = useMemo(() => {
     const root: PipelineTreeNode = { id: '__root__', name: 'All pipelines', fullPath: '', children: [], pipelineIds: [] };
+    resourceGroupPaths.forEach(path => {
+      insertGroupPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], pipelineIds: [] }));
+    });
     pipelines.forEach(id => {
       const parts = id.split('/').filter(Boolean);
       const pipelineName = parts.pop();
@@ -630,10 +659,13 @@ function AppShell() {
       current.pipelineIds.sort((a, b) => a.localeCompare(b));
     });
     return root;
-  }, [pipelines]);
+  }, [pipelines, resourceGroupPaths]);
 
   const buildTriggerTree = useMemo(() => {
     const root: TriggerTreeNode = { id: '__root__', name: 'All triggers', fullPath: '', children: [], triggerSlugs: [] };
+    resourceGroupPaths.forEach(path => {
+      insertGroupPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], triggerSlugs: [] }));
+    });
     triggers.forEach(slug => {
       const parts = slug.split('/').filter(Boolean);
       const repoName = parts.pop();
@@ -654,10 +686,13 @@ function AppShell() {
       current.triggerSlugs.sort((a, b) => a.localeCompare(b));
     });
     return root;
-  }, [triggers]);
+  }, [resourceGroupPaths, triggers]);
 
   const buildStepTree = useMemo(() => {
     const root: StepTreeNode = { id: '__root__', name: 'All steps', fullPath: '', children: [], stepIds: [] };
+    resourceGroupPaths.forEach(path => {
+      insertGroupPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], stepIds: [] }));
+    });
     steps.forEach(id => {
       const parts = id.split('/').filter(Boolean);
       const stepName = parts.pop();
@@ -678,10 +713,13 @@ function AppShell() {
       current.stepIds.sort((a, b) => a.localeCompare(b));
     });
     return root;
-  }, [steps]);
+  }, [resourceGroupPaths, steps]);
 
   const buildScopeTree = useMemo(() => {
     const root: ScopeTreeNode = { id: '__root__', name: 'All scopes', fullPath: '', children: [], scopes: [] };
+    resourceGroupPaths.forEach(path => {
+      insertGroupPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], scopes: [] }));
+    });
     scopes.forEach(scope => {
       const normalized = scope.replace(/^\/+|\/+$/g, '');
       const parts = normalized.split('/').filter(Boolean);
@@ -705,7 +743,7 @@ function AppShell() {
       current.scopes.sort((a, b) => a.localeCompare(b));
     });
     return root;
-  }, [scopes]);
+  }, [resourceGroupPaths, scopes]);
 
   const handleTogglePipelineNode = (id: string) => {
     setPipelineTreeOpen(prev => {
@@ -897,7 +935,10 @@ function AppShell() {
                       <SystemPage
                         permissions={{
                           canViewConfig: canViewSystemConfig,
-                          canManageConfig: canManageSystemConfig,
+                          canViewRuntimeConfig: canViewSystemRuntimeConfig,
+                          canManageRuntimeConfig: canManageSystemRuntimeConfig,
+                          canViewGlobalConfigRepo: canViewSystemConfigRepo,
+                          canManageGlobalConfigRepo: canManageSystemConfigRepo,
                           canViewDispatcher: canViewSystemDispatcher,
                           canManageDispatcher: canManageSystemDispatcher,
                           canViewAccess: canViewSystemAccess,
@@ -1005,7 +1046,7 @@ function Sidebar({
             <button
               className="pipeline-tree-toggle inline-flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1"
               onClick={() => onTogglePipelineNode(node.id)}
-              aria-label="Toggle folder"
+              aria-label="Toggle group"
             >
               <svg
                 className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-90' : ''}`}
@@ -1071,7 +1112,7 @@ function Sidebar({
             <button
               className="pipeline-tree-toggle inline-flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1"
               onClick={() => onToggleTriggerNode(node.id)}
-              aria-label="Toggle folder"
+              aria-label="Toggle group"
             >
               <svg
                 className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-90' : ''}`}
@@ -1136,7 +1177,7 @@ function Sidebar({
             <button
               className="pipeline-tree-toggle inline-flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1"
               onClick={() => onToggleStepNode(node.id)}
-              aria-label="Toggle folder"
+              aria-label="Toggle group"
             >
               <svg
                 className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-90' : ''}`}
@@ -1213,7 +1254,7 @@ function Sidebar({
             <button
               className="pipeline-tree-toggle inline-flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1"
               onClick={() => onToggleScopeNode(node.id)}
-              aria-label="Toggle folder"
+              aria-label="Toggle group"
             >
               <svg
                 className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-90' : ''}`}
@@ -1834,7 +1875,7 @@ function PipelineRunsSidebarContent({
             className="flex items-center gap-2 flex-1 min-w-0 text-left"
             onClick={() => handleSelectGroup(group.id)}
             aria-expanded={expanded}
-            title={isRepo ? 'Open in main view' : 'Open folder in main view'}
+            title={isRepo ? 'Open in main view' : 'Open group in main view'}
           >
             <span className={`h-4 w-4 flex items-center justify-center ${isRepo ? 'text-[var(--text-accent)]' : 'text-[var(--text-secondary)]'}`}>
               {isRepo ? (
@@ -1914,8 +1955,8 @@ function PipelineRunsSidebarContent({
             Root
           </button>
         </div>
-          {groupsLoading && <div className="text-xs text-[var(--text-secondary)]">Loading folders…</div>}
-          {!groupsLoading && rootGroups.length === 0 && <div className="text-xs text-[var(--text-secondary)]">No folders defined yet.</div>}
+          {groupsLoading && <div className="text-xs text-[var(--text-secondary)]">Loading groups…</div>}
+          {!groupsLoading && rootGroups.length === 0 && <div className="text-xs text-[var(--text-secondary)]">No groups defined yet.</div>}
           {!groupsLoading && rootGroups.map(group => renderGroupNode(group))}
         </>
       )}

@@ -185,12 +185,12 @@ func TestPrepareJobForRunnerAppliesRunnerOverridesWithoutMutatingInput(t *testin
 		t.Fatalf("prepared job docker network = %q, want %q", prepared.DockerNetwork, "runner-network")
 	}
 	if strings.Join(job.Env, ",") != "KEEP=1" {
-		t.Fatalf("original job env mutated to %v", job.Env)
+		t.Fatalf("original job runtime variables mutated to %v", job.Env)
 	}
-	gotEnv := strings.Join(prepared.Env, ",")
+	gotRuntimeVars := strings.Join(prepared.Env, ",")
 	for _, want := range []string{"KEEP=1", "DOCKER_NETWORK_NAME=runner-network", "DISPATCHER_ADDRESS=dispatcher:7443", "RUNNER_ID=runner-prepare"} {
-		if !strings.Contains(gotEnv, want) {
-			t.Fatalf("prepared env = %v, want entry %q", prepared.Env, want)
+		if !strings.Contains(gotRuntimeVars, want) {
+			t.Fatalf("prepared runtime variables = %v, want entry %q", prepared.Env, want)
 		}
 	}
 }

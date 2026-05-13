@@ -10,6 +10,7 @@ import {
   type PipelineDraft,
   upsertPipelineDraft,
 } from '../lib/pipelineDrafts';
+import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups';
 import { applyEnterIndent, findParentBlock, validatePipelineYamlStrict } from '../lib/lab';
 import { findLineNumberForKey, normalizeLineNumber, parseYamlWithLocation } from '../lib/yamlValidation';
 import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
@@ -153,6 +154,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   const [activeFolder, setActiveFolder] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
+  const [resourceGroupPaths, setResourceGroupPaths] = useState<string[]>([]);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -628,7 +630,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
           if (typeof entry === 'string') return entry.trim().replace(/^\/+|\/+$/g, '');
           if (typeof entry === 'object') {
             const record = entry as Record<string, unknown>;
-            const raw = record.scope ?? record.env ?? record.name ?? record.value;
+            const raw = record.scope ?? record.name ?? record.value;
             if (typeof raw === 'string') return raw.trim().replace(/^\/+|\/+$/g, '');
           }
           return '';
@@ -655,7 +657,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
         };
 
         const fetchScopedList = async (path: string, scope: string) => {
-          const suffix = scope ? `?env=${encodeURIComponent(scope)}` : '';
+          const suffix = scope ? `?scope=${encodeURIComponent(scope)}` : '';
           const response = await fetch(buildApiUrl(`${path}${suffix}`));
           if (!response.ok) return [];
           const payload = await response.json();
@@ -1201,6 +1203,21 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   }, [loadPipelines]);
 
   useEffect(() => {
+    let cancelled = false;
+    void fetchResourceGroupPaths()
+      .then(paths => {
+        if (!cancelled) setResourceGroupPaths(paths);
+      })
+      .catch(error => {
+        console.warn('Failed to load groups for pipeline tree', error);
+        if (!cancelled) setResourceGroupPaths([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (listLoading || listError) return;
     const activeId = selectedIdRef.current;
     if (!activeId) return;
@@ -1309,6 +1326,9 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
 
   const buildTree = useMemo(() => {
     const root: TreeNode = { id: '__root__', name: '', fullPath: '', children: [], pipelineIds: [] };
+    resourceGroupPaths.forEach(path => {
+      insertGroupPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], pipelineIds: [] }));
+    });
     pipelines.forEach(item => {
       const parts = item.id.split('/').filter(Boolean);
       const pipelineName = parts.pop();
@@ -1329,7 +1349,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
       current.pipelineIds.sort((a, b) => a.localeCompare(b));
     });
     return root;
-  }, [pipelines]);
+  }, [pipelines, resourceGroupPaths]);
 
   const activeFolderNode = useMemo(() => {
     if (!activeFolder) return buildTree;
@@ -1618,7 +1638,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
             <span className="pipeline-card-meta-value">{node.pipelineIds.length}</span>
           </div>
           <div className="pipeline-folder-meta-row">
-            <span className="pipeline-card-meta-label">Sub folders:</span>
+            <span className="pipeline-card-meta-label">Sub groups:</span>
             <span className="pipeline-card-meta-value">{node.children.length}</span>
           </div>
         </div>
@@ -1851,18 +1871,18 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                             left: 'auto',
                           }}
                         >
-                          <div className="env-suggestion-panel">
-                            <div className="env-suggestion-heading">
-                              <p className="env-suggestion-kicker">Autocomplete</p>
-                              <p className="env-suggestion-title">{editorSuggestion.title}</p>
-                              <p className="env-suggestion-subtitle">
+                          <div className="scope-suggestion-panel">
+                            <div className="scope-suggestion-heading">
+                              <p className="scope-suggestion-kicker">Autocomplete</p>
+                              <p className="scope-suggestion-title">{editorSuggestion.title}</p>
+                              <p className="scope-suggestion-subtitle">
                                 Ctrl+Space • Enter to insert • Esc to close
                                 {autocompleteMeta.loading ? ' • Loading…' : ''}
                               </p>
                             </div>
-                            <div className="env-suggestion-body">
+                            <div className="scope-suggestion-body">
                               {editorSuggestion.items.length ? (
-                                <div className="env-suggestion-list">
+                                <div className="scope-suggestion-list">
                                   {editorSuggestion.groupedSections && editorSuggestion.groupedSections.length > 0 ? (
                                     (() => {
                                       let runningIndex = 0;
@@ -1876,7 +1896,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                                             <button
                                               key={`${section.label}-${item}-${idx}`}
                                               type="button"
-                                              className={`env-suggestion-pill env-suggestion-pill--action ${isActive ? 'env-suggestion-pill--active' : ''}`}
+                                              className={`scope-suggestion-pill scope-suggestion-pill--action ${isActive ? 'scope-suggestion-pill--active' : ''}`}
                                               onClick={() => applyEditorSuggestion(item)}
                                             >
                                               {item}
@@ -1890,18 +1910,18 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                                         return (
                                           <article
                                             key={`section-${section.label}`}
-                                            className={`env-suggestion-item ${hasActive ? 'env-suggestion-item--active' : ''}`}
+                                            className={`scope-suggestion-item ${hasActive ? 'scope-suggestion-item--active' : ''}`}
                                           >
-                                            <div className="env-suggestion-env">
-                                              <span className="env-suggestion-env-label">{section.label}</span>
-                                              <span className="env-suggestion-env-count">
+                                            <div className="scope-suggestion-scope">
+                                              <span className="scope-suggestion-scope-label">{section.label}</span>
+                                              <span className="scope-suggestion-scope-count">
                                                 {section.totalCount} {section.totalCount === 1 ? 'item' : 'items'}
                                               </span>
                                             </div>
-                                            <div className="env-suggestion-variables">
+                                            <div className="scope-suggestion-variables">
                                               {pills}
                                               {remaining > 0 && (
-                                                <span className="env-suggestion-pill env-suggestion-pill--more">
+                                                <span className="scope-suggestion-pill scope-suggestion-pill--more">
                                                   +{remaining} more
                                                 </span>
                                               )}
@@ -1914,11 +1934,11 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                                     editorSuggestion.items.map((item, idx) => (
                                       <div
                                         key={`sg-${item}-${idx}`}
-                                        className={`env-suggestion-item ${idx === editorSuggestion.activeIndex ? 'env-suggestion-item--active' : ''}`}
+                                        className={`scope-suggestion-item ${idx === editorSuggestion.activeIndex ? 'scope-suggestion-item--active' : ''}`}
                                       >
                                         <button
                                           type="button"
-                                          className="env-suggestion-pill env-suggestion-pill--action"
+                                          className="scope-suggestion-pill scope-suggestion-pill--action"
                                           onClick={() => applyEditorSuggestion(item)}
                                         >
                                           {item}
@@ -1928,7 +1948,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                                   )}
                                 </div>
                               ) : (
-                                <p className="env-suggestion-empty">No suggestions available.</p>
+                                <p className="scope-suggestion-empty">No suggestions available.</p>
                               )}
                             </div>
                           </div>
@@ -2249,7 +2269,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                   value={formModal.path}
                   onChange={event => setFormModal(prev => prev ? { ...prev, path: event.target.value } : prev)}
                 />
-                <p className="text-xs text-[var(--text-secondary)] mt-1">Optional folder-style path. Leave blank for root.</p>
+                <p className="text-xs text-[var(--text-secondary)] mt-1">Optional group path. Leave blank for root.</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-[var(--text-secondary)]">Pipeline Name</label>

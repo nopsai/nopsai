@@ -53,6 +53,16 @@ func withAAASubject(ctx context.Context, subject model.Subject) context.Context 
 	return context.WithValue(ctx, ctxKeyAAASubject, subject)
 }
 
+func (a *App) withDispatcherInternalSubject(r *http.Request) *http.Request {
+	claims := &auth.Claims{
+		Sub:      "dispatcher",
+		Provider: "internal-service",
+	}
+	ctx := auth.WithClaims(r.Context(), claims)
+	ctx = withAAASubject(ctx, a.buildAAASubject(claims))
+	return r.WithContext(ctx)
+}
+
 func aaaSubjectFromContext(ctx context.Context) (model.Subject, bool) {
 	if ctx == nil {
 		return model.Subject{}, false

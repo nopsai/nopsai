@@ -500,12 +500,17 @@ func (s *PGStore) FindACLMatch(ctx context.Context, subject model.SubjectRef, re
 func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model.ResourceRef) ([]model.InheritedResource, error) {
 	switch strings.TrimSpace(resource.Type) {
 	case "pipeline_run":
-		var pipelinePath, pipelineName string
+		var pipelinePath, pipelineName, repoOwner, repoName, scope string
 		err := s.db.QueryRow(ctx, `
-			SELECT COALESCE(pipeline_path, ''), COALESCE(pipeline_name, '')
+			SELECT
+				COALESCE(pipeline_path, ''),
+				COALESCE(pipeline_name, ''),
+				COALESCE(git_repo_owner, ''),
+				COALESCE(git_repo_name, ''),
+				COALESCE(scope, '')
 			FROM pipeline_runs
 			WHERE run_id::text = $1
-		`, resource.ID).Scan(&pipelinePath, &pipelineName)
+		`, resource.ID).Scan(&pipelinePath, &pipelineName, &repoOwner, &repoName, &scope)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil, ErrResourceNotFound
@@ -519,14 +524,35 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 				Reason:   "pipeline_inheritance",
 			})
 		}
+
+		if repoID := repositoryResourceID(repoOwner, repoName); repoID != "" {
+			out = appendInheritedResource(out, model.InheritedResource{
+				Resource: model.ResourceRef{Type: "repository", ID: repoID},
+				Reason:   "repository_inheritance",
+			})
+			folderAncestors, err := s.repositoryFolderAncestors(ctx, repoID)
+			if err != nil {
+				return nil, err
+			}
+			out = appendInheritedResources(out, folderAncestors)
+		}
+
+		if strings.TrimSpace(scope) != "" {
+			out = appendInheritedResource(out, model.InheritedResource{
+				Resource: model.ResourceRef{Type: "scope", ID: strings.Trim(strings.TrimSpace(scope), "/")},
+				Reason:   "scope_inheritance",
+			})
+			out = appendInheritedResources(out, scopeFolderAncestors(scope))
+		}
+
 		if strings.TrimSpace(pipelinePath) == "" {
-			return append(out, generalFolderAncestors()...), nil
+			return appendInheritedResources(out, generalFolderAncestors()), nil
 		}
 		folderAncestors, err := s.containingFolderAncestors(ctx, pipelinePath)
 		if err != nil {
 			return nil, err
 		}
-		return append(out, folderAncestors...), nil
+		return appendInheritedResources(out, folderAncestors), nil
 	case "pipeline":
 		pipelinePath, _ := model.SplitPipelineID(resource.ID)
 		if strings.TrimSpace(pipelinePath) == "" {
@@ -592,6 +618,40 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 	default:
 		return nil, nil
 	}
+}
+
+func repositoryResourceID(owner, name string) string {
+	owner = strings.Trim(strings.TrimSpace(owner), "/")
+	name = strings.Trim(strings.TrimSpace(name), "/")
+	if name == "" {
+		return ""
+	}
+	if owner == "" {
+		return name
+	}
+	return owner + "/" + name
+}
+
+func appendInheritedResources(out []model.InheritedResource, resources []model.InheritedResource) []model.InheritedResource {
+	for _, resource := range resources {
+		out = appendInheritedResource(out, resource)
+	}
+	return out
+}
+
+func appendInheritedResource(out []model.InheritedResource, resource model.InheritedResource) []model.InheritedResource {
+	resource.Resource.Type = strings.TrimSpace(resource.Resource.Type)
+	resource.Resource.ID = strings.TrimSpace(resource.Resource.ID)
+	resource.Reason = strings.TrimSpace(resource.Reason)
+	if resource.Resource.Type == "" || resource.Resource.ID == "" {
+		return out
+	}
+	for _, existing := range out {
+		if existing.Resource.Type == resource.Resource.Type && existing.Resource.ID == resource.Resource.ID && existing.Reason == resource.Reason {
+			return out
+		}
+	}
+	return append(out, resource)
 }
 
 func scopeFolderAncestors(scope string) []model.InheritedResource {
@@ -718,21 +778,22 @@ func (s *PGStore) repositoryFolderAncestors(ctx context.Context, repoID string) 
 	}
 
 	var parentID *int
+	var name string
 	if err := s.db.QueryRow(ctx, `
-		SELECT parent_id
+		SELECT parent_id, name
 		FROM groups
 		WHERE name = $1
-	`, repoID).Scan(&parentID); err != nil {
+	`, repoID).Scan(&parentID, &name); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return repositoryIDFolderAncestors(repoID), nil
 		}
 		return nil, err
 	}
-	if parentID == nil {
-		return generalFolderAncestors(), nil
+	parentAncestors, err := s.groupParentFolderAncestors(ctx, parentID)
+	if err != nil {
+		return nil, err
 	}
-
-	return s.groupParentFolderAncestors(ctx, parentID)
+	return groupSelfAndParentFolderAncestors(name, parentAncestors), nil
 }
 
 func repositoryIDFolderAncestors(repoID string) []model.InheritedResource {
@@ -796,6 +857,25 @@ func (s *PGStore) groupParentFolderAncestors(ctx context.Context, parentID *int)
 		})
 	}
 	return out, nil
+}
+
+func groupSelfAndParentFolderAncestors(name string, parentAncestors []model.InheritedResource) []model.InheritedResource {
+	name = strings.Trim(strings.TrimSpace(name), "/")
+	if name == "" {
+		return parentAncestors
+	}
+	selfPath := name
+	if len(parentAncestors) > 0 {
+		parentPath := strings.Trim(strings.TrimSpace(parentAncestors[0].Resource.ID), "/")
+		if parentPath != "" {
+			selfPath = strings.Trim(parentPath+"/"+name, "/")
+		}
+	}
+	out := []model.InheritedResource{{
+		Resource: model.ResourceRef{Type: "folder", ID: selfPath},
+		Reason:   "folder_inheritance",
+	}}
+	return appendInheritedResources(out, parentAncestors)
 }
 
 func (s *PGStore) WriteDecisionLog(ctx context.Context, entry model.DecisionLogEntry) error {

@@ -1,0 +1,21 @@
+name: platform-maintenance
+version: "1.0.0"
+description: Run a lightweight platform maintenance check.
+container_image: alpine:3.20
+working_directory: /workspace
+timeout: 10m
+display_options:
+  github_view: flat
+variables:
+  - PLATFORM_SCOPE
+steps:
+  - name: announce
+    include: step:shared/announce
+
+  - name: health-check
+    script: |
+      #!/bin/sh
+      set -e
+      echo "Checking platform scope $PLATFORM_SCOPE"
+    depends_on:
+      - announce

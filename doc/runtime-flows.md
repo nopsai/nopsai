@@ -2,6 +2,19 @@
 
 This document explains how the tool works step by step.
 
+## Request Authentication And Authorization
+
+Most API routes pass through the same middleware stack before reaching a handler.
+
+1. Public paths such as `/v1/auth/login`, `/v1/auth/refresh`, `/v1/auth/logout`, and `/v1/git/events` skip bearer-token authentication.
+2. Other requests must include a bearer token produced by the local auth service.
+3. `nopsai` validates the token, enforces idle-session timeout when configured, and places claims in the request context.
+4. Authenticated-only profile routes (`/v1/auth/me`, `/v1/auth/password`, `/v1/auth/email`) stop here.
+5. Other protected routes are mapped by `routeauthz.MapRequest` to an action/resource pair.
+6. `nopsai` calls the AAA service for a `Check`, or defers to handler-level `Filter` for list endpoints.
+7. If the AAA service is unavailable, `nopsai` temporarily falls back to an in-process evaluator backed by the same Postgres tables.
+8. Denied decisions return `403`; denied decisions and sensitive allowed decisions are written to `authz_decision_logs`.
+
 ## 1. GitHub Webhook To Pipeline Run
 
 1. GitHub sends a webhook to `git-bot` at `/webhook`.
@@ -18,7 +31,7 @@ This document explains how the tool works step by step.
 ## 2. Manual API Run
 
 1. A user or UI calls `POST /v1/run` or `POST /v1/run/{pipeline}`.
-2. `nopsai` accepts either a pipeline identifier, raw YAML, or a JSON payload with `pipeline`, `definition`, `scope`, and variable overrides.
+2. `nopsai` authorizes the request for `pipeline.execute`, then accepts either a pipeline identifier, raw YAML, or a JSON payload with `pipeline`, `definition`, `scope`, and variable overrides.
 3. The pipeline is parsed and normalized.
 4. `nopsai` creates the initial `pipeline_runs` record in `pending`.
 5. `step:` includes are expanded from the reusable `steps` table.
@@ -50,7 +63,7 @@ This document explains how the tool works step by step.
 5. It starts an agent container with:
    - the shared workspace mounted at `/workspace`
    - Docker socket access
-   - the full environment payload from `nopsai`
+   - the full runtime variable payload from `nopsai`
 6. It starts two background loops:
    - log streaming back through `dispatcher.IngestLogs`
    - run-cancellation polling through `dispatcher.GetRunStatus`
@@ -58,7 +71,7 @@ This document explains how the tool works step by step.
 
 ## 5. Agent Startup And Preparation
 
-1. The agent reads its environment variables, including:
+1. The agent reads its runtime variables, including:
    - run ID
    - pipeline definition
    - secrets payload
@@ -83,7 +96,7 @@ The agent runs tasks in dependency order, not strictly line order.
 2. It repeatedly asks `getNextRunnableTasks` for all currently unblocked tasks.
 3. Tasks from independent steps can run in parallel.
 4. For each runnable task, the agent builds a step execution context from:
-   - inherited environment
+   - inherited runtime variables
    - resolved variables
    - resolved secrets
    - step-level overrides
@@ -160,6 +173,7 @@ For a `step:<identifier>` include:
 7. `git-bot` updates its in-memory check-run state and renders the GitHub check output.
 8. When the agent finishes, it calls `dispatcher.FinalizeRun`.
 9. The dispatcher forwards that to `nopsai`, which finalizes the run and notifies `git-bot` of the final result.
+10. The UI refreshes run lists and details over REST polling, and log modals poll `/v1/runs/{runID}/logs?since_line=<id>` for incremental log lines.
 
 ## 11. Cancellation And Reruns
 
@@ -179,30 +193,39 @@ Rerun:
 
 ## 12. Config Sync From Git
 
-1. A user calls `POST /v1/system/config/sync` or `POST /v1/internal/config/sync`.
-2. `nopsai` validates that `CONFIG_REPO_URL` is configured.
+1. A group owner calls `POST /v1/groups/{groupPath}/config-repo/sync`, or an admin calls `POST /v1/system/config-repos/sync`.
+2. `nopsai` loads the scoped config repository binding and validates group ownership for group-scoped sync.
 3. It asks `git-bot` to verify repository access.
-4. It fetches directories from the config repo:
+4. It fetches directories from the config repo under the binding base path:
    - `pipelines/`
    - `steps/`
    - `triggers/`
-   - `environments/`
+   - `scopes/`
    - `pipelineruns/`
+   - `config-repositories/`
 5. It parses and validates each file class:
    - pipelines must parse and pass pipeline validation
    - reusable steps must parse and have matching names
    - triggers must parse as manifests
-   - environment files are turned into scoped variables
-   - `pipelineruns/structure.yaml` becomes the run-group tree
-6. It upserts Git-sourced rows into Postgres.
-7. It prunes Git-sourced pipelines, steps, triggers, and variables that disappeared from the repo.
-8. It does not prune user-created groups, even when syncing the run-group structure.
-9. It records sync status for the UI.
+   - scope files are turned into scoped variables
+   - legacy `pipelineruns/structure.yaml` becomes the run-group tree for groups owned by that repo
+   - `config-repositories/groups/<group>.yaml` becomes a group config repo binding and group shell
+   - `config-repositories/groups/structure.yaml` and `config-repositories/groups/<group>/structure.yaml` place repositories under group shells and can define inline group repo `config:` blocks
+6. System/global repositories are synced before group repositories during sync-all, so newly defined group bindings can be used immediately.
+7. Group-scoped resources are normalized under the bound group before writing.
+8. It refuses to overwrite resources that are unmanaged or already managed by an unrelated config repository; delegated child group repos can override parent-managed resources in their group.
+9. It upserts rows with config-source metadata into Postgres.
+10. It prunes rows managed by the same config repository that disappeared from the repo.
+11. Legacy global `pipelineruns/structure.yaml` is ignored for groups delegated via `config-repositories/groups`; colocated group structure under `config-repositories/groups` is still applied.
+12. It does not prune user-created groups, even when syncing the run-group structure.
+12. It records sync status per config repository for the UI.
 
 ## 13. Failure Boundaries
 
 Where failures stop the flow:
 
+- Missing or invalid bearer token: stopped in `nopsai`
+- AAA denial: stopped in `nopsai` with `403`
 - Invalid webhook signature: stopped at `git-bot`
 - Trigger mismatch: stopped in `nopsai`
 - Invalid pipeline YAML or validation failure: stopped in `nopsai`
@@ -218,6 +241,7 @@ The simplest way to think about the tool is:
 
 - `git-bot` knows GitHub
 - `nopsai` knows configuration and state
+- `aaa` knows authorization decisions
 - `dispatcher` knows scheduling
 - `runner` knows Docker hosts
 - `agent` knows pipeline execution and LLM-assisted decisions
