@@ -1271,6 +1271,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 
 	// --- 2. Parse Files ---
 
+	configRepositoryPipelineRunStructure := map[string]*pipelineRunStructureNode{}
 	configRepositories := make(map[string]storedConfigRepository)
 	for path, content := range configRepositoryFiles {
 		normalized := filepath.ToSlash(path)
@@ -1279,6 +1280,30 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 			continue
 		}
 		if rel == "" || strings.HasSuffix(rel, "/") || !isYAMLFile(rel) {
+			continue
+		}
+		structure, isStructureFile, err := parseConfigRepositoryGroupPipelineRunStructure(rel, content)
+		if err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to parse config repository group structure '%s': %w", normalized, err)
+		}
+		if isStructureFile {
+			if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+				structure, err = normalizePipelineRunStructureForFolder(boundFolder, structure)
+				if err != nil {
+					return nil, commitSHA, fmt.Errorf("failed to normalize config repository group structure '%s': %w", normalized, err)
+				}
+			}
+			inlineConfigRepositories, err := configRepositoryBindingsFromPipelineRunStructure(structure, normalized)
+			if err != nil {
+				return nil, commitSHA, err
+			}
+			for key, stored := range inlineConfigRepositories {
+				if _, exists := configRepositories[key]; exists {
+					return nil, commitSHA, fmt.Errorf("duplicate config repository binding for '%s' detected", key)
+				}
+				configRepositories[key] = stored
+			}
+			mergePipelineRunStructure(configRepositoryPipelineRunStructure, structure)
 			continue
 		}
 
@@ -1556,7 +1581,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		return nil, commitSHA, err
 	}
 	filterDelegatedConfigResources(binding, overrideScopes, pipelines, steps, generalEnvs, repoEnvs, triggers)
-	effectivePipelineRunStructure, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, pipelineRunStructure, overrideScopes)
+	effectivePipelineRunStructure, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, pipelineRunStructure, configRepositoryPipelineRunStructure, overrideScopes)
 	if err != nil {
 		return nil, commitSHA, err
 	}
@@ -2031,6 +2056,78 @@ func validateConfigRepositoryBindingFile(file configRepositoryBindingFile, scope
 	return nil
 }
 
+func configRepositoryBindingsFromPipelineRunStructure(structure map[string]*pipelineRunStructureNode, sourcePath string) (map[string]storedConfigRepository, error) {
+	result := map[string]storedConfigRepository{}
+
+	var walk func(path []string, node *pipelineRunStructureNode) error
+	walk = func(path []string, node *pipelineRunStructureNode) error {
+		if node == nil {
+			return nil
+		}
+		scopeID := strings.Trim(strings.Join(path, "/"), "/")
+		if node.Config != nil {
+			if scopeID == "" {
+				return fmt.Errorf("config repository binding '%s' is missing a group path", sourcePath)
+			}
+			if _, err := cleanConfigPathSegments(scopeID, false); err != nil {
+				return fmt.Errorf("invalid config repository binding '%s': %w", sourcePath, err)
+			}
+			file := *node.Config
+			if err := validateConfigRepositoryBindingFile(file, models.ConfigRepositoryScopeFolder, scopeID, sourcePath); err != nil {
+				return err
+			}
+			basePath, err := normalizeConfigRepositoryBasePathForRequest(file.BasePath)
+			if err != nil {
+				return fmt.Errorf("invalid base_path in config repository binding '%s': %w", sourcePath, err)
+			}
+			enabled := true
+			if file.Enabled != nil {
+				enabled = *file.Enabled
+			}
+			branch := strings.TrimSpace(file.Branch)
+			if branch == "" {
+				branch = "main"
+			}
+
+			key := models.ConfigRepositoryScopeFolder + "/" + scopeID
+			if _, exists := result[key]; exists {
+				return fmt.Errorf("duplicate config repository binding for '%s' detected", key)
+			}
+			result[key] = storedConfigRepository{
+				scopeType:  models.ConfigRepositoryScopeFolder,
+				scopeID:    scopeID,
+				repoURL:    strings.TrimSpace(file.RepoURL),
+				branch:     branch,
+				basePath:   basePath,
+				enabled:    enabled,
+				sourcePath: sourcePath,
+			}
+		}
+
+		for childName, childNode := range node.Children {
+			childSegments, err := cleanConfigPathSegments(childName, false)
+			if err != nil {
+				return err
+			}
+			if err := walk(append(append([]string{}, path...), childSegments...), childNode); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	for name, node := range structure {
+		segments, err := cleanConfigPathSegments(name, false)
+		if err != nil {
+			return nil, err
+		}
+		if err := walk(segments, node); err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
+}
+
 func configRepositoryOverrideScopes(ctx context.Context, tx pgx.Tx, binding models.ConfigRepository, parsed map[string]storedConfigRepository) ([]string, error) {
 	scopeSet := map[string]struct{}{}
 	addScope := func(scope string) {
@@ -2087,6 +2184,7 @@ func effectivePipelineRunStructureForConfigSync(
 	binding models.ConfigRepository,
 	configRepositories map[string]storedConfigRepository,
 	pipelineRunStructure map[string]*pipelineRunStructureNode,
+	configRepositoryPipelineRunStructure map[string]*pipelineRunStructureNode,
 	overrideScopes []string,
 ) (map[string]*pipelineRunStructureNode, error) {
 	effective, err := configRepositoryGroupStructure(binding, configRepositories)
@@ -2102,6 +2200,7 @@ func effectivePipelineRunStructureForConfigSync(
 	}
 
 	mergePipelineRunStructure(effective, structure)
+	mergePipelineRunStructure(effective, configRepositoryPipelineRunStructure)
 	return effective, nil
 }
 
@@ -2191,32 +2290,35 @@ func ensurePipelineRunStructurePath(structure map[string]*pipelineRunStructureNo
 	return current
 }
 
+func mergePipelineRunStructureNode(target *pipelineRunStructureNode, source *pipelineRunStructureNode) {
+	if target == nil || source == nil {
+		return
+	}
+	if target.Children == nil {
+		target.Children = map[string]*pipelineRunStructureNode{}
+	}
+	if description := strings.TrimSpace(source.Description); description != "" {
+		target.Description = description
+	}
+	if source.Config != nil {
+		target.Config = copyConfigRepositoryBindingFile(source.Config)
+	}
+	if len(source.Repos) > 0 {
+		target.Repos = append([]string{}, source.Repos...)
+	}
+	for childName, childSource := range source.Children {
+		childTarget, ok := target.Children[childName]
+		if !ok {
+			childTarget = &pipelineRunStructureNode{Children: map[string]*pipelineRunStructureNode{}}
+			target.Children[childName] = childTarget
+		}
+		mergePipelineRunStructureNode(childTarget, childSource)
+	}
+}
+
 func mergePipelineRunStructure(dst map[string]*pipelineRunStructureNode, src map[string]*pipelineRunStructureNode) {
 	if len(src) == 0 {
 		return
-	}
-	var mergeNode func(target *pipelineRunStructureNode, source *pipelineRunStructureNode)
-	mergeNode = func(target *pipelineRunStructureNode, source *pipelineRunStructureNode) {
-		if target.Children == nil {
-			target.Children = map[string]*pipelineRunStructureNode{}
-		}
-		if source == nil {
-			return
-		}
-		if description := strings.TrimSpace(source.Description); description != "" {
-			target.Description = description
-		}
-		if len(source.Repos) > 0 {
-			target.Repos = append([]string{}, source.Repos...)
-		}
-		for childName, childSource := range source.Children {
-			childTarget, ok := target.Children[childName]
-			if !ok {
-				childTarget = &pipelineRunStructureNode{Children: map[string]*pipelineRunStructureNode{}}
-				target.Children[childName] = childTarget
-			}
-			mergeNode(childTarget, childSource)
-		}
 	}
 
 	for name, source := range src {
@@ -2225,7 +2327,7 @@ func mergePipelineRunStructure(dst map[string]*pipelineRunStructureNode, src map
 			target = &pipelineRunStructureNode{Children: map[string]*pipelineRunStructureNode{}}
 			dst[name] = target
 		}
-		mergeNode(target, source)
+		mergePipelineRunStructureNode(target, source)
 	}
 }
 
@@ -2243,6 +2345,7 @@ func filterPipelineRunStructureByScopes(structure map[string]*pipelineRunStructu
 		if node != nil {
 			filtered.Description = node.Description
 			filtered.Repos = append([]string{}, node.Repos...)
+			filtered.Config = copyConfigRepositoryBindingFile(node.Config)
 			for childName, childNode := range node.Children {
 				child := filterNode(append(append([]string{}, path...), childName), childNode)
 				if child != nil {
@@ -2533,6 +2636,7 @@ type pipelineRunStructureNode struct {
 	Description string
 	Repos       []string
 	Children    map[string]*pipelineRunStructureNode
+	Config      *configRepositoryBindingFile
 }
 
 type groupRecord struct {
@@ -2567,6 +2671,66 @@ func parsePipelineRunStructure(content string) (map[string]*pipelineRunStructure
 		result[normalized] = node
 	}
 	return result, nil
+}
+
+func parseConfigRepositoryGroupPipelineRunStructure(rel, content string) (map[string]*pipelineRunStructureNode, bool, error) {
+	scope, ok, err := configRepositoryGroupStructureFileScope(rel)
+	if err != nil || !ok {
+		return nil, ok, err
+	}
+	if scope == "" {
+		structure, err := parsePipelineRunStructure(content)
+		return structure, true, err
+	}
+
+	node, err := parsePipelineRunStructureNode(content)
+	if err != nil {
+		return nil, true, err
+	}
+	segments, err := cleanConfigPathSegments(scope, false)
+	if err != nil {
+		return nil, true, err
+	}
+	structure := map[string]*pipelineRunStructureNode{}
+	target := ensurePipelineRunStructurePath(structure, segments)
+	mergePipelineRunStructureNode(target, node)
+	return structure, true, nil
+}
+
+func configRepositoryGroupStructureFileScope(rel string) (string, bool, error) {
+	path := strings.Trim(strings.ReplaceAll(filepath.ToSlash(rel), "\\", "/"), "/")
+	if path == "" || !isYAMLFile(path) {
+		return "", false, nil
+	}
+	parts := strings.Split(path, "/")
+	if len(parts) < 2 || parts[0] != "groups" {
+		return "", false, nil
+	}
+	fileName := strings.ToLower(parts[len(parts)-1])
+	if fileName != "structure.yaml" && fileName != "structure.yml" {
+		return "", false, nil
+	}
+	if len(parts) == 2 {
+		return "", true, nil
+	}
+	scope := strings.Trim(strings.Join(parts[1:len(parts)-1], "/"), "/")
+	if _, err := cleanConfigPathSegments(scope, false); err != nil {
+		return "", true, err
+	}
+	return scope, true, nil
+}
+
+func parsePipelineRunStructureNode(content string) (*pipelineRunStructureNode, error) {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		return &pipelineRunStructureNode{Children: map[string]*pipelineRunStructureNode{}}, nil
+	}
+
+	var raw interface{}
+	if err := yaml.Unmarshal([]byte(content), &raw); err != nil {
+		return nil, err
+	}
+	return decodePipelineRunStructureNode(raw)
 }
 
 func normalizePipelineRunStructureForFolder(boundFolder string, structure map[string]*pipelineRunStructureNode) (map[string]*pipelineRunStructureNode, error) {
@@ -2612,6 +2776,9 @@ func normalizePipelineRunStructureForFolder(boundFolder string, structure map[st
 		if node != nil {
 			if description := strings.TrimSpace(node.Description); description != "" {
 				target.Description = description
+			}
+			if node.Config != nil {
+				target.Config = copyConfigRepositoryBindingFile(node.Config)
 			}
 			target.Repos = append(target.Repos, node.Repos...)
 			for childName, childNode := range node.Children {
@@ -2679,6 +2846,12 @@ func decodePipelineRunStructureMap(node *pipelineRunStructureNode, childMap map[
 				return nil, fmt.Errorf("description must be a string, got %T", raw)
 			}
 			node.Description = strings.TrimSpace(text)
+		case "config":
+			config, err := parseStructureConfigRepositoryBinding(raw)
+			if err != nil {
+				return nil, err
+			}
+			node.Config = config
 		default:
 			childName, err := normalizeStructureName(key)
 			if err != nil {
@@ -2696,6 +2869,33 @@ func decodePipelineRunStructureMap(node *pipelineRunStructureNode, childMap map[
 	}
 
 	return node, nil
+}
+
+func parseStructureConfigRepositoryBinding(raw interface{}) (*configRepositoryBindingFile, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	encoded, err := yaml.Marshal(raw)
+	if err != nil {
+		return nil, fmt.Errorf("config must be a mapping: %w", err)
+	}
+	var file configRepositoryBindingFile
+	if err := yaml.Unmarshal(encoded, &file); err != nil {
+		return nil, fmt.Errorf("config must match config repository binding schema: %w", err)
+	}
+	return &file, nil
+}
+
+func copyConfigRepositoryBindingFile(file *configRepositoryBindingFile) *configRepositoryBindingFile {
+	if file == nil {
+		return nil
+	}
+	copied := *file
+	if file.Enabled != nil {
+		enabled := *file.Enabled
+		copied.Enabled = &enabled
+	}
+	return &copied
 }
 
 func parseStructureRepoList(value interface{}) ([]string, error) {
