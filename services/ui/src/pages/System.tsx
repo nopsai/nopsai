@@ -1177,6 +1177,14 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     return () => window.clearInterval(handle);
   }, [loadDispatcherStatus, permissions.canViewDispatcher, visibleTab]);
 
+  useEffect(() => {
+    if (!permissions.canViewGlobalConfigRepo || visibleTab !== 'config' || globalConfigRepo?.last_sync_status !== 'running') return undefined;
+    const handle = window.setInterval(() => {
+      void loadGlobalConfigRepository({ quiet: true });
+    }, 3000);
+    return () => window.clearInterval(handle);
+  }, [globalConfigRepo?.last_sync_status, loadGlobalConfigRepository, permissions.canViewGlobalConfigRepo, visibleTab]);
+
   return (
     <div data-page="system" className="active p-6 space-y-6">
       {visibleTab === 'config' && (
@@ -1196,7 +1204,6 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
           onReload={loadSystemConfig}
           onSave={saveConfig}
           onGlobalConfigRepoChange={setGlobalConfigRepoForm}
-          onReloadGlobalConfigRepo={loadGlobalConfigRepository}
           onSaveGlobalConfigRepo={saveGlobalConfigRepository}
           onDeleteGlobalConfigRepo={deleteGlobalConfigRepository}
           onSyncGlobalConfigRepo={syncGlobalConfigRepository}
@@ -4360,7 +4367,6 @@ function SystemConfig({
   onReload,
   onSave,
   onGlobalConfigRepoChange,
-  onReloadGlobalConfigRepo,
   onSaveGlobalConfigRepo,
   onDeleteGlobalConfigRepo,
   onSyncGlobalConfigRepo,
@@ -4384,7 +4390,6 @@ function SystemConfig({
   onReload: () => Promise<void>;
   onSave: () => Promise<void>;
   onGlobalConfigRepoChange: Dispatch<SetStateAction<ConfigRepositoryFormState>>;
-  onReloadGlobalConfigRepo: (opts?: { quiet?: boolean }) => Promise<void>;
   onSaveGlobalConfigRepo: () => Promise<void>;
   onDeleteGlobalConfigRepo: () => Promise<void>;
   onSyncGlobalConfigRepo: () => Promise<void>;
@@ -4654,9 +4659,6 @@ function SystemConfig({
                     Remove
                   </button>
                 )}
-                <button type="button" className="glass-button-subtle" onClick={() => void onReloadGlobalConfigRepo()} disabled={globalConfigRepoLoading || globalConfigRepoSaving || globalConfigRepoSyncing}>
-                  Reload
-                </button>
                 <button type="button" className="glass-button-subtle" onClick={() => void onSyncGlobalConfigRepo()} disabled={globalRepoSyncDisabled}>
                   {globalConfigRepoSyncing || globalRepoRunning ? 'Syncing…' : 'Sync'}
                 </button>

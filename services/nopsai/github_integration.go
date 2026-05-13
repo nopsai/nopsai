@@ -771,30 +771,52 @@ func isRepoSkipped(repoName string, skipList []string) bool {
 }
 
 func (a *App) fetchTriggerManifest(owner, repo, commitSHA string) (models.Manifest, string, error) {
-	fullName := fmt.Sprintf("%s/%s", owner, repo)
+	fullName := repositoryFullName(owner, repo)
 	var manifest models.Manifest
+	matches, err := a.repositoryGroupMatches(context.Background(), owner, repo)
+	if err != nil {
+		return manifest, "", err
+	}
+	groupPaths := make([]string, 0, len(matches))
+	for _, match := range matches {
+		groupPaths = append(groupPaths, match.Path)
+	}
+	specificKeys, ownerWideKeys := repositoryTriggerOverrideKeys(owner, repo, groupPaths)
+	dbSpecificKeys, err := a.triggerOverrideKeysEndingWith(context.Background(), fullName)
+	if err != nil {
+		return manifest, "", err
+	}
+	dbOwnerWideKeys, err := a.triggerOverrideKeysEndingWith(context.Background(), repositoryFullName(owner, "all"))
+	if err != nil {
+		return manifest, "", err
+	}
+	specificKeys = sortTriggerKeysBySpecificity(appendUniqueStrings(specificKeys, dbSpecificKeys))
+	ownerWideKeys = sortTriggerKeysBySpecificity(appendUniqueStrings(ownerWideKeys, dbOwnerWideKeys))
 
 	// 1. Try Specific Repo Override
-	if overrideDef, err := a.getTriggerOverride(fullName); err != nil {
-		return manifest, "", err
-	} else if overrideDef != "" {
-		if err := yaml.Unmarshal([]byte(overrideDef), &manifest); err != nil {
+	for _, key := range specificKeys {
+		if overrideDef, err := a.getTriggerOverride(key); err != nil {
 			return manifest, "", err
+		} else if overrideDef != "" {
+			if err := yaml.Unmarshal([]byte(overrideDef), &manifest); err != nil {
+				return manifest, "", err
+			}
+			log.Info().Str("repository", fullName).Str("trigger", key).Msg("Using trigger override from database")
+			return manifest, "database override", nil
 		}
-		log.Info().Str("repository", fullName).Msg("Using trigger override from database")
-		return manifest, "database override", nil
 	}
 
 	// 2. Try Owner-Wide "all" Override
-	ownerAll := fmt.Sprintf("%s/all", owner)
-	if overrideDef, err := a.getTriggerOverride(ownerAll); err != nil {
-		return manifest, "", err
-	} else if overrideDef != "" {
-		if err := yaml.Unmarshal([]byte(overrideDef), &manifest); err != nil {
+	for _, key := range ownerWideKeys {
+		if overrideDef, err := a.getTriggerOverride(key); err != nil {
 			return manifest, "", err
+		} else if overrideDef != "" {
+			if err := yaml.Unmarshal([]byte(overrideDef), &manifest); err != nil {
+				return manifest, "", err
+			}
+			log.Info().Str("repository", fullName).Str("owner_trigger", key).Msg("Using owner-wide trigger override from database")
+			return manifest, "database owner override", nil
 		}
-		log.Info().Str("repository", fullName).Str("owner_trigger", ownerAll).Msg("Using owner-wide trigger override from database")
-		return manifest, "database owner override", nil
 	}
 
 	// 3. Fallback to Git

@@ -62,20 +62,18 @@ global-repo/nopsai/triggers/acme/service-api.yaml
 global-repo/nopsai/environments/dev/env.yaml
   -> variables in scope dev
 
-global-repo/nopsai/pipelineruns/structure.yaml
-  -> Pipeline Runs group structure for non-delegated groups
-
-global-repo/nopsai/config-repositories/groups/team-1.yaml
-  -> config repo binding and group shell for group team-1
-
 global-repo/nopsai/config-repositories/groups/team-2/platform.yaml
   -> config repo binding and group shell for group team-2/platform
+
+global-repo/nopsai/config-repositories/groups/structure.yaml
+  -> Pipeline Runs group structure, repositories under group shells, and inline group config repo binding for team-1
 ```
 
 When the global repo defines group bindings under `config-repositories/groups`,
-those bindings are the source of truth for delegated group shells. A matching
-`pipelineruns/structure.yaml` subtree is ignored for that delegated group
-because the group repo owns its own run structure.
+those bindings create the group shells. Put repository placement next to those
+bindings in `config-repositories/groups/structure.yaml` or in a scoped file such
+as `config-repositories/groups/team-1/structure.yaml`. A group node can include
+`config:` with the same fields as a standalone binding file.
 
 ## Group Repo File Map
 
