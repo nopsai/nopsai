@@ -292,11 +292,12 @@ curl -X DELETE http://localhost:8080/v1/pipelines/team-1/dev/main-pipeline
 
 ## Pipeline Run Structure
 
-- The GitOps config repository can define the group and repository hierarchy for the Pipeline Runs UI via `pipelineruns/structure.yaml`.
-- Each top-level key is a group. Nest groups by adding child keys, and assign repositories under a group with a `repos:` list.
+- The GitOps config repository can define the group and repository hierarchy for the Pipeline Runs UI via `config-repositories/groups/structure.yaml`, scoped files such as `config-repositories/groups/team-1/structure.yaml`, or the legacy `pipelineruns/structure.yaml`.
+- Each top-level key is a group. Nest groups by adding child keys, assign repositories under a group with a `repos:` list, and optionally delegate a group with a `config:` block.
 - Repository entries should use the same `owner/repo` strings that appear in triggers and run metadata.
 - Group repo bindings under `config-repositories/groups/...` always create matching group shells, even when `pipelineruns/structure.yaml` does not mention them.
-- In the global repo, when group repo bindings exist, those bindings are the source of truth for Pipeline Runs groups; matching `structure.yaml` subtrees are not applied because the group repo owns that group.
+- Structure files colocated under `config-repositories/groups` are merged into those group shells, so repository placement can live next to the group binding.
+- In the global repo, legacy `pipelineruns/structure.yaml` is still ignored for delegated group subtrees.
 - In a group-scoped repo, `structure.yaml` may define groups inside the bound group, except for nested groups that have their own config repo binding.
 - Example:
 
@@ -305,6 +306,11 @@ general:
   description: General workflows
 team-1:
   description: Description for team-1 group
+  config:
+    repo_url: git@github.com:hosein-yousefii/nopsai-team-1-config.git
+    branch: main
+    base_path: ""
+    enabled: true
   repos:
     - hosein-yousefii/general-app
   dev:

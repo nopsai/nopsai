@@ -286,7 +286,7 @@ func TestEffectivePipelineRunStructureForSystemUsesConfigRepositoryGroups(t *tes
 		"general": {Description: "Should not be created", Children: map[string]*pipelineRunStructureNode{}},
 	}
 
-	got, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, structure, []string{"team-1", "team-2/platform"})
+	got, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, structure, nil, []string{"team-1", "team-2/platform"})
 	if err != nil {
 		t.Fatalf("effectivePipelineRunStructureForConfigSync() error = %v", err)
 	}
@@ -328,7 +328,7 @@ func TestEffectivePipelineRunStructureForGroupFiltersNestedConfigRepositoryGroup
 		},
 	}
 
-	got, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, structure, []string{"team-1/platform"})
+	got, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, structure, nil, []string{"team-1/platform"})
 	if err != nil {
 		t.Fatalf("effectivePipelineRunStructureForConfigSync() error = %v", err)
 	}
@@ -348,6 +348,96 @@ func TestEffectivePipelineRunStructureForGroupFiltersNestedConfigRepositoryGroup
 	}
 	if platform.Description != "" || len(platform.Children) != 0 {
 		t.Fatalf("platform structure = %#v, want empty shell", platform)
+	}
+}
+
+func TestConfigRepositoryGroupStructureAppliesInsideDelegatedGroup(t *testing.T) {
+	binding := models.ConfigRepository{ID: 1, ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID}
+	configRepositories := map[string]storedConfigRepository{
+		"folder/team-1": {
+			scopeType: models.ConfigRepositoryScopeFolder,
+			scopeID:   "team-1",
+			enabled:   true,
+		},
+	}
+	globalStructure := map[string]*pipelineRunStructureNode{
+		"team-1": {
+			Description: "Ignored from legacy pipelineruns structure",
+			Repos:       []string{"acme/ignored"},
+			Children:    map[string]*pipelineRunStructureNode{},
+		},
+	}
+	groupStructure, ok, err := parseConfigRepositoryGroupPipelineRunStructure("groups/team-1/structure.yaml", `
+description: Team 1 apps
+repos:
+  - hosein-yousefii/test-app
+dev:
+  repos:
+    - hosein-yousefii/dev-app
+`)
+	if err != nil {
+		t.Fatalf("parseConfigRepositoryGroupPipelineRunStructure() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("expected groups/team-1/structure.yaml to be treated as a group structure file")
+	}
+
+	got, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, globalStructure, groupStructure, []string{"team-1"})
+	if err != nil {
+		t.Fatalf("effectivePipelineRunStructureForConfigSync() error = %v", err)
+	}
+	team1, ok := got["team-1"]
+	if !ok {
+		t.Fatal("expected team-1 root group")
+	}
+	if team1.Description != "Team 1 apps" {
+		t.Fatalf("team-1 description = %q", team1.Description)
+	}
+	if len(team1.Repos) != 1 || team1.Repos[0] != "hosein-yousefii/test-app" {
+		t.Fatalf("team-1 repos = %#v, want hosein-yousefii/test-app", team1.Repos)
+	}
+	dev, ok := team1.Children["dev"]
+	if !ok {
+		t.Fatal("expected team-1/dev from config-repositories group structure")
+	}
+	if len(dev.Repos) != 1 || dev.Repos[0] != "hosein-yousefii/dev-app" {
+		t.Fatalf("team-1/dev repos = %#v, want hosein-yousefii/dev-app", dev.Repos)
+	}
+}
+
+func TestConfigRepositoryGroupStructureCollectsInlineConfig(t *testing.T) {
+	structure, ok, err := parseConfigRepositoryGroupPipelineRunStructure("groups/structure.yaml", `
+data-team:
+  description: Owns data-team scoped configuration
+  config:
+    repo_url: git@github.com:hosein-yousefii/nopsai-data-team-config.git
+    branch: main
+    base_path: ""
+    enabled: true
+`)
+	if err != nil {
+		t.Fatalf("parseConfigRepositoryGroupPipelineRunStructure() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("expected groups/structure.yaml to be treated as a group structure file")
+	}
+
+	bindings, err := configRepositoryBindingsFromPipelineRunStructure(structure, "config-repositories/groups/structure.yaml")
+	if err != nil {
+		t.Fatalf("configRepositoryBindingsFromPipelineRunStructure() error = %v", err)
+	}
+	binding, ok := bindings["folder/data-team"]
+	if !ok {
+		t.Fatal("expected inline data-team config repository binding")
+	}
+	if binding.scopeType != models.ConfigRepositoryScopeFolder || binding.scopeID != "data-team" {
+		t.Fatalf("binding scope = (%q, %q), want (folder, data-team)", binding.scopeType, binding.scopeID)
+	}
+	if binding.repoURL != "git@github.com:hosein-yousefii/nopsai-data-team-config.git" {
+		t.Fatalf("repoURL = %q", binding.repoURL)
+	}
+	if binding.branch != "main" || binding.basePath != "" || !binding.enabled {
+		t.Fatalf("binding defaults = branch %q basePath %q enabled %v", binding.branch, binding.basePath, binding.enabled)
 	}
 }
 
