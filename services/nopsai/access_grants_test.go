@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -386,32 +385,30 @@ func TestResolveAccessGrantFolderGeneralAlias(t *testing.T) {
 	}
 }
 
-func TestValidateFolderOwnerGuardUsesInheritedFolderOwner(t *testing.T) {
-	runner := &ownerGuardQueryRunner{ownerCounts: map[string]int{"team-1": 1}}
+func TestValidateFolderOwnerGuardAllowsNonOwnerOnOwnerlessFolder(t *testing.T) {
+	runner := &ownerGuardQueryRunner{}
 	err := validateFolderOwnerGuard(context.Background(), runner, productRoleDeveloper, accessGrantResource{
 		Type:    grantResourceFolder,
 		ID:      "team-1/dev",
 		Display: "/team-1/dev",
 	}, 0)
 	if err != nil {
-		t.Fatalf("validateFolderOwnerGuard() error = %v, want inherited owner to satisfy guard", err)
+		t.Fatalf("validateFolderOwnerGuard() error = %v, want ownerless folder to allow non-owner grant", err)
 	}
-
-	wantQueried := []string{"team-1/dev", "team-1"}
-	if !reflect.DeepEqual(runner.queriedResourceIDs, wantQueried) {
-		t.Fatalf("queried owner resource IDs = %#v, want %#v", runner.queriedResourceIDs, wantQueried)
+	if len(runner.queriedResourceIDs) != 0 {
+		t.Fatalf("non-owner grant should not query owner count, got %#v", runner.queriedResourceIDs)
 	}
 }
 
-func TestValidateFolderOwnerGuardRejectsWithoutExactOrParentOwner(t *testing.T) {
+func TestValidateFolderOwnerGuardAllowsNonOwnerWhenOnlyChildOwnerExists(t *testing.T) {
 	runner := &ownerGuardQueryRunner{ownerCounts: map[string]int{"team-1/dev": 1}}
 	err := validateFolderOwnerGuard(context.Background(), runner, productRoleDeveloper, accessGrantResource{
 		Type:    grantResourceFolder,
 		ID:      "team-1",
 		Display: "/team-1",
 	}, 0)
-	if err == nil || err.Error() != "grant an owner on /team-1 before assigning other roles" {
-		t.Fatalf("validateFolderOwnerGuard() error = %v, want owner guard rejection", err)
+	if err != nil {
+		t.Fatalf("validateFolderOwnerGuard() error = %v, want non-owner grant to be allowed", err)
 	}
 }
 
@@ -424,6 +421,45 @@ func TestValidateFolderOwnerGuardAllowsDeletingChildOwnerWhenParentOwnerRemains(
 	}, 42)
 	if err != nil {
 		t.Fatalf("validateFolderOwnerGuard() error = %v, want parent owner to satisfy delete guard", err)
+	}
+}
+
+func TestValidateFolderOwnerUpsertAllowsIdempotentOwnerRefresh(t *testing.T) {
+	runner := &ownerGuardQueryRunner{}
+	err := validateFolderOwnerUpsert(context.Background(), runner, productRoleOwner, productRoleOwner, accessGrantResource{
+		Type:    grantResourceFolder,
+		ID:      "team-1",
+		Display: "/team-1",
+	}, 42)
+	if err != nil {
+		t.Fatalf("validateFolderOwnerUpsert() error = %v, want idempotent owner refresh", err)
+	}
+	if len(runner.queriedResourceIDs) != 0 {
+		t.Fatalf("owner refresh should not query owner count, got %#v", runner.queriedResourceIDs)
+	}
+}
+
+func TestValidateFolderOwnerUpsertAllowsUpgradeToOwner(t *testing.T) {
+	runner := &ownerGuardQueryRunner{}
+	err := validateFolderOwnerUpsert(context.Background(), runner, productRoleDeveloper, productRoleOwner, accessGrantResource{
+		Type:    grantResourceFolder,
+		ID:      "team-1",
+		Display: "/team-1",
+	}, 42)
+	if err != nil {
+		t.Fatalf("validateFolderOwnerUpsert() error = %v, want upgrade to owner", err)
+	}
+}
+
+func TestValidateFolderOwnerUpsertRejectsDowngradingLastOwner(t *testing.T) {
+	runner := &ownerGuardQueryRunner{}
+	err := validateFolderOwnerUpsert(context.Background(), runner, productRoleOwner, productRoleDeveloper, accessGrantResource{
+		Type:    grantResourceFolder,
+		ID:      "team-1",
+		Display: "/team-1",
+	}, 42)
+	if err == nil || err.Error() != "every folder must retain at least one owner" {
+		t.Fatalf("validateFolderOwnerUpsert() error = %v, want last owner downgrade rejection", err)
 	}
 }
 

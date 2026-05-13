@@ -307,3 +307,18 @@ func TestFilterDelegatedAccessResourcesKeepsSystemGrant(t *testing.T) {
 		t.Fatal("system access grant should remain even when the target folder has a delegated config repo")
 	}
 }
+
+func TestAccessGrantResourceInConfigBindingScope(t *testing.T) {
+	systemBinding := models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID}
+	if !accessGrantResourceInConfigBindingScope(grantResourcePlatform, platformGrantID, systemBinding) {
+		t.Fatal("system config repo should cover platform access grants")
+	}
+
+	groupBinding := models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"}
+	if !accessGrantResourceInConfigBindingScope(grantResourceFolder, "team-1/dev", groupBinding) {
+		t.Fatal("group config repo should cover access grants in its folder subtree")
+	}
+	if accessGrantResourceInConfigBindingScope(grantResourceFolder, "team-2", groupBinding) {
+		t.Fatal("group config repo should not cover access grants outside its folder subtree")
+	}
+}
