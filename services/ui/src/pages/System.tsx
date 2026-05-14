@@ -2831,7 +2831,22 @@ function AccessPanel({
     return 'muted';
   };
 
-  const policyCount = policyTemplates.length;
+  const visiblePolicies = useMemo(() => {
+    const combined = [
+      ...policyTemplates,
+      ...policies.filter(policy => policy.role !== POLICY_TEMPLATE_ROLE && !isProtectedAccessRole(policy.role)),
+    ];
+    const seen = new Set<string>();
+    return combined
+      .filter(policy => {
+        const key = policyKey(policy);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .sort((a, b) => a.role.localeCompare(b.role) || policyLabel(a).localeCompare(policyLabel(b)));
+  }, [policies, policyTemplates]);
+  const policyCount = visiblePolicies.length;
   const [nextPolicyKey, setNextPolicyKey] = useState('');
   const [nextUserRole, setNextUserRole] = useState('');
   const [nextAccessRole, setNextAccessRole] = useState('');
@@ -2895,9 +2910,9 @@ function AccessPanel({
     });
   }, [roleDefinitions, roleUserMap, searchQuery]);
 
-  const filteredPolicyTemplates = useMemo(() => {
-    if (!searchQuery) return policyTemplates;
-    return policyTemplates.filter(policy =>
+  const filteredPolicies = useMemo(() => {
+    if (!searchQuery) return visiblePolicies;
+    return visiblePolicies.filter(policy =>
       matchesAccessSearch(
         searchQuery,
         policy.role,
@@ -2909,7 +2924,7 @@ function AccessPanel({
         formatAccessActionSummary(policy.act)
       )
     );
-  }, [policyTemplates, searchQuery]);
+  }, [searchQuery, visiblePolicies]);
 
   const isNewUserPristine =
     !newUser.sub.trim() &&
@@ -4086,19 +4101,19 @@ function AccessPanel({
                     <p className="font-medium text-[var(--text-primary)]">Loading policies…</p>
                     <p className="text-sm text-[var(--text-secondary)]">Fetching the low-level rules behind each role bundle.</p>
                   </div>
-                ) : policyTemplates.length === 0 ? (
+                ) : visiblePolicies.length === 0 ? (
                   <div className="access-empty-card">
                     <p className="font-medium text-[var(--text-primary)]">No policies yet</p>
                     <p className="text-sm text-[var(--text-secondary)]">Create a rule, then attach it to roles like viewer or developer.</p>
                   </div>
-                ) : filteredPolicyTemplates.length === 0 ? (
+                ) : filteredPolicies.length === 0 ? (
                   <div className="access-empty-card">
                     <p className="font-medium text-[var(--text-primary)]">No policies match this search</p>
                     <p className="text-sm text-[var(--text-secondary)]">Search by role, resource selector, action, or policy label.</p>
                   </div>
                 ) : (
                   <div className="access-policy-stack">
-                    {filteredPolicyTemplates.map(policy => {
+                    {filteredPolicies.map(policy => {
                       const protectedPolicy = isProtectedAccessRole(policy.role);
                       const parsedAction = parseAAAActionValue(policy.act);
                       const preset = accessPresetForRole(policy.role);
