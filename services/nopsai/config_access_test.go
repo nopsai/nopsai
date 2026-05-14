@@ -258,6 +258,98 @@ basic_roles:
 	}
 }
 
+func TestEmbeddedPipelineAccessAddsVisibilityAndUseGrants(t *testing.T) {
+	plan := newAccessSyncPlan()
+	err := plan.addEmbeddedResourceAccess(`
+name: deploy
+steps:
+  - name: ship
+    script: echo ship
+access:
+  visibility: restricted
+  use_access:
+    grants:
+      - subject_type: group
+        subject_id: data-team
+      - repository: hosein-yousefii/test-app
+`, "pipelines/deploy.yaml", grantResourcePipeline, "team-1/deploy", models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeFolder,
+		ScopeID:   "team-1",
+	}, "team-1")
+	if err != nil {
+		t.Fatalf("addEmbeddedResourceAccess() error = %v", err)
+	}
+
+	accessKey := resourceAccessPlanKey{resourceType: grantResourcePipeline, resourceID: "team-1/deploy"}
+	access, ok := plan.resourceAccess[accessKey]
+	if !ok {
+		t.Fatalf("expected resource access key %#v, got %#v", accessKey, plan.resourceAccess)
+	}
+	if !access.visibilitySet || access.visibility != resourceVisibilityRestricted {
+		t.Fatalf("visibility = (%v, %q), want restricted", access.visibilitySet, access.visibility)
+	}
+
+	groupKey := accessGrantPlanKey{
+		subjectType:  grantSubjectGroup,
+		subjectID:    "data-team",
+		resourceType: grantResourcePipeline,
+		resourceID:   "team-1/deploy",
+	}
+	groupGrant, ok := plan.grants[groupKey]
+	if !ok {
+		t.Fatalf("expected group use grant key %#v, got %#v", groupKey, plan.grants)
+	}
+	if groupGrant.role != customUseGrantRole || len(groupGrant.actions) != 1 || groupGrant.actions[0] != "pipeline.use" {
+		t.Fatalf("group grant = %#v, want pipeline use grant", groupGrant)
+	}
+
+	repoKey := accessGrantPlanKey{
+		subjectType:  model.SubjectTypeRepository,
+		subjectID:    "hosein-yousefii/test-app",
+		resourceType: grantResourcePipeline,
+		resourceID:   "team-1/deploy",
+	}
+	if _, ok := plan.grants[repoKey]; !ok {
+		t.Fatalf("expected repository use grant key %#v, got %#v", repoKey, plan.grants)
+	}
+}
+
+func TestEmbeddedAccessDefaultsToRestrictedWhenGrantsArePresent(t *testing.T) {
+	plan := newAccessSyncPlan()
+	err := plan.addEmbeddedResourceAccess(`
+name: checkout
+script: git status
+access:
+  groups:
+    - data-team
+`, "steps/shared/checkout.yaml", grantResourceStep, "shared/checkout", models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeSystem,
+		ScopeID:   models.ConfigRepositorySystemGlobalID,
+	}, "")
+	if err != nil {
+		t.Fatalf("addEmbeddedResourceAccess() error = %v", err)
+	}
+
+	access := plan.resourceAccess[resourceAccessPlanKey{resourceType: grantResourceStep, resourceID: "shared/checkout"}]
+	if access.visibility != resourceVisibilityRestricted {
+		t.Fatalf("visibility = %q, want restricted", access.visibility)
+	}
+}
+
+func TestEmbeddedScopeAccessRejectsWorkspaceVisibility(t *testing.T) {
+	plan := newAccessSyncPlan()
+	err := plan.addEmbeddedResourceAccess(`
+access:
+  visibility: public
+`, "scopes/prod/scope.yaml", grantResourceScope, "team-1/prod", models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeFolder,
+		ScopeID:   "team-1",
+	}, "team-1")
+	if err == nil {
+		t.Fatal("expected scope public visibility to be rejected")
+	}
+}
+
 func TestFilterDelegatedAccessResourcesRemovesChildScopedGrant(t *testing.T) {
 	plan := newAccessSyncPlan()
 	parentKey := accessGrantPlanKey{
@@ -285,6 +377,26 @@ func TestFilterDelegatedAccessResourcesRemovesChildScopedGrant(t *testing.T) {
 	}
 	if _, ok := plan.grants[childKey]; ok {
 		t.Fatal("child delegated grant should be filtered")
+	}
+}
+
+func TestFilterDelegatedAccessResourcesRemovesChildResourceAccess(t *testing.T) {
+	plan := newAccessSyncPlan()
+	parentKey := resourceAccessPlanKey{resourceType: grantResourcePipeline, resourceID: "team-1/build"}
+	childKey := resourceAccessPlanKey{resourceType: grantResourcePipeline, resourceID: "team-1/dev/deploy"}
+	plan.resourceAccess[parentKey] = storedResourceAccess{resourceType: grantResourcePipeline, resourceID: "team-1/build", visibility: resourceVisibilityWorkspace, visibilitySet: true}
+	plan.resourceAccess[childKey] = storedResourceAccess{resourceType: grantResourcePipeline, resourceID: "team-1/dev/deploy", visibility: resourceVisibilityWorkspace, visibilitySet: true}
+
+	filterDelegatedAccessResources(plan, models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeFolder,
+		ScopeID:   "team-1",
+	}, []string{"team-1/dev"})
+
+	if _, ok := plan.resourceAccess[parentKey]; !ok {
+		t.Fatal("parent resource access should remain")
+	}
+	if _, ok := plan.resourceAccess[childKey]; ok {
+		t.Fatal("child delegated resource access should be filtered")
 	}
 }
 

@@ -1,3 +1,9 @@
+access:
+  visibility: restricted
+  use_access:
+    grants:
+      - subject_type: repository
+        subject_id: hosein-yousefii/test-app
 API_VERSION: "2026.05"
 DEPLOY_TARGET: "production"
 hosein-yousefii/test-app/TEST_SCOPE: "ghcr.io/team-1/service-api:stable"

@@ -6,6 +6,8 @@ working_directory: /workspace
 timeout: 10m
 display_options:
   github_view: flat
+access:
+  visibility: public
 variables:
   - PLATFORM_SCOPE
 steps:
