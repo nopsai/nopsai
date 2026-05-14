@@ -32,6 +32,7 @@ const PIPELINE_DIRECTIVES = [
   'timeout',
   'llm_output_sharing',
   'llm_content_sharing',
+  'llm_content_include',
   'llm_content_ignore',
   'display_options',
 ];

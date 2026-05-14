@@ -18,7 +18,7 @@ This document captures the current feature set and hardening work that has lande
 ### Agent (`services/agent`)
 - **LLM-assisted execution**: Resolves natural-language goals via the embedded Gemini client, while falling back to explicit scripts when provided.
 - **Task graph engine**: Understands nested step/task dependencies, honours per-task `depends_on`, and tracks partial progress so multiple independent tasks can run without blocking each other.
-- **Workspace sharing controls**: Shares a sanitised directory listing with the LLM, respecting `llm_content_ignore`, and honours both pipeline-level and task-level `llm_output_sharing` settings.
+- **Workspace sharing controls**: Shares a sanitised directory listing with the LLM, respecting `llm_content_include` and `llm_content_ignore`, and honours both pipeline-level and task-level `llm_output_sharing` settings.
 - **Container orchestration**: Ensures required images exist, reuses warm containers per step, supports additional volume mounts, and injects scoped secrets/variables safely.
 - **Operational telemetry**: Masks secrets in command output, batches logs back to the server, and reports granular task status (with exit codes and LLM latency) to the API.
 

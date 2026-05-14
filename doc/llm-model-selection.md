@@ -123,8 +123,9 @@ Recommended execution flow:
 5. For each task, resolve the task LLM profile.
 6. Use the task profile when calling the LLM for goal-to-action selection.
 7. Record the resolved profile and model in task logs or run metadata.
-8. Preserve existing `llm_content_sharing`, `llm_output_sharing`, and
-   `llm_content_ignore` semantics independently from model selection.
+8. Preserve existing `llm_content_sharing`, `llm_output_sharing`,
+   `llm_content_include`, and `llm_content_ignore` semantics independently from
+   model selection.
 
 ## Validation
 

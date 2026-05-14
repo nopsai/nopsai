@@ -85,7 +85,7 @@ Top-level pipeline features:
 - `container_image` as the default execution image
 - `variables` as required scope variables
 - `timeout`
-- `llm_content_sharing`, `llm_output_sharing`, `llm_content_ignore`
+- `llm_content_sharing`, `llm_output_sharing`, `llm_content_include`, `llm_content_ignore`
 - `display_options.github_view`
 
 Step types:
