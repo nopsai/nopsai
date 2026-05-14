@@ -26,6 +26,8 @@ import (
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
+	"nopsai/pkg/serviceauth"
+	"nopsai/pkg/servicetls"
 	"nopsai/services/aaa/pkg/model"
 	"nopsai/services/nopsai/pkg/routeauthz"
 )
@@ -384,6 +386,15 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 func setNoStoreHeaders(w http.ResponseWriter) {
 	w.Header().Set("Cache-Control", "no-store, max-age=0")
 	w.Header().Set("Pragma", "no-cache")
+}
+
+func markRunRunning(ctx context.Context, runner execRunner, runID string) error {
+	_, err := runner.Exec(ctx, `
+		UPDATE pipeline_runs
+		SET status = 'running', started_at = COALESCE(started_at, NOW())
+		WHERE run_id = $1
+		  AND status NOT IN ('success', 'failure', 'failure (ignored)', 'cancelled', 'timed_out')`, runID)
+	return err
 }
 
 func normalizeRunDetailStatus(status string) string {
@@ -1734,7 +1745,7 @@ func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		_, err = tx.Exec(context.Background(), "UPDATE pipeline_runs SET started_at = NOW() WHERE run_id = $1 AND started_at IS NULL", runID)
+		err = markRunRunning(context.Background(), tx, runID)
 		if err != nil {
 			log.Error().Err(err).Str("run_id", runID).Msg("Failed to update run start time")
 			http.Error(w, "Failed to update task status", http.StatusInternalServerError)
@@ -1994,6 +2005,13 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 		fmt.Sprintf("DOCKER_NETWORK_NAME=%s", a.getDockerNetworkName()),
 		fmt.Sprintf("NOPSAI_SECRETS=%s", base64.StdEncoding.EncodeToString(secretsJSON)),
 		fmt.Sprintf("DISPATCHER_ADDRESS=%s", dispatcherAddr),
+		fmt.Sprintf("%s=%s", serviceauth.EnvSigningKey, cfg.EffectiveServiceJWTSigningKey()),
+		fmt.Sprintf("%s=%s", serviceauth.EnvIssuer, cfg.EffectiveServiceJWTIssuer()),
+		fmt.Sprintf("%s=%s", serviceauth.EnvAudience, cfg.EffectiveServiceJWTAudience()),
+		fmt.Sprintf("%s=%s", serviceauth.EnvServiceID, cfg.EffectiveAgentServiceID()),
+		fmt.Sprintf("%s=%s", servicetls.EnvMode, cfg.EffectiveDispatcherTLSMode()),
+		fmt.Sprintf("%s=%s", servicetls.EnvSecret, cfg.EffectiveDispatcherTLSSecret()),
+		fmt.Sprintf("%s=%s", servicetls.EnvServerName, cfg.EffectiveDispatcherTLSServerName()),
 	}
 	if strings.TrimSpace(cfg.LMStudioAPIKey) != "" {
 		envVars = append(envVars, fmt.Sprintf("LMSTUDIO_API_KEY=%s", cfg.LMStudioAPIKey))
@@ -2092,7 +2110,9 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 
 	switch resp.State {
 	case proto.JobState_JOB_STATE_ASSIGNED:
-		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'running', started_at = COALESCE(started_at, NOW()) WHERE run_id = $1", runID)
+		if err := markRunRunning(context.Background(), a.db, runID); err != nil {
+			log.Error().Err(err).Str("run_id", runID).Msg("Failed to mark run as running")
+		}
 		log.Info().Str("run_id", runID).Str("runner_id", resp.RunnerId).Msg("Job dispatched to runner")
 		appendLogs(fmt.Sprintf("Dispatched to runner %s", resp.RunnerId))
 	case proto.JobState_JOB_STATE_QUEUED:

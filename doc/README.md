@@ -10,6 +10,7 @@ Start here when you want to understand the system from different angles:
 - [feature-reference.md](./feature-reference.md): Functional capabilities exposed by the codebase and UI.
 - [decision-architecture.md](./decision-architecture.md): The main architectural decisions, why they exist, and the tradeoffs they introduce.
 - [access-control.md](./access-control.md): Current AAA service, product roles, access grants, route authorization, and audit behavior.
+- [jwt-authentication.md](./jwt-authentication.md): User/API JWTs, refresh tokens, dispatcher internal REST JWTs, and dispatcher gRPC service JWTs.
 
 Existing focused docs:
 
@@ -24,6 +25,7 @@ Recommended reading order:
 1. `architecture-overview.md`
 2. `service-reference.md`
 3. `access-control.md`
-4. `runtime-flows.md`
-5. `feature-reference.md`
-6. `decision-architecture.md`
+4. `jwt-authentication.md`
+5. `runtime-flows.md`
+6. `feature-reference.md`
+7. `decision-architecture.md`

@@ -23,6 +23,8 @@ import (
 	appconfig "nopsai/config"
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
+	"nopsai/pkg/serviceauth"
+	"nopsai/pkg/servicetls"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
@@ -33,7 +35,6 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"gopkg.in/yaml.v3"
 )
 
@@ -776,7 +777,41 @@ func run() int {
 		agentLog(runID, pipelineName).Error().Msg("DISPATCHER_ADDRESS OS variable not set. Cannot contact dispatcher")
 		return 1
 	}
-	conn, err := grpc.Dial(dispatcherAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	dispatcherServiceID := os.Getenv(serviceauth.EnvServiceID)
+	if strings.TrimSpace(dispatcherServiceID) == "" {
+		dispatcherServiceID = os.Getenv("AGENT_SERVICE_ID")
+	}
+	dispatcherCreds, err := serviceauth.NewCredentials(serviceauth.Config{
+		SigningKey: os.Getenv(serviceauth.EnvSigningKey),
+		Issuer:     os.Getenv(serviceauth.EnvIssuer),
+		Audience:   os.Getenv(serviceauth.EnvAudience),
+		Role:       serviceauth.RoleAgent,
+		ServiceID:  dispatcherServiceID,
+	})
+	if err != nil {
+		agentLog(runID, pipelineName).Error().Err(err).Msg("Failed to configure dispatcher client authentication")
+		return 1
+	}
+	dispatcherTLSSecret := strings.TrimSpace(os.Getenv(servicetls.EnvSecret))
+	if dispatcherTLSSecret == "" {
+		dispatcherTLSSecret = os.Getenv(serviceauth.EnvSigningKey)
+	}
+	transportCreds, err := servicetls.ClientCredentials(servicetls.Config{
+		Mode:       os.Getenv(servicetls.EnvMode),
+		Secret:     dispatcherTLSSecret,
+		Role:       serviceauth.RoleAgent,
+		ServiceID:  dispatcherServiceID,
+		ServerName: os.Getenv(servicetls.EnvServerName),
+	})
+	if err != nil {
+		agentLog(runID, pipelineName).Error().Err(err).Msg("Failed to configure dispatcher transport security")
+		return 1
+	}
+	conn, err := grpc.Dial(
+		dispatcherAddr,
+		grpc.WithTransportCredentials(transportCreds),
+		grpc.WithPerRPCCredentials(dispatcherCreds),
+	)
 	if err != nil {
 		agentLog(runID, pipelineName).Error().Err(err).Str("dispatcher_addr", dispatcherAddr).Msg("Failed to connect to dispatcher")
 		return 1
