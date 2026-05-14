@@ -3776,6 +3776,7 @@ html.dark .pipelines-modal-card::after {
 #steps-new-modal.show,
 #steps-delete-modal.show,
 #steps-clone-modal.show,
+#resource-access-modal.show,
 #secret-edit-modal.show,
 #secret-delete-modal.show {
     opacity: 1;
@@ -3787,6 +3788,7 @@ html.dark .pipelines-modal-card::after {
 #steps-new-modal.show .pipelines-modal-card,
 #steps-delete-modal.show .pipelines-modal-card,
 #steps-clone-modal.show .pipelines-modal-card,
+#resource-access-modal.show .pipelines-modal-card,
 #secret-edit-modal.show .pipelines-modal-card,
 #secret-delete-modal.show .pipelines-modal-card {
     transform: translateY(0) scale(1);

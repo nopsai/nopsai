@@ -149,6 +149,9 @@ Current auth/access features:
 - route-level action/resource mapping for protected REST endpoints
 - predefined product roles: `viewer`, `developer`, `owner`, `admin`
 - access-grant management API for subject -> role -> resource bindings
+- per-resource Access controls for pipeline, reusable step, and scope usage
+- caller-based runtime use checks for manual, Git-triggered, and child-pipeline runs
+- resource visibility modes: group, restricted, and UI-labeled Public
 - group-path inheritance for child pipelines, runs, repositories, triggers, secrets, variables, and steps
 - deny-before-allow evaluation
 - effective-permission introspection with human-readable reasons
@@ -164,6 +167,7 @@ Important behavior:
 - `viewer` and `developer` cannot manage ACLs
 - `owner` can manage permissions only inside owned scope
 - `admin` remains observable through the normal AAA check path rather than bypassing authorization
+- sharing a pipeline or step does not share scopes, secrets, variables, runners, or the resource owner's permissions
 
 ## UI Features
 
@@ -172,9 +176,9 @@ Pages present in the current UI:
 - `Pipeline runs`: run list, grouped views, recent runs, event grouping, details, logs, rerun, cancel, branch cleanup
 - `Pipelines`: pipeline browser/editor, drafts, validation, dependency graphing
 - `Triggers`: trigger override browser/editor
-- `Scopes`: variable and secret management by scope and repository
+- `Scopes`: variable and secret management by scope and repository, including scope use-access controls
 - `Lab`: ad-hoc YAML editing and direct run execution
-- `Steps`: reusable step library and usage inspection
+- `Steps`: reusable step library, usage inspection, and step use-access controls
 - `System`: config, dispatcher, runner controls, user/role/access management
 - `Profile`: email and password management
 - `Login`: local authentication entrypoint

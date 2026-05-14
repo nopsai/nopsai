@@ -1,0 +1,1013 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"strings"
+
+	"github.com/jackc/pgx/v5"
+
+	"nopsai/pkg/httpapi"
+	"nopsai/pkg/models"
+	"nopsai/services/aaa/pkg/model"
+)
+
+const (
+	resourceVisibilityGroup      = "group"
+	resourceVisibilityRestricted = "restricted"
+	resourceVisibilityWorkspace  = "workspace"
+
+	resourceUseReasonDirectGrant     = "explicit_grant"
+	resourceUseReasonSameGroup       = "same_group"
+	resourceUseReasonWorkspacePublic = "workspace_public"
+	resourceUseReasonDenied          = "denied"
+)
+
+type GroupRef struct {
+	ID    int    `json:"id,omitempty"`
+	Path  string `json:"path,omitempty"`
+	Valid bool   `json:"valid"`
+}
+
+type ResourceUseAuthInput struct {
+	CallerType string `json:"caller_type"`
+	CallerID   string `json:"caller_id"`
+
+	Action       string `json:"action"`
+	ResourceType string `json:"resource_type"`
+	ResourceID   string `json:"resource_id"`
+
+	EventType string `json:"event_type,omitempty"`
+	Ref       string `json:"ref,omitempty"`
+	Repo      string `json:"repo,omitempty"`
+}
+
+type ResourceUseAuthResult struct {
+	Allowed         bool   `json:"allowed"`
+	Reason          string `json:"reason"`
+	Action          string `json:"action,omitempty"`
+	ResourceType    string `json:"resource_type,omitempty"`
+	ResourceID      string `json:"resource_id,omitempty"`
+	MatchedGrantID  string `json:"matched_grant_id,omitempty"`
+	MatchedResource string `json:"matched_resource,omitempty"`
+}
+
+type resourceUseBatchCheckRequest struct {
+	CallerType string                 `json:"caller_type"`
+	CallerID   string                 `json:"caller_id"`
+	Checks     []ResourceUseAuthInput `json:"checks"`
+}
+
+type runAuthorizationSnapshot struct {
+	TriggerSource string                  `json:"trigger_source,omitempty"`
+	Caller        string                  `json:"caller,omitempty"`
+	Checks        []ResourceUseAuthResult `json:"checks"`
+}
+
+func (a *App) AuthorizeResourceUse(ctx context.Context, input ResourceUseAuthInput) (ResourceUseAuthResult, error) {
+	result := ResourceUseAuthResult{
+		Allowed:      false,
+		Reason:       resourceUseReasonDenied,
+		Action:       strings.TrimSpace(input.Action),
+		ResourceType: strings.TrimSpace(input.ResourceType),
+		ResourceID:   strings.Trim(strings.TrimSpace(input.ResourceID), "/"),
+	}
+	if a == nil || !a.aaaAvailable() {
+		return result, fmt.Errorf("authorization unavailable")
+	}
+
+	callerType, err := normalizeResourceUseCallerType(input.CallerType)
+	if err != nil {
+		return result, err
+	}
+	callerID := normalizeResourceUseCallerID(callerType, input.CallerID)
+	if callerID == "" {
+		return result, fmt.Errorf("caller_id is required")
+	}
+	resourceType, err := normalizeAccessGrantResourceType(input.ResourceType)
+	if err != nil {
+		return result, err
+	}
+	resourceID := strings.Trim(strings.TrimSpace(input.ResourceID), "/")
+	if resourceID == "" {
+		return result, fmt.Errorf("resource_id is required")
+	}
+	action := strings.TrimSpace(input.Action)
+	if action == "" {
+		return result, fmt.Errorf("action is required")
+	}
+
+	result.Action = action
+	result.ResourceType = resourceType
+	result.ResourceID = resourceID
+
+	subject := subjectForResourceUse(callerType, callerID)
+	resource := model.ResourceRef{Type: resourceType, ID: resourceID}
+	requestContext := map[string]any{
+		"event_type": strings.TrimSpace(input.EventType),
+		"ref":        strings.TrimSpace(input.Ref),
+		"repo":       strings.TrimSpace(input.Repo),
+		"caller":     formatSubjectLabel(callerType, callerID),
+	}
+	visibility, err := a.resourceVisibility(ctx, resourceType, resourceID)
+	if err != nil {
+		return result, err
+	}
+
+	decision, err := a.aaaCheck(ctx, subject, action, resource, requestContext)
+	if err != nil {
+		return result, err
+	}
+	if decision.Allowed {
+		allowReason := a.resourceUseAllowReason(ctx, callerType, callerID, resource, decision)
+		result.Allowed = true
+		result.Reason = allowReason
+		result.MatchedGrantID = a.matchedGrantIDFromDecision(ctx, decision)
+		result.MatchedResource = matchedResourceLabel(decision, resource)
+		return result, nil
+	}
+	if strings.Contains(strings.ToLower(strings.TrimSpace(decision.Reason)), "deny") {
+		result.MatchedResource = matchedResourceLabel(decision, resource)
+		return result, nil
+	}
+
+	callerGroup, _ := a.ResolveCallerGroup(ctx, callerType, callerID)
+	resourceGroup, _ := a.ResolveResourceGroup(ctx, resourceType, resourceID)
+	if callerGroup.Valid && resourceGroup.Valid && IsSameGroupBoundary(callerGroup.Path, resourceGroup.Path) {
+		if folderAllowed, folderDecision, checkErr := a.callerHasFolderAction(ctx, subject, action, resourceGroup.Path); checkErr != nil {
+			return result, checkErr
+		} else if folderAllowed {
+			result.Allowed = true
+			result.Reason = resourceUseReasonSameGroup
+			result.MatchedGrantID = a.matchedGrantIDFromDecision(ctx, folderDecision)
+			result.MatchedResource = matchedResourceLabel(folderDecision, model.ResourceRef{Type: grantResourceFolder, ID: resourceGroup.Path})
+			if result.MatchedResource == "" {
+				result.MatchedResource = formatResourceLabel(grantResourceFolder, resourceGroup.Path)
+			}
+			return result, nil
+		}
+	}
+
+	if groupAllowed, grantID, grantGroup, checkErr := a.callerHasExplicitGroupUseGrant(ctx, subject, action, resourceType, resourceID, callerGroup); checkErr != nil {
+		return result, checkErr
+	} else if groupAllowed {
+		result.Allowed = true
+		result.Reason = resourceUseReasonDirectGrant
+		result.MatchedGrantID = formatAccessGrantID(grantID)
+		result.MatchedResource = formatResourceLabel(grantResourceFolder, grantGroup)
+		return result, nil
+	}
+
+	if visibility == resourceVisibilityWorkspace {
+		if ok, checkErr := a.callerHasWorkspaceUseCapability(ctx, subject, action, callerGroup); checkErr != nil {
+			return result, checkErr
+		} else if ok {
+			result.Allowed = true
+			result.Reason = resourceUseReasonWorkspacePublic
+			result.MatchedResource = formatResourceLabel(resourceType, resourceID)
+			return result, nil
+		}
+	}
+
+	return result, nil
+}
+
+func normalizeResourceUseCallerType(raw string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case model.SubjectTypeUser:
+		return model.SubjectTypeUser, nil
+	case model.SubjectTypeAuthGroup, "group":
+		return model.SubjectTypeAuthGroup, nil
+	case grantSubjectRepository:
+		return model.SubjectTypeRepository, nil
+	case grantSubjectTrigger:
+		return model.SubjectTypeTrigger, nil
+	case grantSubjectServiceAccount:
+		return model.SubjectTypeServiceAccount, nil
+	case grantSubjectService, model.SubjectTypeInternalService:
+		return model.SubjectTypeInternalService, nil
+	default:
+		return "", fmt.Errorf("caller_type must be user, auth_group, repository, trigger, service_account, or internal_service")
+	}
+}
+
+func normalizeResourceUseCallerID(callerType, raw string) string {
+	value := strings.Trim(strings.TrimSpace(raw), "/")
+	for _, prefix := range []string{
+		callerType + ":",
+		model.SubjectTypeRepository + ":",
+		model.SubjectTypeTrigger + ":",
+		model.SubjectTypeServiceAccount + ":",
+		"service:",
+	} {
+		if strings.HasPrefix(strings.ToLower(value), prefix) {
+			value = strings.TrimSpace(value[len(prefix):])
+			break
+		}
+	}
+	return strings.Trim(strings.TrimSpace(value), "/")
+}
+
+func subjectForResourceUse(callerType, callerID string) model.Subject {
+	callerType = strings.TrimSpace(callerType)
+	callerID = strings.TrimSpace(callerID)
+	if callerType == model.SubjectTypeUser {
+		if _, err := uuidParse(callerID); err == nil {
+			return model.Subject{Type: model.SubjectTypeUser, ID: callerID}
+		}
+		if strings.Contains(callerID, "@") {
+			return model.Subject{Type: model.SubjectTypeUser, Email: callerID}
+		}
+		return model.Subject{Type: model.SubjectTypeUser, Sub: callerID}
+	}
+	return model.Subject{Type: callerType, ID: callerID}
+}
+
+func uuidParse(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if len(value) != 36 {
+		return "", fmt.Errorf("not a uuid")
+	}
+	for idx, ch := range value {
+		switch idx {
+		case 8, 13, 18, 23:
+			if ch != '-' {
+				return "", fmt.Errorf("not a uuid")
+			}
+		default:
+			if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')) {
+				return "", fmt.Errorf("not a uuid")
+			}
+		}
+	}
+	return value, nil
+}
+
+func (a *App) resourceUseAllowReason(ctx context.Context, callerType, callerID string, resource model.ResourceRef, decision model.Decision) string {
+	matchedType, _ := decision.MatchedPolicy["resource_type"].(string)
+	matchedID, _ := decision.MatchedPolicy["resource_id"].(string)
+	if strings.TrimSpace(matchedType) != grantResourceFolder {
+		return resourceUseReasonDirectGrant
+	}
+
+	callerGroup, _ := a.ResolveCallerGroup(ctx, callerType, callerID)
+	resourceGroup, _ := a.ResolveResourceGroup(ctx, resource.Type, resource.ID)
+	if callerGroup.Valid && resourceGroup.Valid && IsSameGroupBoundary(callerGroup.Path, resourceGroup.Path) {
+		return resourceUseReasonSameGroup
+	}
+	if matchedID != "" && resourceGroup.Valid && IsSameGroupBoundary(matchedID, resourceGroup.Path) {
+		return resourceUseReasonSameGroup
+	}
+	return resourceUseReasonDirectGrant
+}
+
+func decisionMatchedFolder(decision model.Decision) bool {
+	if decision.MatchedPolicy == nil {
+		return false
+	}
+	matchedType, _ := decision.MatchedPolicy["resource_type"].(string)
+	return strings.TrimSpace(matchedType) == grantResourceFolder
+}
+
+func (a *App) ResolveCallerGroup(ctx context.Context, callerType, callerID string) (GroupRef, error) {
+	callerType = strings.TrimSpace(callerType)
+	callerID = strings.Trim(strings.TrimSpace(callerID), "/")
+	if callerID == "" || a == nil || a.db == nil {
+		return GroupRef{}, nil
+	}
+	switch callerType {
+	case model.SubjectTypeRepository:
+		return a.resolveRepositoryGroupRef(ctx, callerID)
+	case model.SubjectTypeTrigger:
+		var repositoryName string
+		err := a.db.QueryRow(ctx, `SELECT repository_name FROM triggers WHERE repository_name = $1 LIMIT 1`, callerID).Scan(&repositoryName)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
+			return GroupRef{}, err
+		}
+		if repositoryName == "" {
+			repositoryName = callerID
+		}
+		return a.resolveRepositoryGroupRef(ctx, repositoryName)
+	default:
+		return GroupRef{}, nil
+	}
+}
+
+func (a *App) ResolveResourceGroup(ctx context.Context, resourceType, resourceID string) (GroupRef, error) {
+	resourceType = strings.TrimSpace(resourceType)
+	resourceID = strings.Trim(strings.TrimSpace(resourceID), "/")
+	switch resourceType {
+	case grantResourcePipeline, grantResourceStep:
+		path, _ := model.SplitPipelineID(resourceID)
+		return groupRefFromPath(path), nil
+	case grantResourceScope:
+		return groupRefFromPath(resourceID), nil
+	case grantResourceFolder:
+		return groupRefFromPath(resourceID), nil
+	case grantResourceRepo, grantResourceTrigger:
+		if a == nil || a.db == nil {
+			return groupRefFromPath(repositoryParentPath(resourceID)), nil
+		}
+		ref, err := a.resolveRepositoryGroupRef(ctx, resourceID)
+		if err != nil || ref.Valid {
+			return ref, err
+		}
+		return groupRefFromPath(repositoryParentPath(resourceID)), nil
+	case grantResourceSecret, grantResourceVariable:
+		repoName, scope, _ := model.ParseNamedResourceID(resourceID)
+		if scope != "" {
+			return groupRefFromPath(scope), nil
+		}
+		return groupRefFromPath(repositoryParentPath(repoName)), nil
+	default:
+		return GroupRef{}, nil
+	}
+}
+
+func (a *App) resolveRepositoryGroupRef(ctx context.Context, repositoryID string) (GroupRef, error) {
+	owner, repo := splitRepositoryID(repositoryID)
+	matches, err := a.repositoryGroupMatches(ctx, owner, repo)
+	if err != nil {
+		return GroupRef{}, err
+	}
+	if len(matches) == 0 {
+		return groupRefFromPath(repositoryID), nil
+	}
+	return GroupRef{ID: matches[0].ID, Path: strings.Trim(matches[0].Path, "/"), Valid: true}, nil
+}
+
+func groupRefFromPath(path string) GroupRef {
+	path = strings.Trim(strings.TrimSpace(path), "/")
+	if path == "" || path == generalGrantID {
+		return GroupRef{Path: generalGrantID, Valid: path == generalGrantID}
+	}
+	return GroupRef{Path: path, Valid: true}
+}
+
+func splitRepositoryID(repositoryID string) (string, string) {
+	repositoryID = strings.Trim(strings.TrimSpace(repositoryID), "/")
+	if repositoryID == "" {
+		return "", ""
+	}
+	parts := strings.Split(repositoryID, "/")
+	if len(parts) < 2 {
+		return "", repositoryID
+	}
+	return parts[len(parts)-2], parts[len(parts)-1]
+}
+
+func repositoryParentPath(repositoryID string) string {
+	repositoryID = strings.Trim(strings.TrimSpace(repositoryID), "/")
+	parts := strings.Split(repositoryID, "/")
+	if len(parts) <= 2 {
+		return ""
+	}
+	return strings.Join(parts[:len(parts)-2], "/")
+}
+
+func IsSameGroupBoundary(callerGroup, resourceGroup string) bool {
+	callerGroup = strings.Trim(strings.TrimSpace(callerGroup), "/")
+	resourceGroup = strings.Trim(strings.TrimSpace(resourceGroup), "/")
+	if callerGroup == "" || resourceGroup == "" || callerGroup == generalGrantID || resourceGroup == generalGrantID {
+		return false
+	}
+	if callerGroup == resourceGroup {
+		return true
+	}
+	if strings.HasPrefix(resourceGroup, callerGroup+"/") || strings.HasPrefix(callerGroup, resourceGroup+"/") {
+		return true
+	}
+	return firstPathSegment(callerGroup) == firstPathSegment(resourceGroup)
+}
+
+func firstPathSegment(path string) string {
+	path = strings.Trim(strings.TrimSpace(path), "/")
+	if path == "" {
+		return ""
+	}
+	if idx := strings.Index(path, "/"); idx >= 0 {
+		return path[:idx]
+	}
+	return path
+}
+
+func (a *App) callerHasFolderAction(ctx context.Context, subject model.Subject, action, folderPath string) (bool, model.Decision, error) {
+	folderPath = strings.Trim(strings.TrimSpace(folderPath), "/")
+	if folderPath == "" {
+		folderPath = generalGrantID
+	}
+	decision, err := a.aaaCheck(ctx, subject, action, model.ResourceRef{Type: grantResourceFolder, ID: folderPath}, map[string]any{"resource_use_check": "same_group"})
+	if err != nil {
+		return false, model.Decision{}, err
+	}
+	return decision.Allowed, decision, nil
+}
+
+func (a *App) callerHasExplicitGroupUseGrant(ctx context.Context, subject model.Subject, action, resourceType, resourceID string, callerGroup GroupRef) (bool, int64, string, error) {
+	if a == nil || a.db == nil || !callerGroup.Valid {
+		return false, 0, "", nil
+	}
+	callerGroup.Path = strings.Trim(strings.TrimSpace(callerGroup.Path), "/")
+	if callerGroup.Path == "" || callerGroup.Path == generalGrantID {
+		return false, 0, "", nil
+	}
+
+	rows, err := a.db.Query(ctx, `
+		SELECT id, subject_id
+		FROM access_grants
+		WHERE subject_type = $1
+		  AND resource_type = $2
+		  AND resource_id = $3
+		  AND role_name = $4
+		ORDER BY id ASC
+	`, grantSubjectGroup, resourceType, resourceID, customUseGrantRole)
+	if err != nil {
+		return false, 0, "", err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			grantID    int64
+			grantGroup string
+		)
+		if err := rows.Scan(&grantID, &grantGroup); err != nil {
+			return false, 0, "", err
+		}
+		grantGroup = strings.Trim(strings.TrimSpace(grantGroup), "/")
+		if !groupGrantIncludesCallerGroup(grantGroup, callerGroup.Path) {
+			continue
+		}
+		folderAllowed, _, checkErr := a.callerHasFolderAction(ctx, subject, action, callerGroup.Path)
+		if checkErr != nil {
+			return false, 0, "", checkErr
+		}
+		if folderAllowed {
+			return true, grantID, grantGroup, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, 0, "", err
+	}
+	return false, 0, "", nil
+}
+
+func groupGrantIncludesCallerGroup(grantGroup, callerGroup string) bool {
+	grantGroup = strings.Trim(strings.TrimSpace(grantGroup), "/")
+	callerGroup = strings.Trim(strings.TrimSpace(callerGroup), "/")
+	if grantGroup == "" || callerGroup == "" || grantGroup == generalGrantID || callerGroup == generalGrantID {
+		return false
+	}
+	return callerGroup == grantGroup || strings.HasPrefix(callerGroup, grantGroup+"/")
+}
+
+func (a *App) callerHasWorkspaceUseCapability(ctx context.Context, subject model.Subject, action string, callerGroup GroupRef) (bool, error) {
+	if callerGroup.Valid {
+		allowed, _, err := a.callerHasFolderAction(ctx, subject, action, callerGroup.Path)
+		return allowed, err
+	}
+	if a == nil || a.db == nil {
+		return false, nil
+	}
+	subjectID := strings.TrimSpace(subject.ID)
+	if subjectID == "" {
+		if introspection, err := a.aaaIntrospect(ctx, subject); err == nil && introspection != nil {
+			subjectID = strings.TrimSpace(introspection.ID)
+		}
+	}
+	if subjectID == "" {
+		return false, nil
+	}
+	var exists int
+	err := a.db.QueryRow(ctx, `
+		SELECT 1
+		FROM resource_acl
+		WHERE subject_type = $1
+		  AND subject_id = $2
+		  AND resource_type = 'folder'
+		  AND effect = 'allow'
+		  AND (action = $3 OR action = '*')
+		LIMIT 1
+	`, subject.Type, subjectID, action).Scan(&exists)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+func (a *App) resourceVisibility(ctx context.Context, resourceType, resourceID string) (string, error) {
+	if a == nil || a.db == nil {
+		return resourceVisibilityGroup, nil
+	}
+	resourceType = strings.TrimSpace(resourceType)
+	resourceID = strings.Trim(strings.TrimSpace(resourceID), "/")
+	switch resourceType {
+	case grantResourcePipeline:
+		path, name := model.SplitPipelineID(resourceID)
+		var visibility string
+		err := a.db.QueryRow(ctx, `SELECT visibility FROM pipelines WHERE path = $1 AND name = $2`, path, name).Scan(&visibility)
+		if err == nil {
+			return normalizeResourceVisibility(visibility), nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
+			return "", err
+		}
+	case grantResourceStep:
+		path, name := model.SplitPipelineID(resourceID)
+		var visibility string
+		err := a.db.QueryRow(ctx, `SELECT visibility FROM steps WHERE path = $1 AND name = $2`, path, name).Scan(&visibility)
+		if err == nil {
+			return normalizeResourceVisibility(visibility), nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
+			return "", err
+		}
+	case grantResourceConfig:
+		var visibility string
+		err := a.db.QueryRow(ctx, `
+			SELECT visibility
+			FROM config_repositories
+			WHERE id::text = $1 OR scope_id = $1
+			ORDER BY id ASC
+			LIMIT 1
+		`, resourceID).Scan(&visibility)
+		if err == nil {
+			return normalizeResourceVisibility(visibility), nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
+			return "", err
+		}
+	}
+
+	var visibility string
+	err := a.db.QueryRow(ctx, `
+		SELECT visibility
+		FROM resource_visibility
+		WHERE resource_type = $1 AND resource_id = $2
+	`, resourceType, resourceID).Scan(&visibility)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+			return resourceVisibilityGroup, nil
+		}
+		return "", err
+	}
+	return normalizeResourceVisibility(visibility), nil
+}
+
+func normalizeResourceVisibility(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case resourceVisibilityRestricted:
+		return resourceVisibilityRestricted
+	case resourceVisibilityWorkspace:
+		return resourceVisibilityWorkspace
+	default:
+		return resourceVisibilityGroup
+	}
+}
+
+func matchedResourceLabel(decision model.Decision, fallback model.ResourceRef) string {
+	if decision.MatchedPolicy != nil {
+		resourceType, _ := decision.MatchedPolicy["resource_type"].(string)
+		resourceID, _ := decision.MatchedPolicy["resource_id"].(string)
+		if strings.TrimSpace(resourceType) != "" && strings.TrimSpace(resourceID) != "" {
+			return formatResourceLabel(resourceType, resourceID)
+		}
+	}
+	if strings.TrimSpace(fallback.Type) == "" || strings.TrimSpace(fallback.ID) == "" {
+		return ""
+	}
+	return formatResourceLabel(fallback.Type, fallback.ID)
+}
+
+func (a *App) matchedGrantIDFromDecision(ctx context.Context, decision model.Decision) string {
+	if a == nil || a.db == nil || decision.MatchedPolicy == nil {
+		return ""
+	}
+	subjectType, _ := decision.MatchedPolicy["subject_type"].(string)
+	subjectID, _ := decision.MatchedPolicy["subject_id"].(string)
+	resourceType, _ := decision.MatchedPolicy["resource_type"].(string)
+	resourceID, _ := decision.MatchedPolicy["resource_id"].(string)
+	action, _ := decision.MatchedPolicy["action"].(string)
+	effect, _ := decision.MatchedPolicy["effect"].(string)
+	if subjectType == "" || subjectID == "" || resourceType == "" || resourceID == "" || action == "" || effect == "" {
+		return ""
+	}
+	var grantID sql.NullInt64
+	err := a.db.QueryRow(ctx, `
+		SELECT access_grant_id
+		FROM resource_acl
+		WHERE subject_type = $1
+		  AND subject_id = $2
+		  AND resource_type = $3
+		  AND resource_id = $4
+		  AND action = $5
+		  AND effect = $6
+		  AND access_grant_id IS NOT NULL
+		ORDER BY id ASC
+		LIMIT 1
+	`, subjectType, subjectID, resourceType, resourceID, action, effect).Scan(&grantID)
+	if err != nil || !grantID.Valid {
+		return ""
+	}
+	return formatAccessGrantID(grantID.Int64)
+}
+
+func resourceUseCallerFromRequest(a *App, r *http.Request, gitContext map[string]string) (string, string) {
+	if r != nil {
+		callerType := strings.TrimSpace(r.Header.Get("X-Nopsai-Caller-Type"))
+		callerID := strings.TrimSpace(r.Header.Get("X-Nopsai-Caller-ID"))
+		if callerType != "" && callerID != "" {
+			if normalized, err := normalizeResourceUseCallerType(callerType); err == nil {
+				return normalized, normalizeResourceUseCallerID(normalized, callerID)
+			}
+		}
+	}
+	if repoID := repositoryFullName(gitContext["repo_owner"], gitContext["repo_name"]); repoID != "" {
+		return model.SubjectTypeRepository, repoID
+	}
+	if a != nil && a.db != nil && r != nil {
+		parentRunID := strings.TrimSpace(r.Header.Get("X-Nopsai-Parent-Run-ID"))
+		if parentRunID != "" {
+			var requestedByType, requestedByID, effectiveType, effectiveID sql.NullString
+			err := a.db.QueryRow(r.Context(), `
+				SELECT requested_by_type, requested_by_id, effective_subject_type, effective_subject_id
+				FROM pipeline_runs
+				WHERE run_id::text = $1
+			`, parentRunID).Scan(&requestedByType, &requestedByID, &effectiveType, &effectiveID)
+			if err == nil {
+				if effectiveType.Valid && effectiveID.Valid && strings.TrimSpace(effectiveType.String) != "" && strings.TrimSpace(effectiveID.String) != "" {
+					return strings.TrimSpace(effectiveType.String), strings.TrimSpace(effectiveID.String)
+				}
+				if requestedByType.Valid && requestedByID.Valid && strings.TrimSpace(requestedByType.String) != "" && strings.TrimSpace(requestedByID.String) != "" {
+					return strings.TrimSpace(requestedByType.String), strings.TrimSpace(requestedByID.String)
+				}
+			}
+		}
+	}
+	if a != nil && r != nil {
+		if subject, ok := a.currentAAASubject(r); ok {
+			return subject.Type, firstNonEmptyString(subject.ID, subject.Sub, subject.Email)
+		}
+	}
+	return model.SubjectTypeInternalService, "dispatcher"
+}
+
+func (a *App) authorizeRunResourceUses(
+	ctx context.Context,
+	callerType,
+	callerID,
+	triggerSource string,
+	gitContext map[string]string,
+	pipelinePath string,
+	pipeline models.Pipeline,
+	scope string,
+) ([]ResourceUseAuthResult, error) {
+	repoID := repositoryFullName(gitContext["repo_owner"], gitContext["repo_name"])
+	eventType := strings.TrimPrefix(strings.TrimSpace(triggerSource), "github_")
+	ref := strings.TrimSpace(gitContext["ref"])
+
+	type checkSpec struct {
+		action       string
+		resourceType string
+		resourceID   string
+	}
+	specs := []checkSpec{{
+		action:       "pipeline.use",
+		resourceType: grantResourcePipeline,
+		resourceID:   model.BuildPipelineID(pipelinePath, pipeline.Name),
+	}}
+	if strings.TrimSpace(scope) != "" {
+		specs = append(specs, checkSpec{
+			action:       "scope.use",
+			resourceType: grantResourceScope,
+			resourceID:   strings.Trim(strings.TrimSpace(scope), "/"),
+		})
+	}
+	for _, stepID := range collectReferencedStepIdentifiers(&pipeline) {
+		specs = append(specs, checkSpec{
+			action:       "step.use",
+			resourceType: grantResourceStep,
+			resourceID:   stepID,
+		})
+	}
+	for _, pipelineID := range collectReferencedPipelineIdentifiers(&pipeline) {
+		specs = append(specs, checkSpec{
+			action:       "pipeline.use",
+			resourceType: grantResourcePipeline,
+			resourceID:   pipelineID,
+		})
+	}
+
+	results := make([]ResourceUseAuthResult, 0, len(specs))
+	for _, spec := range specs {
+		result, err := a.AuthorizeResourceUse(ctx, ResourceUseAuthInput{
+			CallerType:   callerType,
+			CallerID:     callerID,
+			Action:       spec.action,
+			ResourceType: spec.resourceType,
+			ResourceID:   spec.resourceID,
+			EventType:    eventType,
+			Ref:          ref,
+			Repo:         repoID,
+		})
+		if err != nil {
+			return results, err
+		}
+		results = append(results, result)
+		if !result.Allowed {
+			return results, errors.New(resourceUseDeniedMessage(callerType, callerID, result))
+		}
+	}
+	return results, nil
+}
+
+func collectReferencedPipelineIdentifiers(pipeline *models.Pipeline) []string {
+	if pipeline == nil {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	var identifiers []string
+	for _, step := range pipeline.Steps {
+		includeValue := strings.TrimSpace(step.GetInclude())
+		if includeValue == "" {
+			continue
+		}
+		lower := strings.ToLower(includeValue)
+		if !strings.HasPrefix(lower, "pipeline:") {
+			continue
+		}
+		includeValue = strings.TrimSpace(includeValue[len("pipeline:"):])
+		includeValue = strings.Trim(includeValue, "/")
+		if includeValue == "" {
+			continue
+		}
+		if _, ok := seen[includeValue]; ok {
+			continue
+		}
+		seen[includeValue] = struct{}{}
+		identifiers = append(identifiers, includeValue)
+	}
+	return identifiers
+}
+
+func resourceUseDeniedMessage(callerType, callerID string, result ResourceUseAuthResult) string {
+	subject := formatResourceUseCaller(callerType, callerID)
+	resource := formatResourceLabel(result.ResourceType, result.ResourceID)
+	switch result.ResourceType {
+	case grantResourcePipeline:
+		return fmt.Sprintf("%s is not allowed to use pipeline %s. Ask the pipeline owner to share it with this repository or group.", subject, result.ResourceID)
+	case grantResourceScope:
+		return fmt.Sprintf("%s is not allowed to use scope %s. Ask the scope owner to share it with this repository or group.", subject, result.ResourceID)
+	case grantResourceStep:
+		return fmt.Sprintf("%s is not allowed to use step %s. Ask the step owner to share it with this repository or group.", subject, result.ResourceID)
+	default:
+		return fmt.Sprintf("%s is not allowed to use %s.", subject, resource)
+	}
+}
+
+func mergeResourceUseAuthResults(base, additions []ResourceUseAuthResult) []ResourceUseAuthResult {
+	seen := make(map[string]struct{}, len(base)+len(additions))
+	out := make([]ResourceUseAuthResult, 0, len(base)+len(additions))
+	add := func(result ResourceUseAuthResult) {
+		key := strings.Join([]string{
+			result.Action,
+			result.ResourceType,
+			result.ResourceID,
+			fmt.Sprint(result.Allowed),
+			result.Reason,
+		}, "\x00")
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, result)
+	}
+	for _, result := range base {
+		add(result)
+	}
+	for _, result := range additions {
+		add(result)
+	}
+	return out
+}
+
+func runTriggerSourceFromRequest(r *http.Request, gitContext map[string]string) string {
+	if r != nil {
+		if value := strings.TrimSpace(r.Header.Get("X-Nopsai-Trigger-Source")); value != "" {
+			return value
+		}
+		if strings.TrimSpace(r.Header.Get("X-Nopsai-Parent-Run-ID")) != "" {
+			return "child_pipeline"
+		}
+	}
+	if repositoryFullName(gitContext["repo_owner"], gitContext["repo_name"]) != "" {
+		return "github"
+	}
+	return "manual"
+}
+
+func buildRunAuthorizationSnapshot(triggerSource, callerType, callerID string, checks []ResourceUseAuthResult) ([]byte, error) {
+	snapshot := runAuthorizationSnapshot{
+		TriggerSource: strings.TrimSpace(triggerSource),
+		Caller:        formatResourceUseCaller(callerType, callerID),
+		Checks:        checks,
+	}
+	return json.Marshal(snapshot)
+}
+
+func formatResourceUseCaller(callerType, callerID string) string {
+	callerType = strings.TrimSpace(callerType)
+	callerID = strings.TrimSpace(callerID)
+	if callerType == "" || callerID == "" {
+		return ""
+	}
+	return callerType + ":" + callerID
+}
+
+func (a *App) runResourceUseCaller(ctx context.Context, runID string, gitContext map[string]string) (callerType, callerID, triggerSource string, err error) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" || a == nil || a.db == nil {
+		return model.SubjectTypeInternalService, "dispatcher", "", nil
+	}
+	var requestedType, requestedID, effectiveType, effectiveID, source sql.NullString
+	err = a.db.QueryRow(ctx, `
+		SELECT requested_by_type, requested_by_id, effective_subject_type, effective_subject_id, trigger_source
+		FROM pipeline_runs
+		WHERE run_id::text = $1
+	`, runID).Scan(&requestedType, &requestedID, &effectiveType, &effectiveID, &source)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+			return "", "", "", fmt.Errorf("run not found")
+		}
+		return "", "", "", err
+	}
+	triggerSource = strings.TrimSpace(source.String)
+	if effectiveType.Valid && effectiveID.Valid && strings.TrimSpace(effectiveType.String) != "" && strings.TrimSpace(effectiveID.String) != "" {
+		return strings.TrimSpace(effectiveType.String), strings.TrimSpace(effectiveID.String), triggerSource, nil
+	}
+	if requestedType.Valid && requestedID.Valid && strings.TrimSpace(requestedType.String) != "" && strings.TrimSpace(requestedID.String) != "" {
+		return strings.TrimSpace(requestedType.String), strings.TrimSpace(requestedID.String), triggerSource, nil
+	}
+	if repoID := repositoryFullName(gitContext["repo_owner"], gitContext["repo_name"]); repoID != "" {
+		return model.SubjectTypeRepository, repoID, triggerSource, nil
+	}
+	return model.SubjectTypeInternalService, "dispatcher", triggerSource, nil
+}
+
+func (a *App) authorizeRunRuntimeResourceUse(ctx context.Context, runID string, gitContext map[string]string, action, resourceType, resourceID string) (ResourceUseAuthResult, error) {
+	callerType, callerID, triggerSource, err := a.runResourceUseCaller(ctx, runID, gitContext)
+	if err != nil {
+		return ResourceUseAuthResult{}, err
+	}
+	result, err := a.AuthorizeResourceUse(ctx, ResourceUseAuthInput{
+		CallerType:   callerType,
+		CallerID:     callerID,
+		Action:       action,
+		ResourceType: resourceType,
+		ResourceID:   resourceID,
+		EventType:    strings.TrimPrefix(strings.TrimSpace(triggerSource), "github_"),
+		Ref:          strings.TrimSpace(gitContext["ref"]),
+		Repo:         repositoryFullName(gitContext["repo_owner"], gitContext["repo_name"]),
+	})
+	if err != nil {
+		return result, err
+	}
+	_ = a.appendRunAuthorizationChecks(ctx, runID, triggerSource, callerType, callerID, []ResourceUseAuthResult{result})
+	if !result.Allowed {
+		return result, errors.New(resourceUseDeniedMessage(callerType, callerID, result))
+	}
+	return result, nil
+}
+
+func (a *App) appendRunAuthorizationChecks(ctx context.Context, runID, triggerSource, callerType, callerID string, checks []ResourceUseAuthResult) error {
+	runID = strings.TrimSpace(runID)
+	if runID == "" || len(checks) == 0 || a == nil || a.db == nil {
+		return nil
+	}
+	var raw string
+	err := a.db.QueryRow(ctx, `SELECT COALESCE(authorization_snapshot::text, '{}') FROM pipeline_runs WHERE run_id::text = $1`, runID).Scan(&raw)
+	if err != nil {
+		return err
+	}
+	var snapshot runAuthorizationSnapshot
+	if strings.TrimSpace(raw) != "" {
+		_ = json.Unmarshal([]byte(raw), &snapshot)
+	}
+	if strings.TrimSpace(snapshot.TriggerSource) == "" {
+		snapshot.TriggerSource = strings.TrimSpace(triggerSource)
+	}
+	if strings.TrimSpace(snapshot.Caller) == "" {
+		snapshot.Caller = formatResourceUseCaller(callerType, callerID)
+	}
+	snapshot.Checks = mergeResourceUseAuthResults(snapshot.Checks, checks)
+	encoded, err := json.Marshal(snapshot)
+	if err != nil {
+		return err
+	}
+	_, err = a.db.Exec(ctx, `UPDATE pipeline_runs SET authorization_snapshot = $1::jsonb WHERE run_id::text = $2`, string(encoded), runID)
+	return err
+}
+
+func (a *App) handleResourceUseCheck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var input ResourceUseAuthInput
+	if err := httpapi.DecodeJSON(r, &input); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if err := a.applyDefaultResourceUseCaller(r, &input); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	result, err := a.AuthorizeResourceUse(r.Context(), input)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = httpapi.WriteJSON(w, http.StatusOK, result)
+}
+
+func (a *App) handleResourceUseBatchCheck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req resourceUseBatchCheckRequest
+	if err := httpapi.DecodeJSON(r, &req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	results := make([]ResourceUseAuthResult, 0, len(req.Checks))
+	for _, check := range req.Checks {
+		if check.CallerType == "" {
+			check.CallerType = req.CallerType
+		}
+		if check.CallerID == "" {
+			check.CallerID = req.CallerID
+		}
+		if err := a.applyDefaultResourceUseCaller(r, &check); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		result, err := a.AuthorizeResourceUse(r.Context(), check)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		results = append(results, result)
+	}
+	_ = httpapi.WriteJSON(w, http.StatusOK, map[string]any{"results": results})
+}
+
+func (a *App) applyDefaultResourceUseCaller(r *http.Request, input *ResourceUseAuthInput) error {
+	if input == nil {
+		return fmt.Errorf("invalid request")
+	}
+	current, ok := a.currentAAASubject(r)
+	if !ok {
+		return fmt.Errorf("unauthorized")
+	}
+	if strings.TrimSpace(input.CallerType) == "" && strings.TrimSpace(input.CallerID) == "" {
+		input.CallerType = current.Type
+		input.CallerID = firstNonEmptyString(current.ID, current.Sub, current.Email)
+		return nil
+	}
+	if resourceUseCallerMatchesSubject(*input, current) {
+		return nil
+	}
+	decision, err := a.aaaCheck(r.Context(), current, "iam.admin", model.ResourceRef{Type: "iam", ID: "admin"}, a.aaaRequestContext(r))
+	if err != nil {
+		return fmt.Errorf("authorization unavailable")
+	}
+	if !decision.Allowed {
+		return fmt.Errorf("forbidden")
+	}
+	return nil
+}
+
+func resourceUseCallerMatchesSubject(input ResourceUseAuthInput, subject model.Subject) bool {
+	inputType, err := normalizeResourceUseCallerType(input.CallerType)
+	if err != nil {
+		return false
+	}
+	if inputType != subject.Type {
+		return false
+	}
+	callerID := normalizeResourceUseCallerID(inputType, input.CallerID)
+	for _, value := range []string{subject.ID, subject.Sub, subject.Email} {
+		if strings.TrimSpace(value) != "" && strings.EqualFold(callerID, strings.TrimSpace(value)) {
+			return true
+		}
+	}
+	return false
+}

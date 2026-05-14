@@ -117,6 +117,8 @@ func TestProductRolePermissions(t *testing.T) {
 		assertAction(t, actions, "pipeline.read", true)
 		assertAction(t, actions, "pipeline.update", false)
 		assertAction(t, actions, "pipeline.execute", false)
+		assertAction(t, actions, "pipeline.use", false)
+		assertAction(t, actions, "scope.use", false)
 		assertAction(t, actions, "config_repo.read", true)
 		assertAction(t, actions, "config_repo.manage", false)
 		assertAction(t, actions, "secret.read_value", false)
@@ -127,10 +129,17 @@ func TestProductRolePermissions(t *testing.T) {
 		assertAction(t, actions, "pipeline.read", true)
 		assertAction(t, actions, "pipeline.update", true)
 		assertAction(t, actions, "pipeline.execute", true)
+		assertAction(t, actions, "pipeline.use", true)
+		assertAction(t, actions, "scope.use", true)
+		assertAction(t, actions, "secret.use", true)
+		assertAction(t, actions, "variable.use", true)
 		assertAction(t, actions, "secret.write_value", true)
 		assertAction(t, actions, "step.create", true)
 		assertAction(t, actions, "step.update", true)
+		assertAction(t, actions, "step.use", true)
+		assertAction(t, actions, "runner.use", true)
 		assertAction(t, actions, "config_repo.read", true)
+		assertAction(t, actions, "config_repo.use", true)
 		assertAction(t, actions, "config_repo.manage", false)
 		assertAction(t, actions, "config_repo.sync", false)
 		assertAction(t, actions, "secret.read_value", false)
@@ -208,12 +217,22 @@ func TestNormalizeAccessGrantResourceTypeSupportsPipelineRun(t *testing.T) {
 	}
 }
 
-func TestNormalizeAccessGrantSubjectTypeRejectsAuthGroup(t *testing.T) {
-	if _, err := normalizeAccessGrantSubjectType("auth_group"); err == nil {
-		t.Fatal("expected auth_group product grant subjects to be rejected")
+func TestNormalizeAccessGrantSubjectTypeSupportsFirstClassCallers(t *testing.T) {
+	tests := map[string]string{
+		"auth_group":      model.SubjectTypeAuthGroup,
+		"group":           model.SubjectTypeAuthGroup,
+		"repository":      model.SubjectTypeRepository,
+		"trigger":         model.SubjectTypeTrigger,
+		"service_account": model.SubjectTypeServiceAccount,
 	}
-	if _, err := normalizeAccessGrantSubjectType("group"); err == nil {
-		t.Fatal("expected group product grant subjects to be rejected")
+	for raw, want := range tests {
+		got, err := normalizeAccessGrantSubjectType(raw)
+		if err != nil {
+			t.Fatalf("normalizeAccessGrantSubjectType(%q) error = %v", raw, err)
+		}
+		if got != want {
+			t.Fatalf("normalizeAccessGrantSubjectType(%q) = %q, want %q", raw, got, want)
+		}
 	}
 }
 

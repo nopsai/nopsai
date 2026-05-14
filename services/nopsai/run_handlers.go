@@ -893,12 +893,6 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pipeline.Name = sanitizeInput(pipeline.Name)
-	pipeline.Version = normalizePipelineVersion(pipeline.Version)
-	if !a.requireAAADecision(w, r, "pipeline.execute", routeauthz.PipelineResource(pipelinePathForRun, pipeline.Name)) {
-		return
-	}
-
 	gitContext := map[string]string{
 		"repo_owner":             r.Header.Get("X-Git-Repo-Owner"),
 		"repo_name":              r.Header.Get("X-Git-Repo-Name"),
@@ -916,6 +910,25 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		"pusher_email":           r.Header.Get("X-Git-Pusher-Email"),
 		"check_run_id":           r.Header.Get("X-Git-Check-Run-ID"),
 		"trigger_event_id":       r.Header.Get("X-Nopsai-Trigger-Event-ID"),
+	}
+
+	pipeline.Name = sanitizeInput(pipeline.Name)
+	pipeline.Version = normalizePipelineVersion(pipeline.Version)
+	if !a.requireAAADecision(w, r, "pipeline.execute", routeauthz.PipelineResource(pipelinePathForRun, pipeline.Name)) {
+		return
+	}
+
+	callerType, callerID := resourceUseCallerFromRequest(a, r, gitContext)
+	triggerSource := runTriggerSourceFromRequest(r, gitContext)
+	authChecks, err := a.authorizeRunResourceUses(r.Context(), callerType, callerID, triggerSource, gitContext, pipelinePathForRun, pipeline, scope)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	authSnapshot, err := buildRunAuthorizationSnapshot(triggerSource, callerType, callerID, authChecks)
+	if err != nil {
+		http.Error(w, "Failed to build authorization snapshot", http.StatusInternalServerError)
+		return
 	}
 
 	rerunCommitSHA := r.Header.Get("X-Git-Rerun-Commit-SHA")
@@ -989,13 +1002,15 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref, git_target_ref,
 			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
 			git_commit_author_email, git_commit_author_username, git_pusher_name,
-			git_pusher_email, git_check_run_id, group_id, parent_step_name, trigger_event_id, scope, pipeline_source)
-			VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)`,
+			git_pusher_email, git_check_run_id, group_id, parent_step_name, trigger_event_id, scope, pipeline_source,
+			trigger_source, requested_by_type, requested_by_id, effective_subject_type, effective_subject_id, authorization_snapshot)
+			VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32::jsonb)`,
 		runID, parentRunIDSQL, pipeline.Name, pipelinePathForRun, pipeline.Version, string(pipelineDef),
 		gitContext["repo_owner"], gitContext["repo_name"], gitContext["clone_url"], gitContext["ssh_url"], gitContext["ref"], gitContext["target_ref"],
 		gitContext["commit_sha"], gitContext["commit_url"], gitContext["commit_message"], gitContext["commit_author_name"],
 		gitContext["commit_author_email"], gitContext["commit_author_username"], gitContext["pusher_name"],
 		gitContext["pusher_email"], checkRunIDSQL, groupID, parentStepNameSQL, triggerEventIDSQL, scope, pipelineSource,
+		triggerSource, callerType, callerID, callerType, callerID, string(authSnapshot),
 	)
 
 	if err != nil {
@@ -1054,6 +1069,23 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, errMsg, http.StatusBadRequest)
 		a.updateRunRecordWithFailure(runID, errMsg, gitContext)
 		return
+	}
+
+	resolvedAuthChecks, err := a.authorizeRunResourceUses(r.Context(), callerType, callerID, triggerSource, gitContext, pipelinePathForRun, *resolvedPipeline, scope)
+	if err != nil {
+		errMsg := err.Error()
+		http.Error(w, errMsg, http.StatusForbidden)
+		authChecks = mergeResourceUseAuthResults(authChecks, resolvedAuthChecks)
+		if updatedSnapshot, snapshotErr := buildRunAuthorizationSnapshot(triggerSource, callerType, callerID, authChecks); snapshotErr == nil {
+			_, _ = a.db.Exec(context.Background(), "UPDATE pipeline_runs SET authorization_snapshot = $1::jsonb WHERE run_id = $2", string(updatedSnapshot), runID)
+		}
+		a.updateRunRecordWithFailure(runID, errMsg, gitContext)
+		return
+	}
+	authChecks = mergeResourceUseAuthResults(authChecks, resolvedAuthChecks)
+	if updatedSnapshot, snapshotErr := buildRunAuthorizationSnapshot(triggerSource, callerType, callerID, authChecks); snapshotErr == nil && string(updatedSnapshot) != string(authSnapshot) {
+		authSnapshot = updatedSnapshot
+		_, _ = a.db.Exec(context.Background(), "UPDATE pipeline_runs SET authorization_snapshot = $1::jsonb WHERE run_id = $2", string(authSnapshot), runID)
 	}
 
 	if err := validatePipeline(resolvedPipeline); err != nil {
@@ -1208,6 +1240,23 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	if pipeline.Version == "latest" && pipelineVersionDB.Valid {
 		pipeline.Version = normalizePipelineVersion(pipelineVersionDB.String)
 	}
+	pipeline.Name = sanitizeInput(pipeline.Name)
+
+	rerunCallerType, rerunCallerID := resourceUseCallerFromRequest(a, r, map[string]string{})
+	rerunTriggerSource := strings.TrimSpace(r.Header.Get("X-Nopsai-Trigger-Source"))
+	if rerunTriggerSource == "" {
+		rerunTriggerSource = "manual_rerun"
+	}
+	authChecks, err := a.authorizeRunResourceUses(r.Context(), rerunCallerType, rerunCallerID, rerunTriggerSource, gitContext, pipelinePathDB.String, pipeline, scope.String)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	authSnapshot, err := buildRunAuthorizationSnapshot(rerunTriggerSource, rerunCallerType, rerunCallerID, authChecks)
+	if err != nil {
+		http.Error(w, "Failed to build authorization snapshot", http.StatusInternalServerError)
+		return
+	}
 
 	var timeoutDuration time.Duration
 	if timeoutAt.Valid {
@@ -1239,13 +1288,15 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref, git_target_ref,
 			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
 			git_commit_author_email, git_commit_author_username, git_pusher_name,
-			git_pusher_email, git_check_run_id, group_id, trigger_event_id, scope)
-			VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)`,
+			git_pusher_email, git_check_run_id, group_id, trigger_event_id, scope,
+			trigger_source, requested_by_type, requested_by_id, effective_subject_type, effective_subject_id, authorization_snapshot)
+			VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29::jsonb)`,
 		runID, pipeline.Name, pipelinePathDB.String, pipeline.Version, pipelineDef.String,
 		gitContext["repo_owner"], gitContext["repo_name"], gitContext["clone_url"], gitContext["ssh_url"], gitContext["ref"], gitContext["target_ref"],
 		gitContext["commit_sha"], gitContext["commit_url"], gitContext["commit_message"], gitContext["commit_author_name"],
 		gitContext["commit_author_email"], gitContext["commit_author_username"], gitContext["pusher_name"],
 		gitContext["pusher_email"], gitContext["check_run_id"], groupID, triggerEventIDSQL, scope.String,
+		rerunTriggerSource, rerunCallerType, rerunCallerID, rerunCallerType, rerunCallerID, string(authSnapshot),
 	)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to insert initial record for rerun")
@@ -1259,6 +1310,23 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 		a.updateRunRecordWithFailure(runID, errMsg, gitContext)
 		http.Error(w, errMsg, http.StatusBadRequest)
 		return
+	}
+
+	resolvedAuthChecks, err := a.authorizeRunResourceUses(r.Context(), rerunCallerType, rerunCallerID, rerunTriggerSource, gitContext, pipelinePathDB.String, *resolvedPipeline, scope.String)
+	if err != nil {
+		errMsg := err.Error()
+		authChecks = mergeResourceUseAuthResults(authChecks, resolvedAuthChecks)
+		if updatedSnapshot, snapshotErr := buildRunAuthorizationSnapshot(rerunTriggerSource, rerunCallerType, rerunCallerID, authChecks); snapshotErr == nil {
+			_, _ = a.db.Exec(context.Background(), "UPDATE pipeline_runs SET authorization_snapshot = $1::jsonb WHERE run_id = $2", string(updatedSnapshot), runID)
+		}
+		a.updateRunRecordWithFailure(runID, errMsg, gitContext)
+		http.Error(w, errMsg, http.StatusForbidden)
+		return
+	}
+	authChecks = mergeResourceUseAuthResults(authChecks, resolvedAuthChecks)
+	if updatedSnapshot, snapshotErr := buildRunAuthorizationSnapshot(rerunTriggerSource, rerunCallerType, rerunCallerID, authChecks); snapshotErr == nil && string(updatedSnapshot) != string(authSnapshot) {
+		authSnapshot = updatedSnapshot
+		_, _ = a.db.Exec(context.Background(), "UPDATE pipeline_runs SET authorization_snapshot = $1::jsonb WHERE run_id = $2", string(authSnapshot), runID)
 	}
 
 	if err := validatePipeline(resolvedPipeline); err != nil {
@@ -1707,7 +1775,7 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 		return
 	}
 
-	secrets, err := a.prepareSecretsForPipeline(pipeline, gitContext, scope)
+	secrets, err := a.prepareSecretsForPipeline(runID, pipeline, gitContext, scope)
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to prepare secrets for pipeline")
 		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", err.Error(), runID)
@@ -1717,7 +1785,7 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 		return
 	}
 
-	finalVars, err := a.prepareVariablesForPipeline(pipeline, gitContext, scope, overrides)
+	finalVars, err := a.prepareVariablesForPipeline(runID, pipeline, gitContext, scope, overrides)
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to prepare scope variables for pipeline")
 		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", err.Error(), runID)
@@ -1784,6 +1852,16 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 	triggerEventID := strings.TrimSpace(gitContext["trigger_event_id"])
 	agentContainerName := buildAgentContainerName(pipeline.Name, repoName, triggerEventID, runID)
 	preferredRunnerID := strings.TrimSpace(parentRunnerID)
+	if preferredRunnerID != "" {
+		if _, err := a.authorizeRunRuntimeResourceUse(ctx, runID, gitContext, "runner.use", grantResourceRunner, preferredRunnerID); err != nil {
+			log.Error().Err(err).Str("run_id", runID).Str("runner_id", preferredRunnerID).Msg("Run is not allowed to use preferred runner")
+			a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", err.Error(), runID)
+			if gitContext["repo_owner"] != "" {
+				a.notifyGitBotOfFinalStatus("failure", "", "", err.Error(), gitContext)
+			}
+			return
+		}
+	}
 
 	secretsJSON, err := json.Marshal(secrets)
 	if err != nil {

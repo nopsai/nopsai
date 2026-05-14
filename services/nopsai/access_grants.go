@@ -35,11 +35,17 @@ const (
 	grantResourceScope    = "scope"
 	grantResourceRepo     = "repository"
 	grantResourceStep     = "step"
+	grantResourceRunner   = "runner"
+	grantResourceConfig   = "config_repo"
 	grantResourceCompany  = "company"
 	grantResourcePlatform = "platform"
 
-	grantSubjectService = "service"
-	grantSubjectUser    = "user"
+	grantSubjectService        = "service"
+	grantSubjectUser           = "user"
+	grantSubjectGroup          = "group"
+	grantSubjectRepository     = "repository"
+	grantSubjectTrigger        = "trigger"
+	grantSubjectServiceAccount = "service_account"
 
 	platformGrantID = "default"
 	generalGrantID  = model.FolderGeneralID
@@ -182,16 +188,22 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"pipeline.create",
 			"pipeline.update",
 			"pipeline.execute",
+			"pipeline.use",
 			"pipeline_run.rerun",
 			"pipeline_run.cancel",
 			"trigger.update",
+			"secret.use",
 			"secret.write_value",
+			"variable.use",
 			"variable.write_value",
+			"scope.use",
 			"scope.update",
 			"repository.update",
 			"step.create",
 			"step.update",
 			"step.use",
+			"runner.use",
+			"config_repo.use",
 		},
 	},
 	productRoleOwner: {
@@ -214,20 +226,26 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"pipeline.create",
 			"pipeline.update",
 			"pipeline.execute",
+			"pipeline.use",
 			"pipeline_run.rerun",
 			"pipeline_run.cancel",
 			"pipeline_run.finalize",
 			"pipeline_run.write_logs",
 			"pipeline_run.task_update",
 			"trigger.update",
+			"secret.use",
 			"secret.write_value",
 			"variable.read_value",
+			"variable.use",
 			"variable.write_value",
+			"scope.use",
 			"scope.update",
 			"repository.update",
 			"step.create",
 			"step.update",
 			"step.use",
+			"runner.use",
+			"config_repo.use",
 			"folder.create",
 			"folder.update",
 			"folder.move",
@@ -267,7 +285,7 @@ var productRoleIncludes = map[string][]string{
 var accessGrantSchemaStatements = []string{
 	`CREATE TABLE IF NOT EXISTS access_grants (
 		id BIGSERIAL PRIMARY KEY,
-		subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_group', 'internal_service')),
+		subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_group', 'group', 'repository', 'trigger', 'service_account', 'internal_service')),
 		subject_id TEXT NOT NULL,
 		subject_display TEXT NOT NULL DEFAULT '',
 		role_name TEXT NOT NULL,
@@ -281,6 +299,16 @@ var accessGrantSchemaStatements = []string{
 	)`,
 	`ALTER TABLE resource_acl ADD COLUMN IF NOT EXISTS access_grant_id BIGINT REFERENCES access_grants(id) ON DELETE CASCADE`,
 	`ALTER TABLE resource_ownership ADD COLUMN IF NOT EXISTS access_grant_id BIGINT REFERENCES access_grants(id) ON DELETE CASCADE`,
+	`ALTER TABLE auth_group_members DROP CONSTRAINT IF EXISTS auth_group_members_subject_type_check`,
+	`ALTER TABLE auth_group_members ADD CONSTRAINT auth_group_members_subject_type_check CHECK (subject_type IN ('user', 'repository', 'trigger', 'service_account', 'internal_service'))`,
+	`ALTER TABLE auth_role_bindings DROP CONSTRAINT IF EXISTS auth_role_bindings_subject_type_check`,
+	`ALTER TABLE auth_role_bindings ADD CONSTRAINT auth_role_bindings_subject_type_check CHECK (subject_type IN ('user', 'auth_group', 'repository', 'trigger', 'service_account', 'internal_service'))`,
+	`ALTER TABLE access_grants DROP CONSTRAINT IF EXISTS access_grants_subject_type_check`,
+	`ALTER TABLE access_grants ADD CONSTRAINT access_grants_subject_type_check CHECK (subject_type IN ('user', 'auth_group', 'group', 'repository', 'trigger', 'service_account', 'internal_service'))`,
+	`ALTER TABLE resource_acl DROP CONSTRAINT IF EXISTS resource_acl_subject_type_check`,
+	`ALTER TABLE resource_acl ADD CONSTRAINT resource_acl_subject_type_check CHECK (subject_type IN ('user', 'auth_group', 'repository', 'trigger', 'service_account', 'internal_service'))`,
+	`ALTER TABLE resource_ownership DROP CONSTRAINT IF EXISTS resource_ownership_owner_subject_type_check`,
+	`ALTER TABLE resource_ownership ADD CONSTRAINT resource_ownership_owner_subject_type_check CHECK (owner_subject_type IN ('user', 'auth_group', 'repository', 'trigger', 'service_account', 'internal_service'))`,
 	`CREATE INDEX IF NOT EXISTS idx_access_grants_subject_lookup ON access_grants(subject_type, subject_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_access_grants_resource_lookup ON access_grants(resource_type, resource_id)`,
 }
@@ -910,6 +938,10 @@ func actionAppliesToGrantResource(action, resourceType string) bool {
 		return strings.HasPrefix(action, "trigger.")
 	case grantResourceStep:
 		return strings.HasPrefix(action, "step.")
+	case grantResourceRunner:
+		return strings.HasPrefix(action, "runner.")
+	case grantResourceConfig:
+		return strings.HasPrefix(action, "config_repo.")
 	default:
 		return false
 	}
@@ -927,10 +959,18 @@ func normalizeAccessGrantSubjectType(raw string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case grantSubjectUser:
 		return model.SubjectTypeUser, nil
+	case model.SubjectTypeAuthGroup, "group":
+		return model.SubjectTypeAuthGroup, nil
+	case grantSubjectRepository:
+		return model.SubjectTypeRepository, nil
+	case grantSubjectTrigger:
+		return model.SubjectTypeTrigger, nil
+	case grantSubjectServiceAccount:
+		return model.SubjectTypeServiceAccount, nil
 	case grantSubjectService, model.SubjectTypeInternalService:
 		return model.SubjectTypeInternalService, nil
 	default:
-		return "", fmt.Errorf("subject_type must be user or internal_service")
+		return "", fmt.Errorf("subject_type must be user, auth_group, repository, trigger, service_account, or internal_service")
 	}
 }
 
@@ -954,6 +994,10 @@ func normalizeAccessGrantResourceType(raw string) (string, error) {
 		return grantResourceRepo, nil
 	case grantResourceStep:
 		return grantResourceStep, nil
+	case grantResourceRunner:
+		return grantResourceRunner, nil
+	case grantResourceConfig:
+		return grantResourceConfig, nil
 	case grantResourceCompany, grantResourcePlatform:
 		return grantResourcePlatform, nil
 	default:
@@ -974,6 +1018,10 @@ func resolveAccessGrantSubject(ctx context.Context, runner queryRunner, rawType,
 	switch subjectType {
 	case model.SubjectTypeUser:
 		return resolveAccessGrantUser(ctx, runner, rawID)
+	case model.SubjectTypeAuthGroup:
+		return resolveAccessGrantAuthGroup(ctx, runner, rawID)
+	case model.SubjectTypeRepository, model.SubjectTypeTrigger, model.SubjectTypeServiceAccount:
+		return resolveAccessGrantNamedSubject(subjectType, rawID)
 	case model.SubjectTypeInternalService:
 		return resolveAccessGrantService(ctx, runner, rawID)
 	default:
@@ -1014,6 +1062,68 @@ func resolveAccessGrantUser(ctx context.Context, runner queryRunner, rawID strin
 	}
 	subject.Type = model.SubjectTypeUser
 	return subject, nil
+}
+
+func resolveAccessGrantAuthGroup(ctx context.Context, runner queryRunner, rawID string) (accessGrantSubject, error) {
+	groupID := strings.TrimSpace(rawID)
+	if groupID == "" {
+		return accessGrantSubject{}, fmt.Errorf("subject_id is required")
+	}
+
+	var subject accessGrantSubject
+	query := `
+		SELECT id::text, name
+		FROM auth_groups
+		WHERE %s
+		LIMIT 1
+	`
+	var (
+		lookup string
+		args   []any
+	)
+	if _, err := uuid.Parse(groupID); err == nil {
+		lookup = "id::text = $1"
+		args = []any{groupID}
+	} else {
+		lookup = "name = $1"
+		args = []any{groupID}
+	}
+
+	err := runner.QueryRow(ctx, fmt.Sprintf(query, lookup), args...).Scan(&subject.ID, &subject.Display)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+			return accessGrantSubject{}, fmt.Errorf("subject not found")
+		}
+		return accessGrantSubject{}, err
+	}
+	subject.Type = model.SubjectTypeAuthGroup
+	return subject, nil
+}
+
+func resolveAccessGrantNamedSubject(subjectType, rawID string) (accessGrantSubject, error) {
+	subjectID := strings.Trim(strings.TrimSpace(rawID), "/")
+	if subjectID == "" {
+		return accessGrantSubject{}, fmt.Errorf("subject_id is required")
+	}
+	for _, prefix := range []string{
+		model.SubjectTypeRepository + ":",
+		model.SubjectTypeTrigger + ":",
+		model.SubjectTypeServiceAccount + ":",
+	} {
+		if strings.HasPrefix(strings.ToLower(subjectID), prefix) {
+			subjectID = strings.TrimSpace(subjectID[len(prefix):])
+			break
+		}
+	}
+	subjectID = strings.Trim(strings.TrimSpace(subjectID), "/")
+	if subjectID == "" {
+		return accessGrantSubject{}, fmt.Errorf("subject_id is required")
+	}
+	return accessGrantSubject{
+		Type:    subjectType,
+		ID:      subjectID,
+		Display: subjectID,
+	}, nil
 }
 
 func resolveAccessGrantService(ctx context.Context, runner queryRunner, rawID string) (accessGrantSubject, error) {
@@ -1095,20 +1205,21 @@ func resolveAccessGrantResource(ctx context.Context, runner queryRunner, rawType
 		}
 		return accessGrantResource{Type: grantResourceTrigger, ID: rawID, Display: rawID}, nil
 	case grantResourceScope:
-		if rawID == "" {
+		scopeID, scopeLookup, scopeDisplay := normalizeScopeGrantResourceID(rawID)
+		if scopeDisplay == "" {
 			return accessGrantResource{}, fmt.Errorf("resource_id is required")
 		}
-		if requireExists {
+		if requireExists && !isDefaultScopeGrantResource(scopeID, scopeDisplay) {
 			var exists int
 			err := runner.QueryRow(ctx, `
 				SELECT 1
 				FROM (
-					SELECT scope FROM secrets WHERE scope = $1
+					SELECT COALESCE(scope, '') AS scope FROM secrets WHERE COALESCE(scope, '') = $1
 					UNION
-					SELECT scope FROM variables WHERE scope = $1
+					SELECT COALESCE(scope, '') AS scope FROM variables WHERE COALESCE(scope, '') = $1
 				) scopes
 				LIMIT 1
-			`, rawID).Scan(&exists)
+			`, scopeLookup).Scan(&exists)
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
 					return accessGrantResource{}, fmt.Errorf("resource not found")
@@ -1116,7 +1227,7 @@ func resolveAccessGrantResource(ctx context.Context, runner queryRunner, rawType
 				return accessGrantResource{}, err
 			}
 		}
-		return accessGrantResource{Type: grantResourceScope, ID: rawID, Display: rawID}, nil
+		return accessGrantResource{Type: grantResourceScope, ID: scopeID, Display: scopeDisplay}, nil
 	case grantResourceRepo:
 		if rawID == "" {
 			return accessGrantResource{}, fmt.Errorf("resource_id is required")
@@ -1144,6 +1255,15 @@ func resolveAccessGrantResource(ctx context.Context, runner queryRunner, rawType
 			}
 		}
 		return accessGrantResource{Type: grantResourceRepo, ID: rawID, Display: rawID}, nil
+	case grantResourceRunner, grantResourceConfig:
+		if rawID == "" {
+			return accessGrantResource{}, fmt.Errorf("resource_id is required")
+		}
+		resourceID := strings.Trim(strings.TrimSpace(rawID), "/")
+		if resourceID == "" {
+			return accessGrantResource{}, fmt.Errorf("resource_id is required")
+		}
+		return accessGrantResource{Type: resourceType, ID: resourceID, Display: resourceID}, nil
 	case grantResourceSecret, grantResourceVariable:
 		if rawID == "" {
 			return accessGrantResource{}, fmt.Errorf("resource_id is required")
@@ -1165,6 +1285,20 @@ func resolveAccessGrantResource(ctx context.Context, runner queryRunner, rawType
 		return accessGrantResource{Type: resourceType, ID: rawID, Display: rawID}, nil
 	default:
 		return accessGrantResource{}, fmt.Errorf("unsupported resource_type")
+	}
+}
+
+func isDefaultScopeGrantResource(id, display string) bool {
+	return strings.TrimSpace(id) == "" && strings.EqualFold(strings.TrimSpace(display), "default")
+}
+
+func normalizeScopeGrantResourceID(rawID string) (id, lookup, display string) {
+	rawID = strings.Trim(strings.TrimSpace(rawID), "/")
+	switch strings.ToLower(rawID) {
+	case "", "default":
+		return "", "", "default"
+	default:
+		return rawID, rawID, rawID
 	}
 }
 
@@ -1391,6 +1525,10 @@ func managementActionForGrantResource(resource accessGrantResource) (string, mod
 		return "repository.manage_acl", model.ResourceRef{Type: grantResourceRepo, ID: resource.ID}, nil
 	case grantResourceStep:
 		return "step.manage_acl", model.ResourceRef{Type: grantResourceStep, ID: resource.ID}, nil
+	case grantResourceRunner:
+		return "system.update", model.ResourceRef{Type: "dispatcher", ID: "runners"}, nil
+	case grantResourceConfig:
+		return "config_repo.manage", model.ResourceRef{Type: grantResourceConfig, ID: resource.ID}, nil
 	default:
 		return "", model.ResourceRef{}, fmt.Errorf("unsupported grant resource")
 	}
@@ -1774,8 +1912,16 @@ func parseAccessGrantID(raw string) (int64, error) {
 func formatSubjectLabel(subjectType, subjectID string) string {
 	subjectID = strings.TrimSpace(subjectID)
 	switch subjectType {
+	case grantSubjectGroup:
+		return "group " + subjectID
 	case model.SubjectTypeAuthGroup:
 		return "group " + subjectID
+	case model.SubjectTypeRepository:
+		return "repository " + subjectID
+	case model.SubjectTypeTrigger:
+		return "trigger " + subjectID
+	case model.SubjectTypeServiceAccount:
+		return "service account " + subjectID
 	case model.SubjectTypeInternalService:
 		return "service " + subjectID
 	default:
@@ -1786,6 +1932,9 @@ func formatSubjectLabel(subjectType, subjectID string) string {
 func formatResourceLabel(resourceType, resourceID string) string {
 	resourceType = strings.TrimSpace(resourceType)
 	resourceID = strings.TrimSpace(resourceID)
+	if resourceType == grantResourceScope && resourceID == "" {
+		resourceID = "default"
+	}
 	if resourceType == grantResourceFolder && resourceID == generalGrantID {
 		resourceID = "general"
 	}
