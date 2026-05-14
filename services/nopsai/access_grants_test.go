@@ -256,6 +256,27 @@ func TestAccessGrantResponseUsesInternalSubjectID(t *testing.T) {
 	}
 }
 
+func TestAccessGrantResponseIncludesGitOpsSource(t *testing.T) {
+	response := accessGrantResponseFromRecord(accessGrantRecord{
+		ID:                    7,
+		SubjectType:           model.SubjectTypeRepository,
+		SubjectID:             "acme/app",
+		RoleName:              customUseGrantRole,
+		ResourceType:          grantResourcePipeline,
+		ResourceID:            "team-1/deploy",
+		ManagedByConfig:       true,
+		ConfigSourcePath:      "pipelines/deploy.yaml",
+		ConfigSourceCommitSHA: "abc123",
+	})
+
+	if response.Source != "gitops" || !response.ManagedByConfigRepo {
+		t.Fatalf("source = (%q, %v), want gitops managed", response.Source, response.ManagedByConfigRepo)
+	}
+	if response.ConfigSourcePath != "pipelines/deploy.yaml" {
+		t.Fatalf("ConfigSourcePath = %q", response.ConfigSourcePath)
+	}
+}
+
 func TestDeleteUserAccessArtifactsRemovesGrantRows(t *testing.T) {
 	runner := &recordingExecRunner{}
 	if err := deleteUserAccessArtifacts(context.Background(), runner, "user-uuid"); err != nil {

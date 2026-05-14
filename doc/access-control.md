@@ -204,6 +204,47 @@ separate subject type. Non-admin basic roles are expanded into `resource_acl`;
 owner grants also write `resource_ownership`. `admin` grants remain
 platform-only and are rejected in group-scoped config repositories.
 
+## GitOps Resource Access
+
+Pipeline, reusable step, and scope config files can also declare resource use
+access inline with the object they protect. This is the GitOps form of the
+resource Access dialog in the UI.
+
+```yaml
+name: deploy
+access:
+  visibility: restricted
+  use_access:
+    grants:
+      - subject_type: repository
+        subject_id: hosein-yousefii/test-app
+      - subject_type: group
+        subject_id: data-team
+steps:
+  - name: deploy
+    script: echo deploy
+```
+
+Supported `visibility` values are `group`, `restricted`, and
+`workspace`/`public`. `public` is only allowed for pipelines and reusable steps;
+scopes remain sensitive and can only be `group` or `restricted`. If a resource
+declares grants without a visibility, sync treats it as `restricted`.
+
+The grant subjects match the Access UI. Use `subject_type: repository` with a
+canonical repository ID, or `subject_type: group` with a resource group path.
+The shorthand form below is equivalent:
+
+```yaml
+access:
+  groups: [data-team]
+  repositories: [hosein-yousefii/test-app]
+```
+
+Inline access grants are stored in the same `access_grants` table as UI-created
+resource-use grants and are reconciled on config sync. The `access/` directory
+remains for IAM-like records: users, advanced roles, policies, advanced role
+bindings, and scoped product role grants.
+
 ## Inheritance
 
 The evaluator resolves parent resources before checking ACLs. A group grant can authorize:

@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"nopsai/config"
 	"nopsai/pkg/models"
 )
@@ -473,5 +475,51 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 	}
 	if _, ok := repoScopeVars[repoScopeVarKey{repo: "hosein-yousefii/test-app", scopePath: "prod", name: "TEST_SCOPE"}]; !ok {
 		t.Fatal("expected unrelated repository scope variable to remain")
+	}
+}
+
+func TestScopeVariablesSectionCanCoexistWithAccess(t *testing.T) {
+	var raw map[string]any
+	if err := yaml.Unmarshal([]byte(`
+access:
+  visibility: restricted
+  use_access:
+    repositories:
+      - hosein-yousefii/test-app
+variables:
+  API_VERSION: "2026.05"
+  hosein-yousefii/test-app/IMAGE_NAME: "ghcr.io/team-1/service-api:dev"
+`), &raw); err != nil {
+		t.Fatalf("yaml.Unmarshal() error = %v", err)
+	}
+
+	generalScopeVars := map[generalScopeVarKey]storedScopeVar{}
+	repoScopeVars := map[repoScopeVarKey]storedScopeVar{}
+	for key, value := range raw {
+		if key == "access" {
+			continue
+		}
+		if key != "variables" {
+			t.Fatalf("unexpected key %q", key)
+		}
+		variables, ok := scopeVariablesSection(value)
+		if !ok {
+			t.Fatal("variables section was not recognized")
+		}
+		for variableKey, variableValue := range variables {
+			if err := addScopeVariableConfigEntry(generalScopeVars, repoScopeVars, "team-1/dev", variableKey, variableValue, "scopes/dev/scope.yaml", models.ConfigRepository{
+				ScopeType: models.ConfigRepositoryScopeSystem,
+				ScopeID:   models.ConfigRepositorySystemGlobalID,
+			}, ""); err != nil {
+				t.Fatalf("addScopeVariableConfigEntry() error = %v", err)
+			}
+		}
+	}
+
+	if got := generalScopeVars[generalScopeVarKey{scopePath: "team-1/dev", name: "API_VERSION"}].value; got != "2026.05" {
+		t.Fatalf("API_VERSION = %q, want 2026.05", got)
+	}
+	if got := repoScopeVars[repoScopeVarKey{repo: "hosein-yousefii/test-app", scopePath: "team-1/dev", name: "IMAGE_NAME"}].value; got != "ghcr.io/team-1/service-api:dev" {
+		t.Fatalf("repo IMAGE_NAME = %q", got)
 	}
 }

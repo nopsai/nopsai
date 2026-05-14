@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
+import { AlertTriangle, GitBranch, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
 
 import { buildApiUrl } from '../lib/api';
 import { buildResourceGroupPaths, type ResourceGroup } from '../lib/resourceGroups';
@@ -10,6 +10,10 @@ type AccessGrant = {
   subject_id: string;
   subject_display?: string;
   role: string;
+  source?: string;
+  managed_by_config_repo?: boolean;
+  config_source_path?: string;
+  inherited_from_resource?: string;
 };
 
 type ResourceAccess = {
@@ -24,6 +28,9 @@ type ResourceAccess = {
   manage_access?: {
     mode?: string;
   };
+  access_overridden?: boolean;
+  overridden_by?: string;
+  overridden_at?: string;
 };
 
 type ResourceAccessCardProps = {
@@ -66,6 +73,17 @@ function subjectLabel(grant: AccessGrant) {
   if (grant.subject_type === 'service_account') return `Service account ${display}`;
   if (grant.subject_type === 'trigger') return `Trigger ${display}`;
   return display;
+}
+
+function grantSourceLabel(grant: AccessGrant) {
+  const role = grant.role === 'use' ? 'Use access' : grant.role;
+  const inherited = grant.inherited_from_resource ? `Inherited from ${grant.inherited_from_resource}` : '';
+  const source = (grant.managed_by_config_repo || grant.source === 'gitops')
+    ? grant.config_source_path
+      ? `GitOps: ${grant.config_source_path}`
+      : 'GitOps'
+    : 'UI';
+  return [role, inherited, source].filter(Boolean).join(' · ');
 }
 
 async function readResponseError(response: Response, fallback: string) {
@@ -215,7 +233,7 @@ export default function ResourceAccessCard({ resourceType, resourceID, label, se
     <>
       <button className={buttonClassName} type="button" onClick={() => setOpen(true)} title="Access">
         <Users className="h-4 w-4" />
-        <span>Access</span>
+        <span>{access?.access_overridden ? 'Access overridden' : 'Access'}</span>
       </button>
 
       {open ? (
@@ -243,6 +261,16 @@ export default function ResourceAccessCard({ resourceType, resourceID, label, se
 
               {access ? (
                 <>
+                {access.access_overridden ? (
+                  <div className="flex items-start gap-2 rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>
+                      Access was changed in the UI
+                      {access.overridden_by ? ` by ${access.overridden_by}` : ''}. The next GitOps sync will restore configured access.
+                    </span>
+                  </div>
+                ) : null}
+
                 <div className="space-y-2">
                   {visibilityOptions.map(option => {
                     const disabled = saving || (option.value === 'workspace' && sensitive);
@@ -282,9 +310,18 @@ export default function ResourceAccessCard({ resourceType, resourceID, label, se
                           <li key={grant.id} className="flex items-center justify-between gap-3 rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 py-2">
                             <div className="min-w-0">
                               <p className="truncate text-sm font-medium text-[var(--text-primary)]">{subjectLabel(grant)}</p>
-                              <p className="text-xs text-[var(--text-secondary)]">{grant.role === 'use' ? 'Use access' : grant.role}</p>
+                              <p className="flex items-center gap-1 text-xs text-[var(--text-secondary)]">
+                                {(grant.managed_by_config_repo || grant.source === 'gitops') ? <GitBranch className="h-3.5 w-3.5 shrink-0" /> : null}
+                                <span className="truncate">{grantSourceLabel(grant)}</span>
+                              </p>
                             </div>
-                            <button className="glass-button-ghost" type="button" onClick={() => void deleteGrant(grant.id)} disabled={saving} title="Remove access">
+                            <button
+                              className="glass-button-ghost"
+                              type="button"
+                              onClick={() => void deleteGrant(grant.id)}
+                              disabled={saving || Boolean(grant.inherited_from_resource)}
+                              title={grant.inherited_from_resource ? 'Inherited access must be changed on its source resource' : 'Remove access'}
+                            >
                               <Trash2 className="h-4 w-4" />
                             </button>
                           </li>

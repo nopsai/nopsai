@@ -125,3 +125,16 @@ func TestNormalizeUseGrantActions(t *testing.T) {
 		t.Fatal("normalizeUseGrantActions() accepted mismatched use action")
 	}
 }
+
+func TestInheritedAccessParentFoldersForPipeline(t *testing.T) {
+	got := inheritedAccessParentFolders(accessGrantResource{Type: grantResourcePipeline, ID: "team-1/dev/deploy"})
+	want := []string{"team-1", "team-1/dev"}
+	if len(got) != len(want) {
+		t.Fatalf("parent folders = %#v, want %#v", got, want)
+	}
+	for idx := range want {
+		if got[idx] != want[idx] {
+			t.Fatalf("parent folders = %#v, want %#v", got, want)
+		}
+	}
+}

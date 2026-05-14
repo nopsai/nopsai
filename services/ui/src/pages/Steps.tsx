@@ -37,6 +37,7 @@ const STEP_DIRECTIVES = [
   'ignore_failure',
   'llm_output_sharing',
   'artifacts',
+  'access',
 ];
 
 const TASK_DIRECTIVES = [

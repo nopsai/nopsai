@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -21,12 +22,15 @@ import (
 const customUseGrantRole = "use"
 
 type resourceAccessResponse struct {
-	Resource     string                     `json:"resource"`
-	ResourceType string                     `json:"resource_type"`
-	ResourceID   string                     `json:"resource_id"`
-	Visibility   string                     `json:"visibility"`
-	UseAccess    resourceAccessUseAccess    `json:"use_access"`
-	ManageAccess resourceAccessManageAccess `json:"manage_access"`
+	Resource         string                     `json:"resource"`
+	ResourceType     string                     `json:"resource_type"`
+	ResourceID       string                     `json:"resource_id"`
+	Visibility       string                     `json:"visibility"`
+	UseAccess        resourceAccessUseAccess    `json:"use_access"`
+	ManageAccess     resourceAccessManageAccess `json:"manage_access"`
+	AccessOverridden bool                       `json:"access_overridden"`
+	OverriddenBy     string                     `json:"overridden_by,omitempty"`
+	OverriddenAt     *time.Time                 `json:"overridden_at,omitempty"`
 }
 
 type resourceAccessUseAccess struct {
@@ -277,6 +281,10 @@ func (a *App) handleUpdateResourceAccess(w http.ResponseWriter, r *http.Request,
 		http.Error(w, err.Error(), status)
 		return
 	}
+	if err := a.markResourceAccessOverride(r.Context(), resource, overrideActorFromSubject(subject)); err != nil {
+		http.Error(w, "failed to mark access override", http.StatusInternalServerError)
+		return
+	}
 
 	resp, err := a.resourceAccessResponse(r.Context(), resource)
 	if err != nil {
@@ -330,6 +338,10 @@ func (a *App) handleCreateResourceUseGrant(w http.ResponseWriter, r *http.Reques
 		http.Error(w, err.Error(), status)
 		return
 	}
+	if err := a.markResourceAccessOverride(r.Context(), resource, overrideActorFromSubject(subject)); err != nil {
+		http.Error(w, "failed to mark access override", http.StatusInternalServerError)
+		return
+	}
 	_ = httpapi.WriteJSON(w, http.StatusCreated, accessGrantResponseFromRecord(record))
 }
 
@@ -371,6 +383,10 @@ func (a *App) handleDeleteResourceAccessGrant(w http.ResponseWriter, r *http.Req
 		http.Error(w, err.Error(), status)
 		return
 	}
+	if err := a.markResourceAccessOverride(r.Context(), resource, overrideActorFromSubject(subject)); err != nil {
+		http.Error(w, "failed to mark access override", http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -383,6 +399,10 @@ func (a *App) resourceAccessResponse(ctx context.Context, resource accessGrantRe
 	if err != nil {
 		return resourceAccessResponse{}, err
 	}
+	override, err := a.resourceAccessOverride(ctx, resource)
+	if err != nil {
+		return resourceAccessResponse{}, err
+	}
 	return resourceAccessResponse{
 		Resource:     formatResourceLabel(resource.Type, resource.ID),
 		ResourceType: resource.Type,
@@ -392,7 +412,10 @@ func (a *App) resourceAccessResponse(ctx context.Context, resource accessGrantRe
 			Mode:   resourceAccessModeForVisibility(visibility),
 			Grants: grants,
 		},
-		ManageAccess: resourceAccessManageAccess{Mode: "owners"},
+		ManageAccess:     resourceAccessManageAccess{Mode: "owners"},
+		AccessOverridden: override.overridden,
+		OverriddenBy:     override.by,
+		OverriddenAt:     override.at,
 	}, nil
 }
 
@@ -409,7 +432,10 @@ func (a *App) listResourceAccessGrants(ctx context.Context, resource accessGrant
 			resource_display,
 			inherit,
 			granted_by,
-			created_at
+			created_at,
+			managed_by_config_repo,
+			config_source_path,
+			config_source_commit_sha
 		FROM access_grants
 		WHERE resource_type = $1 AND resource_id = $2
 		ORDER BY role_name ASC, subject_type ASC, subject_display ASC, subject_id ASC
@@ -434,16 +460,194 @@ func (a *App) listResourceAccessGrants(ctx context.Context, resource accessGrant
 			&record.Inherit,
 			&record.GrantedBy,
 			&record.CreatedAt,
+			&record.ManagedByConfig,
+			&record.ConfigSourcePath,
+			&record.ConfigSourceCommitSHA,
 		); err != nil {
 			return nil, err
 		}
 		grants = append(grants, accessGrantResponseFromRecord(record))
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	inherited, err := a.listInheritedResourceAccessGrants(ctx, resource)
+	if err != nil {
+		return nil, err
+	}
+	grants = append(grants, inherited...)
+	return grants, nil
+}
+
+func (a *App) listInheritedResourceAccessGrants(ctx context.Context, resource accessGrantResource) ([]accessGrantResponse, error) {
+	parentFolders := inheritedAccessParentFolders(resource)
+	if len(parentFolders) == 0 {
+		return nil, nil
+	}
+	rows, err := a.db.Query(ctx, `
+		SELECT
+			id,
+			subject_type,
+			subject_id,
+			subject_display,
+			role_name,
+			resource_type,
+			resource_id,
+			resource_display,
+			inherit,
+			granted_by,
+			created_at,
+			managed_by_config_repo,
+			config_source_path,
+			config_source_commit_sha
+		FROM access_grants
+		WHERE resource_type = $1
+		  AND resource_id = ANY($2)
+		  AND inherit = TRUE
+		ORDER BY resource_id ASC, role_name ASC, subject_type ASC, subject_display ASC, subject_id ASC
+	`, grantResourceFolder, parentFolders)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	grants := make([]accessGrantResponse, 0)
+	for rows.Next() {
+		var record accessGrantRecord
+		if err := rows.Scan(
+			&record.ID,
+			&record.SubjectType,
+			&record.SubjectID,
+			&record.SubjectDisplay,
+			&record.RoleName,
+			&record.ResourceType,
+			&record.ResourceID,
+			&record.ResourceDisplay,
+			&record.Inherit,
+			&record.GrantedBy,
+			&record.CreatedAt,
+			&record.ManagedByConfig,
+			&record.ConfigSourcePath,
+			&record.ConfigSourceCommitSHA,
+		); err != nil {
+			return nil, err
+		}
+		if !inheritedGrantAppliesToResource(record, resource.Type) {
+			continue
+		}
+		record.InheritedFromResourceType = record.ResourceType
+		record.InheritedFromResourceID = record.ResourceID
+		record.InheritedFromResourceDisplay = record.ResourceDisplay
+		grants = append(grants, accessGrantResponseFromRecord(record))
+	}
 	return grants, rows.Err()
+}
+
+func inheritedAccessParentFolders(resource accessGrantResource) []string {
+	switch resource.Type {
+	case grantResourcePipeline, grantResourceStep:
+		path, _ := model.SplitPipelineID(resource.ID)
+		return folderPathPrefixes(path)
+	case grantResourceScope:
+		return folderPathPrefixes(resource.ID)
+	case grantResourceFolder:
+		prefixes := folderPathPrefixes(resource.ID)
+		if len(prefixes) == 0 {
+			return nil
+		}
+		return prefixes[:len(prefixes)-1]
+	case grantResourceRepo, grantResourceTrigger:
+		return folderPathPrefixes(repositoryParentPath(resource.ID))
+	case grantResourceSecret, grantResourceVariable:
+		repoName, scope, _ := model.ParseNamedResourceID(resource.ID)
+		if scope != "" {
+			return folderPathPrefixes(scope)
+		}
+		return folderPathPrefixes(repositoryParentPath(repoName))
+	default:
+		return nil
+	}
+}
+
+func folderPathPrefixes(path string) []string {
+	path = strings.Trim(strings.TrimSpace(path), "/")
+	if path == "" || path == generalGrantID {
+		return nil
+	}
+	parts := strings.Split(path, "/")
+	prefixes := make([]string, 0, len(parts))
+	for idx := range parts {
+		prefix := strings.Trim(strings.Join(parts[:idx+1], "/"), "/")
+		if prefix != "" {
+			prefixes = append(prefixes, prefix)
+		}
+	}
+	return prefixes
+}
+
+func inheritedGrantAppliesToResource(record accessGrantRecord, targetResourceType string) bool {
+	if record.RoleName == productRoleAdmin {
+		return true
+	}
+	if record.RoleName == customUseGrantRole {
+		action, err := defaultUseActionForResource(targetResourceType)
+		return err == nil && actionAppliesToGrantResource(action, targetResourceType)
+	}
+	return len(applicableProductRoleActions(record.RoleName, targetResourceType)) > 0
+}
+
+type resourceAccessOverrideRecord struct {
+	overridden bool
+	by         string
+	at         *time.Time
+}
+
+func (a *App) resourceAccessOverride(ctx context.Context, resource accessGrantResource) (resourceAccessOverrideRecord, error) {
+	var record resourceAccessOverrideRecord
+	var updatedAt time.Time
+	err := a.db.QueryRow(ctx, `
+		SELECT overridden_by, updated_at
+		FROM resource_access_overrides
+		WHERE resource_type = $1 AND resource_id = $2
+	`, resource.Type, resource.ID).Scan(&record.by, &updatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+			return resourceAccessOverrideRecord{}, nil
+		}
+		return resourceAccessOverrideRecord{}, err
+	}
+	record.overridden = true
+	record.at = &updatedAt
+	return record, nil
+}
+
+func (a *App) markResourceAccessOverride(ctx context.Context, resource accessGrantResource, actor string) error {
+	if a == nil || a.db == nil {
+		return fmt.Errorf("database unavailable")
+	}
+	_, err := a.db.Exec(ctx, `
+		INSERT INTO resource_access_overrides (resource_type, resource_id, overridden_by, updated_at)
+		VALUES ($1, $2, $3, NOW())
+		ON CONFLICT (resource_type, resource_id)
+		DO UPDATE SET overridden_by = EXCLUDED.overridden_by, updated_at = NOW()
+	`, resource.Type, resource.ID, strings.TrimSpace(actor))
+	return err
+}
+
+func overrideActorFromSubject(subject model.Subject) string {
+	return firstNonEmptyString(subject.Sub, subject.Email, subject.ID, subject.Type)
 }
 
 func (a *App) setResourceVisibility(ctx context.Context, resource accessGrantResource, visibility string) error {
 	if a == nil || a.db == nil {
+		return fmt.Errorf("database unavailable")
+	}
+	return setResourceVisibilityWithRunner(ctx, a.db, resource, visibility)
+}
+
+func setResourceVisibilityWithRunner(ctx context.Context, runner execRunner, resource accessGrantResource, visibility string) error {
+	if runner == nil {
 		return fmt.Errorf("database unavailable")
 	}
 	visibility = normalizeResourceVisibility(visibility)
@@ -452,14 +656,14 @@ func (a *App) setResourceVisibility(ctx context.Context, resource accessGrantRes
 	switch resource.Type {
 	case grantResourcePipeline:
 		path, name := model.SplitPipelineID(resource.ID)
-		tag, err = a.db.Exec(ctx, `UPDATE pipelines SET visibility = $1 WHERE path = $2 AND name = $3`, visibility, path, name)
+		tag, err = runner.Exec(ctx, `UPDATE pipelines SET visibility = $1 WHERE path = $2 AND name = $3`, visibility, path, name)
 	case grantResourceStep:
 		path, name := model.SplitPipelineID(resource.ID)
-		tag, err = a.db.Exec(ctx, `UPDATE steps SET visibility = $1 WHERE path = $2 AND name = $3`, visibility, path, name)
+		tag, err = runner.Exec(ctx, `UPDATE steps SET visibility = $1 WHERE path = $2 AND name = $3`, visibility, path, name)
 	case grantResourceConfig:
-		tag, err = a.db.Exec(ctx, `UPDATE config_repositories SET visibility = $1 WHERE id::text = $2 OR scope_id = $2`, visibility, resource.ID)
+		tag, err = runner.Exec(ctx, `UPDATE config_repositories SET visibility = $1 WHERE id::text = $2 OR scope_id = $2`, visibility, resource.ID)
 	default:
-		_, err = a.db.Exec(ctx, `
+		_, err = runner.Exec(ctx, `
 			INSERT INTO resource_visibility (resource_type, resource_id, visibility, updated_at)
 			VALUES ($1, $2, $3, NOW())
 			ON CONFLICT (resource_type, resource_id)

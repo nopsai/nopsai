@@ -1195,6 +1195,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		"access_policies_synced":      0,
 		"access_role_bindings_synced": 0,
 		"access_grants_synced":        0,
+		"resource_access_synced":      0,
 	}
 
 	repoURL := strings.TrimSpace(binding.RepoURL)
@@ -1369,6 +1370,11 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		}
 	}
 
+	accessPlan, err := parseAccessSyncPlan(accessFiles, accessDir, binding, boundFolder)
+	if err != nil {
+		return nil, commitSHA, err
+	}
+
 	pipelines := make(map[string]storedPipeline)
 	for path, content := range pipelineFiles {
 		normalized := filepath.ToSlash(path)
@@ -1410,6 +1416,9 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		key := buildPipelineIdentifier(pipelinePath, fileBase)
 		if _, exists := pipelines[key]; exists {
 			return nil, commitSHA, fmt.Errorf("duplicate pipeline '%s' detected in config repository", key)
+		}
+		if err := accessPlan.addEmbeddedResourceAccess(content, normalized, grantResourcePipeline, key, binding, boundFolder); err != nil {
+			return nil, commitSHA, fmt.Errorf("invalid pipeline access '%s': %w", normalized, err)
 		}
 
 		pipelines[key] = storedPipeline{
@@ -1464,6 +1473,9 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		if _, exists := steps[key]; exists {
 			return nil, commitSHA, fmt.Errorf("duplicate reusable step '%s' detected in config repository", key)
 		}
+		if err := accessPlan.addEmbeddedResourceAccess(content, normalized, grantResourceStep, key, binding, boundFolder); err != nil {
+			return nil, commitSHA, fmt.Errorf("invalid reusable step access '%s': %w", normalized, err)
+		}
 
 		steps[key] = storedStep{
 			definition: content,
@@ -1505,44 +1517,40 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 			return nil, commitSHA, fmt.Errorf("failed to parse scope file '%s': %w", normalized, err)
 		}
 
+		hasEmbeddedScopeAccess := false
 		for key, value := range raw {
 			trimmedKey := strings.TrimSpace(key)
 			if trimmedKey == "" {
 				return nil, commitSHA, fmt.Errorf("scope file '%s' contains an empty key", normalized)
 			}
-
-			strValue, ok := value.(string)
-			if !ok {
-				return nil, commitSHA, fmt.Errorf("scope entry '%s' in '%s' must be a string", trimmedKey, normalized)
+			if trimmedKey == "access" {
+				if _, isStringVariable := value.(string); !isStringVariable {
+					hasEmbeddedScopeAccess = true
+					continue
+				}
+			}
+			if trimmedKey == "variables" {
+				if _, isStringVariable := value.(string); !isStringVariable {
+					variables, ok := scopeVariablesSection(value)
+					if !ok {
+						return nil, commitSHA, fmt.Errorf("scope variables section in '%s' must be a map of variable names to string values", normalized)
+					}
+					for variableKey, variableValue := range variables {
+						if err := addScopeVariableConfigEntry(generalScopeVars, repoScopeVars, scopePath, variableKey, variableValue, normalized, binding, boundFolder); err != nil {
+							return nil, commitSHA, err
+						}
+					}
+					continue
+				}
 			}
 
-			parts := strings.Split(trimmedKey, "/")
-			switch len(parts) {
-			case 1:
-				gKey := generalScopeVarKey{scopePath: scopePath, name: trimmedKey}
-				if _, exists := generalScopeVars[gKey]; exists {
-					return nil, commitSHA, fmt.Errorf("duplicate scope variable '%s' for '%s' detected", trimmedKey, scopePath)
-				}
-				generalScopeVars[gKey] = storedScopeVar{value: strValue, sourcePath: normalized}
-			case 3:
-				repoName := fmt.Sprintf("%s/%s", strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
-				varName := strings.TrimSpace(parts[2])
-				if repoName == "" || varName == "" {
-					return nil, commitSHA, fmt.Errorf("invalid repository-scoped variable key '%s' in '%s'", trimmedKey, normalized)
-				}
-				if binding.ScopeType == models.ConfigRepositoryScopeFolder {
-					repoName, err = normalizeConfigPathForFolder(boundFolder, repoName)
-					if err != nil {
-						return nil, commitSHA, fmt.Errorf("invalid group-scoped repository variable key '%s' in '%s': %w", trimmedKey, normalized, err)
-					}
-				}
-				rKey := repoScopeVarKey{repo: repoName, scopePath: scopePath, name: varName}
-				if _, exists := repoScopeVars[rKey]; exists {
-					return nil, commitSHA, fmt.Errorf("duplicate repository scope variable '%s' for '%s' detected", trimmedKey, scopePath)
-				}
-				repoScopeVars[rKey] = storedScopeVar{value: strValue, sourcePath: normalized}
-			default:
-				return nil, commitSHA, fmt.Errorf("scope key '%s' in '%s' has an unsupported format", trimmedKey, normalized)
+			if err := addScopeVariableConfigEntry(generalScopeVars, repoScopeVars, scopePath, trimmedKey, value, normalized, binding, boundFolder); err != nil {
+				return nil, commitSHA, err
+			}
+		}
+		if hasEmbeddedScopeAccess {
+			if err := accessPlan.addEmbeddedResourceAccess(content, normalized, grantResourceScope, scopePath, binding, boundFolder); err != nil {
+				return nil, commitSHA, fmt.Errorf("invalid scope access '%s': %w", normalized, err)
 			}
 		}
 	}
@@ -1583,11 +1591,6 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		}
 
 		triggers[repoKey] = storedTrigger{definition: content, sourcePath: normalized}
-	}
-
-	accessPlan, err := parseAccessSyncPlan(accessFiles, accessDir, binding, boundFolder)
-	if err != nil {
-		return nil, commitSHA, err
 	}
 
 	// --- 3. Database Transaction (Upsert + Prune) ---
@@ -1990,6 +1993,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		Int("access_policies_synced", details["access_policies_synced"]).
 		Int("access_role_bindings_synced", details["access_role_bindings_synced"]).
 		Int("access_grants_synced", details["access_grants_synced"]).
+		Int("resource_access_synced", details["resource_access_synced"]).
 		Msg("Configuration synchronization from Git completed")
 
 	return details, commitSHA, nil
@@ -2034,6 +2038,76 @@ type storedConfigRepository struct {
 type storedScopeVar struct {
 	value      string
 	sourcePath string
+}
+
+func scopeVariablesSection(value any) (map[string]any, bool) {
+	switch typed := value.(type) {
+	case map[string]any:
+		return typed, true
+	case map[any]any:
+		normalized := make(map[string]any, len(typed))
+		for key, value := range typed {
+			keyString, ok := key.(string)
+			if !ok {
+				return nil, false
+			}
+			normalized[keyString] = value
+		}
+		return normalized, true
+	default:
+		return nil, false
+	}
+}
+
+func addScopeVariableConfigEntry(
+	generalScopeVars map[generalScopeVarKey]storedScopeVar,
+	repoScopeVars map[repoScopeVarKey]storedScopeVar,
+	scopePath string,
+	rawKey string,
+	value any,
+	sourcePath string,
+	binding models.ConfigRepository,
+	boundFolder string,
+) error {
+	trimmedKey := strings.TrimSpace(rawKey)
+	if trimmedKey == "" {
+		return fmt.Errorf("scope file '%s' contains an empty variable key", sourcePath)
+	}
+	strValue, ok := value.(string)
+	if !ok {
+		return fmt.Errorf("scope entry '%s' in '%s' must be a string", trimmedKey, sourcePath)
+	}
+
+	parts := strings.Split(trimmedKey, "/")
+	switch len(parts) {
+	case 1:
+		gKey := generalScopeVarKey{scopePath: scopePath, name: trimmedKey}
+		if _, exists := generalScopeVars[gKey]; exists {
+			return fmt.Errorf("duplicate scope variable '%s' for '%s' detected", trimmedKey, scopePath)
+		}
+		generalScopeVars[gKey] = storedScopeVar{value: strValue, sourcePath: sourcePath}
+	case 3:
+		repoName := fmt.Sprintf("%s/%s", strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
+		varName := strings.TrimSpace(parts[2])
+		if repoName == "" || varName == "" {
+			return fmt.Errorf("invalid repository-scoped variable key '%s' in '%s'", trimmedKey, sourcePath)
+		}
+		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+			normalizedRepoName, err := normalizeConfigPathForFolder(boundFolder, repoName)
+			if err != nil {
+				return fmt.Errorf("invalid group-scoped repository variable key '%s' in '%s': %w", trimmedKey, sourcePath, err)
+			}
+			repoName = normalizedRepoName
+		}
+		rKey := repoScopeVarKey{repo: repoName, scopePath: scopePath, name: varName}
+		if _, exists := repoScopeVars[rKey]; exists {
+			return fmt.Errorf("duplicate repository scope variable '%s' for '%s' detected", trimmedKey, scopePath)
+		}
+		repoScopeVars[rKey] = storedScopeVar{value: strValue, sourcePath: sourcePath}
+	default:
+		return fmt.Errorf("scope key '%s' in '%s' has an unsupported format", trimmedKey, sourcePath)
+	}
+	return nil
 }
 
 type storedTrigger struct {
