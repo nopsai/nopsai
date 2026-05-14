@@ -2119,6 +2119,20 @@ function BranchEventCard({
   );
 }
 
+function getFailurePreview(reason?: string): { title: string; detail?: string } | null {
+  const lines = (reason || '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean);
+  if (!lines.length) return null;
+  const whyLine = lines.find(line => line.startsWith('Why: '));
+  const decisionLine = lines.find(line => line.startsWith('Decision reason: '));
+  return {
+    title: lines[0],
+    detail: whyLine || decisionLine,
+  };
+}
+
 function RunCard({
   run,
   selected,
@@ -2138,6 +2152,7 @@ function RunCard({
   const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
   const repoLabel = formatRepoLabel(run);
   const branchLabel = formatBranchDisplay(run.git_ref, run.git_target_ref);
+  const failurePreview = getFailurePreview(run.failure_reason);
   const cardTone =
     variant === 'event'
       ? 'border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-[0_6px_18px_rgba(0,0,0,0.12)]'
@@ -2204,6 +2219,14 @@ function RunCard({
             <span className="truncate" title="Trigger Event ID">{triggerLabel.display}</span>
           </div>
         </div>
+        {failurePreview && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-700/70 dark:bg-red-950/40 dark:text-red-200">
+            <div className="font-semibold truncate" title={failurePreview.title}>{failurePreview.title}</div>
+            {failurePreview.detail && (
+              <div className="mt-1 truncate opacity-90" title={failurePreview.detail}>{failurePreview.detail}</div>
+            )}
+          </div>
+        )}
       </div>
       <div className="mt-4 pt-3 border-t border-[var(--border-primary)] flex items-center justify-between text-xs text-[var(--text-secondary)]">
         <div className="flex items-center gap-2">
@@ -2225,6 +2248,7 @@ function ListRunRow({ run, selected, onSelect, onOpen }: { run: RunListItem; sel
   const branchLabel = formatBranchDisplay(run.git_ref, run.git_target_ref);
   const commitLabel = (run.git_commit_sha || 'N/A').slice(0, 8);
   const runIdLabel = (run.run_id || 'N/A').slice(0, 8);
+  const failurePreview = getFailurePreview(run.failure_reason);
   return (
     <div
       className={`run-card run-card--list border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-sm rounded-2xl hover:border-[var(--border-accent)] ${selected ? 'run-link-highlight' : ''}`}
@@ -2268,6 +2292,14 @@ function ListRunRow({ run, selected, onSelect, onOpen }: { run: RunListItem; sel
               {runIdLabel}
             </span>
           </div>
+          {failurePreview && (
+            <div className="mt-2 max-w-full rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-700/70 dark:bg-red-950/40 dark:text-red-200">
+              <div className="font-semibold truncate" title={failurePreview.title}>{failurePreview.title}</div>
+              {failurePreview.detail && (
+                <div className="mt-1 truncate opacity-90" title={failurePreview.detail}>{failurePreview.detail}</div>
+              )}
+            </div>
+          )}
         </div>
       </div>
       <div className="run-list-cell">
@@ -2669,7 +2701,8 @@ function RunDetailView({
 
       {run.failure_reason && (
         <div className="bg-red-50 dark:bg-red-900/40 border border-red-200 dark:border-red-700 text-red-700 dark:text-red-200 px-4 py-3 rounded-lg text-sm">
-          Failed to start: {run.failure_reason}
+          <div className="font-semibold">Failed to start</div>
+          <div className="mt-2 font-mono text-xs whitespace-pre-wrap break-words">{run.failure_reason}</div>
         </div>
       )}
 
