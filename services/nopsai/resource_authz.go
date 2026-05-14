@@ -24,6 +24,8 @@ const (
 	resourceUseReasonDirectGrant     = "explicit_grant"
 	resourceUseReasonSameGroup       = "same_group"
 	resourceUseReasonWorkspacePublic = "workspace_public"
+	resourceUseReasonScopeAccess     = "scope_access"
+	resourceUseReasonAuthError       = "authorization_error"
 	resourceUseReasonDenied          = "denied"
 )
 
@@ -54,6 +56,12 @@ type ResourceUseAuthResult struct {
 	ResourceID      string `json:"resource_id,omitempty"`
 	MatchedGrantID  string `json:"matched_grant_id,omitempty"`
 	MatchedResource string `json:"matched_resource,omitempty"`
+	CallerGroup     string `json:"caller_group,omitempty"`
+	ResourceGroup   string `json:"resource_group,omitempty"`
+	Visibility      string `json:"visibility,omitempty"`
+	EventType       string `json:"event_type,omitempty"`
+	Ref             string `json:"ref,omitempty"`
+	Repo            string `json:"repo,omitempty"`
 }
 
 type resourceUseBatchCheckRequest struct {
@@ -75,6 +83,9 @@ func (a *App) AuthorizeResourceUse(ctx context.Context, input ResourceUseAuthInp
 		Action:       strings.TrimSpace(input.Action),
 		ResourceType: strings.TrimSpace(input.ResourceType),
 		ResourceID:   strings.Trim(strings.TrimSpace(input.ResourceID), "/"),
+		EventType:    strings.TrimSpace(input.EventType),
+		Ref:          strings.TrimSpace(input.Ref),
+		Repo:         strings.TrimSpace(input.Repo),
 	}
 	if a == nil || !a.aaaAvailable() {
 		return result, fmt.Errorf("authorization unavailable")
@@ -117,6 +128,7 @@ func (a *App) AuthorizeResourceUse(ctx context.Context, input ResourceUseAuthInp
 	if err != nil {
 		return result, err
 	}
+	result.Visibility = visibility
 
 	decision, err := a.aaaCheck(ctx, subject, action, resource, requestContext)
 	if err != nil {
@@ -130,13 +142,19 @@ func (a *App) AuthorizeResourceUse(ctx context.Context, input ResourceUseAuthInp
 		result.MatchedResource = matchedResourceLabel(decision, resource)
 		return result, nil
 	}
-	if strings.Contains(strings.ToLower(strings.TrimSpace(decision.Reason)), "deny") {
+	if isExplicitResourceUseDeny(decision) {
 		result.MatchedResource = matchedResourceLabel(decision, resource)
 		return result, nil
 	}
 
 	callerGroup, _ := a.ResolveCallerGroup(ctx, callerType, callerID)
 	resourceGroup, _ := a.ResolveResourceGroup(ctx, resourceType, resourceID)
+	if callerGroup.Valid {
+		result.CallerGroup = callerGroup.Path
+	}
+	if resourceGroup.Valid {
+		result.ResourceGroup = resourceGroup.Path
+	}
 	if callerGroup.Valid && resourceGroup.Valid && IsSameGroupBoundary(callerGroup.Path, resourceGroup.Path) {
 		if folderAllowed, folderDecision, checkErr := a.callerHasFolderAction(ctx, subject, action, resourceGroup.Path); checkErr != nil {
 			return result, checkErr
@@ -162,18 +180,74 @@ func (a *App) AuthorizeResourceUse(ctx context.Context, input ResourceUseAuthInp
 		return result, nil
 	}
 
-	if visibility == resourceVisibilityWorkspace {
-		if ok, checkErr := a.callerHasWorkspaceUseCapability(ctx, subject, action, callerGroup); checkErr != nil {
-			return result, checkErr
-		} else if ok {
+	if scopeID, ok := parentScopeForRuntimeResourceUse(action, resourceType, resourceID); ok {
+		scopeResult, scopeErr := a.AuthorizeResourceUse(ctx, ResourceUseAuthInput{
+			CallerType:   callerType,
+			CallerID:     callerID,
+			Action:       "scope.use",
+			ResourceType: grantResourceScope,
+			ResourceID:   scopeID,
+			EventType:    input.EventType,
+			Ref:          input.Ref,
+			Repo:         input.Repo,
+		})
+		if scopeErr != nil {
+			return result, scopeErr
+		}
+		if scopeResult.Allowed {
 			result.Allowed = true
-			result.Reason = resourceUseReasonWorkspacePublic
-			result.MatchedResource = formatResourceLabel(resourceType, resourceID)
+			result.Reason = resourceUseReasonScopeAccess
+			result.MatchedGrantID = scopeResult.MatchedGrantID
+			result.MatchedResource = scopeResult.MatchedResource
+			if result.MatchedResource == "" {
+				result.MatchedResource = formatResourceLabel(grantResourceScope, scopeID)
+			}
+			if result.CallerGroup == "" {
+				result.CallerGroup = scopeResult.CallerGroup
+			}
+			if result.ResourceGroup == "" {
+				result.ResourceGroup = scopeResult.ResourceGroup
+			}
 			return result, nil
 		}
 	}
 
+	if visibility == resourceVisibilityWorkspace {
+		result.Allowed = true
+		result.Reason = resourceUseReasonWorkspacePublic
+		result.MatchedResource = formatResourceLabel(resourceType, resourceID)
+		return result, nil
+	}
+
 	return result, nil
+}
+
+func isExplicitResourceUseDeny(decision model.Decision) bool {
+	if decision.Allowed {
+		return false
+	}
+	reason := strings.ToLower(strings.TrimSpace(decision.Reason))
+	if reason == "" || reason == "default_deny" || !strings.Contains(reason, "deny") {
+		return false
+	}
+	return len(decision.MatchedPolicy) > 0
+}
+
+func parentScopeForRuntimeResourceUse(action, resourceType, resourceID string) (string, bool) {
+	action = strings.TrimSpace(action)
+	resourceType = strings.TrimSpace(resourceType)
+	if resourceType != grantResourceSecret && resourceType != grantResourceVariable {
+		return "", false
+	}
+	if action != "secret.use" && action != "variable.use" {
+		return "", false
+	}
+	_, scope, _ := model.ParseNamedResourceID(resourceID)
+	scope = strings.Trim(strings.TrimSpace(scope), "/")
+	if scope == "" {
+		return "", false
+	}
+	return scope, true
 }
 
 func normalizeResourceUseCallerType(raw string) (string, error) {
@@ -442,13 +516,7 @@ func (a *App) callerHasExplicitGroupUseGrant(ctx context.Context, subject model.
 		if !groupGrantIncludesCallerGroup(grantGroup, callerGroup.Path) {
 			continue
 		}
-		folderAllowed, _, checkErr := a.callerHasFolderAction(ctx, subject, action, callerGroup.Path)
-		if checkErr != nil {
-			return false, 0, "", checkErr
-		}
-		if folderAllowed {
-			return true, grantID, grantGroup, nil
-		}
+		return true, grantID, grantGroup, nil
 	}
 	if err := rows.Err(); err != nil {
 		return false, 0, "", err
@@ -463,43 +531,6 @@ func groupGrantIncludesCallerGroup(grantGroup, callerGroup string) bool {
 		return false
 	}
 	return callerGroup == grantGroup || strings.HasPrefix(callerGroup, grantGroup+"/")
-}
-
-func (a *App) callerHasWorkspaceUseCapability(ctx context.Context, subject model.Subject, action string, callerGroup GroupRef) (bool, error) {
-	if callerGroup.Valid {
-		allowed, _, err := a.callerHasFolderAction(ctx, subject, action, callerGroup.Path)
-		return allowed, err
-	}
-	if a == nil || a.db == nil {
-		return false, nil
-	}
-	subjectID := strings.TrimSpace(subject.ID)
-	if subjectID == "" {
-		if introspection, err := a.aaaIntrospect(ctx, subject); err == nil && introspection != nil {
-			subjectID = strings.TrimSpace(introspection.ID)
-		}
-	}
-	if subjectID == "" {
-		return false, nil
-	}
-	var exists int
-	err := a.db.QueryRow(ctx, `
-		SELECT 1
-		FROM resource_acl
-		WHERE subject_type = $1
-		  AND subject_id = $2
-		  AND resource_type = 'folder'
-		  AND effect = 'allow'
-		  AND (action = $3 OR action = '*')
-		LIMIT 1
-	`, subject.Type, subjectID, action).Scan(&exists)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, nil
 }
 
 func (a *App) resourceVisibility(ctx context.Context, resourceType, resourceID string) (string, error) {
@@ -666,6 +697,7 @@ func (a *App) authorizeRunResourceUses(
 	triggerSource string,
 	gitContext map[string]string,
 	pipelinePath string,
+	pipelineSource string,
 	pipeline models.Pipeline,
 	scope string,
 ) ([]ResourceUseAuthResult, error) {
@@ -678,11 +710,14 @@ func (a *App) authorizeRunResourceUses(
 		resourceType string
 		resourceID   string
 	}
-	specs := []checkSpec{{
-		action:       "pipeline.use",
-		resourceType: grantResourcePipeline,
-		resourceID:   model.BuildPipelineID(pipelinePath, pipeline.Name),
-	}}
+	specs := make([]checkSpec, 0, 1)
+	if shouldAuthorizeTopLevelPipelineUse(pipelineSource) {
+		specs = append(specs, checkSpec{
+			action:       "pipeline.use",
+			resourceType: grantResourcePipeline,
+			resourceID:   model.BuildPipelineID(pipelinePath, pipeline.Name),
+		})
+	}
 	if strings.TrimSpace(scope) != "" {
 		specs = append(specs, checkSpec{
 			action:       "scope.use",
@@ -728,6 +763,15 @@ func (a *App) authorizeRunResourceUses(
 	return results, nil
 }
 
+func shouldAuthorizeTopLevelPipelineUse(pipelineSource string) bool {
+	switch strings.ToLower(strings.TrimSpace(pipelineSource)) {
+	case "repository", "git":
+		return false
+	default:
+		return true
+	}
+}
+
 func collectReferencedPipelineIdentifiers(pipeline *models.Pipeline) []string {
 	if pipeline == nil {
 		return nil
@@ -769,6 +813,122 @@ func resourceUseDeniedMessage(callerType, callerID string, result ResourceUseAut
 		return fmt.Sprintf("%s is not allowed to use step %s. Ask the step owner to share it with this repository or group.", subject, result.ResourceID)
 	default:
 		return fmt.Sprintf("%s is not allowed to use %s.", subject, resource)
+	}
+}
+
+func resourceUseFailureSummary(callerType, callerID string, result ResourceUseAuthResult, authErr error) string {
+	result = normalizeResourceUseFailureResult(result, authErr)
+	base := resourceUseDeniedMessage(callerType, callerID, result)
+	if authErr != nil {
+		base = fmt.Sprintf("Authorization unavailable for %s: %v", formatResourceLabel(result.ResourceType, result.ResourceID), authErr)
+	}
+	details := resourceUseDecisionDetails(callerType, callerID, result, authErr)
+	if details == "" {
+		return base
+	}
+	return base + "\n\n" + details
+}
+
+func normalizeResourceUseFailureResult(result ResourceUseAuthResult, authErr error) ResourceUseAuthResult {
+	result.Allowed = false
+	if authErr != nil {
+		result.Reason = resourceUseReasonAuthError
+	} else if strings.TrimSpace(result.Reason) == "" {
+		result.Reason = resourceUseReasonDenied
+	}
+	return result
+}
+
+func resourceUseDecisionDetails(callerType, callerID string, result ResourceUseAuthResult, authErr error) string {
+	var lines []string
+	if caller := formatResourceUseCaller(callerType, callerID); caller != "" {
+		lines = append(lines, "Caller: "+caller)
+	}
+	if repo := strings.TrimSpace(result.Repo); repo != "" {
+		lines = append(lines, "Repository: "+repo)
+	}
+	if action := strings.TrimSpace(result.Action); action != "" {
+		lines = append(lines, "Action: "+action)
+	}
+	if result.ResourceType != "" || result.ResourceID != "" {
+		lines = append(lines, "Resource: "+formatResourceLabel(result.ResourceType, result.ResourceID))
+	}
+	if eventType := strings.TrimSpace(result.EventType); eventType != "" {
+		lines = append(lines, "Event: "+eventType)
+	}
+	if ref := strings.TrimSpace(result.Ref); ref != "" {
+		lines = append(lines, "Ref: "+ref)
+	}
+	if callerGroup := strings.Trim(strings.TrimSpace(result.CallerGroup), "/"); callerGroup != "" {
+		lines = append(lines, "Caller group: "+callerGroup)
+	}
+	if resourceGroup := strings.Trim(strings.TrimSpace(result.ResourceGroup), "/"); resourceGroup != "" {
+		lines = append(lines, "Resource group: "+resourceGroup)
+	}
+	if visibility := strings.TrimSpace(result.Visibility); visibility != "" {
+		lines = append(lines, "Visibility: "+resourceUseVisibilityLabel(visibility))
+	}
+	reason := strings.TrimSpace(result.Reason)
+	if authErr != nil {
+		reason = resourceUseReasonAuthError
+	}
+	if reason == "" {
+		reason = resourceUseReasonDenied
+	}
+	lines = append(lines, "Decision reason: "+reason)
+	if explanation := resourceUseDenialExplanation(result, authErr); explanation != "" {
+		lines = append(lines, "Why: "+explanation)
+	}
+	if matched := strings.TrimSpace(result.MatchedResource); matched != "" {
+		lines = append(lines, "Matched resource: "+matched)
+	}
+	if grantID := strings.TrimSpace(result.MatchedGrantID); grantID != "" {
+		lines = append(lines, "Matched grant: "+grantID)
+	}
+	if authErr != nil {
+		lines = append(lines, "Error: "+authErr.Error())
+	}
+	return strings.Join(lines, "\n")
+}
+
+func resourceUseVisibilityLabel(visibility string) string {
+	switch strings.TrimSpace(visibility) {
+	case resourceVisibilityWorkspace:
+		return "public"
+	case resourceVisibilityRestricted:
+		return "restricted"
+	case resourceVisibilityGroup:
+		return "group"
+	default:
+		return strings.TrimSpace(visibility)
+	}
+}
+
+func resourceUseDenialExplanation(result ResourceUseAuthResult, authErr error) string {
+	if authErr != nil {
+		return "the authorization service could not complete the check"
+	}
+	if result.Allowed {
+		return ""
+	}
+	visibility := strings.TrimSpace(result.Visibility)
+	callerGroup := strings.Trim(strings.TrimSpace(result.CallerGroup), "/")
+	resourceGroup := strings.Trim(strings.TrimSpace(result.ResourceGroup), "/")
+	action := strings.TrimSpace(result.Action)
+	if action == "" {
+		action = "this action"
+	}
+	switch {
+	case visibility == resourceVisibilityRestricted:
+		return "restricted resources require an explicit grant, and no matching grant was found"
+	case visibility == resourceVisibilityWorkspace:
+		return "an explicit deny policy blocked this public resource"
+	case callerGroup != "" && resourceGroup != "" && IsSameGroupBoundary(callerGroup, resourceGroup):
+		return fmt.Sprintf("same-group availability still requires %s, and no matching role or grant was found", action)
+	case callerGroup != "" && resourceGroup != "":
+		return fmt.Sprintf("cross-group use from %s to %s requires an explicit grant or public visibility", callerGroup, resourceGroup)
+	default:
+		return "no direct permission, same-group permission, explicit grant, or public visibility matched this request"
 	}
 }
 
