@@ -43,6 +43,15 @@ type Config struct {
 	RateLimitLoginPerMinute  int    `yaml:"rate_limit_login_per_minute" env:"RATE_LIMIT_LOGIN_PER_MINUTE"`
 	LoginLockoutThreshold    int    `yaml:"login_lockout_threshold" env:"LOGIN_LOCKOUT_THRESHOLD"`
 	LoginLockoutWindowMin    int    `yaml:"login_lockout_window_minutes" env:"LOGIN_LOCKOUT_WINDOW_MINUTES"`
+	ServiceJWTSigningKey     string `yaml:"service_jwt_signing_key" env:"SERVICE_JWT_SIGNING_KEY"`
+	ServiceJWTIssuer         string `yaml:"service_jwt_issuer" env:"SERVICE_JWT_ISSUER"`
+	ServiceJWTAudience       string `yaml:"service_jwt_audience" env:"SERVICE_JWT_AUDIENCE"`
+	NopsaiServiceID          string `yaml:"nopsai_service_id" env:"NOPSAI_SERVICE_ID"`
+	RunnerServiceID          string `yaml:"runner_service_id" env:"RUNNER_SERVICE_ID"`
+	AgentServiceID           string `yaml:"agent_service_id" env:"AGENT_SERVICE_ID"`
+	DispatcherTLSMode        string `yaml:"dispatcher_tls_mode" env:"DISPATCHER_TLS_MODE"`
+	DispatcherTLSSecret      string `yaml:"dispatcher_tls_secret" env:"DISPATCHER_TLS_SECRET"`
+	DispatcherTLSServerName  string `yaml:"dispatcher_tls_server_name" env:"DISPATCHER_TLS_SERVER_NAME"`
 
 	LLMProvider            string `yaml:"llm_provider" env:"LLM_PROVIDER"`
 	GeminiAPIKey           string `yaml:"gemini_api_key" env:"GEMINI_API_KEY"`
@@ -177,4 +186,79 @@ func NormalizeLMStudioReasoning(raw string) string {
 func IsValidLMStudioReasoning(raw string) bool {
 	_, ok := validLMStudioReasoningLevels[NormalizeLMStudioReasoning(raw)]
 	return ok
+}
+
+func (c Config) EffectiveServiceJWTSigningKey() string {
+	if key := strings.TrimSpace(c.ServiceJWTSigningKey); key != "" {
+		return key
+	}
+	return strings.TrimSpace(c.JWTSigningKey)
+}
+
+func (c Config) EffectiveServiceJWTIssuer() string {
+	if issuer := strings.TrimSpace(c.ServiceJWTIssuer); issuer != "" {
+		return issuer
+	}
+	if issuer := strings.TrimSpace(c.JWTIssuer); issuer != "" {
+		return issuer
+	}
+	return "nopsai.internal"
+}
+
+func (c Config) EffectiveServiceJWTAudience() string {
+	if audience := strings.TrimSpace(c.ServiceJWTAudience); audience != "" {
+		return audience
+	}
+	return "nopsai-dispatcher"
+}
+
+func (c Config) EffectiveNopsaiServiceID() string {
+	if id := strings.TrimSpace(c.NopsaiServiceID); id != "" {
+		return id
+	}
+	return "nopsai"
+}
+
+func (c Config) EffectiveRunnerServiceID() string {
+	if id := strings.TrimSpace(c.RunnerServiceID); id != "" {
+		return id
+	}
+	return "runner"
+}
+
+func (c Config) EffectiveAgentServiceID() string {
+	if id := strings.TrimSpace(c.AgentServiceID); id != "" {
+		return id
+	}
+	return "agent"
+}
+
+func (c Config) EffectiveDispatcherTLSMode() string {
+	mode := strings.ToLower(strings.TrimSpace(c.DispatcherTLSMode))
+	switch mode {
+	case "", "auto":
+		return "mtls"
+	case "m-tls", "mutual", "mutual-tls":
+		return "mtls"
+	case "server", "server-tls":
+		return "tls"
+	case "off", "false", "no", "none", "disable", "insecure", "plaintext":
+		return "disabled"
+	default:
+		return mode
+	}
+}
+
+func (c Config) EffectiveDispatcherTLSSecret() string {
+	if secret := strings.TrimSpace(c.DispatcherTLSSecret); secret != "" {
+		return secret
+	}
+	return c.EffectiveServiceJWTSigningKey()
+}
+
+func (c Config) EffectiveDispatcherTLSServerName() string {
+	if name := strings.TrimSpace(c.DispatcherTLSServerName); name != "" {
+		return name
+	}
+	return "dispatcher"
 }

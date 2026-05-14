@@ -19,6 +19,8 @@ import (
 
 	"nopsai/config"
 	"nopsai/pkg/proto"
+	"nopsai/pkg/serviceauth"
+	"nopsai/pkg/servicetls"
 	nopsaiAuth "nopsai/services/nopsai/pkg/auth"
 
 	"github.com/rs/zerolog"
@@ -80,6 +82,115 @@ func newDispatcherServer(routing map[string][]string, nopsaiBase string, interna
 		httpClient:          &http.Client{Timeout: 15 * time.Second},
 		internalTokenSigner: signer,
 	}
+}
+
+type dispatcherAuth struct {
+	authenticator      *serviceauth.Authenticator
+	allowedRoles       map[string]map[string]struct{}
+	expectedServiceIDs map[string]string
+}
+
+func newDispatcherAuth(authenticator *serviceauth.Authenticator, expectedServiceIDs map[string]string) *dispatcherAuth {
+	cleanExpectedIDs := make(map[string]string, len(expectedServiceIDs))
+	for role, serviceID := range expectedServiceIDs {
+		role = strings.ToLower(strings.TrimSpace(role))
+		serviceID = strings.TrimSpace(serviceID)
+		if role == "" || serviceID == "" {
+			continue
+		}
+		cleanExpectedIDs[role] = serviceID
+	}
+	return &dispatcherAuth{
+		authenticator:      authenticator,
+		expectedServiceIDs: cleanExpectedIDs,
+		allowedRoles: map[string]map[string]struct{}{
+			"SubmitJob":            roleSet(serviceauth.RoleNopsai),
+			"GetStatus":            roleSet(serviceauth.RoleNopsai),
+			"UpdateRunnerDispatch": roleSet(serviceauth.RoleNopsai),
+			"Register":             roleSet(serviceauth.RoleRunner),
+			"IngestLogs":           roleSet(serviceauth.RoleRunner, serviceauth.RoleAgent),
+			"ReportTaskStatus":     roleSet(serviceauth.RoleAgent),
+			"FinalizeRun":          roleSet(serviceauth.RoleAgent),
+			"FetchPipeline":        roleSet(serviceauth.RoleAgent),
+			"TriggerPipeline":      roleSet(serviceauth.RoleAgent),
+			"GetRunStatus":         roleSet(serviceauth.RoleRunner, serviceauth.RoleAgent),
+		},
+	}
+}
+
+func roleSet(roles ...string) map[string]struct{} {
+	out := make(map[string]struct{}, len(roles))
+	for _, role := range roles {
+		role = strings.ToLower(strings.TrimSpace(role))
+		if role == "" {
+			continue
+		}
+		out[role] = struct{}{}
+	}
+	return out
+}
+
+func (a *dispatcherAuth) unaryInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+	claims, err := a.authenticate(ctx, info.FullMethod)
+	if err != nil {
+		return nil, err
+	}
+	return handler(serviceauth.WithClaims(ctx, claims), req)
+}
+
+func (a *dispatcherAuth) streamInterceptor(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	claims, err := a.authenticate(stream.Context(), info.FullMethod)
+	if err != nil {
+		return err
+	}
+	return handler(srv, &authenticatedServerStream{
+		ServerStream: stream,
+		ctx:          serviceauth.WithClaims(stream.Context(), claims),
+	})
+}
+
+func (a *dispatcherAuth) authenticate(ctx context.Context, fullMethod string) (*serviceauth.Claims, error) {
+	if a == nil || a.authenticator == nil {
+		return nil, status.Error(codes.Internal, "dispatcher auth is not configured")
+	}
+	method := grpcMethodName(fullMethod)
+	roles := a.allowedRoles[method]
+	if len(roles) == 0 {
+		return nil, status.Error(codes.PermissionDenied, "dispatcher method is not available to service clients")
+	}
+
+	claims, err := a.authenticator.AuthenticateContext(ctx)
+	if err != nil {
+		return nil, status.Error(codes.Unauthenticated, "invalid service token")
+	}
+	if _, ok := roles[claims.ServiceRole()]; !ok {
+		return nil, status.Error(codes.PermissionDenied, "service role is not allowed to call dispatcher method")
+	}
+	if expectedID := a.expectedServiceIDs[claims.ServiceRole()]; expectedID != "" && claims.ServiceID() != expectedID {
+		return nil, status.Error(codes.PermissionDenied, "service identity is not allowed to call dispatcher method")
+	}
+	return claims, nil
+}
+
+func grpcMethodName(fullMethod string) string {
+	fullMethod = strings.TrimSpace(fullMethod)
+	if fullMethod == "" {
+		return ""
+	}
+	idx := strings.LastIndex(fullMethod, "/")
+	if idx == -1 || idx == len(fullMethod)-1 {
+		return fullMethod
+	}
+	return fullMethod[idx+1:]
+}
+
+type authenticatedServerStream struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (s *authenticatedServerStream) Context() context.Context {
+	return s.ctx
 }
 
 func (d *dispatcherServer) authorizeInternalRequest(ctx context.Context, req *http.Request) error {
@@ -1309,8 +1420,38 @@ func main() {
 		5*time.Minute,
 	)
 	dispatcher := newDispatcherServer(cfg.DispatcherRouting, nopsaiBase, internalTokenSigner)
+	serviceAuthenticator, err := serviceauth.NewAuthenticator(serviceauth.Config{
+		SigningKey: cfg.EffectiveServiceJWTSigningKey(),
+		Issuer:     cfg.EffectiveServiceJWTIssuer(),
+		Audience:   cfg.EffectiveServiceJWTAudience(),
+	})
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to configure dispatcher service authentication")
+	}
+	dispatcherAuth := newDispatcherAuth(serviceAuthenticator, map[string]string{
+		serviceauth.RoleNopsai: cfg.EffectiveNopsaiServiceID(),
+		serviceauth.RoleRunner: cfg.EffectiveRunnerServiceID(),
+		serviceauth.RoleAgent:  cfg.EffectiveAgentServiceID(),
+	})
 
-	grpcServer := grpc.NewServer()
+	dispatcherTransportCreds, err := servicetls.ServerCredentials(servicetls.Config{
+		Mode:        cfg.EffectiveDispatcherTLSMode(),
+		Secret:      cfg.EffectiveDispatcherTLSSecret(),
+		ServerName:  cfg.EffectiveDispatcherTLSServerName(),
+		ServerNames: dispatcherTLSServerNames(cfg, listenAddr),
+	})
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to configure dispatcher transport security")
+	}
+
+	serverOptions := []grpc.ServerOption{
+		grpc.UnaryInterceptor(dispatcherAuth.unaryInterceptor),
+		grpc.StreamInterceptor(dispatcherAuth.streamInterceptor),
+	}
+	if dispatcherTransportCreds != nil {
+		serverOptions = append(serverOptions, grpc.Creds(dispatcherTransportCreds))
+	}
+	grpcServer := grpc.NewServer(serverOptions...)
 	proto.RegisterDispatcherServiceServer(grpcServer, dispatcher)
 
 	lis, err := net.Listen("tcp", listenAddr)
@@ -1321,9 +1462,27 @@ func main() {
 	stop := make(chan struct{})
 	go dispatcher.reapStaleRunners(10*time.Second, 30*time.Second, stop)
 
-	log.Info().Str("addr", listenAddr).Msg("dispatcher listening")
+	log.Info().
+		Str("addr", listenAddr).
+		Str("tls_mode", servicetls.NormalizeMode(cfg.EffectiveDispatcherTLSMode())).
+		Msg("dispatcher listening")
 	if err := grpcServer.Serve(lis); err != nil {
 		close(stop)
 		log.Fatal().Err(err).Msg("dispatcher server failed")
 	}
+}
+
+func dispatcherTLSServerNames(cfg *config.Config, listenAddr string) []string {
+	names := []string{"dispatcher", "localhost", listenAddr}
+	if cfg != nil {
+		names = append(names,
+			cfg.EffectiveDispatcherTLSServerName(),
+			cfg.DispatcherAddress,
+			cfg.DispatcherListenAddress,
+		)
+	}
+	if hostname, err := os.Hostname(); err == nil {
+		names = append(names, hostname)
+	}
+	return names
 }

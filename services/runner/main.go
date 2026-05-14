@@ -13,6 +13,8 @@ import (
 
 	"nopsai/config"
 	"nopsai/pkg/proto"
+	"nopsai/pkg/serviceauth"
+	"nopsai/pkg/servicetls"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
@@ -24,20 +26,22 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/credentials"
 )
 
 type runner struct {
-	id             string
-	scopes         []string
-	capacity       int32
-	dispatcherAddr string
-	docker         *client.Client
-	active         atomic.Int32
-	dockerNetwork  string
-	networkSet     bool
-	stopMu         sync.Mutex
-	stoppedRuns    map[string]struct{}
+	id              string
+	scopes          []string
+	capacity        int32
+	dispatcherAddr  string
+	dispatcherCreds *serviceauth.Credentials
+	transportCreds  credentials.TransportCredentials
+	docker          *client.Client
+	active          atomic.Int32
+	dockerNetwork   string
+	networkSet      bool
+	stopMu          sync.Mutex
+	stoppedRuns     map[string]struct{}
 }
 
 func main() {
@@ -73,6 +77,26 @@ func main() {
 			runnerID = "runner"
 		}
 	}
+	dispatcherCreds, err := serviceauth.NewCredentials(serviceauth.Config{
+		SigningKey: cfg.EffectiveServiceJWTSigningKey(),
+		Issuer:     cfg.EffectiveServiceJWTIssuer(),
+		Audience:   cfg.EffectiveServiceJWTAudience(),
+		Role:       serviceauth.RoleRunner,
+		ServiceID:  cfg.EffectiveRunnerServiceID(),
+	})
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to configure dispatcher client authentication")
+	}
+	transportCreds, err := servicetls.ClientCredentials(servicetls.Config{
+		Mode:       cfg.EffectiveDispatcherTLSMode(),
+		Secret:     cfg.EffectiveDispatcherTLSSecret(),
+		Role:       serviceauth.RoleRunner,
+		ServiceID:  cfg.EffectiveRunnerServiceID(),
+		ServerName: cfg.EffectiveDispatcherTLSServerName(),
+	})
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to configure dispatcher transport security")
+	}
 
 	scopes := parseScopes(cfg.RunnerScopes)
 	capacity := int32(cfg.RunnerCapacity)
@@ -96,14 +120,16 @@ func main() {
 	}
 
 	r := &runner{
-		id:             runnerID,
-		scopes:         scopes,
-		capacity:       capacity,
-		dispatcherAddr: dispatcherAddr,
-		docker:         dockerClient,
-		dockerNetwork:  networkValue,
-		networkSet:     networkSet,
-		stoppedRuns:    make(map[string]struct{}),
+		id:              runnerID,
+		scopes:          scopes,
+		capacity:        capacity,
+		dispatcherAddr:  dispatcherAddr,
+		dispatcherCreds: dispatcherCreds,
+		transportCreds:  transportCreds,
+		docker:          dockerClient,
+		dockerNetwork:   networkValue,
+		networkSet:      networkSet,
+		stoppedRuns:     make(map[string]struct{}),
 	}
 
 	for {
@@ -118,7 +144,14 @@ func (r *runner) connectAndServe() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	conn, err := grpc.DialContext(ctx, r.dispatcherAddr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock())
+	dialOptions := []grpc.DialOption{
+		grpc.WithTransportCredentials(r.transportCreds),
+		grpc.WithBlock(),
+	}
+	if r.dispatcherCreds != nil {
+		dialOptions = append(dialOptions, grpc.WithPerRPCCredentials(r.dispatcherCreds))
+	}
+	conn, err := grpc.DialContext(ctx, r.dispatcherAddr, dialOptions...)
 	if err != nil {
 		return fmt.Errorf("failed to dial dispatcher: %w", err)
 	}

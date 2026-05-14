@@ -8,6 +8,8 @@ Except for login, token refresh, logout, and forwarded Git events, API calls req
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" http://localhost:8080/v1/runs
 ```
 
+For full JWT behavior, claims, config, refresh-token storage, and service-token details, see [jwt-authentication.md](./jwt-authentication.md).
+
 ---
 
 ## Authentication
