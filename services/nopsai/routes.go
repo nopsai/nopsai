@@ -26,7 +26,12 @@ func (a *App) registerAccessRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/access/grants", a.handleCreateAccessGrant)
 	mux.HandleFunc("GET /v1/access/grants", a.handleListAccessGrants)
 	mux.HandleFunc("DELETE /v1/access/grants/{grantID}", a.handleDeleteAccessGrant)
+	mux.HandleFunc("GET /v1/access/groups", a.handleListAccessGroups)
+	mux.HandleFunc("GET /v1/access/auth-groups", a.handleListAccessGroups)
 	mux.HandleFunc("GET /v1/access/effective-permissions", a.handleGetEffectivePermissions)
+	mux.HandleFunc("POST /v1/authz/resource-use/check", a.handleResourceUseCheck)
+	mux.HandleFunc("POST /v1/authz/resource-use/batch-check", a.handleResourceUseBatchCheck)
+	mux.HandleFunc("/v1/resources/", a.handleResourceAccessRoute)
 }
 
 func (a *App) registerGitHubRoutes(mux *http.ServeMux) {

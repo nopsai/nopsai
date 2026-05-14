@@ -526,7 +526,7 @@ func (a *App) handleGetRepoVariableValue(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(response)
 }
 
-func (a *App) prepareVariablesForPipeline(pipeline models.Pipeline, gitContext map[string]string, scope string, overrides map[string]string) (map[string]string, error) {
+func (a *App) prepareVariablesForPipeline(runID string, pipeline models.Pipeline, gitContext map[string]string, scope string, overrides map[string]string) (map[string]string, error) {
 	finalVars := make(map[string]string)
 	cleanOverrides := make(map[string]string)
 	for key, value := range overrides {
@@ -557,17 +557,24 @@ func (a *App) prepareVariablesForPipeline(pipeline models.Pipeline, gitContext m
 		var value string
 		var err error
 		found := false
+		resourceID := ""
 
 		if scope != "" {
 			// Precedence: 1. Repo/Env -> 2. General/Env
 			err = a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name = $2 AND scope = $3", varName, repoFullName, scope).Scan(&value)
 			if err == nil {
 				found = true
+				resourceID = model.BuildNamedResourceID(repoFullName, scope, varName)
+			} else if err != pgx.ErrNoRows {
+				return nil, fmt.Errorf("pipeline aborted: failed to resolve scope variable '%s': %w", varName, err)
 			}
 			if !found {
 				err = a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name IS NULL AND scope = $2", varName, scope).Scan(&value)
 				if err == nil {
 					found = true
+					resourceID = model.BuildNamedResourceID("", scope, varName)
+				} else if err != pgx.ErrNoRows {
+					return nil, fmt.Errorf("pipeline aborted: failed to resolve scope variable '%s': %w", varName, err)
 				}
 			}
 
@@ -580,17 +587,29 @@ func (a *App) prepareVariablesForPipeline(pipeline models.Pipeline, gitContext m
 			err = a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name = $2 AND scope IS NULL", varName, repoFullName).Scan(&value)
 			if err == nil {
 				found = true
+				resourceID = model.BuildNamedResourceID(repoFullName, "", varName)
+			} else if err != pgx.ErrNoRows {
+				return nil, fmt.Errorf("pipeline aborted: failed to resolve variable '%s': %w", varName, err)
 			}
 			if !found {
 				err = a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name IS NULL AND scope IS NULL", varName).Scan(&value)
 				if err == nil {
 					found = true
+					resourceID = model.BuildNamedResourceID("", "", varName)
+				} else if err != pgx.ErrNoRows {
+					return nil, fmt.Errorf("pipeline aborted: failed to resolve variable '%s': %w", varName, err)
 				}
 			}
 		}
 
 		if !found {
 			return nil, fmt.Errorf("pipeline aborted: required scope variable '%s' not found in the default scope", varName)
+		}
+
+		if strings.TrimSpace(runID) != "" {
+			if _, err := a.authorizeRunRuntimeResourceUse(context.Background(), runID, gitContext, "variable.use", grantResourceVariable, resourceID); err != nil {
+				return nil, fmt.Errorf("pipeline aborted: %w", err)
+			}
 		}
 
 		finalVars[varName] = value

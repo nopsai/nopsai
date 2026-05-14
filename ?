@@ -1,6 +1,0 @@
-3063:                        <p className="access-editor-text">Choose a role and folder target.</p>
-3286:                        <p className="access-editor-text">Update account and roles.</p>
-3386:                        <p className="access-editor-text">Create a local account.</p>
-3614:                        <p className="access-editor-text">Set the policies in this role.</p>
-3806:                        <p className="access-editor-text">Edit the role, resource, and action.</p>
-3831:                        <p className="access-editor-text">Add a reusable AAA rule.</p>

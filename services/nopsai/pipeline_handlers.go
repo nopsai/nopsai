@@ -206,6 +206,30 @@ func (a *App) handleGetPipeline(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	repoOwner := r.URL.Query().Get("repoOwner")
+	repoName := r.URL.Query().Get("repoName")
+	commitSHA := r.URL.Query().Get("commitSHA")
+
+	if subject, ok := a.currentAAASubject(r); ok && subject.Type == model.SubjectTypeInternalService && repoOwner != "" && repoName != "" {
+		repoID := repositoryFullName(repoOwner, repoName)
+		authz, err := a.AuthorizeResourceUse(r.Context(), ResourceUseAuthInput{
+			CallerType:   model.SubjectTypeRepository,
+			CallerID:     repoID,
+			Action:       "pipeline.use",
+			ResourceType: grantResourcePipeline,
+			ResourceID:   buildPipelineIdentifier(pathPart, namePart),
+			EventType:    "pipeline_fetch",
+			Repo:         repoID,
+		})
+		if err != nil {
+			http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if !authz.Allowed {
+			http.Error(w, resourceUseDeniedMessage(model.SubjectTypeRepository, repoID, authz), http.StatusForbidden)
+			return
+		}
+	}
 
 	pipelineYAML, err := a.fetchPipelineFromDB(pathPart, namePart)
 	if err == nil {
@@ -220,10 +244,6 @@ func (a *App) handleGetPipeline(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
-
-	repoOwner := r.URL.Query().Get("repoOwner")
-	repoName := r.URL.Query().Get("repoName")
-	commitSHA := r.URL.Query().Get("commitSHA")
 
 	if repoOwner != "" && repoName != "" && commitSHA != "" {
 		log.Info().Str("pipeline", pipelineIdentifier).Msg("Pipeline not in DB, attempting to fetch from repository as fallback")

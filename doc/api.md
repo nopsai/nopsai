@@ -60,8 +60,8 @@ NopsAI calls the internal AAA service for authorization decisions and layers pro
 
 Predefined product roles:
 
-- `viewer`: read-only access to group metadata, pipelines, runs, logs, triggers, repository metadata, step metadata, secret metadata, and variable metadata
-- `developer`: viewer permissions plus pipeline create/update/execute, rerun/cancel, trigger updates, secret value writes, variable writes, repository updates, scope updates, and reusable step usage
+- `viewer`: read-only access to group metadata, pipelines, runs, logs, triggers, repository metadata, step metadata, config repository metadata, secret metadata, and variable metadata
+- `developer`: viewer permissions plus pipeline create/update/execute, runtime `*.use` permissions, rerun/cancel, trigger updates, secret value writes, variable writes, repository updates, scope updates, reusable step usage, runner usage, and config repository usage
 - `owner`: developer and viewer permissions plus all scoped non-admin actions, delete operations, secret and variable value reads, and permission management inside the owned scope
 - `admin`: platform-wide access through the normal AAA `Check` path, with sensitive actions still audited
 
@@ -69,6 +69,7 @@ Important behavior:
 
 - Product roles are expanded to low-level AAA permissions when the grant is created.
 - Group grants inherit to child groups, pipelines, runs, repository-associated runs, triggers, repositories, scoped secrets, scoped variables, and reusable steps under that group path.
+- Runtime resource use is checked with the original caller identity: manual runs use the user, Git-triggered runs use the repository, and internal dispatcher calls do not inherit pipeline-owner permissions.
 - `developer` can write secret values but cannot read them.
 - `developer` and `viewer` cannot manage ACLs.
 - `owner` cannot grant `admin`.
@@ -80,6 +81,10 @@ Important behavior:
 Supported access-grant subject types:
 
 - `user`
+- `auth_group`
+- `repository`
+- `trigger`
+- `service_account`
 - `internal_service`
 
 Group grants use the internal `folder` resource type and target group paths, not numeric `group_id` values. Example: `/payments/backend`.
@@ -113,10 +118,10 @@ curl -X DELETE http://localhost:8080/v1/access/grants/grant_123
 
 Grant request fields:
 
-- `subject_type`: `user` or `internal_service`
-- `subject_id`: user subject, email, UUID, or service id
+- `subject_type`: `user`, `auth_group`, `repository`, `trigger`, `service_account`, or `internal_service`
+- `subject_id`: user subject/email/UUID, auth group id/name, repository `owner/repo`, trigger id, service-account id, or service id
 - `role`: `viewer`, `developer`, `owner`, or `admin`
-- `resource_type`: `folder` for groups, `pipeline`, `trigger`, `secret`, `variable`, `scope`, `repository`, `step`, or `platform`
+- `resource_type`: `folder` for groups, `pipeline`, `trigger`, `secret`, `variable`, `scope`, `repository`, `step`, `runner`, `config_repo`, or `platform`
 - `resource_id`: group path such as `/payments`, pipeline id such as `team-1/dev/build`, repository id such as `owner/repo`, or `platform`
 - `inherit`: required for group subtree grants; group grants should normally use `true`
 
@@ -141,6 +146,68 @@ Validation and guardrails:
 - Every group must retain at least one `owner`.
 - Only `owner` or `admin` can manage grants.
 - `admin` grants are only valid on `platform`.
+
+---
+
+## Resource Access And Use Checks
+
+Pipeline, reusable step, and scope pages expose an `Access` dialog for resource sharing. Resource sharing controls who may use a resource at runtime; it does not grant permission to manage the resource and it does not let shared pipelines carry their owner's permissions.
+
+Visibility modes:
+
+- `group`: only callers in the same group boundary can use the resource, and only when they already have the required use action
+- `restricted`: same-group use still works, and selected groups or repositories can also be granted use access
+- `workspace`: shown as `Public` in the UI; authorized callers across the workspace can use the resource, but related scopes, secrets, variables, and runners are still checked separately
+
+Resource access endpoints:
+
+```bash
+# Read access settings
+curl http://localhost:8080/v1/resources/pipeline/team-1/build/access
+
+# Set visibility
+curl -X PUT \
+  -H "Content-Type: application/json" \
+  -d '{"visibility":"restricted"}' \
+  http://localhost:8080/v1/resources/pipeline/team-1/build/access
+
+# Share with a repository
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"subject_type":"repository","subject_id":"hosein-yousefii/test-app","actions":["pipeline.use"]}' \
+  http://localhost:8080/v1/resources/pipeline/team-1/build/grants
+
+# Share with an existing group path
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"subject_type":"group","subject_id":"team-1/app","actions":["pipeline.use"]}' \
+  http://localhost:8080/v1/resources/pipeline/team-1/build/grants
+
+# Delete a sharing grant
+curl -X DELETE http://localhost:8080/v1/resources/pipeline/team-1/build/grants/grant_123
+```
+
+The group dropdown in the UI is populated from `GET /v1/groups`, using resolved group paths rather than numeric group IDs. The default scope is addressed as `/v1/resources/scope/default/access`; internally this maps to the empty/default scope.
+
+Resource-use check endpoints:
+
+```bash
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "caller_type":"repository",
+    "caller_id":"hosein-yousefii/test-app",
+    "action":"pipeline.use",
+    "resource_type":"pipeline",
+    "resource_id":"team-1/build",
+    "event_type":"push",
+    "ref":"refs/heads/main",
+    "repo":"hosein-yousefii/test-app"
+  }' \
+  http://localhost:8080/v1/authz/resource-use/check
+```
+
+Batch checks use `POST /v1/authz/resource-use/batch-check` with top-level `caller_type`, `caller_id`, and a `checks` array.
 
 ---
 

@@ -40,6 +40,23 @@ func (s *PGStore) ResolveSubject(ctx context.Context, subject model.Subject) (*m
 			AuthGroups:  s.fetchSubjectGroups(ctx, model.SubjectTypeInternalService, subjectID),
 		}
 		return resolved, nil
+	case model.SubjectTypeRepository, model.SubjectTypeTrigger, model.SubjectTypeServiceAccount:
+		subjectType := model.NormalizeType(subject.Type)
+		subjectID := strings.Trim(strings.TrimSpace(subject.ID), "/")
+		if subjectID == "" {
+			return nil, ErrSubjectNotFound
+		}
+		resolved := &model.ResolvedSubject{
+			Subject: model.Subject{
+				Type: subjectType,
+				ID:   subjectID,
+			},
+			Provider:    "nopsai",
+			Status:      "active",
+			DirectRoles: s.fetchBindingRoles(ctx, subjectType, subjectID),
+			AuthGroups:  s.fetchSubjectGroups(ctx, subjectType, subjectID),
+		}
+		return resolved, nil
 	case model.SubjectTypeAuthGroup:
 		groupID := strings.TrimSpace(subject.ID)
 		if groupID == "" {

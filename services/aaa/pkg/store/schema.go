@@ -18,7 +18,7 @@ var aaaSchemaStatements = []string{
 	)`,
 	`CREATE TABLE IF NOT EXISTS auth_group_members (
 		group_id UUID NOT NULL REFERENCES auth_groups(id) ON DELETE CASCADE,
-		subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'internal_service')),
+		subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'repository', 'trigger', 'service_account', 'internal_service')),
 		subject_id TEXT NOT NULL,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		PRIMARY KEY (group_id, subject_type, subject_id)
@@ -32,7 +32,7 @@ var aaaSchemaStatements = []string{
 	`CREATE TABLE IF NOT EXISTS auth_role_bindings (
 		id BIGSERIAL PRIMARY KEY,
 		role_name TEXT NOT NULL REFERENCES auth_roles(name) ON DELETE CASCADE,
-		subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_group', 'internal_service')),
+		subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_group', 'repository', 'trigger', 'service_account', 'internal_service')),
 		subject_id TEXT NOT NULL,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		UNIQUE(role_name, subject_type, subject_id)
@@ -49,7 +49,7 @@ var aaaSchemaStatements = []string{
 	)`,
 	`CREATE TABLE IF NOT EXISTS access_grants (
 		id BIGSERIAL PRIMARY KEY,
-		subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_group', 'internal_service')),
+		subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_group', 'group', 'repository', 'trigger', 'service_account', 'internal_service')),
 		subject_id TEXT NOT NULL,
 		subject_display TEXT NOT NULL DEFAULT '',
 		role_name TEXT NOT NULL,
@@ -65,7 +65,7 @@ var aaaSchemaStatements = []string{
 		id BIGSERIAL PRIMARY KEY,
 		resource_type TEXT NOT NULL,
 		resource_id TEXT NOT NULL,
-		subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_group', 'internal_service')),
+		subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_group', 'repository', 'trigger', 'service_account', 'internal_service')),
 		subject_id TEXT NOT NULL,
 		access_grant_id BIGINT REFERENCES access_grants(id) ON DELETE CASCADE,
 		action TEXT NOT NULL,
@@ -77,7 +77,7 @@ var aaaSchemaStatements = []string{
 		id BIGSERIAL PRIMARY KEY,
 		resource_type TEXT NOT NULL,
 		resource_id TEXT NOT NULL,
-		owner_subject_type TEXT NOT NULL CHECK (owner_subject_type IN ('user', 'auth_group', 'internal_service')),
+		owner_subject_type TEXT NOT NULL CHECK (owner_subject_type IN ('user', 'auth_group', 'repository', 'trigger', 'service_account', 'internal_service')),
 		owner_subject_id TEXT NOT NULL,
 		access_grant_id BIGINT REFERENCES access_grants(id) ON DELETE CASCADE,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -85,6 +85,16 @@ var aaaSchemaStatements = []string{
 	)`,
 	`ALTER TABLE resource_acl ADD COLUMN IF NOT EXISTS access_grant_id BIGINT REFERENCES access_grants(id) ON DELETE CASCADE`,
 	`ALTER TABLE resource_ownership ADD COLUMN IF NOT EXISTS access_grant_id BIGINT REFERENCES access_grants(id) ON DELETE CASCADE`,
+	`ALTER TABLE auth_group_members DROP CONSTRAINT IF EXISTS auth_group_members_subject_type_check`,
+	`ALTER TABLE auth_group_members ADD CONSTRAINT auth_group_members_subject_type_check CHECK (subject_type IN ('user', 'repository', 'trigger', 'service_account', 'internal_service'))`,
+	`ALTER TABLE auth_role_bindings DROP CONSTRAINT IF EXISTS auth_role_bindings_subject_type_check`,
+	`ALTER TABLE auth_role_bindings ADD CONSTRAINT auth_role_bindings_subject_type_check CHECK (subject_type IN ('user', 'auth_group', 'repository', 'trigger', 'service_account', 'internal_service'))`,
+	`ALTER TABLE access_grants DROP CONSTRAINT IF EXISTS access_grants_subject_type_check`,
+	`ALTER TABLE access_grants ADD CONSTRAINT access_grants_subject_type_check CHECK (subject_type IN ('user', 'auth_group', 'group', 'repository', 'trigger', 'service_account', 'internal_service'))`,
+	`ALTER TABLE resource_acl DROP CONSTRAINT IF EXISTS resource_acl_subject_type_check`,
+	`ALTER TABLE resource_acl ADD CONSTRAINT resource_acl_subject_type_check CHECK (subject_type IN ('user', 'auth_group', 'repository', 'trigger', 'service_account', 'internal_service'))`,
+	`ALTER TABLE resource_ownership DROP CONSTRAINT IF EXISTS resource_ownership_owner_subject_type_check`,
+	`ALTER TABLE resource_ownership ADD CONSTRAINT resource_ownership_owner_subject_type_check CHECK (owner_subject_type IN ('user', 'auth_group', 'repository', 'trigger', 'service_account', 'internal_service'))`,
 	`CREATE TABLE IF NOT EXISTS authz_decision_logs (
 		id BIGSERIAL PRIMARY KEY,
 		request_id TEXT,

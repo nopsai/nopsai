@@ -11,6 +11,9 @@ const (
 	SubjectTypeAuthGroup       = "auth_group"
 	SubjectTypeRole            = "role"
 	SubjectTypeInternalService = "internal_service"
+	SubjectTypeRepository      = "repository"
+	SubjectTypeTrigger         = "trigger"
+	SubjectTypeServiceAccount  = "service_account"
 
 	RoleNameAdmin   = "nopsai-admin"
 	FolderGeneralID = "__general__"
@@ -256,20 +259,26 @@ func IsSensitiveAction(action string) bool {
 		"audit.read",
 		"audit.export",
 		"pipeline.execute",
+		"pipeline.use",
 		"pipeline.delete",
 		"pipeline_run.rerun",
 		"pipeline_run.cancel",
 		"pipeline_run.delete",
 		"trigger.update",
 		"trigger.delete",
+		"scope.use",
 		"secret.read_value",
+		"secret.use",
 		"secret.write_value",
 		"secret.delete",
+		"variable.use",
 		"variable.write_value",
 		"variable.delete",
+		"runner.use",
 		"folder.move",
 		"folder.delete",
 		"repository.delete",
+		"step.use",
 		"step.delete",
 		"step.manage":
 		return true

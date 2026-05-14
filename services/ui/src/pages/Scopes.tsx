@@ -3,6 +3,7 @@ import yaml from 'js-yaml';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { buildApiUrl } from '../lib/api';
 import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups';
+import ResourceAccessCard from '../components/ResourceAccessCard';
 
 const VARIABLE_NAME_PATTERN = /^[A-Za-z0-9_.-]+$/;
 const SECRET_NAME_PATTERN = /^[A-Za-z0-9_.-]+$/;
@@ -2147,12 +2148,15 @@ function ScopesPage({
               <h2 className="text-3xl font-bold text-[var(--text-primary)] truncate">{scopeDisplay}</h2>
               <p className="text-sm text-[var(--text-secondary)]">Manage variables and secrets for this scope, all in one view.</p>
             </div>
-            <button className="glass-button-ghost" onClick={handleBackToList}>
-              <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
-              </svg>
-              <span>Back</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <ResourceAccessCard resourceType="scope" resourceID={scopeLabel || 'default'} label="scope" sensitive />
+              <button className="glass-button-ghost" onClick={handleBackToList}>
+                <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
+                </svg>
+                <span>Back</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -2164,7 +2168,7 @@ function ScopesPage({
                   <p className="text-sm font-semibold text-[var(--text-primary)]">Variables</p>
                   <p className="text-xs text-[var(--text-secondary)]">Plain text values.</p>
                 </div>
-	                {canWriteVariablesInSelectedScope && (
+                {canWriteVariablesInSelectedScope && (
                   <button className="glass-button-primary" onClick={() => openVariableCreateModal(scopeLabel)}>
                     New
                   </button>
