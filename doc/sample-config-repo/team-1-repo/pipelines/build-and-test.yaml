@@ -6,6 +6,14 @@ working_directory: /workspace
 timeout: 15m
 display_options:
   github_view: mermaid
+access:
+  visibility: restricted
+  use_access:
+    grants:
+      - subject_type: repository
+        subject_id: hosein-yousefii/test-app
+      - subject_type: group
+        subject_id: data-team
 variables:
   - API_VERSION
   - IMAGE_NAME

@@ -211,6 +211,7 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'llm_content_sharing',
     'llm_output_sharing',
     'llm_content_ignore',
+    'access',
   ]);
   const knownStepKeys = new Set([
     'name',

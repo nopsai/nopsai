@@ -59,17 +59,23 @@ type productRoleDefinition struct {
 }
 
 type accessGrantRecord struct {
-	ID              int64
-	SubjectType     string
-	SubjectID       string
-	SubjectDisplay  string
-	RoleName        string
-	ResourceType    string
-	ResourceID      string
-	ResourceDisplay string
-	Inherit         bool
-	GrantedBy       string
-	CreatedAt       time.Time
+	ID                           int64
+	SubjectType                  string
+	SubjectID                    string
+	SubjectDisplay               string
+	RoleName                     string
+	ResourceType                 string
+	ResourceID                   string
+	ResourceDisplay              string
+	Inherit                      bool
+	GrantedBy                    string
+	CreatedAt                    time.Time
+	ManagedByConfig              bool
+	ConfigSourcePath             string
+	ConfigSourceCommitSHA        string
+	InheritedFromResourceType    string
+	InheritedFromResourceID      string
+	InheritedFromResourceDisplay string
 }
 
 type GrantProductRoleInput struct {
@@ -92,16 +98,23 @@ type createAccessGrantRequest struct {
 }
 
 type accessGrantResponse struct {
-	ID             string    `json:"id"`
-	SubjectType    string    `json:"subject_type"`
-	SubjectID      string    `json:"subject_id"`
-	SubjectDisplay string    `json:"subject_display,omitempty"`
-	Role           string    `json:"role"`
-	ResourceType   string    `json:"resource_type"`
-	ResourceID     string    `json:"resource_id"`
-	Inherit        bool      `json:"inherit"`
-	GrantedBy      string    `json:"granted_by,omitempty"`
-	CreatedAt      time.Time `json:"created_at,omitempty"`
+	ID                        string    `json:"id"`
+	SubjectType               string    `json:"subject_type"`
+	SubjectID                 string    `json:"subject_id"`
+	SubjectDisplay            string    `json:"subject_display,omitempty"`
+	Role                      string    `json:"role"`
+	ResourceType              string    `json:"resource_type"`
+	ResourceID                string    `json:"resource_id"`
+	Inherit                   bool      `json:"inherit"`
+	GrantedBy                 string    `json:"granted_by,omitempty"`
+	CreatedAt                 time.Time `json:"created_at,omitempty"`
+	ManagedByConfigRepo       bool      `json:"managed_by_config_repo"`
+	ConfigSourcePath          string    `json:"config_source_path,omitempty"`
+	ConfigSourceCommitSHA     string    `json:"config_source_commit_sha,omitempty"`
+	Source                    string    `json:"source"`
+	InheritedFromResourceType string    `json:"inherited_from_resource_type,omitempty"`
+	InheritedFromResourceID   string    `json:"inherited_from_resource_id,omitempty"`
+	InheritedFromResource     string    `json:"inherited_from_resource,omitempty"`
 }
 
 type effectivePermissionResponse struct {
@@ -701,7 +714,10 @@ func loadAccessGrantRecord(ctx context.Context, runner queryRunner, grantID int6
 			resource_display,
 			inherit,
 			granted_by,
-			created_at
+			created_at,
+			managed_by_config_repo,
+			config_source_path,
+			config_source_commit_sha
 		FROM access_grants
 		WHERE id = $1
 	`, grantID).Scan(
@@ -716,6 +732,9 @@ func loadAccessGrantRecord(ctx context.Context, runner queryRunner, grantID int6
 		&record.Inherit,
 		&record.GrantedBy,
 		&record.CreatedAt,
+		&record.ManagedByConfig,
+		&record.ConfigSourcePath,
+		&record.ConfigSourceCommitSHA,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
@@ -1660,7 +1679,10 @@ func (a *App) handleListAccessGrants(w http.ResponseWriter, r *http.Request) {
 			resource_display,
 			inherit,
 			granted_by,
-			created_at
+			created_at,
+			managed_by_config_repo,
+			config_source_path,
+			config_source_commit_sha
 		FROM access_grants
 		WHERE ($1 = '' OR resource_type = $1)
 		  AND ($2 = '' OR resource_id = $2)
@@ -1691,6 +1713,9 @@ func (a *App) handleListAccessGrants(w http.ResponseWriter, r *http.Request) {
 			&record.Inherit,
 			&record.GrantedBy,
 			&record.CreatedAt,
+			&record.ManagedByConfig,
+			&record.ConfigSourcePath,
+			&record.ConfigSourceCommitSHA,
 		); err != nil {
 			http.Error(w, "failed to read grants", http.StatusInternalServerError)
 			return
@@ -1869,17 +1894,33 @@ func buildHumanReadableDecisionReason(resp effectivePermissionResponse, decision
 }
 
 func accessGrantResponseFromRecord(record accessGrantRecord) accessGrantResponse {
+	source := "ui"
+	if record.ManagedByConfig {
+		source = "gitops"
+	}
+	inheritedFromResourceID := externalGrantResourceID(record.InheritedFromResourceType, record.InheritedFromResourceDisplay, record.InheritedFromResourceID)
+	inheritedFromResource := ""
+	if record.InheritedFromResourceType != "" && inheritedFromResourceID != "" {
+		inheritedFromResource = formatResourceLabel(record.InheritedFromResourceType, inheritedFromResourceID)
+	}
 	return accessGrantResponse{
-		ID:             formatAccessGrantID(record.ID),
-		SubjectType:    record.SubjectType,
-		SubjectID:      record.SubjectID,
-		SubjectDisplay: record.SubjectDisplay,
-		Role:           record.RoleName,
-		ResourceType:   record.ResourceType,
-		ResourceID:     externalGrantResourceID(record.ResourceType, record.ResourceDisplay, record.ResourceID),
-		Inherit:        record.Inherit,
-		GrantedBy:      record.GrantedBy,
-		CreatedAt:      record.CreatedAt,
+		ID:                        formatAccessGrantID(record.ID),
+		SubjectType:               record.SubjectType,
+		SubjectID:                 record.SubjectID,
+		SubjectDisplay:            record.SubjectDisplay,
+		Role:                      record.RoleName,
+		ResourceType:              record.ResourceType,
+		ResourceID:                externalGrantResourceID(record.ResourceType, record.ResourceDisplay, record.ResourceID),
+		Inherit:                   record.Inherit,
+		GrantedBy:                 record.GrantedBy,
+		CreatedAt:                 record.CreatedAt,
+		ManagedByConfigRepo:       record.ManagedByConfig,
+		ConfigSourcePath:          record.ConfigSourcePath,
+		ConfigSourceCommitSHA:     record.ConfigSourceCommitSHA,
+		Source:                    source,
+		InheritedFromResourceType: record.InheritedFromResourceType,
+		InheritedFromResourceID:   inheritedFromResourceID,
+		InheritedFromResource:     inheritedFromResource,
 	}
 }
 

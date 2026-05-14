@@ -171,12 +171,46 @@ type accessGrantFile struct {
 	Inherit      *bool  `yaml:"inherit" json:"inherit"`
 }
 
+type embeddedResourceAccessDocument struct {
+	Access *embeddedResourceAccessFile `yaml:"access" json:"access"`
+}
+
+type embeddedResourceAccessFile struct {
+	Visibility   string                         `yaml:"visibility" json:"visibility"`
+	UseAccess    *embeddedResourceUseAccessFile `yaml:"use_access" json:"use_access"`
+	Grants       []embeddedResourceUseGrantFile `yaml:"grants" json:"grants"`
+	Groups       stringList                     `yaml:"groups" json:"groups"`
+	Repositories stringList                     `yaml:"repositories" json:"repositories"`
+}
+
+type embeddedResourceUseAccessFile struct {
+	Mode         string                         `yaml:"mode" json:"mode"`
+	Grants       []embeddedResourceUseGrantFile `yaml:"grants" json:"grants"`
+	Groups       stringList                     `yaml:"groups" json:"groups"`
+	Repositories stringList                     `yaml:"repositories" json:"repositories"`
+}
+
+type embeddedResourceUseGrantFile struct {
+	SubjectType    string         `yaml:"subject_type" json:"subject_type"`
+	SubjectID      string         `yaml:"subject_id" json:"subject_id"`
+	Group          string         `yaml:"group" json:"group"`
+	Repository     string         `yaml:"repository" json:"repository"`
+	Repo           string         `yaml:"repo" json:"repo"`
+	User           string         `yaml:"user" json:"user"`
+	Trigger        string         `yaml:"trigger" json:"trigger"`
+	Service        string         `yaml:"service" json:"service"`
+	ServiceAccount string         `yaml:"service_account" json:"service_account"`
+	Actions        stringList     `yaml:"actions" json:"actions"`
+	Conditions     map[string]any `yaml:"conditions" json:"conditions"`
+}
+
 type accessSyncPlan struct {
-	users        map[string]storedAccessUser
-	roles        map[string]storedAccessRole
-	policies     map[accessRolePolicyKey]storedAccessPolicy
-	roleBindings map[accessRoleBindingKey]storedAccessRoleBinding
-	grants       map[accessGrantPlanKey]storedAccessGrant
+	users          map[string]storedAccessUser
+	roles          map[string]storedAccessRole
+	policies       map[accessRolePolicyKey]storedAccessPolicy
+	roleBindings   map[accessRoleBindingKey]storedAccessRoleBinding
+	grants         map[accessGrantPlanKey]storedAccessGrant
+	resourceAccess map[resourceAccessPlanKey]storedResourceAccess
 }
 
 type storedAccessUser struct {
@@ -220,7 +254,16 @@ type storedAccessGrant struct {
 	resourceType string
 	resourceID   string
 	inherit      bool
+	actions      []string
 	sourcePath   string
+}
+
+type storedResourceAccess struct {
+	resourceType  string
+	resourceID    string
+	visibility    string
+	visibilitySet bool
+	sourcePath    string
 }
 
 type accessRolePolicyKey struct {
@@ -244,6 +287,11 @@ type accessGrantPlanKey struct {
 	resourceID   string
 }
 
+type resourceAccessPlanKey struct {
+	resourceType string
+	resourceID   string
+}
+
 type resolvedAccessGrantKey struct {
 	subjectType  string
 	subjectID    string
@@ -253,11 +301,12 @@ type resolvedAccessGrantKey struct {
 
 func newAccessSyncPlan() accessSyncPlan {
 	return accessSyncPlan{
-		users:        map[string]storedAccessUser{},
-		roles:        map[string]storedAccessRole{},
-		policies:     map[accessRolePolicyKey]storedAccessPolicy{},
-		roleBindings: map[accessRoleBindingKey]storedAccessRoleBinding{},
-		grants:       map[accessGrantPlanKey]storedAccessGrant{},
+		users:          map[string]storedAccessUser{},
+		roles:          map[string]storedAccessRole{},
+		policies:       map[accessRolePolicyKey]storedAccessPolicy{},
+		roleBindings:   map[accessRoleBindingKey]storedAccessRoleBinding{},
+		grants:         map[accessGrantPlanKey]storedAccessGrant{},
+		resourceAccess: map[resourceAccessPlanKey]storedResourceAccess{},
 	}
 }
 
@@ -390,18 +439,48 @@ func (p accessSyncPlan) addPayload(payload accessConfigPayload, binding models.C
 		if err != nil {
 			return err
 		}
-		key := accessGrantPlanKey{
-			subjectType:  grant.subjectType,
-			subjectID:    grant.subjectID,
-			resourceType: grant.resourceType,
-			resourceID:   grant.resourceID,
+		if err := p.addGrant(grant); err != nil {
+			return err
 		}
-		if _, exists := p.grants[key]; exists {
-			return fmt.Errorf("duplicate access grant for %s:%s on %s:%s", grant.subjectType, grant.subjectID, grant.resourceType, grant.resourceID)
-		}
-		p.grants[key] = grant
 	}
 
+	return nil
+}
+
+func (p accessSyncPlan) addGrant(grant storedAccessGrant) error {
+	key := accessGrantPlanKey{
+		subjectType:  grant.subjectType,
+		subjectID:    grant.subjectID,
+		resourceType: grant.resourceType,
+		resourceID:   grant.resourceID,
+	}
+	if _, exists := p.grants[key]; exists {
+		return fmt.Errorf("duplicate access grant for %s:%s on %s:%s", grant.subjectType, grant.subjectID, grant.resourceType, grant.resourceID)
+	}
+	p.grants[key] = grant
+	return nil
+}
+
+func (p accessSyncPlan) addEmbeddedResourceAccess(content, sourcePath, resourceType, resourceID string, binding models.ConfigRepository, boundFolder string) error {
+	resourceAccess, grants, ok, err := parseEmbeddedResourceAccess(content, sourcePath, resourceType, resourceID, binding, boundFolder)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	if resourceAccess.visibilitySet {
+		key := resourceAccessPlanKey{resourceType: resourceAccess.resourceType, resourceID: resourceAccess.resourceID}
+		if existing, exists := p.resourceAccess[key]; exists && existing.visibility != resourceAccess.visibility {
+			return fmt.Errorf("duplicate resource access visibility for %s:%s", resourceAccess.resourceType, resourceAccess.resourceID)
+		}
+		p.resourceAccess[key] = resourceAccess
+	}
+	for _, grant := range grants {
+		if err := p.addGrant(grant); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -620,6 +699,163 @@ func normalizeAccessGrant(raw accessGrantFile, binding models.ConfigRepository, 
 	}, nil
 }
 
+func parseEmbeddedResourceAccess(content, sourcePath, resourceType, resourceID string, binding models.ConfigRepository, boundFolder string) (storedResourceAccess, []storedAccessGrant, bool, error) {
+	var doc embeddedResourceAccessDocument
+	if err := yaml.Unmarshal([]byte(content), &doc); err != nil {
+		return storedResourceAccess{}, nil, false, fmt.Errorf("failed to parse embedded access: %w", err)
+	}
+	if doc.Access == nil {
+		return storedResourceAccess{}, nil, false, nil
+	}
+
+	resourceType, err := normalizeAccessGrantResourceType(resourceType)
+	if err != nil {
+		return storedResourceAccess{}, nil, true, err
+	}
+	resourceID = strings.Trim(strings.TrimSpace(resourceID), "/")
+	resourceAccess := storedResourceAccess{
+		resourceType: resourceType,
+		resourceID:   resourceID,
+		sourcePath:   sourcePath,
+	}
+
+	rawGrants := embeddedResourceAccessGrants(*doc.Access)
+	visibility := firstNonEmptyString(doc.Access.Visibility, embeddedResourceUseAccessMode(doc.Access.UseAccess))
+	if visibility == "" && len(rawGrants) > 0 {
+		visibility = resourceVisibilityRestricted
+	}
+	if visibility != "" {
+		normalizedVisibility, err := normalizeResourceVisibilityUpdate(visibility)
+		if err != nil {
+			return storedResourceAccess{}, nil, true, err
+		}
+		if err := validateResourceVisibilityPolicy(resourceType, normalizedVisibility); err != nil {
+			return storedResourceAccess{}, nil, true, err
+		}
+		resourceAccess.visibility = normalizedVisibility
+		resourceAccess.visibilitySet = true
+	}
+
+	grants := make([]storedAccessGrant, 0, len(rawGrants))
+	for _, rawGrant := range rawGrants {
+		grant, err := normalizeEmbeddedResourceUseGrant(rawGrant, resourceType, resourceID, sourcePath)
+		if err != nil {
+			return storedResourceAccess{}, nil, true, err
+		}
+		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+			if !accessGrantResourceUnderBindingScope(grant.resourceType, grant.resourceID, boundFolder) {
+				return storedResourceAccess{}, nil, true, fmt.Errorf("resource access target %s:%s is outside group scope %q", grant.resourceType, grant.resourceID, boundFolder)
+			}
+		}
+		grants = append(grants, grant)
+	}
+
+	return resourceAccess, grants, true, nil
+}
+
+func embeddedResourceUseAccessMode(useAccess *embeddedResourceUseAccessFile) string {
+	if useAccess == nil {
+		return ""
+	}
+	return useAccess.Mode
+}
+
+func embeddedResourceAccessGrants(access embeddedResourceAccessFile) []embeddedResourceUseGrantFile {
+	var grants []embeddedResourceUseGrantFile
+	grants = append(grants, access.Grants...)
+	for _, group := range access.Groups.values() {
+		grants = append(grants, embeddedResourceUseGrantFile{Group: group})
+	}
+	for _, repo := range access.Repositories.values() {
+		grants = append(grants, embeddedResourceUseGrantFile{Repository: repo})
+	}
+	if access.UseAccess != nil {
+		grants = append(grants, access.UseAccess.Grants...)
+		for _, group := range access.UseAccess.Groups.values() {
+			grants = append(grants, embeddedResourceUseGrantFile{Group: group})
+		}
+		for _, repo := range access.UseAccess.Repositories.values() {
+			grants = append(grants, embeddedResourceUseGrantFile{Repository: repo})
+		}
+	}
+	return grants
+}
+
+func normalizeEmbeddedResourceUseGrant(raw embeddedResourceUseGrantFile, resourceType, resourceID, sourcePath string) (storedAccessGrant, error) {
+	subjectType, subjectID, err := normalizeEmbeddedResourceUseGrantSubject(raw)
+	if err != nil {
+		return storedAccessGrant{}, err
+	}
+	if err := validateResourceGrantConditions(raw.Conditions); err != nil {
+		return storedAccessGrant{}, err
+	}
+	actions, err := normalizeUseGrantActions(resourceType, raw.Actions.values())
+	if err != nil {
+		return storedAccessGrant{}, err
+	}
+	return storedAccessGrant{
+		subjectType:  subjectType,
+		subjectID:    subjectID,
+		role:         customUseGrantRole,
+		resourceType: resourceType,
+		resourceID:   resourceID,
+		inherit:      false,
+		actions:      actions,
+		sourcePath:   sourcePath,
+	}, nil
+}
+
+func normalizeEmbeddedResourceUseGrantSubject(raw embeddedResourceUseGrantFile) (string, string, error) {
+	subjectType := strings.TrimSpace(raw.SubjectType)
+	subjectID := strings.TrimSpace(raw.SubjectID)
+	setSubject := func(nextType, nextID string) error {
+		nextID = strings.TrimSpace(nextID)
+		if nextID == "" {
+			return nil
+		}
+		if subjectType != "" || subjectID != "" {
+			return fmt.Errorf("resource access grant has multiple subjects")
+		}
+		subjectType = nextType
+		subjectID = nextID
+		return nil
+	}
+
+	for _, candidate := range []struct {
+		subjectType string
+		subjectID   string
+	}{
+		{grantSubjectGroup, raw.Group},
+		{model.SubjectTypeRepository, firstNonEmptyString(raw.Repository, raw.Repo)},
+		{model.SubjectTypeUser, raw.User},
+		{model.SubjectTypeTrigger, raw.Trigger},
+		{model.SubjectTypeServiceAccount, raw.ServiceAccount},
+		{model.SubjectTypeInternalService, raw.Service},
+	} {
+		if err := setSubject(candidate.subjectType, candidate.subjectID); err != nil {
+			return "", "", err
+		}
+	}
+
+	if subjectID == "" {
+		return "", "", fmt.Errorf("resource access grant is missing subject_id")
+	}
+	subjectID = strings.Trim(strings.TrimSpace(subjectID), "/")
+	if subjectID == "" {
+		return "", "", fmt.Errorf("resource access grant is missing subject_id")
+	}
+	switch strings.ToLower(strings.TrimSpace(subjectType)) {
+	case grantSubjectGroup, grantResourceFolder, grantResourceTeam, "resource_group":
+		return grantSubjectGroup, subjectID, nil
+	default:
+		normalizedType, err := normalizeAccessGrantSubjectType(subjectType)
+		if err != nil {
+			return "", "", err
+		}
+		return normalizedType, subjectID, nil
+	}
+}
+
 func normalizeAccessGrantResourceIDForBinding(resourceType, resourceID string, binding models.ConfigRepository, boundFolder string) (string, error) {
 	resourceID = strings.Trim(strings.TrimSpace(resourceID), "/")
 	if resourceType == grantResourcePlatform {
@@ -740,6 +976,11 @@ func filterDelegatedAccessResources(plan accessSyncPlan, binding models.ConfigRe
 			delete(plan.grants, key)
 		}
 	}
+	for key, access := range plan.resourceAccess {
+		if accessGrantResourceIntersectsAnyScope(access.resourceType, access.resourceID, overrideScopes) {
+			delete(plan.resourceAccess, key)
+		}
+	}
 }
 
 func (a *App) syncAccessConfiguration(ctx context.Context, tx pgx.Tx, binding models.ConfigRepository, plan accessSyncPlan, commitSHA string, details map[string]int) error {
@@ -775,11 +1016,18 @@ func (a *App) syncAccessConfiguration(ctx context.Context, tx pgx.Tx, binding mo
 		details["access_role_bindings_synced"]++
 	}
 
+	if err := syncResourceVisibilities(ctx, tx, plan, details); err != nil {
+		return err
+	}
+
 	grantKeys, err := a.syncAccessGrants(ctx, tx, binding, plan, commitSHA, details)
 	if err != nil {
 		return err
 	}
 	if err := pruneManagedAccessConfiguration(ctx, tx, binding, plan, grantKeys); err != nil {
+		return err
+	}
+	if err := clearResourceAccessOverridesForConfigSync(ctx, tx, binding); err != nil {
 		return err
 	}
 	return nil
@@ -997,7 +1245,7 @@ func (a *App) syncAccessGrants(ctx context.Context, tx pgx.Tx, binding models.Co
 		details["access_grants_synced"]++
 	}
 	for _, grant := range plan.grants {
-		if grant.role == productRoleOwner {
+		if grant.role == productRoleOwner || grant.role == customUseGrantRole {
 			continue
 		}
 		key, err := a.upsertManagedProductRoleGrant(ctx, tx, binding, grant, commitSHA)
@@ -1007,7 +1255,38 @@ func (a *App) syncAccessGrants(ctx context.Context, tx pgx.Tx, binding models.Co
 		keep[key] = struct{}{}
 		details["access_grants_synced"]++
 	}
+	for _, grant := range plan.grants {
+		if grant.role != customUseGrantRole {
+			continue
+		}
+		key, err := a.upsertManagedResourceUseGrant(ctx, tx, binding, grant, commitSHA)
+		if err != nil {
+			return nil, err
+		}
+		keep[key] = struct{}{}
+		details["access_grants_synced"]++
+	}
 	return keep, nil
+}
+
+func syncResourceVisibilities(ctx context.Context, tx pgx.Tx, plan accessSyncPlan, details map[string]int) error {
+	for _, access := range plan.resourceAccess {
+		if !access.visibilitySet {
+			continue
+		}
+		resource, err := resolveAccessGrantResource(ctx, tx, access.resourceType, access.resourceID, true)
+		if err != nil {
+			return fmt.Errorf("failed to resolve resource access target %s:%s: %w", access.resourceType, access.resourceID, err)
+		}
+		if err := validateResourceVisibilityPolicy(resource.Type, access.visibility); err != nil {
+			return err
+		}
+		if err := setResourceVisibilityWithRunner(ctx, tx, resource, access.visibility); err != nil {
+			return fmt.Errorf("failed to sync resource visibility for %s:%s: %w", resource.Type, resource.ID, err)
+		}
+		details["resource_access_synced"]++
+	}
+	return nil
 }
 
 func (a *App) upsertManagedProductRoleGrant(ctx context.Context, tx pgx.Tx, binding models.ConfigRepository, grant storedAccessGrant, commitSHA string) (resolvedAccessGrantKey, error) {
@@ -1154,6 +1433,121 @@ func (a *App) upsertManagedProductRoleGrant(ctx context.Context, tx pgx.Tx, bind
 	return resolvedAccessGrantKey{subjectType: subject.Type, subjectID: subject.ID, resourceType: resource.Type, resourceID: resource.ID}, nil
 }
 
+func (a *App) upsertManagedResourceUseGrant(ctx context.Context, tx pgx.Tx, binding models.ConfigRepository, grant storedAccessGrant, commitSHA string) (resolvedAccessGrantKey, error) {
+	subject, err := resolveResourceUseGrantSubject(ctx, tx, grant.subjectType, grant.subjectID)
+	if err != nil {
+		return resolvedAccessGrantKey{}, fmt.Errorf("failed to resolve resource access subject %s:%s: %w", grant.subjectType, grant.subjectID, err)
+	}
+	if locked, err := isDefaultAdminGrantSubject(ctx, tx, subject.Type, subject.ID); err != nil {
+		return resolvedAccessGrantKey{}, err
+	} else if locked {
+		return resolvedAccessGrantKey{}, fmt.Errorf("cannot modify default admin role assignments")
+	}
+	resource, err := resolveAccessGrantResource(ctx, tx, grant.resourceType, grant.resourceID, true)
+	if err != nil {
+		return resolvedAccessGrantKey{}, fmt.Errorf("failed to resolve resource access target %s:%s: %w", grant.resourceType, grant.resourceID, err)
+	}
+	actions, err := normalizeUseGrantActions(resource.Type, grant.actions)
+	if err != nil {
+		return resolvedAccessGrantKey{}, err
+	}
+
+	resourceScope := resource.ID
+	if resource.Type == grantResourceSecret || resource.Type == grantResourceVariable {
+		repoName, scope, _ := model.ParseNamedResourceID(resource.ID)
+		resourceScope = firstNonEmptyString(repoName, scope)
+	}
+	writable, err := ensureAccessGrantConfigWritable(ctx, tx, binding, resourceScope, subject.Type, subject.ID, resource.Type, resource.ID)
+	if err != nil {
+		return resolvedAccessGrantKey{}, err
+	}
+	resolvedKey := resolvedAccessGrantKey{
+		subjectType:  subject.Type,
+		subjectID:    subject.ID,
+		resourceType: resource.Type,
+		resourceID:   resource.ID,
+	}
+	if !writable {
+		return resolvedKey, nil
+	}
+
+	var existingID int64
+	var previousRole string
+	err = tx.QueryRow(ctx, `
+		SELECT id, role_name
+		FROM access_grants
+		WHERE subject_type = $1 AND subject_id = $2 AND resource_type = $3 AND resource_id = $4
+	`, subject.Type, subject.ID, resource.Type, resource.ID).Scan(&existingID, &previousRole)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
+		return resolvedAccessGrantKey{}, err
+	}
+
+	grantedBy := "config-repo"
+	if existingID == 0 {
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO access_grants (
+				subject_type, subject_id, subject_display, role_name,
+				resource_type, resource_id, resource_display, inherit, granted_by,
+				config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, $8, $9, $10, $11, TRUE)
+			RETURNING id
+		`, subject.Type, subject.ID, subject.Display, customUseGrantRole, resource.Type, resource.ID, resource.Display, grantedBy, binding.ID, grant.sourcePath, commitSHA).Scan(&existingID); err != nil {
+			return resolvedAccessGrantKey{}, fmt.Errorf("failed to insert resource access grant: %w", err)
+		}
+	} else {
+		if _, err := tx.Exec(ctx, `DELETE FROM resource_acl WHERE access_grant_id = $1`, existingID); err != nil {
+			return resolvedAccessGrantKey{}, err
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM resource_ownership WHERE access_grant_id = $1`, existingID); err != nil {
+			return resolvedAccessGrantKey{}, err
+		}
+		if previousRole == productRoleAdmin {
+			if _, err := tx.Exec(ctx, `
+				DELETE FROM auth_role_bindings
+				WHERE role_name = $1
+				  AND subject_type = $2
+				  AND subject_id = $3
+				  AND (managed_by_config_repo = FALSE OR config_repo_id = $4)
+			`, productRoleAdmin, subject.Type, subject.ID, binding.ID); err != nil {
+				return resolvedAccessGrantKey{}, err
+			}
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE access_grants
+			SET subject_display = $1,
+				role_name = $2,
+				resource_display = $3,
+				inherit = FALSE,
+				granted_by = $4,
+				config_repo_id = $5,
+				config_source_path = $6,
+				config_source_commit_sha = $7,
+				managed_by_config_repo = TRUE
+			WHERE id = $8
+		`, subject.Display, customUseGrantRole, resource.Display, grantedBy, binding.ID, grant.sourcePath, commitSHA, existingID); err != nil {
+			return resolvedAccessGrantKey{}, fmt.Errorf("failed to update resource access grant: %w", err)
+		}
+	}
+
+	if subject.Type != grantSubjectGroup {
+		for _, action := range actions {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO resource_acl (
+					resource_type, resource_id, subject_type, subject_id, access_grant_id, action, effect
+				)
+				VALUES ($1, $2, $3, $4, $5, $6, 'allow')
+				ON CONFLICT (resource_type, resource_id, subject_type, subject_id, action, effect)
+				DO UPDATE SET access_grant_id = EXCLUDED.access_grant_id
+			`, resource.Type, resource.ID, subject.Type, subject.ID, existingID, action); err != nil {
+				return resolvedAccessGrantKey{}, err
+			}
+		}
+	}
+
+	return resolvedKey, nil
+}
+
 func ensureAccessGrantConfigWritable(ctx context.Context, tx pgx.Tx, binding models.ConfigRepository, resourceScope, subjectType, subjectID, resourceType, resourceID string) (bool, error) {
 	displayID := subjectType + ":" + subjectID + " " + resourceType + ":" + resourceID
 	var existingRepoID sql.NullInt64
@@ -1203,6 +1597,45 @@ func pruneManagedAccessConfiguration(ctx context.Context, tx pgx.Tx, binding mod
 	}
 	if err := pruneManagedRoles(ctx, tx, binding.ID, plan); err != nil {
 		return err
+	}
+	return nil
+}
+
+func clearResourceAccessOverridesForConfigSync(ctx context.Context, tx pgx.Tx, binding models.ConfigRepository) error {
+	rows, err := tx.Query(ctx, `
+		SELECT resource_type, resource_id
+		FROM resource_access_overrides
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to load resource access overrides: %w", err)
+	}
+	defer rows.Close()
+
+	type overrideKey struct {
+		resourceType string
+		resourceID   string
+	}
+	var keys []overrideKey
+	for rows.Next() {
+		var key overrideKey
+		if err := rows.Scan(&key.resourceType, &key.resourceID); err != nil {
+			return err
+		}
+		if accessGrantResourceInConfigBindingScope(key.resourceType, key.resourceID, binding) {
+			keys = append(keys, key)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, key := range keys {
+		if _, err := tx.Exec(ctx, `
+			DELETE FROM resource_access_overrides
+			WHERE resource_type = $1 AND resource_id = $2
+		`, key.resourceType, key.resourceID); err != nil {
+			return fmt.Errorf("failed to clear resource access override for %s:%s: %w", key.resourceType, key.resourceID, err)
+		}
 	}
 	return nil
 }

@@ -26,6 +26,13 @@ var resourceAuthorizationSchemaStatements = []string{
 	)`,
 	`ALTER TABLE resource_visibility DROP CONSTRAINT IF EXISTS resource_visibility_visibility_check`,
 	`ALTER TABLE resource_visibility ADD CONSTRAINT resource_visibility_visibility_check CHECK (visibility IN ('group', 'restricted', 'workspace'))`,
+	`CREATE TABLE IF NOT EXISTS resource_access_overrides (
+		resource_type TEXT NOT NULL,
+		resource_id TEXT NOT NULL,
+		overridden_by TEXT NOT NULL DEFAULT '',
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (resource_type, resource_id)
+	)`,
 	`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS trigger_source TEXT`,
 	`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS requested_by_type TEXT`,
 	`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS requested_by_id TEXT`,

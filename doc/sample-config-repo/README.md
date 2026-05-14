@@ -48,11 +48,16 @@ access/                Users, advanced roles, policies, and basic role grants
 Secrets are not imported from Git. Pipelines may declare required secrets, but
 secret values stay database-managed.
 
+Pipeline, reusable step, and scope files may also include an `access:` block.
+That block maps to the same resource Access UI controls: `visibility` controls
+Only this group / selected groups or repositories / Public, and `use_access`
+lists the groups or repositories that can use a restricted resource.
+
 ## Global repo file map
 
 ```text
 global-repo/pipelines/platform-maintenance.yaml
-  -> pipeline platform-maintenance
+  -> pipeline platform-maintenance, public use access
 
 global-repo/steps/shared/announce.yaml
   -> reusable step shared/announce
@@ -86,7 +91,7 @@ resources with `team-1`:
 
 ```text
 team-1-repo/pipelines/build-and-test.yaml
-  -> pipeline team-1/build-and-test
+  -> pipeline team-1/build-and-test with restricted use access
 
 team-1-repo/pipelines/services/api/deploy.yaml
   -> pipeline team-1/services/api/deploy
@@ -98,7 +103,7 @@ team-1-repo/triggers/service-api.yaml
   -> trigger override team-1/service-api
 
 team-1-repo/scopes/prod/scope.yaml
-  -> variables in scope team-1/prod
+  -> variables in scope team-1/prod with restricted scope use access
 
 team-1-repo/access/*.yaml
   -> basic role grants scoped to team-1
@@ -122,3 +127,34 @@ User `advanced_roles` are global access-role assignments and may reference
 custom roles or protected built-in bundles such as `viewer`, `developer`,
 `owner`, and `admin`. Use `basic_roles` when those same product role names
 should be scoped to a folder/group target.
+
+## Embedded resource access
+
+Use embedded `access:` for the per-object Access dialog settings:
+
+```yaml
+name: deploy
+access:
+  visibility: restricted # group, restricted, or public/workspace
+  use_access:
+    grants:
+      - subject_type: repository
+        subject_id: hosein-yousefii/test-app
+      - subject_type: group
+        subject_id: data-team
+steps:
+  - name: deploy
+    script: echo deploy
+```
+
+For the common UI subjects, the shorter form is also accepted:
+
+```yaml
+access:
+  groups: [data-team]
+  repositories: [hosein-yousefii/test-app]
+```
+
+When grants are present and `visibility` is omitted, Nopsai treats the resource
+as `restricted`. Scopes are sensitive, so they support `group` and `restricted`
+visibility only; `public` is accepted for pipelines and reusable steps.
