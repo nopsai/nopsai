@@ -25,6 +25,7 @@ export const PIPELINE_DIRECTIVES: LabDirective[] = [
   { key: 'timeout', hint: 'Pipeline timeout' },
   { key: 'llm_output_sharing', hint: 'Share LLM outputs across steps' },
   { key: 'llm_content_sharing', hint: 'Share LLM prompts across steps' },
+  { key: 'llm_content_include', hint: 'Only share matching paths with LLM' },
   { key: 'llm_content_ignore', hint: 'Paths excluded from LLM context' },
   { key: 'display_options', hint: 'UI rendering preferences' },
 ];
@@ -63,8 +64,8 @@ export const DIRECTIVE_VALUE_METADATA: Record<string, { values: string[]; title:
 };
 
 export const LIST_KEYS_WITH_NAME_TEMPLATE = new Set(['steps', 'tasks']);
-export const LIST_KEYS_SIMPLE = new Set(['secrets', 'volumes', 'depends_on', 'artifacts', 'variables', 'llm_content_ignore']);
-export const ARRAY_KEYS = new Set(['steps', 'tasks', 'variables', 'secrets', 'volumes', 'depends_on', 'artifacts', 'llm_content_ignore']);
+export const LIST_KEYS_SIMPLE = new Set(['secrets', 'volumes', 'depends_on', 'artifacts', 'variables', 'llm_content_include', 'llm_content_ignore']);
+export const ARRAY_KEYS = new Set(['steps', 'tasks', 'variables', 'secrets', 'volumes', 'depends_on', 'artifacts', 'llm_content_include', 'llm_content_ignore']);
 
 const OVERRIDE_KEY_PATTERN = /^[A-Za-z0-9_.-]+$/;
 export const DEFAULT_PIPELINE_NAME = 'ad-hoc-pipeline';
@@ -210,6 +211,7 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'timeout',
     'llm_content_sharing',
     'llm_output_sharing',
+    'llm_content_include',
     'llm_content_ignore',
     'access',
   ]);

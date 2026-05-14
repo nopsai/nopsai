@@ -537,6 +537,7 @@ type Pipeline struct {
 	Timeout           string         `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 	LlmContentSharing *bool          `yaml:"llm_content_sharing,omitempty" json:"llm_content_sharing,omitempty"`
 	LlmOutputSharing  *bool          `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
+	LlmContentInclude []string       `yaml:"llm_content_include,omitempty" json:"llm_content_include,omitempty"`
 	LlmContentIgnore  []string       `yaml:"llm_content_ignore,omitempty" json:"llm_content_ignore,omitempty"`
 }
 
