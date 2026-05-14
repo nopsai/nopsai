@@ -22,7 +22,7 @@
 * **Parallel Execution**: Independent steps in the pipeline are automatically executed in parallel to reduce build times.
 * **Failure Tolerance**: You can configure individual steps to not halt the entire pipeline on failure by setting `ignore_failure: true`.
 * **Timeouts**: Pipelines can have a global `timeout` to prevent them from running indefinitely.
-* **LLM Context Control**: Fine-grained control over whether the LLM can access file contents (`llm_content_sharing`) or see the output of previous steps (`llm_output_sharing`) at both the pipeline and per-step level.
+* **LLM Context Control**: Fine-grained control over whether the LLM can access file contents (`llm_content_sharing`), which workspace paths are shared (`llm_content_include` / `llm_content_ignore`), or see the output of previous steps (`llm_output_sharing`) at both the pipeline and per-step level.
 * **Informative Container Naming**: Agent and step containers are now given descriptive names for easier debugging and monitoring, using the format `agent-<repo>-<pipeline>-<run_id>` and `<repo>-<pipeline>-<step>-<run_id>` respectively.
 
 ---

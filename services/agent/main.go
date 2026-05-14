@@ -77,7 +77,7 @@ type Matcher struct {
 	IsGlobal bool
 }
 
-func (m *Matcher) Matches(relPath string, isDir bool) bool {
+func (m Matcher) Matches(relPath string, isDir bool) bool {
 	if m.IsDir {
 		if !isDir && !strings.HasPrefix(relPath, m.Pattern) {
 			return false
@@ -98,6 +98,29 @@ func (m *Matcher) Matches(relPath string, isDir bool) bool {
 	return matched
 }
 
+func buildPathMatchers(patterns []string) []Matcher {
+	var matchers []Matcher
+	for _, p := range patterns {
+		p = strings.TrimSpace(p)
+		if p == "" || strings.HasPrefix(p, "#") {
+			continue
+		}
+		p = filepath.ToSlash(p)
+		p = strings.TrimPrefix(p, "./")
+		isDir := strings.HasSuffix(p, "/")
+		pattern := strings.TrimSuffix(p, "/")
+		if pattern == "" {
+			continue
+		}
+		matchers = append(matchers, Matcher{
+			Pattern:  pattern,
+			IsDir:    isDir,
+			IsGlobal: !strings.Contains(pattern, "/"),
+		})
+	}
+	return matchers
+}
+
 func isIgnored(path string, matchers []Matcher, root string, isDir bool) bool {
 	relPath, err := filepath.Rel(root, path)
 	if err != nil {
@@ -110,6 +133,41 @@ func isIgnored(path string, matchers []Matcher, root string, isDir bool) bool {
 		if matcher.Matches(relPath, isDir) {
 			return true
 		}
+	}
+	return false
+}
+
+func isIncluded(path string, matchers []Matcher, root string, isDir bool) bool {
+	if len(matchers) == 0 {
+		return true
+	}
+	relPath, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	relPath = filepath.ToSlash(relPath)
+
+	for _, matcher := range matchers {
+		if matcher.Matches(relPath, isDir) {
+			return true
+		}
+	}
+	if isDir {
+		return false
+	}
+
+	dir := filepath.ToSlash(filepath.Dir(relPath))
+	for dir != "." && dir != "/" && dir != "" {
+		for _, matcher := range matchers {
+			if matcher.Matches(dir, true) {
+				return true
+			}
+		}
+		parent := filepath.ToSlash(filepath.Dir(dir))
+		if parent == dir {
+			break
+		}
+		dir = parent
 	}
 	return false
 }
@@ -150,24 +208,10 @@ func sanitizeInput(name string) string {
 }
 
 // getDirectoryListing recursively walks the specified root directory.
-func getDirectoryListing(logger *zerolog.Logger, root string, ignorePatterns []string) map[string]string {
+func getDirectoryListing(logger *zerolog.Logger, root string, includePatterns, ignorePatterns []string) map[string]string {
 	directoryListing := make(map[string]string)
-	var matchers []Matcher
-
-	// Create matchers from the pipeline's ignorePatterns
-	for _, p := range ignorePatterns {
-		p = strings.TrimSpace(p)
-		if p == "" || strings.HasPrefix(p, "#") {
-			continue
-		}
-		isDir := strings.HasSuffix(p, "/")
-		pattern := strings.TrimSuffix(p, "/")
-		matchers = append(matchers, Matcher{
-			Pattern:  pattern,
-			IsDir:    isDir,
-			IsGlobal: !strings.Contains(pattern, "/"),
-		})
-	}
+	includeMatchers := buildPathMatchers(includePatterns)
+	ignoreMatchers := buildPathMatchers(ignorePatterns)
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -176,7 +220,7 @@ func getDirectoryListing(logger *zerolog.Logger, root string, ignorePatterns []s
 		}
 
 		// Check if the path should be ignored by the patterns from the pipeline directive
-		if isIgnored(path, matchers, root, info.IsDir()) {
+		if isIgnored(path, ignoreMatchers, root, info.IsDir()) {
 			if info.IsDir() {
 				return filepath.SkipDir // Skip the entire directory
 			}
@@ -188,6 +232,9 @@ func getDirectoryListing(logger *zerolog.Logger, root string, ignorePatterns []s
 		}
 
 		if !info.IsDir() {
+			if !isIncluded(path, includeMatchers, root, false) {
+				return nil
+			}
 			content, readErr := os.ReadFile(path)
 			if readErr != nil {
 				logger.Error().Err(readErr).Str("file", path).Msg("Failed to read file")
@@ -197,6 +244,7 @@ func getDirectoryListing(logger *zerolog.Logger, root string, ignorePatterns []s
 			if relErr != nil {
 				return relErr
 			}
+			relPath = filepath.ToSlash(relPath)
 			contentType := http.DetectContentType(content)
 			if strings.HasPrefix(contentType, "text/") {
 				directoryListing[relPath] = string(content)
@@ -1292,7 +1340,7 @@ func run() int {
 					var directoryListing map[string]string
 					if shareContent {
 						taskLogger.Debug().Msg("Content sharing is ENABLED for this pipeline. Scanning directory")
-						directoryListing = getDirectoryListing(taskLogger, "/workspace", pipeline.LlmContentIgnore)
+						directoryListing = getDirectoryListing(taskLogger, "/workspace", pipeline.LlmContentInclude, pipeline.LlmContentIgnore)
 						if len(directoryListing) == 0 {
 							taskLogger.Debug().Msg("Sharing directory listing metadata with LLM (empty)")
 						} else {
