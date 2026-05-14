@@ -27,6 +27,8 @@ import (
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
 	"nopsai/pkg/proxyhttp"
+	"nopsai/pkg/serviceauth"
+	"nopsai/pkg/servicetls"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -36,7 +38,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"gopkg.in/yaml.v3"
@@ -3861,7 +3862,31 @@ func main() {
 	if dispatcherAddr == "" {
 		dispatcherAddr = "localhost:9090"
 	}
-	dispatcherConn, err := grpc.Dial(dispatcherAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	dispatcherCreds, err := serviceauth.NewCredentials(serviceauth.Config{
+		SigningKey: cfg.EffectiveServiceJWTSigningKey(),
+		Issuer:     cfg.EffectiveServiceJWTIssuer(),
+		Audience:   cfg.EffectiveServiceJWTAudience(),
+		Role:       serviceauth.RoleNopsai,
+		ServiceID:  cfg.EffectiveNopsaiServiceID(),
+	})
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to configure dispatcher client authentication")
+	}
+	dispatcherTransportCreds, err := servicetls.ClientCredentials(servicetls.Config{
+		Mode:       cfg.EffectiveDispatcherTLSMode(),
+		Secret:     cfg.EffectiveDispatcherTLSSecret(),
+		Role:       serviceauth.RoleNopsai,
+		ServiceID:  cfg.EffectiveNopsaiServiceID(),
+		ServerName: cfg.EffectiveDispatcherTLSServerName(),
+	})
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to configure dispatcher transport security")
+	}
+	dispatcherConn, err := grpc.Dial(
+		dispatcherAddr,
+		grpc.WithTransportCredentials(dispatcherTransportCreds),
+		grpc.WithPerRPCCredentials(dispatcherCreds),
+	)
 	if err != nil {
 		log.Fatal().Err(err).Str("addr", dispatcherAddr).Msg("Failed to connect to dispatcher")
 	}

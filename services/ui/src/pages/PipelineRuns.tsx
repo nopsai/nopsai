@@ -2476,8 +2476,8 @@ function RunDetailView({
   onShowDefinition: () => void;
 }) {
   const run = detail.run_info;
-  const isRunning = normalizeStatus(run.status, run.is_complete) === 'running';
   const normalizedStatus = normalizeStatus(run.status, run.is_complete);
+  const isActiveRun = normalizedStatus === 'running' || normalizedStatus === 'pending';
   const pipelineLink = buildPipelineLink(run);
   const triggerLabel = formatTriggerId(run.trigger_event_id);
   const parentRun = detail.parent_run_info;
@@ -2637,13 +2637,13 @@ function RunDetailView({
                 )}
               </div>
               <div className="h-6 w-px bg-[var(--border-primary)] dark:bg-white/10" />
-              <button className={isRunning ? dangerAction : primaryAction} type="button" onClick={isRunning ? onCancel : onRerun} disabled={loading}>
+              <button className={isActiveRun ? dangerAction : primaryAction} type="button" onClick={isActiveRun ? onCancel : onRerun} disabled={loading}>
                 <svg className="h-4 w-4 text-current" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="1 4 1 10 7 10" />
                   <polyline points="23 20 23 14 17 14" />
                   <path d="M3.51 9a9 9 0 0114.13-3.36L23 10M1 14l5.36 4.36A9 9 0 0020.49 15" />
                 </svg>
-                {isRunning ? 'Cancel' : 'Re-run'}
+                {isActiveRun ? 'Cancel' : 'Re-run'}
               </button>
               <button className={iconDanger} type="button" onClick={onDelete} aria-label="Delete run">
                 <svg className="h-4 w-4 text-current" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

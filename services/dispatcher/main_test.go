@@ -10,7 +10,13 @@ import (
 	"time"
 
 	"nopsai/pkg/proto"
+	"nopsai/pkg/serviceauth"
 	nopsaiAuth "nopsai/services/nopsai/pkg/auth"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 func TestQueuedJobsDispatchAfterResume(t *testing.T) {
@@ -254,8 +260,114 @@ func TestPumpQueueDoesNotHoldDispatcherLockWhileFetchingRunStatus(t *testing.T) 
 	}
 }
 
+func TestDispatcherAuthRequiresBearerToken(t *testing.T) {
+	auth := newTestDispatcherAuth(t)
+
+	_, err := auth.unaryInterceptor(context.Background(), nil, &grpc.UnaryServerInfo{
+		FullMethod: "/proto.DispatcherService/GetStatus",
+	}, func(ctx context.Context, req any) (any, error) {
+		t.Fatal("handler should not be called without credentials")
+		return nil, nil
+	})
+	if status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("status.Code(err) = %s, want %s", status.Code(err), codes.Unauthenticated)
+	}
+}
+
+func TestDispatcherAuthAllowsExpectedRole(t *testing.T) {
+	auth := newTestDispatcherAuth(t)
+	ctx := contextWithServiceToken(t, serviceauth.RoleNopsai, "control-plane")
+
+	called := false
+	_, err := auth.unaryInterceptor(ctx, nil, &grpc.UnaryServerInfo{
+		FullMethod: "/proto.DispatcherService/SubmitJob",
+	}, func(ctx context.Context, req any) (any, error) {
+		called = true
+		claims, ok := serviceauth.ClaimsFromContext(ctx)
+		if !ok {
+			t.Fatal("expected service claims in handler context")
+		}
+		if claims.ServiceRole() != serviceauth.RoleNopsai {
+			t.Fatalf("claims role = %q, want %q", claims.ServiceRole(), serviceauth.RoleNopsai)
+		}
+		return nil, nil
+	})
+	if err != nil {
+		t.Fatalf("unaryInterceptor() error = %v", err)
+	}
+	if !called {
+		t.Fatal("handler was not called")
+	}
+}
+
+func TestDispatcherAuthRejectsUnexpectedRole(t *testing.T) {
+	auth := newTestDispatcherAuth(t)
+	ctx := contextWithServiceToken(t, serviceauth.RoleAgent, "agent")
+
+	_, err := auth.unaryInterceptor(ctx, nil, &grpc.UnaryServerInfo{
+		FullMethod: "/proto.DispatcherService/SubmitJob",
+	}, func(ctx context.Context, req any) (any, error) {
+		t.Fatal("handler should not be called for wrong service role")
+		return nil, nil
+	})
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("status.Code(err) = %s, want %s", status.Code(err), codes.PermissionDenied)
+	}
+}
+
+func TestDispatcherAuthRejectsUnexpectedServiceID(t *testing.T) {
+	auth := newTestDispatcherAuth(t)
+	ctx := contextWithServiceToken(t, serviceauth.RoleAgent, "different-agent")
+
+	_, err := auth.unaryInterceptor(ctx, nil, &grpc.UnaryServerInfo{
+		FullMethod: "/proto.DispatcherService/FinalizeRun",
+	}, func(ctx context.Context, req any) (any, error) {
+		t.Fatal("handler should not be called for wrong service identity")
+		return nil, nil
+	})
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("status.Code(err) = %s, want %s", status.Code(err), codes.PermissionDenied)
+	}
+}
+
 func newTestJWTSigner() *nopsaiAuth.LocalJWTService {
 	return nopsaiAuth.NewLocalJWTService([]byte("test-signing-key"), "test-issuer", "test-audience", time.Minute)
+}
+
+func newTestDispatcherAuth(t *testing.T) *dispatcherAuth {
+	t.Helper()
+	authenticator, err := serviceauth.NewAuthenticator(serviceauth.Config{
+		SigningKey: "test-service-key",
+		Issuer:     serviceauth.DefaultIssuer,
+		Audience:   serviceauth.DefaultAudience,
+	})
+	if err != nil {
+		t.Fatalf("NewAuthenticator() error = %v", err)
+	}
+	return newDispatcherAuth(authenticator, map[string]string{
+		serviceauth.RoleNopsai: "control-plane",
+		serviceauth.RoleRunner: "runner",
+		serviceauth.RoleAgent:  "agent",
+	})
+}
+
+func contextWithServiceToken(t *testing.T, role, serviceID string) context.Context {
+	t.Helper()
+	creds, err := serviceauth.NewCredentials(serviceauth.Config{
+		SigningKey: "test-service-key",
+		Issuer:     serviceauth.DefaultIssuer,
+		Audience:   serviceauth.DefaultAudience,
+		Role:       role,
+		ServiceID:  serviceID,
+	})
+	if err != nil {
+		t.Fatalf("NewCredentials() error = %v", err)
+	}
+	md, err := creds.GetRequestMetadata(context.Background())
+	if err != nil {
+		t.Fatalf("GetRequestMetadata() error = %v", err)
+	}
+	return metadata.NewIncomingContext(context.Background(), metadata.New(md))
 }
 
 func newRunStatusServer(statuses map[string]string) *httptest.Server {

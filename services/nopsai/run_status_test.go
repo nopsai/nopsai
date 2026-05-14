@@ -1,6 +1,12 @@
 package main
 
-import "testing"
+import (
+	"context"
+	"strings"
+	"testing"
+
+	"github.com/jackc/pgx/v5/pgconn"
+)
 
 func TestNormalizeFinalizeRunStatus(t *testing.T) {
 	tests := []struct {
@@ -40,4 +46,43 @@ func TestIsCompletedRunStatus(t *testing.T) {
 			t.Fatalf("isCompletedRunStatus(%q) = %v, want %v", tt.status, got, tt.want)
 		}
 	}
+}
+
+func TestMarkRunRunningPromotesNonTerminalRun(t *testing.T) {
+	runner := &recordingRunExecRunner{}
+
+	if err := markRunRunning(context.Background(), runner, "run-1"); err != nil {
+		t.Fatalf("markRunRunning() error = %v", err)
+	}
+
+	if len(runner.calls) != 1 {
+		t.Fatalf("expected 1 Exec call, got %d", len(runner.calls))
+	}
+	statement := strings.Join(strings.Fields(runner.calls[0].sql), " ")
+	for _, want := range []string{
+		"SET status = 'running'",
+		"started_at = COALESCE(started_at, NOW())",
+		"status NOT IN ('success', 'failure', 'failure (ignored)', 'cancelled', 'timed_out')",
+	} {
+		if !strings.Contains(statement, want) {
+			t.Fatalf("markRunRunning() SQL missing %q in %q", want, statement)
+		}
+	}
+	if got := runner.calls[0].args[0]; got != "run-1" {
+		t.Fatalf("markRunRunning() run id arg = %v, want run-1", got)
+	}
+}
+
+type recordingRunExecRunner struct {
+	calls []recordingRunExecCall
+}
+
+type recordingRunExecCall struct {
+	sql  string
+	args []any
+}
+
+func (r *recordingRunExecRunner) Exec(_ context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
+	r.calls = append(r.calls, recordingRunExecCall{sql: sql, args: arguments})
+	return pgconn.NewCommandTag("UPDATE 1"), nil
 }

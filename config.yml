@@ -8,6 +8,15 @@ log_format: "json" # Options: "console", "json"
 # jwt_issuer: "nopsai.local"
 # jwt_audience: "nopsai-api"
 # jwt_expiry_minutes: 60
+# service_jwt_signing_key: "replace-me-too" # HMAC key for dispatcher gRPC service tokens; falls back to jwt_signing_key if unset
+# service_jwt_issuer: "nopsai.internal"
+# service_jwt_audience: "nopsai-dispatcher"
+# nopsai_service_id: "nopsai"
+# runner_service_id: "runner"
+# agent_service_id: "agent"
+# dispatcher_tls_mode: "mtls" # mtls (default), tls, or disabled. Certificates are generated automatically in memory.
+# dispatcher_tls_secret: "" # Optional; falls back to the service JWT signing key when empty.
+# dispatcher_tls_server_name: "dispatcher" # Logical TLS server identity; runners can still dial any dispatcher host:port.
 # refresh_token_ttl_minutes: 43200 # 30 days
 # auth_provider_local_enabled: true
 # rate_limit_login_per_minute: 10
