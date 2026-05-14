@@ -42,7 +42,13 @@ CREATE TABLE pipeline_runs (
     git_check_run_id BIGINT,
     group_id INTEGER REFERENCES groups(id) ON DELETE SET NULL,
     scope VARCHAR(255),
-    failure_reason TEXT
+    failure_reason TEXT,
+    trigger_source TEXT,
+    requested_by_type TEXT,
+    requested_by_id TEXT,
+    effective_subject_type TEXT,
+    effective_subject_id TEXT,
+    authorization_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
 CREATE TABLE task_runs (
@@ -75,6 +81,7 @@ CREATE TABLE triggers (
     repository_name VARCHAR(255) UNIQUE NOT NULL,
     trigger_definition TEXT NOT NULL,
     source VARCHAR(32) NOT NULL DEFAULT 'database',
+    visibility TEXT NOT NULL DEFAULT 'group' CHECK (visibility IN ('group', 'restricted', 'workspace')),
     config_repo_id BIGINT,
     config_source_path TEXT NOT NULL DEFAULT '',
     config_source_commit_sha TEXT NOT NULL DEFAULT '',
@@ -90,6 +97,7 @@ CREATE TABLE IF NOT EXISTS config_repositories (
     branch TEXT NOT NULL DEFAULT 'main',
     base_path TEXT NOT NULL DEFAULT '',
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    visibility TEXT NOT NULL DEFAULT 'group' CHECK (visibility IN ('group', 'restricted', 'workspace')),
     config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
     config_source_path TEXT NOT NULL DEFAULT '',
     config_source_commit_sha TEXT NOT NULL DEFAULT '',
@@ -118,6 +126,7 @@ CREATE TABLE pipelines (
     version VARCHAR(255) NOT NULL DEFAULT 'latest',
     definition TEXT NOT NULL,
     source VARCHAR(32) NOT NULL DEFAULT 'database',
+    visibility TEXT NOT NULL DEFAULT 'group' CHECK (visibility IN ('group', 'restricted', 'workspace')),
     config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
     config_source_path TEXT NOT NULL DEFAULT '',
     config_source_commit_sha TEXT NOT NULL DEFAULT '',
@@ -133,6 +142,7 @@ CREATE TABLE steps (
     name VARCHAR(255) NOT NULL,
     definition TEXT NOT NULL,
     source VARCHAR(32) NOT NULL DEFAULT 'database',
+    visibility TEXT NOT NULL DEFAULT 'group' CHECK (visibility IN ('group', 'restricted', 'workspace')),
     config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
     config_source_path TEXT NOT NULL DEFAULT '',
     config_source_commit_sha TEXT NOT NULL DEFAULT '',
@@ -171,6 +181,14 @@ CREATE TABLE variables (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE NULLS NOT DISTINCT (name, repository_name, scope)
+);
+
+CREATE TABLE resource_visibility (
+    resource_type TEXT NOT NULL,
+    resource_id TEXT NOT NULL,
+    visibility TEXT NOT NULL DEFAULT 'group' CHECK (visibility IN ('group', 'restricted', 'workspace')),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (resource_type, resource_id)
 );
 CREATE TABLE pipeline_run_logs (
     id SERIAL PRIMARY KEY,
@@ -240,7 +258,7 @@ CREATE TABLE auth_groups (
 
 CREATE TABLE auth_group_members (
     group_id UUID NOT NULL REFERENCES auth_groups(id) ON DELETE CASCADE,
-    subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'internal_service')),
+    subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'repository', 'trigger', 'service_account', 'internal_service')),
     subject_id TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (group_id, subject_type, subject_id)
@@ -256,7 +274,7 @@ CREATE TABLE auth_roles (
 CREATE TABLE auth_role_bindings (
     id BIGSERIAL PRIMARY KEY,
     role_name TEXT NOT NULL REFERENCES auth_roles(name) ON DELETE CASCADE,
-    subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_group', 'internal_service')),
+    subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_group', 'repository', 'trigger', 'service_account', 'internal_service')),
     subject_id TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(role_name, subject_type, subject_id)
@@ -275,7 +293,7 @@ CREATE TABLE auth_role_permissions (
 
 CREATE TABLE access_grants (
     id BIGSERIAL PRIMARY KEY,
-    subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_group', 'internal_service')),
+    subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_group', 'group', 'repository', 'trigger', 'service_account', 'internal_service')),
     subject_id TEXT NOT NULL,
     subject_display TEXT NOT NULL DEFAULT '',
     role_name TEXT NOT NULL,
@@ -292,7 +310,7 @@ CREATE TABLE resource_acl (
     id BIGSERIAL PRIMARY KEY,
     resource_type TEXT NOT NULL,
     resource_id TEXT NOT NULL,
-    subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_group', 'internal_service')),
+    subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_group', 'repository', 'trigger', 'service_account', 'internal_service')),
     subject_id TEXT NOT NULL,
     access_grant_id BIGINT REFERENCES access_grants(id) ON DELETE CASCADE,
     action TEXT NOT NULL,
@@ -305,7 +323,7 @@ CREATE TABLE resource_ownership (
     id BIGSERIAL PRIMARY KEY,
     resource_type TEXT NOT NULL,
     resource_id TEXT NOT NULL,
-    owner_subject_type TEXT NOT NULL CHECK (owner_subject_type IN ('user', 'auth_group', 'internal_service')),
+    owner_subject_type TEXT NOT NULL CHECK (owner_subject_type IN ('user', 'auth_group', 'repository', 'trigger', 'service_account', 'internal_service')),
     owner_subject_id TEXT NOT NULL,
     access_grant_id BIGINT REFERENCES access_grants(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

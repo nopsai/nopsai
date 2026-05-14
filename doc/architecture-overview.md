@@ -109,16 +109,17 @@ Step/task controls:
 
 Main tables from `db/init.sql`:
 
-- `pipeline_runs`: One record per run, including git context, pipeline definition snapshot, status, scope, parent/child relationships, and GitHub check ID.
+- `pipeline_runs`: One record per run, including git context, pipeline definition snapshot, status, scope, parent/child relationships, GitHub check ID, trigger source, requested/effective subject, and an authorization snapshot.
 - `task_runs`: One record per executable task, including task ordering and final exit code.
 - `step_runs`: Step-level tracking table for higher-level summaries.
 - `pipeline_run_logs`: Durable log lines ingested from runner/agent activity.
-- `pipelines`, `steps`, `triggers`: Stored configuration and overrides.
+- `pipelines`, `steps`, `triggers`: Stored configuration and overrides. Pipelines and reusable steps also carry resource visibility for runtime sharing.
 - `variables`, `secrets`: Runtime configuration data, with secrets encrypted before storage.
 - `groups`: Folder/repository tree used by the UI’s pipeline-runs organization.
 - `users`, `user_roles`, `role_permissions`, `refresh_tokens`, `audit_logs`: Local auth, legacy RBAC metadata, session, and audit data.
-- `auth_groups`, `auth_group_members`, `auth_roles`, `auth_role_bindings`, `auth_role_permissions`: legacy/internal AAA role data used by the policy engine; product access grants expose users and folder/group targets instead of auth-group subjects.
-- `access_grants`, `resource_acl`, `resource_ownership`, `authz_decision_logs`: Product-role grants, expanded ACLs, ownership metadata, and authorization decision audit logs.
+- `auth_groups`, `auth_group_members`, `auth_roles`, `auth_role_bindings`, `auth_role_permissions`: AAA role data used by the policy engine; product access grants can target users, auth groups, repositories, triggers, service accounts, and internal services.
+- `resource_visibility`: Visibility settings for reusable resources that do not have first-class visibility columns.
+- `access_grants`, `resource_acl`, `resource_ownership`, `authz_decision_logs`: Product-role grants, resource-use sharing grants, expanded ACLs, ownership metadata, and authorization decision audit logs.
 
 ## Authorization Model
 
@@ -142,6 +143,8 @@ Important product-layer properties:
 - Folder grants are stored once at the parent folder path and inherited by child folders, pipelines, runs, repositories, scoped secrets, scoped variables, triggers, and reusable steps.
 - Product grants do not require evaluator-specific awareness; they are written into existing AAA tables as ACL-style policies.
 - Platform admin still flows through normal `Check` decisions, so sensitive admin actions remain visible in audit logs.
+- Runtime resource-use authorization is caller-based: manual runs use the user, Git-triggered runs use the repository, and internal dispatcher calls do not gain permissions from resource owners.
+- Reusable resources can be `group`, `restricted`, or `workspace` visible. The UI labels workspace visibility as `Public`, but callers still need the appropriate use action and related resources such as scopes and secrets are checked separately.
 
 ## Configuration Sources
 

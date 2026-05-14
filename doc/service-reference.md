@@ -52,6 +52,7 @@ Authorization notes:
 - Product roles are seeded as predefined templates: `viewer`, `developer`, `owner`, and `admin`.
 - Access grants are written at grant time into existing AAA tables instead of changing evaluator behavior.
 - Folder-targeted grants inherit by path to child resources.
+- Runtime resource-use checks are caller-based, so Git runs are authorized as repositories, manual runs as users, and dispatcher calls do not inherit resource-owner permissions.
 - Sensitive allowed actions and all denied actions are written to authorization decision logs.
 
 Outbound interfaces:
@@ -257,6 +258,7 @@ Responsibilities:
 - Lab for ad-hoc YAML execution and quick runs
 - System pages for config sync, dispatcher status, runner controls, and access management
 - Access-grant management for product roles and effective-permission inspection
+- Resource Access dialogs on pipelines, scopes, and reusable steps for use visibility and group/repository sharing
 - Profile page for email and password changes
 
 Key files:
@@ -283,7 +285,7 @@ Primary role:
 Responsibilities:
 
 - Stores runs, tasks, logs, configuration, groups, users, roles, refresh tokens, and audit logs.
-- Stores AAA subjects, role bindings, grant metadata, expanded ACLs, ownership metadata, and authorization decision logs.
+- Stores AAA subjects, role bindings, grant metadata, resource visibility, expanded ACLs, ownership metadata, run authorization snapshots, and authorization decision logs.
 - Keeps the execution record durable even though agents and step containers are ephemeral.
 
 Key files:

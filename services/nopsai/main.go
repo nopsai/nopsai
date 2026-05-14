@@ -1011,7 +1011,7 @@ func (a *App) handleUpdateRunnerDispatch(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-func (a *App) prepareSecretsForPipeline(pipeline models.Pipeline, gitContext map[string]string, scope string) (map[string]string, error) {
+func (a *App) prepareSecretsForPipeline(runID string, pipeline models.Pipeline, gitContext map[string]string, scope string) (map[string]string, error) {
 	requiredSecrets := make(map[string]struct{})
 	for _, step := range pipeline.Steps {
 		for _, secretName := range step.GetSecrets() {
@@ -1027,7 +1027,7 @@ func (a *App) prepareSecretsForPipeline(pipeline models.Pipeline, gitContext map
 	repoFullName := fmt.Sprintf("%s/%s", gitContext["repo_owner"], gitContext["repo_name"])
 
 	for secretName := range requiredSecrets {
-		encryptedValue, found, err := a.findEncryptedSecret(secretName, repoFullName, scope)
+		encryptedValue, resourceID, found, err := a.findEncryptedSecret(secretName, repoFullName, scope)
 		if err != nil {
 			return nil, fmt.Errorf("pipeline aborted: failed to resolve secret '%s': %w", secretName, err)
 		}
@@ -1036,6 +1036,11 @@ func (a *App) prepareSecretsForPipeline(pipeline models.Pipeline, gitContext map
 				return nil, fmt.Errorf("pipeline aborted: required secret '%s' not found for scope '%s'", secretName, scope)
 			}
 			return nil, fmt.Errorf("pipeline aborted: required secret '%s' not found in the default scope", secretName)
+		}
+		if strings.TrimSpace(runID) != "" {
+			if _, err := a.authorizeRunRuntimeResourceUse(context.Background(), runID, gitContext, "secret.use", grantResourceSecret, resourceID); err != nil {
+				return nil, fmt.Errorf("pipeline aborted: %w", err)
+			}
 		}
 
 		decryptedValue, decryptErr := a.decrypt(encryptedValue)
@@ -3773,6 +3778,9 @@ func main() {
 	}
 	if err := ensureConfigRepositorySchema(context.Background(), dbpool); err != nil {
 		log.Fatal().Err(err).Msg("Failed to ensure config repository schema")
+	}
+	if err := ensureResourceAuthorizationSchema(context.Background(), dbpool); err != nil {
+		log.Fatal().Err(err).Msg("Failed to ensure resource authorization schema")
 	}
 
 	dispatcherAddr := strings.TrimSpace(cfg.DispatcherAddress)

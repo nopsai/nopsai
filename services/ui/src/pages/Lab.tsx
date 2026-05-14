@@ -23,6 +23,20 @@ type OverrideRow = { id: number; key: string; value: string };
 
 type LabFeedback = { tone: 'success' | 'error' | 'info'; message: string; runId?: string } | null;
 
+type ResourceUseCheckResult = {
+  allowed: boolean;
+  reason?: string;
+  action?: string;
+  resource_type?: string;
+  resource_id?: string;
+};
+
+type LabRunValidationState = {
+  loading: boolean;
+  checks: ResourceUseCheckResult[];
+  error: string | null;
+};
+
 type LabSessionState = {
   version: 1;
   selectedPipelineId: string;
@@ -108,6 +122,55 @@ function extractRunId(payload: unknown): string {
   return '';
 }
 
+function collectLabResourceUseChecks(selectedPipelineId: string, yamlText: string, scopeValue: string) {
+  const checks: Array<{ action: string; resource_type: string; resource_id: string }> = [];
+  const pipelineID = selectedPipelineId.trim() || parsePipelineName(yamlText).trim() || DEFAULT_PIPELINE_NAME;
+  if (pipelineID) {
+    checks.push({ action: 'pipeline.use', resource_type: 'pipeline', resource_id: pipelineID.replace(/^\/+|\/+$/g, '') });
+  }
+  const scopeID = normalizeScopeLabel(scopeValue);
+  if (scopeID) {
+    checks.push({ action: 'scope.use', resource_type: 'scope', resource_id: scopeID });
+  }
+
+  try {
+    const parsed = yaml.load(yamlText) as Record<string, unknown> | null;
+    const steps = Array.isArray(parsed?.steps) ? parsed.steps : [];
+    const seen = new Set(checks.map(check => `${check.action}:${check.resource_type}:${check.resource_id}`));
+    steps.forEach(step => {
+      if (!step || typeof step !== 'object') return;
+      const include = (step as Record<string, unknown>).include;
+      if (typeof include !== 'string') return;
+      const trimmed = include.trim();
+      const lower = trimmed.toLowerCase();
+      let next: { action: string; resource_type: string; resource_id: string } | null = null;
+      if (lower.startsWith('step:')) {
+        const resourceID = trimmed.slice(5).trim().replace(/^\/+|\/+$/g, '');
+        if (resourceID) next = { action: 'step.use', resource_type: 'step', resource_id: resourceID };
+      } else if (lower.startsWith('pipeline:')) {
+        const resourceID = trimmed.slice(9).trim().replace(/^\/+|\/+$/g, '');
+        if (resourceID) next = { action: 'pipeline.use', resource_type: 'pipeline', resource_id: resourceID };
+      }
+      if (!next) return;
+      const key = `${next.action}:${next.resource_type}:${next.resource_id}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      checks.push(next);
+    });
+  } catch {
+    return checks;
+  }
+
+  return checks;
+}
+
+function formatRunCheck(check: ResourceUseCheckResult) {
+  const type = String(check.resource_type || '').replace(/_/g, ' ');
+  const id = String(check.resource_id || '');
+  if (!type && !id) return 'Resource';
+  return `${type} ${id}`.trim();
+}
+
 function buildInlineSuggestionPreview(item: LabSuggestionItem, contextInfo: LabSuggestionContext): string {
   const prefix = typeof contextInfo.prefix === 'string' ? contextInfo.prefix : '';
   const snippetSource = item.value || item.snippet || '';
@@ -180,6 +243,7 @@ function LabPage() {
   const [feedback, setFeedback] = useState<LabFeedback>(null);
   const [runPending, setRunPending] = useState(false);
   const [yamlLoading, setYamlLoading] = useState(false);
+  const [runValidation, setRunValidation] = useState<LabRunValidationState>({ loading: false, checks: [], error: null });
 
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const highlightContentRef = useRef<HTMLPreElement | null>(null);
@@ -217,6 +281,43 @@ function LabPage() {
   const [editorSelection, setEditorSelection] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
 
   const pipelineIds = useMemo(() => pipelines.map(item => item.id).filter(Boolean), [pipelines]);
+  const resourceUseChecks = useMemo(() => collectLabResourceUseChecks(selectedPipelineId, yamlText, scopeValue), [selectedPipelineId, yamlText, scopeValue]);
+  const deniedRunChecks = useMemo(() => runValidation.checks.filter(check => !check.allowed), [runValidation.checks]);
+  const runValidationBlocked = deniedRunChecks.length > 0;
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      if (validation.errors.length > 0 || resourceUseChecks.length === 0) {
+        setRunValidation({ loading: false, checks: [], error: null });
+        return;
+      }
+      setRunValidation(prev => ({ ...prev, loading: true, error: null }));
+      try {
+        const response = await fetch(buildApiUrl('/v1/authz/resource-use/batch-check'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ checks: resourceUseChecks }),
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(typeof payload === 'string' ? payload : `Unable to validate access (${response.status})`);
+        }
+        if (!cancelled) {
+          const checks = Array.isArray(payload?.results) ? payload.results : [];
+          setRunValidation({ loading: false, checks, error: null });
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setRunValidation({ loading: false, checks: [], error: error instanceof Error ? error.message : 'Unable to validate access' });
+        }
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [resourceUseChecks, validation.errors.length]);
 
   useEffect(() => {
     if (scopeValue && !scopes.includes(scopeValue)) {
@@ -787,6 +888,14 @@ function LabPage() {
       setFeedback({ tone: 'error', message: 'Fix validation errors first.' });
       return;
     }
+    if (runValidationBlocked) {
+      setFeedback({ tone: 'error', message: 'Run access is not ready yet.' });
+      return;
+    }
+    if (runValidation.loading) {
+      setFeedback({ tone: 'info', message: 'Access check is still running.' });
+      return;
+    }
 
     const overridesObject: Record<string, string> = {};
     for (const row of overrides) {
@@ -836,7 +945,7 @@ function LabPage() {
     } finally {
       setRunPending(false);
     }
-  }, [validation.errors.length, overrides, yamlText, selectedPipelineId, scopeValue]);
+  }, [validation.errors.length, runValidationBlocked, runValidation.loading, overrides, yamlText, selectedPipelineId, scopeValue]);
 
   const handlePipelineChange = useCallback(
     async (nextId: string) => {
@@ -978,23 +1087,52 @@ function LabPage() {
                 </select>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2 justify-start md:justify-end">
-                <button
-                  id="lab-run-btn"
-                  type="button"
-                  className="glass-button-primary"
-                  onClick={() => void handleRun()}
-                  disabled={runPending || yamlLoading || validation.errors.length > 0}
-                >
-                  <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 12h4l1-5 4 10 1-5h4" />
-                  </svg>
-                  <span>{runPending ? 'Running…' : 'Run'}</span>
-                </button>
-              </div>
-            </div>
+	              <div className="flex flex-wrap items-center gap-2 justify-start md:justify-end">
+	                <button
+	                  id="lab-run-btn"
+	                  type="button"
+	                  className="glass-button-primary"
+	                  onClick={() => void handleRun()}
+	                  disabled={runPending || yamlLoading || validation.errors.length > 0 || runValidation.loading || runValidationBlocked}
+	                >
+	                  <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+	                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 12h4l1-5 4 10 1-5h4" />
+	                  </svg>
+	                  <span>{runPending ? 'Running…' : 'Run'}</span>
+	                </button>
+	              </div>
+	            </div>
 
-            <div
+	            <div className="rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-3">
+	              <div className="flex items-center justify-between gap-3">
+	                <p className="text-sm font-semibold text-[var(--text-primary)]">
+	                  {validation.errors.length
+	                    ? 'Cannot run yet'
+	                    : runValidation.loading
+	                      ? 'Checking access'
+	                      : runValidation.error || runValidationBlocked
+	                        ? 'Cannot run yet'
+	                        : 'Ready to run'}
+	                </p>
+	                {runValidation.loading ? <span className="text-xs text-[var(--text-secondary)]">Checking…</span> : null}
+	              </div>
+	              {runValidation.error ? <p className="mt-2 text-sm text-red-500">{runValidation.error}</p> : null}
+	              {!runValidation.error && validation.errors.length === 0 ? (
+	                <ul className="mt-2 space-y-1 text-sm">
+	                  {runValidation.checks.length ? (
+	                    runValidation.checks.map((check, index) => (
+	                      <li key={`${check.action}-${check.resource_type}-${check.resource_id}-${index}`} className={check.allowed ? 'text-green-600 dark:text-green-400' : 'text-red-500'}>
+	                        <span aria-hidden="true">{check.allowed ? '✓' : '✕'}</span> {formatRunCheck(check)} {check.allowed ? 'is available' : 'is not available'}
+	                      </li>
+	                    ))
+	                  ) : (
+	                    <li className="text-[var(--text-secondary)]">Select a valid pipeline and scope.</li>
+	                  )}
+	                </ul>
+	              ) : null}
+	            </div>
+
+	            <div
               id="lab-run-feedback"
               className={`text-sm ${feedback ? '' : 'hidden'} ${
                 feedback?.tone === 'error'

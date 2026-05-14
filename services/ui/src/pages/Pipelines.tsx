@@ -14,6 +14,7 @@ import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups'
 import { applyEnterIndent, findParentBlock, validatePipelineYamlStrict } from '../lib/lab';
 import { findLineNumberForKey, normalizeLineNumber, parseYamlWithLocation } from '../lib/yamlValidation';
 import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
+import ResourceAccessCard from '../components/ResourceAccessCard';
 import { StepsGraph, type PipelineDefinition as RunPipelineDefinition, type StepDetail as RunStepDetail, type TaskDefinition as RunTaskDefinition, type TaskDetail as RunTaskDetail } from './PipelineRuns';
 
 const MAX_RECENT_RUNS = 5;
@@ -1737,6 +1738,9 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                           </svg>
                         </button>
+                        {source !== 'draft' ? (
+                          <ResourceAccessCard resourceType="pipeline" resourceID={detail.id} label="pipeline" />
+                        ) : null}
                         {!canUpdateSelectedPipeline && !canCreatePipelineHere ? null : isGitSource ? (
                           canCreatePipelineHere ? (
                             <button className="glass-button-primary" onClick={openCloneModal}>
@@ -1987,7 +1991,6 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                 </div>
               </div>
             </div>
-
             <div className="space-y-4">
               <div className="glass-card overflow-hidden">
                 <div className="p-4 border-b border-[var(--border-primary)]" style={{ marginTop: '9px' }}>

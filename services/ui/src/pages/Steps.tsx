@@ -14,6 +14,7 @@ import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups'
 import { applyEnterIndent, findParentBlock } from '../lib/lab';
 import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
 import { findLineNumberForKey, findLineNumberForTaskName, parseYamlWithLocation } from '../lib/yamlValidation';
+import ResourceAccessCard from '../components/ResourceAccessCard';
 
 const STEP_NAME_PATTERN = /^[a-zA-Z0-9_.-]+$/;
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
@@ -1608,6 +1609,9 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                           </svg>
                         </button>
+                        {source !== 'draft' ? (
+                          <ResourceAccessCard resourceType="step" resourceID={detail.id} label="step" />
+                        ) : null}
                         {!canUpdateSelectedStep && !canCreateStepHere ? null : isGitSource ? (
                           canCreateStepHere ? (
                             <button className="glass-button-primary" onClick={openCloneModal}>
@@ -1828,7 +1832,6 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
                 </div>
               </div>
             </div>
-
             <div className="space-y-6">
               <div className="glass-card overflow-hidden">
                 <div className="p-4 border-b border-[var(--border-primary)]" style={{ paddingTop: 4 }}>

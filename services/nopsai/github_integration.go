@@ -20,6 +20,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"nopsai/pkg/models"
+	"nopsai/services/aaa/pkg/model"
 )
 
 func findStepByName(steps []models.PipelineStep, name string) (models.PipelineStep, bool) {
@@ -378,11 +379,59 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 		var pipelineYAML []byte
 		pipelineSourceForCheck := pipelineSource // Start with the trigger's source
 		var err error
+		var checkRunIDStr string
+		if isRerun && rerunCheckRun != nil {
+			checkRunIDStr = strconv.FormatInt(rerunCheckRun.GetID(), 10)
+		}
 
 		dbPath, dbName, _, parseErr := splitPipelineIdentifier(p.Path)
 		if parseErr != nil {
 			log.Warn().Err(parseErr).Str("pipeline", p.Path).Msg("Skipping pipeline due to invalid identifier")
 			continue
+		}
+
+		callerID := repositoryFullName(owner, repo)
+		normalizedPipelineID := buildPipelineIdentifier(dbPath, dbName)
+		authz, authErr := a.AuthorizeResourceUse(context.Background(), ResourceUseAuthInput{
+			CallerType:   model.SubjectTypeRepository,
+			CallerID:     callerID,
+			Action:       "pipeline.use",
+			ResourceType: grantResourcePipeline,
+			ResourceID:   normalizedPipelineID,
+			EventType:    eventType,
+			Ref:          ref,
+			Repo:         callerID,
+		})
+		if authErr != nil || !authz.Allowed {
+			summary := resourceUseDeniedMessage(model.SubjectTypeRepository, callerID, authz)
+			if authErr != nil {
+				summary = fmt.Sprintf("Authorization unavailable for pipeline `%s`: %v", normalizedPipelineID, authErr)
+			}
+			a.failGitHubAuthorizationCheck(owner, repo, commitSHA, checkRunIDStr, normalizedPipelineID, pipelineSourceForCheck, summary)
+			log.Warn().Err(authErr).Str("repository", callerID).Str("pipeline", normalizedPipelineID).Msg("Repository is not authorized to use pipeline")
+			continue
+		}
+
+		if effectiveScope != "" {
+			scopeAuthz, scopeAuthErr := a.AuthorizeResourceUse(context.Background(), ResourceUseAuthInput{
+				CallerType:   model.SubjectTypeRepository,
+				CallerID:     callerID,
+				Action:       "scope.use",
+				ResourceType: grantResourceScope,
+				ResourceID:   effectiveScope,
+				EventType:    eventType,
+				Ref:          ref,
+				Repo:         callerID,
+			})
+			if scopeAuthErr != nil || !scopeAuthz.Allowed {
+				summary := resourceUseDeniedMessage(model.SubjectTypeRepository, callerID, scopeAuthz)
+				if scopeAuthErr != nil {
+					summary = fmt.Sprintf("Authorization unavailable for scope `%s`: %v", effectiveScope, scopeAuthErr)
+				}
+				a.failGitHubAuthorizationCheck(owner, repo, commitSHA, checkRunIDStr, normalizedPipelineID, pipelineSourceForCheck, summary)
+				log.Warn().Err(scopeAuthErr).Str("repository", callerID).Str("scope", effectiveScope).Msg("Repository is not authorized to use scope")
+				continue
+			}
 		}
 
 		// Attempt to fetch the pipeline from the database first to check for an override.
@@ -474,11 +523,6 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		var checkRunIDStr string
-		if isRerun && rerunCheckRun != nil {
-			checkRunIDStr = strconv.FormatInt(rerunCheckRun.GetID(), 10)
-		}
-
 		headers := map[string]string{
 			"X-Git-Repo-Owner":             owner,
 			"X-Git-Repo-Name":              repo,
@@ -499,6 +543,9 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 			"X-Git-Pusher-Email":           pusherEmail,
 			"X-Nopsai-Pipeline-Source":     pipelineSourceForCheck,
 			"X-Nopsai-Trigger-Event-ID":    triggerEventID,
+			"X-Nopsai-Caller-Type":         model.SubjectTypeRepository,
+			"X-Nopsai-Caller-ID":           callerID,
+			"X-Nopsai-Trigger-Source":      "github_" + eventType,
 		}
 		if isRerun {
 			headers["X-Git-Rerun-Commit-SHA"] = commitSHA
@@ -539,6 +586,14 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 				if parsedID, err := strconv.ParseInt(checkRunIDStr, 10, 64); err == nil {
 					a.notifyImmediateCheckFailure(owner, repo, parsedID, commitSHA, summary)
 				}
+			} else {
+				checkRunID, createErr := a.createGitHubCheckRun(owner, repo, commitSHA, pipelineYAML, pipelineSourceForCheck)
+				if createErr != nil {
+					log.Error().Err(createErr).Str("pipeline", originalPath).Msg("Failed to create check run after run authorization error")
+					http.Error(w, "Failed to create check run", http.StatusInternalServerError)
+					return
+				}
+				a.notifyImmediateCheckFailure(owner, repo, checkRunID, commitSHA, summary)
 			}
 			continue
 		}
@@ -553,6 +608,24 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("No pipelines triggered."))
 	}
+}
+
+func (a *App) failGitHubAuthorizationCheck(owner, repo, commitSHA, checkRunIDStr, pipelineID, pipelineSource, summary string) {
+	checkRunID, _ := strconv.ParseInt(strings.TrimSpace(checkRunIDStr), 10, 64)
+	if checkRunID == 0 {
+		fallbackName := strings.Trim(strings.TrimSpace(pipelineID), "/")
+		if fallbackName == "" {
+			fallbackName = "authorization-denied"
+		}
+		fallbackDef := fmt.Sprintf("name: %s\nsteps: []\n", fallbackName)
+		var err error
+		checkRunID, err = a.createGitHubCheckRun(owner, repo, commitSHA, []byte(fallbackDef), pipelineSource)
+		if err != nil {
+			log.Error().Err(err).Str("pipeline", pipelineID).Msg("Failed to create check run after authorization denial")
+			return
+		}
+	}
+	a.notifyImmediateCheckFailure(owner, repo, checkRunID, commitSHA, summary)
 }
 
 func (a *App) notifyGitBotOfFinalStatus(status, failedStep, failedTask, summary string, gitContext map[string]string) {
@@ -660,44 +733,44 @@ func (a *App) notifyGitBotOfTaskStatus(runID, stepName, taskName, taskStatus str
 	}
 }
 
-func (a *App) findEncryptedSecret(secretName, repoFullName, scope string) (string, bool, error) {
+func (a *App) findEncryptedSecret(secretName, repoFullName, scope string) (string, string, bool, error) {
 	var encryptedValue string
 
 	if scope != "" {
 		err := a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name = $2 AND scope = $3", secretName, repoFullName, scope).Scan(&encryptedValue)
 		if err == nil {
-			return encryptedValue, true, nil
+			return encryptedValue, model.BuildNamedResourceID(repoFullName, scope, secretName), true, nil
 		}
 		if err != pgx.ErrNoRows {
-			return "", false, err
+			return "", "", false, err
 		}
 
 		err = a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL AND scope = $2", secretName, scope).Scan(&encryptedValue)
 		if err == nil {
-			return encryptedValue, true, nil
+			return encryptedValue, model.BuildNamedResourceID("", scope, secretName), true, nil
 		}
 		if err == pgx.ErrNoRows {
-			return "", false, nil
+			return "", "", false, nil
 		}
-		return "", false, err
+		return "", "", false, err
 	}
 
 	err := a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name = $2 AND scope IS NULL", secretName, repoFullName).Scan(&encryptedValue)
 	if err == nil {
-		return encryptedValue, true, nil
+		return encryptedValue, model.BuildNamedResourceID(repoFullName, "", secretName), true, nil
 	}
 	if err != pgx.ErrNoRows {
-		return "", false, err
+		return "", "", false, err
 	}
 
 	err = a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL AND scope IS NULL", secretName).Scan(&encryptedValue)
 	if err == nil {
-		return encryptedValue, true, nil
+		return encryptedValue, model.BuildNamedResourceID("", "", secretName), true, nil
 	}
 	if err == pgx.ErrNoRows {
-		return "", false, nil
+		return "", "", false, nil
 	}
-	return "", false, err
+	return "", "", false, err
 }
 
 func findPipelinesForEvent(manifest models.Manifest, eventType, ref, repoName string) ([]models.PipelineSource, string) {

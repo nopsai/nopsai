@@ -23,21 +23,26 @@ Most API routes pass through the same middleware stack before reaching a handler
 4. `nopsai` parses the webhook, extracts repository, ref, commit SHA, pusher, PR info, check-run info, and delivery ID.
 5. `nopsai` loads the trigger manifest, first checking DB overrides and then falling back to `.nopsai/triggers.yaml` through `git-bot`.
 6. It matches the event against trigger rules, branches, tags, skipped branches, and skipped repositories.
-7. For each matched pipeline source, `nopsai` loads or fetches the pipeline definition, creates a `pipeline_runs` record, and stores git context with it.
-8. `nopsai` resolves reusable `step:` includes, validates the pipeline, and asynchronously creates or initializes the GitHub check run.
-9. `nopsai` inserts `task_runs` rows so every task has durable tracking before execution starts.
-10. `nopsai` prepares the agent job and submits it to the dispatcher.
+7. For each matched pipeline source, `nopsai` treats the repository as the caller, for example `repository:hosein-yousefii/test-app`.
+8. Before loading the pipeline definition, it checks `pipeline.use` for that repository against the matched pipeline resource.
+9. If the repository is not allowed to use the pipeline, `nopsai` does not fetch the pipeline and does not create a real run; it creates or updates the GitHub check with a clear failure message and audits the denial.
+10. If the pipeline is allowed, `nopsai` loads or fetches the definition, checks the selected scope with `scope.use`, and validates referenced reusable steps or child pipelines with the original repository identity.
+11. `nopsai` creates a `pipeline_runs` record, stores git context and the authorization snapshot with it, and asynchronously creates or initializes the GitHub check run.
+12. `nopsai` inserts `task_runs` rows so every task has durable tracking before execution starts.
+13. `nopsai` prepares the agent job and submits it to the dispatcher.
 
 ## 2. Manual API Run
 
 1. A user or UI calls `POST /v1/run` or `POST /v1/run/{pipeline}`.
-2. `nopsai` authorizes the request for `pipeline.execute`, then accepts either a pipeline identifier, raw YAML, or a JSON payload with `pipeline`, `definition`, `scope`, and variable overrides.
-3. The pipeline is parsed and normalized.
-4. `nopsai` creates the initial `pipeline_runs` record in `pending`.
-5. `step:` includes are expanded from the reusable `steps` table.
-6. The pipeline is validated and task rows are created.
-7. Secrets and variables are resolved.
-8. The run is submitted to the dispatcher the same way a GitHub-triggered run is.
+2. `nopsai` authorizes the user for `pipeline.execute`, then accepts either a pipeline identifier, raw YAML, or a JSON payload with `pipeline`, `definition`, `scope`, and variable overrides.
+3. The user remains the caller for runtime resource-use checks.
+4. The pipeline is parsed and normalized.
+5. `nopsai` checks `pipeline.use`, selected `scope.use`, reusable `step.use`, child `pipeline.use`, and other referenced runtime resources with the user identity.
+6. `nopsai` creates the initial `pipeline_runs` record in `pending` and stores the authorization snapshot.
+7. `step:` includes are expanded from the reusable `steps` table.
+8. The pipeline is validated and task rows are created.
+9. Secrets and variables are resolved.
+10. The run is submitted to the dispatcher the same way a GitHub-triggered run is.
 
 ## 3. Dispatch And Runner Selection
 
@@ -136,7 +141,7 @@ For a goal-driven task:
 For a `pipeline:<identifier>` include:
 
 1. The agent fetches the child pipeline definition through the dispatcher.
-2. The dispatcher fetches it from `nopsai`, which may read it from DB or fetch it from Git.
+2. The dispatcher fetches it from `nopsai`, which may read it from DB or fetch it from Git after `nopsai` checks `pipeline.use` with the original run caller.
 3. The agent sends `TriggerPipeline` to the dispatcher with:
    - parent run ID
    - parent step name
@@ -147,7 +152,7 @@ For a `pipeline:<identifier>` include:
    - git context
    - preferred runner ID
 4. The dispatcher turns that into an internal `POST /v1/run` call to `nopsai`.
-5. `nopsai` creates a child `pipeline_runs` record with parent metadata.
+5. `nopsai` creates a child `pipeline_runs` record with parent metadata and the original authorization context; child pipelines never gain permissions from the parent pipeline owner, child pipeline owner, or dispatcher identity.
 6. The child run is dispatched like any other run.
 7. If the include is `sync: true`, the parent agent waits for the child result.
 8. If the include is `sync: false`, the parent treats it as unblocking and continues.
@@ -158,9 +163,10 @@ For a `step:<identifier>` include:
 
 1. `nopsai` resolves it before dispatch, not during agent execution.
 2. It loads the reusable step YAML from the `steps` table.
-3. It replaces the placeholder with the stored step definition.
-4. It preserves the calling step’s name and selected metadata like dependencies, volumes, secrets, variables, and failure flags.
-5. The agent only sees the fully expanded pipeline.
+3. It checks `step.use` with the original run caller before replacing the placeholder.
+4. It replaces the placeholder with the stored step definition.
+5. It preserves the calling step's name and selected metadata like dependencies, volumes, secrets, variables, and failure flags.
+6. The agent only sees the fully expanded pipeline.
 
 ## 10. Logs, Status, And GitHub Feedback
 
@@ -188,8 +194,9 @@ Rerun:
 
 1. A user calls `POST /v1/runs/{runID}/rerun`.
 2. `nopsai` loads the original stored pipeline definition and git context.
-3. It creates a fresh run record with a new trigger event ID.
-4. It resolves includes again, validates again, and dispatches again.
+3. Manual reruns require the current user to have rerun permission and re-check runtime resources with that user; GitHub check reruns use the original repository identity and re-check current grants.
+4. It creates a fresh run record with a new trigger event ID and authorization snapshot.
+5. It resolves includes again, validates again, and dispatches again.
 
 ## 12. Config Sync From Git
 
@@ -226,6 +233,7 @@ Where failures stop the flow:
 
 - Missing or invalid bearer token: stopped in `nopsai`
 - AAA denial: stopped in `nopsai` with `403`
+- Resource-use denial: stopped in `nopsai` before execution; GitHub-triggered denials create a failed check instead of a real run
 - Invalid webhook signature: stopped at `git-bot`
 - Trigger mismatch: stopped in `nopsai`
 - Invalid pipeline YAML or validation failure: stopped in `nopsai`
