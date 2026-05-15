@@ -5,8 +5,19 @@ import (
 	"regexp"
 	"strings"
 
+	appconfig "nopsai/config"
 	"nopsai/pkg/models"
 )
+
+type LLMProfileDefinition struct {
+	AllowedScopes []string
+}
+
+type LLMProfileValidationOptions struct {
+	DefaultProfile string
+	Profiles       map[string]LLMProfileDefinition
+	Scope          string
+}
 
 func ValidatePipeline(pipeline *models.Pipeline) error {
 	if pipeline.Name == "" {
@@ -105,4 +116,94 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 	}
 
 	return nil
+}
+
+func ValidatePipelineLLMProfiles(pipeline *models.Pipeline, opts LLMProfileValidationOptions) error {
+	if pipeline == nil {
+		return fmt.Errorf("pipeline is required")
+	}
+	profiles := opts.Profiles
+	if len(profiles) == 0 {
+		return fmt.Errorf("no LLM profiles are configured")
+	}
+
+	defaultProfile := strings.TrimSpace(opts.DefaultProfile)
+	if defaultProfile == "" {
+		defaultProfile = appconfig.DefaultLLMProfileName
+	}
+	if _, ok := profiles[defaultProfile]; !ok {
+		return fmt.Errorf("default LLM profile %q is not configured", defaultProfile)
+	}
+
+	validateProfile := func(profileName string, location string) error {
+		profileName = strings.TrimSpace(profileName)
+		if profileName == "" {
+			profileName = defaultProfile
+		}
+		profile, ok := profiles[profileName]
+		if !ok {
+			return fmt.Errorf("LLM profile %q referenced by %s is not configured", profileName, location)
+		}
+		if !profileAllowedInScope(profile.AllowedScopes, opts.Scope) {
+			return fmt.Errorf("LLM profile %q is not allowed in scope %q", profileName, strings.TrimSpace(opts.Scope))
+		}
+		return nil
+	}
+
+	pipelineProfile := strings.TrimSpace(pipeline.LLMProfile)
+	if err := validateProfile(pipelineProfile, "pipeline"); err != nil {
+		return err
+	}
+	if pipelineProfile == "" {
+		pipelineProfile = defaultProfile
+	}
+
+	for _, step := range pipeline.Steps {
+		stepName := step.GetName()
+		if stepName == "" {
+			stepName = "unknown"
+		}
+		stepProfile := strings.TrimSpace(step.GetLLMProfile())
+		if err := validateProfile(firstNonEmpty(stepProfile, pipelineProfile), fmt.Sprintf("step %q", stepName)); err != nil {
+			return err
+		}
+		if stepProfile == "" {
+			stepProfile = pipelineProfile
+		}
+
+		for _, task := range step.GetTasks() {
+			taskName := task.Name
+			if taskName == "" {
+				taskName = "unknown"
+			}
+			taskProfile := strings.TrimSpace(task.LLMProfile)
+			if err := validateProfile(firstNonEmpty(taskProfile, stepProfile), fmt.Sprintf("task %q in step %q", taskName, stepName)); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func profileAllowedInScope(allowedScopes []string, scope string) bool {
+	if len(allowedScopes) == 0 {
+		return true
+	}
+	scope = strings.Trim(strings.TrimSpace(scope), "/")
+	for _, allowed := range allowedScopes {
+		if strings.EqualFold(strings.Trim(strings.TrimSpace(allowed), "/"), scope) {
+			return true
+		}
+	}
+	return false
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }

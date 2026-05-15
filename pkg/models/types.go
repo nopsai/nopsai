@@ -42,6 +42,7 @@ type StepConfiguration struct {
 	Variables        map[string]string `json:"variables,omitempty"`
 	IgnoreFailure    bool              `json:"ignore_failure"`
 	LlmOutputSharing *bool             `json:"llm_output_sharing,omitempty"`
+	LLMProfile       string            `json:"llm_profile,omitempty"`
 	Tasks            []Task            `json:"tasks,omitempty"`
 }
 

@@ -350,6 +350,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 			Variables:        pStep.GetVariables(),
 			IgnoreFailure:    pStep.GetIgnoreFailure(),
 			LlmOutputSharing: pStep.GetLlmOutputSharing(),
+			LLMProfile:       pStep.GetLLMProfile(),
 			Tasks:            pStep.GetTasks(),
 		}
 
@@ -1210,6 +1211,12 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		a.updateRunRecordWithFailure(runID, errMsg, gitContext)
 		return
 	}
+	if err := a.validatePipelineLLMProfiles(resolvedPipeline, scope); err != nil {
+		errMsg := fmt.Sprintf("Pipeline validation failed: %v", err)
+		http.Error(w, errMsg, http.StatusBadRequest)
+		a.updateRunRecordWithFailure(runID, errMsg, gitContext)
+		return
+	}
 
 	resolvedPipelineDef, err := yaml.Marshal(resolvedPipeline)
 	if err != nil {
@@ -1446,6 +1453,12 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := validatePipeline(resolvedPipeline); err != nil {
+		errMsg := fmt.Sprintf("Pipeline validation failed on rerun: %v", err)
+		a.updateRunRecordWithFailure(runID, errMsg, gitContext)
+		http.Error(w, errMsg, http.StatusBadRequest)
+		return
+	}
+	if err := a.validatePipelineLLMProfiles(resolvedPipeline, scope.String); err != nil {
 		errMsg := fmt.Sprintf("Pipeline validation failed on rerun: %v", err)
 		a.updateRunRecordWithFailure(runID, errMsg, gitContext)
 		http.Error(w, errMsg, http.StatusBadRequest)
@@ -1911,45 +1924,48 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 		return
 	}
 
-	llmProvider := cfg.GetLLMProvider()
-	switch llmProvider {
-	case config.LLMProviderGemini:
-		if strings.TrimSpace(cfg.GeminiAPIKey) == "" || strings.TrimSpace(cfg.GeminiModel) == "" {
-			reason := "Gemini configuration missing (GEMINI_API_KEY / GEMINI_MODEL)"
-			log.Error().Str("run_id", runID).Msg(reason)
-			a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", reason, runID)
-			if gitContext["repo_owner"] != "" {
-				a.notifyGitBotOfFinalStatus("failure", "", "", reason, gitContext)
-			}
-			return
-		}
-	case config.LLMProviderLMStudio:
-		if strings.TrimSpace(cfg.LMStudioBaseURL) == "" {
-			reason := "LM Studio configuration missing (LMSTUDIO_BASE_URL)"
-			log.Error().Str("run_id", runID).Msg(reason)
-			a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", reason, runID)
-			if gitContext["repo_owner"] != "" {
-				a.notifyGitBotOfFinalStatus("failure", "", "", reason, gitContext)
-			}
-			return
-		}
-		if !config.IsValidLMStudioReasoning(cfg.LMStudioReasoning) {
-			reason := fmt.Sprintf("Invalid LM Studio reasoning setting: %s", cfg.LMStudioReasoning)
-			log.Error().Str("run_id", runID).Msg(reason)
-			a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", reason, runID)
-			if gitContext["repo_owner"] != "" {
-				a.notifyGitBotOfFinalStatus("failure", "", "", reason, gitContext)
-			}
-			return
-		}
-	default:
-		reason := fmt.Sprintf("Unsupported LLM provider: %s", llmProvider)
+	if err := a.validatePipelineLLMProfiles(&pipeline, scope); err != nil {
+		reason := err.Error()
 		log.Error().Str("run_id", runID).Msg(reason)
 		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", reason, runID)
 		if gitContext["repo_owner"] != "" {
 			a.notifyGitBotOfFinalStatus("failure", "", "", reason, gitContext)
 		}
 		return
+	}
+
+	runtimeProfiles, err := a.buildRuntimeLLMProfiles(cfg)
+	if err != nil {
+		reason := fmt.Sprintf("Failed to prepare LLM profiles: %v", err)
+		log.Error().Str("run_id", runID).Msg(reason)
+		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", reason, runID)
+		return
+	}
+	runtimeProfilesJSON, err := json.Marshal(runtimeProfiles)
+	if err != nil {
+		reason := "Failed to marshal LLM profiles"
+		log.Error().Err(err).Str("run_id", runID).Msg(reason)
+		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", reason, runID)
+		return
+	}
+
+	defaultProfileName := runtimeProfiles.DefaultProfile
+	defaultProfile := runtimeProfiles.Profiles[defaultProfileName]
+	llmProvider := defaultProfile.Provider
+	legacyGeminiAPIKey := ""
+	legacyGeminiModel := ""
+	legacyLMStudioBaseURL := ""
+	legacyLMStudioModel := ""
+	legacyLMStudioReasoning := ""
+	legacyLMStudioAPIKey := ""
+	if llmProvider == config.LLMProviderGemini {
+		legacyGeminiAPIKey = defaultProfile.APIKey
+		legacyGeminiModel = defaultProfile.Model
+	} else if llmProvider == config.LLMProviderLMStudio {
+		legacyLMStudioAPIKey = defaultProfile.APIKey
+		legacyLMStudioBaseURL = defaultProfile.BaseURL
+		legacyLMStudioModel = defaultProfile.Model
+		legacyLMStudioReasoning = config.NormalizeLMStudioReasoning(defaultProfile.Reasoning)
 	}
 
 	agentImageName := a.getAgentImage()
@@ -1991,12 +2007,12 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 		fmt.Sprintf("PIPELINE_NAME=%s", pipeline.Name),
 		fmt.Sprintf("PIPELINE_VERSION=%s", pipeline.Version),
 		fmt.Sprintf("LLM_PROVIDER=%s", llmProvider),
-		fmt.Sprintf("GEMINI_API_KEY=%s", cfg.GeminiAPIKey),
-		fmt.Sprintf("GEMINI_MODEL=%s", cfg.GeminiModel),
-		fmt.Sprintf("LMSTUDIO_BASE_URL=%s", containerReachableLMStudioBaseURL(cfg.LMStudioBaseURL)),
-		fmt.Sprintf("LMSTUDIO_MODEL=%s", cfg.LMStudioModel),
-		fmt.Sprintf("LMSTUDIO_REASONING=%s", config.NormalizeLMStudioReasoning(cfg.LMStudioReasoning)),
-		fmt.Sprintf("LMSTUDIO_ENABLE_THINKING=%t", cfg.LMStudioEnableThinking),
+		fmt.Sprintf("GEMINI_API_KEY=%s", legacyGeminiAPIKey),
+		fmt.Sprintf("GEMINI_MODEL=%s", legacyGeminiModel),
+		fmt.Sprintf("LMSTUDIO_BASE_URL=%s", legacyLMStudioBaseURL),
+		fmt.Sprintf("LMSTUDIO_MODEL=%s", legacyLMStudioModel),
+		fmt.Sprintf("LMSTUDIO_REASONING=%s", legacyLMStudioReasoning),
+		fmt.Sprintf("%s=%s", llmProfilesRuntimeEnv, base64.StdEncoding.EncodeToString(runtimeProfilesJSON)),
 		fmt.Sprintf("NOPSAI_API_URL=%s", cfg.AgentNopsaiAPIURL),
 		fmt.Sprintf("LOG_LEVEL=%s", cfg.LogLevel),
 		fmt.Sprintf("LOG_FORMAT=%s", cfg.LogFormat),
@@ -2013,8 +2029,8 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 		fmt.Sprintf("%s=%s", servicetls.EnvSecret, cfg.EffectiveDispatcherTLSSecret()),
 		fmt.Sprintf("%s=%s", servicetls.EnvServerName, cfg.EffectiveDispatcherTLSServerName()),
 	}
-	if strings.TrimSpace(cfg.LMStudioAPIKey) != "" {
-		envVars = append(envVars, fmt.Sprintf("LMSTUDIO_API_KEY=%s", cfg.LMStudioAPIKey))
+	if strings.TrimSpace(legacyLMStudioAPIKey) != "" {
+		envVars = append(envVars, fmt.Sprintf("LMSTUDIO_API_KEY=%s", legacyLMStudioAPIKey))
 	}
 	if timeout > 0 {
 		envVars = append(envVars, fmt.Sprintf("PIPELINE_TIMEOUT=%s", timeout.String()))

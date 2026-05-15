@@ -50,6 +50,8 @@ type TaskDefinition = {
   script?: string;
   depends_on?: string[];
   ignore_failure?: boolean;
+  llm_profile?: string;
+  llm_output_sharing?: boolean;
   variables?: Record<string, string>;
 };
 
@@ -61,6 +63,7 @@ type StepConfiguration = {
   volumes?: string[];
   variables?: Record<string, string>;
   ignore_failure?: boolean;
+  llm_profile?: string;
   llm_output_sharing?: boolean;
   goal?: string;
   script?: string;
@@ -93,6 +96,7 @@ type PipelineDefinition = {
   name?: string;
   description?: string;
   version?: string;
+  llm_profile?: string;
   steps?: {
     name: string;
     description?: string;
@@ -100,6 +104,8 @@ type PipelineDefinition = {
     tasks?: TaskDefinition[];
     goal?: string;
     script?: string;
+    llm_profile?: string;
+    llm_output_sharing?: boolean;
   }[];
 };
 
@@ -4987,6 +4993,10 @@ function StepDetailModal({
                 <div className="flex items-start gap-2">
                   <span className="text-[var(--text-secondary)] w-28">Include</span>
                   <span className="font-mono break-words">{config?.include || '—'}</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-[var(--text-secondary)] w-28">LLM profile</span>
+                  <span className="font-mono break-words">{config?.llm_profile || 'Inherited'}</span>
                 </div>
                 <div className="flex items-start gap-2">
                   <span className="text-[var(--text-secondary)] w-28">Variables</span>

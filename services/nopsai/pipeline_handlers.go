@@ -517,6 +517,9 @@ func (a *App) resolveStepIncludes(pipeline *models.Pipeline) (*models.Pipeline, 
 		if llm := step.GetLlmOutputSharing(); llm != nil {
 			includedStep.SetLlmOutputSharing(llm)
 		}
+		if llmProfile := strings.TrimSpace(step.GetLLMProfile()); llmProfile != "" {
+			includedStep.SetLLMProfile(llmProfile)
+		}
 
 		// 3. Overwrite specific fields if they are defined in the pipeline
 		if vols := step.GetVolumes(); len(vols) > 0 {

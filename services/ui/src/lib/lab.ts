@@ -23,6 +23,7 @@ export const PIPELINE_DIRECTIVES: LabDirective[] = [
   { key: 'variables', hint: 'Global variables' },
   { key: 'steps', hint: 'List pipeline steps' },
   { key: 'timeout', hint: 'Pipeline timeout' },
+  { key: 'llm_profile', hint: 'Select LLM profile' },
   { key: 'llm_output_sharing', hint: 'Share LLM outputs across steps' },
   { key: 'llm_content_sharing', hint: 'Share LLM prompts across steps' },
   { key: 'llm_content_include', hint: 'Only share matching paths with LLM' },
@@ -44,6 +45,7 @@ export const STEP_DIRECTIVES: LabDirective[] = [
   { key: 'script', hint: 'Shell script body' },
   { key: 'depends_on', hint: 'Upstream steps' },
   { key: 'ignore_failure', hint: 'Ignore failures' },
+  { key: 'llm_profile', hint: 'Select LLM profile' },
   { key: 'llm_output_sharing', hint: 'Share step LLM output' },
 ];
 
@@ -53,6 +55,7 @@ export const TASK_DIRECTIVES: LabDirective[] = [
   { key: 'script', hint: 'Task script body' },
   { key: 'depends_on', hint: 'Dependent tasks' },
   { key: 'ignore_failure', hint: 'Ignore task errors' },
+  { key: 'llm_profile', hint: 'Select LLM profile' },
   { key: 'llm_output_sharing', hint: 'Share task LLM output' },
 ];
 
@@ -209,6 +212,7 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'variables',
     'steps',
     'timeout',
+    'llm_profile',
     'llm_content_sharing',
     'llm_output_sharing',
     'llm_content_include',
@@ -229,9 +233,10 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'script',
     'depends_on',
     'ignore_failure',
+    'llm_profile',
     'llm_output_sharing',
   ]);
-  const knownTaskKeys = new Set(['name', 'goal', 'script', 'depends_on', 'ignore_failure', 'llm_output_sharing']);
+  const knownTaskKeys = new Set(['name', 'goal', 'script', 'depends_on', 'ignore_failure', 'llm_profile', 'llm_output_sharing']);
   const knownDisplayOptionsKeys = new Set(['github_view']);
 
   const createError = (message: string, pathHints: string[] = []): LabValidationError => {
@@ -558,6 +563,7 @@ export type LabSuggestionType =
   | 'depends_on'
   | 'secrets'
   | 'variables'
+  | 'llm_profile'
   | 'directive-value'
   | 'pipeline-key'
   | 'step-key'
@@ -660,6 +666,17 @@ function detectDirectiveValueContext(lineInfo: LineInfo, selectionEnd: number): 
   const currentValue = rawLine.slice(valueOffsetLocal, lineInfo.column).trim();
 
   const metadata = DIRECTIVE_VALUE_METADATA[key];
+  if (!metadata && key === 'llm_profile') {
+    return {
+      type: 'llm_profile',
+      title: 'LLM Profiles',
+      key,
+      prefix: currentValue,
+      rangeStart,
+      rangeEnd: Math.max(rangeStart, selectionEnd),
+      insertSuffix: '',
+    };
+  }
   if (!metadata) return null;
 
   return {
@@ -850,6 +867,7 @@ export function buildSuggestionItems(
   opts: {
     secrets: string[];
     variables: string[];
+    llmProfiles: string[];
     reusableSteps: string[];
     pipelineIds: string[];
   }
@@ -863,6 +881,8 @@ export function buildSuggestionItems(
     pool = opts.secrets.map(s => ({ value: s, label: s }));
   } else if (ctx.type === 'variables') {
     pool = opts.variables.map(v => ({ value: v, label: v }));
+  } else if (ctx.type === 'llm_profile') {
+    pool = opts.llmProfiles.map(p => ({ value: p, label: p }));
   } else if (ctx.type === 'include') {
     pool = [
       ...opts.reusableSteps.map(s => ({ value: `step:${s}`, label: `step:${s}` })),
@@ -898,6 +918,8 @@ export function suggestionCopyForContext(contextInfo: LabSuggestionContext | nul
       return { title: 'Secrets', subtitle: 'Available secret names.', footnote: 'Tab to accept inline hint.' };
     case 'include':
       return { title: 'Include targets', subtitle: 'Reusable steps and pipelines.', footnote: 'Click or Tab to insert.' };
+    case 'llm_profile':
+      return { title: 'LLM profiles', subtitle: 'Profiles allowed for the selected scope.', footnote: 'Click or Tab to insert.' };
     case 'pipeline-key':
       return { title: 'Pipeline directives', subtitle: 'Keys allowed at root level.', footnote: 'Tab to accept inline hint.' };
     case 'step-key':

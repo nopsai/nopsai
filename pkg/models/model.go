@@ -56,6 +56,7 @@ type Step interface {
 	GetImage() string
 	GetIgnoreFailure() bool
 	GetLlmOutputSharing() *bool
+	GetLLMProfile() string
 	GetVariables() map[string]string
 
 	// Type assertion helpers
@@ -75,6 +76,7 @@ type BaseStep struct {
 	Condition        string            `yaml:"condition,omitempty" json:"condition,omitempty"`
 	IgnoreFailure    bool              `yaml:"ignore_failure,omitempty" json:"ignore_failure,omitempty"`
 	LlmOutputSharing *bool             `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
+	LLMProfile       string            `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
 	Variables        map[string]string `yaml:"variables,omitempty" json:"variables,omitempty"`
 }
 
@@ -101,6 +103,9 @@ func (s *BaseStep) GetIgnoreFailure() bool { return s.IgnoreFailure }
 
 // GetLlmOutputSharing returns the step's LLM output sharing setting.
 func (s *BaseStep) GetLlmOutputSharing() *bool { return s.LlmOutputSharing }
+
+// GetLLMProfile returns the step's LLM profile override.
+func (s *BaseStep) GetLLMProfile() string { return s.LLMProfile }
 
 // GetVariables returns the step's inline variables.
 func (s *BaseStep) GetVariables() map[string]string { return s.Variables }
@@ -383,6 +388,13 @@ func (ps PipelineStep) GetLlmOutputSharing() *bool {
 	return ps.Step.GetLlmOutputSharing()
 }
 
+func (ps PipelineStep) GetLLMProfile() string {
+	if ps.Step == nil {
+		return ""
+	}
+	return ps.Step.GetLLMProfile()
+}
+
 func (ps PipelineStep) GetInclude() string {
 	if include, ok := ps.AsIncludeStep(); ok {
 		return include.Include
@@ -519,6 +531,12 @@ func (ps *PipelineStep) SetLlmOutputSharing(value *bool) {
 	}
 }
 
+func (ps *PipelineStep) SetLLMProfile(value string) {
+	if base := ps.baseStep(); base != nil {
+		base.LLMProfile = value
+	}
+}
+
 func (ps *PipelineStep) SetVariables(variables map[string]string) {
 	if base := ps.baseStep(); base != nil {
 		base.Variables = variables
@@ -535,6 +553,7 @@ type Pipeline struct {
 	Variables         []string       `yaml:"variables" json:"variables"`
 	Steps             []PipelineStep `yaml:"steps" json:"steps"`
 	Timeout           string         `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	LLMProfile        string         `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
 	LlmContentSharing *bool          `yaml:"llm_content_sharing,omitempty" json:"llm_content_sharing,omitempty"`
 	LlmOutputSharing  *bool          `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
 	LlmContentInclude []string       `yaml:"llm_content_include,omitempty" json:"llm_content_include,omitempty"`
@@ -558,6 +577,7 @@ type Task struct {
 	DependsOn        []string          `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
 	IgnoreFailure    bool              `yaml:"ignore_failure,omitempty" json:"ignore_failure,omitempty"`
 	LlmOutputSharing *bool             `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
+	LLMProfile       string            `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
 	Variables        map[string]string `yaml:"variables,omitempty" json:"variables,omitempty"`
 }
 

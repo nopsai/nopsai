@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -784,18 +783,6 @@ func run() int {
 		agentLog(runID, pipelineName).Error().Str("lmstudio_reasoning", lmStudioReasoning).Msg("Invalid LMSTUDIO_REASONING value")
 		return 1
 	}
-	if lmStudioReasoning == "" && os.Getenv("LMSTUDIO_ENABLE_THINKING") != "" {
-		lmStudioEnableThinking, parseErr := strconv.ParseBool(os.Getenv("LMSTUDIO_ENABLE_THINKING"))
-		if parseErr != nil {
-			agentLog(runID, pipelineName).Error().Err(parseErr).Msg("Invalid LMSTUDIO_ENABLE_THINKING value")
-			return 1
-		}
-		if lmStudioEnableThinking {
-			lmStudioReasoning = "on"
-		} else {
-			lmStudioReasoning = "off"
-		}
-	}
 	pipelineDefBase64 := os.Getenv("PIPELINE_DEFINITION")
 	parentHistoryBase64 := os.Getenv("PARENT_EXECUTION_HISTORY")
 	sharedVolumeName := os.Getenv("SHARED_VOLUME_NAME")
@@ -804,6 +791,7 @@ func run() int {
 	llmTimeoutStr := os.Getenv("LLM_AGENT_TIMEOUT")
 	secretsBase64 := os.Getenv("NOPSAI_SECRETS")
 	variablesBase64 := os.Getenv("NOPSAI_VARIABLES")
+	runScope := os.Getenv("SCOPE")
 
 	var secrets map[string]string
 	if secretsBase64 != "" {
@@ -843,21 +831,22 @@ func run() int {
 		return 1
 	}
 
-	switch llmProvider {
-	case appconfig.LLMProviderGemini:
-		if geminiAPIKey == "" || geminiModel == "" {
-			agentLog(runID, pipelineName).Error().Msg("Missing GEMINI_API_KEY or GEMINI_MODEL for Gemini provider")
-			return 1
-		}
-	case appconfig.LLMProviderLMStudio:
-		if strings.TrimSpace(lmStudioBaseURL) == "" {
-			agentLog(runID, pipelineName).Error().Msg("Missing LMSTUDIO_BASE_URL for LM Studio provider")
-			return 1
-		}
-	default:
-		agentLog(runID, pipelineName).Error().Str("llm_provider", llmProvider).Msg("Unsupported LLM provider")
+	llmRegistry, err := NewLLMProfileRegistryFromEnv(
+		llmProvider,
+		geminiAPIKey,
+		geminiModel,
+		lmStudioBaseURL,
+		lmStudioAPIKey,
+		lmStudioModel,
+		lmStudioReasoning,
+		runScope,
+	)
+	if err != nil {
+		agentLog(runID, pipelineName).Error().Err(err).Msg("Invalid LLM profile configuration")
 		return 1
 	}
+	defaultLLMProfile, _ := llmRegistry.DefaultProfile()
+	llmProvider = defaultLLMProfile.Provider
 
 	dispatcherAddr := os.Getenv("DISPATCHER_ADDRESS")
 	if dispatcherAddr == "" {
@@ -926,33 +915,29 @@ func run() int {
 		triggerEventID = "N/A"
 	}
 	agentLog(runID, pipeline.Name).Info().Str("trigger_event_id", triggerEventID).Str("working_directory", workingDirectory).Msg("Pipeline execution starting")
-	startupLog := agentLog(runID, pipeline.Name).Info().Str("llm_provider", llmProvider)
+	startupLog := agentLog(runID, pipeline.Name).Info().
+		Str("llm_profile", llmRegistry.DefaultProfileName()).
+		Str("llm_provider", defaultLLMProfile.Provider)
 	switch llmProvider {
 	case appconfig.LLMProviderGemini:
-		startupLog.Str("llm_model", geminiModel).Msg("Agent starting with embedded LLM client")
+		startupLog.Str("llm_model", defaultLLMProfile.Model).Msg("Agent starting with embedded LLM profile registry")
 	case appconfig.LLMProviderLMStudio:
-		logEvent := startupLog.Str("lmstudio_base_url", lmStudioBaseURL)
-		if strings.TrimSpace(lmStudioModel) != "" {
-			logEvent = logEvent.Str("llm_model", lmStudioModel)
+		logEvent := startupLog.Str("lmstudio_base_url", defaultLLMProfile.BaseURL)
+		if strings.TrimSpace(defaultLLMProfile.Model) != "" {
+			logEvent = logEvent.Str("llm_model", defaultLLMProfile.Model)
 		} else {
 			logEvent = logEvent.Str("llm_model", "auto-discover")
 		}
-		if lmStudioReasoning != "" {
-			logEvent = logEvent.Str("lmstudio_reasoning", lmStudioReasoning)
+		if defaultLLMProfile.Reasoning != "" {
+			logEvent = logEvent.Str("lmstudio_reasoning", defaultLLMProfile.Reasoning)
 		}
-		logEvent.Msg("Agent starting with embedded LLM client")
+		if defaultLLMProfile.Thinking != nil {
+			logEvent = logEvent.Bool("lmstudio_thinking", *defaultLLMProfile.Thinking)
+		}
+		logEvent.Msg("Agent starting with embedded LLM profile registry")
+	default:
+		startupLog.Msg("Agent starting with embedded LLM profile registry")
 	}
-	llmModel := geminiModel
-	llmAPIKey := geminiAPIKey
-	llmBaseURL := ""
-	llmReasoning := ""
-	if llmProvider == appconfig.LLMProviderLMStudio {
-		llmModel = lmStudioModel
-		llmAPIKey = lmStudioAPIKey
-		llmBaseURL = lmStudioBaseURL
-		llmReasoning = lmStudioReasoning
-	}
-	llmClient := NewLLMClient(llmProvider, llmAPIKey, llmModel, llmBaseURL, llmReasoning)
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -1148,6 +1133,14 @@ func run() int {
 					historyMutex.Unlock()
 
 					req := stepContext.buildConditionRequest(condition, historySnapshot, secrets)
+					conditionClient, conditionProfile, profileErr := llmRegistry.ClientFor(&pipeline, step, nil)
+					if profileErr != nil {
+						taskLogger.Error().Err(profileErr).Msg("Failed to resolve LLM profile for condition")
+						pipelineFailed = true
+						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+						return
+					}
+					taskLogger.Debug().Str("llm_profile", conditionProfile).Msg("Using LLM profile for condition")
 
 					var resp *proto.ConditionResponse
 					conditionStart := time.Now()
@@ -1155,7 +1148,7 @@ func run() int {
 						ctx, cancel := context.WithTimeout(context.Background(), llmTimeout)
 						defer cancel()
 						var e error
-						resp, e = llmClient.EvaluateCondition(ctx, req)
+						resp, e = conditionClient.EvaluateCondition(ctx, req)
 						return e
 					}, 3, 1*time.Second)
 					llmDurationMs = time.Since(conditionStart).Milliseconds()
@@ -1411,13 +1404,20 @@ func run() int {
 					historySnapshot := history.String()
 					historyMutex.Unlock()
 					req := taskContext.buildActionRequest(goalText, historySnapshot, directoryListing, secrets)
+					actionClient, actionProfile, profileErr := llmRegistry.ClientFor(&pipeline, step, task)
+					if profileErr != nil {
+						taskLogger.Error().Err(profileErr).Msg("Failed to resolve LLM profile for goal")
+						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+						return
+					}
+					taskLogger.Debug().Str("llm_profile", actionProfile).Msg("Using LLM profile for goal")
 
 					actionStart := time.Now()
 					err = withRetry(func() error {
 						ctx, cancel := context.WithTimeout(context.Background(), llmTimeout)
 						defer cancel()
 						var e error
-						action, e = llmClient.GetAction(ctx, req)
+						action, e = actionClient.GetAction(ctx, req)
 						return e
 					}, 3, 1*time.Second)
 					llmDurationMs = time.Since(actionStart).Milliseconds()
@@ -1425,7 +1425,7 @@ func run() int {
 						// One more best-effort retry to increase durability.
 						taskLogger.Warn().Err(err).Msg("GetAction failed after retries; attempting one final retry")
 						ctx, cancel := context.WithTimeout(context.Background(), llmTimeout)
-						action, err = llmClient.GetAction(ctx, req)
+						action, err = actionClient.GetAction(ctx, req)
 						cancel()
 						llmDurationMs = time.Since(actionStart).Milliseconds()
 						if err != nil {
