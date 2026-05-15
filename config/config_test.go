@@ -8,7 +8,7 @@ func TestNormalizeLLMProvider(t *testing.T) {
 		raw  string
 		want string
 	}{
-		{name: "default to gemini", raw: "", want: LLMProviderGemini},
+		{name: "empty preserved", raw: "", want: ""},
 		{name: "gemini alias", raw: "google-gemini", want: LLMProviderGemini},
 		{name: "lmstudio canonical", raw: "lmstudio", want: LLMProviderLMStudio},
 		{name: "openai compatible alias", raw: "openai-compatible", want: LLMProviderLMStudio},

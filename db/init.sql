@@ -183,6 +183,25 @@ CREATE TABLE variables (
     UNIQUE NULLS NOT DISTINCT (name, repository_name, scope)
 );
 
+CREATE TABLE llm_profile_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE llm_profiles (
+    name TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL DEFAULT '',
+    base_url TEXT NOT NULL DEFAULT '',
+    api_key_secret TEXT NOT NULL DEFAULT '',
+    allowed_scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
+    reasoning TEXT NOT NULL DEFAULT '',
+    thinking BOOLEAN,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE resource_visibility (
     resource_type TEXT NOT NULL,
     resource_id TEXT NOT NULL,

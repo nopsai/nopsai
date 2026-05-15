@@ -22,7 +22,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
 
-	"nopsai/config"
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
@@ -1949,25 +1948,6 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 		return
 	}
 
-	defaultProfileName := runtimeProfiles.DefaultProfile
-	defaultProfile := runtimeProfiles.Profiles[defaultProfileName]
-	llmProvider := defaultProfile.Provider
-	legacyGeminiAPIKey := ""
-	legacyGeminiModel := ""
-	legacyLMStudioBaseURL := ""
-	legacyLMStudioModel := ""
-	legacyLMStudioReasoning := ""
-	legacyLMStudioAPIKey := ""
-	if llmProvider == config.LLMProviderGemini {
-		legacyGeminiAPIKey = defaultProfile.APIKey
-		legacyGeminiModel = defaultProfile.Model
-	} else if llmProvider == config.LLMProviderLMStudio {
-		legacyLMStudioAPIKey = defaultProfile.APIKey
-		legacyLMStudioBaseURL = defaultProfile.BaseURL
-		legacyLMStudioModel = defaultProfile.Model
-		legacyLMStudioReasoning = config.NormalizeLMStudioReasoning(defaultProfile.Reasoning)
-	}
-
 	agentImageName := a.getAgentImage()
 	if agentImageName == "" {
 		agentImageName = "nopsai-agent:latest"
@@ -2006,12 +1986,6 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 		fmt.Sprintf("RUN_ID=%s", runID),
 		fmt.Sprintf("PIPELINE_NAME=%s", pipeline.Name),
 		fmt.Sprintf("PIPELINE_VERSION=%s", pipeline.Version),
-		fmt.Sprintf("LLM_PROVIDER=%s", llmProvider),
-		fmt.Sprintf("GEMINI_API_KEY=%s", legacyGeminiAPIKey),
-		fmt.Sprintf("GEMINI_MODEL=%s", legacyGeminiModel),
-		fmt.Sprintf("LMSTUDIO_BASE_URL=%s", legacyLMStudioBaseURL),
-		fmt.Sprintf("LMSTUDIO_MODEL=%s", legacyLMStudioModel),
-		fmt.Sprintf("LMSTUDIO_REASONING=%s", legacyLMStudioReasoning),
 		fmt.Sprintf("%s=%s", llmProfilesRuntimeEnv, base64.StdEncoding.EncodeToString(runtimeProfilesJSON)),
 		fmt.Sprintf("NOPSAI_API_URL=%s", cfg.AgentNopsaiAPIURL),
 		fmt.Sprintf("LOG_LEVEL=%s", cfg.LogLevel),
@@ -2028,9 +2002,6 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 		fmt.Sprintf("%s=%s", servicetls.EnvMode, cfg.EffectiveDispatcherTLSMode()),
 		fmt.Sprintf("%s=%s", servicetls.EnvSecret, cfg.EffectiveDispatcherTLSSecret()),
 		fmt.Sprintf("%s=%s", servicetls.EnvServerName, cfg.EffectiveDispatcherTLSServerName()),
-	}
-	if strings.TrimSpace(legacyLMStudioAPIKey) != "" {
-		envVars = append(envVars, fmt.Sprintf("LMSTUDIO_API_KEY=%s", legacyLMStudioAPIKey))
 	}
 	if timeout > 0 {
 		envVars = append(envVars, fmt.Sprintf("PIPELINE_TIMEOUT=%s", timeout.String()))

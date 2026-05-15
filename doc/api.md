@@ -44,7 +44,7 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 ## Quick Start
 
 ```bash
-# Refresh config repositories, pipelines, reusable steps, scopes, and triggers from Git
+# Refresh config repositories, pipelines, reusable steps, scopes, triggers, and system LLM profiles from Git
 curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
   http://localhost:8080/v1/internal/config/sync
 ```
@@ -53,6 +53,7 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - The call is idempotent and can be triggered manually or by Git events.
 - The caller needs `system.update` on `system:config-sync`.
 - For the global GitOps entrypoint, use `PUT /v1/system/config-repo` with `scope_id=global`.
+- System LLM profiles can be managed in the global config repo at `setting/system/llm_profile.yaml`.
 
 ---
 

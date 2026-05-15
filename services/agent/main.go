@@ -769,20 +769,6 @@ func run() int {
 	runID := os.Getenv("RUN_ID")
 	pipelineName := os.Getenv("PIPELINE_NAME")
 	triggerEventID := os.Getenv("GIT_TRIGGER_EVENT_ID")
-	llmProvider := appconfig.NormalizeLLMProvider(os.Getenv("LLM_PROVIDER"))
-	geminiAPIKey := os.Getenv("GEMINI_API_KEY")
-	geminiModel := os.Getenv("GEMINI_MODEL")
-	lmStudioBaseURL := os.Getenv("LMSTUDIO_BASE_URL")
-	lmStudioAPIKey := os.Getenv("LMSTUDIO_API_KEY")
-	if lmStudioAPIKey == "" {
-		lmStudioAPIKey = os.Getenv("LM_API_TOKEN")
-	}
-	lmStudioModel := os.Getenv("LMSTUDIO_MODEL")
-	lmStudioReasoning := appconfig.NormalizeLMStudioReasoning(os.Getenv("LMSTUDIO_REASONING"))
-	if !appconfig.IsValidLMStudioReasoning(lmStudioReasoning) {
-		agentLog(runID, pipelineName).Error().Str("lmstudio_reasoning", lmStudioReasoning).Msg("Invalid LMSTUDIO_REASONING value")
-		return 1
-	}
 	pipelineDefBase64 := os.Getenv("PIPELINE_DEFINITION")
 	parentHistoryBase64 := os.Getenv("PARENT_EXECUTION_HISTORY")
 	sharedVolumeName := os.Getenv("SHARED_VOLUME_NAME")
@@ -831,22 +817,13 @@ func run() int {
 		return 1
 	}
 
-	llmRegistry, err := NewLLMProfileRegistryFromEnv(
-		llmProvider,
-		geminiAPIKey,
-		geminiModel,
-		lmStudioBaseURL,
-		lmStudioAPIKey,
-		lmStudioModel,
-		lmStudioReasoning,
-		runScope,
-	)
+	llmRegistry, err := NewLLMProfileRegistryFromEnv(runScope)
 	if err != nil {
 		agentLog(runID, pipelineName).Error().Err(err).Msg("Invalid LLM profile configuration")
 		return 1
 	}
 	defaultLLMProfile, _ := llmRegistry.DefaultProfile()
-	llmProvider = defaultLLMProfile.Provider
+	llmProvider := defaultLLMProfile.Provider
 
 	dispatcherAddr := os.Getenv("DISPATCHER_ADDRESS")
 	if dispatcherAddr == "" {
@@ -1140,7 +1117,7 @@ func run() int {
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
 					}
-					taskLogger.Debug().Str("llm_profile", conditionProfile).Msg("Using LLM profile for condition")
+					taskLogger.Info().Str("llm_profile", conditionProfile).Msg("Using LLM profile for condition")
 
 					var resp *proto.ConditionResponse
 					conditionStart := time.Now()
@@ -1410,7 +1387,7 @@ func run() int {
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
 					}
-					taskLogger.Debug().Str("llm_profile", actionProfile).Msg("Using LLM profile for goal")
+					taskLogger.Info().Str("llm_profile", actionProfile).Msg("Using LLM profile for goal")
 
 					actionStart := time.Now()
 					err = withRetry(func() error {
