@@ -23,6 +23,9 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 	if pipeline.ContainerImage == "" && len(pipeline.Steps) > 0 && pipeline.Steps[0].GetImage() == "" {
 		return fmt.Errorf("'container_image' is a required field if steps don't have their own image")
 	}
+	if _, err := models.NormalizePipelineWorkingDirectory(pipeline.WorkingDirectory); err != nil {
+		return err
+	}
 	if len(pipeline.Steps) == 0 {
 		return fmt.Errorf("at least one step is required")
 	}
