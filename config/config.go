@@ -65,13 +65,6 @@ type Config struct {
 	DispatcherTLSSecret      string `yaml:"dispatcher_tls_secret" env:"DISPATCHER_TLS_SECRET"`
 	DispatcherTLSServerName  string `yaml:"dispatcher_tls_server_name" env:"DISPATCHER_TLS_SERVER_NAME"`
 
-	LLMProvider       string                `yaml:"llm_provider" env:"LLM_PROVIDER"`
-	GeminiAPIKey      string                `yaml:"gemini_api_key" env:"GEMINI_API_KEY"`
-	GeminiModel       string                `yaml:"gemini_model" env:"GEMINI_MODEL"`
-	LMStudioBaseURL   string                `yaml:"lmstudio_base_url" env:"LMSTUDIO_BASE_URL"`
-	LMStudioAPIKey    string                `yaml:"lmstudio_api_key" env:"LMSTUDIO_API_KEY"`
-	LMStudioModel     string                `yaml:"lmstudio_model" env:"LMSTUDIO_MODEL"`
-	LMStudioReasoning string                `yaml:"lmstudio_reasoning" env:"LMSTUDIO_REASONING"`
 	LLMDefaultProfile string                `yaml:"llm_default_profile" env:"LLM_DEFAULT_PROFILE"`
 	LLMProfiles       map[string]LLMProfile `yaml:"llm_profiles" env:"LLM_PROFILES"`
 
@@ -156,11 +149,6 @@ func LoadConfig(path string) (*Config, error) {
 		}
 	}
 
-	if config.LMStudioAPIKey == "" {
-		config.LMStudioAPIKey = os.Getenv("LM_API_TOKEN")
-	}
-	config.LLMProvider = NormalizeLLMProvider(config.LLMProvider)
-	config.LMStudioReasoning = NormalizeLMStudioReasoning(config.LMStudioReasoning)
 	config.LLMDefaultProfile = NormalizeLLMProfileName(config.LLMDefaultProfile)
 	config.LLMProfiles = NormalizeLLMProfiles(config.LLMProfiles)
 
@@ -171,17 +159,13 @@ func NormalizeLLMProvider(raw string) string {
 	normalized := strings.ToLower(strings.TrimSpace(raw))
 
 	switch normalized {
-	case "", "gemini", "google", "google-gemini":
+	case "gemini", "google", "google-gemini":
 		return LLMProviderGemini
 	case "lmstudio", "lm-studio", "openai-compatible", "openai_compatible":
 		return LLMProviderLMStudio
 	default:
 		return normalized
 	}
-}
-
-func (c Config) GetLLMProvider() string {
-	return NormalizeLLMProvider(c.LLMProvider)
 }
 
 func NormalizeLLMProfileName(raw string) string {
@@ -247,32 +231,8 @@ func (c Config) EffectiveLLMDefaultProfile() string {
 	return DefaultLLMProfileName
 }
 
-func (c Config) LegacyLLMProfile() LLMProfile {
-	provider := c.GetLLMProvider()
-	profile := LLMProfile{Provider: provider}
-	switch provider {
-	case LLMProviderLMStudio:
-		profile.Model = strings.TrimSpace(c.LMStudioModel)
-		profile.BaseURL = strings.TrimSpace(c.LMStudioBaseURL)
-		profile.APIKeySecret = "LMSTUDIO_API_KEY"
-		profile.Reasoning = NormalizeLMStudioReasoning(c.LMStudioReasoning)
-	default:
-		profile.Provider = LLMProviderGemini
-		profile.Model = strings.TrimSpace(c.GeminiModel)
-		profile.APIKeySecret = "GEMINI_API_KEY"
-	}
-	return NormalizeLLMProfile(profile)
-}
-
 func (c Config) EffectiveLLMProfiles() map[string]LLMProfile {
-	profiles := NormalizeLLMProfiles(c.LLMProfiles)
-	if len(profiles) == 0 {
-		return map[string]LLMProfile{
-			c.EffectiveLLMDefaultProfile(): c.LegacyLLMProfile(),
-		}
-	}
-
-	return profiles
+	return NormalizeLLMProfiles(c.LLMProfiles)
 }
 
 func LLMProfileAllowedInScope(profile LLMProfile, scope string) bool {

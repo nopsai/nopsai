@@ -27,7 +27,7 @@ func TestLLMProfileRegistryResolvesTaskStepPipelineDefault(t *testing.T) {
 	}
 	t.Setenv(llmProfilesRuntimeEnv, base64.StdEncoding.EncodeToString(payloadBytes))
 
-	registry, err := NewLLMProfileRegistryFromEnv("", "", "", "", "", "", "", "dev")
+	registry, err := NewLLMProfileRegistryFromEnv("dev")
 	if err != nil {
 		t.Fatalf("NewLLMProfileRegistryFromEnv() error = %v", err)
 	}
@@ -47,6 +47,17 @@ func TestLLMProfileRegistryResolvesTaskStepPipelineDefault(t *testing.T) {
 	}
 	if got := registry.ProfileNameFor(&models.Pipeline{}, nil, nil); got != "standard" {
 		t.Fatalf("default profile = %q, want standard", got)
+	}
+
+	client, profileName, err := registry.ClientFor(pipeline, step, task)
+	if err != nil {
+		t.Fatalf("ClientFor() error = %v", err)
+	}
+	if profileName != "task" {
+		t.Fatalf("ClientFor() profile = %q, want task", profileName)
+	}
+	if client.profile != "task" {
+		t.Fatalf("client.profile = %q, want task", client.profile)
 	}
 }
 
@@ -68,7 +79,7 @@ func TestLLMProfileRegistryRejectsDisallowedScope(t *testing.T) {
 	}
 	t.Setenv(llmProfilesRuntimeEnv, base64.StdEncoding.EncodeToString(payloadBytes))
 
-	registry, err := NewLLMProfileRegistryFromEnv("", "", "", "", "", "", "", "prod")
+	registry, err := NewLLMProfileRegistryFromEnv("prod")
 	if err != nil {
 		t.Fatalf("NewLLMProfileRegistryFromEnv() error = %v", err)
 	}
@@ -101,7 +112,7 @@ func TestLLMProfileRegistryMapsThinkingToReasoning(t *testing.T) {
 	}
 	t.Setenv(llmProfilesRuntimeEnv, base64.StdEncoding.EncodeToString(payloadBytes))
 
-	registry, err := NewLLMProfileRegistryFromEnv("", "", "", "", "", "", "", "dev")
+	registry, err := NewLLMProfileRegistryFromEnv("dev")
 	if err != nil {
 		t.Fatalf("NewLLMProfileRegistryFromEnv() error = %v", err)
 	}

@@ -39,45 +39,20 @@ type LLMProfileRegistry struct {
 	clients map[string]*LLMClient
 }
 
-func NewLLMProfileRegistryFromEnv(
-	llmProvider,
-	geminiAPIKey,
-	geminiModel,
-	lmStudioBaseURL,
-	lmStudioAPIKey,
-	lmStudioModel,
-	lmStudioReasoning,
-	scope string,
-) (*LLMProfileRegistry, error) {
+func NewLLMProfileRegistryFromEnv(scope string) (*LLMProfileRegistry, error) {
 	raw := strings.TrimSpace(os.Getenv(llmProfilesRuntimeEnv))
-	if raw != "" {
-		payloadBytes, err := base64.StdEncoding.DecodeString(raw)
-		if err != nil {
-			return nil, fmt.Errorf("decode LLM profiles: %w", err)
-		}
-		var payload agentRuntimeLLMProfiles
-		if err := json.Unmarshal(payloadBytes, &payload); err != nil {
-			return nil, fmt.Errorf("parse LLM profiles: %w", err)
-		}
-		return newLLMProfileRegistry(payload.DefaultProfile, payload.Profiles, scope)
+	if raw == "" {
+		return nil, fmt.Errorf("%s is required", llmProfilesRuntimeEnv)
 	}
-
-	provider := appconfig.NormalizeLLMProvider(llmProvider)
-	defaultProfile := appconfig.DefaultLLMProfileName
-	profile := agentRuntimeLLMProfile{Provider: provider}
-	switch provider {
-	case appconfig.LLMProviderLMStudio:
-		profile.Model = strings.TrimSpace(lmStudioModel)
-		profile.BaseURL = strings.TrimSpace(lmStudioBaseURL)
-		profile.APIKey = strings.TrimSpace(lmStudioAPIKey)
-		profile.Reasoning = appconfig.NormalizeLMStudioReasoning(lmStudioReasoning)
-	default:
-		profile.Provider = appconfig.LLMProviderGemini
-		profile.Model = strings.TrimSpace(geminiModel)
-		profile.APIKey = strings.TrimSpace(geminiAPIKey)
+	payloadBytes, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return nil, fmt.Errorf("decode LLM profiles: %w", err)
 	}
-
-	return newLLMProfileRegistry(defaultProfile, map[string]agentRuntimeLLMProfile{defaultProfile: profile}, scope)
+	var payload agentRuntimeLLMProfiles
+	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
+		return nil, fmt.Errorf("parse LLM profiles: %w", err)
+	}
+	return newLLMProfileRegistry(payload.DefaultProfile, payload.Profiles, scope)
 }
 
 func newLLMProfileRegistry(defaultProfile string, profiles map[string]agentRuntimeLLMProfile, scope string) (*LLMProfileRegistry, error) {
@@ -173,7 +148,7 @@ func (r *LLMProfileRegistry) ClientFor(pipeline *models.Pipeline, step *models.P
 		return client, profileName, nil
 	}
 
-	client := NewLLMClient(profile.Provider, profile.APIKey, profile.Model, profile.BaseURL, profile.Reasoning)
+	client := NewLLMClient(profile.Provider, profile.APIKey, profile.Model, profile.BaseURL, profile.Reasoning, profileName)
 	r.clients[profileName] = client
 	return client, profileName, nil
 }

@@ -20,6 +20,7 @@ import (
 
 type LLMClient struct {
 	provider   string
+	profile    string
 	apiKey     string
 	model      string
 	baseURL    string
@@ -29,8 +30,31 @@ type LLMClient struct {
 	modelMu sync.Mutex
 }
 
-func NewLLMClient(provider, apiKey, model, baseURL, reasoning string) *LLMClient {
-	return &LLMClient{
+type lmStudioEndpointGate struct {
+	sem chan struct{}
+}
+
+var lmStudioEndpointLoadGates sync.Map
+
+type lmStudioModelsResponse struct {
+	Models []lmStudioModelInfo `json:"models"`
+	Data   []struct {
+		ID string `json:"id"`
+	} `json:"data"`
+}
+
+type lmStudioModelInfo struct {
+	Type            string `json:"type"`
+	Key             string `json:"key"`
+	SelectedVariant string `json:"selected_variant"`
+	LoadedInstances []struct {
+		ID string `json:"id"`
+	} `json:"loaded_instances"`
+	Variants []string `json:"variants"`
+}
+
+func NewLLMClient(provider, apiKey, model, baseURL, reasoning string, profileName ...string) *LLMClient {
+	client := &LLMClient{
 		provider:   appconfig.NormalizeLLMProvider(provider),
 		apiKey:     strings.TrimSpace(apiKey),
 		model:      strings.TrimSpace(model),
@@ -38,6 +62,10 @@ func NewLLMClient(provider, apiKey, model, baseURL, reasoning string) *LLMClient
 		reasoning:  appconfig.NormalizeLMStudioReasoning(reasoning),
 		httpClient: &http.Client{},
 	}
+	if len(profileName) > 0 {
+		client.profile = strings.TrimSpace(profileName[0])
+	}
+	return client
 }
 
 func (c *LLMClient) GetAction(ctx context.Context, req *proto.GetActionRequest) (*proto.Action, error) {
@@ -57,7 +85,11 @@ func (c *LLMClient) GetAction(ctx context.Context, req *proto.GetActionRequest) 
 		err = fmt.Errorf("unsupported llm provider: %s", c.provider)
 	}
 	if err != nil {
-		log.Error().Err(err).Str("provider", c.provider).Msg("Error calling LLM provider for GetAction")
+		logEvent := log.Error().Err(err).Str("provider", c.provider)
+		if c.profile != "" {
+			logEvent = logEvent.Str("llm_profile", c.profile)
+		}
+		logEvent.Msg("Error calling LLM provider for GetAction")
 		return nil, err
 	}
 
@@ -91,7 +123,11 @@ func (c *LLMClient) EvaluateCondition(ctx context.Context, req *proto.ConditionR
 		err = fmt.Errorf("unsupported llm provider: %s", c.provider)
 	}
 	if err != nil {
-		log.Error().Err(err).Str("provider", c.provider).Msg("Error calling LLM provider for EvaluateCondition")
+		logEvent := log.Error().Err(err).Str("provider", c.provider)
+		if c.profile != "" {
+			logEvent = logEvent.Str("llm_profile", c.profile)
+		}
+		logEvent.Msg("Error calling LLM provider for EvaluateCondition")
 		return &proto.ConditionResponse{Result: false}, err
 	}
 
@@ -119,7 +155,11 @@ You must only respond with the word "true" or "false" and nothing else.
 Based on the context, is the answer to the question YES or NO? Respond with only "true" or "false".`
 
 	fullPrompt := fmt.Sprintf(promptTemplate, buildVariablesSection(req.GetVariables()), history, req.GetGoal())
-	log.Debug().Str("provider", c.provider).Msgf("Condition prompt:\n%s", fullPrompt)
+	logEvent := log.Debug().Str("provider", c.provider)
+	if c.profile != "" {
+		logEvent = logEvent.Str("llm_profile", c.profile)
+	}
+	logEvent.Msgf("Condition prompt:\n%s", fullPrompt)
 	return fullPrompt
 }
 
@@ -156,7 +196,11 @@ Now, choose the single best action from your toolkit and provide the response in
 		history,
 		req.GetGoal(),
 	)
-	log.Debug().Str("provider", c.provider).Msgf("Full prompt:\n%s", fullPrompt)
+	logEvent := log.Debug().Str("provider", c.provider)
+	if c.profile != "" {
+		logEvent = logEvent.Str("llm_profile", c.profile)
+	}
+	logEvent.Msgf("Full prompt:\n%s", fullPrompt)
 	return fullPrompt
 }
 
@@ -203,7 +247,11 @@ func buildDirectoryListingSection(directoryListing map[string]string) string {
 }
 
 func (c *LLMClient) callGeminiForBoolean(ctx context.Context, prompt string) (bool, error) {
-	log.Debug().Msg("Calling Gemini API for boolean decision")
+	logEvent := log.Debug().Str("model", c.model)
+	if c.profile != "" {
+		logEvent = logEvent.Str("llm_profile", c.profile)
+	}
+	logEvent.Msg("Calling Gemini API for boolean decision")
 	geminiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", c.model, c.apiKey)
 
 	reqPayload := models.GeminiRequest{
@@ -247,7 +295,11 @@ func (c *LLMClient) callGeminiForBoolean(ctx context.Context, prompt string) (bo
 }
 
 func (c *LLMClient) callGeminiForAction(ctx context.Context, prompt string) (*models.Action, error) {
-	log.Debug().Msg("Calling Gemini API for action selection")
+	logEvent := log.Debug().Str("model", c.model)
+	if c.profile != "" {
+		logEvent = logEvent.Str("llm_profile", c.profile)
+	}
+	logEvent.Msg("Calling Gemini API for action selection")
 	geminiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", c.model, c.apiKey)
 
 	reqPayload := models.GeminiRequest{
@@ -311,6 +363,9 @@ func (c *LLMClient) callLMStudio(ctx context.Context, prompt string) (string, er
 	if err != nil {
 		return "", err
 	}
+	if err := c.ensureLMStudioModelLoaded(ctx, model); err != nil {
+		return "", err
+	}
 
 	reqPayload := struct {
 		Model     string `json:"model"`
@@ -325,6 +380,9 @@ func (c *LLMClient) callLMStudio(ctx context.Context, prompt string) (string, er
 	}
 
 	logEvent := log.Debug().Str("model", model).Str("endpoint", buildLMStudioChatURL(c.baseURL))
+	if c.profile != "" {
+		logEvent = logEvent.Str("llm_profile", c.profile)
+	}
 	if c.reasoning != "" {
 		logEvent = logEvent.Str("reasoning", c.reasoning)
 	}
@@ -381,6 +439,162 @@ func (c *LLMClient) callLMStudio(ctx context.Context, prompt string) (string, er
 	return strings.Join(messages, "\n"), nil
 }
 
+func lmStudioEndpointLoadGateFor(baseURL string) *lmStudioEndpointGate {
+	key := buildLMStudioChatURL(baseURL)
+	actual, _ := lmStudioEndpointLoadGates.LoadOrStore(key, &lmStudioEndpointGate{sem: make(chan struct{}, 1)})
+	return actual.(*lmStudioEndpointGate)
+}
+
+func (g *lmStudioEndpointGate) acquire(ctx context.Context) (func(), error) {
+	select {
+	case g.sem <- struct{}{}:
+		return func() {
+			<-g.sem
+		}, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (c *LLMClient) ensureLMStudioModelLoaded(ctx context.Context, model string) error {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return fmt.Errorf("lm studio model is required")
+	}
+
+	available, loaded, err := c.lmStudioModelAvailability(ctx, model)
+	if err != nil {
+		return err
+	}
+	if loaded {
+		return nil
+	}
+	if !available {
+		return fmt.Errorf("lm studio model %q does not exist", model)
+	}
+
+	releaseGate, err := lmStudioEndpointLoadGateFor(c.baseURL).acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("failed waiting for lm studio model load lock: %w", err)
+	}
+	defer releaseGate()
+
+	available, loaded, err = c.lmStudioModelAvailability(ctx, model)
+	if err != nil {
+		return err
+	}
+	if loaded {
+		return nil
+	}
+	if !available {
+		return fmt.Errorf("lm studio model %q does not exist", model)
+	}
+
+	return c.loadLMStudioModel(ctx, model)
+}
+
+func (c *LLMClient) lmStudioModelAvailability(ctx context.Context, model string) (bool, bool, error) {
+	modelsResp, err := c.fetchLMStudioModels(ctx)
+	if err != nil {
+		return false, false, err
+	}
+
+	for _, candidate := range modelsResp.Models {
+		if candidate.Type != "" && candidate.Type != "llm" {
+			continue
+		}
+
+		available := strings.TrimSpace(candidate.Key) == model || strings.TrimSpace(candidate.SelectedVariant) == model
+		if !available {
+			for _, variant := range candidate.Variants {
+				if strings.TrimSpace(variant) == model {
+					available = true
+					break
+				}
+			}
+		}
+
+		for _, instance := range candidate.LoadedInstances {
+			if strings.TrimSpace(instance.ID) == model {
+				return true, true, nil
+			}
+		}
+		if available {
+			return true, false, nil
+		}
+	}
+
+	for _, candidate := range modelsResp.Data {
+		if strings.TrimSpace(candidate.ID) == model {
+			return true, false, nil
+		}
+	}
+
+	return false, false, nil
+}
+
+func (c *LLMClient) loadLMStudioModel(ctx context.Context, model string) error {
+	reqPayload := struct {
+		Model string `json:"model"`
+	}{
+		Model: model,
+	}
+	payloadBytes, err := json.Marshal(reqPayload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal lm studio model load request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, buildLMStudioModelLoadURL(c.baseURL), bytes.NewBuffer(payloadBytes))
+	if err != nil {
+		return fmt.Errorf("failed to build lm studio model load request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("failed to load lm studio model: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("lm studio model load returned non-2xx status: %s, body: %s", resp.Status, string(body))
+	}
+
+	return nil
+}
+
+func (c *LLMClient) fetchLMStudioModels(ctx context.Context) (lmStudioModelsResponse, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, buildLMStudioModelsURL(c.baseURL), nil)
+	if err != nil {
+		return lmStudioModelsResponse{}, fmt.Errorf("failed to build lm studio model discovery request: %w", err)
+	}
+	if c.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return lmStudioModelsResponse{}, fmt.Errorf("failed to discover lm studio models: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return lmStudioModelsResponse{}, fmt.Errorf("lm studio model discovery returned non-200 status: %s, body: %s", resp.Status, string(body))
+	}
+
+	var modelsResp lmStudioModelsResponse
+	if err := json.Unmarshal(body, &modelsResp); err != nil {
+		return lmStudioModelsResponse{}, fmt.Errorf("failed to unmarshal lm studio models response: %w", err)
+	}
+
+	return modelsResp, nil
+}
+
 func (c *LLMClient) resolveLMStudioModel(ctx context.Context) (string, error) {
 	c.modelMu.Lock()
 	configuredModel := strings.TrimSpace(c.model)
@@ -389,36 +603,9 @@ func (c *LLMClient) resolveLMStudioModel(ctx context.Context) (string, error) {
 		return configuredModel, nil
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, buildLMStudioModelsURL(c.baseURL), nil)
+	modelsResp, err := c.fetchLMStudioModels(ctx)
 	if err != nil {
-		return "", fmt.Errorf("failed to build lm studio model discovery request: %w", err)
-	}
-	if c.apiKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
-	}
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return "", fmt.Errorf("failed to discover lm studio models: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("lm studio model discovery returned non-200 status: %s, body: %s", resp.Status, string(body))
-	}
-
-	var modelsResp struct {
-		Models []struct {
-			Type string `json:"type"`
-			Key  string `json:"key"`
-		} `json:"models"`
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &modelsResp); err != nil {
-		return "", fmt.Errorf("failed to unmarshal lm studio models response: %w", err)
+		return "", err
 	}
 
 	discoveredModel := ""
@@ -489,6 +676,10 @@ func buildLMStudioModelsURL(baseURL string) string {
 	}
 }
 
+func buildLMStudioModelLoadURL(baseURL string) string {
+	return strings.TrimRight(buildLMStudioModelsURL(baseURL), "/") + "/load"
+}
+
 func cleanModelTextResponse(raw string) string {
 	cleaned := strings.TrimSpace(raw)
 
@@ -513,15 +704,167 @@ func cleanModelTextResponse(raw string) string {
 
 func decodeActionResponse(raw string) (*models.Action, error) {
 	actionJSON := cleanModelTextResponse(raw)
+	action, err := decodeActionJSON(actionJSON)
+	if err == nil {
+		return action, nil
+	}
+	strictErr := err
 
+	for _, candidate := range extractActionJSONCandidates(raw) {
+		action, err := decodeActionJSON(cleanModelTextResponse(candidate))
+		if err == nil {
+			return action, nil
+		}
+	}
+
+	return nil, fmt.Errorf("failed to unmarshal action response: %w. Response text: %s", strictErr, actionJSON)
+}
+
+func decodeActionJSON(actionJSON string) (*models.Action, error) {
 	var actionWrapper struct {
 		Action models.Action `json:"action"`
 	}
 	if err := json.Unmarshal([]byte(actionJSON), &actionWrapper); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal action response: %w. Response text: %s", err, actionJSON)
+		return nil, err
+	}
+	if err := validateAction(actionWrapper.Action); err != nil {
+		return nil, err
 	}
 
 	return &actionWrapper.Action, nil
+}
+
+func validateAction(action models.Action) error {
+	switch action.Type {
+	case models.ActionTypeExecuteCommand:
+		if action.CommandAction == nil || strings.TrimSpace(action.CommandAction.Command) == "" {
+			return fmt.Errorf("EXECUTE_COMMAND action requires command_action.command")
+		}
+	case models.ActionTypeReplaceFile:
+		if action.FileAction == nil || strings.TrimSpace(action.FileAction.Path) == "" {
+			return fmt.Errorf("REPLACE_FILE action requires file_action.path")
+		}
+	case models.ActionTypeReturnAnswer:
+		if action.AnswerAction == nil {
+			return fmt.Errorf("RETURN_ANSWER action requires answer_action")
+		}
+	default:
+		return fmt.Errorf("unsupported action type %q", action.Type)
+	}
+	return nil
+}
+
+func extractActionJSONCandidates(raw string) []string {
+	seen := map[string]struct{}{}
+	candidates := []string{}
+	addCandidate := func(candidate string) {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			return
+		}
+		if _, ok := seen[candidate]; ok {
+			return
+		}
+		seen[candidate] = struct{}{}
+		candidates = append(candidates, candidate)
+	}
+
+	for _, candidate := range extractFencedBlocks(raw) {
+		addCandidate(candidate)
+	}
+	for _, candidate := range extractBalancedJSONObjects(raw) {
+		addCandidate(candidate)
+	}
+
+	return candidates
+}
+
+func extractFencedBlocks(raw string) []string {
+	var candidates []string
+	remaining := raw
+	for {
+		fenceStart := strings.Index(remaining, "```")
+		if fenceStart < 0 {
+			break
+		}
+		remaining = remaining[fenceStart+len("```"):]
+		lineEnd := strings.IndexAny(remaining, "\r\n")
+		if lineEnd < 0 {
+			break
+		}
+
+		language := strings.ToLower(strings.TrimSpace(remaining[:lineEnd]))
+		contentStart := lineEnd + 1
+		if remaining[lineEnd] == '\r' && contentStart < len(remaining) && remaining[contentStart] == '\n' {
+			contentStart++
+		}
+		end := strings.Index(remaining[contentStart:], "```")
+		block := remaining[contentStart:]
+		if end >= 0 {
+			block = remaining[contentStart : contentStart+end]
+			remaining = remaining[contentStart+end+len("```"):]
+		} else {
+			remaining = ""
+		}
+
+		if language == "" || strings.HasPrefix(language, "json") {
+			candidates = append(candidates, block)
+		}
+		if end < 0 {
+			break
+		}
+	}
+	return candidates
+}
+
+func extractBalancedJSONObjects(raw string) []string {
+	var candidates []string
+	for start := 0; start < len(raw); start++ {
+		if raw[start] != '{' {
+			continue
+		}
+		if candidate, ok := balancedJSONObjectAt(raw, start); ok {
+			candidates = append(candidates, candidate)
+		}
+	}
+	return candidates
+}
+
+func balancedJSONObjectAt(raw string, start int) (string, bool) {
+	depth := 0
+	inString := false
+	escaped := false
+
+	for i := start; i < len(raw); i++ {
+		ch := raw[i]
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			switch ch {
+			case '\\':
+				escaped = true
+			case '"':
+				inString = false
+			}
+			continue
+		}
+
+		switch ch {
+		case '"':
+			inString = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return raw[start : i+1], true
+			}
+		}
+	}
+
+	return "", false
 }
 
 func parseBooleanText(raw string) (bool, error) {

@@ -1,0 +1,21 @@
+default_profile: standard
+
+profiles:
+  - name: fast
+    provider: gemini
+    model: gemini-2.5-flash
+    api_key_secret: GEMINI_API_KEY
+    allowed_scopes: ["dev", "prod"]
+
+  - name: reasoning
+    provider: lmstudio
+    model: google/gemma-4-26b-a4b
+    base_url: http://lmstudio:1234
+    reasoning: high
+    allowed_scopes: ["dev"]
+
+  - name: standard
+    provider: lmstudio
+    model: google/gemma-4-e4b
+    base_url: http://lmstudio:1234
+    reasoning: off

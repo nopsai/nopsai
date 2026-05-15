@@ -95,6 +95,7 @@ GitOps-style configuration sync supports:
 - `scopes/` -> scoped variables
 - `pipelineruns/structure.yaml` -> legacy UI group hierarchy for groups owned by the syncing repo
 - `config-repositories/` -> group config repo bindings, group shells, and colocated group structure files
+- `setting/system/llm_profile.yaml` -> system LLM profile registry from a global config repo
 
 Sync behavior:
 

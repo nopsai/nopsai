@@ -3,12 +3,14 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -18,20 +20,41 @@ import (
 	"nopsai/services/nopsai/pkg/validation"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"gopkg.in/yaml.v3"
 )
 
 const llmProfilesRuntimeEnv = "NOPSAI_LLM_PROFILES"
 
+var llmProfileSchemaStatements = []string{
+	`CREATE TABLE IF NOT EXISTS llm_profile_settings (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL DEFAULT '',
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`,
+	`CREATE TABLE IF NOT EXISTS llm_profiles (
+		name TEXT PRIMARY KEY,
+		provider TEXT NOT NULL,
+		model TEXT NOT NULL DEFAULT '',
+		base_url TEXT NOT NULL DEFAULT '',
+		api_key_secret TEXT NOT NULL DEFAULT '',
+		allowed_scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
+		reasoning TEXT NOT NULL DEFAULT '',
+		thinking BOOLEAN,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`,
+}
+
 type llmProfileForm struct {
-	Name          string   `json:"name"`
-	Provider      string   `json:"provider"`
-	Model         string   `json:"model"`
-	BaseURL       string   `json:"base_url"`
-	APIKeySecret  string   `json:"api_key_secret"`
-	AllowedScopes []string `json:"allowed_scopes"`
-	Reasoning     string   `json:"reasoning"`
-	Thinking      *bool    `json:"thinking,omitempty"`
+	Name          string   `json:"name" yaml:"name"`
+	Provider      string   `json:"provider" yaml:"provider"`
+	Model         string   `json:"model" yaml:"model"`
+	BaseURL       string   `json:"base_url" yaml:"base_url"`
+	APIKeySecret  string   `json:"api_key_secret" yaml:"api_key_secret"`
+	AllowedScopes []string `json:"allowed_scopes" yaml:"allowed_scopes"`
+	Reasoning     string   `json:"reasoning" yaml:"reasoning"`
+	Thinking      *bool    `json:"thinking,omitempty" yaml:"thinking,omitempty"`
 }
 
 type llmProfileView struct {
@@ -49,10 +72,26 @@ type llmProfilesResponse struct {
 }
 
 type llmProfilesRequest struct {
-	DefaultProfile    string                       `json:"default_profile"`
-	LLMDefaultProfile string                       `json:"llm_default_profile"`
-	Profiles          []llmProfileForm             `json:"profiles"`
-	LLMProfiles       map[string]config.LLMProfile `json:"llm_profiles"`
+	DefaultProfile    string                       `json:"default_profile" yaml:"default_profile"`
+	LLMDefaultProfile string                       `json:"llm_default_profile" yaml:"llm_default_profile"`
+	Profiles          []llmProfileForm             `json:"profiles" yaml:"profiles"`
+	LLMProfiles       map[string]config.LLMProfile `json:"llm_profiles" yaml:"llm_profiles"`
+}
+
+type gitOpsLLMProfileDirectory struct {
+	root  string
+	files map[string]string
+}
+
+type gitOpsLLMProfilePlan struct {
+	defaultProfile string
+	profiles       map[string]config.LLMProfile
+	sourcePath     string
+}
+
+type gitOpsLLMProfileFileCandidate struct {
+	sourcePath string
+	content    string
 }
 
 type runtimeLLMProfile struct {
@@ -125,7 +164,7 @@ func (a *App) validatePipelineLLMProfiles(pipeline *models.Pipeline, scope strin
 	effectiveProfiles := cfg.EffectiveLLMProfiles()
 	for name := range collectResolvedLLMProfiles(pipeline, defaultProfile) {
 		profile := effectiveProfiles[name]
-		status, message := validateLLMProfileConfiguration(name, profile, cfg)
+		status, message := validateLLMProfileConfiguration(name, profile)
 		if status != "valid" {
 			if message == "" {
 				message = fmt.Sprintf("LLM profile %q is invalid", name)
@@ -397,7 +436,205 @@ func (a *App) setLLMProfiles(defaultProfile string, profiles map[string]config.L
 	return *a.cfg
 }
 
-func (a *App) persistLLMProfilesConfig(cfg config.Config) error {
+func ensureLLMProfileSchema(ctx context.Context, db *pgxpool.Pool) error {
+	if db == nil {
+		return nil
+	}
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin LLM profile schema transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	for idx, stmt := range llmProfileSchemaStatements {
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("apply LLM profile schema statement %d: %w", idx+1, err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit LLM profile schema transaction: %w", err)
+	}
+	return nil
+}
+
+func (a *App) loadOrSeedLLMProfilesConfig(ctx context.Context) error {
+	if a == nil || a.db == nil {
+		return nil
+	}
+
+	defaultProfile, profiles, found, err := a.loadLLMProfilesFromDB(ctx)
+	if err != nil {
+		return err
+	}
+	if found {
+		a.setLLMProfiles(defaultProfile, profiles)
+		return nil
+	}
+
+	cfg := a.getConfigSnapshot()
+	profiles = cfg.EffectiveLLMProfiles()
+	if len(profiles) == 0 {
+		return nil
+	}
+	return a.persistLLMProfilesToDB(ctx, cfg.EffectiveLLMDefaultProfile(), profiles)
+}
+
+func (a *App) loadLLMProfilesFromDB(ctx context.Context) (string, map[string]config.LLMProfile, bool, error) {
+	if a == nil || a.db == nil {
+		return "", nil, false, nil
+	}
+
+	defaultProfile := config.DefaultLLMProfileName
+	var storedDefault string
+	err := a.db.QueryRow(ctx, `SELECT value FROM llm_profile_settings WHERE key = 'default_profile'`).Scan(&storedDefault)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return "", nil, false, fmt.Errorf("load default LLM profile from database: %w", err)
+	}
+	if strings.TrimSpace(storedDefault) != "" {
+		defaultProfile = config.NormalizeLLMProfileName(storedDefault)
+	}
+
+	rows, err := a.db.Query(ctx, `
+		SELECT name, provider, model, base_url, api_key_secret, allowed_scopes, reasoning, thinking
+		FROM llm_profiles
+		ORDER BY name ASC
+	`)
+	if err != nil {
+		return "", nil, false, fmt.Errorf("load LLM profiles from database: %w", err)
+	}
+	defer rows.Close()
+
+	profiles := map[string]config.LLMProfile{}
+	for rows.Next() {
+		var (
+			name             string
+			profile          config.LLMProfile
+			allowedScopesRaw []byte
+			thinking         sql.NullBool
+		)
+		if err := rows.Scan(
+			&name,
+			&profile.Provider,
+			&profile.Model,
+			&profile.BaseURL,
+			&profile.APIKeySecret,
+			&allowedScopesRaw,
+			&profile.Reasoning,
+			&thinking,
+		); err != nil {
+			return "", nil, false, fmt.Errorf("scan LLM profile from database: %w", err)
+		}
+		if len(allowedScopesRaw) > 0 {
+			if err := json.Unmarshal(allowedScopesRaw, &profile.AllowedScopes); err != nil {
+				return "", nil, false, fmt.Errorf("parse allowed scopes for LLM profile %q: %w", name, err)
+			}
+		}
+		if thinking.Valid {
+			value := thinking.Bool
+			profile.Thinking = &value
+		}
+		profiles[config.NormalizeLLMProfileName(name)] = config.NormalizeLLMProfile(profile)
+	}
+	if err := rows.Err(); err != nil {
+		return "", nil, false, fmt.Errorf("iterate LLM profiles from database: %w", err)
+	}
+	if len(profiles) == 0 {
+		return "", nil, false, nil
+	}
+	if _, ok := profiles[defaultProfile]; !ok {
+		defaultProfile = config.DefaultLLMProfileName
+		if _, ok := profiles[defaultProfile]; !ok {
+			names := make([]string, 0, len(profiles))
+			for name := range profiles {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			defaultProfile = names[0]
+		}
+	}
+	return defaultProfile, profiles, true, nil
+}
+
+func (a *App) persistLLMProfilesToDB(ctx context.Context, defaultProfile string, profiles map[string]config.LLMProfile) error {
+	if a == nil || a.db == nil {
+		return nil
+	}
+
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin LLM profile persistence transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := persistLLMProfilesToTx(ctx, tx, defaultProfile, profiles); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit LLM profile persistence transaction: %w", err)
+	}
+	return nil
+}
+
+func persistLLMProfilesToTx(ctx context.Context, tx pgx.Tx, defaultProfile string, profiles map[string]config.LLMProfile) error {
+	defaultProfile = config.NormalizeLLMProfileName(defaultProfile)
+	if defaultProfile == "" {
+		defaultProfile = config.DefaultLLMProfileName
+	}
+	profiles = config.NormalizeLLMProfiles(profiles)
+
+	if _, err := tx.Exec(ctx, `DELETE FROM llm_profiles`); err != nil {
+		return fmt.Errorf("clear LLM profiles: %w", err)
+	}
+
+	names := make([]string, 0, len(profiles))
+	for name := range profiles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		profile := config.NormalizeLLMProfile(profiles[name])
+		allowedScopesJSON, err := json.Marshal(profile.AllowedScopes)
+		if err != nil {
+			return fmt.Errorf("encode allowed scopes for LLM profile %q: %w", name, err)
+		}
+		var thinking any
+		if profile.Thinking != nil {
+			thinking = *profile.Thinking
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO llm_profiles (
+				name, provider, model, base_url, api_key_secret, allowed_scopes, reasoning, thinking, updated_at
+			)
+			VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, NOW())
+		`,
+			name,
+			profile.Provider,
+			profile.Model,
+			profile.BaseURL,
+			profile.APIKeySecret,
+			string(allowedScopesJSON),
+			profile.Reasoning,
+			thinking,
+		); err != nil {
+			return fmt.Errorf("persist LLM profile %q: %w", name, err)
+		}
+	}
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO llm_profile_settings (key, value, updated_at)
+		VALUES ('default_profile', $1, NOW())
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+	`, defaultProfile); err != nil {
+		return fmt.Errorf("persist default LLM profile: %w", err)
+	}
+	return nil
+}
+
+func (a *App) persistLLMProfilesConfig(ctx context.Context, cfg config.Config) error {
+	if err := a.persistLLMProfilesToDB(ctx, cfg.EffectiveLLMDefaultProfile(), cfg.EffectiveLLMProfiles()); err != nil {
+		return err
+	}
 	if a.configPath == "" {
 		return nil
 	}
@@ -413,6 +650,17 @@ func (a *App) persistLLMProfilesConfig(cfg config.Config) error {
 
 	existing["llm_default_profile"] = cfg.EffectiveLLMDefaultProfile()
 	existing["llm_profiles"] = cfg.LLMProfiles
+	for _, legacyKey := range []string{
+		"llm_provider",
+		"gemini_api_key",
+		"gemini_model",
+		"lmstudio_base_url",
+		"lmstudio_api_key",
+		"lmstudio_model",
+		"lmstudio_reasoning",
+	} {
+		delete(existing, legacyKey)
+	}
 
 	contents, err := yaml.Marshal(existing)
 	if err != nil {
@@ -421,15 +669,122 @@ func (a *App) persistLLMProfilesConfig(cfg config.Config) error {
 	return os.WriteFile(a.configPath, contents, 0o644)
 }
 
-func validateLLMProfileConfiguration(name string, profile config.LLMProfile, cfg config.Config) (string, string) {
+func parseGitOpsLLMProfilePlan(binding models.ConfigRepository, directories ...gitOpsLLMProfileDirectory) (*gitOpsLLMProfilePlan, error) {
+	candidates := []gitOpsLLMProfileFileCandidate{}
+	for _, directory := range directories {
+		root := filepath.ToSlash(strings.Trim(directory.root, "/"))
+		for path, content := range directory.files {
+			normalized := filepath.ToSlash(path)
+			rel, ok := relativeConfigPath(normalized, root)
+			if !ok || !isGitOpsLLMProfileRelativePath(rel) {
+				continue
+			}
+			candidates = append(candidates, gitOpsLLMProfileFileCandidate{
+				sourcePath: normalized,
+				content:    content,
+			})
+		}
+	}
+
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+	if binding.ScopeType != models.ConfigRepositoryScopeSystem {
+		return nil, fmt.Errorf("LLM profiles can only be configured from a system config repository")
+	}
+	if len(candidates) > 1 {
+		paths := make([]string, 0, len(candidates))
+		for _, candidate := range candidates {
+			paths = append(paths, candidate.sourcePath)
+		}
+		sort.Strings(paths)
+		return nil, fmt.Errorf("multiple LLM profile GitOps files found: %s", strings.Join(paths, ", "))
+	}
+
+	return parseGitOpsLLMProfileFile(candidates[0].content, candidates[0].sourcePath)
+}
+
+func isGitOpsLLMProfileRelativePath(rel string) bool {
+	switch strings.Trim(filepath.ToSlash(rel), "/") {
+	case "system/llm_profile.yaml", "system/llm_profile.yml", "system/llm_profiles.yaml", "system/llm_profiles.yml":
+		return true
+	default:
+		return false
+	}
+}
+
+func parseGitOpsLLMProfileFile(content, sourcePath string) (*gitOpsLLMProfilePlan, error) {
+	var file llmProfilesRequest
+	if err := yaml.Unmarshal([]byte(content), &file); err != nil {
+		return nil, fmt.Errorf("failed to parse LLM profile GitOps file '%s': %w", sourcePath, err)
+	}
+
+	defaultProfile := strings.TrimSpace(file.DefaultProfile)
+	if defaultProfile == "" {
+		defaultProfile = strings.TrimSpace(file.LLMDefaultProfile)
+	}
+	if defaultProfile == "" {
+		defaultProfile = config.DefaultLLMProfileName
+	}
+	defaultProfile = config.NormalizeLLMProfileName(defaultProfile)
+
+	profiles := map[string]config.LLMProfile{}
+	for name, profile := range file.LLMProfiles {
+		profileName := config.NormalizeLLMProfileName(name)
+		if profileName == "" {
+			return nil, fmt.Errorf("LLM profile GitOps file '%s' contains an empty profile name", sourcePath)
+		}
+		if _, exists := profiles[profileName]; exists {
+			return nil, fmt.Errorf("LLM profile GitOps file '%s' defines profile %q more than once", sourcePath, profileName)
+		}
+		profiles[profileName] = config.NormalizeLLMProfile(profile)
+	}
+	for _, form := range file.Profiles {
+		profileName := config.NormalizeLLMProfileName(form.Name)
+		if profileName == "" {
+			return nil, fmt.Errorf("LLM profile GitOps file '%s' contains a list profile without a name", sourcePath)
+		}
+		if _, exists := profiles[profileName]; exists {
+			return nil, fmt.Errorf("LLM profile GitOps file '%s' defines profile %q more than once", sourcePath, profileName)
+		}
+		profiles[profileName] = profileConfigFromForm(form)
+	}
+	if len(profiles) == 0 {
+		return nil, fmt.Errorf("LLM profile GitOps file '%s' must define at least one profile", sourcePath)
+	}
+	if _, ok := profiles[defaultProfile]; !ok {
+		return nil, fmt.Errorf("LLM profile GitOps file '%s' sets default profile %q but does not define it", sourcePath, defaultProfile)
+	}
+	for name, profile := range profiles {
+		if status, message := validateLLMProfileDefinition(name, profile); status != "valid" {
+			return nil, fmt.Errorf("invalid LLM profile in GitOps file '%s': %s", sourcePath, message)
+		}
+		for _, scope := range profile.AllowedScopes {
+			if strings.TrimSpace(scope) == "" {
+				continue
+			}
+			if _, err := cleanConfigPathSegments(scope, false); err != nil {
+				return nil, fmt.Errorf("invalid allowed scope %q for LLM profile %q in GitOps file '%s': %w", scope, name, sourcePath, err)
+			}
+		}
+	}
+
+	return &gitOpsLLMProfilePlan{
+		defaultProfile: defaultProfile,
+		profiles:       profiles,
+		sourcePath:     sourcePath,
+	}, nil
+}
+
+func validateLLMProfileDefinition(name string, profile config.LLMProfile) (string, string) {
 	profile = config.NormalizeLLMProfile(profile)
 	switch profile.Provider {
 	case config.LLMProviderGemini:
 		if strings.TrimSpace(profile.Model) == "" {
 			return "invalid", fmt.Sprintf("LLM profile %q is missing model", name)
 		}
-		if strings.TrimSpace(resolveLLMProfileAPIKey(cfg, profile)) == "" {
-			return "invalid", fmt.Sprintf("LLM profile %q API key secret %q is not set", name, profile.APIKeySecret)
+		if strings.TrimSpace(profile.APIKeySecret) == "" {
+			return "invalid", fmt.Sprintf("LLM profile %q is missing api_key_secret", name)
 		}
 	case config.LLMProviderLMStudio:
 		if strings.TrimSpace(profile.BaseURL) == "" {
@@ -444,30 +799,23 @@ func validateLLMProfileConfiguration(name string, profile config.LLMProfile, cfg
 	return "valid", ""
 }
 
-func resolveLLMProfileAPIKey(cfg config.Config, profile config.LLMProfile) string {
+func validateLLMProfileConfiguration(name string, profile config.LLMProfile) (string, string) {
+	if status, message := validateLLMProfileDefinition(name, profile); status != "valid" {
+		return status, message
+	}
+	profile = config.NormalizeLLMProfile(profile)
+	if profile.Provider == config.LLMProviderGemini && strings.TrimSpace(resolveLLMProfileAPIKey(profile)) == "" {
+		return "invalid", fmt.Sprintf("LLM profile %q API key secret %q is not set", name, profile.APIKeySecret)
+	}
+	return "valid", ""
+}
+
+func resolveLLMProfileAPIKey(profile config.LLMProfile) string {
 	secretName := strings.TrimSpace(profile.APIKeySecret)
 	if secretName == "" {
-		switch profile.Provider {
-		case config.LLMProviderGemini:
-			return strings.TrimSpace(cfg.GeminiAPIKey)
-		case config.LLMProviderLMStudio:
-			return strings.TrimSpace(cfg.LMStudioAPIKey)
-		default:
-			return ""
-		}
+		return ""
 	}
-
-	switch strings.ToUpper(secretName) {
-	case "GEMINI_API_KEY":
-		return strings.TrimSpace(cfg.GeminiAPIKey)
-	case "LMSTUDIO_API_KEY", "LM_STUDIO_API_KEY", "LM_API_TOKEN":
-		if key := strings.TrimSpace(cfg.LMStudioAPIKey); key != "" {
-			return key
-		}
-		return strings.TrimSpace(os.Getenv("LM_API_TOKEN"))
-	default:
-		return strings.TrimSpace(os.Getenv(secretName))
-	}
+	return strings.TrimSpace(os.Getenv(secretName))
 }
 
 func (a *App) buildRuntimeLLMProfiles(cfg config.Config) (runtimeLLMProfiles, error) {
@@ -484,7 +832,7 @@ func (a *App) buildRuntimeLLMProfiles(cfg config.Config) (runtimeLLMProfiles, er
 			Provider:      normalized.Provider,
 			Model:         normalized.Model,
 			BaseURL:       baseURL,
-			APIKey:        resolveLLMProfileAPIKey(cfg, normalized),
+			APIKey:        resolveLLMProfileAPIKey(normalized),
 			APIKeySecret:  normalized.APIKeySecret,
 			AllowedScopes: append([]string(nil), normalized.AllowedScopes...),
 			Reasoning:     config.EffectiveLLMProfileReasoning(normalized),
@@ -509,7 +857,7 @@ func (a *App) handleListLLMProfiles(w http.ResponseWriter, r *http.Request) {
 	views := make([]llmProfileView, 0, len(names))
 	for _, name := range names {
 		profile := config.NormalizeLLMProfile(profiles[name])
-		status, message := validateLLMProfileConfiguration(name, profile, cfg)
+		status, message := validateLLMProfileConfiguration(name, profile)
 		refs, _ := a.findLLMProfileReferences(name)
 		allowed := config.LLMProfileAllowedInScope(profile, scope)
 		disabledReason := ""
@@ -571,7 +919,7 @@ func (a *App) handleReplaceLLMProfiles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := a.setLLMProfiles(defaultProfile, profiles)
-	if err := a.persistLLMProfilesConfig(cfg); err != nil {
+	if err := a.persistLLMProfilesConfig(r.Context(), cfg); err != nil {
 		http.Error(w, "failed to persist LLM profiles", http.StatusInternalServerError)
 		return
 	}
@@ -598,13 +946,16 @@ func (a *App) handleUpsertLLMProfile(w http.ResponseWriter, r *http.Request) {
 	cfg := a.getConfigSnapshot()
 	defaultProfile := cfg.EffectiveLLMDefaultProfile()
 	profiles := cfg.EffectiveLLMProfiles()
+	if profiles == nil {
+		profiles = map[string]config.LLMProfile{}
+	}
 	profiles[profileName] = profileConfigFromForm(payload)
 	if _, ok := profiles[defaultProfile]; !ok {
 		defaultProfile = profileName
 	}
 
 	cfg = a.setLLMProfiles(defaultProfile, profiles)
-	if err := a.persistLLMProfilesConfig(cfg); err != nil {
+	if err := a.persistLLMProfilesConfig(r.Context(), cfg); err != nil {
 		http.Error(w, "failed to persist LLM profile", http.StatusInternalServerError)
 		return
 	}
@@ -668,7 +1019,7 @@ func (a *App) handleDeleteLLMProfile(w http.ResponseWriter, r *http.Request) {
 
 	delete(profiles, profileName)
 	cfg = a.setLLMProfiles(defaultProfile, profiles)
-	if err := a.persistLLMProfilesConfig(cfg); err != nil {
+	if err := a.persistLLMProfilesConfig(r.Context(), cfg); err != nil {
 		http.Error(w, "failed to persist LLM profile deletion", http.StatusInternalServerError)
 		return
 	}
@@ -688,14 +1039,14 @@ func (a *App) handleTestLLMProfile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "LLM profile not found", http.StatusNotFound)
 		return
 	}
-	if status, message := validateLLMProfileConfiguration(profileName, profile, cfg); status != "valid" {
+	if status, message := validateLLMProfileConfiguration(profileName, profile); status != "valid" {
 		http.Error(w, message, http.StatusBadRequest)
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
-	reply, err := testLLMProfile(ctx, profile, resolveLLMProfileAPIKey(cfg, profile))
+	reply, err := testLLMProfile(ctx, profile, resolveLLMProfileAPIKey(profile))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return

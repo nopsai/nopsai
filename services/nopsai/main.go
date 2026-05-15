@@ -1197,6 +1197,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		"access_role_bindings_synced": 0,
 		"access_grants_synced":        0,
 		"resource_access_synced":      0,
+		"llm_profiles_synced":         0,
 	}
 
 	repoURL := strings.TrimSpace(binding.RepoURL)
@@ -1231,6 +1232,8 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	pipelineRunDir := configRepoJoinPath(basePath, "pipelineruns")
 	configRepositoryDir := configRepoJoinPath(basePath, "config-repositories")
 	accessDir := configRepoJoinPath(basePath, "access")
+	settingDir := configRepoJoinPath(basePath, "setting")
+	settingsDir := configRepoJoinPath(basePath, "settings")
 
 	pipelineFiles, err := a.requestGitBotDirectory(owner, repo, branch, pipelineDir)
 	if err != nil {
@@ -1262,6 +1265,14 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	accessFiles, err := a.requestGitBotDirectory(owner, repo, branch, accessDir)
 	if err != nil {
 		return nil, commitSHA, fmt.Errorf("failed to fetch access manifests: %w", err)
+	}
+	settingFiles, err := a.requestGitBotDirectory(owner, repo, branch, settingDir)
+	if err != nil {
+		return nil, commitSHA, fmt.Errorf("failed to fetch system settings: %w", err)
+	}
+	settingsFiles, err := a.requestGitBotDirectory(owner, repo, branch, settingsDir)
+	if err != nil {
+		return nil, commitSHA, fmt.Errorf("failed to fetch system settings: %w", err)
 	}
 
 	var pipelineRunStructure map[string]*pipelineRunStructureNode
@@ -1372,6 +1383,14 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	}
 
 	accessPlan, err := parseAccessSyncPlan(accessFiles, accessDir, binding, boundFolder)
+	if err != nil {
+		return nil, commitSHA, err
+	}
+	llmProfilePlan, err := parseGitOpsLLMProfilePlan(
+		binding,
+		gitOpsLLMProfileDirectory{root: settingDir, files: settingFiles},
+		gitOpsLLMProfileDirectory{root: settingsDir, files: settingsFiles},
+	)
 	if err != nil {
 		return nil, commitSHA, err
 	}
@@ -1973,9 +1992,18 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	if err := a.syncAccessConfiguration(ctx, tx, binding, accessPlan, commitSHA, details); err != nil {
 		return nil, commitSHA, err
 	}
+	if llmProfilePlan != nil {
+		if err := persistLLMProfilesToTx(ctx, tx, llmProfilePlan.defaultProfile, llmProfilePlan.profiles); err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to sync LLM profiles from '%s': %w", llmProfilePlan.sourcePath, err)
+		}
+		details["llm_profiles_synced"] = len(llmProfilePlan.profiles)
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, commitSHA, fmt.Errorf("failed to commit configuration synchronization transaction: %w", err)
+	}
+	if llmProfilePlan != nil {
+		a.setLLMProfiles(llmProfilePlan.defaultProfile, llmProfilePlan.profiles)
 	}
 
 	log.Info().
@@ -1995,6 +2023,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		Int("access_role_bindings_synced", details["access_role_bindings_synced"]).
 		Int("access_grants_synced", details["access_grants_synced"]).
 		Int("resource_access_synced", details["resource_access_synced"]).
+		Int("llm_profiles_synced", details["llm_profiles_synced"]).
 		Msg("Configuration synchronization from Git completed")
 
 	return details, commitSHA, nil
@@ -3857,6 +3886,9 @@ func main() {
 	if err := ensureResourceAuthorizationSchema(context.Background(), dbpool); err != nil {
 		log.Fatal().Err(err).Msg("Failed to ensure resource authorization schema")
 	}
+	if err := ensureLLMProfileSchema(context.Background(), dbpool); err != nil {
+		log.Fatal().Err(err).Msg("Failed to ensure LLM profile schema")
+	}
 
 	dispatcherAddr := strings.TrimSpace(cfg.DispatcherAddress)
 	if dispatcherAddr == "" {
@@ -3935,6 +3967,9 @@ func main() {
 			Message: "No configuration sync has been requested yet.",
 		},
 		idleTimeout: time.Duration(cfg.IdleTimeoutMinutes) * time.Minute,
+	}
+	if err := app.loadOrSeedLLMProfilesConfig(context.Background()); err != nil {
+		log.Fatal().Err(err).Msg("Failed to load LLM profiles")
 	}
 
 	handler := app.buildHTTPHandler()
