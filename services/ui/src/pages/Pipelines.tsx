@@ -30,6 +30,7 @@ const PIPELINE_DIRECTIVES = [
   'variables',
   'steps',
   'timeout',
+  'llm_profile',
   'llm_output_sharing',
   'llm_content_sharing',
   'llm_content_include',
@@ -51,6 +52,7 @@ const STEP_DIRECTIVES = [
   'script',
   'depends_on',
   'ignore_failure',
+  'llm_profile',
   'llm_output_sharing',
 ];
 
@@ -60,6 +62,7 @@ const TASK_DIRECTIVES = [
   'script',
   'depends_on',
   'ignore_failure',
+  'llm_profile',
   'llm_output_sharing',
   'variables',
 ];
@@ -192,12 +195,13 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   const [autocompleteMeta, setAutocompleteMeta] = useState<{
     secrets: string[];
     variables: string[];
+    llmProfiles: string[];
     reusableSteps: string[];
     secretScopes: Array<{ scope: string; items: string[] }>;
     variableScopes: Array<{ scope: string; items: string[] }>;
     fetchedAt: number;
     loading: boolean;
-  }>({ secrets: [], variables: [], reusableSteps: [], secretScopes: [], variableScopes: [], fetchedAt: 0, loading: false });
+  }>({ secrets: [], variables: [], llmProfiles: [], reusableSteps: [], secretScopes: [], variableScopes: [], fetchedAt: 0, loading: false });
 
   const [editorSuggestion, setEditorSuggestion] = useState<null | {
     title: string;
@@ -497,6 +501,9 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
       const includeValueContext =
         currentKey === 'include' ||
         /^\s*include\s*:\s*[A-Za-z0-9_.-]*$/.test(lineBeforeCursor.trim());
+      const llmProfileValueContext =
+        currentKey === 'llm_profile' ||
+        /^\s*llm_profile\s*:\s*[A-Za-z0-9_.-]*$/.test(lineBeforeCursor.trim());
 
       const resolveStepNames = () => {
         if (!detail) return [];
@@ -515,6 +522,9 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
       if (includeValueContext) {
         title = 'Reusable steps';
         pool = autocompleteMeta.reusableSteps;
+      } else if (llmProfileValueContext) {
+        title = 'LLM profiles';
+        pool = autocompleteMeta.llmProfiles;
       } else if (ancestorKey === 'secrets') {
         title = 'Secrets';
         const base = autocompleteMeta.secretScopes.length
@@ -578,7 +588,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
         .sort((a, b) => a.localeCompare(b));
 
       const hasContext =
-        includeValueContext || ancestorKey === 'secrets' || ancestorKey === 'variables' || ancestorKey === 'depends_on';
+        includeValueContext || llmProfileValueContext || ancestorKey === 'secrets' || ancestorKey === 'variables' || ancestorKey === 'depends_on';
       const isRootLine = !containerBlock && currentIndent === 0 && !currentKey;
       const shouldShow = opts?.force || hasContext || filtered.length > 0 || containerBlock === 'tasks' || containerBlock === 'steps';
 
@@ -627,6 +637,12 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
             .filter(Boolean);
         };
 
+        const normalizeLLMProfiles = (payload: unknown): string[] => {
+          const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null;
+          const profiles = record && Array.isArray(record.profiles) ? record.profiles : payload;
+          return normalize(profiles);
+        };
+
         const normalizeScopeLabel = (entry: unknown) => {
           if (entry == null) return '';
           if (typeof entry === 'string') return entry.trim().replace(/^\/+|\/+$/g, '');
@@ -667,12 +683,13 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
         };
 
         const promise = (async () => {
-          const [secretsResp, varsResp, stepsResp, secretScopesResp, variableScopesResp] = await Promise.all([
+          const [secretsResp, varsResp, stepsResp, secretScopesResp, variableScopesResp, llmProfilesResp] = await Promise.all([
             fetch(buildApiUrl('/v1/secrets')).then(r => (r.ok ? r.json() : [])),
             fetch(buildApiUrl('/v1/variables')).then(r => (r.ok ? r.json() : [])),
             fetch(buildApiUrl('/v1/steps')).then(r => (r.ok ? r.json() : [])),
             fetch(buildApiUrl('/v1/secrets/scopes')).then(r => (r.ok ? r.json() : [])),
             fetch(buildApiUrl('/v1/variables/scopes')).then(r => (r.ok ? r.json() : [])),
+            fetch(buildApiUrl('/v1/system/llm-profiles')).then(r => (r.ok ? r.json() : null)),
           ]);
 
           const scopeList = buildScopeList(secretScopesResp, variableScopesResp);
@@ -695,6 +712,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
           setAutocompleteMeta({
             secrets: normalize(secretsResp),
             variables: normalize(varsResp),
+            llmProfiles: normalizeLLMProfiles(llmProfilesResp),
             reusableSteps: normalize(stepsResp),
             secretScopes,
             variableScopes,

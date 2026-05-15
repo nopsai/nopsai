@@ -47,6 +47,30 @@ func TestNormalizeLMStudioReasoning(t *testing.T) {
 	}
 }
 
+func TestEffectiveLLMProfileReasoningUsesThinking(t *testing.T) {
+	enabled := true
+	profile := NormalizeLLMProfile(LLMProfile{
+		Provider: LLMProviderLMStudio,
+		Thinking: &enabled,
+	})
+
+	if profile.Thinking == nil || !*profile.Thinking {
+		t.Fatalf("NormalizeLLMProfile() did not preserve thinking")
+	}
+	if got := EffectiveLLMProfileReasoning(profile); got != "on" {
+		t.Fatalf("EffectiveLLMProfileReasoning() = %q, want on", got)
+	}
+}
+
+func TestEffectiveLLMProfileReasoningPrefersExplicitReasoning(t *testing.T) {
+	enabled := false
+	profile := LLMProfile{Reasoning: "high", Thinking: &enabled}
+
+	if got := EffectiveLLMProfileReasoning(profile); got != "high" {
+		t.Fatalf("EffectiveLLMProfileReasoning() = %q, want high", got)
+	}
+}
+
 func TestEffectiveServiceJWTConfig(t *testing.T) {
 	cfg := Config{
 		JWTSigningKey: " user-jwt-key ",

@@ -49,6 +49,11 @@ func (a *App) registerGroupRoutes(mux *http.ServeMux) {
 func (a *App) registerSystemRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/system/config", a.handleGetSystemConfig)
 	mux.HandleFunc("PUT /v1/system/config", a.handleUpdateSystemConfig)
+	mux.HandleFunc("GET /v1/system/llm-profiles", a.handleListLLMProfiles)
+	mux.HandleFunc("PUT /v1/system/llm-profiles", a.handleReplaceLLMProfiles)
+	mux.HandleFunc("PUT /v1/system/llm-profiles/{profileName}", a.handleUpsertLLMProfile)
+	mux.HandleFunc("DELETE /v1/system/llm-profiles/{profileName}", a.handleDeleteLLMProfile)
+	mux.HandleFunc("POST /v1/system/llm-profiles/{profileName}/test", a.handleTestLLMProfile)
 	mux.HandleFunc("GET /v1/system/config/sync", a.handleGetConfigSyncStatus)
 	mux.HandleFunc("POST /v1/system/config/sync", a.handleConfigSync)
 	mux.HandleFunc("GET /v1/system/config-repo", a.handleGetGlobalConfigRepository)

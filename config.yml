@@ -32,8 +32,27 @@ log_format: "json" # Options: "console", "json"
 # lmstudio_api_key: "paste-your-lm-studio-token-here"
 # lmstudio_model: "" # Optional: leave empty to auto-discover the first loaded model
 # lmstudio_reasoning: "off" # Supported: "off", "low", "medium", "high", "on"
-# lmstudio_enable_thinking: false # Legacy compatibility fallback; prefer lmstudio_reasoning
 # llm_agent_timeout: "30m" # A global default timeout for all LLM requests
+# llm_default_profile: "standard"
+# llm_profiles:
+#   fast:
+#     provider: "gemini"
+#     model: "gemini-2.5-flash"
+#     api_key_secret: "GEMINI_API_KEY"
+#     allowed_scopes: ["dev", "test", "prod"]
+#   reasoning:
+#     provider: "lmstudio"
+#     model: "qwen3-coder"
+#     base_url: "http://lmstudio:1234"
+#     api_key_secret: "LMSTUDIO_API_KEY"
+#     allowed_scopes: ["dev", "internal"]
+#     thinking: true # Optional LM Studio shortcut for reasoning: "on"
+#     # reasoning: "high" # Optional explicit level: "off", "low", "medium", "high", "on"
+#   standard:
+#     provider: "gemini"
+#     model: "gemini-2.5-pro"
+#     api_key_secret: "GEMINI_API_KEY"
+#     allowed_scopes: ["dev", "test", "prod"]
 
 # # --- Service Addresses ---
 # nopsai_listen_address: "0.0.0.0:8080"

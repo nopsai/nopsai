@@ -97,6 +97,20 @@ function normalizeVariableSuggestionList(payload: unknown): string[] {
   return Array.from(set).sort((a, b) => a.localeCompare(b));
 }
 
+function normalizeLLMProfileSuggestionList(payload: unknown): string[] {
+  const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null;
+  const profiles = record && Array.isArray(record.profiles) ? record.profiles : [];
+  return profiles
+    .map(profile => {
+      if (typeof profile === 'string') return profile.trim();
+      if (!profile || typeof profile !== 'object') return '';
+      const record = profile as Record<string, unknown>;
+      if (record.allowed_in_scope === false) return '';
+      return typeof record.name === 'string' ? record.name.trim() : '';
+    })
+    .filter(Boolean);
+}
+
 function encodeId(id: string) {
   return id.split('/').map(encodeURIComponent).join('/');
 }
@@ -224,10 +238,11 @@ function LabPage() {
   const [autocompleteMeta, setAutocompleteMeta] = useState<{
     secrets: string[];
     variables: string[];
+    llmProfiles: string[];
     reusableSteps: string[];
     fetchedAt: number;
     loading: boolean;
-  }>({ secrets: [], variables: [], reusableSteps: [], fetchedAt: 0, loading: false });
+  }>({ secrets: [], variables: [], llmProfiles: [], reusableSteps: [], fetchedAt: 0, loading: false });
   const autocompleteFetchRef = useRef<{ fetchedAt: number; loadingPromise: Promise<void> | null }>({ fetchedAt: 0, loadingPromise: null });
 
   const [selectedPipelineId, setSelectedPipelineId] = useState(initialSession?.selectedPipelineId ?? '');
@@ -370,6 +385,7 @@ function LabPage() {
     return buildSuggestionItems(suggestionContext, yamlText, {
       secrets: autocompleteMeta.secrets,
       variables: autocompleteMeta.variables,
+      llmProfiles: autocompleteMeta.llmProfiles,
       reusableSteps: autocompleteMeta.reusableSteps,
       pipelineIds,
     });
@@ -416,15 +432,17 @@ function LabPage() {
     try {
       const promise = (async () => {
         const scopeParam = scopeValue ? `?scope=${encodeURIComponent(scopeValue)}` : '';
-        const [secretsResp, varsResp, stepsResp] = await Promise.all([
+        const [secretsResp, varsResp, stepsResp, llmProfilesResp] = await Promise.all([
           fetch(buildApiUrl(`/v1/secrets${scopeParam}`)).then(r => (r.ok ? r.json() : [])),
           fetch(buildApiUrl(`/v1/variables${scopeParam}`)).then(r => (r.ok ? r.json() : [])),
           fetch(buildApiUrl('/v1/steps')).then(r => (r.ok ? r.json() : [])),
+          fetch(buildApiUrl(`/v1/system/llm-profiles${scopeParam}`)).then(r => (r.ok ? r.json() : null)),
         ]);
 
         setAutocompleteMeta({
           secrets: normalizeList(secretsResp),
           variables: normalizeVariableSuggestionList(varsResp),
+          llmProfiles: normalizeLLMProfileSuggestionList(llmProfilesResp),
           reusableSteps: normalizeList(stepsResp),
           fetchedAt: Date.now(),
           loading: false,
@@ -729,6 +747,9 @@ function LabPage() {
       void loadAutocomplete();
     }
     if (suggestionContext?.type === 'variables' && autocompleteMeta.variables.length === 0 && !autocompleteMeta.loading) {
+      void loadAutocomplete();
+    }
+    if (suggestionContext?.type === 'llm_profile' && autocompleteMeta.llmProfiles.length === 0 && !autocompleteMeta.loading) {
       void loadAutocomplete();
     }
     if (suggestionContext?.type === 'include' && autocompleteMeta.reusableSteps.length === 0 && !autocompleteMeta.loading) {

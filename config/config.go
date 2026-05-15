@@ -12,6 +12,8 @@ import (
 const (
 	LLMProviderGemini   = "gemini"
 	LLMProviderLMStudio = "lmstudio"
+
+	DefaultLLMProfileName = "standard"
 )
 
 var validLMStudioReasoningLevels = map[string]struct{}{
@@ -21,6 +23,16 @@ var validLMStudioReasoningLevels = map[string]struct{}{
 	"medium": {},
 	"high":   {},
 	"on":     {},
+}
+
+type LLMProfile struct {
+	Provider      string   `yaml:"provider" json:"provider"`
+	Model         string   `yaml:"model,omitempty" json:"model,omitempty"`
+	BaseURL       string   `yaml:"base_url,omitempty" json:"base_url,omitempty"`
+	APIKeySecret  string   `yaml:"api_key_secret,omitempty" json:"api_key_secret,omitempty"`
+	AllowedScopes []string `yaml:"allowed_scopes,omitempty" json:"allowed_scopes,omitempty"`
+	Reasoning     string   `yaml:"reasoning,omitempty" json:"reasoning,omitempty"`
+	Thinking      *bool    `yaml:"thinking,omitempty" json:"thinking,omitempty"`
 }
 
 // Config holds all configuration for the application.
@@ -53,14 +65,15 @@ type Config struct {
 	DispatcherTLSSecret      string `yaml:"dispatcher_tls_secret" env:"DISPATCHER_TLS_SECRET"`
 	DispatcherTLSServerName  string `yaml:"dispatcher_tls_server_name" env:"DISPATCHER_TLS_SERVER_NAME"`
 
-	LLMProvider            string `yaml:"llm_provider" env:"LLM_PROVIDER"`
-	GeminiAPIKey           string `yaml:"gemini_api_key" env:"GEMINI_API_KEY"`
-	GeminiModel            string `yaml:"gemini_model" env:"GEMINI_MODEL"`
-	LMStudioBaseURL        string `yaml:"lmstudio_base_url" env:"LMSTUDIO_BASE_URL"`
-	LMStudioAPIKey         string `yaml:"lmstudio_api_key" env:"LMSTUDIO_API_KEY"`
-	LMStudioModel          string `yaml:"lmstudio_model" env:"LMSTUDIO_MODEL"`
-	LMStudioReasoning      string `yaml:"lmstudio_reasoning" env:"LMSTUDIO_REASONING"`
-	LMStudioEnableThinking bool   `yaml:"lmstudio_enable_thinking" env:"LMSTUDIO_ENABLE_THINKING"`
+	LLMProvider       string                `yaml:"llm_provider" env:"LLM_PROVIDER"`
+	GeminiAPIKey      string                `yaml:"gemini_api_key" env:"GEMINI_API_KEY"`
+	GeminiModel       string                `yaml:"gemini_model" env:"GEMINI_MODEL"`
+	LMStudioBaseURL   string                `yaml:"lmstudio_base_url" env:"LMSTUDIO_BASE_URL"`
+	LMStudioAPIKey    string                `yaml:"lmstudio_api_key" env:"LMSTUDIO_API_KEY"`
+	LMStudioModel     string                `yaml:"lmstudio_model" env:"LMSTUDIO_MODEL"`
+	LMStudioReasoning string                `yaml:"lmstudio_reasoning" env:"LMSTUDIO_REASONING"`
+	LLMDefaultProfile string                `yaml:"llm_default_profile" env:"LLM_DEFAULT_PROFILE"`
+	LLMProfiles       map[string]LLMProfile `yaml:"llm_profiles" env:"LLM_PROFILES"`
 
 	// Addresses for services to listen on
 	NopsaiListenAddress     string `yaml:"nopsai_listen_address" env:"NOPSAI_LISTEN_ADDRESS"`
@@ -148,6 +161,8 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	config.LLMProvider = NormalizeLLMProvider(config.LLMProvider)
 	config.LMStudioReasoning = NormalizeLMStudioReasoning(config.LMStudioReasoning)
+	config.LLMDefaultProfile = NormalizeLLMProfileName(config.LLMDefaultProfile)
+	config.LLMProfiles = NormalizeLLMProfiles(config.LLMProfiles)
 
 	return config, nil
 }
@@ -167,6 +182,110 @@ func NormalizeLLMProvider(raw string) string {
 
 func (c Config) GetLLMProvider() string {
 	return NormalizeLLMProvider(c.LLMProvider)
+}
+
+func NormalizeLLMProfileName(raw string) string {
+	return strings.TrimSpace(raw)
+}
+
+func NormalizeLLMProfile(profile LLMProfile) LLMProfile {
+	profile.Provider = NormalizeLLMProvider(profile.Provider)
+	profile.Model = strings.TrimSpace(profile.Model)
+	profile.BaseURL = strings.TrimSpace(profile.BaseURL)
+	profile.APIKeySecret = strings.TrimSpace(profile.APIKeySecret)
+	profile.Reasoning = NormalizeLMStudioReasoning(profile.Reasoning)
+
+	scopes := make([]string, 0, len(profile.AllowedScopes))
+	seen := map[string]bool{}
+	for _, scope := range profile.AllowedScopes {
+		normalized := strings.Trim(strings.TrimSpace(scope), "/")
+		if normalized == "" || seen[normalized] {
+			continue
+		}
+		seen[normalized] = true
+		scopes = append(scopes, normalized)
+	}
+	profile.AllowedScopes = scopes
+
+	return profile
+}
+
+func EffectiveLLMProfileReasoning(profile LLMProfile) string {
+	reasoning := NormalizeLMStudioReasoning(profile.Reasoning)
+	if reasoning != "" {
+		return reasoning
+	}
+	if profile.Thinking == nil {
+		return ""
+	}
+	if *profile.Thinking {
+		return "on"
+	}
+	return "off"
+}
+
+func NormalizeLLMProfiles(raw map[string]LLMProfile) map[string]LLMProfile {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	normalized := make(map[string]LLMProfile, len(raw))
+	for name, profile := range raw {
+		profileName := NormalizeLLMProfileName(name)
+		if profileName == "" {
+			continue
+		}
+		normalized[profileName] = NormalizeLLMProfile(profile)
+	}
+	return normalized
+}
+
+func (c Config) EffectiveLLMDefaultProfile() string {
+	if name := NormalizeLLMProfileName(c.LLMDefaultProfile); name != "" {
+		return name
+	}
+	return DefaultLLMProfileName
+}
+
+func (c Config) LegacyLLMProfile() LLMProfile {
+	provider := c.GetLLMProvider()
+	profile := LLMProfile{Provider: provider}
+	switch provider {
+	case LLMProviderLMStudio:
+		profile.Model = strings.TrimSpace(c.LMStudioModel)
+		profile.BaseURL = strings.TrimSpace(c.LMStudioBaseURL)
+		profile.APIKeySecret = "LMSTUDIO_API_KEY"
+		profile.Reasoning = NormalizeLMStudioReasoning(c.LMStudioReasoning)
+	default:
+		profile.Provider = LLMProviderGemini
+		profile.Model = strings.TrimSpace(c.GeminiModel)
+		profile.APIKeySecret = "GEMINI_API_KEY"
+	}
+	return NormalizeLLMProfile(profile)
+}
+
+func (c Config) EffectiveLLMProfiles() map[string]LLMProfile {
+	profiles := NormalizeLLMProfiles(c.LLMProfiles)
+	if len(profiles) == 0 {
+		return map[string]LLMProfile{
+			c.EffectiveLLMDefaultProfile(): c.LegacyLLMProfile(),
+		}
+	}
+
+	return profiles
+}
+
+func LLMProfileAllowedInScope(profile LLMProfile, scope string) bool {
+	if len(profile.AllowedScopes) == 0 {
+		return true
+	}
+	scope = strings.Trim(strings.TrimSpace(scope), "/")
+	for _, allowed := range profile.AllowedScopes {
+		if strings.EqualFold(strings.Trim(strings.TrimSpace(allowed), "/"), scope) {
+			return true
+		}
+	}
+	return false
 }
 
 func NormalizeLMStudioReasoning(raw string) string {

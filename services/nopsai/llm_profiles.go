@@ -1,0 +1,828 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"sort"
+	"strings"
+	"time"
+
+	"nopsai/config"
+	"nopsai/pkg/models"
+	"nopsai/services/nopsai/pkg/validation"
+
+	"github.com/jackc/pgx/v5"
+	"gopkg.in/yaml.v3"
+)
+
+const llmProfilesRuntimeEnv = "NOPSAI_LLM_PROFILES"
+
+type llmProfileForm struct {
+	Name          string   `json:"name"`
+	Provider      string   `json:"provider"`
+	Model         string   `json:"model"`
+	BaseURL       string   `json:"base_url"`
+	APIKeySecret  string   `json:"api_key_secret"`
+	AllowedScopes []string `json:"allowed_scopes"`
+	Reasoning     string   `json:"reasoning"`
+	Thinking      *bool    `json:"thinking,omitempty"`
+}
+
+type llmProfileView struct {
+	llmProfileForm
+	Status         string   `json:"status"`
+	Validation     string   `json:"validation,omitempty"`
+	References     []string `json:"references,omitempty"`
+	AllowedInScope bool     `json:"allowed_in_scope"`
+	DisabledReason string   `json:"disabled_reason,omitempty"`
+}
+
+type llmProfilesResponse struct {
+	DefaultProfile string           `json:"default_profile"`
+	Profiles       []llmProfileView `json:"profiles"`
+}
+
+type llmProfilesRequest struct {
+	DefaultProfile    string                       `json:"default_profile"`
+	LLMDefaultProfile string                       `json:"llm_default_profile"`
+	Profiles          []llmProfileForm             `json:"profiles"`
+	LLMProfiles       map[string]config.LLMProfile `json:"llm_profiles"`
+}
+
+type runtimeLLMProfile struct {
+	Provider      string   `json:"provider"`
+	Model         string   `json:"model,omitempty"`
+	BaseURL       string   `json:"base_url,omitempty"`
+	APIKey        string   `json:"api_key,omitempty"`
+	APIKeySecret  string   `json:"api_key_secret,omitempty"`
+	AllowedScopes []string `json:"allowed_scopes,omitempty"`
+	Reasoning     string   `json:"reasoning,omitempty"`
+	Thinking      *bool    `json:"thinking,omitempty"`
+}
+
+type runtimeLLMProfiles struct {
+	DefaultProfile string                       `json:"default_profile"`
+	Profiles       map[string]runtimeLLMProfile `json:"profiles"`
+}
+
+func profileFormFromConfig(name string, profile config.LLMProfile) llmProfileForm {
+	return llmProfileForm{
+		Name:          name,
+		Provider:      profile.Provider,
+		Model:         profile.Model,
+		BaseURL:       profile.BaseURL,
+		APIKeySecret:  profile.APIKeySecret,
+		AllowedScopes: append([]string(nil), profile.AllowedScopes...),
+		Reasoning:     profile.Reasoning,
+		Thinking:      profile.Thinking,
+	}
+}
+
+func profileConfigFromForm(form llmProfileForm) config.LLMProfile {
+	return config.NormalizeLLMProfile(config.LLMProfile{
+		Provider:      form.Provider,
+		Model:         form.Model,
+		BaseURL:       form.BaseURL,
+		APIKeySecret:  form.APIKeySecret,
+		AllowedScopes: form.AllowedScopes,
+		Reasoning:     form.Reasoning,
+		Thinking:      form.Thinking,
+	})
+}
+
+func (a *App) llmProfilesSnapshot() (string, map[string]config.LLMProfile) {
+	cfg := a.getConfigSnapshot()
+	return cfg.EffectiveLLMDefaultProfile(), cfg.EffectiveLLMProfiles()
+}
+
+func (a *App) llmProfileCatalogForValidation(cfg config.Config) (string, map[string]validation.LLMProfileDefinition) {
+	defaultProfile := cfg.EffectiveLLMDefaultProfile()
+	effectiveProfiles := cfg.EffectiveLLMProfiles()
+	profiles := make(map[string]validation.LLMProfileDefinition, len(effectiveProfiles))
+	for name, profile := range effectiveProfiles {
+		profiles[name] = validation.LLMProfileDefinition{AllowedScopes: append([]string(nil), profile.AllowedScopes...)}
+	}
+	return defaultProfile, profiles
+}
+
+func (a *App) validatePipelineLLMProfiles(pipeline *models.Pipeline, scope string) error {
+	cfg := a.getConfigSnapshot()
+	defaultProfile, profiles := a.llmProfileCatalogForValidation(cfg)
+	if err := validation.ValidatePipelineLLMProfiles(pipeline, validation.LLMProfileValidationOptions{
+		DefaultProfile: defaultProfile,
+		Profiles:       profiles,
+		Scope:          scope,
+	}); err != nil {
+		return err
+	}
+
+	effectiveProfiles := cfg.EffectiveLLMProfiles()
+	for name := range collectResolvedLLMProfiles(pipeline, defaultProfile) {
+		profile := effectiveProfiles[name]
+		status, message := validateLLMProfileConfiguration(name, profile, cfg)
+		if status != "valid" {
+			if message == "" {
+				message = fmt.Sprintf("LLM profile %q is invalid", name)
+			}
+			return errors.New(message)
+		}
+	}
+	return nil
+}
+
+func collectResolvedLLMProfiles(pipeline *models.Pipeline, defaultProfile string) map[string]bool {
+	used := map[string]bool{}
+	if pipeline == nil {
+		return used
+	}
+	pipelineProfile := strings.TrimSpace(pipeline.LLMProfile)
+	if pipelineProfile == "" {
+		pipelineProfile = strings.TrimSpace(defaultProfile)
+	}
+	if pipelineProfile != "" {
+		used[pipelineProfile] = true
+	}
+	for _, step := range pipeline.Steps {
+		stepProfile := strings.TrimSpace(step.GetLLMProfile())
+		if stepProfile == "" {
+			stepProfile = pipelineProfile
+		}
+		if stepProfile != "" {
+			used[stepProfile] = true
+		}
+		for _, task := range step.GetTasks() {
+			taskProfile := strings.TrimSpace(task.LLMProfile)
+			if taskProfile == "" {
+				taskProfile = stepProfile
+			}
+			if taskProfile != "" {
+				used[taskProfile] = true
+			}
+		}
+	}
+	return used
+}
+
+func collectExplicitLLMProfileReferencesFromPipeline(pipeline *models.Pipeline, profileName, prefix string) []string {
+	var refs []string
+	if pipeline == nil {
+		return refs
+	}
+	if strings.EqualFold(strings.TrimSpace(pipeline.LLMProfile), profileName) {
+		refs = append(refs, prefix)
+	}
+	for _, step := range pipeline.Steps {
+		stepName := strings.TrimSpace(step.GetName())
+		if stepName == "" {
+			stepName = "unknown"
+		}
+		stepRef := fmt.Sprintf("%s step %q", prefix, stepName)
+		if strings.EqualFold(strings.TrimSpace(step.GetLLMProfile()), profileName) {
+			refs = append(refs, stepRef)
+		}
+		for _, task := range step.GetTasks() {
+			taskName := strings.TrimSpace(task.Name)
+			if taskName == "" {
+				taskName = "unknown"
+			}
+			if strings.EqualFold(strings.TrimSpace(task.LLMProfile), profileName) {
+				refs = append(refs, fmt.Sprintf("%s task %q", stepRef, taskName))
+			}
+		}
+	}
+	return refs
+}
+
+func replaceLLMProfileInPipeline(pipeline *models.Pipeline, oldProfile, newProfile string) bool {
+	changed := false
+	if pipeline == nil {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(pipeline.LLMProfile), oldProfile) {
+		pipeline.LLMProfile = newProfile
+		changed = true
+	}
+	for i := range pipeline.Steps {
+		if strings.EqualFold(strings.TrimSpace(pipeline.Steps[i].GetLLMProfile()), oldProfile) {
+			pipeline.Steps[i].SetLLMProfile(newProfile)
+			changed = true
+		}
+		if taskStep, ok := pipeline.Steps[i].AsTaskStep(); ok {
+			for j := range taskStep.Tasks {
+				if strings.EqualFold(strings.TrimSpace(taskStep.Tasks[j].LLMProfile), oldProfile) {
+					taskStep.Tasks[j].LLMProfile = newProfile
+					changed = true
+				}
+			}
+		}
+	}
+	return changed
+}
+
+func (a *App) findLLMProfileReferences(profileName string) ([]string, error) {
+	if a.db == nil {
+		return nil, nil
+	}
+
+	var refs []string
+	rows, err := a.db.Query(context.Background(), "SELECT path, name, definition FROM pipelines ORDER BY path ASC, name ASC")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var pathPart, namePart, definition string
+		if err := rows.Scan(&pathPart, &namePart, &definition); err != nil {
+			return nil, err
+		}
+		var pipeline models.Pipeline
+		if err := yaml.Unmarshal([]byte(definition), &pipeline); err != nil {
+			refs = append(refs, fmt.Sprintf("pipeline %s (unreadable YAML)", buildPipelineIdentifier(pathPart, namePart)))
+			continue
+		}
+		refs = append(refs, collectExplicitLLMProfileReferencesFromPipeline(&pipeline, profileName, "pipeline "+buildPipelineIdentifier(pathPart, namePart))...)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	stepRows, err := a.db.Query(context.Background(), "SELECT path, name, definition FROM steps ORDER BY path ASC, name ASC")
+	if err != nil {
+		return nil, err
+	}
+	defer stepRows.Close()
+	for stepRows.Next() {
+		var pathPart, namePart, definition string
+		if err := stepRows.Scan(&pathPart, &namePart, &definition); err != nil {
+			return nil, err
+		}
+		var step models.PipelineStep
+		stepID := buildPipelineIdentifier(pathPart, namePart)
+		if err := yaml.Unmarshal([]byte(definition), &step); err != nil {
+			refs = append(refs, fmt.Sprintf("step %s (unreadable YAML)", stepID))
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(step.GetLLMProfile()), profileName) {
+			refs = append(refs, "step "+stepID)
+		}
+		for _, task := range step.GetTasks() {
+			if strings.EqualFold(strings.TrimSpace(task.LLMProfile), profileName) {
+				refs = append(refs, fmt.Sprintf("step %s task %q", stepID, task.Name))
+			}
+		}
+	}
+	if err := stepRows.Err(); err != nil {
+		return nil, err
+	}
+
+	sort.Strings(refs)
+	return refs, nil
+}
+
+func (a *App) migrateLLMProfileReferences(oldProfile, newProfile string) error {
+	if a.db == nil {
+		return nil
+	}
+
+	ctx := context.Background()
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	pipelineRows, err := tx.Query(ctx, "SELECT path, name, definition FROM pipelines")
+	if err != nil {
+		return err
+	}
+	type pipelineUpdate struct {
+		path       string
+		name       string
+		definition string
+	}
+	var pipelineUpdates []pipelineUpdate
+	for pipelineRows.Next() {
+		var pathPart, namePart, definition string
+		if err := pipelineRows.Scan(&pathPart, &namePart, &definition); err != nil {
+			pipelineRows.Close()
+			return err
+		}
+		var pipeline models.Pipeline
+		if err := yaml.Unmarshal([]byte(definition), &pipeline); err != nil {
+			pipelineRows.Close()
+			return err
+		}
+		if replaceLLMProfileInPipeline(&pipeline, oldProfile, newProfile) {
+			nextDef, err := yaml.Marshal(&pipeline)
+			if err != nil {
+				pipelineRows.Close()
+				return err
+			}
+			pipelineUpdates = append(pipelineUpdates, pipelineUpdate{path: pathPart, name: namePart, definition: string(nextDef)})
+		}
+	}
+	if err := pipelineRows.Err(); err != nil {
+		pipelineRows.Close()
+		return err
+	}
+	pipelineRows.Close()
+
+	for _, update := range pipelineUpdates {
+		if _, err := tx.Exec(ctx, "UPDATE pipelines SET definition = $1, updated_at = NOW() WHERE path = $2 AND name = $3", update.definition, update.path, update.name); err != nil {
+			return err
+		}
+	}
+
+	stepRows, err := tx.Query(ctx, "SELECT path, name, definition FROM steps")
+	if err != nil {
+		return err
+	}
+	type stepUpdate struct {
+		path       string
+		name       string
+		definition string
+	}
+	var stepUpdates []stepUpdate
+	for stepRows.Next() {
+		var pathPart, namePart, definition string
+		if err := stepRows.Scan(&pathPart, &namePart, &definition); err != nil {
+			stepRows.Close()
+			return err
+		}
+		var step models.PipelineStep
+		if err := yaml.Unmarshal([]byte(definition), &step); err != nil {
+			stepRows.Close()
+			return err
+		}
+		wrapper := models.Pipeline{Steps: []models.PipelineStep{step}}
+		if replaceLLMProfileInPipeline(&wrapper, oldProfile, newProfile) {
+			nextDef, err := yaml.Marshal(wrapper.Steps[0])
+			if err != nil {
+				stepRows.Close()
+				return err
+			}
+			stepUpdates = append(stepUpdates, stepUpdate{path: pathPart, name: namePart, definition: string(nextDef)})
+		}
+	}
+	if err := stepRows.Err(); err != nil {
+		stepRows.Close()
+		return err
+	}
+	stepRows.Close()
+
+	for _, update := range stepUpdates {
+		if _, err := tx.Exec(ctx, "UPDATE steps SET definition = $1, updated_at = NOW() WHERE path = $2 AND name = $3", update.definition, update.path, update.name); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit(ctx)
+}
+
+func (a *App) setLLMProfiles(defaultProfile string, profiles map[string]config.LLMProfile) config.Config {
+	a.cfgMu.Lock()
+	defer a.cfgMu.Unlock()
+
+	a.cfg.LLMDefaultProfile = config.NormalizeLLMProfileName(defaultProfile)
+	if a.cfg.LLMDefaultProfile == "" {
+		a.cfg.LLMDefaultProfile = config.DefaultLLMProfileName
+	}
+	a.cfg.LLMProfiles = config.NormalizeLLMProfiles(profiles)
+	return *a.cfg
+}
+
+func (a *App) persistLLMProfilesConfig(cfg config.Config) error {
+	if a.configPath == "" {
+		return nil
+	}
+
+	existing := map[string]interface{}{}
+	if contents, err := os.ReadFile(a.configPath); err == nil {
+		if len(contents) > 0 {
+			_ = yaml.Unmarshal(contents, &existing)
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	existing["llm_default_profile"] = cfg.EffectiveLLMDefaultProfile()
+	existing["llm_profiles"] = cfg.LLMProfiles
+
+	contents, err := yaml.Marshal(existing)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(a.configPath, contents, 0o644)
+}
+
+func validateLLMProfileConfiguration(name string, profile config.LLMProfile, cfg config.Config) (string, string) {
+	profile = config.NormalizeLLMProfile(profile)
+	switch profile.Provider {
+	case config.LLMProviderGemini:
+		if strings.TrimSpace(profile.Model) == "" {
+			return "invalid", fmt.Sprintf("LLM profile %q is missing model", name)
+		}
+		if strings.TrimSpace(resolveLLMProfileAPIKey(cfg, profile)) == "" {
+			return "invalid", fmt.Sprintf("LLM profile %q API key secret %q is not set", name, profile.APIKeySecret)
+		}
+	case config.LLMProviderLMStudio:
+		if strings.TrimSpace(profile.BaseURL) == "" {
+			return "invalid", fmt.Sprintf("LLM profile %q is missing base_url", name)
+		}
+		if !config.IsValidLMStudioReasoning(profile.Reasoning) {
+			return "invalid", fmt.Sprintf("LLM profile %q has invalid reasoning setting %q", name, profile.Reasoning)
+		}
+	default:
+		return "invalid", fmt.Sprintf("LLM profile %q uses unsupported provider %q", name, profile.Provider)
+	}
+	return "valid", ""
+}
+
+func resolveLLMProfileAPIKey(cfg config.Config, profile config.LLMProfile) string {
+	secretName := strings.TrimSpace(profile.APIKeySecret)
+	if secretName == "" {
+		switch profile.Provider {
+		case config.LLMProviderGemini:
+			return strings.TrimSpace(cfg.GeminiAPIKey)
+		case config.LLMProviderLMStudio:
+			return strings.TrimSpace(cfg.LMStudioAPIKey)
+		default:
+			return ""
+		}
+	}
+
+	switch strings.ToUpper(secretName) {
+	case "GEMINI_API_KEY":
+		return strings.TrimSpace(cfg.GeminiAPIKey)
+	case "LMSTUDIO_API_KEY", "LM_STUDIO_API_KEY", "LM_API_TOKEN":
+		if key := strings.TrimSpace(cfg.LMStudioAPIKey); key != "" {
+			return key
+		}
+		return strings.TrimSpace(os.Getenv("LM_API_TOKEN"))
+	default:
+		return strings.TrimSpace(os.Getenv(secretName))
+	}
+}
+
+func (a *App) buildRuntimeLLMProfiles(cfg config.Config) (runtimeLLMProfiles, error) {
+	defaultProfile := cfg.EffectiveLLMDefaultProfile()
+	effectiveProfiles := cfg.EffectiveLLMProfiles()
+	profiles := make(map[string]runtimeLLMProfile, len(effectiveProfiles))
+	for name, profile := range effectiveProfiles {
+		normalized := config.NormalizeLLMProfile(profile)
+		baseURL := normalized.BaseURL
+		if normalized.Provider == config.LLMProviderLMStudio {
+			baseURL = containerReachableLMStudioBaseURL(baseURL)
+		}
+		profiles[name] = runtimeLLMProfile{
+			Provider:      normalized.Provider,
+			Model:         normalized.Model,
+			BaseURL:       baseURL,
+			APIKey:        resolveLLMProfileAPIKey(cfg, normalized),
+			APIKeySecret:  normalized.APIKeySecret,
+			AllowedScopes: append([]string(nil), normalized.AllowedScopes...),
+			Reasoning:     config.EffectiveLLMProfileReasoning(normalized),
+			Thinking:      normalized.Thinking,
+		}
+	}
+	return runtimeLLMProfiles{DefaultProfile: defaultProfile, Profiles: profiles}, nil
+}
+
+func (a *App) handleListLLMProfiles(w http.ResponseWriter, r *http.Request) {
+	cfg := a.getConfigSnapshot()
+	defaultProfile := cfg.EffectiveLLMDefaultProfile()
+	profiles := cfg.EffectiveLLMProfiles()
+	scope := strings.TrimSpace(r.URL.Query().Get("scope"))
+
+	names := make([]string, 0, len(profiles))
+	for name := range profiles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	views := make([]llmProfileView, 0, len(names))
+	for _, name := range names {
+		profile := config.NormalizeLLMProfile(profiles[name])
+		status, message := validateLLMProfileConfiguration(name, profile, cfg)
+		refs, _ := a.findLLMProfileReferences(name)
+		allowed := config.LLMProfileAllowedInScope(profile, scope)
+		disabledReason := ""
+		if scope != "" && !allowed {
+			disabledReason = fmt.Sprintf("LLM profile %q is not allowed in scope %q", name, scope)
+		}
+		views = append(views, llmProfileView{
+			llmProfileForm: profileFormFromConfig(name, profile),
+			Status:         status,
+			Validation:     message,
+			References:     refs,
+			AllowedInScope: allowed,
+			DisabledReason: disabledReason,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(llmProfilesResponse{DefaultProfile: defaultProfile, Profiles: views})
+}
+
+func (a *App) handleReplaceLLMProfiles(w http.ResponseWriter, r *http.Request) {
+	var payload llmProfilesRequest
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "invalid LLM profile payload", http.StatusBadRequest)
+		return
+	}
+
+	defaultProfile := strings.TrimSpace(payload.DefaultProfile)
+	if defaultProfile == "" {
+		defaultProfile = strings.TrimSpace(payload.LLMDefaultProfile)
+	}
+	if defaultProfile == "" {
+		defaultProfile = config.DefaultLLMProfileName
+	}
+
+	profiles := map[string]config.LLMProfile{}
+	for name, profile := range payload.LLMProfiles {
+		profileName := config.NormalizeLLMProfileName(name)
+		if profileName == "" {
+			continue
+		}
+		profiles[profileName] = config.NormalizeLLMProfile(profile)
+	}
+	for _, form := range payload.Profiles {
+		profileName := config.NormalizeLLMProfileName(form.Name)
+		if profileName == "" {
+			http.Error(w, "profile name is required", http.StatusBadRequest)
+			return
+		}
+		profiles[profileName] = profileConfigFromForm(form)
+	}
+	if len(profiles) == 0 {
+		http.Error(w, "at least one LLM profile is required", http.StatusBadRequest)
+		return
+	}
+	if _, ok := profiles[defaultProfile]; !ok {
+		http.Error(w, fmt.Sprintf("default LLM profile %q is not configured", defaultProfile), http.StatusBadRequest)
+		return
+	}
+
+	cfg := a.setLLMProfiles(defaultProfile, profiles)
+	if err := a.persistLLMProfilesConfig(cfg); err != nil {
+		http.Error(w, "failed to persist LLM profiles", http.StatusInternalServerError)
+		return
+	}
+	a.handleListLLMProfiles(w, r)
+}
+
+func (a *App) handleUpsertLLMProfile(w http.ResponseWriter, r *http.Request) {
+	profileName := config.NormalizeLLMProfileName(r.PathValue("profileName"))
+	if profileName == "" {
+		http.Error(w, "profile name is required", http.StatusBadRequest)
+		return
+	}
+
+	var payload llmProfileForm
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "invalid LLM profile payload", http.StatusBadRequest)
+		return
+	}
+	if payload.Name != "" && !strings.EqualFold(strings.TrimSpace(payload.Name), profileName) {
+		http.Error(w, "profile name in path and payload must match", http.StatusBadRequest)
+		return
+	}
+
+	cfg := a.getConfigSnapshot()
+	defaultProfile := cfg.EffectiveLLMDefaultProfile()
+	profiles := cfg.EffectiveLLMProfiles()
+	profiles[profileName] = profileConfigFromForm(payload)
+	if _, ok := profiles[defaultProfile]; !ok {
+		defaultProfile = profileName
+	}
+
+	cfg = a.setLLMProfiles(defaultProfile, profiles)
+	if err := a.persistLLMProfilesConfig(cfg); err != nil {
+		http.Error(w, "failed to persist LLM profile", http.StatusInternalServerError)
+		return
+	}
+	a.handleListLLMProfiles(w, r)
+}
+
+func (a *App) handleDeleteLLMProfile(w http.ResponseWriter, r *http.Request) {
+	profileName := config.NormalizeLLMProfileName(r.PathValue("profileName"))
+	if profileName == "" {
+		http.Error(w, "profile name is required", http.StatusBadRequest)
+		return
+	}
+
+	cfg := a.getConfigSnapshot()
+	defaultProfile := cfg.EffectiveLLMDefaultProfile()
+	if strings.EqualFold(profileName, defaultProfile) {
+		http.Error(w, "default LLM profile cannot be deleted while active", http.StatusBadRequest)
+		return
+	}
+
+	profiles := cfg.EffectiveLLMProfiles()
+	if _, ok := profiles[profileName]; !ok {
+		http.Error(w, "LLM profile not found", http.StatusNotFound)
+		return
+	}
+
+	refs, err := a.findLLMProfileReferences(profileName)
+	if err != nil {
+		http.Error(w, "failed to inspect LLM profile references", http.StatusInternalServerError)
+		return
+	}
+	force := strings.EqualFold(r.URL.Query().Get("force"), "true")
+	migrateTo := config.NormalizeLLMProfileName(r.URL.Query().Get("migrate_to"))
+	if len(refs) > 0 {
+		if !force {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"error":      "LLM profile is still referenced",
+				"references": refs,
+			})
+			return
+		}
+		if migrateTo == "" {
+			http.Error(w, "migrate_to is required when forcing deletion of a used LLM profile", http.StatusBadRequest)
+			return
+		}
+		if strings.EqualFold(migrateTo, profileName) {
+			http.Error(w, "migrate_to must be a different LLM profile", http.StatusBadRequest)
+			return
+		}
+		if _, ok := profiles[migrateTo]; !ok {
+			http.Error(w, fmt.Sprintf("migration target LLM profile %q is not configured", migrateTo), http.StatusBadRequest)
+			return
+		}
+		if err := a.migrateLLMProfileReferences(profileName, migrateTo); err != nil {
+			http.Error(w, "failed to migrate LLM profile references", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	delete(profiles, profileName)
+	cfg = a.setLLMProfiles(defaultProfile, profiles)
+	if err := a.persistLLMProfilesConfig(cfg); err != nil {
+		http.Error(w, "failed to persist LLM profile deletion", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleTestLLMProfile(w http.ResponseWriter, r *http.Request) {
+	profileName := config.NormalizeLLMProfileName(r.PathValue("profileName"))
+	if profileName == "" {
+		http.Error(w, "profile name is required", http.StatusBadRequest)
+		return
+	}
+	cfg := a.getConfigSnapshot()
+	profiles := cfg.EffectiveLLMProfiles()
+	profile, ok := profiles[profileName]
+	if !ok {
+		http.Error(w, "LLM profile not found", http.StatusNotFound)
+		return
+	}
+	if status, message := validateLLMProfileConfiguration(profileName, profile, cfg); status != "valid" {
+		http.Error(w, message, http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	reply, err := testLLMProfile(ctx, profile, resolveLLMProfileAPIKey(cfg, profile))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"status": "ok",
+		"reply":  reply,
+	})
+}
+
+func testLLMProfile(ctx context.Context, profile config.LLMProfile, apiKey string) (string, error) {
+	profile = config.NormalizeLLMProfile(profile)
+	switch profile.Provider {
+	case config.LLMProviderGemini:
+		return testGeminiProfile(ctx, profile, apiKey)
+	case config.LLMProviderLMStudio:
+		return testLMStudioProfile(ctx, profile, apiKey)
+	default:
+		return "", fmt.Errorf("unsupported LLM provider: %s", profile.Provider)
+	}
+}
+
+func testGeminiProfile(ctx context.Context, profile config.LLMProfile, apiKey string) (string, error) {
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", profile.Model, apiKey)
+	payload := models.GeminiRequest{
+		Contents: []models.Content{{Parts: []models.Part{{Text: "reply ok"}}}},
+	}
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payloadBytes))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("gemini api returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+	var geminiResp models.GeminiResponse
+	if err := json.Unmarshal(body, &geminiResp); err != nil {
+		return "", err
+	}
+	if len(geminiResp.Candidates) == 0 || len(geminiResp.Candidates[0].Content.Parts) == 0 {
+		return "", fmt.Errorf("gemini returned an empty response")
+	}
+	return strings.TrimSpace(geminiResp.Candidates[0].Content.Parts[0].Text), nil
+}
+
+func testLMStudioProfile(ctx context.Context, profile config.LLMProfile, apiKey string) (string, error) {
+	payload := struct {
+		Model     string `json:"model,omitempty"`
+		Input     string `json:"input"`
+		Reasoning string `json:"reasoning,omitempty"`
+		Store     bool   `json:"store"`
+	}{
+		Model:     profile.Model,
+		Input:     "reply ok",
+		Reasoning: config.EffectiveLLMProfileReasoning(profile),
+		Store:     false,
+	}
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, buildNopsaiLMStudioChatURL(profile.BaseURL), bytes.NewReader(payloadBytes))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if strings.TrimSpace(apiKey) != "" {
+		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiKey))
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("lm studio api returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+	var lmStudioResp struct {
+		Output []struct {
+			Type    string `json:"type"`
+			Content string `json:"content"`
+		} `json:"output"`
+	}
+	if err := json.Unmarshal(body, &lmStudioResp); err != nil {
+		return "", err
+	}
+	for _, item := range lmStudioResp.Output {
+		if item.Type == "message" && strings.TrimSpace(item.Content) != "" {
+			return strings.TrimSpace(item.Content), nil
+		}
+	}
+	return "", fmt.Errorf("lm studio returned an empty response")
+}
+
+func buildNopsaiLMStudioChatURL(baseURL string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	lower := strings.ToLower(trimmed)
+	switch {
+	case strings.HasSuffix(lower, "/api/v1/chat"):
+		return trimmed
+	case strings.HasSuffix(lower, "/api/v1"):
+		return trimmed + "/chat"
+	default:
+		return trimmed + "/api/v1/chat"
+	}
+}
+
+func writeLLMProfileStoreError(w http.ResponseWriter, err error) {
+	switch {
+	case err == nil:
+		return
+	case err == pgx.ErrNoRows:
+		http.Error(w, "LLM profile not found", http.StatusNotFound)
+	default:
+		http.Error(w, "LLM profile request failed", http.StatusInternalServerError)
+	}
+}
