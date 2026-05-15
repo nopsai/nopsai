@@ -1964,16 +1964,6 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 	triggerEventID := strings.TrimSpace(gitContext["trigger_event_id"])
 	agentContainerName := buildAgentContainerName(pipeline.Name, repoName, triggerEventID, runID)
 	preferredRunnerID := strings.TrimSpace(parentRunnerID)
-	if preferredRunnerID != "" {
-		if _, err := a.authorizeRunRuntimeResourceUse(ctx, runID, gitContext, "runner.use", grantResourceRunner, preferredRunnerID); err != nil {
-			log.Error().Err(err).Str("run_id", runID).Str("runner_id", preferredRunnerID).Msg("Run is not allowed to use preferred runner")
-			a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", err.Error(), runID)
-			if gitContext["repo_owner"] != "" {
-				a.notifyGitBotOfFinalStatus("failure", "", "", err.Error(), gitContext)
-			}
-			return
-		}
-	}
 
 	secretsJSON, err := json.Marshal(secrets)
 	if err != nil {
@@ -2081,7 +2071,9 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 		NopsaiApiUrl:       strings.TrimSpace(a.cfg.AgentNopsaiAPIURL),
 		TriggerEventId:     triggerEventID,
 		RunnerAffinityKey:  affinityKey,
-		PreferredRunnerId:  preferredRunnerID,
+		// Parent runner affinity is a locality hint. Scope routing remains the
+		// eligibility boundary, so child runs can use any runner in the route.
+		PreferredRunnerId: preferredRunnerID,
 	}
 
 	resp, err := a.dispatcher.SubmitJob(ctx, job)
