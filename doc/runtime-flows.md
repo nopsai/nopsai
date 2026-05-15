@@ -210,6 +210,7 @@ Rerun:
    - `scopes/`
    - `pipelineruns/`
    - `config-repositories/`
+   - `setting/` and `settings/`
 5. It parses and validates each file class:
    - pipelines must parse and pass pipeline validation
    - reusable steps must parse and have matching names
@@ -218,6 +219,7 @@ Rerun:
    - legacy `pipelineruns/structure.yaml` becomes the run-group tree for groups owned by that repo
    - `config-repositories/groups/<group>.yaml` becomes a group config repo binding and group shell
    - `config-repositories/groups/structure.yaml` and `config-repositories/groups/<group>/structure.yaml` place repositories under group shells and can define inline group repo `config:` blocks
+   - `setting/system/llm_profile.yaml` becomes the system LLM profile registry, only from a system/global config repo
 6. System/global repositories are synced before group repositories during sync-all, so newly defined group bindings can be used immediately.
 7. Group-scoped resources are normalized under the bound group before writing.
 8. It refuses to overwrite resources that are unmanaged or already managed by an unrelated config repository; delegated child group repos can override parent-managed resources in their group.
@@ -225,7 +227,7 @@ Rerun:
 10. It prunes rows managed by the same config repository that disappeared from the repo.
 11. Legacy global `pipelineruns/structure.yaml` is ignored for groups delegated via `config-repositories/groups`; colocated group structure under `config-repositories/groups` is still applied.
 12. It does not prune user-created groups, even when syncing the run-group structure.
-12. It records sync status per config repository for the UI.
+13. It records sync status per config repository for the UI.
 
 ## 13. Failure Boundaries
 

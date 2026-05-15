@@ -1,191 +1,172 @@
-# LLM Model Selection
+# LLM Profiles
 
-This document describes a recommended model for letting Nopsai pipelines choose
-different LLM models for different execution scopes.
+Nopsai uses named LLM profiles for all model selection. Pipelines do not set raw
+provider credentials or model configuration directly; they reference approved
+profile names.
 
-## Recommendation
+## Configuration
 
-Use profile-based model selection:
-
-- Define allowed LLM profiles centrally.
-- Let pipelines, steps, and tasks reference those profiles by name.
-- Resolve the active profile using inheritance.
-- Keep provider credentials and raw model IDs under operator control.
-
-This gives pipeline authors useful control without letting every pipeline pick
-arbitrary providers, models, costs, or data-handling behavior.
-
-## Why This Helps
-
-Different pipeline work has different model requirements:
-
-- Fast triage, classification, and summarization can use a cheaper model.
-- Code review, security checks, and migration analysis may need a stronger model.
-- Repository-wide inspection may need a larger-context model.
-- Sensitive or production-scoped pipelines may need a restricted approved model.
-
-Per-scope model selection can reduce cost and latency while reserving stronger
-models for steps where they materially improve results.
-
-## Configuration Shape
-
-Recommended pipeline YAML:
+Define bootstrap profiles in `config.yml`, manage them from **System -> LLM
+Profiles**, or manage them with GitOps from a system config repository at
+`setting/system/llm_profile.yaml`. On startup, configured profiles seed the
+database when no database profiles exist yet. After that, the database is
+authoritative for UI/API changes unless the GitOps file is present; when it is
+present, config sync writes that file into the database and refreshes the
+running profile registry.
 
 ```yaml
-name: repo-review
-container_image: ubuntu:latest
-
-llm_profile: standard
-
-steps:
-  - name: quick-triage
-    llm_profile: fast
-    goal: Classify the change risk.
-
-  - name: deep-review
-    llm_profile: reasoning
-    tasks:
-      - name: inspect-code
-        goal: Review risky changed files carefully.
-
-      - name: summarize
-        llm_profile: fast
-        goal: Summarize the findings for the pull request.
-```
-
-Suggested model fields:
-
-```go
-type Pipeline struct {
-    // existing fields...
-    LlmProfile string `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
-}
-
-type BaseStep struct {
-    // existing fields...
-    LlmProfile string `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
-}
-
-type Task struct {
-    // existing fields...
-    LlmProfile string `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
-}
-```
-
-The first implementation can map profile names to Gemini model IDs in service
-configuration. A future implementation can expand the profile to include
-provider, model, timeout, temperature, context limits, and safety settings.
-
-Example operator configuration:
-
-```yaml
-gemini_model: gemini-default
+llm_default_profile: standard
 
 llm_profiles:
   fast:
     provider: gemini
-    model: gemini-fast
+    model: gemini-2.5-flash
+    api_key_secret: GEMINI_API_KEY
+    allowed_scopes: ["dev", "test", "prod"]
+
+  reasoning:
+    provider: lmstudio
+    model: qwen3-coder
+    base_url: http://lmstudio:1234
+    api_key_secret: LMSTUDIO_API_KEY
+    allowed_scopes: ["dev", "internal"]
+    thinking: true
 
   standard:
     provider: gemini
-    model: gemini-standard
-
-  reasoning:
-    provider: gemini
-    model: gemini-reasoning
+    model: gemini-2.5-pro
+    api_key_secret: GEMINI_API_KEY
+    allowed_scopes: ["dev", "test", "prod"]
 ```
 
-## Resolution Rules
+Supported providers:
 
-Resolve the active profile from most-specific to least-specific:
+- `gemini`
+- `lmstudio`
+
+Profile fields:
+
+- `provider`: provider implementation to use.
+- `model`: provider model name. LM Studio may omit this to auto-discover the first loaded model.
+- `base_url`: required for LM Studio.
+- `api_key_secret`: environment variable name that contains the API key. Gemini profiles require it. LM Studio can omit it when the server does not require auth.
+- `allowed_scopes`: scopes where this profile can run. Empty means allowed everywhere.
+- `reasoning`: optional LM Studio reasoning level: `off`, `low`, `medium`, `high`, or `on`.
+- `thinking`: optional LM Studio shortcut. When `reasoning` is omitted, `thinking: true` maps to reasoning `on` and `thinking: false` maps to reasoning `off`.
+
+The previous single-provider configuration is no longer supported.
+
+## GitOps Configuration
+
+System/global config repositories can define the same registry in Git:
+
+```yaml
+default_profile: standard
+
+profiles:
+  - name: fast
+    provider: gemini
+    model: gemini-2.5-flash
+    api_key_secret: GEMINI_API_KEY
+    allowed_scopes: ["dev", "test"]
+
+  - name: standard
+    provider: lmstudio
+    model: google/gemma-4-e4b
+    base_url: http://lmstudio:1234
+    reasoning: off
+```
+
+The canonical path is `setting/system/llm_profile.yaml`. The sync path also
+accepts `settings/system/llm_profile.yaml` and `.yml` variants. Group-scoped
+config repositories cannot manage system LLM profiles.
+
+## Pipeline Usage
+
+Pipelines, steps, and tasks can select a profile with `llm_profile`.
+
+```yaml
+name: repo-review
+llm_profile: reasoning
+
+steps:
+  - name: quick
+    llm_profile: fast
+    goal: Summarize the change.
+
+  - name: deep
+    goal: Review carefully.
+    tasks:
+      - name: inspect
+        goal: Inspect risky files.
+
+      - name: summary
+        llm_profile: fast
+        goal: Summarize the findings.
+```
+
+## Resolution
+
+At runtime Nopsai resolves the selected profile from most-specific to
+least-specific:
 
 1. Task `llm_profile`
 2. Step `llm_profile`
 3. Pipeline `llm_profile`
-4. Server default model
+4. `llm_default_profile`
 
-For step-level `condition` evaluation, use the step profile. Task profiles should
-only apply to the task's own LLM goal execution.
-
-For legacy goal steps, the synthetic task should inherit from the step profile.
-
-For script-only tasks, the profile can be accepted but it has no effect unless
-the step condition needs LLM evaluation.
-
-## Runtime Behavior
-
-Recommended execution flow:
-
-1. Load and validate the pipeline.
-2. Resolve the default LLM profile from service configuration.
-3. For each step, resolve the step LLM profile.
-4. Evaluate the step condition, if present, using the step profile.
-5. For each task, resolve the task LLM profile.
-6. Use the task profile when calling the LLM for goal-to-action selection.
-7. Record the resolved profile and model in task logs or run metadata.
-8. Preserve existing `llm_content_sharing`, `llm_output_sharing`,
-   `llm_content_include`, and `llm_content_ignore` semantics independently from
-   model selection.
+Step-level conditions use the resolved step profile. Task-level goals use the
+resolved task profile. Script-only tasks can declare `llm_profile`, but it only
+matters when an LLM-backed operation is performed.
 
 ## Validation
 
-Pipeline validation should reject unknown profile names before the run starts.
+Runs are rejected before agent launch when:
 
-Recommended validation rules:
+- No LLM profiles are configured.
+- The default profile does not exist.
+- A referenced profile does not exist.
+- A selected profile is not allowed for the run scope.
+- The selected profile has invalid provider configuration.
 
-- Pipeline `llm_profile`, if set, must exist in the configured profile registry.
-- Step `llm_profile`, if set, must exist in the configured profile registry.
-- Task `llm_profile`, if set, must exist in the configured profile registry.
-- Empty `llm_profile` means inherit.
-- Raw model IDs should not be accepted in pipeline YAML unless explicitly enabled
-  by an operator-controlled compatibility mode.
+Example scope error:
 
-This keeps cost, provider choice, and sensitive data routing auditable.
-
-## Raw Model Field Alternative
-
-A simpler design would add `llm_model` directly to pipelines, steps, and tasks:
-
-```yaml
-steps:
-  - name: review
-    llm_model: gemini-expensive-model
-    goal: Review this change.
+```text
+LLM profile "reasoning" is not allowed in scope "prod"
 ```
 
-This is easy to implement but weaker operationally:
+## UI Management
 
-- Pipeline authors can bypass cost controls.
-- Provider migration becomes harder because YAML contains vendor model IDs.
-- Auditing and policy enforcement are less clear.
-- Future provider-specific settings become scattered across pipeline files.
+The **System -> LLM Profiles** page shows:
 
-Use profiles as the default design. Consider raw model IDs only for local
-development or explicitly trusted internal pipelines.
+- Default profile
+- Name
+- Provider
+- Model
+- Base URL
+- API key secret
+- Allowed scopes
+- Thinking / reasoning status
+- Validation status
+- Actions
 
-## Implementation Plan
+Admins can create, edit, delete, and test profiles. The **Test Profile** action
+sends a tiny prompt (`reply ok`) to catch bad credentials or unreachable
+providers.
 
-Recommended MVP:
+Deletion rules:
 
-1. Add `LlmProfile` to `models.Pipeline`, `models.BaseStep`, and `models.Task`.
-2. Add profile name validation to pipeline validation.
-3. Add profile resolution helpers in the agent.
-4. Change `LLMClient` to accept a model per call or cache clients by model.
-5. Pass the resolved model into condition and action-selection LLM calls.
-6. Log the resolved profile and provider model for each LLM-backed task.
-7. Keep the existing `GEMINI_MODEL` as the default fallback.
+- The active default profile cannot be deleted.
+- A profile referenced by pipelines or reusable steps cannot be deleted unless
+  the deletion is forced with a migration target.
 
-The current runtime already passes the full pipeline definition to the agent, so
-the agent can resolve per-step and per-task profiles without changing the
-dispatcher protocol.
+## Runtime Contract
 
-## Open Questions
+The control plane loads the active profile registry from the database, validates
+it, and packages the full registry into the agent runtime as
+`NOPSAI_LLM_PROFILES`. The agent reads that registry and caches LLM clients by
+profile name.
 
-- Should profile definitions live only in service configuration, or should
-  pipelines be allowed to define local aliases from an approved allowlist?
-- Should task status metadata store `llm_profile` and `llm_model` alongside
-  `llm_duration_ms`?
-- Should profile selection support provider-specific timeouts at the same time
-  as model IDs?
-- Should a child pipeline inherit the parent pipeline's default profile, or use
-  only its own pipeline definition and service default?
+There is no fallback to provider-specific environment variables for model
+selection. Environment variables are only used when a profile's
+`api_key_secret` points to one.
