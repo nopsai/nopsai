@@ -1,7 +1,22 @@
-FROM hoseindocker/nopsai-base:latest AS base
-FROM alpine:latest
+FROM golang:1.23-alpine AS builder
 
-RUN apk --no-cache add git bash docker-cli yq jq 
-COPY --from=base /nopsai-agent /usr/local/bin/nopsai-agent
+WORKDIR /src
+RUN apk add --no-cache git
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY pkg pkg
+COPY config config
+COPY services services
+
+ENV CGO_ENABLED=0
+ENV GOOS=linux
+RUN go build -ldflags="-s -w" -o /out/nopsai-agent ./services/agent
+
+FROM alpine:3.20
+
+RUN apk --no-cache add ca-certificates git bash docker-cli yq jq
+COPY --from=builder /out/nopsai-agent /usr/local/bin/nopsai-agent
 
 ENTRYPOINT ["nopsai-agent"]

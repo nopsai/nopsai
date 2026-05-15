@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -37,6 +38,8 @@ import (
 	"google.golang.org/grpc"
 	"gopkg.in/yaml.v3"
 )
+
+const agentWorkspaceDir = models.DefaultPipelineWorkingDirectory
 
 func agentLog(runID, pipeline string) *zerolog.Logger {
 	logger := log.With().
@@ -260,8 +263,40 @@ func getDirectoryListing(logger *zerolog.Logger, root string, includePatterns, i
 	return directoryListing
 }
 
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
+func resolveActionFilePath(workingDirectory, actionPath string) (string, error) {
+	resolvedWorkingDirectory, err := models.NormalizePipelineWorkingDirectory(workingDirectory)
+	if err != nil {
+		return "", err
+	}
+
+	trimmed := strings.TrimSpace(actionPath)
+	if trimmed == "" {
+		return "", fmt.Errorf("file action path cannot be empty")
+	}
+
+	normalized := strings.ReplaceAll(trimmed, "\\", "/")
+	cleaned := strings.TrimPrefix(path.Clean(normalized), "/")
+	if cleaned == "." || cleaned == "" {
+		return "", fmt.Errorf("file action path cannot be empty")
+	}
+	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", fmt.Errorf("file action path cannot escape working directory")
+	}
+
+	return path.Join(resolvedWorkingDirectory, cleaned), nil
+}
+
 // executeAction runs the given action inside the pipeline container.
-func executeAction(cli *client.Client, containerID string, action *proto.Action, runtimeVars []string) (string, string, int) {
+func executeAction(cli *client.Client, containerID string, action *proto.Action, runtimeVars []string, workingDirectory string) (string, string, int) {
+	resolvedWorkingDirectory, err := models.NormalizePipelineWorkingDirectory(workingDirectory)
+	if err != nil {
+		return "", err.Error(), 1
+	}
+
 	var cmdStr string
 
 	switch action.Type {
@@ -270,8 +305,11 @@ func executeAction(cli *client.Client, containerID string, action *proto.Action,
 	case "REPLACE_FILE":
 		content := action.GetFileAction().Content
 		encodedContent := base64.StdEncoding.EncodeToString([]byte(content))
-		filePath := filepath.Join("/workspace", action.GetFileAction().Path)
-		cmdStr = fmt.Sprintf("echo %s | base64 -d > %s", encodedContent, filePath)
+		filePath, err := resolveActionFilePath(resolvedWorkingDirectory, action.GetFileAction().Path)
+		if err != nil {
+			return "", err.Error(), 1
+		}
+		cmdStr = fmt.Sprintf("printf %%s %s | base64 -d > %s", shellQuote(encodedContent), shellQuote(filePath))
 	case "RETURN_ANSWER":
 		ansAction := action.GetAnswerAction()
 		if ansAction == nil {
@@ -285,6 +323,7 @@ func executeAction(cli *client.Client, containerID string, action *proto.Action,
 	execConfig := container.ExecOptions{
 		Cmd:          []string{"sh", "-c", cmdStr},
 		Env:          runtimeVars,
+		WorkingDir:   resolvedWorkingDirectory,
 		AttachStdout: true,
 		AttachStderr: true,
 		Tty:          false,
@@ -877,11 +916,16 @@ func run() int {
 		agentLog(runID, pipelineName).Error().Err(err).Msg("Failed to unmarshal pipeline definition")
 		return 1
 	}
+	workingDirectory, err := models.NormalizePipelineWorkingDirectory(pipeline.WorkingDirectory)
+	if err != nil {
+		agentLog(runID, pipelineName).Error().Err(err).Msg("Invalid pipeline working_directory")
+		return 1
+	}
 
 	if triggerEventID == "" {
 		triggerEventID = "N/A"
 	}
-	agentLog(runID, pipeline.Name).Info().Str("trigger_event_id", triggerEventID).Msg("Pipeline execution starting")
+	agentLog(runID, pipeline.Name).Info().Str("trigger_event_id", triggerEventID).Str("working_directory", workingDirectory).Msg("Pipeline execution starting")
 	startupLog := agentLog(runID, pipeline.Name).Info().Str("llm_provider", llmProvider)
 	switch llmProvider {
 	case appconfig.LLMProviderGemini:
@@ -1234,7 +1278,7 @@ func run() int {
 						return
 					}
 
-					binds := []string{fmt.Sprintf("%s:/workspace", sharedVolumeName)}
+					binds := []string{fmt.Sprintf("%s:%s", sharedVolumeName, workingDirectory)}
 					if stepVolumes := step.GetVolumes(); len(stepVolumes) > 0 {
 						for _, vol := range stepVolumes {
 							parts := strings.Split(vol, ":")
@@ -1276,7 +1320,7 @@ func run() int {
 
 					cont, err := cli.ContainerCreate(context.Background(), &container.Config{
 						Image:      imageName,
-						WorkingDir: "/workspace",
+						WorkingDir: workingDirectory,
 						Entrypoint: []string{"tail", "-f", "/dev/null"},
 						Env:        stepRuntimeVars,
 						Tty:        false,
@@ -1340,7 +1384,7 @@ func run() int {
 					var directoryListing map[string]string
 					if shareContent {
 						taskLogger.Debug().Msg("Content sharing is ENABLED for this pipeline. Scanning directory")
-						directoryListing = getDirectoryListing(taskLogger, "/workspace", pipeline.LlmContentInclude, pipeline.LlmContentIgnore)
+						directoryListing = getDirectoryListing(taskLogger, agentWorkspaceDir, pipeline.LlmContentInclude, pipeline.LlmContentIgnore)
 						if len(directoryListing) == 0 {
 							taskLogger.Debug().Msg("Sharing directory listing metadata with LLM (empty)")
 						} else {
@@ -1410,7 +1454,7 @@ func run() int {
 
 				// Retry logic for potential race conditions (e.g. filesystem locks)
 				for attempt := 0; attempt < 10; attempt++ {
-					stdout, stderr, exitCode = executeAction(cli, stepContainerID, action, taskRuntimeVars)
+					stdout, stderr, exitCode = executeAction(cli, stepContainerID, action, taskRuntimeVars, workingDirectory)
 					if exitCode == 0 {
 						break
 					}
