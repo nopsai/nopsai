@@ -164,6 +164,7 @@ const baseNavItems: NavItem[] = [
 
 const baseSystemSubNav: NavItem[] = [
   { label: 'Config', path: '/system/config', icon: <IconCog /> },
+  { label: 'LLM Profiles', path: '/system/llm-profiles', icon: <IconFlask /> },
   { label: 'Dispatcher', path: '/system/dispatcher', icon: <IconDispatch /> },
   { label: 'Access', path: '/system/access', icon: <IconShield /> },
 ];
@@ -393,9 +394,11 @@ function AppShell() {
   const canViewSystemDispatcher = Boolean(currentUser?.capabilities?.system?.dispatcherRead);
   const canManageSystemDispatcher = Boolean(currentUser?.capabilities?.system?.dispatcherWrite);
   const canViewSystemAccess = Boolean(currentUser?.capabilities?.system?.access);
-  const canViewAnySystem = canViewSystemConfig || canViewSystemDispatcher || canViewSystemAccess;
+  const canViewAnySystem = canViewSystemConfig || canViewSystemRuntimeConfig || canViewSystemDispatcher || canViewSystemAccess;
   const preferredSystemPath = canViewSystemConfig
     ? '/system/config'
+    : canViewSystemRuntimeConfig
+      ? '/system/llm-profiles'
     : canViewSystemDispatcher
       ? '/system/dispatcher'
       : canViewSystemAccess
@@ -415,11 +418,12 @@ function AppShell() {
     () =>
       baseSystemSubNav.filter(item => {
         if (item.path === '/system/config') return canViewSystemConfig;
+        if (item.path === '/system/llm-profiles') return canViewSystemRuntimeConfig;
         if (item.path === '/system/dispatcher') return canViewSystemDispatcher;
         if (item.path === '/system/access') return canViewSystemAccess;
         return false;
       }),
-    [canViewSystemAccess, canViewSystemConfig, canViewSystemDispatcher]
+    [canViewSystemAccess, canViewSystemConfig, canViewSystemDispatcher, canViewSystemRuntimeConfig]
   );
 
   useEffect(() => {
