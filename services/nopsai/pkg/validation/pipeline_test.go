@@ -87,3 +87,27 @@ func TestValidatePipeline_DuplicateStep(t *testing.T) {
 		t.Error("expected error for duplicate step name")
 	}
 }
+
+func TestValidatePipeline_InvalidWorkingDirectory(t *testing.T) {
+	p := &models.Pipeline{
+		Name:             "valid-name",
+		ContainerImage:   "ubuntu",
+		WorkingDirectory: "/",
+		Steps: []models.PipelineStep{
+			{
+				Step: &models.TaskStep{
+					BaseStep: models.BaseStep{Name: "step1"},
+					Tasks:    []models.Task{{Name: "t1", Script: "ls"}},
+				},
+			},
+		},
+	}
+
+	err := ValidatePipeline(p)
+	if err == nil {
+		t.Fatal("expected error for invalid working_directory")
+	}
+	if !strings.Contains(err.Error(), "working_directory") {
+		t.Fatalf("unexpected error message: %v", err)
+	}
+}
