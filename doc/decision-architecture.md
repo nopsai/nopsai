@@ -156,7 +156,7 @@ Why:
 
 Tradeoffs:
 
-- Affinity can delay a job when the preferred runner is full.
+- Affinity is best-effort, so related runs can move to another eligible runner when the preferred runner is full.
 - Scheduler behavior is slightly more complex than simple load balancing.
 
 ## 10. Use Dispatcher As Both Scheduler And Bridge

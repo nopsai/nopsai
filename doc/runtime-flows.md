@@ -53,11 +53,11 @@ Most API routes pass through the same middleware stack before reaching a handler
    - `allow_dispatch`
    - declared scope support
    - optional `dispatcher_routing`
-   - optional `preferred_runner_id`
-5. It preserves affinity using `runner_affinity_key`, usually derived from `trigger_event_id`, parent run, or run ID.
-6. Among eligible runners, it chooses the least-loaded runner.
-7. If no eligible runner is available, the job stays queued.
-8. If a runner disconnects with inflight jobs, those jobs are requeued.
+5. It prefers `preferred_runner_id` and affinity using `runner_affinity_key`, usually derived from `trigger_event_id`, parent run, or run ID.
+6. If the preferred or affinity runner is unavailable or full, it falls back to another eligible runner.
+7. Among eligible runners, it chooses the least-loaded runner.
+8. If no eligible runner is available, the job stays queued.
+9. If a runner disconnects with inflight jobs, those jobs are requeued.
 
 ## 4. Runner Launch Flow
 

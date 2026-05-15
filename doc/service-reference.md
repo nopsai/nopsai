@@ -136,7 +136,7 @@ Notable behavior:
 
 - Scope-aware scheduling
 - least-loaded eligible runner selection
-- affinity preservation by trigger or run
+- best-effort affinity by trigger or run
 - manual dispatch pause/resume per runner
 
 ## `services/runner`

@@ -890,14 +890,17 @@ func (d *dispatcherServer) pickRunnerForJobLocked(job *proto.JobRequest) *runner
 			if d.runnerEligibleForJob(r, job.Scope, allowed) {
 				return r
 			}
-			// Runner is connected but at capacity; wait to honor pin.
-			if runnerLoad(r) >= r.capacity {
-				return nil
+			if d.runnerMatchesScope(r, job.Scope, allowed) && runnerLoad(r) >= r.capacity {
+				log.Info().
+					Str("run_id", job.RunId).
+					Str("preferred_runner_id", preferredRunnerID).
+					Msg("preferred runner at capacity; falling back to affinity/selection")
+			} else {
+				log.Info().
+					Str("run_id", job.RunId).
+					Str("preferred_runner_id", preferredRunnerID).
+					Msg("preferred runner not eligible; falling back to affinity/selection")
 			}
-			log.Info().
-				Str("run_id", job.RunId).
-				Str("preferred_runner_id", preferredRunnerID).
-				Msg("preferred runner not eligible; falling back to affinity/selection")
 		} else {
 			log.Info().
 				Str("run_id", job.RunId).
@@ -912,12 +915,18 @@ func (d *dispatcherServer) pickRunnerForJobLocked(job *proto.JobRequest) *runner
 				if d.runnerEligibleForJob(r, job.Scope, allowed) {
 					return r
 				}
-				// Runner is still connected but at capacity; keep the affinity and wait.
-				if runnerLoad(r) >= r.capacity {
-					return nil
+				if d.runnerMatchesScope(r, job.Scope, allowed) && runnerLoad(r) >= r.capacity {
+					log.Info().
+						Str("run_id", job.RunId).
+						Str("runner_affinity_key", affinityKey).
+						Str("runner_id", runnerID).
+						Msg("affinity runner at capacity; falling back to selection")
+				} else {
+					delete(d.triggerAssignments, affinityKey)
 				}
+			} else {
+				delete(d.triggerAssignments, affinityKey)
 			}
-			delete(d.triggerAssignments, affinityKey)
 		}
 	}
 
