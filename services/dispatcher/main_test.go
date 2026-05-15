@@ -201,6 +201,85 @@ func TestPrepareJobForRunnerAppliesRunnerOverridesWithoutMutatingInput(t *testin
 	}
 }
 
+func TestPickRunnerFallsBackWhenPreferredRunnerAtCapacity(t *testing.T) {
+	d := newDispatcherServer(map[string][]string{"prod": {"runner-a", "runner-b"}}, "http://example")
+	runnerA := newTestRunnerConn("runner-a", "prod")
+	runnerA.capacity = 1
+	runnerA.active = 1
+	runnerB := newTestRunnerConn("runner-b", "prod")
+	runnerB.capacity = 1
+	d.addRunner(runnerA)
+	d.addRunner(runnerB)
+
+	d.mu.Lock()
+	got := d.pickRunnerForJobLocked(&proto.JobRequest{
+		RunId:             "run-preferred-fallback",
+		Scope:             "prod",
+		PreferredRunnerId: "runner-a",
+	})
+	d.mu.Unlock()
+
+	if got == nil || got.id != "runner-b" {
+		t.Fatalf("pickRunnerForJobLocked() = %v, want runner-b", runnerIDForTest(got))
+	}
+}
+
+func TestPickRunnerFallsBackWhenAffinityRunnerAtCapacity(t *testing.T) {
+	d := newDispatcherServer(map[string][]string{"prod": {"runner-a", "runner-b"}}, "http://example")
+	runnerA := newTestRunnerConn("runner-a", "prod")
+	runnerA.capacity = 1
+	runnerA.active = 1
+	runnerB := newTestRunnerConn("runner-b", "prod")
+	runnerB.capacity = 1
+	d.addRunner(runnerA)
+	d.addRunner(runnerB)
+	d.triggerAssignments["event-1"] = "runner-a"
+
+	d.mu.Lock()
+	got := d.pickRunnerForJobLocked(&proto.JobRequest{
+		RunId:             "run-affinity-fallback",
+		Scope:             "prod",
+		RunnerAffinityKey: "event-1",
+	})
+	assigned := d.triggerAssignments["event-1"]
+	d.mu.Unlock()
+
+	if got == nil || got.id != "runner-b" {
+		t.Fatalf("pickRunnerForJobLocked() = %v, want runner-b", runnerIDForTest(got))
+	}
+	if assigned != "runner-b" {
+		t.Fatalf("trigger assignment = %q, want runner-b", assigned)
+	}
+}
+
+func newTestRunnerConn(id string, scopes ...string) *runnerConn {
+	scopeSet := make(map[string]struct{}, len(scopes))
+	for _, scope := range scopes {
+		scope = strings.TrimSpace(scope)
+		if scope != "" {
+			scopeSet[scope] = struct{}{}
+		}
+	}
+	return &runnerConn{
+		connectionID:  "conn-" + id,
+		id:            id,
+		scopes:        scopeSet,
+		capacity:      1,
+		lastHeartbeat: time.Now(),
+		inflight:      make(map[string]*proto.JobRequest),
+		sendCh:        make(chan *proto.DispatcherMessage, 4),
+		metadata:      map[string]string{},
+		allowDispatch: true,
+	}
+}
+
+func runnerIDForTest(r *runnerConn) string {
+	if r == nil {
+		return "<nil>"
+	}
+	return r.id
+}
+
 func TestPumpQueueDoesNotHoldDispatcherLockWhileFetchingRunStatus(t *testing.T) {
 	requestStarted := make(chan struct{}, 1)
 	releaseResponse := make(chan struct{})
