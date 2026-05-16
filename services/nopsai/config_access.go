@@ -865,6 +865,7 @@ func normalizeAccessGrantResourceIDForBinding(resourceType, resourceID string, b
 		if !strings.Contains(resourceID, "=") {
 			resourceID = model.BuildNamedResourceID("", "", resourceID)
 		}
+		resourceID = runtimeNamedResourceIDForResource(resourceID)
 		if binding.ScopeType != models.ConfigRepositoryScopeFolder {
 			return resourceID, nil
 		}

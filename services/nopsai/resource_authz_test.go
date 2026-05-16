@@ -199,7 +199,8 @@ func TestParentScopeForRuntimeResourceUse(t *testing.T) {
 			action:       "secret.use",
 			resourceType: grantResourceSecret,
 			resourceID:   model.BuildNamedResourceID("", "", "TOKEN"),
-			wantOK:       false,
+			wantScope:    "default",
+			wantOK:       true,
 		},
 		{
 			name:         "read value is not runtime use",
@@ -267,6 +268,46 @@ func TestAuthorizeResourceUseAllowsScopedSecretThroughScopeUse(t *testing.T) {
 	}
 }
 
+func TestAuthorizeResourceUseAllowsDefaultSecretThroughDefaultScopeUse(t *testing.T) {
+	app := &App{
+		aaaClient: stubAAAAuthorizer{
+			checkFn: func(_ context.Context, _ model.Subject, action string, resource model.ResourceRef, _ map[string]any) (model.Decision, error) {
+				if action == "scope.use" && resource.Type == grantResourceScope && resource.ID == "" {
+					return model.Decision{
+						Allowed: true,
+						Reason:  "direct_acl_allow",
+						MatchedPolicy: map[string]any{
+							"resource_type": grantResourceScope,
+							"resource_id":   "",
+						},
+					}, nil
+				}
+				return model.Decision{Allowed: false, Reason: "default_deny"}, nil
+			},
+		},
+	}
+
+	result, err := app.AuthorizeResourceUse(context.Background(), ResourceUseAuthInput{
+		CallerType:   model.SubjectTypeRepository,
+		CallerID:     "hosein-yousefii/test-app",
+		Action:       "secret.use",
+		ResourceType: grantResourceSecret,
+		ResourceID:   model.BuildNamedResourceID("", "", "OTHER_SEC"),
+	})
+	if err != nil {
+		t.Fatalf("AuthorizeResourceUse() error = %v", err)
+	}
+	if !result.Allowed {
+		t.Fatalf("AuthorizeResourceUse() allowed = false, result = %#v", result)
+	}
+	if result.Reason != resourceUseReasonScopeAccess {
+		t.Fatalf("AuthorizeResourceUse() reason = %q, want %q", result.Reason, resourceUseReasonScopeAccess)
+	}
+	if result.MatchedResource != "scope:default" {
+		t.Fatalf("AuthorizeResourceUse() matched resource = %q, want scope:default", result.MatchedResource)
+	}
+}
+
 func TestResourceUseFailureSummaryIncludesDecisionDetails(t *testing.T) {
 	result := ResourceUseAuthResult{
 		Allowed:       false,
@@ -315,6 +356,26 @@ func TestResourceUseFailureSummaryIncludesAuthorizationError(t *testing.T) {
 	assertContains(t, got, "Decision reason: authorization_error")
 	assertContains(t, got, "Why: the authorization service could not complete the check")
 	assertContains(t, got, "Error: aaa offline")
+}
+
+func TestResourceUseDeniedMessageIncludesNamedResourceScope(t *testing.T) {
+	result := ResourceUseAuthResult{
+		Allowed:      false,
+		ResourceType: grantResourceSecret,
+		ResourceID:   model.BuildNamedResourceID("", "", "OTHER_SEC"),
+	}
+
+	got := resourceUseDeniedMessage(model.SubjectTypeRepository, "hosein-yousefii/test-app", result)
+
+	assertContains(t, got, "repository:hosein-yousefii/test-app is not allowed to use secret:name=OTHER_SEC scope=default")
+}
+
+func TestFormatResourceLabelIncludesNamedResourceScopeAndRepo(t *testing.T) {
+	got := formatResourceLabel(grantResourceVariable, model.BuildNamedResourceID("hosein-yousefii/test-app", "dev", "TEST_ENV"))
+	want := "variable:name=TEST_ENV scope=dev repo=hosein-yousefii/test-app"
+	if got != want {
+		t.Fatalf("formatResourceLabel() = %q, want %q", got, want)
+	}
 }
 
 func assertContains(t *testing.T, got, want string) {

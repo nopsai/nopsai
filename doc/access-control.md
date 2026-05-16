@@ -139,7 +139,7 @@ Current resource Access UI behavior:
 - Group sharing uses existing resource groups from `GET /v1/groups`.
 - Repository sharing accepts canonical repository IDs such as `hosein-yousefii/test-app`.
 - Sensitive resources such as scopes do not expose `Public`.
-- The default scope is addressed as `scope:default` in the API/UI and stored internally as the empty/default scope.
+- The default scope is addressed as `scope:default` in the API/UI. Secret and variable rows store it as `scope = 'default'`; legacy `NULL` or empty-scope rows are normalized to `default` during migration.
 
 Resource Access API:
 

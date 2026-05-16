@@ -100,3 +100,41 @@ func TestTaskExecutionContextTaskOverridesWin(t *testing.T) {
 		t.Fatalf("expected task override in runtime variables, got %s", runtimeDump)
 	}
 }
+
+func TestBuildStepExecutionContextInjectsScopedRuntimeRefsByName(t *testing.T) {
+	pipeline := &models.Pipeline{
+		Variables: []string{"dev:TEST_ENV"},
+	}
+	step := &models.PipelineStep{
+		Step: &models.ScriptStep{
+			BaseStep: models.BaseStep{
+				Secrets: []string{"prod:API_TOKEN"},
+			},
+			Script: "env",
+		},
+	}
+
+	context, missing := buildStepExecutionContext(
+		pipeline,
+		step,
+		nil,
+		map[string]string{"dev:TEST_ENV": "from-dev"},
+		map[string]string{"prod:API_TOKEN": "from-prod"},
+	)
+	if len(missing) != 0 {
+		t.Fatalf("expected no missing secrets, got %v", missing)
+	}
+
+	runtimeDump := strings.Join(context.containerVariables(), "\n")
+	for _, expected := range []string{
+		"TEST_ENV=from-dev",
+		"API_TOKEN=from-prod",
+	} {
+		if !strings.Contains(runtimeDump, expected) {
+			t.Fatalf("expected container variables to contain %q, got %s", expected, runtimeDump)
+		}
+	}
+	if strings.Contains(runtimeDump, "dev:TEST_ENV=") || strings.Contains(runtimeDump, "prod:API_TOKEN=") {
+		t.Fatalf("expected scoped references to inject bare runtime names, got %s", runtimeDump)
+	}
+}

@@ -855,37 +855,20 @@ func (a *App) notifyGitBotOfTaskStatus(runID, stepName, taskName, taskStatus str
 
 func (a *App) findEncryptedSecret(secretName, repoFullName, scope string) (string, string, bool, error) {
 	var encryptedValue string
+	storageScope := runtimeScopeForStorage(scope)
+	resourceScope := runtimeScopeForResource(storageScope)
 
-	if scope != "" {
-		err := a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name = $2 AND scope = $3", secretName, repoFullName, scope).Scan(&encryptedValue)
-		if err == nil {
-			return encryptedValue, model.BuildNamedResourceID(repoFullName, scope, secretName), true, nil
-		}
-		if err != pgx.ErrNoRows {
-			return "", "", false, err
-		}
-
-		err = a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL AND scope = $2", secretName, scope).Scan(&encryptedValue)
-		if err == nil {
-			return encryptedValue, model.BuildNamedResourceID("", scope, secretName), true, nil
-		}
-		if err == pgx.ErrNoRows {
-			return "", "", false, nil
-		}
-		return "", "", false, err
-	}
-
-	err := a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name = $2 AND scope IS NULL", secretName, repoFullName).Scan(&encryptedValue)
+	err := a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name = $2 AND "+runtimeScopeEqualsSQL("scope", 3, storageScope)+" ORDER BY scope IS NULL ASC LIMIT 1", secretName, repoFullName, storageScope).Scan(&encryptedValue)
 	if err == nil {
-		return encryptedValue, model.BuildNamedResourceID(repoFullName, "", secretName), true, nil
+		return encryptedValue, model.BuildNamedResourceID(repoFullName, resourceScope, secretName), true, nil
 	}
 	if err != pgx.ErrNoRows {
 		return "", "", false, err
 	}
 
-	err = a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL AND scope IS NULL", secretName).Scan(&encryptedValue)
+	err = a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL AND "+runtimeScopeEqualsSQL("scope", 2, storageScope)+" ORDER BY scope IS NULL ASC LIMIT 1", secretName, storageScope).Scan(&encryptedValue)
 	if err == nil {
-		return encryptedValue, model.BuildNamedResourceID("", "", secretName), true, nil
+		return encryptedValue, model.BuildNamedResourceID("", resourceScope, secretName), true, nil
 	}
 	if err == pgx.ErrNoRows {
 		return "", "", false, nil

@@ -190,7 +190,7 @@ curl -X POST \
 curl -X DELETE http://localhost:8080/v1/resources/pipeline/team-1/build/grants/grant_123
 ```
 
-The group dropdown in the UI is populated from `GET /v1/groups`, using resolved group paths rather than numeric group IDs. The default scope is addressed as `/v1/resources/scope/default/access`; internally this maps to the empty/default scope.
+The group dropdown in the UI is populated from `GET /v1/groups`, using resolved group paths rather than numeric group IDs. The default scope is addressed as `/v1/resources/scope/default/access`; secret and variable rows store the default scope as `default`.
 
 Resource-use check endpoints:
 
@@ -302,9 +302,11 @@ curl -X PUT \
 ```
 
 - Repository endpoints also accept `?scope=` to target scoped values.
+- Omitting `?scope=` targets the default scope and stores `scope = 'default'`.
 - Repository-scoped entries returned by `GET /v1/secrets` are prefixed with `owner/repo/SECRET`, so the UI can group them under the same scope as global secrets.
 - `GET /v1/secrets/scopes` reports only scopes (default, prod, etc.) to mirror the Scopes page.
-- Secrets resolve in the following order: repo+scope -> repo -> global+scope -> global.
+- Secrets resolve in the following order for the requested scope: repo+scope -> global+scope. Default/unscoped runs resolve repo+default -> global+default.
+- Pipeline YAML can reference a different scope with `scope:SECRET_NAME`, for example `dev:TEST_SECRET`; the step receives `TEST_SECRET`.
 - Predefined product roles expose secret metadata broadly, but secret value reads remain owner/admin-level by default.
 
 ---
@@ -327,8 +329,10 @@ curl "http://localhost:8080/v1/variables?scope=prod"
 ```
 
 - The list endpoint now returns both global variables (e.g. `DATABASE_URL`) and repository-scoped entries in the form `owner/repo/NAME`.
+- Omitting `?scope=` targets the default scope and stores `scope = 'default'`.
 - Duplicate keys inside the same scope are rejected during config sync.
 - The config repo may define scoped variables under `scopes/<scope>/scope.yaml`; the sync endpoint imports them automatically.
+- Pipeline `variables` entries can use `scope:NAME` to resolve from that explicit scope while injecting `NAME` at runtime. Bare `NAME` resolves from the run's current scope.
 - Predefined product roles allow variable metadata reads and writes, but do not grant variable value reads by default.
 
 ---

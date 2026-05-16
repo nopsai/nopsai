@@ -29,19 +29,24 @@ type taskExecutionContext struct {
 
 func buildStepExecutionContext(pipeline *models.Pipeline, step *models.PipelineStep, inheritedVars []string, variables, secrets map[string]string) (taskExecutionContext, []string) {
 	context := newTaskExecutionContext()
-	requiredKeys := make(map[string]struct{}, len(pipeline.Variables))
+	requiredRefs := make(map[string]models.ScopedRuntimeRef, len(pipeline.Variables))
+	requiredRuntimeNames := make(map[string]models.ScopedRuntimeRef, len(pipeline.Variables))
 	for _, key := range pipeline.Variables {
-		trimmed := strings.TrimSpace(key)
-		if trimmed == "" {
+		ref, err := models.ParseScopedRuntimeRef(key, "")
+		if err != nil {
 			continue
 		}
-		requiredKeys[trimmed] = struct{}{}
+		requiredRefs[ref.Key()] = ref
+		requiredRuntimeNames[ref.Name] = ref
 	}
 
 	for key, value := range variables {
-		trimmed := strings.TrimSpace(key)
-		if _, ok := requiredKeys[trimmed]; ok {
-			context.set(trimmed, value, taskRuntimeSourcePipelineVariable)
+		ref, err := models.ParseScopedRuntimeRef(key, "")
+		if err != nil {
+			continue
+		}
+		if requiredRef, ok := requiredRefs[ref.Key()]; ok {
+			context.set(requiredRef.Name, value, taskRuntimeSourcePipelineVariable)
 		}
 	}
 
@@ -50,8 +55,12 @@ func buildStepExecutionContext(pipeline *models.Pipeline, step *models.PipelineS
 		if !ok {
 			continue
 		}
-		if _, isRequired := requiredKeys[key]; isRequired {
-			context.set(key, value, taskRuntimeSourceInherited)
+		if requiredRef, isRequired := requiredRefs[key]; isRequired {
+			context.set(requiredRef.Name, value, taskRuntimeSourceInherited)
+			continue
+		}
+		if requiredRef, isRequired := requiredRuntimeNames[key]; isRequired {
+			context.set(requiredRef.Name, value, taskRuntimeSourceInherited)
 			continue
 		}
 		if strings.HasPrefix(key, "GIT_") || key == "SCOPE" {
@@ -65,16 +74,16 @@ func buildStepExecutionContext(pipeline *models.Pipeline, step *models.PipelineS
 
 	missingSecrets := make([]string, 0)
 	for _, secretName := range step.GetSecrets() {
-		trimmed := strings.TrimSpace(secretName)
-		if trimmed == "" {
+		ref, err := models.ParseScopedRuntimeRef(secretName, "")
+		if err != nil {
 			continue
 		}
-		secretValue, ok := secrets[trimmed]
+		secretValue, ok := secrets[ref.Key()]
 		if !ok {
-			missingSecrets = append(missingSecrets, trimmed)
+			missingSecrets = append(missingSecrets, ref.Key())
 			continue
 		}
-		context.set(trimmed, secretValue, taskRuntimeSourceSecret)
+		context.set(ref.Name, secretValue, taskRuntimeSourceSecret)
 	}
 	sort.Strings(missingSecrets)
 

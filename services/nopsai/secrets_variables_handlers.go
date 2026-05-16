@@ -67,7 +67,8 @@ func (a *App) decrypt(text string) (string, error) {
 }
 
 func (a *App) handleListGeneralVariables(w http.ResponseWriter, r *http.Request) {
-	scope := r.URL.Query().Get("scope")
+	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
+	resourceScope := runtimeScopeForResource(scope)
 	includeSource := strings.EqualFold(r.URL.Query().Get("include_source"), "true")
 	var rows pgx.Rows
 	var err error
@@ -76,12 +77,8 @@ func (a *App) handleListGeneralVariables(w http.ResponseWriter, r *http.Request)
 	queryRepo := "SELECT repository_name, name, COALESCE(source, 'database'), created_at, updated_at FROM variables WHERE repository_name IS NOT NULL AND %s ORDER BY repository_name ASC, name ASC"
 
 	ctx := context.Background()
-	condition := "scope IS NULL"
-	args := []interface{}{}
-	if scope != "" {
-		condition = "scope = $1"
-		args = append(args, scope)
-	}
+	condition := runtimeScopeEqualsSQL("scope", 1, scope)
+	args := []interface{}{scope}
 
 	rows, err = a.db.Query(ctx, fmt.Sprintf(queryGeneral, condition), args...)
 	if err != nil {
@@ -122,17 +119,13 @@ func (a *App) handleListGeneralVariables(w http.ResponseWriter, r *http.Request)
 			source:    source,
 			createdAt: createdAt,
 			updatedAt: updatedAt,
-			resource:  routeauthz.BuildVariableResource("", scope, name),
+			resource:  routeauthz.BuildVariableResource("", resourceScope, name),
 		})
 	}
 
 	rows.Close()
-	repoCondition := "scope IS NULL"
-	repoArgs := []interface{}{}
-	if scope != "" {
-		repoCondition = "scope = $1"
-		repoArgs = append(repoArgs, scope)
-	}
+	repoCondition := runtimeScopeEqualsSQL("scope", 1, scope)
+	repoArgs := []interface{}{scope}
 
 	rows, err = a.db.Query(ctx, fmt.Sprintf(queryRepo, repoCondition), repoArgs...)
 	if err != nil {
@@ -161,7 +154,7 @@ func (a *App) handleListGeneralVariables(w http.ResponseWriter, r *http.Request)
 			source:    source,
 			createdAt: createdAt,
 			updatedAt: updatedAt,
-			resource:  routeauthz.BuildVariableResource(repo, scope, varName),
+			resource:  routeauthz.BuildVariableResource(repo, resourceScope, varName),
 		})
 	}
 
@@ -224,7 +217,7 @@ func (a *App) handleListGeneralVariables(w http.ResponseWriter, r *http.Request)
 func (a *App) handleListVariableScopes(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 	rows, err := a.db.Query(ctx, `
-		SELECT COALESCE(repository_name, ''), COALESCE(scope, ''), name
+		SELECT COALESCE(repository_name, ''), COALESCE(scope, 'default'), name
 		FROM variables
 		ORDER BY repository_name ASC NULLS FIRST, scope ASC NULLS FIRST, name ASC
 	`)
@@ -250,14 +243,14 @@ func (a *App) handleListVariableScopes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		repoName = strings.TrimSpace(repoName)
-		scope = strings.TrimSpace(scope)
+		scope = runtimeScopeForDisplay(scope)
 		name = strings.TrimSpace(name)
 		if name == "" {
 			continue
 		}
 		candidates = append(candidates, variableScopeCandidate{
 			scope:    scope,
-			resource: routeauthz.BuildVariableResource(repoName, scope, name),
+			resource: routeauthz.BuildVariableResource(repoName, runtimeScopeForResource(scope), name),
 		})
 	}
 
@@ -292,13 +285,13 @@ func (a *App) handleListVariableScopes(w http.ResponseWriter, r *http.Request) {
 
 	sort.Slice(scopes, func(i, j int) bool {
 		ai, aj := scopes[i], scopes[j]
-		if ai == "" && aj == "" {
+		if ai == defaultRuntimeScope && aj == defaultRuntimeScope {
 			return false
 		}
-		if ai == "" {
+		if ai == defaultRuntimeScope {
 			return true
 		}
-		if aj == "" {
+		if aj == defaultRuntimeScope {
 			return false
 		}
 		return strings.ToLower(ai) < strings.ToLower(aj)
@@ -318,23 +311,16 @@ func (a *App) handleListVariableScopes(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleCreateOrUpdateGeneralVariable(w http.ResponseWriter, r *http.Request) {
 	variableName := r.PathValue("variableName")
-	scope := r.URL.Query().Get("scope")
+	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
 	var req VariableRequest
 	if err := httpapi.DecodeJSON(r, &req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	var err error
-	if scope != "" {
-		query := `INSERT INTO variables (name, value, repository_name, scope, source, updated_at) VALUES ($1, $2, NULL, $3, 'database', NOW())
-				  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, source = 'database', updated_at = NOW()`
-		_, err = a.db.Exec(context.Background(), query, variableName, req.Value, scope)
-	} else {
-		query := `INSERT INTO variables (name, value, repository_name, scope, source, updated_at) VALUES ($1, $2, NULL, NULL, 'database', NOW())
-				  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, source = 'database', updated_at = NOW()`
-		_, err = a.db.Exec(context.Background(), query, variableName, req.Value)
-	}
+	query := `INSERT INTO variables (name, value, repository_name, scope, source, updated_at) VALUES ($1, $2, NULL, $3, 'database', NOW())
+			  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, source = 'database', updated_at = NOW()`
+	_, err := a.db.Exec(context.Background(), query, variableName, req.Value, scope)
 
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to save variable to database")
@@ -346,14 +332,8 @@ func (a *App) handleCreateOrUpdateGeneralVariable(w http.ResponseWriter, r *http
 
 func (a *App) handleDeleteGeneralVariable(w http.ResponseWriter, r *http.Request) {
 	variableName := r.PathValue("variableName")
-	scope := r.URL.Query().Get("scope")
-	var err error
-
-	if scope != "" {
-		_, err = a.db.Exec(context.Background(), "DELETE FROM variables WHERE name = $1 AND repository_name IS NULL AND scope = $2", variableName, scope)
-	} else {
-		_, err = a.db.Exec(context.Background(), "DELETE FROM variables WHERE name = $1 AND repository_name IS NULL AND scope IS NULL", variableName)
-	}
+	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
+	_, err := a.db.Exec(context.Background(), "DELETE FROM variables WHERE name = $1 AND repository_name IS NULL AND "+runtimeScopeEqualsSQL("scope", 2, scope), variableName, scope)
 
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to delete variable from database")
@@ -365,15 +345,9 @@ func (a *App) handleDeleteGeneralVariable(w http.ResponseWriter, r *http.Request
 
 func (a *App) handleGetGeneralVariableValue(w http.ResponseWriter, r *http.Request) {
 	variableName := r.PathValue("variableName")
-	scope := r.URL.Query().Get("scope")
+	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
 	var value string
-	var err error
-
-	if scope != "" {
-		err = a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name IS NULL AND scope = $2", variableName, scope).Scan(&value)
-	} else {
-		err = a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name IS NULL AND scope IS NULL", variableName).Scan(&value)
-	}
+	err := a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name IS NULL AND "+runtimeScopeEqualsSQL("scope", 2, scope)+" ORDER BY scope IS NULL ASC LIMIT 1", variableName, scope).Scan(&value)
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -394,15 +368,9 @@ func (a *App) handleListRepoVariables(w http.ResponseWriter, r *http.Request) {
 	repoOwner := r.PathValue("repoOwner")
 	repoName := r.PathValue("repoName")
 	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
-	scope := r.URL.Query().Get("scope")
-	var rows pgx.Rows
-	var err error
-
-	if scope != "" {
-		rows, err = a.db.Query(context.Background(), "SELECT name FROM variables WHERE repository_name = $1 AND scope = $2 ORDER BY name ASC", fullName, scope)
-	} else {
-		rows, err = a.db.Query(context.Background(), "SELECT name FROM variables WHERE repository_name = $1 AND scope IS NULL ORDER BY name ASC", fullName)
-	}
+	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
+	resourceScope := runtimeScopeForResource(scope)
+	rows, err := a.db.Query(context.Background(), "SELECT name FROM variables WHERE repository_name = $1 AND "+runtimeScopeEqualsSQL("scope", 2, scope)+" ORDER BY name ASC", fullName, scope)
 
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query repository variables from database")
@@ -421,7 +389,7 @@ func (a *App) handleListRepoVariables(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		names = append(names, name)
-		resources = append(resources, routeauthz.BuildVariableResource(fullName, scope, name))
+		resources = append(resources, routeauthz.BuildVariableResource(fullName, resourceScope, name))
 	}
 
 	allowedSet, err := a.allowedResourceSet(r, "variable.list_metadata", resources)
@@ -448,23 +416,16 @@ func (a *App) handleCreateOrUpdateRepoVariable(w http.ResponseWriter, r *http.Re
 	repoName := r.PathValue("repoName")
 	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
 	variableName := r.PathValue("variableName")
-	scope := r.URL.Query().Get("scope")
+	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
 	var req VariableRequest
 	if err := httpapi.DecodeJSON(r, &req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	var err error
-	if scope != "" {
-		query := `INSERT INTO variables (name, value, repository_name, scope, source, updated_at) VALUES ($1, $2, $3, $4, 'database', NOW())
-				  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, source = 'database', updated_at = NOW()`
-		_, err = a.db.Exec(context.Background(), query, variableName, req.Value, fullName, scope)
-	} else {
-		query := `INSERT INTO variables (name, value, repository_name, scope, source, updated_at) VALUES ($1, $2, $3, NULL, 'database', NOW())
-				  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, source = 'database', updated_at = NOW()`
-		_, err = a.db.Exec(context.Background(), query, variableName, req.Value, fullName)
-	}
+	query := `INSERT INTO variables (name, value, repository_name, scope, source, updated_at) VALUES ($1, $2, $3, $4, 'database', NOW())
+			  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, source = 'database', updated_at = NOW()`
+	_, err := a.db.Exec(context.Background(), query, variableName, req.Value, fullName, scope)
 
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to save repository variable to database")
@@ -479,14 +440,8 @@ func (a *App) handleDeleteRepoVariable(w http.ResponseWriter, r *http.Request) {
 	repoName := r.PathValue("repoName")
 	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
 	variableName := r.PathValue("variableName")
-	scope := r.URL.Query().Get("scope")
-	var err error
-
-	if scope != "" {
-		_, err = a.db.Exec(context.Background(), "DELETE FROM variables WHERE name = $1 AND repository_name = $2 AND scope = $3", variableName, fullName, scope)
-	} else {
-		_, err = a.db.Exec(context.Background(), "DELETE FROM variables WHERE name = $1 AND repository_name = $2 AND scope IS NULL", variableName, fullName)
-	}
+	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
+	_, err := a.db.Exec(context.Background(), "DELETE FROM variables WHERE name = $1 AND repository_name = $2 AND "+runtimeScopeEqualsSQL("scope", 3, scope), variableName, fullName, scope)
 
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to delete repository variable from database")
@@ -501,15 +456,9 @@ func (a *App) handleGetRepoVariableValue(w http.ResponseWriter, r *http.Request)
 	repoName := r.PathValue("repoName")
 	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
 	variableName := r.PathValue("variableName")
-	scope := r.URL.Query().Get("scope")
+	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
 	var value string
-	var err error
-
-	if scope != "" {
-		err = a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name = $2 AND scope = $3", variableName, fullName, scope).Scan(&value)
-	} else {
-		err = a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name = $2 AND scope IS NULL", variableName, fullName).Scan(&value)
-	}
+	err := a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name = $2 AND "+runtimeScopeEqualsSQL("scope", 3, scope)+" ORDER BY scope IS NULL ASC LIMIT 1", variableName, fullName, scope).Scan(&value)
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -524,6 +473,29 @@ func (a *App) handleGetRepoVariableValue(w http.ResponseWriter, r *http.Request)
 	response := VariableValueResponse{Name: variableName, Value: value}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+func (a *App) findVariableValue(varName, repoFullName, scope string) (string, string, bool, error) {
+	var value string
+	storageScope := runtimeScopeForStorage(scope)
+	resourceScope := runtimeScopeForResource(storageScope)
+
+	err := a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name = $2 AND "+runtimeScopeEqualsSQL("scope", 3, storageScope)+" ORDER BY scope IS NULL ASC LIMIT 1", varName, repoFullName, storageScope).Scan(&value)
+	if err == nil {
+		return value, model.BuildNamedResourceID(repoFullName, resourceScope, varName), true, nil
+	}
+	if err != pgx.ErrNoRows {
+		return "", "", false, err
+	}
+
+	err = a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name IS NULL AND "+runtimeScopeEqualsSQL("scope", 2, storageScope)+" ORDER BY scope IS NULL ASC LIMIT 1", varName, storageScope).Scan(&value)
+	if err == nil {
+		return value, model.BuildNamedResourceID("", resourceScope, varName), true, nil
+	}
+	if err == pgx.ErrNoRows {
+		return "", "", false, nil
+	}
+	return "", "", false, err
 }
 
 func (a *App) prepareVariablesForPipeline(runID string, pipeline models.Pipeline, gitContext map[string]string, scope string, overrides map[string]string) (map[string]string, error) {
@@ -541,69 +513,44 @@ func (a *App) prepareVariablesForPipeline(runID string, pipeline models.Pipeline
 
 	// The 'variables' block in the YAML is a list of required variable names.
 	requiredVars := pipeline.Variables
+	declaredRuntimeNames := make(map[string]string)
+	requiredRefs := make([]models.ScopedRuntimeRef, 0, len(requiredVars))
 
 	for _, rawName := range requiredVars {
-		varName := strings.TrimSpace(rawName)
-		if varName == "" {
+		if strings.TrimSpace(rawName) == "" {
 			continue
 		}
+		varRef, err := models.ParseScopedRuntimeRef(rawName, scope)
+		if err != nil {
+			return nil, fmt.Errorf("pipeline aborted: invalid variable reference '%s': %w", rawName, err)
+		}
+		if previousLookup, ok := declaredRuntimeNames[varRef.Name]; ok && previousLookup != varRef.LookupKey() {
+			return nil, fmt.Errorf("pipeline aborted: variable references resolve to multiple values for runtime name '%s'", varRef.Name)
+		}
+		declaredRuntimeNames[varRef.Name] = varRef.LookupKey()
+		requiredRefs = append(requiredRefs, varRef)
+	}
 
+	for _, varRef := range requiredRefs {
 		// Allow ad-hoc overrides to satisfy or replace scoped values.
-		if val, ok := cleanOverrides[varName]; ok {
-			finalVars[varName] = val
+		if val, ok := cleanOverrides[varRef.Name]; ok {
+			finalVars[varRef.Key()] = val
 			continue
 		}
 
-		var value string
-		var err error
-		found := false
-		resourceID := ""
-
-		if scope != "" {
-			// Precedence: 1. Repo/Env -> 2. General/Env
-			err = a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name = $2 AND scope = $3", varName, repoFullName, scope).Scan(&value)
-			if err == nil {
-				found = true
-				resourceID = model.BuildNamedResourceID(repoFullName, scope, varName)
-			} else if err != pgx.ErrNoRows {
-				return nil, fmt.Errorf("pipeline aborted: failed to resolve scope variable '%s': %w", varName, err)
+		value, resourceID, found, err := a.findVariableValue(varRef.Name, repoFullName, varRef.Scope)
+		if err != nil {
+			if varRef.Scope != "" {
+				return nil, fmt.Errorf("pipeline aborted: failed to resolve scope variable '%s': %w", varRef.Key(), err)
 			}
-			if !found {
-				err = a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name IS NULL AND scope = $2", varName, scope).Scan(&value)
-				if err == nil {
-					found = true
-					resourceID = model.BuildNamedResourceID("", scope, varName)
-				} else if err != pgx.ErrNoRows {
-					return nil, fmt.Errorf("pipeline aborted: failed to resolve scope variable '%s': %w", varName, err)
-				}
-			}
-
-			if !found {
-				return nil, fmt.Errorf("pipeline aborted: required scope variable '%s' not found for scope '%s'", varName, scope)
-			}
-
-		} else {
-			// Precedence: 1. Repo/No-Env -> 2. General/No-Env
-			err = a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name = $2 AND scope IS NULL", varName, repoFullName).Scan(&value)
-			if err == nil {
-				found = true
-				resourceID = model.BuildNamedResourceID(repoFullName, "", varName)
-			} else if err != pgx.ErrNoRows {
-				return nil, fmt.Errorf("pipeline aborted: failed to resolve variable '%s': %w", varName, err)
-			}
-			if !found {
-				err = a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name IS NULL AND scope IS NULL", varName).Scan(&value)
-				if err == nil {
-					found = true
-					resourceID = model.BuildNamedResourceID("", "", varName)
-				} else if err != pgx.ErrNoRows {
-					return nil, fmt.Errorf("pipeline aborted: failed to resolve variable '%s': %w", varName, err)
-				}
-			}
+			return nil, fmt.Errorf("pipeline aborted: failed to resolve variable '%s': %w", varRef.Key(), err)
 		}
 
 		if !found {
-			return nil, fmt.Errorf("pipeline aborted: required scope variable '%s' not found in the default scope", varName)
+			if varRef.Scope != "" {
+				return nil, fmt.Errorf("pipeline aborted: required scope variable '%s' not found for scope '%s'", varRef.Key(), varRef.DisplayScope())
+			}
+			return nil, fmt.Errorf("pipeline aborted: required scope variable '%s' not found in the default scope", varRef.Key())
 		}
 
 		if strings.TrimSpace(runID) != "" {
@@ -612,11 +559,14 @@ func (a *App) prepareVariablesForPipeline(runID string, pipeline models.Pipeline
 			}
 		}
 
-		finalVars[varName] = value
+		finalVars[varRef.Key()] = value
 	}
 
 	// Append any ad-hoc overrides that are not declared as required variables.
 	for key, value := range cleanOverrides {
+		if _, declared := declaredRuntimeNames[key]; declared {
+			continue
+		}
 		if _, exists := finalVars[key]; !exists {
 			finalVars[key] = value
 		}
@@ -626,7 +576,8 @@ func (a *App) prepareVariablesForPipeline(runID string, pipeline models.Pipeline
 }
 
 func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
-	scope := r.URL.Query().Get("scope")
+	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
+	resourceScope := runtimeScopeForResource(scope)
 	includeSource := strings.EqualFold(r.URL.Query().Get("include_source"), "true")
 	ctx := context.Background()
 
@@ -647,12 +598,8 @@ func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
 
 	var candidates []secretCandidate
 
-	condition := "scope IS NULL"
-	args := []interface{}{}
-	if scope != "" {
-		condition = "scope = $1"
-		args = append(args, scope)
-	}
+	condition := runtimeScopeEqualsSQL("scope", 1, scope)
+	args := []interface{}{scope}
 
 	generalQuery := fmt.Sprintf("SELECT name, created_at, updated_at FROM secrets WHERE repository_name IS NULL AND %s ORDER BY name ASC", condition)
 	rows, err := a.db.Query(ctx, generalQuery, args...)
@@ -674,17 +621,13 @@ func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
 			name:      name,
 			createdAt: createdAt,
 			updatedAt: updatedAt,
-			resource:  routeauthz.BuildSecretResource("", scope, name),
+			resource:  routeauthz.BuildSecretResource("", resourceScope, name),
 		})
 	}
 	rows.Close()
 
-	repoCondition := "scope IS NULL"
-	repoArgs := []interface{}{}
-	if scope != "" {
-		repoCondition = "scope = $1"
-		repoArgs = append(repoArgs, scope)
-	}
+	repoCondition := runtimeScopeEqualsSQL("scope", 1, scope)
+	repoArgs := []interface{}{scope}
 	repoQuery := fmt.Sprintf("SELECT repository_name, name, created_at, updated_at FROM secrets WHERE repository_name IS NOT NULL AND %s ORDER BY repository_name ASC, name ASC", repoCondition)
 	rows, err = a.db.Query(ctx, repoQuery, repoArgs...)
 	if err != nil {
@@ -711,7 +654,7 @@ func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
 			name:      secretName,
 			createdAt: createdAt,
 			updatedAt: updatedAt,
-			resource:  routeauthz.BuildSecretResource(repo, scope, secretName),
+			resource:  routeauthz.BuildSecretResource(repo, resourceScope, secretName),
 		})
 	}
 	rows.Close()
@@ -782,7 +725,7 @@ type SecretScopeSummary struct {
 
 func (a *App) handleListSecretScopes(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query(context.Background(), `
-		SELECT COALESCE(repository_name, ''), COALESCE(scope, ''), name
+		SELECT COALESCE(repository_name, ''), COALESCE(scope, 'default'), name
 		FROM secrets
 		ORDER BY repository_name ASC NULLS FIRST, scope ASC NULLS FIRST, name ASC`)
 	if err != nil {
@@ -807,14 +750,14 @@ func (a *App) handleListSecretScopes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		repoName = strings.TrimSpace(repoName)
-		scope = strings.TrimSpace(scope)
+		scope = runtimeScopeForDisplay(scope)
 		name = strings.TrimSpace(name)
 		if name == "" {
 			continue
 		}
 		candidates = append(candidates, secretScopeCandidate{
 			scope:    scope,
-			resource: routeauthz.BuildSecretResource(repoName, scope, name),
+			resource: routeauthz.BuildSecretResource(repoName, runtimeScopeForResource(scope), name),
 		})
 	}
 
@@ -850,13 +793,13 @@ func (a *App) handleListSecretScopes(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(scopes, func(i, j int) bool {
 		aEnv := scopes[i].Scope
 		bEnv := scopes[j].Scope
-		if aEnv == "" && bEnv == "" {
+		if aEnv == defaultRuntimeScope && bEnv == defaultRuntimeScope {
 			return false
 		}
-		if aEnv == "" {
+		if aEnv == defaultRuntimeScope {
 			return true
 		}
-		if bEnv == "" {
+		if bEnv == defaultRuntimeScope {
 			return false
 		}
 		return strings.ToLower(aEnv) < strings.ToLower(bEnv)
@@ -875,16 +818,11 @@ func (a *App) handleGetGeneralSecretValue(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	scope := r.URL.Query().Get("scope")
+	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
 	var query string
 	var args []any
-	if scope != "" {
-		query = "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL AND scope = $2"
-		args = []any{secretName, scope}
-	} else {
-		query = "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL AND scope IS NULL"
-		args = []any{secretName}
-	}
+	query = "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL AND " + runtimeScopeEqualsSQL("scope", 2, scope) + " ORDER BY scope IS NULL ASC LIMIT 1"
+	args = []any{secretName, scope}
 
 	var encryptedValue string
 	err := a.db.QueryRow(context.Background(), query, args...).Scan(&encryptedValue)
@@ -911,7 +849,7 @@ func (a *App) handleGetGeneralSecretValue(w http.ResponseWriter, r *http.Request
 
 func (a *App) handleCreateOrUpdateGeneralSecret(w http.ResponseWriter, r *http.Request) {
 	secretName := r.PathValue("secretName")
-	scope := r.URL.Query().Get("scope")
+	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
 	var req SecretRequest
 	if err := httpapi.DecodeJSON(r, &req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -925,15 +863,9 @@ func (a *App) handleCreateOrUpdateGeneralSecret(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if scope != "" {
-		query := `INSERT INTO secrets (name, value, repository_name, scope, updated_at) VALUES ($1, $2, NULL, $3, NOW())
-				  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
-		_, err = a.db.Exec(context.Background(), query, secretName, encryptedValue, scope)
-	} else {
-		query := `INSERT INTO secrets (name, value, repository_name, scope, updated_at) VALUES ($1, $2, NULL, NULL, NOW())
-				  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
-		_, err = a.db.Exec(context.Background(), query, secretName, encryptedValue)
-	}
+	query := `INSERT INTO secrets (name, value, repository_name, scope, updated_at) VALUES ($1, $2, NULL, $3, NOW())
+			  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
+	_, err = a.db.Exec(context.Background(), query, secretName, encryptedValue, scope)
 
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to save general secret to database")
@@ -945,14 +877,8 @@ func (a *App) handleCreateOrUpdateGeneralSecret(w http.ResponseWriter, r *http.R
 
 func (a *App) handleDeleteGeneralSecret(w http.ResponseWriter, r *http.Request) {
 	secretName := r.PathValue("secretName")
-	scope := r.URL.Query().Get("scope")
-	var err error
-
-	if scope != "" {
-		_, err = a.db.Exec(context.Background(), "DELETE FROM secrets WHERE name = $1 AND repository_name IS NULL AND scope = $2", secretName, scope)
-	} else {
-		_, err = a.db.Exec(context.Background(), "DELETE FROM secrets WHERE name = $1 AND repository_name IS NULL AND scope IS NULL", secretName)
-	}
+	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
+	_, err := a.db.Exec(context.Background(), "DELETE FROM secrets WHERE name = $1 AND repository_name IS NULL AND "+runtimeScopeEqualsSQL("scope", 2, scope), secretName, scope)
 
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to delete general secret from database")
@@ -966,15 +892,9 @@ func (a *App) handleListRepoSecrets(w http.ResponseWriter, r *http.Request) {
 	repoOwner := r.PathValue("repoOwner")
 	repoName := r.PathValue("repoName")
 	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
-	scope := r.URL.Query().Get("scope")
-	var rows pgx.Rows
-	var err error
-
-	if scope != "" {
-		rows, err = a.db.Query(context.Background(), "SELECT name FROM secrets WHERE repository_name = $1 AND scope = $2 ORDER BY name ASC", fullName, scope)
-	} else {
-		rows, err = a.db.Query(context.Background(), "SELECT name FROM secrets WHERE repository_name = $1 AND scope IS NULL ORDER BY name ASC", fullName)
-	}
+	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
+	resourceScope := runtimeScopeForResource(scope)
+	rows, err := a.db.Query(context.Background(), "SELECT name FROM secrets WHERE repository_name = $1 AND "+runtimeScopeEqualsSQL("scope", 2, scope)+" ORDER BY name ASC", fullName, scope)
 
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query repo secrets from database")
@@ -993,7 +913,7 @@ func (a *App) handleListRepoSecrets(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		secretNames = append(secretNames, name)
-		resources = append(resources, routeauthz.BuildSecretResource(fullName, scope, name))
+		resources = append(resources, routeauthz.BuildSecretResource(fullName, resourceScope, name))
 	}
 
 	allowedSet, err := a.allowedResourceSet(r, "secret.list_metadata", resources)
@@ -1020,7 +940,7 @@ func (a *App) handleCreateOrUpdateRepoSecret(w http.ResponseWriter, r *http.Requ
 	repoName := r.PathValue("repoName")
 	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
 	secretName := r.PathValue("secretName")
-	scope := r.URL.Query().Get("scope")
+	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
 	var req SecretRequest
 	if err := httpapi.DecodeJSON(r, &req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -1034,15 +954,9 @@ func (a *App) handleCreateOrUpdateRepoSecret(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if scope != "" {
-		query := `INSERT INTO secrets (name, value, repository_name, scope, updated_at) VALUES ($1, $2, $3, $4, NOW())
-				  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
-		_, err = a.db.Exec(context.Background(), query, secretName, encryptedValue, fullName, scope)
-	} else {
-		query := `INSERT INTO secrets (name, value, repository_name, scope, updated_at) VALUES ($1, $2, $3, NULL, NOW())
-				  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
-		_, err = a.db.Exec(context.Background(), query, secretName, encryptedValue, fullName)
-	}
+	query := `INSERT INTO secrets (name, value, repository_name, scope, updated_at) VALUES ($1, $2, $3, $4, NOW())
+			  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
+	_, err = a.db.Exec(context.Background(), query, secretName, encryptedValue, fullName, scope)
 
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to save repo secret to database")
@@ -1057,14 +971,8 @@ func (a *App) handleDeleteRepoSecret(w http.ResponseWriter, r *http.Request) {
 	repoName := r.PathValue("repoName")
 	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
 	secretName := r.PathValue("secretName")
-	scope := r.URL.Query().Get("scope")
-	var err error
-
-	if scope != "" {
-		_, err = a.db.Exec(context.Background(), "DELETE FROM secrets WHERE name = $1 AND repository_name = $2 AND scope = $3", secretName, fullName, scope)
-	} else {
-		_, err = a.db.Exec(context.Background(), "DELETE FROM secrets WHERE name = $1 AND repository_name = $2 AND scope IS NULL", secretName, fullName)
-	}
+	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
+	_, err := a.db.Exec(context.Background(), "DELETE FROM secrets WHERE name = $1 AND repository_name = $2 AND "+runtimeScopeEqualsSQL("scope", 3, scope), secretName, fullName, scope)
 
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to delete repo secret from database")
