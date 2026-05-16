@@ -188,6 +188,22 @@ func TestMapRequestUsesUpdatedLowLevelActions(t *testing.T) {
 			wantID:     "config-repos",
 		},
 		{
+			name:       "llm profiles read uses llm profile system resource",
+			method:     http.MethodGet,
+			path:       "/v1/system/llm-profiles",
+			wantAction: "system.read",
+			wantType:   "system",
+			wantID:     "llm-profiles",
+		},
+		{
+			name:       "llm profile delete uses llm profile system resource",
+			method:     http.MethodDelete,
+			path:       "/v1/system/llm-profiles/fast",
+			wantAction: "system.update",
+			wantType:   "system",
+			wantID:     "llm-profiles",
+		},
+		{
 			name:       "group config repo manage uses group path",
 			method:     http.MethodPut,
 			path:       "/v1/groups/team-1/config-repo",

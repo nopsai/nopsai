@@ -174,6 +174,8 @@ type SystemPagePermissions = {
   canViewConfig: boolean;
   canViewRuntimeConfig: boolean;
   canManageRuntimeConfig: boolean;
+  canViewLLMProfiles: boolean;
+  canManageLLMProfiles: boolean;
   canViewGlobalConfigRepo: boolean;
   canManageGlobalConfigRepo: boolean;
   canViewDispatcher: boolean;
@@ -195,11 +197,11 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
   const allowedTabs = useMemo(() => {
     const tabs: Array<'config' | 'llm-profiles' | 'dispatcher' | 'access'> = [];
     if (permissions.canViewConfig) tabs.push('config');
-    if (permissions.canViewRuntimeConfig) tabs.push('llm-profiles');
+    if (permissions.canViewLLMProfiles) tabs.push('llm-profiles');
     if (permissions.canViewDispatcher) tabs.push('dispatcher');
     if (permissions.canViewAccess) tabs.push('access');
     return tabs;
-  }, [permissions.canViewAccess, permissions.canViewConfig, permissions.canViewDispatcher, permissions.canViewRuntimeConfig]);
+  }, [permissions.canViewAccess, permissions.canViewConfig, permissions.canViewDispatcher, permissions.canViewLLMProfiles]);
   const visibleTab = allowedTabs.includes(activeTab) ? activeTab : allowedTabs[0] ?? activeTab;
 
   const isMountedRef = useRef(true);
@@ -1223,7 +1225,7 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
         />
       )}
       {visibleTab === 'llm-profiles' && (
-        <LLMProfilesPanel canManage={permissions.canManageRuntimeConfig} />
+        <LLMProfilesPanel canManage={permissions.canManageLLMProfiles} />
       )}
       {visibleTab === 'dispatcher' && (
         <DispatcherPanel
@@ -1617,6 +1619,7 @@ const AAA_RESOURCE_TYPE_CONFIGS: AAAResourceTypeConfig[] = [
     presets: [
       { value: 'config', label: 'Config' },
       { value: 'config-sync', label: 'Config sync' },
+      { value: 'llm-profiles', label: 'LLM profiles' },
       { value: 'config-repos', label: 'Config repositories' },
       { value: 'steps', label: 'Step catalog' },
     ],
@@ -1784,6 +1787,7 @@ const AAA_ACTION_OPTION_GROUPS_BY_SELECTOR: Record<string, AAAOptionGroup[]> = {
   'audit:authz': [{ label: 'Audit actions', options: [{ value: 'audit.read', label: 'read' }] }],
   'system:config': [{ label: 'System actions', options: [{ value: 'system.read', label: 'read' }, { value: 'system.update', label: 'update' }] }],
   'system:config-sync': [{ label: 'System actions', options: [{ value: 'system.read', label: 'read' }, { value: 'system.update', label: 'update' }] }],
+  'system:llm-profiles': [{ label: 'System actions', options: [{ value: 'system.read', label: 'read' }, { value: 'system.update', label: 'update' }] }],
   'system:steps': [{ label: 'System actions', options: [{ value: 'system.read', label: 'read' }, { value: 'system.update', label: 'update' }] }],
   'dispatcher:status': [{ label: 'Dispatcher actions', options: [{ value: 'system.read', label: 'read' }] }],
   'dispatcher:runners': [{ label: 'Dispatcher actions', options: [{ value: 'system.update', label: 'update' }] }],
@@ -4407,8 +4411,10 @@ type LLMProfileFormState = {
   api_key_secret: string;
   allowed_scopes: string;
   reasoning: string;
-  thinking: 'default' | 'on' | 'off';
+  thinking: 'default' | 'true' | 'false';
 };
+
+type LLMProfilePanelMode = 'create' | 'edit' | 'delete';
 
 const emptyLLMProfileForm: LLMProfileFormState = {
   name: '',
@@ -4431,6 +4437,8 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
   const [editingName, setEditingName] = useState<string | null>(null);
   const [form, setForm] = useState<LLMProfileFormState>(emptyLLMProfileForm);
   const [deleteBlocker, setDeleteBlocker] = useState<{ name: string; references: string[]; migrateTo: string } | null>(null);
+  const [panelMode, setPanelMode] = useState<LLMProfilePanelMode | null>(null);
+  const profilePanelRef = useRef<HTMLElement | null>(null);
 
   const loadProfiles = useCallback(async () => {
     setLoading(true);
@@ -4453,11 +4461,25 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
     void loadProfiles();
   }, [loadProfiles]);
 
+  useEffect(() => {
+    if (!panelMode) return;
+    window.requestAnimationFrame(() => {
+      if (window.innerWidth < 1280) {
+        profilePanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      const focusTarget =
+        profilePanelRef.current?.querySelector<HTMLElement>('[data-profile-autofocus]:not(:disabled)') ??
+        profilePanelRef.current?.querySelector<HTMLElement>('input:not(:disabled), select:not(:disabled), button:not(:disabled)');
+      focusTarget?.focus({ preventScroll: true });
+    });
+  }, [editingName, panelMode]);
+
   const startCreate = () => {
     setEditingName(null);
     setForm(emptyLLMProfileForm);
     setDeleteBlocker(null);
     setTestResult(null);
+    setPanelMode('create');
   };
 
   const startEdit = (profile: LLMProfileRecord) => {
@@ -4470,10 +4492,11 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
       api_key_secret: profile.api_key_secret || '',
       allowed_scopes: (profile.allowed_scopes || []).join(', '),
       reasoning: profile.reasoning || '',
-      thinking: profile.thinking === undefined ? 'default' : profile.thinking ? 'on' : 'off',
+      thinking: profile.thinking === undefined ? 'default' : profile.thinking ? 'true' : 'false',
     });
     setDeleteBlocker(null);
     setTestResult(null);
+    setPanelMode('edit');
   };
 
   const formToPayload = () => ({
@@ -4484,7 +4507,7 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
     api_key_secret: form.api_key_secret.trim(),
     allowed_scopes: form.allowed_scopes.split(',').map(item => item.trim()).filter(Boolean),
     reasoning: form.reasoning.trim(),
-    thinking: form.provider.trim() === 'lmstudio' && !form.reasoning.trim() && form.thinking !== 'default' ? form.thinking === 'on' : undefined,
+    thinking: form.provider.trim() === 'lmstudio' && form.thinking !== 'default' ? form.thinking === 'true' : undefined,
   });
 
   const saveProfile = async (event: FormEvent) => {
@@ -4509,6 +4532,7 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
       }
       setPayload(normalizeLLMProfilesPayload(await response.json()));
       setEditingName(next.name);
+      setPanelMode('edit');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to save LLM profile');
     } finally {
@@ -4556,6 +4580,7 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
         const references = Array.isArray(conflict?.references) ? conflict.references.map((item: unknown) => String(item)) : [];
         const fallback = payload.profiles.find(profile => profile.name !== name)?.name || '';
         setDeleteBlocker({ name, references, migrateTo: fallback });
+        setPanelMode('delete');
         return;
       }
       if (!response.ok && response.status !== 204) {
@@ -4567,6 +4592,7 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
         setEditingName(null);
         setForm(emptyLLMProfileForm);
       }
+      setPanelMode(prev => (prev === 'delete' || editingName === name ? null : prev));
       await loadProfiles();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to delete LLM profile');
@@ -4597,6 +4623,8 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
   const providerOptions = ['gemini', 'lmstudio'];
   const canDelete = (profile: LLMProfileRecord) => canManage && profile.name !== payload.default_profile;
   const migrationTargets = payload.profiles.filter(profile => profile.name !== deleteBlocker?.name).map(profile => profile.name);
+  const showProfilePanel = panelMode !== null || deleteBlocker !== null;
+  const showProfileForm = panelMode === 'create' || panelMode === 'edit';
 
   return (
     <div id="system-llm-profiles-section" className="space-y-6 pb-24">
@@ -4620,10 +4648,12 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
           <div className="flex items-center gap-2">
             {!canManage && <span className="runner-pill runner-pill--muted">Read-only</span>}
             <button type="button" className="glass-button-ghost" onClick={() => void loadProfiles()} disabled={loading || saving}>
+              <RefreshIcon />
               Reload
             </button>
             {canManage && (
               <button type="button" className="glass-button-primary" onClick={startCreate} disabled={saving}>
+                <PlusIcon />
                 New profile
               </button>
             )}
@@ -4633,7 +4663,7 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
         {testResult && <div className="rounded-lg border border-[var(--border-primary)] px-4 py-3 text-sm text-[var(--text-secondary)]">{testResult}</div>}
       </section>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
+      <div className={`grid gap-6 ${showProfilePanel ? 'xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]' : ''}`}>
         <section className="glass-card border border-[var(--border-primary)] rounded-xl overflow-hidden">
           <div className="p-4 border-b border-[var(--border-primary)] flex items-center justify-between gap-3">
             <h3 className="text-lg font-semibold text-[var(--text-primary)]">Profiles</h3>
@@ -4688,9 +4718,11 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
                           {testing === profile.name ? 'Testing…' : 'Test'}
                         </button>
                         <button type="button" className="glass-button-subtle" onClick={() => startEdit(profile)}>
+                          <EditIcon />
                           Edit
                         </button>
                         <button type="button" className="glass-button-danger" onClick={() => void deleteProfile(profile.name)} disabled={!canDelete(profile) || saving}>
+                          <TrashIcon />
                           Delete
                         </button>
                       </div>
@@ -4709,89 +4741,115 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
           </div>
         </section>
 
-        <aside className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
-          <div>
-            <p className="text-xs text-[var(--text-secondary)]">{editingName ? 'Edit profile' : 'Create profile'}</p>
-            <h3 className="text-lg font-semibold text-[var(--text-primary)]">{editingName || 'New LLM profile'}</h3>
-          </div>
-          <form className="space-y-4" onSubmit={saveProfile}>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>Name</span>
-              <input className="pipelines-input" value={form.name} onChange={event => setForm(prev => ({ ...prev, name: event.target.value }))} disabled={!canManage || Boolean(editingName)} placeholder="reasoning" />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>Provider</span>
-              <select
-                className="pipelines-input"
-                value={form.provider}
-                onChange={event => setForm(prev => ({
-                  ...prev,
-                  provider: event.target.value,
-                  api_key_secret: event.target.value === 'gemini' && !prev.api_key_secret ? 'GEMINI_API_KEY' : prev.api_key_secret,
-                }))}
-                disabled={!canManage}
-              >
-                {providerOptions.map(provider => <option key={provider} value={provider}>{provider}</option>)}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>Model</span>
-              <input className="pipelines-input" value={form.model} onChange={event => setForm(prev => ({ ...prev, model: event.target.value }))} disabled={!canManage} placeholder={form.provider === 'gemini' ? 'gemini-2.5-pro' : 'qwen3-coder'} />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>Base URL</span>
-              <input className="pipelines-input" value={form.base_url} onChange={event => setForm(prev => ({ ...prev, base_url: event.target.value }))} disabled={!canManage} placeholder="http://lmstudio:1234" />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>API key secret</span>
-              <input className="pipelines-input" value={form.api_key_secret} onChange={event => setForm(prev => ({ ...prev, api_key_secret: event.target.value }))} disabled={!canManage} placeholder="GEMINI_API_KEY" />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>Allowed scopes</span>
-              <input className="pipelines-input" value={form.allowed_scopes} onChange={event => setForm(prev => ({ ...prev, allowed_scopes: event.target.value }))} disabled={!canManage} placeholder="dev, internal" />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>Reasoning</span>
-              <select className="pipelines-input" value={form.reasoning} onChange={event => setForm(prev => ({ ...prev, reasoning: event.target.value }))} disabled={!canManage}>
-                <option value="">Provider default</option>
-                <option value="off">Off</option>
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-                <option value="on">On</option>
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>Thinking</span>
-              <select className="pipelines-input" value={form.thinking} onChange={event => setForm(prev => ({ ...prev, thinking: event.target.value as LLMProfileFormState['thinking'] }))} disabled={!canManage || form.provider !== 'lmstudio' || Boolean(form.reasoning)}>
-                <option value="default">Provider default</option>
-                <option value="on">On</option>
-                <option value="off">Off</option>
-              </select>
-            </label>
-            <button type="submit" className="glass-button-primary w-full justify-center" disabled={!canManage || saving}>
-              {saving ? 'Saving…' : 'Save profile'}
-            </button>
-          </form>
+        {showProfilePanel && (
+          <aside ref={profilePanelRef} className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
+            {showProfileForm && (
+              <>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs text-[var(--text-secondary)]">{panelMode === 'edit' ? 'Edit profile' : 'Create profile'}</p>
+                    <h3 className="text-lg font-semibold text-[var(--text-primary)]">{panelMode === 'edit' ? editingName : 'New LLM profile'}</h3>
+                  </div>
+                  <button type="button" className="glass-button-ghost !px-2" aria-label="Close profile form" onClick={() => setPanelMode(null)}>
+                    <X className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                </div>
+                <form className="space-y-4" onSubmit={saveProfile}>
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span>Name</span>
+                    <input data-profile-autofocus className="pipelines-input" value={form.name} onChange={event => setForm(prev => ({ ...prev, name: event.target.value }))} disabled={!canManage || Boolean(editingName)} placeholder="reasoning" />
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span>Provider</span>
+                    <select
+                      className="pipelines-input"
+                      value={form.provider}
+                      onChange={event => setForm(prev => ({
+                        ...prev,
+                        provider: event.target.value,
+                        api_key_secret: event.target.value === 'gemini' && !prev.api_key_secret ? 'GEMINI_API_KEY' : prev.api_key_secret,
+                        thinking: event.target.value === 'lmstudio' ? prev.thinking : 'default',
+                      }))}
+                      disabled={!canManage}
+                    >
+                      {providerOptions.map(provider => <option key={provider} value={provider}>{provider}</option>)}
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span>Model</span>
+                    <input className="pipelines-input" value={form.model} onChange={event => setForm(prev => ({ ...prev, model: event.target.value }))} disabled={!canManage} placeholder={form.provider === 'gemini' ? 'gemini-2.5-pro' : 'qwen3-coder'} />
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span>Base URL</span>
+                    <input className="pipelines-input" value={form.base_url} onChange={event => setForm(prev => ({ ...prev, base_url: event.target.value }))} disabled={!canManage} placeholder="http://lmstudio:1234" />
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span>API key secret</span>
+                    <input className="pipelines-input" value={form.api_key_secret} onChange={event => setForm(prev => ({ ...prev, api_key_secret: event.target.value }))} disabled={!canManage} placeholder="GEMINI_API_KEY" />
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span>Allowed scopes</span>
+                    <input className="pipelines-input" value={form.allowed_scopes} onChange={event => setForm(prev => ({ ...prev, allowed_scopes: event.target.value }))} disabled={!canManage} placeholder="dev, internal" />
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span>Reasoning</span>
+                    <select className="pipelines-input" value={form.reasoning} onChange={event => setForm(prev => ({ ...prev, reasoning: event.target.value }))} disabled={!canManage}>
+                      <option value="">Provider default</option>
+                      <option value="off">Off</option>
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                      <option value="on">On</option>
+                    </select>
+                  </label>
+                  {form.provider === 'lmstudio' && (
+                    <label className="flex flex-col gap-1 text-sm">
+                      <span>Thinking</span>
+                      <select className="pipelines-input" value={form.thinking} onChange={event => setForm(prev => ({ ...prev, thinking: event.target.value as LLMProfileFormState['thinking'] }))} disabled={!canManage}>
+                        <option value="default">Provider default</option>
+                        <option value="true">True</option>
+                        <option value="false">False</option>
+                      </select>
+                    </label>
+                  )}
+                  <button type="submit" className="glass-button-primary w-full justify-center" disabled={!canManage || saving}>
+                    {saving ? 'Saving…' : 'Save profile'}
+                  </button>
+                </form>
+              </>
+            )}
 
-          {deleteBlocker && (
-            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 space-y-3 text-sm">
-              <p className="font-semibold text-[var(--text-primary)]">Profile is still referenced.</p>
-              <ul className="list-disc pl-5 text-[var(--text-secondary)] max-h-32 overflow-auto">
-                {deleteBlocker.references.map(ref => <li key={ref}>{ref}</li>)}
-              </ul>
-              <label className="flex flex-col gap-1">
-                <span>Migrate references to</span>
-                <select className="pipelines-input" value={deleteBlocker.migrateTo} onChange={event => setDeleteBlocker(prev => prev ? { ...prev, migrateTo: event.target.value } : prev)}>
-                  {migrationTargets.map(name => <option key={name} value={name}>{name}</option>)}
-                </select>
-              </label>
-              <button type="button" className="glass-button-danger" disabled={!deleteBlocker.migrateTo || saving} onClick={() => void deleteProfile(deleteBlocker.name, { force: true, migrateTo: deleteBlocker.migrateTo })}>
-                Force delete with migration
-              </button>
-            </div>
-          )}
-        </aside>
+            {deleteBlocker && panelMode === 'delete' && (
+              <div className="space-y-3 text-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs text-[var(--text-secondary)]">Delete profile</p>
+                    <h3 className="text-lg font-semibold text-[var(--text-primary)]">{deleteBlocker.name}</h3>
+                  </div>
+                  <button type="button" className="glass-button-ghost !px-2" aria-label="Close delete details" onClick={() => { setDeleteBlocker(null); setPanelMode(null); }}>
+                    <X className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                </div>
+                <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 space-y-3">
+                  <p className="font-semibold text-[var(--text-primary)]">Profile is still referenced.</p>
+                  <ul className="list-disc pl-5 text-[var(--text-secondary)] max-h-32 overflow-auto">
+                    {deleteBlocker.references.map(ref => <li key={ref}>{ref}</li>)}
+                  </ul>
+                  <label className="flex flex-col gap-1">
+                    <span>Migrate references to</span>
+                    <select data-profile-autofocus className="pipelines-input" value={deleteBlocker.migrateTo} onChange={event => setDeleteBlocker(prev => prev ? { ...prev, migrateTo: event.target.value } : prev)}>
+                      {migrationTargets.map(name => <option key={name} value={name}>{name}</option>)}
+                    </select>
+                  </label>
+                  <button type="button" className="glass-button-danger" disabled={!deleteBlocker.migrateTo || saving} onClick={() => void deleteProfile(deleteBlocker.name, { force: true, migrateTo: deleteBlocker.migrateTo })}>
+                    <TrashIcon />
+                    Force delete with migration
+                  </button>
+                </div>
+              </div>
+            )}
+          </aside>
+        )}
       </div>
     </div>
   );

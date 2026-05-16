@@ -156,6 +156,8 @@ type authReadCapabilities struct {
 type authSystemCapabilities struct {
 	ConfigRead       bool `json:"config_read"`
 	ConfigWrite      bool `json:"config_write"`
+	LLMProfilesRead  bool `json:"llm_profiles_read"`
+	LLMProfilesWrite bool `json:"llm_profiles_write"`
 	ConfigReposRead  bool `json:"config_repos_read"`
 	ConfigReposWrite bool `json:"config_repos_write"`
 	DispatcherRead   bool `json:"dispatcher_read"`
