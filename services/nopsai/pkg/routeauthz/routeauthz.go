@@ -230,15 +230,23 @@ func RunResource(runID string) model.ResourceRef {
 func BuildSecretResource(repoName, scope, name string) model.ResourceRef {
 	return model.ResourceRef{
 		Type: "secret",
-		ID:   model.BuildNamedResourceID(repoName, scope, name),
+		ID:   model.BuildNamedResourceID(repoName, normalizeRuntimeScopeForResource(scope), name),
 	}
 }
 
 func BuildVariableResource(repoName, scope, name string) model.ResourceRef {
 	return model.ResourceRef{
 		Type: "variable",
-		ID:   model.BuildNamedResourceID(repoName, scope, name),
+		ID:   model.BuildNamedResourceID(repoName, normalizeRuntimeScopeForResource(scope), name),
 	}
+}
+
+func normalizeRuntimeScopeForResource(scope string) string {
+	scope = strings.Trim(strings.TrimSpace(scope), "/")
+	if strings.EqualFold(scope, "default") {
+		return ""
+	}
+	return scope
 }
 
 func BuildTriggerResource(repoOwner, repoName string) model.ResourceRef {

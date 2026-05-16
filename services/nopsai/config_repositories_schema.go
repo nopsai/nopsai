@@ -56,6 +56,46 @@ var configRepositorySchemaStatements = []string{
 	`ALTER TABLE secrets ADD COLUMN IF NOT EXISTS config_source_path TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE secrets ADD COLUMN IF NOT EXISTS config_source_commit_sha TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE secrets ADD COLUMN IF NOT EXISTS managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE`,
+	`WITH default_scope_rows AS (
+		SELECT id,
+		       ROW_NUMBER() OVER (
+		           PARTITION BY name, repository_name
+		           ORDER BY CASE
+		               WHEN scope = 'default' THEN 0
+		               WHEN scope = '' THEN 1
+		               ELSE 2
+		           END, id
+		       ) AS rn
+		FROM variables
+		WHERE scope IS NULL OR scope = '' OR scope = 'default'
+	)
+	DELETE FROM variables
+	USING default_scope_rows
+	WHERE variables.id = default_scope_rows.id
+	AND default_scope_rows.rn > 1`,
+	`UPDATE variables SET scope = 'default' WHERE scope IS NULL OR scope = ''`,
+	`ALTER TABLE variables ALTER COLUMN scope SET DEFAULT 'default'`,
+	`ALTER TABLE variables ALTER COLUMN scope SET NOT NULL`,
+	`WITH default_scope_rows AS (
+		SELECT id,
+		       ROW_NUMBER() OVER (
+		           PARTITION BY name, repository_name
+		           ORDER BY CASE
+		               WHEN scope = 'default' THEN 0
+		               WHEN scope = '' THEN 1
+		               ELSE 2
+		           END, id
+		       ) AS rn
+		FROM secrets
+		WHERE scope IS NULL OR scope = '' OR scope = 'default'
+	)
+	DELETE FROM secrets
+	USING default_scope_rows
+	WHERE secrets.id = default_scope_rows.id
+	AND default_scope_rows.rn > 1`,
+	`UPDATE secrets SET scope = 'default' WHERE scope IS NULL OR scope = ''`,
+	`ALTER TABLE secrets ALTER COLUMN scope SET DEFAULT 'default'`,
+	`ALTER TABLE secrets ALTER COLUMN scope SET NOT NULL`,
 	`ALTER TABLE users ADD COLUMN IF NOT EXISTS config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL`,
 	`ALTER TABLE users ADD COLUMN IF NOT EXISTS config_source_path TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE users ADD COLUMN IF NOT EXISTS config_source_commit_sha TEXT NOT NULL DEFAULT ''`,

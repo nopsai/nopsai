@@ -1015,10 +1015,26 @@ func (a *App) handleUpdateRunnerDispatch(w http.ResponseWriter, r *http.Request)
 }
 
 func (a *App) prepareSecretsForPipeline(runID string, pipeline models.Pipeline, gitContext map[string]string, scope string) (map[string]string, error) {
-	requiredSecrets := make(map[string]struct{})
+	requiredSecrets := make(map[string]models.ScopedRuntimeRef)
 	for _, step := range pipeline.Steps {
-		for _, secretName := range step.GetSecrets() {
-			requiredSecrets[secretName] = struct{}{}
+		stepSecretNames := make(map[string]string)
+		for _, rawSecretName := range step.GetSecrets() {
+			if strings.TrimSpace(rawSecretName) == "" {
+				continue
+			}
+			secretRef, err := models.ParseScopedRuntimeRef(rawSecretName, scope)
+			if err != nil {
+				return nil, fmt.Errorf("pipeline aborted: invalid secret reference '%s': %w", rawSecretName, err)
+			}
+			if previousLookup, ok := stepSecretNames[secretRef.Name]; ok && previousLookup != secretRef.LookupKey() {
+				stepName := strings.TrimSpace(step.GetName())
+				if stepName == "" {
+					stepName = "unknown"
+				}
+				return nil, fmt.Errorf("pipeline aborted: secret references in step '%s' resolve to multiple values for runtime name '%s'", stepName, secretRef.Name)
+			}
+			stepSecretNames[secretRef.Name] = secretRef.LookupKey()
+			requiredSecrets[secretRef.Key()] = secretRef
 		}
 	}
 
@@ -1029,16 +1045,16 @@ func (a *App) prepareSecretsForPipeline(runID string, pipeline models.Pipeline, 
 	finalSecrets := make(map[string]string)
 	repoFullName := fmt.Sprintf("%s/%s", gitContext["repo_owner"], gitContext["repo_name"])
 
-	for secretName := range requiredSecrets {
-		encryptedValue, resourceID, found, err := a.findEncryptedSecret(secretName, repoFullName, scope)
+	for secretKey, secretRef := range requiredSecrets {
+		encryptedValue, resourceID, found, err := a.findEncryptedSecret(secretRef.Name, repoFullName, secretRef.Scope)
 		if err != nil {
-			return nil, fmt.Errorf("pipeline aborted: failed to resolve secret '%s': %w", secretName, err)
+			return nil, fmt.Errorf("pipeline aborted: failed to resolve secret '%s': %w", secretKey, err)
 		}
 		if !found {
-			if scope != "" {
-				return nil, fmt.Errorf("pipeline aborted: required secret '%s' not found for scope '%s'", secretName, scope)
+			if secretRef.Scope != "" {
+				return nil, fmt.Errorf("pipeline aborted: required secret '%s' not found for scope '%s'", secretKey, secretRef.DisplayScope())
 			}
-			return nil, fmt.Errorf("pipeline aborted: required secret '%s' not found in the default scope", secretName)
+			return nil, fmt.Errorf("pipeline aborted: required secret '%s' not found in the default scope", secretKey)
 		}
 		if strings.TrimSpace(runID) != "" {
 			if _, err := a.authorizeRunRuntimeResourceUse(context.Background(), runID, gitContext, "secret.use", grantResourceSecret, resourceID); err != nil {
@@ -1048,10 +1064,10 @@ func (a *App) prepareSecretsForPipeline(runID string, pipeline models.Pipeline, 
 
 		decryptedValue, decryptErr := a.decrypt(encryptedValue)
 		if decryptErr != nil {
-			log.Error().Err(decryptErr).Str("secret_name", secretName).Msg("Failed to decrypt secret; this will cause a failure.")
-			return nil, fmt.Errorf("pipeline aborted: failed to decrypt secret '%s'", secretName)
+			log.Error().Err(decryptErr).Str("secret_name", secretKey).Msg("Failed to decrypt secret; this will cause a failure.")
+			return nil, fmt.Errorf("pipeline aborted: failed to decrypt secret '%s'", secretKey)
 		}
-		finalSecrets[secretName] = decryptedValue
+		finalSecrets[secretKey] = decryptedValue
 	}
 
 	return finalSecrets, nil
@@ -1745,12 +1761,9 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 
 	// D. Upsert General Scope Vars
 	for key, stored := range generalScopeVars {
-		var scopeParam interface{}
-		if key.scopePath != "" {
-			scopeParam = key.scopePath
-		}
-		resourceID := fmt.Sprintf("scope=%s name=%s", key.scopePath, key.name)
-		writable, err := ensureConfigResourceWritable(ctx, tx, "variables", "variable", resourceID, binding, key.scopePath, "name = $1 AND repository_name IS NULL AND scope IS NOT DISTINCT FROM $2", key.name, scopeParam)
+		scopeParam := runtimeScopeForStorage(key.scopePath)
+		resourceID := fmt.Sprintf("scope=%s name=%s", runtimeScopeForDisplay(key.scopePath), key.name)
+		writable, err := ensureConfigResourceWritable(ctx, tx, "variables", "variable", resourceID, binding, key.scopePath, "name = $1 AND repository_name IS NULL AND "+runtimeScopeEqualsSQL("scope", 2, scopeParam), key.name, scopeParam)
 		if err != nil {
 			return nil, commitSHA, err
 		}
@@ -1765,12 +1778,9 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 
 	// E. Upsert Repo Scope Vars
 	for key, stored := range repoScopeVars {
-		var scopeParam interface{}
-		if key.scopePath != "" {
-			scopeParam = key.scopePath
-		}
-		resourceID := fmt.Sprintf("repo=%s scope=%s name=%s", key.repo, key.scopePath, key.name)
-		writable, err := ensureConfigResourceWritable(ctx, tx, "variables", "variable", resourceID, binding, key.repo, "name = $1 AND repository_name = $2 AND scope IS NOT DISTINCT FROM $3", key.name, key.repo, scopeParam)
+		scopeParam := runtimeScopeForStorage(key.scopePath)
+		resourceID := fmt.Sprintf("repo=%s scope=%s name=%s", key.repo, runtimeScopeForDisplay(key.scopePath), key.name)
+		writable, err := ensureConfigResourceWritable(ctx, tx, "variables", "variable", resourceID, binding, key.repo, "name = $1 AND repository_name = $2 AND "+runtimeScopeEqualsSQL("scope", 3, scopeParam), key.name, key.repo, scopeParam)
 		if err != nil {
 			return nil, commitSHA, err
 		}
@@ -1949,11 +1959,8 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		addVar := func(n string, r *string, s string) {
 			names = append(names, n)
 			repos = append(repos, r)
-			if s == "" {
-				scopes = append(scopes, nil)
-			} else {
-				scopes = append(scopes, &s)
-			}
+			storedScope := runtimeScopeForStorage(s)
+			scopes = append(scopes, &storedScope)
 		}
 
 		for key := range generalScopeVars {
