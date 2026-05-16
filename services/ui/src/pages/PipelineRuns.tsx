@@ -3482,14 +3482,15 @@ function deriveTaskGraphStatus(task: TaskDetail, stepStatus?: string): GraphStat
   if (base === 'skipped') return 'skipped';
   if (base === 'failed') return 'failed';
   if (base === 'cancelled') return 'cancelled';
-  if (base === 'running') return 'running';
 
-  if (started && !finished) return 'running';
   if (finished && hasExitCode) return exitCode === 0 ? 'success' : 'failed';
 
-  if (!finished && stepBase && stepBase !== 'pending') {
+  if (!finished && stepBase && stepBase !== 'pending' && stepBase !== 'running') {
     return stepBase;
   }
+
+  if (base === 'running') return 'running';
+  if (started && !finished) return 'running';
 
   if (!started && !finished && base === 'success') {
     return stepBase && stepBase !== 'pending' ? stepBase : 'pending';
@@ -3607,6 +3608,15 @@ function getRanks(items: { id: string; dependsOn?: string[] }[]) {
 
   items.forEach(item => getRank(item.id));
   return ranks;
+}
+
+function deriveGraphEdgeStatus(source: GraphStatus, target: GraphStatus): GraphStatus {
+  if (source === 'failed' || target === 'failed') return 'failed';
+  if (source === 'cancelled' || target === 'cancelled') return 'cancelled';
+  if (source === 'running' || target === 'running') return 'running';
+  if (source === 'pending' || target === 'pending') return 'pending';
+  if (source === 'skipped' || target === 'skipped') return 'skipped';
+  return 'success';
 }
 
 function calculateGraphLayout<T extends { id: string; dependsOn?: string[]; status: GraphStatus }>(
@@ -3750,7 +3760,7 @@ function calculateGraphLayout<T extends { id: string; dependsOn?: string[]; stat
         id: `${parentId}-${item.id}`,
         from: parentId,
         to: item.id,
-        status: sourceNode.data.status,
+        status: deriveGraphEdgeStatus(sourceNode.data.status, targetNode.data.status),
         points,
       });
     });
@@ -4233,10 +4243,13 @@ function LogsModal({
 
   const toggleLevel = (level: string) => {
     setSelectedLevels(prev => {
-      const isAll = prev.size === 0 || prev.size === levelOptions.length;
-      if (isAll) return new Set([level]);
-      if (prev.size === 1 && prev.has(level)) return new Set();
-      return new Set([level]);
+      const next = new Set(prev);
+      if (next.has(level)) {
+        next.delete(level);
+      } else {
+        next.add(level);
+      }
+      return next.size === levelOptions.length ? new Set() : next;
     });
   };
 
@@ -4378,6 +4391,7 @@ function LogsModal({
                   <button
                     key={level}
                     type="button"
+                    aria-pressed={active}
                     disabled={!available && lines.length > 0}
                     className={`px-2.5 py-1 rounded-full text-xs font-semibold border border-[var(--border-primary)] ${active ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] ring-1 ring-[var(--border-accent)]' : 'text-[var(--text-secondary)]'} ${!available && lines.length > 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
                     onClick={() => toggleLevel(level)}

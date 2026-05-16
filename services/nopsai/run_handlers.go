@@ -335,7 +335,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 		stepName := pStep.GetName()
 		stepTasks := tasksByStep[stepName]
 		stepChildRuns := childRunsByStep[stepName]
-		status := deriveRunDetailStepStatus(stepTasks, stepChildRuns)
+		status := finalizeRunDetailStepStatus(deriveRunDetailStepStatus(stepTasks, stepChildRuns), stepTasks, run.Status)
 		stepDuration := deriveRunDetailStepDuration(stepTasks, stepChildRuns)
 
 		originalPStep, _ := findStepByName(originalPipeline.Steps, stepName)
@@ -469,6 +469,40 @@ func deriveRunDetailStepStatus(tasks []TaskDetail, childRuns []RunListItem) stri
 		return childStatus
 	}
 	return summarizeRunDetailStatuses([]string{taskStatus, childStatus})
+}
+
+func finalizeRunDetailStepStatus(stepStatus string, tasks []TaskDetail, runStatus string) string {
+	normalizedStep := normalizeRunDetailStatus(stepStatus)
+	normalizedRun := normalizeRunDetailStatus(runStatus)
+	if normalizedStep != "running" && normalizedStep != "pending" {
+		return normalizedStep
+	}
+
+	switch normalizedRun {
+	case "success":
+		return "success"
+	case "failure", "failure (ignored)":
+		if normalizedStep == "running" || hasInFlightRunDetailTask(tasks) {
+			return normalizedRun
+		}
+		return "skipped"
+	case "cancelled":
+		if normalizedStep == "running" || hasInFlightRunDetailTask(tasks) {
+			return "cancelled"
+		}
+		return "skipped"
+	default:
+		return normalizedStep
+	}
+}
+
+func hasInFlightRunDetailTask(tasks []TaskDetail) bool {
+	for _, task := range tasks {
+		if !task.StartedAt.IsZero() && task.FinishedAt.IsZero() {
+			return true
+		}
+	}
+	return false
 }
 
 func deriveRunDetailStepDuration(tasks []TaskDetail, childRuns []RunListItem) time.Duration {
