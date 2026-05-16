@@ -45,6 +45,44 @@ func TestDeriveRunDetailStepStatusPreservesCancellation(t *testing.T) {
 	}
 }
 
+func TestFinalizeRunDetailStepStatusMarksStaleRunningStepFailed(t *testing.T) {
+	start := time.Unix(1_700_000_000, 0).UTC()
+	tasks := []TaskDetail{
+		{TaskID: "task-1", StepName: "deploy", TaskName: "release", Status: "running", StartedAt: start},
+	}
+
+	got := finalizeRunDetailStepStatus("running", tasks, "failure")
+	if got != "failure" {
+		t.Fatalf("finalizeRunDetailStepStatus() = %q, want %q", got, "failure")
+	}
+}
+
+func TestFinalizeRunDetailStepStatusMarksPendingStepSkippedOnFailedRun(t *testing.T) {
+	got := finalizeRunDetailStepStatus("pending", nil, "failure")
+	if got != "skipped" {
+		t.Fatalf("finalizeRunDetailStepStatus() = %q, want %q", got, "skipped")
+	}
+}
+
+func TestFinalizeRunDetailStepStatusPreservesTerminalStepStatus(t *testing.T) {
+	got := finalizeRunDetailStepStatus("failure (ignored)", nil, "success")
+	if got != "failure (ignored)" {
+		t.Fatalf("finalizeRunDetailStepStatus() = %q, want %q", got, "failure (ignored)")
+	}
+}
+
+func TestFinalizeRunDetailStepStatusPreservesIgnoredFailureRunStatus(t *testing.T) {
+	start := time.Unix(1_700_000_000, 0).UTC()
+	tasks := []TaskDetail{
+		{TaskID: "task-1", StepName: "test", TaskName: "lint", Status: "running", StartedAt: start},
+	}
+
+	got := finalizeRunDetailStepStatus("running", tasks, "failure (ignored)")
+	if got != "failure (ignored)" {
+		t.Fatalf("finalizeRunDetailStepStatus() = %q, want %q", got, "failure (ignored)")
+	}
+}
+
 func TestBuildRunDetailETagChangesWhenTaskOrChildStatusChanges(t *testing.T) {
 	start := time.Unix(1_700_000_000, 0).UTC()
 	run := RunListItem{

@@ -68,6 +68,8 @@ type ReadCapabilities = {
 type SystemCapabilities = {
   configRead?: boolean;
   configWrite?: boolean;
+  llmProfilesRead?: boolean;
+  llmProfilesWrite?: boolean;
   configReposRead?: boolean;
   configReposWrite?: boolean;
   dispatcherRead?: boolean;
@@ -323,6 +325,8 @@ function AppShell() {
                     ? {
                         configRead: Boolean(data.capabilities.system.config_read),
                         configWrite: Boolean(data.capabilities.system.config_write),
+                        llmProfilesRead: Boolean(data.capabilities.system.llm_profiles_read),
+                        llmProfilesWrite: Boolean(data.capabilities.system.llm_profiles_write),
                         configReposRead: Boolean(data.capabilities.system.config_repos_read),
                         configReposWrite: Boolean(data.capabilities.system.config_repos_write),
                         dispatcherRead: Boolean(data.capabilities.system.dispatcher_read),
@@ -388,16 +392,18 @@ function AppShell() {
   const canDeleteScopes = Boolean(currentUser?.capabilities?.scopes?.delete);
   const canViewSystemRuntimeConfig = Boolean(currentUser?.capabilities?.system?.configRead);
   const canManageSystemRuntimeConfig = Boolean(currentUser?.capabilities?.system?.configWrite);
+  const canViewSystemLLMProfiles = Boolean(currentUser?.capabilities?.system?.llmProfilesRead) || canViewSystemRuntimeConfig;
+  const canManageSystemLLMProfiles = Boolean(currentUser?.capabilities?.system?.llmProfilesWrite) || canManageSystemRuntimeConfig;
   const canViewSystemConfigRepo = Boolean(currentUser?.capabilities?.system?.configReposRead);
   const canManageSystemConfigRepo = Boolean(currentUser?.capabilities?.system?.configReposWrite);
   const canViewSystemConfig = canViewSystemRuntimeConfig || canViewSystemConfigRepo;
   const canViewSystemDispatcher = Boolean(currentUser?.capabilities?.system?.dispatcherRead);
   const canManageSystemDispatcher = Boolean(currentUser?.capabilities?.system?.dispatcherWrite);
   const canViewSystemAccess = Boolean(currentUser?.capabilities?.system?.access);
-  const canViewAnySystem = canViewSystemConfig || canViewSystemRuntimeConfig || canViewSystemDispatcher || canViewSystemAccess;
+  const canViewAnySystem = canViewSystemConfig || canViewSystemLLMProfiles || canViewSystemDispatcher || canViewSystemAccess;
   const preferredSystemPath = canViewSystemConfig
     ? '/system/config'
-    : canViewSystemRuntimeConfig
+    : canViewSystemLLMProfiles
       ? '/system/llm-profiles'
     : canViewSystemDispatcher
       ? '/system/dispatcher'
@@ -418,12 +424,12 @@ function AppShell() {
     () =>
       baseSystemSubNav.filter(item => {
         if (item.path === '/system/config') return canViewSystemConfig;
-        if (item.path === '/system/llm-profiles') return canViewSystemRuntimeConfig;
+        if (item.path === '/system/llm-profiles') return canViewSystemLLMProfiles;
         if (item.path === '/system/dispatcher') return canViewSystemDispatcher;
         if (item.path === '/system/access') return canViewSystemAccess;
         return false;
       }),
-    [canViewSystemAccess, canViewSystemConfig, canViewSystemDispatcher, canViewSystemRuntimeConfig]
+    [canViewSystemAccess, canViewSystemConfig, canViewSystemDispatcher, canViewSystemLLMProfiles]
   );
 
   useEffect(() => {
@@ -941,6 +947,8 @@ function AppShell() {
                           canViewConfig: canViewSystemConfig,
                           canViewRuntimeConfig: canViewSystemRuntimeConfig,
                           canManageRuntimeConfig: canManageSystemRuntimeConfig,
+                          canViewLLMProfiles: canViewSystemLLMProfiles,
+                          canManageLLMProfiles: canManageSystemLLMProfiles,
                           canViewGlobalConfigRepo: canViewSystemConfigRepo,
                           canManageGlobalConfigRepo: canManageSystemConfigRepo,
                           canViewDispatcher: canViewSystemDispatcher,
