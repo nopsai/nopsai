@@ -63,6 +63,9 @@ Scope behavior:
 - Scoped runs look only at scoped values for the requested scope.
 - Unscoped values are used only for unscoped runs.
 - Repository-specific values take precedence over global values inside the same scope layer.
+- A pipeline can explicitly reference another scope with `scope:NAME`, such as `dev:TEST_ENV`; the value is resolved from that scope and injected as runtime variable `TEST_ENV`.
+- `default:NAME` explicitly targets the unscoped/default value.
+- Runtime authorization is checked against the concrete scoped secret or variable that was resolved.
 
 ## Triggering And GitHub Integration
 

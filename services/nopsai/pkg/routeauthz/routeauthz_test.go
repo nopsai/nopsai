@@ -269,3 +269,12 @@ func TestMapRequestDefersStepPutAuthorizationToHandler(t *testing.T) {
 		t.Fatal("requiresFilter = true, want false")
 	}
 }
+
+func TestRuntimeResourceBuildersNormalizeDefaultScope(t *testing.T) {
+	if got, want := BuildSecretResource("", "default", "TOKEN"), BuildSecretResource("", "", "TOKEN"); got != want {
+		t.Fatalf("BuildSecretResource(default) = %#v, want %#v", got, want)
+	}
+	if got, want := BuildVariableResource("owner/repo", "/default/", "API_URL"), BuildVariableResource("owner/repo", "", "API_URL"); got != want {
+		t.Fatalf("BuildVariableResource(default) = %#v, want %#v", got, want)
+	}
+}

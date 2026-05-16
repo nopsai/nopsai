@@ -31,12 +31,9 @@
 Nopsai features a powerful, hierarchical system for managing both secrets and plaintext scope variables across different scopes (`dev`, `prod`, etc.).
 
 * **Self-Hosted & Secure**: Nopsai includes a built-in, self-hosted management system. Secrets are stored encrypted (using AES-256-GCM) in its database, while scope variables are stored in plaintext.
-* **Four-Layer Hierarchy**: The system uses a strict, four-layer hierarchy to resolve the value of any required variable, ensuring that specific contexts always override general ones. The layers are:
-    1.  Repository-specific, for a specific scope (e.g., `prod` secret for `my-org/my-repo`).
-    2.  General, for a specific scope (e.g., a global `prod` secret).
-    3.  Repository-specific, with no scope (falls back to the default scope).
-    4.  General, with no scope.
+* **Scoped Hierarchy**: For the selected scope, repository-specific values override global values. For unscoped/default runs, repository default values override global default values.
 * **Strict Scope Isolation**: Scopes are treated as isolated contexts. A trigger for a specific scope (e.g., `prod`) will **only** resolve variables tagged for that scope. It will **never** fall back to an unscoped value, preventing accidental configuration leaks. If a required variable is not found for the specified scope, the pipeline will fail immediately.
+* **Explicit Cross-Scope References**: Pipelines can opt into another scope with `scope:NAME`, for example `dev:TEST_ENV`. The value is resolved from `dev`, injected into the step as `TEST_ENV`, and still requires the run caller to have permission to use that scoped secret or variable. Bare `TEST_ENV` continues to use the current run scope.
 * **Scoped Injection**: A step must explicitly declare which secrets it needs via a `secrets` block. The agent will only inject the requested secrets into that specific step's runtime context.
 * **Log Masking**: The agent automatically redacts secret values from all logs, preventing accidental exposure.
 

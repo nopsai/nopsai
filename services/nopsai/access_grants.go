@@ -1287,13 +1287,14 @@ func resolveAccessGrantResource(ctx context.Context, runner queryRunner, rawType
 		if rawID == "" {
 			return accessGrantResource{}, fmt.Errorf("resource_id is required")
 		}
+		resourceID := runtimeNamedResourceIDForResource(rawID)
 		if requireExists {
 			tableName := grantResourceSecret + "s"
 			if resourceType == grantResourceVariable {
 				tableName = grantResourceVariable + "s"
 			}
 			var exists int
-			err := runner.QueryRow(ctx, fmt.Sprintf(`SELECT 1 FROM %s WHERE %s LIMIT 1`, tableName, namedResourceWhereClause(rawID)), namedResourceWhereArgs(rawID)...).Scan(&exists)
+			err := runner.QueryRow(ctx, fmt.Sprintf(`SELECT 1 FROM %s WHERE %s LIMIT 1`, tableName, namedResourceWhereClause(resourceID)), namedResourceWhereArgs(resourceID)...).Scan(&exists)
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
 					return accessGrantResource{}, fmt.Errorf("resource not found")
@@ -1301,7 +1302,7 @@ func resolveAccessGrantResource(ctx context.Context, runner queryRunner, rawType
 				return accessGrantResource{}, err
 			}
 		}
-		return accessGrantResource{Type: resourceType, ID: rawID, Display: rawID}, nil
+		return accessGrantResource{Type: resourceType, ID: resourceID, Display: resourceID}, nil
 	default:
 		return accessGrantResource{}, fmt.Errorf("unsupported resource_type")
 	}
@@ -1400,29 +1401,37 @@ func resolvePipelineOrStepGrantResource(ctx context.Context, runner queryRunner,
 
 func namedResourceWhereClause(resourceID string) string {
 	repoName, scope, _ := model.ParseNamedResourceID(resourceID)
+	storageScope := runtimeScopeForStorage(scope)
 	switch {
 	case repoName != "" && scope != "":
+		if runtimeScopeIsDefault(scope) {
+			return "name = $1 AND repository_name = $2 AND " + runtimeScopeEqualsSQL("scope", 3, storageScope)
+		}
 		return "name = $1 AND repository_name = $2 AND scope = $3"
 	case repoName != "":
-		return "name = $1 AND repository_name = $2 AND scope IS NULL"
+		return "name = $1 AND repository_name = $2 AND " + runtimeScopeEqualsSQL("scope", 3, storageScope)
 	case scope != "":
+		if runtimeScopeIsDefault(scope) {
+			return "name = $1 AND repository_name IS NULL AND " + runtimeScopeEqualsSQL("scope", 2, storageScope)
+		}
 		return "name = $1 AND repository_name IS NULL AND scope = $2"
 	default:
-		return "name = $1 AND repository_name IS NULL AND scope IS NULL"
+		return "name = $1 AND repository_name IS NULL AND " + runtimeScopeEqualsSQL("scope", 2, storageScope)
 	}
 }
 
 func namedResourceWhereArgs(resourceID string) []any {
 	repoName, scope, name := model.ParseNamedResourceID(resourceID)
+	storageScope := runtimeScopeForStorage(scope)
 	switch {
 	case repoName != "" && scope != "":
-		return []any{name, repoName, scope}
+		return []any{name, repoName, storageScope}
 	case repoName != "":
-		return []any{name, repoName}
+		return []any{name, repoName, storageScope}
 	case scope != "":
-		return []any{name, scope}
+		return []any{name, storageScope}
 	default:
-		return []any{name}
+		return []any{name, storageScope}
 	}
 }
 
@@ -1973,6 +1982,11 @@ func formatSubjectLabel(subjectType, subjectID string) string {
 func formatResourceLabel(resourceType, resourceID string) string {
 	resourceType = strings.TrimSpace(resourceType)
 	resourceID = strings.TrimSpace(resourceID)
+	if resourceType == grantResourceSecret || resourceType == grantResourceVariable {
+		if label := formatNamedResourceLabel(resourceType, resourceID); label != "" {
+			return label
+		}
+	}
 	if resourceType == grantResourceScope && resourceID == "" {
 		resourceID = "default"
 	}
@@ -1983,6 +1997,24 @@ func formatResourceLabel(resourceType, resourceID string) string {
 		resourceID = "/" + strings.Trim(resourceID, "/")
 	}
 	return resourceType + ":" + resourceID
+}
+
+func formatNamedResourceLabel(resourceType, resourceID string) string {
+	repoName, scope, name := model.ParseNamedResourceID(resourceID)
+	if strings.TrimSpace(name) == "" {
+		return ""
+	}
+	if strings.TrimSpace(scope) == "" {
+		scope = "default"
+	}
+	parts := []string{
+		"name=" + strings.TrimSpace(name),
+		"scope=" + strings.Trim(strings.TrimSpace(scope), "/"),
+	}
+	if repoName = strings.TrimSpace(repoName); repoName != "" {
+		parts = append(parts, "repo="+repoName)
+	}
+	return strings.TrimSpace(resourceType) + ":" + strings.Join(parts, " ")
 }
 
 func isGeneralGrantResourceID(raw string) bool {

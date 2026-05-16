@@ -161,7 +161,8 @@ Important precedence rules in the current code:
 - Reusable `step:` includes are resolved from the `steps` table before execution.
 - Scoped variables resolve as `repo+scope -> global+scope`; scoped runs do not fall back to unscoped values.
 - Scoped secrets resolve as `repo+scope -> global+scope`; scoped runs do not fall back to unscoped values.
-- Unscoped variables and secrets resolve as `repo+default -> global+default`.
+- Default-scope variables and secrets are stored as `scope = 'default'` and resolve as `repo+default -> global+default`.
+- Runtime references may override the run scope with `scope:NAME`. For example, `dev:TEST_ENV` resolves from `dev` and is injected as `TEST_ENV`; authorization is checked against the resolved `dev` resource.
 
 ## Scheduling Model
 

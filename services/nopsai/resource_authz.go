@@ -103,8 +103,8 @@ func (a *App) AuthorizeResourceUse(ctx context.Context, input ResourceUseAuthInp
 	if err != nil {
 		return result, err
 	}
-	resourceID := strings.Trim(strings.TrimSpace(input.ResourceID), "/")
-	if resourceID == "" {
+	resourceID, err := normalizeResourceUseResourceID(resourceType, input.ResourceID)
+	if err != nil {
 		return result, fmt.Errorf("resource_id is required")
 	}
 	action := strings.TrimSpace(input.Action)
@@ -245,9 +245,27 @@ func parentScopeForRuntimeResourceUse(action, resourceType, resourceID string) (
 	_, scope, _ := model.ParseNamedResourceID(resourceID)
 	scope = strings.Trim(strings.TrimSpace(scope), "/")
 	if scope == "" {
-		return "", false
+		return "default", true
 	}
 	return scope, true
+}
+
+func normalizeResourceUseResourceID(resourceType, raw string) (string, error) {
+	resourceID := strings.Trim(strings.TrimSpace(raw), "/")
+	if resourceType == grantResourceScope {
+		scopeID, _, scopeDisplay := normalizeScopeGrantResourceID(resourceID)
+		if strings.TrimSpace(scopeDisplay) == "" {
+			return "", fmt.Errorf("resource_id is required")
+		}
+		return scopeID, nil
+	}
+	if resourceType == grantResourceSecret || resourceType == grantResourceVariable {
+		resourceID = runtimeNamedResourceIDForResource(resourceID)
+	}
+	if resourceID == "" {
+		return "", fmt.Errorf("resource_id is required")
+	}
+	return resourceID, nil
 }
 
 func normalizeResourceUseCallerType(raw string) (string, error) {
@@ -808,7 +826,7 @@ func resourceUseDeniedMessage(callerType, callerID string, result ResourceUseAut
 	case grantResourcePipeline:
 		return fmt.Sprintf("%s is not allowed to use pipeline %s. Ask the pipeline owner to share it with this repository or group.", subject, result.ResourceID)
 	case grantResourceScope:
-		return fmt.Sprintf("%s is not allowed to use scope %s. Ask the scope owner to share it with this repository or group.", subject, result.ResourceID)
+		return fmt.Sprintf("%s is not allowed to use %s. Ask the scope owner to share it with this repository or group.", subject, resource)
 	case grantResourceStep:
 		return fmt.Sprintf("%s is not allowed to use step %s. Ask the step owner to share it with this repository or group.", subject, result.ResourceID)
 	default:
