@@ -1,0 +1,34 @@
+mcp_servers:
+  github:
+    display_name: GitHub MCP
+    enabled: true
+    provider: github
+    transport: streamable_http
+    url: https://provider.example.com/mcp
+    auth_type: bearer_token
+    auth_secret: GITHUB_MCP_TOKEN
+    timeout: 30s
+    allowed_scopes: ["dev", "prod"]
+
+mcp_profiles:
+  github-readonly:
+    description: General read-only GitHub tools for goal-based pipeline tasks
+    enabled: true
+    servers:
+      - server: github
+        tools:
+          - get_file
+          - list_pull_request_files
+          - search_code
+    allowed_scopes: ["dev", "prod"]
+
+  github-pr-review:
+    description: Read-only GitHub PR review tools
+    enabled: true
+    servers:
+      - server: github
+        tools:
+          - get_file
+          - list_pull_request_files
+          - search_code
+    allowed_scopes: ["dev"]

@@ -19,6 +19,16 @@ type LLMProfileValidationOptions struct {
 	Scope          string
 }
 
+type MCPProfileDefinition struct {
+	Enabled       bool
+	AllowedScopes []string
+}
+
+type MCPProfileValidationOptions struct {
+	Profiles map[string]MCPProfileDefinition
+	Scope    string
+}
+
 func ValidatePipeline(pipeline *models.Pipeline) error {
 	if pipeline.Name == "" {
 		return fmt.Errorf("'name' is a required field")
@@ -118,6 +128,72 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 	return nil
 }
 
+func ValidatePipelineMCPProfiles(pipeline *models.Pipeline, opts MCPProfileValidationOptions) error {
+	if pipeline == nil {
+		return fmt.Errorf("pipeline is required")
+	}
+
+	validateRefs := func(profileNames []string, location string) error {
+		for _, rawProfileName := range profileNames {
+			profileName := strings.TrimSpace(rawProfileName)
+			if profileName == "" {
+				return fmt.Errorf("empty MCP profile referenced by %s", location)
+			}
+			profile, ok := opts.Profiles[profileName]
+			if !ok {
+				return fmt.Errorf("MCP profile %q referenced by %s is not configured", profileName, location)
+			}
+			if !profile.Enabled {
+				return fmt.Errorf("MCP profile %q referenced by %s is disabled", profileName, location)
+			}
+			if !profileAllowedInScope(profile.AllowedScopes, opts.Scope) {
+				return fmt.Errorf("MCP profile %q is not allowed in scope %q", profileName, strings.TrimSpace(opts.Scope))
+			}
+		}
+		return nil
+	}
+
+	if err := validateRefs(pipeline.MCPProfiles, "pipeline"); err != nil {
+		return err
+	}
+
+	for _, step := range pipeline.Steps {
+		stepName := step.GetName()
+		if stepName == "" {
+			stepName = "unknown"
+		}
+		stepProfiles := step.GetMCPProfiles()
+		hasStepProfiles := len(trimmedStrings(stepProfiles)) > 0
+
+		if _, ok := step.AsIncludeStep(); ok && hasStepProfiles {
+			return fmt.Errorf("include step %q cannot define mcp_profiles", stepName)
+		}
+		if _, ok := step.AsScriptStep(); ok && hasStepProfiles {
+			return fmt.Errorf("script step %q cannot define mcp_profiles", stepName)
+		}
+		if err := validateRefs(stepProfiles, fmt.Sprintf("step %q", stepName)); err != nil {
+			return err
+		}
+
+		for _, task := range step.GetTasks() {
+			taskName := task.Name
+			if taskName == "" {
+				taskName = "unknown"
+			}
+			taskProfiles := task.MCPProfiles
+			hasTaskProfiles := len(trimmedStrings(taskProfiles)) > 0
+			if strings.TrimSpace(task.Script) != "" && hasTaskProfiles {
+				return fmt.Errorf("script task %q in step %q cannot define mcp_profiles", taskName, stepName)
+			}
+			if err := validateRefs(taskProfiles, fmt.Sprintf("task %q in step %q", taskName, stepName)); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
 func ValidatePipelineLLMProfiles(pipeline *models.Pipeline, opts LLMProfileValidationOptions) error {
 	if pipeline == nil {
 		return fmt.Errorf("pipeline is required")
@@ -186,6 +262,22 @@ func ValidatePipelineLLMProfiles(pipeline *models.Pipeline, opts LLMProfileValid
 	return nil
 }
 
+func ResolvePipelineMCPProfiles(pipelineProfiles, stepProfiles, taskProfiles []string) []string {
+	seen := map[string]bool{}
+	resolved := make([]string, 0, len(pipelineProfiles)+len(stepProfiles)+len(taskProfiles))
+	for _, list := range [][]string{pipelineProfiles, stepProfiles, taskProfiles} {
+		for _, raw := range list {
+			name := strings.TrimSpace(raw)
+			if name == "" || seen[name] {
+				continue
+			}
+			seen[name] = true
+			resolved = append(resolved, name)
+		}
+	}
+	return resolved
+}
+
 func profileAllowedInScope(allowedScopes []string, scope string) bool {
 	if len(allowedScopes) == 0 {
 		return true
@@ -197,6 +289,20 @@ func profileAllowedInScope(allowedScopes []string, scope string) bool {
 		}
 	}
 	return false
+}
+
+func trimmedStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	trimmed := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			trimmed = append(trimmed, value)
+		}
+	}
+	return trimmed
 }
 
 func firstNonEmpty(values ...string) string {

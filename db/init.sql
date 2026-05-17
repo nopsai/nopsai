@@ -202,6 +202,49 @@ CREATE TABLE llm_profiles (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE mcp_servers (
+    name TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL DEFAULT '',
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    provider TEXT NOT NULL DEFAULT '',
+    transport TEXT NOT NULL DEFAULT 'streamable_http',
+    url TEXT NOT NULL DEFAULT '',
+    auth_type TEXT NOT NULL DEFAULT 'none',
+    auth_secret TEXT NOT NULL DEFAULT '',
+    headers JSONB NOT NULL DEFAULT '{}'::jsonb,
+    timeout TEXT NOT NULL DEFAULT '30s',
+    allowed_scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
+    last_test_status TEXT NOT NULL DEFAULT '',
+    last_test_message TEXT NOT NULL DEFAULT '',
+    last_tested_at TIMESTAMPTZ,
+    last_discovered_at TIMESTAMPTZ,
+    discovered_server_name TEXT NOT NULL DEFAULT '',
+    discovered_version TEXT NOT NULL DEFAULT '',
+    discovered_protocol TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE mcp_tools (
+    server_name TEXT NOT NULL REFERENCES mcp_servers(name) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    input_schema TEXT NOT NULL DEFAULT '{}',
+    schema_hash TEXT NOT NULL DEFAULT '',
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (server_name, name)
+);
+
+CREATE TABLE mcp_profiles (
+    name TEXT PRIMARY KEY,
+    description TEXT NOT NULL DEFAULT '',
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    server_refs JSONB NOT NULL DEFAULT '[]'::jsonb,
+    allowed_scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE resource_visibility (
     resource_type TEXT NOT NULL,
     resource_id TEXT NOT NULL,

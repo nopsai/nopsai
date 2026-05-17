@@ -239,8 +239,52 @@ body {
     background-color: var(--bg-active);
     box-shadow: inset 3px 0 0 0 var(--border-accent);
 }
-.sidebar-logo {
+.sidebar-brand,
+.login-brand {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     flex-shrink: 0;
+}
+
+.sidebar-brand {
+    width: min(12.5rem, 100%);
+    height: 3rem;
+}
+
+.login-brand {
+    width: min(20rem, 100%);
+    min-height: 6.5rem;
+    margin: 0 auto;
+}
+
+.brand-wordmark {
+    display: block;
+    width: auto;
+    max-width: 100%;
+    height: auto;
+    object-fit: contain;
+}
+
+.sidebar-brand .brand-wordmark {
+    max-height: 3rem;
+}
+
+.login-brand .brand-wordmark {
+    max-height: 6.5rem;
+}
+
+.brand-wordmark--dark {
+    display: none;
+}
+
+html.dark .brand-wordmark--light {
+    display: none;
+}
+
+html.dark .brand-wordmark--dark {
+    display: block;
 }
 .drop-target-highlight {
     background-color: hsla(242, 59%, 65%, 0.3) !important;

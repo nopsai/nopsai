@@ -51,6 +51,7 @@ type TaskDefinition = {
   depends_on?: string[];
   ignore_failure?: boolean;
   llm_profile?: string;
+  mcp_profiles?: string[];
   llm_output_sharing?: boolean;
   variables?: Record<string, string>;
 };
@@ -64,6 +65,7 @@ type StepConfiguration = {
   variables?: Record<string, string>;
   ignore_failure?: boolean;
   llm_profile?: string;
+  mcp_profiles?: string[];
   llm_output_sharing?: boolean;
   goal?: string;
   script?: string;
@@ -97,6 +99,7 @@ type PipelineDefinition = {
   description?: string;
   version?: string;
   llm_profile?: string;
+  mcp_profiles?: string[];
   steps?: {
     name: string;
     description?: string;
@@ -105,6 +108,7 @@ type PipelineDefinition = {
     goal?: string;
     script?: string;
     llm_profile?: string;
+    mcp_profiles?: string[];
     llm_output_sharing?: boolean;
   }[];
 };
