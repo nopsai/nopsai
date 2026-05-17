@@ -217,9 +217,9 @@ func (a *App) handleListGeneralVariables(w http.ResponseWriter, r *http.Request)
 func (a *App) handleListVariableScopes(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 	rows, err := a.db.Query(ctx, `
-		SELECT COALESCE(repository_name, ''), COALESCE(scope, 'default'), name
+		SELECT COALESCE(repository_name, ''), scope, name
 		FROM variables
-		ORDER BY repository_name ASC NULLS FIRST, scope ASC NULLS FIRST, name ASC
+		ORDER BY repository_name ASC NULLS FIRST, scope ASC, name ASC
 	`)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query scope list from database")
@@ -347,7 +347,7 @@ func (a *App) handleGetGeneralVariableValue(w http.ResponseWriter, r *http.Reque
 	variableName := r.PathValue("variableName")
 	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
 	var value string
-	err := a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name IS NULL AND "+runtimeScopeEqualsSQL("scope", 2, scope)+" ORDER BY scope IS NULL ASC LIMIT 1", variableName, scope).Scan(&value)
+	err := a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name IS NULL AND "+runtimeScopeEqualsSQL("scope", 2, scope)+" LIMIT 1", variableName, scope).Scan(&value)
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -458,7 +458,7 @@ func (a *App) handleGetRepoVariableValue(w http.ResponseWriter, r *http.Request)
 	variableName := r.PathValue("variableName")
 	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
 	var value string
-	err := a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name = $2 AND "+runtimeScopeEqualsSQL("scope", 3, scope)+" ORDER BY scope IS NULL ASC LIMIT 1", variableName, fullName, scope).Scan(&value)
+	err := a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name = $2 AND "+runtimeScopeEqualsSQL("scope", 3, scope)+" LIMIT 1", variableName, fullName, scope).Scan(&value)
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -480,7 +480,7 @@ func (a *App) findVariableValue(varName, repoFullName, scope string) (string, st
 	storageScope := runtimeScopeForStorage(scope)
 	resourceScope := runtimeScopeForResource(storageScope)
 
-	err := a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name = $2 AND "+runtimeScopeEqualsSQL("scope", 3, storageScope)+" ORDER BY scope IS NULL ASC LIMIT 1", varName, repoFullName, storageScope).Scan(&value)
+	err := a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name = $2 AND "+runtimeScopeEqualsSQL("scope", 3, storageScope)+" LIMIT 1", varName, repoFullName, storageScope).Scan(&value)
 	if err == nil {
 		return value, model.BuildNamedResourceID(repoFullName, resourceScope, varName), true, nil
 	}
@@ -488,7 +488,7 @@ func (a *App) findVariableValue(varName, repoFullName, scope string) (string, st
 		return "", "", false, err
 	}
 
-	err = a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name IS NULL AND "+runtimeScopeEqualsSQL("scope", 2, storageScope)+" ORDER BY scope IS NULL ASC LIMIT 1", varName, storageScope).Scan(&value)
+	err = a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name IS NULL AND "+runtimeScopeEqualsSQL("scope", 2, storageScope)+" LIMIT 1", varName, storageScope).Scan(&value)
 	if err == nil {
 		return value, model.BuildNamedResourceID("", resourceScope, varName), true, nil
 	}
@@ -725,9 +725,9 @@ type SecretScopeSummary struct {
 
 func (a *App) handleListSecretScopes(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query(context.Background(), `
-		SELECT COALESCE(repository_name, ''), COALESCE(scope, 'default'), name
+		SELECT COALESCE(repository_name, ''), scope, name
 		FROM secrets
-		ORDER BY repository_name ASC NULLS FIRST, scope ASC NULLS FIRST, name ASC`)
+		ORDER BY repository_name ASC NULLS FIRST, scope ASC, name ASC`)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query secret scopes from database")
 		http.Error(w, "Failed to retrieve secret scopes", http.StatusInternalServerError)
@@ -821,7 +821,7 @@ func (a *App) handleGetGeneralSecretValue(w http.ResponseWriter, r *http.Request
 	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
 	var query string
 	var args []any
-	query = "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL AND " + runtimeScopeEqualsSQL("scope", 2, scope) + " ORDER BY scope IS NULL ASC LIMIT 1"
+	query = "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL AND " + runtimeScopeEqualsSQL("scope", 2, scope) + " LIMIT 1"
 	args = []any{secretName, scope}
 
 	var encryptedValue string

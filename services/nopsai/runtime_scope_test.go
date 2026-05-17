@@ -35,8 +35,8 @@ func TestRuntimeScopeStorageAndResourceMapping(t *testing.T) {
 	}
 }
 
-func TestRuntimeScopeEqualsSQLKeepsLegacyDefaultRows(t *testing.T) {
-	if got := runtimeScopeEqualsSQL("scope", 1, "default"); got != "(scope = $1 OR scope IS NULL OR scope = '')" {
+func TestRuntimeScopeEqualsSQLUsesCanonicalScopeOnly(t *testing.T) {
+	if got := runtimeScopeEqualsSQL("scope", 1, "default"); got != "scope = $1" {
 		t.Fatalf("runtimeScopeEqualsSQL(default) = %q", got)
 	}
 	if got := runtimeScopeEqualsSQL("variables.scope", 3, "prod"); got != "variables.scope = $3" {

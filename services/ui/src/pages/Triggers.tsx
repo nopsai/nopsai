@@ -16,6 +16,14 @@ const TRIGGER_ROOT_KEYS = ['triggers'];
 const TRIGGER_KEYS = ['on', 'branches', 'skip_branches', 'tags', 'pipelines', 'scope'];
 const TRIGGER_EVENT_OPTIONS = ['push', 'pull_request', 'schedule'];
 
+function normalizeScopeLabel(value: unknown): string {
+  if (value == null) return '';
+  const normalized = String(value)
+    .trim()
+    .replace(/^\/+|\/+$/g, '');
+  return normalized.toLowerCase() === 'default' ? '' : normalized;
+}
+
 type TriggerListItem = { slug: string; source?: string };
 
 type PipelineRef = {
@@ -206,7 +214,7 @@ function buildTriggerSummary(manifest: Record<string, unknown>): TriggerSummary 
       if (value) tags.add(value);
     });
 
-    const scope = typeof trigger.scope === 'string' ? trigger.scope.trim() : '';
+    const scope = normalizeScopeLabel(trigger.scope);
     if (scope) {
       scopes.add(scope);
     } else {
@@ -750,8 +758,8 @@ function TriggersPage({
             .map(item => {
               if (typeof item === 'string') return item.trim();
               const record = asRecord(item);
-              const scope = typeof record?.scope === 'string' ? record.scope : '';
-              if (scope) return scope.trim();
+              const scope = normalizeScopeLabel(record?.scope);
+              if (scope) return scope;
               return '';
             })
             .filter(Boolean);

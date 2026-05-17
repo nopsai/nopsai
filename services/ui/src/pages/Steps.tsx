@@ -687,12 +687,16 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
         };
 
         const normalizeScopeLabel = (entry: unknown) => {
+          const normalizeRawScope = (raw: string) => {
+            const normalized = raw.trim().replace(/^\/+|\/+$/g, '');
+            return normalized.toLowerCase() === 'default' ? '' : normalized;
+          };
           if (entry == null) return '';
-          if (typeof entry === 'string') return entry.trim().replace(/^\/+|\/+$/g, '');
+          if (typeof entry === 'string') return normalizeRawScope(entry);
           if (typeof entry === 'object') {
             const record = entry as Record<string, unknown>;
             const raw = record.scope ?? record.name ?? record.value;
-            if (typeof raw === 'string') return raw.trim().replace(/^\/+|\/+$/g, '');
+            if (typeof raw === 'string') return normalizeRawScope(raw);
           }
           return '';
         };

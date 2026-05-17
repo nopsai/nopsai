@@ -62,40 +62,56 @@ var configRepositorySchemaStatements = []string{
 		           PARTITION BY name, repository_name
 		           ORDER BY CASE
 		               WHEN scope = 'default' THEN 0
-		               WHEN scope = '' THEN 1
+		               WHEN BTRIM(scope) = '' THEN 1
 		               ELSE 2
 		           END, id
 		       ) AS rn
 		FROM variables
-		WHERE scope IS NULL OR scope = '' OR scope = 'default'
+		WHERE scope IS NULL OR BTRIM(scope) = '' OR scope = 'default'
 	)
 	DELETE FROM variables
 	USING default_scope_rows
 	WHERE variables.id = default_scope_rows.id
 	AND default_scope_rows.rn > 1`,
-	`UPDATE variables SET scope = 'default' WHERE scope IS NULL OR scope = ''`,
+	`UPDATE variables SET scope = 'default' WHERE scope IS NULL OR BTRIM(scope) = ''`,
 	`ALTER TABLE variables ALTER COLUMN scope SET DEFAULT 'default'`,
 	`ALTER TABLE variables ALTER COLUMN scope SET NOT NULL`,
+	`DO $$
+	BEGIN
+		IF NOT EXISTS (
+			SELECT 1 FROM pg_constraint WHERE conname = 'variables_scope_not_empty'
+		) THEN
+			ALTER TABLE variables ADD CONSTRAINT variables_scope_not_empty CHECK (BTRIM(scope) <> '');
+		END IF;
+	END $$`,
 	`WITH default_scope_rows AS (
 		SELECT id,
 		       ROW_NUMBER() OVER (
 		           PARTITION BY name, repository_name
 		           ORDER BY CASE
 		               WHEN scope = 'default' THEN 0
-		               WHEN scope = '' THEN 1
+		               WHEN BTRIM(scope) = '' THEN 1
 		               ELSE 2
 		           END, id
 		       ) AS rn
 		FROM secrets
-		WHERE scope IS NULL OR scope = '' OR scope = 'default'
+		WHERE scope IS NULL OR BTRIM(scope) = '' OR scope = 'default'
 	)
 	DELETE FROM secrets
 	USING default_scope_rows
 	WHERE secrets.id = default_scope_rows.id
 	AND default_scope_rows.rn > 1`,
-	`UPDATE secrets SET scope = 'default' WHERE scope IS NULL OR scope = ''`,
+	`UPDATE secrets SET scope = 'default' WHERE scope IS NULL OR BTRIM(scope) = ''`,
 	`ALTER TABLE secrets ALTER COLUMN scope SET DEFAULT 'default'`,
 	`ALTER TABLE secrets ALTER COLUMN scope SET NOT NULL`,
+	`DO $$
+	BEGIN
+		IF NOT EXISTS (
+			SELECT 1 FROM pg_constraint WHERE conname = 'secrets_scope_not_empty'
+		) THEN
+			ALTER TABLE secrets ADD CONSTRAINT secrets_scope_not_empty CHECK (BTRIM(scope) <> '');
+		END IF;
+	END $$`,
 	`ALTER TABLE users ADD COLUMN IF NOT EXISTS config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL`,
 	`ALTER TABLE users ADD COLUMN IF NOT EXISTS config_source_path TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE users ADD COLUMN IF NOT EXISTS config_source_commit_sha TEXT NOT NULL DEFAULT ''`,

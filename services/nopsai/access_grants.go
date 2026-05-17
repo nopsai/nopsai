@@ -1233,9 +1233,9 @@ func resolveAccessGrantResource(ctx context.Context, runner queryRunner, rawType
 			err := runner.QueryRow(ctx, `
 				SELECT 1
 				FROM (
-					SELECT COALESCE(scope, '') AS scope FROM secrets WHERE COALESCE(scope, '') = $1
+					SELECT scope FROM secrets WHERE scope = $1
 					UNION
-					SELECT COALESCE(scope, '') AS scope FROM variables WHERE COALESCE(scope, '') = $1
+					SELECT scope FROM variables WHERE scope = $1
 				) scopes
 				LIMIT 1
 			`, scopeLookup).Scan(&exists)
@@ -1403,18 +1403,10 @@ func namedResourceWhereClause(resourceID string) string {
 	repoName, scope, _ := model.ParseNamedResourceID(resourceID)
 	storageScope := runtimeScopeForStorage(scope)
 	switch {
-	case repoName != "" && scope != "":
-		if runtimeScopeIsDefault(scope) {
-			return "name = $1 AND repository_name = $2 AND " + runtimeScopeEqualsSQL("scope", 3, storageScope)
-		}
-		return "name = $1 AND repository_name = $2 AND scope = $3"
 	case repoName != "":
 		return "name = $1 AND repository_name = $2 AND " + runtimeScopeEqualsSQL("scope", 3, storageScope)
 	case scope != "":
-		if runtimeScopeIsDefault(scope) {
-			return "name = $1 AND repository_name IS NULL AND " + runtimeScopeEqualsSQL("scope", 2, storageScope)
-		}
-		return "name = $1 AND repository_name IS NULL AND scope = $2"
+		return "name = $1 AND repository_name IS NULL AND " + runtimeScopeEqualsSQL("scope", 2, storageScope)
 	default:
 		return "name = $1 AND repository_name IS NULL AND " + runtimeScopeEqualsSQL("scope", 2, storageScope)
 	}
