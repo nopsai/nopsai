@@ -158,6 +158,8 @@ type authSystemCapabilities struct {
 	ConfigWrite      bool `json:"config_write"`
 	LLMProfilesRead  bool `json:"llm_profiles_read"`
 	LLMProfilesWrite bool `json:"llm_profiles_write"`
+	MCPRead          bool `json:"mcp_read"`
+	MCPWrite         bool `json:"mcp_write"`
 	ConfigReposRead  bool `json:"config_repos_read"`
 	ConfigReposWrite bool `json:"config_repos_write"`
 	DispatcherRead   bool `json:"dispatcher_read"`
@@ -1216,6 +1218,8 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		"access_grants_synced":        0,
 		"resource_access_synced":      0,
 		"llm_profiles_synced":         0,
+		"mcp_servers_synced":          0,
+		"mcp_profiles_synced":         0,
 	}
 
 	repoURL := strings.TrimSpace(binding.RepoURL)
@@ -1408,6 +1412,14 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		binding,
 		gitOpsLLMProfileDirectory{root: settingDir, files: settingFiles},
 		gitOpsLLMProfileDirectory{root: settingsDir, files: settingsFiles},
+	)
+	if err != nil {
+		return nil, commitSHA, err
+	}
+	mcpRegistryPlan, err := parseGitOpsMCPRegistryPlan(
+		binding,
+		gitOpsMCPDirectory{root: settingDir, files: settingFiles},
+		gitOpsMCPDirectory{root: settingsDir, files: settingsFiles},
 	)
 	if err != nil {
 		return nil, commitSHA, err
@@ -2007,12 +2019,22 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		}
 		details["llm_profiles_synced"] = len(llmProfilePlan.profiles)
 	}
+	if mcpRegistryPlan != nil {
+		if err := persistMCPRegistryToTx(ctx, tx, mcpRegistryPlan.servers, mcpRegistryPlan.profiles); err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to sync MCP registry from '%s': %w", mcpRegistryPlan.sourcePath, err)
+		}
+		details["mcp_servers_synced"] = len(mcpRegistryPlan.servers)
+		details["mcp_profiles_synced"] = len(mcpRegistryPlan.profiles)
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, commitSHA, fmt.Errorf("failed to commit configuration synchronization transaction: %w", err)
 	}
 	if llmProfilePlan != nil {
 		a.setLLMProfiles(llmProfilePlan.defaultProfile, llmProfilePlan.profiles)
+	}
+	if mcpRegistryPlan != nil {
+		a.setMCPRegistry(mcpRegistryPlan.servers, mcpRegistryPlan.profiles)
 	}
 
 	log.Info().
@@ -2033,6 +2055,8 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		Int("access_grants_synced", details["access_grants_synced"]).
 		Int("resource_access_synced", details["resource_access_synced"]).
 		Int("llm_profiles_synced", details["llm_profiles_synced"]).
+		Int("mcp_servers_synced", details["mcp_servers_synced"]).
+		Int("mcp_profiles_synced", details["mcp_profiles_synced"]).
 		Msg("Configuration synchronization from Git completed")
 
 	return details, commitSHA, nil
@@ -3898,6 +3922,9 @@ func main() {
 	if err := ensureLLMProfileSchema(context.Background(), dbpool); err != nil {
 		log.Fatal().Err(err).Msg("Failed to ensure LLM profile schema")
 	}
+	if err := ensureMCPSchema(context.Background(), dbpool); err != nil {
+		log.Fatal().Err(err).Msg("Failed to ensure MCP schema")
+	}
 
 	dispatcherAddr := strings.TrimSpace(cfg.DispatcherAddress)
 	if dispatcherAddr == "" {
@@ -3979,6 +4006,9 @@ func main() {
 	}
 	if err := app.loadOrSeedLLMProfilesConfig(context.Background()); err != nil {
 		log.Fatal().Err(err).Msg("Failed to load LLM profiles")
+	}
+	if err := app.loadOrSeedMCPRegistryConfig(context.Background()); err != nil {
+		log.Fatal().Err(err).Msg("Failed to load MCP registry")
 	}
 
 	handler := app.buildHTTPHandler()

@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	appconfig "nopsai/config"
+	"nopsai/pkg/mcpclient"
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
 
@@ -29,6 +30,8 @@ type LLMClient struct {
 
 	modelMu sync.Mutex
 }
+
+const maxMCPToolCallsPerAction = 8
 
 type lmStudioEndpointGate struct {
 	sem chan struct{}
@@ -69,13 +72,65 @@ func NewLLMClient(provider, apiKey, model, baseURL, reasoning string, profileNam
 }
 
 func (c *LLMClient) GetAction(ctx context.Context, req *proto.GetActionRequest) (*proto.Action, error) {
-	prompt := c.buildPrompt(req)
+	actionModel, err := c.getActionModel(ctx, c.buildPrompt(req))
+	if err != nil {
+		return nil, err
+	}
+	return actionModelToProto(actionModel)
+}
 
+func (c *LLMClient) GetActionWithMCP(ctx context.Context, req *proto.GetActionRequest, mcpRuntime *MCPTaskRuntime) (*proto.Action, error) {
+	if mcpRuntime == nil || !mcpRuntime.Enabled() {
+		return c.GetAction(ctx, req)
+	}
+
+	toolTranscript := ""
+	for toolCallCount := 0; toolCallCount <= maxMCPToolCallsPerAction; toolCallCount++ {
+		actionModel, err := c.getActionModel(ctx, c.buildPromptWithMCP(req, toolTranscript, mcpRuntime.ToolPrompt()))
+		if err != nil {
+			return nil, err
+		}
+		if actionModel.Type != models.ActionTypeCallMCPTool {
+			return actionModelToProto(actionModel)
+		}
+		if toolCallCount == maxMCPToolCallsPerAction {
+			return nil, fmt.Errorf("MCP tool call limit exceeded")
+		}
+		toolAction := actionModel.MCPToolAction
+		if toolAction == nil {
+			return nil, fmt.Errorf("CALL_MCP_TOOL action requires mcp_tool_action")
+		}
+		serverName := strings.TrimSpace(toolAction.Server)
+		toolName := strings.TrimSpace(toolAction.Tool)
+		logEvent := log.Info().Str("mcp_tool", toolName)
+		if serverName != "" {
+			logEvent = logEvent.Str("mcp_server", serverName)
+		}
+		if c.profile != "" {
+			logEvent = logEvent.Str("llm_profile", c.profile)
+		}
+		logEvent.Msg("Calling MCP tool requested by LLM")
+		result, err := mcpRuntime.CallTool(ctx, serverName, toolName, toolAction.Arguments)
+		if err != nil {
+			toolTranscript += fmt.Sprintf("\nMCP tool call failed: server=%s tool=%s error=%s\n", serverName, toolName, err.Error())
+			continue
+		}
+		toolTranscript += fmt.Sprintf(
+			"\nMCP tool result: server=%s tool=%s arguments=%s result=%s\n",
+			serverName,
+			toolName,
+			mcpclient.JSONString(toolAction.Arguments, 4096),
+			mcpclient.JSONString(result, 24000),
+		)
+	}
+	return nil, fmt.Errorf("MCP tool call loop ended without a final action")
+}
+
+func (c *LLMClient) getActionModel(ctx context.Context, prompt string) (*models.Action, error) {
 	var (
 		actionModel *models.Action
 		err         error
 	)
-
 	switch c.provider {
 	case appconfig.LLMProviderGemini:
 		actionModel, err = c.callGeminiForAction(ctx, prompt)
@@ -93,6 +148,13 @@ func (c *LLMClient) GetAction(ctx context.Context, req *proto.GetActionRequest) 
 		return nil, err
 	}
 
+	return actionModel, nil
+}
+
+func actionModelToProto(actionModel *models.Action) (*proto.Action, error) {
+	if actionModel == nil {
+		return nil, fmt.Errorf("LLM returned an empty action")
+	}
 	protoAction := &proto.Action{Type: string(actionModel.Type)}
 	switch actionModel.Type {
 	case models.ActionTypeExecuteCommand:
@@ -101,6 +163,8 @@ func (c *LLMClient) GetAction(ctx context.Context, req *proto.GetActionRequest) 
 		protoAction.Payload = &proto.Action_FileAction{FileAction: &proto.FileAction{Path: actionModel.FileAction.Path, Content: actionModel.FileAction.Content}}
 	case models.ActionTypeReturnAnswer:
 		protoAction.Payload = &proto.Action_AnswerAction{AnswerAction: &proto.AnswerAction{Answer: actionModel.AnswerAction.Answer}}
+	default:
+		return nil, fmt.Errorf("LLM returned unsupported final action type %q", actionModel.Type)
 	}
 
 	return protoAction, nil
@@ -164,9 +228,20 @@ Based on the context, is the answer to the question YES or NO? Respond with only
 }
 
 func (c *LLMClient) buildPrompt(req *proto.GetActionRequest) string {
+	return c.buildPromptWithMCP(req, "", "")
+}
+
+func (c *LLMClient) buildPromptWithMCP(req *proto.GetActionRequest, mcpTranscript, mcpToolPrompt string) string {
 	history := req.GetHistory()
 	if history == "" {
 		history = "No history yet."
+	}
+	if strings.TrimSpace(mcpTranscript) != "" {
+		history = history + "\n--- MCP Tool Results For Current Goal ---\n" + strings.TrimSpace(mcpTranscript)
+	}
+	mcpSection := strings.TrimSpace(mcpToolPrompt)
+	if mcpSection == "" {
+		mcpSection = "**External MCP Tools:**\nNo external MCP tools are available for this goal."
 	}
 
 	promptTemplate := `You are an expert CI/CD automation bot. Your task is to achieve a user's goal by choosing the correct action from a toolkit.
@@ -176,6 +251,9 @@ Here are the available actions:
 1. **EXECUTE_COMMAND**: {"action": {"type": "EXECUTE_COMMAND", "command_action": {"command": "your-bash-command-here"}}}
 2. **REPLACE_FILE**: {"action": {"type": "REPLACE_FILE", "file_action": {"path": "./path/to/file.txt", "content": "The full new content of the file."}}}
 3. **RETURN_ANSWER**: {"action": {"type": "RETURN_ANSWER", "answer_action": {"answer": "The answer to the user's question."}}}
+4. **CALL_MCP_TOOL**: {"action": {"type": "CALL_MCP_TOOL", "mcp_tool_action": {"server": "server-name", "tool": "tool_name", "arguments": {}}}}
+---
+%s
 ---
 %s
 ---
@@ -193,6 +271,7 @@ Now, choose the single best action from your toolkit and provide the response in
 		promptTemplate,
 		buildVariablesSection(req.GetVariables()),
 		buildDirectoryListingSection(req.GetDirectoryListing()),
+		mcpSection,
 		history,
 		req.GetGoal(),
 	)
@@ -747,6 +826,10 @@ func validateAction(action models.Action) error {
 	case models.ActionTypeReturnAnswer:
 		if action.AnswerAction == nil {
 			return fmt.Errorf("RETURN_ANSWER action requires answer_action")
+		}
+	case models.ActionTypeCallMCPTool:
+		if action.MCPToolAction == nil || strings.TrimSpace(action.MCPToolAction.Tool) == "" {
+			return fmt.Errorf("CALL_MCP_TOOL action requires mcp_tool_action.tool")
 		}
 	default:
 		return fmt.Errorf("unsupported action type %q", action.Type)

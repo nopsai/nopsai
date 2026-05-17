@@ -2,13 +2,16 @@ name: main-pipeline
 description: A sample pipeline.
 llm_content_sharing: true
 llm_content_include:
-  - "src/"
-  - "Dockerfile"
+  - "test-app/Dockerfile"
 llm_content_ignore:
   - ".git"
   - "README.md"
-  - "*file"
 llm_output_sharing: true
+llm_profile: reasoning
+# MCP profiles are approved in System > MCP or a system GitOps file such as
+# setting/system/mcp.yaml. They are available only to goal-based execution.
+mcp_profiles:
+  - github-readonly
 display_options:
   github_view: "mermaid" # mermaid, tree or flat
 container_image: "hoseindocker/pipeline-image:latest"
@@ -18,15 +21,19 @@ variables:
   - DOCKER_HOST
   - API_VERSION
   - TEST_SCOPE
+  - default:FROM_OTHER
+  - data-team/dev:DEVVAR
 steps:
   - name: preparation
     image: hoseindocker/pipeline-image:latest
     secrets:
       - TEST_SECRET
+      - default:OTHER_SEC
+      - data-team/dev:DEVSEC
     variables:
       API_VERSION: "inside step overwrite"
     volumes:
-      - "sample-exisitng:/tmp/sample-exisitng"
+      - "sample-exisitng:/tmp/sample-exisiting"
       - "sample-new:/tmp/sample-new"
     tasks:
       - name: git-clone
@@ -36,19 +43,23 @@ steps:
           git clone https://github.com/hosein-yousefii/test-app.git
           echo $TEST_SECRET|awk '{print $2,$1,$3,$4,$5}'
           echo $API_VERSION
+          ls -l /tmp
 
       - name: waiting-time
-        goal: wait for 2 seconds
+        goal: Based only on shared workspace files, tell me which file you can see. Do not run commands. Return the answer only.
         llm_output_sharing: false
+        llm_profile: fast
+        mcp_profiles:
+          - github-pr-review
         depends_on:
         - git-clone
 
-      - name: list-runtime-vars-containers
+      - name: list-envs-containers
         variables:
           API_VERSION: "inside task overwrite"
         script: |
           #!/bin/bash
-          export -p
+          env
           echo $TEST_SECRET|awk '{print $2,$1,$3,$4,$5,$6}'
           echo $API_VERSION
         depends_on:
@@ -90,7 +101,7 @@ steps:
     - preparation
     tasks:
       - name: write-secret
-        goal: write the value of TEST_SECRET runtime variable to sample.txt
+        goal: write the value of TEST_SECRET env to sample.txt
 
       - name: test-secret
         script: |
@@ -102,6 +113,8 @@ steps:
   - name: docker-builder
     volumes:
       - "sample-exisitng:/tmp/sample-exisitng"
+    mcp_profiles:
+      - github-readonly
     depends_on:
     - preparation
     tasks:
@@ -139,6 +152,8 @@ steps:
     goal: "Give me lines from history which are important"
     image: alpine:latest
     llm_output_sharing: false
+    mcp_profiles:
+      - github-pr-review
     depends_on:
     - docker-builder
 

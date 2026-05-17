@@ -32,6 +32,11 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 			return "system.read", model.ResourceRef{Type: "system", ID: "llm-profiles"}, false, nil
 		}
 		return "system.update", model.ResourceRef{Type: "system", ID: "llm-profiles"}, false, nil
+	case path == "/v1/system/mcp" || strings.HasPrefix(path, "/v1/system/mcp/"):
+		if r.Method == http.MethodGet {
+			return "system.read", model.ResourceRef{Type: "system", ID: "mcp"}, false, nil
+		}
+		return "system.update", model.ResourceRef{Type: "system", ID: "mcp"}, false, nil
 	case path == "/v1/system/config/sync":
 		if r.Method == http.MethodGet {
 			return "system.read", model.ResourceRef{Type: "system", ID: "config-sync"}, false, nil

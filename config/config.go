@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 
+	"nopsai/pkg/models"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -65,8 +67,10 @@ type Config struct {
 	DispatcherTLSSecret      string `yaml:"dispatcher_tls_secret" env:"DISPATCHER_TLS_SECRET"`
 	DispatcherTLSServerName  string `yaml:"dispatcher_tls_server_name" env:"DISPATCHER_TLS_SERVER_NAME"`
 
-	LLMDefaultProfile string                `yaml:"llm_default_profile" env:"LLM_DEFAULT_PROFILE"`
-	LLMProfiles       map[string]LLMProfile `yaml:"llm_profiles" env:"LLM_PROFILES"`
+	LLMDefaultProfile string                       `yaml:"llm_default_profile" env:"LLM_DEFAULT_PROFILE"`
+	LLMProfiles       map[string]LLMProfile        `yaml:"llm_profiles" env:"LLM_PROFILES"`
+	MCPServers        map[string]models.MCPServer  `yaml:"mcp_servers" env:"MCP_SERVERS"`
+	MCPProfiles       map[string]models.MCPProfile `yaml:"mcp_profiles" env:"MCP_PROFILES"`
 
 	// Addresses for services to listen on
 	NopsaiListenAddress     string `yaml:"nopsai_listen_address" env:"NOPSAI_LISTEN_ADDRESS"`
@@ -151,6 +155,8 @@ func LoadConfig(path string) (*Config, error) {
 
 	config.LLMDefaultProfile = NormalizeLLMProfileName(config.LLMDefaultProfile)
 	config.LLMProfiles = NormalizeLLMProfiles(config.LLMProfiles)
+	config.MCPServers = models.NormalizeMCPServers(config.MCPServers)
+	config.MCPProfiles = models.NormalizeMCPProfiles(config.MCPProfiles)
 
 	return config, nil
 }
@@ -233,6 +239,14 @@ func (c Config) EffectiveLLMDefaultProfile() string {
 
 func (c Config) EffectiveLLMProfiles() map[string]LLMProfile {
 	return NormalizeLLMProfiles(c.LLMProfiles)
+}
+
+func (c Config) EffectiveMCPServers() map[string]models.MCPServer {
+	return models.NormalizeMCPServers(c.MCPServers)
+}
+
+func (c Config) EffectiveMCPProfiles() map[string]models.MCPProfile {
+	return models.NormalizeMCPProfiles(c.MCPProfiles)
 }
 
 func LLMProfileAllowedInScope(profile LLMProfile, scope string) bool {

@@ -822,6 +822,11 @@ func run() int {
 		agentLog(runID, pipelineName).Error().Err(err).Msg("Invalid LLM profile configuration")
 		return 1
 	}
+	mcpRegistry, err := NewMCPProfileRegistryFromEnv(runScope)
+	if err != nil {
+		agentLog(runID, pipelineName).Error().Err(err).Msg("Invalid MCP registry configuration")
+		return 1
+	}
 	defaultLLMProfile, _ := llmRegistry.DefaultProfile()
 	llmProvider := defaultLLMProfile.Provider
 
@@ -1388,13 +1393,25 @@ func run() int {
 						return
 					}
 					taskLogger.Info().Str("llm_profile", actionProfile).Msg("Using LLM profile for goal")
+					mcpRuntime, mcpErr := mcpRegistry.ResolveFor(&pipeline, step, task)
+					if mcpErr != nil {
+						taskLogger.Error().Err(mcpErr).Msg("Failed to resolve MCP profiles for goal")
+						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+						return
+					}
+					if mcpRuntime.Enabled() {
+						taskLogger.Info().
+							Strs("mcp_profiles", mcpRuntime.Profiles()).
+							Int("mcp_tool_count", len(mcpRuntime.tools)).
+							Msg("Using MCP profiles for goal")
+					}
 
 					actionStart := time.Now()
 					err = withRetry(func() error {
 						ctx, cancel := context.WithTimeout(context.Background(), llmTimeout)
 						defer cancel()
 						var e error
-						action, e = actionClient.GetAction(ctx, req)
+						action, e = actionClient.GetActionWithMCP(ctx, req, mcpRuntime)
 						return e
 					}, 3, 1*time.Second)
 					llmDurationMs = time.Since(actionStart).Milliseconds()
@@ -1402,7 +1419,7 @@ func run() int {
 						// One more best-effort retry to increase durability.
 						taskLogger.Warn().Err(err).Msg("GetAction failed after retries; attempting one final retry")
 						ctx, cancel := context.WithTimeout(context.Background(), llmTimeout)
-						action, err = actionClient.GetAction(ctx, req)
+						action, err = actionClient.GetActionWithMCP(ctx, req, mcpRuntime)
 						cancel()
 						llmDurationMs = time.Since(actionStart).Milliseconds()
 						if err != nil {
