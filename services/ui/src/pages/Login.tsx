@@ -36,8 +36,8 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
         <div className="text-center space-y-2">
           <div className="login-brand" aria-label="NopsAI">
             <span className="sr-only">NopsAI</span>
-            <img className="brand-wordmark brand-wordmark--light" src="/brand/nopsai-banner-light.png" alt="" aria-hidden="true" />
-            <img className="brand-wordmark brand-wordmark--dark" src="/brand/nopsai-banner-dark.png" alt="" aria-hidden="true" />
+            <img className="brand-logo brand-logo--light" src="/brand/nopsai-logo-light.png" alt="" aria-hidden="true" />
+            <img className="brand-logo brand-logo--dark" src="/brand/nopsai-logo-dark.png" alt="" aria-hidden="true" />
           </div>
           <h1 className="text-2xl font-semibold text-[var(--text-primary)]">Sign in</h1>
           <p className="text-sm text-[var(--text-secondary)]">Use your local account to continue</p>

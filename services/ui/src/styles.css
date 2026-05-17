@@ -249,41 +249,60 @@ body {
 }
 
 .sidebar-brand {
-    width: min(12.5rem, 100%);
+    width: min(13.5rem, 100%);
     height: 3rem;
+    gap: 0.625rem;
+    min-width: 0;
 }
 
 .login-brand {
-    width: min(20rem, 100%);
-    min-height: 6.5rem;
+    width: min(15rem, 100%);
+    min-height: 12rem;
     margin: 0 auto;
 }
 
-.brand-wordmark {
+.brand-logo,
+.brand-mark {
     display: block;
-    width: auto;
     max-width: 100%;
     height: auto;
     object-fit: contain;
 }
 
-.sidebar-brand .brand-wordmark {
-    max-height: 3rem;
+.brand-mark {
+    width: 2.4rem;
+    height: 2.4rem;
+    flex: 0 0 2.4rem;
 }
 
-.login-brand .brand-wordmark {
-    max-height: 6.5rem;
+.sidebar-brand__name {
+    display: block;
+    min-width: 0;
+    font-size: 1.15rem;
+    font-weight: 700;
+    line-height: 1;
+    background: linear-gradient(90deg, #0d6bff 0%, #16d6c7 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
 }
 
-.brand-wordmark--dark {
+.login-brand .brand-logo {
+    max-height: 12rem;
+}
+
+.brand-logo--dark,
+.brand-mark--dark {
     display: none;
 }
 
-html.dark .brand-wordmark--light {
+html.dark .brand-logo--light,
+html.dark .brand-mark--light {
     display: none;
 }
 
-html.dark .brand-wordmark--dark {
+html.dark .brand-logo--dark,
+html.dark .brand-mark--dark {
     display: block;
 }
 .drop-target-highlight {

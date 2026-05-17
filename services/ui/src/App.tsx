@@ -1363,8 +1363,9 @@ function Sidebar({
         <div className="flex items-center justify-between px-6 h-16 border-b border-[var(--border-primary)] flex-shrink-0">
           <div className="sidebar-brand" aria-label="NopsAI">
             <span className="sr-only">NopsAI</span>
-            <img className="brand-wordmark brand-wordmark--light" src="/brand/nopsai-banner-light.png" alt="" aria-hidden="true" />
-            <img className="brand-wordmark brand-wordmark--dark" src="/brand/nopsai-banner-dark.png" alt="" aria-hidden="true" />
+            <img className="brand-mark brand-mark--light" src="/brand/nopsai-mark-light.png" alt="" aria-hidden="true" />
+            <img className="brand-mark brand-mark--dark" src="/brand/nopsai-mark-dark.png" alt="" aria-hidden="true" />
+            <span className="sidebar-brand__name" aria-hidden="true">NopsAI</span>
           </div>
           <button
             id="close-sidebar-btn"
