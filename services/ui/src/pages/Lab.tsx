@@ -51,9 +51,10 @@ const LAB_SESSION_STORAGE_KEY = 'nopsai.lab.session.v1';
 
 function normalizeScopeLabel(value: unknown): string {
   if (value == null) return '';
-  return String(value)
+  const normalized = String(value)
     .trim()
     .replace(/^\/+|\/+$/g, '');
+  return normalized.toLowerCase() === 'default' ? '' : normalized;
 }
 
 function buildBlankYaml(name = DEFAULT_PIPELINE_NAME) {

@@ -858,7 +858,7 @@ func (a *App) findEncryptedSecret(secretName, repoFullName, scope string) (strin
 	storageScope := runtimeScopeForStorage(scope)
 	resourceScope := runtimeScopeForResource(storageScope)
 
-	err := a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name = $2 AND "+runtimeScopeEqualsSQL("scope", 3, storageScope)+" ORDER BY scope IS NULL ASC LIMIT 1", secretName, repoFullName, storageScope).Scan(&encryptedValue)
+	err := a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name = $2 AND "+runtimeScopeEqualsSQL("scope", 3, storageScope)+" LIMIT 1", secretName, repoFullName, storageScope).Scan(&encryptedValue)
 	if err == nil {
 		return encryptedValue, model.BuildNamedResourceID(repoFullName, resourceScope, secretName), true, nil
 	}
@@ -866,7 +866,7 @@ func (a *App) findEncryptedSecret(secretName, repoFullName, scope string) (strin
 		return "", "", false, err
 	}
 
-	err = a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL AND "+runtimeScopeEqualsSQL("scope", 2, storageScope)+" ORDER BY scope IS NULL ASC LIMIT 1", secretName, storageScope).Scan(&encryptedValue)
+	err = a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL AND "+runtimeScopeEqualsSQL("scope", 2, storageScope)+" LIMIT 1", secretName, storageScope).Scan(&encryptedValue)
 	if err == nil {
 		return encryptedValue, model.BuildNamedResourceID("", resourceScope, secretName), true, nil
 	}
