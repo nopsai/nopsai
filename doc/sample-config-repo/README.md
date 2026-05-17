@@ -43,7 +43,7 @@ scopes/                Scope variable files
 pipelineruns/          Run group structure
 config-repositories/   Group config repo bindings
 access/                Users, advanced roles, policies, and basic role grants
-setting/               System settings such as LLM profiles
+setting/               System settings such as LLM and MCP profiles
 ```
 
 Secrets are not imported from Git. Pipelines may declare required secrets, but
@@ -80,6 +80,9 @@ global-repo/access/*.yaml
 
 global-repo/setting/system/llm_profile.yaml
   -> system LLM profile registry
+
+global-repo/setting/system/mcp.yaml
+  -> system MCP server and profile registry
 ```
 
 When the global repo defines group bindings under `config-repositories/groups`,
