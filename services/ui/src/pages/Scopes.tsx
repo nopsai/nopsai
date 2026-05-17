@@ -216,9 +216,10 @@ function createInitialScopeData(): ScopeData {
 
 function normalizeScopeLabel(value: unknown): string {
   if (value == null) return '';
-  return String(value)
+  const normalized = String(value)
     .trim()
     .replace(/^\/+|\/+$/g, '');
+  return normalized.toLowerCase() === 'default' ? '' : normalized;
 }
 
 function encodeScopeForRoute(scope: string): string {

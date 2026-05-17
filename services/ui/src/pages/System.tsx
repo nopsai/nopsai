@@ -1895,8 +1895,8 @@ const buildAAAStringOptions = (values: string[]) =>
   ).sort((a, b) => a.value.localeCompare(b.value));
 
 const normalizeAAAScopeOptionValue = (scope: string) => {
-  const normalized = (scope || '').trim();
-  return normalized || AAA_DEFAULT_SCOPE_VALUE;
+  const normalized = (scope || '').trim().replace(/^\/+|\/+$/g, '');
+  return !normalized || normalized.toLowerCase() === 'default' ? AAA_DEFAULT_SCOPE_VALUE : normalized;
 };
 
 const denormalizeAAAScopeOptionValue = (value: string) => (value === AAA_DEFAULT_SCOPE_VALUE ? '' : (value || '').trim());
@@ -1904,10 +1904,11 @@ const denormalizeAAAScopeOptionValue = (value: string) => (value === AAA_DEFAULT
 const buildAAAScopeOptions = (values: string[]) =>
   dedupeAAAOptions(
     ['', ...values].map(value => {
-      const normalized = (value || '').trim();
+      const normalized = (value || '').trim().replace(/^\/+|\/+$/g, '');
+      const isDefault = !normalized || normalized.toLowerCase() === 'default';
       return {
         value: normalizeAAAScopeOptionValue(normalized),
-        label: normalized || 'Default scope',
+        label: isDefault ? 'Default scope' : normalized,
       };
     })
   ).sort((a, b) => {

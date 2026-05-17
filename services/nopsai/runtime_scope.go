@@ -33,19 +33,12 @@ func runtimeScopeForDisplay(scope string) string {
 	return scope
 }
 
-func runtimeScopeIsDefault(scope string) bool {
-	return runtimeScopeForStorage(scope) == defaultRuntimeScope
-}
-
 func runtimeScopeEqualsSQL(column string, argPosition int, scope string) string {
 	column = strings.TrimSpace(column)
 	if column == "" {
 		column = "scope"
 	}
 	placeholder := fmt.Sprintf("$%d", argPosition)
-	if runtimeScopeIsDefault(scope) {
-		return fmt.Sprintf("(%s = %s OR %s IS NULL OR %s = '')", column, placeholder, column, column)
-	}
 	return fmt.Sprintf("%s = %s", column, placeholder)
 }
 

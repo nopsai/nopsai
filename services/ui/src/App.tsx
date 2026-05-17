@@ -90,6 +90,14 @@ type CurrentUser = {
   };
 };
 
+function normalizeScopeLabel(value: unknown): string {
+  if (value == null) return '';
+  const normalized = String(value)
+    .trim()
+    .replace(/^\/+|\/+$/g, '');
+  return normalized.toLowerCase() === 'default' ? '' : normalized;
+}
+
 type AuthSession = StoredSession;
 
 type RunGroup = {
@@ -474,13 +482,13 @@ function AppShell() {
             if (!entry || typeof entry !== 'object') return;
             const record = entry as Record<string, unknown>;
             const scopeLabel = typeof record.scope === 'string' ? record.scope : '';
-            scopeSet.add(scopeLabel.trim());
+            scopeSet.add(normalizeScopeLabel(scopeLabel));
           });
         }
         if (Array.isArray(variableJson)) {
           variableJson.forEach((entry: unknown) => {
             if (typeof entry === 'string') {
-              scopeSet.add(entry.trim());
+              scopeSet.add(normalizeScopeLabel(entry));
               return;
             }
             if (!entry || typeof entry !== 'object') return;
@@ -490,10 +498,10 @@ function AppShell() {
               : typeof record.name === 'string'
                 ? record.name
                 : '';
-            scopeSet.add(scopeLabel.trim());
+            scopeSet.add(normalizeScopeLabel(scopeLabel));
           });
         }
-        const list = Array.from(scopeSet).map(scope => scope.replace(/^\/+|\/+$/g, '')).sort((a, b) => a.localeCompare(b));
+        const list = Array.from(scopeSet).map(normalizeScopeLabel).sort((a, b) => a.localeCompare(b));
         serverScopesRef.current = list;
         setScopes(list);
       } catch (error) {
@@ -731,7 +739,7 @@ function AppShell() {
       insertGroupPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], scopes: [] }));
     });
     scopes.forEach(scope => {
-      const normalized = scope.replace(/^\/+|\/+$/g, '');
+      const normalized = normalizeScopeLabel(scope);
       const parts = normalized.split('/').filter(Boolean);
       if (!parts.length) {
         root.scopes.push('');
@@ -1246,7 +1254,7 @@ function Sidebar({
   };
 
   const encodeScopeForRoute = (scope: string) => {
-    const normalized = scope.replace(/^\/+|\/+$/g, '');
+    const normalized = normalizeScopeLabel(scope);
     if (!normalized) return 'default';
     return normalized
       .split('/')
