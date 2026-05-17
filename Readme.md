@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="services/ui/public/brand/nopsai-banner-dark.png">
-    <img src="services/ui/public/brand/nopsai-banner-light.png" alt="NopsAI - Smarter Automation. Intelligent Outcomes." width="720">
+    <source media="(prefers-color-scheme: dark)" srcset="services/ui/public/brand/nopsai-logo-dark.png">
+    <img src="services/ui/public/brand/nopsai-logo-light.png" alt="NopsAI" width="420">
   </picture>
 </p>
 
