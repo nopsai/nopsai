@@ -1,7 +1,6 @@
 package mcpclient
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -20,11 +19,12 @@ import (
 const protocolVersion = "2025-06-18"
 
 type Client struct {
-	server    models.MCPServer
-	authValue string
-	http      *http.Client
-	sessionID string
-	nextID    atomic.Int64
+	server          models.MCPServer
+	authValue       string
+	http            *http.Client
+	sessionID       string
+	protocolVersion string
+	nextID          atomic.Int64
 }
 
 type InitializeResult struct {
@@ -125,6 +125,7 @@ func (c *Client) Initialize(ctx context.Context) (InitializeResult, error) {
 	if err := c.call(ctx, "initialize", params, &result); err != nil {
 		return InitializeResult{}, err
 	}
+	c.protocolVersion = strings.TrimSpace(result.ProtocolVersion)
 	_ = c.notify(ctx, "notifications/initialized", map[string]any{})
 	return result, nil
 }
@@ -248,6 +249,9 @@ func (c *Client) send(ctx context.Context, payload jsonRPCRequest) ([]byte, erro
 	if c.sessionID != "" {
 		req.Header.Set("Mcp-Session-Id", c.sessionID)
 	}
+	if c.protocolVersion != "" {
+		req.Header.Set("MCP-Protocol-Version", c.protocolVersion)
+	}
 	for key, value := range c.server.Headers {
 		if strings.TrimSpace(key) != "" {
 			req.Header.Set(key, value)
@@ -286,7 +290,7 @@ func (c *Client) send(ctx context.Context, payload jsonRPCRequest) ([]byte, erro
 	}
 	contentType := strings.ToLower(resp.Header.Get("Content-Type"))
 	if strings.Contains(contentType, "text/event-stream") {
-		return firstSSEJSON(body)
+		return sseJSONForID(body, payload.ID)
 	}
 	trimmed := bytes.TrimSpace(body)
 	if len(trimmed) == 0 {
@@ -296,7 +300,10 @@ func (c *Client) send(ctx context.Context, payload jsonRPCRequest) ([]byte, erro
 }
 
 func firstSSEJSON(body []byte) ([]byte, error) {
-	scanner := bufio.NewScanner(bytes.NewReader(body))
+	return sseJSONForID(body, nil)
+}
+
+func sseJSONForID(body []byte, expectedID any) ([]byte, error) {
 	var dataLines []string
 	flush := func() ([]byte, bool) {
 		if len(dataLines) == 0 {
@@ -307,14 +314,24 @@ func firstSSEJSON(body []byte) ([]byte, error) {
 		if data == "" || data == "[DONE]" {
 			return nil, false
 		}
-		if json.Valid([]byte(data)) {
+		if !json.Valid([]byte(data)) {
+			return nil, false
+		}
+		if expectedID == nil {
+			return []byte(data), true
+		}
+		var response jsonRPCResponse
+		if err := json.Unmarshal([]byte(data), &response); err != nil {
+			return nil, false
+		}
+		if jsonRPCIDEqual(response.ID, expectedID) {
 			return []byte(data), true
 		}
 		return nil, false
 	}
 
-	for scanner.Scan() {
-		line := scanner.Text()
+	for _, rawLine := range bytes.Split(body, []byte{'\n'}) {
+		line := strings.TrimRight(string(rawLine), "\r")
 		if strings.TrimSpace(line) == "" {
 			if data, ok := flush(); ok {
 				return data, nil
@@ -325,13 +342,25 @@ func firstSSEJSON(body []byte) ([]byte, error) {
 			dataLines = append(dataLines, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
 		}
 	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
 	if data, ok := flush(); ok {
 		return data, nil
 	}
-	return nil, fmt.Errorf("SSE response did not contain a JSON-RPC message")
+	if expectedID == nil {
+		return nil, fmt.Errorf("SSE response did not contain a JSON-RPC message")
+	}
+	return nil, fmt.Errorf("SSE response did not contain JSON-RPC response id %v", expectedID)
+}
+
+func jsonRPCIDEqual(a, b any) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	aJSON, aErr := json.Marshal(a)
+	bJSON, bErr := json.Marshal(b)
+	if aErr != nil || bErr != nil {
+		return fmt.Sprint(a) == fmt.Sprint(b)
+	}
+	return bytes.Equal(aJSON, bJSON)
 }
 
 func resolveAuthSecret(secretName string) string {

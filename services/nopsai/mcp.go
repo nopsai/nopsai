@@ -646,7 +646,7 @@ func validateMCPServerDefinition(server models.MCPServer) error {
 	return nil
 }
 
-func validateMCPProfileDefinition(profile models.MCPProfile, servers map[string]models.MCPServer, toolsByServer map[string][]models.MCPTool) error {
+func validateMCPProfileDefinition(profile models.MCPProfile, servers map[string]models.MCPServer, _ map[string][]models.MCPTool) error {
 	profile = models.NormalizeMCPProfile(profile)
 	if profile.Name == "" {
 		return fmt.Errorf("MCP profile name is required")
@@ -660,13 +660,6 @@ func validateMCPProfileDefinition(profile models.MCPProfile, servers map[string]
 	if err := validateMCPAllowedScopes("MCP profile", profile.Name, profile.AllowedScopes); err != nil {
 		return err
 	}
-	toolNames := map[string]map[string]bool{}
-	for serverName, tools := range toolsByServer {
-		toolNames[serverName] = map[string]bool{}
-		for _, tool := range tools {
-			toolNames[serverName][tool.Name] = true
-		}
-	}
 	for _, ref := range profile.ServerRefs {
 		server, ok := servers[ref.ServerName]
 		if !ok {
@@ -678,9 +671,12 @@ func validateMCPProfileDefinition(profile models.MCPProfile, servers map[string]
 		if len(ref.Tools) == 0 {
 			return fmt.Errorf("MCP profile %q must select tools for server %q", profile.Name, ref.ServerName)
 		}
+		if mcpProfileRefSelectsAllTools(ref) && !mcpServerConfiguredReadonly(server) {
+			return fmt.Errorf("MCP profile %q can use wildcard tools only with a read-only MCP server", profile.Name)
+		}
 		for _, tool := range ref.Tools {
-			if !toolNames[ref.ServerName][tool] {
-				return fmt.Errorf("MCP profile %q references unknown tool %q on server %q", profile.Name, tool, ref.ServerName)
+			if isMCPAllToolsSelector(tool) {
+				continue
 			}
 			if !isReadOnlyMCPToolName(tool) {
 				return fmt.Errorf("MCP profile %q references write-like tool %q; only read-only MCP tools are allowed", profile.Name, tool)
@@ -731,7 +727,13 @@ func validateMCPProfileDefinitionWithoutDiscovery(profile models.MCPProfile, ser
 		if len(ref.Tools) == 0 {
 			return fmt.Errorf("MCP profile %q must select tools for server %q", profile.Name, ref.ServerName)
 		}
+		if mcpProfileRefSelectsAllTools(ref) && !mcpServerConfiguredReadonly(server) {
+			return fmt.Errorf("MCP profile %q can use wildcard tools only with a read-only MCP server", profile.Name)
+		}
 		for _, tool := range ref.Tools {
+			if isMCPAllToolsSelector(tool) {
+				continue
+			}
 			if !isReadOnlyMCPToolName(tool) {
 				return fmt.Errorf("MCP profile %q references write-like tool %q; only read-only MCP tools are allowed", profile.Name, tool)
 			}
@@ -774,6 +776,40 @@ func isReadOnlyMCPToolName(toolName string) bool {
 		}
 	}
 	return true
+}
+
+func isMCPAllToolsSelector(toolName string) bool {
+	return strings.TrimSpace(toolName) == "*"
+}
+
+func mcpProfileRefSelectsAllTools(ref models.MCPProfileServerRef) bool {
+	for _, toolName := range ref.Tools {
+		if isMCPAllToolsSelector(toolName) {
+			return true
+		}
+	}
+	return false
+}
+
+func mcpServerConfiguredReadonly(server models.MCPServer) bool {
+	server = models.NormalizeMCPServer(server)
+	for key, value := range server.Headers {
+		if strings.EqualFold(strings.TrimSpace(key), "X-MCP-Readonly") && mcpTruthyHeader(value) {
+			return true
+		}
+	}
+	urlPath := strings.ToLower(strings.TrimRight(server.URL, "/"))
+	return strings.Contains(urlPath, "/readonly")
+}
+
+func mcpTruthyHeader(value string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "", "false", "f", "no", "n", "0", "off":
+		return false
+	default:
+		return true
+	}
 }
 
 func (a *App) handleListMCPServers(w http.ResponseWriter, r *http.Request) {
@@ -1216,6 +1252,12 @@ func (a *App) handleTestMCPProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func compareMCPToolSchemas(ref models.MCPProfileServerRef, cachedTools, liveTools []models.MCPTool) []string {
+	if mcpProfileRefSelectsAllTools(ref) {
+		if len(liveTools) == 0 {
+			return []string{fmt.Sprintf("Server %s did not return any live tools", ref.ServerName)}
+		}
+		return nil
+	}
 	cached := map[string]models.MCPTool{}
 	for _, tool := range cachedTools {
 		cached[tool.Name] = tool
@@ -1364,9 +1406,16 @@ func (a *App) buildRuntimeMCPRegistry(pipeline *models.Pipeline, scope string) (
 				return runtimeMCPRegistry{}, fmt.Errorf("MCP server %q is not allowed in scope %q", ref.ServerName, strings.TrimSpace(scope))
 			}
 			registry.Servers[ref.ServerName] = runtimeMCPServer{MCPServer: server, AuthValue: resolveMCPAuthSecret(server)}
-			selectedTools := filterMCPTools(toolsByServer[ref.ServerName], ref.Tools)
+			if mcpProfileRefSelectsAllTools(ref) && len(toolsByServer[ref.ServerName]) == 0 {
+				discovered, err := a.discoverAndStoreMCPServerTools(context.Background(), server)
+				if err != nil {
+					return runtimeMCPRegistry{}, fmt.Errorf("discover MCP tools for wildcard profile %q on server %q: %w", profileName, ref.ServerName, err)
+				}
+				toolsByServer[ref.ServerName] = discovered.Tools
+			}
+			selectedTools := selectMCPTools(ref.ServerName, toolsByServer[ref.ServerName], ref.Tools)
 			if len(selectedTools) == 0 {
-				return runtimeMCPRegistry{}, fmt.Errorf("MCP profile %q has no discovered tools for server %q", profileName, ref.ServerName)
+				return runtimeMCPRegistry{}, fmt.Errorf("MCP profile %q has no selected tools for server %q", profileName, ref.ServerName)
 			}
 			registry.Tools[ref.ServerName] = mergeMCPTools(registry.Tools[ref.ServerName], selectedTools)
 		}
@@ -1381,21 +1430,68 @@ func resolveMCPAuthSecret(server models.MCPServer) string {
 	return strings.TrimSpace(os.Getenv(server.AuthSecret))
 }
 
-func filterMCPTools(tools []models.MCPTool, names []string) []models.MCPTool {
-	allowed := map[string]bool{}
-	for _, name := range names {
-		allowed[strings.TrimSpace(name)] = true
+func selectMCPTools(serverName string, discovered []models.MCPTool, names []string) []models.MCPTool {
+	byName := map[string]models.MCPTool{}
+	for _, tool := range discovered {
+		tool.Name = strings.TrimSpace(tool.Name)
+		if tool.Name == "" {
+			continue
+		}
+		if strings.TrimSpace(tool.ServerName) == "" {
+			tool.ServerName = serverName
+		}
+		if strings.TrimSpace(tool.InputSchema) == "" {
+			tool.InputSchema = "{}"
+		}
+		byName[tool.Name] = tool
 	}
-	var filtered []models.MCPTool
-	for _, tool := range tools {
-		if allowed[tool.Name] {
-			filtered = append(filtered, tool)
+	if mcpToolNamesSelectAll(names) {
+		orderedNames := make([]string, 0, len(byName))
+		for name := range byName {
+			orderedNames = append(orderedNames, name)
+		}
+		sort.Strings(orderedNames)
+		selected := make([]models.MCPTool, 0, len(orderedNames))
+		for _, name := range orderedNames {
+			selected = append(selected, byName[name])
+		}
+		return selected
+	}
+	selected := map[string]models.MCPTool{}
+	for _, rawName := range names {
+		name := strings.TrimSpace(rawName)
+		if name == "" || isMCPAllToolsSelector(name) {
+			continue
+		}
+		if tool, ok := byName[name]; ok {
+			selected[name] = tool
+			continue
+		}
+		selected[name] = models.MCPTool{
+			ServerName:  serverName,
+			Name:        name,
+			InputSchema: "{}",
 		}
 	}
-	sort.SliceStable(filtered, func(i, j int) bool {
-		return filtered[i].Name < filtered[j].Name
-	})
+	orderedNames := make([]string, 0, len(selected))
+	for name := range selected {
+		orderedNames = append(orderedNames, name)
+	}
+	sort.Strings(orderedNames)
+	filtered := make([]models.MCPTool, 0, len(orderedNames))
+	for _, name := range orderedNames {
+		filtered = append(filtered, selected[name])
+	}
 	return filtered
+}
+
+func mcpToolNamesSelectAll(names []string) bool {
+	for _, name := range names {
+		if isMCPAllToolsSelector(name) {
+			return true
+		}
+	}
+	return false
 }
 
 func mergeMCPTools(existing, next []models.MCPTool) []models.MCPTool {

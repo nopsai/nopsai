@@ -34,7 +34,7 @@ mcp_servers:
     enabled: true
     provider: github
     transport: streamable_http
-    url: https://provider.example.com/mcp
+    url: https://api.githubcopilot.com/mcp/x/all/readonly
     auth_type: bearer_token
     auth_secret: GITHUB_MCP_TOKEN
     timeout: 30s
@@ -50,9 +50,7 @@ mcp_profiles:
     servers:
       - server: github
         tools:
-          - list_pull_request_files
-          - get_file
-          - search_code
+          - "*"
 ```
 
 Pipeline YAML must not define arbitrary MCP servers. It can only reference
@@ -70,7 +68,7 @@ mcp_servers:
     enabled: true
     provider: github
     transport: streamable_http
-    url: https://provider.example.com/mcp
+    url: https://api.githubcopilot.com/mcp/x/all/readonly
     auth_type: bearer_token
     auth_secret: GITHUB_MCP_TOKEN
     timeout: 30s
@@ -82,9 +80,7 @@ mcp_profiles:
     servers:
       - server: github
         tools:
-          - list_pull_request_files
-          - get_file
-          - search_code
+          - "*"
 ```
 
 Only system/global config repositories may define the MCP registry. Group config
@@ -103,13 +99,19 @@ Task-step `mcp_profiles` act as defaults for goal tasks inside that step.
 Pipeline-level defaults and task-step defaults do not make script tasks MCP
 enabled.
 
+When MCP profiles resolve for a goal, including pipeline-level defaults, the
+agent requires at least one successful MCP tool call before accepting a final
+action.
+
 ## Runtime Flow
 
 For a goal task, the agent:
 
 1. Resolves the LLM profile.
 2. Resolves allowed MCP profiles for the current scope.
-3. Exposes selected MCP tools to the LLM as callable actions.
+3. Exposes selected MCP tools to the LLM as callable actions. A profile tool
+   entry of `"*"` means all tools discovered from a configured read-only MCP
+   server.
 4. Executes requested MCP tool calls against external HTTP MCP servers.
 5. Adds tool results back into the goal conversation.
 6. Continues until the LLM returns a final Nopsai action.
@@ -139,6 +141,7 @@ Current implementation:
 - External HTTP/streamable HTTP MCP servers.
 - Admin-managed MCP servers and profiles.
 - Bearer-token or no-auth server connections.
+- Extra MCP server headers for provider-specific configuration.
 - Tool discovery via `initialize` and `tools/list`.
 - Tool execution via `tools/call`.
 - Read-only profile enforcement by write-like tool-name rejection.
