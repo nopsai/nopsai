@@ -70,6 +70,8 @@ type SystemCapabilities = {
   configWrite?: boolean;
   llmProfilesRead?: boolean;
   llmProfilesWrite?: boolean;
+  mcpRead?: boolean;
+  mcpWrite?: boolean;
   configReposRead?: boolean;
   configReposWrite?: boolean;
   dispatcherRead?: boolean;
@@ -175,6 +177,7 @@ const baseNavItems: NavItem[] = [
 const baseSystemSubNav: NavItem[] = [
   { label: 'Config', path: '/system/config', icon: <IconCog /> },
   { label: 'LLM Profiles', path: '/system/llm-profiles', icon: <IconFlask /> },
+  { label: 'MCP', path: '/system/mcp', icon: <IconFlask /> },
   { label: 'Dispatcher', path: '/system/dispatcher', icon: <IconDispatch /> },
   { label: 'Access', path: '/system/access', icon: <IconShield /> },
 ];
@@ -335,6 +338,8 @@ function AppShell() {
                         configWrite: Boolean(data.capabilities.system.config_write),
                         llmProfilesRead: Boolean(data.capabilities.system.llm_profiles_read),
                         llmProfilesWrite: Boolean(data.capabilities.system.llm_profiles_write),
+                        mcpRead: Boolean(data.capabilities.system.mcp_read),
+                        mcpWrite: Boolean(data.capabilities.system.mcp_write),
                         configReposRead: Boolean(data.capabilities.system.config_repos_read),
                         configReposWrite: Boolean(data.capabilities.system.config_repos_write),
                         dispatcherRead: Boolean(data.capabilities.system.dispatcher_read),
@@ -402,22 +407,26 @@ function AppShell() {
   const canManageSystemRuntimeConfig = Boolean(currentUser?.capabilities?.system?.configWrite);
   const canViewSystemLLMProfiles = Boolean(currentUser?.capabilities?.system?.llmProfilesRead) || canViewSystemRuntimeConfig;
   const canManageSystemLLMProfiles = Boolean(currentUser?.capabilities?.system?.llmProfilesWrite) || canManageSystemRuntimeConfig;
+  const canViewSystemMCP = Boolean(currentUser?.capabilities?.system?.mcpRead) || canViewSystemRuntimeConfig;
+  const canManageSystemMCP = Boolean(currentUser?.capabilities?.system?.mcpWrite) || canManageSystemRuntimeConfig;
   const canViewSystemConfigRepo = Boolean(currentUser?.capabilities?.system?.configReposRead);
   const canManageSystemConfigRepo = Boolean(currentUser?.capabilities?.system?.configReposWrite);
   const canViewSystemConfig = canViewSystemRuntimeConfig || canViewSystemConfigRepo;
   const canViewSystemDispatcher = Boolean(currentUser?.capabilities?.system?.dispatcherRead);
   const canManageSystemDispatcher = Boolean(currentUser?.capabilities?.system?.dispatcherWrite);
   const canViewSystemAccess = Boolean(currentUser?.capabilities?.system?.access);
-  const canViewAnySystem = canViewSystemConfig || canViewSystemLLMProfiles || canViewSystemDispatcher || canViewSystemAccess;
+  const canViewAnySystem = canViewSystemConfig || canViewSystemLLMProfiles || canViewSystemMCP || canViewSystemDispatcher || canViewSystemAccess;
   const preferredSystemPath = canViewSystemConfig
     ? '/system/config'
     : canViewSystemLLMProfiles
       ? '/system/llm-profiles'
-    : canViewSystemDispatcher
-      ? '/system/dispatcher'
-      : canViewSystemAccess
-        ? '/system/access'
-        : '/system/config';
+      : canViewSystemMCP
+        ? '/system/mcp'
+        : canViewSystemDispatcher
+          ? '/system/dispatcher'
+          : canViewSystemAccess
+            ? '/system/access'
+            : '/system/config';
   const navItems = useMemo(() => {
     return baseNavItems
       .map(item => (item.path.startsWith('/system') ? { ...item, path: preferredSystemPath } : item))
@@ -433,11 +442,12 @@ function AppShell() {
       baseSystemSubNav.filter(item => {
         if (item.path === '/system/config') return canViewSystemConfig;
         if (item.path === '/system/llm-profiles') return canViewSystemLLMProfiles;
+        if (item.path === '/system/mcp') return canViewSystemMCP;
         if (item.path === '/system/dispatcher') return canViewSystemDispatcher;
         if (item.path === '/system/access') return canViewSystemAccess;
         return false;
       }),
-    [canViewSystemAccess, canViewSystemConfig, canViewSystemDispatcher, canViewSystemLLMProfiles]
+    [canViewSystemAccess, canViewSystemConfig, canViewSystemDispatcher, canViewSystemLLMProfiles, canViewSystemMCP]
   );
 
   useEffect(() => {
@@ -957,6 +967,8 @@ function AppShell() {
                           canManageRuntimeConfig: canManageSystemRuntimeConfig,
                           canViewLLMProfiles: canViewSystemLLMProfiles,
                           canManageLLMProfiles: canManageSystemLLMProfiles,
+                          canViewMCP: canViewSystemMCP,
+                          canManageMCP: canManageSystemMCP,
                           canViewGlobalConfigRepo: canViewSystemConfigRepo,
                           canManageGlobalConfigRepo: canManageSystemConfigRepo,
                           canViewDispatcher: canViewSystemDispatcher,
@@ -1349,11 +1361,11 @@ function Sidebar({
         style={{ width, minWidth: SIDEBAR_MIN_WIDTH, maxWidth: SIDEBAR_MAX_WIDTH }}
       >
         <div className="flex items-center justify-between px-6 h-16 border-b border-[var(--border-primary)] flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <span className="step-logo step-logo--sidebar step-logo--brand" aria-hidden="true">
-              <IconLogo />
-            </span>
-            <span className="text-xl font-semibold">NopsAI</span>
+          <div className="sidebar-brand" aria-label="NopsAI">
+            <span className="sr-only">NopsAI</span>
+            <img className="brand-mark brand-mark--light" src="/brand/nopsai-mark-light.png" alt="" aria-hidden="true" />
+            <img className="brand-mark brand-mark--dark" src="/brand/nopsai-mark-dark.png" alt="" aria-hidden="true" />
+            <span className="sidebar-brand__name" aria-hidden="true">NopsAI</span>
           </div>
           <button
             id="close-sidebar-btn"
@@ -2356,19 +2368,6 @@ function Header({
         </div>
       </div>
     </header>
-  );
-}
-
-function IconLogo() {
-  return (
-    <svg width="24" height="24" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" fill="none" strokeLinecap="round" strokeLinejoin="round">
-      <path stroke="none" d="M0 0h24v24H0z" />
-      <path d="M12.5 21H6a1 1 0 0 1 -1 -1V4a1 1 0 0 1 1 -1h12a1 1 0 0 1 1 1v5" />
-      <path d="M18 22v-6" />
-      <path d="M21 19l-3 -3l-3 3" />
-      <path d="M3 13h8" />
-      <path d="M5 10v6" />
-    </svg>
   );
 }
 

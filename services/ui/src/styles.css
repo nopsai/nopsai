@@ -239,8 +239,71 @@ body {
     background-color: var(--bg-active);
     box-shadow: inset 3px 0 0 0 var(--border-accent);
 }
-.sidebar-logo {
+.sidebar-brand,
+.login-brand {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     flex-shrink: 0;
+}
+
+.sidebar-brand {
+    width: min(13.5rem, 100%);
+    height: 3rem;
+    gap: 0.625rem;
+    min-width: 0;
+}
+
+.login-brand {
+    width: min(15rem, 100%);
+    min-height: 12rem;
+    margin: 0 auto;
+}
+
+.brand-logo,
+.brand-mark {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    object-fit: contain;
+}
+
+.brand-mark {
+    width: 2.4rem;
+    height: 2.4rem;
+    flex: 0 0 2.4rem;
+}
+
+.sidebar-brand__name {
+    display: block;
+    min-width: 0;
+    font-size: 1.15rem;
+    font-weight: 700;
+    line-height: 1;
+    background: linear-gradient(90deg, #0d6bff 0%, #16d6c7 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+.login-brand .brand-logo {
+    max-height: 12rem;
+}
+
+.brand-logo--dark,
+.brand-mark--dark {
+    display: none;
+}
+
+html.dark .brand-logo--light,
+html.dark .brand-mark--light {
+    display: none;
+}
+
+html.dark .brand-logo--dark,
+html.dark .brand-mark--dark {
+    display: block;
 }
 .drop-target-highlight {
     background-color: hsla(242, 59%, 65%, 0.3) !important;

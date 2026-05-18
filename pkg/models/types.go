@@ -43,6 +43,7 @@ type StepConfiguration struct {
 	IgnoreFailure    bool              `json:"ignore_failure"`
 	LlmOutputSharing *bool             `json:"llm_output_sharing,omitempty"`
 	LLMProfile       string            `json:"llm_profile,omitempty"`
+	MCPProfiles      []string          `json:"mcp_profiles,omitempty"`
 	Tasks            []Task            `json:"tasks,omitempty"`
 }
 

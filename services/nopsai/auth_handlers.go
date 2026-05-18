@@ -222,6 +222,8 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 		a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "config-sync"})
 	llmProfilesRead := a.checkCapability(subject, "system.read", model.ResourceRef{Type: "system", ID: "llm-profiles"})
 	llmProfilesWrite := a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "llm-profiles"})
+	mcpRead := a.checkCapability(subject, "system.read", model.ResourceRef{Type: "system", ID: "mcp"})
+	mcpWrite := a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "mcp"})
 	configReposRead := a.checkCapability(subject, "system.read", model.ResourceRef{Type: "system", ID: "config-repos"})
 	configReposWrite := a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "config-repos"})
 	dispatcherRead := a.checkCapability(subject, "system.read", model.ResourceRef{Type: "dispatcher", ID: "status"})
@@ -264,6 +266,8 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 			ConfigWrite:      configWrite,
 			LLMProfilesRead:  llmProfilesRead,
 			LLMProfilesWrite: llmProfilesWrite,
+			MCPRead:          mcpRead,
+			MCPWrite:         mcpWrite,
 			ConfigReposRead:  configReposRead,
 			ConfigReposWrite: configReposWrite,
 			DispatcherRead:   dispatcherRead,

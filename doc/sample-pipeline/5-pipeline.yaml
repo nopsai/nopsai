@@ -1,150 +1,84 @@
-name: main-pipeline
-description: A sample pipeline.
+name: pipeline5th
+description: A simple MCP-enabled sample pipeline for repository review, dependency notes, and deployment readiness.
 llm_content_sharing: true
 llm_content_include:
-  - "src/"
-  - "Dockerfile"
+  - "test-app/README.md"
+  - "test-app/Dockerfile"
+  - "test-app/docker-compose.yml"
 llm_content_ignore:
   - ".git"
-  - "README.md"
-  - "*file"
+  - "node_modules"
+  - "vendor"
 llm_output_sharing: true
+llm_profile: reasoning
+# MCP profiles are approved in System > MCP or a system GitOps file such as
+# setting/system/mcp.yaml. Pipelines only reference profiles; they do not define servers.
+mcp_profiles:
+  - github-readonly
 display_options:
   github_view: "mermaid" # mermaid, tree or flat
 container_image: "hoseindocker/pipeline-image:latest"
-working_directory: "/tmp/test"
-timeout: "2m"
+working_directory: "/tmp/pipeline5th"
+timeout: "15m"
 variables:
   - DOCKER_HOST
   - API_VERSION
   - TEST_SCOPE
 steps:
-  - name: preparation
+  - name: clone-repository
     image: hoseindocker/pipeline-image:latest
     secrets:
       - TEST_SECRET
-    variables:
-      API_VERSION: "inside step overwrite"
-    volumes:
-      - "sample-exisitng:/tmp/sample-exisitng"
-      - "sample-new:/tmp/sample-new"
-    tasks:
-      - name: git-clone
-        ignore_failure: false
-        script: |
-          #!/bin/bash
-          git clone https://github.com/hosein-yousefii/test-app.git
-          echo $TEST_SECRET|awk '{print $2,$1,$3,$4,$5}'
-          echo $API_VERSION
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      git clone https://github.com/hosein-yousefii/test-app.git
+      cd test-app
+      git status --short
+      git rev-parse --short HEAD
 
-      - name: waiting-time
-        goal: wait for 2 seconds
-        llm_output_sharing: false
-        depends_on:
-        - git-clone
-
-      - name: list-runtime-vars-containers
-        variables:
-          API_VERSION: "inside task overwrite"
-        script: |
-          #!/bin/bash
-          export -p
-          echo $TEST_SECRET|awk '{print $2,$1,$3,$4,$5,$6}'
-          echo $API_VERSION
-        depends_on:
-        - git-clone
-
-      - name: branch-versioning
-        goal: "Change branch to nopsai-test and get the latest tag"
-        depends_on:
-        - git-clone
-
-      - name: commit-hash
-        goal: "what is the commit hash?"
-        depends_on:
-        - branch-versioning
-  - name: image-scanning
-    include: "pipeline:reference-pipeline"
-    condition: "If the latest tag from preparation step was bigger than 2.0.0"
-    sync: false
-    secrets:
-      - TEST_SECRET
-    volumes:
-      - "sample-exisitng:/tmp/sample-exisitng"
+  - name: repository-map
+    goal: >-
+      Use the approved GitHub MCP tools to read repository metadata and the shared workspace files.
+      Summarize the project purpose, important files, default branch, latest commit, and any obvious missing docs.
+    mcp_profiles:
+      - github-readonly
     depends_on:
-    - preparation
+      - clone-repository
 
-  - name: included-main-pipeline
-    include: "pipeline:general/include-pipeline"
-    sync: false
-    secrets:
-      - TEST_SECRET
+  - name: dependency-and-docs-check
+    goal: >-
+      Check the application dependencies and public documentation for the main runtime and build tools.
+      Return a short list of upgrade notes, compatibility warnings, and documentation links that are useful for this repo.
+    mcp_profiles:
+      - dependency-intel
+      - docs-search
     depends_on:
-    - preparation
-    
-  - name: secret-validation
-    image: ubuntu:latest
-    secrets:
-      - TEST_SECRET
+      - repository-map
+
+  - name: container-readiness
+    goal: >-
+      Review Dockerfile and docker-compose.yml from the workspace. Suggest the smallest safe changes for image size,
+      health checks, required environment variables, and local run instructions. Do not modify files.
+    mcp_profiles:
+      - github-readonly
+      - docs-search
     depends_on:
-    - preparation
-    tasks:
-      - name: write-secret
-        goal: write the value of TEST_SECRET runtime variable to sample.txt
+      - clone-repository
 
-      - name: test-secret
-        script: |
-          #!/bin/bash
-          cat sample.txt
-        depends_on:
-        - write-secret
-
-  - name: docker-builder
-    volumes:
-      - "sample-exisitng:/tmp/sample-exisitng"
+  - name: cluster-readiness-notes
+    goal: >-
+      Use the read-only Kubernetes MCP profile to identify deployment checklist items only.
+      Do not change cluster resources. Return namespaces, workloads, config gaps, and safe next commands.
+    mcp_profiles:
+      - kubernetes-readonly
     depends_on:
-    - preparation
-    tasks:
-      - name: dockerfile-modification
-        goal: "Modify Dockerfile and add copy statement to add docker-compose"
+      - container-readiness
 
-      - name: dockerfile-content
-        goal: "show dockerfile content"
-        llm_output_sharing: false
-        depends_on:
-        - dockerfile-modification
-      
-      - name: show-volumes
-        script: |
-          #!/bin/bash
-          df -h
-
-      - name: build-docker
-        goal: build docker image with repo name and 3 tag, latest,latest git tag and commit hash 
-        depends_on:
-        - dockerfile-modification
-
-  - name: overwrite
-    include: "step:shared/utilities/simple-step"
-    ignore_failure: false
-    llm_output_sharing: true
-    secrets:
-      - TEST_SECRET
-    volumes:
-      - "sample-exisitng:/tmp/sample-exisitng"
+  - name: final-mcp-report
+    goal: >-
+      Create a concise report that combines repository-map, dependency-and-docs-check,
+      container-readiness, and cluster-readiness-notes. Include next actions grouped by quick wins and follow-ups.
     depends_on:
-    - secret-validation
-    
-  - name: Check-steps
-    goal: "Give me lines from history which are important"
-    image: alpine:latest
-    llm_output_sharing: false
-    depends_on:
-    - docker-builder
-
-  - name: report
-    goal: "provide a report of all steps"
-    volumes:
-      - "sample-exisitng:/tmp/sample-exisitng"
-    depends_on:
-    - Check-steps
+      - dependency-and-docs-check
+      - cluster-readiness-notes

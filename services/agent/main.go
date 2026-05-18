@@ -822,6 +822,11 @@ func run() int {
 		agentLog(runID, pipelineName).Error().Err(err).Msg("Invalid LLM profile configuration")
 		return 1
 	}
+	mcpRegistry, err := NewMCPProfileRegistryFromEnv(runScope)
+	if err != nil {
+		agentLog(runID, pipelineName).Error().Err(err).Msg("Invalid MCP registry configuration")
+		return 1
+	}
 	defaultLLMProfile, _ := llmRegistry.DefaultProfile()
 	llmProvider := defaultLLMProfile.Provider
 
@@ -1030,6 +1035,9 @@ func run() int {
 				}
 			}
 		}()
+	}
+	isRunStopping := func() bool {
+		return timeoutTriggered.Load() || (timeoutCtx != nil && timeoutCtx.Err() != nil)
 	}
 
 	totalTasks := countPipelineTasks(&pipeline)
@@ -1388,22 +1396,66 @@ func run() int {
 						return
 					}
 					taskLogger.Info().Str("llm_profile", actionProfile).Msg("Using LLM profile for goal")
+					mcpRuntime, mcpErr := mcpRegistry.ResolveFor(&pipeline, step, task)
+					if mcpErr != nil {
+						taskLogger.Error().Err(mcpErr).Msg("Failed to resolve MCP profiles for goal")
+						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+						return
+					}
+					if mcpRuntime.Enabled() {
+						mcpProfiles := mcpRuntime.Profiles()
+						taskLogger.Info().
+							Strs("mcp_profiles", mcpProfiles).
+							Int("mcp_tool_count", len(mcpRuntime.tools)).
+							Bool("mcp_requires_tool_call", mcpRuntime.RequiresToolCall()).
+							Msgf("Using MCP profiles for goal (profiles=%s tools=%d require_tool_call=%t)", strings.Join(mcpProfiles, ","), len(mcpRuntime.tools), mcpRuntime.RequiresToolCall())
+					}
 
+					actionParentCtx := context.Background()
+					if timeoutCtx != nil {
+						actionParentCtx = timeoutCtx
+					}
 					actionStart := time.Now()
 					err = withRetry(func() error {
-						ctx, cancel := context.WithTimeout(context.Background(), llmTimeout)
+						ctx, cancel := context.WithTimeout(actionParentCtx, llmTimeout)
 						defer cancel()
 						var e error
-						action, e = actionClient.GetAction(ctx, req)
-						return e
+						action, e = actionClient.GetActionWithMCP(ctx, req, mcpRuntime)
+						if e != nil {
+							return e
+						}
+						if mcpRuntime.RequiresToolCall() && mcpRuntime.SuccessfulToolCalls() == 0 {
+							action = nil
+							return fmt.Errorf("MCP tool call is required before executing a final action")
+						}
+						return nil
 					}, 3, 1*time.Second)
 					llmDurationMs = time.Since(actionStart).Milliseconds()
 					if err != nil {
+						if isRunStopping() {
+							taskLogger.Warn().Err(err).Msg("Goal resolution stopped because the run is cancelling")
+							results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+							return
+						}
+						if isNonRetryableGoalResolutionError(err) {
+							failureReason := taskContext.maskText(err.Error(), secrets)
+							taskLogger.Error().Err(err).Msgf("Goal resolution failed: %s", failureReason)
+							if zerolog.GlobalLevel() <= zerolog.InfoLevel {
+								taskLogger.Info().Msgf(`status=failure action="Resolve goal" output="%s"`, failureReason)
+							}
+							finalizeTask(stepName, task.Name, "failure", 1, llmDurationMs)
+							results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+							return
+						}
 						// One more best-effort retry to increase durability.
 						taskLogger.Warn().Err(err).Msg("GetAction failed after retries; attempting one final retry")
-						ctx, cancel := context.WithTimeout(context.Background(), llmTimeout)
-						action, err = actionClient.GetAction(ctx, req)
+						ctx, cancel := context.WithTimeout(actionParentCtx, llmTimeout)
+						action, err = actionClient.GetActionWithMCP(ctx, req, mcpRuntime)
 						cancel()
+						if err == nil && mcpRuntime.RequiresToolCall() && mcpRuntime.SuccessfulToolCalls() == 0 {
+							action = nil
+							err = fmt.Errorf("MCP tool call is required before executing a final action")
+						}
 						llmDurationMs = time.Since(actionStart).Milliseconds()
 						if err != nil {
 							taskLogger.Error().Err(err).Msg("Failed to get action from LLM. Shutting down")
@@ -1411,13 +1463,23 @@ func run() int {
 							return
 						}
 					}
+					if isRunStopping() {
+						taskLogger.Warn().Msg("Goal resolution finished after the run was cancelled; skipping action execution")
+						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+						return
+					}
+					if mcpRuntime.RequiresToolCall() {
+						taskLogger.Info().
+							Int("mcp_successful_tool_calls", mcpRuntime.SuccessfulToolCalls()).
+							Msgf("MCP tool calls completed before final action (count=%d)", mcpRuntime.SuccessfulToolCalls())
+					}
 
 					if cmd := action.GetCommandAction(); cmd != nil {
 						actionStr = cmd.Command
 					} else if file := action.GetFileAction(); file != nil {
 						actionStr = fmt.Sprintf("Write to %s", file.Path)
 					} else if ans := action.GetAnswerAction(); ans != nil {
-						actionStr = goalText
+						actionStr = "Return answer"
 					}
 				}
 
@@ -1546,8 +1608,12 @@ func withRetry(op func() error, attempts int, initialBackoff time.Duration) erro
 		if i > 0 {
 			time.Sleep(initialBackoff * time.Duration(1<<uint(i-1)))
 		}
-		if err = op(); err == nil {
+		err = op()
+		if err == nil {
 			return nil
+		}
+		if isNonRetryableGoalResolutionError(err) {
+			return err
 		}
 	}
 	return err

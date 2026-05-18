@@ -12,6 +12,7 @@ import (
 	"time"
 
 	appconfig "nopsai/config"
+	"nopsai/pkg/mcpclient"
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
 )
@@ -166,6 +167,424 @@ func TestBuildPromptGeminiKeepsLargeContext(t *testing.T) {
 
 	if strings.Contains(prompt, "...[truncated]...") {
 		t.Fatalf("expected Gemini prompt to remain untruncated")
+	}
+}
+
+func TestGetActionWithMCPRequiresToolCallWhenRuntimeRequiresMCP(t *testing.T) {
+	mcpCalls := 0
+	mcpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var rpcReq struct {
+			ID     any             `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&rpcReq); err != nil {
+			t.Errorf("decode MCP request: %v", err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch rpcReq.Method {
+		case "initialize":
+			w.Header().Set("Mcp-Session-Id", "test-session")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      rpcReq.ID,
+				"result": map[string]any{
+					"protocolVersion": "2025-06-18",
+					"serverInfo":      map[string]string{"name": "github", "version": "test"},
+				},
+			})
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusAccepted)
+		case "tools/call":
+			mcpCalls++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      rpcReq.ID,
+				"result": map[string]any{
+					"content": []map[string]string{{"type": "text", "text": "default_branch=main latest_commit=abc123"}},
+				},
+			})
+		default:
+			t.Errorf("unexpected MCP method %s", rpcReq.Method)
+			http.NotFound(w, r)
+		}
+	}))
+	defer mcpServer.Close()
+
+	chatResponses := []string{
+		`{"action":{"type":"EXECUTE_COMMAND","command_action":{"command":"ls -R test-app"}}}`,
+		`{"action":{"type":"CALL_MCP_TOOL","mcp_tool_action":{"server":"github","tool":"issues_list","arguments":{"owner":"hosein-yousefii","repo":"test-app"}}}}`,
+		`{"action":{"type":"RETURN_ANSWER","answer_action":{"answer":"Repository metadata was read through MCP."}}}`,
+	}
+	var chatCalls int32
+	lmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"models":[%s]}`, lmStudioModelListItemForTest("model-a", true))
+		case "/api/v1/chat":
+			var req struct {
+				Input string `json:"input"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Errorf("decode LM Studio request: %v", err)
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			callIndex := int(atomic.AddInt32(&chatCalls, 1)) - 1
+			if callIndex == 1 && !strings.Contains(req.Input, "MCP tool call required before final action") {
+				t.Fatalf("second prompt did not reject the premature final action:\n%s", req.Input)
+			}
+			if callIndex >= len(chatResponses) {
+				t.Fatalf("unexpected extra LM Studio chat call %d", callIndex+1)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"output": []map[string]string{{"type": "message", "content": chatResponses[callIndex]}},
+			})
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer lmServer.Close()
+
+	spec := MCPToolSpec{Server: "github", Name: "issues_list", InputSchema: `{"type":"object"}`}
+	runtime := &MCPTaskRuntime{
+		registry: &MCPProfileRegistry{
+			servers: map[string]agentRuntimeMCPServer{
+				"github": {
+					MCPServer: models.MCPServer{
+						Name:      "github",
+						Enabled:   true,
+						Transport: models.MCPTransportStreamableHTTP,
+						URL:       mcpServer.URL,
+						AuthType:  models.MCPAuthNone,
+						Timeout:   models.DefaultMCPTimeout,
+					},
+				},
+			},
+			clients: map[string]*mcpclient.Client{},
+		},
+		tools:           []MCPToolSpec{spec},
+		allowed:         map[string]MCPToolSpec{mcpToolKey(spec.Server, spec.Name): spec},
+		requireToolCall: true,
+	}
+
+	client := NewLLMClient(appconfig.LLMProviderLMStudio, "", "model-a", lmServer.URL, "off")
+	action, err := client.GetActionWithMCP(t.Context(), &proto.GetActionRequest{
+		Goal: "Read repository metadata first, then summarize the project purpose.",
+	}, runtime)
+	if err != nil {
+		t.Fatalf("GetActionWithMCP() error = %v", err)
+	}
+	if action.GetType() != models.ActionTypeReturnAnswer {
+		t.Fatalf("action type = %q, want RETURN_ANSWER", action.GetType())
+	}
+	if mcpCalls != 1 {
+		t.Fatalf("MCP tools/call count = %d, want 1", mcpCalls)
+	}
+	if got := atomic.LoadInt32(&chatCalls); got != 3 {
+		t.Fatalf("LM Studio chat calls = %d, want 3", got)
+	}
+}
+
+func TestGetActionWithMCPReusesSuccessfulToolResultAfterRetry(t *testing.T) {
+	var mcpCalls int32
+	mcpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var rpcReq struct {
+			ID     any             `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&rpcReq); err != nil {
+			t.Errorf("decode MCP request: %v", err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch rpcReq.Method {
+		case "initialize":
+			w.Header().Set("Mcp-Session-Id", "test-session")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      rpcReq.ID,
+				"result": map[string]any{
+					"protocolVersion": "2025-06-18",
+					"serverInfo":      map[string]string{"name": "github", "version": "test"},
+				},
+			})
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusAccepted)
+		case "tools/call":
+			atomic.AddInt32(&mcpCalls, 1)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      rpcReq.ID,
+				"result": map[string]any{
+					"content": []map[string]string{{"type": "text", "text": "commit=abc123 message=Update README.md"}},
+				},
+			})
+		default:
+			t.Errorf("unexpected MCP method %s", rpcReq.Method)
+			http.NotFound(w, r)
+		}
+	}))
+	defer mcpServer.Close()
+
+	chatResponses := []string{
+		`{"action":{"type":"CALL_MCP_TOOL","mcp_tool_action":{"server":"github","tool":"list_commits","arguments":{"owner":"hosein-yousefii","repo":"test-app"}}}}`,
+		`not json`,
+		`{"action":{"type":"RETURN_ANSWER","answer_action":{"answer":"abc123 Update README.md"}}}`,
+	}
+	var chatCalls int32
+	lmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"models":[%s]}`, lmStudioModelListItemForTest("model-a", true))
+		case "/api/v1/chat":
+			var req struct {
+				Input string `json:"input"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Errorf("decode LM Studio request: %v", err)
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			callIndex := int(atomic.AddInt32(&chatCalls, 1)) - 1
+			if callIndex == 2 {
+				if !strings.Contains(req.Input, "MCP tool result") || !strings.Contains(req.Input, "commit=abc123") {
+					t.Fatalf("retry prompt did not include previous MCP result:\n%s", req.Input)
+				}
+				if strings.Contains(req.Input, "your first action must be CALL_MCP_TOOL") {
+					t.Fatalf("retry prompt still forced another MCP tool call:\n%s", req.Input)
+				}
+			}
+			if callIndex >= len(chatResponses) {
+				t.Fatalf("unexpected extra LM Studio chat call %d", callIndex+1)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"output": []map[string]string{{"type": "message", "content": chatResponses[callIndex]}},
+			})
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer lmServer.Close()
+
+	spec := MCPToolSpec{Server: "github", Name: "list_commits", InputSchema: `{"type":"object"}`}
+	runtime := &MCPTaskRuntime{
+		registry: &MCPProfileRegistry{
+			servers: map[string]agentRuntimeMCPServer{
+				"github": {
+					MCPServer: models.MCPServer{
+						Name:      "github",
+						Enabled:   true,
+						Transport: models.MCPTransportStreamableHTTP,
+						URL:       mcpServer.URL,
+						AuthType:  models.MCPAuthNone,
+						Timeout:   models.DefaultMCPTimeout,
+					},
+				},
+			},
+			clients: map[string]*mcpclient.Client{},
+		},
+		tools:           []MCPToolSpec{spec},
+		allowed:         map[string]MCPToolSpec{mcpToolKey(spec.Server, spec.Name): spec},
+		requireToolCall: true,
+	}
+
+	client := NewLLMClient(appconfig.LLMProviderLMStudio, "", "model-a", lmServer.URL, "off")
+	if _, err := client.GetActionWithMCP(t.Context(), &proto.GetActionRequest{
+		Goal: "List commits from the test-app repo.",
+	}, runtime); err == nil {
+		t.Fatalf("first GetActionWithMCP() succeeded; want parse error after tool call")
+	}
+	if got := runtime.SuccessfulToolCalls(); got != 1 {
+		t.Fatalf("runtime successful MCP calls = %d, want 1", got)
+	}
+
+	action, err := client.GetActionWithMCP(t.Context(), &proto.GetActionRequest{
+		Goal: "List commits from the test-app repo.",
+	}, runtime)
+	if err != nil {
+		t.Fatalf("second GetActionWithMCP() error = %v", err)
+	}
+	if action.GetType() != models.ActionTypeReturnAnswer {
+		t.Fatalf("action type = %q, want RETURN_ANSWER", action.GetType())
+	}
+	if got := atomic.LoadInt32(&mcpCalls); got != 1 {
+		t.Fatalf("MCP tools/call count = %d, want 1", got)
+	}
+	if got := atomic.LoadInt32(&chatCalls); got != 3 {
+		t.Fatalf("LM Studio chat calls = %d, want 3", got)
+	}
+}
+
+func TestGetActionWithMCPFailsMissingCommitToolInsteadOfGitLogFallback(t *testing.T) {
+	var chatCalls int32
+	lmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"models":[%s]}`, lmStudioModelListItemForTest("model-a", true))
+		case "/api/v1/chat":
+			atomic.AddInt32(&chatCalls, 1)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"output": []map[string]string{{
+					"type":    "message",
+					"content": `{"action":{"type":"EXECUTE_COMMAND","command_action":{"command":"git log -n 10"}}}`,
+				}},
+			})
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer lmServer.Close()
+
+	runtime := &MCPTaskRuntime{
+		profiles: []string{"github-readonly"},
+		tools: []MCPToolSpec{
+			{Server: "github", Name: "get_file_contents", InputSchema: `{"type":"object"}`},
+			{Server: "github", Name: "get_repository", InputSchema: `{"type":"object"}`},
+		},
+		allowed:         map[string]MCPToolSpec{},
+		requireToolCall: true,
+	}
+	runtime.recordSuccessfulToolCall(
+		"github",
+		"get_repository",
+		json.RawMessage(`{"owner":"hosein-yousefii","repo":"test-app"}`),
+		json.RawMessage(`{"default_branch":"main"}`),
+	)
+
+	client := NewLLMClient(appconfig.LLMProviderLMStudio, "", "model-a", lmServer.URL, "off")
+	action, err := client.GetActionWithMCP(t.Context(), &proto.GetActionRequest{
+		Goal: "List commits from the test-app repo.",
+	}, runtime)
+	if err == nil {
+		t.Fatalf("GetActionWithMCP() succeeded with action %#v, want missing MCP permission error", action)
+	}
+	if action != nil {
+		t.Fatalf("action = %#v, want nil on missing MCP permission", action)
+	}
+	if !isNonRetryableGoalResolutionError(err) {
+		t.Fatalf("error = %v, want non-retryable goal resolution error", err)
+	}
+	answer := err.Error()
+	for _, want := range []string{"Git commit history", "list_commits", "get_commit", "github-readonly", "github/get_file_contents"} {
+		if !strings.Contains(answer, want) {
+			t.Fatalf("answer = %q, want it to contain %q", answer, want)
+		}
+	}
+	if strings.Contains(answer, "fatal: not a git repository") {
+		t.Fatalf("answer included shell failure instead of MCP permission guidance: %q", answer)
+	}
+	if got := atomic.LoadInt32(&chatCalls); got != 1 {
+		t.Fatalf("LM Studio chat calls = %d, want 1", got)
+	}
+}
+
+func TestGetActionWithMCPFailsMissingToolReturnAnswer(t *testing.T) {
+	var chatCalls int32
+	lmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"models":[%s]}`, lmStudioModelListItemForTest("model-a", true))
+		case "/api/v1/chat":
+			atomic.AddInt32(&chatCalls, 1)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"output": []map[string]string{{
+					"type":    "message",
+					"content": `{"action":{"type":"RETURN_ANSWER","answer_action":{"answer":"I am unable to list the commits because the 'list_commits' tool is not available in the allowed MCP tools for this task. I can only access other GitHub information like branches, issues, pull requests, and file contents."}}}`,
+				}},
+			})
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer lmServer.Close()
+
+	runtime := &MCPTaskRuntime{
+		profiles: []string{"github-readonly"},
+		tools: []MCPToolSpec{
+			{Server: "github", Name: "get_file_contents", InputSchema: `{"type":"object"}`},
+			{Server: "github", Name: "list_issues", InputSchema: `{"type":"object"}`},
+		},
+		allowed:         map[string]MCPToolSpec{},
+		requireToolCall: true,
+	}
+	runtime.recordSuccessfulToolCall(
+		"github",
+		"get_file_contents",
+		json.RawMessage(`{"owner":"hosein-yousefii","repo":"test-app","path":"README.md"}`),
+		json.RawMessage(`{"content":"sample app"}`),
+	)
+
+	client := NewLLMClient(appconfig.LLMProviderLMStudio, "", "model-a", lmServer.URL, "off")
+	action, err := client.GetActionWithMCP(t.Context(), &proto.GetActionRequest{
+		Goal: "List commits from the test-app repo.",
+	}, runtime)
+	if err == nil {
+		t.Fatalf("GetActionWithMCP() succeeded with action %#v, want missing MCP permission error", action)
+	}
+	if action != nil {
+		t.Fatalf("action = %#v, want nil on missing MCP permission", action)
+	}
+	if !isNonRetryableGoalResolutionError(err) {
+		t.Fatalf("error = %v, want non-retryable goal resolution error", err)
+	}
+	for _, want := range []string{"unable to list the commits", "list_commits", "not available", "allowed MCP tools"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, want it to contain %q", err.Error(), want)
+		}
+	}
+	if got := atomic.LoadInt32(&chatCalls); got != 1 {
+		t.Fatalf("LM Studio chat calls = %d, want 1", got)
+	}
+}
+
+func TestLMStudioConfiguredModelSkipsRepeatedModelDiscovery(t *testing.T) {
+	var modelDiscoveryCalls int32
+	var chatCalls int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/models":
+			atomic.AddInt32(&modelDiscoveryCalls, 1)
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"models":[%s]}`, lmStudioModelListItemForTest("model-a", true))
+		case "/api/v1/chat":
+			atomic.AddInt32(&chatCalls, 1)
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"output":[{"type":"message","content":"true"}]}`)
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewLLMClient(appconfig.LLMProviderLMStudio, "", "model-a", server.URL, "")
+	for i := 0; i < 2; i++ {
+		if _, err := client.callLMStudioForBoolean(t.Context(), "is the cached model loaded?"); err != nil {
+			t.Fatalf("callLMStudioForBoolean() error = %v", err)
+		}
+	}
+	if got := atomic.LoadInt32(&modelDiscoveryCalls); got != 1 {
+		t.Fatalf("model discovery calls = %d, want 1", got)
+	}
+	if got := atomic.LoadInt32(&chatCalls); got != 2 {
+		t.Fatalf("chat calls = %d, want 2", got)
 	}
 }
 

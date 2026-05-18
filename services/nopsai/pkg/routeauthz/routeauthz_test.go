@@ -204,6 +204,22 @@ func TestMapRequestUsesUpdatedLowLevelActions(t *testing.T) {
 			wantID:     "llm-profiles",
 		},
 		{
+			name:       "mcp servers read uses mcp system resource",
+			method:     http.MethodGet,
+			path:       "/v1/system/mcp/servers",
+			wantAction: "system.read",
+			wantType:   "system",
+			wantID:     "mcp",
+		},
+		{
+			name:       "mcp profile test uses mcp system update resource",
+			method:     http.MethodPost,
+			path:       "/v1/system/mcp/profiles/github-pr-review/test",
+			wantAction: "system.update",
+			wantType:   "system",
+			wantID:     "mcp",
+		},
+		{
 			name:       "group config repo manage uses group path",
 			method:     http.MethodPut,
 			path:       "/v1/groups/team-1/config-repo",

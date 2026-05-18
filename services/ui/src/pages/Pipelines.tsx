@@ -31,6 +31,7 @@ const PIPELINE_DIRECTIVES = [
   'steps',
   'timeout',
   'llm_profile',
+  'mcp_profiles',
   'llm_output_sharing',
   'llm_content_sharing',
   'llm_content_include',
@@ -53,6 +54,7 @@ const STEP_DIRECTIVES = [
   'depends_on',
   'ignore_failure',
   'llm_profile',
+  'mcp_profiles',
   'llm_output_sharing',
 ];
 
@@ -63,6 +65,7 @@ const TASK_DIRECTIVES = [
   'depends_on',
   'ignore_failure',
   'llm_profile',
+  'mcp_profiles',
   'llm_output_sharing',
   'variables',
 ];
@@ -196,12 +199,13 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     secrets: string[];
     variables: string[];
     llmProfiles: string[];
+    mcpProfiles: string[];
     reusableSteps: string[];
     secretScopes: Array<{ scope: string; items: string[] }>;
     variableScopes: Array<{ scope: string; items: string[] }>;
     fetchedAt: number;
     loading: boolean;
-  }>({ secrets: [], variables: [], llmProfiles: [], reusableSteps: [], secretScopes: [], variableScopes: [], fetchedAt: 0, loading: false });
+  }>({ secrets: [], variables: [], llmProfiles: [], mcpProfiles: [], reusableSteps: [], secretScopes: [], variableScopes: [], fetchedAt: 0, loading: false });
 
   const [editorSuggestion, setEditorSuggestion] = useState<null | {
     title: string;
@@ -495,7 +499,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
       const currentKey = currentKeyMatch?.[1] || '';
 
       const beforeLineText = text.slice(0, lineStart);
-      const ancestorKey = findParentBlock(beforeLineText, ['secrets', 'variables', 'depends_on', 'tasks', 'steps'], currentIndent) || '';
+      const ancestorKey = findParentBlock(beforeLineText, ['secrets', 'variables', 'depends_on', 'mcp_profiles', 'tasks', 'steps'], currentIndent) || '';
       const containerBlock = findParentBlock(beforeLineText, ['tasks', 'steps'], currentIndent) || '';
 
       const includeValueContext =
@@ -525,6 +529,9 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
       } else if (llmProfileValueContext) {
         title = 'LLM profiles';
         pool = autocompleteMeta.llmProfiles;
+      } else if (ancestorKey === 'mcp_profiles') {
+        title = 'MCP profiles';
+        pool = autocompleteMeta.mcpProfiles;
       } else if (ancestorKey === 'secrets') {
         title = 'Secrets';
         const base = autocompleteMeta.secretScopes.length
@@ -588,7 +595,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
         .sort((a, b) => a.localeCompare(b));
 
       const hasContext =
-        includeValueContext || llmProfileValueContext || ancestorKey === 'secrets' || ancestorKey === 'variables' || ancestorKey === 'depends_on';
+        includeValueContext || llmProfileValueContext || ancestorKey === 'mcp_profiles' || ancestorKey === 'secrets' || ancestorKey === 'variables' || ancestorKey === 'depends_on';
       const isRootLine = !containerBlock && currentIndent === 0 && !currentKey;
       const shouldShow = opts?.force || hasContext || filtered.length > 0 || containerBlock === 'tasks' || containerBlock === 'steps';
 
@@ -642,6 +649,11 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
           const profiles = record && Array.isArray(record.profiles) ? record.profiles : payload;
           return normalize(profiles);
         };
+        const normalizeMCPProfiles = (payload: unknown): string[] => {
+          const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null;
+          const profiles = record && Array.isArray(record.profiles) ? record.profiles : payload;
+          return normalize(profiles);
+        };
 
         const normalizeScopeLabel = (entry: unknown) => {
           const normalizeRawScope = (raw: string) => {
@@ -687,13 +699,14 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
         };
 
         const promise = (async () => {
-          const [secretsResp, varsResp, stepsResp, secretScopesResp, variableScopesResp, llmProfilesResp] = await Promise.all([
+          const [secretsResp, varsResp, stepsResp, secretScopesResp, variableScopesResp, llmProfilesResp, mcpProfilesResp] = await Promise.all([
             fetch(buildApiUrl('/v1/secrets')).then(r => (r.ok ? r.json() : [])),
             fetch(buildApiUrl('/v1/variables')).then(r => (r.ok ? r.json() : [])),
             fetch(buildApiUrl('/v1/steps')).then(r => (r.ok ? r.json() : [])),
             fetch(buildApiUrl('/v1/secrets/scopes')).then(r => (r.ok ? r.json() : [])),
             fetch(buildApiUrl('/v1/variables/scopes')).then(r => (r.ok ? r.json() : [])),
             fetch(buildApiUrl('/v1/system/llm-profiles')).then(r => (r.ok ? r.json() : null)),
+            fetch(buildApiUrl('/v1/system/mcp/profiles')).then(r => (r.ok ? r.json() : null)),
           ]);
 
           const scopeList = buildScopeList(secretScopesResp, variableScopesResp);
@@ -717,6 +730,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
             secrets: normalize(secretsResp),
             variables: normalize(varsResp),
             llmProfiles: normalizeLLMProfiles(llmProfilesResp),
+            mcpProfiles: normalizeMCPProfiles(mcpProfilesResp),
             reusableSteps: normalize(stepsResp),
             secretScopes,
             variableScopes,
