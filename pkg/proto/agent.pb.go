@@ -23,12 +23,13 @@ const (
 
 // Request for evaluating a condition
 type ConditionRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Goal          string                 `protobuf:"bytes,1,opt,name=goal,proto3" json:"goal,omitempty"`
-	History       string                 `protobuf:"bytes,2,opt,name=history,proto3" json:"history,omitempty"`
-	Variables     map[string]string      `protobuf:"bytes,3,rep,name=variables,proto3" json:"variables,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Goal             string                 `protobuf:"bytes,1,opt,name=goal,proto3" json:"goal,omitempty"`
+	History          string                 `protobuf:"bytes,2,opt,name=history,proto3" json:"history,omitempty"`
+	Variables        map[string]string      `protobuf:"bytes,3,rep,name=variables,proto3" json:"variables,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	KnowledgeContext string                 `protobuf:"bytes,4,opt,name=knowledge_context,json=knowledgeContext,proto3" json:"knowledge_context,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ConditionRequest) Reset() {
@@ -80,6 +81,13 @@ func (x *ConditionRequest) GetVariables() map[string]string {
 		return x.Variables
 	}
 	return nil
+}
+
+func (x *ConditionRequest) GetKnowledgeContext() string {
+	if x != nil {
+		return x.KnowledgeContext
+	}
+	return ""
 }
 
 // Response for a condition evaluation
@@ -134,6 +142,7 @@ type GetActionRequest struct {
 	History          string                 `protobuf:"bytes,2,opt,name=history,proto3" json:"history,omitempty"`
 	DirectoryListing map[string]string      `protobuf:"bytes,3,rep,name=directory_listing,json=directoryListing,proto3" json:"directory_listing,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	Variables        map[string]string      `protobuf:"bytes,4,rep,name=variables,proto3" json:"variables,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	KnowledgeContext string                 `protobuf:"bytes,5,opt,name=knowledge_context,json=knowledgeContext,proto3" json:"knowledge_context,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -194,6 +203,13 @@ func (x *GetActionRequest) GetVariables() map[string]string {
 		return x.Variables
 	}
 	return nil
+}
+
+func (x *GetActionRequest) GetKnowledgeContext() string {
+	if x != nil {
+		return x.KnowledgeContext
+	}
+	return ""
 }
 
 // Action defines the operation for the agent to perform.

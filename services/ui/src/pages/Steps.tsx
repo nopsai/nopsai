@@ -29,6 +29,7 @@ const STEP_DIRECTIVES = [
   'secrets',
   'volumes',
   'variables',
+  'knowledge_context',
   'tasks',
   'condition',
   'goal',
@@ -48,6 +49,7 @@ const TASK_DIRECTIVES = [
   'ignore_failure',
   'llm_output_sharing',
   'variables',
+  'knowledge_context',
 ];
 
 const STEP_ALLOWED_KEYS = new Set(STEP_DIRECTIVES);

@@ -26,9 +26,9 @@ Most API routes pass through the same middleware stack before reaching a handler
 7. For each matched pipeline source, `nopsai` treats the repository as the caller, for example `repository:hosein-yousefii/test-app`.
 8. Before loading the pipeline definition, it checks `pipeline.use` for that repository against the matched pipeline resource.
 9. If the repository is not allowed to use the pipeline, `nopsai` does not fetch the pipeline and does not create a real run; it creates or updates the GitHub check with a clear failure message and audits the denial.
-10. If the pipeline is allowed, `nopsai` loads or fetches the definition, checks the selected scope with `scope.use`, and validates referenced reusable steps or child pipelines with the original repository identity.
+10. If the pipeline is allowed, `nopsai` loads or fetches the definition, checks the selected scope with `scope.use`, validates referenced reusable steps or child pipelines, and checks managed knowledge context references with the original repository identity.
 11. `nopsai` creates a `pipeline_runs` record, stores git context and the authorization snapshot with it, and asynchronously creates or initializes the GitHub check run.
-12. `nopsai` inserts `task_runs` rows so every task has durable tracking before execution starts.
+12. It resolves required knowledge context, stores run snapshots, and inserts `task_runs` rows so every task has durable tracking before execution starts.
 13. `nopsai` prepares the agent job and submits it to the dispatcher.
 
 ## 2. Manual API Run
@@ -37,11 +37,11 @@ Most API routes pass through the same middleware stack before reaching a handler
 2. `nopsai` authorizes the user for `pipeline.execute`, then accepts either a pipeline identifier, raw YAML, or a JSON payload with `pipeline`, `definition`, `scope`, and variable overrides.
 3. The user remains the caller for runtime resource-use checks.
 4. The pipeline is parsed and normalized.
-5. `nopsai` checks `pipeline.use`, selected `scope.use`, reusable `step.use`, child `pipeline.use`, and other referenced runtime resources with the user identity.
+5. `nopsai` checks `pipeline.use`, selected `scope.use`, reusable `step.use`, child `pipeline.use`, managed `knowledge_context.use`, and other referenced runtime resources with the user identity.
 6. `nopsai` creates the initial `pipeline_runs` record in `pending` and stores the authorization snapshot.
 7. `step:` includes are expanded from the reusable `steps` table.
 8. The pipeline is validated and task rows are created.
-9. Secrets and variables are resolved.
+9. Knowledge context, secrets, and variables are resolved and snapshotted where applicable.
 10. The run is submitted to the dispatcher the same way a GitHub-triggered run is.
 
 ## 3. Dispatch And Runner Selection
@@ -85,6 +85,7 @@ Most API routes pass through the same middleware stack before reaching a handler
    - timeout settings
    - dispatcher address
    - LLM provider configuration
+   - resolved knowledge context snapshot
 2. It connects to the dispatcher over gRPC.
 3. It parses the pipeline definition from base64-encoded YAML.
 4. It initializes the embedded `LLMClient` for Gemini or LM Studio.
@@ -106,7 +107,7 @@ The agent runs tasks in dependency order, not strictly line order.
    - resolved secrets
    - step-level overrides
    - task-level overrides
-5. If the step has a `condition`, the agent asks the LLM for a boolean answer before doing any work in that step.
+5. If the step has a `condition`, the agent asks the LLM for a boolean answer with the step's effective knowledge context before doing any work in that step.
 6. If the condition is false, all tasks in that step are marked `skipped`.
 7. If the step is an included child pipeline, the agent fetches the child pipeline and triggers it through the dispatcher.
 8. If the step is a normal execution step, the agent creates or reuses one step container for that step.
@@ -115,19 +116,20 @@ The agent runs tasks in dependency order, not strictly line order.
 11. It decides the action:
    - `script` task: execute the script directly
    - `goal` task: ask the LLM to return a structured action
-12. If LLM content sharing is enabled, it scans the workspace and includes file contents in the prompt, excluding ignored paths.
-13. It executes the chosen action inside the step container.
-14. It masks secret values from output before logging or saving history.
-15. It updates task status through the dispatcher.
-16. It appends a normalized history entry that later tasks and child pipelines can use.
-17. If a task fails and `ignore_failure` is false, the pipeline stops with failure.
-18. If a task fails and `ignore_failure` is true, the task becomes `failure (ignored)` and the pipeline continues.
+12. For goal tasks, the LLM prompt includes variables, effective knowledge context, optional workspace contents, MCP tools, execution history, and the current goal.
+13. If LLM content sharing is enabled, it scans the workspace and includes file contents in the prompt, excluding ignored paths.
+14. It executes the chosen action inside the step container.
+15. It masks secret values from output before logging or saving history.
+16. It updates task status through the dispatcher.
+17. It appends a normalized history entry that later tasks and child pipelines can use.
+18. If a task fails and `ignore_failure` is false, the pipeline stops with failure.
+19. If a task fails and `ignore_failure` is true, the task becomes `failure (ignored)` and the pipeline continues.
 
 ## 7. How Goal-Based Tasks Work
 
 For a goal-driven task:
 
-1. The agent builds an LLM prompt from variables, optional directory contents, execution history, and the current goal.
+1. The agent builds an LLM prompt from variables, effective knowledge context, optional directory contents, MCP tools, execution history, and the current goal.
 2. The LLM must return one structured action:
    - `EXECUTE_COMMAND`
    - `REPLACE_FILE`
@@ -208,6 +210,7 @@ Rerun:
    - `steps/`
    - `triggers/`
    - `scopes/`
+   - `knowledge/`
    - `pipelineruns/`
    - `config-repositories/`
    - `setting/` and `settings/`
@@ -216,6 +219,7 @@ Rerun:
    - reusable steps must parse and have matching names
    - triggers must parse as manifests
    - scope files are turned into scoped variables
+   - knowledge markdown files are turned into `knowledge_contexts`
    - legacy `pipelineruns/structure.yaml` becomes the run-group tree for groups owned by that repo
    - `config-repositories/groups/<group>.yaml` becomes a group config repo binding and group shell
    - `config-repositories/groups/structure.yaml` and `config-repositories/groups/<group>/structure.yaml` place repositories under group shells and can define inline group repo `config:` blocks
@@ -240,6 +244,7 @@ Where failures stop the flow:
 - Trigger mismatch: stopped in `nopsai`
 - Invalid pipeline YAML or validation failure: stopped in `nopsai`
 - Missing scoped secret or variable: stopped in `nopsai`
+- Missing required knowledge context, denied `knowledge_context.use`, or unreadable required repo-local knowledge: stopped in `nopsai`
 - No available runner: run stays queued in dispatcher
 - Agent image or step image pull failure: stopped in runner/agent
 - Task failure without `ignore_failure`: stopped in agent

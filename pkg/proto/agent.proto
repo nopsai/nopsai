@@ -15,6 +15,7 @@ message ConditionRequest {
     string goal = 1;
     string history = 2;
     map<string, string> variables = 3;
+    string knowledge_context = 4;
 }
 
 // Response for a condition evaluation
@@ -28,6 +29,7 @@ message GetActionRequest {
     string history = 2;
     map<string, string> directory_listing = 3;
     map<string, string> variables = 4;
+    string knowledge_context = 5;
 }
 
 // Action defines the operation for the agent to perform.
