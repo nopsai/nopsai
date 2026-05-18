@@ -350,6 +350,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 			IgnoreFailure:    pStep.GetIgnoreFailure(),
 			LlmOutputSharing: pStep.GetLlmOutputSharing(),
 			LLMProfile:       pStep.GetLLMProfile(),
+			MCPProfiles:      pStep.GetMCPProfiles(),
 			Tasks:            pStep.GetTasks(),
 		}
 
@@ -1250,6 +1251,12 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		a.updateRunRecordWithFailure(runID, errMsg, gitContext)
 		return
 	}
+	if err := a.validatePipelineMCPProfiles(resolvedPipeline, scope); err != nil {
+		errMsg := fmt.Sprintf("Pipeline validation failed: %v", err)
+		http.Error(w, errMsg, http.StatusBadRequest)
+		a.updateRunRecordWithFailure(runID, errMsg, gitContext)
+		return
+	}
 
 	resolvedPipelineDef, err := yaml.Marshal(resolvedPipeline)
 	if err != nil {
@@ -1492,6 +1499,12 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.validatePipelineLLMProfiles(resolvedPipeline, scope.String); err != nil {
+		errMsg := fmt.Sprintf("Pipeline validation failed on rerun: %v", err)
+		a.updateRunRecordWithFailure(runID, errMsg, gitContext)
+		http.Error(w, errMsg, http.StatusBadRequest)
+		return
+	}
+	if err := a.validatePipelineMCPProfiles(resolvedPipeline, scope.String); err != nil {
 		errMsg := fmt.Sprintf("Pipeline validation failed on rerun: %v", err)
 		a.updateRunRecordWithFailure(runID, errMsg, gitContext)
 		http.Error(w, errMsg, http.StatusBadRequest)
@@ -1966,6 +1979,15 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 		}
 		return
 	}
+	if err := a.validatePipelineMCPProfiles(&pipeline, scope); err != nil {
+		reason := err.Error()
+		log.Error().Str("run_id", runID).Msg(reason)
+		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", reason, runID)
+		if gitContext["repo_owner"] != "" {
+			a.notifyGitBotOfFinalStatus("failure", "", "", reason, gitContext)
+		}
+		return
+	}
 
 	runtimeProfiles, err := a.buildRuntimeLLMProfiles(cfg)
 	if err != nil {
@@ -1977,6 +1999,20 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 	runtimeProfilesJSON, err := json.Marshal(runtimeProfiles)
 	if err != nil {
 		reason := "Failed to marshal LLM profiles"
+		log.Error().Err(err).Str("run_id", runID).Msg(reason)
+		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", reason, runID)
+		return
+	}
+	runtimeMCPRegistry, err := a.buildRuntimeMCPRegistry(&pipeline, scope)
+	if err != nil {
+		reason := fmt.Sprintf("Failed to prepare MCP registry: %v", err)
+		log.Error().Str("run_id", runID).Msg(reason)
+		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", reason, runID)
+		return
+	}
+	runtimeMCPRegistryJSON, err := json.Marshal(runtimeMCPRegistry)
+	if err != nil {
+		reason := "Failed to marshal MCP registry"
 		log.Error().Err(err).Str("run_id", runID).Msg(reason)
 		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", reason, runID)
 		return
@@ -2011,6 +2047,7 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 		fmt.Sprintf("PIPELINE_NAME=%s", pipeline.Name),
 		fmt.Sprintf("PIPELINE_VERSION=%s", pipeline.Version),
 		fmt.Sprintf("%s=%s", llmProfilesRuntimeEnv, base64.StdEncoding.EncodeToString(runtimeProfilesJSON)),
+		fmt.Sprintf("%s=%s", mcpRegistryRuntimeEnv, base64.StdEncoding.EncodeToString(runtimeMCPRegistryJSON)),
 		fmt.Sprintf("NOPSAI_API_URL=%s", cfg.AgentNopsaiAPIURL),
 		fmt.Sprintf("LOG_LEVEL=%s", cfg.LogLevel),
 		fmt.Sprintf("LOG_FORMAT=%s", cfg.LogFormat),

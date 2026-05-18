@@ -34,7 +34,11 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
     <div className="min-h-screen flex items-center justify-center bg-[var(--bg-primary)]">
       <div className="w-full max-w-md bg-[var(--bg-secondary)] rounded-xl shadow-lg border border-[var(--border-primary)] p-8 space-y-6">
         <div className="text-center space-y-2">
-          <p className="text-sm uppercase tracking-wide text-[var(--text-secondary)]">NopsAI</p>
+          <div className="login-brand" aria-label="NopsAI">
+            <span className="sr-only">NopsAI</span>
+            <img className="brand-logo brand-logo--light" src="/brand/nopsai-logo-light.png" alt="" aria-hidden="true" />
+            <img className="brand-logo brand-logo--dark" src="/brand/nopsai-logo-dark.png" alt="" aria-hidden="true" />
+          </div>
           <h1 className="text-2xl font-semibold text-[var(--text-primary)]">Sign in</h1>
           <p className="text-sm text-[var(--text-secondary)]">Use your local account to continue</p>
         </div>

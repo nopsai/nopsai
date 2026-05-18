@@ -213,3 +213,124 @@ func TestValidatePipelineLLMProfilesUnknown(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestValidatePipelineMCPProfilesAdditiveGoalUsage(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "valid-name",
+		ContainerImage: "ubuntu",
+		MCPProfiles:    []string{"github-readonly"},
+		Steps: []models.PipelineStep{
+			{
+				Step: &models.TaskStep{
+					BaseStep: models.BaseStep{Name: "review", MCPProfiles: []string{"jira-readonly"}},
+					Tasks: []models.Task{
+						{Name: "inspect", Goal: "Review", MCPProfiles: []string{"slack-readonly"}},
+						{Name: "test", Script: "go test ./..."},
+					},
+				},
+			},
+		},
+	}
+
+	err := ValidatePipelineMCPProfiles(p, MCPProfileValidationOptions{
+		Scope: "prod",
+		Profiles: map[string]MCPProfileDefinition{
+			"github-readonly": {Enabled: true, AllowedScopes: []string{"prod"}},
+			"jira-readonly":   {Enabled: true},
+			"slack-readonly":  {Enabled: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected MCP profiles to validate, got %v", err)
+	}
+
+	resolved := ResolvePipelineMCPProfiles(p.MCPProfiles, p.Steps[0].GetMCPProfiles(), p.Steps[0].GetTasks()[0].MCPProfiles)
+	want := []string{"github-readonly", "jira-readonly", "slack-readonly"}
+	if strings.Join(resolved, ",") != strings.Join(want, ",") {
+		t.Fatalf("resolved MCP profiles = %v, want %v", resolved, want)
+	}
+}
+
+func TestValidatePipelineMCPProfilesRejectsScriptExplicitUse(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "valid-name",
+		ContainerImage: "ubuntu",
+		Steps: []models.PipelineStep{
+			{
+				Step: &models.ScriptStep{
+					BaseStep: models.BaseStep{Name: "test", MCPProfiles: []string{"github-readonly"}},
+					Script:   "go test ./...",
+				},
+			},
+		},
+	}
+
+	err := ValidatePipelineMCPProfiles(p, MCPProfileValidationOptions{
+		Profiles: map[string]MCPProfileDefinition{"github-readonly": {Enabled: true}},
+	})
+	if err == nil {
+		t.Fatal("expected script MCP profile validation error")
+	}
+	if !strings.Contains(err.Error(), `script step "test" cannot define mcp_profiles`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidatePipelineMCPProfilesRejectsIncludeExplicitUse(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "valid-name",
+		ContainerImage: "ubuntu",
+		Steps: []models.PipelineStep{
+			{
+				Step: &models.IncludeStep{
+					BaseStep: models.BaseStep{Name: "reuse", MCPProfiles: []string{"github-readonly"}},
+					Include:  "step:shared/review",
+				},
+			},
+		},
+	}
+
+	err := ValidatePipelineMCPProfiles(p, MCPProfileValidationOptions{
+		Profiles: map[string]MCPProfileDefinition{"github-readonly": {Enabled: true}},
+	})
+	if err == nil {
+		t.Fatal("expected include MCP profile validation error")
+	}
+	if !strings.Contains(err.Error(), `include step "reuse" cannot define mcp_profiles`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidatePipelineMCPProfilesRejectsUnknownAndScope(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "valid-name",
+		ContainerImage: "ubuntu",
+		Steps: []models.PipelineStep{
+			{
+				Step: &models.GoalStep{
+					BaseStep: models.BaseStep{Name: "review", MCPProfiles: []string{"github-readonly"}},
+					Goal:     "Review",
+				},
+			},
+		},
+	}
+
+	err := ValidatePipelineMCPProfiles(p, MCPProfileValidationOptions{
+		Scope:    "prod",
+		Profiles: map[string]MCPProfileDefinition{"github-readonly": {Enabled: true, AllowedScopes: []string{"dev"}}},
+	})
+	if err == nil {
+		t.Fatal("expected scope error")
+	}
+	if !strings.Contains(err.Error(), `MCP profile "github-readonly" is not allowed in scope "prod"`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	err = ValidatePipelineMCPProfiles(p, MCPProfileValidationOptions{})
+	if err == nil {
+		t.Fatal("expected unknown profile error")
+	}
+	if !strings.Contains(err.Error(), `MCP profile "github-readonly" referenced by step "review" is not configured`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
