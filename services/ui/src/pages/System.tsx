@@ -4918,6 +4918,7 @@ type MCPServerFormState = {
   url: string;
   auth_type: string;
   auth_secret: string;
+  headers_json: string;
   timeout: string;
   allowed_scopes: string;
 };
@@ -4927,6 +4928,7 @@ type MCPProfileFormState = {
   description: string;
   enabled: boolean;
   selected_tools: Record<string, string[]>;
+  tool_text: Record<string, string>;
   allowed_scopes: string;
 };
 
@@ -4939,6 +4941,7 @@ const emptyMCPServerForm: MCPServerFormState = {
   url: '',
   auth_type: 'none',
   auth_secret: '',
+  headers_json: '',
   timeout: '30s',
   allowed_scopes: '',
 };
@@ -4948,6 +4951,7 @@ const emptyMCPProfileForm: MCPProfileFormState = {
   description: '',
   enabled: true,
   selected_tools: {},
+  tool_text: {},
   allowed_scopes: '',
 };
 
@@ -5005,6 +5009,7 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
       url: server.url || '',
       auth_type: server.auth_type || 'none',
       auth_secret: server.auth_secret || '',
+      headers_json: formatHeadersJSON(server.headers),
       timeout: server.timeout || '30s',
       allowed_scopes: server.allowed_scopes.join(', '),
     });
@@ -5014,6 +5019,11 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
   const saveServer = async (event: FormEvent) => {
     event.preventDefault();
     if (!canManage) return;
+    const headers = parseHeadersJSON(serverForm.headers_json);
+    if (headers == null) {
+      setError('MCP server headers must be a JSON object with string keys and values.');
+      return;
+    }
     const payload = {
       name: serverForm.name.trim(),
       display_name: serverForm.display_name.trim(),
@@ -5023,6 +5033,7 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
       url: serverForm.url.trim(),
       auth_type: serverForm.auth_type.trim(),
       auth_secret: serverForm.auth_secret.trim(),
+      headers,
       timeout: serverForm.timeout.trim() || '30s',
       allowed_scopes: splitCSV(serverForm.allowed_scopes),
     };
@@ -5096,8 +5107,10 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
 
   const startProfileEdit = (profile: MCPProfileRecord) => {
     const selectedTools: Record<string, string[]> = {};
+    const toolText: Record<string, string> = {};
     profile.servers.forEach(ref => {
       selectedTools[ref.server] = [...ref.tools];
+      toolText[ref.server] = ref.tools.join('\n');
     });
     setEditingProfile(profile.name);
     setProfileForm({
@@ -5105,6 +5118,7 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
       description: profile.description || '',
       enabled: profile.enabled,
       selected_tools: selectedTools,
+      tool_text: toolText,
       allowed_scopes: profile.allowed_scopes.join(', '),
     });
     setInnerTab('profiles');
@@ -5117,7 +5131,19 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
       else current.add(toolName);
       const next = { ...prev.selected_tools, [serverName]: Array.from(current).sort((a, b) => a.localeCompare(b)) };
       if (next[serverName].length === 0) delete next[serverName];
-      return { ...prev, selected_tools: next };
+      const toolText = { ...prev.tool_text, [serverName]: (next[serverName] || []).join('\n') };
+      if (!next[serverName]) delete toolText[serverName];
+      return { ...prev, selected_tools: next, tool_text: toolText };
+    });
+  };
+
+  const setProfileServerTools = (serverName: string, value: string) => {
+    setProfileForm(prev => {
+      const tools = splitToolNames(value);
+      const next = { ...prev.selected_tools };
+      if (tools.length > 0) next[serverName] = tools;
+      else delete next[serverName];
+      return { ...prev, selected_tools: next, tool_text: { ...prev.tool_text, [serverName]: value } };
     });
   };
 
@@ -5299,9 +5325,23 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
               <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={serverForm.enabled} onChange={event => setServerForm(prev => ({ ...prev, enabled: event.target.checked }))} disabled={!canManage} /> Enabled</label>
               <label className="flex flex-col gap-1 text-sm"><span>Provider</span><input className="pipelines-input" value={serverForm.provider} onChange={event => setServerForm(prev => ({ ...prev, provider: event.target.value }))} disabled={!canManage} placeholder="github" /></label>
               <label className="flex flex-col gap-1 text-sm"><span>Transport</span><select className="pipelines-input" value={serverForm.transport} onChange={event => setServerForm(prev => ({ ...prev, transport: event.target.value }))} disabled={!canManage}><option value="streamable_http">streamable_http</option><option value="http">http</option></select></label>
-              <label className="flex flex-col gap-1 text-sm"><span>URL</span><input className="pipelines-input" value={serverForm.url} onChange={event => setServerForm(prev => ({ ...prev, url: event.target.value }))} disabled={!canManage} placeholder="https://provider.example.com/mcp" /></label>
+              <label className="flex flex-col gap-1 text-sm"><span>URL</span><input className="pipelines-input" value={serverForm.url} onChange={event => setServerForm(prev => ({ ...prev, url: event.target.value }))} disabled={!canManage} placeholder="https://api.githubcopilot.com/mcp/x/all/readonly" /></label>
               <label className="flex flex-col gap-1 text-sm"><span>Auth type</span><select className="pipelines-input" value={serverForm.auth_type} onChange={event => setServerForm(prev => ({ ...prev, auth_type: event.target.value }))} disabled={!canManage}><option value="none">none</option><option value="bearer_token">bearer_token</option></select></label>
               <label className="flex flex-col gap-1 text-sm"><span>Secret reference</span><input className="pipelines-input" value={serverForm.auth_secret} onChange={event => setServerForm(prev => ({ ...prev, auth_secret: event.target.value }))} disabled={!canManage} placeholder="GITHUB_MCP_TOKEN" /></label>
+              <div className="rounded-lg border border-[var(--border-primary)] p-3 space-y-3">
+                <p className="text-sm font-semibold text-[var(--text-primary)]">Extra configuration</p>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span>Headers JSON</span>
+                  <textarea
+                    className="pipelines-input min-h-[112px] font-mono text-xs"
+                    value={serverForm.headers_json}
+                    onChange={event => setServerForm(prev => ({ ...prev, headers_json: event.target.value }))}
+                    disabled={!canManage}
+                    placeholder={'{"X-MCP-Toolsets":"repos,issues","X-MCP-Readonly":"true"}'}
+                    spellCheck={false}
+                  />
+                </label>
+              </div>
               <label className="flex flex-col gap-1 text-sm"><span>Timeout</span><input className="pipelines-input" value={serverForm.timeout} onChange={event => setServerForm(prev => ({ ...prev, timeout: event.target.value }))} disabled={!canManage} placeholder="30s" /></label>
               <label className="flex flex-col gap-1 text-sm"><span>Allowed scopes</span><input className="pipelines-input" value={serverForm.allowed_scopes} onChange={event => setServerForm(prev => ({ ...prev, allowed_scopes: event.target.value }))} disabled={!canManage} placeholder="dev, prod" /></label>
               <button type="submit" className="glass-button-primary w-full justify-center" disabled={!canManage || saving}>{saving ? 'Saving…' : 'Save server'}</button>
@@ -5355,8 +5395,19 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
                 {servers.map(server => (
                   <div key={server.name} className="rounded-lg border border-[var(--border-primary)] p-3 space-y-2">
                     <div className="font-semibold text-sm text-[var(--text-primary)]">{server.display_name || server.name}</div>
+                    <label className="flex flex-col gap-1 text-sm">
+                      <span>Selected tools</span>
+                      <textarea
+                        className="pipelines-input min-h-[84px] font-mono text-xs"
+                        value={profileForm.tool_text[server.name] ?? (profileForm.selected_tools[server.name] || []).join('\n')}
+                        onChange={event => setProfileServerTools(server.name, event.target.value)}
+                        disabled={!canManage}
+                        placeholder={'*\nissues_list\nrepos_get'}
+                        spellCheck={false}
+                      />
+                    </label>
                     {server.tools.length === 0 ? (
-                      <p className="text-xs text-[var(--text-secondary)]">Discover tools before selecting this server.</p>
+                      <p className="text-xs text-[var(--text-secondary)]">No discovered tools cached for this server.</p>
                     ) : (
                       <div className="grid gap-2">
                         {server.tools.map(tool => (
@@ -6093,6 +6144,45 @@ function splitCSV(value: string): string[] {
     .split(',')
     .map(item => item.trim())
     .filter(Boolean);
+}
+
+function splitToolNames(value: string): string[] {
+  const seen = new Set<string>();
+  return value
+    .split(/[\n,]/)
+    .map(item => item.trim())
+    .filter(item => {
+      if (!item || seen.has(item)) return false;
+      seen.add(item);
+      return true;
+    })
+    .sort((a, b) => a.localeCompare(b));
+}
+
+function formatHeadersJSON(headers: Record<string, string>): string {
+  if (Object.keys(headers || {}).length === 0) return '';
+  return JSON.stringify(headers, null, 2);
+}
+
+function parseHeadersJSON(value: string): Record<string, string> | null {
+  const trimmed = value.trim();
+  if (!trimmed) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+  const record = asRecord(parsed);
+  if (!record || Array.isArray(parsed)) return null;
+  const headers: Record<string, string> = {};
+  for (const [key, headerValue] of Object.entries(record)) {
+    const headerName = key.trim();
+    if (!headerName) continue;
+    if (typeof headerValue !== 'string') return null;
+    headers[headerName] = headerValue.trim();
+  }
+  return headers;
 }
 
 function normalizeDispatcherStatus(value: unknown): { queuedJobs: number; runners: Runner[]; routing: Record<string, string[]> } {
