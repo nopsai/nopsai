@@ -40,6 +40,7 @@ pipelines/             Pipeline definitions
 steps/                 Reusable step definitions
 triggers/              Trigger override manifests
 scopes/                Scope variable files
+knowledge/             Managed knowledge context markdown documents
 pipelineruns/          Run group structure
 config-repositories/   Group config repo bindings
 access/                Users, advanced roles, policies, and basic role grants
@@ -49,10 +50,11 @@ setting/               System settings such as LLM and MCP profiles
 Secrets are not imported from Git. Pipelines may declare required secrets, but
 secret values stay database-managed.
 
-Pipeline, reusable step, and scope files may also include an `access:` block.
-That block maps to the same resource Access UI controls: `visibility` controls
-Only this group / selected groups or repositories / Public, and `use_access`
-lists the groups or repositories that can use a restricted resource.
+Pipeline, reusable step, scope, and knowledge context files may also include an
+`access:` block. That block maps to the same resource Access UI controls:
+`visibility` controls Only this group / selected groups or repositories /
+Public, and `use_access` lists the groups or repositories that can use a
+restricted resource.
 
 ## Global repo file map
 
@@ -68,6 +70,12 @@ global-repo/triggers/acme/service-api.yaml
 
 global-repo/scopes/dev/scope.yaml
   -> variables in scope dev
+
+global-repo/knowledge/guardrail/security/repo-check.md
+  -> knowledge context guardrail/security/repo-check
+
+global-repo/knowledge/architecture/team-1/backend.md
+  -> knowledge context architecture/team-1/backend
 
 global-repo/config-repositories/groups/team-2/platform.yaml
   -> config repo binding and group shell for group team-2/platform
@@ -111,6 +119,9 @@ team-1-repo/triggers/service-api.yaml
 
 team-1-repo/scopes/prod/scope.yaml
   -> variables in scope team-1/prod with restricted scope use access
+
+team-1-repo/knowledge/runbook/deploy/api.md
+  -> knowledge context runbook/team-1/deploy/api
 
 team-1-repo/access/*.yaml
   -> basic role grants scoped to team-1
@@ -164,4 +175,40 @@ access:
 
 When grants are present and `visibility` is omitted, Nopsai treats the resource
 as `restricted`. Scopes are sensitive, so they support `group` and `restricted`
-visibility only; `public` is accepted for pipelines and reusable steps.
+visibility only; `public` is accepted for pipelines, reusable steps, and
+knowledge contexts.
+
+## Knowledge context documents
+
+Managed knowledge context files live under `knowledge/<kind>/<group>/<name>.md`.
+Supported kinds are `architecture`, `guardrail`, `policy`, `adr`,
+`guideline`, `runbook`, `reference`, and `example`.
+
+```markdown
+---
+name: repo-check
+title: Repository Check Guardrail
+kind: guardrail
+visibility: restricted
+access:
+  repositories:
+    - hosein-yousefii/test-app
+---
+
+# Repository Check Guardrail
+
+- Do not expose secrets in logs.
+```
+
+Pipeline YAML references this document with:
+
+```yaml
+knowledge_context:
+  - kind: guardrail
+    ref: security/repo-check
+    required: true
+```
+
+In a group-scoped config repository, the document group is normalized under the
+bound group, so `knowledge/runbook/deploy/api.md` in the `team-1` repo becomes
+`runbook/team-1/deploy/api`.

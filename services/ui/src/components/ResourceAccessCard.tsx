@@ -34,7 +34,7 @@ type ResourceAccess = {
 };
 
 type ResourceAccessCardProps = {
-  resourceType: 'pipeline' | 'scope' | 'step' | 'runner' | 'config_repo';
+  resourceType: 'pipeline' | 'scope' | 'step' | 'runner' | 'config_repo' | 'knowledge_context';
   resourceID: string;
   label: string;
   sensitive?: boolean;
@@ -62,6 +62,7 @@ function encodeResourcePath(resourceType: string, resourceID: string) {
 
 function defaultUseAction(resourceType: ResourceAccessCardProps['resourceType']) {
   if (resourceType === 'config_repo') return 'config_repo.use';
+  if (resourceType === 'knowledge_context') return 'knowledge_context.use';
   return `${resourceType}.use`;
 }
 

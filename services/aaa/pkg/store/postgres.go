@@ -605,6 +605,16 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 			return nil, err
 		}
 		return append(out, folderAncestors...), nil
+	case "knowledge_context":
+		parts := strings.Split(strings.Trim(strings.TrimSpace(resource.ID), "/"), "/")
+		if len(parts) < 3 {
+			return nil, nil
+		}
+		groupPath := strings.Trim(strings.Join(parts[1:len(parts)-1], "/"), "/")
+		if groupPath == "" {
+			return generalFolderAncestors(), nil
+		}
+		return s.containingFolderAncestors(ctx, groupPath)
 	case "secret", "variable":
 		repoName, scope, _ := model.ParseNamedResourceID(resource.ID)
 		var out []model.InheritedResource

@@ -32,6 +32,7 @@ const PIPELINE_DIRECTIVES = [
   'timeout',
   'llm_profile',
   'mcp_profiles',
+  'knowledge_context',
   'llm_output_sharing',
   'llm_content_sharing',
   'llm_content_include',
@@ -55,6 +56,7 @@ const STEP_DIRECTIVES = [
   'ignore_failure',
   'llm_profile',
   'mcp_profiles',
+  'knowledge_context',
   'llm_output_sharing',
 ];
 
@@ -66,6 +68,7 @@ const TASK_DIRECTIVES = [
   'ignore_failure',
   'llm_profile',
   'mcp_profiles',
+  'knowledge_context',
   'llm_output_sharing',
   'variables',
 ];

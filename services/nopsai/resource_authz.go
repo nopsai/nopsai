@@ -262,6 +262,13 @@ func normalizeResourceUseResourceID(resourceType, raw string) (string, error) {
 	if resourceType == grantResourceSecret || resourceType == grantResourceVariable {
 		resourceID = runtimeNamedResourceIDForResource(resourceID)
 	}
+	if resourceType == grantResourceKnowledgeContext {
+		kind, group, name, err := splitKnowledgeContextIdentifier(resourceID)
+		if err != nil {
+			return "", err
+		}
+		resourceID = buildKnowledgeContextIdentifier(kind, group, name)
+	}
 	if resourceID == "" {
 		return "", fmt.Errorf("resource_id is required")
 	}
@@ -415,6 +422,12 @@ func (a *App) ResolveResourceGroup(ctx context.Context, resourceType, resourceID
 			return groupRefFromPath(scope), nil
 		}
 		return groupRefFromPath(repositoryParentPath(repoName)), nil
+	case grantResourceKnowledgeContext:
+		_, group, _, err := splitKnowledgeContextIdentifier(resourceID)
+		if err != nil {
+			return GroupRef{}, err
+		}
+		return groupRefFromPath(group), nil
 	default:
 		return GroupRef{}, nil
 	}
@@ -587,6 +600,23 @@ func (a *App) resourceVisibility(ctx context.Context, resourceType, resourceID s
 			ORDER BY id ASC
 			LIMIT 1
 		`, resourceID).Scan(&visibility)
+		if err == nil {
+			return normalizeResourceVisibility(visibility), nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
+			return "", err
+		}
+	case grantResourceKnowledgeContext:
+		kind, group, name, splitErr := splitKnowledgeContextIdentifier(resourceID)
+		if splitErr != nil {
+			return "", splitErr
+		}
+		var visibility string
+		err := a.db.QueryRow(ctx, `
+			SELECT visibility
+			FROM knowledge_contexts
+			WHERE kind = $1 AND group_path = $2 AND name = $3
+		`, kind, group, name).Scan(&visibility)
 		if err == nil {
 			return normalizeResourceVisibility(visibility), nil
 		}

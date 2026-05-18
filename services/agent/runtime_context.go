@@ -142,21 +142,23 @@ func (c taskExecutionContext) promptVariables() map[string]string {
 	return variables
 }
 
-func (c taskExecutionContext) buildConditionRequest(goal, history string, secrets map[string]string) *proto.ConditionRequest {
+func (c taskExecutionContext) buildConditionRequest(goal, history, knowledgeContext string, secrets map[string]string) *proto.ConditionRequest {
 	return &proto.ConditionRequest{
-		Goal:      goal,
-		History:   c.maskText(history, secrets),
-		Variables: c.promptVariables(),
+		Goal:             goal,
+		History:          c.maskText(history, secrets),
+		Variables:        c.promptVariables(),
+		KnowledgeContext: c.maskText(knowledgeContext, secrets),
 	}
 }
 
-func (c taskExecutionContext) buildActionRequest(goal, history string, directoryListing map[string]string, secrets map[string]string) *proto.GetActionRequest {
+func (c taskExecutionContext) buildActionRequest(goal, history string, directoryListing map[string]string, knowledgeContext string, secrets map[string]string) *proto.GetActionRequest {
 	maskValues := c.promptMaskValues(secrets)
 	return &proto.GetActionRequest{
 		Goal:             goal,
 		History:          maskSensitiveValues(history, maskValues),
 		DirectoryListing: maskDirectoryListing(directoryListing, maskValues),
 		Variables:        c.promptVariables(),
+		KnowledgeContext: maskSensitiveValues(knowledgeContext, maskValues),
 	}
 }
 

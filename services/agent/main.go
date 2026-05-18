@@ -887,6 +887,11 @@ func run() int {
 		agentLog(runID, pipelineName).Error().Err(err).Msg("Failed to unmarshal pipeline definition")
 		return 1
 	}
+	knowledgeSnapshots, err := loadRuntimeKnowledgeContexts()
+	if err != nil {
+		agentLog(runID, pipelineName).Error().Err(err).Msg("Failed to load knowledge context snapshots")
+		return 1
+	}
 	workingDirectory, err := models.NormalizePipelineWorkingDirectory(pipeline.WorkingDirectory)
 	if err != nil {
 		agentLog(runID, pipelineName).Error().Err(err).Msg("Invalid pipeline working_directory")
@@ -1117,7 +1122,8 @@ func run() int {
 					historySnapshot := history.String()
 					historyMutex.Unlock()
 
-					req := stepContext.buildConditionRequest(condition, historySnapshot, secrets)
+					knowledgePrompt := buildEffectiveKnowledgeContextPrompt(&pipeline, step, nil, knowledgeSnapshots)
+					req := stepContext.buildConditionRequest(condition, historySnapshot, knowledgePrompt, secrets)
 					conditionClient, conditionProfile, profileErr := llmRegistry.ClientFor(&pipeline, step, nil)
 					if profileErr != nil {
 						taskLogger.Error().Err(profileErr).Msg("Failed to resolve LLM profile for condition")
@@ -1388,7 +1394,8 @@ func run() int {
 					historyMutex.Lock()
 					historySnapshot := history.String()
 					historyMutex.Unlock()
-					req := taskContext.buildActionRequest(goalText, historySnapshot, directoryListing, secrets)
+					knowledgePrompt := buildEffectiveKnowledgeContextPrompt(&pipeline, step, task, knowledgeSnapshots)
+					req := taskContext.buildActionRequest(goalText, historySnapshot, directoryListing, knowledgePrompt, secrets)
 					actionClient, actionProfile, profileErr := llmRegistry.ClientFor(&pipeline, step, task)
 					if profileErr != nil {
 						taskLogger.Error().Err(profileErr).Msg("Failed to resolve LLM profile for goal")
