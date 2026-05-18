@@ -4932,6 +4932,8 @@ type MCPProfileFormState = {
   allowed_scopes: string;
 };
 
+type MCPPanelMode = 'server-create' | 'server-edit' | 'profile-create' | 'profile-edit';
+
 const emptyMCPServerForm: MCPServerFormState = {
   name: '',
   display_name: '',
@@ -4968,6 +4970,8 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
   const [profileForm, setProfileForm] = useState<MCPProfileFormState>(emptyMCPProfileForm);
   const [editingServer, setEditingServer] = useState<string | null>(null);
   const [editingProfile, setEditingProfile] = useState<string | null>(null);
+  const [panelMode, setPanelMode] = useState<MCPPanelMode | null>(null);
+  const mcpPanelRef = useRef<HTMLElement | null>(null);
 
   const loadMCP = useCallback(async () => {
     setLoading(true);
@@ -4992,10 +4996,24 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
     void loadMCP();
   }, [loadMCP]);
 
+  useEffect(() => {
+    if (!panelMode) return;
+    window.requestAnimationFrame(() => {
+      if (window.innerWidth < 1280) {
+        mcpPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      const focusTarget =
+        mcpPanelRef.current?.querySelector<HTMLElement>('[data-mcp-autofocus]:not(:disabled)') ??
+        mcpPanelRef.current?.querySelector<HTMLElement>('input:not(:disabled), select:not(:disabled), textarea:not(:disabled), button:not(:disabled)');
+      focusTarget?.focus({ preventScroll: true });
+    });
+  }, [editingProfile, editingServer, innerTab, panelMode]);
+
   const startServerCreate = () => {
     setEditingServer(null);
     setServerForm(emptyMCPServerForm);
     setInnerTab('servers');
+    setPanelMode('server-create');
   };
 
   const startServerEdit = (server: MCPServerRecord) => {
@@ -5014,6 +5032,7 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
       allowed_scopes: server.allowed_scopes.join(', '),
     });
     setInnerTab('servers');
+    setPanelMode('server-edit');
   };
 
   const saveServer = async (event: FormEvent) => {
@@ -5054,6 +5073,7 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
       if (!response.ok) throw new Error(await response.text() || `Failed to save MCP server (${response.status})`);
       setServers(normalizeMCPServersPayload(await response.json()));
       setEditingServer(payload.name);
+      setPanelMode('server-edit');
       setMessage(`Saved MCP server ${payload.name}.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to save MCP server');
@@ -5073,6 +5093,7 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
       if (editingServer === name) {
         setEditingServer(null);
         setServerForm(emptyMCPServerForm);
+        setPanelMode(prev => prev === 'server-edit' ? null : prev);
       }
       await loadMCP();
       setMessage(`Deleted MCP server ${name}.`);
@@ -5103,6 +5124,7 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
     setEditingProfile(null);
     setProfileForm(emptyMCPProfileForm);
     setInnerTab('profiles');
+    setPanelMode('profile-create');
   };
 
   const startProfileEdit = (profile: MCPProfileRecord) => {
@@ -5122,6 +5144,7 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
       allowed_scopes: profile.allowed_scopes.join(', '),
     });
     setInnerTab('profiles');
+    setPanelMode('profile-edit');
   };
 
   const toggleProfileTool = (serverName: string, toolName: string) => {
@@ -5177,6 +5200,7 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
       if (!response.ok) throw new Error(await response.text() || `Failed to save MCP profile (${response.status})`);
       setProfiles(normalizeMCPProfilesPayload(await response.json()));
       setEditingProfile(payload.name);
+      setPanelMode('profile-edit');
       setMessage(`Saved MCP profile ${payload.name}.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to save MCP profile');
@@ -5196,6 +5220,7 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
       if (editingProfile === name) {
         setEditingProfile(null);
         setProfileForm(emptyMCPProfileForm);
+        setPanelMode(prev => prev === 'profile-edit' ? null : prev);
       }
       await loadMCP();
       setMessage(`Deleted MCP profile ${name}.`);
@@ -5222,6 +5247,9 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
       setTesting(null);
     }
   };
+
+  const showServerPanel = panelMode === 'server-create' || panelMode === 'server-edit';
+  const showProfilePanel = panelMode === 'profile-create' || panelMode === 'profile-edit';
 
   return (
     <div id="system-mcp-section" className="space-y-6 pb-24">
@@ -5260,7 +5288,7 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
       </section>
 
       {innerTab === 'servers' ? (
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(360px,0.7fr)]">
+        <div className={`grid gap-6 ${showServerPanel ? 'xl:grid-cols-[minmax(0,1.3fr)_minmax(360px,0.7fr)]' : ''}`}>
           <section className="glass-card border border-[var(--border-primary)] rounded-xl overflow-hidden">
             <div className="p-4 border-b border-[var(--border-primary)] flex items-center justify-between">
               <h3 className="text-lg font-semibold text-[var(--text-primary)]">Servers</h3>
@@ -5317,39 +5345,49 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
             </div>
           </section>
 
-          <aside className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
-            <h3 className="text-lg font-semibold text-[var(--text-primary)]">{editingServer ? 'Edit MCP server' : 'MCP server'}</h3>
-            <form className="space-y-4" onSubmit={saveServer}>
-              <label className="flex flex-col gap-1 text-sm"><span>Name</span><input className="pipelines-input" value={serverForm.name} onChange={event => setServerForm(prev => ({ ...prev, name: event.target.value }))} disabled={!canManage || Boolean(editingServer)} placeholder="github" /></label>
-              <label className="flex flex-col gap-1 text-sm"><span>Display name</span><input className="pipelines-input" value={serverForm.display_name} onChange={event => setServerForm(prev => ({ ...prev, display_name: event.target.value }))} disabled={!canManage} placeholder="GitHub MCP" /></label>
-              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={serverForm.enabled} onChange={event => setServerForm(prev => ({ ...prev, enabled: event.target.checked }))} disabled={!canManage} /> Enabled</label>
-              <label className="flex flex-col gap-1 text-sm"><span>Provider</span><input className="pipelines-input" value={serverForm.provider} onChange={event => setServerForm(prev => ({ ...prev, provider: event.target.value }))} disabled={!canManage} placeholder="github" /></label>
-              <label className="flex flex-col gap-1 text-sm"><span>Transport</span><select className="pipelines-input" value={serverForm.transport} onChange={event => setServerForm(prev => ({ ...prev, transport: event.target.value }))} disabled={!canManage}><option value="streamable_http">streamable_http</option><option value="http">http</option></select></label>
-              <label className="flex flex-col gap-1 text-sm"><span>URL</span><input className="pipelines-input" value={serverForm.url} onChange={event => setServerForm(prev => ({ ...prev, url: event.target.value }))} disabled={!canManage} placeholder="https://api.githubcopilot.com/mcp/x/all/readonly" /></label>
-              <label className="flex flex-col gap-1 text-sm"><span>Auth type</span><select className="pipelines-input" value={serverForm.auth_type} onChange={event => setServerForm(prev => ({ ...prev, auth_type: event.target.value }))} disabled={!canManage}><option value="none">none</option><option value="bearer_token">bearer_token</option></select></label>
-              <label className="flex flex-col gap-1 text-sm"><span>Secret reference</span><input className="pipelines-input" value={serverForm.auth_secret} onChange={event => setServerForm(prev => ({ ...prev, auth_secret: event.target.value }))} disabled={!canManage} placeholder="GITHUB_MCP_TOKEN" /></label>
-              <div className="rounded-lg border border-[var(--border-primary)] p-3 space-y-3">
-                <p className="text-sm font-semibold text-[var(--text-primary)]">Extra configuration</p>
-                <label className="flex flex-col gap-1 text-sm">
-                  <span>Headers JSON</span>
-                  <textarea
-                    className="pipelines-input min-h-[112px] font-mono text-xs"
-                    value={serverForm.headers_json}
-                    onChange={event => setServerForm(prev => ({ ...prev, headers_json: event.target.value }))}
-                    disabled={!canManage}
-                    placeholder={'{"X-MCP-Toolsets":"repos,issues","X-MCP-Readonly":"true"}'}
-                    spellCheck={false}
-                  />
-                </label>
+          {showServerPanel && (
+            <aside ref={mcpPanelRef} className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs text-[var(--text-secondary)]">{panelMode === 'server-edit' ? 'Edit server' : 'Create server'}</p>
+                  <h3 className="text-lg font-semibold text-[var(--text-primary)]">{panelMode === 'server-edit' ? editingServer : 'New MCP server'}</h3>
+                </div>
+                <button type="button" className="glass-button-ghost !px-2" aria-label="Close server form" onClick={() => setPanelMode(null)}>
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </button>
               </div>
-              <label className="flex flex-col gap-1 text-sm"><span>Timeout</span><input className="pipelines-input" value={serverForm.timeout} onChange={event => setServerForm(prev => ({ ...prev, timeout: event.target.value }))} disabled={!canManage} placeholder="30s" /></label>
-              <label className="flex flex-col gap-1 text-sm"><span>Allowed scopes</span><input className="pipelines-input" value={serverForm.allowed_scopes} onChange={event => setServerForm(prev => ({ ...prev, allowed_scopes: event.target.value }))} disabled={!canManage} placeholder="dev, prod" /></label>
-              <button type="submit" className="glass-button-primary w-full justify-center" disabled={!canManage || saving}>{saving ? 'Saving…' : 'Save server'}</button>
-            </form>
-          </aside>
+              <form className="space-y-4" onSubmit={saveServer}>
+                <label className="flex flex-col gap-1 text-sm"><span>Name</span><input data-mcp-autofocus className="pipelines-input" value={serverForm.name} onChange={event => setServerForm(prev => ({ ...prev, name: event.target.value }))} disabled={!canManage || Boolean(editingServer)} placeholder="github" /></label>
+                <label className="flex flex-col gap-1 text-sm"><span>Display name</span><input className="pipelines-input" value={serverForm.display_name} onChange={event => setServerForm(prev => ({ ...prev, display_name: event.target.value }))} disabled={!canManage} placeholder="GitHub MCP" /></label>
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={serverForm.enabled} onChange={event => setServerForm(prev => ({ ...prev, enabled: event.target.checked }))} disabled={!canManage} /> Enabled</label>
+                <label className="flex flex-col gap-1 text-sm"><span>Provider</span><input className="pipelines-input" value={serverForm.provider} onChange={event => setServerForm(prev => ({ ...prev, provider: event.target.value }))} disabled={!canManage} placeholder="github" /></label>
+                <label className="flex flex-col gap-1 text-sm"><span>Transport</span><select className="pipelines-input" value={serverForm.transport} onChange={event => setServerForm(prev => ({ ...prev, transport: event.target.value }))} disabled={!canManage}><option value="streamable_http">streamable_http</option><option value="http">http</option></select></label>
+                <label className="flex flex-col gap-1 text-sm"><span>URL</span><input className="pipelines-input" value={serverForm.url} onChange={event => setServerForm(prev => ({ ...prev, url: event.target.value }))} disabled={!canManage} placeholder="https://api.githubcopilot.com/mcp/x/all/readonly" /></label>
+                <label className="flex flex-col gap-1 text-sm"><span>Auth type</span><select className="pipelines-input" value={serverForm.auth_type} onChange={event => setServerForm(prev => ({ ...prev, auth_type: event.target.value }))} disabled={!canManage}><option value="none">none</option><option value="bearer_token">bearer_token</option></select></label>
+                <label className="flex flex-col gap-1 text-sm"><span>Secret reference</span><input className="pipelines-input" value={serverForm.auth_secret} onChange={event => setServerForm(prev => ({ ...prev, auth_secret: event.target.value }))} disabled={!canManage} placeholder="GITHUB_MCP_TOKEN" /></label>
+                <div className="rounded-lg border border-[var(--border-primary)] p-3 space-y-3">
+                  <p className="text-sm font-semibold text-[var(--text-primary)]">Extra configuration</p>
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span>Headers JSON</span>
+                    <textarea
+                      className="pipelines-input min-h-[112px] font-mono text-xs"
+                      value={serverForm.headers_json}
+                      onChange={event => setServerForm(prev => ({ ...prev, headers_json: event.target.value }))}
+                      disabled={!canManage}
+                      placeholder={'{"X-MCP-Toolsets":"repos,issues","X-MCP-Readonly":"true"}'}
+                      spellCheck={false}
+                    />
+                  </label>
+                </div>
+                <label className="flex flex-col gap-1 text-sm"><span>Timeout</span><input className="pipelines-input" value={serverForm.timeout} onChange={event => setServerForm(prev => ({ ...prev, timeout: event.target.value }))} disabled={!canManage} placeholder="30s" /></label>
+                <label className="flex flex-col gap-1 text-sm"><span>Allowed scopes</span><input className="pipelines-input" value={serverForm.allowed_scopes} onChange={event => setServerForm(prev => ({ ...prev, allowed_scopes: event.target.value }))} disabled={!canManage} placeholder="dev, prod" /></label>
+                <button type="submit" className="glass-button-primary w-full justify-center" disabled={!canManage || saving}>{saving ? 'Saving…' : 'Save server'}</button>
+              </form>
+            </aside>
+          )}
         </div>
       ) : (
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(420px,0.8fr)]">
+        <div className={`grid gap-6 ${showProfilePanel ? 'xl:grid-cols-[minmax(0,1.2fr)_minmax(420px,0.8fr)]' : ''}`}>
           <section className="glass-card border border-[var(--border-primary)] rounded-xl overflow-hidden">
             <div className="p-4 border-b border-[var(--border-primary)] flex items-center justify-between">
               <h3 className="text-lg font-semibold text-[var(--text-primary)]">Profiles</h3>
@@ -5384,47 +5422,57 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
             </div>
           </section>
 
-          <aside className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
-            <h3 className="text-lg font-semibold text-[var(--text-primary)]">{editingProfile ? 'Edit MCP profile' : 'MCP profile'}</h3>
-            <form className="space-y-4" onSubmit={saveProfile}>
-              <label className="flex flex-col gap-1 text-sm"><span>Name</span><input className="pipelines-input" value={profileForm.name} onChange={event => setProfileForm(prev => ({ ...prev, name: event.target.value }))} disabled={!canManage || Boolean(editingProfile)} placeholder="github-pr-review" /></label>
-              <label className="flex flex-col gap-1 text-sm"><span>Description</span><input className="pipelines-input" value={profileForm.description} onChange={event => setProfileForm(prev => ({ ...prev, description: event.target.value }))} disabled={!canManage} placeholder="Read-only GitHub PR review tools" /></label>
-              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={profileForm.enabled} onChange={event => setProfileForm(prev => ({ ...prev, enabled: event.target.checked }))} disabled={!canManage} /> Enabled</label>
-              <div className="space-y-3">
-                <p className="text-sm font-semibold text-[var(--text-primary)]">Tools</p>
-                {servers.map(server => (
-                  <div key={server.name} className="rounded-lg border border-[var(--border-primary)] p-3 space-y-2">
-                    <div className="font-semibold text-sm text-[var(--text-primary)]">{server.display_name || server.name}</div>
-                    <label className="flex flex-col gap-1 text-sm">
-                      <span>Selected tools</span>
-                      <textarea
-                        className="pipelines-input min-h-[84px] font-mono text-xs"
-                        value={profileForm.tool_text[server.name] ?? (profileForm.selected_tools[server.name] || []).join('\n')}
-                        onChange={event => setProfileServerTools(server.name, event.target.value)}
-                        disabled={!canManage}
-                        placeholder={'*\nissues_list\nrepos_get'}
-                        spellCheck={false}
-                      />
-                    </label>
-                    {server.tools.length === 0 ? (
-                      <p className="text-xs text-[var(--text-secondary)]">No discovered tools cached for this server.</p>
-                    ) : (
-                      <div className="grid gap-2">
-                        {server.tools.map(tool => (
-                          <label key={`${server.name}-${tool.name}`} className="flex items-start gap-2 text-sm">
-                            <input type="checkbox" checked={(profileForm.selected_tools[server.name] || []).includes(tool.name)} onChange={() => toggleProfileTool(server.name, tool.name)} disabled={!canManage} />
-                            <span><span className="font-mono">{tool.name}</span>{tool.description ? <span className="block text-xs text-[var(--text-secondary)]">{tool.description}</span> : null}</span>
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
+          {showProfilePanel && (
+            <aside ref={mcpPanelRef} className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs text-[var(--text-secondary)]">{panelMode === 'profile-edit' ? 'Edit profile' : 'Create profile'}</p>
+                  <h3 className="text-lg font-semibold text-[var(--text-primary)]">{panelMode === 'profile-edit' ? editingProfile : 'New MCP profile'}</h3>
+                </div>
+                <button type="button" className="glass-button-ghost !px-2" aria-label="Close profile form" onClick={() => setPanelMode(null)}>
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </button>
               </div>
-              <label className="flex flex-col gap-1 text-sm"><span>Allowed scopes</span><input className="pipelines-input" value={profileForm.allowed_scopes} onChange={event => setProfileForm(prev => ({ ...prev, allowed_scopes: event.target.value }))} disabled={!canManage} placeholder="dev, prod" /></label>
-              <button type="submit" className="glass-button-primary w-full justify-center" disabled={!canManage || saving}>{saving ? 'Saving…' : 'Save profile'}</button>
-            </form>
-          </aside>
+              <form className="space-y-4" onSubmit={saveProfile}>
+                <label className="flex flex-col gap-1 text-sm"><span>Name</span><input data-mcp-autofocus className="pipelines-input" value={profileForm.name} onChange={event => setProfileForm(prev => ({ ...prev, name: event.target.value }))} disabled={!canManage || Boolean(editingProfile)} placeholder="github-pr-review" /></label>
+                <label className="flex flex-col gap-1 text-sm"><span>Description</span><input className="pipelines-input" value={profileForm.description} onChange={event => setProfileForm(prev => ({ ...prev, description: event.target.value }))} disabled={!canManage} placeholder="Read-only GitHub PR review tools" /></label>
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={profileForm.enabled} onChange={event => setProfileForm(prev => ({ ...prev, enabled: event.target.checked }))} disabled={!canManage} /> Enabled</label>
+                <div className="space-y-3">
+                  <p className="text-sm font-semibold text-[var(--text-primary)]">Tools</p>
+                  {servers.map(server => (
+                    <div key={server.name} className="rounded-lg border border-[var(--border-primary)] p-3 space-y-2">
+                      <div className="font-semibold text-sm text-[var(--text-primary)]">{server.display_name || server.name}</div>
+                      <label className="flex flex-col gap-1 text-sm">
+                        <span>Selected tools</span>
+                        <textarea
+                          className="pipelines-input min-h-[84px] font-mono text-xs"
+                          value={profileForm.tool_text[server.name] ?? (profileForm.selected_tools[server.name] || []).join('\n')}
+                          onChange={event => setProfileServerTools(server.name, event.target.value)}
+                          disabled={!canManage}
+                          placeholder={'*\nissues_list\nrepos_get'}
+                          spellCheck={false}
+                        />
+                      </label>
+                      {server.tools.length === 0 ? (
+                        <p className="text-xs text-[var(--text-secondary)]">No discovered tools cached for this server.</p>
+                      ) : (
+                        <div className="grid gap-2">
+                          {server.tools.map(tool => (
+                            <label key={`${server.name}-${tool.name}`} className="flex items-start gap-2 text-sm">
+                              <input type="checkbox" checked={(profileForm.selected_tools[server.name] || []).includes(tool.name)} onChange={() => toggleProfileTool(server.name, tool.name)} disabled={!canManage} />
+                              <span><span className="font-mono">{tool.name}</span>{tool.description ? <span className="block text-xs text-[var(--text-secondary)]">{tool.description}</span> : null}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <label className="flex flex-col gap-1 text-sm"><span>Allowed scopes</span><input className="pipelines-input" value={profileForm.allowed_scopes} onChange={event => setProfileForm(prev => ({ ...prev, allowed_scopes: event.target.value }))} disabled={!canManage} placeholder="dev, prod" /></label>
+                <button type="submit" className="glass-button-primary w-full justify-center" disabled={!canManage || saving}>{saving ? 'Saving…' : 'Save profile'}</button>
+              </form>
+            </aside>
+          )}
         </div>
       )}
     </div>
