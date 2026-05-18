@@ -4,7 +4,7 @@ mcp_servers:
     enabled: true
     provider: github
     transport: streamable_http
-    url: https://provider.example.com/mcp
+    url: https://api.githubcopilot.com/mcp/x/all/readonly
     auth_type: bearer_token
     auth_secret: GITHUB_MCP_TOKEN
     timeout: 30s
@@ -17,9 +17,7 @@ mcp_profiles:
     servers:
       - server: github
         tools:
-          - get_file
-          - list_pull_request_files
-          - search_code
+          - "*"
     allowed_scopes: ["dev", "prod"]
 
   github-pr-review:
@@ -28,7 +26,5 @@ mcp_profiles:
     servers:
       - server: github
         tools:
-          - get_file
-          - list_pull_request_files
-          - search_code
+          - "*"
     allowed_scopes: ["dev"]

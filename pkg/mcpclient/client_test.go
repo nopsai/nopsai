@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"nopsai/pkg/models"
@@ -11,6 +12,7 @@ import (
 
 func TestClientInitializesListsAndCallsTool(t *testing.T) {
 	var sawSession bool
+	var sawProtocol bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Method string          `json:"method"`
@@ -25,8 +27,14 @@ func TestClientInitializesListsAndCallsTool(t *testing.T) {
 		if r.Header.Get("Authorization") != "Bearer test-token" {
 			t.Errorf("Authorization header = %q", r.Header.Get("Authorization"))
 		}
+		if r.Header.Get("X-MCP-Toolsets") != "default,actions" {
+			t.Errorf("X-MCP-Toolsets header = %q", r.Header.Get("X-MCP-Toolsets"))
+		}
 		if req.Method != "initialize" && r.Header.Get("Mcp-Session-Id") == "session-1" {
 			sawSession = true
+		}
+		if req.Method != "initialize" && r.Header.Get("MCP-Protocol-Version") == "2025-06-18" {
+			sawProtocol = true
 		}
 		w.Header().Set("Content-Type", "application/json")
 		switch req.Method {
@@ -53,6 +61,7 @@ func TestClientInitializesListsAndCallsTool(t *testing.T) {
 		URL:        server.URL,
 		AuthType:   models.MCPAuthBearerToken,
 		AuthSecret: "TOKEN",
+		Headers:    map[string]string{"X-MCP-Toolsets": "default,actions"},
 		Timeout:    "5s",
 	}, WithAuthValue("test-token"))
 	if err != nil {
@@ -71,12 +80,29 @@ func TestClientInitializesListsAndCallsTool(t *testing.T) {
 	if !sawSession {
 		t.Fatalf("expected client to reuse MCP session id")
 	}
+	if !sawProtocol {
+		t.Fatalf("expected client to send negotiated MCP protocol version")
+	}
 	callResult, err := client.CallTool(t.Context(), "get_file", json.RawMessage(`{"path":"README.md"}`))
 	if err != nil {
 		t.Fatalf("CallTool() error = %v", err)
 	}
 	if !json.Valid(callResult) {
 		t.Fatalf("CallTool() returned invalid JSON: %s", string(callResult))
+	}
+}
+
+func TestSSEJSONForIDSkipsUnrelatedMessages(t *testing.T) {
+	body := []byte("event: message\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\"}\n\n" +
+		"event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":99,\"result\":{\"ok\":false}}\n\n" +
+		"event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"ok\":true}}\n\n")
+
+	got, err := sseJSONForID(body, int64(7))
+	if err != nil {
+		t.Fatalf("sseJSONForID() error = %v", err)
+	}
+	if string(got) != `{"jsonrpc":"2.0","id":7,"result":{"ok":true}}` {
+		t.Fatalf("sseJSONForID() = %s", string(got))
 	}
 }
 
@@ -88,5 +114,17 @@ func TestFirstSSEJSON(t *testing.T) {
 	}
 	if string(got) != `{"jsonrpc":"2.0","result":{"ok":true}}` {
 		t.Fatalf("firstSSEJSON() = %s", string(got))
+	}
+}
+
+func TestFirstSSEJSONAllowsLongDataLines(t *testing.T) {
+	payload := `{"jsonrpc":"2.0","result":{"text":"` + strings.Repeat("x", 128*1024) + `"}}`
+	body := []byte("event: message\ndata: " + payload + "\n\n")
+	got, err := firstSSEJSON(body)
+	if err != nil {
+		t.Fatalf("firstSSEJSON() error = %v", err)
+	}
+	if string(got) != payload {
+		t.Fatalf("firstSSEJSON() returned unexpected payload length %d, want %d", len(got), len(payload))
 	}
 }

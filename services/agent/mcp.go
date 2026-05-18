@@ -46,10 +46,14 @@ type MCPToolSpec struct {
 }
 
 type MCPTaskRuntime struct {
-	registry *MCPProfileRegistry
-	profiles []string
-	tools    []MCPToolSpec
-	allowed  map[string]MCPToolSpec
+	registry                 *MCPProfileRegistry
+	profiles                 []string
+	tools                    []MCPToolSpec
+	allowed                  map[string]MCPToolSpec
+	requireToolCall          bool
+	mu                       sync.Mutex
+	successfulToolCalls      int
+	successfulToolTranscript string
 }
 
 func NewMCPProfileRegistryFromEnv(scope string) (*MCPProfileRegistry, error) {
@@ -105,9 +109,10 @@ func (r *MCPProfileRegistry) ResolveFor(pipeline *models.Pipeline, step *models.
 	}
 	profileNames := validation.ResolvePipelineMCPProfiles(pipelineProfiles, stepProfiles, taskProfiles)
 	runtime := &MCPTaskRuntime{
-		registry: r,
-		profiles: profileNames,
-		allowed:  map[string]MCPToolSpec{},
+		registry:        r,
+		profiles:        profileNames,
+		allowed:         map[string]MCPToolSpec{},
+		requireToolCall: len(profileNames) > 0,
 	}
 	if len(profileNames) == 0 {
 		return runtime, nil
@@ -143,10 +148,40 @@ func (r *MCPProfileRegistry) ResolveFor(pipeline *models.Pipeline, step *models.
 			if !models.MCPAllowedInScope(server.AllowedScopes, r.scope) {
 				return nil, fmt.Errorf("MCP server %q is not allowed in scope %q", ref.ServerName, r.scope)
 			}
+			if mcpProfileRefSelectsAllTools(ref) {
+				availableTools := make([]models.MCPTool, 0, len(toolsByServer[ref.ServerName]))
+				for _, tool := range toolsByServer[ref.ServerName] {
+					availableTools = append(availableTools, tool)
+				}
+				if len(availableTools) == 0 {
+					return nil, fmt.Errorf("MCP profile %q wildcard has no discovered tools for server %q", profileName, ref.ServerName)
+				}
+				sort.SliceStable(availableTools, func(i, j int) bool {
+					return availableTools[i].Name < availableTools[j].Name
+				})
+				for _, tool := range availableTools {
+					spec := MCPToolSpec{
+						Server:      ref.ServerName,
+						Name:        tool.Name,
+						Description: tool.Description,
+						InputSchema: tool.InputSchema,
+					}
+					key := mcpToolKey(spec.Server, spec.Name)
+					if _, exists := runtime.allowed[key]; !exists {
+						runtime.tools = append(runtime.tools, spec)
+						runtime.allowed[key] = spec
+					}
+				}
+				continue
+			}
 			for _, toolName := range ref.Tools {
 				tool, ok := toolsByServer[ref.ServerName][toolName]
 				if !ok {
-					return nil, fmt.Errorf("MCP profile %q references unavailable tool %q on server %q", profileName, toolName, ref.ServerName)
+					tool = models.MCPTool{
+						ServerName:  ref.ServerName,
+						Name:        strings.TrimSpace(toolName),
+						InputSchema: "{}",
+					}
 				}
 				spec := MCPToolSpec{
 					Server:      ref.ServerName,
@@ -211,6 +246,28 @@ func (t *MCPTaskRuntime) Profiles() []string {
 	return append([]string(nil), t.profiles...)
 }
 
+func (t *MCPTaskRuntime) RequiresToolCall() bool {
+	return t != nil && t.Enabled() && t.requireToolCall
+}
+
+func (t *MCPTaskRuntime) SuccessfulToolCalls() int {
+	if t == nil {
+		return 0
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.successfulToolCalls
+}
+
+func (t *MCPTaskRuntime) ToolTranscript() string {
+	if t == nil {
+		return ""
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.successfulToolTranscript
+}
+
 func (t *MCPTaskRuntime) ToolPrompt() string {
 	if t == nil || len(t.tools) == 0 {
 		return ""
@@ -218,10 +275,19 @@ func (t *MCPTaskRuntime) ToolPrompt() string {
 	var builder strings.Builder
 	builder.WriteString("**External MCP Tools:**\n")
 	builder.WriteString("You may call one of these MCP tools before choosing a final Nopsai action. To call a tool, respond with JSON like ")
-	builder.WriteString(`{"action":{"type":"CALL_MCP_TOOL","mcp_tool_action":{"server":"server-name","tool":"tool_name","arguments":{}}}}`)
+	builder.WriteString(`{"action":{"type":"CALL_MCP_TOOL","mcp_tool_action":{"server":"github","tool":"tool_name","arguments":{}}}}`)
 	builder.WriteString(". After a tool result is returned in the history, either call another MCP tool or choose EXECUTE_COMMAND, REPLACE_FILE, or RETURN_ANSWER.\n")
+	builder.WriteString("Do not use EXECUTE_COMMAND to bypass unavailable hosted-service MCP tools or permissions. If the approved MCP tools cannot satisfy the requested external data, choose RETURN_ANSWER with a clear missing-capability reason; the agent will fail the task with that reason.\n")
+	if t.RequiresToolCall() {
+		if successfulToolCalls := t.SuccessfulToolCalls(); successfulToolCalls > 0 {
+			builder.WriteString(fmt.Sprintf("This goal has already completed %d successful MCP tool call(s), so use the MCP result already present in the history and choose the next best action.\n", successfulToolCalls))
+		} else {
+			builder.WriteString("This goal has MCP profiles, so your first action must be CALL_MCP_TOOL.\n")
+		}
+	}
+	builder.WriteString("Use the server and tool fields exactly as listed; when a server is set, the tool field should normally contain only the tool name.\n")
 	for _, tool := range t.tools {
-		builder.WriteString(fmt.Sprintf("- %s.%s", tool.Server, tool.Name))
+		builder.WriteString(fmt.Sprintf("- server=%s tool=%s", tool.Server, tool.Name))
 		if strings.TrimSpace(tool.Description) != "" {
 			builder.WriteString(fmt.Sprintf(": %s", strings.TrimSpace(tool.Description)))
 		}
@@ -239,22 +305,83 @@ func (t *MCPTaskRuntime) CallTool(ctx context.Context, serverName, toolName stri
 	}
 	serverName = strings.TrimSpace(serverName)
 	toolName = strings.TrimSpace(toolName)
-	if serverName == "" && strings.Contains(toolName, ".") {
-		parts := strings.SplitN(toolName, ".", 2)
-		serverName = strings.TrimSpace(parts[0])
-		toolName = strings.TrimSpace(parts[1])
+
+	candidates := []MCPToolSpec{{Server: serverName, Name: toolName}}
+	normalizedServer, normalizedTool := normalizeMCPToolSelection(serverName, toolName)
+	if normalizedServer != serverName || normalizedTool != toolName {
+		candidates = append(candidates, MCPToolSpec{Server: normalizedServer, Name: normalizedTool})
 	}
-	key := mcpToolKey(serverName, toolName)
-	if _, ok := t.allowed[key]; !ok {
-		return nil, fmt.Errorf("MCP tool %q on server %q is not allowed for this task", toolName, serverName)
+	for _, candidate := range candidates {
+		key := mcpToolKey(candidate.Server, candidate.Name)
+		if _, ok := t.allowed[key]; !ok {
+			continue
+		}
+		client, err := t.registry.clientFor(ctx, candidate.Server)
+		if err != nil {
+			return nil, err
+		}
+		result, err := client.CallTool(ctx, candidate.Name, arguments)
+		if err != nil {
+			return nil, err
+		}
+		t.recordSuccessfulToolCall(candidate.Server, candidate.Name, arguments, result)
+		return result, nil
 	}
-	client, err := t.registry.clientFor(ctx, serverName)
-	if err != nil {
-		return nil, err
+
+	return nil, fmt.Errorf("MCP tool %q on server %q is not allowed for this task", toolName, serverName)
+}
+
+func (t *MCPTaskRuntime) recordSuccessfulToolCall(serverName, toolName string, arguments json.RawMessage, result json.RawMessage) {
+	if t == nil {
+		return
 	}
-	return client.CallTool(ctx, toolName, arguments)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.successfulToolCalls++
+	t.successfulToolTranscript += formatMCPToolResultTranscript(serverName, toolName, arguments, result)
+}
+
+func formatMCPToolResultTranscript(serverName, toolName string, arguments json.RawMessage, result json.RawMessage) string {
+	return fmt.Sprintf(
+		"\nMCP tool result: server=%s tool=%s arguments=%s result=%s\n",
+		serverName,
+		toolName,
+		mcpclient.JSONString(arguments, 4096),
+		mcpclient.JSONString(result, 24000),
+	)
+}
+
+func normalizeMCPToolSelection(serverName, toolName string) (string, string) {
+	serverName = strings.TrimSpace(serverName)
+	toolName = strings.TrimSpace(toolName)
+	for _, sep := range []string{".", "/", ":"} {
+		if serverName == "" {
+			if before, after, ok := strings.Cut(toolName, sep); ok {
+				return strings.TrimSpace(before), strings.TrimSpace(after)
+			}
+			continue
+		}
+		prefix := serverName + sep
+		if strings.HasPrefix(toolName, prefix) {
+			return serverName, strings.TrimSpace(strings.TrimPrefix(toolName, prefix))
+		}
+	}
+	return serverName, toolName
 }
 
 func mcpToolKey(serverName, toolName string) string {
 	return strings.TrimSpace(serverName) + "/" + strings.TrimSpace(toolName)
+}
+
+func isMCPAllToolsSelector(toolName string) bool {
+	return strings.TrimSpace(toolName) == "*"
+}
+
+func mcpProfileRefSelectsAllTools(ref models.MCPProfileServerRef) bool {
+	for _, toolName := range ref.Tools {
+		if isMCPAllToolsSelector(toolName) {
+			return true
+		}
+	}
+	return false
 }
