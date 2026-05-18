@@ -57,6 +57,7 @@ type Step interface {
 	GetIgnoreFailure() bool
 	GetLlmOutputSharing() *bool
 	GetLLMProfile() string
+	GetMCPProfiles() []string
 	GetVariables() map[string]string
 
 	// Type assertion helpers
@@ -77,6 +78,7 @@ type BaseStep struct {
 	IgnoreFailure    bool              `yaml:"ignore_failure,omitempty" json:"ignore_failure,omitempty"`
 	LlmOutputSharing *bool             `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
 	LLMProfile       string            `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
+	MCPProfiles      []string          `yaml:"mcp_profiles,omitempty" json:"mcp_profiles,omitempty"`
 	Variables        map[string]string `yaml:"variables,omitempty" json:"variables,omitempty"`
 }
 
@@ -106,6 +108,9 @@ func (s *BaseStep) GetLlmOutputSharing() *bool { return s.LlmOutputSharing }
 
 // GetLLMProfile returns the step's LLM profile override.
 func (s *BaseStep) GetLLMProfile() string { return s.LLMProfile }
+
+// GetMCPProfiles returns the step's MCP profile defaults.
+func (s *BaseStep) GetMCPProfiles() []string { return s.MCPProfiles }
 
 // GetVariables returns the step's inline variables.
 func (s *BaseStep) GetVariables() map[string]string { return s.Variables }
@@ -395,6 +400,13 @@ func (ps PipelineStep) GetLLMProfile() string {
 	return ps.Step.GetLLMProfile()
 }
 
+func (ps PipelineStep) GetMCPProfiles() []string {
+	if ps.Step == nil {
+		return nil
+	}
+	return ps.Step.GetMCPProfiles()
+}
+
 func (ps PipelineStep) GetInclude() string {
 	if include, ok := ps.AsIncludeStep(); ok {
 		return include.Include
@@ -537,6 +549,12 @@ func (ps *PipelineStep) SetLLMProfile(value string) {
 	}
 }
 
+func (ps *PipelineStep) SetMCPProfiles(value []string) {
+	if base := ps.baseStep(); base != nil {
+		base.MCPProfiles = value
+	}
+}
+
 func (ps *PipelineStep) SetVariables(variables map[string]string) {
 	if base := ps.baseStep(); base != nil {
 		base.Variables = variables
@@ -554,6 +572,7 @@ type Pipeline struct {
 	Steps             []PipelineStep `yaml:"steps" json:"steps"`
 	Timeout           string         `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 	LLMProfile        string         `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
+	MCPProfiles       []string       `yaml:"mcp_profiles,omitempty" json:"mcp_profiles,omitempty"`
 	LlmContentSharing *bool          `yaml:"llm_content_sharing,omitempty" json:"llm_content_sharing,omitempty"`
 	LlmOutputSharing  *bool          `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
 	LlmContentInclude []string       `yaml:"llm_content_include,omitempty" json:"llm_content_include,omitempty"`
@@ -578,6 +597,7 @@ type Task struct {
 	IgnoreFailure    bool              `yaml:"ignore_failure,omitempty" json:"ignore_failure,omitempty"`
 	LlmOutputSharing *bool             `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
 	LLMProfile       string            `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
+	MCPProfiles      []string          `yaml:"mcp_profiles,omitempty" json:"mcp_profiles,omitempty"`
 	Variables        map[string]string `yaml:"variables,omitempty" json:"variables,omitempty"`
 }
 
@@ -597,18 +617,27 @@ type AnswerAction struct {
 	Answer string `json:"answer"`
 }
 
+// MCPToolAction asks the runtime to call an approved external MCP tool.
+type MCPToolAction struct {
+	Server    string          `json:"server,omitempty"`
+	Tool      string          `json:"tool"`
+	Arguments json.RawMessage `json:"arguments,omitempty"`
+}
+
 // Action is the structured command returned by the LLM Agent to the Agent.
 type Action struct {
 	Type          string         `json:"type"`
 	CommandAction *CommandAction `json:"command_action,omitempty"`
 	FileAction    *FileAction    `json:"file_action,omitempty"`
 	AnswerAction  *AnswerAction  `json:"answer_action,omitempty"`
+	MCPToolAction *MCPToolAction `json:"mcp_tool_action,omitempty"`
 }
 
 const (
 	ActionTypeExecuteCommand string = "EXECUTE_COMMAND"
 	ActionTypeReplaceFile    string = "REPLACE_FILE"
 	ActionTypeReturnAnswer   string = "RETURN_ANSWER"
+	ActionTypeCallMCPTool    string = "CALL_MCP_TOOL"
 )
 
 // ActionResult is sent from the Agent back to the LLM Agent after an action is performed.

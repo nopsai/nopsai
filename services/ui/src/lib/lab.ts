@@ -24,6 +24,7 @@ export const PIPELINE_DIRECTIVES: LabDirective[] = [
   { key: 'steps', hint: 'List pipeline steps' },
   { key: 'timeout', hint: 'Pipeline timeout' },
   { key: 'llm_profile', hint: 'Select LLM profile' },
+  { key: 'mcp_profiles', hint: 'Select MCP profiles for goal tasks' },
   { key: 'llm_output_sharing', hint: 'Share LLM outputs across steps' },
   { key: 'llm_content_sharing', hint: 'Share LLM prompts across steps' },
   { key: 'llm_content_include', hint: 'Only share matching paths with LLM' },
@@ -46,6 +47,7 @@ export const STEP_DIRECTIVES: LabDirective[] = [
   { key: 'depends_on', hint: 'Upstream steps' },
   { key: 'ignore_failure', hint: 'Ignore failures' },
   { key: 'llm_profile', hint: 'Select LLM profile' },
+  { key: 'mcp_profiles', hint: 'MCP profiles for goal tasks' },
   { key: 'llm_output_sharing', hint: 'Share step LLM output' },
 ];
 
@@ -56,6 +58,7 @@ export const TASK_DIRECTIVES: LabDirective[] = [
   { key: 'depends_on', hint: 'Dependent tasks' },
   { key: 'ignore_failure', hint: 'Ignore task errors' },
   { key: 'llm_profile', hint: 'Select LLM profile' },
+  { key: 'mcp_profiles', hint: 'MCP profiles for this goal task' },
   { key: 'llm_output_sharing', hint: 'Share task LLM output' },
 ];
 
@@ -67,8 +70,8 @@ export const DIRECTIVE_VALUE_METADATA: Record<string, { values: string[]; title:
 };
 
 export const LIST_KEYS_WITH_NAME_TEMPLATE = new Set(['steps', 'tasks']);
-export const LIST_KEYS_SIMPLE = new Set(['secrets', 'volumes', 'depends_on', 'artifacts', 'variables', 'llm_content_include', 'llm_content_ignore']);
-export const ARRAY_KEYS = new Set(['steps', 'tasks', 'variables', 'secrets', 'volumes', 'depends_on', 'artifacts', 'llm_content_include', 'llm_content_ignore']);
+export const LIST_KEYS_SIMPLE = new Set(['secrets', 'volumes', 'depends_on', 'artifacts', 'variables', 'mcp_profiles', 'llm_content_include', 'llm_content_ignore']);
+export const ARRAY_KEYS = new Set(['steps', 'tasks', 'variables', 'secrets', 'volumes', 'depends_on', 'artifacts', 'mcp_profiles', 'llm_content_include', 'llm_content_ignore']);
 
 const OVERRIDE_KEY_PATTERN = /^[A-Za-z0-9_.-]+$/;
 export const DEFAULT_PIPELINE_NAME = 'ad-hoc-pipeline';
@@ -213,6 +216,7 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'steps',
     'timeout',
     'llm_profile',
+    'mcp_profiles',
     'llm_content_sharing',
     'llm_output_sharing',
     'llm_content_include',
@@ -234,9 +238,10 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'depends_on',
     'ignore_failure',
     'llm_profile',
+    'mcp_profiles',
     'llm_output_sharing',
   ]);
-  const knownTaskKeys = new Set(['name', 'goal', 'script', 'depends_on', 'ignore_failure', 'llm_profile', 'llm_output_sharing']);
+  const knownTaskKeys = new Set(['name', 'goal', 'script', 'depends_on', 'ignore_failure', 'llm_profile', 'mcp_profiles', 'llm_output_sharing']);
   const knownDisplayOptionsKeys = new Set(['github_view']);
 
   const createError = (message: string, pathHints: string[] = []): LabValidationError => {
@@ -413,6 +418,16 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
           ],
         };
       }
+      if (isInclude && hasOwn(step, 'mcp_profiles')) {
+        return {
+          errors: [createError(`Validation Error: Include step '${stepName}' cannot define mcp_profiles.`, [`${stepPath}.mcp_profiles`, stepPath])],
+        };
+      }
+      if (hasScriptContent && hasOwn(step, 'mcp_profiles')) {
+        return {
+          errors: [createError(`Validation Error: Script step '${stepName}' cannot define mcp_profiles.`, [`${stepPath}.mcp_profiles`, stepPath])],
+        };
+      }
       if (hasTasks && (hasGoalKey || hasScriptKey)) {
         return {
           errors: [
@@ -470,6 +485,11 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
           if (taskHasScriptKey && !taskHasScriptContent) {
             return {
               errors: [createError(`Validation Error: Task '${taskName}' in step '${stepName}' has an empty 'script'.`, [`${taskPath}.script`, taskPath])],
+            };
+          }
+          if (taskHasScriptContent && hasOwn(task, 'mcp_profiles')) {
+            return {
+              errors: [createError(`Validation Error: Script task '${taskName}' in step '${stepName}' cannot define mcp_profiles.`, [`${taskPath}.mcp_profiles`, taskPath])],
             };
           }
           if (!taskHasGoalContent && !taskHasScriptContent) {
@@ -564,6 +584,7 @@ export type LabSuggestionType =
   | 'secrets'
   | 'variables'
   | 'llm_profile'
+  | 'mcp_profile'
   | 'directive-value'
   | 'pipeline-key'
   | 'step-key'
@@ -839,6 +860,9 @@ export function detectSuggestionContext(text: string, caret: number, selectionEn
   const secList = detectListEntryContext(lineInfo, selectionEnd, beforeLine, 'secrets');
   if (secList) return { ...secList, type: 'secrets', title: 'Secrets' };
 
+  const mcpList = detectListEntryContext(lineInfo, selectionEnd, beforeLine, 'mcp_profiles');
+  if (mcpList) return { ...mcpList, type: 'mcp_profile', title: 'MCP Profiles' };
+
   const variableContext = detectVariableContext(lineInfo, selectionEnd, beforeLine);
   if (variableContext) return variableContext;
 
@@ -868,6 +892,7 @@ export function buildSuggestionItems(
     secrets: string[];
     variables: string[];
     llmProfiles: string[];
+    mcpProfiles?: string[];
     reusableSteps: string[];
     pipelineIds: string[];
   }
@@ -883,6 +908,8 @@ export function buildSuggestionItems(
     pool = opts.variables.map(v => ({ value: v, label: v }));
   } else if (ctx.type === 'llm_profile') {
     pool = opts.llmProfiles.map(p => ({ value: p, label: p }));
+  } else if (ctx.type === 'mcp_profile') {
+    pool = (opts.mcpProfiles || []).map(p => ({ value: p, label: p }));
   } else if (ctx.type === 'include') {
     pool = [
       ...opts.reusableSteps.map(s => ({ value: `step:${s}`, label: `step:${s}` })),
@@ -920,6 +947,8 @@ export function suggestionCopyForContext(contextInfo: LabSuggestionContext | nul
       return { title: 'Include targets', subtitle: 'Reusable steps and pipelines.', footnote: 'Click or Tab to insert.' };
     case 'llm_profile':
       return { title: 'LLM profiles', subtitle: 'Profiles allowed for the selected scope.', footnote: 'Click or Tab to insert.' };
+    case 'mcp_profile':
+      return { title: 'MCP profiles', subtitle: 'Approved external tool bundles for goal tasks.', footnote: 'Click or Tab to insert.' };
     case 'pipeline-key':
       return { title: 'Pipeline directives', subtitle: 'Keys allowed at root level.', footnote: 'Tab to accept inline hint.' };
     case 'step-key':
