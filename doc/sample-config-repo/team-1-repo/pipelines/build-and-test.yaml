@@ -17,6 +17,13 @@ access:
 variables:
   - API_VERSION
   - IMAGE_NAME
+knowledge_context:
+  - kind: guardrail
+    ref: security/repo-check
+    required: true
+  - kind: architecture
+    ref: team-1/backend
+    required: true
 steps:
   - name: checkout
     include: step:team-1/shared/checkout

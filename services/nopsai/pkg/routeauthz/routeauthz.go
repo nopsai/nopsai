@@ -211,6 +211,19 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		case http.MethodDelete:
 			return "step.delete", resource, false, nil
 		}
+	case path == "/v1/knowledge-contexts" && r.Method == http.MethodGet:
+		return "knowledge_context.read", model.ResourceRef{Type: "knowledge_context", ID: "*"}, true, nil
+	case strings.HasPrefix(path, "/v1/knowledge-contexts/"):
+		resourceID := normalizePathIdentifier(pathValueOrTail(r, "knowledgeID", "/v1/knowledge-contexts/"))
+		resource = model.ResourceRef{Type: "knowledge_context", ID: resourceID}
+		switch r.Method {
+		case http.MethodGet:
+			return "knowledge_context.read", resource, false, nil
+		case http.MethodPut, http.MethodPatch:
+			return "knowledge_context.update", resource, false, nil
+		case http.MethodDelete:
+			return "knowledge_context.delete", resource, false, nil
+		}
 	case strings.HasPrefix(path, "/v1/access/"):
 		return "", model.ResourceRef{}, false, nil
 	}

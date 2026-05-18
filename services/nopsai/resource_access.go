@@ -559,6 +559,9 @@ func inheritedAccessParentFolders(resource accessGrantResource) []string {
 		return prefixes[:len(prefixes)-1]
 	case grantResourceRepo, grantResourceTrigger:
 		return folderPathPrefixes(repositoryParentPath(resource.ID))
+	case grantResourceKnowledgeContext:
+		_, group, _, _ := splitKnowledgeContextIdentifier(resource.ID)
+		return folderPathPrefixes(group)
 	case grantResourceSecret, grantResourceVariable:
 		repoName, scope, _ := model.ParseNamedResourceID(resource.ID)
 		if scope != "" {
@@ -662,6 +665,12 @@ func setResourceVisibilityWithRunner(ctx context.Context, runner execRunner, res
 		tag, err = runner.Exec(ctx, `UPDATE steps SET visibility = $1 WHERE path = $2 AND name = $3`, visibility, path, name)
 	case grantResourceConfig:
 		tag, err = runner.Exec(ctx, `UPDATE config_repositories SET visibility = $1 WHERE id::text = $2 OR scope_id = $2`, visibility, resource.ID)
+	case grantResourceKnowledgeContext:
+		kind, group, name, splitErr := splitKnowledgeContextIdentifier(resource.ID)
+		if splitErr != nil {
+			return splitErr
+		}
+		tag, err = runner.Exec(ctx, `UPDATE knowledge_contexts SET visibility = $1, updated_at = NOW() WHERE kind = $2 AND group_path = $3 AND name = $4`, visibility, kind, group, name)
 	default:
 		_, err = runner.Exec(ctx, `
 			INSERT INTO resource_visibility (resource_type, resource_id, visibility, updated_at)
@@ -709,7 +718,7 @@ func validateResourceVisibilityPolicy(resourceType, visibility string) error {
 		return nil
 	}
 	switch resourceType {
-	case grantResourcePipeline, grantResourceStep, grantResourceConfig:
+	case grantResourcePipeline, grantResourceStep, grantResourceConfig, grantResourceKnowledgeContext:
 		return nil
 	case grantResourceScope, grantResourceSecret, grantResourceVariable, grantResourceRunner:
 		return fmt.Errorf("workspace visibility is not available for this resource yet")
@@ -770,6 +779,8 @@ func defaultUseActionForResource(resourceType string) (string, error) {
 		return "runner.use", nil
 	case grantResourceConfig:
 		return "config_repo.use", nil
+	case grantResourceKnowledgeContext:
+		return "knowledge_context.use", nil
 	default:
 		return "", fmt.Errorf("use grants are not supported for %s", resourceType)
 	}

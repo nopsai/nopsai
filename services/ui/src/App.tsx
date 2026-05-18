@@ -6,6 +6,7 @@ import TriggersPage from './pages/Triggers';
 import ScopesPage from './pages/Scopes';
 import LabPage from './pages/Lab';
 import StepsPage from './pages/Steps';
+import KnowledgeContextPage from './pages/KnowledgeContext';
 import SystemPage from './pages/System';
 import LoginPage from './pages/Login';
 import ProfilePage from './pages/Profile';
@@ -88,6 +89,7 @@ type CurrentUser = {
     steps?: ResourceCapabilities;
     triggers?: ReadCapabilities;
     scopes?: ReadCapabilities;
+    knowledge_contexts?: ReadCapabilities;
     system?: SystemCapabilities;
   };
 };
@@ -168,6 +170,11 @@ const baseNavItems: NavItem[] = [
     icon: <IconSteps />,
   },
   {
+    label: 'Knowledge Context',
+    path: '/knowledge-context',
+    icon: <IconKnowledge />,
+  },
+  {
     label: 'System',
     path: '/system/config',
     icon: <IconCog />,
@@ -189,6 +196,7 @@ const titleMap: Record<string, string> = {
   scopes: 'Scopes',
   lab: 'Lab',
   steps: 'Steps',
+  'knowledge-context': 'Knowledge Context',
   system: 'System',
   profile: 'Profile',
 };
@@ -331,6 +339,14 @@ function AppShell() {
                         delete: Boolean(data.capabilities.scopes.delete),
                       }
                     : undefined,
+                knowledge_contexts:
+                  data.capabilities.knowledge_contexts && typeof data.capabilities.knowledge_contexts === 'object'
+                    ? {
+                        read: Boolean(data.capabilities.knowledge_contexts.read),
+                        write: Boolean(data.capabilities.knowledge_contexts.write),
+                        delete: Boolean(data.capabilities.knowledge_contexts.delete),
+                      }
+                    : undefined,
                 system:
                   data.capabilities.system && typeof data.capabilities.system === 'object'
                     ? {
@@ -403,6 +419,9 @@ function AppShell() {
   const canDeleteTriggers = Boolean(currentUser?.capabilities?.triggers?.delete);
   const canViewScopes = Boolean(currentUser?.capabilities?.scopes?.read);
   const canDeleteScopes = Boolean(currentUser?.capabilities?.scopes?.delete);
+  const canViewKnowledge = Boolean(currentUser?.capabilities?.knowledge_contexts?.read);
+  const canWriteKnowledge = Boolean(currentUser?.capabilities?.knowledge_contexts?.write);
+  const canDeleteKnowledge = Boolean(currentUser?.capabilities?.knowledge_contexts?.delete);
   const canViewSystemRuntimeConfig = Boolean(currentUser?.capabilities?.system?.configRead);
   const canManageSystemRuntimeConfig = Boolean(currentUser?.capabilities?.system?.configWrite);
   const canViewSystemLLMProfiles = Boolean(currentUser?.capabilities?.system?.llmProfilesRead) || canViewSystemRuntimeConfig;
@@ -434,9 +453,10 @@ function AppShell() {
         if (item.path.startsWith('/system')) return canViewAnySystem;
         if (item.path === '/triggers') return canViewTriggers;
         if (item.path === '/scopes') return canViewScopes;
+        if (item.path === '/knowledge-context') return canViewKnowledge;
         return true;
       });
-  }, [canViewAnySystem, canViewScopes, canViewTriggers, preferredSystemPath]);
+  }, [canViewAnySystem, canViewKnowledge, canViewScopes, canViewTriggers, preferredSystemPath]);
   const systemSubNav = useMemo(
     () =>
       baseSystemSubNav.filter(item => {
@@ -956,6 +976,13 @@ function AppShell() {
 	                    path="/steps/*"
 	                    element={<StepsPage draftScope={draftScope} canDeleteSteps={canDeleteSteps} />}
 	                  />
+                  <Route
+                    path="/knowledge-context/*"
+                    element={renderAccessControlledPage(
+                      canViewKnowledge,
+                      <KnowledgeContextPage canWriteKnowledge={canWriteKnowledge} canDeleteKnowledge={canDeleteKnowledge} />
+                    )}
+                  />
                   <Route
                     path="/system/:tab?"
                     element={renderAccessControlledPage(
@@ -2505,6 +2532,15 @@ function IconSteps() {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 2l8 4.5v11L12 22 4 17.5v-11L12 2z" />
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 22v-7.5" />
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 6.5l-8 4.5-8-4.5" />
+    </svg>
+  );
+}
+
+function IconKnowledge() {
+  return (
+    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" d="M4 5.5A2.5 2.5 0 016.5 3H20v16H6.5A2.5 2.5 0 014 16.5z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" d="M8 7h8M8 11h8M8 15h5" />
     </svg>
   );
 }

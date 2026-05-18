@@ -861,6 +861,19 @@ func normalizeAccessGrantResourceIDForBinding(resourceType, resourceID string, b
 	if resourceType == grantResourcePlatform {
 		return platformGrantID, nil
 	}
+	if resourceType == grantResourceKnowledgeContext {
+		kind, group, name, err := splitKnowledgeContextIdentifier(resourceID)
+		if err != nil {
+			return "", err
+		}
+		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+			group, err = normalizeConfigPathForFolder(boundFolder, group)
+			if err != nil {
+				return "", err
+			}
+		}
+		return buildKnowledgeContextIdentifier(kind, group, name), nil
+	}
 	if resourceType == grantResourceSecret || resourceType == grantResourceVariable {
 		if !strings.Contains(resourceID, "=") {
 			resourceID = model.BuildNamedResourceID("", "", resourceID)
@@ -935,6 +948,9 @@ func accessGrantResourceUnderBindingScope(resourceType, resourceID, boundFolder 
 			}
 		}
 		return checked
+	case grantResourceKnowledgeContext:
+		_, group, _, err := splitKnowledgeContextIdentifier(resourceID)
+		return err == nil && configResourceUnderScope(group, boundFolder)
 	case grantResourcePlatform:
 		return false
 	default:
@@ -954,6 +970,11 @@ func accessGrantResourceIntersectsAnyScope(resourceType, resourceID string, scop
 				return true
 			}
 			if secretScope != "" && configResourceUnderScope(secretScope, scope) {
+				return true
+			}
+		case grantResourceKnowledgeContext:
+			_, group, _, err := splitKnowledgeContextIdentifier(resourceID)
+			if err == nil && configResourceUnderScope(group, scope) {
 				return true
 			}
 		default:

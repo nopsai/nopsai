@@ -15,6 +15,12 @@ llm_profile: reasoning
 # setting/system/mcp.yaml. Pipelines only reference profiles; they do not define servers.
 mcp_profiles:
   - github-readonly
+knowledge_context:
+  - kind: guardrail
+    ref: security/repo-check
+    required: true
+  - kind: architecture
+    path: .nopsai/docs/backend.md
 display_options:
   github_view: "mermaid" # mermaid, tree or flat
 container_image: "hoseindocker/pipeline-image:latest"

@@ -139,6 +139,7 @@ type authCapabilitiesResponse struct {
 	Steps     authResourceCapabilities `json:"steps"`
 	Triggers  authReadCapabilities     `json:"triggers"`
 	Scopes    authReadCapabilities     `json:"scopes"`
+	Knowledge authReadCapabilities     `json:"knowledge_contexts"`
 	System    authSystemCapabilities   `json:"system"`
 }
 
@@ -1220,6 +1221,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		"llm_profiles_synced":         0,
 		"mcp_servers_synced":          0,
 		"mcp_profiles_synced":         0,
+		"knowledge_contexts_synced":   0,
 	}
 
 	repoURL := strings.TrimSpace(binding.RepoURL)
@@ -1254,6 +1256,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	pipelineRunDir := configRepoJoinPath(basePath, "pipelineruns")
 	configRepositoryDir := configRepoJoinPath(basePath, "config-repositories")
 	accessDir := configRepoJoinPath(basePath, "access")
+	knowledgeDir := configRepoJoinPath(basePath, "knowledge")
 	settingDir := configRepoJoinPath(basePath, "setting")
 	settingsDir := configRepoJoinPath(basePath, "settings")
 
@@ -1287,6 +1290,10 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	accessFiles, err := a.requestGitBotDirectory(owner, repo, branch, accessDir)
 	if err != nil {
 		return nil, commitSHA, fmt.Errorf("failed to fetch access manifests: %w", err)
+	}
+	knowledgeFiles, err := a.requestGitBotDirectory(owner, repo, branch, knowledgeDir)
+	if err != nil {
+		return nil, commitSHA, fmt.Errorf("failed to fetch knowledge contexts: %w", err)
 	}
 	settingFiles, err := a.requestGitBotDirectory(owner, repo, branch, settingDir)
 	if err != nil {
@@ -1405,6 +1412,10 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	}
 
 	accessPlan, err := parseAccessSyncPlan(accessFiles, accessDir, binding, boundFolder)
+	if err != nil {
+		return nil, commitSHA, err
+	}
+	knowledgeContexts, err := parseGitOpsKnowledgeContexts(knowledgeFiles, knowledgeDir, binding, boundFolder, accessPlan)
 	if err != nil {
 		return nil, commitSHA, err
 	}
@@ -1654,7 +1665,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	if err != nil {
 		return nil, commitSHA, err
 	}
-	filterDelegatedConfigResources(binding, overrideScopes, pipelines, steps, generalScopeVars, repoScopeVars, triggers)
+	filterDelegatedConfigResources(binding, overrideScopes, pipelines, steps, knowledgeContexts, generalScopeVars, repoScopeVars, triggers)
 	filterDelegatedAccessResources(accessPlan, binding, overrideScopes)
 	effectivePipelineRunStructure, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, pipelineRunStructure, configRepositoryPipelineRunStructure, overrideScopes)
 	if err != nil {
@@ -1680,6 +1691,23 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		) VALUES ($1, $2, $3, 'git', $4, $5, $6, TRUE, NOW())
 		ON CONFLICT (path, name) DO UPDATE SET
 			definition = EXCLUDED.definition,
+			source = 'git',
+			config_repo_id = EXCLUDED.config_repo_id,
+			config_source_path = EXCLUDED.config_source_path,
+			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
+			managed_by_config_repo = TRUE,
+			updated_at = NOW()`
+	const knowledgeContextUpsert = `INSERT INTO knowledge_contexts (
+			kind, group_path, name, title, description, content, content_format,
+			visibility, source, config_repo_id, config_source_path, config_source_commit_sha,
+			managed_by_config_repo, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'git', $9, $10, $11, TRUE, NOW())
+		ON CONFLICT (kind, group_path, name) DO UPDATE SET
+			title = EXCLUDED.title,
+			description = EXCLUDED.description,
+			content = EXCLUDED.content,
+			content_format = EXCLUDED.content_format,
+			visibility = EXCLUDED.visibility,
 			source = 'git',
 			config_repo_id = EXCLUDED.config_repo_id,
 			config_source_path = EXCLUDED.config_source_path,
@@ -1771,7 +1799,22 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		details["steps_synced"]++
 	}
 
-	// D. Upsert General Scope Vars
+	// D. Upsert Knowledge Contexts
+	for key, stored := range knowledgeContexts {
+		writable, err := ensureConfigResourceWritable(ctx, tx, "knowledge_contexts", "knowledge context", key, binding, stored.group, "kind = $1 AND group_path = $2 AND name = $3", stored.kind, stored.group, stored.name)
+		if err != nil {
+			return nil, commitSHA, err
+		}
+		if !writable {
+			continue
+		}
+		if _, err := tx.Exec(ctx, knowledgeContextUpsert, stored.kind, stored.group, stored.name, stored.title, stored.description, stored.content, stored.format, stored.visibility, binding.ID, stored.sourcePath, commitSHA); err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to upsert knowledge context '%s': %w", key, err)
+		}
+		details["knowledge_contexts_synced"]++
+	}
+
+	// E. Upsert General Scope Vars
 	for key, stored := range generalScopeVars {
 		scopeParam := runtimeScopeForStorage(key.scopePath)
 		resourceID := fmt.Sprintf("scope=%s name=%s", runtimeScopeForDisplay(key.scopePath), key.name)
@@ -1788,7 +1831,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		details["general_vars_synced"]++
 	}
 
-	// E. Upsert Repo Scope Vars
+	// F. Upsert Repo Scope Vars
 	for key, stored := range repoScopeVars {
 		scopeParam := runtimeScopeForStorage(key.scopePath)
 		resourceID := fmt.Sprintf("repo=%s scope=%s name=%s", key.repo, runtimeScopeForDisplay(key.scopePath), key.name)
@@ -1805,7 +1848,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		details["repo_vars_synced"]++
 	}
 
-	// F. Upsert Triggers
+	// G. Upsert Triggers
 	for repoName, stored := range triggers {
 		writable, err := ensureConfigResourceWritable(ctx, tx, "triggers", "trigger", repoName, binding, repoName, "repository_name = $1", repoName)
 		if err != nil {
@@ -1876,7 +1919,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 			rows.Close()
 		}
 		if len(prunedRepoIDs) > 0 {
-			for _, tableName := range []string{"config_repositories", "pipelines", "steps", "triggers", "variables", "secrets"} {
+			for _, tableName := range []string{"config_repositories", "pipelines", "steps", "triggers", "variables", "secrets", "knowledge_contexts"} {
 				if _, err := tx.Exec(ctx, fmt.Sprintf(`
 					UPDATE %s
 					SET config_repo_id = NULL,
@@ -1944,7 +1987,35 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		}
 	}
 
-	// 3. Prune Triggers
+	// 3. Prune Knowledge Contexts
+	{
+		var kinds, groups, names []string
+		for _, knowledge := range knowledgeContexts {
+			kinds = append(kinds, knowledge.kind)
+			groups = append(groups, knowledge.group)
+			names = append(names, knowledge.name)
+		}
+		if len(kinds) == 0 {
+			if _, err := tx.Exec(ctx, "DELETE FROM knowledge_contexts WHERE managed_by_config_repo = TRUE AND config_repo_id = $1", binding.ID); err != nil {
+				return nil, commitSHA, fmt.Errorf("failed to prune knowledge contexts: %w", err)
+			}
+		} else {
+			if _, err := tx.Exec(ctx, `
+				DELETE FROM knowledge_contexts
+				WHERE managed_by_config_repo = TRUE
+				AND config_repo_id = $4
+				AND NOT EXISTS (
+					SELECT 1 FROM unnest($1::text[], $2::text[], $3::text[]) AS t(k, g, n)
+					WHERE knowledge_contexts.kind = t.k
+					  AND knowledge_contexts.group_path = t.g
+					  AND knowledge_contexts.name = t.n
+				)`, kinds, groups, names, binding.ID); err != nil {
+				return nil, commitSHA, fmt.Errorf("failed to prune knowledge contexts: %w", err)
+			}
+		}
+	}
+
+	// 4. Prune Triggers
 	{
 		var repos []string
 		for repo := range triggers {
@@ -1961,7 +2032,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		}
 	}
 
-	// 4. Prune Variables (Scope Variables)
+	// 5. Prune Variables (Scope Variables)
 	{
 		var names []string
 		var repos []*string
@@ -2042,6 +2113,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		Str("repo_name", repo).
 		Int("pipelines_synced", details["pipelines_synced"]).
 		Int("steps_synced", details["steps_synced"]).
+		Int("knowledge_contexts_synced", details["knowledge_contexts_synced"]).
 		Int("general_vars_synced", details["general_vars_synced"]).
 		Int("repo_vars_synced", details["repo_vars_synced"]).
 		Int("triggers_synced", details["triggers_synced"]).
@@ -2539,6 +2611,7 @@ func filterDelegatedConfigResources(
 	overrideScopes []string,
 	pipelines map[string]storedPipeline,
 	steps map[string]storedStep,
+	knowledgeContexts map[string]storedKnowledgeContext,
 	generalScopeVars map[generalScopeVarKey]storedScopeVar,
 	repoScopeVars map[repoScopeVarKey]storedScopeVar,
 	triggers map[string]storedTrigger,
@@ -2555,6 +2628,15 @@ func filterDelegatedConfigResources(
 	for key := range steps {
 		if configResourceUnderAnyScope(key, overrideScopes) {
 			delete(steps, key)
+		}
+	}
+	for key, knowledge := range knowledgeContexts {
+		scope := knowledge.group
+		if scope == "" {
+			scope = key
+		}
+		if configResourceUnderAnyScope(scope, overrideScopes) {
+			delete(knowledgeContexts, key)
 		}
 	}
 	for key := range generalScopeVars {
@@ -3915,6 +3997,9 @@ func main() {
 	}
 	if err := ensureConfigRepositorySchema(context.Background(), dbpool); err != nil {
 		log.Fatal().Err(err).Msg("Failed to ensure config repository schema")
+	}
+	if err := ensureKnowledgeContextSchema(context.Background(), dbpool); err != nil {
+		log.Fatal().Err(err).Msg("Failed to ensure knowledge context schema")
 	}
 	if err := ensureResourceAuthorizationSchema(context.Background(), dbpool); err != nil {
 		log.Fatal().Err(err).Msg("Failed to ensure resource authorization schema")
