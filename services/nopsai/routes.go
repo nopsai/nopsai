@@ -104,6 +104,13 @@ func (a *App) registerPipelineRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /v1/overrides/{repoOwner}/{repoName}", a.handleDeleteTriggerOverride)
 }
 
+func (a *App) registerKnowledgeContextRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /v1/knowledge-contexts", a.handleListKnowledgeContexts)
+	mux.HandleFunc("GET /v1/knowledge-contexts/{knowledgeID...}", a.handleGetKnowledgeContext)
+	mux.HandleFunc("PUT /v1/knowledge-contexts/{knowledgeID...}", a.handleUpsertKnowledgeContext)
+	mux.HandleFunc("DELETE /v1/knowledge-contexts/{knowledgeID...}", a.handleDeleteKnowledgeContext)
+}
+
 func (a *App) registerSecretVariableRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/secrets", a.handleListGeneralSecrets)
 	mux.HandleFunc("GET /v1/secrets/scopes", a.handleListSecretScopes)
@@ -151,6 +158,7 @@ func (a *App) buildHTTPHandler() http.Handler {
 	a.registerSystemRoutes(mux)
 	a.registerFolderConfigRepositoryRoutes(mux)
 	a.registerPipelineRoutes(mux)
+	a.registerKnowledgeContextRoutes(mux)
 	a.registerSecretVariableRoutes(mux)
 	a.registerRunRoutes(mux)
 

@@ -156,6 +156,12 @@ func (a *App) AuthorizeResourceUse(ctx context.Context, input ResourceUseAuthInp
 		result.ResourceGroup = resourceGroup.Path
 	}
 	if callerGroup.Valid && resourceGroup.Valid && IsSameGroupBoundary(callerGroup.Path, resourceGroup.Path) {
+		if sameGroupResourceUseAllowed(resourceType, visibility) {
+			result.Allowed = true
+			result.Reason = resourceUseReasonSameGroup
+			result.MatchedResource = formatResourceLabel(grantResourceFolder, resourceGroup.Path)
+			return result, nil
+		}
 		if folderAllowed, folderDecision, checkErr := a.callerHasFolderAction(ctx, subject, action, resourceGroup.Path); checkErr != nil {
 			return result, checkErr
 		} else if folderAllowed {
@@ -222,6 +228,21 @@ func (a *App) AuthorizeResourceUse(ctx context.Context, input ResourceUseAuthInp
 	return result, nil
 }
 
+func sameGroupResourceUseAllowed(resourceType, visibility string) bool {
+	switch normalizeResourceVisibility(visibility) {
+	case resourceVisibilityGroup, resourceVisibilityRestricted:
+	default:
+		return false
+	}
+
+	switch strings.TrimSpace(resourceType) {
+	case grantResourcePipeline, grantResourceScope, grantResourceStep, grantResourceKnowledgeContext:
+		return true
+	default:
+		return false
+	}
+}
+
 func isExplicitResourceUseDeny(decision model.Decision) bool {
 	if decision.Allowed {
 		return false
@@ -261,6 +282,13 @@ func normalizeResourceUseResourceID(resourceType, raw string) (string, error) {
 	}
 	if resourceType == grantResourceSecret || resourceType == grantResourceVariable {
 		resourceID = runtimeNamedResourceIDForResource(resourceID)
+	}
+	if resourceType == grantResourceKnowledgeContext {
+		kind, group, name, err := splitKnowledgeContextIdentifier(resourceID)
+		if err != nil {
+			return "", err
+		}
+		resourceID = buildKnowledgeContextIdentifier(kind, group, name)
 	}
 	if resourceID == "" {
 		return "", fmt.Errorf("resource_id is required")
@@ -415,6 +443,12 @@ func (a *App) ResolveResourceGroup(ctx context.Context, resourceType, resourceID
 			return groupRefFromPath(scope), nil
 		}
 		return groupRefFromPath(repositoryParentPath(repoName)), nil
+	case grantResourceKnowledgeContext:
+		_, group, _, err := splitKnowledgeContextIdentifier(resourceID)
+		if err != nil {
+			return GroupRef{}, err
+		}
+		return groupRefFromPath(group), nil
 	default:
 		return GroupRef{}, nil
 	}

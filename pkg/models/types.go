@@ -34,17 +34,18 @@ type RunListItem struct {
 }
 
 type StepConfiguration struct {
-	Image            string            `json:"image,omitempty"`
-	Include          string            `json:"include,omitempty"`
-	Sync             bool              `json:"sync"`
-	Secrets          []string          `json:"secrets,omitempty"`
-	Volumes          []string          `json:"volumes,omitempty"`
-	Variables        map[string]string `json:"variables,omitempty"`
-	IgnoreFailure    bool              `json:"ignore_failure"`
-	LlmOutputSharing *bool             `json:"llm_output_sharing,omitempty"`
-	LLMProfile       string            `json:"llm_profile,omitempty"`
-	MCPProfiles      []string          `json:"mcp_profiles,omitempty"`
-	Tasks            []Task            `json:"tasks,omitempty"`
+	Image            string                `json:"image,omitempty"`
+	Include          string                `json:"include,omitempty"`
+	Sync             bool                  `json:"sync"`
+	Secrets          []string              `json:"secrets,omitempty"`
+	Volumes          []string              `json:"volumes,omitempty"`
+	Variables        map[string]string     `json:"variables,omitempty"`
+	IgnoreFailure    bool                  `json:"ignore_failure"`
+	LlmOutputSharing *bool                 `json:"llm_output_sharing,omitempty"`
+	LLMProfile       string                `json:"llm_profile,omitempty"`
+	MCPProfiles      []string              `json:"mcp_profiles,omitempty"`
+	KnowledgeContext []KnowledgeContextRef `json:"knowledge_context,omitempty"`
+	Tasks            []Task                `json:"tasks,omitempty"`
 }
 
 type StepDetail struct {
@@ -75,12 +76,13 @@ type ParentRunInfo struct {
 }
 
 type RunDetail struct {
-	RunInfo                RunListItem    `json:"run_info"`
-	Steps                  []StepDetail   `json:"steps"`
-	PipelineDefinition     Pipeline       `json:"pipeline_definition"`
-	PipelineDefinitionYAML string         `json:"pipeline_definition_yaml"`
-	ChildRuns              []RunListItem  `json:"child_runs"`
-	ParentRunInfo          *ParentRunInfo `json:"parent_run_info,omitempty"`
+	RunInfo                RunListItem                `json:"run_info"`
+	Steps                  []StepDetail               `json:"steps"`
+	PipelineDefinition     Pipeline                   `json:"pipeline_definition"`
+	PipelineDefinitionYAML string                     `json:"pipeline_definition_yaml"`
+	KnowledgeContexts      []KnowledgeContextSnapshot `json:"knowledge_contexts,omitempty"`
+	ChildRuns              []RunListItem              `json:"child_runs"`
+	ParentRunInfo          *ParentRunInfo             `json:"parent_run_info,omitempty"`
 }
 
 type StepStatusUpdate struct {

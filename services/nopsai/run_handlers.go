@@ -351,6 +351,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 			LlmOutputSharing: pStep.GetLlmOutputSharing(),
 			LLMProfile:       pStep.GetLLMProfile(),
 			MCPProfiles:      pStep.GetMCPProfiles(),
+			KnowledgeContext: pStep.GetKnowledgeContext(),
 			Tasks:            pStep.GetTasks(),
 		}
 
@@ -364,11 +365,17 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	knowledgeContexts, err := a.loadRunKnowledgeContextSnapshots(r.Context(), runID)
+	if err != nil {
+		log.Warn().Err(err).Str("run_id", runID).Msg("Failed to load run knowledge context snapshots")
+	}
+
 	response := RunDetail{
 		RunInfo:                run,
 		Steps:                  steps,
 		PipelineDefinition:     originalPipeline,
 		PipelineDefinitionYAML: pipelineDefinition,
+		KnowledgeContexts:      knowledgeContexts,
 		ChildRuns:              childRuns,
 		ParentRunInfo:          parentRunInfo,
 	}
@@ -677,6 +684,21 @@ func (a *App) resolveGroupIDForRepo(repoOwner, repoName string) (sql.NullInt32, 
 	return groupID, nil
 }
 
+func nullableGitCheckRunID(gitContext map[string]string) sql.NullInt64 {
+	if gitContext == nil {
+		return sql.NullInt64{}
+	}
+	value := strings.TrimSpace(gitContext["check_run_id"])
+	if value == "" {
+		return sql.NullInt64{}
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: parsed, Valid: true}
+}
+
 func (a *App) recordMissingPipelineRun(identifier string, pipelineVersion string, pipelineDef []byte, gitContext map[string]string, scopeValue, pipelineSource, summary string) {
 	runID := uuid.New()
 	pathPart, namePart, _, err := splitPipelineIdentifier(identifier)
@@ -709,6 +731,7 @@ func (a *App) recordMissingPipelineRun(identifier string, pipelineVersion string
 			gitContext["trigger_event_id"] = id
 		}
 	}
+	checkRunIDSQL := nullableGitCheckRunID(gitContext)
 
 	now := time.Now()
 	_, err = a.db.Exec(context.Background(), `
@@ -742,7 +765,7 @@ func (a *App) recordMissingPipelineRun(identifier string, pipelineVersion string
 		gitContext["commit_author_username"],
 		gitContext["pusher_name"],
 		gitContext["pusher_email"],
-		gitContext["check_run_id"],
+		checkRunIDSQL,
 		groupID,
 		triggerEventIDSQL,
 		scopeValue,
@@ -791,13 +814,7 @@ func (a *App) recordAuthorizationDeniedPipelineRun(identifier string, pipelineVe
 		gitContext["trigger_event_id"] = id
 	}
 
-	var checkRunIDSQL sql.NullInt64
-	if value := strings.TrimSpace(gitContext["check_run_id"]); value != "" {
-		if parsed, parseErr := strconv.ParseInt(value, 10, 64); parseErr == nil {
-			checkRunIDSQL.Int64 = parsed
-			checkRunIDSQL.Valid = true
-		}
-	}
+	checkRunIDSQL := nullableGitCheckRunID(gitContext)
 
 	authSnapshot, snapshotErr := buildRunAuthorizationSnapshot(triggerSource, callerType, callerID, authChecks)
 	if snapshotErr != nil {
@@ -1140,13 +1157,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		log.Error().Err(err).Str("repo", repoFullName).Msg("Failed to find or create group for repository")
 	}
 
-	var checkRunIDSQL sql.NullInt64
-	if val := gitContext["check_run_id"]; val != "" {
-		if parsed, err := strconv.ParseInt(val, 10, 64); err == nil {
-			checkRunIDSQL.Int64 = parsed
-			checkRunIDSQL.Valid = true
-		}
-	}
+	checkRunIDSQL := nullableGitCheckRunID(gitContext)
 
 	_, err = a.db.Exec(context.Background(),
 		`INSERT INTO pipeline_runs (run_id, parent_run_id, pipeline_name, pipeline_path, pipeline_version, status, pipeline_definition,
@@ -1256,6 +1267,22 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, errMsg, http.StatusBadRequest)
 		a.updateRunRecordWithFailure(runID, errMsg, gitContext)
 		return
+	}
+	_, knowledgeAuthChecks, err := a.resolveKnowledgeContextsForRun(r.Context(), runID, callerType, callerID, triggerSource, gitContext, *resolvedPipeline)
+	if err != nil {
+		errMsg := fmt.Sprintf("Knowledge context resolution failed: %v", err)
+		authChecks = mergeResourceUseAuthResults(authChecks, knowledgeAuthChecks)
+		if updatedSnapshot, snapshotErr := buildRunAuthorizationSnapshot(triggerSource, callerType, callerID, authChecks); snapshotErr == nil {
+			_, _ = a.db.Exec(context.Background(), "UPDATE pipeline_runs SET authorization_snapshot = $1::jsonb WHERE run_id = $2", string(updatedSnapshot), runID)
+		}
+		http.Error(w, errMsg, http.StatusForbidden)
+		a.updateRunRecordWithFailure(runID, errMsg, gitContext)
+		return
+	}
+	authChecks = mergeResourceUseAuthResults(authChecks, knowledgeAuthChecks)
+	if updatedSnapshot, snapshotErr := buildRunAuthorizationSnapshot(triggerSource, callerType, callerID, authChecks); snapshotErr == nil && string(updatedSnapshot) != string(authSnapshot) {
+		authSnapshot = updatedSnapshot
+		_, _ = a.db.Exec(context.Background(), "UPDATE pipeline_runs SET authorization_snapshot = $1::jsonb WHERE run_id = $2", string(authSnapshot), runID)
 	}
 
 	resolvedPipelineDef, err := yaml.Marshal(resolvedPipeline)
@@ -1445,6 +1472,7 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	triggerEventIDSQL.String = newTriggerID
 	triggerEventIDSQL.Valid = true
 	gitContext["trigger_event_id"] = newTriggerID
+	checkRunIDSQL := nullableGitCheckRunID(gitContext)
 
 	_, err = a.db.Exec(context.Background(),
 		`INSERT INTO pipeline_runs (run_id, pipeline_name, pipeline_path, pipeline_version, status, pipeline_definition,
@@ -1458,7 +1486,7 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 		gitContext["repo_owner"], gitContext["repo_name"], gitContext["clone_url"], gitContext["ssh_url"], gitContext["ref"], gitContext["target_ref"],
 		gitContext["commit_sha"], gitContext["commit_url"], gitContext["commit_message"], gitContext["commit_author_name"],
 		gitContext["commit_author_email"], gitContext["commit_author_username"], gitContext["pusher_name"],
-		gitContext["pusher_email"], gitContext["check_run_id"], groupID, triggerEventIDSQL, scope.String,
+		gitContext["pusher_email"], checkRunIDSQL, groupID, triggerEventIDSQL, scope.String,
 		pipelineSourceDB.String, rerunTriggerSource, rerunCallerType, rerunCallerID, rerunCallerType, rerunCallerID, string(authSnapshot),
 	)
 	if err != nil {
@@ -1509,6 +1537,22 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 		a.updateRunRecordWithFailure(runID, errMsg, gitContext)
 		http.Error(w, errMsg, http.StatusBadRequest)
 		return
+	}
+	_, knowledgeAuthChecks, err := a.resolveKnowledgeContextsForRun(r.Context(), runID, rerunCallerType, rerunCallerID, rerunTriggerSource, gitContext, *resolvedPipeline)
+	if err != nil {
+		errMsg := fmt.Sprintf("Knowledge context resolution failed on rerun: %v", err)
+		authChecks = mergeResourceUseAuthResults(authChecks, knowledgeAuthChecks)
+		if updatedSnapshot, snapshotErr := buildRunAuthorizationSnapshot(rerunTriggerSource, rerunCallerType, rerunCallerID, authChecks); snapshotErr == nil {
+			_, _ = a.db.Exec(context.Background(), "UPDATE pipeline_runs SET authorization_snapshot = $1::jsonb WHERE run_id = $2", string(updatedSnapshot), runID)
+		}
+		a.updateRunRecordWithFailure(runID, errMsg, gitContext)
+		http.Error(w, errMsg, http.StatusForbidden)
+		return
+	}
+	authChecks = mergeResourceUseAuthResults(authChecks, knowledgeAuthChecks)
+	if updatedSnapshot, snapshotErr := buildRunAuthorizationSnapshot(rerunTriggerSource, rerunCallerType, rerunCallerID, authChecks); snapshotErr == nil && string(updatedSnapshot) != string(authSnapshot) {
+		authSnapshot = updatedSnapshot
+		_, _ = a.db.Exec(context.Background(), "UPDATE pipeline_runs SET authorization_snapshot = $1::jsonb WHERE run_id = $2", string(authSnapshot), runID)
 	}
 
 	resolvedPipelineDef, err := yaml.Marshal(resolvedPipeline)
@@ -2017,6 +2061,20 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", reason, runID)
 		return
 	}
+	knowledgeSnapshots, err := a.loadRunKnowledgeContextSnapshots(ctx, runID)
+	if err != nil {
+		reason := fmt.Sprintf("Failed to load knowledge context snapshots: %v", err)
+		log.Error().Str("run_id", runID).Msg(reason)
+		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", reason, runID)
+		return
+	}
+	knowledgeSnapshotsEnv, err := snapshotsJSONBase64(knowledgeSnapshots)
+	if err != nil {
+		reason := "Failed to marshal knowledge context snapshots"
+		log.Error().Err(err).Str("run_id", runID).Msg(reason)
+		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", reason, runID)
+		return
+	}
 
 	agentImageName := a.getAgentImage()
 	if agentImageName == "" {
@@ -2048,6 +2106,7 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 		fmt.Sprintf("PIPELINE_VERSION=%s", pipeline.Version),
 		fmt.Sprintf("%s=%s", llmProfilesRuntimeEnv, base64.StdEncoding.EncodeToString(runtimeProfilesJSON)),
 		fmt.Sprintf("%s=%s", mcpRegistryRuntimeEnv, base64.StdEncoding.EncodeToString(runtimeMCPRegistryJSON)),
+		fmt.Sprintf("NOPSAI_KNOWLEDGE_CONTEXTS=%s", knowledgeSnapshotsEnv),
 		fmt.Sprintf("NOPSAI_API_URL=%s", cfg.AgentNopsaiAPIURL),
 		fmt.Sprintf("LOG_LEVEL=%s", cfg.LogLevel),
 		fmt.Sprintf("LOG_FORMAT=%s", cfg.LogFormat),

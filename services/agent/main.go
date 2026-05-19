@@ -887,6 +887,11 @@ func run() int {
 		agentLog(runID, pipelineName).Error().Err(err).Msg("Failed to unmarshal pipeline definition")
 		return 1
 	}
+	knowledgeSnapshots, err := loadRuntimeKnowledgeContexts()
+	if err != nil {
+		agentLog(runID, pipelineName).Error().Err(err).Msg("Failed to load knowledge context snapshots")
+		return 1
+	}
 	workingDirectory, err := models.NormalizePipelineWorkingDirectory(pipeline.WorkingDirectory)
 	if err != nil {
 		agentLog(runID, pipelineName).Error().Err(err).Msg("Invalid pipeline working_directory")
@@ -1117,7 +1122,8 @@ func run() int {
 					historySnapshot := history.String()
 					historyMutex.Unlock()
 
-					req := stepContext.buildConditionRequest(condition, historySnapshot, secrets)
+					knowledgePrompt := buildEffectiveKnowledgeContextPrompt(&pipeline, step, nil, knowledgeSnapshots)
+					req := stepContext.buildConditionRequest(condition, historySnapshot, knowledgePrompt, secrets)
 					conditionClient, conditionProfile, profileErr := llmRegistry.ClientFor(&pipeline, step, nil)
 					if profileErr != nil {
 						taskLogger.Error().Err(profileErr).Msg("Failed to resolve LLM profile for condition")
@@ -1146,17 +1152,19 @@ func run() int {
 					}
 
 					if !resp.Result {
-						taskLogger.Info().Msg("Condition evaluated to false. Skipping all tasks in this step.")
-						// Mark all tasks in this step as skipped and completed
-						tasksInStep := step.GetTasks()
-						if len(tasksInStep) == 0 { // For legacy/include steps
-							tasksInStep = []models.Task{{Name: stepName}}
+						blockingKinds := effectiveBlockingKnowledgeContextKinds(&pipeline, step, nil, knowledgeSnapshots)
+						if len(blockingKinds) > 0 {
+							taskLogger.Error().
+								Strs("knowledge_context_kinds", blockingKinds).
+								Msg("Condition evaluated to false under blocking knowledge context. Failing task.")
+							finalizeTask(stepName, task.Name, "failure", 1, llmDurationMs)
+							results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+							return
 						}
-						for _, t := range tasksInStep {
-							finalizeTask(stepName, t.Name, "skipped", 0, llmDurationMs)
-							// We send a success result so the main loop can correctly count this as "handled"
-							results <- TaskResult{Name: fmt.Sprintf("%s/%s", stepName, t.Name), Success: true, Skipped: true}
-						}
+						taskLogger.Info().Msg("Condition evaluated to false. Skipping task.")
+						finalizeTask(stepName, task.Name, "skipped", 0, llmDurationMs)
+						// We send a success result so the main loop can correctly count this as "handled".
+						results <- TaskResult{Name: runnable.GlobalKey, Success: true, Skipped: true}
 						return
 					}
 					taskLogger.Info().Msg("Condition evaluated to true. Proceeding with step.")
@@ -1388,7 +1396,8 @@ func run() int {
 					historyMutex.Lock()
 					historySnapshot := history.String()
 					historyMutex.Unlock()
-					req := taskContext.buildActionRequest(goalText, historySnapshot, directoryListing, secrets)
+					knowledgePrompt := buildEffectiveKnowledgeContextPrompt(&pipeline, step, task, knowledgeSnapshots)
+					req := taskContext.buildActionRequest(goalText, historySnapshot, directoryListing, knowledgePrompt, secrets)
 					actionClient, actionProfile, profileErr := llmRegistry.ClientFor(&pipeline, step, task)
 					if profileErr != nil {
 						taskLogger.Error().Err(profileErr).Msg("Failed to resolve LLM profile for goal")
@@ -1481,6 +1490,26 @@ func run() int {
 					} else if ans := action.GetAnswerAction(); ans != nil {
 						actionStr = "Return answer"
 					}
+				}
+
+				if failureReason, blockingKinds, ok := knowledgeContextViolationFailureReason(action, &pipeline, step, task, knowledgeSnapshots); ok {
+					maskedReason := taskContext.maskText(failureReason, secrets)
+					taskLogger.Error().
+						Strs("knowledge_context_kinds", blockingKinds).
+						Msgf("Knowledge context blocked task: %s", maskedReason)
+					if zerolog.GlobalLevel() <= zerolog.InfoLevel {
+						taskLogger.Info().Msgf(`status=failure action="Return answer" output="%s"`, maskedReason)
+					}
+					historyGoal = goalText
+					if historyGoal == "" {
+						historyGoal = fmt.Sprintf("Execute script for task: %s", task.Name)
+					}
+					historyMutex.Lock()
+					history.WriteString(fmt.Sprintf("- Goal: %s\n  Action: Return answer\n  Result (Exit Code 1): %s\n", historyGoal, maskedReason))
+					historyMutex.Unlock()
+					finalizeTask(stepName, task.Name, "failure", 1, llmDurationMs)
+					results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+					return
 				}
 
 				debugLogger := taskLogger.With().

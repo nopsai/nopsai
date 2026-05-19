@@ -559,6 +559,9 @@ func inheritedAccessParentFolders(resource accessGrantResource) []string {
 		return prefixes[:len(prefixes)-1]
 	case grantResourceRepo, grantResourceTrigger:
 		return folderPathPrefixes(repositoryParentPath(resource.ID))
+	case grantResourceKnowledgeContext:
+		_, group, _, _ := splitKnowledgeContextIdentifier(resource.ID)
+		return folderPathPrefixes(group)
 	case grantResourceSecret, grantResourceVariable:
 		repoName, scope, _ := model.ParseNamedResourceID(resource.ID)
 		if scope != "" {
@@ -709,7 +712,7 @@ func validateResourceVisibilityPolicy(resourceType, visibility string) error {
 		return nil
 	}
 	switch resourceType {
-	case grantResourcePipeline, grantResourceStep, grantResourceConfig:
+	case grantResourcePipeline, grantResourceStep, grantResourceConfig, grantResourceKnowledgeContext:
 		return nil
 	case grantResourceScope, grantResourceSecret, grantResourceVariable, grantResourceRunner:
 		return fmt.Errorf("workspace visibility is not available for this resource yet")
@@ -770,6 +773,8 @@ func defaultUseActionForResource(resourceType string) (string, error) {
 		return "runner.use", nil
 	case grantResourceConfig:
 		return "config_repo.use", nil
+	case grantResourceKnowledgeContext:
+		return "knowledge_context.use", nil
 	default:
 		return "", fmt.Errorf("use grants are not supported for %s", resourceType)
 	}

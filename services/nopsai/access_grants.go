@@ -25,20 +25,21 @@ const (
 	productRoleOwner     = "owner"
 	productRoleAdmin     = "admin"
 
-	grantResourceFolder   = "folder"
-	grantResourceTeam     = "team"
-	grantResourcePipeline = "pipeline"
-	grantResourceRun      = "pipeline_run"
-	grantResourceTrigger  = "trigger"
-	grantResourceSecret   = "secret"
-	grantResourceVariable = "variable"
-	grantResourceScope    = "scope"
-	grantResourceRepo     = "repository"
-	grantResourceStep     = "step"
-	grantResourceRunner   = "runner"
-	grantResourceConfig   = "config_repo"
-	grantResourceCompany  = "company"
-	grantResourcePlatform = "platform"
+	grantResourceFolder           = "folder"
+	grantResourceTeam             = "team"
+	grantResourcePipeline         = "pipeline"
+	grantResourceRun              = "pipeline_run"
+	grantResourceTrigger          = "trigger"
+	grantResourceSecret           = "secret"
+	grantResourceVariable         = "variable"
+	grantResourceScope            = "scope"
+	grantResourceRepo             = "repository"
+	grantResourceStep             = "step"
+	grantResourceRunner           = "runner"
+	grantResourceConfig           = "config_repo"
+	grantResourceKnowledgeContext = "knowledge_context"
+	grantResourceCompany          = "company"
+	grantResourcePlatform         = "platform"
 
 	grantSubjectService        = "service"
 	grantSubjectUser           = "user"
@@ -179,6 +180,7 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"repository.read",
 			"step.read",
 			"config_repo.read",
+			"knowledge_context.read",
 		},
 	},
 	productRoleDeveloper: {
@@ -198,6 +200,7 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"repository.read",
 			"step.read",
 			"config_repo.read",
+			"knowledge_context.read",
 			"pipeline.create",
 			"pipeline.update",
 			"pipeline.execute",
@@ -217,6 +220,7 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"step.use",
 			"runner.use",
 			"config_repo.use",
+			"knowledge_context.use",
 		},
 	},
 	productRoleOwner: {
@@ -236,6 +240,7 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"repository.read",
 			"step.read",
 			"config_repo.read",
+			"knowledge_context.read",
 			"pipeline.create",
 			"pipeline.update",
 			"pipeline.execute",
@@ -259,6 +264,11 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"step.use",
 			"runner.use",
 			"config_repo.use",
+			"knowledge_context.use",
+			"knowledge_context.create",
+			"knowledge_context.update",
+			"knowledge_context.delete",
+			"knowledge_context.manage_access",
 			"folder.create",
 			"folder.update",
 			"folder.move",
@@ -961,6 +971,8 @@ func actionAppliesToGrantResource(action, resourceType string) bool {
 		return strings.HasPrefix(action, "runner.")
 	case grantResourceConfig:
 		return strings.HasPrefix(action, "config_repo.")
+	case grantResourceKnowledgeContext:
+		return strings.HasPrefix(action, "knowledge_context.")
 	default:
 		return false
 	}
@@ -1017,6 +1029,8 @@ func normalizeAccessGrantResourceType(raw string) (string, error) {
 		return grantResourceRunner, nil
 	case grantResourceConfig:
 		return grantResourceConfig, nil
+	case grantResourceKnowledgeContext:
+		return grantResourceKnowledgeContext, nil
 	case grantResourceCompany, grantResourcePlatform:
 		return grantResourcePlatform, nil
 	default:
@@ -1283,6 +1297,31 @@ func resolveAccessGrantResource(ctx context.Context, runner queryRunner, rawType
 			return accessGrantResource{}, fmt.Errorf("resource_id is required")
 		}
 		return accessGrantResource{Type: resourceType, ID: resourceID, Display: resourceID}, nil
+	case grantResourceKnowledgeContext:
+		resourceID := strings.Trim(strings.TrimSpace(rawID), "/")
+		if resourceID == "" {
+			return accessGrantResource{}, fmt.Errorf("resource_id is required")
+		}
+		if requireExists && resourceID != "*" {
+			kind, group, name, err := splitKnowledgeContextIdentifier(resourceID)
+			if err != nil {
+				return accessGrantResource{}, err
+			}
+			var exists int
+			err = runner.QueryRow(ctx, `
+				SELECT 1
+				FROM knowledge_contexts
+				WHERE kind = $1 AND group_path = $2 AND name = $3
+				LIMIT 1
+			`, kind, group, name).Scan(&exists)
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+					return accessGrantResource{}, fmt.Errorf("resource not found")
+				}
+				return accessGrantResource{}, err
+			}
+		}
+		return accessGrantResource{Type: resourceType, ID: resourceID, Display: resourceID}, nil
 	case grantResourceSecret, grantResourceVariable:
 		if rawID == "" {
 			return accessGrantResource{}, fmt.Errorf("resource_id is required")
@@ -1545,6 +1584,8 @@ func managementActionForGrantResource(resource accessGrantResource) (string, mod
 		return "repository.manage_acl", model.ResourceRef{Type: grantResourceRepo, ID: resource.ID}, nil
 	case grantResourceStep:
 		return "step.manage_acl", model.ResourceRef{Type: grantResourceStep, ID: resource.ID}, nil
+	case grantResourceKnowledgeContext:
+		return "knowledge_context.manage_access", model.ResourceRef{Type: grantResourceKnowledgeContext, ID: resource.ID}, nil
 	case grantResourceRunner:
 		return "system.update", model.ResourceRef{Type: "dispatcher", ID: "runners"}, nil
 	case grantResourceConfig:

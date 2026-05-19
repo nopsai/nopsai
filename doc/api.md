@@ -44,7 +44,7 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 ## Quick Start
 
 ```bash
-# Refresh config repositories, pipelines, reusable steps, scopes, triggers, and system LLM profiles from Git
+# Refresh config repositories, pipelines, reusable steps, scopes, triggers, knowledge contexts, and system LLM profiles from Git
 curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
   http://localhost:8080/v1/internal/config/sync
 ```
@@ -54,6 +54,7 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - The caller needs `system.update` on `system:config-sync`.
 - For the global GitOps entrypoint, use `PUT /v1/system/config-repo` with `scope_id=global`.
 - System LLM profiles can be managed in the global config repo at `setting/system/llm_profile.yaml`.
+- Managed knowledge context markdown files can be synced from `knowledge/<kind>/<group>/<document>.md`.
 
 ---
 
@@ -63,15 +64,15 @@ NopsAI calls the internal AAA service for authorization decisions and layers pro
 
 Predefined product roles:
 
-- `viewer`: read-only access to group metadata, pipelines, runs, logs, triggers, repository metadata, step metadata, config repository metadata, secret metadata, and variable metadata
-- `developer`: viewer permissions plus pipeline create/update/execute, runtime `*.use` permissions, rerun/cancel, trigger updates, secret value writes, variable writes, repository updates, scope updates, reusable step usage, runner usage, and config repository usage
+- `viewer`: read-only access to group metadata, pipelines, runs, logs, triggers, repository metadata, step metadata, knowledge context metadata/content, config repository metadata, secret metadata, and variable metadata
+- `developer`: viewer permissions plus pipeline create/update/execute, runtime `*.use` permissions, rerun/cancel, trigger updates, secret value writes, variable writes, repository updates, scope updates, reusable step usage, knowledge context usage, runner usage, and config repository usage
 - `owner`: developer and viewer permissions plus all scoped non-admin actions, delete operations, secret and variable value reads, and permission management inside the owned scope
 - `admin`: platform-wide access through the normal AAA `Check` path, with sensitive actions still audited
 
 Important behavior:
 
 - Product roles are expanded to low-level AAA permissions when the grant is created.
-- Group grants inherit to child groups, pipelines, runs, repository-associated runs, triggers, repositories, scoped secrets, scoped variables, and reusable steps under that group path.
+- Group grants inherit to child groups, pipelines, runs, repository-associated runs, triggers, repositories, scoped secrets, scoped variables, reusable steps, and knowledge contexts under that group path.
 - Runtime resource use is checked with the original caller identity: manual runs use the user, Git-triggered runs use the repository, and internal dispatcher calls do not inherit pipeline-owner permissions.
 - `developer` can write secret values but cannot read them.
 - `developer` and `viewer` cannot manage ACLs.
@@ -124,7 +125,7 @@ Grant request fields:
 - `subject_type`: `user`, `auth_group`, `repository`, `trigger`, `service_account`, or `internal_service`
 - `subject_id`: user subject/email/UUID, auth group id/name, repository `owner/repo`, trigger id, service-account id, or service id
 - `role`: `viewer`, `developer`, `owner`, or `admin`
-- `resource_type`: `folder` for groups, `pipeline`, `trigger`, `secret`, `variable`, `scope`, `repository`, `step`, `runner`, `config_repo`, or `platform`
+- `resource_type`: `folder` for groups, `pipeline`, `trigger`, `secret`, `variable`, `scope`, `repository`, `step`, `knowledge_context`, `runner`, `config_repo`, or `platform`
 - `resource_id`: group path such as `/payments`, pipeline id such as `team-1/dev/build`, repository id such as `owner/repo`, or `platform`
 - `inherit`: required for group subtree grants; group grants should normally use `true`
 
@@ -154,7 +155,7 @@ Validation and guardrails:
 
 ## Resource Access And Use Checks
 
-Pipeline, reusable step, and scope pages expose an `Access` dialog for resource sharing. Resource sharing controls who may use a resource at runtime; it does not grant permission to manage the resource and it does not let shared pipelines carry their owner's permissions.
+Pipeline, reusable step, scope, and knowledge context pages expose an `Access` dialog for resource sharing. Resource sharing controls who may use a resource at runtime; it does not grant permission to manage the resource and it does not let shared pipelines or documents carry their owner's permissions.
 
 Visibility modes:
 
@@ -179,6 +180,12 @@ curl -X POST \
   -H "Content-Type: application/json" \
   -d '{"subject_type":"repository","subject_id":"hosein-yousefii/test-app","actions":["pipeline.use"]}' \
   http://localhost:8080/v1/resources/pipeline/team-1/build/grants
+
+# Share a knowledge context with a repository
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"subject_type":"repository","subject_id":"hosein-yousefii/test-app","actions":["knowledge_context.use"]}' \
+  http://localhost:8080/v1/resources/knowledge_context/guardrail/security/repo-check/grants
 
 # Share with an existing group path
 curl -X POST \
@@ -211,6 +218,62 @@ curl -X POST \
 ```
 
 Batch checks use `POST /v1/authz/resource-use/batch-check` with top-level `caller_type`, `caller_id`, and a `checks` array.
+
+---
+
+## Knowledge Context
+
+Knowledge Context documents provide architecture guidance, guardrails, policies,
+ADRs, runbooks, references, and examples to LLM-backed pipeline steps.
+
+```bash
+# List readable documents
+curl http://localhost:8080/v1/knowledge-contexts
+
+# Inspect a document by kind/group/name
+curl http://localhost:8080/v1/knowledge-contexts/guardrail/security/repo-check
+
+# Upsert a UI-managed document
+curl -X PUT \
+  -H "Content-Type: application/json" \
+  -d '{
+    "kind":"guardrail",
+    "group":"security",
+    "name":"repo-check",
+    "description":"Baseline repository safety rules",
+    "content":"# Repository Check Guardrail\n\n- Do not expose secrets in logs.\n"
+  }' \
+  http://localhost:8080/v1/knowledge-contexts/guardrail/security/repo-check
+
+# Delete a UI-managed document
+curl -X DELETE \
+  http://localhost:8080/v1/knowledge-contexts/guardrail/security/repo-check
+```
+
+Pipeline YAML can reference managed documents:
+
+```yaml
+knowledge_context:
+  - kind: guardrail
+    ref: security/repo-check
+    required: true
+```
+
+Or repo-local markdown at the run commit:
+
+```yaml
+knowledge_context:
+  - kind: architecture
+    path: .nopsai/docs/backend.md
+    required: true
+```
+
+Managed references are authorized with `knowledge_context.use` before dispatch.
+Resolved content is stored with the run in `pipeline_run_knowledge_contexts`.
+The run detail response includes `knowledge_contexts` snapshots.
+
+See [knowledge-context.md](./knowledge-context.md) for the full schema and
+GitOps layout.
 
 ---
 
@@ -359,6 +422,7 @@ curl -X DELETE http://localhost:8080/v1/pipelines/team-1/dev/main-pipeline
 
 - Paths containing slashes map to nested groups (e.g. `team-1/dev`).
 - Pipeline responses include metadata such as version, description, steps, tasks, timeout, container image, and LLM controls.
+- Pipeline YAML may declare `knowledge_context` at pipeline, step, or task level.
 - Group-level product grants inherit to pipelines below that group path.
 
 ---
@@ -419,6 +483,7 @@ curl -X POST http://localhost:8080/v1/system/config-repos/sync
 
 - The global repo uses `scope_type=system` and `scope_id=global`.
 - System- and group-scoped repos may define group repo bindings under `config-repositories/groups/<group>.yaml`.
+- System- and group-scoped repos may define managed knowledge context markdown under `knowledge/`.
 - A binding file contains `repo_url`, optional `branch`, optional `base_path`, and optional `enabled`.
 - Nested groups are represented by nested paths, for example `config-repositories/groups/team-2/platform.yaml` creates a binding for `team-2/platform`.
 - Group bindings also create matching group shells used by the Pipelines, Steps, Triggers, Scopes, and Pipeline Runs views.

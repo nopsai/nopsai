@@ -397,6 +397,8 @@ You must only respond with the word "true" or "false" and nothing else.
 ---
 %s
 ---
+%s
+---
 **Execution History (Previous Steps):**
 %s
 ---
@@ -405,7 +407,7 @@ You must only respond with the word "true" or "false" and nothing else.
 ---
 Based on the context, is the answer to the question YES or NO? Respond with only "true" or "false".`
 
-	fullPrompt := fmt.Sprintf(promptTemplate, buildVariablesSection(req.GetVariables()), history, req.GetGoal())
+	fullPrompt := fmt.Sprintf(promptTemplate, buildVariablesSection(req.GetVariables()), buildKnowledgeContextSection(req.GetKnowledgeContext()), history, req.GetGoal())
 	logEvent := log.Debug().Str("provider", c.provider)
 	if c.profile != "" {
 		logEvent = logEvent.Str("llm_profile", c.profile)
@@ -446,6 +448,8 @@ Here are the available actions:
 ---
 %s
 ---
+%s
+---
 **Execution History (Previous Steps):**
 %s
 ---
@@ -457,6 +461,7 @@ Now, choose the single best action from your toolkit and provide the response in
 	fullPrompt := fmt.Sprintf(
 		promptTemplate,
 		buildVariablesSection(req.GetVariables()),
+		buildKnowledgeContextSection(req.GetKnowledgeContext()),
 		buildDirectoryListingSection(req.GetDirectoryListing()),
 		mcpSection,
 		history,
@@ -468,6 +473,19 @@ Now, choose the single best action from your toolkit and provide the response in
 	}
 	logEvent.Msgf("Full prompt:\n%s", fullPrompt)
 	return fullPrompt
+}
+
+func buildKnowledgeContextSection(knowledgeContext string) string {
+	var builder strings.Builder
+	builder.WriteString("**Knowledge Context:**\n")
+	trimmed := strings.TrimSpace(knowledgeContext)
+	if trimmed == "" {
+		builder.WriteString("No knowledge context provided.\n")
+		return builder.String()
+	}
+	builder.WriteString(trimmed)
+	builder.WriteString("\n")
+	return builder.String()
 }
 
 func buildVariablesSection(variables map[string]string) string {

@@ -11,6 +11,7 @@ Start here when you want to understand the system from different angles:
 - [decision-architecture.md](./decision-architecture.md): The main architectural decisions, why they exist, and the tradeoffs they introduce.
 - [access-control.md](./access-control.md): Current AAA service, product roles, access grants, route authorization, and audit behavior.
 - [jwt-authentication.md](./jwt-authentication.md): User/API JWTs, refresh tokens, dispatcher internal REST JWTs, and dispatcher gRPC service JWTs.
+- [knowledge-context.md](./knowledge-context.md): Project knowledge documents for LLM-backed pipeline steps, GitOps layout, runtime snapshots, and access checks.
 
 Existing focused docs:
 

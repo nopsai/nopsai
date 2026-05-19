@@ -25,6 +25,7 @@ export const PIPELINE_DIRECTIVES: LabDirective[] = [
   { key: 'timeout', hint: 'Pipeline timeout' },
   { key: 'llm_profile', hint: 'Select LLM profile' },
   { key: 'mcp_profiles', hint: 'Select MCP profiles for goal tasks' },
+  { key: 'knowledge_context', hint: 'Knowledge documents for goals' },
   { key: 'llm_output_sharing', hint: 'Share LLM outputs across steps' },
   { key: 'llm_content_sharing', hint: 'Share LLM prompts across steps' },
   { key: 'llm_content_include', hint: 'Only share matching paths with LLM' },
@@ -48,6 +49,7 @@ export const STEP_DIRECTIVES: LabDirective[] = [
   { key: 'ignore_failure', hint: 'Ignore failures' },
   { key: 'llm_profile', hint: 'Select LLM profile' },
   { key: 'mcp_profiles', hint: 'MCP profiles for goal tasks' },
+  { key: 'knowledge_context', hint: 'Knowledge documents for this step' },
   { key: 'llm_output_sharing', hint: 'Share step LLM output' },
 ];
 
@@ -59,6 +61,7 @@ export const TASK_DIRECTIVES: LabDirective[] = [
   { key: 'ignore_failure', hint: 'Ignore task errors' },
   { key: 'llm_profile', hint: 'Select LLM profile' },
   { key: 'mcp_profiles', hint: 'MCP profiles for this goal task' },
+  { key: 'knowledge_context', hint: 'Knowledge documents for this task' },
   { key: 'llm_output_sharing', hint: 'Share task LLM output' },
 ];
 
@@ -71,7 +74,7 @@ export const DIRECTIVE_VALUE_METADATA: Record<string, { values: string[]; title:
 
 export const LIST_KEYS_WITH_NAME_TEMPLATE = new Set(['steps', 'tasks']);
 export const LIST_KEYS_SIMPLE = new Set(['secrets', 'volumes', 'depends_on', 'artifacts', 'variables', 'mcp_profiles', 'llm_content_include', 'llm_content_ignore']);
-export const ARRAY_KEYS = new Set(['steps', 'tasks', 'variables', 'secrets', 'volumes', 'depends_on', 'artifacts', 'mcp_profiles', 'llm_content_include', 'llm_content_ignore']);
+export const ARRAY_KEYS = new Set(['steps', 'tasks', 'variables', 'secrets', 'volumes', 'depends_on', 'artifacts', 'mcp_profiles', 'knowledge_context', 'llm_content_include', 'llm_content_ignore']);
 
 const OVERRIDE_KEY_PATTERN = /^[A-Za-z0-9_.-]+$/;
 export const DEFAULT_PIPELINE_NAME = 'ad-hoc-pipeline';
@@ -217,6 +220,7 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'timeout',
     'llm_profile',
     'mcp_profiles',
+    'knowledge_context',
     'llm_content_sharing',
     'llm_output_sharing',
     'llm_content_include',
@@ -239,9 +243,20 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'ignore_failure',
     'llm_profile',
     'mcp_profiles',
+    'knowledge_context',
     'llm_output_sharing',
   ]);
-  const knownTaskKeys = new Set(['name', 'goal', 'script', 'depends_on', 'ignore_failure', 'llm_profile', 'mcp_profiles', 'llm_output_sharing']);
+  const knownTaskKeys = new Set([
+    'name',
+    'goal',
+    'script',
+    'depends_on',
+    'ignore_failure',
+    'llm_profile',
+    'mcp_profiles',
+    'knowledge_context',
+    'llm_output_sharing',
+  ]);
   const knownDisplayOptionsKeys = new Set(['github_view']);
 
   const createError = (message: string, pathHints: string[] = []): LabValidationError => {
