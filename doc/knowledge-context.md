@@ -77,8 +77,10 @@ Built-in kinds:
 
 Guardrails and policies are treated as strict constraints in the agent prompt.
 The prompt tells the LLM that if a requested action conflicts with guardrails or
-policies, it must not execute the action and should return an explanation
-instead.
+policies, it must not execute the action and should return an explanation. The
+agent treats that blocking explanation as a task failure instead of a successful
+answer. A false step `condition` with an effective guardrail or policy context
+also fails the current task instead of marking the step as skipped.
 
 ## Managed Knowledge
 

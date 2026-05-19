@@ -6837,6 +6837,8 @@ html.dark .triggers-sidebar-link--active {
     position: relative;
     display: flex;
     align-items: stretch;
+    min-width: 0;
+    max-width: 100%;
     background: rgba(15,23,42,0.92);
     border-radius: 18px;
     overflow: hidden;
@@ -6856,6 +6858,7 @@ html.dark .triggers-sidebar-link--active {
 .yaml-editor-stage {
     position: relative;
     flex: 1;
+    min-width: 0;
     min-height: 520px;
 }
 
@@ -6979,7 +6982,10 @@ html.dark .pipeline-editor-autocomplete__ghost {
     padding: 1.2rem;
     border-radius: 18px;
     max-height: 520px;
-    overflow: auto;
+    max-width: 100%;
+    min-width: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
     font-size: 0.85rem;
 }
 
@@ -7121,7 +7127,10 @@ html.dark .pipeline-editor-autocomplete__ghost {
     padding: 1.2rem;
     border-radius: 18px;
     max-height: 820px;
-    overflow: auto;
+    max-width: 100%;
+    min-width: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
     font-size: 0.85rem;
 }
 
@@ -7129,6 +7138,7 @@ html.dark .pipeline-editor-autocomplete__ghost {
     display: flex;
     align-items: flex-start;
     gap: 0.75rem;
+    min-width: 0;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
     font-size: 0.86rem;
     line-height: 1.55;
@@ -7142,8 +7152,10 @@ html.dark .pipeline-editor-autocomplete__ghost {
 }
 .yaml-line-text {
     flex: 1;
-    white-space: pre;
-    word-break: break-word;
+    min-width: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: normal;
     color: inherit;
 }
 .yaml-token {
