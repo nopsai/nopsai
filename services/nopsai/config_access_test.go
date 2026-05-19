@@ -420,6 +420,47 @@ func TestFilterDelegatedAccessResourcesKeepsSystemGrant(t *testing.T) {
 	}
 }
 
+func TestFilterDelegatedAccessResourcesRemovesSystemEmbeddedKnowledgeAccess(t *testing.T) {
+	plan := newAccessSyncPlan()
+	resourceKey := resourceAccessPlanKey{
+		resourceType: grantResourceKnowledgeContext,
+		resourceID:   "guardrail/team-1/repo-check",
+	}
+	grantKey := accessGrantPlanKey{
+		subjectType:  model.SubjectTypeRepository,
+		subjectID:    "hosein-yousefii/test-app",
+		resourceType: grantResourceKnowledgeContext,
+		resourceID:   "guardrail/team-1/repo-check",
+	}
+	plan.resourceAccess[resourceKey] = storedResourceAccess{
+		resourceType:  grantResourceKnowledgeContext,
+		resourceID:    "guardrail/team-1/repo-check",
+		visibility:    resourceVisibilityRestricted,
+		visibilitySet: true,
+		sourcePath:    "knowledge/guardrail/team-1/repo-check.yaml",
+	}
+	plan.grants[grantKey] = storedAccessGrant{
+		subjectType:  model.SubjectTypeRepository,
+		subjectID:    "hosein-yousefii/test-app",
+		role:         customUseGrantRole,
+		resourceType: grantResourceKnowledgeContext,
+		resourceID:   "guardrail/team-1/repo-check",
+		sourcePath:   "knowledge/guardrail/team-1/repo-check.yaml",
+	}
+
+	filterDelegatedAccessResources(plan, models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeSystem,
+		ScopeID:   models.ConfigRepositorySystemGlobalID,
+	}, []string{"team-1"})
+
+	if _, ok := plan.resourceAccess[resourceKey]; ok {
+		t.Fatal("delegated knowledge resource access should be filtered from system sync")
+	}
+	if _, ok := plan.grants[grantKey]; ok {
+		t.Fatal("delegated knowledge use grant should be filtered from system sync")
+	}
+}
+
 func TestAccessGrantResourceInConfigBindingScope(t *testing.T) {
 	systemBinding := models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID}
 	if !accessGrantResourceInConfigBindingScope(grantResourcePlatform, platformGrantID, systemBinding) {

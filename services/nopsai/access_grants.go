@@ -1584,6 +1584,8 @@ func managementActionForGrantResource(resource accessGrantResource) (string, mod
 		return "repository.manage_acl", model.ResourceRef{Type: grantResourceRepo, ID: resource.ID}, nil
 	case grantResourceStep:
 		return "step.manage_acl", model.ResourceRef{Type: grantResourceStep, ID: resource.ID}, nil
+	case grantResourceKnowledgeContext:
+		return "knowledge_context.manage_access", model.ResourceRef{Type: grantResourceKnowledgeContext, ID: resource.ID}, nil
 	case grantResourceRunner:
 		return "system.update", model.ResourceRef{Type: "dispatcher", ID: "runners"}, nil
 	case grantResourceConfig:

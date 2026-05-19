@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -95,6 +96,7 @@ type knowledgeFrontMatter struct {
 	Description string                      `yaml:"description"`
 	Visibility  string                      `yaml:"visibility"`
 	Access      *embeddedResourceAccessFile `yaml:"access"`
+	Content     string                      `yaml:"content"`
 }
 
 func normalizeKnowledgeContextKind(raw string) (string, error) {
@@ -110,6 +112,8 @@ func normalizeKnowledgeContextKind(raw string) (string, error) {
 
 func normalizeKnowledgeContextName(raw string) (string, error) {
 	name := strings.TrimSpace(raw)
+	name = strings.TrimSuffix(name, ".yaml")
+	name = strings.TrimSuffix(name, ".yml")
 	name = strings.TrimSuffix(name, ".md")
 	name = strings.TrimSuffix(name, ".markdown")
 	name = strings.Trim(name, "/")
@@ -212,18 +216,27 @@ func normalizeKnowledgeContextPath(raw string) (string, error) {
 	return value, nil
 }
 
+func isKnowledgeContextGitOpsFile(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".yaml", ".yml", ".md", ".markdown":
+		return true
+	default:
+		return false
+	}
+}
+
 func parseKnowledgeContextGitOpsPath(rel string, binding models.ConfigRepository, boundFolder string) (string, string, string, error) {
 	rel = strings.Trim(strings.TrimSpace(filepath.ToSlash(rel)), "/")
 	parts := strings.Split(rel, "/")
 	if len(parts) < 3 {
-		return "", "", "", fmt.Errorf("knowledge document path must use kind/group/document.md")
+		return "", "", "", fmt.Errorf("knowledge document path must use kind/group/document")
 	}
 	kind, err := normalizeKnowledgeContextKind(parts[0])
 	if err != nil {
 		return "", "", "", err
 	}
-	if !isMarkdownFile(parts[len(parts)-1]) {
-		return "", "", "", fmt.Errorf("knowledge document must be a markdown file")
+	if !isKnowledgeContextGitOpsFile(parts[len(parts)-1]) {
+		return "", "", "", fmt.Errorf("knowledge document must be a YAML or Markdown file")
 	}
 	name, err := normalizeKnowledgeContextName(parts[len(parts)-1])
 	if err != nil {
@@ -249,31 +262,181 @@ func parseKnowledgeContextGitOpsPath(rel string, binding models.ConfigRepository
 	return kind, group, name, nil
 }
 
-func isMarkdownFile(path string) bool {
-	ext := strings.ToLower(filepath.Ext(path))
-	return ext == ".md" || ext == ".markdown"
+func parseKnowledgeContextDocument(content string) (knowledgeFrontMatter, string, error) {
+	normalized := strings.ReplaceAll(content, "\r\n", "\n")
+
+	if doc, body, ok, err := parseMarkdownKnowledgeContextDocument(normalized); ok || err != nil {
+		return doc, body, err
+	}
+
+	contentIndex := topLevelYAMLKeyIndex(normalized, "content")
+	if contentIndex < 0 {
+		return knowledgeFrontMatter{}, "", fmt.Errorf("content is required")
+	}
+
+	var doc knowledgeFrontMatter
+	if err := yaml.Unmarshal([]byte(normalized), &doc); err == nil && strings.TrimSpace(doc.Content) != "" {
+		return doc, doc.Content, nil
+	}
+
+	doc, body, err := parseLooseKnowledgeContextDocument(normalized, contentIndex)
+	if err != nil {
+		return doc, "", err
+	}
+	return doc, body, nil
 }
 
-func splitMarkdownFrontMatter(content string) (knowledgeFrontMatter, string, error) {
-	var fm knowledgeFrontMatter
-	normalized := strings.ReplaceAll(content, "\r\n", "\n")
-	if !strings.HasPrefix(normalized, "---\n") {
-		return fm, content, nil
+func parseMarkdownKnowledgeContextDocument(content string) (knowledgeFrontMatter, string, bool, error) {
+	if !strings.HasPrefix(content, "---\n") {
+		return knowledgeFrontMatter{}, "", false, nil
 	}
-	end := strings.Index(normalized[4:], "\n---")
-	if end < 0 {
-		return fm, "", fmt.Errorf("front matter is not closed")
+
+	headerStart := len("---\n")
+	offset := headerStart
+	for _, line := range strings.SplitAfter(content[headerStart:], "\n") {
+		if strings.TrimSpace(strings.TrimRight(line, "\n")) == "---" {
+			header := content[headerStart:offset]
+			body := content[offset+len(line):]
+			var doc knowledgeFrontMatter
+			if err := yaml.Unmarshal([]byte(header), &doc); err != nil {
+				sanitized := quoteLooseKnowledgeScalars(header)
+				if sanitized == header {
+					return doc, "", true, err
+				}
+				if retryErr := yaml.Unmarshal([]byte(sanitized), &doc); retryErr != nil {
+					return doc, "", true, retryErr
+				}
+			}
+			return doc, body, true, nil
+		}
+		offset += len(line)
 	}
-	end += 4
-	frontMatter := normalized[4:end]
-	bodyStart := end + len("\n---")
-	if bodyStart < len(normalized) && normalized[bodyStart] == '\n' {
-		bodyStart++
+
+	return knowledgeFrontMatter{}, "", true, fmt.Errorf("front matter is not closed")
+}
+
+func topLevelYAMLKeyIndex(content, key string) int {
+	prefix := key + ":"
+	offset := 0
+	for _, line := range strings.SplitAfter(content, "\n") {
+		trimmedLine := strings.TrimRight(line, "\r\n")
+		if strings.HasPrefix(trimmedLine, prefix) {
+			if len(trimmedLine) == len(prefix) || trimmedLine[len(prefix)] == ' ' || trimmedLine[len(prefix)] == '\t' {
+				return offset
+			}
+		}
+		offset += len(line)
 	}
-	if err := yaml.Unmarshal([]byte(frontMatter), &fm); err != nil {
-		return fm, "", err
+	return -1
+}
+
+func parseLooseKnowledgeContextDocument(content string, contentIndex int) (knowledgeFrontMatter, string, error) {
+	var doc knowledgeFrontMatter
+	header := strings.TrimSpace(content[:contentIndex])
+	if header != "" {
+		if err := yaml.Unmarshal([]byte(header), &doc); err != nil {
+			sanitized := quoteLooseKnowledgeScalars(header)
+			if sanitized == header {
+				return doc, "", err
+			}
+			if retryErr := yaml.Unmarshal([]byte(sanitized), &doc); retryErr != nil {
+				return doc, "", retryErr
+			}
+		}
 	}
-	return fm, normalized[bodyStart:], nil
+
+	contentBlock := content[contentIndex:]
+	lineEnd := strings.IndexByte(contentBlock, '\n')
+	if lineEnd < 0 {
+		var inline struct {
+			Content string `yaml:"content"`
+		}
+		if err := yaml.Unmarshal([]byte(contentBlock), &inline); err != nil {
+			return doc, "", err
+		}
+		doc.Content = inline.Content
+		return doc, inline.Content, nil
+	}
+
+	contentLine := strings.TrimSpace(contentBlock[:lineEnd])
+	rawBody := contentBlock[lineEnd+1:]
+	suffix := strings.TrimSpace(strings.TrimPrefix(contentLine, "content:"))
+	if suffix != "" && !strings.HasPrefix(suffix, "|") && !strings.HasPrefix(suffix, ">") {
+		var inline struct {
+			Content string `yaml:"content"`
+		}
+		if err := yaml.Unmarshal([]byte(contentBlock[:lineEnd]), &inline); err != nil {
+			return doc, "", err
+		}
+		doc.Content = inline.Content
+		return doc, inline.Content, nil
+	}
+
+	body := removeCommonIndent(rawBody)
+	doc.Content = body
+	return doc, body, nil
+}
+
+func quoteLooseKnowledgeScalars(content string) string {
+	scalarKeys := map[string]struct{}{
+		"name":        {},
+		"title":       {},
+		"kind":        {},
+		"description": {},
+		"visibility":  {},
+	}
+	lines := strings.Split(content, "\n")
+	changed := false
+	for i, line := range lines {
+		if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		if _, supported := scalarKeys[key]; !supported {
+			continue
+		}
+		value = strings.TrimSpace(value)
+		if value == "" || !strings.Contains(value, ":") || strings.HasPrefix(value, "\"") || strings.HasPrefix(value, "'") {
+			continue
+		}
+		lines[i] = key + ": " + strconv.Quote(value)
+		changed = true
+	}
+	if !changed {
+		return content
+	}
+	return strings.Join(lines, "\n")
+}
+
+func removeCommonIndent(content string) string {
+	lines := strings.Split(content, "\n")
+	minIndent := -1
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		indent := 0
+		for indent < len(line) && (line[indent] == ' ' || line[indent] == '\t') {
+			indent++
+		}
+		if minIndent == -1 || indent < minIndent {
+			minIndent = indent
+		}
+	}
+	if minIndent <= 0 {
+		return content
+	}
+	for i, line := range lines {
+		cut := 0
+		for cut < len(line) && cut < minIndent && (line[cut] == ' ' || line[cut] == '\t') {
+			cut++
+		}
+		lines[i] = line[cut:]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func parseGitOpsKnowledgeContexts(files map[string]string, root string, binding models.ConfigRepository, boundFolder string, accessPlan accessSyncPlan) (map[string]storedKnowledgeContext, error) {
@@ -281,17 +444,17 @@ func parseGitOpsKnowledgeContexts(files map[string]string, root string, binding 
 	for path, content := range files {
 		normalized := filepath.ToSlash(path)
 		rel, ok := relativeConfigPath(normalized, root)
-		if !ok || rel == "" || strings.HasSuffix(rel, "/") || !isMarkdownFile(rel) {
+		if !ok || rel == "" || strings.HasSuffix(rel, "/") || !isKnowledgeContextGitOpsFile(rel) {
 			continue
 		}
 
-		kind, group, name, err := parseKnowledgeContextGitOpsPath(rel, binding, boundFolder)
+		kind, group, _, err := parseKnowledgeContextGitOpsPath(rel, binding, boundFolder)
 		if err != nil {
 			return nil, fmt.Errorf("invalid knowledge context path '%s': %w", normalized, err)
 		}
-		frontMatter, body, err := splitMarkdownFrontMatter(content)
+		frontMatter, body, err := parseKnowledgeContextDocument(content)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse knowledge context front matter '%s': %w", normalized, err)
+			return nil, fmt.Errorf("failed to parse knowledge context document '%s': %w", normalized, err)
 		}
 		if declaredKind := strings.TrimSpace(frontMatter.Kind); declaredKind != "" {
 			normalizedKind, err := normalizeKnowledgeContextKind(declaredKind)
@@ -302,14 +465,13 @@ func parseGitOpsKnowledgeContexts(files map[string]string, root string, binding 
 				return nil, fmt.Errorf("knowledge context '%s' declares kind %q but path implies %q", normalized, normalizedKind, kind)
 			}
 		}
-		if declaredName := strings.TrimSpace(frontMatter.Name); declaredName != "" {
-			normalizedName, err := normalizeKnowledgeContextName(declaredName)
-			if err != nil {
-				return nil, fmt.Errorf("invalid knowledge context name in '%s': %w", normalized, err)
-			}
-			if normalizedName != name {
-				return nil, fmt.Errorf("knowledge context '%s' declares name %q but file name implies %q", normalized, normalizedName, name)
-			}
+		declaredName := strings.TrimSpace(frontMatter.Name)
+		if declaredName == "" {
+			return nil, fmt.Errorf("knowledge context '%s' must declare name", normalized)
+		}
+		name, err := normalizeKnowledgeContextName(declaredName)
+		if err != nil {
+			return nil, fmt.Errorf("invalid knowledge context name in '%s': %w", normalized, err)
 		}
 
 		visibility := strings.TrimSpace(frontMatter.Visibility)
@@ -339,7 +501,7 @@ func parseGitOpsKnowledgeContexts(files map[string]string, root string, binding 
 			title:       title,
 			description: strings.TrimSpace(frontMatter.Description),
 			content:     strings.TrimSpace(body),
-			format:      "markdown",
+			format:      "text",
 			visibility:  normalizedVisibility,
 			sourcePath:  normalized,
 		}
@@ -475,12 +637,13 @@ func (a *App) handleUpsertKnowledgeContext(w http.ResponseWriter, r *http.Reques
 	}
 	format := strings.TrimSpace(req.ContentFormat)
 	if format == "" {
-		format = "markdown"
+		format = "text"
 	}
-	if format != "markdown" {
-		http.Error(w, "content_format must be markdown", http.StatusBadRequest)
+	if format != "text" && format != "markdown" {
+		http.Error(w, "content_format must be text", http.StatusBadRequest)
 		return
 	}
+	format = "text"
 	visibility := strings.TrimSpace(req.Visibility)
 	if visibility == "" {
 		visibility = resourceVisibilityGroup
@@ -493,6 +656,27 @@ func (a *App) handleUpsertKnowledgeContext(w http.ResponseWriter, r *http.Reques
 	title := strings.TrimSpace(req.Title)
 	if title == "" {
 		title = name
+	}
+
+	resourceID := buildKnowledgeContextIdentifier(kind, group, name)
+	var exists int
+	lookupErr := a.db.QueryRow(r.Context(), `
+		SELECT 1
+		FROM knowledge_contexts
+		WHERE kind = $1 AND group_path = $2 AND name = $3
+		LIMIT 1
+	`, kind, group, name).Scan(&exists)
+	if lookupErr != nil && !errors.Is(lookupErr, pgx.ErrNoRows) && !errors.Is(lookupErr, sql.ErrNoRows) {
+		log.Error().Err(lookupErr).Str("knowledge_context", resourceID).Msg("Failed to inspect existing knowledge context")
+		http.Error(w, "Failed to save knowledge context", http.StatusInternalServerError)
+		return
+	}
+	action := "knowledge_context.update"
+	if errors.Is(lookupErr, pgx.ErrNoRows) || errors.Is(lookupErr, sql.ErrNoRows) {
+		action = "knowledge_context.create"
+	}
+	if !a.requireAAADecision(w, r, action, aaamodel.ResourceRef{Type: grantResourceKnowledgeContext, ID: resourceID}) {
+		return
 	}
 
 	_, err = a.db.Exec(r.Context(), `
@@ -807,7 +991,7 @@ func (a *App) resolveRepositoryKnowledgeContext(ctx context.Context, gitContext 
 		Required:      ref.Required,
 		Source:        knowledgeSourceRepo,
 		Content:       content,
-		ContentFormat: "markdown",
+		ContentFormat: "text",
 		ResolvedAt:    time.Now(),
 	}, nil
 }
