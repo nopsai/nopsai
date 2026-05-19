@@ -18,6 +18,7 @@ import {
 
 import ResourceAccessCard from '../components/ResourceAccessCard';
 import { buildApiUrl } from '../lib/api';
+import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups';
 
 type KnowledgeContextListItem = {
   id: string;
@@ -25,7 +26,6 @@ type KnowledgeContextListItem = {
   kind: string;
   group: string;
   name: string;
-  title: string;
   description?: string;
   visibility: string;
   source: string;
@@ -39,7 +39,6 @@ type KnowledgeContextListItem = {
 
 type KnowledgeContextDetail = KnowledgeContextListItem & {
   content: string;
-  content_format: string;
   managed_by_config_repo?: boolean;
 };
 
@@ -55,7 +54,6 @@ type KnowledgeFormModalState = {
   kind: string;
   group: string;
   name: string;
-  visibility: string;
   content: string;
   pending: boolean;
   error?: string;
@@ -82,7 +80,7 @@ type KnowledgeFolderNode = {
   docs: KnowledgeContextListItem[];
 };
 
-type KnowledgeDocumentParameters = Partial<Record<'name' | 'title' | 'kind' | 'description' | 'visibility', string>>;
+type KnowledgeDocumentParameters = Partial<Record<'name' | 'kind' | 'description', string>>;
 
 type KnowledgeDraftSnapshot = {
   detail: KnowledgeContextDetail;
@@ -97,11 +95,9 @@ const emptyDraft: KnowledgeContextDetail = {
   kind: 'architecture',
   group: 'team-1',
   name: 'new-document',
-  title: 'new-document',
   visibility: 'group',
   source: 'database',
   content: '',
-  content_format: 'text',
 };
 
 function encodeKnowledgeID(id: string) {
@@ -169,7 +165,7 @@ function parentFolder(path: string) {
   return parts.join('/');
 }
 
-function buildKnowledgeTree(items: KnowledgeContextListItem[]): KnowledgeFolderNode {
+function buildKnowledgeTree(items: KnowledgeContextListItem[], groupPaths: string[]): KnowledgeFolderNode {
   const root: KnowledgeFolderNode = { id: 'root', name: 'Knowledge Context', fullPath: '', children: [], docs: [] };
   const nodes = new Map<string, KnowledgeFolderNode>([['', root]]);
 
@@ -186,6 +182,17 @@ function buildKnowledgeTree(items: KnowledgeContextListItem[]): KnowledgeFolderN
   };
 
   kindOrder.forEach(kind => ensureNode(kind));
+  kindOrder.forEach(kind => {
+    groupPaths.forEach(groupPath => {
+      const normalizedGroup = normalizeFolderPath(groupPath);
+      if (!normalizedGroup) return;
+      insertGroupPath(root, `${kind}/${normalizedGroup}`, (id, name, fullPath) => {
+        const node: KnowledgeFolderNode = { id, name, fullPath, children: [], docs: [] };
+        nodes.set(fullPath, node);
+        return node;
+      });
+    });
+  });
 
   for (const item of items) {
     const { folder } = splitKnowledgePath(item.id);
@@ -367,7 +374,7 @@ function splitLeadingKnowledgeParameters(content: string): { content: string; pa
 
 function isKnowledgeParameterLine(line: string) {
   const key = line.split(':', 1)[0]?.trim();
-  return key === 'name' || key === 'title' || key === 'kind' || key === 'description' || key === 'visibility' || key === 'access';
+  return key === 'name' || key === 'kind' || key === 'description' || key === 'access';
 }
 
 function parseKnowledgeParameterLines(content: string): KnowledgeDocumentParameters {
@@ -377,7 +384,7 @@ function parseKnowledgeParameterLines(content: string): KnowledgeDocumentParamet
     const separator = rawLine.indexOf(':');
     if (separator < 0) continue;
     const key = rawLine.slice(0, separator).trim() as keyof KnowledgeDocumentParameters;
-    if (key !== 'name' && key !== 'title' && key !== 'kind' && key !== 'description' && key !== 'visibility') continue;
+    if (key !== 'name' && key !== 'kind' && key !== 'description') continue;
     const value = unquoteYAMLScalar(rawLine.slice(separator + 1).trim());
     if (value) parameters[key] = value;
   }
@@ -432,6 +439,7 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
   const [items, setItems] = useState<KnowledgeContextListItem[]>([]);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
+  const [resourceGroupPaths, setResourceGroupPaths] = useState<string[]>([]);
   const [detail, setDetail] = useState<KnowledgeContextDetail | null>(null);
   const [editorValue, setEditorValue] = useState('');
   const [detailLoading, setDetailLoading] = useState(false);
@@ -473,6 +481,21 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
   useEffect(() => {
     void loadList();
   }, [loadList]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadGroups = async () => {
+      const paths = await fetchResourceGroupPaths();
+      if (!cancelled) setResourceGroupPaths(paths);
+    };
+    void loadGroups();
+    const handleGroupsChanged = () => void loadGroups();
+    window.addEventListener('nopsai-resource-groups-changed', handleGroupsChanged);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('nopsai-resource-groups-changed', handleGroupsChanged);
+    };
+  }, []);
 
   useEffect(() => {
     if (!selectedID) {
@@ -546,11 +569,11 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
   const filteredItems = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return items;
-    return items.filter(item => [item.kind, item.group, item.name, item.title, item.description].some(value => (value || '').toLowerCase().includes(term)));
+    return items.filter(item => [item.kind, item.group, item.name, item.description].some(value => (value || '').toLowerCase().includes(term)));
   }, [items, search]);
 
   const activeFolder = useMemo(() => normalizeFolderPath(new URLSearchParams(location.search).get('folder') || ''), [location.search]);
-  const knowledgeTree = useMemo(() => buildKnowledgeTree(items), [items]);
+  const knowledgeTree = useMemo(() => buildKnowledgeTree(items, resourceGroupPaths), [items, resourceGroupPaths]);
   const activeFolderNode = useMemo(() => findKnowledgeFolder(knowledgeTree, activeFolder), [activeFolder, knowledgeTree]);
   const visibleDocuments = useMemo(() => {
     if (search.trim()) return filteredItems;
@@ -600,7 +623,6 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
       kind: identity.kind,
       group: identity.group,
       name: '',
-      visibility: 'group',
       content: '',
       pending: false,
     });
@@ -626,7 +648,6 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
       kind: detail.kind,
       group: detail.group,
       name: candidateName,
-      visibility: 'group',
       content: editorValue,
       pending: false,
     });
@@ -650,12 +671,10 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
       kind,
       group,
       name,
-      title: name,
       description: '',
-      visibility: formModal.visibility || 'group',
+      visibility: 'group',
       source: 'database',
       content,
-      content_format: 'text',
       managed_by_config_repo: false,
       used_by: [],
       used_by_count: 0,
@@ -716,11 +735,8 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
           kind: detail.kind,
           group: detail.group,
           name: detail.name,
-          title: detail.name,
           description: detail.description || '',
           content: editorValue,
-          content_format: 'text',
-          visibility: detail.visibility || 'group',
         }),
       });
       if (!response.ok) throw new Error(await readError(response, `Unable to save document (${response.status})`));

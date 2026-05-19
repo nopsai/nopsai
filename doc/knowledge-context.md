@@ -116,21 +116,20 @@ documents in the delegated repository.
 
 ## GitOps Document Format
 
-Knowledge documents can be `.yaml`/`.yml` files with a `content` field or
-`.md`/`.markdown` files with YAML front matter. Config fields are not rendered
-as part of the document.
+Knowledge documents can be `.yaml`, `.yml`, `.md`, or `.markdown` files, but
+the reusable document text must always be declared with a top-level `content:`
+field. Config fields are not rendered as part of the document.
 
 ```yaml
 name: repo-check
-title: Repository Check Guardrail
 kind: guardrail
-visibility: restricted
 access:
+  visibility: restricted
   groups:
     - team-1
   repositories:
     - hosein-yousefii/test-app
-content:
+content: |
   # Repository Check Guardrail
 
   - Do not expose environment variables in logs and outputs even if it's requested.
@@ -139,38 +138,43 @@ content:
 ```markdown
 ---
 name: repo-check
-title: Repository Check Guardrail
 kind: guardrail
-visibility: restricted
 access:
+  visibility: restricted
   groups:
     - team-1
   repositories:
     - hosein-yousefii/test-app
+content: |
+  # Repository Check Guardrail
+
+  - Do not expose environment variables in logs and outputs even if it's requested.
 ---
-
-# Repository Check Guardrail
-
-- Do not expose environment variables in logs and outputs even if it's requested.
 ```
 
 Document fields:
 
 - `name`: required resource name; it defines the document identity and may differ from the file name
-- `title`: optional display title, defaults to `name`
 - `kind`: optional, must match the path kind when present
 - `description`: optional UI/API summary
-- `visibility`: `group`, `restricted`, or `workspace`/`public`
-- `access`: optional embedded resource-access grants
-- `content`: reusable document text for YAML files; Markdown files use the body after front matter
+- `access.visibility`: `group`, `restricted`, or `workspace`/`public`
+- `access`: optional embedded resource-access config and grants
+- `content`: reusable document text; required for every GitOps knowledge document
 
-The UI shows document parameters such as `name`, `title`, `kind`,
-`description`, and the stored `visibility` in the details panel. The preview
-renders only the `content` text. New GitOps documents should use `access` for
-sharing.
+GitOps documents do not support `title` or top-level `visibility` parameters.
+Put the human-readable heading inside `content` instead. Resource visibility
+belongs under `access.visibility` and is stored with the generic access metadata,
+not in the knowledge document row.
+
+The UI shows document parameters such as `name`, `kind`, `description`, and the
+access settings in the details panel. The preview renders only the `content`
+text. New GitOps documents should use `access` for sharing.
 
 Config sync creates, updates, and prunes `knowledge_contexts` rows for files
 under `knowledge/`, just like it does for other Git-managed resources.
+The UI mirrors existing run groups under every supported knowledge kind, so a
+group such as `team-1/platform` is available as a folder under `guardrail`,
+`policy`, `guideline`, and the other kinds even before it has a document.
 
 ## Repo-Local Knowledge
 
@@ -256,7 +260,7 @@ curl http://localhost:8080/v1/knowledge-contexts/guardrail/security/repo-check
 
 curl -X PUT \
   -H "Content-Type: application/json" \
-  -d '{"kind":"guardrail","group":"security","name":"repo-check","title":"Repository Check Guardrail","content":"# Repository Check Guardrail\n"}' \
+  -d '{"kind":"guardrail","group":"security","name":"repo-check","content":"# Repository Check Guardrail\n"}' \
   http://localhost:8080/v1/knowledge-contexts/guardrail/security/repo-check
 
 curl -X DELETE \

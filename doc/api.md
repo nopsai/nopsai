@@ -240,11 +240,8 @@ curl -X PUT \
     "kind":"guardrail",
     "group":"security",
     "name":"repo-check",
-    "title":"Repository Check Guardrail",
     "description":"Baseline repository safety rules",
-    "content":"# Repository Check Guardrail\n\n- Do not expose secrets in logs.\n",
-    "content_format":"markdown",
-    "visibility":"restricted"
+    "content":"# Repository Check Guardrail\n\n- Do not expose secrets in logs.\n"
   }' \
   http://localhost:8080/v1/knowledge-contexts/guardrail/security/repo-check
 

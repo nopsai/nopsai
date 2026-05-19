@@ -62,6 +62,9 @@ restricted resource.
 global-repo/pipelines/platform-maintenance.yaml
   -> pipeline platform-maintenance, public use access
 
+global-repo/pipelines/knowledge-kind-comparison.yaml
+  -> pipeline knowledge-kind-comparison, comparing guardrail, policy, and guideline prompt behavior
+
 global-repo/steps/shared/announce.yaml
   -> reusable step shared/announce
 
@@ -73,6 +76,15 @@ global-repo/scopes/dev/scope.yaml
 
 global-repo/knowledge/guardrail/security/repo-check.md
   -> knowledge context guardrail/security/repo-check
+
+global-repo/knowledge/guardrail/team-1/runtime-output-safety.md
+  -> knowledge context guardrail/team-1/runtime-output-safety
+
+global-repo/knowledge/policy/team-1/release-evidence.md
+  -> knowledge context policy/team-1/release-evidence
+
+global-repo/knowledge/guideline/team-1/pipeline-report-style.md
+  -> knowledge context guideline/team-1/pipeline-report-style
 
 global-repo/knowledge/architecture/team-1/backend.md
   -> knowledge context architecture/team-1/backend
@@ -187,17 +199,16 @@ Supported kinds are `architecture`, `guardrail`, `policy`, `adr`,
 ```markdown
 ---
 name: repo-check
-title: Repository Check Guardrail
 kind: guardrail
-visibility: restricted
 access:
+  visibility: restricted
   repositories:
     - hosein-yousefii/test-app
+content: |
+  # Repository Check Guardrail
+
+  - Do not expose secrets in logs.
 ---
-
-# Repository Check Guardrail
-
-- Do not expose secrets in logs.
 ```
 
 Pipeline YAML references this document with:

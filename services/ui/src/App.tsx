@@ -495,16 +495,21 @@ function AppShell() {
       return;
     }
     let cancelled = false;
-    void fetchResourceGroupPaths()
-      .then(paths => {
-        if (!cancelled) setResourceGroupPaths(paths);
-      })
-      .catch(error => {
-        console.warn('Failed to load groups for resource trees', error);
-        if (!cancelled) setResourceGroupPaths([]);
-      });
+    const loadResourceGroups = () => {
+      void fetchResourceGroupPaths()
+        .then(paths => {
+          if (!cancelled) setResourceGroupPaths(paths);
+        })
+        .catch(error => {
+          console.warn('Failed to load groups for resource trees', error);
+          if (!cancelled) setResourceGroupPaths([]);
+        });
+    };
+    loadResourceGroups();
+    window.addEventListener('nopsai-resource-groups-changed', loadResourceGroups);
     return () => {
       cancelled = true;
+      window.removeEventListener('nopsai-resource-groups-changed', loadResourceGroups);
     };
   }, [isAuthenticated]);
 
@@ -869,6 +874,13 @@ function AppShell() {
     KNOWLEDGE_CONTEXT_KIND_ORDER.forEach(kind => {
       ensureChild(root, kind, kind);
     });
+    KNOWLEDGE_CONTEXT_KIND_ORDER.forEach(kind => {
+      resourceGroupPaths.forEach(groupPath => {
+        const normalizedGroup = groupPath.split('/').map(part => part.trim()).filter(Boolean).join('/');
+        if (!normalizedGroup) return;
+        insertGroupPath(root, `${kind}/${normalizedGroup}`, (id, name, fullPath) => ({ id, name, fullPath, children: [], knowledgeContextIds: [] }));
+      });
+    });
 
     knowledgeContexts.forEach(id => {
       const parts = id.split('/').filter(Boolean);
@@ -885,7 +897,7 @@ function AppShell() {
 
     sortChildren(root);
     return root;
-  }, [knowledgeContexts]);
+  }, [knowledgeContexts, resourceGroupPaths]);
 
   const handleTogglePipelineNode = (id: string) => {
     setPipelineTreeOpen(prev => {

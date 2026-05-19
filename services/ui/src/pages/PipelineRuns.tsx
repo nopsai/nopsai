@@ -917,6 +917,7 @@ function PipelineRunsPage() {
         await fetchJson(`/v1/groups/${groupId}`, { method: 'DELETE' });
         if (activeGroupId === groupId) updateSearchParams({ group: null });
         await Promise.all([loadGroups(), loadRuns()]);
+        window.dispatchEvent(new Event('nopsai-resource-groups-changed'));
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unable to delete group';
         alert(message);
@@ -980,6 +981,7 @@ function PipelineRunsPage() {
         setNewFolderOpen(false);
         setNewFolderPending(false);
         await loadGroups();
+        window.dispatchEvent(new Event('nopsai-resource-groups-changed'));
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unable to create group';
         setNewFolderError(message);
