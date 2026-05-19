@@ -108,7 +108,7 @@ The agent runs tasks in dependency order, not strictly line order.
    - step-level overrides
    - task-level overrides
 5. If the step has a `condition`, the agent asks the LLM for a boolean answer with the step's effective knowledge context before doing any work in that step.
-6. If the condition is false, all tasks in that step are marked `skipped`.
+6. If the condition is false, all tasks in that step are marked `skipped`, except false conditions under an effective guardrail or policy context fail the current task.
 7. If the step is an included child pipeline, the agent fetches the child pipeline and triggers it through the dispatcher.
 8. If the step is a normal execution step, the agent creates or reuses one step container for that step.
 9. It picks the execution image from `step.image` or the pipeline default `container_image`.
@@ -134,7 +134,7 @@ For a goal-driven task:
    - `EXECUTE_COMMAND`
    - `REPLACE_FILE`
    - `RETURN_ANSWER`
-3. The agent executes that action in the step container.
+3. The agent executes that action in the step container. If a guardrail or policy caused a blocking `RETURN_ANSWER`, the agent records that explanation as a task failure.
 4. The command output becomes part of the run history unless output sharing is disabled.
 5. That history can influence later tasks or child pipelines.
 
