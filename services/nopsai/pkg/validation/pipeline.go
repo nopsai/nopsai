@@ -2,6 +2,7 @@ package validation
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -29,6 +30,17 @@ type MCPProfileValidationOptions struct {
 	Scope    string
 }
 
+var supportedKnowledgeContextKinds = map[string]struct{}{
+	"architecture": {},
+	"guardrail":    {},
+	"policy":       {},
+	"adr":          {},
+	"guideline":    {},
+	"runbook":      {},
+	"reference":    {},
+	"example":      {},
+}
+
 func ValidatePipeline(pipeline *models.Pipeline) error {
 	if pipeline.Name == "" {
 		return fmt.Errorf("'name' is a required field")
@@ -50,6 +62,9 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 	if len(pipeline.Steps) == 0 {
 		return fmt.Errorf("at least one step is required")
 	}
+	if err := validateKnowledgeContextRefs(pipeline.KnowledgeContext, "pipeline"); err != nil {
+		return err
+	}
 
 	allStepNames := make(map[string]bool)
 	stepToTaskNames := make(map[string]map[string]bool)
@@ -62,6 +77,9 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 		}
 		if allStepNames[stepName] {
 			return fmt.Errorf("duplicate step name '%s' found. Step names must be unique", stepName)
+		}
+		if err := validateKnowledgeContextRefs(step.GetKnowledgeContext(), fmt.Sprintf("step '%s'", stepName)); err != nil {
+			return err
 		}
 		allStepNames[stepName] = true
 		stepToTaskNames[stepName] = make(map[string]bool)
@@ -96,6 +114,9 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 				if !hasGoal && !hasScript {
 					return fmt.Errorf("task '%s' in step '%s' must define either 'goal' or 'script'", task.Name, stepName)
 				}
+				if err := validateKnowledgeContextRefs(task.KnowledgeContext, fmt.Sprintf("task '%s' in step '%s'", task.Name, stepName)); err != nil {
+					return err
+				}
 			}
 		} else if !isLegacyStep {
 			return fmt.Errorf("step '%s' must contain 'include', 'tasks', 'goal', or 'script'", stepName)
@@ -125,6 +146,65 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 		}
 	}
 
+	return nil
+}
+
+func validateKnowledgeContextRefs(refs []models.KnowledgeContextRef, location string) error {
+	for idx, ref := range refs {
+		if err := validateKnowledgeContextRef(ref); err != nil {
+			return fmt.Errorf("knowledge_context[%d] in %s is invalid: %w", idx, location, err)
+		}
+	}
+	return nil
+}
+
+func validateKnowledgeContextRef(ref models.KnowledgeContextRef) error {
+	kind := strings.ToLower(strings.TrimSpace(ref.Kind))
+	if kind == "" {
+		return fmt.Errorf("kind is required")
+	}
+	if _, ok := supportedKnowledgeContextKinds[kind]; !ok {
+		return fmt.Errorf("kind %q is not supported", ref.Kind)
+	}
+	hasRef := strings.TrimSpace(ref.Ref) != ""
+	hasPath := strings.TrimSpace(ref.Path) != ""
+	switch {
+	case hasRef && hasPath:
+		return fmt.Errorf("only one of ref or path may be set")
+	case !hasRef && !hasPath:
+		return fmt.Errorf("ref or path is required")
+	}
+	if hasRef {
+		if err := validateRelativeKnowledgePath(ref.Ref); err != nil {
+			return fmt.Errorf("ref: %w", err)
+		}
+		parts := strings.Split(strings.Trim(ref.Ref, "/"), "/")
+		if len(parts) < 2 {
+			return fmt.Errorf("ref must use group/document format")
+		}
+	}
+	if hasPath {
+		if err := validateRelativeKnowledgePath(ref.Path); err != nil {
+			return fmt.Errorf("path: %w", err)
+		}
+	}
+	return nil
+}
+
+func validateRelativeKnowledgePath(value string) error {
+	normalized := strings.TrimSpace(strings.ReplaceAll(value, "\\", "/"))
+	if normalized == "" {
+		return fmt.Errorf("must not be empty")
+	}
+	if filepath.IsAbs(normalized) || strings.HasPrefix(normalized, "~") {
+		return fmt.Errorf("must be relative")
+	}
+	normalized = strings.Trim(normalized, "/")
+	for _, segment := range strings.Split(normalized, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return fmt.Errorf("contains invalid path segments")
+		}
+	}
 	return nil
 }
 

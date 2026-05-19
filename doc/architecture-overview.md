@@ -18,7 +18,7 @@ NopsAI is a Git-aware pipeline orchestration platform built around a control-pla
 - `services/dispatcher`: Scheduler and bridge between HTTP-oriented control-plane APIs and gRPC-oriented runners and agents.
 - `services/runner`: Long-lived worker that starts agent containers on Docker-capable hosts.
 - `services/agent`: Per-run orchestrator that executes pipeline logic and talks to the configured LLM provider.
-- `services/ui`: Operator UI for runs, pipelines, triggers, scopes, lab runs, steps, and system management.
+- `services/ui`: Operator UI for runs, pipelines, triggers, scopes, lab runs, steps, knowledge context, and system management.
 - `db/init.sql`: Persistent storage schema for runs, configuration, auth, and audit data.
 
 ## High-Level Flow
@@ -61,7 +61,7 @@ Feedback flows in the opposite direction:
 The control plane lives mostly in `services/nopsai`, `services/aaa`, `services/git-bot`, and `services/dispatcher`.
 
 - `nopsai` receives manual run requests and forwarded GitHub events.
-- It authenticates requests, asks AAA for route-level decisions, resolves reusable step includes, validates pipeline shape, creates DB records, resolves secrets and variables, and submits jobs to the dispatcher.
+- It authenticates requests, asks AAA for route-level decisions, resolves reusable step includes, validates pipeline shape, creates DB records, resolves knowledge context, secrets, and variables, and submits jobs to the dispatcher.
 - `aaa` is the internal policy decision service. It handles introspection, check, batch-check, filter, and audit-record requests behind a shared internal token.
 - `git-bot` is the GitHub-facing edge. It validates webhook signatures, proxies webhook payloads to `nopsai`, fetches repository contents for config-driven features, and keeps GitHub checks in sync.
 - `dispatcher` keeps runners connected over gRPC, chooses an eligible runner, and forwards agent updates back into protected `nopsai` endpoints using an internal JWT.
@@ -86,6 +86,7 @@ Top-level pipeline features:
 - `variables` as required scope variables
 - `timeout`
 - `llm_content_sharing`, `llm_output_sharing`, `llm_content_include`, `llm_content_ignore`
+- `knowledge_context` for managed or repo-local project knowledge
 - `display_options.github_view`
 
 Step types:
@@ -115,10 +116,12 @@ Main tables from `db/init.sql`:
 - `pipeline_run_logs`: Durable log lines ingested from runner/agent activity.
 - `pipelines`, `steps`, `triggers`: Stored configuration and overrides. Pipelines and reusable steps also carry resource visibility for runtime sharing.
 - `variables`, `secrets`: Runtime configuration data, with secrets encrypted before storage.
+- `knowledge_contexts`: Managed markdown knowledge documents grouped by kind/group/name, with GitOps source metadata.
+- `pipeline_run_knowledge_contexts`: Per-run snapshots of resolved knowledge content.
 - `groups`: Folder/repository tree used by the UI’s pipeline-runs organization.
 - `users`, `user_roles`, `role_permissions`, `refresh_tokens`, `audit_logs`: Local auth, legacy RBAC metadata, session, and audit data.
 - `auth_groups`, `auth_group_members`, `auth_roles`, `auth_role_bindings`, `auth_role_permissions`: AAA role data used by the policy engine; product access grants can target users, auth groups, repositories, triggers, service accounts, and internal services.
-- `resource_visibility`: Visibility settings for reusable resources that do not have first-class visibility columns.
+- `resource_visibility`: Visibility settings for reusable resources, including knowledge contexts.
 - `access_grants`, `resource_acl`, `resource_ownership`, `authz_decision_logs`: Product-role grants, resource-use sharing grants, expanded ACLs, ownership metadata, and authorization decision audit logs.
 
 ## Authorization Model
@@ -140,7 +143,7 @@ Important evaluator properties that remain unchanged:
 
 Important product-layer properties:
 
-- Folder grants are stored once at the parent folder path and inherited by child folders, pipelines, runs, repositories, scoped secrets, scoped variables, triggers, and reusable steps.
+- Folder grants are stored once at the parent folder path and inherited by child folders, pipelines, runs, repositories, scoped secrets, scoped variables, triggers, reusable steps, and knowledge contexts.
 - Product grants do not require evaluator-specific awareness; they are written into existing AAA tables as ACL-style policies.
 - Platform admin still flows through normal `Check` decisions, so sensitive admin actions remain visible in audit logs.
 - Runtime resource-use authorization is caller-based: manual runs use the user, Git-triggered runs use the repository, and internal dispatcher calls do not gain permissions from resource owners.
@@ -154,6 +157,7 @@ NopsAI mixes Git-backed configuration and database-backed configuration.
 - Reusable steps are stored in the database and can be synchronized from a config repository.
 - Trigger manifests can come from Git or be overridden in the database.
 - Variables can be synchronized from a config repository or managed directly in the UI/API.
+- Knowledge contexts can be synchronized from `knowledge/` in a config repository or managed directly in the UI/API.
 - Secrets are database-managed and encrypted at rest.
 
 Important precedence rules in the current code:
@@ -163,6 +167,7 @@ Important precedence rules in the current code:
 - Scoped secrets resolve as `repo+scope -> global+scope`; scoped runs do not fall back to unscoped values.
 - Default-scope variables and secrets are stored as `scope = 'default'` and resolve as `repo+default -> global+default`.
 - Runtime references may override the run scope with `scope:NAME`. For example, `dev:TEST_ENV` resolves from `dev` and is injected as `TEST_ENV`; authorization is checked against the resolved `dev` resource.
+- Managed knowledge references resolve from `knowledge_contexts` with `knowledge_context.use`; repo-local knowledge paths resolve through `git-bot` at the run commit. Both forms are snapshotted before dispatch.
 
 ## Scheduling Model
 
@@ -211,6 +216,7 @@ NopsAI currently behaves like a lightweight CI/CD system with:
 - runner-based remote execution
 - per-run agent orchestration
 - optional LLM-driven step resolution
+- knowledge-guided LLM prompts with run snapshots
 - a GitOps-style configuration sync path
 
 The design is intentionally modular enough to scale runners independently from the core API while still keeping the current implementation easy to inspect in one repository.

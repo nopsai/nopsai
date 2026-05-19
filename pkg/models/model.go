@@ -3,6 +3,7 @@ package models
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -59,6 +60,7 @@ type Step interface {
 	GetLLMProfile() string
 	GetMCPProfiles() []string
 	GetVariables() map[string]string
+	GetKnowledgeContext() []KnowledgeContextRef
 
 	// Type assertion helpers
 	AsIncludeStep() (*IncludeStep, bool)
@@ -69,17 +71,18 @@ type Step interface {
 
 // BaseStep contains all common fields shared by all step types.
 type BaseStep struct {
-	Name             string            `yaml:"name" json:"name"`
-	Image            string            `yaml:"image,omitempty" json:"image,omitempty"`
-	Secrets          []string          `yaml:"secrets,omitempty" json:"secrets,omitempty"`
-	Volumes          []string          `yaml:"volumes,omitempty" json:"volumes,omitempty"`
-	DependsOn        []string          `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
-	Condition        string            `yaml:"condition,omitempty" json:"condition,omitempty"`
-	IgnoreFailure    bool              `yaml:"ignore_failure,omitempty" json:"ignore_failure,omitempty"`
-	LlmOutputSharing *bool             `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
-	LLMProfile       string            `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
-	MCPProfiles      []string          `yaml:"mcp_profiles,omitempty" json:"mcp_profiles,omitempty"`
-	Variables        map[string]string `yaml:"variables,omitempty" json:"variables,omitempty"`
+	Name             string                `yaml:"name" json:"name"`
+	Image            string                `yaml:"image,omitempty" json:"image,omitempty"`
+	Secrets          []string              `yaml:"secrets,omitempty" json:"secrets,omitempty"`
+	Volumes          []string              `yaml:"volumes,omitempty" json:"volumes,omitempty"`
+	DependsOn        []string              `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
+	Condition        string                `yaml:"condition,omitempty" json:"condition,omitempty"`
+	IgnoreFailure    bool                  `yaml:"ignore_failure,omitempty" json:"ignore_failure,omitempty"`
+	LlmOutputSharing *bool                 `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
+	LLMProfile       string                `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
+	MCPProfiles      []string              `yaml:"mcp_profiles,omitempty" json:"mcp_profiles,omitempty"`
+	Variables        map[string]string     `yaml:"variables,omitempty" json:"variables,omitempty"`
+	KnowledgeContext []KnowledgeContextRef `yaml:"knowledge_context,omitempty" json:"knowledge_context,omitempty"`
 }
 
 // GetName returns the step's name.
@@ -114,6 +117,9 @@ func (s *BaseStep) GetMCPProfiles() []string { return s.MCPProfiles }
 
 // GetVariables returns the step's inline variables.
 func (s *BaseStep) GetVariables() map[string]string { return s.Variables }
+
+// GetKnowledgeContext returns the step's requested knowledge context.
+func (s *BaseStep) GetKnowledgeContext() []KnowledgeContextRef { return s.KnowledgeContext }
 
 // Default type assertion implementations
 func (s *BaseStep) AsIncludeStep() (*IncludeStep, bool) { return nil, false }
@@ -428,6 +434,13 @@ func (ps PipelineStep) GetVariables() map[string]string {
 	return nil
 }
 
+func (ps PipelineStep) GetKnowledgeContext() []KnowledgeContextRef {
+	if ps.Step == nil {
+		return nil
+	}
+	return ps.Step.GetKnowledgeContext()
+}
+
 func (ps PipelineStep) GetTasks() []Task {
 	if taskStep, ok := ps.AsTaskStep(); ok {
 		return taskStep.Tasks
@@ -561,22 +574,53 @@ func (ps *PipelineStep) SetVariables(variables map[string]string) {
 	}
 }
 
+func (ps *PipelineStep) SetKnowledgeContext(context []KnowledgeContextRef) {
+	if base := ps.baseStep(); base != nil {
+		base.KnowledgeContext = context
+	}
+}
+
+type KnowledgeContextRef struct {
+	Kind     string `yaml:"kind" json:"kind"`
+	Ref      string `yaml:"ref,omitempty" json:"ref,omitempty"`
+	Path     string `yaml:"path,omitempty" json:"path,omitempty"`
+	Required bool   `yaml:"required,omitempty" json:"required,omitempty"`
+}
+
+type KnowledgeContextSnapshot struct {
+	ID                    string    `json:"id,omitempty"`
+	KnowledgeContextID    string    `json:"knowledge_context_id,omitempty"`
+	Kind                  string    `json:"kind"`
+	Group                 string    `json:"group,omitempty"`
+	Name                  string    `json:"name,omitempty"`
+	Description           string    `json:"description,omitempty"`
+	Ref                   string    `json:"ref,omitempty"`
+	Path                  string    `json:"path,omitempty"`
+	Required              bool      `json:"required"`
+	Source                string    `json:"source"`
+	Content               string    `json:"content"`
+	ConfigSourcePath      string    `json:"config_source_path,omitempty"`
+	ConfigSourceCommitSHA string    `json:"config_source_commit_sha,omitempty"`
+	ResolvedAt            time.Time `json:"resolved_at,omitempty"`
+}
+
 type Pipeline struct {
-	Name              string         `yaml:"name" json:"name"`
-	Version           string         `yaml:"version,omitempty" json:"version,omitempty"`
-	Description       string         `yaml:"description" json:"description"`
-	ContainerImage    string         `yaml:"container_image" json:"container_image"`
-	DisplayOptions    DisplayOptions `yaml:"display_options" json:"display_options"`
-	WorkingDirectory  string         `yaml:"working_directory,omitempty" json:"working_directory,omitempty"`
-	Variables         []string       `yaml:"variables" json:"variables"`
-	Steps             []PipelineStep `yaml:"steps" json:"steps"`
-	Timeout           string         `yaml:"timeout,omitempty" json:"timeout,omitempty"`
-	LLMProfile        string         `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
-	MCPProfiles       []string       `yaml:"mcp_profiles,omitempty" json:"mcp_profiles,omitempty"`
-	LlmContentSharing *bool          `yaml:"llm_content_sharing,omitempty" json:"llm_content_sharing,omitempty"`
-	LlmOutputSharing  *bool          `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
-	LlmContentInclude []string       `yaml:"llm_content_include,omitempty" json:"llm_content_include,omitempty"`
-	LlmContentIgnore  []string       `yaml:"llm_content_ignore,omitempty" json:"llm_content_ignore,omitempty"`
+	Name              string                `yaml:"name" json:"name"`
+	Version           string                `yaml:"version,omitempty" json:"version,omitempty"`
+	Description       string                `yaml:"description" json:"description"`
+	ContainerImage    string                `yaml:"container_image" json:"container_image"`
+	DisplayOptions    DisplayOptions        `yaml:"display_options" json:"display_options"`
+	WorkingDirectory  string                `yaml:"working_directory,omitempty" json:"working_directory,omitempty"`
+	Variables         []string              `yaml:"variables" json:"variables"`
+	Steps             []PipelineStep        `yaml:"steps" json:"steps"`
+	Timeout           string                `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	LLMProfile        string                `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
+	MCPProfiles       []string              `yaml:"mcp_profiles,omitempty" json:"mcp_profiles,omitempty"`
+	KnowledgeContext  []KnowledgeContextRef `yaml:"knowledge_context,omitempty" json:"knowledge_context,omitempty"`
+	LlmContentSharing *bool                 `yaml:"llm_content_sharing,omitempty" json:"llm_content_sharing,omitempty"`
+	LlmOutputSharing  *bool                 `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
+	LlmContentInclude []string              `yaml:"llm_content_include,omitempty" json:"llm_content_include,omitempty"`
+	LlmContentIgnore  []string              `yaml:"llm_content_ignore,omitempty" json:"llm_content_ignore,omitempty"`
 }
 
 // DisplayOptions defines how the pipeline progress is displayed in integrations like GitHub.
@@ -590,15 +634,16 @@ type DisplayOptions struct {
 // This mutual exclusivity is enforced by the application-layer validation
 // (e.g., in services/nopsai/main.go::validatePipeline), not at the YAML unmarshaling level.
 type Task struct {
-	Name             string            `yaml:"name" json:"name"`
-	Goal             string            `yaml:"goal" json:"goal"`
-	Script           string            `yaml:"script,omitempty" json:"script,omitempty"`
-	DependsOn        []string          `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
-	IgnoreFailure    bool              `yaml:"ignore_failure,omitempty" json:"ignore_failure,omitempty"`
-	LlmOutputSharing *bool             `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
-	LLMProfile       string            `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
-	MCPProfiles      []string          `yaml:"mcp_profiles,omitempty" json:"mcp_profiles,omitempty"`
-	Variables        map[string]string `yaml:"variables,omitempty" json:"variables,omitempty"`
+	Name             string                `yaml:"name" json:"name"`
+	Goal             string                `yaml:"goal" json:"goal"`
+	Script           string                `yaml:"script,omitempty" json:"script,omitempty"`
+	DependsOn        []string              `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
+	IgnoreFailure    bool                  `yaml:"ignore_failure,omitempty" json:"ignore_failure,omitempty"`
+	LlmOutputSharing *bool                 `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
+	LLMProfile       string                `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
+	MCPProfiles      []string              `yaml:"mcp_profiles,omitempty" json:"mcp_profiles,omitempty"`
+	Variables        map[string]string     `yaml:"variables,omitempty" json:"variables,omitempty"`
+	KnowledgeContext []KnowledgeContextRef `yaml:"knowledge_context,omitempty" json:"knowledge_context,omitempty"`
 }
 
 // CommandAction defines a command to be executed in the shell.

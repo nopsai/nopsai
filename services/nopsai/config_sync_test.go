@@ -459,6 +459,7 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 		[]string{"data-team"},
 		map[string]storedPipeline{},
 		map[string]storedStep{},
+		map[string]storedKnowledgeContext{},
 		generalScopeVars,
 		repoScopeVars,
 		map[string]storedTrigger{},

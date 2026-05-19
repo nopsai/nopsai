@@ -1679,7 +1679,7 @@ function TriggersPage({
 
     return (
       <div id="triggers-detail-view" className="pipelines-view">
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6">
           <div className="glass-card p-6">
             <div className="flex items-start justify-between gap-4 w-full mb-4">
               <div className="min-w-0">
@@ -1750,8 +1750,8 @@ function TriggersPage({
 
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
-            <div className="space-y-6">
+          <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)]">
+            <div className="min-w-0 space-y-6">
               <div className="glass-card overflow-hidden">
                 <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-b border-[var(--border-primary)]">
                   <h3 className="text-lg font-semibold text-[var(--text-primary)]">Trigger Definition (YAML)</h3>
@@ -1944,7 +1944,7 @@ function TriggersPage({
               </div>
             </div>
 
-            <div className="space-y-6">
+            <div className="min-w-0 space-y-6">
               <div className="glass-card overflow-hidden">
                 <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-b border-[var(--border-primary)]" style={{ marginTop: '9px' }}>
                   <h3 className="text-lg font-semibold text-[var(--text-primary)]">Linked Pipelines</h3>

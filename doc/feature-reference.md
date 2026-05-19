@@ -21,11 +21,12 @@ Supported pipeline features:
 - per-step secret declaration
 - ignored failures
 - LLM content and output sharing controls
+- knowledge context references for architecture docs, guardrails, policies, ADRs, guidelines, runbooks, references, and examples
 - GitHub display options
 
 Example coverage:
 
-- `sample-pipeline/5-pipeline.yaml` demonstrates LLM goals, scripts, secret usage, volumes, conditions, child pipelines, and reusable-step inclusion.
+- `sample-pipeline/5-pipeline.yaml` demonstrates LLM goals, scripts, secret usage, volumes, conditions, child pipelines, reusable-step inclusion, and knowledge context.
 
 ## Execution Semantics
 
@@ -39,6 +40,26 @@ The runtime supports:
 - optional asynchronous child pipeline monitoring
 - pipeline-level timeout handling
 - task-level secret masking in output/history
+- pre-dispatch knowledge context resolution and run snapshots
+
+## Knowledge Context
+
+Knowledge Context lets pipelines attach project knowledge to LLM-backed work.
+Context can be declared at the pipeline, step, or task level; the agent injects
+the merged effective context for the current task.
+
+Supported references:
+
+- managed documents by `kind` plus `ref`, such as `guardrail` and `security/repo-check`
+- repo-local markdown by `kind` plus `path`, such as `architecture` and `.nopsai/docs/backend.md`
+
+Managed documents are first-class resources with `knowledge_context.use`
+runtime checks. Repo-local documents are loaded from the run repository at the
+run commit. Resolved content is stored in `pipeline_run_knowledge_contexts` so
+each run records exactly what the agent saw.
+
+See [knowledge-context.md](./knowledge-context.md) for the YAML schema, GitOps
+layout, access behavior, and API examples.
 
 ## Secrets And Variables
 
@@ -96,6 +117,7 @@ GitOps-style configuration sync supports:
 - `steps/` -> reusable step definitions
 - `triggers/` -> trigger overrides
 - `scopes/` -> scoped variables
+- `knowledge/` -> managed knowledge context markdown documents
 - `pipelineruns/structure.yaml` -> legacy UI group hierarchy for groups owned by the syncing repo
 - `config-repositories/` -> group config repo bindings, group shells, and colocated group structure files
 - `setting/system/llm_profile.yaml` -> system LLM profile registry from a global config repo
@@ -133,6 +155,7 @@ Configuration management capabilities:
 - CRUD reusable steps
 - CRUD trigger overrides
 - CRUD scopes, variables, and secrets
+- CRUD knowledge context documents
 - branch listing per repository
 - config sync trigger and status
 - dispatcher and runner status inspection
@@ -153,10 +176,10 @@ Current auth/access features:
 - route-level action/resource mapping for protected REST endpoints
 - predefined product roles: `viewer`, `developer`, `owner`, `admin`
 - access-grant management API for subject -> role -> resource bindings
-- per-resource Access controls for pipeline, reusable step, and scope usage
+- per-resource Access controls for pipeline, reusable step, scope, and knowledge context usage
 - caller-based runtime use checks for manual, Git-triggered, and child-pipeline runs
 - resource visibility modes: group, restricted, and UI-labeled Public
-- group-path inheritance for child pipelines, runs, repositories, triggers, secrets, variables, and steps
+- group-path inheritance for child pipelines, runs, repositories, triggers, secrets, variables, steps, and knowledge contexts
 - deny-before-allow evaluation
 - effective-permission introspection with human-readable reasons
 - legacy Casbin-backed RBAC metadata compatibility
@@ -183,6 +206,7 @@ Pages present in the current UI:
 - `Scopes`: variable and secret management by scope and repository, including scope use-access controls
 - `Lab`: ad-hoc YAML editing and direct run execution
 - `Steps`: reusable step library, usage inspection, and step use-access controls
+- `Knowledge Context`: kind/group/document browser, markdown editor/preview, source metadata, access settings, and usage inspection
 - `System`: config, dispatcher, runner controls, user/role/access management
 - `Profile`: email and password management
 - `Login`: local authentication entrypoint
@@ -207,7 +231,7 @@ Operational support already in the code:
 These are real characteristics of the current implementation:
 
 - gRPC uses insecure credentials by default, which is acceptable for local/dev but not a full production security story.
-- Secrets are database-managed; config sync imports variables, steps, triggers, and pipelines, but not secrets.
+- Secrets are database-managed; config sync imports variables, steps, triggers, pipelines, and knowledge contexts, but not secrets.
 - Reusable `step:` includes are resolved from the database, not directly from Git at execution time.
 - The agent embeds its LLM client directly, even though `agent.proto` still defines a separate `LLMService`.
 - Scoped runs intentionally do not fall back to unscoped defaults.
@@ -220,6 +244,7 @@ The codebase already supports a surprisingly complete CI/CD tool shape:
 - manual and ad-hoc runs
 - reusable steps and nested pipelines
 - scoped runtime configuration
+- knowledge-guided LLM execution
 - distributed execution with runners
 - LLM-assisted pipeline tasks
 - UI-based operations and governance

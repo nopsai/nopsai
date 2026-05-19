@@ -861,6 +861,19 @@ func normalizeAccessGrantResourceIDForBinding(resourceType, resourceID string, b
 	if resourceType == grantResourcePlatform {
 		return platformGrantID, nil
 	}
+	if resourceType == grantResourceKnowledgeContext {
+		kind, group, name, err := splitKnowledgeContextIdentifier(resourceID)
+		if err != nil {
+			return "", err
+		}
+		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+			group, err = normalizeConfigPathForFolder(boundFolder, group)
+			if err != nil {
+				return "", err
+			}
+		}
+		return buildKnowledgeContextIdentifier(kind, group, name), nil
+	}
 	if resourceType == grantResourceSecret || resourceType == grantResourceVariable {
 		if !strings.Contains(resourceID, "=") {
 			resourceID = model.BuildNamedResourceID("", "", resourceID)
@@ -935,6 +948,9 @@ func accessGrantResourceUnderBindingScope(resourceType, resourceID, boundFolder 
 			}
 		}
 		return checked
+	case grantResourceKnowledgeContext:
+		_, group, _, err := splitKnowledgeContextIdentifier(resourceID)
+		return err == nil && configResourceUnderScope(group, boundFolder)
 	case grantResourcePlatform:
 		return false
 	default:
@@ -956,6 +972,11 @@ func accessGrantResourceIntersectsAnyScope(resourceType, resourceID string, scop
 			if secretScope != "" && configResourceUnderScope(secretScope, scope) {
 				return true
 			}
+		case grantResourceKnowledgeContext:
+			_, group, _, err := splitKnowledgeContextIdentifier(resourceID)
+			if err == nil && configResourceUnderScope(group, scope) {
+				return true
+			}
 		default:
 			if configResourceUnderScope(resourceID, scope) {
 				return true
@@ -966,14 +987,12 @@ func accessGrantResourceIntersectsAnyScope(resourceType, resourceID string, scop
 }
 
 func filterDelegatedAccessResources(plan accessSyncPlan, binding models.ConfigRepository, overrideScopes []string) {
-	if binding.ScopeType != models.ConfigRepositoryScopeFolder {
-		return
-	}
 	if len(overrideScopes) == 0 {
 		return
 	}
 	for key, grant := range plan.grants {
-		if accessGrantResourceIntersectsAnyScope(grant.resourceType, grant.resourceID, overrideScopes) {
+		if (binding.ScopeType == models.ConfigRepositoryScopeFolder || grant.role == customUseGrantRole) &&
+			accessGrantResourceIntersectsAnyScope(grant.resourceType, grant.resourceID, overrideScopes) {
 			delete(plan.grants, key)
 		}
 	}

@@ -6,6 +6,7 @@ import TriggersPage from './pages/Triggers';
 import ScopesPage from './pages/Scopes';
 import LabPage from './pages/Lab';
 import StepsPage from './pages/Steps';
+import KnowledgeContextPage from './pages/KnowledgeContext';
 import SystemPage from './pages/System';
 import LoginPage from './pages/Login';
 import ProfilePage from './pages/Profile';
@@ -54,6 +55,14 @@ type ScopeTreeNode = {
   scopes: string[];
 };
 
+type KnowledgeContextTreeNode = {
+  id: string;
+  name: string;
+  fullPath: string;
+  children: KnowledgeContextTreeNode[];
+  knowledgeContextIds: string[];
+};
+
 type ResourceCapabilities = {
   write?: boolean;
   delete?: boolean;
@@ -88,6 +97,7 @@ type CurrentUser = {
     steps?: ResourceCapabilities;
     triggers?: ReadCapabilities;
     scopes?: ReadCapabilities;
+    knowledge_contexts?: ReadCapabilities;
     system?: SystemCapabilities;
   };
 };
@@ -168,6 +178,11 @@ const baseNavItems: NavItem[] = [
     icon: <IconSteps />,
   },
   {
+    label: 'Knowledge Context',
+    path: '/knowledge-context',
+    icon: <IconKnowledge />,
+  },
+  {
     label: 'System',
     path: '/system/config',
     icon: <IconCog />,
@@ -189,6 +204,7 @@ const titleMap: Record<string, string> = {
   scopes: 'Scopes',
   lab: 'Lab',
   steps: 'Steps',
+  'knowledge-context': 'Knowledge Context',
   system: 'System',
   profile: 'Profile',
 };
@@ -199,6 +215,8 @@ const SIDEBAR_MAX_WIDTH = 520;
 const SIDEBAR_DEFAULT_WIDTH = 320;
 const SIDEBAR_RECENT_PAGE_SIZE = 200;
 const SIDEBAR_SCROLL_BUFFER = 200;
+const KNOWLEDGE_CONTEXT_KIND_ORDER = ['architecture', 'guardrail', 'policy', 'adr', 'guideline', 'runbook', 'reference', 'example'];
+const KNOWLEDGE_CONTEXTS_CHANGED_EVENT = 'nopsai-knowledge-contexts-changed';
 
 const getInitialTheme = (): Theme => {
   if (typeof window === 'undefined') return 'light';
@@ -247,6 +265,9 @@ function AppShell() {
   const [scopes, setScopes] = useState<string[]>([]);
   const serverScopesRef = useRef<string[]>([]);
   const [scopeTreeOpen, setScopeTreeOpen] = useState<Set<string>>(new Set());
+
+  const [knowledgeContexts, setKnowledgeContexts] = useState<string[]>([]);
+  const [knowledgeContextTreeOpen, setKnowledgeContextTreeOpen] = useState<Set<string>>(new Set());
   const [resourceGroupPaths, setResourceGroupPaths] = useState<string[]>([]);
 
   useEffect(() => {
@@ -331,6 +352,14 @@ function AppShell() {
                         delete: Boolean(data.capabilities.scopes.delete),
                       }
                     : undefined,
+                knowledge_contexts:
+                  data.capabilities.knowledge_contexts && typeof data.capabilities.knowledge_contexts === 'object'
+                    ? {
+                        read: Boolean(data.capabilities.knowledge_contexts.read),
+                        write: Boolean(data.capabilities.knowledge_contexts.write),
+                        delete: Boolean(data.capabilities.knowledge_contexts.delete),
+                      }
+                    : undefined,
                 system:
                   data.capabilities.system && typeof data.capabilities.system === 'object'
                     ? {
@@ -403,6 +432,9 @@ function AppShell() {
   const canDeleteTriggers = Boolean(currentUser?.capabilities?.triggers?.delete);
   const canViewScopes = Boolean(currentUser?.capabilities?.scopes?.read);
   const canDeleteScopes = Boolean(currentUser?.capabilities?.scopes?.delete);
+  const canViewKnowledge = Boolean(currentUser?.capabilities?.knowledge_contexts?.read);
+  const canWriteKnowledge = Boolean(currentUser?.capabilities?.knowledge_contexts?.write);
+  const canDeleteKnowledge = Boolean(currentUser?.capabilities?.knowledge_contexts?.delete);
   const canViewSystemRuntimeConfig = Boolean(currentUser?.capabilities?.system?.configRead);
   const canManageSystemRuntimeConfig = Boolean(currentUser?.capabilities?.system?.configWrite);
   const canViewSystemLLMProfiles = Boolean(currentUser?.capabilities?.system?.llmProfilesRead) || canViewSystemRuntimeConfig;
@@ -434,9 +466,10 @@ function AppShell() {
         if (item.path.startsWith('/system')) return canViewAnySystem;
         if (item.path === '/triggers') return canViewTriggers;
         if (item.path === '/scopes') return canViewScopes;
+        if (item.path === '/knowledge-context') return canViewKnowledge;
         return true;
       });
-  }, [canViewAnySystem, canViewScopes, canViewTriggers, preferredSystemPath]);
+  }, [canViewAnySystem, canViewKnowledge, canViewScopes, canViewTriggers, preferredSystemPath]);
   const systemSubNav = useMemo(
     () =>
       baseSystemSubNav.filter(item => {
@@ -462,16 +495,21 @@ function AppShell() {
       return;
     }
     let cancelled = false;
-    void fetchResourceGroupPaths()
-      .then(paths => {
-        if (!cancelled) setResourceGroupPaths(paths);
-      })
-      .catch(error => {
-        console.warn('Failed to load groups for resource trees', error);
-        if (!cancelled) setResourceGroupPaths([]);
-      });
+    const loadResourceGroups = () => {
+      void fetchResourceGroupPaths()
+        .then(paths => {
+          if (!cancelled) setResourceGroupPaths(paths);
+        })
+        .catch(error => {
+          console.warn('Failed to load groups for resource trees', error);
+          if (!cancelled) setResourceGroupPaths([]);
+        });
+    };
+    loadResourceGroups();
+    window.addEventListener('nopsai-resource-groups-changed', loadResourceGroups);
     return () => {
       cancelled = true;
+      window.removeEventListener('nopsai-resource-groups-changed', loadResourceGroups);
     };
   }, [isAuthenticated]);
 
@@ -604,6 +642,46 @@ function AppShell() {
       void load();
     }
   }, [canWriteSteps, draftScope, isAuthenticated, location.pathname]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !canViewKnowledge) {
+      setKnowledgeContexts([]);
+      return;
+    }
+    const load = async () => {
+      try {
+        const response = await fetch(buildApiUrl('/v1/knowledge-contexts'));
+        if (!response.ok) return;
+        const payload = await response.json();
+        const ids = Array.isArray(payload)
+          ? payload
+              .map((item: unknown) => {
+                if (typeof item === 'string') return item.trim();
+                if (!item || typeof item !== 'object') return '';
+                const record = item as Record<string, unknown>;
+                return typeof record.id === 'string' ? record.id.trim() : '';
+              })
+              .filter(Boolean)
+          : [];
+        ids.sort((a, b) => a.localeCompare(b));
+        setKnowledgeContexts(ids);
+      } catch (error) {
+        console.warn('Failed to load knowledge contexts for sidebar', error);
+      }
+    };
+    const handleKnowledgeContextsChanged = () => {
+      if (location.pathname.startsWith('/knowledge-context')) {
+        void load();
+      }
+    };
+    window.addEventListener(KNOWLEDGE_CONTEXTS_CHANGED_EVENT, handleKnowledgeContextsChanged);
+    if (location.pathname.startsWith('/knowledge-context')) {
+      void load();
+    }
+    return () => {
+      window.removeEventListener(KNOWLEDGE_CONTEXTS_CHANGED_EVENT, handleKnowledgeContextsChanged);
+    };
+  }, [canViewKnowledge, isAuthenticated, location.pathname]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -773,6 +851,54 @@ function AppShell() {
     return root;
   }, [resourceGroupPaths, scopes]);
 
+  const buildKnowledgeContextTree = useMemo(() => {
+    const root: KnowledgeContextTreeNode = { id: '__root__', name: 'knowledge contexts', fullPath: '', children: [], knowledgeContextIds: [] };
+    const folderRank = (name: string) => {
+      const index = KNOWLEDGE_CONTEXT_KIND_ORDER.indexOf(name);
+      return index < 0 ? KNOWLEDGE_CONTEXT_KIND_ORDER.length : index;
+    };
+    const sortChildren = (node: KnowledgeContextTreeNode) => {
+      node.children.sort((a, b) => folderRank(a.name) - folderRank(b.name) || a.name.localeCompare(b.name));
+      node.knowledgeContextIds.sort((a, b) => a.localeCompare(b));
+      node.children.forEach(sortChildren);
+    };
+    const ensureChild = (parent: KnowledgeContextTreeNode, segment: string, fullPath: string) => {
+      let child = parent.children.find(c => c.name === segment);
+      if (!child) {
+        child = { id: fullPath, name: segment, fullPath, children: [], knowledgeContextIds: [] };
+        parent.children.push(child);
+      }
+      return child;
+    };
+
+    KNOWLEDGE_CONTEXT_KIND_ORDER.forEach(kind => {
+      ensureChild(root, kind, kind);
+    });
+    KNOWLEDGE_CONTEXT_KIND_ORDER.forEach(kind => {
+      resourceGroupPaths.forEach(groupPath => {
+        const normalizedGroup = groupPath.split('/').map(part => part.trim()).filter(Boolean).join('/');
+        if (!normalizedGroup) return;
+        insertGroupPath(root, `${kind}/${normalizedGroup}`, (id, name, fullPath) => ({ id, name, fullPath, children: [], knowledgeContextIds: [] }));
+      });
+    });
+
+    knowledgeContexts.forEach(id => {
+      const parts = id.split('/').filter(Boolean);
+      const documentName = parts.pop();
+      if (!documentName) return;
+      let current = root;
+      let pathSoFar = '';
+      parts.forEach(segment => {
+        pathSoFar = pathSoFar ? `${pathSoFar}/${segment}` : segment;
+        current = ensureChild(current, segment, pathSoFar);
+      });
+      current.knowledgeContextIds.push(id);
+    });
+
+    sortChildren(root);
+    return root;
+  }, [knowledgeContexts, resourceGroupPaths]);
+
   const handleTogglePipelineNode = (id: string) => {
     setPipelineTreeOpen(prev => {
       const next = new Set(prev);
@@ -802,6 +928,15 @@ function AppShell() {
 
   const handleToggleScopeNode = (id: string) => {
     setScopeTreeOpen(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleToggleKnowledgeContextNode = (id: string) => {
+    setKnowledgeContextTreeOpen(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -902,6 +1037,9 @@ function AppShell() {
               scopeTree={buildScopeTree}
               scopeTreeOpen={scopeTreeOpen}
               onToggleScopeNode={handleToggleScopeNode}
+              knowledgeContextTree={buildKnowledgeContextTree}
+              knowledgeContextTreeOpen={knowledgeContextTreeOpen}
+              onToggleKnowledgeContextNode={handleToggleKnowledgeContextNode}
               splitIdentifier={splitIdentifier}
               locationPathname={location.pathname}
               locationSearch={location.search}
@@ -910,6 +1048,7 @@ function AppShell() {
               onSelectTriggerFolder={path => navigate(path ? `/triggers?folder=${encodeURIComponent(path)}` : '/triggers')}
               onSelectStepFolder={path => navigate(path ? `/steps?folder=${encodeURIComponent(path)}` : '/steps')}
               onSelectScopeFolder={path => navigate(path ? `/scopes?folder=${encodeURIComponent(path)}` : '/scopes')}
+              onSelectKnowledgeContextFolder={path => navigate(path ? `/knowledge-context?folder=${encodeURIComponent(path)}` : '/knowledge-context')}
             />
             <div
               id="sidebar-resizer"
@@ -956,6 +1095,13 @@ function AppShell() {
 	                    path="/steps/*"
 	                    element={<StepsPage draftScope={draftScope} canDeleteSteps={canDeleteSteps} />}
 	                  />
+                  <Route
+                    path="/knowledge-context/*"
+                    element={renderAccessControlledPage(
+                      canViewKnowledge,
+                      <KnowledgeContextPage canWriteKnowledge={canWriteKnowledge} canDeleteKnowledge={canDeleteKnowledge} />
+                    )}
+                  />
                   <Route
                     path="/system/:tab?"
                     element={renderAccessControlledPage(
@@ -1021,6 +1167,9 @@ function Sidebar({
   scopeTree,
   scopeTreeOpen,
   onToggleScopeNode,
+  knowledgeContextTree,
+  knowledgeContextTreeOpen,
+  onToggleKnowledgeContextNode,
   splitIdentifier,
   locationPathname,
   locationSearch,
@@ -1029,6 +1178,7 @@ function Sidebar({
   onSelectTriggerFolder,
   onSelectStepFolder,
   onSelectScopeFolder,
+  onSelectKnowledgeContextFolder,
 }: {
   navItems: NavItem[];
   systemSubNav: NavItem[];
@@ -1047,6 +1197,9 @@ function Sidebar({
   scopeTree: ScopeTreeNode;
   scopeTreeOpen: Set<string>;
   onToggleScopeNode: (id: string) => void;
+  knowledgeContextTree: KnowledgeContextTreeNode;
+  knowledgeContextTreeOpen: Set<string>;
+  onToggleKnowledgeContextNode: (id: string) => void;
   splitIdentifier: (id: string) => { name: string; path: string };
   locationPathname: string;
   locationSearch: string;
@@ -1055,17 +1208,36 @@ function Sidebar({
   onSelectTriggerFolder: (path: string) => void;
   onSelectStepFolder: (path: string) => void;
   onSelectScopeFolder: (path: string) => void;
+  onSelectKnowledgeContextFolder: (path: string) => void;
 }) {
   const isPipelinesRoute = locationPathname.startsWith('/pipelines');
   const isTriggersRoute = locationPathname.startsWith('/triggers');
   const isStepsRoute = locationPathname.startsWith('/steps');
   const isScopesRoute = locationPathname.startsWith('/scopes');
+  const isKnowledgeContextRoute = locationPathname.startsWith('/knowledge-context');
   const isPipelineRunsRoute = locationPathname.startsWith('/pipelineruns');
   const isSystemRoute = locationPathname.startsWith('/system');
   const searchParams = useMemo(() => new URLSearchParams(locationSearch), [locationSearch]);
   const pipelineRunsTab: RunTabKey =
     locationPathname.startsWith('/pipelineruns/recent') ? 'recent' : locationPathname.startsWith('/pipelineruns/events') ? 'events' : 'main';
   const activeFolder = searchParams.get('folder') || '';
+  const encodeKnowledgeContextRoute = (id: string) => `/knowledge-context/${id.split('/').filter(Boolean).map(encodeURIComponent).join('/')}`;
+  const activeKnowledgeContextID = (() => {
+    const prefix = '/knowledge-context/';
+    if (!locationPathname.startsWith(prefix)) return '';
+    return locationPathname
+      .slice(prefix.length)
+      .split('/')
+      .filter(Boolean)
+      .map(part => {
+        try {
+          return decodeURIComponent(part);
+        } catch {
+          return part;
+        }
+      })
+      .join('/');
+  })();
 
   const renderPipelineTreeNode = (node: PipelineTreeNode) => {
     const isOpen = pipelineTreeOpen.has(node.id);
@@ -1348,6 +1520,73 @@ function Sidebar({
     );
   };
 
+  const renderKnowledgeContextTreeNode = (node: KnowledgeContextTreeNode) => {
+    const isOpen = knowledgeContextTreeOpen.has(node.id);
+    const isRoot = node.id === '__root__';
+    const isActiveFolder = activeFolder === node.fullPath;
+    return (
+      <li key={`knowledge-${node.id}`} className="pipeline-tree-row">
+        {!isRoot && (
+          <div className="pipeline-tree-item flex items-center gap-2 rounded-md hover:bg-[var(--bg-tertiary)] px-1">
+            <button
+              className="pipeline-tree-toggle inline-flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1"
+              onClick={() => onToggleKnowledgeContextNode(node.id)}
+              aria-label="Toggle group"
+            >
+              <svg
+                className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-90' : ''}`}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+            <button
+              className={`pipeline-tree-folder flex items-center gap-2 flex-1 min-w-0 text-left text-[var(--text-primary)] hover:text-[var(--text-primary)] px-2 py-1 rounded-md hover:bg-[var(--bg-tertiary)] ${isActiveFolder ? 'active' : ''}`}
+              onClick={() => {
+                if (!isOpen) onToggleKnowledgeContextNode(node.id);
+                onSelectKnowledgeContextFolder(node.fullPath);
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 7h5l2 2h11v9a2 2 0 0 1-2 2H3z" />
+                <path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2" />
+              </svg>
+              <span className="truncate">{node.name}</span>
+            </button>
+          </div>
+        )}
+        {(isRoot || isOpen) && (
+          <ul className="pipeline-tree-children">
+            {node.children.map(child => renderKnowledgeContextTreeNode(child))}
+            {node.knowledgeContextIds.map(contextId => {
+              const { name } = splitIdentifier(contextId);
+              const active = activeKnowledgeContextID === contextId;
+              return (
+                <li key={`knowledge-id-${contextId}`} className={`pipeline-tree-leaf ${active ? 'active' : ''}`}>
+                  <NavLink className="pipeline-tree-leaf-btn" to={encodeKnowledgeContextRoute(contextId)}>
+                    <span className="pipeline-tree-leaf-icon" aria-hidden="true">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <path d="M14 2v6h6" />
+                        <path d="M8 13h8M8 17h5" />
+                      </svg>
+                    </span>
+                    <span className="truncate">{name || contextId}</span>
+                  </NavLink>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </li>
+    );
+  };
+
   return (
     <>
       <div
@@ -1459,6 +1698,13 @@ function Sidebar({
                   <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">All scopes</p>
                 </div>
                 <ul className="pipeline-tree-list">{renderScopeTreeNode(scopeTree)}</ul>
+              </div>
+            ) : isKnowledgeContextRoute ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">All knowledge contexts</p>
+                </div>
+                <ul className="pipeline-tree-list">{renderKnowledgeContextTreeNode(knowledgeContextTree)}</ul>
               </div>
             ) : (
               <p className="text-xs text-[var(--text-secondary)]">Contextual navigation will appear here as features are migrated.</p>
@@ -2505,6 +2751,15 @@ function IconSteps() {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 2l8 4.5v11L12 22 4 17.5v-11L12 2z" />
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 22v-7.5" />
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 6.5l-8 4.5-8-4.5" />
+    </svg>
+  );
+}
+
+function IconKnowledge() {
+  return (
+    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" d="M4 5.5A2.5 2.5 0 016.5 3H20v16H6.5A2.5 2.5 0 014 16.5z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" d="M8 7h8M8 11h8M8 15h5" />
     </svg>
   );
 }
