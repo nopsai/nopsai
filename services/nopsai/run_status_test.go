@@ -48,6 +48,34 @@ func TestIsCompletedRunStatus(t *testing.T) {
 	}
 }
 
+func TestNullableGitCheckRunID(t *testing.T) {
+	tests := []struct {
+		name      string
+		context   map[string]string
+		wantValid bool
+		wantValue int64
+	}{
+		{name: "nil context", context: nil},
+		{name: "blank value", context: map[string]string{"check_run_id": ""}},
+		{name: "whitespace value", context: map[string]string{"check_run_id": "   "}},
+		{name: "invalid value", context: map[string]string{"check_run_id": "not-a-number"}},
+		{name: "valid value", context: map[string]string{"check_run_id": "12345"}, wantValid: true, wantValue: 12345},
+		{name: "valid with spaces", context: map[string]string{"check_run_id": " 678 "}, wantValid: true, wantValue: 678},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := nullableGitCheckRunID(tt.context)
+			if got.Valid != tt.wantValid {
+				t.Fatalf("Valid = %v, want %v", got.Valid, tt.wantValid)
+			}
+			if got.Int64 != tt.wantValue {
+				t.Fatalf("Int64 = %d, want %d", got.Int64, tt.wantValue)
+			}
+		})
+	}
+}
+
 func TestMarkRunRunningPromotesNonTerminalRun(t *testing.T) {
 	runner := &recordingRunExecRunner{}
 

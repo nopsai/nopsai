@@ -10,11 +10,11 @@ Primary role:
 
 Responsibilities:
 
-- Exposes REST endpoints for auth, runs, pipelines, steps, triggers, secrets, variables, groups, and system operations.
+- Exposes REST endpoints for auth, runs, pipelines, steps, triggers, knowledge contexts, secrets, variables, groups, and system operations.
 - Exposes product access-management endpoints for role grants and effective-permission inspection.
 - Stores and reads all durable state from Postgres.
 - Validates pipelines and resolves reusable `step:` includes.
-- Resolves required secrets and variables before a run is dispatched.
+- Resolves required knowledge context, secrets, and variables before a run is dispatched.
 - Creates run records, task records, and log records.
 - Starts config sync from the Git-backed config repo.
 - Seeds predefined product roles and expands role grants into low-level AAA ACLs.
@@ -27,6 +27,8 @@ Key files:
 - `services/nopsai/routes.go`
 - `services/nopsai/run_handlers.go`
 - `services/nopsai/pipeline_handlers.go`
+- `services/nopsai/knowledge_context.go`
+- `services/nopsai/knowledge_context_schema.go`
 - `services/nopsai/secrets_variables_handlers.go`
 - `services/nopsai/github_integration.go`
 - `services/nopsai/auth_handlers.go`
@@ -53,6 +55,7 @@ Authorization notes:
 - Access grants are written at grant time into existing AAA tables instead of changing evaluator behavior.
 - Folder-targeted grants inherit by path to child resources.
 - Runtime resource-use checks are caller-based, so Git runs are authorized as repositories, manual runs as users, and dispatcher calls do not inherit resource-owner permissions.
+- Managed knowledge context references are checked with `knowledge_context.use` before dispatch.
 - Sensitive allowed actions and all denied actions are written to authorization decision logs.
 
 Outbound interfaces:
@@ -184,10 +187,12 @@ Responsibilities:
 - Starts once per run with the resolved pipeline definition and runtime context encoded in OS variables.
 - Connects to the dispatcher for status reporting, pipeline fetches, child pipeline triggers, and cancellation polling.
 - Decodes secrets and variables already prepared by `nopsai`.
+- Decodes the run knowledge context snapshot prepared by `nopsai`.
 - Evaluates step conditions with the configured LLM provider.
 - Resolves goal-based tasks into structured actions.
 - Executes commands or file writes inside step containers.
 - Maintains execution history that later tasks and child pipelines can use.
+- Injects effective pipeline + step + task knowledge context into LLM prompts.
 - Masks secrets before writing output into the shared history/log path.
 - Sends task status and final status back through the dispatcher.
 
@@ -253,12 +258,13 @@ Responsibilities:
 - Pipeline runs view with main, recent, and events views
 - Pipeline editor and pipeline drafts
 - Trigger override editor
+- Knowledge Context browser, markdown editor/preview, source metadata, access settings, and usage inspection
 - Scope manager for secrets and variables
 - Reusable step library
 - Lab for ad-hoc YAML execution and quick runs
 - System pages for config sync, dispatcher status, runner controls, and access management
 - Access-grant management for product roles and effective-permission inspection
-- Resource Access dialogs on pipelines, scopes, and reusable steps for use visibility and group/repository sharing
+- Resource Access dialogs on pipelines, scopes, reusable steps, and knowledge contexts for use visibility and group/repository sharing
 - Profile page for email and password changes
 
 Key files:
@@ -284,7 +290,7 @@ Primary role:
 
 Responsibilities:
 
-- Stores runs, tasks, logs, configuration, groups, users, roles, refresh tokens, and audit logs.
+- Stores runs, tasks, logs, configuration, knowledge context, groups, users, roles, refresh tokens, and audit logs.
 - Stores AAA subjects, role bindings, grant metadata, resource visibility, expanded ACLs, ownership metadata, run authorization snapshots, and authorization decision logs.
 - Keeps the execution record durable even though agents and step containers are ephemeral.
 

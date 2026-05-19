@@ -63,6 +63,7 @@ func TestBuildActionRequestMasksSensitiveHistoryAndDirectoryContent(t *testing.T
 		"deploy",
 		"token is super-secret-value",
 		map[string]string{"README.md": "secret: super-secret-value"},
+		"guardrail says do not print super-secret-value",
 		map[string]string{"ANOTHER_SECRET": "another-secret"},
 	)
 
@@ -71,6 +72,9 @@ func TestBuildActionRequestMasksSensitiveHistoryAndDirectoryContent(t *testing.T
 	}
 	if strings.Contains(req.GetDirectoryListing()["README.md"], "super-secret-value") {
 		t.Fatalf("expected directory listing to be masked, got %q", req.GetDirectoryListing()["README.md"])
+	}
+	if strings.Contains(req.GetKnowledgeContext(), "super-secret-value") {
+		t.Fatalf("expected knowledge context to be masked, got %q", req.GetKnowledgeContext())
 	}
 	if got := req.GetVariables()["STEP_SECRET"]; got != "[redacted]" {
 		t.Fatalf("expected prompt variable to be redacted, got %q", got)

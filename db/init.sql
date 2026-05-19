@@ -152,6 +152,23 @@ CREATE TABLE steps (
     UNIQUE (path, name)
 );
 
+CREATE TABLE knowledge_contexts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    kind TEXT NOT NULL,
+    group_path TEXT NOT NULL DEFAULT '',
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'database',
+    config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
+    config_source_path TEXT NOT NULL DEFAULT '',
+    config_source_commit_sha TEXT NOT NULL DEFAULT '',
+    managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(kind, group_path, name)
+);
+
 CREATE TABLE secrets (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
@@ -260,6 +277,26 @@ CREATE TABLE pipeline_run_logs (
 );
 
 CREATE INDEX idx_pipeline_run_logs_run_id ON pipeline_run_logs(run_id);
+
+CREATE TABLE pipeline_run_knowledge_contexts (
+    id BIGSERIAL PRIMARY KEY,
+    run_id UUID NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
+    knowledge_context_id UUID REFERENCES knowledge_contexts(id) ON DELETE SET NULL,
+    kind TEXT NOT NULL,
+    group_path TEXT NOT NULL DEFAULT '',
+    name TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    ref TEXT NOT NULL DEFAULT '',
+    path TEXT NOT NULL DEFAULT '',
+    required BOOLEAN NOT NULL DEFAULT FALSE,
+    source TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    config_source_path TEXT NOT NULL DEFAULT '',
+    config_source_commit_sha TEXT NOT NULL DEFAULT '',
+    resolved_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_pipeline_run_knowledge_contexts_run_id ON pipeline_run_knowledge_contexts(run_id);
 
 CREATE TABLE users (
     id UUID PRIMARY KEY,

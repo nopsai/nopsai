@@ -286,6 +286,24 @@ func TestMapRequestDefersStepPutAuthorizationToHandler(t *testing.T) {
 	}
 }
 
+func TestMapRequestDefersKnowledgeContextPutAuthorizationToHandler(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPut, "/v1/knowledge-contexts/guardrail/team-1/repo-check", nil)
+	req.SetPathValue("knowledgeID", "guardrail/team-1/repo-check")
+	action, resource, requiresFilter, err := MapRequest(req)
+	if err != nil {
+		t.Fatalf("MapRequest() error = %v", err)
+	}
+	if action != "" {
+		t.Fatalf("action = %q, want empty", action)
+	}
+	if resource.Type != "knowledge_context" || resource.ID != "guardrail/team-1/repo-check" {
+		t.Fatalf("resource = %#v, want knowledge_context:guardrail/team-1/repo-check", resource)
+	}
+	if requiresFilter {
+		t.Fatal("requiresFilter = true, want false")
+	}
+}
+
 func TestRuntimeResourceBuildersNormalizeDefaultScope(t *testing.T) {
 	if got, want := BuildSecretResource("", "default", "TOKEN"), BuildSecretResource("", "", "TOKEN"); got != want {
 		t.Fatalf("BuildSecretResource(default) = %#v, want %#v", got, want)

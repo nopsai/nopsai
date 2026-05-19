@@ -647,6 +647,22 @@ func TestStepGrantManagementUsesManageACLAction(t *testing.T) {
 	}
 }
 
+func TestKnowledgeContextGrantManagementUsesManageAccessAction(t *testing.T) {
+	action, resource, err := managementActionForGrantResource(accessGrantResource{
+		Type: grantResourceKnowledgeContext,
+		ID:   "guardrail/payments/repo-check",
+	})
+	if err != nil {
+		t.Fatalf("managementActionForGrantResource() error = %v", err)
+	}
+	if action != "knowledge_context.manage_access" {
+		t.Fatalf("action = %q, want knowledge_context.manage_access", action)
+	}
+	if resource.Type != grantResourceKnowledgeContext || resource.ID != "guardrail/payments/repo-check" {
+		t.Fatalf("resource = %#v, want knowledge_context:guardrail/payments/repo-check", resource)
+	}
+}
+
 func TestScopedProductGrantCapabilityUsesGrantRoleDefinition(t *testing.T) {
 	if !productGrantIncludesAction(productRoleDeveloper, grantResourceFolder, "pipeline.create") {
 		t.Fatal("developer folder grant should include pipeline.create")
