@@ -156,6 +156,12 @@ func (a *App) AuthorizeResourceUse(ctx context.Context, input ResourceUseAuthInp
 		result.ResourceGroup = resourceGroup.Path
 	}
 	if callerGroup.Valid && resourceGroup.Valid && IsSameGroupBoundary(callerGroup.Path, resourceGroup.Path) {
+		if sameGroupResourceUseAllowed(resourceType, visibility) {
+			result.Allowed = true
+			result.Reason = resourceUseReasonSameGroup
+			result.MatchedResource = formatResourceLabel(grantResourceFolder, resourceGroup.Path)
+			return result, nil
+		}
 		if folderAllowed, folderDecision, checkErr := a.callerHasFolderAction(ctx, subject, action, resourceGroup.Path); checkErr != nil {
 			return result, checkErr
 		} else if folderAllowed {
@@ -220,6 +226,21 @@ func (a *App) AuthorizeResourceUse(ctx context.Context, input ResourceUseAuthInp
 	}
 
 	return result, nil
+}
+
+func sameGroupResourceUseAllowed(resourceType, visibility string) bool {
+	switch normalizeResourceVisibility(visibility) {
+	case resourceVisibilityGroup, resourceVisibilityRestricted:
+	default:
+		return false
+	}
+
+	switch strings.TrimSpace(resourceType) {
+	case grantResourcePipeline, grantResourceScope, grantResourceStep, grantResourceKnowledgeContext:
+		return true
+	default:
+		return false
+	}
 }
 
 func isExplicitResourceUseDeny(decision model.Decision) bool {
@@ -600,23 +621,6 @@ func (a *App) resourceVisibility(ctx context.Context, resourceType, resourceID s
 			ORDER BY id ASC
 			LIMIT 1
 		`, resourceID).Scan(&visibility)
-		if err == nil {
-			return normalizeResourceVisibility(visibility), nil
-		}
-		if !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
-			return "", err
-		}
-	case grantResourceKnowledgeContext:
-		kind, group, name, splitErr := splitKnowledgeContextIdentifier(resourceID)
-		if splitErr != nil {
-			return "", splitErr
-		}
-		var visibility string
-		err := a.db.QueryRow(ctx, `
-			SELECT visibility
-			FROM knowledge_contexts
-			WHERE kind = $1 AND group_path = $2 AND name = $3
-		`, kind, group, name).Scan(&visibility)
 		if err == nil {
 			return normalizeResourceVisibility(visibility), nil
 		}

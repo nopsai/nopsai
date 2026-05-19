@@ -665,12 +665,6 @@ func setResourceVisibilityWithRunner(ctx context.Context, runner execRunner, res
 		tag, err = runner.Exec(ctx, `UPDATE steps SET visibility = $1 WHERE path = $2 AND name = $3`, visibility, path, name)
 	case grantResourceConfig:
 		tag, err = runner.Exec(ctx, `UPDATE config_repositories SET visibility = $1 WHERE id::text = $2 OR scope_id = $2`, visibility, resource.ID)
-	case grantResourceKnowledgeContext:
-		kind, group, name, splitErr := splitKnowledgeContextIdentifier(resource.ID)
-		if splitErr != nil {
-			return splitErr
-		}
-		tag, err = runner.Exec(ctx, `UPDATE knowledge_contexts SET visibility = $1, updated_at = NOW() WHERE kind = $2 AND group_path = $3 AND name = $4`, visibility, kind, group, name)
 	default:
 		_, err = runner.Exec(ctx, `
 			INSERT INTO resource_visibility (resource_type, resource_id, visibility, updated_at)

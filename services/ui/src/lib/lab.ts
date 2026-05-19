@@ -220,6 +220,7 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'timeout',
     'llm_profile',
     'mcp_profiles',
+    'knowledge_context',
     'llm_content_sharing',
     'llm_output_sharing',
     'llm_content_include',
@@ -242,9 +243,20 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'ignore_failure',
     'llm_profile',
     'mcp_profiles',
+    'knowledge_context',
     'llm_output_sharing',
   ]);
-  const knownTaskKeys = new Set(['name', 'goal', 'script', 'depends_on', 'ignore_failure', 'llm_profile', 'mcp_profiles', 'llm_output_sharing']);
+  const knownTaskKeys = new Set([
+    'name',
+    'goal',
+    'script',
+    'depends_on',
+    'ignore_failure',
+    'llm_profile',
+    'mcp_profiles',
+    'knowledge_context',
+    'llm_output_sharing',
+  ]);
   const knownDisplayOptionsKeys = new Set(['github_view']);
 
   const createError = (message: string, pathHints: string[] = []): LabValidationError => {

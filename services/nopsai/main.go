@@ -1698,16 +1698,13 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 			managed_by_config_repo = TRUE,
 			updated_at = NOW()`
 	const knowledgeContextUpsert = `INSERT INTO knowledge_contexts (
-			kind, group_path, name, title, description, content, content_format,
-			visibility, source, config_repo_id, config_source_path, config_source_commit_sha,
+			kind, group_path, name, description, content,
+			source, config_repo_id, config_source_path, config_source_commit_sha,
 			managed_by_config_repo, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'git', $9, $10, $11, TRUE, NOW())
+		) VALUES ($1, $2, $3, $4, $5, 'git', $6, $7, $8, TRUE, NOW())
 		ON CONFLICT (kind, group_path, name) DO UPDATE SET
-			title = EXCLUDED.title,
 			description = EXCLUDED.description,
 			content = EXCLUDED.content,
-			content_format = EXCLUDED.content_format,
-			visibility = EXCLUDED.visibility,
 			source = 'git',
 			config_repo_id = EXCLUDED.config_repo_id,
 			config_source_path = EXCLUDED.config_source_path,
@@ -1808,7 +1805,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		if !writable {
 			continue
 		}
-		if _, err := tx.Exec(ctx, knowledgeContextUpsert, stored.kind, stored.group, stored.name, stored.title, stored.description, stored.content, stored.format, stored.visibility, binding.ID, stored.sourcePath, commitSHA); err != nil {
+		if _, err := tx.Exec(ctx, knowledgeContextUpsert, stored.kind, stored.group, stored.name, stored.description, stored.content, binding.ID, stored.sourcePath, commitSHA); err != nil {
 			return nil, commitSHA, fmt.Errorf("failed to upsert knowledge context '%s': %w", key, err)
 		}
 		details["knowledge_contexts_synced"]++

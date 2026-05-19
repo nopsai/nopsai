@@ -99,10 +99,7 @@ func formatKnowledgeContextPrompt(snapshots []models.KnowledgeContextSnapshot) s
 		builder.WriteString("If the requested action conflicts with guardrails or policies, do not execute it. Return an explanation instead.\n\n")
 	}
 	for _, snapshot := range snapshots {
-		title := strings.TrimSpace(snapshot.Title)
-		if title == "" {
-			title = strings.TrimSpace(snapshot.Name)
-		}
+		title := strings.TrimSpace(snapshot.Name)
 		if title == "" {
 			title = firstNonEmptyKnowledgeLabel(snapshot.Ref, snapshot.Path, snapshot.Kind)
 		}

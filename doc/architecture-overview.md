@@ -116,12 +116,12 @@ Main tables from `db/init.sql`:
 - `pipeline_run_logs`: Durable log lines ingested from runner/agent activity.
 - `pipelines`, `steps`, `triggers`: Stored configuration and overrides. Pipelines and reusable steps also carry resource visibility for runtime sharing.
 - `variables`, `secrets`: Runtime configuration data, with secrets encrypted before storage.
-- `knowledge_contexts`: Managed markdown knowledge documents grouped by kind/group/name, with visibility and GitOps source metadata.
+- `knowledge_contexts`: Managed markdown knowledge documents grouped by kind/group/name, with GitOps source metadata.
 - `pipeline_run_knowledge_contexts`: Per-run snapshots of resolved knowledge content.
 - `groups`: Folder/repository tree used by the UI’s pipeline-runs organization.
 - `users`, `user_roles`, `role_permissions`, `refresh_tokens`, `audit_logs`: Local auth, legacy RBAC metadata, session, and audit data.
 - `auth_groups`, `auth_group_members`, `auth_roles`, `auth_role_bindings`, `auth_role_permissions`: AAA role data used by the policy engine; product access grants can target users, auth groups, repositories, triggers, service accounts, and internal services.
-- `resource_visibility`: Visibility settings for reusable resources that do not have first-class visibility columns.
+- `resource_visibility`: Visibility settings for reusable resources, including knowledge contexts.
 - `access_grants`, `resource_acl`, `resource_ownership`, `authz_decision_logs`: Product-role grants, resource-use sharing grants, expanded ACLs, ownership metadata, and authorization decision audit logs.
 
 ## Authorization Model

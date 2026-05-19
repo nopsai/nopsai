@@ -228,6 +228,31 @@ func TestParentScopeForRuntimeResourceUse(t *testing.T) {
 	}
 }
 
+func TestSameGroupResourceUseAllowed(t *testing.T) {
+	tests := []struct {
+		name         string
+		resourceType string
+		visibility   string
+		want         bool
+	}{
+		{name: "knowledge context group", resourceType: grantResourceKnowledgeContext, visibility: resourceVisibilityGroup, want: true},
+		{name: "knowledge context restricted", resourceType: grantResourceKnowledgeContext, visibility: resourceVisibilityRestricted, want: true},
+		{name: "pipeline group", resourceType: grantResourcePipeline, visibility: resourceVisibilityGroup, want: true},
+		{name: "scope group", resourceType: grantResourceScope, visibility: resourceVisibilityGroup, want: true},
+		{name: "secret group", resourceType: grantResourceSecret, visibility: resourceVisibilityGroup, want: false},
+		{name: "knowledge context public", resourceType: grantResourceKnowledgeContext, visibility: resourceVisibilityWorkspace, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sameGroupResourceUseAllowed(tt.resourceType, tt.visibility)
+			if got != tt.want {
+				t.Fatalf("sameGroupResourceUseAllowed(%q, %q) = %t, want %t", tt.resourceType, tt.visibility, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestAuthorizeResourceUseAllowsScopedSecretThroughScopeUse(t *testing.T) {
 	app := &App{
 		aaaClient: stubAAAAuthorizer{

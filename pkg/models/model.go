@@ -593,15 +593,12 @@ type KnowledgeContextSnapshot struct {
 	Kind                  string    `json:"kind"`
 	Group                 string    `json:"group,omitempty"`
 	Name                  string    `json:"name,omitempty"`
-	Title                 string    `json:"title,omitempty"`
 	Description           string    `json:"description,omitempty"`
 	Ref                   string    `json:"ref,omitempty"`
 	Path                  string    `json:"path,omitempty"`
 	Required              bool      `json:"required"`
 	Source                string    `json:"source"`
 	Content               string    `json:"content"`
-	ContentFormat         string    `json:"content_format"`
-	Visibility            string    `json:"visibility,omitempty"`
 	ConfigSourcePath      string    `json:"config_source_path,omitempty"`
 	ConfigSourceCommitSHA string    `json:"config_source_commit_sha,omitempty"`
 	ResolvedAt            time.Time `json:"resolved_at,omitempty"`

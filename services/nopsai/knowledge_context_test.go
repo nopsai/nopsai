@@ -12,7 +12,6 @@ func TestParseGitOpsKnowledgeContextsStructuredDocument(t *testing.T) {
 	plan := newAccessSyncPlan()
 	files := map[string]string{
 		"knowledge/adr/team-1/use-postgres-for-run-state.yaml": `name: use-postgres-for-run-state
-title: ADR: Use PostgreSQL for Pipeline Run State
 kind: adr
 description: Accepted decision for storing pipeline run state in PostgreSQL.
 access:
@@ -40,9 +39,6 @@ content:
 	if !ok {
 		t.Fatalf("expected knowledge context %q, got %#v", key, contexts)
 	}
-	if context.title != "ADR: Use PostgreSQL for Pipeline Run State" {
-		t.Fatalf("title = %q", context.title)
-	}
 	if context.description != "Accepted decision for storing pipeline run state in PostgreSQL." {
 		t.Fatalf("description = %q", context.description)
 	}
@@ -52,10 +48,6 @@ content:
 	if strings.Contains(context.content, "kind:") || strings.Contains(context.content, "access:") {
 		t.Fatalf("content should not include document config: %q", context.content)
 	}
-	if context.format != "text" {
-		t.Fatalf("format = %q, want text", context.format)
-	}
-
 	access, ok := plan.resourceAccess[resourceAccessPlanKey{resourceType: grantResourceKnowledgeContext, resourceID: key}]
 	if !ok {
 		t.Fatalf("expected resource access for %q, got %#v", key, plan.resourceAccess)
@@ -87,7 +79,6 @@ content:
 
 func TestParseKnowledgeContextDocumentSupportsLiteralContentScalar(t *testing.T) {
 	doc := `name: use-postgres-for-run-state
-title: ADR: Use PostgreSQL for Pipeline Run State
 kind: adr
 description: Accepted decision for storing pipeline run state in PostgreSQL.
 content: |
@@ -113,17 +104,16 @@ func TestParseGitOpsKnowledgeContextsMarkdownFrontMatterDocument(t *testing.T) {
 	files := map[string]string{
 		"knowledge/guardrail/team-1/repo-check.md": `---
 name: repo-check
-title: Repository Check Guardrail
 kind: guardrail
-visibility: restricted
 access:
+  visibility: restricted
   groups:
     - team-1
+content: |
+  # Repository Check Guardrail
+
+  - Do not expose secrets in logs.
 ---
-
-# Repository Check Guardrail
-
-- Do not expose secrets in logs.
 `,
 	}
 
@@ -156,11 +146,75 @@ access:
 	}
 }
 
+func TestParseGitOpsKnowledgeContextsMarkdownBodyRequiresContentField(t *testing.T) {
+	_, err := parseGitOpsKnowledgeContexts(map[string]string{
+		"knowledge/guardrail/team-1/repo-check.md": `---
+name: repo-check
+kind: guardrail
+access:
+  visibility: restricted
+---
+
+# Repository Check Guardrail
+
+- Do not expose secrets in logs.
+`,
+	}, "knowledge", models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeSystem,
+		ScopeID:   models.ConfigRepositorySystemGlobalID,
+	}, "", newAccessSyncPlan())
+	if err == nil {
+		t.Fatal("parseGitOpsKnowledgeContexts() error = nil, want content required error")
+	}
+	if !strings.Contains(err.Error(), "content is required") {
+		t.Fatalf("error = %q, want content is required", err)
+	}
+}
+
+func TestParseGitOpsKnowledgeContextsRejectsTitleParameter(t *testing.T) {
+	_, err := parseGitOpsKnowledgeContexts(map[string]string{
+		"knowledge/guardrail/team-1/repo-check.yaml": `name: repo-check
+title: Repository Check Guardrail
+kind: guardrail
+content: |
+  # Repository Check Guardrail
+`,
+	}, "knowledge", models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeSystem,
+		ScopeID:   models.ConfigRepositorySystemGlobalID,
+	}, "", newAccessSyncPlan())
+	if err == nil {
+		t.Fatal("parseGitOpsKnowledgeContexts() error = nil, want title rejection")
+	}
+	if !strings.Contains(err.Error(), "must not declare title") {
+		t.Fatalf("error = %q, want title rejection", err)
+	}
+}
+
+func TestParseGitOpsKnowledgeContextsRejectsTopLevelVisibilityParameter(t *testing.T) {
+	_, err := parseGitOpsKnowledgeContexts(map[string]string{
+		"knowledge/guardrail/team-1/repo-check.yaml": `name: repo-check
+kind: guardrail
+visibility: restricted
+content: |
+  # Repository Check Guardrail
+`,
+	}, "knowledge", models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeSystem,
+		ScopeID:   models.ConfigRepositorySystemGlobalID,
+	}, "", newAccessSyncPlan())
+	if err == nil {
+		t.Fatal("parseGitOpsKnowledgeContexts() error = nil, want visibility rejection")
+	}
+	if !strings.Contains(err.Error(), "must not declare visibility") {
+		t.Fatalf("error = %q, want visibility rejection", err)
+	}
+}
+
 func TestParseGitOpsKnowledgeContextsYAMLDocumentWithPlainContent(t *testing.T) {
 	plan := newAccessSyncPlan()
 	files := map[string]string{
 		"knowledge/guardrail/team-1/repo-check.yaml": `name: repo-check
-title: Repository Check Guardrail
 kind: guardrail
 access:
   groups:
@@ -186,9 +240,6 @@ content:
 	if context.name != "repo-check" {
 		t.Fatalf("name = %q", context.name)
 	}
-	if context.title != "Repository Check Guardrail" {
-		t.Fatalf("title = %q", context.title)
-	}
 	if strings.Contains(context.content, "name:") || strings.Contains(context.content, "access:") {
 		t.Fatalf("content should not include document config: %q", context.content)
 	}
@@ -209,7 +260,6 @@ content:
 func TestParseGitOpsKnowledgeContextDeclaredNameOverridesFileName(t *testing.T) {
 	files := map[string]string{
 		"knowledge/adr/team-1/use-postgres-for-state.yaml": `name: use-postgres-for-run-state
-title: ADR: Use PostgreSQL for Pipeline Run State
 kind: adr
 content:
   Accepted.

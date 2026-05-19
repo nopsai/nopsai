@@ -45,11 +45,8 @@ type storedKnowledgeContext struct {
 	kind        string
 	group       string
 	name        string
-	title       string
 	description string
 	content     string
-	format      string
-	visibility  string
 	sourcePath  string
 }
 
@@ -59,7 +56,6 @@ type knowledgeContextListItem struct {
 	Kind         string    `json:"kind"`
 	Group        string    `json:"group"`
 	Name         string    `json:"name"`
-	Title        string    `json:"title"`
 	Description  string    `json:"description,omitempty"`
 	Visibility   string    `json:"visibility"`
 	Source       string    `json:"source"`
@@ -73,20 +69,16 @@ type knowledgeContextListItem struct {
 
 type knowledgeContextDetail struct {
 	knowledgeContextListItem
-	Content       string `json:"content"`
-	ContentFormat string `json:"content_format"`
-	ManagedByGit  bool   `json:"managed_by_config_repo"`
+	Content      string `json:"content"`
+	ManagedByGit bool   `json:"managed_by_config_repo"`
 }
 
 type upsertKnowledgeContextRequest struct {
-	Kind          string `json:"kind"`
-	Group         string `json:"group"`
-	Name          string `json:"name"`
-	Title         string `json:"title"`
-	Description   string `json:"description"`
-	Content       string `json:"content"`
-	ContentFormat string `json:"content_format"`
-	Visibility    string `json:"visibility"`
+	Kind        string `json:"kind"`
+	Group       string `json:"group"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Content     string `json:"content"`
 }
 
 type knowledgeFrontMatter struct {
@@ -274,11 +266,6 @@ func parseKnowledgeContextDocument(content string) (knowledgeFrontMatter, string
 		return knowledgeFrontMatter{}, "", fmt.Errorf("content is required")
 	}
 
-	var doc knowledgeFrontMatter
-	if err := yaml.Unmarshal([]byte(normalized), &doc); err == nil && strings.TrimSpace(doc.Content) != "" {
-		return doc, doc.Content, nil
-	}
-
 	doc, body, err := parseLooseKnowledgeContextDocument(normalized, contentIndex)
 	if err != nil {
 		return doc, "", err
@@ -307,7 +294,13 @@ func parseMarkdownKnowledgeContextDocument(content string) (knowledgeFrontMatter
 					return doc, "", true, retryErr
 				}
 			}
-			return doc, body, true, nil
+			if strings.TrimSpace(doc.Content) == "" {
+				return doc, "", true, fmt.Errorf("content is required")
+			}
+			if strings.TrimSpace(body) != "" {
+				return doc, "", true, fmt.Errorf("markdown body outside content field is not supported; use content:")
+			}
+			return doc, doc.Content, true, nil
 		}
 		offset += len(line)
 	}
@@ -380,7 +373,6 @@ func parseLooseKnowledgeContextDocument(content string, contentIndex int) (knowl
 func quoteLooseKnowledgeScalars(content string) string {
 	scalarKeys := map[string]struct{}{
 		"name":        {},
-		"title":       {},
 		"kind":        {},
 		"description": {},
 		"visibility":  {},
@@ -473,18 +465,30 @@ func parseGitOpsKnowledgeContexts(files map[string]string, root string, binding 
 		if err != nil {
 			return nil, fmt.Errorf("invalid knowledge context name in '%s': %w", normalized, err)
 		}
+		if strings.TrimSpace(frontMatter.Title) != "" {
+			return nil, fmt.Errorf("knowledge context '%s' must not declare title; use a heading inside content instead", normalized)
+		}
+		if strings.TrimSpace(frontMatter.Visibility) != "" {
+			return nil, fmt.Errorf("knowledge context '%s' must not declare visibility; use access.visibility instead", normalized)
+		}
 
-		visibility := strings.TrimSpace(frontMatter.Visibility)
-		if visibility == "" {
-			visibility = resourceVisibilityGroup
+		visibility := resourceVisibilityGroup
+		if frontMatter.Access != nil {
+			rawGrants := embeddedResourceAccessGrants(*frontMatter.Access)
+			visibility = firstNonEmptyString(frontMatter.Access.Visibility, embeddedResourceUseAccessMode(frontMatter.Access.UseAccess))
+			if visibility == "" && len(rawGrants) > 0 {
+				visibility = resourceVisibilityRestricted
+			}
+			if visibility == "" {
+				visibility = resourceVisibilityGroup
+			}
 		}
 		normalizedVisibility, err := normalizeResourceVisibilityUpdate(visibility)
 		if err != nil {
 			return nil, fmt.Errorf("invalid knowledge context visibility in '%s': %w", normalized, err)
 		}
-		title := strings.TrimSpace(frontMatter.Title)
-		if title == "" {
-			title = name
+		if err := validateResourceVisibilityPolicy(grantResourceKnowledgeContext, normalizedVisibility); err != nil {
+			return nil, fmt.Errorf("invalid knowledge context visibility in '%s': %w", normalized, err)
 		}
 		key := buildKnowledgeContextIdentifier(kind, group, name)
 		if _, exists := contexts[key]; exists {
@@ -498,11 +502,8 @@ func parseGitOpsKnowledgeContexts(files map[string]string, root string, binding 
 			kind:        kind,
 			group:       group,
 			name:        name,
-			title:       title,
 			description: strings.TrimSpace(frontMatter.Description),
 			content:     strings.TrimSpace(body),
-			format:      "text",
-			visibility:  normalizedVisibility,
 			sourcePath:  normalized,
 		}
 	}
@@ -510,15 +511,12 @@ func parseGitOpsKnowledgeContexts(files map[string]string, root string, binding 
 }
 
 func addKnowledgeContextEmbeddedAccess(plan accessSyncPlan, fm knowledgeFrontMatter, sourcePath, resourceID string, binding models.ConfigRepository, boundFolder string) error {
-	if fm.Access == nil && strings.TrimSpace(fm.Visibility) == "" {
+	if fm.Access == nil {
 		return nil
 	}
 	access := embeddedResourceAccessFile{}
 	if fm.Access != nil {
 		access = *fm.Access
-	}
-	if access.Visibility == "" {
-		access.Visibility = fm.Visibility
 	}
 	docBytes, err := yaml.Marshal(embeddedResourceAccessDocument{Access: &access})
 	if err != nil {
@@ -529,7 +527,7 @@ func addKnowledgeContextEmbeddedAccess(plan accessSyncPlan, fm knowledgeFrontMat
 
 func (a *App) handleListKnowledgeContexts(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query(r.Context(), `
-		SELECT id::text, kind, group_path, name, title, description, visibility, source,
+		SELECT id::text, kind, group_path, name, description, source,
 		       managed_by_config_repo, config_source_path, config_source_commit_sha, updated_at
 		FROM knowledge_contexts
 		ORDER BY kind ASC, group_path ASC, name ASC
@@ -547,12 +545,19 @@ func (a *App) handleListKnowledgeContexts(w http.ResponseWriter, r *http.Request
 	for rows.Next() {
 		var item knowledgeContextListItem
 		var managed bool
-		if err := rows.Scan(&item.UUID, &item.Kind, &item.Group, &item.Name, &item.Title, &item.Description, &item.Visibility, &item.Source, &managed, &item.GitOpsPath, &item.GitOpsCommit, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.UUID, &item.Kind, &item.Group, &item.Name, &item.Description, &item.Source, &managed, &item.GitOpsPath, &item.GitOpsCommit, &item.UpdatedAt); err != nil {
 			log.Error().Err(err).Msg("Failed to scan knowledge context")
 			http.Error(w, "Failed to process knowledge contexts", http.StatusInternalServerError)
 			return
 		}
 		item.ID = buildKnowledgeContextIdentifier(item.Kind, item.Group, item.Name)
+		visibility, err := a.resourceVisibility(r.Context(), grantResourceKnowledgeContext, item.ID)
+		if err != nil {
+			log.Error().Err(err).Str("knowledge_context", item.ID).Msg("Failed to load knowledge context visibility")
+			http.Error(w, "Failed to process knowledge contexts", http.StatusInternalServerError)
+			return
+		}
+		item.Visibility = visibility
 		if managed {
 			item.Source = knowledgeSourceGitOps
 		}
@@ -635,29 +640,6 @@ func (a *App) handleUpsertKnowledgeContext(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "request body kind, group, and name must match the URL", http.StatusBadRequest)
 		return
 	}
-	format := strings.TrimSpace(req.ContentFormat)
-	if format == "" {
-		format = "text"
-	}
-	if format != "text" && format != "markdown" {
-		http.Error(w, "content_format must be text", http.StatusBadRequest)
-		return
-	}
-	format = "text"
-	visibility := strings.TrimSpace(req.Visibility)
-	if visibility == "" {
-		visibility = resourceVisibilityGroup
-	}
-	visibility, err = normalizeResourceVisibilityUpdate(visibility)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	title := strings.TrimSpace(req.Title)
-	if title == "" {
-		title = name
-	}
-
 	resourceID := buildKnowledgeContextIdentifier(kind, group, name)
 	var exists int
 	lookupErr := a.db.QueryRow(r.Context(), `
@@ -681,22 +663,18 @@ func (a *App) handleUpsertKnowledgeContext(w http.ResponseWriter, r *http.Reques
 
 	_, err = a.db.Exec(r.Context(), `
 		INSERT INTO knowledge_contexts (
-			kind, group_path, name, title, description, content, content_format,
-			visibility, source, managed_by_config_repo, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, FALSE, NOW())
+			kind, group_path, name, description, content, source, managed_by_config_repo, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, FALSE, NOW())
 		ON CONFLICT (kind, group_path, name) DO UPDATE SET
-			title = EXCLUDED.title,
 			description = EXCLUDED.description,
 			content = EXCLUDED.content,
-			content_format = EXCLUDED.content_format,
-			visibility = EXCLUDED.visibility,
 			source = EXCLUDED.source,
 			config_repo_id = NULL,
 			config_source_path = '',
 			config_source_commit_sha = '',
 			managed_by_config_repo = FALSE,
 			updated_at = NOW()
-	`, kind, group, name, title, strings.TrimSpace(req.Description), req.Content, format, visibility, knowledgeSourceDatabase)
+	`, kind, group, name, strings.TrimSpace(req.Description), req.Content, knowledgeSourceDatabase)
 	if err != nil {
 		log.Error().Err(err).Str("knowledge_context", identifier).Msg("Failed to save knowledge context")
 		http.Error(w, "Failed to save knowledge context", http.StatusInternalServerError)
@@ -732,19 +710,24 @@ func (a *App) loadKnowledgeContextDetail(ctx context.Context, kind, group, name 
 	var detail knowledgeContextDetail
 	var managed bool
 	err := a.db.QueryRow(ctx, `
-		SELECT id::text, kind, group_path, name, title, description, content, content_format,
-		       visibility, source, managed_by_config_repo, config_source_path, config_source_commit_sha, updated_at
+		SELECT id::text, kind, group_path, name, description, content,
+		       source, managed_by_config_repo, config_source_path, config_source_commit_sha, updated_at
 		FROM knowledge_contexts
 		WHERE kind = $1 AND group_path = $2 AND name = $3
 	`, kind, group, name).Scan(
-		&detail.UUID, &detail.Kind, &detail.Group, &detail.Name, &detail.Title, &detail.Description,
-		&detail.Content, &detail.ContentFormat, &detail.Visibility, &detail.Source, &managed,
+		&detail.UUID, &detail.Kind, &detail.Group, &detail.Name, &detail.Description,
+		&detail.Content, &detail.Source, &managed,
 		&detail.GitOpsPath, &detail.GitOpsCommit, &detail.UpdatedAt,
 	)
 	if err != nil {
 		return detail, err
 	}
 	detail.ID = buildKnowledgeContextIdentifier(detail.Kind, detail.Group, detail.Name)
+	visibility, err := a.resourceVisibility(ctx, grantResourceKnowledgeContext, detail.ID)
+	if err != nil {
+		return detail, err
+	}
+	detail.Visibility = visibility
 	detail.Access = detail.Visibility
 	detail.ManagedByGit = managed
 	if managed {
@@ -946,14 +929,14 @@ func (a *App) resolveManagedKnowledgeContext(ctx context.Context, callerType, ca
 	var snapshot models.KnowledgeContextSnapshot
 	var resolvedAt time.Time
 	err = a.db.QueryRow(ctx, `
-		SELECT id::text, kind, group_path, name, title, description, content, content_format,
-		       visibility, source, config_source_path, config_source_commit_sha, updated_at
+		SELECT id::text, kind, group_path, name, description, content,
+		       source, config_source_path, config_source_commit_sha, updated_at
 		FROM knowledge_contexts
 		WHERE kind = $1 AND group_path = $2 AND name = $3
 	`, kind, group, name).Scan(
-		&snapshot.KnowledgeContextID, &snapshot.Kind, &snapshot.Group, &snapshot.Name, &snapshot.Title,
-		&snapshot.Description, &snapshot.Content, &snapshot.ContentFormat, &snapshot.Visibility,
-		&snapshot.Source, &snapshot.ConfigSourcePath, &snapshot.ConfigSourceCommitSHA, &resolvedAt,
+		&snapshot.KnowledgeContextID, &snapshot.Kind, &snapshot.Group, &snapshot.Name,
+		&snapshot.Description, &snapshot.Content, &snapshot.Source,
+		&snapshot.ConfigSourcePath, &snapshot.ConfigSourceCommitSHA, &resolvedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
@@ -985,14 +968,13 @@ func (a *App) resolveRepositoryKnowledgeContext(ctx context.Context, gitContext 
 	kind, _ := normalizeKnowledgeContextKind(ref.Kind)
 	name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	return models.KnowledgeContextSnapshot{
-		Kind:          kind,
-		Name:          name,
-		Path:          path,
-		Required:      ref.Required,
-		Source:        knowledgeSourceRepo,
-		Content:       content,
-		ContentFormat: "text",
-		ResolvedAt:    time.Now(),
+		Kind:       kind,
+		Name:       name,
+		Path:       path,
+		Required:   ref.Required,
+		Source:     knowledgeSourceRepo,
+		Content:    content,
+		ResolvedAt: time.Now(),
 	}, nil
 }
 
@@ -1010,13 +992,13 @@ func (a *App) persistRunKnowledgeContextSnapshots(ctx context.Context, runID uui
 		}
 		batch.Queue(`
 			INSERT INTO pipeline_run_knowledge_contexts (
-				run_id, knowledge_context_id, kind, group_path, name, title, description,
-				ref, path, required, source, content, content_format, visibility,
+				run_id, knowledge_context_id, kind, group_path, name, description,
+				ref, path, required, source, content,
 				config_source_path, config_source_commit_sha, resolved_at
-			) VALUES ($1, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, COALESCE($17, NOW()))
-		`, runID, knowledgeID, snapshot.Kind, snapshot.Group, snapshot.Name, snapshot.Title, snapshot.Description,
-			snapshot.Ref, snapshot.Path, snapshot.Required, snapshot.Source, snapshot.Content, snapshot.ContentFormat,
-			snapshot.Visibility, snapshot.ConfigSourcePath, snapshot.ConfigSourceCommitSHA, nullableTime(snapshot.ResolvedAt))
+			) VALUES ($1, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, COALESCE($14, NOW()))
+		`, runID, knowledgeID, snapshot.Kind, snapshot.Group, snapshot.Name, snapshot.Description,
+			snapshot.Ref, snapshot.Path, snapshot.Required, snapshot.Source, snapshot.Content,
+			snapshot.ConfigSourcePath, snapshot.ConfigSourceCommitSHA, nullableTime(snapshot.ResolvedAt))
 	}
 	br := a.db.SendBatch(ctx, batch)
 	defer br.Close()
@@ -1037,8 +1019,8 @@ func nullableTime(value time.Time) *time.Time {
 
 func (a *App) loadRunKnowledgeContextSnapshots(ctx context.Context, runID string) ([]models.KnowledgeContextSnapshot, error) {
 	rows, err := a.db.Query(ctx, `
-		SELECT id::text, COALESCE(knowledge_context_id::text, ''), kind, group_path, name, title, description,
-		       ref, path, required, source, content, content_format, visibility,
+		SELECT id::text, COALESCE(knowledge_context_id::text, ''), kind, group_path, name, description,
+		       ref, path, required, source, content,
 		       config_source_path, config_source_commit_sha, resolved_at
 		FROM pipeline_run_knowledge_contexts
 		WHERE run_id::text = $1
@@ -1051,9 +1033,9 @@ func (a *App) loadRunKnowledgeContextSnapshots(ctx context.Context, runID string
 	var snapshots []models.KnowledgeContextSnapshot
 	for rows.Next() {
 		var snapshot models.KnowledgeContextSnapshot
-		if err := rows.Scan(&snapshot.ID, &snapshot.KnowledgeContextID, &snapshot.Kind, &snapshot.Group, &snapshot.Name, &snapshot.Title,
+		if err := rows.Scan(&snapshot.ID, &snapshot.KnowledgeContextID, &snapshot.Kind, &snapshot.Group, &snapshot.Name,
 			&snapshot.Description, &snapshot.Ref, &snapshot.Path, &snapshot.Required, &snapshot.Source, &snapshot.Content,
-			&snapshot.ContentFormat, &snapshot.Visibility, &snapshot.ConfigSourcePath, &snapshot.ConfigSourceCommitSHA, &snapshot.ResolvedAt); err != nil {
+			&snapshot.ConfigSourcePath, &snapshot.ConfigSourceCommitSHA, &snapshot.ResolvedAt); err != nil {
 			return nil, err
 		}
 		snapshots = append(snapshots, snapshot)
