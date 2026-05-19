@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"nopsai/pkg/models"
+	"nopsai/pkg/proto"
 )
 
 const knowledgeContextsRuntimeEnv = "NOPSAI_KNOWLEDGE_CONTEXTS"
@@ -30,8 +31,16 @@ func loadRuntimeKnowledgeContexts() ([]models.KnowledgeContextSnapshot, error) {
 }
 
 func buildEffectiveKnowledgeContextPrompt(pipeline *models.Pipeline, step *models.PipelineStep, task *models.Task, snapshots []models.KnowledgeContextSnapshot) string {
-	if pipeline == nil || step == nil || len(snapshots) == 0 {
+	selected := selectEffectiveKnowledgeContexts(pipeline, step, task, snapshots)
+	if len(selected) == 0 {
 		return ""
+	}
+	return formatKnowledgeContextPrompt(selected)
+}
+
+func selectEffectiveKnowledgeContexts(pipeline *models.Pipeline, step *models.PipelineStep, task *models.Task, snapshots []models.KnowledgeContextSnapshot) []models.KnowledgeContextSnapshot {
+	if pipeline == nil || step == nil || len(snapshots) == 0 {
+		return nil
 	}
 	byRef := map[string]models.KnowledgeContextSnapshot{}
 	byPath := map[string]models.KnowledgeContextSnapshot{}
@@ -80,10 +89,7 @@ func buildEffectiveKnowledgeContextPrompt(pipeline *models.Pipeline, step *model
 		seen[key] = struct{}{}
 		selected = append(selected, snapshot)
 	}
-	if len(selected) == 0 {
-		return ""
-	}
-	return formatKnowledgeContextPrompt(selected)
+	return selected
 }
 
 func formatKnowledgeContextPrompt(snapshots []models.KnowledgeContextSnapshot) string {
@@ -96,7 +102,7 @@ func formatKnowledgeContextPrompt(snapshots []models.KnowledgeContextSnapshot) s
 		}
 	}
 	if hasStrict {
-		builder.WriteString("If the requested action conflicts with guardrails or policies, do not execute it. Return an explanation instead.\n\n")
+		builder.WriteString("If the requested action conflicts with guardrails or policies, do not execute it. Return a short explanation that names the conflicting guardrail or policy; the agent will treat that response as a task failure.\n\n")
 	}
 	for _, snapshot := range snapshots {
 		title := strings.TrimSpace(snapshot.Name)
@@ -116,6 +122,110 @@ func formatKnowledgeContextPrompt(snapshots []models.KnowledgeContextSnapshot) s
 		builder.WriteString("\n\n")
 	}
 	return strings.TrimSpace(builder.String())
+}
+
+func effectiveBlockingKnowledgeContextKinds(pipeline *models.Pipeline, step *models.PipelineStep, task *models.Task, snapshots []models.KnowledgeContextSnapshot) []string {
+	selected := selectEffectiveKnowledgeContexts(pipeline, step, task, snapshots)
+	if len(selected) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	var kinds []string
+	for _, snapshot := range selected {
+		kind := normalizeKnowledgeRuntimeValue(snapshot.Kind)
+		if !isBlockingKnowledgeContextKind(kind) {
+			continue
+		}
+		if _, ok := seen[kind]; ok {
+			continue
+		}
+		seen[kind] = struct{}{}
+		kinds = append(kinds, kind)
+	}
+	sort.Strings(kinds)
+	return kinds
+}
+
+func isBlockingKnowledgeContextKind(kind string) bool {
+	switch normalizeKnowledgeRuntimeValue(kind) {
+	case "guardrail", "policy":
+		return true
+	default:
+		return false
+	}
+}
+
+func knowledgeContextViolationFailureReason(action *proto.Action, pipeline *models.Pipeline, step *models.PipelineStep, task *models.Task, snapshots []models.KnowledgeContextSnapshot) (string, []string, bool) {
+	blockingKinds := effectiveBlockingKnowledgeContextKinds(pipeline, step, task, snapshots)
+	if len(blockingKinds) == 0 || action == nil || action.GetType() != models.ActionTypeReturnAnswer {
+		return "", blockingKinds, false
+	}
+	answerAction := action.GetAnswerAction()
+	if answerAction == nil {
+		return "", blockingKinds, false
+	}
+	answer := strings.TrimSpace(answerAction.Answer)
+	if answer == "" || !answerLooksLikeKnowledgeContextRejection(answer, blockingKinds) {
+		return "", blockingKinds, false
+	}
+	return answer, blockingKinds, true
+}
+
+func answerLooksLikeKnowledgeContextRejection(answer string, blockingKinds []string) bool {
+	normalized := strings.ToLower(answer)
+	hasBlockingReference := false
+	for _, kind := range blockingKinds {
+		if strings.Contains(normalized, kind) {
+			hasBlockingReference = true
+			break
+		}
+	}
+	if !hasBlockingReference {
+		for _, phrase := range []string{
+			"constraint",
+			"conflict",
+			"violat",
+			"blocked",
+			"forbidden",
+			"prohibit",
+			"not allowed",
+			"not permitted",
+			"safety",
+			"security",
+		} {
+			if strings.Contains(normalized, phrase) {
+				hasBlockingReference = true
+				break
+			}
+		}
+	}
+	if !hasBlockingReference {
+		return false
+	}
+	for _, phrase := range []string{
+		"unable to",
+		"cannot",
+		"can't",
+		"could not",
+		"won't",
+		"must not",
+		"do not",
+		"not execute",
+		"not allowed",
+		"not permitted",
+		"refus",
+		"conflict",
+		"violat",
+		"blocked",
+		"forbidden",
+		"prohibit",
+		"would reveal",
+	} {
+		if strings.Contains(normalized, phrase) {
+			return true
+		}
+	}
+	return false
 }
 
 func knowledgeContextMetadata(snapshot models.KnowledgeContextSnapshot) []string {
