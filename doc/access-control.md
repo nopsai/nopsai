@@ -126,11 +126,11 @@ Supported low-level use actions include:
 - `config_repo.use`
 - `knowledge_context.use`
 
-The main rule is that same-group resources remain naturally available, but same-group is not permission elevation. The caller still needs the required action through its product role or ACL. Cross-group use requires an explicit resource-use grant or public visibility.
+The main rule is that same-group resources remain naturally available according to visibility. Cross-group use requires an explicit resource-use grant or public visibility.
 
 Resource visibility values:
 
-- `group`: default; usable inside the same group boundary when the caller has the required role/action
+- `group`: default; usable inside the same group boundary
 - `restricted`: same group still works, and selected groups or repositories can also be granted use access
 - `workspace`: shown in the UI as `Public`; usable by authorized callers outside the group, but still does not grant access to scopes, secrets, variables, or runners
 
@@ -152,7 +152,7 @@ Resource Access API:
 - `POST /v1/authz/resource-use/check`
 - `POST /v1/authz/resource-use/batch-check`
 
-Resource-use grant requests accept `subject_type: "repository"` with `subject_id: "owner/repo"` or `subject_type: "group"` with a group path such as `team-1`. Group use grants are stored in `access_grants` for audit and UI display; they do not write broad ACL rows that would elevate every member of the group. At check time, the original caller must still have the requested use action in its own group.
+Resource-use grant requests accept `subject_type: "repository"` with `subject_id: "owner/repo"` or `subject_type: "group"` with a group path such as `team-1`. Group use grants are stored in `access_grants` for audit and UI display; they do not write broad ACL rows that would elevate every member of the group. At check time, the original caller must resolve into the granted group boundary.
 
 `pipeline_runs` stores the run authorization context in `trigger_source`, `requested_by_type`, `requested_by_id`, `effective_subject_type`, `effective_subject_id`, and `authorization_snapshot`. The snapshot records the caller and the resource-use checks that were allowed for the created run.
 
