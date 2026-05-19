@@ -220,7 +220,7 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		case http.MethodGet:
 			return "knowledge_context.read", resource, false, nil
 		case http.MethodPut, http.MethodPatch:
-			return "knowledge_context.update", resource, false, nil
+			return "", resource, false, nil
 		case http.MethodDelete:
 			return "knowledge_context.delete", resource, false, nil
 		}

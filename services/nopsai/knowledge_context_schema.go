@@ -16,7 +16,7 @@ var knowledgeContextSchemaStatements = []string{
 		title TEXT NOT NULL DEFAULT '',
 		description TEXT NOT NULL DEFAULT '',
 		content TEXT NOT NULL DEFAULT '',
-		content_format TEXT NOT NULL DEFAULT 'markdown',
+		content_format TEXT NOT NULL DEFAULT 'text',
 		visibility TEXT NOT NULL DEFAULT 'group' CHECK (visibility IN ('group', 'restricted', 'workspace')),
 		source TEXT NOT NULL DEFAULT 'database',
 		config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
@@ -28,7 +28,8 @@ var knowledgeContextSchemaStatements = []string{
 		UNIQUE(kind, group_path, name)
 	)`,
 	`ALTER TABLE knowledge_contexts ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''`,
-	`ALTER TABLE knowledge_contexts ADD COLUMN IF NOT EXISTS content_format TEXT NOT NULL DEFAULT 'markdown'`,
+	`ALTER TABLE knowledge_contexts ADD COLUMN IF NOT EXISTS content_format TEXT NOT NULL DEFAULT 'text'`,
+	`ALTER TABLE knowledge_contexts ALTER COLUMN content_format SET DEFAULT 'text'`,
 	`ALTER TABLE knowledge_contexts ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'group'`,
 	`ALTER TABLE knowledge_contexts DROP CONSTRAINT IF EXISTS knowledge_contexts_visibility_check`,
 	`ALTER TABLE knowledge_contexts ADD CONSTRAINT knowledge_contexts_visibility_check CHECK (visibility IN ('group', 'restricted', 'workspace'))`,
@@ -53,12 +54,13 @@ var knowledgeContextSchemaStatements = []string{
 		required BOOLEAN NOT NULL DEFAULT FALSE,
 		source TEXT NOT NULL DEFAULT '',
 		content TEXT NOT NULL DEFAULT '',
-		content_format TEXT NOT NULL DEFAULT 'markdown',
+		content_format TEXT NOT NULL DEFAULT 'text',
 		visibility TEXT NOT NULL DEFAULT '',
 		config_source_path TEXT NOT NULL DEFAULT '',
 		config_source_commit_sha TEXT NOT NULL DEFAULT '',
 		resolved_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
+	`ALTER TABLE pipeline_run_knowledge_contexts ALTER COLUMN content_format SET DEFAULT 'text'`,
 	`CREATE INDEX IF NOT EXISTS idx_pipeline_run_knowledge_contexts_run_id ON pipeline_run_knowledge_contexts(run_id)`,
 }
 

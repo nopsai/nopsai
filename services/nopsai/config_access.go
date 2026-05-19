@@ -987,14 +987,12 @@ func accessGrantResourceIntersectsAnyScope(resourceType, resourceID string, scop
 }
 
 func filterDelegatedAccessResources(plan accessSyncPlan, binding models.ConfigRepository, overrideScopes []string) {
-	if binding.ScopeType != models.ConfigRepositoryScopeFolder {
-		return
-	}
 	if len(overrideScopes) == 0 {
 		return
 	}
 	for key, grant := range plan.grants {
-		if accessGrantResourceIntersectsAnyScope(grant.resourceType, grant.resourceID, overrideScopes) {
+		if (binding.ScopeType == models.ConfigRepositoryScopeFolder || grant.role == customUseGrantRole) &&
+			accessGrantResourceIntersectsAnyScope(grant.resourceType, grant.resourceID, overrideScopes) {
 			delete(plan.grants, key)
 		}
 	}

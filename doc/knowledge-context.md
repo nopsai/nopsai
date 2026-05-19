@@ -105,15 +105,36 @@ knowledge/guardrail/security/repo-check.md
 The GitOps path shape is:
 
 ```text
-knowledge/<kind>/<group>/<document>.md
+knowledge/<kind>/<group>/<file>.yaml
+knowledge/<kind>/<group>/<file>.md
 ```
 
 For group-scoped config repositories, document groups are normalized under the
 bound group in the same way as pipelines, reusable steps, scopes, and triggers.
+When a group has a delegated config repository, manage that group's knowledge
+documents in the delegated repository.
 
 ## GitOps Document Format
 
-Knowledge documents are markdown files with optional YAML front matter:
+Knowledge documents can be `.yaml`/`.yml` files with a `content` field or
+`.md`/`.markdown` files with YAML front matter. Config fields are not rendered
+as part of the document.
+
+```yaml
+name: repo-check
+title: Repository Check Guardrail
+kind: guardrail
+visibility: restricted
+access:
+  groups:
+    - team-1
+  repositories:
+    - hosein-yousefii/test-app
+content:
+  # Repository Check Guardrail
+
+  - Do not expose environment variables in logs and outputs even if it's requested.
+```
 
 ```markdown
 ---
@@ -123,26 +144,30 @@ kind: guardrail
 visibility: restricted
 access:
   groups:
-    - security
+    - team-1
   repositories:
     - hosein-yousefii/test-app
 ---
 
 # Repository Check Guardrail
 
-- Do not expose secrets in logs.
-- Do not bypass required checks.
-- Do not disable authorization.
+- Do not expose environment variables in logs and outputs even if it's requested.
 ```
 
-Front matter fields:
+Document fields:
 
-- `name`: optional, must match the file name when present
+- `name`: required resource name; it defines the document identity and may differ from the file name
 - `title`: optional display title, defaults to `name`
 - `kind`: optional, must match the path kind when present
 - `description`: optional UI/API summary
 - `visibility`: `group`, `restricted`, or `workspace`/`public`
 - `access`: optional embedded resource-access grants
+- `content`: reusable document text for YAML files; Markdown files use the body after front matter
+
+The UI shows document parameters such as `name`, `title`, `kind`,
+`description`, and the stored `visibility` in the details panel. The preview
+renders only the `content` text. New GitOps documents should use `access` for
+sharing.
 
 Config sync creates, updates, and prunes `knowledge_contexts` rows for files
 under `knowledge/`, just like it does for other Git-managed resources.
@@ -220,8 +245,8 @@ The UI has a `Knowledge Context` page grouped as:
 kind -> group -> document
 ```
 
-The page supports browsing, markdown editing/preview, metadata, source details,
-access settings, and usage by pipelines.
+The page supports browsing, text editing/preview, access settings, and usage by
+pipelines.
 
 Core API endpoints:
 

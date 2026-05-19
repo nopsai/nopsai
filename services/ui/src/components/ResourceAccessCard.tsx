@@ -39,6 +39,7 @@ type ResourceAccessCardProps = {
   label: string;
   sensitive?: boolean;
   buttonClassName?: string;
+  onAccessChange?: (access: ResourceAccess) => void;
 };
 
 type GroupOption = {
@@ -92,7 +93,7 @@ async function readResponseError(response: Response, fallback: string) {
   return text.trim() || fallback;
 }
 
-export default function ResourceAccessCard({ resourceType, resourceID, label, sensitive = false, buttonClassName = 'glass-button-ghost' }: ResourceAccessCardProps) {
+export default function ResourceAccessCard({ resourceType, resourceID, label, sensitive = false, buttonClassName = 'glass-button-ghost', onAccessChange }: ResourceAccessCardProps) {
   const [open, setOpen] = useState(false);
   const [access, setAccess] = useState<ResourceAccess | null>(null);
   const [loading, setLoading] = useState(false);
@@ -121,14 +122,16 @@ export default function ResourceAccessCard({ resourceType, resourceID, label, se
       if (!response.ok) {
         throw new Error(await readResponseError(response, `Access settings unavailable (${response.status})`));
       }
-      setAccess(await response.json());
+      const payload = await response.json();
+      setAccess(payload);
+      onAccessChange?.(payload);
     } catch (err) {
       setAccess(null);
       setError(err instanceof Error ? err.message : 'Access settings unavailable');
     } finally {
       setLoading(false);
     }
-  }, [endpoint, label, resourceID]);
+  }, [endpoint, label, onAccessChange, resourceID]);
 
   const loadGroups = useCallback(async () => {
     setGroupsLoading(true);
@@ -172,14 +175,16 @@ export default function ResourceAccessCard({ resourceType, resourceID, label, se
         if (!response.ok) {
           throw new Error(await readResponseError(response, `Unable to update access (${response.status})`));
         }
-        setAccess(await response.json());
+        const payload = await response.json();
+        setAccess(payload);
+        onAccessChange?.(payload);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unable to update access');
       } finally {
         setSaving(false);
       }
     },
-    [access, endpoint, saving]
+    [access, endpoint, onAccessChange, saving]
   );
 
   const addGrant = useCallback(async () => {
