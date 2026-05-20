@@ -37,10 +37,11 @@ type Service struct {
 }
 
 type LoginResult struct {
-	AccessToken  string    `json:"access_token"`
-	RefreshToken string    `json:"refresh_token,omitempty"`
-	ExpiresAt    time.Time `json:"expires_at"`
-	Claims       *Claims   `json:"claims"`
+	AccessToken        string    `json:"access_token"`
+	RefreshToken       string    `json:"refresh_token,omitempty"`
+	ExpiresAt          time.Time `json:"expires_at"`
+	Claims             *Claims   `json:"claims"`
+	MustChangePassword bool      `json:"must_change_password,omitempty"`
 }
 
 func NewService(ctx context.Context, db *pgxpool.Pool, cfg Config) (*Service, error) {
@@ -162,9 +163,10 @@ func (s *Service) LoginLocal(ctx context.Context, identifier, password string) (
 		provider     string
 		passwordHash sql.NullString
 		status       string
+		mustChange   bool
 	)
 
-	if err := s.lookupLoginUser(ctx, identifier, &userID, &sub, &email, &provider, &passwordHash, &status); err != nil {
+	if err := s.lookupLoginUser(ctx, identifier, &userID, &sub, &email, &provider, &passwordHash, &status, &mustChange); err != nil {
 		return nil, err
 	}
 
@@ -219,10 +221,11 @@ func (s *Service) LoginLocal(ctx context.Context, identifier, password string) (
 	_, _ = s.db.Exec(ctx, `UPDATE users SET last_login = NOW() WHERE id = $1`, userID)
 
 	return &LoginResult{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-		ExpiresAt:    exp,
-		Claims:       claims,
+		AccessToken:        accessToken,
+		RefreshToken:       refreshToken,
+		ExpiresAt:          exp,
+		Claims:             claims,
+		MustChangePassword: mustChange,
 	}, nil
 }
 
@@ -257,8 +260,9 @@ func (s *Service) Refresh(ctx context.Context, rawRefresh string) (*LoginResult,
 	var email sql.NullString
 	var provider string
 	var status string
-	row = s.db.QueryRow(ctx, `SELECT sub, email, provider, status FROM users WHERE id = $1`, userID)
-	if err := row.Scan(&sub, &email, &provider, &status); err != nil {
+	var mustChange bool
+	row = s.db.QueryRow(ctx, `SELECT sub, email, provider, status, must_change_password FROM users WHERE id = $1`, userID)
+	if err := row.Scan(&sub, &email, &provider, &status, &mustChange); err != nil {
 		return nil, err
 	}
 	if status != "active" {
@@ -293,10 +297,11 @@ func (s *Service) Refresh(ctx context.Context, rawRefresh string) (*LoginResult,
 	_, _ = s.db.Exec(ctx, `UPDATE refresh_tokens SET revoked_at = NOW() WHERE id = $1`, tokenID)
 
 	return &LoginResult{
-		AccessToken:  access,
-		RefreshToken: newRefresh,
-		ExpiresAt:    exp,
-		Claims:       claims,
+		AccessToken:        access,
+		RefreshToken:       newRefresh,
+		ExpiresAt:          exp,
+		Claims:             claims,
+		MustChangePassword: mustChange,
 	}, nil
 }
 
@@ -319,20 +324,21 @@ func (s *Service) lookupLoginUser(
 	provider *string,
 	passwordHash *sql.NullString,
 	status *string,
+	mustChangePassword *bool,
 ) error {
 	row := s.db.QueryRow(ctx, `
-		SELECT id, sub, email, provider, password_hash, status
+		SELECT id, sub, email, provider, password_hash, status, must_change_password
 		FROM users
 		WHERE sub = $1
 	`, identifier)
-	if err := row.Scan(userID, sub, email, provider, passwordHash, status); err == nil {
+	if err := row.Scan(userID, sub, email, provider, passwordHash, status, mustChangePassword); err == nil {
 		return nil
 	} else if !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
 
 	rows, err := s.db.Query(ctx, `
-		SELECT id, sub, email, provider, password_hash, status
+		SELECT id, sub, email, provider, password_hash, status, must_change_password
 		FROM users
 		WHERE LOWER(email) = LOWER($1)
 		ORDER BY id ASC
@@ -348,7 +354,7 @@ func (s *Service) lookupLoginUser(
 		}
 		return fmt.Errorf("invalid credentials")
 	}
-	if err := rows.Scan(userID, sub, email, provider, passwordHash, status); err != nil {
+	if err := rows.Scan(userID, sub, email, provider, passwordHash, status, mustChangePassword); err != nil {
 		return err
 	}
 	if rows.Next() {
