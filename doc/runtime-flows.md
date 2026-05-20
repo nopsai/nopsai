@@ -7,13 +7,14 @@ This document explains how the tool works step by step.
 Most API routes pass through the same middleware stack before reaching a handler.
 
 1. Public paths such as `/v1/auth/login`, `/v1/auth/refresh`, `/v1/auth/logout`, and `/v1/git/events` skip bearer-token authentication.
-2. Other requests must include a bearer token produced by the local auth service.
-3. `nopsai` validates the token, enforces idle-session timeout when configured, and places claims in the request context.
-4. Authenticated-only profile routes (`/v1/auth/me`, `/v1/auth/password`, `/v1/auth/email`) stop here.
-5. Other protected routes are mapped by `routeauthz.MapRequest` to an action/resource pair.
-6. `nopsai` calls the AAA service for a `Check`, or defers to handler-level `Filter` for list endpoints.
-7. If the AAA service is unavailable, `nopsai` temporarily falls back to an in-process evaluator backed by the same Postgres tables.
-8. Denied decisions return `403`; denied decisions and sensitive allowed decisions are written to `authz_decision_logs`.
+2. Other requests must include a bearer token produced by the local auth service or a user-created personal access token.
+3. `nopsai` validates JWT bearer tokens by signature, or hashes opaque `nopat_` personal tokens and checks `personal_access_tokens`.
+4. Session JWTs enforce idle-session timeout when configured; personal tokens rely on expiry when configured and revocation. Valid credentials place claims in the request context.
+5. Authenticated-only profile routes (`/v1/auth/me`, `/v1/auth/password`, `/v1/auth/email`, `/v1/auth/personal-tokens`) stop here.
+6. Other protected routes are mapped by `routeauthz.MapRequest` to an action/resource pair.
+7. `nopsai` calls the AAA service for a `Check`, or defers to handler-level `Filter` for list endpoints.
+8. If the AAA service is unavailable, `nopsai` temporarily falls back to an in-process evaluator backed by the same Postgres tables.
+9. Denied decisions return `403`; denied decisions and sensitive allowed decisions are written to `authz_decision_logs`.
 
 ## 1. GitHub Webhook To Pipeline Run
 
