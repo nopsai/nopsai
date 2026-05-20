@@ -26,11 +26,12 @@ type aaaAuthorizer interface {
 }
 
 func isAuthenticatedOnlyPath(path string) bool {
-	switch strings.TrimSpace(path) {
+	path = strings.TrimSpace(path)
+	switch path {
 	case "/v1/auth/me", "/v1/auth/password", "/v1/auth/email":
 		return true
 	default:
-		return false
+		return path == "/v1/auth/personal-tokens" || strings.HasPrefix(path, "/v1/auth/personal-tokens/")
 	}
 }
 

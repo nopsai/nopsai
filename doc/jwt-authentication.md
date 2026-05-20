@@ -23,10 +23,11 @@ Related source files:
 | Token family | Used by | Transport | Signing key | Main purpose |
 | --- | --- | --- | --- | --- |
 | User/API access JWT | browser UI, API clients | HTTP `Authorization: Bearer ...` | `JWT_SIGNING_KEY` | Authenticate REST API callers |
+| Personal access token | API clients and automation | HTTP `Authorization: Bearer nopat_...` | Not signed; stored by hash in Postgres | Long-lived user-owned API credential |
 | Dispatcher internal REST JWT | dispatcher | HTTP `Authorization: Bearer ...` | `JWT_SIGNING_KEY` | Let dispatcher call selected internal Nopsai REST endpoints |
 | Dispatcher gRPC service JWT | nopsai, runner, agent | gRPC metadata `authorization: Bearer ...` | `SERVICE_JWT_SIGNING_KEY`, falling back to `JWT_SIGNING_KEY` | Authenticate and authorize dispatcher gRPC clients |
 
-Refresh tokens are not JWTs. They are opaque random strings stored only as hashes in Postgres.
+Refresh tokens and personal access tokens are not JWTs. They are opaque random strings stored only as hashes in Postgres.
 
 ---
 
@@ -122,13 +123,24 @@ Logout:
 2. Nopsai hashes the refresh token and sets `revoked_at`.
 3. Already-minted access JWTs are not individually revoked; they expire by TTL or idle timeout.
 
+Personal access tokens:
+
+1. A signed-in user creates a token with `POST /v1/auth/personal-tokens`.
+2. The request must use an interactive session JWT; existing personal tokens cannot mint or revoke personal tokens.
+3. Nopsai generates a `nopat_` opaque token with cryptographic randomness.
+4. Only the token hash, suffix, owner, name, timestamps, and expiry are stored in `personal_access_tokens`.
+5. The raw token is returned once in the create response and is never returned by list APIs.
+6. The token can use `expires_in_days`, an exact `expires_at` date/timestamp within 365 days, or explicit `never_expires: true`.
+7. Users can list their token metadata with `GET /v1/auth/personal-tokens` and revoke tokens with `DELETE /v1/auth/personal-tokens/{tokenID}`.
+
 Request authentication:
 
 1. Most REST endpoints require `Authorization: Bearer <access-token>`.
 2. Public paths are `/v1/auth/login`, `/v1/auth/refresh`, `/v1/auth/logout`, and `/v1/git/events`.
-3. `authMiddleware` parses the bearer token, validates the HS256 signature and standard registered claims, then stores claims in request context.
-4. If idle timeout is enabled, Nopsai tracks last-seen access tokens in process memory and rejects idle tokens.
-5. `authzMiddleware` maps claims to an AAA subject and performs route authorization.
+3. `authMiddleware` first attempts to validate the bearer token as an HS256 JWT. If that fails, it hashes the presented value and looks for a non-revoked, non-expired personal access token.
+4. Personal tokens authenticate as the owning active user with `provider = personal-token` and current roles loaded from the database.
+5. If idle timeout is enabled, Nopsai tracks last-seen session access tokens in process memory and rejects idle session tokens. Personal tokens rely on expiry and revocation instead.
+6. `authzMiddleware` maps claims to an AAA subject and performs route authorization.
 
 Current API JWT validation verifies the HMAC signature and registered claims. The issuer and audience are written into minted tokens, but the local API parser does not currently require exact issuer/audience values as separate parser options. Dispatcher gRPC service JWT validation does require issuer and audience.
 
@@ -150,6 +162,8 @@ Authorization: Bearer <access-token>
 ```
 
 When an authenticated request gets `401`, the UI calls `/v1/auth/refresh` once, persists the new tokens, and retries the original request. If refresh fails, it clears the local session.
+
+The Profile page manages personal access tokens. It lists token metadata, creates tokens with 30-day, 90-day, or 1-year expiry, displays the raw token only immediately after creation, and can revoke existing tokens.
 
 ---
 
@@ -311,8 +325,10 @@ If both `SERVICE_JWT_SIGNING_KEY` and `JWT_SIGNING_KEY` are missing:
 ## Security Notes
 
 - JWTs are bearer credentials. Anyone with the token can use it until it expires or, for refresh tokens, until it is revoked.
+- Personal access tokens are bearer credentials too. Store them like passwords, prefer short expirations, and revoke unused or suspected-compromised tokens from Profile.
 - Access JWTs are not stored server-side and are not individually revocable in the current implementation.
 - Refresh tokens are opaque, hashed in Postgres, rotated on refresh, and revocable on logout.
+- Personal access tokens are opaque, hashed in Postgres, owner-scoped, revocable, and never displayed after creation. Never-expiring tokens are supported for stable integrations, but they should be rare and manually revoked when no longer needed.
 - The UI stores tokens in `localStorage`, which is convenient but means XSS would be serious. Avoid injecting untrusted script into the UI.
 - Dispatcher gRPC uses automatic mTLS by default. Only set `DISPATCHER_TLS_MODE=disabled` for isolated local debugging.
 - Use different keys for user/API JWTs and service gRPC JWTs in production to reduce blast radius.

@@ -177,6 +177,23 @@ type authUpdateEmailRequest struct {
 	Email string `json:"email"`
 }
 
+type authPersonalTokenRequest struct {
+	Name          string `json:"name"`
+	ExpiresInDays int    `json:"expires_in_days"`
+	ExpiresAt     string `json:"expires_at"`
+	NeverExpires  bool   `json:"never_expires"`
+}
+
+type authPersonalTokenResponse struct {
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	Token       string     `json:"token,omitempty"`
+	TokenSuffix string     `json:"token_suffix"`
+	CreatedAt   time.Time  `json:"created_at"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	LastUsedAt  *time.Time `json:"last_used_at,omitempty"`
+}
+
 type userRoleBinding struct {
 	Role string `json:"role"`
 }
@@ -568,16 +585,17 @@ func (a *App) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		if a.idleTimeout > 0 {
+		if a.idleTimeout > 0 && !strings.EqualFold(strings.TrimSpace(claims.Provider), auth.ProviderPersonalAccessToken) {
 			now := time.Now()
-			if lastRaw, ok := a.tokenActivity.Load(token); ok {
+			activityKey := auth.HashToken(token)
+			if lastRaw, ok := a.tokenActivity.Load(activityKey); ok {
 				if lastSeen, ok := lastRaw.(time.Time); ok && now.Sub(lastSeen) > a.idleTimeout {
-					a.tokenActivity.Delete(token)
+					a.tokenActivity.Delete(activityKey)
 					http.Error(w, "session expired due to inactivity", http.StatusUnauthorized)
 					return
 				}
 			}
-			a.tokenActivity.Store(token, now)
+			a.tokenActivity.Store(activityKey, now)
 		}
 
 		ctx := auth.WithClaims(r.Context(), claims)
@@ -3988,6 +4006,9 @@ func main() {
 
 	if err := ensureDefaultAdmin(context.Background(), dbpool); err != nil {
 		log.Fatal().Err(err).Msg("Failed to ensure default admin")
+	}
+	if err := ensureAuthSchema(context.Background(), dbpool); err != nil {
+		log.Fatal().Err(err).Msg("Failed to ensure auth schema")
 	}
 	if err := ensureProductAccessBootstrap(context.Background(), dbpool); err != nil {
 		log.Fatal().Err(err).Msg("Failed to ensure product access roles")

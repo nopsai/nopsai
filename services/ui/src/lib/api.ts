@@ -215,3 +215,57 @@ export async function changePassword(currentPassword: string, newPassword: strin
     throw new Error(text || 'Failed to change password');
   }
 }
+
+export type PersonalAccessToken = {
+  id: string;
+  name: string;
+  token?: string;
+  token_suffix: string;
+  created_at: string;
+  expires_at?: string;
+  last_used_at?: string;
+};
+
+export type CreatePersonalAccessTokenOptions = {
+  expiresInDays?: number;
+  expiresAt?: string;
+  neverExpires?: boolean;
+};
+
+export async function listPersonalAccessTokens(): Promise<PersonalAccessToken[]> {
+  const response = await fetch(buildApiUrl('/v1/auth/personal-tokens'));
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || 'Failed to load personal tokens');
+  }
+  const payload = await response.json();
+  return Array.isArray(payload) ? payload : [];
+}
+
+export async function createPersonalAccessToken(name: string, options: CreatePersonalAccessTokenOptions): Promise<PersonalAccessToken> {
+  const response = await fetch(buildApiUrl('/v1/auth/personal-tokens'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name,
+      expires_in_days: options.expiresInDays,
+      expires_at: options.expiresAt,
+      never_expires: options.neverExpires,
+    }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || 'Failed to create personal token');
+  }
+  return response.json();
+}
+
+export async function revokePersonalAccessToken(tokenID: string): Promise<void> {
+  const response = await fetch(buildApiUrl(`/v1/auth/personal-tokens/${encodeURIComponent(tokenID)}`), {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || 'Failed to revoke personal token');
+  }
+}

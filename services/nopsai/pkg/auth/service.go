@@ -68,7 +68,6 @@ func NewService(ctx context.Context, db *pgxpool.Pool, cfg Config) (*Service, er
 }
 
 func (s *Service) AuthenticateToken(ctx context.Context, raw string) (*Claims, error) {
-	_ = ctx
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil, fmt.Errorf("empty token")
@@ -79,8 +78,63 @@ func (s *Service) AuthenticateToken(ctx context.Context, raw string) (*Claims, e
 			return claims, nil
 		}
 	}
+	if strings.HasPrefix(raw, PersonalAccessTokenPrefix) {
+		if claims, err := s.authenticatePersonalAccessToken(ctx, raw); err == nil {
+			return claims, nil
+		}
+	}
 
 	return nil, fmt.Errorf("token could not be verified")
+}
+
+func (s *Service) authenticatePersonalAccessToken(ctx context.Context, raw string) (*Claims, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("token store is not configured")
+	}
+	hash := HashToken(raw)
+	var (
+		tokenID uuid.UUID
+		userID  uuid.UUID
+		sub     string
+		email   sql.NullString
+		status  string
+	)
+	row := s.db.QueryRow(ctx, `
+		SELECT pat.id, pat.user_id, u.sub, u.email, u.status
+		FROM personal_access_tokens pat
+		JOIN users u ON u.id = pat.user_id
+		WHERE pat.token_hash = $1
+		  AND pat.revoked_at IS NULL
+		  AND (pat.expires_at IS NULL OR pat.expires_at > NOW())
+	`, hash)
+	if err := row.Scan(&tokenID, &userID, &sub, &email, &status); err != nil {
+		return nil, err
+	}
+	if status != "active" {
+		return nil, fmt.Errorf("account disabled")
+	}
+
+	roles, err := s.fetchRoles(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	_, _ = s.db.Exec(ctx, `
+		UPDATE personal_access_tokens
+		SET last_used_at = NOW()
+		WHERE id = $1
+		  AND (last_used_at IS NULL OR last_used_at < NOW() - INTERVAL '1 minute')
+	`, tokenID)
+
+	return &Claims{
+		Sub:      sub,
+		Email:    email.String,
+		Provider: ProviderPersonalAccessToken,
+		Roles:    roles,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject: sub,
+			Issuer:  s.cfg.JWTIssuer,
+		},
+	}, nil
 }
 
 func (s *Service) LoginLocal(ctx context.Context, identifier, password string) (*LoginResult, error) {

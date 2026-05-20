@@ -167,6 +167,7 @@ Current auth/access features:
 
 - local username/email plus password login
 - access token plus refresh token flow
+- profile-managed personal access tokens for API automation
 - password changes
 - email updates
 - login rate limiting
