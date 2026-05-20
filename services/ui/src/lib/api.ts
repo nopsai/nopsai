@@ -5,12 +5,14 @@ const AUTH_TOKEN_KEY = 'nopsai.auth.token';
 const REFRESH_TOKEN_KEY = 'nopsai.auth.refresh';
 const ROLES_KEY = 'nopsai.auth.roles';
 const SUB_KEY = 'nopsai.auth.sub';
+const PASSWORD_CHANGE_REQUIRED_KEY = 'nopsai.auth.mustChangePassword';
 
 export type StoredSession = {
   accessToken?: string;
   refreshToken?: string;
   roles?: string[];
   sub?: string;
+  mustChangePassword?: boolean;
 };
 
 export function getApiBaseUrl(): string {
@@ -55,6 +57,7 @@ export function getStoredSession(): StoredSession {
     refreshToken: localStorage.getItem(REFRESH_TOKEN_KEY) || undefined,
     roles,
     sub: localStorage.getItem(SUB_KEY) || undefined,
+    mustChangePassword: localStorage.getItem(PASSWORD_CHANGE_REQUIRED_KEY) === 'true',
   };
 }
 
@@ -68,6 +71,7 @@ export function persistSession(session: {
   refreshToken?: string;
   roles?: string[];
   sub?: string;
+  mustChangePassword?: boolean;
 }) {
   if (typeof localStorage === 'undefined') return;
   localStorage.setItem(AUTH_TOKEN_KEY, session.accessToken);
@@ -77,6 +81,17 @@ export function persistSession(session: {
   else localStorage.removeItem(ROLES_KEY);
   if (session.sub) localStorage.setItem(SUB_KEY, session.sub);
   else localStorage.removeItem(SUB_KEY);
+  if (session.mustChangePassword) localStorage.setItem(PASSWORD_CHANGE_REQUIRED_KEY, 'true');
+  else localStorage.removeItem(PASSWORD_CHANGE_REQUIRED_KEY);
+  dispatchAuthChanged();
+}
+
+export function setPasswordChangeRequired(required: boolean) {
+  if (typeof localStorage === 'undefined') return;
+  const current = localStorage.getItem(PASSWORD_CHANGE_REQUIRED_KEY) === 'true';
+  if (current === required) return;
+  if (required) localStorage.setItem(PASSWORD_CHANGE_REQUIRED_KEY, 'true');
+  else localStorage.removeItem(PASSWORD_CHANGE_REQUIRED_KEY);
   dispatchAuthChanged();
 }
 
@@ -86,6 +101,7 @@ export function clearSession() {
   localStorage.removeItem(REFRESH_TOKEN_KEY);
   localStorage.removeItem(ROLES_KEY);
   localStorage.removeItem(SUB_KEY);
+  localStorage.removeItem(PASSWORD_CHANGE_REQUIRED_KEY);
   dispatchAuthChanged();
 }
 
@@ -116,6 +132,10 @@ export function installAuthInterceptor() {
           refreshToken: payload?.refresh_token || refreshToken,
           roles: Array.isArray(payload?.roles) ? payload.roles : current.roles,
           sub: typeof payload?.sub === 'string' ? payload.sub : current.sub,
+          mustChangePassword:
+            typeof payload?.must_change_password === 'boolean'
+              ? payload.must_change_password
+              : current.mustChangePassword,
         });
         return getStoredSession();
       })()
@@ -131,7 +151,9 @@ export function installAuthInterceptor() {
   };
 
   const shouldBypassRefresh = (url: string) =>
-    url.includes('/v1/auth/login') || url.includes('/v1/auth/refresh');
+    url.includes('/v1/auth/login') ||
+    url.includes('/v1/auth/refresh') ||
+    url.includes('/v1/auth/password');
 
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const baseRequest = input instanceof Request ? input : new Request(input, init);

@@ -124,14 +124,15 @@ type authRefreshRequest struct {
 }
 
 type authLoginResponse struct {
-	AccessToken  string                    `json:"access_token"`
-	RefreshToken string                    `json:"refresh_token,omitempty"`
-	ExpiresAt    time.Time                 `json:"expires_at"`
-	Roles        []string                  `json:"roles,omitempty"`
-	Provider     string                    `json:"provider,omitempty"`
-	Email        string                    `json:"email,omitempty"`
-	Sub          string                    `json:"sub,omitempty"`
-	Capabilities *authCapabilitiesResponse `json:"capabilities,omitempty"`
+	AccessToken        string                    `json:"access_token"`
+	RefreshToken       string                    `json:"refresh_token,omitempty"`
+	ExpiresAt          time.Time                 `json:"expires_at"`
+	Roles              []string                  `json:"roles,omitempty"`
+	Provider           string                    `json:"provider,omitempty"`
+	Email              string                    `json:"email,omitempty"`
+	Sub                string                    `json:"sub,omitempty"`
+	MustChangePassword bool                      `json:"must_change_password,omitempty"`
+	Capabilities       *authCapabilitiesResponse `json:"capabilities,omitempty"`
 }
 
 type authCapabilitiesResponse struct {
@@ -467,6 +468,15 @@ func isPublicPath(path string) bool {
 	}
 }
 
+func isPasswordChangeAllowedPath(path string) bool {
+	switch strings.TrimSpace(path) {
+	case "/v1/auth/me", "/v1/auth/password":
+		return true
+	default:
+		return false
+	}
+}
+
 func isDispatcherInternalPath(path string) bool {
 	switch {
 	case path == "/v1/run":
@@ -598,9 +608,46 @@ func (a *App) authMiddleware(next http.Handler) http.Handler {
 			a.tokenActivity.Store(activityKey, now)
 		}
 
+		mustChangePassword, err := a.passwordChangeRequired(r.Context(), claims)
+		if err != nil {
+			http.Error(w, "failed to validate account password state", http.StatusInternalServerError)
+			return
+		}
+		if mustChangePassword && !isPasswordChangeAllowedPath(r.URL.Path) {
+			http.Error(w, "password change required", http.StatusForbidden)
+			return
+		}
+
 		ctx := auth.WithClaims(r.Context(), claims)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func (a *App) passwordChangeRequired(ctx context.Context, claims *auth.Claims) (bool, error) {
+	if a == nil || a.db == nil || claims == nil {
+		return false, nil
+	}
+	if !strings.EqualFold(strings.TrimSpace(claims.Provider), "local") {
+		return false, nil
+	}
+	sub := strings.TrimSpace(claims.Sub)
+	if sub == "" {
+		return false, nil
+	}
+
+	var required bool
+	err := a.db.QueryRow(ctx, `
+		SELECT must_change_password
+		FROM users
+		WHERE sub = $1
+	`, sub).Scan(&required)
+	if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return required, nil
 }
 
 func (a *App) authzMiddleware(next http.Handler) http.Handler {

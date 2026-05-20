@@ -305,6 +305,7 @@ CREATE TABLE users (
     provider TEXT NOT NULL DEFAULT 'local',
     password_hash TEXT,
     status TEXT NOT NULL DEFAULT 'active',
+    must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
     last_login TIMESTAMPTZ
 );
 
@@ -479,14 +480,15 @@ CREATE INDEX idx_variables_config_repo_id ON variables(config_repo_id);
 CREATE INDEX idx_secrets_config_repo_id ON secrets(config_repo_id);
 
 -- Seed default admin user with password 'admin' (change after first login).
-INSERT INTO users (id, sub, email, provider, password_hash, status)
+INSERT INTO users (id, sub, email, provider, password_hash, status, must_change_password)
 VALUES (
     '00000000-0000-0000-0000-00000000000a',
     'admin',
     'admin@example.com',
     'local',
     '$2a$10$ueFOcGRKCWDeOaTwy1hmQ.WjQ70Yu8JJLcl8ZvJprx7HPKArt8ESC',
-    'active'
+    'active',
+    TRUE
 )
 ON CONFLICT (sub) DO NOTHING;
 

@@ -8,6 +8,13 @@ import (
 )
 
 var authSchemaStatements = []string{
+	`ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE`,
+	`UPDATE users
+	 SET must_change_password = TRUE
+	 WHERE provider = 'local'
+	   AND password_hash IS NOT NULL
+	   AND last_login IS NULL
+	   AND must_change_password = FALSE`,
 	`CREATE TABLE IF NOT EXISTS personal_access_tokens (
 		id UUID PRIMARY KEY,
 		user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
