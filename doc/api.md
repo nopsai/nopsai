@@ -8,7 +8,7 @@ Except for login, token refresh, logout, and forwarded Git events, API calls req
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" http://localhost:8080/v1/runs
 ```
 
-For full JWT behavior, claims, config, refresh-token storage, and service-token details, see [jwt-authentication.md](./jwt-authentication.md).
+For full JWT behavior, personal-token handling, claims, config, refresh-token storage, and service-token details, see [jwt-authentication.md](./jwt-authentication.md).
 
 ---
 
@@ -33,9 +33,35 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"email":"new@example.com"}' \
   http://localhost:8080/v1/auth/email
+
+# Create a personal token for API automation from an interactive session token
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"deployment script","expires_in_days":90}' \
+  http://localhost:8080/v1/auth/personal-tokens
+
+# Or choose an exact date, or explicitly choose no expiry
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"monthly report","expires_at":"2026-06-30"}' \
+  http://localhost:8080/v1/auth/personal-tokens
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"long lived integration","never_expires":true}' \
+  http://localhost:8080/v1/auth/personal-tokens
+
+# Use the returned personal token for API calls
+curl -H "Authorization: Bearer nopat_<secret>" http://localhost:8080/v1/runs
+
+# List and revoke personal tokens
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" http://localhost:8080/v1/auth/personal-tokens
+curl -X DELETE -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  http://localhost:8080/v1/auth/personal-tokens/<token-id>
 ```
 
 - Local auth issues an access token and optional refresh token.
+- Personal tokens are created from Profile/API auth routes, are returned only once, support `expires_in_days`, exact `expires_at`, or explicit `never_expires`, and use the same authorization as the owning user.
+- Nopsai stores only personal-token hashes plus metadata, not the raw token value.
 - Protected UI calls automatically attach the access token and retry once after refresh on `401`.
 - Profile routes require authentication but do not require an extra AAA resource decision.
 

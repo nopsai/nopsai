@@ -50,6 +50,26 @@ func TestMapRequestDefersRunByCheckAuthorizationToConcreteRun(t *testing.T) {
 	}
 }
 
+func TestMapRequestTreatsPersonalTokenRoutesAsAuthenticatedOnly(t *testing.T) {
+	for _, tt := range []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodGet, path: "/v1/auth/personal-tokens"},
+		{method: http.MethodPost, path: "/v1/auth/personal-tokens"},
+		{method: http.MethodDelete, path: "/v1/auth/personal-tokens/00000000-0000-0000-0000-000000000001"},
+	} {
+		req := httptest.NewRequest(tt.method, tt.path, nil)
+		action, resource, requiresFilter, err := MapRequest(req)
+		if err != nil {
+			t.Fatalf("MapRequest() error = %v", err)
+		}
+		if action != "" || requiresFilter || resource.Type != "" || resource.ID != "" {
+			t.Fatalf("MapRequest(%s %s) = action %q resource %#v filter %v, want authenticated-only", tt.method, tt.path, action, resource, requiresFilter)
+		}
+	}
+}
+
 func TestMapRequestUsesUpdatedLowLevelActions(t *testing.T) {
 	tests := []struct {
 		name       string

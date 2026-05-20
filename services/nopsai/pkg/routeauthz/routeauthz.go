@@ -16,7 +16,8 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 
 	path := strings.TrimSpace(r.URL.Path)
 	switch {
-	case path == "/v1/auth/me", path == "/v1/auth/password", path == "/v1/auth/email":
+	case path == "/v1/auth/me", path == "/v1/auth/password", path == "/v1/auth/email",
+		path == "/v1/auth/personal-tokens", strings.HasPrefix(path, "/v1/auth/personal-tokens/"):
 		return "", model.ResourceRef{}, false, nil
 	case strings.HasPrefix(path, "/v1/admin/"):
 		return "iam.admin", model.ResourceRef{Type: "iam", ID: "admin"}, false, nil
