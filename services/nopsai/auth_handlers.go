@@ -39,13 +39,14 @@ func (a *App) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = httpapi.WriteJSON(w, http.StatusOK, authLoginResponse{
-		AccessToken:  result.AccessToken,
-		RefreshToken: result.RefreshToken,
-		ExpiresAt:    result.ExpiresAt,
-		Roles:        a.resolveAAARoles(r.Context(), result.Claims),
-		Provider:     result.Claims.Provider,
-		Email:        result.Claims.Email,
-		Sub:          result.Claims.Sub,
+		AccessToken:        result.AccessToken,
+		RefreshToken:       result.RefreshToken,
+		ExpiresAt:          result.ExpiresAt,
+		Roles:              a.resolveAAARoles(r.Context(), result.Claims),
+		Provider:           result.Claims.Provider,
+		Email:              result.Claims.Email,
+		Sub:                result.Claims.Sub,
+		MustChangePassword: result.MustChangePassword,
 	})
 }
 
@@ -65,13 +66,14 @@ func (a *App) handleAuthRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = httpapi.WriteJSON(w, http.StatusOK, authLoginResponse{
-		AccessToken:  result.AccessToken,
-		RefreshToken: result.RefreshToken,
-		ExpiresAt:    result.ExpiresAt,
-		Roles:        a.resolveAAARoles(r.Context(), result.Claims),
-		Provider:     result.Claims.Provider,
-		Email:        result.Claims.Email,
-		Sub:          result.Claims.Sub,
+		AccessToken:        result.AccessToken,
+		RefreshToken:       result.RefreshToken,
+		ExpiresAt:          result.ExpiresAt,
+		Roles:              a.resolveAAARoles(r.Context(), result.Claims),
+		Provider:           result.Claims.Provider,
+		Email:              result.Claims.Email,
+		Sub:                result.Claims.Sub,
+		MustChangePassword: result.MustChangePassword,
 	})
 }
 
@@ -103,6 +105,7 @@ func (a *App) handleAuthMe(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	mustChangePassword := false
 	if !isDispatcherInternalClaims(claims) {
 		userRecord, err := a.loadAuthenticatedUserRecord(r.Context(), claims.Sub)
 		if err != nil {
@@ -117,14 +120,16 @@ func (a *App) handleAuthMe(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "account disabled", http.StatusForbidden)
 			return
 		}
+		mustChangePassword = userRecord.MustChangePassword
 	}
 	_ = httpapi.WriteJSON(w, http.StatusOK, authLoginResponse{
-		AccessToken:  "",
-		Roles:        a.resolveAAARoles(r.Context(), claims),
-		Provider:     claims.Provider,
-		Email:        claims.Email,
-		Sub:          claims.Sub,
-		Capabilities: a.authCapabilities(claims),
+		AccessToken:        "",
+		Roles:              a.resolveAAARoles(r.Context(), claims),
+		Provider:           claims.Provider,
+		Email:              claims.Email,
+		Sub:                claims.Sub,
+		MustChangePassword: mustChangePassword,
+		Capabilities:       a.authCapabilities(claims),
 	})
 }
 
@@ -144,10 +149,11 @@ func (a *App) resolveAAARoles(ctx context.Context, claims *auth.Claims) []string
 }
 
 type authenticatedUserRecord struct {
-	ID           uuid.UUID
-	Provider     string
-	Status       string
-	PasswordHash sql.NullString
+	ID                 uuid.UUID
+	Provider           string
+	Status             string
+	PasswordHash       sql.NullString
+	MustChangePassword bool
 }
 
 func (r authenticatedUserRecord) IsActive() bool {
@@ -157,10 +163,10 @@ func (r authenticatedUserRecord) IsActive() bool {
 func (a *App) loadAuthenticatedUserRecord(ctx context.Context, sub string) (authenticatedUserRecord, error) {
 	var record authenticatedUserRecord
 	err := a.db.QueryRow(ctx, `
-		SELECT id, provider, status, password_hash
+		SELECT id, provider, status, password_hash, must_change_password
 		FROM users
 		WHERE sub = $1
-	`, strings.TrimSpace(sub)).Scan(&record.ID, &record.Provider, &record.Status, &record.PasswordHash)
+	`, strings.TrimSpace(sub)).Scan(&record.ID, &record.Provider, &record.Status, &record.PasswordHash, &record.MustChangePassword)
 	return record, err
 }
 
@@ -488,7 +494,7 @@ func (a *App) handleAuthChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 
-	if _, err := tx.Exec(r.Context(), `UPDATE users SET password_hash = $1 WHERE id = $2`, hashed, userRecord.ID); err != nil {
+	if _, err := tx.Exec(r.Context(), `UPDATE users SET password_hash = $1, must_change_password = FALSE WHERE id = $2`, hashed, userRecord.ID); err != nil {
 		http.Error(w, "failed to update password", http.StatusInternalServerError)
 		return
 	}
@@ -778,9 +784,9 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err = tx.QueryRow(r.Context(), `
-		INSERT INTO users (id, sub, email, provider, password_hash, status)
-		VALUES ($1, $2, $3, 'local', $4, 'active')
-		ON CONFLICT (sub) DO UPDATE SET email = EXCLUDED.email, password_hash = EXCLUDED.password_hash, status = 'active'
+		INSERT INTO users (id, sub, email, provider, password_hash, status, must_change_password)
+		VALUES ($1, $2, $3, 'local', $4, 'active', TRUE)
+		ON CONFLICT (sub) DO UPDATE SET email = EXCLUDED.email, password_hash = EXCLUDED.password_hash, status = 'active', must_change_password = TRUE
 		RETURNING id
 	`, userID, req.Sub, req.Email, hashed).Scan(&userID)
 	if err != nil {
@@ -920,6 +926,9 @@ func (a *App) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		}
 		setParts = append(setParts, fmt.Sprintf("password_hash = $%d", argIdx))
 		args = append(args, hashedPassword)
+		argIdx++
+		setParts = append(setParts, fmt.Sprintf("must_change_password = $%d", argIdx))
+		args = append(args, true)
 		argIdx++
 	}
 

@@ -10,7 +10,7 @@ import KnowledgeContextPage from './pages/KnowledgeContext';
 import SystemPage from './pages/System';
 import LoginPage from './pages/Login';
 import ProfilePage from './pages/Profile';
-import { buildApiUrl, clearSession, getStoredSession, type StoredSession } from './lib/api';
+import { buildApiUrl, clearSession, getStoredSession, setPasswordChangeRequired, type StoredSession } from './lib/api';
 import { PIPELINE_DRAFTS_CHANGED_EVENT, getPipelineDraftStorageKey, loadPipelineDrafts } from './lib/pipelineDrafts';
 import { fetchResourceGroupPaths, insertGroupPath } from './lib/resourceGroups';
 import { STEP_DRAFTS_CHANGED_EVENT, getStepDraftStorageKey, loadStepDrafts } from './lib/stepDrafts';
@@ -298,10 +298,13 @@ function AppShell() {
     if (!isAuthenticated && location.pathname !== '/login') {
       navigate('/login', { replace: true });
     }
-    if (isAuthenticated && location.pathname === '/login') {
-      navigate('/pipelineruns/main', { replace: true });
+    if (isAuthenticated && authSession.mustChangePassword && location.pathname !== '/profile') {
+      navigate('/profile', { replace: true });
     }
-  }, [authSession.accessToken, location.pathname, navigate]);
+    if (isAuthenticated && location.pathname === '/login') {
+      navigate(authSession.mustChangePassword ? '/profile' : '/pipelineruns/main', { replace: true });
+    }
+  }, [authSession.accessToken, authSession.mustChangePassword, location.pathname, navigate]);
 
   useEffect(() => {
     if (!authSession.accessToken) {
@@ -384,6 +387,7 @@ function AppShell() {
           roles: Array.isArray(data?.roles) ? data.roles : undefined,
           capabilities,
         });
+        setPasswordChangeRequired(Boolean(data?.must_change_password));
       })
       .catch(err => {
         if (cancelled) return;
@@ -1132,6 +1136,8 @@ function AppShell() {
                         loading={currentUserLoading}
                         onLogout={handleLogout}
                         onUserUpdated={handleUserUpdated}
+                        mustChangePassword={Boolean(authSession.mustChangePassword)}
+                        onPasswordChanged={() => setPasswordChangeRequired(false)}
                         canAccessSystem={canViewAnySystem}
                         systemPath={preferredSystemPath}
                       />

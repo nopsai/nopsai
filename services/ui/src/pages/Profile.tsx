@@ -22,6 +22,8 @@ type Props = {
   loading?: boolean;
   onLogout: () => void;
   onUserUpdated?: (updates: Partial<CurrentUser>) => void;
+  mustChangePassword?: boolean;
+  onPasswordChanged?: () => void;
   canAccessSystem?: boolean;
   systemPath?: string;
 };
@@ -74,7 +76,7 @@ function tokenExpired(token: PersonalAccessToken) {
   return Number.isFinite(expiresAt) && expiresAt <= Date.now();
 }
 
-export default function ProfilePage({ user, loading, onLogout, onUserUpdated, canAccessSystem, systemPath }: Props) {
+export default function ProfilePage({ user, loading, onLogout, onUserUpdated, mustChangePassword, onPasswordChanged, canAccessSystem, systemPath }: Props) {
   const navigate = useNavigate();
   const [email, setEmail] = useState(user?.email || '');
   const [emailDraft, setEmailDraft] = useState(user?.email || '');
@@ -106,6 +108,12 @@ export default function ProfilePage({ user, loading, onLogout, onUserUpdated, ca
     setEmailDraft(user?.email || '');
     setEditingEmail(false);
   }, [user?.email]);
+
+  useEffect(() => {
+    if (mustChangePassword) {
+      setPasswordModalOpen(true);
+    }
+  }, [mustChangePassword]);
 
   const loadTokens = useCallback(async () => {
     if (!user) {
@@ -170,6 +178,7 @@ export default function ProfilePage({ user, loading, onLogout, onUserUpdated, ca
     try {
       await changePassword(currentPassword, newPassword);
       window.alert('Password updated.');
+      onPasswordChanged?.();
       setPasswordModalOpen(false);
       setCurrentPassword('');
       setNewPassword('');
@@ -499,22 +508,31 @@ export default function ProfilePage({ user, loading, onLogout, onUserUpdated, ca
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-[var(--text-secondary)]">Security</p>
-                <h2 className="text-lg font-semibold text-[var(--text-primary)]">Change password</h2>
+                <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+                  {mustChangePassword ? 'Change password required' : 'Change password'}
+                </h2>
               </div>
-              <button
-                type="button"
-                className="text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                onClick={() => {
-                  setPasswordModalOpen(false);
-                  setCurrentPassword('');
-                  setNewPassword('');
-                  setConfirmPassword('');
-                }}
-                aria-label="Close"
-              >
-                <X className="h-4 w-4" aria-hidden="true" />
-              </button>
+              {!mustChangePassword && (
+                <button
+                  type="button"
+                  className="text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                  onClick={() => {
+                    setPasswordModalOpen(false);
+                    setCurrentPassword('');
+                    setNewPassword('');
+                    setConfirmPassword('');
+                  }}
+                  aria-label="Close"
+                >
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </button>
+              )}
             </div>
+            {mustChangePassword && (
+              <p className="text-sm text-[var(--text-secondary)]">
+                This is your first sign-in. Choose a new password to continue.
+              </p>
+            )}
             <form
               className="space-y-3"
               onSubmit={handlePasswordSubmit}
@@ -553,18 +571,24 @@ export default function ProfilePage({ user, loading, onLogout, onUserUpdated, ca
                 />
               </label>
               <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  className="glass-button-ghost"
-                  onClick={() => {
-                    setPasswordModalOpen(false);
-                    setCurrentPassword('');
-                    setNewPassword('');
-                    setConfirmPassword('');
-                  }}
-                >
-                  Cancel
-                </button>
+                {mustChangePassword ? (
+                  <button type="button" className="glass-button-ghost" onClick={onLogout}>
+                    Logout
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="glass-button-ghost"
+                    onClick={() => {
+                      setPasswordModalOpen(false);
+                      setCurrentPassword('');
+                      setNewPassword('');
+                      setConfirmPassword('');
+                    }}
+                  >
+                    Cancel
+                  </button>
+                )}
                 <button type="submit" className="glass-button-subtle disabled:opacity-50" disabled={passwordSaving}>
                   {passwordSaving ? 'Updating...' : 'Update password'}
                 </button>

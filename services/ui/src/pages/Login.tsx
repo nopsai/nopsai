@@ -20,9 +20,10 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
         refreshToken: resp.refresh_token,
         roles: resp.roles,
         sub: resp.sub,
+        mustChangePassword: Boolean(resp.must_change_password),
       });
       onLogin();
-      navigate('/pipelineruns/main', { replace: true });
+      navigate(resp.must_change_password ? '/profile' : '/pipelineruns/main', { replace: true });
     } catch (err: any) {
       setError(err?.message || 'Login failed');
     } finally {
