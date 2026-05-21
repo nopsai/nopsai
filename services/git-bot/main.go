@@ -128,6 +128,19 @@ type BranchPROpenResponse struct {
 	HasOpenPR bool `json:"has_open_pr"`
 }
 
+type InstalledRepository struct {
+	ID            int64  `json:"id"`
+	FullName      string `json:"full_name"`
+	Owner         string `json:"owner"`
+	Name          string `json:"name"`
+	Private       bool   `json:"private"`
+	DefaultBranch string `json:"default_branch,omitempty"`
+}
+
+type InstalledRepositoriesResponse struct {
+	Repositories []InstalledRepository `json:"repositories"`
+}
+
 type PipelineContentRequest struct {
 	Owner  string                `json:"owner"`
 	Repo   string                `json:"repo"`
@@ -909,6 +922,38 @@ func (a *GitBotApp) collectRepositoryContents(ctx context.Context, owner, repo, 
 	return nil
 }
 
+func (a *GitBotApp) handleListInstalledRepositories(w http.ResponseWriter, r *http.Request) {
+	var repositories []InstalledRepository
+	opts := &github.ListOptions{PerPage: 100}
+	for {
+		result, resp, err := a.ghClient.Apps.ListRepos(r.Context(), opts)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to list GitHub App installation repositories")
+			_ = httpapi.WriteJSONError(w, http.StatusBadGateway, "failed to list installation repositories")
+			return
+		}
+		for _, repo := range result.Repositories {
+			owner := ""
+			if repo.Owner != nil {
+				owner = repo.Owner.GetLogin()
+			}
+			repositories = append(repositories, InstalledRepository{
+				ID:            repo.GetID(),
+				FullName:      repo.GetFullName(),
+				Owner:         owner,
+				Name:          repo.GetName(),
+				Private:       repo.GetPrivate(),
+				DefaultBranch: repo.GetDefaultBranch(),
+			})
+		}
+		if resp == nil || resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+	_ = httpapi.WriteJSON(w, http.StatusOK, InstalledRepositoriesResponse{Repositories: repositories})
+}
+
 func (a *GitBotApp) handleFetchPipeline(w http.ResponseWriter, r *http.Request) {
 	var req PipelineContentRequest
 	if err := httpapi.DecodeJSON(r, &req); err != nil {
@@ -1458,6 +1503,7 @@ func main() {
 	mux.HandleFunc("POST /v1/github/contents", app.handleFetchDirectoryContents)
 	mux.HandleFunc("POST /v1/github/repo/access", app.handleCheckRepoAccess)
 	mux.HandleFunc("POST /v1/github/branch/has-open-pr", app.handleCheckBranchHasOpenPR)
+	mux.HandleFunc("GET /v1/github/installation/repositories", app.handleListInstalledRepositories)
 	mux.HandleFunc("POST /v1/github/pipeline", app.handleFetchPipeline)
 	mux.HandleFunc("POST /v1/checks/create", app.handleCreateCheckRun)
 	mux.HandleFunc("POST /v1/checks/initialize", app.handleInitializeCheckRun)

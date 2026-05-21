@@ -461,6 +461,12 @@ CREATE TABLE authz_decision_logs (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE setup_state (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE INDEX idx_auth_group_members_subject ON auth_group_members(subject_type, subject_id);
 CREATE INDEX idx_auth_role_bindings_subject ON auth_role_bindings(subject_type, subject_id);
 CREATE INDEX idx_auth_role_permissions_role_name ON auth_role_permissions(role_name);
