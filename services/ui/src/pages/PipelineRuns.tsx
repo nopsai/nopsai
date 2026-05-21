@@ -3,6 +3,12 @@ import type { Dispatch, FormEvent, SetStateAction } from 'react';
 import { Link, NavLink, useParams, useSearchParams } from 'react-router-dom';
 import yaml from 'js-yaml';
 import { buildApiUrl } from '../lib/api';
+import {
+  ConfigRepositoryDriftModal,
+  buildConfigRepositoryWriteFiles,
+  type ConfigRepositoryCommitResponse,
+  type ConfigRepositoryDriftResponse,
+} from '../components/ConfigRepositoryDriftModal';
 
 type TabKey = 'main' | 'recent' | 'events';
 
@@ -157,6 +163,8 @@ type ConfigRepository = {
   branch: string;
   base_path: string;
   enabled: boolean;
+  write_enabled: boolean;
+  write_branch: string;
   last_sync_status: string;
   last_sync_message?: string;
   last_sync_started_at?: string;
@@ -169,6 +177,8 @@ type ConfigRepositoryFormState = {
   branch: string;
   base_path: string;
   enabled: boolean;
+  write_enabled: boolean;
+  write_branch: string;
 };
 
 const tabs = [
@@ -187,6 +197,8 @@ const emptyConfigRepositoryForm: ConfigRepositoryFormState = {
   branch: 'main',
   base_path: '',
   enabled: true,
+  write_enabled: false,
+  write_branch: 'nopsai/ui-changes',
 };
 
 const STATUS_META: Record<
@@ -300,6 +312,12 @@ function PipelineRunsPage() {
   const [configRepoSaving, setConfigRepoSaving] = useState(false);
   const [configRepoSyncing, setConfigRepoSyncing] = useState(false);
   const [configRepoError, setConfigRepoError] = useState<string | null>(null);
+  const [configRepoDriftOpen, setConfigRepoDriftOpen] = useState(false);
+  const [configRepoDrift, setConfigRepoDrift] = useState<ConfigRepositoryDriftResponse | null>(null);
+  const [configRepoDriftLoading, setConfigRepoDriftLoading] = useState(false);
+  const [configRepoDriftError, setConfigRepoDriftError] = useState<string | null>(null);
+  const [configRepoPushing, setConfigRepoPushing] = useState(false);
+  const [configRepoPushResult, setConfigRepoPushResult] = useState<ConfigRepositoryCommitResponse | null>(null);
   const [configRepoManageAllowed, setConfigRepoManageAllowed] = useState(false);
   const [configRepoSyncAllowed, setConfigRepoSyncAllowed] = useState(false);
   const [selectedRunIds, setSelectedRunIds] = useState<Set<string>>(new Set());
@@ -461,6 +479,8 @@ function PipelineRunsPage() {
       branch: typeof record.branch === 'string' && record.branch.trim() ? record.branch : 'main',
       base_path: typeof record.base_path === 'string' ? record.base_path : '',
       enabled: Boolean(record.enabled),
+      write_enabled: Boolean(record.write_enabled),
+      write_branch: typeof record.write_branch === 'string' && record.write_branch.trim() ? record.write_branch : 'nopsai/ui-changes',
       last_sync_status: typeof record.last_sync_status === 'string' ? record.last_sync_status : '',
       last_sync_message: typeof record.last_sync_message === 'string' ? record.last_sync_message : undefined,
       last_sync_started_at: typeof record.last_sync_started_at === 'string' ? record.last_sync_started_at : undefined,
@@ -494,6 +514,8 @@ function PipelineRunsPage() {
           branch: repo.branch || 'main',
           base_path: repo.base_path || '',
           enabled: repo.enabled,
+          write_enabled: repo.write_enabled,
+          write_branch: repo.write_branch || 'nopsai/ui-changes',
         } : emptyConfigRepositoryForm);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unable to load config repository';
@@ -999,6 +1021,10 @@ function PipelineRunsPage() {
       setConfigRepo(null);
       setConfigRepoForm(emptyConfigRepositoryForm);
       setConfigRepoError(null);
+      setConfigRepoDriftOpen(false);
+      setConfigRepoDrift(null);
+      setConfigRepoDriftError(null);
+      setConfigRepoPushResult(null);
       setConfigRepoManageAllowed(false);
       setConfigRepoSyncAllowed(false);
     },
@@ -1010,8 +1036,14 @@ function PipelineRunsPage() {
     setConfigRepo(null);
     setConfigRepoForm(emptyConfigRepositoryForm);
     setConfigRepoError(null);
+    setConfigRepoDriftOpen(false);
+    setConfigRepoDrift(null);
+    setConfigRepoDriftError(null);
+    setConfigRepoPushResult(null);
     setConfigRepoSaving(false);
     setConfigRepoSyncing(false);
+    setConfigRepoDriftLoading(false);
+    setConfigRepoPushing(false);
   }, []);
 
   const saveFolderConfigRepository = useCallback(async () => {
@@ -1032,16 +1064,22 @@ function PipelineRunsPage() {
           branch: configRepoForm.branch.trim() || 'main',
           base_path: configRepoForm.base_path.trim(),
           enabled: Boolean(configRepoForm.enabled),
+          write_enabled: Boolean(configRepoForm.write_enabled),
+          write_branch: configRepoForm.write_branch.trim(),
         }),
       });
       const normalized = normalizeConfigRepository(repo);
       setConfigRepo(normalized);
+      setConfigRepoDrift(null);
+      setConfigRepoPushResult(null);
       if (normalized) {
         setConfigRepoForm({
           repo_url: normalized.repo_url,
           branch: normalized.branch || 'main',
           base_path: normalized.base_path || '',
           enabled: normalized.enabled,
+          write_enabled: normalized.write_enabled,
+          write_branch: normalized.write_branch || 'nopsai/ui-changes',
         });
       }
     } catch (error) {
@@ -1061,6 +1099,9 @@ function PipelineRunsPage() {
       await fetchJson<void>(`/v1/groups/${encodeURIComponent(configRepoFolder.folderPath)}/config-repo`, { method: 'DELETE' });
       setConfigRepo(null);
       setConfigRepoForm(emptyConfigRepositoryForm);
+      setConfigRepoDriftOpen(false);
+      setConfigRepoDrift(null);
+      setConfigRepoPushResult(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to remove config repository';
       setConfigRepoError(message);
@@ -1092,6 +1133,51 @@ function PipelineRunsPage() {
       setConfigRepoSyncing(false);
     }
   }, [configRepo?.last_sync_status, configRepoFolder, configRepoSyncAllowed, configRepoSyncing, fetchJson, loadFolderConfigRepository]);
+
+  const checkFolderConfigRepositoryDrift = useCallback(async () => {
+    if (!configRepoFolder || configRepoDriftLoading) return;
+    setConfigRepoDriftOpen(true);
+    setConfigRepoDriftLoading(true);
+    setConfigRepoDriftError(null);
+    setConfigRepoPushResult(null);
+    try {
+      const payload = await fetchJson<ConfigRepositoryDriftResponse>(`/v1/groups/${encodeURIComponent(configRepoFolder.folderPath)}/config-repo/drift`);
+      setConfigRepoDrift(payload);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to check config repository drift';
+      setConfigRepoDriftError(message);
+    } finally {
+      setConfigRepoDriftLoading(false);
+    }
+  }, [configRepoDriftLoading, configRepoFolder, fetchJson]);
+
+  const pushFolderConfigRepositoryDrift = useCallback(async () => {
+    if (!configRepoFolder || !configRepoManageAllowed || configRepoPushing) return;
+    const files = buildConfigRepositoryWriteFiles(configRepoDrift);
+    if (!configRepoDrift || files.length === 0) return;
+    if (!configRepoDrift.can_push) {
+      setConfigRepoDriftError('Enable Git push and set a push branch before committing changes.');
+      return;
+    }
+    setConfigRepoPushing(true);
+    setConfigRepoDriftError(null);
+    try {
+      const result = await fetchJson<ConfigRepositoryCommitResponse>(`/v1/groups/${encodeURIComponent(configRepoFolder.folderPath)}/config-repo/write`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: configRepoDrift.push_message || 'Update Nopsai config',
+          files,
+        }),
+      });
+      setConfigRepoPushResult(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to push config repository changes';
+      setConfigRepoDriftError(message);
+    } finally {
+      setConfigRepoPushing(false);
+    }
+  }, [configRepoDrift, configRepoFolder, configRepoManageAllowed, configRepoPushing, fetchJson]);
 
   const handleCancelRun = useCallback(
     async (runId: string) => {
@@ -1396,13 +1482,31 @@ function PipelineRunsPage() {
           saving={configRepoSaving}
           syncing={configRepoSyncing}
           error={configRepoError}
+          driftLoading={configRepoDriftLoading}
+          pushing={configRepoPushing}
           canManage={configRepoManageAllowed}
           canSync={configRepoSyncAllowed}
           onChange={setConfigRepoForm}
           onSave={saveFolderConfigRepository}
           onDelete={deleteFolderConfigRepository}
           onSync={syncFolderConfigRepository}
+          onCheckDrift={checkFolderConfigRepositoryDrift}
           onClose={closeFolderConfigRepository}
+        />
+      )}
+
+      {configRepoFolder && configRepoDriftOpen && (
+        <ConfigRepositoryDriftModal
+          title={`${configRepoFolder.folderPath} config repository`}
+          drift={configRepoDrift}
+          loading={configRepoDriftLoading}
+          error={configRepoDriftError}
+          pushing={configRepoPushing}
+          pushResult={configRepoPushResult}
+          canPush={configRepoManageAllowed && Boolean(configRepoDrift?.can_push)}
+          onClose={() => setConfigRepoDriftOpen(false)}
+          onRefresh={checkFolderConfigRepositoryDrift}
+          onPush={pushFolderConfigRepositoryDrift}
         />
       )}
     </div>
@@ -5398,12 +5502,15 @@ function FolderConfigRepositoryModal({
   saving,
   syncing,
   error,
+  driftLoading,
+  pushing,
   canManage,
   canSync,
   onChange,
   onSave,
   onDelete,
   onSync,
+  onCheckDrift,
   onClose,
 }: {
   folderLabel: string;
@@ -5413,18 +5520,23 @@ function FolderConfigRepositoryModal({
   saving: boolean;
   syncing: boolean;
   error: string | null;
+  driftLoading: boolean;
+  pushing: boolean;
   canManage: boolean;
   canSync: boolean;
   onChange: Dispatch<SetStateAction<ConfigRepositoryFormState>>;
   onSave: () => Promise<void>;
   onDelete: () => Promise<void>;
   onSync: () => Promise<void>;
+  onCheckDrift: () => Promise<void>;
   onClose: () => void;
 }) {
   const inputClass = 'w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)] disabled:cursor-not-allowed disabled:opacity-70';
   const isRunning = repo?.last_sync_status === 'running';
   const canEdit = canManage && !loading && !saving;
   const syncDisabled = !repo || !canSync || syncing || saving || isRunning;
+  const driftDisabled = !repo || driftLoading || saving || syncing || isRunning;
+  const pushDisabled = driftDisabled || pushing || !canManage || !repo?.write_enabled || !repo?.write_branch;
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -5546,6 +5658,35 @@ function FolderConfigRepositoryModal({
                   />
                   Enabled
                 </label>
+
+                <div className="border-t border-[var(--border-primary)] pt-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <label className="inline-flex items-center gap-2 text-sm text-[var(--text-primary)]">
+                      <input
+                        id="folder-config-repo-write-enabled"
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-[var(--border-primary)] text-indigo-600 focus:ring-indigo-500"
+                        checked={form.write_enabled}
+                        onChange={event => onChange(prev => ({ ...prev, write_enabled: event.target.checked }))}
+                        disabled={!canEdit}
+                      />
+                      Enable Git push
+                    </label>
+                    <div className="space-y-2">
+                      <label htmlFor="folder-config-repo-write-branch" className="text-sm font-medium text-[var(--text-primary)]">
+                        Push branch
+                      </label>
+                      <input
+                        id="folder-config-repo-write-branch"
+                        value={form.write_branch}
+                        onChange={event => onChange(prev => ({ ...prev, write_branch: event.target.value }))}
+                        disabled={!canEdit || !form.write_enabled}
+                        className={inputClass}
+                        placeholder="nopsai/ui-changes"
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
             </>
           )}
@@ -5561,6 +5702,16 @@ function FolderConfigRepositoryModal({
             {repo && canSync && (
               <button type="button" className="glass-button-subtle" onClick={onSync} disabled={syncDisabled}>
                 {isRunning || syncing ? 'Syncing...' : 'Sync Now'}
+              </button>
+            )}
+            {repo && (
+              <button type="button" className="glass-button-subtle" onClick={() => void onCheckDrift()} disabled={driftDisabled}>
+                {driftLoading ? 'Checking...' : 'Check drift'}
+              </button>
+            )}
+            {repo && (
+              <button type="button" className="glass-button-subtle" onClick={() => void onCheckDrift()} disabled={pushDisabled}>
+                {pushing ? 'Pushing...' : 'Push to Git'}
               </button>
             )}
             <button type="button" className="glass-button-subtle" onClick={onClose} disabled={saving || syncing}>

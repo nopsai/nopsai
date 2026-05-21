@@ -230,6 +230,13 @@ Rerun:
 7. Group-scoped resources are normalized under the bound group before writing.
 8. It refuses to overwrite resources that are unmanaged or already managed by an unrelated config repository; delegated child group repos can override parent-managed resources in their group.
 9. It upserts rows with config-source metadata into Postgres.
+
+For Git push, `nopsai` loads the same system or group config repository binding,
+validates that `write_enabled` and `write_branch` are set, prefixes requested
+file paths with the binding `base_path`, and asks `git-bot` to commit those
+files to the review branch. The sync branch is not updated directly. The drift
+endpoint exports the current Nopsai config and compares it with the sync branch
+so the UI can show the exact file changes before pushing.
 10. It prunes rows managed by the same config repository that disappeared from the repo.
 11. Legacy global `pipelineruns/structure.yaml` is ignored for groups delegated via `config-repositories/groups`; colocated group structure under `config-repositories/groups` is still applied.
 12. It does not prune user-created groups, even when syncing the run-group structure.

@@ -4,6 +4,8 @@ team-1:
     branch: main
     base_path: ""
     enabled: true
+    write_enabled: true
+    write_branch: nopsai/team-1-ui
   description: Description for team-1 folder
   repos:
     - hosein-yousefii/test-app
@@ -19,6 +21,8 @@ data-team:
     branch: main
     base_path: ""
     enabled: true
+    write_enabled: true
+    write_branch: nopsai/data-team-ui
 team-2:
   bank:
     description: Handles bank-facing apps
@@ -29,3 +33,5 @@ team-2:
       branch: main
       base_path: ""
       enabled: true
+      write_enabled: true
+      write_branch: nopsai/bank-team-ui

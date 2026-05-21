@@ -23,7 +23,9 @@ group path.
   "repo_url": "https://github.com/acme/nopsai-global-config",
   "branch": "main",
   "base_path": "",
-  "enabled": true
+  "enabled": true,
+  "write_enabled": true,
+  "write_branch": "nopsai/ui-changes"
 }
 ```
 
@@ -32,8 +34,29 @@ Create or update it through:
 ```bash
 curl -X PUT \
   -H "Content-Type: application/json" \
-  -d '{"repo_url":"https://github.com/acme/nopsai-global-config","branch":"main","base_path":"","enabled":true}' \
+  -d '{"repo_url":"https://github.com/acme/nopsai-global-config","branch":"main","base_path":"","enabled":true,"write_enabled":true,"write_branch":"nopsai/ui-changes"}' \
   http://localhost:8080/v1/system/config-repo
+```
+
+`branch` is the GitOps sync source. `write_enabled` and `write_branch` let
+Nopsai push generated GitOps changes to a review branch instead of writing
+directly to the sync branch. Configure the GitHub App with `contents: read and
+write` when this is enabled.
+
+The drift endpoint compares Nopsai's current config with the sync branch before
+you push:
+
+```bash
+curl http://localhost:8080/v1/system/config-repo/drift
+```
+
+The write endpoint accepts GitOps file paths relative to `base_path`:
+
+```bash
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Add deploy pipeline","files":[{"path":"pipelines/services/api/deploy.yaml","content":"name: deploy\nsteps:\n  - name: deploy\n    script: echo deploy\n"}]}' \
+  http://localhost:8080/v1/system/config-repo/write
 ```
 
 ## Syncable directories
@@ -201,7 +224,8 @@ knowledge contexts.
 
 ## Knowledge context documents
 
-Managed knowledge context files live under `knowledge/<kind>/<group>/<name>.md`.
+Managed knowledge context files live under `knowledge/<kind>/<group>/<name>.md`
+or `.yaml`/`.yml`.
 Supported kinds are `architecture`, `guardrail`, `policy`, `adr`,
 `guideline`, `runbook`, `reference`, and `example`.
 
@@ -231,4 +255,6 @@ knowledge_context:
 
 In a group-scoped config repository, the document group is normalized under the
 bound group, so `knowledge/runbook/deploy/api.md` in the `team-1` repo becomes
-`runbook/team-1/deploy/api`.
+`runbook/team-1/deploy/api`. If the first group segment already matches the
+bound group, it is not duplicated; `knowledge/guardrail/team-1/check.yaml` in a
+`team-1` repo still becomes `guardrail/team-1/check`.

@@ -89,17 +89,20 @@ func (s *PGStore) CreateOrUpdateConfigRepository(ctx context.Context, input mode
 		branch = "main"
 	}
 	basePath := normalizeConfigRepositoryBasePath(input.BasePath)
+	writeBranch := strings.TrimSpace(input.WriteBranch)
 	actor := strings.TrimSpace(input.Actor)
 
 	const query = `
 		INSERT INTO config_repositories (
-			scope_type, scope_id, repo_url, branch, base_path, enabled, created_by, updated_by
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+			scope_type, scope_id, repo_url, branch, base_path, enabled, write_enabled, write_branch, created_by, updated_by
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
 		ON CONFLICT (scope_type, scope_id) DO UPDATE SET
 			repo_url = EXCLUDED.repo_url,
 			branch = EXCLUDED.branch,
 			base_path = EXCLUDED.base_path,
 			enabled = EXCLUDED.enabled,
+			write_enabled = EXCLUDED.write_enabled,
+			write_branch = EXCLUDED.write_branch,
 			config_repo_id = NULL,
 			config_source_path = '',
 			config_source_commit_sha = '',
@@ -107,12 +110,12 @@ func (s *PGStore) CreateOrUpdateConfigRepository(ctx context.Context, input mode
 			updated_by = EXCLUDED.updated_by,
 			updated_at = NOW()
 		RETURNING
-			id, scope_type, scope_id, repo_url, branch, base_path, enabled,
+			id, scope_type, scope_id, repo_url, branch, base_path, enabled, write_enabled, write_branch,
 			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo,
 			last_sync_status, last_sync_message, last_sync_started_at, last_sync_completed_at,
 			last_sync_commit_sha, created_by, updated_by, created_at, updated_at
 	`
-	row := s.db.QueryRow(ctx, query, scopeType, scopeID, repoURL, branch, basePath, input.Enabled, actor)
+	row := s.db.QueryRow(ctx, query, scopeType, scopeID, repoURL, branch, basePath, input.Enabled, input.WriteEnabled, writeBranch, actor)
 	repo, err := scanConfigRepository(row)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -127,7 +130,7 @@ func (s *PGStore) CreateOrUpdateConfigRepository(ctx context.Context, input mode
 func (s *PGStore) GetConfigRepositoryByScope(ctx context.Context, scopeType, scopeID string) (models.ConfigRepository, error) {
 	const query = `
 		SELECT
-			id, scope_type, scope_id, repo_url, branch, base_path, enabled,
+			id, scope_type, scope_id, repo_url, branch, base_path, enabled, write_enabled, write_branch,
 			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo,
 			last_sync_status, last_sync_message, last_sync_started_at, last_sync_completed_at,
 			last_sync_commit_sha, created_by, updated_by, created_at, updated_at
@@ -208,7 +211,7 @@ func (s *PGStore) ListConfigRepositories(ctx context.Context, filter models.Conf
 
 	query := `
 		SELECT
-			id, scope_type, scope_id, repo_url, branch, base_path, enabled,
+			id, scope_type, scope_id, repo_url, branch, base_path, enabled, write_enabled, write_branch,
 			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo,
 			last_sync_status, last_sync_message, last_sync_started_at, last_sync_completed_at,
 			last_sync_commit_sha, created_by, updated_by, created_at, updated_at
@@ -274,6 +277,8 @@ func scanConfigRepository(row configRepositoryScanner) (models.ConfigRepository,
 		&repo.Branch,
 		&repo.BasePath,
 		&repo.Enabled,
+		&repo.WriteEnabled,
+		&repo.WriteBranch,
 		&configRepoID,
 		&repo.ConfigSourcePath,
 		&repo.ConfigSourceCommitSHA,

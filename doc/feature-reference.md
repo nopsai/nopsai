@@ -144,6 +144,7 @@ Git-aware features:
 - stale check cancellation
 - branch open-PR checks
 - repository access verification for config sync
+- config Git push commits to a configured review branch
 
 ## Configuration Sync
 
@@ -170,6 +171,7 @@ Sync behavior:
   master key; otherwise keep the secret key with no value
 - sync system/global config repositories before group config repositories, so group bindings defined in Git can be picked up during the same sync-all run
 - group config repositories are authoritative for resources under their group path; parent repos prune their own managed resources in delegated groups
+- config repository bindings can enable Git push to a review branch with `write_enabled` and `write_branch`
 - `config-repositories/groups/structure.yaml` and `config-repositories/groups/<group>/structure.yaml` can place repositories under group shells and include inline `config:` blocks for group repo bindings
 - global legacy `pipelineruns/structure.yaml` does not apply delegated group subtrees; those groups are created from `config-repositories/groups` and owned by their group repos
 

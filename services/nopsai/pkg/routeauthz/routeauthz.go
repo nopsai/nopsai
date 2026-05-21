@@ -53,6 +53,10 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 			return "system.read", model.ResourceRef{Type: "system", ID: "config-repos"}, false, nil
 		}
 		return "system.update", model.ResourceRef{Type: "system", ID: "config-repos"}, false, nil
+	case path == "/v1/system/config-repo/write":
+		return "system.update", model.ResourceRef{Type: "system", ID: "config-repos"}, false, nil
+	case path == "/v1/system/config-repo/drift":
+		return "system.read", model.ResourceRef{Type: "system", ID: "config-repos"}, false, nil
 	case path == "/v1/system/config-repos":
 		return "system.read", model.ResourceRef{Type: "system", ID: "config-repos"}, false, nil
 	case path == "/v1/system/config-repos/sync":
@@ -78,6 +82,10 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 			return "config_repo.read", resource, false, nil
 		}
 		return "config_repo.sync", resource, false, nil
+	case strings.HasPrefix(path, "/v1/groups/") && strings.HasSuffix(path, "/config-repo/write"):
+		return "config_repo.manage", model.ResourceRef{Type: "folder", ID: folderIDFromConfigRepoPath(path, "/config-repo/write")}, false, nil
+	case strings.HasPrefix(path, "/v1/groups/") && strings.HasSuffix(path, "/config-repo/drift"):
+		return "config_repo.read", model.ResourceRef{Type: "folder", ID: folderIDFromConfigRepoPath(path, "/config-repo/drift")}, false, nil
 	case strings.HasPrefix(path, "/v1/groups/") && strings.HasSuffix(path, "/config-repo"):
 		resource = model.ResourceRef{Type: "folder", ID: folderIDFromConfigRepoPath(path, "/config-repo")}
 		switch r.Method {

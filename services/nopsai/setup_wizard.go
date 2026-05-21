@@ -620,7 +620,7 @@ func (a *App) setupGitHubInfo() setupGitHubInfo {
 			"ping",
 		},
 		RequiredPermissions: map[string]string{
-			"contents":      "read",
+			"contents":      "read_and_write",
 			"metadata":      "read",
 			"pull_requests": "read",
 			"checks":        "read_and_write",
