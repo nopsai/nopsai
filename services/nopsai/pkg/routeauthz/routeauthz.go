@@ -156,6 +156,8 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		return "secret.list_metadata", model.ResourceRef{Type: "secret", ID: "*"}, true, nil
 	case path == "/v1/secrets/scopes" && r.Method == http.MethodGet:
 		return "secret.list_metadata", model.ResourceRef{Type: "secret", ID: "*"}, true, nil
+	case path == "/v1/secrets/encrypt" && r.Method == http.MethodPost:
+		return "", model.ResourceRef{}, false, nil
 	case strings.HasPrefix(path, "/v1/secrets/"):
 		resource = BuildSecretResource("", r.URL.Query().Get("scope"), pathValueOrSegment(r, "secretName", 2))
 		switch r.Method {

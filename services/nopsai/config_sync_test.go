@@ -564,6 +564,14 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 		{repo: "hosein-yousefii/test-app", scopePath: "data-team/dev", name: "TEST_SCOPE"}: {},
 		{repo: "hosein-yousefii/test-app", scopePath: "prod", name: "TEST_SCOPE"}:          {},
 	}
+	generalScopeSecrets := map[generalScopeSecretKey]storedScopeSecret{
+		{scopePath: "data-team/dev", name: "DEPLOY_TOKEN"}: {},
+		{scopePath: "prod", name: "DEPLOY_TOKEN"}:          {},
+	}
+	repoScopeSecrets := map[repoScopeSecretKey]storedScopeSecret{
+		{repo: "hosein-yousefii/test-app", scopePath: "data-team/dev", name: "DEPLOY_TOKEN"}: {},
+		{repo: "hosein-yousefii/test-app", scopePath: "prod", name: "DEPLOY_TOKEN"}:          {},
+	}
 
 	filterDelegatedConfigResources(
 		binding,
@@ -573,6 +581,8 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 		map[string]storedKnowledgeContext{},
 		generalScopeVars,
 		repoScopeVars,
+		generalScopeSecrets,
+		repoScopeSecrets,
 		map[string]storedTrigger{},
 	)
 
@@ -587,6 +597,18 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 	}
 	if _, ok := repoScopeVars[repoScopeVarKey{repo: "hosein-yousefii/test-app", scopePath: "prod", name: "TEST_SCOPE"}]; !ok {
 		t.Fatal("expected unrelated repository scope variable to remain")
+	}
+	if _, ok := generalScopeSecrets[generalScopeSecretKey{scopePath: "data-team/dev", name: "DEPLOY_TOKEN"}]; ok {
+		t.Fatal("expected delegated general scope secret to be filtered")
+	}
+	if _, ok := repoScopeSecrets[repoScopeSecretKey{repo: "hosein-yousefii/test-app", scopePath: "data-team/dev", name: "DEPLOY_TOKEN"}]; ok {
+		t.Fatal("expected delegated repository scope secret to be filtered by scope")
+	}
+	if _, ok := generalScopeSecrets[generalScopeSecretKey{scopePath: "prod", name: "DEPLOY_TOKEN"}]; !ok {
+		t.Fatal("expected unrelated general scope secret to remain")
+	}
+	if _, ok := repoScopeSecrets[repoScopeSecretKey{repo: "hosein-yousefii/test-app", scopePath: "prod", name: "DEPLOY_TOKEN"}]; !ok {
+		t.Fatal("expected unrelated repository scope secret to remain")
 	}
 }
 
@@ -607,25 +629,25 @@ variables:
 
 	generalScopeVars := map[generalScopeVarKey]storedScopeVar{}
 	repoScopeVars := map[repoScopeVarKey]storedScopeVar{}
-	for key, value := range raw {
-		if key == "access" {
-			continue
-		}
-		if key != "variables" {
-			t.Fatalf("unexpected key %q", key)
-		}
-		variables, ok := scopeVariablesSection(value)
-		if !ok {
-			t.Fatal("variables section was not recognized")
-		}
-		for variableKey, variableValue := range variables {
-			if err := addScopeVariableConfigEntry(generalScopeVars, repoScopeVars, "team-1/dev", variableKey, variableValue, "scopes/dev/scope.yaml", models.ConfigRepository{
-				ScopeType: models.ConfigRepositoryScopeSystem,
-				ScopeID:   models.ConfigRepositorySystemGlobalID,
-			}, ""); err != nil {
-				t.Fatalf("addScopeVariableConfigEntry() error = %v", err)
-			}
-		}
+	hasAccess, err := (&App{}).addScopeConfigEntries(
+		raw,
+		generalScopeVars,
+		repoScopeVars,
+		map[generalScopeSecretKey]storedScopeSecret{},
+		map[repoScopeSecretKey]storedScopeSecret{},
+		"team-1/dev",
+		"scopes/dev/scope.yaml",
+		models.ConfigRepository{
+			ScopeType: models.ConfigRepositoryScopeSystem,
+			ScopeID:   models.ConfigRepositorySystemGlobalID,
+		},
+		"",
+	)
+	if err != nil {
+		t.Fatalf("addScopeConfigEntries() error = %v", err)
+	}
+	if !hasAccess {
+		t.Fatal("addScopeConfigEntries() access = false, want true")
 	}
 
 	if got := generalScopeVars[generalScopeVarKey{scopePath: "team-1/dev", name: "API_VERSION"}].value; got != "2026.05" {
@@ -633,5 +655,86 @@ variables:
 	}
 	if got := repoScopeVars[repoScopeVarKey{repo: "hosein-yousefii/test-app", scopePath: "team-1/dev", name: "IMAGE_NAME"}].value; got != "ghcr.io/team-1/service-api:dev" {
 		t.Fatalf("repo IMAGE_NAME = %q", got)
+	}
+}
+
+func TestScopeConfigRejectsTopLevelVariables(t *testing.T) {
+	var raw map[string]any
+	if err := yaml.Unmarshal([]byte(`
+API_VERSION: "2026.05"
+variables:
+  DEPLOY_TARGET: "production"
+`), &raw); err != nil {
+		t.Fatalf("yaml.Unmarshal() error = %v", err)
+	}
+
+	_, err := (&App{}).addScopeConfigEntries(
+		raw,
+		map[generalScopeVarKey]storedScopeVar{},
+		map[repoScopeVarKey]storedScopeVar{},
+		map[generalScopeSecretKey]storedScopeSecret{},
+		map[repoScopeSecretKey]storedScopeSecret{},
+		"team-1/prod",
+		"scopes/prod/scope.yaml",
+		models.ConfigRepository{
+			ScopeType: models.ConfigRepositoryScopeSystem,
+			ScopeID:   models.ConfigRepositorySystemGlobalID,
+		},
+		"",
+	)
+	if err == nil {
+		t.Fatal("addScopeConfigEntries() error = nil, want unsupported top-level key error")
+	}
+	if !strings.Contains(err.Error(), "unsupported top-level key 'API_VERSION'") {
+		t.Fatalf("addScopeConfigEntries() error = %q, want unsupported top-level key", err)
+	}
+}
+
+func TestScopeSecretsSectionImportsEncryptedValuesAndNullPlaceholders(t *testing.T) {
+	app := &App{encKey: []byte("12345678901234567890123456789012")}
+	encrypted, err := app.encrypt("super-secret")
+	if err != nil {
+		t.Fatalf("encrypt() error = %v", err)
+	}
+
+	var raw map[string]any
+	if err := yaml.Unmarshal([]byte(`
+secrets:
+  API_TOKEN: "`+encrypted+`"
+  EMPTY_TOKEN:
+  BAD_TOKEN: "plain text"
+  hosein-yousefii/test-app/DEPLOY_TOKEN: "`+encrypted+`"
+`), &raw); err != nil {
+		t.Fatalf("yaml.Unmarshal() error = %v", err)
+	}
+
+	generalScopeSecrets := map[generalScopeSecretKey]storedScopeSecret{}
+	repoScopeSecrets := map[repoScopeSecretKey]storedScopeSecret{}
+	secrets, ok := scopeVariablesSection(raw["secrets"])
+	if !ok {
+		t.Fatal("secrets section was not recognized")
+	}
+	for secretKey, secretValue := range secrets {
+		if err := app.addScopeSecretConfigEntry(generalScopeSecrets, repoScopeSecrets, "team-1/dev", secretKey, secretValue, "scopes/dev/scope.yaml", models.ConfigRepository{
+			ScopeType: models.ConfigRepositoryScopeSystem,
+			ScopeID:   models.ConfigRepositorySystemGlobalID,
+		}, ""); err != nil {
+			t.Fatalf("addScopeSecretConfigEntry() error = %v", err)
+		}
+	}
+
+	apiToken := generalScopeSecrets[generalScopeSecretKey{scopePath: "team-1/dev", name: "API_TOKEN"}]
+	if apiToken.encryptedValue == nil || *apiToken.encryptedValue != encrypted {
+		t.Fatalf("API_TOKEN encrypted value = %#v, want %q", apiToken.encryptedValue, encrypted)
+	}
+	if got := generalScopeSecrets[generalScopeSecretKey{scopePath: "team-1/dev", name: "EMPTY_TOKEN"}].encryptedValue; got != nil {
+		t.Fatalf("EMPTY_TOKEN encrypted value = %#v, want nil", got)
+	}
+	if got := generalScopeSecrets[generalScopeSecretKey{scopePath: "team-1/dev", name: "BAD_TOKEN"}].encryptedValue; got != nil {
+		t.Fatalf("BAD_TOKEN encrypted value = %#v, want nil for invalid encrypted data", got)
+	}
+	repoToken := repoScopeSecrets[repoScopeSecretKey{repo: "hosein-yousefii/test-app", scopePath: "team-1/dev", name: "DEPLOY_TOKEN"}]
+	if repoToken.encryptedValue == nil || *repoToken.encryptedValue != encrypted {
+		t.Fatalf("repo DEPLOY_TOKEN encrypted value = %#v, want %q", repoToken.encryptedValue, encrypted)
 	}
 }
