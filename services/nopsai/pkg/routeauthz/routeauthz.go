@@ -59,6 +59,11 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		return "system.update", model.ResourceRef{Type: "system", ID: "config-repos"}, false, nil
 	case path == "/v1/internal/config/sync":
 		return "system.update", model.ResourceRef{Type: "system", ID: "config-sync"}, false, nil
+	case strings.HasPrefix(path, "/v1/setup/"):
+		if r.Method == http.MethodGet {
+			return "system.read", model.ResourceRef{Type: "system", ID: "config"}, false, nil
+		}
+		return "system.update", model.ResourceRef{Type: "system", ID: "config"}, false, nil
 	case path == "/v1/system/dispatcher":
 		return "system.read", model.ResourceRef{Type: "dispatcher", ID: "status"}, false, nil
 	case strings.HasPrefix(path, "/v1/system/dispatcher/runners/"):

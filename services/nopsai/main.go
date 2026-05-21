@@ -461,7 +461,7 @@ const (
 
 func isPublicPath(path string) bool {
 	switch path {
-	case "/v1/auth/login", "/v1/auth/refresh", "/v1/auth/logout", "/v1/git/events":
+	case "/v1/auth/login", "/v1/auth/refresh", "/v1/auth/logout", "/v1/git/events", "/v1/setup/preflight":
 		return true
 	default:
 		return false
@@ -3988,11 +3988,6 @@ func main() {
 		log.Fatal().Err(err).Msgf("Failed to load config from %s", configPath)
 	}
 
-	if cfg.MasterKey == "" {
-		log.Fatal().Msg("NOPSAI_MASTER_KEY OS variable is not set. This is required for secret encryption.")
-	}
-	key := sha256.Sum256([]byte(cfg.MasterKey))
-
 	if cfg.JWTExpiryMinutes == 0 {
 		cfg.JWTExpiryMinutes = 60
 	}
@@ -4034,22 +4029,22 @@ func main() {
 		cfg.NopsaiListenAddress = "0.0.0.0:8080"
 	}
 
-	var dbpool *pgxpool.Pool
-	for i := 0; i < 5; i++ {
-		dbpool, err = pgxpool.New(context.Background(), cfg.DatabaseURL)
-		if err == nil {
-			if err = dbpool.Ping(context.Background()); err == nil {
-				log.Info().Msg("Successfully connected to the database.")
-				break
-			}
-		}
-		log.Warn().Err(err).Msgf("Unable to connect to database. Retrying in 3 seconds...")
-		time.Sleep(3 * time.Second)
+	hardConfigMissing := strings.TrimSpace(cfg.MasterKey) == "" || strings.TrimSpace(cfg.JWTSigningKey) == ""
+	dbAttempts := 5
+	if hardConfigMissing {
+		dbAttempts = 1
 	}
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to connect to database after multiple retries")
+	dbpool, dbErr := connectDatabaseWithRetries(context.Background(), cfg.DatabaseURL, dbAttempts, 3*time.Second)
+	if hardConfigMissing || dbErr != nil {
+		runSetupPreflightOnlyServer(cfg, configPath, envFilePath, dbpool, dbErr)
+		if dbpool != nil {
+			dbpool.Close()
+		}
+		return
 	}
 	defer dbpool.Close()
+
+	key := sha256.Sum256([]byte(cfg.MasterKey))
 
 	if err := ensureDefaultAdmin(context.Background(), dbpool); err != nil {
 		log.Fatal().Err(err).Msg("Failed to ensure default admin")
@@ -4074,6 +4069,9 @@ func main() {
 	}
 	if err := ensureMCPSchema(context.Background(), dbpool); err != nil {
 		log.Fatal().Err(err).Msg("Failed to ensure MCP schema")
+	}
+	if err := ensureSetupSchema(context.Background(), dbpool); err != nil {
+		log.Fatal().Err(err).Msg("Failed to ensure setup schema")
 	}
 
 	dispatcherAddr := strings.TrimSpace(cfg.DispatcherAddress)
