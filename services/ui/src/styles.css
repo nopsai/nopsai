@@ -4838,6 +4838,7 @@ html.dark .pipelines-modal-card::after {
 #knowledge-context-delete-modal.show,
 #knowledge-context-clone-modal.show,
 #resource-access-modal.show,
+#gitops-secret-encrypt-modal.show,
 #secret-edit-modal.show,
 #secret-delete-modal.show {
     opacity: 1;
@@ -4853,6 +4854,7 @@ html.dark .pipelines-modal-card::after {
 #knowledge-context-delete-modal.show .pipelines-modal-card,
 #knowledge-context-clone-modal.show .pipelines-modal-card,
 #resource-access-modal.show .pipelines-modal-card,
+#gitops-secret-encrypt-modal.show .pipelines-modal-card,
 #secret-edit-modal.show .pipelines-modal-card,
 #secret-delete-modal.show .pipelines-modal-card {
     transform: translateY(0) scale(1);

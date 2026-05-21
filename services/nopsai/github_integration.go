@@ -854,13 +854,13 @@ func (a *App) notifyGitBotOfTaskStatus(runID, stepName, taskName, taskStatus str
 }
 
 func (a *App) findEncryptedSecret(secretName, repoFullName, scope string) (string, string, bool, error) {
-	var encryptedValue string
+	var encryptedValue sql.NullString
 	storageScope := runtimeScopeForStorage(scope)
 	resourceScope := runtimeScopeForResource(storageScope)
 
 	err := a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name = $2 AND "+runtimeScopeEqualsSQL("scope", 3, storageScope)+" LIMIT 1", secretName, repoFullName, storageScope).Scan(&encryptedValue)
 	if err == nil {
-		return encryptedValue, model.BuildNamedResourceID(repoFullName, resourceScope, secretName), true, nil
+		return encryptedValue.String, model.BuildNamedResourceID(repoFullName, resourceScope, secretName), true, nil
 	}
 	if err != pgx.ErrNoRows {
 		return "", "", false, err
@@ -868,7 +868,7 @@ func (a *App) findEncryptedSecret(secretName, repoFullName, scope string) (strin
 
 	err = a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL AND "+runtimeScopeEqualsSQL("scope", 2, storageScope)+" LIMIT 1", secretName, storageScope).Scan(&encryptedValue)
 	if err == nil {
-		return encryptedValue, model.BuildNamedResourceID("", resourceScope, secretName), true, nil
+		return encryptedValue.String, model.BuildNamedResourceID("", resourceScope, secretName), true, nil
 	}
 	if err == pgx.ErrNoRows {
 		return "", "", false, nil

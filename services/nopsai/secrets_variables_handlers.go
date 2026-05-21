@@ -5,6 +5,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -64,6 +65,31 @@ func (a *App) decrypt(text string) (string, error) {
 		return "", err
 	}
 	return string(plaintext), nil
+}
+
+func (a *App) handleEncryptSecretForGitOps(w http.ResponseWriter, r *http.Request) {
+	var req SecretRequest
+	if err := httpapi.DecodeJSON(r, &req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	encryptedValue, err := a.encrypt(req.Value)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to encrypt GitOps secret value")
+		http.Error(w, "Failed to encrypt secret", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	if err := json.NewEncoder(w).Encode(map[string]string{
+		"encrypted_value": encryptedValue,
+		"algorithm":       "aes-256-gcm",
+		"encoding":        "hex",
+	}); err != nil {
+		log.Warn().Err(err).Msg("Failed to encode GitOps secret encryption response")
+	}
 }
 
 func (a *App) handleListGeneralVariables(w http.ResponseWriter, r *http.Request) {
@@ -591,6 +617,7 @@ func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
 	type secretCandidate struct {
 		repoName  string
 		name      string
+		source    string
 		createdAt time.Time
 		updatedAt time.Time
 		resource  model.ResourceRef
@@ -601,7 +628,7 @@ func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
 	condition := runtimeScopeEqualsSQL("scope", 1, scope)
 	args := []interface{}{scope}
 
-	generalQuery := fmt.Sprintf("SELECT name, created_at, updated_at FROM secrets WHERE repository_name IS NULL AND %s ORDER BY name ASC", condition)
+	generalQuery := fmt.Sprintf("SELECT name, COALESCE(source, 'database'), created_at, updated_at FROM secrets WHERE repository_name IS NULL AND %s ORDER BY name ASC", condition)
 	rows, err := a.db.Query(ctx, generalQuery, args...)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query general secrets from database")
@@ -609,9 +636,9 @@ func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for rows.Next() {
-		var name string
+		var name, source string
 		var createdAt, updatedAt time.Time
-		if scanErr := rows.Scan(&name, &createdAt, &updatedAt); scanErr != nil {
+		if scanErr := rows.Scan(&name, &source, &createdAt, &updatedAt); scanErr != nil {
 			rows.Close()
 			log.Error().Err(scanErr).Msg("Failed to scan secret name")
 			http.Error(w, "Failed to process secrets", http.StatusInternalServerError)
@@ -619,6 +646,7 @@ func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
 		}
 		candidates = append(candidates, secretCandidate{
 			name:      name,
+			source:    source,
 			createdAt: createdAt,
 			updatedAt: updatedAt,
 			resource:  routeauthz.BuildSecretResource("", resourceScope, name),
@@ -628,7 +656,7 @@ func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
 
 	repoCondition := runtimeScopeEqualsSQL("scope", 1, scope)
 	repoArgs := []interface{}{scope}
-	repoQuery := fmt.Sprintf("SELECT repository_name, name, created_at, updated_at FROM secrets WHERE repository_name IS NOT NULL AND %s ORDER BY repository_name ASC, name ASC", repoCondition)
+	repoQuery := fmt.Sprintf("SELECT repository_name, name, COALESCE(source, 'database'), created_at, updated_at FROM secrets WHERE repository_name IS NOT NULL AND %s ORDER BY repository_name ASC, name ASC", repoCondition)
 	rows, err = a.db.Query(ctx, repoQuery, repoArgs...)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query repository secrets from database")
@@ -636,9 +664,9 @@ func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for rows.Next() {
-		var repoName, secretName string
+		var repoName, secretName, source string
 		var createdAt, updatedAt time.Time
-		if scanErr := rows.Scan(&repoName, &secretName, &createdAt, &updatedAt); scanErr != nil {
+		if scanErr := rows.Scan(&repoName, &secretName, &source, &createdAt, &updatedAt); scanErr != nil {
 			rows.Close()
 			log.Error().Err(scanErr).Msg("Failed to scan repository secret")
 			http.Error(w, "Failed to process secrets", http.StatusInternalServerError)
@@ -652,6 +680,7 @@ func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
 		candidates = append(candidates, secretCandidate{
 			repoName:  repo,
 			name:      secretName,
+			source:    source,
 			createdAt: createdAt,
 			updatedAt: updatedAt,
 			resource:  routeauthz.BuildSecretResource(repo, resourceScope, secretName),
@@ -669,7 +698,6 @@ func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	const defaultSecretSource = "database"
 	nameSet := make(map[string]struct{})
 	var names []string
 	var items []secretListItem
@@ -691,7 +719,7 @@ func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
 		if includeSource {
 			items = append(items, secretListItem{
 				Name:      displayName,
-				Source:    defaultSecretSource,
+				Source:    normalizeVariableSourceKey(candidate.source),
 				CreatedAt: candidate.createdAt.Format(time.RFC3339),
 				UpdatedAt: candidate.updatedAt.Format(time.RFC3339),
 			})
@@ -699,6 +727,10 @@ func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
 			names = append(names, displayName)
 		}
 	}
+
+	sort.Slice(items, func(i, j int) bool {
+		return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
+	})
 
 	if includeSource {
 		w.Header().Set("Content-Type", "application/json")
@@ -824,7 +856,7 @@ func (a *App) handleGetGeneralSecretValue(w http.ResponseWriter, r *http.Request
 	query = "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL AND " + runtimeScopeEqualsSQL("scope", 2, scope) + " LIMIT 1"
 	args = []any{secretName, scope}
 
-	var encryptedValue string
+	var encryptedValue sql.NullString
 	err := a.db.QueryRow(context.Background(), query, args...).Scan(&encryptedValue)
 	if err == pgx.ErrNoRows {
 		http.Error(w, "Secret not found", http.StatusNotFound)
@@ -835,8 +867,12 @@ func (a *App) handleGetGeneralSecretValue(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Failed to fetch secret", http.StatusInternalServerError)
 		return
 	}
+	if !encryptedValue.Valid || strings.TrimSpace(encryptedValue.String) == "" {
+		http.Error(w, "Secret value is not set", http.StatusConflict)
+		return
+	}
 
-	value, err := a.decrypt(encryptedValue)
+	value, err := a.decrypt(encryptedValue.String)
 	if err != nil {
 		log.Error().Err(err).Str("secret", secretName).Msg("Failed to decrypt secret value")
 		http.Error(w, "Failed to decrypt secret", http.StatusInternalServerError)
@@ -863,8 +899,8 @@ func (a *App) handleCreateOrUpdateGeneralSecret(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	query := `INSERT INTO secrets (name, value, repository_name, scope, updated_at) VALUES ($1, $2, NULL, $3, NOW())
-			  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
+	query := `INSERT INTO secrets (name, value, repository_name, scope, source, updated_at) VALUES ($1, $2, NULL, $3, 'database', NOW())
+			  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, source = 'database', updated_at = NOW()`
 	_, err = a.db.Exec(context.Background(), query, secretName, encryptedValue, scope)
 
 	if err != nil {
@@ -954,8 +990,8 @@ func (a *App) handleCreateOrUpdateRepoSecret(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	query := `INSERT INTO secrets (name, value, repository_name, scope, updated_at) VALUES ($1, $2, $3, $4, NOW())
-			  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
+	query := `INSERT INTO secrets (name, value, repository_name, scope, source, updated_at) VALUES ($1, $2, $3, $4, 'database', NOW())
+			  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, source = 'database', updated_at = NOW()`
 	_, err = a.db.Exec(context.Background(), query, secretName, encryptedValue, fullName, scope)
 
 	if err != nil {

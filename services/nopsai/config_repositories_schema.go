@@ -52,6 +52,8 @@ var configRepositorySchemaStatements = []string{
 	`ALTER TABLE variables ADD COLUMN IF NOT EXISTS config_source_path TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE variables ADD COLUMN IF NOT EXISTS config_source_commit_sha TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE variables ADD COLUMN IF NOT EXISTS managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE`,
+	`ALTER TABLE secrets ADD COLUMN IF NOT EXISTS source VARCHAR(32) NOT NULL DEFAULT 'database'`,
+	`ALTER TABLE secrets ALTER COLUMN value DROP NOT NULL`,
 	`ALTER TABLE secrets ADD COLUMN IF NOT EXISTS config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL`,
 	`ALTER TABLE secrets ADD COLUMN IF NOT EXISTS config_source_path TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE secrets ADD COLUMN IF NOT EXISTS config_source_commit_sha TEXT NOT NULL DEFAULT ''`,
