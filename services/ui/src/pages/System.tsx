@@ -1,6 +1,6 @@
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type Dispatch, type FormEvent, type ReactNode, type SetStateAction } from 'react';
-import { Edit3, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
+import { Copy, Edit3, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import { buildApiUrl } from '../lib/api';
 import SetupWizard from './Setup';
 
@@ -70,6 +70,20 @@ type RunnerMeta = {
   activeRuns: RunnerActiveRun[];
 };
 
+type RunnerComposeTemplate = {
+  runnerId: string;
+  runnerScopes: string;
+  runnerCapacity: number;
+  dispatcherAddress: string;
+  networkMode: string;
+  runnerImage: string;
+  compose: string;
+  command: string;
+  bootstrapCommand: string;
+  expiresAt: string;
+  warnings: string[];
+};
+
 const initialConfig: ConfigFormState = {
   agent_image: '',
   docker_network_name: '',
@@ -91,6 +105,9 @@ const emptyConfigRepositoryForm: ConfigRepositoryFormState = {
 const POLL_INTERVAL_MS = 5000;
 const STALE_THRESHOLD_MS = 30_000;
 const MAX_VISIBLE_ACTIVE_RUNS = 3;
+const RUNNER_DEPLOYMENT_GUIDE_QUERY = 'guide';
+const RUNNER_DEPLOYMENT_GUIDE_VALUE = 'runner';
+const RUNNER_DEPLOYMENT_GUIDE_ID = 'dispatcher-runner-deployment-guide';
 const POLICY_TEMPLATE_ROLE = '__policy_template__';
 const DEFAULT_ADMIN_ROLE = 'nopsai-admin';
 const DEFAULT_ADMIN_POLICY_OBJ = '*:*';
@@ -102,6 +119,12 @@ const BASIC_ROLE_OWNER = 'owner';
 const BASIC_ROLE_ADMIN = 'admin';
 const PROTECTED_ACCESS_ROLES = new Set([DEFAULT_ADMIN_ROLE, BASIC_ROLE_VIEWER, BASIC_ROLE_DEVELOPER, BASIC_ROLE_OWNER, BASIC_ROLE_ADMIN]);
 const ACCESS_UI_BUILD_ID = 'access-protected-default-roles-2026-05-11';
+
+function scrollRunnerDeploymentGuide() {
+  window.setTimeout(() => {
+    document.getElementById(RUNNER_DEPLOYMENT_GUIDE_ID)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 0);
+}
 
 type UserRole = {
   role: string;
@@ -191,6 +214,7 @@ type SystemPagePermissions = {
 function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
   const params = useParams<{ tab?: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const activeTab =
     params.tab === 'setup'
       ? 'setup'
@@ -1181,6 +1205,13 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
       void loadDispatcherStatus();
     }
   }, [loadDispatcherStatus, permissions.canViewDispatcher, visibleTab]);
+
+  useEffect(() => {
+    if (visibleTab !== 'dispatcher') return;
+    const search = new URLSearchParams(location.search);
+    if (search.get(RUNNER_DEPLOYMENT_GUIDE_QUERY) !== RUNNER_DEPLOYMENT_GUIDE_VALUE) return;
+    scrollRunnerDeploymentGuide();
+  }, [location.search, visibleTab]);
 
   useEffect(() => {
     if (permissions.canViewAccess && visibleTab === 'access') {
@@ -5856,6 +5887,21 @@ function DispatcherPanel({
         <StatCard label="Active" value={activeSum} id="dispatcher-active-count" />
       </div>
 
+      <div className="flex flex-col gap-3 rounded-xl border border-[var(--border-primary)] bg-[var(--bg-tertiary)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-[var(--text-primary)]">Need another runner?</p>
+          <p className="mt-1 text-sm text-[var(--text-secondary)]">Open the deployment guide for Docker runners and the Kubernetes status.</p>
+        </div>
+        <Link
+          to={`/system/dispatcher?${RUNNER_DEPLOYMENT_GUIDE_QUERY}=${RUNNER_DEPLOYMENT_GUIDE_VALUE}`}
+          className="glass-button-primary self-start whitespace-nowrap sm:self-center"
+          onClick={scrollRunnerDeploymentGuide}
+        >
+          <Plus className="h-4 w-4" />
+          New runner guide
+        </Link>
+      </div>
+
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold">Runners</h3>
@@ -5896,7 +5942,197 @@ function DispatcherPanel({
         </div>
         <RoutingMap routing={status?.routing ?? {}} />
       </div>
+
+      <RunnerDeploymentGuide canManageDispatcher={canManageDispatcher} />
     </div>
+  );
+}
+
+function RunnerDeploymentGuide({ canManageDispatcher }: { canManageDispatcher: boolean }) {
+  const [runnerId, setRunnerId] = useState('runner-prod-1');
+  const [runnerScopes, setRunnerScopes] = useState('prod');
+  const [runnerCapacity, setRunnerCapacity] = useState('2');
+  const [runnerNetworkMode, setRunnerNetworkMode] = useState('host');
+  const [runnerImage, setRunnerImage] = useState('hoseindocker/nopsai-runner:latest');
+  const [template, setTemplate] = useState<RunnerComposeTemplate | null>(null);
+  const [loadingTemplate, setLoadingTemplate] = useState(false);
+  const [templateError, setTemplateError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const loadTemplate = useCallback(async () => {
+    if (!canManageDispatcher) return;
+    const capacity = Number.parseInt(runnerCapacity, 10);
+    if (!Number.isFinite(capacity) || capacity <= 0) {
+      setTemplateError('Capacity must be a positive number.');
+      return;
+    }
+    const params = new URLSearchParams({
+      runner_id: runnerId.trim() || 'runner-prod-1',
+      runner_scopes: runnerScopes.trim(),
+      runner_capacity: String(capacity),
+      runner_network_mode: runnerNetworkMode,
+      runner_image: runnerImage.trim() || 'hoseindocker/nopsai-runner:latest',
+    });
+    setLoadingTemplate(true);
+    setTemplateError(null);
+    try {
+      const response = await fetch(buildApiUrl(`/v1/system/dispatcher/runner-bootstrap-command?${params.toString()}`), { cache: 'no-store' });
+      if (!response.ok) throw new Error(await response.text() || `Unable to generate runner install command (${response.status})`);
+      setTemplate(normalizeRunnerComposeTemplate(await response.json()));
+    } catch (error) {
+      setTemplate(null);
+      setTemplateError(error instanceof Error ? error.message : 'Unable to generate runner install command.');
+    } finally {
+      setLoadingTemplate(false);
+    }
+  }, [canManageDispatcher, runnerCapacity, runnerId, runnerImage, runnerNetworkMode, runnerScopes]);
+
+  const handleCopyTemplate = async () => {
+    if (!template?.bootstrapCommand) return;
+    try {
+      await navigator.clipboard.writeText(template.bootstrapCommand);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch (error) {
+      console.error('Failed to copy runner install command', error);
+      setTemplateError('Unable to copy runner install command.');
+    }
+  };
+
+  return (
+    <section id={RUNNER_DEPLOYMENT_GUIDE_ID} className="scroll-mt-6 space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="text-lg font-semibold">Runner Deployment Guide</h3>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-[var(--text-secondary)]">
+            Use this when the dispatcher needs more capacity, a scoped runner, or a runner on a host with specific tools.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <span className="runner-pill runner-pill--ok">Docker ready</span>
+          <span className="runner-pill runner-pill--muted">K8s under construction</span>
+        </div>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.8fr)]">
+        <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-tertiary)] p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h4 className="text-sm font-semibold">Docker runner</h4>
+            <span className="runner-pill runner-pill--ok">Available</span>
+          </div>
+          <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm leading-6 text-[var(--text-secondary)]">
+            <li>Add a runner service with a unique `RUNNER_ID`.</li>
+            <li>Set `RUNNER_SCOPES` for the work it may receive, or leave it empty for all scopes.</li>
+            <li>Set `RUNNER_CAPACITY` to the number of concurrent jobs this host can run.</li>
+            <li>Generate a one-time install command so dispatcher address, service JWT, and TLS secrets match this live setup.</li>
+            <li>Mount `/var/run/docker.sock` so the runner can start agent and step containers.</li>
+            <li>Start the service, then refresh this dispatcher page to confirm the runner registered.</li>
+          </ol>
+          {canManageDispatcher ? (
+            <div className="mt-5 space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-12">
+                <label className="space-y-1.5 text-sm xl:col-span-4">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Runner name</span>
+                  <input className="pipelines-input w-full" value={runnerId} onChange={event => setRunnerId(event.target.value)} />
+                </label>
+                <label className="space-y-1.5 text-sm xl:col-span-3">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Scopes</span>
+                  <input className="pipelines-input w-full" value={runnerScopes} onChange={event => setRunnerScopes(event.target.value)} placeholder="empty for all scopes" />
+                </label>
+                <label className="space-y-1.5 text-sm xl:col-span-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Capacity</span>
+                  <input className="pipelines-input w-full" type="number" min="1" value={runnerCapacity} onChange={event => setRunnerCapacity(event.target.value)} />
+                </label>
+                <div className="space-y-1.5 text-sm xl:col-span-3">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Network mode</span>
+                  <div className="grid h-[46px] grid-cols-2 rounded-[18px] border border-[var(--border-primary)] bg-[var(--bg-primary)] p-1">
+                    {(['host', 'bridge'] as const).map(mode => (
+                      <button
+                        key={mode}
+                        type="button"
+                        className={`rounded-[14px] px-3 text-sm font-semibold transition-colors ${
+                          runnerNetworkMode === mode
+                            ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)] shadow-sm'
+                            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                        }`}
+                        aria-pressed={runnerNetworkMode === mode}
+                        onClick={() => setRunnerNetworkMode(mode)}
+                      >
+                        {mode === 'host' ? 'Host' : 'Bridge'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <label className="space-y-1.5 text-sm sm:col-span-2 xl:col-span-12">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Runner image</span>
+                  <input className="pipelines-input w-full font-mono text-xs sm:text-sm" value={runnerImage} onChange={event => setRunnerImage(event.target.value)} />
+                </label>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                <button type="button" className="glass-button-subtle" onClick={() => void loadTemplate()} disabled={loadingTemplate}>
+                  <RefreshCw className={`h-4 w-4 ${loadingTemplate ? 'animate-spin' : ''}`} />
+                  {loadingTemplate ? 'Generating…' : template ? 'Regenerate one-time command' : 'Generate one-time command'}
+                </button>
+                <button type="button" className="glass-button-primary" onClick={() => void handleCopyTemplate()} disabled={!template?.bootstrapCommand || loadingTemplate}>
+                  <Copy className="h-4 w-4" />
+                  {copied ? 'Copied' : 'Copy install command'}
+                </button>
+              </div>
+              {templateError && <p className="text-sm text-red-500">{templateError}</p>}
+              {(template?.dispatcherAddress || template?.expiresAt || template?.networkMode || template?.runnerImage) && (
+                <div className="grid gap-x-4 gap-y-1 text-xs leading-5 text-[var(--text-secondary)] sm:grid-cols-2">
+                  {template?.dispatcherAddress && (
+                    <p>
+                      Dispatcher: <span className="font-mono text-[var(--text-primary)]">{template.dispatcherAddress}</span>
+                    </p>
+                  )}
+                  {template?.networkMode && (
+                    <p>
+                      Network: <span className="font-mono text-[var(--text-primary)]">{template.networkMode}</span>
+                    </p>
+                  )}
+                  {template?.expiresAt && (
+                    <p>
+                      Token expires: <span className="font-mono text-[var(--text-primary)]">{formatTimestamp(template.expiresAt)}</span>
+                    </p>
+                  )}
+                  {template?.runnerImage && (
+                    <p className="min-w-0 truncate" title={template.runnerImage}>
+                      Image: <span className="font-mono text-[var(--text-primary)]">{template.runnerImage}</span>
+                    </p>
+                  )}
+                </div>
+              )}
+              <pre className="max-h-96 overflow-auto rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-3 text-xs leading-5 text-[var(--text-primary)]">
+                <code>{template?.bootstrapCommand || 'Generate a one-time install command, then run it on the Docker host.'}</code>
+              </pre>
+              {template?.warnings.map(warning => (
+                <div key={warning} className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-5 text-amber-700 dark:text-amber-300">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-4 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-3 text-sm leading-6 text-[var(--text-secondary)]">
+              Dispatcher management access is required to generate a one-time runner install command.
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-tertiary)] p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h4 className="text-sm font-semibold">Kubernetes runner</h4>
+            <span className="runner-pill runner-pill--muted">Under construction</span>
+          </div>
+          <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">
+            Kubernetes support is not ready to deploy from this UI yet. The expected path is a runner Deployment with NopsAI service secrets, `DISPATCHER_ADDRESS`, `RUNNER_ID`, `RUNNER_SCOPES`, and `RUNNER_CAPACITY`, plus a container runtime strategy for agent and step execution.
+          </p>
+          <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm leading-6 text-amber-700 dark:text-amber-300">
+            Keep using Docker runners for active workloads until the Kubernetes manifests and runtime wiring are completed.
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -6251,6 +6487,23 @@ function normalizeDispatcherStatus(value: unknown): { queuedJobs: number; runner
     queuedJobs: record ? normalizeNumber(record.queued_jobs ?? record.queuedJobs) : 0,
     runners: runnersRaw.map(normalizeRunner).filter(runner => runner.runnerId),
     routing: normalizeRouting(routingRaw),
+  };
+}
+
+function normalizeRunnerComposeTemplate(value: unknown): RunnerComposeTemplate {
+  const record = asRecord(value) || {};
+  return {
+    runnerId: readString(record.runner_id ?? record.runnerId),
+    runnerScopes: readString(record.runner_scopes ?? record.runnerScopes),
+    runnerCapacity: normalizeNumber(record.runner_capacity ?? record.runnerCapacity),
+    dispatcherAddress: readString(record.dispatcher_address ?? record.dispatcherAddress),
+    networkMode: readString(record.network_mode ?? record.networkMode),
+    runnerImage: readString(record.runner_image ?? record.runnerImage),
+    compose: readString(record.compose),
+    command: readString(record.command),
+    bootstrapCommand: readString(record.bootstrap_command ?? record.bootstrapCommand),
+    expiresAt: readString(record.expires_at ?? record.expiresAt),
+    warnings: normalizeStringArray(record.warnings),
   };
 }
 

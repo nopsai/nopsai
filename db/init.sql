@@ -172,9 +172,10 @@ CREATE TABLE knowledge_contexts (
 CREATE TABLE secrets (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
-    value TEXT NOT NULL,
+    value TEXT,
     scope VARCHAR(255) NOT NULL DEFAULT 'default' CONSTRAINT secrets_scope_not_empty CHECK (BTRIM(scope) <> ''),
     repository_name VARCHAR(255),
+    source VARCHAR(32) NOT NULL DEFAULT 'database',
     config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
     config_source_path TEXT NOT NULL DEFAULT '',
     config_source_commit_sha TEXT NOT NULL DEFAULT '',

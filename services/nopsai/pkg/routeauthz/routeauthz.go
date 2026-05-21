@@ -66,6 +66,10 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		return "system.update", model.ResourceRef{Type: "system", ID: "config"}, false, nil
 	case path == "/v1/system/dispatcher":
 		return "system.read", model.ResourceRef{Type: "dispatcher", ID: "status"}, false, nil
+	case path == "/v1/system/dispatcher/runner-compose":
+		return "system.update", model.ResourceRef{Type: "dispatcher", ID: "runners"}, false, nil
+	case path == "/v1/system/dispatcher/runner-bootstrap-command":
+		return "system.update", model.ResourceRef{Type: "dispatcher", ID: "runners"}, false, nil
 	case strings.HasPrefix(path, "/v1/system/dispatcher/runners/"):
 		return "system.update", model.ResourceRef{Type: "dispatcher", ID: "runners"}, false, nil
 	case strings.HasPrefix(path, "/v1/groups/") && strings.HasSuffix(path, "/config-repo/sync"):
@@ -152,6 +156,8 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		return "secret.list_metadata", model.ResourceRef{Type: "secret", ID: "*"}, true, nil
 	case path == "/v1/secrets/scopes" && r.Method == http.MethodGet:
 		return "secret.list_metadata", model.ResourceRef{Type: "secret", ID: "*"}, true, nil
+	case path == "/v1/secrets/encrypt" && r.Method == http.MethodPost:
+		return "", model.ResourceRef{}, false, nil
 	case strings.HasPrefix(path, "/v1/secrets/"):
 		resource = BuildSecretResource("", r.URL.Query().Get("scope"), pathValueOrSegment(r, "secretName", 2))
 		switch r.Method {

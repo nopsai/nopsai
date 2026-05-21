@@ -1,4 +1,5 @@
-FROM hoseindocker/nopsai-base:latest AS base
+ARG BASE_IMAGE=hoseindocker/nopsai-base:latest
+FROM ${BASE_IMAGE} AS base
 FROM alpine:latest
 
 WORKDIR /app

@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	crand "crypto/rand"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -87,6 +89,9 @@ type App struct {
 	authz         *authz.Enforcer
 	auditLogger   *audit.Logger
 	tokenActivity sync.Map
+
+	runnerBootstrapMu     sync.Mutex
+	runnerBootstrapTokens map[string]runnerBootstrapToken
 }
 
 type LogLine = models.LogLine
@@ -461,7 +466,7 @@ const (
 
 func isPublicPath(path string) bool {
 	switch path {
-	case "/v1/auth/login", "/v1/auth/refresh", "/v1/auth/logout", "/v1/git/events", "/v1/setup/preflight":
+	case "/v1/auth/login", "/v1/auth/refresh", "/v1/auth/logout", "/v1/git/events", "/v1/setup/preflight", "/v1/system/dispatcher/runner-bootstrap":
 		return true
 	default:
 		return false
@@ -757,6 +762,60 @@ type systemConfigPayload struct {
 	LLMAgentTimeout           *string `json:"llm_agent_timeout"`
 }
 
+type runnerComposeResponse struct {
+	RunnerID          string   `json:"runner_id"`
+	RunnerScopes      string   `json:"runner_scopes"`
+	RunnerCapacity    int      `json:"runner_capacity"`
+	DispatcherAddress string   `json:"dispatcher_address"`
+	NetworkMode       string   `json:"network_mode"`
+	RunnerImage       string   `json:"runner_image"`
+	Compose           string   `json:"compose"`
+	Command           string   `json:"command"`
+	Warnings          []string `json:"warnings,omitempty"`
+}
+
+type runnerBootstrapCommandResponse struct {
+	RunnerID          string    `json:"runner_id"`
+	RunnerScopes      string    `json:"runner_scopes"`
+	RunnerCapacity    int       `json:"runner_capacity"`
+	DispatcherAddress string    `json:"dispatcher_address"`
+	NetworkMode       string    `json:"network_mode"`
+	RunnerImage       string    `json:"runner_image"`
+	BootstrapCommand  string    `json:"bootstrap_command"`
+	ExpiresAt         time.Time `json:"expires_at"`
+	Warnings          []string  `json:"warnings,omitempty"`
+}
+
+type runnerBootstrapToken struct {
+	Script    string
+	ExpiresAt time.Time
+}
+
+type runnerInstallEnv struct {
+	key   string
+	value string
+}
+
+type runnerInstallSpec struct {
+	RunnerID          string
+	RunnerScopes      string
+	RunnerCapacity    int
+	DispatcherAddress string
+	ServiceName       string
+	DockerNetwork     string
+	NetworkMode       string
+	RunnerImage       string
+	IncludeNetwork    bool
+	Env               []runnerInstallEnv
+	Warnings          []string
+}
+
+const (
+	runnerNetworkModeBridge = "bridge"
+	runnerNetworkModeHost   = "host"
+	defaultRunnerImage      = "hoseindocker/nopsai-runner:latest"
+)
+
 func (a *App) buildSystemConfigResponse(cfg config.Config) map[string]interface{} {
 	return map[string]interface{}{
 		"agent_nopsai_api_url":         cfg.AgentNopsaiAPIURL,
@@ -769,6 +828,463 @@ func (a *App) buildSystemConfigResponse(cfg config.Config) map[string]interface{
 		"llm_agent_timeout":            cfg.LLMAgentTimeout,
 		"env_file_path":                a.envFilePath,
 	}
+}
+
+func buildRunnerInstallSpec(cfg config.Config, r *http.Request) (runnerInstallSpec, error) {
+	query := r.URL.Query()
+	runnerID := strings.TrimSpace(query.Get("runner_id"))
+	if runnerID == "" {
+		runnerID = "runner-prod-1"
+	}
+	runnerScopes := strings.TrimSpace(query.Get("runner_scopes"))
+	if _, provided := query["runner_scopes"]; !provided && runnerScopes == "" {
+		runnerScopes = strings.TrimSpace(cfg.RunnerScopes)
+	}
+	if _, provided := query["runner_scopes"]; !provided && runnerScopes == "" {
+		runnerScopes = "prod"
+	}
+	runnerCapacity := cfg.RunnerCapacity
+	if runnerCapacity <= 0 {
+		runnerCapacity = 1
+	}
+	if rawCapacity := strings.TrimSpace(query.Get("runner_capacity")); rawCapacity != "" {
+		parsed, err := strconv.Atoi(rawCapacity)
+		if err != nil || parsed <= 0 {
+			return runnerInstallSpec{}, fmt.Errorf("runner_capacity must be a positive integer")
+		}
+		runnerCapacity = parsed
+	}
+
+	serviceJWTSigningKey := cfg.EffectiveServiceJWTSigningKey()
+	if strings.TrimSpace(serviceJWTSigningKey) == "" {
+		return runnerInstallSpec{}, fmt.Errorf("SERVICE_JWT_SIGNING_KEY is not configured")
+	}
+
+	dispatcherAddress, adapted, warnings := externalDispatcherAddress(cfg, r)
+	tlsSecret := cfg.EffectiveDispatcherTLSSecret()
+	tlsMode := cfg.EffectiveDispatcherTLSMode()
+	if servicetls.Enabled(tlsMode) && strings.TrimSpace(tlsSecret) == "" {
+		return runnerInstallSpec{}, fmt.Errorf("DISPATCHER_TLS_SECRET is not configured")
+	}
+	if adapted {
+		warnings = append(warnings, "The configured dispatcher address is local to the NopsAI stack, so this template uses the current request host and dispatcher port. Confirm that endpoint is reachable from the new runner host.")
+		if looksInternalAddress(cfg.AgentNopsaiAPIURL) {
+			warnings = append(warnings, fmt.Sprintf("agent_nopsai_api_url is %q. Remote agent containers may need System > Config to use a URL reachable outside the Docker network.", cfg.AgentNopsaiAPIURL))
+		}
+	}
+	networkMode := strings.ToLower(strings.TrimSpace(query.Get("runner_network_mode")))
+	switch networkMode {
+	case "", "auto":
+		if adapted {
+			networkMode = runnerNetworkModeHost
+		} else {
+			networkMode = runnerNetworkModeBridge
+		}
+	case "default", runnerNetworkModeBridge:
+		networkMode = runnerNetworkModeBridge
+	case runnerNetworkModeHost:
+	default:
+		return runnerInstallSpec{}, fmt.Errorf("runner_network_mode must be bridge, host, or auto")
+	}
+	if networkMode == runnerNetworkModeHost {
+		warnings = append(warnings, "The runner container will use Docker host networking so it follows the VM host routing to the dispatcher. This helps when the VM can reach the dispatcher but Docker bridge containers cannot.")
+	}
+	runnerImage := strings.TrimSpace(query.Get("runner_image"))
+	if runnerImage == "" {
+		runnerImage = defaultRunnerImage
+	}
+
+	serviceName := composeServiceName(runnerID)
+	env := []runnerInstallEnv{
+		{"RUNNER_ID", runnerID},
+		{"RUNNER_SCOPES", runnerScopes},
+		{"RUNNER_CAPACITY", strconv.Itoa(runnerCapacity)},
+		{"DISPATCHER_ADDRESS", dispatcherAddress},
+		{serviceauth.EnvSigningKey, serviceJWTSigningKey},
+		{serviceauth.EnvIssuer, cfg.EffectiveServiceJWTIssuer()},
+		{serviceauth.EnvAudience, cfg.EffectiveServiceJWTAudience()},
+		{"RUNNER_SERVICE_ID", cfg.EffectiveRunnerServiceID()},
+		{servicetls.EnvMode, tlsMode},
+		{servicetls.EnvSecret, tlsSecret},
+		{servicetls.EnvServerName, cfg.EffectiveDispatcherTLSServerName()},
+	}
+	dockerNetwork := strings.TrimSpace(cfg.DockerNetworkName)
+	if adapted {
+		dockerNetwork = ""
+		env = append(env, runnerInstallEnv{"DOCKER_NETWORK_NAME", ""})
+	} else if dockerNetwork != "" {
+		env = append(env, runnerInstallEnv{"DOCKER_NETWORK_NAME", dockerNetwork})
+	}
+
+	return runnerInstallSpec{
+		RunnerID:          runnerID,
+		RunnerScopes:      runnerScopes,
+		RunnerCapacity:    runnerCapacity,
+		DispatcherAddress: dispatcherAddress,
+		ServiceName:       serviceName,
+		DockerNetwork:     dockerNetwork,
+		NetworkMode:       networkMode,
+		RunnerImage:       runnerImage,
+		IncludeNetwork:    networkMode == runnerNetworkModeBridge && !adapted && dockerNetwork != "",
+		Env:               env,
+		Warnings:          warnings,
+	}, nil
+}
+
+func (a *App) buildRunnerComposeResponse(cfg config.Config, r *http.Request) (runnerComposeResponse, error) {
+	spec, err := buildRunnerInstallSpec(cfg, r)
+	if err != nil {
+		return runnerComposeResponse{}, err
+	}
+	compose := buildRunnerCompose(spec)
+	return runnerComposeResponse{
+		RunnerID:          spec.RunnerID,
+		RunnerScopes:      spec.RunnerScopes,
+		RunnerCapacity:    spec.RunnerCapacity,
+		DispatcherAddress: spec.DispatcherAddress,
+		NetworkMode:       spec.NetworkMode,
+		RunnerImage:       spec.RunnerImage,
+		Compose:           compose,
+		Command:           fmt.Sprintf("docker compose -f docker-compose.yaml up -d %s", spec.ServiceName),
+		Warnings:          spec.Warnings,
+	}, nil
+}
+
+func (a *App) buildRunnerBootstrapCommandResponse(cfg config.Config, r *http.Request) (runnerBootstrapCommandResponse, error) {
+	spec, err := buildRunnerInstallSpec(cfg, r)
+	if err != nil {
+		return runnerBootstrapCommandResponse{}, err
+	}
+	script := buildRunnerDockerRunScript(spec)
+	token, expiresAt, err := a.createRunnerBootstrapToken(script, 10*time.Minute)
+	if err != nil {
+		return runnerBootstrapCommandResponse{}, err
+	}
+	bootstrapURL := strings.TrimRight(requestExternalBaseURL(r), "/") + "/v1/system/dispatcher/runner-bootstrap?token=" + url.QueryEscape(token)
+	return runnerBootstrapCommandResponse{
+		RunnerID:          spec.RunnerID,
+		RunnerScopes:      spec.RunnerScopes,
+		RunnerCapacity:    spec.RunnerCapacity,
+		DispatcherAddress: spec.DispatcherAddress,
+		NetworkMode:       spec.NetworkMode,
+		RunnerImage:       spec.RunnerImage,
+		BootstrapCommand:  fmt.Sprintf("tmp=$(mktemp) && curl -fsSL %s -o \"$tmp\" && sh \"$tmp\"; rc=$?; rm -f \"$tmp\"; exit $rc", shellQuote(bootstrapURL)),
+		ExpiresAt:         expiresAt,
+		Warnings: append([]string{
+			"This one-time install command expires in 10 minutes and is consumed by the first successful download.",
+		}, spec.Warnings...),
+	}, nil
+}
+
+func buildRunnerCompose(spec runnerInstallSpec) string {
+	var builder strings.Builder
+	builder.WriteString(spec.ServiceName)
+	builder.WriteString(":\n")
+	builder.WriteString("  image: ")
+	builder.WriteString(strconv.Quote(spec.RunnerImage))
+	builder.WriteString("\n")
+	builder.WriteString("  restart: always\n")
+	if spec.NetworkMode == runnerNetworkModeHost {
+		builder.WriteString("  network_mode: \"host\"\n")
+	}
+	builder.WriteString("  environment:\n")
+	for _, item := range spec.Env {
+		builder.WriteString("    ")
+		builder.WriteString(item.key)
+		builder.WriteString(": ")
+		builder.WriteString(strconv.Quote(item.value))
+		builder.WriteString("\n")
+	}
+	builder.WriteString("  volumes:\n")
+	builder.WriteString("    - /var/run/docker.sock:/var/run/docker.sock\n")
+	if spec.IncludeNetwork {
+		builder.WriteString("  networks:\n")
+		builder.WriteString("    - ")
+		builder.WriteString(strconv.Quote(spec.DockerNetwork))
+		builder.WriteString("\n")
+	}
+	return builder.String()
+}
+
+func buildRunnerDockerRunScript(spec runnerInstallSpec) string {
+	var builder strings.Builder
+	builder.WriteString("#!/bin/sh\n")
+	builder.WriteString("set -eu\n\n")
+	builder.WriteString("if ! command -v docker >/dev/null 2>&1; then\n")
+	builder.WriteString("  echo \"docker is required on this runner host\" >&2\n")
+	builder.WriteString("  exit 1\n")
+	builder.WriteString("fi\n\n")
+	builder.WriteString("echo \"Installing NopsAI runner ")
+	builder.WriteString(shellDoubleQuote(spec.RunnerID))
+	builder.WriteString("\"\n")
+	builder.WriteString("echo \"Dispatcher address: ")
+	builder.WriteString(shellDoubleQuote(spec.DispatcherAddress))
+	builder.WriteString("\"\n")
+	builder.WriteString("echo \"Docker network mode: ")
+	builder.WriteString(shellDoubleQuote(spec.NetworkMode))
+	builder.WriteString("\"\n\n")
+	builder.WriteString("runner_image=")
+	builder.WriteString(shellQuote(spec.RunnerImage))
+	builder.WriteString("\n")
+	builder.WriteString("docker pull \"$runner_image\"\n")
+	builder.WriteString("host_arch=$(docker info --format '{{.Architecture}}' 2>/dev/null || uname -m)\n")
+	builder.WriteString("case \"$host_arch\" in x86_64) host_arch=amd64 ;; aarch64) host_arch=arm64 ;; esac\n")
+	builder.WriteString("image_arch=$(docker image inspect \"$runner_image\" --format '{{.Architecture}}' 2>/dev/null || true)\n")
+	builder.WriteString("if [ -n \"$image_arch\" ] && [ \"$image_arch\" != \"$host_arch\" ]; then\n")
+	builder.WriteString("  echo \"Runner image ${runner_image} architecture ${image_arch} does not match Docker host architecture ${host_arch}. Publish or select a matching/multi-arch runner image before installing this runner.\" >&2\n")
+	builder.WriteString("  exit 1\n")
+	builder.WriteString("fi\n")
+	builder.WriteString("docker rm -f ")
+	builder.WriteString(shellQuote(spec.ServiceName))
+	builder.WriteString(" >/dev/null 2>&1 || true\n")
+	builder.WriteString("container_id=$(docker run -d \\\n")
+	builder.WriteString("  --name ")
+	builder.WriteString(shellQuote(spec.ServiceName))
+	builder.WriteString(" \\\n")
+	builder.WriteString("  --restart always \\\n")
+	if spec.NetworkMode == runnerNetworkModeHost {
+		builder.WriteString("  --network host \\\n")
+	}
+	if spec.IncludeNetwork {
+		builder.WriteString("  --network ")
+		builder.WriteString(shellQuote(spec.DockerNetwork))
+		builder.WriteString(" \\\n")
+	}
+	builder.WriteString("  -v /var/run/docker.sock:/var/run/docker.sock")
+	for _, item := range spec.Env {
+		builder.WriteString(" \\\n")
+		builder.WriteString("  -e ")
+		builder.WriteString(shellQuote(item.key + "=" + item.value))
+	}
+	builder.WriteString(" \\\n")
+	builder.WriteString("  \"$runner_image\")\n")
+	builder.WriteString("echo \"NopsAI runner ")
+	builder.WriteString(shellDoubleQuote(spec.RunnerID))
+	builder.WriteString(" started as ${container_id}.\"\n")
+	builder.WriteString("sleep 3\n")
+	builder.WriteString("if ! docker inspect -f '{{.State.Running}}' ")
+	builder.WriteString(shellQuote(spec.ServiceName))
+	builder.WriteString(" 2>/dev/null | grep -q '^true$'; then\n")
+	builder.WriteString("  echo \"Runner container is not running. Recent logs:\" >&2\n")
+	builder.WriteString("  docker logs --tail=120 ")
+	builder.WriteString(shellQuote(spec.ServiceName))
+	builder.WriteString(" >&2 || true\n")
+	builder.WriteString("  exit 1\n")
+	builder.WriteString("fi\n")
+	builder.WriteString("echo \"Recent runner logs:\"\n")
+	builder.WriteString("docker logs --tail=40 ")
+	builder.WriteString(shellQuote(spec.ServiceName))
+	builder.WriteString(" || true\n")
+	builder.WriteString("echo \"Refresh System > Dispatcher to confirm registration. If no registration appears, run: docker logs -f ")
+	builder.WriteString(shellDoubleQuote(spec.ServiceName))
+	builder.WriteString("\"\n")
+	return builder.String()
+}
+
+func composeServiceName(runnerID string) string {
+	name := strings.ToLower(strings.TrimSpace(runnerID))
+	name = nonAlphanumericRegex.ReplaceAllString(name, "-")
+	name = strings.Trim(name, ".-_")
+	if name == "" {
+		return "nopsai-runner"
+	}
+	if strings.HasPrefix(name, "runner") {
+		return name
+	}
+	return "runner-" + name
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
+func shellDoubleQuote(value string) string {
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, `"`, `\"`)
+	value = strings.ReplaceAll(value, `$`, `\$`)
+	value = strings.ReplaceAll(value, "`", "\\`")
+	return value
+}
+
+func requestExternalBaseURL(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	proto := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0])
+	if proto == "" {
+		if r.TLS != nil {
+			proto = "https"
+		} else {
+			proto = "http"
+		}
+	}
+	host := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Host"), ",")[0])
+	if host == "" {
+		host = r.Host
+	}
+	return proto + "://" + host
+}
+
+func (a *App) createRunnerBootstrapToken(script string, ttl time.Duration) (string, time.Time, error) {
+	if strings.TrimSpace(script) == "" {
+		return "", time.Time{}, fmt.Errorf("runner bootstrap script is empty")
+	}
+	if ttl <= 0 {
+		ttl = 10 * time.Minute
+	}
+	buf := make([]byte, 32)
+	if _, err := crand.Read(buf); err != nil {
+		return "", time.Time{}, fmt.Errorf("generate runner bootstrap token: %w", err)
+	}
+	token := base64.RawURLEncoding.EncodeToString(buf)
+	expiresAt := time.Now().Add(ttl)
+
+	a.runnerBootstrapMu.Lock()
+	defer a.runnerBootstrapMu.Unlock()
+	if a.runnerBootstrapTokens == nil {
+		a.runnerBootstrapTokens = make(map[string]runnerBootstrapToken)
+	}
+	now := time.Now()
+	for existing, entry := range a.runnerBootstrapTokens {
+		if now.After(entry.ExpiresAt) {
+			delete(a.runnerBootstrapTokens, existing)
+		}
+	}
+	a.runnerBootstrapTokens[token] = runnerBootstrapToken{
+		Script:    script,
+		ExpiresAt: expiresAt,
+	}
+	return token, expiresAt, nil
+}
+
+func (a *App) consumeRunnerBootstrapToken(token string) (string, bool) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return "", false
+	}
+	a.runnerBootstrapMu.Lock()
+	defer a.runnerBootstrapMu.Unlock()
+	if a.runnerBootstrapTokens == nil {
+		return "", false
+	}
+	entry, ok := a.runnerBootstrapTokens[token]
+	if !ok {
+		return "", false
+	}
+	delete(a.runnerBootstrapTokens, token)
+	if time.Now().After(entry.ExpiresAt) {
+		return "", false
+	}
+	return entry.Script, true
+}
+
+func externalDispatcherAddress(cfg config.Config, r *http.Request) (string, bool, []string) {
+	configured := strings.TrimSpace(cfg.DispatcherAddress)
+	if configured == "" {
+		configured = "localhost:9090"
+	}
+	host := addressHost(configured)
+	port := addressPort(configured, addressPort(cfg.DispatcherListenAddress, "9090"))
+	if !isInternalAddressHost(host) {
+		return configured, false, nil
+	}
+	requestHost := requestHostForExternalAddress(r)
+	if requestHost == "" {
+		return configured, false, []string{"The dispatcher address could not be adapted because the request host was empty."}
+	}
+	return net.JoinHostPort(requestHost, port), true, nil
+}
+
+func looksInternalAddress(raw string) bool {
+	return isInternalAddressHost(addressHost(raw))
+}
+
+func requestHostForExternalAddress(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	for _, raw := range []string{r.Header.Get("X-Forwarded-Host"), r.Host} {
+		first := strings.TrimSpace(strings.Split(raw, ",")[0])
+		if first == "" {
+			continue
+		}
+		return stripAddressPort(first)
+	}
+	return ""
+}
+
+func addressHost(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if strings.Contains(raw, "://") {
+		if parsed, err := url.Parse(raw); err == nil {
+			return stripAddressPort(parsed.Host)
+		}
+	}
+	return stripAddressPort(raw)
+}
+
+func addressPort(raw, fallback string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fallback
+	}
+	if strings.Contains(raw, "://") {
+		if parsed, err := url.Parse(raw); err == nil {
+			if port := parsed.Port(); port != "" {
+				return port
+			}
+		}
+	}
+	if _, port, err := net.SplitHostPort(raw); err == nil && port != "" {
+		return port
+	}
+	lastColon := strings.LastIndex(raw, ":")
+	if lastColon >= 0 && lastColon < len(raw)-1 && !strings.Contains(raw[lastColon+1:], "]") {
+		candidate := raw[lastColon+1:]
+		if _, err := strconv.Atoi(candidate); err == nil {
+			return candidate
+		}
+	}
+	return fallback
+}
+
+func stripAddressPort(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if host, _, err := net.SplitHostPort(raw); err == nil {
+		return strings.Trim(host, "[]")
+	}
+	if strings.HasPrefix(raw, "[") {
+		if idx := strings.Index(raw, "]"); idx >= 0 {
+			return strings.Trim(raw[1:idx], "[]")
+		}
+	}
+	if idx := strings.LastIndex(raw, ":"); idx > 0 && !strings.Contains(raw[:idx], ":") {
+		if _, err := strconv.Atoi(raw[idx+1:]); err == nil {
+			return raw[:idx]
+		}
+	}
+	return strings.Trim(raw, "[]")
+}
+
+func isInternalAddressHost(host string) bool {
+	host = strings.ToLower(strings.Trim(strings.TrimSpace(host), "[]"))
+	if host == "" {
+		return true
+	}
+	switch host {
+	case "localhost", "127.0.0.1", "::1", "0.0.0.0", "dispatcher", "nopsai-dispatcher", "nopsai":
+		return true
+	}
+	return strings.HasPrefix(host, "127.")
 }
 
 func (a *App) applySystemConfig(payload systemConfigPayload) config.Config {
@@ -954,6 +1470,47 @@ func (a *App) handleGetSystemConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (a *App) handleGenerateRunnerCompose(w http.ResponseWriter, r *http.Request) {
+	cfg := a.getConfigSnapshot()
+	resp, err := a.buildRunnerComposeResponse(cfg, r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Warn().Err(err).Msg("Failed to encode runner compose response")
+	}
+}
+
+func (a *App) handleGenerateRunnerBootstrapCommand(w http.ResponseWriter, r *http.Request) {
+	cfg := a.getConfigSnapshot()
+	resp, err := a.buildRunnerBootstrapCommandResponse(cfg, r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Warn().Err(err).Msg("Failed to encode runner bootstrap command response")
+	}
+}
+
+func (a *App) handleRunnerBootstrap(w http.ResponseWriter, r *http.Request) {
+	script, ok := a.consumeRunnerBootstrapToken(r.URL.Query().Get("token"))
+	if !ok {
+		http.Error(w, "runner bootstrap token not found or expired", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write([]byte(script))
+}
+
 func (a *App) handleUpdateSystemConfig(w http.ResponseWriter, r *http.Request) {
 	var payload systemConfigPayload
 	if err := httpapi.DecodeJSON(r, &payload); err != nil {
@@ -1129,6 +1686,9 @@ func (a *App) prepareSecretsForPipeline(runID string, pipeline models.Pipeline, 
 				return nil, fmt.Errorf("pipeline aborted: %w", err)
 			}
 		}
+		if strings.TrimSpace(encryptedValue) == "" {
+			return nil, fmt.Errorf("pipeline aborted: required secret '%s' has no value", secretKey)
+		}
 
 		decryptedValue, decryptErr := a.decrypt(encryptedValue)
 		if decryptErr != nil {
@@ -1274,6 +1834,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		"general_vars_synced":         0,
 		"repo_vars_synced":            0,
 		"triggers_synced":             0,
+		"secrets_synced":              0,
 		"config_repositories_synced":  0,
 		"run_groups_created":          0,
 		"run_groups_updated":          0,
@@ -1613,6 +2174,8 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 
 	generalScopeVars := make(map[generalScopeVarKey]storedScopeVar)
 	repoScopeVars := make(map[repoScopeVarKey]storedScopeVar)
+	generalScopeSecrets := make(map[generalScopeSecretKey]storedScopeSecret)
+	repoScopeSecrets := make(map[repoScopeSecretKey]storedScopeSecret)
 
 	for path, content := range scopeFiles {
 		normalized := filepath.ToSlash(path)
@@ -1643,36 +2206,19 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 			return nil, commitSHA, fmt.Errorf("failed to parse scope file '%s': %w", normalized, err)
 		}
 
-		hasEmbeddedScopeAccess := false
-		for key, value := range raw {
-			trimmedKey := strings.TrimSpace(key)
-			if trimmedKey == "" {
-				return nil, commitSHA, fmt.Errorf("scope file '%s' contains an empty key", normalized)
-			}
-			if trimmedKey == "access" {
-				if _, isStringVariable := value.(string); !isStringVariable {
-					hasEmbeddedScopeAccess = true
-					continue
-				}
-			}
-			if trimmedKey == "variables" {
-				if _, isStringVariable := value.(string); !isStringVariable {
-					variables, ok := scopeVariablesSection(value)
-					if !ok {
-						return nil, commitSHA, fmt.Errorf("scope variables section in '%s' must be a map of variable names to string values", normalized)
-					}
-					for variableKey, variableValue := range variables {
-						if err := addScopeVariableConfigEntry(generalScopeVars, repoScopeVars, scopePath, variableKey, variableValue, normalized, binding, boundFolder); err != nil {
-							return nil, commitSHA, err
-						}
-					}
-					continue
-				}
-			}
-
-			if err := addScopeVariableConfigEntry(generalScopeVars, repoScopeVars, scopePath, trimmedKey, value, normalized, binding, boundFolder); err != nil {
-				return nil, commitSHA, err
-			}
+		hasEmbeddedScopeAccess, err := a.addScopeConfigEntries(
+			raw,
+			generalScopeVars,
+			repoScopeVars,
+			generalScopeSecrets,
+			repoScopeSecrets,
+			scopePath,
+			normalized,
+			binding,
+			boundFolder,
+		)
+		if err != nil {
+			return nil, commitSHA, err
 		}
 		if hasEmbeddedScopeAccess {
 			if err := accessPlan.addEmbeddedResourceAccess(content, normalized, grantResourceScope, scopePath, binding, boundFolder); err != nil {
@@ -1730,7 +2276,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	if err != nil {
 		return nil, commitSHA, err
 	}
-	filterDelegatedConfigResources(binding, overrideScopes, pipelines, steps, knowledgeContexts, generalScopeVars, repoScopeVars, triggers)
+	filterDelegatedConfigResources(binding, overrideScopes, pipelines, steps, knowledgeContexts, generalScopeVars, repoScopeVars, generalScopeSecrets, repoScopeSecrets, triggers)
 	filterDelegatedAccessResources(accessPlan, binding, overrideScopes)
 	effectivePipelineRunStructure, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, pipelineRunStructure, configRepositoryPipelineRunStructure, overrideScopes)
 	if err != nil {
@@ -1777,6 +2323,18 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 			managed_by_config_repo = TRUE,
 			updated_at = NOW()`
 	const envUpsert = `INSERT INTO variables (
+			name, value, repository_name, scope, source,
+			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at
+		) VALUES ($1, $2, $3, $4, 'git', $5, $6, $7, TRUE, NOW())
+		ON CONFLICT (name, repository_name, scope) DO UPDATE SET
+			value = EXCLUDED.value,
+			source = 'git',
+			config_repo_id = EXCLUDED.config_repo_id,
+			config_source_path = EXCLUDED.config_source_path,
+			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
+			managed_by_config_repo = TRUE,
+			updated_at = NOW()`
+	const secretUpsert = `INSERT INTO secrets (
 			name, value, repository_name, scope, source,
 			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at
 		) VALUES ($1, $2, $3, $4, 'git', $5, $6, $7, TRUE, NOW())
@@ -1910,7 +2468,47 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		details["repo_vars_synced"]++
 	}
 
-	// G. Upsert Triggers
+	// G. Upsert Scope Secrets
+	for key, stored := range generalScopeSecrets {
+		scopeParam := runtimeScopeForStorage(key.scopePath)
+		resourceID := fmt.Sprintf("scope=%s name=%s", runtimeScopeForDisplay(key.scopePath), key.name)
+		writable, err := ensureConfigResourceWritable(ctx, tx, "secrets", "secret", resourceID, binding, key.scopePath, "name = $1 AND repository_name IS NULL AND "+runtimeScopeEqualsSQL("scope", 2, scopeParam), key.name, scopeParam)
+		if err != nil {
+			return nil, commitSHA, err
+		}
+		if !writable {
+			continue
+		}
+		var encryptedValue any
+		if stored.encryptedValue != nil {
+			encryptedValue = *stored.encryptedValue
+		}
+		if _, err := tx.Exec(ctx, secretUpsert, key.name, encryptedValue, nil, scopeParam, binding.ID, stored.sourcePath, commitSHA); err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to upsert secret '%s' for scope '%s': %w", key.name, key.scopePath, err)
+		}
+		details["secrets_synced"]++
+	}
+	for key, stored := range repoScopeSecrets {
+		scopeParam := runtimeScopeForStorage(key.scopePath)
+		resourceID := fmt.Sprintf("repo=%s scope=%s name=%s", key.repo, runtimeScopeForDisplay(key.scopePath), key.name)
+		writable, err := ensureConfigResourceWritable(ctx, tx, "secrets", "secret", resourceID, binding, key.repo, "name = $1 AND repository_name = $2 AND "+runtimeScopeEqualsSQL("scope", 3, scopeParam), key.name, key.repo, scopeParam)
+		if err != nil {
+			return nil, commitSHA, err
+		}
+		if !writable {
+			continue
+		}
+		var encryptedValue any
+		if stored.encryptedValue != nil {
+			encryptedValue = *stored.encryptedValue
+		}
+		if _, err := tx.Exec(ctx, secretUpsert, key.name, encryptedValue, key.repo, scopeParam, binding.ID, stored.sourcePath, commitSHA); err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to upsert repository secret '%s' for repo '%s' scope '%s': %w", key.name, key.repo, key.scopePath, err)
+		}
+		details["secrets_synced"]++
+	}
+
+	// H. Upsert Triggers
 	for repoName, stored := range triggers {
 		writable, err := ensureConfigResourceWritable(ctx, tx, "triggers", "trigger", repoName, binding, repoName, "repository_name = $1", repoName)
 		if err != nil {
@@ -2136,6 +2734,47 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		}
 	}
 
+	// 6. Prune Secrets (Scope Secrets)
+	{
+		var names []string
+		var repos []*string
+		var scopes []*string
+
+		addSecret := func(n string, r *string, s string) {
+			names = append(names, n)
+			repos = append(repos, r)
+			storedScope := runtimeScopeForStorage(s)
+			scopes = append(scopes, &storedScope)
+		}
+
+		for key := range generalScopeSecrets {
+			addSecret(key.name, nil, key.scopePath)
+		}
+		for key := range repoScopeSecrets {
+			r := key.repo
+			addSecret(key.name, &r, key.scopePath)
+		}
+
+		if len(names) == 0 {
+			if _, err := tx.Exec(ctx, "DELETE FROM secrets WHERE managed_by_config_repo = TRUE AND config_repo_id = $1", binding.ID); err != nil {
+				return nil, commitSHA, fmt.Errorf("failed to prune secrets: %w", err)
+			}
+		} else {
+			if _, err := tx.Exec(ctx, `
+				DELETE FROM secrets
+				WHERE managed_by_config_repo = TRUE
+				AND config_repo_id = $4
+				AND NOT EXISTS (
+					SELECT 1 FROM unnest($1::text[], $2::text[], $3::text[]) AS t(n, r, s)
+					WHERE secrets.name = t.n
+					AND secrets.repository_name IS NOT DISTINCT FROM t.r
+					AND secrets.scope IS NOT DISTINCT FROM t.s
+				)`, names, repos, scopes, binding.ID); err != nil {
+				return nil, commitSHA, fmt.Errorf("failed to prune secrets: %w", err)
+			}
+		}
+	}
+
 	// Sync UI groups. Groups do not have a source column, so we do not prune them to avoid deleting user-created groups.
 	if len(effectivePipelineRunStructure) > 0 {
 		if err := a.syncPipelineRunGroups(ctx, tx, effectivePipelineRunStructure, details); err != nil {
@@ -2178,6 +2817,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		Int("knowledge_contexts_synced", details["knowledge_contexts_synced"]).
 		Int("general_vars_synced", details["general_vars_synced"]).
 		Int("repo_vars_synced", details["repo_vars_synced"]).
+		Int("secrets_synced", details["secrets_synced"]).
 		Int("triggers_synced", details["triggers_synced"]).
 		Int("config_repositories_synced", details["config_repositories_synced"]).
 		Int("run_groups_created", details["run_groups_created"]).
@@ -2202,6 +2842,17 @@ type generalScopeVarKey struct {
 }
 
 type repoScopeVarKey struct {
+	repo      string
+	scopePath string
+	name      string
+}
+
+type generalScopeSecretKey struct {
+	scopePath string
+	name      string
+}
+
+type repoScopeSecretKey struct {
 	repo      string
 	scopePath string
 	name      string
@@ -2235,6 +2886,60 @@ type storedConfigRepository struct {
 type storedScopeVar struct {
 	value      string
 	sourcePath string
+}
+
+type storedScopeSecret struct {
+	encryptedValue *string
+	sourcePath     string
+}
+
+func (a *App) addScopeConfigEntries(
+	raw map[string]interface{},
+	generalScopeVars map[generalScopeVarKey]storedScopeVar,
+	repoScopeVars map[repoScopeVarKey]storedScopeVar,
+	generalScopeSecrets map[generalScopeSecretKey]storedScopeSecret,
+	repoScopeSecrets map[repoScopeSecretKey]storedScopeSecret,
+	scopePath string,
+	sourcePath string,
+	binding models.ConfigRepository,
+	boundFolder string,
+) (bool, error) {
+	hasEmbeddedScopeAccess := false
+	for key, value := range raw {
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == "" {
+			return false, fmt.Errorf("scope file '%s' contains an empty key", sourcePath)
+		}
+
+		switch trimmedKey {
+		case "access":
+			hasEmbeddedScopeAccess = true
+			continue
+		case "variables":
+			variables, ok := scopeVariablesSection(value)
+			if !ok {
+				return false, fmt.Errorf("scope variables section in '%s' must be a map of variable names to string values", sourcePath)
+			}
+			for variableKey, variableValue := range variables {
+				if err := addScopeVariableConfigEntry(generalScopeVars, repoScopeVars, scopePath, variableKey, variableValue, sourcePath, binding, boundFolder); err != nil {
+					return false, err
+				}
+			}
+		case "secrets":
+			secrets, ok := scopeVariablesSection(value)
+			if !ok {
+				return false, fmt.Errorf("scope secrets section in '%s' must be a map of secret names to encrypted string values or null placeholders", sourcePath)
+			}
+			for secretKey, secretValue := range secrets {
+				if err := a.addScopeSecretConfigEntry(generalScopeSecrets, repoScopeSecrets, scopePath, secretKey, secretValue, sourcePath, binding, boundFolder); err != nil {
+					return false, err
+				}
+			}
+		default:
+			return false, fmt.Errorf("scope file '%s' contains unsupported top-level key '%s'; define variables under the variables section", sourcePath, trimmedKey)
+		}
+	}
+	return hasEmbeddedScopeAccess, nil
 }
 
 func scopeVariablesSection(value any) (map[string]any, bool) {
@@ -2305,6 +3010,75 @@ func addScopeVariableConfigEntry(
 		return fmt.Errorf("scope key '%s' in '%s' has an unsupported format", trimmedKey, sourcePath)
 	}
 	return nil
+}
+
+func (a *App) addScopeSecretConfigEntry(
+	generalScopeSecrets map[generalScopeSecretKey]storedScopeSecret,
+	repoScopeSecrets map[repoScopeSecretKey]storedScopeSecret,
+	scopePath string,
+	rawKey string,
+	value any,
+	sourcePath string,
+	binding models.ConfigRepository,
+	boundFolder string,
+) error {
+	trimmedKey := strings.TrimSpace(rawKey)
+	if trimmedKey == "" {
+		return fmt.Errorf("scope file '%s' contains an empty secret key", sourcePath)
+	}
+	encryptedValue, err := a.gitOpsSecretEncryptedValue(value, trimmedKey, sourcePath)
+	if err != nil {
+		return err
+	}
+
+	parts := strings.Split(trimmedKey, "/")
+	switch len(parts) {
+	case 1:
+		gKey := generalScopeSecretKey{scopePath: scopePath, name: trimmedKey}
+		if _, exists := generalScopeSecrets[gKey]; exists {
+			return fmt.Errorf("duplicate scope secret '%s' for '%s' detected", trimmedKey, scopePath)
+		}
+		generalScopeSecrets[gKey] = storedScopeSecret{encryptedValue: encryptedValue, sourcePath: sourcePath}
+	case 3:
+		repoName := fmt.Sprintf("%s/%s", strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
+		secretName := strings.TrimSpace(parts[2])
+		if repoName == "" || secretName == "" {
+			return fmt.Errorf("invalid repository-scoped secret key '%s' in '%s'", trimmedKey, sourcePath)
+		}
+		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+			normalizedRepoName, err := normalizeConfigPathForFolder(boundFolder, repoName)
+			if err != nil {
+				return fmt.Errorf("invalid group-scoped repository secret key '%s' in '%s': %w", trimmedKey, sourcePath, err)
+			}
+			repoName = normalizedRepoName
+		}
+		rKey := repoScopeSecretKey{repo: repoName, scopePath: scopePath, name: secretName}
+		if _, exists := repoScopeSecrets[rKey]; exists {
+			return fmt.Errorf("duplicate repository scope secret '%s' for '%s' detected", trimmedKey, scopePath)
+		}
+		repoScopeSecrets[rKey] = storedScopeSecret{encryptedValue: encryptedValue, sourcePath: sourcePath}
+	default:
+		return fmt.Errorf("scope secret key '%s' in '%s' has an unsupported format", trimmedKey, sourcePath)
+	}
+	return nil
+}
+
+func (a *App) gitOpsSecretEncryptedValue(value any, secretKey, sourcePath string) (*string, error) {
+	if value == nil {
+		return nil, nil
+	}
+	strValue, ok := value.(string)
+	if !ok {
+		return nil, fmt.Errorf("scope secret entry '%s' in '%s' must be an encrypted string or null", secretKey, sourcePath)
+	}
+	strValue = strings.TrimSpace(strValue)
+	if strValue == "" {
+		return nil, nil
+	}
+	if _, err := a.decrypt(strValue); err != nil {
+		return nil, nil
+	}
+	return &strValue, nil
 }
 
 type storedTrigger struct {
@@ -2676,6 +3450,8 @@ func filterDelegatedConfigResources(
 	knowledgeContexts map[string]storedKnowledgeContext,
 	generalScopeVars map[generalScopeVarKey]storedScopeVar,
 	repoScopeVars map[repoScopeVarKey]storedScopeVar,
+	generalScopeSecrets map[generalScopeSecretKey]storedScopeSecret,
+	repoScopeSecrets map[repoScopeSecretKey]storedScopeSecret,
 	triggers map[string]storedTrigger,
 ) {
 	if len(overrideScopes) == 0 {
@@ -2709,6 +3485,16 @@ func filterDelegatedConfigResources(
 	for key := range repoScopeVars {
 		if configResourceUnderAnyScope(key.repo, overrideScopes) || configResourceUnderAnyScope(key.scopePath, overrideScopes) {
 			delete(repoScopeVars, key)
+		}
+	}
+	for key := range generalScopeSecrets {
+		if configResourceUnderAnyScope(key.scopePath, overrideScopes) {
+			delete(generalScopeSecrets, key)
+		}
+	}
+	for key := range repoScopeSecrets {
+		if configResourceUnderAnyScope(key.repo, overrideScopes) || configResourceUnderAnyScope(key.scopePath, overrideScopes) {
+			delete(repoScopeSecrets, key)
 		}
 	}
 	for key := range triggers {

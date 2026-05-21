@@ -4,6 +4,10 @@ access:
     grants:
       - subject_type: repository
         subject_id: hosein-yousefii/test-app
-API_VERSION: "2026.05"
-DEPLOY_TARGET: "production"
-hosein-yousefii/test-app/TEST_SCOPE: "ghcr.io/team-1/service-api:stable"
+variables:
+  API_VERSION: "2026.05"
+  DEPLOY_TARGET: "production"
+  hosein-yousefii/test-app/TEST_SCOPE: "ghcr.io/team-1/service-api:stable"
+secrets:
+  GEMINI_API_KEY:
+  hosein-yousefii/test-app/DEPLOY_TOKEN:
