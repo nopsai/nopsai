@@ -142,7 +142,14 @@ func TestBuildRunnerComposeResponseUsesLiveSecretsAndAdaptsDispatcherAddress(t *
 	if resp.DispatcherAddress != "nopsai.example.com:9090" {
 		t.Fatalf("dispatcher address = %q, want adapted request host", resp.DispatcherAddress)
 	}
+	if resp.NetworkMode != runnerNetworkModeHost {
+		t.Fatalf("network mode = %q, want host for adapted remote runner", resp.NetworkMode)
+	}
+	if resp.RunnerImage != defaultRunnerImage {
+		t.Fatalf("runner image = %q, want default", resp.RunnerImage)
+	}
 	for _, want := range []string{
+		`image: "hoseindocker/nopsai-runner:latest"`,
 		`RUNNER_ID: "runner-cloud-1"`,
 		`RUNNER_SCOPES: "prod"`,
 		`RUNNER_CAPACITY: "3"`,
@@ -154,6 +161,7 @@ func TestBuildRunnerComposeResponseUsesLiveSecretsAndAdaptsDispatcherAddress(t *
 		`DISPATCHER_TLS_SECRET: "tls-secret"`,
 		`DISPATCHER_TLS_SERVER_NAME: "nopsai-dispatcher.example.com"`,
 		`DOCKER_NETWORK_NAME: ""`,
+		`network_mode: "host"`,
 	} {
 		if !strings.Contains(resp.Compose, want) {
 			t.Fatalf("compose missing %q:\n%s", want, resp.Compose)
@@ -188,6 +196,12 @@ func TestBuildRunnerBootstrapCommandResponseUsesOneTimeToken(t *testing.T) {
 	if strings.Contains(resp.BootstrapCommand, "service-secret") || strings.Contains(resp.BootstrapCommand, "tls-secret") {
 		t.Fatalf("bootstrap command should not expose long-lived secrets: %s", resp.BootstrapCommand)
 	}
+	if resp.NetworkMode != runnerNetworkModeHost {
+		t.Fatalf("network mode = %q, want host for adapted remote runner", resp.NetworkMode)
+	}
+	if resp.RunnerImage != defaultRunnerImage {
+		t.Fatalf("runner image = %q, want default", resp.RunnerImage)
+	}
 	const marker = "token="
 	idx := strings.Index(resp.BootstrapCommand, marker)
 	if idx < 0 {
@@ -201,6 +215,12 @@ func TestBuildRunnerBootstrapCommandResponseUsesOneTimeToken(t *testing.T) {
 	}
 	if !strings.Contains(script, "service-secret") || !strings.Contains(script, "tls-secret") {
 		t.Fatalf("bootstrap script should include runner secrets:\n%s", script)
+	}
+	if !strings.Contains(script, "--network host") {
+		t.Fatalf("bootstrap script should use host networking for adapted remote runner:\n%s", script)
+	}
+	if !strings.Contains(script, "image_arch=$(docker image inspect") {
+		t.Fatalf("bootstrap script should check runner image architecture:\n%s", script)
 	}
 	if _, ok := app.consumeRunnerBootstrapToken(token); ok {
 		t.Fatal("bootstrap token should be single-use")
