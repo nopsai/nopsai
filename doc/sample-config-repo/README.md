@@ -2,6 +2,11 @@
 
 These examples show the Git layout consumed by Nopsai config sync.
 
+The first-install wizard can preview a smaller starter version of this layout
+from **System > Setup**. Production installs should commit the generated starter
+files to the global config repository and import them through config sync instead
+of seeding starter resources directly into the database.
+
 There are two repositories represented here:
 
 - `global-repo`: a system/global config repository, bound as `scope_type=system`, `scope_id=global`, and `base_path=""`.

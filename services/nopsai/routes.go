@@ -84,6 +84,14 @@ func (a *App) registerSystemRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/system/dispatcher/runners/{runnerID}/dispatch", a.handleUpdateRunnerDispatch)
 }
 
+func (a *App) registerSetupRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /v1/setup/preflight", a.handleSetupPreflight)
+	mux.HandleFunc("GET /v1/setup/status", a.handleGetSetupStatus)
+	mux.HandleFunc("GET /v1/setup/templates", a.handleGetSetupTemplates)
+	mux.HandleFunc("GET /v1/setup/templates.zip", a.handleDownloadSetupTemplates)
+	mux.HandleFunc("POST /v1/setup/bootstrap", a.handleBootstrapSetup)
+}
+
 func (a *App) registerFolderConfigRepositoryRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/groups/{folderID}/config-repo", a.handleGetFolderConfigRepository)
 	mux.HandleFunc("PUT /v1/groups/{folderID}/config-repo", a.handleUpsertFolderConfigRepository)
@@ -164,6 +172,7 @@ func (a *App) buildHTTPHandler() http.Handler {
 	a.registerKnowledgeContextRoutes(mux)
 	a.registerSecretVariableRoutes(mux)
 	a.registerRunRoutes(mux)
+	a.registerSetupRoutes(mux)
 
 	var handler http.Handler = mux
 	handler = a.authzMiddleware(handler)
