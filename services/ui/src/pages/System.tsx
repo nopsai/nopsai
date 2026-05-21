@@ -75,6 +75,8 @@ type RunnerComposeTemplate = {
   runnerScopes: string;
   runnerCapacity: number;
   dispatcherAddress: string;
+  networkMode: string;
+  runnerImage: string;
   compose: string;
   command: string;
   bootstrapCommand: string;
@@ -5950,6 +5952,8 @@ function RunnerDeploymentGuide({ canManageDispatcher }: { canManageDispatcher: b
   const [runnerId, setRunnerId] = useState('runner-prod-1');
   const [runnerScopes, setRunnerScopes] = useState('prod');
   const [runnerCapacity, setRunnerCapacity] = useState('2');
+  const [runnerNetworkMode, setRunnerNetworkMode] = useState('host');
+  const [runnerImage, setRunnerImage] = useState('hoseindocker/nopsai-runner:latest');
   const [template, setTemplate] = useState<RunnerComposeTemplate | null>(null);
   const [loadingTemplate, setLoadingTemplate] = useState(false);
   const [templateError, setTemplateError] = useState<string | null>(null);
@@ -5966,6 +5970,8 @@ function RunnerDeploymentGuide({ canManageDispatcher }: { canManageDispatcher: b
       runner_id: runnerId.trim() || 'runner-prod-1',
       runner_scopes: runnerScopes.trim(),
       runner_capacity: String(capacity),
+      runner_network_mode: runnerNetworkMode,
+      runner_image: runnerImage.trim() || 'hoseindocker/nopsai-runner:latest',
     });
     setLoadingTemplate(true);
     setTemplateError(null);
@@ -5979,7 +5985,7 @@ function RunnerDeploymentGuide({ canManageDispatcher }: { canManageDispatcher: b
     } finally {
       setLoadingTemplate(false);
     }
-  }, [canManageDispatcher, runnerCapacity, runnerId, runnerScopes]);
+  }, [canManageDispatcher, runnerCapacity, runnerId, runnerImage, runnerNetworkMode, runnerScopes]);
 
   const handleCopyTemplate = async () => {
     if (!template?.bootstrapCommand) return;
@@ -6008,7 +6014,7 @@ function RunnerDeploymentGuide({ canManageDispatcher }: { canManageDispatcher: b
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.8fr)]">
         <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-tertiary)] p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h4 className="text-sm font-semibold">Docker runner</h4>
@@ -6023,22 +6029,46 @@ function RunnerDeploymentGuide({ canManageDispatcher }: { canManageDispatcher: b
             <li>Start the service, then refresh this dispatcher page to confirm the runner registered.</li>
           </ol>
           {canManageDispatcher ? (
-            <div className="mt-4 space-y-3">
-              <div className="grid gap-3 md:grid-cols-3">
-                <label className="space-y-1 text-sm">
-                  <span className="text-xs text-[var(--text-secondary)]">Runner name</span>
-                  <input className="pipelines-input" value={runnerId} onChange={event => setRunnerId(event.target.value)} />
+            <div className="mt-5 space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-12">
+                <label className="space-y-1.5 text-sm xl:col-span-4">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Runner name</span>
+                  <input className="pipelines-input w-full" value={runnerId} onChange={event => setRunnerId(event.target.value)} />
                 </label>
-                <label className="space-y-1 text-sm">
-                  <span className="text-xs text-[var(--text-secondary)]">Scopes</span>
-                  <input className="pipelines-input" value={runnerScopes} onChange={event => setRunnerScopes(event.target.value)} placeholder="empty for all scopes" />
+                <label className="space-y-1.5 text-sm xl:col-span-3">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Scopes</span>
+                  <input className="pipelines-input w-full" value={runnerScopes} onChange={event => setRunnerScopes(event.target.value)} placeholder="empty for all scopes" />
                 </label>
-                <label className="space-y-1 text-sm">
-                  <span className="text-xs text-[var(--text-secondary)]">Capacity</span>
-                  <input className="pipelines-input" type="number" min="1" value={runnerCapacity} onChange={event => setRunnerCapacity(event.target.value)} />
+                <label className="space-y-1.5 text-sm xl:col-span-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Capacity</span>
+                  <input className="pipelines-input w-full" type="number" min="1" value={runnerCapacity} onChange={event => setRunnerCapacity(event.target.value)} />
+                </label>
+                <div className="space-y-1.5 text-sm xl:col-span-3">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Network mode</span>
+                  <div className="grid h-[46px] grid-cols-2 rounded-[18px] border border-[var(--border-primary)] bg-[var(--bg-primary)] p-1">
+                    {(['host', 'bridge'] as const).map(mode => (
+                      <button
+                        key={mode}
+                        type="button"
+                        className={`rounded-[14px] px-3 text-sm font-semibold transition-colors ${
+                          runnerNetworkMode === mode
+                            ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)] shadow-sm'
+                            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                        }`}
+                        aria-pressed={runnerNetworkMode === mode}
+                        onClick={() => setRunnerNetworkMode(mode)}
+                      >
+                        {mode === 'host' ? 'Host' : 'Bridge'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <label className="space-y-1.5 text-sm sm:col-span-2 xl:col-span-12">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Runner image</span>
+                  <input className="pipelines-input w-full font-mono text-xs sm:text-sm" value={runnerImage} onChange={event => setRunnerImage(event.target.value)} />
                 </label>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                 <button type="button" className="glass-button-subtle" onClick={() => void loadTemplate()} disabled={loadingTemplate}>
                   <RefreshCw className={`h-4 w-4 ${loadingTemplate ? 'animate-spin' : ''}`} />
                   {loadingTemplate ? 'Generating…' : template ? 'Regenerate one-time command' : 'Generate one-time command'}
@@ -6049,15 +6079,29 @@ function RunnerDeploymentGuide({ canManageDispatcher }: { canManageDispatcher: b
                 </button>
               </div>
               {templateError && <p className="text-sm text-red-500">{templateError}</p>}
-              {template?.dispatcherAddress && (
-                <p className="text-xs leading-5 text-[var(--text-secondary)]">
-                  Dispatcher address: <span className="font-mono text-[var(--text-primary)]">{template.dispatcherAddress}</span>
-                </p>
-              )}
-              {template?.expiresAt && (
-                <p className="text-xs leading-5 text-[var(--text-secondary)]">
-                  One-time token expires: <span className="font-mono text-[var(--text-primary)]">{formatTimestamp(template.expiresAt)}</span>
-                </p>
+              {(template?.dispatcherAddress || template?.expiresAt || template?.networkMode || template?.runnerImage) && (
+                <div className="grid gap-x-4 gap-y-1 text-xs leading-5 text-[var(--text-secondary)] sm:grid-cols-2">
+                  {template?.dispatcherAddress && (
+                    <p>
+                      Dispatcher: <span className="font-mono text-[var(--text-primary)]">{template.dispatcherAddress}</span>
+                    </p>
+                  )}
+                  {template?.networkMode && (
+                    <p>
+                      Network: <span className="font-mono text-[var(--text-primary)]">{template.networkMode}</span>
+                    </p>
+                  )}
+                  {template?.expiresAt && (
+                    <p>
+                      Token expires: <span className="font-mono text-[var(--text-primary)]">{formatTimestamp(template.expiresAt)}</span>
+                    </p>
+                  )}
+                  {template?.runnerImage && (
+                    <p className="min-w-0 truncate" title={template.runnerImage}>
+                      Image: <span className="font-mono text-[var(--text-primary)]">{template.runnerImage}</span>
+                    </p>
+                  )}
+                </div>
               )}
               <pre className="max-h-96 overflow-auto rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-3 text-xs leading-5 text-[var(--text-primary)]">
                 <code>{template?.bootstrapCommand || 'Generate a one-time install command, then run it on the Docker host.'}</code>
@@ -6453,6 +6497,8 @@ function normalizeRunnerComposeTemplate(value: unknown): RunnerComposeTemplate {
     runnerScopes: readString(record.runner_scopes ?? record.runnerScopes),
     runnerCapacity: normalizeNumber(record.runner_capacity ?? record.runnerCapacity),
     dispatcherAddress: readString(record.dispatcher_address ?? record.dispatcherAddress),
+    networkMode: readString(record.network_mode ?? record.networkMode),
+    runnerImage: readString(record.runner_image ?? record.runnerImage),
     compose: readString(record.compose),
     command: readString(record.command),
     bootstrapCommand: readString(record.bootstrap_command ?? record.bootstrapCommand),

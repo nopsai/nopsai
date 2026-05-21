@@ -767,6 +767,8 @@ type runnerComposeResponse struct {
 	RunnerScopes      string   `json:"runner_scopes"`
 	RunnerCapacity    int      `json:"runner_capacity"`
 	DispatcherAddress string   `json:"dispatcher_address"`
+	NetworkMode       string   `json:"network_mode"`
+	RunnerImage       string   `json:"runner_image"`
 	Compose           string   `json:"compose"`
 	Command           string   `json:"command"`
 	Warnings          []string `json:"warnings,omitempty"`
@@ -777,6 +779,8 @@ type runnerBootstrapCommandResponse struct {
 	RunnerScopes      string    `json:"runner_scopes"`
 	RunnerCapacity    int       `json:"runner_capacity"`
 	DispatcherAddress string    `json:"dispatcher_address"`
+	NetworkMode       string    `json:"network_mode"`
+	RunnerImage       string    `json:"runner_image"`
 	BootstrapCommand  string    `json:"bootstrap_command"`
 	ExpiresAt         time.Time `json:"expires_at"`
 	Warnings          []string  `json:"warnings,omitempty"`
@@ -799,10 +803,18 @@ type runnerInstallSpec struct {
 	DispatcherAddress string
 	ServiceName       string
 	DockerNetwork     string
+	NetworkMode       string
+	RunnerImage       string
 	IncludeNetwork    bool
 	Env               []runnerInstallEnv
 	Warnings          []string
 }
+
+const (
+	runnerNetworkModeBridge = "bridge"
+	runnerNetworkModeHost   = "host"
+	defaultRunnerImage      = "hoseindocker/nopsai-runner:latest"
+)
 
 func (a *App) buildSystemConfigResponse(cfg config.Config) map[string]interface{} {
 	return map[string]interface{}{
@@ -860,6 +872,27 @@ func buildRunnerInstallSpec(cfg config.Config, r *http.Request) (runnerInstallSp
 			warnings = append(warnings, fmt.Sprintf("agent_nopsai_api_url is %q. Remote agent containers may need System > Config to use a URL reachable outside the Docker network.", cfg.AgentNopsaiAPIURL))
 		}
 	}
+	networkMode := strings.ToLower(strings.TrimSpace(query.Get("runner_network_mode")))
+	switch networkMode {
+	case "", "auto":
+		if adapted {
+			networkMode = runnerNetworkModeHost
+		} else {
+			networkMode = runnerNetworkModeBridge
+		}
+	case "default", runnerNetworkModeBridge:
+		networkMode = runnerNetworkModeBridge
+	case runnerNetworkModeHost:
+	default:
+		return runnerInstallSpec{}, fmt.Errorf("runner_network_mode must be bridge, host, or auto")
+	}
+	if networkMode == runnerNetworkModeHost {
+		warnings = append(warnings, "The runner container will use Docker host networking so it follows the VM host routing to the dispatcher. This helps when the VM can reach the dispatcher but Docker bridge containers cannot.")
+	}
+	runnerImage := strings.TrimSpace(query.Get("runner_image"))
+	if runnerImage == "" {
+		runnerImage = defaultRunnerImage
+	}
 
 	serviceName := composeServiceName(runnerID)
 	env := []runnerInstallEnv{
@@ -890,7 +923,9 @@ func buildRunnerInstallSpec(cfg config.Config, r *http.Request) (runnerInstallSp
 		DispatcherAddress: dispatcherAddress,
 		ServiceName:       serviceName,
 		DockerNetwork:     dockerNetwork,
-		IncludeNetwork:    !adapted && dockerNetwork != "",
+		NetworkMode:       networkMode,
+		RunnerImage:       runnerImage,
+		IncludeNetwork:    networkMode == runnerNetworkModeBridge && !adapted && dockerNetwork != "",
 		Env:               env,
 		Warnings:          warnings,
 	}, nil
@@ -907,6 +942,8 @@ func (a *App) buildRunnerComposeResponse(cfg config.Config, r *http.Request) (ru
 		RunnerScopes:      spec.RunnerScopes,
 		RunnerCapacity:    spec.RunnerCapacity,
 		DispatcherAddress: spec.DispatcherAddress,
+		NetworkMode:       spec.NetworkMode,
+		RunnerImage:       spec.RunnerImage,
 		Compose:           compose,
 		Command:           fmt.Sprintf("docker compose -f docker-compose.yaml up -d %s", spec.ServiceName),
 		Warnings:          spec.Warnings,
@@ -929,7 +966,9 @@ func (a *App) buildRunnerBootstrapCommandResponse(cfg config.Config, r *http.Req
 		RunnerScopes:      spec.RunnerScopes,
 		RunnerCapacity:    spec.RunnerCapacity,
 		DispatcherAddress: spec.DispatcherAddress,
-		BootstrapCommand:  fmt.Sprintf("curl -fsSL %s | sh", shellQuote(bootstrapURL)),
+		NetworkMode:       spec.NetworkMode,
+		RunnerImage:       spec.RunnerImage,
+		BootstrapCommand:  fmt.Sprintf("tmp=$(mktemp) && curl -fsSL %s -o \"$tmp\" && sh \"$tmp\"; rc=$?; rm -f \"$tmp\"; exit $rc", shellQuote(bootstrapURL)),
 		ExpiresAt:         expiresAt,
 		Warnings: append([]string{
 			"This one-time install command expires in 10 minutes and is consumed by the first successful download.",
@@ -941,8 +980,13 @@ func buildRunnerCompose(spec runnerInstallSpec) string {
 	var builder strings.Builder
 	builder.WriteString(spec.ServiceName)
 	builder.WriteString(":\n")
-	builder.WriteString("  image: hoseindocker/nopsai-runner:latest\n")
+	builder.WriteString("  image: ")
+	builder.WriteString(strconv.Quote(spec.RunnerImage))
+	builder.WriteString("\n")
 	builder.WriteString("  restart: always\n")
+	if spec.NetworkMode == runnerNetworkModeHost {
+		builder.WriteString("  network_mode: \"host\"\n")
+	}
 	builder.WriteString("  environment:\n")
 	for _, item := range spec.Env {
 		builder.WriteString("    ")
@@ -970,15 +1014,37 @@ func buildRunnerDockerRunScript(spec runnerInstallSpec) string {
 	builder.WriteString("  echo \"docker is required on this runner host\" >&2\n")
 	builder.WriteString("  exit 1\n")
 	builder.WriteString("fi\n\n")
-	builder.WriteString("docker pull hoseindocker/nopsai-runner:latest\n")
+	builder.WriteString("echo \"Installing NopsAI runner ")
+	builder.WriteString(shellDoubleQuote(spec.RunnerID))
+	builder.WriteString("\"\n")
+	builder.WriteString("echo \"Dispatcher address: ")
+	builder.WriteString(shellDoubleQuote(spec.DispatcherAddress))
+	builder.WriteString("\"\n")
+	builder.WriteString("echo \"Docker network mode: ")
+	builder.WriteString(shellDoubleQuote(spec.NetworkMode))
+	builder.WriteString("\"\n\n")
+	builder.WriteString("runner_image=")
+	builder.WriteString(shellQuote(spec.RunnerImage))
+	builder.WriteString("\n")
+	builder.WriteString("docker pull \"$runner_image\"\n")
+	builder.WriteString("host_arch=$(docker info --format '{{.Architecture}}' 2>/dev/null || uname -m)\n")
+	builder.WriteString("case \"$host_arch\" in x86_64) host_arch=amd64 ;; aarch64) host_arch=arm64 ;; esac\n")
+	builder.WriteString("image_arch=$(docker image inspect \"$runner_image\" --format '{{.Architecture}}' 2>/dev/null || true)\n")
+	builder.WriteString("if [ -n \"$image_arch\" ] && [ \"$image_arch\" != \"$host_arch\" ]; then\n")
+	builder.WriteString("  echo \"Runner image ${runner_image} architecture ${image_arch} does not match Docker host architecture ${host_arch}. Publish or select a matching/multi-arch runner image before installing this runner.\" >&2\n")
+	builder.WriteString("  exit 1\n")
+	builder.WriteString("fi\n")
 	builder.WriteString("docker rm -f ")
 	builder.WriteString(shellQuote(spec.ServiceName))
 	builder.WriteString(" >/dev/null 2>&1 || true\n")
-	builder.WriteString("docker run -d \\\n")
+	builder.WriteString("container_id=$(docker run -d \\\n")
 	builder.WriteString("  --name ")
 	builder.WriteString(shellQuote(spec.ServiceName))
 	builder.WriteString(" \\\n")
 	builder.WriteString("  --restart always \\\n")
+	if spec.NetworkMode == runnerNetworkModeHost {
+		builder.WriteString("  --network host \\\n")
+	}
 	if spec.IncludeNetwork {
 		builder.WriteString("  --network ")
 		builder.WriteString(shellQuote(spec.DockerNetwork))
@@ -991,10 +1057,27 @@ func buildRunnerDockerRunScript(spec runnerInstallSpec) string {
 		builder.WriteString(shellQuote(item.key + "=" + item.value))
 	}
 	builder.WriteString(" \\\n")
-	builder.WriteString("  hoseindocker/nopsai-runner:latest\n")
+	builder.WriteString("  \"$runner_image\")\n")
 	builder.WriteString("echo \"NopsAI runner ")
 	builder.WriteString(shellDoubleQuote(spec.RunnerID))
-	builder.WriteString(" started. Refresh System > Dispatcher to confirm registration.\"\n")
+	builder.WriteString(" started as ${container_id}.\"\n")
+	builder.WriteString("sleep 3\n")
+	builder.WriteString("if ! docker inspect -f '{{.State.Running}}' ")
+	builder.WriteString(shellQuote(spec.ServiceName))
+	builder.WriteString(" 2>/dev/null | grep -q '^true$'; then\n")
+	builder.WriteString("  echo \"Runner container is not running. Recent logs:\" >&2\n")
+	builder.WriteString("  docker logs --tail=120 ")
+	builder.WriteString(shellQuote(spec.ServiceName))
+	builder.WriteString(" >&2 || true\n")
+	builder.WriteString("  exit 1\n")
+	builder.WriteString("fi\n")
+	builder.WriteString("echo \"Recent runner logs:\"\n")
+	builder.WriteString("docker logs --tail=40 ")
+	builder.WriteString(shellQuote(spec.ServiceName))
+	builder.WriteString(" || true\n")
+	builder.WriteString("echo \"Refresh System > Dispatcher to confirm registration. If no registration appears, run: docker logs -f ")
+	builder.WriteString(shellDoubleQuote(spec.ServiceName))
+	builder.WriteString("\"\n")
 	return builder.String()
 }
 
