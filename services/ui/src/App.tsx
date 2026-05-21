@@ -88,6 +88,10 @@ type SystemCapabilities = {
   access?: boolean;
 };
 
+type SetupStatusSummary = {
+  completed?: boolean;
+};
+
 type CurrentUser = {
   sub: string;
   email?: string;
@@ -191,6 +195,7 @@ const baseNavItems: NavItem[] = [
 
 const baseSystemSubNav: NavItem[] = [
   { label: 'Config', path: '/system/config', icon: <IconCog /> },
+  { label: 'Setup', path: '/system/setup', icon: <IconShield /> },
   { label: 'LLM Profiles', path: '/system/llm-profiles', icon: <IconFlask /> },
   { label: 'MCP', path: '/system/mcp', icon: <IconFlask /> },
   { label: 'Dispatcher', path: '/system/dispatcher', icon: <IconDispatch /> },
@@ -217,6 +222,7 @@ const SIDEBAR_RECENT_PAGE_SIZE = 200;
 const SIDEBAR_SCROLL_BUFFER = 200;
 const KNOWLEDGE_CONTEXT_KIND_ORDER = ['architecture', 'guardrail', 'policy', 'adr', 'guideline', 'runbook', 'reference', 'example'];
 const KNOWLEDGE_CONTEXTS_CHANGED_EVENT = 'nopsai-knowledge-contexts-changed';
+const SETUP_REDIRECTED_KEY = 'nopsai.setup.redirected';
 
 const getInitialTheme = (): Theme => {
   if (typeof window === 'undefined') return 'light';
@@ -269,6 +275,7 @@ function AppShell() {
   const [knowledgeContexts, setKnowledgeContexts] = useState<string[]>([]);
   const [knowledgeContextTreeOpen, setKnowledgeContextTreeOpen] = useState<Set<string>>(new Set());
   const [resourceGroupPaths, setResourceGroupPaths] = useState<string[]>([]);
+  const setupRedirectCheckedRef = useRef('');
 
   useEffect(() => {
     const root = document.documentElement;
@@ -448,12 +455,21 @@ function AppShell() {
   const canViewSystemConfigRepo = Boolean(currentUser?.capabilities?.system?.configReposRead);
   const canManageSystemConfigRepo = Boolean(currentUser?.capabilities?.system?.configReposWrite);
   const canViewSystemConfig = canViewSystemRuntimeConfig || canViewSystemConfigRepo;
+  const canViewSystemSetup = canViewSystemRuntimeConfig;
+  const canManageSystemSetup = canManageSystemRuntimeConfig;
   const canViewSystemDispatcher = Boolean(currentUser?.capabilities?.system?.dispatcherRead);
   const canManageSystemDispatcher = Boolean(currentUser?.capabilities?.system?.dispatcherWrite);
   const canViewSystemAccess = Boolean(currentUser?.capabilities?.system?.access);
-  const canViewAnySystem = canViewSystemConfig || canViewSystemLLMProfiles || canViewSystemMCP || canViewSystemDispatcher || canViewSystemAccess;
+  const isInitialAdminUser = useMemo(() => {
+    const sub = (currentUser?.sub || authSession.sub || '').trim().toLowerCase();
+    const roles = currentUser?.roles || authSession.roles || [];
+    return sub === 'admin' || roles.some(role => role === 'nopsai-admin');
+  }, [authSession.roles, authSession.sub, currentUser?.roles, currentUser?.sub]);
+  const canViewAnySystem = canViewSystemConfig || canViewSystemSetup || canViewSystemLLMProfiles || canViewSystemMCP || canViewSystemDispatcher || canViewSystemAccess;
   const preferredSystemPath = canViewSystemConfig
     ? '/system/config'
+    : canViewSystemSetup
+      ? '/system/setup'
     : canViewSystemLLMProfiles
       ? '/system/llm-profiles'
       : canViewSystemMCP
@@ -478,14 +494,58 @@ function AppShell() {
     () =>
       baseSystemSubNav.filter(item => {
         if (item.path === '/system/config') return canViewSystemConfig;
+        if (item.path === '/system/setup') return canViewSystemSetup;
         if (item.path === '/system/llm-profiles') return canViewSystemLLMProfiles;
         if (item.path === '/system/mcp') return canViewSystemMCP;
         if (item.path === '/system/dispatcher') return canViewSystemDispatcher;
         if (item.path === '/system/access') return canViewSystemAccess;
         return false;
       }),
-    [canViewSystemAccess, canViewSystemConfig, canViewSystemDispatcher, canViewSystemLLMProfiles, canViewSystemMCP]
+    [canViewSystemAccess, canViewSystemConfig, canViewSystemDispatcher, canViewSystemLLMProfiles, canViewSystemMCP, canViewSystemSetup]
   );
+
+  useEffect(() => {
+    if (!isAuthenticated || authSession.mustChangePassword || currentUserLoading || !canViewSystemSetup) return;
+    if (!isInitialAdminUser) return;
+    if (location.pathname === '/system/setup') return;
+
+    const subject = (currentUser?.sub || authSession.sub || 'current').trim() || 'current';
+    const checkKey = `${subject}:${authSession.accessToken || ''}`;
+    if (setupRedirectCheckedRef.current === checkKey) return;
+    setupRedirectCheckedRef.current = checkKey;
+
+    let cancelled = false;
+    void fetch(buildApiUrl('/v1/setup/status'))
+      .then(response => {
+        if (!response.ok) throw new Error(`setup status failed (${response.status})`);
+        return response.json() as Promise<SetupStatusSummary>;
+      })
+      .then(status => {
+        if (cancelled || status.completed) return;
+        const redirectKey = `${SETUP_REDIRECTED_KEY}.${subject}`;
+        if (sessionStorage.getItem(redirectKey) === 'true') return;
+        sessionStorage.setItem(redirectKey, 'true');
+        navigate('/system/setup', { replace: true });
+      })
+      .catch(error => {
+        console.warn('Failed to check setup status', error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    authSession.accessToken,
+    authSession.mustChangePassword,
+    authSession.sub,
+    canViewSystemSetup,
+    currentUser?.sub,
+    currentUserLoading,
+    isInitialAdminUser,
+    isAuthenticated,
+    location.pathname,
+    navigate,
+  ]);
 
   useEffect(() => {
     if (!sidebarOpen) return;
@@ -1113,6 +1173,8 @@ function AppShell() {
                       <SystemPage
                         permissions={{
                           canViewConfig: canViewSystemConfig,
+                          canViewSetup: canViewSystemSetup,
+                          canManageSetup: canManageSystemSetup,
                           canViewRuntimeConfig: canViewSystemRuntimeConfig,
                           canManageRuntimeConfig: canManageSystemRuntimeConfig,
                           canViewLLMProfiles: canViewSystemLLMProfiles,
