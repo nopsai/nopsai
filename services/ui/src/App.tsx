@@ -10,6 +10,7 @@ import KnowledgeContextPage from './pages/KnowledgeContext';
 import SystemPage from './pages/System';
 import LoginPage from './pages/Login';
 import ProfilePage from './pages/Profile';
+import AppHelp from './components/AppHelp';
 import { buildApiUrl, clearSession, getStoredSession, setPasswordChangeRequired, type StoredSession } from './lib/api';
 import { PIPELINE_DRAFTS_CHANGED_EVENT, getPipelineDraftStorageKey, loadPipelineDrafts } from './lib/pipelineDrafts';
 import { fetchResourceGroupPaths, insertGroupPath } from './lib/resourceGroups';
@@ -2627,6 +2628,7 @@ function Header({
       </button>
       <div id="main-header" className="flex-1 text-xl font-semibold min-w-0 truncate">{title}</div>
       <div className="flex items-center gap-3">
+        <AppHelp />
         <div className="relative" ref={menuRef}>
           <button
             type="button"
