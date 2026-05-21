@@ -2,6 +2,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type Dispatch, type FormEvent, type ReactNode, type SetStateAction } from 'react';
 import { Edit3, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import { buildApiUrl } from '../lib/api';
+import SetupWizard from './Setup';
 
 type ConfigFormState = {
   agent_image: string;
@@ -172,6 +173,8 @@ type ResourceGroup = {
 
 type SystemPagePermissions = {
   canViewConfig: boolean;
+  canViewSetup: boolean;
+  canManageSetup: boolean;
   canViewRuntimeConfig: boolean;
   canManageRuntimeConfig: boolean;
   canViewLLMProfiles: boolean;
@@ -189,7 +192,9 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
   const params = useParams<{ tab?: string }>();
   const navigate = useNavigate();
   const activeTab =
-    params.tab === 'dispatcher'
+    params.tab === 'setup'
+      ? 'setup'
+      : params.tab === 'dispatcher'
       ? 'dispatcher'
       : params.tab === 'access'
         ? 'access'
@@ -199,14 +204,15 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
             ? 'mcp'
           : 'config';
   const allowedTabs = useMemo(() => {
-    const tabs: Array<'config' | 'llm-profiles' | 'mcp' | 'dispatcher' | 'access'> = [];
+    const tabs: Array<'config' | 'setup' | 'llm-profiles' | 'mcp' | 'dispatcher' | 'access'> = [];
     if (permissions.canViewConfig) tabs.push('config');
+    if (permissions.canViewSetup) tabs.push('setup');
     if (permissions.canViewLLMProfiles) tabs.push('llm-profiles');
     if (permissions.canViewMCP) tabs.push('mcp');
     if (permissions.canViewDispatcher) tabs.push('dispatcher');
     if (permissions.canViewAccess) tabs.push('access');
     return tabs;
-  }, [permissions.canViewAccess, permissions.canViewConfig, permissions.canViewDispatcher, permissions.canViewLLMProfiles, permissions.canViewMCP]);
+  }, [permissions.canViewAccess, permissions.canViewConfig, permissions.canViewDispatcher, permissions.canViewLLMProfiles, permissions.canViewMCP, permissions.canViewSetup]);
   const visibleTab = allowedTabs.includes(activeTab) ? activeTab : allowedTabs[0] ?? activeTab;
 
   const isMountedRef = useRef(true);
@@ -1231,6 +1237,9 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
       )}
       {visibleTab === 'llm-profiles' && (
         <LLMProfilesPanel canManage={permissions.canManageLLMProfiles} />
+      )}
+      {visibleTab === 'setup' && (
+        <SetupWizard canManage={permissions.canManageSetup} />
       )}
       {visibleTab === 'mcp' && (
         <MCPPanel canManage={permissions.canManageMCP} />
