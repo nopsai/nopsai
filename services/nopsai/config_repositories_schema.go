@@ -16,6 +16,8 @@ var configRepositorySchemaStatements = []string{
 		branch TEXT NOT NULL DEFAULT 'main',
 		base_path TEXT NOT NULL DEFAULT '',
 		enabled BOOLEAN NOT NULL DEFAULT TRUE,
+		write_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+		write_branch TEXT NOT NULL DEFAULT '',
 		config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
 		config_source_path TEXT NOT NULL DEFAULT '',
 		config_source_commit_sha TEXT NOT NULL DEFAULT '',
@@ -32,6 +34,8 @@ var configRepositorySchemaStatements = []string{
 		UNIQUE(scope_type, scope_id),
 		UNIQUE(repo_url, branch, base_path)
 	)`,
+	`ALTER TABLE config_repositories ADD COLUMN IF NOT EXISTS write_enabled BOOLEAN NOT NULL DEFAULT FALSE`,
+	`ALTER TABLE config_repositories ADD COLUMN IF NOT EXISTS write_branch TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE config_repositories ADD COLUMN IF NOT EXISTS config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL`,
 	`ALTER TABLE config_repositories ADD COLUMN IF NOT EXISTS config_source_path TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE config_repositories ADD COLUMN IF NOT EXISTS config_source_commit_sha TEXT NOT NULL DEFAULT ''`,

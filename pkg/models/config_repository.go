@@ -16,6 +16,8 @@ type ConfigRepository struct {
 	Branch                string     `json:"branch"`
 	BasePath              string     `json:"base_path"`
 	Enabled               bool       `json:"enabled"`
+	WriteEnabled          bool       `json:"write_enabled"`
+	WriteBranch           string     `json:"write_branch"`
 	ConfigRepoID          *int64     `json:"config_repo_id,omitempty"`
 	ConfigSourcePath      string     `json:"config_source_path,omitempty"`
 	ConfigSourceCommitSHA string     `json:"config_source_commit_sha,omitempty"`
@@ -32,13 +34,15 @@ type ConfigRepository struct {
 }
 
 type ConfigRepositoryInput struct {
-	ScopeType string
-	ScopeID   string
-	RepoURL   string
-	Branch    string
-	BasePath  string
-	Enabled   bool
-	Actor     string
+	ScopeType    string
+	ScopeID      string
+	RepoURL      string
+	Branch       string
+	BasePath     string
+	Enabled      bool
+	WriteEnabled bool
+	WriteBranch  string
+	Actor        string
 }
 
 type ConfigRepositoryFilter struct {

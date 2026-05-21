@@ -824,6 +824,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
               <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs leading-5 text-[var(--text-secondary)]">
                 <li>Start the `git-bot` service with Docker Compose or your runtime, and set `GIT_BOT_NOPSAI_API_URL` to `{nopsaiAPIURL || currentRuntimeDefaults.nopsaiAPIURL}`.</li>
                 <li>Create or open a GitHub App, set its webhook URL to the value shown below, and paste the same webhook secret into GitHub and `GITHUB_WEBHOOK_SECRET`.</li>
+                <li>Set repository permissions to Contents read and write, Metadata read, Pull requests read, and Checks read and write.</li>
                 <li>Generate a private key in the GitHub App settings, configure the App ID and private key for git-bot, then install the App on the selected repositories.</li>
                 <li>Copy the installation ID from the GitHub installation URL after installing the App.</li>
               </ol>
