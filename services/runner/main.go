@@ -132,6 +132,13 @@ func main() {
 		stoppedRuns:     make(map[string]struct{}),
 	}
 
+	log.Info().
+		Str("runner_id", runnerID).
+		Str("dispatcher_addr", dispatcherAddr).
+		Strs("scopes", scopes).
+		Int("capacity", int(capacity)).
+		Msg("runner starting")
+
 	for {
 		if err := r.connectAndServe(); err != nil {
 			log.Error().Err(err).Msg("dispatcher stream ended, retrying")
@@ -141,9 +148,6 @@ func main() {
 }
 
 func (r *runner) connectAndServe() error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	dialOptions := []grpc.DialOption{
 		grpc.WithTransportCredentials(r.transportCreds),
 		grpc.WithBlock(),
@@ -151,11 +155,16 @@ func (r *runner) connectAndServe() error {
 	if r.dispatcherCreds != nil {
 		dialOptions = append(dialOptions, grpc.WithPerRPCCredentials(r.dispatcherCreds))
 	}
-	conn, err := grpc.DialContext(ctx, r.dispatcherAddr, dialOptions...)
+	dialCtx, dialCancel := context.WithTimeout(context.Background(), 20*time.Second)
+	conn, err := grpc.DialContext(dialCtx, r.dispatcherAddr, dialOptions...)
+	dialCancel()
 	if err != nil {
 		return fmt.Errorf("failed to dial dispatcher: %w", err)
 	}
 	defer conn.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	dispatcherClient := proto.NewDispatcherServiceClient(conn)
 	stream, err := dispatcherClient.Register(ctx)

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import yaml from 'js-yaml';
+import { Copy, KeyRound } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { buildApiUrl } from '../lib/api';
 import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups';
@@ -70,6 +71,13 @@ type SecretModalState = {
   name: string;
   repository: string;
   value: string;
+  pending: boolean;
+  error?: string;
+};
+
+type GitOpsSecretEncryptModalState = {
+  value: string;
+  encryptedValue?: string;
   pending: boolean;
   error?: string;
 };
@@ -663,6 +671,7 @@ function ScopesPage({
   const [scopeModal, setScopeModal] = useState<ScopeModalState | null>(null);
   const [variableModal, setVariableModal] = useState<VariableModalState | null>(null);
   const [secretModal, setSecretModal] = useState<SecretModalState | null>(null);
+  const [gitOpsEncryptModal, setGitOpsEncryptModal] = useState<GitOpsSecretEncryptModalState | null>(null);
   const [deleteModal, setDeleteModal] = useState<DeleteModalState | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
@@ -1504,6 +1513,13 @@ function ScopesPage({
     });
   };
 
+  const openGitOpsEncryptModal = () => {
+    setGitOpsEncryptModal({
+      value: '',
+      pending: false,
+    });
+  };
+
   const submitVariableModal = async () => {
     if (!canWriteVariablesInSelectedScope) return;
     const modal = variableModal;
@@ -1583,6 +1599,52 @@ function ScopesPage({
       setVariableModal(prev => (prev ? { ...prev, error: error instanceof Error ? error.message : 'Failed to save variable.' } : prev));
     } finally {
       setVariableModal(prev => (prev ? { ...prev, pending: false } : prev));
+    }
+  };
+
+  const encryptGitOpsSecretValue = async () => {
+    const modal = gitOpsEncryptModal;
+    if (!modal) return;
+
+    const value = modal.value ?? '';
+
+    if (!value) {
+      setGitOpsEncryptModal(prev => (prev ? { ...prev, error: 'Provide a value to encrypt.' } : prev));
+      return;
+    }
+
+    setGitOpsEncryptModal(prev => (prev ? { ...prev, pending: true, error: undefined, encryptedValue: undefined } : prev));
+    try {
+      const response = await fetch(buildApiUrl('/v1/secrets/encrypt'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value }),
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `Failed to encrypt secret (${response.status})`);
+      }
+      const payload = await response.json();
+      const encryptedValue = typeof payload?.encrypted_value === 'string' ? payload.encrypted_value : '';
+      if (!encryptedValue) throw new Error('Encryption response did not include a value.');
+      setGitOpsEncryptModal(prev => (prev ? { ...prev, encryptedValue, error: undefined } : prev));
+    } catch (error) {
+      console.error('Failed to encrypt secret for GitOps', error);
+      setGitOpsEncryptModal(prev => (prev ? { ...prev, error: error instanceof Error ? error.message : 'Failed to encrypt secret.' } : prev));
+    } finally {
+      setGitOpsEncryptModal(prev => (prev ? { ...prev, pending: false } : prev));
+    }
+  };
+
+  const copyGitOpsEncryptedValue = async () => {
+    const value = gitOpsEncryptModal?.encryptedValue;
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      addToast('Encrypted value copied.', 'success');
+    } catch (error) {
+      console.error('Failed to copy encrypted secret value', error);
+      setGitOpsEncryptModal(prev => (prev ? { ...prev, error: 'Unable to copy encrypted value.' } : prev));
     }
   };
 
@@ -2150,6 +2212,15 @@ function ScopesPage({
               <p className="text-sm text-[var(--text-secondary)]">Manage variables and secrets for this scope, all in one view.</p>
             </div>
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="pipelines-icon-only"
+                aria-label="Encrypt secret for GitOps"
+                title="Encrypt secret for GitOps"
+                onClick={openGitOpsEncryptModal}
+              >
+                <KeyRound className="h-4 w-4" aria-hidden="true" />
+              </button>
               <ResourceAccessCard resourceType="scope" resourceID={scopeLabel || 'default'} label="scope" sensitive />
               <button className="glass-button-ghost" onClick={handleBackToList}>
                 <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -2309,6 +2380,16 @@ function ScopesPage({
                 </button>
               )}
             </div>
+
+            <button
+              type="button"
+              className="pipelines-icon-only"
+              aria-label="Encrypt secret for GitOps"
+              title="Encrypt secret for GitOps"
+              onClick={openGitOpsEncryptModal}
+            >
+              <KeyRound className="h-4 w-4" aria-hidden="true" />
+            </button>
 
 	            {!searchTerm.trim() && canCreateScopeHere && (
               <button
@@ -2525,6 +2606,64 @@ function ScopesPage({
                 </div>
               </section>
             </div>
+          </div>
+        </div>
+      )}
+
+      {gitOpsEncryptModal && (
+        <div id="gitops-secret-encrypt-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
+          <div className="pipelines-modal-card max-w-3xl w-full overflow-hidden rounded-xl border border-[var(--border-primary)] shadow-2xl">
+            <header className="flex items-start justify-between gap-3 px-6 py-4 border-b border-[var(--border-primary)] bg-[var(--bg-secondary)]">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <KeyRound className="h-4 w-4 text-[var(--text-secondary)]" aria-hidden="true" />
+                  <span className="text-xs uppercase tracking-[0.18em] text-[var(--text-secondary)]">GitOps</span>
+                </div>
+                <h3 className="text-xl font-semibold text-[var(--text-primary)]">Secret Encryption</h3>
+              </div>
+              <button className="glass-button-ghost" onClick={() => setGitOpsEncryptModal(null)} disabled={gitOpsEncryptModal.pending}>
+                Close
+              </button>
+            </header>
+            <form
+              className="space-y-4 p-6 bg-[var(--bg-primary)]"
+              onSubmit={event => {
+                event.preventDefault();
+                void encryptGitOpsSecretValue();
+              }}
+            >
+              <label className="space-y-1 block">
+                <span className="block text-sm font-medium text-[var(--text-secondary)]">Value</span>
+                <textarea
+                  rows={4}
+                  className="pipelines-input w-full"
+                  value={gitOpsEncryptModal.value}
+                  onChange={event => setGitOpsEncryptModal(prev => (prev ? { ...prev, value: event.target.value, encryptedValue: undefined, error: undefined } : prev))}
+                  disabled={gitOpsEncryptModal.pending}
+                />
+              </label>
+              {gitOpsEncryptModal.encryptedValue && (
+                <label className="space-y-1 block">
+                  <span className="block text-sm font-medium text-[var(--text-secondary)]">Encrypted Value</span>
+                  <textarea rows={4} className="pipelines-input w-full font-mono text-xs" value={gitOpsEncryptModal.encryptedValue} readOnly />
+                </label>
+              )}
+              {gitOpsEncryptModal.error && <p className="text-sm text-red-500">{gitOpsEncryptModal.error}</p>}
+              <div className="flex items-center justify-end gap-2 pt-1">
+                {gitOpsEncryptModal.encryptedValue && (
+                  <button type="button" className="glass-button-ghost inline-flex items-center gap-2" onClick={() => void copyGitOpsEncryptedValue()} disabled={gitOpsEncryptModal.pending}>
+                    <Copy className="h-4 w-4" aria-hidden="true" />
+                    Copy
+                  </button>
+                )}
+                <button type="button" className="glass-button-ghost" onClick={() => setGitOpsEncryptModal(null)} disabled={gitOpsEncryptModal.pending}>
+                  Cancel
+                </button>
+                <button type="submit" className="glass-button-primary" disabled={gitOpsEncryptModal.pending || !gitOpsEncryptModal.value}>
+                  {gitOpsEncryptModal.pending ? 'Encrypting...' : 'Encrypt'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

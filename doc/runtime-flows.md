@@ -219,7 +219,8 @@ Rerun:
    - pipelines must parse and pass pipeline validation
    - reusable steps must parse and have matching names
    - triggers must parse as manifests
-   - scope files are turned into scoped variables
+   - scope files turn `variables:` entries into scoped variables and `secrets:`
+     entries into GitOps secret keys
    - knowledge markdown files are turned into `knowledge_contexts`
    - legacy `pipelineruns/structure.yaml` becomes the run-group tree for groups owned by that repo
    - `config-repositories/groups/<group>.yaml` becomes a group config repo binding and group shell
