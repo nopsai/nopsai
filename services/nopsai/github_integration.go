@@ -1092,6 +1092,56 @@ func (a *App) requestGitBotDirectory(owner, repo, ref, path string) (map[string]
 	}
 }
 
+type gitBotCommitFile struct {
+	Path    string `json:"path"`
+	Content string `json:"content,omitempty"`
+	Delete  bool   `json:"delete,omitempty"`
+}
+
+type gitBotCommitFilesResponse struct {
+	Branch       string `json:"branch"`
+	CommitSHA    string `json:"commit_sha"`
+	CommitURL    string `json:"commit_url,omitempty"`
+	FilesChanged int    `json:"files_changed"`
+}
+
+func (a *App) requestGitBotCommitFiles(owner, repo, baseRef, branch, message string, files []gitBotCommitFile) (gitBotCommitFilesResponse, error) {
+	payload := struct {
+		Owner   string             `json:"owner"`
+		Repo    string             `json:"repo"`
+		BaseRef string             `json:"base_ref"`
+		Branch  string             `json:"branch"`
+		Message string             `json:"message"`
+		Files   []gitBotCommitFile `json:"files"`
+	}{
+		Owner:   owner,
+		Repo:    repo,
+		BaseRef: baseRef,
+		Branch:  branch,
+		Message: message,
+		Files:   files,
+	}
+	body, _ := json.Marshal(payload)
+
+	url := fmt.Sprintf("%s/v1/github/commit", a.cfg.NopsaiGitBotAPIURL)
+	resp, err := a.postJSON(url, body)
+	if err != nil {
+		return gitBotCommitFilesResponse{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		var out gitBotCommitFilesResponse
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			return gitBotCommitFilesResponse{}, err
+		}
+		return out, nil
+	}
+
+	respBody, _ := io.ReadAll(resp.Body)
+	return gitBotCommitFilesResponse{}, fmt.Errorf("git-bot commit request failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+}
+
 func (a *App) branchHasOpenPullRequest(owner, repo, branch string) (bool, error) {
 	payload := map[string]string{
 		"owner":  owner,

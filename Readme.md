@@ -325,7 +325,7 @@ Required GitHub App events:
 
 Required GitHub App permissions:
 
-- `contents`: read
+- `contents`: read and write
 - `metadata`: read
 - `pull_requests`: read
 - `checks`: read and write

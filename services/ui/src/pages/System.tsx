@@ -2,6 +2,12 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type Dispatch, type FormEvent, type ReactNode, type SetStateAction } from 'react';
 import { Copy, Edit3, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import { buildApiUrl } from '../lib/api';
+import {
+  ConfigRepositoryDriftModal,
+  buildConfigRepositoryWriteFiles,
+  type ConfigRepositoryCommitResponse,
+  type ConfigRepositoryDriftResponse,
+} from '../components/ConfigRepositoryDriftModal';
 import SetupWizard from './Setup';
 
 type ConfigFormState = {
@@ -23,6 +29,8 @@ type ConfigRepository = {
   branch: string;
   base_path: string;
   enabled: boolean;
+  write_enabled: boolean;
+  write_branch: string;
   managed_by_config_repo?: boolean;
   config_source_path?: string;
   last_sync_status: string;
@@ -37,6 +45,8 @@ type ConfigRepositoryFormState = {
   branch: string;
   base_path: string;
   enabled: boolean;
+  write_enabled: boolean;
+  write_branch: string;
 };
 
 type ToastMessage = {
@@ -100,6 +110,8 @@ const emptyConfigRepositoryForm: ConfigRepositoryFormState = {
   branch: 'main',
   base_path: '',
   enabled: true,
+  write_enabled: false,
+  write_branch: 'nopsai/ui-changes',
 };
 
 const POLL_INTERVAL_MS = 5000;
@@ -254,6 +266,12 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
   const [globalConfigRepoSaving, setGlobalConfigRepoSaving] = useState(false);
   const [globalConfigRepoSyncing, setGlobalConfigRepoSyncing] = useState(false);
   const [globalConfigRepoError, setGlobalConfigRepoError] = useState<string | null>(null);
+  const [globalConfigRepoDriftOpen, setGlobalConfigRepoDriftOpen] = useState(false);
+  const [globalConfigRepoDrift, setGlobalConfigRepoDrift] = useState<ConfigRepositoryDriftResponse | null>(null);
+  const [globalConfigRepoDriftLoading, setGlobalConfigRepoDriftLoading] = useState(false);
+  const [globalConfigRepoDriftError, setGlobalConfigRepoDriftError] = useState<string | null>(null);
+  const [globalConfigRepoPushing, setGlobalConfigRepoPushing] = useState(false);
+  const [globalConfigRepoPushResult, setGlobalConfigRepoPushResult] = useState<ConfigRepositoryCommitResponse | null>(null);
 
   const [dispatcherLoading, setDispatcherLoading] = useState(false);
   const [dispatcherError, setDispatcherError] = useState<string | null>(null);
@@ -345,6 +363,8 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
       branch: readString(record.branch).trim() || 'main',
       base_path: readString(record.base_path),
       enabled: Boolean(record.enabled),
+      write_enabled: Boolean(record.write_enabled),
+      write_branch: readString(record.write_branch).trim() || 'nopsai/ui-changes',
       managed_by_config_repo: Boolean(record.managed_by_config_repo),
       config_source_path: readOptionalString(record.config_source_path),
       last_sync_status: readString(record.last_sync_status),
@@ -396,6 +416,8 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
           branch: repo.branch || 'main',
           base_path: repo.base_path || '',
           enabled: repo.enabled,
+          write_enabled: repo.write_enabled,
+          write_branch: repo.write_branch || 'nopsai/ui-changes',
         } : emptyConfigRepositoryForm);
       } catch (error) {
         console.error('Failed to load global config repository', error);
@@ -1075,6 +1097,8 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
           branch: globalConfigRepoForm.branch.trim() || 'main',
           base_path: globalConfigRepoForm.base_path.trim(),
           enabled: Boolean(globalConfigRepoForm.enabled),
+          write_enabled: Boolean(globalConfigRepoForm.write_enabled),
+          write_branch: globalConfigRepoForm.write_branch.trim(),
         }),
       });
       const repo = normalizeConfigRepository(payload);
@@ -1084,6 +1108,8 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
         branch: repo.branch || 'main',
         base_path: repo.base_path || '',
         enabled: repo.enabled,
+        write_enabled: repo.write_enabled,
+        write_branch: repo.write_branch || 'nopsai/ui-changes',
       } : emptyConfigRepositoryForm);
       addToast('Global config repository saved.', 'success');
     } catch (error) {
@@ -1148,6 +1174,62 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
       }
     }
   }, [addToast, fetchJson, globalConfigRepo?.last_sync_status, globalConfigRepoSyncing, loadGlobalConfigRepository, permissions.canManageGlobalConfigRepo]);
+
+  const checkGlobalConfigRepositoryDrift = useCallback(async () => {
+    if (!permissions.canViewGlobalConfigRepo || globalConfigRepoDriftLoading) return;
+    setGlobalConfigRepoDriftOpen(true);
+    setGlobalConfigRepoDriftLoading(true);
+    setGlobalConfigRepoDriftError(null);
+    setGlobalConfigRepoPushResult(null);
+    try {
+      const payload = await fetchJson('/v1/system/config-repo/drift');
+      setGlobalConfigRepoDrift(payload as ConfigRepositoryDriftResponse);
+    } catch (error) {
+      console.error('Failed to check global config repository drift', error);
+      const message = error instanceof Error ? error.message : 'Unable to check config repository drift';
+      setGlobalConfigRepoDriftError(message);
+      addToast('Failed to check config repository drift.', 'error');
+    } finally {
+      if (isMountedRef.current) {
+        setGlobalConfigRepoDriftLoading(false);
+      }
+    }
+  }, [addToast, fetchJson, globalConfigRepoDriftLoading, permissions.canViewGlobalConfigRepo]);
+
+  const pushGlobalConfigRepositoryDrift = useCallback(async () => {
+    if (!permissions.canManageGlobalConfigRepo || globalConfigRepoPushing) return;
+    const files = buildConfigRepositoryWriteFiles(globalConfigRepoDrift);
+    if (!globalConfigRepoDrift || files.length === 0) return;
+    if (!globalConfigRepoDrift.can_push) {
+      setGlobalConfigRepoDriftError('Enable Git push and set a push branch before committing changes.');
+      return;
+    }
+    setGlobalConfigRepoPushing(true);
+    setGlobalConfigRepoDriftError(null);
+    try {
+      const payload = await fetchJson('/v1/system/config-repo/write', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: globalConfigRepoDrift.push_message || 'Update Nopsai config',
+          files,
+        }),
+      });
+      const result = payload as ConfigRepositoryCommitResponse;
+      setGlobalConfigRepoPushResult(result);
+      const branch = result.branch || globalConfigRepoDrift.push_branch || globalConfigRepo?.write_branch || 'the push branch';
+      addToast(`Pushed ${files.length} file${files.length === 1 ? '' : 's'} to ${branch}.`, 'success');
+    } catch (error) {
+      console.error('Failed to push global config repository drift', error);
+      const message = error instanceof Error ? error.message : 'Unable to push config repository changes';
+      setGlobalConfigRepoDriftError(message);
+      addToast('Failed to push config repository changes.', 'error');
+    } finally {
+      if (isMountedRef.current) {
+        setGlobalConfigRepoPushing(false);
+      }
+    }
+  }, [addToast, fetchJson, globalConfigRepo?.write_branch, globalConfigRepoDrift, globalConfigRepoPushing, permissions.canManageGlobalConfigRepo]);
 
   const setRunnerPending = useCallback((runnerId: string, connectionId: string, pending: boolean) => {
     const key = runnerActionKey(runnerId, connectionId);
@@ -1260,6 +1342,9 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
           onSaveGlobalConfigRepo={saveGlobalConfigRepository}
           onDeleteGlobalConfigRepo={deleteGlobalConfigRepository}
           onSyncGlobalConfigRepo={syncGlobalConfigRepository}
+          onCheckGlobalConfigRepoDrift={checkGlobalConfigRepositoryDrift}
+          globalConfigRepoDriftLoading={globalConfigRepoDriftLoading}
+          globalConfigRepoPushing={globalConfigRepoPushing}
           canViewRuntimeConfig={permissions.canViewRuntimeConfig}
           canManageRuntimeConfig={permissions.canManageRuntimeConfig}
           canViewGlobalConfigRepo={permissions.canViewGlobalConfigRepo}
@@ -1327,6 +1412,21 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
             </div>
           ))}
         </div>
+      )}
+
+      {globalConfigRepoDriftOpen && (
+        <ConfigRepositoryDriftModal
+          title="Global config repository"
+          drift={globalConfigRepoDrift}
+          loading={globalConfigRepoDriftLoading}
+          error={globalConfigRepoDriftError}
+          pushing={globalConfigRepoPushing}
+          pushResult={globalConfigRepoPushResult}
+          canPush={permissions.canManageGlobalConfigRepo && Boolean(globalConfigRepoDrift?.can_push)}
+          onClose={() => setGlobalConfigRepoDriftOpen(false)}
+          onRefresh={checkGlobalConfigRepositoryDrift}
+          onPush={pushGlobalConfigRepositoryDrift}
+        />
       )}
     </div>
   );
@@ -5538,6 +5638,9 @@ function SystemConfig({
   onSaveGlobalConfigRepo,
   onDeleteGlobalConfigRepo,
   onSyncGlobalConfigRepo,
+  onCheckGlobalConfigRepoDrift,
+  globalConfigRepoDriftLoading,
+  globalConfigRepoPushing,
   canViewRuntimeConfig,
   canManageRuntimeConfig,
   canViewGlobalConfigRepo,
@@ -5561,6 +5664,9 @@ function SystemConfig({
   onSaveGlobalConfigRepo: () => Promise<void>;
   onDeleteGlobalConfigRepo: () => Promise<void>;
   onSyncGlobalConfigRepo: () => Promise<void>;
+  onCheckGlobalConfigRepoDrift: () => Promise<void>;
+  globalConfigRepoDriftLoading: boolean;
+  globalConfigRepoPushing: boolean;
   canViewRuntimeConfig: boolean;
   canManageRuntimeConfig: boolean;
   canViewGlobalConfigRepo: boolean;
@@ -5570,6 +5676,8 @@ function SystemConfig({
   const globalRepoRunning = globalConfigRepo?.last_sync_status === 'running';
   const globalRepoCanEdit = canManageGlobalConfigRepo && !globalConfigRepoLoading && !globalConfigRepoSaving;
   const globalRepoSyncDisabled = !globalConfigRepo || !canManageGlobalConfigRepo || globalConfigRepoSyncing || globalConfigRepoSaving || globalRepoRunning;
+  const globalRepoDriftDisabled = !globalConfigRepo || globalConfigRepoDriftLoading || globalConfigRepoSaving || globalConfigRepoSyncing || globalRepoRunning;
+  const globalRepoPushDisabled = globalRepoDriftDisabled || globalConfigRepoPushing || !canManageGlobalConfigRepo || !globalConfigRepo?.write_enabled || !globalConfigRepo?.write_branch;
 
   const handleChange = (key: keyof ConfigFormState) => (event: ChangeEvent<HTMLInputElement>) => {
     const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
@@ -5809,6 +5917,32 @@ function SystemConfig({
                   />
                   <span>Enabled</span>
                 </label>
+                <div className="md:col-span-2 border-t border-[var(--border-primary)] pt-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        id="system-global-config-repo-write-enabled"
+                        type="checkbox"
+                        checked={globalConfigRepoForm.write_enabled}
+                        onChange={handleGlobalRepoChange('write_enabled')}
+                        disabled={!globalRepoCanEdit}
+                      />
+                      <span>Enable Git push</span>
+                    </label>
+                    <label className="flex flex-col gap-1 text-sm">
+                      <span>Push branch</span>
+                      <input
+                        id="system-global-config-repo-write-branch"
+                        type="text"
+                        className="pipelines-input"
+                        value={globalConfigRepoForm.write_branch}
+                        onChange={handleGlobalRepoChange('write_branch')}
+                        placeholder="nopsai/ui-changes"
+                        disabled={!globalRepoCanEdit || !globalConfigRepoForm.write_enabled}
+                      />
+                    </label>
+                  </div>
+                </div>
               </div>
 
               {globalConfigRepo?.managed_by_config_repo && globalConfigRepo.config_source_path && (
@@ -5827,6 +5961,12 @@ function SystemConfig({
                     Remove
                   </button>
                 )}
+                <button type="button" className="glass-button-subtle" onClick={() => void onCheckGlobalConfigRepoDrift()} disabled={globalRepoDriftDisabled}>
+                  {globalConfigRepoDriftLoading ? 'Checking...' : 'Check drift'}
+                </button>
+                <button type="button" className="glass-button-subtle" onClick={() => void onCheckGlobalConfigRepoDrift()} disabled={globalRepoPushDisabled}>
+                  {globalConfigRepoPushing ? 'Pushing...' : 'Push to Git'}
+                </button>
                 <button type="button" className="glass-button-subtle" onClick={() => void onSyncGlobalConfigRepo()} disabled={globalRepoSyncDisabled}>
                   {globalConfigRepoSyncing || globalRepoRunning ? 'Syncing…' : 'Sync'}
                 </button>

@@ -15,6 +15,10 @@ import (
 	"nopsai/pkg/models"
 )
 
+func boolPointer(value bool) *bool {
+	return &value
+}
+
 func TestStartConfigSyncAllowsOnlyOneConcurrentStart(t *testing.T) {
 	var (
 		app         App
@@ -246,12 +250,46 @@ func TestBuildConfigRepositoryInputDefaultsAndValidation(t *testing.T) {
 	if !input.Enabled {
 		t.Fatal("Enabled = false, want true")
 	}
+	if input.WriteEnabled {
+		t.Fatal("WriteEnabled = true, want false")
+	}
 
 	if _, err := buildConfigRepositoryInput(upsertConfigRepositoryRequest{
 		RepoURL:  "https://github.com/acme/configs.git",
 		BasePath: "../outside",
 	}, models.ConfigRepositoryScopeFolder, "team-1", "user-1"); err == nil {
 		t.Fatal("buildConfigRepositoryInput() accepted escaping base_path")
+	}
+
+	input, err = buildConfigRepositoryInput(upsertConfigRepositoryRequest{
+		RepoURL:      "https://github.com/acme/configs.git",
+		WriteEnabled: boolPointer(true),
+	}, models.ConfigRepositoryScopeFolder, "team-1", "user-1")
+	if err != nil {
+		t.Fatalf("buildConfigRepositoryInput() with write enabled error = %v", err)
+	}
+	if !input.WriteEnabled || input.WriteBranch != "nopsai/ui-changes" {
+		t.Fatalf("write settings = (%v, %q), want (true, nopsai/ui-changes)", input.WriteEnabled, input.WriteBranch)
+	}
+
+	if _, err := buildConfigRepositoryInput(upsertConfigRepositoryRequest{
+		RepoURL:     "https://github.com/acme/configs.git",
+		WriteBranch: "bad branch",
+	}, models.ConfigRepositoryScopeFolder, "team-1", "user-1"); err == nil {
+		t.Fatal("buildConfigRepositoryInput() accepted invalid write_branch")
+	}
+}
+
+func TestCleanConfigRepositoryWritePath(t *testing.T) {
+	got, err := cleanConfigRepositoryWritePath("nopsai", "/pipelines/build.yaml")
+	if err != nil {
+		t.Fatalf("cleanConfigRepositoryWritePath() error = %v", err)
+	}
+	if got != "nopsai/pipelines/build.yaml" {
+		t.Fatalf("path = %q, want nopsai/pipelines/build.yaml", got)
+	}
+	if _, err := cleanConfigRepositoryWritePath("", "../outside.yaml"); err == nil {
+		t.Fatal("cleanConfigRepositoryWritePath() accepted escaping path")
 	}
 }
 
@@ -527,6 +565,8 @@ data-team:
     branch: main
     base_path: ""
     enabled: true
+    write_enabled: true
+    write_branch: nopsai/data-team-ui
 `)
 	if err != nil {
 		t.Fatalf("parseConfigRepositoryGroupPipelineRunStructure() error = %v", err)
@@ -551,6 +591,9 @@ data-team:
 	}
 	if binding.branch != "main" || binding.basePath != "" || !binding.enabled {
 		t.Fatalf("binding defaults = branch %q basePath %q enabled %v", binding.branch, binding.basePath, binding.enabled)
+	}
+	if !binding.writeEnabled || binding.writeBranch != "nopsai/data-team-ui" {
+		t.Fatalf("binding write settings = (%v, %q), want (true, nopsai/data-team-ui)", binding.writeEnabled, binding.writeBranch)
 	}
 }
 

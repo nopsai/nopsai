@@ -2017,6 +2017,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		if file.Enabled != nil {
 			enabled = *file.Enabled
 		}
+		writeEnabled, writeBranch := configRepositoryBindingWriteSettings(file)
 		branch := strings.TrimSpace(file.Branch)
 		if branch == "" {
 			branch = "main"
@@ -2027,13 +2028,15 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 			return nil, commitSHA, fmt.Errorf("duplicate config repository binding for '%s' detected", key)
 		}
 		configRepositories[key] = storedConfigRepository{
-			scopeType:  scopeType,
-			scopeID:    scopeID,
-			repoURL:    strings.TrimSpace(file.RepoURL),
-			branch:     branch,
-			basePath:   basePath,
-			enabled:    enabled,
-			sourcePath: normalized,
+			scopeType:    scopeType,
+			scopeID:      scopeID,
+			repoURL:      strings.TrimSpace(file.RepoURL),
+			branch:       branch,
+			basePath:     basePath,
+			enabled:      enabled,
+			writeEnabled: writeEnabled,
+			writeBranch:  writeBranch,
+			sourcePath:   normalized,
 		}
 	}
 
@@ -2358,15 +2361,17 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
 			managed_by_config_repo = TRUE`
 	const configRepositoryUpsert = `INSERT INTO config_repositories (
-			scope_type, scope_id, repo_url, branch, base_path, enabled,
+			scope_type, scope_id, repo_url, branch, base_path, enabled, write_enabled, write_branch,
 			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo,
 			created_by, updated_by
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, 'config-repo', 'config-repo')
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, TRUE, 'config-repo', 'config-repo')
 		ON CONFLICT (scope_type, scope_id) DO UPDATE SET
 			repo_url = EXCLUDED.repo_url,
 			branch = EXCLUDED.branch,
 			base_path = EXCLUDED.base_path,
 			enabled = EXCLUDED.enabled,
+			write_enabled = EXCLUDED.write_enabled,
+			write_branch = EXCLUDED.write_branch,
 			config_repo_id = EXCLUDED.config_repo_id,
 			config_source_path = EXCLUDED.config_source_path,
 			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
@@ -2383,7 +2388,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		if !writable {
 			continue
 		}
-		if _, err := tx.Exec(ctx, configRepositoryUpsert, stored.scopeType, stored.scopeID, stored.repoURL, stored.branch, stored.basePath, stored.enabled, binding.ID, stored.sourcePath, commitSHA); err != nil {
+		if _, err := tx.Exec(ctx, configRepositoryUpsert, stored.scopeType, stored.scopeID, stored.repoURL, stored.branch, stored.basePath, stored.enabled, stored.writeEnabled, stored.writeBranch, binding.ID, stored.sourcePath, commitSHA); err != nil {
 			return nil, commitSHA, fmt.Errorf("failed to upsert config repository binding '%s': %w", key, err)
 		}
 		details["config_repositories_synced"]++
@@ -2874,13 +2879,15 @@ type storedStep struct {
 }
 
 type storedConfigRepository struct {
-	scopeType  string
-	scopeID    string
-	repoURL    string
-	branch     string
-	basePath   string
-	enabled    bool
-	sourcePath string
+	scopeType    string
+	scopeID      string
+	repoURL      string
+	branch       string
+	basePath     string
+	enabled      bool
+	writeEnabled bool
+	writeBranch  string
+	sourcePath   string
 }
 
 type storedScopeVar struct {
@@ -3087,12 +3094,14 @@ type storedTrigger struct {
 }
 
 type configRepositoryBindingFile struct {
-	ScopeType string `yaml:"scope_type" json:"scope_type"`
-	ScopeID   string `yaml:"scope_id" json:"scope_id"`
-	RepoURL   string `yaml:"repo_url" json:"repo_url"`
-	Branch    string `yaml:"branch" json:"branch"`
-	BasePath  string `yaml:"base_path" json:"base_path"`
-	Enabled   *bool  `yaml:"enabled" json:"enabled"`
+	ScopeType    string `yaml:"scope_type" json:"scope_type"`
+	ScopeID      string `yaml:"scope_id" json:"scope_id"`
+	RepoURL      string `yaml:"repo_url" json:"repo_url"`
+	Branch       string `yaml:"branch" json:"branch"`
+	BasePath     string `yaml:"base_path" json:"base_path"`
+	Enabled      *bool  `yaml:"enabled" json:"enabled"`
+	WriteEnabled *bool  `yaml:"write_enabled" json:"write_enabled"`
+	WriteBranch  string `yaml:"write_branch" json:"write_branch"`
 }
 
 func parseConfigRepositoryBindingPath(rel string) (string, string, error) {
@@ -3129,7 +3138,24 @@ func validateConfigRepositoryBindingFile(file configRepositoryBindingFile, scope
 	if strings.TrimSpace(file.RepoURL) == "" {
 		return fmt.Errorf("config repository binding '%s' is missing repo_url", sourcePath)
 	}
+	if strings.TrimSpace(file.WriteBranch) != "" {
+		if err := validateConfigRepositoryBranchName(file.WriteBranch, "write_branch"); err != nil {
+			return fmt.Errorf("invalid config repository binding '%s': %w", sourcePath, err)
+		}
+	}
 	return nil
+}
+
+func configRepositoryBindingWriteSettings(file configRepositoryBindingFile) (bool, string) {
+	writeEnabled := false
+	if file.WriteEnabled != nil {
+		writeEnabled = *file.WriteEnabled
+	}
+	writeBranch := strings.TrimSpace(file.WriteBranch)
+	if writeEnabled && writeBranch == "" {
+		writeBranch = "nopsai/ui-changes"
+	}
+	return writeEnabled, writeBranch
 }
 
 func configRepositoryBindingsFromPipelineRunStructure(structure map[string]*pipelineRunStructureNode, sourcePath string) (map[string]storedConfigRepository, error) {
@@ -3160,6 +3186,7 @@ func configRepositoryBindingsFromPipelineRunStructure(structure map[string]*pipe
 			if file.Enabled != nil {
 				enabled = *file.Enabled
 			}
+			writeEnabled, writeBranch := configRepositoryBindingWriteSettings(file)
 			branch := strings.TrimSpace(file.Branch)
 			if branch == "" {
 				branch = "main"
@@ -3170,13 +3197,15 @@ func configRepositoryBindingsFromPipelineRunStructure(structure map[string]*pipe
 				return fmt.Errorf("duplicate config repository binding for '%s' detected", key)
 			}
 			result[key] = storedConfigRepository{
-				scopeType:  models.ConfigRepositoryScopeFolder,
-				scopeID:    scopeID,
-				repoURL:    strings.TrimSpace(file.RepoURL),
-				branch:     branch,
-				basePath:   basePath,
-				enabled:    enabled,
-				sourcePath: sourcePath,
+				scopeType:    models.ConfigRepositoryScopeFolder,
+				scopeID:      scopeID,
+				repoURL:      strings.TrimSpace(file.RepoURL),
+				branch:       branch,
+				basePath:     basePath,
+				enabled:      enabled,
+				writeEnabled: writeEnabled,
+				writeBranch:  writeBranch,
+				sourcePath:   sourcePath,
 			}
 		}
 
@@ -3992,6 +4021,10 @@ func copyConfigRepositoryBindingFile(file *configRepositoryBindingFile) *configR
 	if file.Enabled != nil {
 		enabled := *file.Enabled
 		copied.Enabled = &enabled
+	}
+	if file.WriteEnabled != nil {
+		writeEnabled := *file.WriteEnabled
+		copied.WriteEnabled = &writeEnabled
 	}
 	return &copied
 }

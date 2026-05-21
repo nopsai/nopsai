@@ -566,7 +566,7 @@ team-2:
 ```bash
 # Configure the global/system config repo
 curl -X PUT -H "Content-Type: application/json" \
-  -d '{"repo_url":"https://github.com/acme/nopsai-global-config","branch":"main","base_path":"nopsai","enabled":true}' \
+  -d '{"repo_url":"https://github.com/acme/nopsai-global-config","branch":"main","base_path":"nopsai","enabled":true,"write_enabled":true,"write_branch":"nopsai/ui-changes"}' \
   http://localhost:8080/v1/system/config-repo
 
 # Sync only the global/system config repo
@@ -574,12 +574,22 @@ curl -X POST http://localhost:8080/v1/system/config-repo/sync
 
 # Sync all enabled config repos; system repos run first, then group repos
 curl -X POST http://localhost:8080/v1/system/config-repos/sync
+
+# Compare Nopsai's current config with the sync branch before pushing
+curl http://localhost:8080/v1/system/config-repo/drift
+
+# Push generated config files to the configured review branch
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"message":"Add API deploy pipeline","files":[{"path":"pipelines/services/api/deploy.yaml","content":"name: deploy\nsteps:\n  - name: deploy\n    script: echo deploy\n"}]}' \
+  http://localhost:8080/v1/system/config-repo/write
 ```
 
 - The global repo uses `scope_type=system` and `scope_id=global`.
 - System- and group-scoped repos may define group repo bindings under `config-repositories/groups/<group>.yaml`.
 - System- and group-scoped repos may define managed knowledge context markdown under `knowledge/`.
-- A binding file contains `repo_url`, optional `branch`, optional `base_path`, and optional `enabled`.
+- A binding file contains `repo_url`, optional `branch`, optional `base_path`, optional `enabled`, optional `write_enabled`, and optional `write_branch`.
+- `branch` remains the read/sync source. When `write_enabled` is true, Nopsai can push generated GitOps changes to `write_branch` so they can be reviewed in GitHub before merging back to the sync branch. The GitHub App needs `contents: read and write`.
+- Group repositories use the same drift and write endpoint shape at `GET /v1/groups/<group-path>/config-repo/drift` and `POST /v1/groups/<group-path>/config-repo/write`. File paths are relative to the configured `base_path`.
 - Nested groups are represented by nested paths, for example `config-repositories/groups/team-2/platform.yaml` creates a binding for `team-2/platform`.
 - Group bindings also create matching group shells used by the Pipelines, Steps, Triggers, Scopes, and Pipeline Runs views.
 - Once a group repo is assigned and synced, it is authoritative for resources under that group path. Parent or global repos skip and prune their own managed resources inside delegated groups.

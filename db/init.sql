@@ -97,6 +97,8 @@ CREATE TABLE IF NOT EXISTS config_repositories (
     branch TEXT NOT NULL DEFAULT 'main',
     base_path TEXT NOT NULL DEFAULT '',
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    write_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    write_branch TEXT NOT NULL DEFAULT '',
     visibility TEXT NOT NULL DEFAULT 'group' CHECK (visibility IN ('group', 'restricted', 'workspace')),
     config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
     config_source_path TEXT NOT NULL DEFAULT '',

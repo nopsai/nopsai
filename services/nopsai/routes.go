@@ -77,6 +77,8 @@ func (a *App) registerSystemRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /v1/system/config-repo", a.handleDeleteGlobalConfigRepository)
 	mux.HandleFunc("GET /v1/system/config-repo/sync", a.handleGetGlobalConfigRepositorySyncStatus)
 	mux.HandleFunc("POST /v1/system/config-repo/sync", a.handleSyncGlobalConfigRepository)
+	mux.HandleFunc("GET /v1/system/config-repo/drift", a.handleGetGlobalConfigRepositoryDrift)
+	mux.HandleFunc("POST /v1/system/config-repo/write", a.handleWriteGlobalConfigRepository)
 	mux.HandleFunc("GET /v1/system/config-repos", a.handleListConfigRepositories)
 	mux.HandleFunc("POST /v1/system/config-repos/sync", a.handleSyncAllConfigRepositories)
 	mux.HandleFunc("POST /v1/internal/config/sync", a.handleConfigSync)
@@ -101,6 +103,8 @@ func (a *App) registerFolderConfigRepositoryRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /v1/groups/{folderID}/config-repo", a.handleDeleteFolderConfigRepository)
 	mux.HandleFunc("GET /v1/groups/{folderID}/config-repo/sync", a.handleGetFolderConfigRepositorySyncStatus)
 	mux.HandleFunc("POST /v1/groups/{folderID}/config-repo/sync", a.handleSyncFolderConfigRepository)
+	mux.HandleFunc("GET /v1/groups/{folderID}/config-repo/drift", a.handleGetFolderConfigRepositoryDrift)
+	mux.HandleFunc("POST /v1/groups/{folderID}/config-repo/write", a.handleWriteFolderConfigRepository)
 }
 
 func (a *App) registerPipelineRoutes(mux *http.ServeMux) {

@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -106,6 +107,28 @@ type DirectoryContentsRequest struct {
 
 type DirectoryContentsResponse struct {
 	Files map[string]string `json:"files"`
+}
+
+type CommitFile struct {
+	Path    string `json:"path"`
+	Content string `json:"content,omitempty"`
+	Delete  bool   `json:"delete,omitempty"`
+}
+
+type CommitFilesRequest struct {
+	Owner   string       `json:"owner"`
+	Repo    string       `json:"repo"`
+	BaseRef string       `json:"base_ref"`
+	Branch  string       `json:"branch"`
+	Message string       `json:"message"`
+	Files   []CommitFile `json:"files"`
+}
+
+type CommitFilesResponse struct {
+	Branch       string `json:"branch"`
+	CommitSHA    string `json:"commit_sha"`
+	CommitURL    string `json:"commit_url,omitempty"`
+	FilesChanged int    `json:"files_changed"`
 }
 
 type RepositoryAccessRequest struct {
@@ -777,6 +800,206 @@ func (a *GitBotApp) handleFetchDirectoryContents(w http.ResponseWriter, r *http.
 	}
 
 	_ = httpapi.WriteJSON(w, http.StatusOK, DirectoryContentsResponse{Files: files})
+}
+
+func (a *GitBotApp) handleCommitFiles(w http.ResponseWriter, r *http.Request) {
+	var req CommitFilesRequest
+	if err := httpapi.DecodeJSON(r, &req); err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := httpapi.ValidateRequired(
+		httpapi.RequiredString("owner", req.Owner),
+		httpapi.RequiredString("repo", req.Repo),
+		httpapi.RequiredString("base_ref", req.BaseRef),
+		httpapi.RequiredString("branch", req.Branch),
+		httpapi.RequiredString("message", req.Message),
+	); err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if len(req.Files) == 0 {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, "files is required")
+		return
+	}
+
+	baseRefName, err := normalizeGitHubBranchRef(req.BaseRef)
+	if err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, "invalid base_ref: "+err.Error())
+		return
+	}
+	branchName, err := normalizeGitHubBranchRef(req.Branch)
+	if err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, "invalid branch: "+err.Error())
+		return
+	}
+
+	entries := make([]*github.TreeEntry, 0, len(req.Files))
+	seen := make(map[string]struct{}, len(req.Files))
+	for _, file := range req.Files {
+		cleanPath, err := cleanCommitFilePath(file.Path)
+		if err != nil {
+			_ = httpapi.WriteJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if _, exists := seen[cleanPath]; exists {
+			_ = httpapi.WriteJSONError(w, http.StatusBadRequest, "duplicate file path: "+cleanPath)
+			return
+		}
+		seen[cleanPath] = struct{}{}
+		entry := &github.TreeEntry{
+			Path: github.String(cleanPath),
+			Mode: github.String("100644"),
+			Type: github.String("blob"),
+		}
+		if !file.Delete {
+			entry.Content = github.String(file.Content)
+		}
+		entries = append(entries, entry)
+	}
+
+	ctx := r.Context()
+	baseRef, _, err := a.ghClient.Git.GetRef(ctx, req.Owner, req.Repo, baseRefName)
+	if err != nil {
+		writeGitHubCommitError(w, err, http.StatusNotFound, "base ref not found")
+		return
+	}
+	baseSHA := ""
+	if baseRef != nil && baseRef.Object != nil {
+		baseSHA = baseRef.Object.GetSHA()
+	}
+	if baseSHA == "" {
+		_ = httpapi.WriteJSONError(w, http.StatusBadGateway, "base ref did not include a commit sha")
+		return
+	}
+
+	targetRef, _, err := a.ghClient.Git.GetRef(ctx, req.Owner, req.Repo, branchName)
+	if err != nil {
+		var ghErr *github.ErrorResponse
+		if !errors.As(err, &ghErr) || ghErr.Response == nil || ghErr.Response.StatusCode != http.StatusNotFound {
+			writeGitHubCommitError(w, err, http.StatusBadGateway, "failed to read push branch")
+			return
+		}
+		targetRef, _, err = a.ghClient.Git.CreateRef(ctx, req.Owner, req.Repo, &github.Reference{
+			Ref: github.String("refs/" + branchName),
+			Object: &github.GitObject{
+				SHA: github.String(baseSHA),
+			},
+		})
+		if err != nil {
+			writeGitHubCommitError(w, err, http.StatusBadGateway, "failed to create push branch")
+			return
+		}
+	}
+
+	parentSHA := ""
+	if targetRef != nil && targetRef.Object != nil {
+		parentSHA = targetRef.Object.GetSHA()
+	}
+	if parentSHA == "" {
+		_ = httpapi.WriteJSONError(w, http.StatusBadGateway, "push branch did not include a commit sha")
+		return
+	}
+	parentCommit, _, err := a.ghClient.Git.GetCommit(ctx, req.Owner, req.Repo, parentSHA)
+	if err != nil {
+		writeGitHubCommitError(w, err, http.StatusBadGateway, "failed to read push branch commit")
+		return
+	}
+	baseTreeSHA := ""
+	if parentCommit != nil && parentCommit.Tree != nil {
+		baseTreeSHA = parentCommit.Tree.GetSHA()
+	}
+	if baseTreeSHA == "" {
+		_ = httpapi.WriteJSONError(w, http.StatusBadGateway, "push branch commit did not include a tree sha")
+		return
+	}
+
+	tree, _, err := a.ghClient.Git.CreateTree(ctx, req.Owner, req.Repo, baseTreeSHA, entries)
+	if err != nil {
+		writeGitHubCommitError(w, err, http.StatusBadGateway, "failed to create push tree")
+		return
+	}
+	commit, _, err := a.ghClient.Git.CreateCommit(ctx, req.Owner, req.Repo, &github.Commit{
+		Message: github.String(strings.TrimSpace(req.Message)),
+		Tree:    tree,
+		Parents: []*github.Commit{{SHA: github.String(parentSHA)}},
+	})
+	if err != nil {
+		writeGitHubCommitError(w, err, http.StatusBadGateway, "failed to create push commit")
+		return
+	}
+	commitSHA := commit.GetSHA()
+	if commitSHA == "" {
+		_ = httpapi.WriteJSONError(w, http.StatusBadGateway, "created push commit did not include a sha")
+		return
+	}
+
+	_, _, err = a.ghClient.Git.UpdateRef(ctx, req.Owner, req.Repo, &github.Reference{
+		Ref: github.String("refs/" + branchName),
+		Object: &github.GitObject{
+			SHA: github.String(commitSHA),
+		},
+	}, false)
+	if err != nil {
+		writeGitHubCommitError(w, err, http.StatusBadGateway, "failed to update push branch")
+		return
+	}
+
+	_ = httpapi.WriteJSON(w, http.StatusOK, CommitFilesResponse{
+		Branch:       strings.TrimPrefix(branchName, "heads/"),
+		CommitSHA:    commitSHA,
+		CommitURL:    commit.GetHTMLURL(),
+		FilesChanged: len(entries),
+	})
+}
+
+func normalizeGitHubBranchRef(value string) (string, error) {
+	branch := strings.TrimSpace(value)
+	branch = strings.TrimPrefix(branch, "refs/heads/")
+	branch = strings.TrimPrefix(branch, "heads/")
+	if branch == "" {
+		return "", fmt.Errorf("branch is required")
+	}
+	if strings.HasPrefix(branch, "/") || strings.HasSuffix(branch, "/") || strings.HasSuffix(branch, ".") || branch == "@" {
+		return "", fmt.Errorf("branch name is invalid")
+	}
+	invalidFragments := []string{"..", "//", "@{", "\\", ":", "?", "*", "[", "^", "~", " "}
+	for _, fragment := range invalidFragments {
+		if strings.Contains(branch, fragment) {
+			return "", fmt.Errorf("branch contains invalid characters")
+		}
+	}
+	for _, segment := range strings.Split(branch, "/") {
+		if segment == "" || strings.HasPrefix(segment, ".") || strings.HasSuffix(segment, ".lock") {
+			return "", fmt.Errorf("branch contains invalid path segments")
+		}
+	}
+	return "heads/" + branch, nil
+}
+
+func cleanCommitFilePath(raw string) (string, error) {
+	normalized := strings.ReplaceAll(strings.TrimSpace(raw), "\\", "/")
+	normalized = strings.TrimPrefix(normalized, "/")
+	cleaned := path.Clean(normalized)
+	if cleaned == "." || cleaned == "" || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", fmt.Errorf("invalid file path: %s", raw)
+	}
+	return cleaned, nil
+}
+
+func writeGitHubCommitError(w http.ResponseWriter, err error, fallbackStatus int, fallbackMessage string) {
+	var ghErr *github.ErrorResponse
+	if errors.As(err, &ghErr) && ghErr.Response != nil {
+		message := fallbackMessage
+		if strings.TrimSpace(ghErr.Message) != "" {
+			message = strings.TrimSpace(ghErr.Message)
+		}
+		_ = httpapi.WriteJSONError(w, ghErr.Response.StatusCode, message)
+		return
+	}
+	log.Error().Err(err).Msg(fallbackMessage)
+	_ = httpapi.WriteJSONError(w, fallbackStatus, fallbackMessage)
 }
 
 func (a *GitBotApp) handleCheckRepoAccess(w http.ResponseWriter, r *http.Request) {
@@ -1501,6 +1724,7 @@ func main() {
 	mux.HandleFunc("/webhook", app.handleWebhook)
 	mux.HandleFunc("POST /v1/github/file", app.handleFetchFile)
 	mux.HandleFunc("POST /v1/github/contents", app.handleFetchDirectoryContents)
+	mux.HandleFunc("POST /v1/github/commit", app.handleCommitFiles)
 	mux.HandleFunc("POST /v1/github/repo/access", app.handleCheckRepoAccess)
 	mux.HandleFunc("POST /v1/github/branch/has-open-pr", app.handleCheckBranchHasOpenPR)
 	mux.HandleFunc("GET /v1/github/installation/repositories", app.handleListInstalledRepositories)
