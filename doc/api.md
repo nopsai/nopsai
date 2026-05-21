@@ -84,6 +84,74 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 
 ---
 
+## First-install Setup
+
+The UI setup wizard uses `/v1/setup/*` to bootstrap an empty database. The
+public preflight endpoint is available before login so the UI can explain
+missing database, master-key, or JWT configuration. Other `GET` setup routes
+require `system.read` on `system:config`; `POST` setup routes require
+`system.update` on `system:config`.
+
+```bash
+# Public readiness check before login
+curl http://localhost:8080/v1/setup/preflight
+
+# Current setup status, health checks, and GitHub guidance
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  http://localhost:8080/v1/setup/status
+
+# Preview starter GitOps files for selected repositories
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  "http://localhost:8080/v1/setup/templates?profile=team&repositories=acme/service-api"
+
+# Apply starter setup
+curl -X POST \
+  -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "profile": "team",
+    "generate_secrets": true,
+    "seed_starter_database": true,
+    "seed_llm_profile": true,
+    "sync_config_repository": false,
+    "mcp_examples": false,
+    "config_repository": {
+      "repo_url": "https://github.com/acme/nopsai-config.git",
+      "branch": "main",
+      "base_path": "",
+      "enabled": true
+    },
+    "repository_groups": [
+      {"name": "platform", "repositories": ["acme/service-api"]},
+      {"name": "applications", "repositories": ["acme/web-app"]}
+    ],
+    "repositories": ["acme/service-api"],
+    "llm_profile": {
+      "name": "standard",
+      "provider": "lmstudio",
+      "model": "qwen3-coder",
+      "base_url": "http://lmstudio:1234",
+      "allowed_scopes": ["dev", "prod"]
+    },
+    "users": [
+      {
+        "email": "alice@example.com",
+        "role": "owner",
+        "group": "platform",
+        "password": "temporary-password"
+      }
+    ]
+  }' \
+  http://localhost:8080/v1/setup/bootstrap
+```
+
+The UI sends `profile: "team"` as a compatibility value, but the operator
+experience no longer asks for a starter profile. Repository groups are used for
+starter run folders and user role assignment. For the full operator flow, see
+[first-install-wizard.md](./first-install-wizard.md).
+
+---
+
 ## Access Control
 
 NopsAI calls the internal AAA service for authorization decisions and layers product roles on top of the low-level policy model.
