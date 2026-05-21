@@ -1,6 +1,9 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -113,6 +116,114 @@ func TestBuildSystemConfigResponseDoesNotExposeConfigRepoURL(t *testing.T) {
 		if _, ok := response[key]; ok {
 			t.Fatalf("buildSystemConfigResponse() exposed removed key %q", key)
 		}
+	}
+}
+
+func TestBuildRunnerComposeResponseUsesLiveSecretsAndAdaptsDispatcherAddress(t *testing.T) {
+	app := App{}
+	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/system/dispatcher/runner-compose?runner_id=runner-cloud-1&runner_scopes=prod&runner_capacity=3", nil)
+	resp, err := app.buildRunnerComposeResponse(config.Config{
+		AgentNopsaiAPIURL:       "http://nopsai:8080",
+		DispatcherAddress:       "dispatcher:9090",
+		DispatcherListenAddress: ":9090",
+		ServiceJWTSigningKey:    "service-secret",
+		ServiceJWTIssuer:        "issuer",
+		ServiceJWTAudience:      "audience",
+		RunnerServiceID:         "runner-service",
+		DispatcherTLSMode:       "mtls",
+		DispatcherTLSSecret:     "tls-secret",
+		DispatcherTLSServerName: "nopsai-dispatcher.example.com",
+		DockerNetworkName:       "nopsai-net",
+		RunnerCapacity:          1,
+	}, req)
+	if err != nil {
+		t.Fatalf("buildRunnerComposeResponse() error = %v", err)
+	}
+	if resp.DispatcherAddress != "nopsai.example.com:9090" {
+		t.Fatalf("dispatcher address = %q, want adapted request host", resp.DispatcherAddress)
+	}
+	if resp.NetworkMode != runnerNetworkModeHost {
+		t.Fatalf("network mode = %q, want host for adapted remote runner", resp.NetworkMode)
+	}
+	if resp.RunnerImage != defaultRunnerImage {
+		t.Fatalf("runner image = %q, want default", resp.RunnerImage)
+	}
+	for _, want := range []string{
+		`image: "hoseindocker/nopsai-runner:latest"`,
+		`RUNNER_ID: "runner-cloud-1"`,
+		`RUNNER_SCOPES: "prod"`,
+		`RUNNER_CAPACITY: "3"`,
+		`DISPATCHER_ADDRESS: "nopsai.example.com:9090"`,
+		`SERVICE_JWT_SIGNING_KEY: "service-secret"`,
+		`SERVICE_JWT_ISSUER: "issuer"`,
+		`SERVICE_JWT_AUDIENCE: "audience"`,
+		`RUNNER_SERVICE_ID: "runner-service"`,
+		`DISPATCHER_TLS_SECRET: "tls-secret"`,
+		`DISPATCHER_TLS_SERVER_NAME: "nopsai-dispatcher.example.com"`,
+		`DOCKER_NETWORK_NAME: ""`,
+		`network_mode: "host"`,
+	} {
+		if !strings.Contains(resp.Compose, want) {
+			t.Fatalf("compose missing %q:\n%s", want, resp.Compose)
+		}
+	}
+	if strings.Contains(resp.Compose, "env_file") {
+		t.Fatalf("compose should not require env_file:\n%s", resp.Compose)
+	}
+	if len(resp.Warnings) == 0 {
+		t.Fatalf("warnings should explain adapted external runner values")
+	}
+}
+
+func TestBuildRunnerBootstrapCommandResponseUsesOneTimeToken(t *testing.T) {
+	app := App{}
+	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/system/dispatcher/runner-bootstrap-command?runner_id=runner-cloud-1&runner_scopes=prod&runner_capacity=3", nil)
+	resp, err := app.buildRunnerBootstrapCommandResponse(config.Config{
+		AgentNopsaiAPIURL:       "http://nopsai:8080",
+		DispatcherAddress:       "dispatcher:9090",
+		DispatcherListenAddress: ":9090",
+		ServiceJWTSigningKey:    "service-secret",
+		ServiceJWTIssuer:        "issuer",
+		ServiceJWTAudience:      "audience",
+		RunnerServiceID:         "runner-service",
+		DispatcherTLSMode:       "mtls",
+		DispatcherTLSSecret:     "tls-secret",
+		DispatcherTLSServerName: "nopsai-dispatcher.example.com",
+	}, req)
+	if err != nil {
+		t.Fatalf("buildRunnerBootstrapCommandResponse() error = %v", err)
+	}
+	if strings.Contains(resp.BootstrapCommand, "service-secret") || strings.Contains(resp.BootstrapCommand, "tls-secret") {
+		t.Fatalf("bootstrap command should not expose long-lived secrets: %s", resp.BootstrapCommand)
+	}
+	if resp.NetworkMode != runnerNetworkModeHost {
+		t.Fatalf("network mode = %q, want host for adapted remote runner", resp.NetworkMode)
+	}
+	if resp.RunnerImage != defaultRunnerImage {
+		t.Fatalf("runner image = %q, want default", resp.RunnerImage)
+	}
+	const marker = "token="
+	idx := strings.Index(resp.BootstrapCommand, marker)
+	if idx < 0 {
+		t.Fatalf("bootstrap command missing token: %s", resp.BootstrapCommand)
+	}
+	rest := resp.BootstrapCommand[idx+len(marker):]
+	token := strings.Trim(rest[:strings.Index(rest, "'")], " ")
+	script, ok := app.consumeRunnerBootstrapToken(token)
+	if !ok {
+		t.Fatal("expected bootstrap token to be consumable")
+	}
+	if !strings.Contains(script, "service-secret") || !strings.Contains(script, "tls-secret") {
+		t.Fatalf("bootstrap script should include runner secrets:\n%s", script)
+	}
+	if !strings.Contains(script, "--network host") {
+		t.Fatalf("bootstrap script should use host networking for adapted remote runner:\n%s", script)
+	}
+	if !strings.Contains(script, "image_arch=$(docker image inspect") {
+		t.Fatalf("bootstrap script should check runner image architecture:\n%s", script)
+	}
+	if _, ok := app.consumeRunnerBootstrapToken(token); ok {
+		t.Fatal("bootstrap token should be single-use")
 	}
 }
 
@@ -453,6 +564,14 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 		{repo: "hosein-yousefii/test-app", scopePath: "data-team/dev", name: "TEST_SCOPE"}: {},
 		{repo: "hosein-yousefii/test-app", scopePath: "prod", name: "TEST_SCOPE"}:          {},
 	}
+	generalScopeSecrets := map[generalScopeSecretKey]storedScopeSecret{
+		{scopePath: "data-team/dev", name: "DEPLOY_TOKEN"}: {},
+		{scopePath: "prod", name: "DEPLOY_TOKEN"}:          {},
+	}
+	repoScopeSecrets := map[repoScopeSecretKey]storedScopeSecret{
+		{repo: "hosein-yousefii/test-app", scopePath: "data-team/dev", name: "DEPLOY_TOKEN"}: {},
+		{repo: "hosein-yousefii/test-app", scopePath: "prod", name: "DEPLOY_TOKEN"}:          {},
+	}
 
 	filterDelegatedConfigResources(
 		binding,
@@ -462,6 +581,8 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 		map[string]storedKnowledgeContext{},
 		generalScopeVars,
 		repoScopeVars,
+		generalScopeSecrets,
+		repoScopeSecrets,
 		map[string]storedTrigger{},
 	)
 
@@ -476,6 +597,18 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 	}
 	if _, ok := repoScopeVars[repoScopeVarKey{repo: "hosein-yousefii/test-app", scopePath: "prod", name: "TEST_SCOPE"}]; !ok {
 		t.Fatal("expected unrelated repository scope variable to remain")
+	}
+	if _, ok := generalScopeSecrets[generalScopeSecretKey{scopePath: "data-team/dev", name: "DEPLOY_TOKEN"}]; ok {
+		t.Fatal("expected delegated general scope secret to be filtered")
+	}
+	if _, ok := repoScopeSecrets[repoScopeSecretKey{repo: "hosein-yousefii/test-app", scopePath: "data-team/dev", name: "DEPLOY_TOKEN"}]; ok {
+		t.Fatal("expected delegated repository scope secret to be filtered by scope")
+	}
+	if _, ok := generalScopeSecrets[generalScopeSecretKey{scopePath: "prod", name: "DEPLOY_TOKEN"}]; !ok {
+		t.Fatal("expected unrelated general scope secret to remain")
+	}
+	if _, ok := repoScopeSecrets[repoScopeSecretKey{repo: "hosein-yousefii/test-app", scopePath: "prod", name: "DEPLOY_TOKEN"}]; !ok {
+		t.Fatal("expected unrelated repository scope secret to remain")
 	}
 }
 
@@ -496,25 +629,25 @@ variables:
 
 	generalScopeVars := map[generalScopeVarKey]storedScopeVar{}
 	repoScopeVars := map[repoScopeVarKey]storedScopeVar{}
-	for key, value := range raw {
-		if key == "access" {
-			continue
-		}
-		if key != "variables" {
-			t.Fatalf("unexpected key %q", key)
-		}
-		variables, ok := scopeVariablesSection(value)
-		if !ok {
-			t.Fatal("variables section was not recognized")
-		}
-		for variableKey, variableValue := range variables {
-			if err := addScopeVariableConfigEntry(generalScopeVars, repoScopeVars, "team-1/dev", variableKey, variableValue, "scopes/dev/scope.yaml", models.ConfigRepository{
-				ScopeType: models.ConfigRepositoryScopeSystem,
-				ScopeID:   models.ConfigRepositorySystemGlobalID,
-			}, ""); err != nil {
-				t.Fatalf("addScopeVariableConfigEntry() error = %v", err)
-			}
-		}
+	hasAccess, err := (&App{}).addScopeConfigEntries(
+		raw,
+		generalScopeVars,
+		repoScopeVars,
+		map[generalScopeSecretKey]storedScopeSecret{},
+		map[repoScopeSecretKey]storedScopeSecret{},
+		"team-1/dev",
+		"scopes/dev/scope.yaml",
+		models.ConfigRepository{
+			ScopeType: models.ConfigRepositoryScopeSystem,
+			ScopeID:   models.ConfigRepositorySystemGlobalID,
+		},
+		"",
+	)
+	if err != nil {
+		t.Fatalf("addScopeConfigEntries() error = %v", err)
+	}
+	if !hasAccess {
+		t.Fatal("addScopeConfigEntries() access = false, want true")
 	}
 
 	if got := generalScopeVars[generalScopeVarKey{scopePath: "team-1/dev", name: "API_VERSION"}].value; got != "2026.05" {
@@ -522,5 +655,86 @@ variables:
 	}
 	if got := repoScopeVars[repoScopeVarKey{repo: "hosein-yousefii/test-app", scopePath: "team-1/dev", name: "IMAGE_NAME"}].value; got != "ghcr.io/team-1/service-api:dev" {
 		t.Fatalf("repo IMAGE_NAME = %q", got)
+	}
+}
+
+func TestScopeConfigRejectsTopLevelVariables(t *testing.T) {
+	var raw map[string]any
+	if err := yaml.Unmarshal([]byte(`
+API_VERSION: "2026.05"
+variables:
+  DEPLOY_TARGET: "production"
+`), &raw); err != nil {
+		t.Fatalf("yaml.Unmarshal() error = %v", err)
+	}
+
+	_, err := (&App{}).addScopeConfigEntries(
+		raw,
+		map[generalScopeVarKey]storedScopeVar{},
+		map[repoScopeVarKey]storedScopeVar{},
+		map[generalScopeSecretKey]storedScopeSecret{},
+		map[repoScopeSecretKey]storedScopeSecret{},
+		"team-1/prod",
+		"scopes/prod/scope.yaml",
+		models.ConfigRepository{
+			ScopeType: models.ConfigRepositoryScopeSystem,
+			ScopeID:   models.ConfigRepositorySystemGlobalID,
+		},
+		"",
+	)
+	if err == nil {
+		t.Fatal("addScopeConfigEntries() error = nil, want unsupported top-level key error")
+	}
+	if !strings.Contains(err.Error(), "unsupported top-level key 'API_VERSION'") {
+		t.Fatalf("addScopeConfigEntries() error = %q, want unsupported top-level key", err)
+	}
+}
+
+func TestScopeSecretsSectionImportsEncryptedValuesAndNullPlaceholders(t *testing.T) {
+	app := &App{encKey: []byte("12345678901234567890123456789012")}
+	encrypted, err := app.encrypt("super-secret")
+	if err != nil {
+		t.Fatalf("encrypt() error = %v", err)
+	}
+
+	var raw map[string]any
+	if err := yaml.Unmarshal([]byte(`
+secrets:
+  API_TOKEN: "`+encrypted+`"
+  EMPTY_TOKEN:
+  BAD_TOKEN: "plain text"
+  hosein-yousefii/test-app/DEPLOY_TOKEN: "`+encrypted+`"
+`), &raw); err != nil {
+		t.Fatalf("yaml.Unmarshal() error = %v", err)
+	}
+
+	generalScopeSecrets := map[generalScopeSecretKey]storedScopeSecret{}
+	repoScopeSecrets := map[repoScopeSecretKey]storedScopeSecret{}
+	secrets, ok := scopeVariablesSection(raw["secrets"])
+	if !ok {
+		t.Fatal("secrets section was not recognized")
+	}
+	for secretKey, secretValue := range secrets {
+		if err := app.addScopeSecretConfigEntry(generalScopeSecrets, repoScopeSecrets, "team-1/dev", secretKey, secretValue, "scopes/dev/scope.yaml", models.ConfigRepository{
+			ScopeType: models.ConfigRepositoryScopeSystem,
+			ScopeID:   models.ConfigRepositorySystemGlobalID,
+		}, ""); err != nil {
+			t.Fatalf("addScopeSecretConfigEntry() error = %v", err)
+		}
+	}
+
+	apiToken := generalScopeSecrets[generalScopeSecretKey{scopePath: "team-1/dev", name: "API_TOKEN"}]
+	if apiToken.encryptedValue == nil || *apiToken.encryptedValue != encrypted {
+		t.Fatalf("API_TOKEN encrypted value = %#v, want %q", apiToken.encryptedValue, encrypted)
+	}
+	if got := generalScopeSecrets[generalScopeSecretKey{scopePath: "team-1/dev", name: "EMPTY_TOKEN"}].encryptedValue; got != nil {
+		t.Fatalf("EMPTY_TOKEN encrypted value = %#v, want nil", got)
+	}
+	if got := generalScopeSecrets[generalScopeSecretKey{scopePath: "team-1/dev", name: "BAD_TOKEN"}].encryptedValue; got != nil {
+		t.Fatalf("BAD_TOKEN encrypted value = %#v, want nil for invalid encrypted data", got)
+	}
+	repoToken := repoScopeSecrets[repoScopeSecretKey{repo: "hosein-yousefii/test-app", scopePath: "team-1/dev", name: "DEPLOY_TOKEN"}]
+	if repoToken.encryptedValue == nil || *repoToken.encryptedValue != encrypted {
+		t.Fatalf("repo DEPLOY_TOKEN encrypted value = %#v, want %q", repoToken.encryptedValue, encrypted)
 	}
 }

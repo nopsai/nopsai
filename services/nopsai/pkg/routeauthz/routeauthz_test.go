@@ -58,6 +58,7 @@ func TestMapRequestTreatsPersonalTokenRoutesAsAuthenticatedOnly(t *testing.T) {
 		{method: http.MethodGet, path: "/v1/auth/personal-tokens"},
 		{method: http.MethodPost, path: "/v1/auth/personal-tokens"},
 		{method: http.MethodDelete, path: "/v1/auth/personal-tokens/00000000-0000-0000-0000-000000000001"},
+		{method: http.MethodPost, path: "/v1/secrets/encrypt"},
 	} {
 		req := httptest.NewRequest(tt.method, tt.path, nil)
 		action, resource, requiresFilter, err := MapRequest(req)
@@ -214,6 +215,22 @@ func TestMapRequestUsesUpdatedLowLevelActions(t *testing.T) {
 			wantAction: "system.read",
 			wantType:   "system",
 			wantID:     "llm-profiles",
+		},
+		{
+			name:       "runner compose template uses dispatcher runner update",
+			method:     http.MethodGet,
+			path:       "/v1/system/dispatcher/runner-compose",
+			wantAction: "system.update",
+			wantType:   "dispatcher",
+			wantID:     "runners",
+		},
+		{
+			name:       "runner bootstrap command uses dispatcher runner update",
+			method:     http.MethodGet,
+			path:       "/v1/system/dispatcher/runner-bootstrap-command",
+			wantAction: "system.update",
+			wantType:   "dispatcher",
+			wantID:     "runners",
 		},
 		{
 			name:       "llm profile delete uses llm profile system resource",
