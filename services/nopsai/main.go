@@ -1686,6 +1686,9 @@ func (a *App) prepareSecretsForPipeline(runID string, pipeline models.Pipeline, 
 				return nil, fmt.Errorf("pipeline aborted: %w", err)
 			}
 		}
+		if strings.TrimSpace(encryptedValue) == "" {
+			return nil, fmt.Errorf("pipeline aborted: required secret '%s' has no value", secretKey)
+		}
 
 		decryptedValue, decryptErr := a.decrypt(encryptedValue)
 		if decryptErr != nil {
@@ -1831,6 +1834,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		"general_vars_synced":         0,
 		"repo_vars_synced":            0,
 		"triggers_synced":             0,
+		"secrets_synced":              0,
 		"config_repositories_synced":  0,
 		"run_groups_created":          0,
 		"run_groups_updated":          0,
@@ -2170,6 +2174,8 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 
 	generalScopeVars := make(map[generalScopeVarKey]storedScopeVar)
 	repoScopeVars := make(map[repoScopeVarKey]storedScopeVar)
+	generalScopeSecrets := make(map[generalScopeSecretKey]storedScopeSecret)
+	repoScopeSecrets := make(map[repoScopeSecretKey]storedScopeSecret)
 
 	for path, content := range scopeFiles {
 		normalized := filepath.ToSlash(path)
@@ -2200,36 +2206,19 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 			return nil, commitSHA, fmt.Errorf("failed to parse scope file '%s': %w", normalized, err)
 		}
 
-		hasEmbeddedScopeAccess := false
-		for key, value := range raw {
-			trimmedKey := strings.TrimSpace(key)
-			if trimmedKey == "" {
-				return nil, commitSHA, fmt.Errorf("scope file '%s' contains an empty key", normalized)
-			}
-			if trimmedKey == "access" {
-				if _, isStringVariable := value.(string); !isStringVariable {
-					hasEmbeddedScopeAccess = true
-					continue
-				}
-			}
-			if trimmedKey == "variables" {
-				if _, isStringVariable := value.(string); !isStringVariable {
-					variables, ok := scopeVariablesSection(value)
-					if !ok {
-						return nil, commitSHA, fmt.Errorf("scope variables section in '%s' must be a map of variable names to string values", normalized)
-					}
-					for variableKey, variableValue := range variables {
-						if err := addScopeVariableConfigEntry(generalScopeVars, repoScopeVars, scopePath, variableKey, variableValue, normalized, binding, boundFolder); err != nil {
-							return nil, commitSHA, err
-						}
-					}
-					continue
-				}
-			}
-
-			if err := addScopeVariableConfigEntry(generalScopeVars, repoScopeVars, scopePath, trimmedKey, value, normalized, binding, boundFolder); err != nil {
-				return nil, commitSHA, err
-			}
+		hasEmbeddedScopeAccess, err := a.addScopeConfigEntries(
+			raw,
+			generalScopeVars,
+			repoScopeVars,
+			generalScopeSecrets,
+			repoScopeSecrets,
+			scopePath,
+			normalized,
+			binding,
+			boundFolder,
+		)
+		if err != nil {
+			return nil, commitSHA, err
 		}
 		if hasEmbeddedScopeAccess {
 			if err := accessPlan.addEmbeddedResourceAccess(content, normalized, grantResourceScope, scopePath, binding, boundFolder); err != nil {
@@ -2287,7 +2276,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	if err != nil {
 		return nil, commitSHA, err
 	}
-	filterDelegatedConfigResources(binding, overrideScopes, pipelines, steps, knowledgeContexts, generalScopeVars, repoScopeVars, triggers)
+	filterDelegatedConfigResources(binding, overrideScopes, pipelines, steps, knowledgeContexts, generalScopeVars, repoScopeVars, generalScopeSecrets, repoScopeSecrets, triggers)
 	filterDelegatedAccessResources(accessPlan, binding, overrideScopes)
 	effectivePipelineRunStructure, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, pipelineRunStructure, configRepositoryPipelineRunStructure, overrideScopes)
 	if err != nil {
@@ -2334,6 +2323,18 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 			managed_by_config_repo = TRUE,
 			updated_at = NOW()`
 	const envUpsert = `INSERT INTO variables (
+			name, value, repository_name, scope, source,
+			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at
+		) VALUES ($1, $2, $3, $4, 'git', $5, $6, $7, TRUE, NOW())
+		ON CONFLICT (name, repository_name, scope) DO UPDATE SET
+			value = EXCLUDED.value,
+			source = 'git',
+			config_repo_id = EXCLUDED.config_repo_id,
+			config_source_path = EXCLUDED.config_source_path,
+			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
+			managed_by_config_repo = TRUE,
+			updated_at = NOW()`
+	const secretUpsert = `INSERT INTO secrets (
 			name, value, repository_name, scope, source,
 			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at
 		) VALUES ($1, $2, $3, $4, 'git', $5, $6, $7, TRUE, NOW())
@@ -2467,7 +2468,47 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		details["repo_vars_synced"]++
 	}
 
-	// G. Upsert Triggers
+	// G. Upsert Scope Secrets
+	for key, stored := range generalScopeSecrets {
+		scopeParam := runtimeScopeForStorage(key.scopePath)
+		resourceID := fmt.Sprintf("scope=%s name=%s", runtimeScopeForDisplay(key.scopePath), key.name)
+		writable, err := ensureConfigResourceWritable(ctx, tx, "secrets", "secret", resourceID, binding, key.scopePath, "name = $1 AND repository_name IS NULL AND "+runtimeScopeEqualsSQL("scope", 2, scopeParam), key.name, scopeParam)
+		if err != nil {
+			return nil, commitSHA, err
+		}
+		if !writable {
+			continue
+		}
+		var encryptedValue any
+		if stored.encryptedValue != nil {
+			encryptedValue = *stored.encryptedValue
+		}
+		if _, err := tx.Exec(ctx, secretUpsert, key.name, encryptedValue, nil, scopeParam, binding.ID, stored.sourcePath, commitSHA); err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to upsert secret '%s' for scope '%s': %w", key.name, key.scopePath, err)
+		}
+		details["secrets_synced"]++
+	}
+	for key, stored := range repoScopeSecrets {
+		scopeParam := runtimeScopeForStorage(key.scopePath)
+		resourceID := fmt.Sprintf("repo=%s scope=%s name=%s", key.repo, runtimeScopeForDisplay(key.scopePath), key.name)
+		writable, err := ensureConfigResourceWritable(ctx, tx, "secrets", "secret", resourceID, binding, key.repo, "name = $1 AND repository_name = $2 AND "+runtimeScopeEqualsSQL("scope", 3, scopeParam), key.name, key.repo, scopeParam)
+		if err != nil {
+			return nil, commitSHA, err
+		}
+		if !writable {
+			continue
+		}
+		var encryptedValue any
+		if stored.encryptedValue != nil {
+			encryptedValue = *stored.encryptedValue
+		}
+		if _, err := tx.Exec(ctx, secretUpsert, key.name, encryptedValue, key.repo, scopeParam, binding.ID, stored.sourcePath, commitSHA); err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to upsert repository secret '%s' for repo '%s' scope '%s': %w", key.name, key.repo, key.scopePath, err)
+		}
+		details["secrets_synced"]++
+	}
+
+	// H. Upsert Triggers
 	for repoName, stored := range triggers {
 		writable, err := ensureConfigResourceWritable(ctx, tx, "triggers", "trigger", repoName, binding, repoName, "repository_name = $1", repoName)
 		if err != nil {
@@ -2693,6 +2734,47 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		}
 	}
 
+	// 6. Prune Secrets (Scope Secrets)
+	{
+		var names []string
+		var repos []*string
+		var scopes []*string
+
+		addSecret := func(n string, r *string, s string) {
+			names = append(names, n)
+			repos = append(repos, r)
+			storedScope := runtimeScopeForStorage(s)
+			scopes = append(scopes, &storedScope)
+		}
+
+		for key := range generalScopeSecrets {
+			addSecret(key.name, nil, key.scopePath)
+		}
+		for key := range repoScopeSecrets {
+			r := key.repo
+			addSecret(key.name, &r, key.scopePath)
+		}
+
+		if len(names) == 0 {
+			if _, err := tx.Exec(ctx, "DELETE FROM secrets WHERE managed_by_config_repo = TRUE AND config_repo_id = $1", binding.ID); err != nil {
+				return nil, commitSHA, fmt.Errorf("failed to prune secrets: %w", err)
+			}
+		} else {
+			if _, err := tx.Exec(ctx, `
+				DELETE FROM secrets
+				WHERE managed_by_config_repo = TRUE
+				AND config_repo_id = $4
+				AND NOT EXISTS (
+					SELECT 1 FROM unnest($1::text[], $2::text[], $3::text[]) AS t(n, r, s)
+					WHERE secrets.name = t.n
+					AND secrets.repository_name IS NOT DISTINCT FROM t.r
+					AND secrets.scope IS NOT DISTINCT FROM t.s
+				)`, names, repos, scopes, binding.ID); err != nil {
+				return nil, commitSHA, fmt.Errorf("failed to prune secrets: %w", err)
+			}
+		}
+	}
+
 	// Sync UI groups. Groups do not have a source column, so we do not prune them to avoid deleting user-created groups.
 	if len(effectivePipelineRunStructure) > 0 {
 		if err := a.syncPipelineRunGroups(ctx, tx, effectivePipelineRunStructure, details); err != nil {
@@ -2735,6 +2817,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		Int("knowledge_contexts_synced", details["knowledge_contexts_synced"]).
 		Int("general_vars_synced", details["general_vars_synced"]).
 		Int("repo_vars_synced", details["repo_vars_synced"]).
+		Int("secrets_synced", details["secrets_synced"]).
 		Int("triggers_synced", details["triggers_synced"]).
 		Int("config_repositories_synced", details["config_repositories_synced"]).
 		Int("run_groups_created", details["run_groups_created"]).
@@ -2759,6 +2842,17 @@ type generalScopeVarKey struct {
 }
 
 type repoScopeVarKey struct {
+	repo      string
+	scopePath string
+	name      string
+}
+
+type generalScopeSecretKey struct {
+	scopePath string
+	name      string
+}
+
+type repoScopeSecretKey struct {
 	repo      string
 	scopePath string
 	name      string
@@ -2792,6 +2886,60 @@ type storedConfigRepository struct {
 type storedScopeVar struct {
 	value      string
 	sourcePath string
+}
+
+type storedScopeSecret struct {
+	encryptedValue *string
+	sourcePath     string
+}
+
+func (a *App) addScopeConfigEntries(
+	raw map[string]interface{},
+	generalScopeVars map[generalScopeVarKey]storedScopeVar,
+	repoScopeVars map[repoScopeVarKey]storedScopeVar,
+	generalScopeSecrets map[generalScopeSecretKey]storedScopeSecret,
+	repoScopeSecrets map[repoScopeSecretKey]storedScopeSecret,
+	scopePath string,
+	sourcePath string,
+	binding models.ConfigRepository,
+	boundFolder string,
+) (bool, error) {
+	hasEmbeddedScopeAccess := false
+	for key, value := range raw {
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == "" {
+			return false, fmt.Errorf("scope file '%s' contains an empty key", sourcePath)
+		}
+
+		switch trimmedKey {
+		case "access":
+			hasEmbeddedScopeAccess = true
+			continue
+		case "variables":
+			variables, ok := scopeVariablesSection(value)
+			if !ok {
+				return false, fmt.Errorf("scope variables section in '%s' must be a map of variable names to string values", sourcePath)
+			}
+			for variableKey, variableValue := range variables {
+				if err := addScopeVariableConfigEntry(generalScopeVars, repoScopeVars, scopePath, variableKey, variableValue, sourcePath, binding, boundFolder); err != nil {
+					return false, err
+				}
+			}
+		case "secrets":
+			secrets, ok := scopeVariablesSection(value)
+			if !ok {
+				return false, fmt.Errorf("scope secrets section in '%s' must be a map of secret names to encrypted string values or null placeholders", sourcePath)
+			}
+			for secretKey, secretValue := range secrets {
+				if err := a.addScopeSecretConfigEntry(generalScopeSecrets, repoScopeSecrets, scopePath, secretKey, secretValue, sourcePath, binding, boundFolder); err != nil {
+					return false, err
+				}
+			}
+		default:
+			return false, fmt.Errorf("scope file '%s' contains unsupported top-level key '%s'; define variables under the variables section", sourcePath, trimmedKey)
+		}
+	}
+	return hasEmbeddedScopeAccess, nil
 }
 
 func scopeVariablesSection(value any) (map[string]any, bool) {
@@ -2862,6 +3010,75 @@ func addScopeVariableConfigEntry(
 		return fmt.Errorf("scope key '%s' in '%s' has an unsupported format", trimmedKey, sourcePath)
 	}
 	return nil
+}
+
+func (a *App) addScopeSecretConfigEntry(
+	generalScopeSecrets map[generalScopeSecretKey]storedScopeSecret,
+	repoScopeSecrets map[repoScopeSecretKey]storedScopeSecret,
+	scopePath string,
+	rawKey string,
+	value any,
+	sourcePath string,
+	binding models.ConfigRepository,
+	boundFolder string,
+) error {
+	trimmedKey := strings.TrimSpace(rawKey)
+	if trimmedKey == "" {
+		return fmt.Errorf("scope file '%s' contains an empty secret key", sourcePath)
+	}
+	encryptedValue, err := a.gitOpsSecretEncryptedValue(value, trimmedKey, sourcePath)
+	if err != nil {
+		return err
+	}
+
+	parts := strings.Split(trimmedKey, "/")
+	switch len(parts) {
+	case 1:
+		gKey := generalScopeSecretKey{scopePath: scopePath, name: trimmedKey}
+		if _, exists := generalScopeSecrets[gKey]; exists {
+			return fmt.Errorf("duplicate scope secret '%s' for '%s' detected", trimmedKey, scopePath)
+		}
+		generalScopeSecrets[gKey] = storedScopeSecret{encryptedValue: encryptedValue, sourcePath: sourcePath}
+	case 3:
+		repoName := fmt.Sprintf("%s/%s", strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
+		secretName := strings.TrimSpace(parts[2])
+		if repoName == "" || secretName == "" {
+			return fmt.Errorf("invalid repository-scoped secret key '%s' in '%s'", trimmedKey, sourcePath)
+		}
+		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+			normalizedRepoName, err := normalizeConfigPathForFolder(boundFolder, repoName)
+			if err != nil {
+				return fmt.Errorf("invalid group-scoped repository secret key '%s' in '%s': %w", trimmedKey, sourcePath, err)
+			}
+			repoName = normalizedRepoName
+		}
+		rKey := repoScopeSecretKey{repo: repoName, scopePath: scopePath, name: secretName}
+		if _, exists := repoScopeSecrets[rKey]; exists {
+			return fmt.Errorf("duplicate repository scope secret '%s' for '%s' detected", trimmedKey, scopePath)
+		}
+		repoScopeSecrets[rKey] = storedScopeSecret{encryptedValue: encryptedValue, sourcePath: sourcePath}
+	default:
+		return fmt.Errorf("scope secret key '%s' in '%s' has an unsupported format", trimmedKey, sourcePath)
+	}
+	return nil
+}
+
+func (a *App) gitOpsSecretEncryptedValue(value any, secretKey, sourcePath string) (*string, error) {
+	if value == nil {
+		return nil, nil
+	}
+	strValue, ok := value.(string)
+	if !ok {
+		return nil, fmt.Errorf("scope secret entry '%s' in '%s' must be an encrypted string or null", secretKey, sourcePath)
+	}
+	strValue = strings.TrimSpace(strValue)
+	if strValue == "" {
+		return nil, nil
+	}
+	if _, err := a.decrypt(strValue); err != nil {
+		return nil, nil
+	}
+	return &strValue, nil
 }
 
 type storedTrigger struct {
@@ -3233,6 +3450,8 @@ func filterDelegatedConfigResources(
 	knowledgeContexts map[string]storedKnowledgeContext,
 	generalScopeVars map[generalScopeVarKey]storedScopeVar,
 	repoScopeVars map[repoScopeVarKey]storedScopeVar,
+	generalScopeSecrets map[generalScopeSecretKey]storedScopeSecret,
+	repoScopeSecrets map[repoScopeSecretKey]storedScopeSecret,
 	triggers map[string]storedTrigger,
 ) {
 	if len(overrideScopes) == 0 {
@@ -3266,6 +3485,16 @@ func filterDelegatedConfigResources(
 	for key := range repoScopeVars {
 		if configResourceUnderAnyScope(key.repo, overrideScopes) || configResourceUnderAnyScope(key.scopePath, overrideScopes) {
 			delete(repoScopeVars, key)
+		}
+	}
+	for key := range generalScopeSecrets {
+		if configResourceUnderAnyScope(key.scopePath, overrideScopes) {
+			delete(generalScopeSecrets, key)
+		}
+	}
+	for key := range repoScopeSecrets {
+		if configResourceUnderAnyScope(key.repo, overrideScopes) || configResourceUnderAnyScope(key.scopePath, overrideScopes) {
+			delete(repoScopeSecrets, key)
 		}
 	}
 	for key := range triggers {

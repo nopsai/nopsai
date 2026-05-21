@@ -152,7 +152,8 @@ GitOps-style configuration sync supports:
 - `pipelines/` -> pipeline definitions
 - `steps/` -> reusable step definitions
 - `triggers/` -> trigger overrides
-- `scopes/` -> scoped variables
+- `scopes/` -> scoped variables declared under `variables:` and GitOps secret
+  keys declared under `secrets:`
 - `knowledge/` -> managed knowledge context markdown documents
 - `pipelineruns/structure.yaml` -> legacy UI group hierarchy for groups owned by the syncing repo
 - `config-repositories/` -> group config repo bindings, group shells, and colocated group structure files
@@ -163,6 +164,10 @@ Sync behavior:
 - upsert Git-sourced items into the database
 - prune Git-sourced items removed from the config repo
 - preserve non-Git groups to avoid deleting user-managed structure
+- reject flat top-level variable entries in scope files; scoped variables must
+  be nested under `variables:`
+- import GitOps secret values only when they decrypt with the current NopsAI
+  master key; otherwise keep the secret key with no value
 - sync system/global config repositories before group config repositories, so group bindings defined in Git can be picked up during the same sync-all run
 - group config repositories are authoritative for resources under their group path; parent repos prune their own managed resources in delegated groups
 - `config-repositories/groups/structure.yaml` and `config-repositories/groups/<group>/structure.yaml` can place repositories under group shells and include inline `config:` blocks for group repo bindings

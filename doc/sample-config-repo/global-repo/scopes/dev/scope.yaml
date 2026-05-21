@@ -1,2 +1,6 @@
-PLATFORM_SCOPE: "development"
-hosein-yousefii/test-app/TEST_SCOPE: "ghcr.io/acme/service-api:dev"
+variables:
+  PLATFORM_SCOPE: "development"
+  hosein-yousefii/test-app/TEST_SCOPE: "ghcr.io/acme/service-api:dev"
+secrets:
+  GEMINI_API_KEY:
+  hosein-yousefii/test-app/DEPLOY_TOKEN:

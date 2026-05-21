@@ -488,7 +488,8 @@ curl "http://localhost:8080/v1/variables?scope=prod"
 - The list endpoint now returns both global variables (e.g. `DATABASE_URL`) and repository-scoped entries in the form `owner/repo/NAME`.
 - Omitting `?scope=` targets the default scope and stores `scope = 'default'`.
 - Duplicate keys inside the same scope are rejected during config sync.
-- The config repo may define scoped variables under `scopes/<scope>/scope.yaml`; the sync endpoint imports them automatically.
+- The config repo may define scoped variables under `variables:` and secret keys under `secrets:` in `scopes/<scope>/scope.yaml`; the sync endpoint imports them automatically. Scope variables must be inside the `variables:` section; flat top-level variable entries are rejected. GitOps secret values must be encrypted by this NopsAI instance, otherwise the key is imported with no value.
+- To generate a GitOps secret value without storing it, call `POST /v1/secrets/encrypt` with `{"value":"plain"}` and commit the returned `encrypted_value`.
 - Pipeline `variables` entries can use `scope:NAME` to resolve from that explicit scope while injecting `NAME` at runtime. Bare `NAME` resolves from the run's current scope.
 - Predefined product roles allow variable metadata reads and writes, but do not grant variable value reads by default.
 

@@ -128,6 +128,7 @@ func (a *App) registerKnowledgeContextRoutes(mux *http.ServeMux) {
 func (a *App) registerSecretVariableRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/secrets", a.handleListGeneralSecrets)
 	mux.HandleFunc("GET /v1/secrets/scopes", a.handleListSecretScopes)
+	mux.HandleFunc("POST /v1/secrets/encrypt", a.handleEncryptSecretForGitOps)
 	mux.HandleFunc("GET /v1/secrets/{secretName}", a.handleGetGeneralSecretValue)
 	mux.HandleFunc("PUT /v1/secrets/{secretName}", a.handleCreateOrUpdateGeneralSecret)
 	mux.HandleFunc("DELETE /v1/secrets/{secretName}", a.handleDeleteGeneralSecret)
