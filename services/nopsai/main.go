@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	crand "crypto/rand"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -87,6 +89,9 @@ type App struct {
 	authz         *authz.Enforcer
 	auditLogger   *audit.Logger
 	tokenActivity sync.Map
+
+	runnerBootstrapMu     sync.Mutex
+	runnerBootstrapTokens map[string]runnerBootstrapToken
 }
 
 type LogLine = models.LogLine
@@ -461,7 +466,7 @@ const (
 
 func isPublicPath(path string) bool {
 	switch path {
-	case "/v1/auth/login", "/v1/auth/refresh", "/v1/auth/logout", "/v1/git/events", "/v1/setup/preflight":
+	case "/v1/auth/login", "/v1/auth/refresh", "/v1/auth/logout", "/v1/git/events", "/v1/setup/preflight", "/v1/system/dispatcher/runner-bootstrap":
 		return true
 	default:
 		return false
@@ -757,6 +762,48 @@ type systemConfigPayload struct {
 	LLMAgentTimeout           *string `json:"llm_agent_timeout"`
 }
 
+type runnerComposeResponse struct {
+	RunnerID          string   `json:"runner_id"`
+	RunnerScopes      string   `json:"runner_scopes"`
+	RunnerCapacity    int      `json:"runner_capacity"`
+	DispatcherAddress string   `json:"dispatcher_address"`
+	Compose           string   `json:"compose"`
+	Command           string   `json:"command"`
+	Warnings          []string `json:"warnings,omitempty"`
+}
+
+type runnerBootstrapCommandResponse struct {
+	RunnerID          string    `json:"runner_id"`
+	RunnerScopes      string    `json:"runner_scopes"`
+	RunnerCapacity    int       `json:"runner_capacity"`
+	DispatcherAddress string    `json:"dispatcher_address"`
+	BootstrapCommand  string    `json:"bootstrap_command"`
+	ExpiresAt         time.Time `json:"expires_at"`
+	Warnings          []string  `json:"warnings,omitempty"`
+}
+
+type runnerBootstrapToken struct {
+	Script    string
+	ExpiresAt time.Time
+}
+
+type runnerInstallEnv struct {
+	key   string
+	value string
+}
+
+type runnerInstallSpec struct {
+	RunnerID          string
+	RunnerScopes      string
+	RunnerCapacity    int
+	DispatcherAddress string
+	ServiceName       string
+	DockerNetwork     string
+	IncludeNetwork    bool
+	Env               []runnerInstallEnv
+	Warnings          []string
+}
+
 func (a *App) buildSystemConfigResponse(cfg config.Config) map[string]interface{} {
 	return map[string]interface{}{
 		"agent_nopsai_api_url":         cfg.AgentNopsaiAPIURL,
@@ -769,6 +816,392 @@ func (a *App) buildSystemConfigResponse(cfg config.Config) map[string]interface{
 		"llm_agent_timeout":            cfg.LLMAgentTimeout,
 		"env_file_path":                a.envFilePath,
 	}
+}
+
+func buildRunnerInstallSpec(cfg config.Config, r *http.Request) (runnerInstallSpec, error) {
+	query := r.URL.Query()
+	runnerID := strings.TrimSpace(query.Get("runner_id"))
+	if runnerID == "" {
+		runnerID = "runner-prod-1"
+	}
+	runnerScopes := strings.TrimSpace(query.Get("runner_scopes"))
+	if _, provided := query["runner_scopes"]; !provided && runnerScopes == "" {
+		runnerScopes = strings.TrimSpace(cfg.RunnerScopes)
+	}
+	if _, provided := query["runner_scopes"]; !provided && runnerScopes == "" {
+		runnerScopes = "prod"
+	}
+	runnerCapacity := cfg.RunnerCapacity
+	if runnerCapacity <= 0 {
+		runnerCapacity = 1
+	}
+	if rawCapacity := strings.TrimSpace(query.Get("runner_capacity")); rawCapacity != "" {
+		parsed, err := strconv.Atoi(rawCapacity)
+		if err != nil || parsed <= 0 {
+			return runnerInstallSpec{}, fmt.Errorf("runner_capacity must be a positive integer")
+		}
+		runnerCapacity = parsed
+	}
+
+	serviceJWTSigningKey := cfg.EffectiveServiceJWTSigningKey()
+	if strings.TrimSpace(serviceJWTSigningKey) == "" {
+		return runnerInstallSpec{}, fmt.Errorf("SERVICE_JWT_SIGNING_KEY is not configured")
+	}
+
+	dispatcherAddress, adapted, warnings := externalDispatcherAddress(cfg, r)
+	tlsSecret := cfg.EffectiveDispatcherTLSSecret()
+	tlsMode := cfg.EffectiveDispatcherTLSMode()
+	if servicetls.Enabled(tlsMode) && strings.TrimSpace(tlsSecret) == "" {
+		return runnerInstallSpec{}, fmt.Errorf("DISPATCHER_TLS_SECRET is not configured")
+	}
+	if adapted {
+		warnings = append(warnings, "The configured dispatcher address is local to the NopsAI stack, so this template uses the current request host and dispatcher port. Confirm that endpoint is reachable from the new runner host.")
+		if looksInternalAddress(cfg.AgentNopsaiAPIURL) {
+			warnings = append(warnings, fmt.Sprintf("agent_nopsai_api_url is %q. Remote agent containers may need System > Config to use a URL reachable outside the Docker network.", cfg.AgentNopsaiAPIURL))
+		}
+	}
+
+	serviceName := composeServiceName(runnerID)
+	env := []runnerInstallEnv{
+		{"RUNNER_ID", runnerID},
+		{"RUNNER_SCOPES", runnerScopes},
+		{"RUNNER_CAPACITY", strconv.Itoa(runnerCapacity)},
+		{"DISPATCHER_ADDRESS", dispatcherAddress},
+		{serviceauth.EnvSigningKey, serviceJWTSigningKey},
+		{serviceauth.EnvIssuer, cfg.EffectiveServiceJWTIssuer()},
+		{serviceauth.EnvAudience, cfg.EffectiveServiceJWTAudience()},
+		{"RUNNER_SERVICE_ID", cfg.EffectiveRunnerServiceID()},
+		{servicetls.EnvMode, tlsMode},
+		{servicetls.EnvSecret, tlsSecret},
+		{servicetls.EnvServerName, cfg.EffectiveDispatcherTLSServerName()},
+	}
+	dockerNetwork := strings.TrimSpace(cfg.DockerNetworkName)
+	if adapted {
+		dockerNetwork = ""
+		env = append(env, runnerInstallEnv{"DOCKER_NETWORK_NAME", ""})
+	} else if dockerNetwork != "" {
+		env = append(env, runnerInstallEnv{"DOCKER_NETWORK_NAME", dockerNetwork})
+	}
+
+	return runnerInstallSpec{
+		RunnerID:          runnerID,
+		RunnerScopes:      runnerScopes,
+		RunnerCapacity:    runnerCapacity,
+		DispatcherAddress: dispatcherAddress,
+		ServiceName:       serviceName,
+		DockerNetwork:     dockerNetwork,
+		IncludeNetwork:    !adapted && dockerNetwork != "",
+		Env:               env,
+		Warnings:          warnings,
+	}, nil
+}
+
+func (a *App) buildRunnerComposeResponse(cfg config.Config, r *http.Request) (runnerComposeResponse, error) {
+	spec, err := buildRunnerInstallSpec(cfg, r)
+	if err != nil {
+		return runnerComposeResponse{}, err
+	}
+	compose := buildRunnerCompose(spec)
+	return runnerComposeResponse{
+		RunnerID:          spec.RunnerID,
+		RunnerScopes:      spec.RunnerScopes,
+		RunnerCapacity:    spec.RunnerCapacity,
+		DispatcherAddress: spec.DispatcherAddress,
+		Compose:           compose,
+		Command:           fmt.Sprintf("docker compose -f docker-compose.yaml up -d %s", spec.ServiceName),
+		Warnings:          spec.Warnings,
+	}, nil
+}
+
+func (a *App) buildRunnerBootstrapCommandResponse(cfg config.Config, r *http.Request) (runnerBootstrapCommandResponse, error) {
+	spec, err := buildRunnerInstallSpec(cfg, r)
+	if err != nil {
+		return runnerBootstrapCommandResponse{}, err
+	}
+	script := buildRunnerDockerRunScript(spec)
+	token, expiresAt, err := a.createRunnerBootstrapToken(script, 10*time.Minute)
+	if err != nil {
+		return runnerBootstrapCommandResponse{}, err
+	}
+	bootstrapURL := strings.TrimRight(requestExternalBaseURL(r), "/") + "/v1/system/dispatcher/runner-bootstrap?token=" + url.QueryEscape(token)
+	return runnerBootstrapCommandResponse{
+		RunnerID:          spec.RunnerID,
+		RunnerScopes:      spec.RunnerScopes,
+		RunnerCapacity:    spec.RunnerCapacity,
+		DispatcherAddress: spec.DispatcherAddress,
+		BootstrapCommand:  fmt.Sprintf("curl -fsSL %s | sh", shellQuote(bootstrapURL)),
+		ExpiresAt:         expiresAt,
+		Warnings: append([]string{
+			"This one-time install command expires in 10 minutes and is consumed by the first successful download.",
+		}, spec.Warnings...),
+	}, nil
+}
+
+func buildRunnerCompose(spec runnerInstallSpec) string {
+	var builder strings.Builder
+	builder.WriteString(spec.ServiceName)
+	builder.WriteString(":\n")
+	builder.WriteString("  image: hoseindocker/nopsai-runner:latest\n")
+	builder.WriteString("  restart: always\n")
+	builder.WriteString("  environment:\n")
+	for _, item := range spec.Env {
+		builder.WriteString("    ")
+		builder.WriteString(item.key)
+		builder.WriteString(": ")
+		builder.WriteString(strconv.Quote(item.value))
+		builder.WriteString("\n")
+	}
+	builder.WriteString("  volumes:\n")
+	builder.WriteString("    - /var/run/docker.sock:/var/run/docker.sock\n")
+	if spec.IncludeNetwork {
+		builder.WriteString("  networks:\n")
+		builder.WriteString("    - ")
+		builder.WriteString(strconv.Quote(spec.DockerNetwork))
+		builder.WriteString("\n")
+	}
+	return builder.String()
+}
+
+func buildRunnerDockerRunScript(spec runnerInstallSpec) string {
+	var builder strings.Builder
+	builder.WriteString("#!/bin/sh\n")
+	builder.WriteString("set -eu\n\n")
+	builder.WriteString("if ! command -v docker >/dev/null 2>&1; then\n")
+	builder.WriteString("  echo \"docker is required on this runner host\" >&2\n")
+	builder.WriteString("  exit 1\n")
+	builder.WriteString("fi\n\n")
+	builder.WriteString("docker pull hoseindocker/nopsai-runner:latest\n")
+	builder.WriteString("docker rm -f ")
+	builder.WriteString(shellQuote(spec.ServiceName))
+	builder.WriteString(" >/dev/null 2>&1 || true\n")
+	builder.WriteString("docker run -d \\\n")
+	builder.WriteString("  --name ")
+	builder.WriteString(shellQuote(spec.ServiceName))
+	builder.WriteString(" \\\n")
+	builder.WriteString("  --restart always \\\n")
+	if spec.IncludeNetwork {
+		builder.WriteString("  --network ")
+		builder.WriteString(shellQuote(spec.DockerNetwork))
+		builder.WriteString(" \\\n")
+	}
+	builder.WriteString("  -v /var/run/docker.sock:/var/run/docker.sock")
+	for _, item := range spec.Env {
+		builder.WriteString(" \\\n")
+		builder.WriteString("  -e ")
+		builder.WriteString(shellQuote(item.key + "=" + item.value))
+	}
+	builder.WriteString(" \\\n")
+	builder.WriteString("  hoseindocker/nopsai-runner:latest\n")
+	builder.WriteString("echo \"NopsAI runner ")
+	builder.WriteString(shellDoubleQuote(spec.RunnerID))
+	builder.WriteString(" started. Refresh System > Dispatcher to confirm registration.\"\n")
+	return builder.String()
+}
+
+func composeServiceName(runnerID string) string {
+	name := strings.ToLower(strings.TrimSpace(runnerID))
+	name = nonAlphanumericRegex.ReplaceAllString(name, "-")
+	name = strings.Trim(name, ".-_")
+	if name == "" {
+		return "nopsai-runner"
+	}
+	if strings.HasPrefix(name, "runner") {
+		return name
+	}
+	return "runner-" + name
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
+func shellDoubleQuote(value string) string {
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, `"`, `\"`)
+	value = strings.ReplaceAll(value, `$`, `\$`)
+	value = strings.ReplaceAll(value, "`", "\\`")
+	return value
+}
+
+func requestExternalBaseURL(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	proto := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0])
+	if proto == "" {
+		if r.TLS != nil {
+			proto = "https"
+		} else {
+			proto = "http"
+		}
+	}
+	host := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Host"), ",")[0])
+	if host == "" {
+		host = r.Host
+	}
+	return proto + "://" + host
+}
+
+func (a *App) createRunnerBootstrapToken(script string, ttl time.Duration) (string, time.Time, error) {
+	if strings.TrimSpace(script) == "" {
+		return "", time.Time{}, fmt.Errorf("runner bootstrap script is empty")
+	}
+	if ttl <= 0 {
+		ttl = 10 * time.Minute
+	}
+	buf := make([]byte, 32)
+	if _, err := crand.Read(buf); err != nil {
+		return "", time.Time{}, fmt.Errorf("generate runner bootstrap token: %w", err)
+	}
+	token := base64.RawURLEncoding.EncodeToString(buf)
+	expiresAt := time.Now().Add(ttl)
+
+	a.runnerBootstrapMu.Lock()
+	defer a.runnerBootstrapMu.Unlock()
+	if a.runnerBootstrapTokens == nil {
+		a.runnerBootstrapTokens = make(map[string]runnerBootstrapToken)
+	}
+	now := time.Now()
+	for existing, entry := range a.runnerBootstrapTokens {
+		if now.After(entry.ExpiresAt) {
+			delete(a.runnerBootstrapTokens, existing)
+		}
+	}
+	a.runnerBootstrapTokens[token] = runnerBootstrapToken{
+		Script:    script,
+		ExpiresAt: expiresAt,
+	}
+	return token, expiresAt, nil
+}
+
+func (a *App) consumeRunnerBootstrapToken(token string) (string, bool) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return "", false
+	}
+	a.runnerBootstrapMu.Lock()
+	defer a.runnerBootstrapMu.Unlock()
+	if a.runnerBootstrapTokens == nil {
+		return "", false
+	}
+	entry, ok := a.runnerBootstrapTokens[token]
+	if !ok {
+		return "", false
+	}
+	delete(a.runnerBootstrapTokens, token)
+	if time.Now().After(entry.ExpiresAt) {
+		return "", false
+	}
+	return entry.Script, true
+}
+
+func externalDispatcherAddress(cfg config.Config, r *http.Request) (string, bool, []string) {
+	configured := strings.TrimSpace(cfg.DispatcherAddress)
+	if configured == "" {
+		configured = "localhost:9090"
+	}
+	host := addressHost(configured)
+	port := addressPort(configured, addressPort(cfg.DispatcherListenAddress, "9090"))
+	if !isInternalAddressHost(host) {
+		return configured, false, nil
+	}
+	requestHost := requestHostForExternalAddress(r)
+	if requestHost == "" {
+		return configured, false, []string{"The dispatcher address could not be adapted because the request host was empty."}
+	}
+	return net.JoinHostPort(requestHost, port), true, nil
+}
+
+func looksInternalAddress(raw string) bool {
+	return isInternalAddressHost(addressHost(raw))
+}
+
+func requestHostForExternalAddress(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	for _, raw := range []string{r.Header.Get("X-Forwarded-Host"), r.Host} {
+		first := strings.TrimSpace(strings.Split(raw, ",")[0])
+		if first == "" {
+			continue
+		}
+		return stripAddressPort(first)
+	}
+	return ""
+}
+
+func addressHost(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if strings.Contains(raw, "://") {
+		if parsed, err := url.Parse(raw); err == nil {
+			return stripAddressPort(parsed.Host)
+		}
+	}
+	return stripAddressPort(raw)
+}
+
+func addressPort(raw, fallback string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fallback
+	}
+	if strings.Contains(raw, "://") {
+		if parsed, err := url.Parse(raw); err == nil {
+			if port := parsed.Port(); port != "" {
+				return port
+			}
+		}
+	}
+	if _, port, err := net.SplitHostPort(raw); err == nil && port != "" {
+		return port
+	}
+	lastColon := strings.LastIndex(raw, ":")
+	if lastColon >= 0 && lastColon < len(raw)-1 && !strings.Contains(raw[lastColon+1:], "]") {
+		candidate := raw[lastColon+1:]
+		if _, err := strconv.Atoi(candidate); err == nil {
+			return candidate
+		}
+	}
+	return fallback
+}
+
+func stripAddressPort(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if host, _, err := net.SplitHostPort(raw); err == nil {
+		return strings.Trim(host, "[]")
+	}
+	if strings.HasPrefix(raw, "[") {
+		if idx := strings.Index(raw, "]"); idx >= 0 {
+			return strings.Trim(raw[1:idx], "[]")
+		}
+	}
+	if idx := strings.LastIndex(raw, ":"); idx > 0 && !strings.Contains(raw[:idx], ":") {
+		if _, err := strconv.Atoi(raw[idx+1:]); err == nil {
+			return raw[:idx]
+		}
+	}
+	return strings.Trim(raw, "[]")
+}
+
+func isInternalAddressHost(host string) bool {
+	host = strings.ToLower(strings.Trim(strings.TrimSpace(host), "[]"))
+	if host == "" {
+		return true
+	}
+	switch host {
+	case "localhost", "127.0.0.1", "::1", "0.0.0.0", "dispatcher", "nopsai-dispatcher", "nopsai":
+		return true
+	}
+	return strings.HasPrefix(host, "127.")
 }
 
 func (a *App) applySystemConfig(payload systemConfigPayload) config.Config {
@@ -952,6 +1385,47 @@ func (a *App) handleGetSystemConfig(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		log.Warn().Err(err).Msg("Failed to encode system config response")
 	}
+}
+
+func (a *App) handleGenerateRunnerCompose(w http.ResponseWriter, r *http.Request) {
+	cfg := a.getConfigSnapshot()
+	resp, err := a.buildRunnerComposeResponse(cfg, r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Warn().Err(err).Msg("Failed to encode runner compose response")
+	}
+}
+
+func (a *App) handleGenerateRunnerBootstrapCommand(w http.ResponseWriter, r *http.Request) {
+	cfg := a.getConfigSnapshot()
+	resp, err := a.buildRunnerBootstrapCommandResponse(cfg, r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Warn().Err(err).Msg("Failed to encode runner bootstrap command response")
+	}
+}
+
+func (a *App) handleRunnerBootstrap(w http.ResponseWriter, r *http.Request) {
+	script, ok := a.consumeRunnerBootstrapToken(r.URL.Query().Get("token"))
+	if !ok {
+		http.Error(w, "runner bootstrap token not found or expired", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write([]byte(script))
 }
 
 func (a *App) handleUpdateSystemConfig(w http.ResponseWriter, r *http.Request) {

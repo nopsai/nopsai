@@ -1,6 +1,9 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -113,6 +116,94 @@ func TestBuildSystemConfigResponseDoesNotExposeConfigRepoURL(t *testing.T) {
 		if _, ok := response[key]; ok {
 			t.Fatalf("buildSystemConfigResponse() exposed removed key %q", key)
 		}
+	}
+}
+
+func TestBuildRunnerComposeResponseUsesLiveSecretsAndAdaptsDispatcherAddress(t *testing.T) {
+	app := App{}
+	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/system/dispatcher/runner-compose?runner_id=runner-cloud-1&runner_scopes=prod&runner_capacity=3", nil)
+	resp, err := app.buildRunnerComposeResponse(config.Config{
+		AgentNopsaiAPIURL:       "http://nopsai:8080",
+		DispatcherAddress:       "dispatcher:9090",
+		DispatcherListenAddress: ":9090",
+		ServiceJWTSigningKey:    "service-secret",
+		ServiceJWTIssuer:        "issuer",
+		ServiceJWTAudience:      "audience",
+		RunnerServiceID:         "runner-service",
+		DispatcherTLSMode:       "mtls",
+		DispatcherTLSSecret:     "tls-secret",
+		DispatcherTLSServerName: "nopsai-dispatcher.example.com",
+		DockerNetworkName:       "nopsai-net",
+		RunnerCapacity:          1,
+	}, req)
+	if err != nil {
+		t.Fatalf("buildRunnerComposeResponse() error = %v", err)
+	}
+	if resp.DispatcherAddress != "nopsai.example.com:9090" {
+		t.Fatalf("dispatcher address = %q, want adapted request host", resp.DispatcherAddress)
+	}
+	for _, want := range []string{
+		`RUNNER_ID: "runner-cloud-1"`,
+		`RUNNER_SCOPES: "prod"`,
+		`RUNNER_CAPACITY: "3"`,
+		`DISPATCHER_ADDRESS: "nopsai.example.com:9090"`,
+		`SERVICE_JWT_SIGNING_KEY: "service-secret"`,
+		`SERVICE_JWT_ISSUER: "issuer"`,
+		`SERVICE_JWT_AUDIENCE: "audience"`,
+		`RUNNER_SERVICE_ID: "runner-service"`,
+		`DISPATCHER_TLS_SECRET: "tls-secret"`,
+		`DISPATCHER_TLS_SERVER_NAME: "nopsai-dispatcher.example.com"`,
+		`DOCKER_NETWORK_NAME: ""`,
+	} {
+		if !strings.Contains(resp.Compose, want) {
+			t.Fatalf("compose missing %q:\n%s", want, resp.Compose)
+		}
+	}
+	if strings.Contains(resp.Compose, "env_file") {
+		t.Fatalf("compose should not require env_file:\n%s", resp.Compose)
+	}
+	if len(resp.Warnings) == 0 {
+		t.Fatalf("warnings should explain adapted external runner values")
+	}
+}
+
+func TestBuildRunnerBootstrapCommandResponseUsesOneTimeToken(t *testing.T) {
+	app := App{}
+	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/system/dispatcher/runner-bootstrap-command?runner_id=runner-cloud-1&runner_scopes=prod&runner_capacity=3", nil)
+	resp, err := app.buildRunnerBootstrapCommandResponse(config.Config{
+		AgentNopsaiAPIURL:       "http://nopsai:8080",
+		DispatcherAddress:       "dispatcher:9090",
+		DispatcherListenAddress: ":9090",
+		ServiceJWTSigningKey:    "service-secret",
+		ServiceJWTIssuer:        "issuer",
+		ServiceJWTAudience:      "audience",
+		RunnerServiceID:         "runner-service",
+		DispatcherTLSMode:       "mtls",
+		DispatcherTLSSecret:     "tls-secret",
+		DispatcherTLSServerName: "nopsai-dispatcher.example.com",
+	}, req)
+	if err != nil {
+		t.Fatalf("buildRunnerBootstrapCommandResponse() error = %v", err)
+	}
+	if strings.Contains(resp.BootstrapCommand, "service-secret") || strings.Contains(resp.BootstrapCommand, "tls-secret") {
+		t.Fatalf("bootstrap command should not expose long-lived secrets: %s", resp.BootstrapCommand)
+	}
+	const marker = "token="
+	idx := strings.Index(resp.BootstrapCommand, marker)
+	if idx < 0 {
+		t.Fatalf("bootstrap command missing token: %s", resp.BootstrapCommand)
+	}
+	rest := resp.BootstrapCommand[idx+len(marker):]
+	token := strings.Trim(rest[:strings.Index(rest, "'")], " ")
+	script, ok := app.consumeRunnerBootstrapToken(token)
+	if !ok {
+		t.Fatal("expected bootstrap token to be consumable")
+	}
+	if !strings.Contains(script, "service-secret") || !strings.Contains(script, "tls-secret") {
+		t.Fatalf("bootstrap script should include runner secrets:\n%s", script)
+	}
+	if _, ok := app.consumeRunnerBootstrapToken(token); ok {
+		t.Fatal("bootstrap token should be single-use")
 	}
 }
 
