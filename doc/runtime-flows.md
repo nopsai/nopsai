@@ -227,7 +227,7 @@ Rerun:
    - `config-repositories/groups/structure.yaml` and `config-repositories/groups/<group>/structure.yaml` place repositories under group shells and can define inline group repo `config:` blocks
    - `setting/system/llm_profile.yaml` becomes the system LLM profile registry, only from a system/global config repo
    - `setting/system/mcp.yaml` becomes the system MCP server/profile registry, only from a system/global config repo
-   - `setting/system/runtime.yaml` becomes runner install defaults, runtime URLs, and dispatcher routing, only from a system/global config repo
+   - `setting/system/runner.yaml` becomes runner install defaults, runtime URLs, and dispatcher routing, only from a system/global config repo
 6. System/global repositories are synced before group repositories during sync-all, so newly defined group bindings can be used immediately.
 7. Group-scoped resources are normalized under the bound group before writing.
 8. It refuses to overwrite resources that are unmanaged or already managed by an unrelated config repository; delegated child group repos can override parent-managed resources in their group.

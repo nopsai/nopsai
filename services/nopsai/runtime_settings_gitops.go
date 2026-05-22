@@ -79,15 +79,7 @@ func parseGitOpsRuntimeSettingsPlan(binding models.ConfigRepository, directories
 }
 
 func isGitOpsRuntimeSettingsRelativePath(rel string) bool {
-	switch strings.Trim(filepath.ToSlash(rel), "/") {
-	case "system/runtime.yaml", "system/runtime.yml",
-		"system/runner.yaml", "system/runner.yml",
-		"system/runners.yaml", "system/runners.yml",
-		"system/dispatcher.yaml", "system/dispatcher.yml":
-		return true
-	default:
-		return false
-	}
+	return strings.Trim(filepath.ToSlash(rel), "/") == "system/runner.yaml"
 }
 
 func parseGitOpsRuntimeSettingsFile(content, sourcePath string) (*gitOpsRuntimeSettingsPlan, error) {

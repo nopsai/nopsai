@@ -260,6 +260,8 @@ Important response fields:
 - `requires_restart`: services should be restarted to pick up changed runtime
   values.
 - `temporary_credentials`: one-time local user credentials for seeded users.
+- `warnings`: non-blocking setup warnings, including when LLM profile setup is
+  skipped and AI-enabled pipelines may not work yet.
 - `status`: refreshed setup status and health checks after bootstrap.
 
 ## Troubleshooting

@@ -136,17 +136,15 @@ global-repo/setting/system/llm_profile.yaml
 global-repo/setting/system/mcp.yaml
   -> system MCP server and profile registry
 
-global-repo/setting/system/runtime.yaml
+global-repo/setting/system/runner.yaml
   -> runner install defaults and dispatcher runtime routing
 ```
 
 ## Runtime settings
 
 A system/global config repo can define runner and dispatcher runtime settings in
-one file. The sample path is `setting/system/runtime.yaml`; sync also accepts
-`settings/system/runtime.yaml` and the `runner.yaml`, `runners.yaml`, or
-`dispatcher.yaml` aliases under either system settings directory. Use only one
-runtime settings file per repo so sync has a single source of truth.
+one file. The canonical path is `setting/system/runner.yaml`; `runner.yaml` is
+the only accepted settings file name for this GitOps surface.
 
 ```yaml
 dispatcher_address: dispatcher:9090
