@@ -153,6 +153,7 @@ type setupBootstrapResponse struct {
 	RequiresRestart      bool                       `json:"requires_restart,omitempty"`
 	TemporaryCredentials []setupTemporaryCredential `json:"temporary_credentials,omitempty"`
 	Messages             []string                   `json:"messages,omitempty"`
+	Warnings             []string                   `json:"warnings,omitempty"`
 }
 
 type setupTemplatesResponse struct {
@@ -256,6 +257,7 @@ func (a *App) handleBootstrapSetup(w http.ResponseWriter, r *http.Request) {
 	actor := actorIDFromRequest(r)
 	details := map[string]int{}
 	var messages []string
+	warnings := setupBootstrapWarnings(req)
 	var generatedSecrets []string
 	requiresRestart := false
 	var credentials []setupTemporaryCredential
@@ -361,6 +363,7 @@ func (a *App) handleBootstrapSetup(w http.ResponseWriter, r *http.Request) {
 		RequiresRestart:      requiresRestart,
 		TemporaryCredentials: credentials,
 		Messages:             messages,
+		Warnings:             warnings,
 	})
 }
 
@@ -393,6 +396,21 @@ func (a *App) validateSetupBootstrapRequest(req setupBootstrapRequest) error {
 		}
 	}
 	return nil
+}
+
+func setupBootstrapWarnings(req setupBootstrapRequest) []string {
+	var warnings []string
+	if warning := setupLLMSkippedWarning(req); warning != "" {
+		warnings = append(warnings, warning)
+	}
+	return warnings
+}
+
+func setupLLMSkippedWarning(req setupBootstrapRequest) string {
+	if req.Profile == setupProfileEmpty || req.Profile == setupProfileProduction || req.shouldSeedLLMProfile() {
+		return ""
+	}
+	return "LLM profile setup was skipped. Pipelines with AI-enabled goal tasks may not work until an LLM profile is configured."
 }
 
 func (a *App) buildSetupStatus(ctx context.Context) (setupStatusResponse, error) {

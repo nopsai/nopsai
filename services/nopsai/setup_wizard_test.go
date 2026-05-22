@@ -117,6 +117,26 @@ func TestSetupLLMProfileYAMLGeminiHasProviderSpecificFields(t *testing.T) {
 	}
 }
 
+func TestSetupBootstrapWarningsWhenLLMSkipped(t *testing.T) {
+	seedLLM := false
+	warnings := setupBootstrapWarnings(setupBootstrapRequest{
+		Profile:        setupProfileTeam,
+		SeedLLMProfile: &seedLLM,
+	})
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "AI-enabled") {
+		t.Fatalf("warnings = %#v, want AI-enabled pipeline warning", warnings)
+	}
+
+	seedLLM = true
+	if warnings := setupBootstrapWarnings(setupBootstrapRequest{Profile: setupProfileTeam, SeedLLMProfile: &seedLLM}); len(warnings) != 0 {
+		t.Fatalf("warnings with LLM seed enabled = %#v, want none", warnings)
+	}
+	seedLLM = false
+	if warnings := setupBootstrapWarnings(setupBootstrapRequest{Profile: setupProfileProduction, SeedLLMProfile: &seedLLM}); len(warnings) != 0 {
+		t.Fatalf("production warnings = %#v, want none", warnings)
+	}
+}
+
 func TestProductionSetupRejectsDirectDatabaseSeed(t *testing.T) {
 	app := App{}
 	err := app.validateSetupBootstrapRequest(setupBootstrapRequest{

@@ -81,7 +81,7 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - For the global GitOps entrypoint, use `PUT /v1/system/config-repo` with `scope_id=global`.
 - System LLM profiles can be managed in the global config repo at `setting/system/llm_profile.yaml`.
 - System MCP profiles can be managed in the global config repo at `setting/system/mcp.yaml`.
-- Runner defaults, supported runtime URLs, and dispatcher routing can be managed in the global config repo at `setting/system/runtime.yaml`.
+- Runner defaults, supported runtime URLs, and dispatcher routing can be managed in the global config repo at `setting/system/runner.yaml`.
 - Managed knowledge context markdown files can be synced from `knowledge/<kind>/<group>/<document>.md`.
 
 ---
@@ -149,7 +149,9 @@ curl -X POST \
 
 The UI sends `profile: "team"` as a compatibility value, but the operator
 experience no longer asks for a starter profile. Repository groups are used for
-starter run folders and user role assignment. For the full operator flow, see
+starter run folders and user role assignment. If `seed_llm_profile` is false,
+the bootstrap response includes a warning that AI-enabled pipelines may not work
+until an LLM profile is configured. For the full operator flow, see
 [first-install-wizard.md](./first-install-wizard.md).
 
 ---
@@ -611,7 +613,7 @@ curl -X POST -H "Content-Type: application/json" \
 - The global repo uses `scope_type=system` and `scope_id=global`.
 - System- and group-scoped repos may define group repo bindings under `config-repositories/groups/<group>.yaml`.
 - System- and group-scoped repos may define managed knowledge context markdown under `knowledge/`.
-- The system/global repo may define runtime runner defaults and dispatcher routing under `setting/system/runtime.yaml`; dispatcher routing changes require a dispatcher restart or redeploy before they affect scheduling.
+- The system/global repo may define runtime runner defaults and dispatcher routing under `setting/system/runner.yaml`; dispatcher routing changes require a dispatcher restart or redeploy before they affect scheduling.
 - A binding file contains `repo_url`, optional `branch`, optional `base_path`, optional `enabled`, optional `write_enabled`, and optional `write_branch`.
 - `branch` remains the read/sync source. When `write_enabled` is true, Nopsai can push generated GitOps changes to `write_branch` so they can be reviewed in GitHub before merging back to the sync branch. The GitHub App needs `contents: read and write`.
 - Group repositories use the same drift and write endpoint shape at `GET /v1/groups/<group-path>/config-repo/drift` and `POST /v1/groups/<group-path>/config-repo/write`. File paths are relative to the configured `base_path`.

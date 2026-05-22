@@ -160,7 +160,7 @@ GitOps-style configuration sync supports:
 - `config-repositories/` -> group config repo bindings, group shells, and colocated group structure files
 - `setting/system/llm_profile.yaml` -> system LLM profile registry from a global config repo
 - `setting/system/mcp.yaml` -> system MCP server and profile registry from a global config repo
-- `setting/system/runtime.yaml` -> runner install defaults, runtime URLs, and dispatcher routing from a global config repo
+- `setting/system/runner.yaml` -> runner install defaults, runtime URLs, and dispatcher routing from a global config repo
 
 Sync behavior:
 

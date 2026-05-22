@@ -225,7 +225,7 @@ GitOps sync can import:
 - `config-repositories/`: global and group config repository bindings
 - `setting/system/llm_profile.yaml`: system LLM profile registry
 - `setting/system/mcp.yaml`: MCP server and profile registry
-- `setting/system/runtime.yaml`: runner install defaults, runtime URLs, and dispatcher routing from the global config repo
+- `setting/system/runner.yaml`: runner install defaults, runtime URLs, and dispatcher routing from the global config repo
 - `pipelineruns/structure.yaml`: legacy run group structure
 
 Runtime settings GitOps is limited to operational defaults such as runner ID,
