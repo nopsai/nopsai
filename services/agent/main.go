@@ -26,12 +26,10 @@ import (
 	"nopsai/pkg/serviceauth"
 	"nopsai/pkg/servicetls"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/api/types/volume"
-	"github.com/docker/docker/client"
-	"github.com/docker/docker/pkg/stdcopy"
+	cerrdefs "github.com/containerd/errdefs"
+	"github.com/moby/moby/api/pkg/stdcopy"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
@@ -319,21 +317,21 @@ func executeAction(cli *client.Client, containerID string, action *proto.Action,
 		return "", "Unknown action type", 1
 	}
 
-	execConfig := container.ExecOptions{
+	execConfig := client.ExecCreateOptions{
 		Cmd:          []string{"sh", "-c", cmdStr},
 		Env:          runtimeVars,
 		WorkingDir:   resolvedWorkingDirectory,
 		AttachStdout: true,
 		AttachStderr: true,
-		Tty:          false,
+		TTY:          false,
 	}
 
-	execID, err := cli.ContainerExecCreate(context.Background(), containerID, execConfig)
+	execID, err := cli.ExecCreate(context.Background(), containerID, execConfig)
 	if err != nil {
 		return "", fmt.Sprintf("failed to create exec: %v", err), 1
 	}
 
-	resp, err := cli.ContainerExecAttach(context.Background(), execID.ID, container.ExecStartOptions{})
+	resp, err := cli.ExecAttach(context.Background(), execID.ID, client.ExecAttachOptions{})
 	if err != nil {
 		return "", fmt.Sprintf("failed to attach to exec: %v", err), 1
 	}
@@ -345,7 +343,7 @@ func executeAction(cli *client.Client, containerID string, action *proto.Action,
 		return "", fmt.Sprintf("failed to read output: %v", err), 1
 	}
 
-	inspect, err := cli.ContainerExecInspect(context.Background(), execID.ID)
+	inspect, err := cli.ExecInspect(context.Background(), execID.ID, client.ExecInspectOptions{})
 	if err != nil {
 		return "", fmt.Sprintf("failed to inspect exec: %v", err), 1
 	}
@@ -546,34 +544,34 @@ func cleanup(cli *client.Client, containerID, pipelineName, runID string) {
 	defer cancel()
 
 	timeout := 1 // 1 second timeout for stop
-	if err := cli.ContainerStop(ctx, containerID, container.StopOptions{Timeout: &timeout}); err != nil {
+	if _, err := cli.ContainerStop(ctx, containerID, client.ContainerStopOptions{Timeout: &timeout}); err != nil {
 		agentLog(runID, pipelineName).Error().Err(err).Msg("Failed to stop pipeline container")
 	}
 
-	statusCh, errCh := cli.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)
+	waitResult := cli.ContainerWait(ctx, containerID, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
 	select {
-	case err := <-errCh:
+	case err := <-waitResult.Error:
 		if err != nil {
 			agentLog(runID, pipelineName).Error().Err(err).Msg("Error waiting for container to stop")
 		}
-	case <-statusCh:
+	case <-waitResult.Result:
 	}
 
-	if err := cli.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true}); err != nil {
+	if _, err := cli.ContainerRemove(ctx, containerID, client.ContainerRemoveOptions{Force: true}); err != nil {
 		agentLog(runID, pipelineName).Error().Err(err).Msg("Failed to remove pipeline container")
 	}
 }
 
 func ensureImageExists(ctx context.Context, logger *zerolog.Logger, cli *client.Client, imageName string) error {
-	imageFilters := filters.NewArgs(filters.Arg("reference", imageName))
-	images, err := cli.ImageList(ctx, image.ListOptions{Filters: imageFilters})
+	imageFilters := make(client.Filters).Add("reference", imageName)
+	images, err := cli.ImageList(ctx, client.ImageListOptions{Filters: imageFilters})
 	if err != nil {
 		return fmt.Errorf("failed to list images to check for %s: %w", imageName, err)
 	}
 
-	if len(images) == 0 {
+	if len(images.Items) == 0 {
 		logger.Info().Str("image", imageName).Msg("Image not found locally, pulling")
-		out, err := cli.ImagePull(ctx, imageName, image.PullOptions{})
+		out, err := cli.ImagePull(ctx, imageName, client.ImagePullOptions{})
 		if err != nil {
 			return fmt.Errorf("failed to pull image %s: %w", imageName, err)
 		}
@@ -1288,11 +1286,11 @@ func run() int {
 								continue
 							}
 							volumeName := parts[0]
-							_, err := cli.VolumeInspect(context.Background(), volumeName)
+							_, err := cli.VolumeInspect(context.Background(), volumeName, client.VolumeInspectOptions{})
 							if err != nil {
-								if client.IsErrNotFound(err) {
+								if cerrdefs.IsNotFound(err) {
 									taskLogger.Info().Str("volume", volumeName).Msg("Volume not found, creating it now")
-									_, createErr := cli.VolumeCreate(context.Background(), volume.CreateOptions{Name: volumeName})
+									_, createErr := cli.VolumeCreate(context.Background(), client.VolumeCreateOptions{Name: volumeName})
 									if createErr != nil {
 										taskLogger.Error().Err(createErr).Str("volume", volumeName).Msg("Failed to create volume")
 										continue
@@ -1319,16 +1317,20 @@ func run() int {
 						stepContainerName = fmt.Sprintf("%s-%s-%s", sanitizedPipelineName, sanitizedStepName, shortRunID)
 					}
 
-					cont, err := cli.ContainerCreate(context.Background(), &container.Config{
-						Image:      imageName,
-						WorkingDir: workingDirectory,
-						Entrypoint: []string{"tail", "-f", "/dev/null"},
-						Env:        stepRuntimeVars,
-						Tty:        false,
-					}, &container.HostConfig{
-						Binds:       binds,
-						NetworkMode: container.NetworkMode(dockerNetworkName),
-					}, nil, nil, stepContainerName)
+					cont, err := cli.ContainerCreate(context.Background(), client.ContainerCreateOptions{
+						Config: &container.Config{
+							Image:      imageName,
+							WorkingDir: workingDirectory,
+							Entrypoint: []string{"tail", "-f", "/dev/null"},
+							Env:        stepRuntimeVars,
+							Tty:        false,
+						},
+						HostConfig: &container.HostConfig{
+							Binds:       binds,
+							NetworkMode: container.NetworkMode(dockerNetworkName),
+						},
+						Name: stepContainerName,
+					})
 					if err != nil {
 						taskLogger.Error().Err(err).Msg("Failed to create step container")
 						finalizeTask(stepName, task.Name, "failure", 1, llmDurationMs)
@@ -1336,7 +1338,7 @@ func run() int {
 						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
 						return
 					}
-					if err := cli.ContainerStart(context.Background(), cont.ID, container.StartOptions{}); err != nil {
+					if _, err := cli.ContainerStart(context.Background(), cont.ID, client.ContainerStartOptions{}); err != nil {
 						taskLogger.Error().Err(err).Msg("Failed to start step container")
 						finalizeTask(stepName, task.Name, "failure", 1, llmDurationMs)
 						sessionMutex.Unlock()

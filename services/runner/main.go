@@ -16,13 +16,10 @@ import (
 	"nopsai/pkg/serviceauth"
 	"nopsai/pkg/servicetls"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/api/types/volume"
-	"github.com/docker/docker/client"
-	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/moby/moby/api/pkg/stdcopy"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
@@ -297,12 +294,12 @@ func (r *runner) handleJob(ctx context.Context, dispatcher proto.DispatcherServi
 			sharedVolume = fmt.Sprintf("vol-%s", job.RunId)
 		}
 
-		_, err := r.docker.VolumeCreate(runCtx, volume.CreateOptions{Name: sharedVolume})
+		_, err := r.docker.VolumeCreate(runCtx, client.VolumeCreateOptions{Name: sharedVolume})
 		if err != nil {
 			sendJobResult(sendCh, job.RunId, "failed", fmt.Sprintf("create volume: %v", err))
 			return
 		}
-		defer r.docker.VolumeRemove(context.Background(), sharedVolume, true)
+		defer r.docker.VolumeRemove(context.Background(), sharedVolume, client.VolumeRemoveOptions{Force: true})
 
 		hostConfig := &container.HostConfig{
 			Binds: []string{
@@ -324,16 +321,21 @@ func (r *runner) handleJob(ctx context.Context, dispatcher proto.DispatcherServi
 			containerName = fmt.Sprintf("agent-%s", job.RunId)
 		}
 
-		resp, err := r.docker.ContainerCreate(runCtx, &container.Config{
-			Image: agentImage,
-			Env:   runtimeVars,
-		}, hostConfig, networking, nil, containerName)
+		resp, err := r.docker.ContainerCreate(runCtx, client.ContainerCreateOptions{
+			Config: &container.Config{
+				Image: agentImage,
+				Env:   runtimeVars,
+			},
+			HostConfig:       hostConfig,
+			NetworkingConfig: networking,
+			Name:             containerName,
+		})
 		if err != nil {
 			sendJobResult(sendCh, job.RunId, "failed", fmt.Sprintf("container create: %v", err))
 			return
 		}
 
-		if err := r.docker.ContainerStart(runCtx, resp.ID, container.StartOptions{}); err != nil {
+		if _, err := r.docker.ContainerStart(runCtx, resp.ID, client.ContainerStartOptions{}); err != nil {
 			sendJobResult(sendCh, job.RunId, "failed", fmt.Sprintf("container start: %v", err))
 			return
 		}
@@ -346,14 +348,14 @@ func (r *runner) handleJob(ctx context.Context, dispatcher proto.DispatcherServi
 		go r.monitorRunCancellation(runCtx, dispatcher, job.RunId, resp.ID)
 		go r.streamLogs(runCtx, dispatcher, job, resp.ID)
 
-		statusCh, errCh := r.docker.ContainerWait(context.Background(), resp.ID, container.WaitConditionNotRunning)
+		waitResult := r.docker.ContainerWait(context.Background(), resp.ID, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
 		select {
-		case err := <-errCh:
+		case err := <-waitResult.Error:
 			if err != nil {
 				sendJobResult(sendCh, job.RunId, "failed", fmt.Sprintf("container wait: %v", err))
 				return
 			}
-		case status := <-statusCh:
+		case status := <-waitResult.Result:
 			if status.StatusCode != 0 {
 				sendJobResult(sendCh, job.RunId, "failed", fmt.Sprintf("exit code %d", status.StatusCode))
 				return
@@ -424,7 +426,7 @@ func (r *runner) stopContainer(containerID string) {
 	defer cancel()
 
 	timeout := 1
-	if err := r.docker.ContainerStop(ctx, containerID, container.StopOptions{Timeout: &timeout}); err != nil {
+	if _, err := r.docker.ContainerStop(ctx, containerID, client.ContainerStopOptions{Timeout: &timeout}); err != nil {
 		log.Warn().Err(err).Str("container_id", containerID).Msg("failed to stop agent container after cancellation")
 	}
 }
@@ -435,7 +437,7 @@ func (r *runner) streamLogs(ctx context.Context, dispatcher proto.DispatcherServ
 		return
 	}
 
-	logReader, err := r.docker.ContainerLogs(ctx, containerID, container.LogsOptions{ShowStdout: true, ShowStderr: true, Follow: true, Timestamps: true})
+	logReader, err := r.docker.ContainerLogs(ctx, containerID, client.ContainerLogsOptions{ShowStdout: true, ShowStderr: true, Follow: true, Timestamps: true})
 	if err != nil {
 		log.Error().Err(err).Str("run_id", job.RunId).Msg("failed to attach to container logs")
 		return
@@ -543,15 +545,15 @@ func parseScopes(raw string) []string {
 }
 
 func ensureImageExists(ctx context.Context, cli *client.Client, imageName string) error {
-	imageFilters := filters.NewArgs(filters.Arg("reference", imageName))
-	images, err := cli.ImageList(ctx, image.ListOptions{Filters: imageFilters})
+	imageFilters := make(client.Filters).Add("reference", imageName)
+	images, err := cli.ImageList(ctx, client.ImageListOptions{Filters: imageFilters})
 	if err != nil {
 		return fmt.Errorf("list images: %w", err)
 	}
 
-	if len(images) == 0 {
+	if len(images.Items) == 0 {
 		log.Info().Msgf("image %s not found locally, pulling", imageName)
-		out, err := cli.ImagePull(ctx, imageName, image.PullOptions{})
+		out, err := cli.ImagePull(ctx, imageName, client.ImagePullOptions{})
 		if err != nil {
 			return fmt.Errorf("pull image: %w", err)
 		}
