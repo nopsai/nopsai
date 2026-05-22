@@ -39,7 +39,7 @@ around that balance:
 | --- | --- |
 | AI-assisted pipelines | YAML pipelines with scripts, natural language goals, reusable steps, child pipelines, dependency ordering, conditions, timeouts, volumes, and failure tolerance. |
 | GitHub automation | GitHub App webhooks, signed webhook validation, repository file access, trigger manifests, check-run creation, check-run updates, reruns, and stale-check cancellation. |
-| GitOps configuration | Sync pipelines, reusable steps, triggers, scopes, access rules, knowledge documents, LLM profiles, MCP settings, and group config repository bindings from Git. |
+| GitOps configuration | Sync pipelines, reusable steps, triggers, scopes, access rules, knowledge documents, LLM profiles, MCP settings, runtime runner/dispatcher settings, and group config repository bindings from Git. |
 | Enterprise access control | Local auth, JWTs, refresh tokens, personal access tokens, predefined product roles, inherited folder grants, AAA checks, deny-before-allow evaluation, and audit logs. |
 | Secrets and scopes | Encrypted secrets, plaintext scoped variables, strict scope isolation, repository-specific overrides, cross-scope references, and runtime authorization checks. |
 | Knowledge context | Managed or repo-local markdown context for architecture docs, guardrails, policies, ADRs, runbooks, references, examples, and guidelines injected into LLM tasks. |
@@ -225,7 +225,15 @@ GitOps sync can import:
 - `config-repositories/`: global and group config repository bindings
 - `setting/system/llm_profile.yaml`: system LLM profile registry
 - `setting/system/mcp.yaml`: MCP server and profile registry
+- `setting/system/runtime.yaml`: runner install defaults, runtime URLs, and dispatcher routing from the global config repo
 - `pipelineruns/structure.yaml`: legacy run group structure
+
+Runtime settings GitOps is limited to operational defaults such as runner ID,
+runner scopes, runner capacity, dispatcher address, agent image/network defaults,
+timeouts, and `dispatcher_routing`. Keep database URLs, master keys, service JWT
+keys, webhook secrets, and other sensitive values in local runtime configuration
+or a secret manager. Dispatcher routing changes require a dispatcher restart or
+redeploy before they affect scheduling.
 
 Scope files keep variables and secrets in separate sections. Define every
 plaintext scoped variable under `variables:`; flat top-level variable entries are
@@ -404,6 +412,13 @@ Run backend tests:
 
 ```bash
 go test ./...
+```
+
+Run the same checks through Docker Compose:
+
+```bash
+docker compose --profile test run --rm backend-test
+docker compose --profile test run --rm ui-test
 ```
 
 Build the UI:

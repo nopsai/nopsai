@@ -70,7 +70,7 @@ curl -X DELETE -H "Authorization: Bearer $NOPSAI_TOKEN" \
 ## Quick Start
 
 ```bash
-# Refresh config repositories, pipelines, reusable steps, scopes, triggers, knowledge contexts, and system LLM profiles from Git
+# Refresh config repositories, pipelines, reusable steps, scopes, triggers, knowledge contexts, and system settings from Git
 curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
   http://localhost:8080/v1/internal/config/sync
 ```
@@ -80,6 +80,8 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - The caller needs `system.update` on `system:config-sync`.
 - For the global GitOps entrypoint, use `PUT /v1/system/config-repo` with `scope_id=global`.
 - System LLM profiles can be managed in the global config repo at `setting/system/llm_profile.yaml`.
+- System MCP profiles can be managed in the global config repo at `setting/system/mcp.yaml`.
+- Runner defaults, supported runtime URLs, and dispatcher routing can be managed in the global config repo at `setting/system/runtime.yaml`.
 - Managed knowledge context markdown files can be synced from `knowledge/<kind>/<group>/<document>.md`.
 
 ---
@@ -149,6 +151,28 @@ The UI sends `profile: "team"` as a compatibility value, but the operator
 experience no longer asks for a starter profile. Repository groups are used for
 starter run folders and user role assignment. For the full operator flow, see
 [first-install-wizard.md](./first-install-wizard.md).
+
+---
+
+## Monitoring And Dispatcher Runtime
+
+```bash
+# Monitoring page data: dispatcher service health, runner summary, and visible active runs
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  http://localhost:8080/v1/monitoring/dispatcher
+
+# Scope choices for the runner install UI
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  http://localhost:8080/v1/system/dispatcher/scopes
+
+# Generate a one-time runner install command
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  "http://localhost:8080/v1/system/dispatcher/runner-bootstrap-command?runner_id=runner-prod-1&runner_scopes=prod,dev&runner_capacity=2"
+```
+
+- `GET /v1/monitoring/dispatcher` is authenticated. It returns dispatcher-backed service status, runner totals, sanitized runner rows, queue depth, and active runs. Active run entries are filtered with `pipeline_run.list`, so users only see runs they can list through their group/repository access.
+- `GET /v1/system/dispatcher/scopes` returns existing scope names from runner defaults, dispatcher routing, variables, secrets, and run history. It is used by the runner install UI for multi-select scope choices.
+- Runner install command generation and runner dispatch pause/resume remain under `System > Dispatcher` and require dispatcher runner management access.
 
 ---
 
@@ -587,6 +611,7 @@ curl -X POST -H "Content-Type: application/json" \
 - The global repo uses `scope_type=system` and `scope_id=global`.
 - System- and group-scoped repos may define group repo bindings under `config-repositories/groups/<group>.yaml`.
 - System- and group-scoped repos may define managed knowledge context markdown under `knowledge/`.
+- The system/global repo may define runtime runner defaults and dispatcher routing under `setting/system/runtime.yaml`; dispatcher routing changes require a dispatcher restart or redeploy before they affect scheduling.
 - A binding file contains `repo_url`, optional `branch`, optional `base_path`, optional `enabled`, optional `write_enabled`, and optional `write_branch`.
 - `branch` remains the read/sync source. When `write_enabled` is true, Nopsai can push generated GitOps changes to `write_branch` so they can be reviewed in GitHub before merging back to the sync branch. The GitHub App needs `contents: read and write`.
 - Group repositories use the same drift and write endpoint shape at `GET /v1/groups/<group-path>/config-repo/drift` and `POST /v1/groups/<group-path>/config-repo/write`. File paths are relative to the configured `base_path`.

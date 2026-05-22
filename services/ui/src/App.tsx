@@ -7,6 +7,7 @@ import ScopesPage from './pages/Scopes';
 import LabPage from './pages/Lab';
 import StepsPage from './pages/Steps';
 import KnowledgeContextPage from './pages/KnowledgeContext';
+import MonitoringPage from './pages/Monitoring';
 import SystemPage from './pages/System';
 import LoginPage from './pages/Login';
 import ProfilePage from './pages/Profile';
@@ -158,6 +159,11 @@ const baseNavItems: NavItem[] = [
     icon: <IconPlay />, 
   },
   {
+    label: 'Monitoring',
+    path: '/monitoring',
+    icon: <IconMonitoring />,
+  },
+  {
     label: 'Pipelines',
     path: '/pipelines',
     icon: <IconFlow />, 
@@ -205,6 +211,7 @@ const baseSystemSubNav: NavItem[] = [
 
 const titleMap: Record<string, string> = {
   pipelineruns: 'Pipeline runs',
+  monitoring: 'Monitoring',
   pipelines: 'Pipelines',
   triggers: 'Triggers',
   scopes: 'Scopes',
@@ -1137,6 +1144,7 @@ function AppShell() {
                 <Routes>
                   <Route path="/" element={<Navigate to="/pipelineruns/main" replace />} />
                   <Route path="/pipelineruns/:tab?" element={<PipelineRunsPage />} />
+                  <Route path="/monitoring" element={<MonitoringPage />} />
                   <Route
                     path="/pipelines/*"
                     element={<PipelinesPage draftScope={draftScope} canDeletePipelines={canDeletePipelines} />}
@@ -2716,6 +2724,19 @@ function IconFlow() {
   return (
     <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+    </svg>
+  );
+}
+
+function IconMonitoring() {
+  return (
+    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" d="M4 19V5m0 14h16" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" d="M7 15l3-4 3 2 4-7" />
+      <circle cx="7" cy="15" r="1.25" strokeWidth="1.8" />
+      <circle cx="10" cy="11" r="1.25" strokeWidth="1.8" />
+      <circle cx="13" cy="13" r="1.25" strokeWidth="1.8" />
+      <circle cx="17" cy="6" r="1.25" strokeWidth="1.8" />
     </svg>
   );
 }

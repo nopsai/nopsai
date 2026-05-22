@@ -83,10 +83,15 @@ func (a *App) registerSystemRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/system/config-repos/sync", a.handleSyncAllConfigRepositories)
 	mux.HandleFunc("POST /v1/internal/config/sync", a.handleConfigSync)
 	mux.HandleFunc("GET /v1/system/dispatcher", a.handleDispatcherStatus)
+	mux.HandleFunc("GET /v1/system/dispatcher/scopes", a.handleListRuntimeScopes)
 	mux.HandleFunc("GET /v1/system/dispatcher/runner-compose", a.handleGenerateRunnerCompose)
 	mux.HandleFunc("GET /v1/system/dispatcher/runner-bootstrap-command", a.handleGenerateRunnerBootstrapCommand)
 	mux.HandleFunc("GET /v1/system/dispatcher/runner-bootstrap", a.handleRunnerBootstrap)
 	mux.HandleFunc("POST /v1/system/dispatcher/runners/{runnerID}/dispatch", a.handleUpdateRunnerDispatch)
+}
+
+func (a *App) registerMonitoringRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /v1/monitoring/dispatcher", a.handleMonitoringDispatcherStatus)
 }
 
 func (a *App) registerSetupRoutes(mux *http.ServeMux) {
@@ -175,6 +180,7 @@ func (a *App) buildHTTPHandler() http.Handler {
 	a.registerGitHubRoutes(mux)
 	a.registerGroupRoutes(mux)
 	a.registerSystemRoutes(mux)
+	a.registerMonitoringRoutes(mux)
 	a.registerFolderConfigRepositoryRoutes(mux)
 	a.registerPipelineRoutes(mux)
 	a.registerKnowledgeContextRoutes(mux)

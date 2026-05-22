@@ -173,7 +173,9 @@ Important precedence rules in the current code:
 
 The dispatcher uses a few simple but important rules:
 
-- Route by `scope` and optional `dispatcher_routing` config.
+- Route by `scope` and optional `dispatcher_routing` config. Runner scope
+  registration is the first filter; `dispatcher_routing` can further allow-list
+  runner IDs for a scope.
 - Prefer `preferred_runner_id` when a child pipeline should stay near its parent.
 - Prefer affinity using `runner_affinity_key`, usually derived from `trigger_event_id`, parent run, or run ID.
 - Prefer the least-loaded eligible runner.

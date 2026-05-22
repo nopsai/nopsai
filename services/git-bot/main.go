@@ -1645,6 +1645,11 @@ func (a *GitBotApp) concludeCheckRun(owner, repo string, checkRunID int64, concl
 	delete(a.checkRunStates, checkRunID)
 }
 
+func handleHealthz(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ok"))
+}
+
 func main() {
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
@@ -1721,6 +1726,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", handleHealthz)
 	mux.HandleFunc("/webhook", app.handleWebhook)
 	mux.HandleFunc("POST /v1/github/file", app.handleFetchFile)
 	mux.HandleFunc("POST /v1/github/contents", app.handleFetchDirectoryContents)

@@ -70,6 +70,8 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		return "system.update", model.ResourceRef{Type: "system", ID: "config"}, false, nil
 	case path == "/v1/system/dispatcher":
 		return "system.read", model.ResourceRef{Type: "dispatcher", ID: "status"}, false, nil
+	case path == "/v1/system/dispatcher/scopes":
+		return "system.read", model.ResourceRef{Type: "dispatcher", ID: "scopes"}, false, nil
 	case path == "/v1/system/dispatcher/runner-compose":
 		return "system.update", model.ResourceRef{Type: "dispatcher", ID: "runners"}, false, nil
 	case path == "/v1/system/dispatcher/runner-bootstrap-command":

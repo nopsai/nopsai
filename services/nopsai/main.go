@@ -18,6 +18,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -41,7 +42,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
 	"gopkg.in/yaml.v3"
 
 	aaaauthz "nopsai/services/aaa/pkg/authz"
@@ -752,14 +752,19 @@ func validatePipeline(pipeline *models.Pipeline) error {
 }
 
 type systemConfigPayload struct {
-	AgentNopsaiAPIURL         *string `json:"agent_nopsai_api_url"`
-	GitBotNopsaiAPIURL        *string `json:"git_bot_nopsai_api_url"`
-	NopsaiGitBotAPIURL        *string `json:"nopsai_git_bot_api_url"`
-	AgentImage                *string `json:"agent_image"`
-	DockerNetworkName         *string `json:"docker_network_name"`
-	AutoRemovalAgentContainer *bool   `json:"auto_removal_agent_container"`
-	DefaultPipelineTimeout    *string `json:"default_pipeline_timeout"`
-	LLMAgentTimeout           *string `json:"llm_agent_timeout"`
+	AgentNopsaiAPIURL         *string             `json:"agent_nopsai_api_url"`
+	GitBotNopsaiAPIURL        *string             `json:"git_bot_nopsai_api_url"`
+	NopsaiGitBotAPIURL        *string             `json:"nopsai_git_bot_api_url"`
+	DispatcherAddress         *string             `json:"dispatcher_address"`
+	AgentImage                *string             `json:"agent_image"`
+	DockerNetworkName         *string             `json:"docker_network_name"`
+	AutoRemovalAgentContainer *bool               `json:"auto_removal_agent_container"`
+	DefaultPipelineTimeout    *string             `json:"default_pipeline_timeout"`
+	LLMAgentTimeout           *string             `json:"llm_agent_timeout"`
+	DispatcherRouting         map[string][]string `json:"dispatcher_routing"`
+	RunnerID                  *string             `json:"runner_id"`
+	RunnerScopes              *string             `json:"runner_scopes"`
+	RunnerCapacity            *int                `json:"runner_capacity"`
 }
 
 type runnerComposeResponse struct {
@@ -821,13 +826,68 @@ func (a *App) buildSystemConfigResponse(cfg config.Config) map[string]interface{
 		"agent_nopsai_api_url":         cfg.AgentNopsaiAPIURL,
 		"git_bot_nopsai_api_url":       cfg.GitBotNopsaiAPIURL,
 		"nopsai_git_bot_api_url":       cfg.NopsaiGitBotAPIURL,
+		"dispatcher_address":           cfg.DispatcherAddress,
 		"agent_image":                  cfg.AgentImage,
 		"docker_network_name":          cfg.DockerNetworkName,
 		"auto_removal_agent_container": cfg.AutoRemovalAgentContainer,
 		"default_pipeline_timeout":     cfg.DefaultPipelineTimeout,
 		"llm_agent_timeout":            cfg.LLMAgentTimeout,
+		"dispatcher_routing":           cloneDispatcherRouting(cfg.DispatcherRouting),
+		"runner_id":                    cfg.RunnerID,
+		"runner_scopes":                cfg.RunnerScopes,
+		"runner_capacity":              cfg.RunnerCapacity,
 		"env_file_path":                a.envFilePath,
 	}
+}
+
+func cloneDispatcherRouting(routing map[string][]string) map[string][]string {
+	if len(routing) == 0 {
+		return map[string][]string{}
+	}
+	cloned := make(map[string][]string, len(routing))
+	for scope, runners := range routing {
+		scope = strings.TrimSpace(scope)
+		if scope == "" {
+			scope = "*"
+		}
+		next := make([]string, 0, len(runners))
+		for _, runner := range runners {
+			runner = strings.TrimSpace(runner)
+			if runner != "" {
+				next = append(next, runner)
+			}
+		}
+		if len(next) > 0 {
+			cloned[scope] = next
+		}
+	}
+	return cloned
+}
+
+func normalizeDispatcherRoutingConfig(routing map[string][]string) map[string][]string {
+	if routing == nil {
+		return nil
+	}
+	return cloneDispatcherRouting(routing)
+}
+
+func normalizeRunnerScopes(raw string) string {
+	parts := strings.Split(raw, ",")
+	seen := map[string]struct{}{}
+	normalized := make([]string, 0, len(parts))
+	for _, part := range parts {
+		scope := strings.Trim(strings.TrimSpace(part), "/")
+		if scope == "" {
+			continue
+		}
+		key := strings.ToLower(scope)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		normalized = append(normalized, scope)
+	}
+	return strings.Join(normalized, ",")
 }
 
 func buildRunnerInstallSpec(cfg config.Config, r *http.Request) (runnerInstallSpec, error) {
@@ -1287,7 +1347,12 @@ func isInternalAddressHost(host string) bool {
 	return strings.HasPrefix(host, "127.")
 }
 
-func (a *App) applySystemConfig(payload systemConfigPayload) config.Config {
+func (a *App) applySystemConfig(payload systemConfigPayload) (config.Config, error) {
+	if payload.RunnerCapacity != nil && *payload.RunnerCapacity <= 0 {
+		return config.Config{}, fmt.Errorf("runner_capacity must be a positive integer")
+	}
+	routing := normalizeDispatcherRoutingConfig(payload.DispatcherRouting)
+
 	a.cfgMu.Lock()
 	defer a.cfgMu.Unlock()
 
@@ -1299,6 +1364,9 @@ func (a *App) applySystemConfig(payload systemConfigPayload) config.Config {
 	}
 	if payload.NopsaiGitBotAPIURL != nil {
 		a.cfg.NopsaiGitBotAPIURL = strings.TrimSpace(*payload.NopsaiGitBotAPIURL)
+	}
+	if payload.DispatcherAddress != nil {
+		a.cfg.DispatcherAddress = strings.TrimSpace(*payload.DispatcherAddress)
 	}
 	if payload.AgentImage != nil {
 		a.cfg.AgentImage = strings.TrimSpace(*payload.AgentImage)
@@ -1315,8 +1383,20 @@ func (a *App) applySystemConfig(payload systemConfigPayload) config.Config {
 	if payload.LLMAgentTimeout != nil {
 		a.cfg.LLMAgentTimeout = strings.TrimSpace(*payload.LLMAgentTimeout)
 	}
+	if payload.DispatcherRouting != nil {
+		a.cfg.DispatcherRouting = routing
+	}
+	if payload.RunnerID != nil {
+		a.cfg.RunnerID = strings.TrimSpace(*payload.RunnerID)
+	}
+	if payload.RunnerScopes != nil {
+		a.cfg.RunnerScopes = normalizeRunnerScopes(*payload.RunnerScopes)
+	}
+	if payload.RunnerCapacity != nil {
+		a.cfg.RunnerCapacity = *payload.RunnerCapacity
+	}
 
-	return *a.cfg
+	return *a.cfg, nil
 }
 
 func (a *App) persistSystemConfig(cfg config.Config, payload systemConfigPayload) error {
@@ -1347,6 +1427,9 @@ func (a *App) persistSystemConfig(cfg config.Config, payload systemConfigPayload
 	if payload.NopsaiGitBotAPIURL != nil {
 		existing["nopsai_git_bot_api_url"] = cfg.NopsaiGitBotAPIURL
 	}
+	if payload.DispatcherAddress != nil {
+		existing["dispatcher_address"] = cfg.DispatcherAddress
+	}
 	if payload.DockerNetworkName != nil {
 		existing["docker_network_name"] = cfg.DockerNetworkName
 	}
@@ -1358,6 +1441,18 @@ func (a *App) persistSystemConfig(cfg config.Config, payload systemConfigPayload
 	}
 	if payload.LLMAgentTimeout != nil {
 		existing["llm_agent_timeout"] = cfg.LLMAgentTimeout
+	}
+	if payload.DispatcherRouting != nil {
+		existing["dispatcher_routing"] = cloneDispatcherRouting(cfg.DispatcherRouting)
+	}
+	if payload.RunnerID != nil {
+		existing["runner_id"] = cfg.RunnerID
+	}
+	if payload.RunnerScopes != nil {
+		existing["runner_scopes"] = cfg.RunnerScopes
+	}
+	if payload.RunnerCapacity != nil {
+		existing["runner_capacity"] = cfg.RunnerCapacity
 	}
 
 	contents, err := yaml.Marshal(existing)
@@ -1384,6 +1479,9 @@ func (a *App) persistEnvOverrides(cfg config.Config, payload systemConfigPayload
 	if payload.NopsaiGitBotAPIURL != nil {
 		updates["NOPSAI_GIT_BOT_API_URL"] = cfg.NopsaiGitBotAPIURL
 	}
+	if payload.DispatcherAddress != nil {
+		updates["DISPATCHER_ADDRESS"] = cfg.DispatcherAddress
+	}
 	if payload.AgentImage != nil {
 		updates["AGENT_IMAGE"] = cfg.AgentImage
 	}
@@ -1399,12 +1497,40 @@ func (a *App) persistEnvOverrides(cfg config.Config, payload systemConfigPayload
 	if payload.LLMAgentTimeout != nil {
 		updates["LLM_AGENT_TIMEOUT"] = cfg.LLMAgentTimeout
 	}
+	if payload.DispatcherRouting != nil {
+		if encoded, err := json.Marshal(cloneDispatcherRouting(cfg.DispatcherRouting)); err == nil {
+			updates["DISPATCHER_ROUTING"] = string(encoded)
+		}
+	}
+	if payload.RunnerID != nil {
+		updates["RUNNER_ID"] = cfg.RunnerID
+	}
+	if payload.RunnerScopes != nil {
+		updates["RUNNER_SCOPES"] = cfg.RunnerScopes
+	}
+	if payload.RunnerCapacity != nil {
+		updates["RUNNER_CAPACITY"] = strconv.Itoa(cfg.RunnerCapacity)
+	}
 
 	if len(updates) == 0 {
 		return nil
 	}
 
 	return writeEnvFile(a.envFilePath, updates)
+}
+
+func (a *App) applyRuntimeSettingsGitOpsPlan(plan *gitOpsRuntimeSettingsPlan) error {
+	if plan == nil {
+		return nil
+	}
+	cfg, err := a.applySystemConfig(plan.payload)
+	if err != nil {
+		return err
+	}
+	if err := a.persistSystemConfig(cfg, plan.payload); err != nil {
+		return err
+	}
+	return a.persistEnvOverrides(cfg, plan.payload)
 }
 
 func writeEnvFile(path string, updates map[string]string) error {
@@ -1485,6 +1611,85 @@ func (a *App) handleGenerateRunnerCompose(w http.ResponseWriter, r *http.Request
 	}
 }
 
+func (a *App) handleListRuntimeScopes(w http.ResponseWriter, r *http.Request) {
+	scopes, err := a.listRuntimeScopes(r.Context())
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to list runtime scopes")
+		http.Error(w, "Failed to list runtime scopes", http.StatusInternalServerError)
+		return
+	}
+
+	result := make([]ScopeResponse, 0, len(scopes))
+	for _, scope := range scopes {
+		result = append(result, ScopeResponse{Scope: scope})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		log.Warn().Err(err).Msg("Failed to encode runtime scopes")
+	}
+}
+
+func (a *App) listRuntimeScopes(ctx context.Context) ([]string, error) {
+	scopeSet := map[string]struct{}{}
+	addScope := func(raw string) {
+		scope := runtimeScopeForDisplay(strings.Trim(strings.TrimSpace(raw), "/"))
+		if scope == "" {
+			return
+		}
+		scopeSet[scope] = struct{}{}
+	}
+
+	cfg := a.getConfigSnapshot()
+	for _, scope := range strings.Split(cfg.RunnerScopes, ",") {
+		addScope(scope)
+	}
+	for scope := range cfg.DispatcherRouting {
+		if strings.TrimSpace(scope) != "*" {
+			addScope(scope)
+		}
+	}
+
+	if a.db != nil {
+		rows, err := a.db.Query(ctx, `
+			SELECT scope FROM variables
+			UNION
+			SELECT scope FROM secrets
+			UNION
+			SELECT COALESCE(scope, '') FROM pipeline_runs
+		`)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var scope string
+			if err := rows.Scan(&scope); err != nil {
+				return nil, err
+			}
+			addScope(scope)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+
+	scopes := make([]string, 0, len(scopeSet))
+	for scope := range scopeSet {
+		scopes = append(scopes, scope)
+	}
+	sort.Slice(scopes, func(i, j int) bool {
+		if scopes[i] == defaultRuntimeScope && scopes[j] != defaultRuntimeScope {
+			return true
+		}
+		if scopes[j] == defaultRuntimeScope && scopes[i] != defaultRuntimeScope {
+			return false
+		}
+		return strings.ToLower(scopes[i]) < strings.ToLower(scopes[j])
+	})
+	return scopes, nil
+}
+
 func (a *App) handleGenerateRunnerBootstrapCommand(w http.ResponseWriter, r *http.Request) {
 	cfg := a.getConfigSnapshot()
 	resp, err := a.buildRunnerBootstrapCommandResponse(cfg, r)
@@ -1518,7 +1723,11 @@ func (a *App) handleUpdateSystemConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := a.applySystemConfig(payload)
+	cfg, err := a.applySystemConfig(payload)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if err := a.persistSystemConfig(cfg, payload); err != nil {
 		log.Warn().Err(err).Msg("Failed to persist system config; keeping in-memory settings only")
 	}
@@ -1543,37 +1752,43 @@ func (a *App) handleGetConfigSyncStatus(w http.ResponseWriter, r *http.Request) 
 
 func (a *App) handleDispatcherStatus(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	status, err := a.dispatcher.GetStatus(ctx, &emptypb.Empty{})
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to fetch dispatcher status")
-		http.Error(w, "Failed to fetch dispatcher status", http.StatusBadGateway)
-		return
+	status, dispatcherErr := a.fetchDispatcherStatus(ctx)
+	if dispatcherErr != nil {
+		log.Error().Err(dispatcherErr).Msg("Failed to fetch dispatcher status")
 	}
 
 	a.cfgMu.RLock()
 	routing := a.cfg.DispatcherRouting
 	a.cfgMu.RUnlock()
 
-	runners := make([]map[string]interface{}, 0, len(status.GetRunners()))
-	for _, runner := range status.GetRunners() {
-		runners = append(runners, map[string]interface{}{
-			"runner_id":           runner.GetRunnerId(),
-			"scopes":              runner.GetScopes(),
-			"capacity":            runner.GetCapacity(),
-			"active_jobs":         runner.GetActiveJobs(),
-			"inflight_jobs":       runner.GetInflightJobs(),
-			"last_heartbeat_unix": runner.GetLastHeartbeatUnix(),
-			"metadata":            runner.GetMetadata(),
-			"allow_dispatch":      runner.GetAllowDispatch(),
-		})
+	runners := []map[string]interface{}{}
+	queuedJobs := int32(0)
+	if status != nil {
+		queuedJobs = status.GetQueuedJobs()
+		runners = make([]map[string]interface{}, 0, len(status.GetRunners()))
+		for _, runner := range status.GetRunners() {
+			runners = append(runners, map[string]interface{}{
+				"runner_id":           runner.GetRunnerId(),
+				"scopes":              runner.GetScopes(),
+				"capacity":            runner.GetCapacity(),
+				"active_jobs":         runner.GetActiveJobs(),
+				"inflight_jobs":       runner.GetInflightJobs(),
+				"last_heartbeat_unix": runner.GetLastHeartbeatUnix(),
+				"metadata":            runner.GetMetadata(),
+				"allow_dispatch":      runner.GetAllowDispatch(),
+			})
+		}
 	}
 
 	resp := map[string]interface{}{
-		"queued_jobs": status.GetQueuedJobs(),
+		"queued_jobs": queuedJobs,
 		"runners":     runners,
 	}
 	if len(routing) > 0 {
 		resp["routing"] = routing
+	}
+	if dispatcherErr != nil {
+		resp["dispatcher_error"] = "Failed to fetch dispatcher status"
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1848,6 +2063,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		"mcp_servers_synced":          0,
 		"mcp_profiles_synced":         0,
 		"knowledge_contexts_synced":   0,
+		"runtime_settings_synced":     0,
 	}
 
 	repoURL := strings.TrimSpace(binding.RepoURL)
@@ -2060,6 +2276,14 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		binding,
 		gitOpsMCPDirectory{root: settingDir, files: settingFiles},
 		gitOpsMCPDirectory{root: settingsDir, files: settingsFiles},
+	)
+	if err != nil {
+		return nil, commitSHA, err
+	}
+	runtimeSettingsPlan, err := parseGitOpsRuntimeSettingsPlan(
+		binding,
+		gitOpsRuntimeSettingsDirectory{root: settingDir, files: settingFiles},
+		gitOpsRuntimeSettingsDirectory{root: settingsDir, files: settingsFiles},
 	)
 	if err != nil {
 		return nil, commitSHA, err
@@ -2806,6 +3030,12 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, commitSHA, fmt.Errorf("failed to commit configuration synchronization transaction: %w", err)
+	}
+	if runtimeSettingsPlan != nil {
+		if err := a.applyRuntimeSettingsGitOpsPlan(runtimeSettingsPlan); err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to sync runtime settings from '%s': %w", runtimeSettingsPlan.sourcePath, err)
+		}
+		details["runtime_settings_synced"] = 1
 	}
 	if llmProfilePlan != nil {
 		a.setLLMProfiles(llmProfilePlan.defaultProfile, llmProfilePlan.profiles)

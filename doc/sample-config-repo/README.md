@@ -72,7 +72,7 @@ knowledge/             Managed knowledge context markdown documents
 pipelineruns/          Run group structure
 config-repositories/   Group config repo bindings
 access/                Users, advanced roles, policies, and basic role grants
-setting/               System settings such as LLM and MCP profiles
+setting/               System settings such as LLM, MCP, and runtime settings
 ```
 
 Scope files use separate `variables:` and `secrets:` sections. Variables must be
@@ -135,7 +135,56 @@ global-repo/setting/system/llm_profile.yaml
 
 global-repo/setting/system/mcp.yaml
   -> system MCP server and profile registry
+
+global-repo/setting/system/runtime.yaml
+  -> runner install defaults and dispatcher runtime routing
 ```
+
+## Runtime settings
+
+A system/global config repo can define runner and dispatcher runtime settings in
+one file. The sample path is `setting/system/runtime.yaml`; sync also accepts
+`settings/system/runtime.yaml` and the `runner.yaml`, `runners.yaml`, or
+`dispatcher.yaml` aliases under either system settings directory. Use only one
+runtime settings file per repo so sync has a single source of truth.
+
+```yaml
+dispatcher_address: dispatcher:9090
+
+# Defaults used when generating a new runner install command
+runner_id: runner-general
+runner_scopes: dev,prod
+runner_capacity: 2
+
+# Optional hard routing by scope to runner IDs
+dispatcher_routing:
+  prod:
+    - runner-prod-1
+    - runner-prod-2
+  dev:
+    - runner-dev-1
+  "*":
+    - runner-general
+```
+
+`runner_id`, `runner_scopes`, and `runner_capacity` are defaults used by the UI
+when it generates a new runner install command. Individual runner deployments
+can still use their own environment values. An empty `runner_scopes` value means
+the runner can accept every scope.
+
+`dispatcher_routing` is an extra allow-list by scope. A run can be assigned to a
+runner only when the runner's declared scopes include the run scope and, when a
+matching routing entry exists, that runner ID is listed. The `*` entry applies
+alongside every scope-specific route and also covers scopes without an explicit
+entry. Changes to `dispatcher_routing` are written to runtime config, but the
+dispatcher service must be restarted or redeployed to use the new routing table
+for scheduling.
+
+Keep sensitive runtime values out of GitOps. This file intentionally supports
+only operational defaults such as service URLs, agent image/network defaults,
+timeouts, runner defaults, and dispatcher routing; secrets such as database URLs,
+master keys, service JWT signing keys, and webhook secrets stay in local runtime
+configuration or a secret manager.
 
 When the global repo defines group bindings under `config-repositories/groups`,
 those bindings create the group shells. Put repository placement next to those
