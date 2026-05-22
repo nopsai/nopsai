@@ -1,8 +1,8 @@
 module nopsai
 
-go 1.23.0
+go 1.26.0
 
-toolchain go1.23.1
+toolchain go1.26.2
 
 require (
 	github.com/bradleyfalzon/ghinstallation/v2 v2.16.0
