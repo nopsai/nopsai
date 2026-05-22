@@ -151,6 +151,9 @@ func (a *App) llmProfileCatalogForValidation(cfg config.Config) (string, map[str
 }
 
 func (a *App) validatePipelineLLMProfiles(pipeline *models.Pipeline, scope string) error {
+	if !models.PipelineLLMEnabled(pipeline) {
+		return nil
+	}
 	cfg := a.getConfigSnapshot()
 	defaultProfile, profiles := a.llmProfileCatalogForValidation(cfg)
 	if err := validation.ValidatePipelineLLMProfiles(pipeline, validation.LLMProfileValidationOptions{

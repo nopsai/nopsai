@@ -614,6 +614,7 @@ type Pipeline struct {
 	Variables         []string              `yaml:"variables" json:"variables"`
 	Steps             []PipelineStep        `yaml:"steps" json:"steps"`
 	Timeout           string                `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	LLMEnabled        *bool                 `yaml:"llm_enabled,omitempty" json:"llm_enabled,omitempty"`
 	LLMProfile        string                `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
 	MCPProfiles       []string              `yaml:"mcp_profiles,omitempty" json:"mcp_profiles,omitempty"`
 	KnowledgeContext  []KnowledgeContextRef `yaml:"knowledge_context,omitempty" json:"knowledge_context,omitempty"`
@@ -621,6 +622,16 @@ type Pipeline struct {
 	LlmOutputSharing  *bool                 `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
 	LlmContentInclude []string              `yaml:"llm_content_include,omitempty" json:"llm_content_include,omitempty"`
 	LlmContentIgnore  []string              `yaml:"llm_content_ignore,omitempty" json:"llm_content_ignore,omitempty"`
+}
+
+func PipelineLLMEnabled(pipeline *Pipeline) bool {
+	if pipeline == nil {
+		return true
+	}
+	if pipeline.LLMEnabled != nil {
+		return *pipeline.LLMEnabled
+	}
+	return true
 }
 
 // DisplayOptions defines how the pipeline progress is displayed in integrations like GitHub.

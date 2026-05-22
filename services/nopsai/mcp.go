@@ -165,6 +165,9 @@ func (a *App) mcpCatalogForValidation(cfg config.Config) map[string]validation.M
 }
 
 func (a *App) validatePipelineMCPProfiles(pipeline *models.Pipeline, scope string) error {
+	if !models.PipelineLLMEnabled(pipeline) {
+		return nil
+	}
 	cfg := a.getConfigSnapshot()
 	if err := validation.ValidatePipelineMCPProfiles(pipeline, validation.MCPProfileValidationOptions{
 		Profiles: a.mcpCatalogForValidation(cfg),
@@ -1368,6 +1371,9 @@ func collectResolvedMCPProfiles(pipeline *models.Pipeline) map[string]bool {
 }
 
 func (a *App) buildRuntimeMCPRegistry(pipeline *models.Pipeline, scope string) (runtimeMCPRegistry, error) {
+	if !models.PipelineLLMEnabled(pipeline) {
+		return runtimeMCPRegistry{}, nil
+	}
 	cfg := a.getConfigSnapshot()
 	allServers := cfg.EffectiveMCPServers()
 	allProfiles := cfg.EffectiveMCPProfiles()

@@ -817,18 +817,31 @@ func run() int {
 		return 1
 	}
 
-	llmRegistry, err := NewLLMProfileRegistryFromEnv(runScope)
+	pipelineDefBytes, err := base64.StdEncoding.DecodeString(pipelineDefBase64)
 	if err != nil {
-		agentLog(runID, pipelineName).Error().Err(err).Msg("Invalid LLM profile configuration")
+		agentLog(runID, pipelineName).Error().Err(err).Msg("Failed to decode pipeline definition")
 		return 1
+	}
+	var pipeline models.Pipeline
+	if err := yaml.Unmarshal(pipelineDefBytes, &pipeline); err != nil {
+		agentLog(runID, pipelineName).Error().Err(err).Msg("Failed to unmarshal pipeline definition")
+		return 1
+	}
+	pipelineLLMEnabled := models.PipelineLLMEnabled(&pipeline)
+
+	var llmRegistry *LLMProfileRegistry
+	if pipelineLLMEnabled {
+		llmRegistry, err = NewLLMProfileRegistryFromEnv(runScope)
+		if err != nil {
+			agentLog(runID, pipelineName).Error().Err(err).Msg("Invalid LLM profile configuration")
+			return 1
+		}
 	}
 	mcpRegistry, err := NewMCPProfileRegistryFromEnv(runScope)
 	if err != nil {
 		agentLog(runID, pipelineName).Error().Err(err).Msg("Invalid MCP registry configuration")
 		return 1
 	}
-	defaultLLMProfile, _ := llmRegistry.DefaultProfile()
-	llmProvider := defaultLLMProfile.Provider
 
 	dispatcherAddr := os.Getenv("DISPATCHER_ADDRESS")
 	if dispatcherAddr == "" {
@@ -877,16 +890,6 @@ func run() int {
 	defer conn.Close()
 	dispatcherClient = proto.NewDispatcherServiceClient(conn)
 
-	pipelineDefBytes, err := base64.StdEncoding.DecodeString(pipelineDefBase64)
-	if err != nil {
-		agentLog(runID, pipelineName).Error().Err(err).Msg("Failed to decode pipeline definition")
-		return 1
-	}
-	var pipeline models.Pipeline
-	if err := yaml.Unmarshal(pipelineDefBytes, &pipeline); err != nil {
-		agentLog(runID, pipelineName).Error().Err(err).Msg("Failed to unmarshal pipeline definition")
-		return 1
-	}
 	knowledgeSnapshots, err := loadRuntimeKnowledgeContexts()
 	if err != nil {
 		agentLog(runID, pipelineName).Error().Err(err).Msg("Failed to load knowledge context snapshots")
@@ -902,28 +905,33 @@ func run() int {
 		triggerEventID = "N/A"
 	}
 	agentLog(runID, pipeline.Name).Info().Str("trigger_event_id", triggerEventID).Str("working_directory", workingDirectory).Msg("Pipeline execution starting")
-	startupLog := agentLog(runID, pipeline.Name).Info().
-		Str("llm_profile", llmRegistry.DefaultProfileName()).
-		Str("llm_provider", defaultLLMProfile.Provider)
-	switch llmProvider {
-	case appconfig.LLMProviderGemini:
-		startupLog.Str("llm_model", defaultLLMProfile.Model).Msg("Agent starting with embedded LLM profile registry")
-	case appconfig.LLMProviderLMStudio:
-		logEvent := startupLog.Str("lmstudio_base_url", defaultLLMProfile.BaseURL)
-		if strings.TrimSpace(defaultLLMProfile.Model) != "" {
-			logEvent = logEvent.Str("llm_model", defaultLLMProfile.Model)
-		} else {
-			logEvent = logEvent.Str("llm_model", "auto-discover")
+	if pipelineLLMEnabled {
+		defaultLLMProfile, _ := llmRegistry.DefaultProfile()
+		startupLog := agentLog(runID, pipeline.Name).Info().
+			Str("llm_profile", llmRegistry.DefaultProfileName()).
+			Str("llm_provider", defaultLLMProfile.Provider)
+		switch defaultLLMProfile.Provider {
+		case appconfig.LLMProviderGemini:
+			startupLog.Str("llm_model", defaultLLMProfile.Model).Msg("Agent starting with embedded LLM profile registry")
+		case appconfig.LLMProviderLMStudio:
+			logEvent := startupLog.Str("lmstudio_base_url", defaultLLMProfile.BaseURL)
+			if strings.TrimSpace(defaultLLMProfile.Model) != "" {
+				logEvent = logEvent.Str("llm_model", defaultLLMProfile.Model)
+			} else {
+				logEvent = logEvent.Str("llm_model", "auto-discover")
+			}
+			if defaultLLMProfile.Reasoning != "" {
+				logEvent = logEvent.Str("lmstudio_reasoning", defaultLLMProfile.Reasoning)
+			}
+			if defaultLLMProfile.Thinking != nil {
+				logEvent = logEvent.Bool("lmstudio_thinking", *defaultLLMProfile.Thinking)
+			}
+			logEvent.Msg("Agent starting with embedded LLM profile registry")
+		default:
+			startupLog.Msg("Agent starting with embedded LLM profile registry")
 		}
-		if defaultLLMProfile.Reasoning != "" {
-			logEvent = logEvent.Str("lmstudio_reasoning", defaultLLMProfile.Reasoning)
-		}
-		if defaultLLMProfile.Thinking != nil {
-			logEvent = logEvent.Bool("lmstudio_thinking", *defaultLLMProfile.Thinking)
-		}
-		logEvent.Msg("Agent starting with embedded LLM profile registry")
-	default:
-		startupLog.Msg("Agent starting with embedded LLM profile registry")
+	} else {
+		agentLog(runID, pipeline.Name).Info().Msg("LLM is disabled for this pipeline; LLM profile registry will not be loaded")
 	}
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
@@ -1116,6 +1124,13 @@ func run() int {
 				// --- CONDITION EVALUATION LOGIC START ---
 				condition := strings.TrimSpace(step.GetCondition())
 				if condition != "" {
+					if !pipelineLLMEnabled || llmRegistry == nil {
+						taskLogger.Error().Msg("Cannot evaluate condition because LLM is disabled for this pipeline")
+						pipelineFailed = true
+						finalizeTask(stepName, task.Name, "failure", 1, llmDurationMs)
+						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+						return
+					}
 					taskLogger.Info().Msgf("Evaluating condition for step '%s': \"%s\"", stepName, condition)
 
 					historyMutex.Lock()
@@ -1357,6 +1372,12 @@ func run() int {
 					}
 					actionStr = task.Script
 				} else {
+					if !pipelineLLMEnabled || llmRegistry == nil {
+						taskLogger.Error().Msg("Cannot resolve goal because LLM is disabled for this pipeline")
+						finalizeTask(stepName, task.Name, "failure", 1, llmDurationMs)
+						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+						return
+					}
 					if goalText != "" {
 						taskLogger.Info().Msgf("Resolving goal with LLM: %s", goalText)
 					} else {
