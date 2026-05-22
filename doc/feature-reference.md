@@ -159,6 +159,8 @@ GitOps-style configuration sync supports:
 - `pipelineruns/structure.yaml` -> legacy UI group hierarchy for groups owned by the syncing repo
 - `config-repositories/` -> group config repo bindings, group shells, and colocated group structure files
 - `setting/system/llm_profile.yaml` -> system LLM profile registry from a global config repo
+- `setting/system/mcp.yaml` -> system MCP server and profile registry from a global config repo
+- `setting/system/runtime.yaml` -> runner install defaults, runtime URLs, and dispatcher routing from a global config repo
 
 Sync behavior:
 
@@ -174,6 +176,7 @@ Sync behavior:
 - config repository bindings can enable Git push to a review branch with `write_enabled` and `write_branch`
 - `config-repositories/groups/structure.yaml` and `config-repositories/groups/<group>/structure.yaml` can place repositories under group shells and include inline `config:` blocks for group repo bindings
 - global legacy `pipelineruns/structure.yaml` does not apply delegated group subtrees; those groups are created from `config-repositories/groups` and owned by their group repos
+- runtime settings GitOps is system/global only; `dispatcher_routing` changes are persisted, but the dispatcher must restart or redeploy before scheduling uses the new table
 
 ## API And Run Management
 
@@ -202,6 +205,8 @@ Configuration management capabilities:
 - branch listing per repository
 - config sync trigger and status
 - dispatcher and runner status inspection
+- monitoring page service status, runner summaries, and active runs filtered by
+  the caller's pipeline-run access
 - runner dispatch pause/resume
 
 ## Authentication, Access, And Audit

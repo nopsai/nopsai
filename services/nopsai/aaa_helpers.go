@@ -31,7 +31,9 @@ func isAuthenticatedOnlyPath(path string) bool {
 	case "/v1/auth/me", "/v1/auth/password", "/v1/auth/email":
 		return true
 	default:
-		return path == "/v1/auth/personal-tokens" || strings.HasPrefix(path, "/v1/auth/personal-tokens/")
+		return path == "/v1/auth/personal-tokens" ||
+			path == "/v1/monitoring/dispatcher" ||
+			strings.HasPrefix(path, "/v1/auth/personal-tokens/")
 	}
 }
 

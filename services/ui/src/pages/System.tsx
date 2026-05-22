@@ -19,6 +19,10 @@ type ConfigFormState = {
   agent_nopsai_api_url: string;
   git_bot_nopsai_api_url: string;
   nopsai_git_bot_api_url: string;
+  dispatcher_address: string;
+  runner_id: string;
+  runner_scopes: string;
+  runner_capacity: string;
 };
 
 type ConfigRepository = {
@@ -94,6 +98,14 @@ type RunnerComposeTemplate = {
   warnings: string[];
 };
 
+type DispatcherStatusState = {
+  queuedJobs: number;
+  runners: Runner[];
+  routing: Record<string, string[]>;
+  dispatcherError?: string;
+  fetchedAt: number;
+};
+
 const initialConfig: ConfigFormState = {
   agent_image: '',
   docker_network_name: '',
@@ -103,6 +115,10 @@ const initialConfig: ConfigFormState = {
   agent_nopsai_api_url: '',
   git_bot_nopsai_api_url: '',
   nopsai_git_bot_api_url: '',
+  dispatcher_address: '',
+  runner_id: '',
+  runner_scopes: '',
+  runner_capacity: '1',
 };
 
 const emptyConfigRepositoryForm: ConfigRepositoryFormState = {
@@ -275,12 +291,7 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
 
   const [dispatcherLoading, setDispatcherLoading] = useState(false);
   const [dispatcherError, setDispatcherError] = useState<string | null>(null);
-  const [dispatcherStatus, setDispatcherStatus] = useState<{
-    queuedJobs: number;
-    runners: Runner[];
-    routing: Record<string, string[]>;
-    fetchedAt: number;
-  } | null>(null);
+  const [dispatcherStatus, setDispatcherStatus] = useState<DispatcherStatusState | null>(null);
 
   const [runnerActionPending, setRunnerActionPending] = useState<Set<string>>(new Set());
 
@@ -346,6 +357,10 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
       agent_nopsai_api_url: readString(record.agent_nopsai_api_url),
       git_bot_nopsai_api_url: readString(record.git_bot_nopsai_api_url),
       nopsai_git_bot_api_url: readString(record.nopsai_git_bot_api_url),
+      dispatcher_address: readString(record.dispatcher_address),
+      runner_id: readString(record.runner_id),
+      runner_scopes: readString(record.runner_scopes),
+      runner_capacity: readString(record.runner_capacity || '1'),
     };
     setConfig(nextConfig);
     setEnvFilePath(readString(record.env_file_path));
@@ -1062,6 +1077,10 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
           agent_nopsai_api_url: config.agent_nopsai_api_url.trim(),
           git_bot_nopsai_api_url: config.git_bot_nopsai_api_url.trim(),
           nopsai_git_bot_api_url: config.nopsai_git_bot_api_url.trim(),
+          dispatcher_address: config.dispatcher_address.trim(),
+          runner_id: config.runner_id.trim(),
+          runner_scopes: config.runner_scopes.trim(),
+          runner_capacity: Number.parseInt(config.runner_capacity, 10) || 1,
         }),
       });
       applySystemConfigResponse(payload);
@@ -1369,6 +1388,7 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
           onRefresh={() => loadDispatcherStatus()}
           onToggleRunnerDispatch={toggleRunnerDispatch}
           canManageDispatcher={permissions.canManageDispatcher}
+          runnerDefaults={config}
         />
       )}
       {visibleTab === 'access' && (
@@ -5752,6 +5772,43 @@ function SystemConfig({
                   disabled={!canManageRuntimeConfig || configLoading || saving}
                 />
               </label>
+              <label className="flex flex-col gap-1 text-sm">
+                <span>Default runner ID</span>
+                <input
+                  id="system-runner-id"
+                  type="text"
+                  className="pipelines-input"
+                  value={config.runner_id}
+                  onChange={handleChange('runner_id')}
+                  placeholder="runner-general"
+                  disabled={!canManageRuntimeConfig || configLoading || saving}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                <span>Default runner scopes</span>
+                <input
+                  id="system-runner-scopes"
+                  type="text"
+                  className="pipelines-input"
+                  value={config.runner_scopes}
+                  onChange={handleChange('runner_scopes')}
+                  placeholder="dev,prod"
+                  disabled={!canManageRuntimeConfig || configLoading || saving}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                <span>Default runner capacity</span>
+                <input
+                  id="system-runner-capacity"
+                  type="number"
+                  min="1"
+                  className="pipelines-input"
+                  value={config.runner_capacity}
+                  onChange={handleChange('runner_capacity')}
+                  placeholder="2"
+                  disabled={!canManageRuntimeConfig || configLoading || saving}
+                />
+              </label>
             <label className="flex items-center gap-2 text-sm md:col-span-2">
               <input
                 id="system-auto-remove"
@@ -5804,6 +5861,18 @@ function SystemConfig({
                 value={config.nopsai_git_bot_api_url}
                 onChange={handleChange('nopsai_git_bot_api_url')}
                 placeholder="http://nopsai-gitbot:8080"
+                disabled={!canManageRuntimeConfig || configLoading || saving}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm md:col-span-2">
+              <span>Dispatcher address</span>
+              <input
+                id="system-dispatcher-address"
+                type="text"
+                className="pipelines-input"
+                value={config.dispatcher_address}
+                onChange={handleChange('dispatcher_address')}
+                placeholder="dispatcher:9090"
                 disabled={!canManageRuntimeConfig || configLoading || saving}
               />
             </label>
@@ -6003,14 +6072,16 @@ function DispatcherPanel({
   onRefresh,
   onToggleRunnerDispatch,
   canManageDispatcher,
+  runnerDefaults,
 }: {
   loading: boolean;
   error: string | null;
-  status: { queuedJobs: number; runners: Runner[]; routing: Record<string, string[]>; fetchedAt: number } | null;
+  status: DispatcherStatusState | null;
   pendingActions: Set<string>;
   onRefresh: () => void;
   onToggleRunnerDispatch: (runner: Runner) => Promise<void>;
   canManageDispatcher: boolean;
+  runnerDefaults: ConfigFormState;
 }) {
   const runners = status?.runners ?? [];
   const runnerCount = runners.length;
@@ -6055,6 +6126,7 @@ function DispatcherPanel({
           </div>
         </div>
         {error && <p className="text-sm text-red-500">Failed to load dispatcher status: {error}</p>}
+        {status?.dispatcherError && <p className="text-sm text-red-500">Runner data is unavailable while dispatcher status cannot be loaded.</p>}
         {loading && <p className="text-sm text-[var(--text-secondary)]">Loading runner status…</p>}
         <div id="dispatcher-runner-list" className="grid gap-4 md:grid-cols-2">
           {runners.map(runner => (
@@ -6080,24 +6152,58 @@ function DispatcherPanel({
           <h3 className="text-lg font-semibold">Routing</h3>
           <span className="text-sm text-[var(--text-secondary)]">Scope to runner mapping</span>
         </div>
-        <RoutingMap routing={status?.routing ?? {}} />
+        <RoutingMap routing={status?.routing ?? {}} runners={runners} />
       </div>
 
-      <RunnerDeploymentGuide canManageDispatcher={canManageDispatcher} />
+      <RunnerDeploymentGuide canManageDispatcher={canManageDispatcher} runnerDefaults={runnerDefaults} />
     </div>
   );
 }
 
-function RunnerDeploymentGuide({ canManageDispatcher }: { canManageDispatcher: boolean }) {
-  const [runnerId, setRunnerId] = useState('runner-prod-1');
-  const [runnerScopes, setRunnerScopes] = useState('prod');
-  const [runnerCapacity, setRunnerCapacity] = useState('2');
+function RunnerDeploymentGuide({ canManageDispatcher, runnerDefaults }: { canManageDispatcher: boolean; runnerDefaults: ConfigFormState }) {
+  const [runnerId, setRunnerId] = useState(runnerDefaults.runner_id || 'runner-prod-1');
+  const [runnerScopes, setRunnerScopes] = useState(runnerDefaults.runner_scopes || 'prod');
+  const [runnerCapacity, setRunnerCapacity] = useState(runnerDefaults.runner_capacity || '2');
   const [runnerNetworkMode, setRunnerNetworkMode] = useState('host');
   const [runnerImage, setRunnerImage] = useState('hoseindocker/nopsai-runner:latest');
+  const [scopeOptions, setScopeOptions] = useState<string[]>([]);
   const [template, setTemplate] = useState<RunnerComposeTemplate | null>(null);
   const [loadingTemplate, setLoadingTemplate] = useState(false);
   const [templateError, setTemplateError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!canManageDispatcher) return;
+    let cancelled = false;
+    fetch(buildApiUrl('/v1/system/dispatcher/scopes'), { cache: 'no-store' })
+      .then(response => (response.ok ? response.json() : []))
+      .then(payload => {
+        if (cancelled) return;
+        setScopeOptions(normalizeRuntimeScopeOptions(payload));
+      })
+      .catch(() => {
+        if (!cancelled) setScopeOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canManageDispatcher]);
+
+  const selectedRunnerScopes = useMemo(() => splitCSV(runnerScopes), [runnerScopes]);
+  const selectedRunnerScopeSet = useMemo(() => new Set(selectedRunnerScopes), [selectedRunnerScopes]);
+  const runnerScopeChoices = useMemo(() => {
+    return sortRuntimeScopeOptions(Array.from(new Set([...scopeOptions, ...selectedRunnerScopes])));
+  }, [scopeOptions, selectedRunnerScopes]);
+
+  const toggleRunnerScope = (scope: string, checked: boolean) => {
+    const next = new Set(selectedRunnerScopes);
+    if (checked) {
+      next.add(scope);
+    } else {
+      next.delete(scope);
+    }
+    setRunnerScopes(sortRuntimeScopeOptions(Array.from(next)).join(','));
+  };
 
   const loadTemplate = useCallback(async () => {
     if (!canManageDispatcher) return;
@@ -6171,14 +6277,35 @@ function RunnerDeploymentGuide({ canManageDispatcher }: { canManageDispatcher: b
           {canManageDispatcher ? (
             <div className="mt-5 space-y-4">
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-12">
-                <label className="space-y-1.5 text-sm xl:col-span-4">
+                <label className="space-y-1.5 text-sm xl:col-span-3">
                   <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Runner name</span>
                   <input className="pipelines-input w-full" value={runnerId} onChange={event => setRunnerId(event.target.value)} />
                 </label>
-                <label className="space-y-1.5 text-sm xl:col-span-3">
+                <div className="space-y-1.5 text-sm xl:col-span-4">
                   <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Scopes</span>
-                  <input className="pipelines-input w-full" value={runnerScopes} onChange={event => setRunnerScopes(event.target.value)} placeholder="empty for all scopes" />
-                </label>
+                  <div className="flex min-h-[46px] flex-wrap gap-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-2">
+                    <label className={`runner-pill cursor-pointer ${selectedRunnerScopes.length === 0 ? 'runner-pill--ok' : 'runner-pill--muted'}`}>
+                      <input
+                        type="checkbox"
+                        className="sr-only"
+                        checked={selectedRunnerScopes.length === 0}
+                        onChange={() => setRunnerScopes('')}
+                      />
+                      All
+                    </label>
+                    {runnerScopeChoices.map(scope => (
+                      <label key={scope} className={`runner-pill cursor-pointer ${selectedRunnerScopeSet.has(scope) ? 'runner-pill--ok' : 'runner-pill--muted'}`}>
+                        <input
+                          type="checkbox"
+                          className="sr-only"
+                          checked={selectedRunnerScopeSet.has(scope)}
+                          onChange={event => toggleRunnerScope(scope, event.target.checked)}
+                        />
+                        {scope}
+                      </label>
+                    ))}
+                  </div>
+                </div>
                 <label className="space-y-1.5 text-sm xl:col-span-2">
                   <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Capacity</span>
                   <input className="pipelines-input w-full" type="number" min="1" value={runnerCapacity} onChange={event => setRunnerCapacity(event.target.value)} />
@@ -6388,15 +6515,17 @@ function StatCard({ label, value, id }: { label: string; value: number; id?: str
   );
 }
 
-function RoutingMap({ routing }: { routing: Record<string, string[]> }) {
+function RoutingMap({ routing, runners }: { routing: Record<string, string[]>; runners: Runner[] }) {
   const rows = Object.entries(routing || {})
     .map(([scope, runners]) => ({
       scope: (scope || '*').trim() || '*',
       runners: Array.isArray(runners) && runners.length ? runners.map(r => (r || '*').trim() || '*') : ['*'],
     }))
     .sort((a, b) => a.scope.localeCompare(b.scope));
+  const liveRows = buildLiveRoutingRows(runners);
+  const connectedRunnerIds = new Set(runners.map(runner => runner.runnerId).filter(Boolean));
 
-  if (rows.length === 0) {
+  if (rows.length === 0 && liveRows.length === 0) {
     return (
       <div id="dispatcher-routing-empty" className="text-sm text-[var(--text-secondary)]">
         No routing rules configured.
@@ -6406,23 +6535,79 @@ function RoutingMap({ routing }: { routing: Record<string, string[]> }) {
 
   return (
     <div id="dispatcher-routing" className="space-y-2">
-      {rows.map(row => (
-        <div
-          key={row.scope}
-          className="flex items-center justify-between gap-3 bg-[var(--bg-tertiary)] px-3 py-2 rounded-md border border-[var(--border-primary)]"
-        >
-          <span className="runner-pill runner-pill--ok">{row.scope}</span>
-          <div className="flex flex-wrap gap-2 justify-end text-sm">
-            {row.runners.map(r => (
-              <span key={`${row.scope}-${r}`} className="runner-pill runner-pill--muted">
-                {r === '*' ? 'Any' : r}
-              </span>
-            ))}
-          </div>
+      {rows.length > 0 ? (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Configured routing</p>
+          {rows.map(row => (
+            <div
+              key={row.scope}
+              className="flex items-center justify-between gap-3 bg-[var(--bg-tertiary)] px-3 py-2 rounded-md border border-[var(--border-primary)]"
+            >
+              <span className="runner-pill runner-pill--ok">{formatRoutingScope(row.scope)}</span>
+              <div className="flex flex-wrap gap-2 justify-end text-sm">
+                {row.runners.map(runnerId => {
+                  const connected = connectedRunnerIds.has(runnerId);
+                  return (
+                    <span key={`${row.scope}-${runnerId}`} className={`runner-pill ${connected ? 'runner-pill--ok' : 'runner-pill--warning'}`}>
+                      {runnerId}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
-      ))}
+      ) : null}
+      {liveRows.length > 0 ? (
+        <div className="space-y-2">
+          {rows.length > 0 && <p className="pt-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Live runner scopes</p>}
+          {liveRows.map(row => (
+            <div
+              key={`live-${row.scope}`}
+              className="flex items-center justify-between gap-3 bg-[var(--bg-tertiary)] px-3 py-2 rounded-md border border-[var(--border-primary)]"
+            >
+              <span className="runner-pill runner-pill--ok">{formatRoutingScope(row.scope)}</span>
+              <div className="flex flex-wrap gap-2 justify-end text-sm">
+                {row.runners.map(runnerId => (
+                  <span key={`live-${row.scope}-${runnerId}`} className="runner-pill runner-pill--muted">
+                    {runnerId}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : rows.length === 0 ? (
+        <div id="dispatcher-routing-empty" className="text-sm text-[var(--text-secondary)]">
+          No live runner scopes.
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function buildLiveRoutingRows(runners: Runner[]): Array<{ scope: string; runners: string[] }> {
+  const scopeMap = new Map<string, Set<string>>();
+  runners.forEach(runner => {
+    if (!runner.runnerId) return;
+    const scopes = runner.scopes.length ? runner.scopes : ['*'];
+    scopes.forEach(scopeValue => {
+      const scope = (scopeValue || '*').trim() || '*';
+      const existing = scopeMap.get(scope) || new Set<string>();
+      existing.add(runner.runnerId);
+      scopeMap.set(scope, existing);
+    });
+  });
+  return Array.from(scopeMap.entries())
+    .map(([scope, runnerSet]) => ({
+      scope,
+      runners: Array.from(runnerSet).sort((a, b) => a.localeCompare(b)),
+    }))
+    .sort((a, b) => a.scope.localeCompare(b.scope));
+}
+
+function formatRoutingScope(scope: string) {
+  return scope === '*' ? 'Default' : scope;
 }
 
 function formatConnection(connection: string) {
@@ -6618,7 +6803,7 @@ function parseHeadersJSON(value: string): Record<string, string> | null {
   return headers;
 }
 
-function normalizeDispatcherStatus(value: unknown): { queuedJobs: number; runners: Runner[]; routing: Record<string, string[]> } {
+function normalizeDispatcherStatus(value: unknown): Omit<DispatcherStatusState, 'fetchedAt'> {
   const record = asRecord(value);
   const runnersRaw = record && Array.isArray(record.runners) ? record.runners : [];
   const routingRaw = record ? (record.routing ?? record.routing_map) : null;
@@ -6627,6 +6812,7 @@ function normalizeDispatcherStatus(value: unknown): { queuedJobs: number; runner
     queuedJobs: record ? normalizeNumber(record.queued_jobs ?? record.queuedJobs) : 0,
     runners: runnersRaw.map(normalizeRunner).filter(runner => runner.runnerId),
     routing: normalizeRouting(routingRaw),
+    dispatcherError: record ? readOptionalString(record.dispatcher_error ?? record.dispatcherError) : undefined,
   };
 }
 
@@ -6759,6 +6945,27 @@ function normalizeNumber(value: unknown): number {
 function normalizeStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.map(item => String(item || '').trim()).filter(Boolean);
+}
+
+function normalizeRuntimeScopeOptions(value: unknown): string[] {
+  const items = normalizeListPayload(value, ['scopes']);
+  if (!items) return [];
+  const scopes = new Set<string>();
+  items.forEach(item => {
+    const record = asRecord(item);
+    const raw = record ? record.scope ?? record.name ?? record.value : item;
+    const scope = readString(raw).trim().replace(/^\/+|\/+$/g, '');
+    if (scope) scopes.add(scope);
+  });
+  return sortRuntimeScopeOptions(Array.from(scopes));
+}
+
+function sortRuntimeScopeOptions(scopes: string[]): string[] {
+  return scopes.map(scope => scope.trim()).filter(Boolean).sort((a, b) => {
+    if (a === 'default' && b !== 'default') return -1;
+    if (b === 'default' && a !== 'default') return 1;
+    return a.localeCompare(b);
+  });
 }
 
 function normalizeStringMap(value: unknown): Record<string, string> {

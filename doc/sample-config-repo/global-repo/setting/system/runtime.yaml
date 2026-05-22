@@ -1,0 +1,16 @@
+dispatcher_address: dispatcher:9090
+
+# Defaults used when generating a new runner install command
+runner_id: runner-general
+runner_scopes: dev,prod
+runner_capacity: 2
+
+# Optional hard routing by scope to runner IDs
+dispatcher_routing:
+  prod:
+    - runner-prod-1
+    - runner-prod-2
+  dev:
+    - runner-dev-1
+  "*":
+    - runner-general

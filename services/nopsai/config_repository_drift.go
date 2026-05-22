@@ -89,7 +89,7 @@ func (a *App) loadConfigRepositoryGitFiles(repo models.ConfigRepository) (map[st
 		return nil, err
 	}
 	result := map[string]string{}
-	for _, directory := range []string{"pipelines", "steps", "triggers", "scopes", "knowledge"} {
+	for _, directory := range []string{"pipelines", "steps", "triggers", "scopes", "knowledge", "setting", "settings"} {
 		directoryPath := filepath.ToSlash(filepath.Join(strings.Trim(strings.TrimSpace(repo.BasePath), "/"), directory))
 		files, err := a.requestGitBotDirectory(owner, name, repo.Branch, directoryPath)
 		if err != nil {
@@ -243,6 +243,9 @@ func (a *App) exportConfigRepositoryFiles(ctx context.Context, repo models.Confi
 		return nil, err
 	}
 	if err := a.exportConfigRepositoryKnowledge(ctx, repo, delegatedScopes, files); err != nil {
+		return nil, err
+	}
+	if err := a.exportConfigRepositoryRuntimeSettings(repo, files); err != nil {
 		return nil, err
 	}
 	for filePath, content := range files {
@@ -557,6 +560,19 @@ func (a *App) exportConfigRepositoryKnowledge(ctx context.Context, repo models.C
 	return rows.Err()
 }
 
+func (a *App) exportConfigRepositoryRuntimeSettings(repo models.ConfigRepository, files map[string]string) error {
+	if repo.ScopeType != models.ConfigRepositoryScopeSystem {
+		return nil
+	}
+	doc := buildRuntimeSettingsGitOpsFile(a.getConfigSnapshot())
+	content, err := yaml.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	files["setting/system/runtime.yaml"] = string(content)
+	return nil
+}
+
 type configRepositoryKnowledgeDocument struct {
 	Name        string `yaml:"name"`
 	Kind        string `yaml:"kind"`
@@ -694,7 +710,17 @@ func isConfigRepositoryDriftPath(filePath string) bool {
 			return true
 		}
 	}
+	if rel, ok := strings.CutPrefix(filePath, "settings/"); ok {
+		return isConfigRepositorySettingsDriftPath(rel)
+	}
+	if rel, ok := strings.CutPrefix(filePath, "setting/"); ok {
+		return isConfigRepositorySettingsDriftPath(rel)
+	}
 	return false
+}
+
+func isConfigRepositorySettingsDriftPath(rel string) bool {
+	return isGitOpsRuntimeSettingsRelativePath(rel)
 }
 
 func normalizeConfigRepositoryFileContent(content string) string {

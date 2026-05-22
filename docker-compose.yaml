@@ -1,5 +1,3 @@
-version: '3.8'
-
 networks:
   nopsai-net:
     driver: bridge
@@ -8,6 +6,10 @@ networks:
 volumes:
   db:
     name: db
+  go-mod-cache:
+  go-build-cache:
+  ui-node-modules:
+  ui-dist:
     
 services:
   base:
@@ -17,6 +19,28 @@ services:
       context: .
       dockerfile: Dockerfile
     entrypoint: 'true'
+
+  backend-test:
+    image: golang:1.26.2
+    profiles:
+      - test
+    working_dir: /workspace
+    command: go test ./...
+    volumes:
+      - .:/workspace
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+
+  ui-test:
+    image: node:22-alpine
+    profiles:
+      - test
+    working_dir: /workspace/services/ui
+    command: sh -c "npm ci && npm run build"
+    volumes:
+      - .:/workspace
+      - ui-node-modules:/workspace/services/ui/node_modules
+      - ui-dist:/workspace/services/ui/dist
 
   db:
     container_name: nopsai-db

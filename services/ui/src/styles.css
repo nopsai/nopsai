@@ -4376,6 +4376,12 @@ html.dark .access-modal-header--minimal {
     border-color: rgba(248, 113, 113, 0.35);
 }
 
+.runner-pill--warning {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.18), rgba(245, 158, 11, 0.08));
+    color: #d97706;
+    border-color: rgba(245, 158, 11, 0.38);
+}
+
 .runner-pill--muted {
     background: var(--bg-tertiary);
     color: var(--text-secondary);
@@ -4438,6 +4444,16 @@ html.dark .access-modal-header--minimal {
 .runner-dot--error {
     background: #f87171;
     box-shadow: 0 0 0 6px rgba(248, 113, 113, 0.12);
+}
+
+.runner-dot--warning {
+    background: #f59e0b;
+    box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.12);
+}
+
+.runner-dot--muted {
+    background: #94a3b8;
+    box-shadow: 0 0 0 6px rgba(148, 163, 184, 0.12);
 }
 
 .runner-card__header {
