@@ -28,6 +28,105 @@ func TestValidatePipeline_Valid(t *testing.T) {
 	}
 }
 
+func TestValidatePipelineAllowsScriptOnlyWhenLLMDisabled(t *testing.T) {
+	disabled := false
+	p := &models.Pipeline{
+		Name:           "valid-pipeline",
+		ContainerImage: "ubuntu:latest",
+		LLMEnabled:     &disabled,
+		Steps: []models.PipelineStep{
+			{
+				Step: &models.TaskStep{
+					BaseStep: models.BaseStep{Name: "step1"},
+					Tasks: []models.Task{
+						{Name: "task1", Script: "echo 'hello'"},
+					},
+				},
+			},
+		},
+	}
+
+	if err := ValidatePipeline(p); err != nil {
+		t.Fatalf("expected LLM-disabled script pipeline to validate, got %v", err)
+	}
+}
+
+func TestValidatePipelineLLMEnabledHelperUsesPipelineFlag(t *testing.T) {
+	disabled := false
+	p := &models.Pipeline{
+		Name:           "valid-pipeline",
+		ContainerImage: "ubuntu:latest",
+		LLMEnabled:     &disabled,
+		Steps: []models.PipelineStep{
+			{
+				Step: &models.ScriptStep{
+					BaseStep: models.BaseStep{Name: "step1"},
+					Script:   "echo 'hello'",
+				},
+			},
+		},
+	}
+
+	if err := ValidatePipeline(p); err != nil {
+		t.Fatalf("expected llm_enabled=false to validate for script-only pipeline, got %v", err)
+	}
+	if models.PipelineLLMEnabled(p) {
+		t.Fatal("expected llm_enabled=false to disable LLM")
+	}
+}
+
+func TestValidatePipelineRejectsGoalWhenLLMDisabled(t *testing.T) {
+	disabled := false
+	p := &models.Pipeline{
+		Name:           "valid-pipeline",
+		ContainerImage: "ubuntu:latest",
+		LLMEnabled:     &disabled,
+		Steps: []models.PipelineStep{
+			{
+				Step: &models.TaskStep{
+					BaseStep: models.BaseStep{Name: "step1"},
+					Tasks: []models.Task{
+						{Name: "task1", Goal: "Summarize"},
+					},
+				},
+			},
+		},
+	}
+
+	err := ValidatePipeline(p)
+	if err == nil {
+		t.Fatal("expected error for LLM-disabled goal task")
+	}
+	if !strings.Contains(err.Error(), `pipeline has LLM disabled but task "task1" in step "step1" defines goal`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidatePipelineRejectsConditionWhenLLMDisabled(t *testing.T) {
+	disabled := false
+	p := &models.Pipeline{
+		Name:           "valid-pipeline",
+		ContainerImage: "ubuntu:latest",
+		LLMEnabled:     &disabled,
+		Steps: []models.PipelineStep{
+			{
+				Step: &models.ScriptStep{
+					BaseStep: models.BaseStep{Name: "step1", Condition: "run tests?"},
+					Script:   "echo 'hello'",
+				},
+			},
+		},
+	}
+
+	err := ValidatePipeline(p)
+	if err == nil {
+		t.Fatal("expected error for LLM-disabled condition")
+	}
+	if !strings.Contains(err.Error(), `pipeline has LLM disabled but step "step1" defines condition`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestValidatePipeline_InvalidName(t *testing.T) {
 	p := &models.Pipeline{
 		Name: "Invalid Name With Spaces",
@@ -214,6 +313,29 @@ func TestValidatePipelineLLMProfilesUnknown(t *testing.T) {
 	}
 }
 
+func TestValidatePipelineLLMProfilesSkippedWhenLLMDisabled(t *testing.T) {
+	disabled := false
+	p := &models.Pipeline{
+		Name:           "valid-name",
+		ContainerImage: "ubuntu",
+		LLMEnabled:     &disabled,
+		LLMProfile:     "missing",
+		Steps: []models.PipelineStep{
+			{
+				Step: &models.ScriptStep{
+					BaseStep: models.BaseStep{Name: "build", LLMProfile: "missing-too"},
+					Script:   "go test ./...",
+				},
+			},
+		},
+	}
+
+	err := ValidatePipelineLLMProfiles(p, LLMProfileValidationOptions{})
+	if err != nil {
+		t.Fatalf("expected LLM validation to be skipped, got %v", err)
+	}
+}
+
 func TestValidatePipelineMCPProfilesAdditiveGoalUsage(t *testing.T) {
 	p := &models.Pipeline{
 		Name:           "valid-name",
@@ -248,6 +370,29 @@ func TestValidatePipelineMCPProfilesAdditiveGoalUsage(t *testing.T) {
 	want := []string{"github-readonly", "jira-readonly", "slack-readonly"}
 	if strings.Join(resolved, ",") != strings.Join(want, ",") {
 		t.Fatalf("resolved MCP profiles = %v, want %v", resolved, want)
+	}
+}
+
+func TestValidatePipelineMCPProfilesSkippedWhenLLMDisabled(t *testing.T) {
+	disabled := false
+	p := &models.Pipeline{
+		Name:           "valid-name",
+		ContainerImage: "ubuntu",
+		LLMEnabled:     &disabled,
+		MCPProfiles:    []string{"missing"},
+		Steps: []models.PipelineStep{
+			{
+				Step: &models.ScriptStep{
+					BaseStep: models.BaseStep{Name: "test", MCPProfiles: []string{"missing-too"}},
+					Script:   "go test ./...",
+				},
+			},
+		},
+	}
+
+	err := ValidatePipelineMCPProfiles(p, MCPProfileValidationOptions{})
+	if err != nil {
+		t.Fatalf("expected MCP validation to be skipped, got %v", err)
 	}
 }
 

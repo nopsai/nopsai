@@ -23,6 +23,7 @@ export const PIPELINE_DIRECTIVES: LabDirective[] = [
   { key: 'variables', hint: 'Global variables' },
   { key: 'steps', hint: 'List pipeline steps' },
   { key: 'timeout', hint: 'Pipeline timeout' },
+  { key: 'llm_enabled', hint: 'Enable or disable LLM for this pipeline' },
   { key: 'llm_profile', hint: 'Select LLM profile' },
   { key: 'mcp_profiles', hint: 'Select MCP profiles for goal tasks' },
   { key: 'knowledge_context', hint: 'Knowledge documents for goals' },
@@ -68,6 +69,7 @@ export const TASK_DIRECTIVES: LabDirective[] = [
 export const DIRECTIVE_VALUE_METADATA: Record<string, { values: string[]; title: string }> = {
   llm_output_sharing: { values: ['true', 'false'], title: 'Boolean value' },
   llm_content_sharing: { values: ['true', 'false'], title: 'Boolean value' },
+  llm_enabled: { values: ['true', 'false'], title: 'Boolean value' },
   ignore_failure: { values: ['true', 'false'], title: 'Boolean value' },
   sync: { values: ['true', 'false'], title: 'Boolean value' },
 };
@@ -218,6 +220,7 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'variables',
     'steps',
     'timeout',
+    'llm_enabled',
     'llm_profile',
     'mcp_profiles',
     'knowledge_context',
@@ -325,6 +328,12 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
       return { errors: unknownKeys.map(item => createError(`Validation Error: Unknown field '${item.key}'.`, [item.path])) };
     }
 
+    const llmEnabledValue = hasOwn(pipeline, 'llm_enabled') ? pipeline.llm_enabled : undefined;
+    if (llmEnabledValue !== undefined && typeof llmEnabledValue !== 'boolean') {
+      return { errors: [createError("Validation Error: 'llm_enabled' must be true or false.", ['llm_enabled'])] };
+    }
+    const llmEnabled = typeof llmEnabledValue === 'boolean' ? llmEnabledValue : true;
+
     const pipelineName = safeString(pipeline.name);
     if (!pipelineName) return { errors: [createError("Validation Error: 'name' is a required field.", ['name'])] };
 
@@ -392,6 +401,13 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
       if (hasScriptKey && !hasScriptContent) {
         return { errors: [createError(`Validation Error: Step '${stepName}' has an empty 'script'.`, [`${stepPath}.script`, stepPath])] };
       }
+      const stepCondition = safeString(step.condition);
+      if (!llmEnabled && stepCondition) {
+        return { errors: [createError(`Validation Error: Pipeline has LLM disabled but step '${stepName}' defines condition.`, [`${stepPath}.condition`, stepPath])] };
+      }
+      if (!llmEnabled && hasGoalContent) {
+        return { errors: [createError(`Validation Error: Pipeline has LLM disabled but step '${stepName}' defines goal.`, [`${stepPath}.goal`, stepPath])] };
+      }
 
       if (hasGoalKey && hasScriptKey) {
         return {
@@ -433,12 +449,12 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
           ],
         };
       }
-      if (isInclude && hasOwn(step, 'mcp_profiles')) {
+      if (llmEnabled && isInclude && hasOwn(step, 'mcp_profiles')) {
         return {
           errors: [createError(`Validation Error: Include step '${stepName}' cannot define mcp_profiles.`, [`${stepPath}.mcp_profiles`, stepPath])],
         };
       }
-      if (hasScriptContent && hasOwn(step, 'mcp_profiles')) {
+      if (llmEnabled && hasScriptContent && hasOwn(step, 'mcp_profiles')) {
         return {
           errors: [createError(`Validation Error: Script step '${stepName}' cannot define mcp_profiles.`, [`${stepPath}.mcp_profiles`, stepPath])],
         };
@@ -502,7 +518,12 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
               errors: [createError(`Validation Error: Task '${taskName}' in step '${stepName}' has an empty 'script'.`, [`${taskPath}.script`, taskPath])],
             };
           }
-          if (taskHasScriptContent && hasOwn(task, 'mcp_profiles')) {
+          if (!llmEnabled && taskHasGoalContent) {
+            return {
+              errors: [createError(`Validation Error: Pipeline has LLM disabled but task '${taskName}' in step '${stepName}' defines goal.`, [`${taskPath}.goal`, taskPath])],
+            };
+          }
+          if (llmEnabled && taskHasScriptContent && hasOwn(task, 'mcp_profiles')) {
             return {
               errors: [createError(`Validation Error: Script task '${taskName}' in step '${stepName}' cannot define mcp_profiles.`, [`${taskPath}.mcp_profiles`, taskPath])],
             };

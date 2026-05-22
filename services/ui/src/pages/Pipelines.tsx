@@ -30,6 +30,7 @@ const PIPELINE_DIRECTIVES = [
   'variables',
   'steps',
   'timeout',
+  'llm_enabled',
   'llm_profile',
   'mcp_profiles',
   'knowledge_context',

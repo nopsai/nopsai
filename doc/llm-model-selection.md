@@ -105,6 +105,20 @@ steps:
         goal: Summarize the findings.
 ```
 
+Script-only pipelines can opt out of AI entirely:
+
+```yaml
+name: shell-check
+llm_enabled: false
+steps:
+  - name: test
+    script: go test ./...
+```
+
+When `llm_enabled: false` is set, LLM and MCP profile validation is skipped and
+no LLM profile registry is required at runtime. The pipeline cannot define
+`goal` tasks or step `condition` values, because those require an LLM.
+
 ## Resolution
 
 At runtime Nopsai resolves the selected profile from most-specific to
@@ -128,6 +142,8 @@ Runs are rejected before agent launch when:
 - A referenced profile does not exist.
 - A selected profile is not allowed for the run scope.
 - The selected profile has invalid provider configuration.
+
+These checks do not apply when the pipeline sets `llm_enabled: false`.
 
 Example scope error:
 
