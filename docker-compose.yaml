@@ -21,7 +21,7 @@ services:
     entrypoint: 'true'
 
   backend-test:
-    image: golang:1.26.2
+    image: golang:1.26.3
     profiles:
       - test
     working_dir: /workspace
