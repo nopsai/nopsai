@@ -45,6 +45,9 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 	if pipeline.Name == "" {
 		return fmt.Errorf("'name' is a required field")
 	}
+	if err := validatePipelineLLMSettings(pipeline); err != nil {
+		return err
+	}
 	if !regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`).MatchString(pipeline.Name) {
 		return fmt.Errorf("pipeline name can only contain alphanumeric characters, underscores, dots, and hyphens")
 	}
@@ -149,6 +152,37 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 	return nil
 }
 
+func validatePipelineLLMSettings(pipeline *models.Pipeline) error {
+	if pipeline == nil {
+		return nil
+	}
+	if models.PipelineLLMEnabled(pipeline) {
+		return nil
+	}
+	for _, step := range pipeline.Steps {
+		stepName := step.GetName()
+		if stepName == "" {
+			stepName = "unknown"
+		}
+		if strings.TrimSpace(step.GetCondition()) != "" {
+			return fmt.Errorf("pipeline has LLM disabled but step %q defines condition", stepName)
+		}
+		if strings.TrimSpace(step.GetGoal()) != "" {
+			return fmt.Errorf("pipeline has LLM disabled but step %q defines goal", stepName)
+		}
+		for _, task := range step.GetTasks() {
+			taskName := task.Name
+			if taskName == "" {
+				taskName = "unknown"
+			}
+			if strings.TrimSpace(task.Goal) != "" {
+				return fmt.Errorf("pipeline has LLM disabled but task %q in step %q defines goal", taskName, stepName)
+			}
+		}
+	}
+	return nil
+}
+
 func validateKnowledgeContextRefs(refs []models.KnowledgeContextRef, location string) error {
 	for idx, ref := range refs {
 		if err := validateKnowledgeContextRef(ref); err != nil {
@@ -211,6 +245,9 @@ func validateRelativeKnowledgePath(value string) error {
 func ValidatePipelineMCPProfiles(pipeline *models.Pipeline, opts MCPProfileValidationOptions) error {
 	if pipeline == nil {
 		return fmt.Errorf("pipeline is required")
+	}
+	if !models.PipelineLLMEnabled(pipeline) {
+		return nil
 	}
 
 	validateRefs := func(profileNames []string, location string) error {
@@ -277,6 +314,9 @@ func ValidatePipelineMCPProfiles(pipeline *models.Pipeline, opts MCPProfileValid
 func ValidatePipelineLLMProfiles(pipeline *models.Pipeline, opts LLMProfileValidationOptions) error {
 	if pipeline == nil {
 		return fmt.Errorf("pipeline is required")
+	}
+	if !models.PipelineLLMEnabled(pipeline) {
+		return nil
 	}
 	profiles := opts.Profiles
 	if len(profiles) == 0 {

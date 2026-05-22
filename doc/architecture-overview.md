@@ -85,6 +85,7 @@ Top-level pipeline features:
 - `container_image` as the default execution image
 - `variables` as required scope variables
 - `timeout`
+- `llm_enabled` to disable all LLM-backed behavior for script-only pipelines
 - `llm_content_sharing`, `llm_output_sharing`, `llm_content_include`, `llm_content_ignore`
 - `knowledge_context` for managed or repo-local project knowledge
 - `display_options.github_view`

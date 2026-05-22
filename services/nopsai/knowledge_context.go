@@ -809,6 +809,9 @@ func collectPipelineKnowledgeContextRefs(pipeline models.Pipeline) []pipelineKno
 }
 
 func (a *App) resolveKnowledgeContextsForRun(ctx context.Context, runID uuid.UUID, callerType, callerID, triggerSource string, gitContext map[string]string, pipeline models.Pipeline) ([]models.KnowledgeContextSnapshot, []ResourceUseAuthResult, error) {
+	if !models.PipelineLLMEnabled(&pipeline) {
+		return nil, nil, nil
+	}
 	refs := collectPipelineKnowledgeContextRefs(pipeline)
 	if len(refs) == 0 {
 		return nil, nil, nil
