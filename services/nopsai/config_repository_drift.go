@@ -569,7 +569,7 @@ func (a *App) exportConfigRepositoryRuntimeSettings(repo models.ConfigRepository
 	if err != nil {
 		return err
 	}
-	files["setting/system/runtime.yaml"] = string(content)
+	files["setting/system/runner.yaml"] = string(content)
 	return nil
 }
 
