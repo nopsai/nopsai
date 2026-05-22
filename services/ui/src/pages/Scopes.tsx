@@ -427,10 +427,14 @@ async function runWithConcurrencyLimit(tasks: Array<() => Promise<void>>, limit 
   await Promise.all(workers);
 }
 
-function parseYamlSafe(raw: string): any {
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function parseYamlSafe(raw: string): Record<string, unknown> {
   try {
-    const parsed = yaml.load(raw) as any;
-    if (parsed && typeof parsed === 'object') return parsed;
+    const parsed = yaml.load(raw) as unknown;
+    return asRecord(parsed) || {};
   } catch (error) {
     console.warn('Failed to parse YAML', error);
   }
@@ -456,7 +460,7 @@ function parsePipelineIdentifier(identifier: string): { path: string; name: stri
   return { path, name };
 }
 
-function buildPipelineMeta(identifier: string, manifest: any, seed?: { path?: string; version?: string; source?: string }): PipelineMeta {
+function buildPipelineMeta(identifier: string, manifest: Record<string, unknown>, seed?: { path?: string; version?: string; source?: string }): PipelineMeta {
   const normalizedId = normalizePipelineIdentifier(identifier);
   const fallback = parsePipelineIdentifier(normalizedId);
   const name = typeof manifest?.name === 'string' && manifest.name.trim() ? manifest.name.trim() : fallback.name || normalizedId;
@@ -512,12 +516,14 @@ function normalizePipelineList(payload: unknown): { identifiers: string[]; seeds
   return { identifiers: Array.from(new Set(identifiers)).sort((a, b) => a.localeCompare(b)), seeds };
 }
 
-function extractPipelineSecrets(manifest: any): string[] {
-  if (!manifest || !Array.isArray(manifest.steps)) return [];
+function extractPipelineSecrets(manifest: unknown): string[] {
+  const record = asRecord(manifest);
+  if (!record || !Array.isArray(record.steps)) return [];
   const secrets = new Set<string>();
-  manifest.steps.forEach((step: any) => {
+  record.steps.forEach((stepValue: unknown) => {
+    const step = asRecord(stepValue);
     if (step && Array.isArray(step.secrets)) {
-      step.secrets.forEach((secret: any) => {
+      step.secrets.forEach((secret: unknown) => {
         if (secret && typeof secret === 'string') secrets.add(secret.trim());
       });
     }
@@ -525,11 +531,12 @@ function extractPipelineSecrets(manifest: any): string[] {
   return Array.from(secrets);
 }
 
-function extractScopeVariables(manifest: any): string[] {
+function extractScopeVariables(manifest: unknown): string[] {
   const variables = new Set<string>();
-  if (!manifest || typeof manifest !== 'object') return [];
+  const record = asRecord(manifest);
+  if (!record) return [];
 
-  const collect = (value: any) => {
+  const collect = (value: unknown) => {
     if (!value) return;
     if (Array.isArray(value)) {
       value.forEach(entry => {
@@ -537,20 +544,26 @@ function extractScopeVariables(manifest: any): string[] {
       });
       return;
     }
-    if (typeof value === 'object') {
-      Object.entries(value).forEach(([key, val]) => {
+    const valueRecord = asRecord(value);
+    if (valueRecord) {
+      Object.entries(valueRecord).forEach(([key, val]) => {
         if (typeof key === 'string' && key.trim()) variables.add(key.trim());
         if (typeof val === 'string' && val.trim()) variables.add(val.trim());
       });
     }
   };
 
-  collect(manifest.variables);
-  if (Array.isArray(manifest.steps)) {
-    manifest.steps.forEach((step: any) => {
+  collect(record.variables);
+  if (Array.isArray(record.steps)) {
+    record.steps.forEach((stepValue: unknown) => {
+      const step = asRecord(stepValue);
+      if (!step) return;
       collect(step?.variables);
       if (Array.isArray(step?.tasks)) {
-        step.tasks.forEach((task: any) => collect(task?.variables));
+        step.tasks.forEach((taskValue: unknown) => {
+          const task = asRecord(taskValue);
+          collect(task?.variables);
+        });
       }
     });
   }
@@ -1006,15 +1019,17 @@ function ScopesPage({
             const rawYaml = await resp.text();
             const manifest = parseYamlSafe(rawYaml);
             const triggers = Array.isArray(manifest?.triggers) ? manifest.triggers : [];
-            triggers.forEach((trigger: any) => {
+            triggers.forEach((triggerValue: unknown) => {
+              const trigger = asRecord(triggerValue);
+              if (!trigger) return;
               const scope = normalizeScopeLabel(trigger?.scope || '');
               const entry: TriggerDescriptor = {
                 slug,
                 scope,
                 pipelines: extractTriggerPipelines(trigger?.pipelines),
                 event: canonicalizeEvent(trigger?.on),
-                branches: Array.isArray(trigger?.branches) ? trigger.branches.map((b: any) => String(b || '').trim()).filter(Boolean) : [],
-                tags: Array.isArray(trigger?.tags) ? trigger.tags.map((t: any) => String(t || '').trim()).filter(Boolean) : [],
+                branches: Array.isArray(trigger?.branches) ? trigger.branches.map((b: unknown) => String(b || '').trim()).filter(Boolean) : [],
+                tags: Array.isArray(trigger?.tags) ? trigger.tags.map((t: unknown) => String(t || '').trim()).filter(Boolean) : [],
               };
               const list = trigMap.get(scope) || [];
               list.push(entry);

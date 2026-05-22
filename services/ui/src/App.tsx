@@ -1,21 +1,22 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { HashRouter, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import PipelineRunsPage from './pages/PipelineRuns';
-import PipelinesPage from './pages/Pipelines';
-import TriggersPage from './pages/Triggers';
-import ScopesPage from './pages/Scopes';
-import LabPage from './pages/Lab';
-import StepsPage from './pages/Steps';
-import KnowledgeContextPage from './pages/KnowledgeContext';
-import MonitoringPage from './pages/Monitoring';
-import SystemPage from './pages/System';
-import LoginPage from './pages/Login';
-import ProfilePage from './pages/Profile';
 import AppHelp from './components/AppHelp';
 import { buildApiUrl, clearSession, getStoredSession, setPasswordChangeRequired, type StoredSession } from './lib/api';
 import { PIPELINE_DRAFTS_CHANGED_EVENT, getPipelineDraftStorageKey, loadPipelineDrafts } from './lib/pipelineDrafts';
 import { fetchResourceGroupPaths, insertGroupPath } from './lib/resourceGroups';
 import { STEP_DRAFTS_CHANGED_EVENT, getStepDraftStorageKey, loadStepDrafts } from './lib/stepDrafts';
+
+const PipelineRunsPage = lazy(() => import('./pages/PipelineRuns'));
+const PipelinesPage = lazy(() => import('./pages/Pipelines'));
+const TriggersPage = lazy(() => import('./pages/Triggers'));
+const ScopesPage = lazy(() => import('./pages/Scopes'));
+const LabPage = lazy(() => import('./pages/Lab'));
+const StepsPage = lazy(() => import('./pages/Steps'));
+const KnowledgeContextPage = lazy(() => import('./pages/KnowledgeContext'));
+const MonitoringPage = lazy(() => import('./pages/Monitoring'));
+const SystemPage = lazy(() => import('./pages/System'));
+const LoginPage = lazy(() => import('./pages/Login'));
+const ProfilePage = lazy(() => import('./pages/Profile'));
 
 type Theme = 'light' | 'dark';
 
@@ -247,6 +248,10 @@ function App() {
   );
 }
 
+function PageLoading() {
+  return <div className="p-6 text-sm text-[var(--text-secondary)]">Loading...</div>;
+}
+
 function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -323,12 +328,16 @@ function AppShell() {
 
   useEffect(() => {
     if (!authSession.accessToken) {
-      setCurrentUser(null);
-      setCurrentUserLoading(false);
-      return;
+      const handle = window.setTimeout(() => {
+        setCurrentUser(null);
+        setCurrentUserLoading(false);
+      }, 0);
+      return () => window.clearTimeout(handle);
     }
     let cancelled = false;
-    setCurrentUserLoading(true);
+    const loadingHandle = window.setTimeout(() => {
+      if (!cancelled) setCurrentUserLoading(true);
+    }, 0);
     fetch(buildApiUrl('/v1/auth/me'))
       .then(resp => {
         if (resp.status === 401 || resp.status === 403 || resp.status === 404) throw new Error('session-invalid');
@@ -417,6 +426,7 @@ function AppShell() {
       });
     return () => {
       cancelled = true;
+      window.clearTimeout(loadingHandle);
     };
   }, [authSession.accessToken]);
 
@@ -563,8 +573,8 @@ function AppShell() {
 
   useEffect(() => {
     if (!isAuthenticated) {
-      setResourceGroupPaths([]);
-      return;
+      const handle = window.setTimeout(() => setResourceGroupPaths([]), 0);
+      return () => window.clearTimeout(handle);
     }
     let cancelled = false;
     const loadResourceGroups = () => {
@@ -717,8 +727,8 @@ function AppShell() {
 
   useEffect(() => {
     if (!isAuthenticated || !canViewKnowledge) {
-      setKnowledgeContexts([]);
-      return;
+      const handle = window.setTimeout(() => setKnowledgeContexts([]), 0);
+      return () => window.clearTimeout(handle);
     }
     const load = async () => {
       try {
@@ -1084,7 +1094,9 @@ function AppShell() {
   return (
     <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
       {isLoginRoute ? (
-        <LoginPage onLogin={handleLoginSuccess} />
+        <Suspense fallback={<PageLoading />}>
+          <LoginPage onLogin={handleLoginSuccess} />
+        </Suspense>
       ) : !isAuthenticated ? (
         <Navigate to="/login" replace />
       ) : (
@@ -1141,81 +1153,83 @@ function AppShell() {
                 onOpenProfile={handleOpenProfile}
               />
               <div id="page-content-wrapper" className="flex-1 overflow-auto">
-                <Routes>
-                  <Route path="/" element={<Navigate to="/pipelineruns/main" replace />} />
-                  <Route path="/pipelineruns/:tab?" element={<PipelineRunsPage />} />
-                  <Route path="/monitoring" element={<MonitoringPage />} />
-                  <Route
-                    path="/pipelines/*"
-                    element={<PipelinesPage draftScope={draftScope} canDeletePipelines={canDeletePipelines} />}
-                  />
-	                  <Route
-	                    path="/triggers/*"
-	                    element={renderAccessControlledPage(
-	                      canViewTriggers,
-	                      <TriggersPage canDeleteTriggers={canDeleteTriggers} />
-	                    )}
-	                  />
-	                  <Route
-	                    path="/scopes/*"
-	                    element={renderAccessControlledPage(
-	                      canViewScopes,
-	                      <ScopesPage canDeleteScopes={canDeleteScopes} />
-	                    )}
-	                  />
-                  <Route path="/lab/*" element={<LabPage />} />
-	                  <Route
-	                    path="/steps/*"
-	                    element={<StepsPage draftScope={draftScope} canDeleteSteps={canDeleteSteps} />}
-	                  />
-                  <Route
-                    path="/knowledge-context/*"
-                    element={renderAccessControlledPage(
-                      canViewKnowledge,
-                      <KnowledgeContextPage canWriteKnowledge={canWriteKnowledge} canDeleteKnowledge={canDeleteKnowledge} />
-                    )}
-                  />
-                  <Route
-                    path="/system/:tab?"
-                    element={renderAccessControlledPage(
-                      canViewAnySystem,
-                      <SystemPage
-                        permissions={{
-                          canViewConfig: canViewSystemConfig,
-                          canViewSetup: canViewSystemSetup,
-                          canManageSetup: canManageSystemSetup,
-                          canViewRuntimeConfig: canViewSystemRuntimeConfig,
-                          canManageRuntimeConfig: canManageSystemRuntimeConfig,
-                          canViewLLMProfiles: canViewSystemLLMProfiles,
-                          canManageLLMProfiles: canManageSystemLLMProfiles,
-                          canViewMCP: canViewSystemMCP,
-                          canManageMCP: canManageSystemMCP,
-                          canViewGlobalConfigRepo: canViewSystemConfigRepo,
-                          canManageGlobalConfigRepo: canManageSystemConfigRepo,
-                          canViewDispatcher: canViewSystemDispatcher,
-                          canManageDispatcher: canManageSystemDispatcher,
-                          canViewAccess: canViewSystemAccess,
-                        }}
-                      />
-                    )}
-                  />
-                  <Route
-                    path="/profile"
-                    element={
-                      <ProfilePage
-                        user={currentUser}
-                        loading={currentUserLoading}
-                        onLogout={handleLogout}
-                        onUserUpdated={handleUserUpdated}
-                        mustChangePassword={Boolean(authSession.mustChangePassword)}
-                        onPasswordChanged={() => setPasswordChangeRequired(false)}
-                        canAccessSystem={canViewAnySystem}
-                        systemPath={preferredSystemPath}
-                      />
-                    }
-                  />
-                  <Route path="*" element={<Navigate to="/pipelineruns/main" replace />} />
-                </Routes>
+                <Suspense fallback={<PageLoading />}>
+                  <Routes>
+                    <Route path="/" element={<Navigate to="/pipelineruns/main" replace />} />
+                    <Route path="/pipelineruns/:tab?" element={<PipelineRunsPage />} />
+                    <Route path="/monitoring" element={<MonitoringPage />} />
+                    <Route
+                      path="/pipelines/*"
+                      element={<PipelinesPage draftScope={draftScope} canDeletePipelines={canDeletePipelines} />}
+                    />
+                    <Route
+                      path="/triggers/*"
+                      element={renderAccessControlledPage(
+                        canViewTriggers,
+                        <TriggersPage canDeleteTriggers={canDeleteTriggers} />
+                      )}
+                    />
+                    <Route
+                      path="/scopes/*"
+                      element={renderAccessControlledPage(
+                        canViewScopes,
+                        <ScopesPage canDeleteScopes={canDeleteScopes} />
+                      )}
+                    />
+                    <Route path="/lab/*" element={<LabPage />} />
+                    <Route
+                      path="/steps/*"
+                      element={<StepsPage draftScope={draftScope} canDeleteSteps={canDeleteSteps} />}
+                    />
+                    <Route
+                      path="/knowledge-context/*"
+                      element={renderAccessControlledPage(
+                        canViewKnowledge,
+                        <KnowledgeContextPage canWriteKnowledge={canWriteKnowledge} canDeleteKnowledge={canDeleteKnowledge} />
+                      )}
+                    />
+                    <Route
+                      path="/system/:tab?"
+                      element={renderAccessControlledPage(
+                        canViewAnySystem,
+                        <SystemPage
+                          permissions={{
+                            canViewConfig: canViewSystemConfig,
+                            canViewSetup: canViewSystemSetup,
+                            canManageSetup: canManageSystemSetup,
+                            canViewRuntimeConfig: canViewSystemRuntimeConfig,
+                            canManageRuntimeConfig: canManageSystemRuntimeConfig,
+                            canViewLLMProfiles: canViewSystemLLMProfiles,
+                            canManageLLMProfiles: canManageSystemLLMProfiles,
+                            canViewMCP: canViewSystemMCP,
+                            canManageMCP: canManageSystemMCP,
+                            canViewGlobalConfigRepo: canViewSystemConfigRepo,
+                            canManageGlobalConfigRepo: canManageSystemConfigRepo,
+                            canViewDispatcher: canViewSystemDispatcher,
+                            canManageDispatcher: canManageSystemDispatcher,
+                            canViewAccess: canViewSystemAccess,
+                          }}
+                        />
+                      )}
+                    />
+                    <Route
+                      path="/profile"
+                      element={
+                        <ProfilePage
+                          user={currentUser}
+                          loading={currentUserLoading}
+                          onLogout={handleLogout}
+                          onUserUpdated={handleUserUpdated}
+                          mustChangePassword={Boolean(authSession.mustChangePassword)}
+                          onPasswordChanged={() => setPasswordChangeRequired(false)}
+                          canAccessSystem={canViewAnySystem}
+                          systemPath={preferredSystemPath}
+                        />
+                      }
+                    />
+                    <Route path="*" element={<Navigate to="/pipelineruns/main" replace />} />
+                  </Routes>
+                </Suspense>
               </div>
             </main>
           </div>
@@ -1830,10 +1844,12 @@ function PipelineRunsSidebarContent({
     return Number.isFinite(raw) ? raw : null;
   }, [searchParams]);
 
-  groupsRef.current = groups;
-  recentRunsRef.current = recentRuns;
-  expandedGroupsRef.current = expandedGroups;
-  activeGroupIdRef.current = activeGroupId;
+  useEffect(() => {
+    groupsRef.current = groups;
+    recentRunsRef.current = recentRuns;
+    expandedGroupsRef.current = expandedGroups;
+    activeGroupIdRef.current = activeGroupId;
+  }, [activeGroupId, expandedGroups, groups, recentRuns]);
 
   const fetchJson = useCallback(async <T,>(path: string): Promise<T | null> => {
     try {
@@ -2012,11 +2028,14 @@ function PipelineRunsSidebarContent({
     if (!activeGroupId || !groups.length) return;
     const path = buildGroupPath(activeGroupId, groups);
     if (!path.length) return;
-    setExpandedGroups(prev => {
-      const next = new Set(prev);
-      path.forEach(g => next.add(g.id));
-      return next;
-    });
+    const handle = window.setTimeout(() => {
+      setExpandedGroups(prev => {
+        const next = new Set(prev);
+        path.forEach(g => next.add(g.id));
+        return next;
+      });
+    }, 0);
+    return () => window.clearTimeout(handle);
   }, [activeGroupId, groups]);
 
   useEffect(() => {
@@ -2054,7 +2073,7 @@ function PipelineRunsSidebarContent({
       }
     };
     void expandForRun();
-  }, [activeRunId, ensureRepoRuns, groups]);
+  }, [activeRunId, ensureRepoRuns, fetchJson, groups]);
 
   useEffect(() => {
     if (pollRef.current) {

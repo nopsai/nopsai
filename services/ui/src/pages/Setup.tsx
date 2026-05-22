@@ -715,7 +715,6 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
     canManage,
     generateServiceSecrets,
     llmAPIKey,
-    llmAPIKeySecretName,
     llmBaseURL,
     llmModel,
     llmProvider,
