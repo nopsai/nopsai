@@ -17,6 +17,8 @@ Responsibilities:
 - Resolves required knowledge context, secrets, and variables before a run is dispatched.
 - Creates run records, task records, and log records.
 - Starts config sync from the Git-backed config repo.
+- Applies system GitOps runtime settings for runner install defaults, supported
+  runtime URLs, agent defaults, and dispatcher routing.
 - Seeds predefined product roles and expands role grants into low-level AAA ACLs.
 - Talks to the dispatcher as a gRPC client.
 - Talks to `git-bot` over HTTP for GitHub checks and repository content access.
