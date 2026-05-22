@@ -15,6 +15,18 @@ export type StoredSession = {
   mustChangePassword?: boolean;
 };
 
+type AuthFetchWindow = Window & typeof globalThis & {
+  __nopsaiAuthFetchInstalled?: boolean;
+};
+
+type AuthRefreshResponse = {
+  access_token?: string;
+  refresh_token?: string;
+  roles?: unknown;
+  sub?: unknown;
+  must_change_password?: unknown;
+};
+
 export function getApiBaseUrl(): string {
   const configuredBase = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/^['"]+|['"]+$/g, '');
   if (configuredBase) return configuredBase.replace(/\/+$/, '');
@@ -107,8 +119,9 @@ export function clearSession() {
 
 export function installAuthInterceptor() {
   if (typeof window === 'undefined') return;
-  if ((window as any).__nopsaiAuthFetchInstalled) return;
-  (window as any).__nopsaiAuthFetchInstalled = true;
+  const authWindow = window as AuthFetchWindow;
+  if (authWindow.__nopsaiAuthFetchInstalled) return;
+  authWindow.__nopsaiAuthFetchInstalled = true;
   const originalFetch = window.fetch.bind(window);
   let refreshPromise: Promise<StoredSession | null> | null = null;
 
@@ -124,13 +137,13 @@ export function installAuthInterceptor() {
         if (!response.ok) {
           throw new Error(`refresh failed (${response.status})`);
         }
-        const payload: any = await response.json();
+        const payload = (await response.json()) as AuthRefreshResponse;
         const current = getStoredSession();
 
         persistSession({
           accessToken: payload?.access_token || '',
           refreshToken: payload?.refresh_token || refreshToken,
-          roles: Array.isArray(payload?.roles) ? payload.roles : current.roles,
+          roles: Array.isArray(payload?.roles) ? payload.roles.filter((role): role is string => typeof role === 'string') : current.roles,
           sub: typeof payload?.sub === 'string' ? payload.sub : current.sub,
           mustChangePassword:
             typeof payload?.must_change_password === 'boolean'

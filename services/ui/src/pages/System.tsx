@@ -2,12 +2,12 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type Dispatch, type FormEvent, type ReactNode, type SetStateAction } from 'react';
 import { Copy, Edit3, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import { buildApiUrl } from '../lib/api';
+import { ConfigRepositoryDriftModal } from '../components/ConfigRepositoryDriftModal';
 import {
-  ConfigRepositoryDriftModal,
   buildConfigRepositoryWriteFiles,
   type ConfigRepositoryCommitResponse,
   type ConfigRepositoryDriftResponse,
-} from '../components/ConfigRepositoryDriftModal';
+} from '../lib/configRepositoryDrift';
 import SetupWizard from './Setup';
 
 type ConfigFormState = {
@@ -2367,6 +2367,9 @@ function AAAPolicyRuleFields({
           : AAA_CUSTOM_VALUE;
   const selectedNamedScope = forceCustomNamedScope && isNamedScopedResourceType ? AAA_CUSTOM_VALUE : derivedSelectedNamedScope;
   const allowCustomTarget = resourceTypeConfig?.value !== '*';
+  const selectedResourceTypeValue = resourceTypeConfig?.value || '';
+  const selectedNamedScopeValue = namedResourceParts.scope;
+  const selectedNamedScopeHasScope = namedResourceParts.hasScope;
   const actionOptions = getAAAActionOptionGroups(normalizedResource);
   const selectedAction = selectValueForAAAOptions(actionOptions, parsedAction.action);
   const customResourceDraft =
@@ -2375,32 +2378,50 @@ function AAAPolicyRuleFields({
       : normalizedResource.endsWith(':')
         ? ''
         : parsedResource.resourceID;
-  const customNamedScopeDraft = selectedNamedScope === AAA_CUSTOM_VALUE ? namedResourceParts.scope : '';
+  const customNamedScopeDraft = selectedNamedScope === AAA_CUSTOM_VALUE ? selectedNamedScopeValue : '';
   const buildNamedResourceSelector = (next: Partial<AAANamedResourceDraft>) =>
-    buildAAANamedResourceSelector(resourceTypeConfig?.value || '', {
+    buildAAANamedResourceSelector(selectedResourceTypeValue, {
       repoName: '',
-      scope: 'scope' in next ? next.scope ?? '' : namedResourceParts.scope,
+      scope: 'scope' in next ? next.scope ?? '' : selectedNamedScopeValue,
       name: '',
-      hasScope: 'hasScope' in next ? Boolean(next.hasScope) : namedResourceParts.hasScope,
+      hasScope: 'hasScope' in next ? Boolean(next.hasScope) : selectedNamedScopeHasScope,
     });
   const hasNamedResourceItemFilter = isNamedScopedResourceType && Boolean(namedResourceParts.repoName || namedResourceParts.name);
 
   useEffect(() => {
     if (!isNamedScopedResourceType) {
-      setForceCustomNamedScope(false);
+      const handle = window.setTimeout(() => setForceCustomNamedScope(false), 0);
+      return () => window.clearTimeout(handle);
     }
+    return undefined;
   }, [isNamedScopedResourceType]);
 
   useEffect(() => {
     if (!hasNamedResourceItemFilter || !resourceTypeConfig) return;
-    const nextObj = buildNamedResourceSelector({});
+    const nextObj = buildAAANamedResourceSelector(selectedResourceTypeValue, {
+      repoName: '',
+      scope: selectedNamedScopeValue,
+      name: '',
+      hasScope: selectedNamedScopeHasScope,
+    });
     if (nextObj === normalizedResource) return;
     onChange({
       name: policy.name,
       obj: nextObj,
       act: normalizeAAAActionForResource(nextObj, parsedAction.action, parsedAction.effect),
     });
-  }, [hasNamedResourceItemFilter, normalizedResource, onChange, parsedAction.action, parsedAction.effect, policy.name, resourceTypeConfig]);
+  }, [
+    hasNamedResourceItemFilter,
+    normalizedResource,
+    onChange,
+    parsedAction.action,
+    parsedAction.effect,
+    policy.name,
+    resourceTypeConfig,
+    selectedNamedScopeHasScope,
+    selectedNamedScopeValue,
+    selectedResourceTypeValue,
+  ]);
 
   return (
     <>

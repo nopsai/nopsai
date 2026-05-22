@@ -119,6 +119,7 @@ type PipelineRun = {
   pipeline_name: string;
   pipeline_path?: string;
   status?: string;
+  trigger_event_id?: string;
   git_repo_owner?: string;
   git_repo_name?: string;
   git_ref?: string;
@@ -198,6 +199,19 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   });
   const editSessionOriginalYamlRef = useRef<string>('');
   const wasEditingRef = useRef(false);
+  const parsePipelineYamlRef = useRef<(raw: string, id: string, source?: string) => PipelineDetail>((raw, id, source) => ({
+    id,
+    name: id,
+    description: 'No description provided.',
+    version: 'latest',
+    path: '',
+    rawYaml: raw,
+    stepNames: [],
+    variables: [],
+    includedDependencies: [],
+    dependencyEdges: [],
+    source,
+  }));
 
   const [autocompleteMeta, setAutocompleteMeta] = useState<{
     secrets: string[];
@@ -311,16 +325,21 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     };
 
     try {
-      const parsed = yaml.load(source) as any;
-      const rawSteps = Array.isArray(parsed?.steps) ? parsed.steps : [];
-      const normalizedSteps: NormalizedStep[] = rawSteps
-        .map((step: any) => {
+      const parsed = yaml.load(source) as unknown;
+      const parsedRecord = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
+      const rawSteps = Array.isArray(parsedRecord.steps) ? parsedRecord.steps : [];
+      const normalizedSteps = rawSteps
+        .map<NormalizedStep | null>((stepValue: unknown) => {
+          const step = stepValue && typeof stepValue === 'object' ? (stepValue as Record<string, unknown>) : null;
+          if (!step) return null;
           const name = typeof step?.name === 'string' ? step.name.trim() : '';
           if (!name) return null;
 
           const taskDefs: RunTaskDefinition[] = Array.isArray(step?.tasks)
             ? step.tasks
-                .map((task: any) => {
+                .map((taskValue: unknown) => {
+                  const task = taskValue && typeof taskValue === 'object' ? (taskValue as Record<string, unknown>) : null;
+                  if (!task) return null;
                   const taskName = typeof task?.name === 'string' ? task.name.trim() : '';
                   if (!taskName) return null;
                   return {
@@ -332,10 +351,10 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                     variables: normalizeVariables(task?.variables),
                   } as RunTaskDefinition;
                 })
-                .filter(Boolean)
+                .filter((task): task is RunTaskDefinition => Boolean(task))
             : [];
 
-          return {
+          const normalizedStep: NormalizedStep = {
             name,
             description: typeof step?.description === 'string' ? step.description : undefined,
             depends_on: normalizeStringArray(step?.depends_on),
@@ -351,15 +370,16 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
             script: typeof step?.script === 'string' ? step.script : undefined,
             tasks: taskDefs,
           };
+          return normalizedStep;
         })
-        .filter(Boolean) as NormalizedStep[];
+        .filter((step): step is NormalizedStep => Boolean(step));
 
       const definition: RunPipelineDefinition | undefined =
         normalizedSteps.length > 0
           ? {
-              name: typeof parsed?.name === 'string' ? parsed.name : undefined,
-              description: typeof parsed?.description === 'string' ? parsed.description : undefined,
-              version: typeof parsed?.version === 'string' ? parsed.version : undefined,
+              name: typeof parsedRecord.name === 'string' ? parsedRecord.name : undefined,
+              description: typeof parsedRecord.description === 'string' ? parsedRecord.description : undefined,
+              version: typeof parsedRecord.version === 'string' ? parsedRecord.version : undefined,
               steps: normalizedSteps.map(step => ({
                 name: step.name,
                 description: step.description,
@@ -405,7 +425,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
       });
 
       return { steps: stepDetails, definition, error: null };
-    } catch (error: any) {
+    } catch (error) {
       return { steps: [], definition: undefined, error: error instanceof Error ? error.message : 'Unable to parse YAML' };
     }
   }, [detail?.rawYaml, editorValue, isEditing]);
@@ -516,7 +536,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
       const resolveStepNames = () => {
         if (!detail) return [];
         try {
-          return parsePipelineYaml(text, detail.id, detail.source).stepNames;
+          return parsePipelineYamlRef.current(text, detail.id, detail.source).stepNames;
         } catch {
           return [];
         }
@@ -640,7 +660,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
             .map(item => {
               if (typeof item === 'string') return item.trim();
               if (item && typeof item === 'object') {
-                const name = (item as any).name;
+                const { name } = item as Record<string, unknown>;
                 if (typeof name === 'string') return name.trim();
               }
               return '';
@@ -767,12 +787,12 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
 
   const encodeId = (id: string) => id.split('/').map(encodeURIComponent).join('/');
 
-  const splitIdentifier = (id: string) => {
+  const splitIdentifier = useCallback((id: string) => {
     const parts = id.split('/').filter(Boolean);
     const name = decodeURIComponent(parts.pop() || '');
     const path = parts.map(decodeURIComponent).join('/');
     return { name, path };
-  };
+  }, []);
 
   const buildPermissionProbeIdentifier = (folder: string) => {
     const cleaned = folder.trim().replace(/^\/+|\/+$/g, '');
@@ -875,7 +895,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     return scope || 'default';
   };
 
-  const parsePipelineYaml = (raw: string, id: string, source?: string): PipelineDetail => {
+  const parsePipelineYaml = useCallback((raw: string, id: string, source?: string): PipelineDetail => {
     let parsed: Record<string, unknown> | null = null;
     try {
       parsed = yaml.load(raw) as Record<string, unknown>;
@@ -924,7 +944,11 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
       containerImage: safe((parsed as Record<string, unknown> | undefined)?.container_image ?? (parsed as Record<string, unknown> | undefined)?.containerImage),
       source,
     };
-  };
+  }, [splitIdentifier]);
+
+  useEffect(() => {
+    parsePipelineYamlRef.current = parsePipelineYaml;
+  }, [parsePipelineYaml]);
 
   const buildTemplateYaml = (name: string) => {
     return [
@@ -1012,7 +1036,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
         }
       }
     },
-    []
+    [splitIdentifier]
   );
 
   const loadPipelineTriggers = useCallback(
@@ -1033,16 +1057,17 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
           throw new Error(text || `Failed to load overrides (${listResponse.status})`);
         }
         const overridesPayload = await listResponse.json();
-        const overrides: any[] = Array.isArray(overridesPayload) ? overridesPayload : [];
+        const overrides: unknown[] = Array.isArray(overridesPayload) ? overridesPayload : [];
         const results: PipelineTrigger[] = [];
 
         await Promise.all(
           overrides.map(async entry => {
             try {
+              const entryRecord = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : null;
               const slugRaw =
                 typeof entry === 'string'
                   ? entry
-                  : entry?.name || entry?.repository_name || entry?.slug || entry?.repo || '';
+                  : entryRecord?.name || entryRecord?.repository_name || entryRecord?.slug || entryRecord?.repo || '';
               const repoSlug = String(slugRaw || '').trim();
               if (!repoSlug || !repoSlug.includes('/')) return;
               const [owner, repo] = repoSlug.split('/');
@@ -1055,15 +1080,16 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
               const triggerList = Array.isArray(manifest?.triggers) ? manifest?.triggers : [];
               triggerList.forEach(item => {
                 const trigger = (item || {}) as Record<string, unknown>;
-                const pipelines = Array.isArray((trigger as any).pipelines) ? (trigger as any).pipelines : [];
+                const pipelines = Array.isArray(trigger.pipelines) ? trigger.pipelines : [];
                 const matches = pipelines.some((value: unknown) => {
-                  const candidate = typeof value === 'string' ? value : (value as any)?.path;
+                  const valueRecord = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+                  const candidate = typeof value === 'string' ? value : valueRecord?.path;
                   return normalizePipelineIdentifier(candidate) === normalizedTarget;
                 });
                 if (matches) {
                   results.push({
                     repoSlug,
-                    source: normalizeSource(typeof entry === 'string' ? 'database' : entry?.source),
+                    source: normalizeSource(typeof entryRecord?.source === 'string' ? entryRecord.source : 'database'),
                     trigger,
                   });
                 }
@@ -1107,11 +1133,12 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
       const payload = await response.json();
       const normalized: PipelineListItem[] = Array.isArray(payload)
         ? payload
-            .map((item: any) => {
+            .map((item: unknown) => {
               if (typeof item === 'string') return { id: item };
               if (item && typeof item === 'object') {
-                const id = typeof item.id === 'string' ? item.id : typeof item.identifier === 'string' ? item.identifier : '';
-                return id ? { id, source: item.source } : null;
+                const record = item as Record<string, unknown>;
+                const id = typeof record.id === 'string' ? record.id : typeof record.identifier === 'string' ? record.identifier : '';
+                return id ? { id, source: typeof record.source === 'string' ? record.source : undefined } : null;
               }
               return null;
             })
@@ -1160,7 +1187,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
         setDetailLoading(false);
       }
     },
-    [draftsById]
+    [draftsById, parsePipelineYaml]
   );
 
   const permissionFolder = selectedId ? splitIdentifier(selectedId).path : activeFolder;
@@ -1364,7 +1391,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
       ? filteredPipelines
       : filteredPipelines.filter(item => splitIdentifier(item.id).path === activeFolder);
     return [...list].sort((a, b) => a.id.localeCompare(b.id));
-  }, [filteredPipelines, searchTerm, activeFolder]);
+  }, [activeFolder, filteredPipelines, searchTerm, splitIdentifier]);
 
   const buildTree = useMemo(() => {
     const root: TreeNode = { id: '__root__', name: '', fullPath: '', children: [], pipelineIds: [] };
@@ -2156,7 +2183,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                       {recentRuns.map(run => {
                         const runId = run.run_id || '';
                         const shortRunId = runId ? runId.slice(0, 8) : '—';
-                        const triggerId = typeof (run as any).trigger_event_id === 'string' ? (run as any).trigger_event_id : '';
+                        const triggerId = typeof run.trigger_event_id === 'string' ? run.trigger_event_id : '';
                         const shortTriggerId = triggerId ? triggerId.slice(0, 8) : '—';
                         const runPath = runId ? `/pipelineruns/recent?run_id=${encodeURIComponent(runId)}` : '/pipelineruns/recent';
                         return (

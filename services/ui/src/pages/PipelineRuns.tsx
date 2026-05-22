@@ -3,12 +3,12 @@ import type { Dispatch, FormEvent, SetStateAction } from 'react';
 import { Link, NavLink, useParams, useSearchParams } from 'react-router-dom';
 import yaml from 'js-yaml';
 import { buildApiUrl } from '../lib/api';
+import { ConfigRepositoryDriftModal } from '../components/ConfigRepositoryDriftModal';
 import {
-  ConfigRepositoryDriftModal,
   buildConfigRepositoryWriteFiles,
   type ConfigRepositoryCommitResponse,
   type ConfigRepositoryDriftResponse,
-} from '../components/ConfigRepositoryDriftModal';
+} from '../lib/configRepositoryDrift';
 
 type TabKey = 'main' | 'recent' | 'events';
 
@@ -118,6 +118,8 @@ type PipelineDefinition = {
     llm_output_sharing?: boolean;
   }[];
 };
+
+const EMPTY_TASK_DEFINITIONS: TaskDefinition[] = [];
 
 type RunDetail = {
   run_info: RunListItem;
@@ -409,7 +411,7 @@ function PipelineRunsPage() {
       document.removeEventListener('mousemove', handleMove);
       document.removeEventListener('mouseleave', handleLeave);
     };
-  }, []);
+  }, [applyTriggerClass]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -733,7 +735,7 @@ function PipelineRunsPage() {
       status: summarizeStatus(runs),
       latestRun: runs.find(r => r.started_at) || runs[0],
     }));
-  }, [activeTab, recentRunsAll]);
+  }, [activeTab, recentRunsAll, searchTerm]);
 
   const expandAllEvents = useCallback(() => setCollapsedEvents(new Set()), []);
 
@@ -4741,12 +4743,8 @@ function StepDetailModal({
   pipelineDefinition?: PipelineDefinition;
 }) {
   const config = step?.configuration;
-  const taskDefs = config?.tasks || [];
+  const taskDefs = useMemo(() => config?.tasks ?? [], [config?.tasks]);
   const [activeTaskName, setActiveTaskName] = useState<string | null>(null);
-
-  useEffect(() => {
-    setActiveTaskName(null);
-  }, [step?.name]);
 
   const taskLayout = useMemo<TaskGraphLayout | null>(() => {
     if (!step) return null;
@@ -4809,9 +4807,10 @@ function StepDetailModal({
   const draggingRef = useRef(false);
   const dragStartRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
   const userAdjustedRef = useRef(false);
+  const [isTaskGraphDragging, setIsTaskGraphDragging] = useState(false);
   const clampUserScale = useCallback((value: number) => Math.min(3, Math.max(0.6, value)), []);
   const graphScale = baseGraphScale * userGraphScale;
-  const nearlyEqual = (a: number, b: number, eps = 0.5) => Math.abs(a - b) < eps;
+  const nearlyEqual = useCallback((a: number, b: number, eps = 0.5) => Math.abs(a - b) < eps, []);
   const markUserAdjusted = () => {
     userAdjustedRef.current = true;
   };
@@ -4867,7 +4866,7 @@ function StepDetailModal({
     const rect = graphContainerRef.current?.getBoundingClientRect();
     if (!rect) return;
     centerGraph();
-  }, [baseGraphScale, centerGraph, graphScale, nearlyEqual, taskGraphView, userGraphScale]);
+  }, [baseGraphScale, centerGraph, graphScale, taskGraphView, userGraphScale]);
 
   useEffect(() => {
     const el = graphContainerRef.current;
@@ -4904,14 +4903,11 @@ function StepDetailModal({
   }, [taskGraphView, taskLayout]);
 
   const hasTasks = (step?.tasks?.length || 0) > 0;
-  const configTasks = config?.tasks || [];
-  const stepDefinition = useMemo(() => {
-    if (!pipelineDefinition?.steps || !step?.name) return null;
-    return pipelineDefinition.steps.find(s => s.name === step.name) || null;
-  }, [pipelineDefinition, step?.name]);
-  const stepGoal = config?.goal || (stepDefinition as any)?.goal || '';
-  const stepScript = config?.script || (stepDefinition as any)?.script || '';
-  const taskDefsFromDefinition = stepDefinition?.tasks || [];
+  const configTasks = config?.tasks ?? EMPTY_TASK_DEFINITIONS;
+  const stepDefinition = pipelineDefinition?.steps?.find(s => s.name === step?.name) || null;
+  const stepGoal = config?.goal || stepDefinition?.goal || '';
+  const stepScript = config?.script || stepDefinition?.script || '';
+  const taskDefsFromDefinition = stepDefinition?.tasks ?? EMPTY_TASK_DEFINITIONS;
   const allTaskDefinitions = useMemo(() => {
     if (configTasks.length && taskDefsFromDefinition.length) {
       const map = new Map<string, TaskDefinition>();
@@ -4924,40 +4920,27 @@ function StepDetailModal({
   const hasTaskDefinitions = allTaskDefinitions.length > 0;
   const isSingleSyntheticTask = hasTasks && !hasTaskDefinitions && (step?.tasks?.length || 0) === 1;
   const showStepLevelInfo = !hasTasks || isSingleSyntheticTask;
+  const effectiveActiveTaskName = (() => {
+    const tasks = step?.tasks || [];
+    if (!tasks.length || isSingleSyntheticTask) return null;
+    if (activeTaskName && tasks.some(task => task.task_name === activeTaskName)) return activeTaskName;
+    return tasks.length === 1 ? tasks[0].task_name : null;
+  })();
 
   const selectedTask = useMemo(() => {
-    if (!activeTaskName) return null;
-    return (step?.tasks || []).find(task => task.task_name === activeTaskName) || null;
-  }, [activeTaskName, step?.tasks]);
+    if (!effectiveActiveTaskName) return null;
+    return (step?.tasks || []).find(task => task.task_name === effectiveActiveTaskName) || null;
+  }, [effectiveActiveTaskName, step?.tasks]);
 
   const selectedTaskDefinition = useMemo(() => {
-    if (!activeTaskName) return null;
-    return allTaskDefinitions.find(def => def.name === activeTaskName) || null;
-  }, [activeTaskName, allTaskDefinitions]);
-
-  useEffect(() => {
-    const tasks = step?.tasks || [];
-    if (!tasks.length) {
-      setActiveTaskName(null);
-      return;
-    }
-    if (isSingleSyntheticTask) {
-      setActiveTaskName(null);
-      return;
-    }
-    const hasSelection = tasks.some(task => task.task_name === activeTaskName);
-    if (!hasSelection) {
-      if (tasks.length === 1) {
-        setActiveTaskName(tasks[0].task_name);
-      } else {
-        setActiveTaskName(null);
-      }
-    }
-  }, [activeTaskName, isSingleSyntheticTask, step?.tasks]);
+    if (!effectiveActiveTaskName) return null;
+    return allTaskDefinitions.find(def => def.name === effectiveActiveTaskName) || null;
+  }, [effectiveActiveTaskName, allTaskDefinitions]);
 
   const onMouseDownGraph = (e: React.MouseEvent) => {
     markUserAdjusted();
     draggingRef.current = true;
+    setIsTaskGraphDragging(true);
     dragStartRef.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
   };
   const onMouseMoveGraph = (e: React.MouseEvent) => {
@@ -4968,6 +4951,7 @@ function StepDetailModal({
   };
   const endDrag = () => {
     draggingRef.current = false;
+    setIsTaskGraphDragging(false);
     dragStartRef.current = null;
   };
 
@@ -5047,7 +5031,7 @@ function StepDetailModal({
                       transformOrigin: 'center center',
                       margin: '0 auto',
                       display: 'block',
-                      cursor: draggingRef.current ? 'grabbing' : 'grab',
+                      cursor: isTaskGraphDragging ? 'grabbing' : 'grab',
                     }}
                   >
                     <g transform={`translate(${taskContentOffset.x}, ${taskContentOffset.y})`}>
@@ -5420,10 +5404,14 @@ function NewFolderModal({
 
   useEffect(() => {
     if (open) {
-      setName('');
-      setDescription('');
-      requestAnimationFrame(() => nameInputRef.current?.focus());
+      const handle = window.setTimeout(() => {
+        setName('');
+        setDescription('');
+        requestAnimationFrame(() => nameInputRef.current?.focus());
+      }, 0);
+      return () => window.clearTimeout(handle);
     }
+    return undefined;
   }, [open]);
 
   if (!open) return null;

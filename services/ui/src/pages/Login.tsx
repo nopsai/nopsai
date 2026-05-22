@@ -72,8 +72,8 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
       });
       onLogin();
       navigate(resp.must_change_password ? '/profile' : '/pipelineruns/main', { replace: true });
-    } catch (err: any) {
-      setError(err?.message || 'Login failed');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
       setLoading(false);
     }
