@@ -44,6 +44,7 @@ type StepConfiguration struct {
 	LlmOutputSharing *bool                 `json:"llm_output_sharing,omitempty"`
 	LLMProfile       string                `json:"llm_profile,omitempty"`
 	MCPProfiles      []string              `json:"mcp_profiles,omitempty"`
+	RuntimePool      string                `json:"runtime_pool,omitempty"`
 	KnowledgeContext []KnowledgeContextRef `json:"knowledge_context,omitempty"`
 	Tasks            []Task                `json:"tasks,omitempty"`
 }

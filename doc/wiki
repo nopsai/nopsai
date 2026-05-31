@@ -43,7 +43,7 @@ Flow: GitHub event or user request → Nopsai authenticates and checks AAA → N
    ```bash
    docker-compose up --build -d
    ```
-   Services: `nopsai`, `aaa`, `dispatcher`, `runner`, `git-bot`, `nopsai-ui`, Postgres, plus build-only images (`agent`, `pipeline`).
+   Services: `nopsai`, `aaa`, `dispatcher`, `runner`, `git-bot`, `nopsai-ui`, Postgres, plus build-only images (`agent`, `pipeline`, `k8s-runner`).
 4. **Verify**:
    - Dispatcher: `nc -z localhost 9090` (or check logs for “dispatcher listening”).
    - Runner: logs should show registration + heartbeats; ensure `/var/run/docker.sock` is mounted.

@@ -66,6 +66,37 @@ log_format: "json" # Options: "console", "json"
 # runner_id: "runner-general"
 # runner_scopes: "dev,prod"
 # runner_capacity: 2
+# runtime: "docker" # docker or kubernetes
+# kubernetes:
+#   namespace: "nopsai-runs"
+#   service_account: "nopsai-runner"
+#   default_image_pull_policy: "IfNotPresent"
+#   default_workspace_size: "5Gi"
+#   default_workspace_access_mode: "ReadWriteOnce"
+#   default_task_timeout: "30m"
+#   default_run_timeout: "2h"
+#   workspace_volume_mode: "pvc" # pvc or existing; emptyDir is not compatible with multi-pod execution
+#   existing_workspace_pvc: ""
+#   storage_class: ""
+#   affinity_enabled: true
+# limits:
+#   max_concurrent_runs: 30
+#   max_concurrent_tasks: 200
+#   max_concurrent_tasks_per_run: 20
+#   max_pending_tasks: 1000
+# runtime_pools:
+#   default:
+#     node_selector:
+#       workload: "nopsai"
+#   high-memory:
+#     node_selector:
+#       workload: "nopsai"
+#       node-class: "memory"
+#     resources:
+#       requests:
+#         memory: "4Gi"
+#       limits:
+#         memory: "16Gi"
 
 # # --- Docker Configuration ---
 # docker_network_name: "nopsai-net"

@@ -267,6 +267,7 @@ Operational support already in the code:
 - Docker Compose stack for local deployment
 - dedicated `aaa` service for internal authorization decisions
 - dedicated runner capacities and scope declarations
+- Kubernetes runner one-time install commands, GitOps manifests, namespace-scoped RBAC, agent-owned PVC workspaces, and agent-to-step node-affinity controls
 - dispatcher queue visibility
 - active runner metadata display
 - active-run inspection from runner metadata

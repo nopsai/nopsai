@@ -249,6 +249,22 @@ func TestMapRequestUsesUpdatedLowLevelActions(t *testing.T) {
 			wantID:     "runners",
 		},
 		{
+			name:       "kubernetes runner bootstrap command uses dispatcher runner update",
+			method:     http.MethodGet,
+			path:       "/v1/system/dispatcher/kubernetes-runner-bootstrap-command",
+			wantAction: "system.update",
+			wantType:   "dispatcher",
+			wantID:     "runners",
+		},
+		{
+			name:       "kubernetes runner manifest uses dispatcher runner update",
+			method:     http.MethodGet,
+			path:       "/v1/system/dispatcher/kubernetes-runner-manifest",
+			wantAction: "system.update",
+			wantType:   "dispatcher",
+			wantID:     "runners",
+		},
+		{
 			name:       "llm profile delete uses llm profile system resource",
 			method:     http.MethodDelete,
 			path:       "/v1/system/llm-profiles/fast",

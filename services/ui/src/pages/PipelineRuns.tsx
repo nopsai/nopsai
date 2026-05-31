@@ -72,6 +72,7 @@ type StepConfiguration = {
   ignore_failure?: boolean;
   llm_profile?: string;
   mcp_profiles?: string[];
+  runtime_pool?: string;
   llm_output_sharing?: boolean;
   goal?: string;
   script?: string;
@@ -106,6 +107,8 @@ type PipelineDefinition = {
   version?: string;
   llm_profile?: string;
   mcp_profiles?: string[];
+  runtime_pool?: string;
+  affinity_enabled?: boolean;
   steps?: {
     name: string;
     description?: string;
@@ -115,6 +118,7 @@ type PipelineDefinition = {
     script?: string;
     llm_profile?: string;
     mcp_profiles?: string[];
+    runtime_pool?: string;
     llm_output_sharing?: boolean;
   }[];
 };
@@ -5105,6 +5109,10 @@ function StepDetailModal({
                 <div className="flex items-start gap-2">
                   <span className="text-[var(--text-secondary)] w-28">LLM profile</span>
                   <span className="font-mono break-words">{config?.llm_profile || 'Inherited'}</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-[var(--text-secondary)] w-28">Runtime pool</span>
+                  <span className="font-mono break-words">{config?.runtime_pool || 'Inherited'}</span>
                 </div>
                 <div className="flex items-start gap-2">
                   <span className="text-[var(--text-secondary)] w-28">Variables</span>

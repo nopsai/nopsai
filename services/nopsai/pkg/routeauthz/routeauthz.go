@@ -76,6 +76,10 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		return "system.update", model.ResourceRef{Type: "dispatcher", ID: "runners"}, false, nil
 	case path == "/v1/system/dispatcher/runner-bootstrap-command":
 		return "system.update", model.ResourceRef{Type: "dispatcher", ID: "runners"}, false, nil
+	case path == "/v1/system/dispatcher/kubernetes-runner-bootstrap-command":
+		return "system.update", model.ResourceRef{Type: "dispatcher", ID: "runners"}, false, nil
+	case path == "/v1/system/dispatcher/kubernetes-runner-manifest":
+		return "system.update", model.ResourceRef{Type: "dispatcher", ID: "runners"}, false, nil
 	case strings.HasPrefix(path, "/v1/system/dispatcher/runners/"):
 		return "system.update", model.ResourceRef{Type: "dispatcher", ID: "runners"}, false, nil
 	case strings.HasPrefix(path, "/v1/groups/") && strings.HasSuffix(path, "/config-repo/sync"):

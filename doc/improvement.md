@@ -35,7 +35,7 @@ This document captures the current feature set and hardening work that has lande
 - **Access management**: Adds system-page controls for users, roles, product grants, and effective-permission inspection.
 
 ### Configuration & Deployment
-- **Single compose stack**: Docker Compose provisions Postgres, the Go services, the AAA service, the UI (served via nginx), plus build-only helper images (`base`, `agent`, `pipeline`).
+- **Single compose stack**: Docker Compose provisions Postgres, the Go services, the AAA service, the UI (served via nginx), plus build-only helper images (`base`, `agent`, `pipeline`, `k8s-runner`).
 - **Shared network & volumes**: All services join `nopsai-net`; run workspaces use throwaway Docker volumes, and Postgres writes to a named volume for persistence.
 - **Unified config loader**: `config/config.go` reads YAML defaults and lets OS variables override per deployment, covering ports, service URLs, Gemini credentials, Docker preferences, and timeout knobs.
 

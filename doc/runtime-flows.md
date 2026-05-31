@@ -62,18 +62,23 @@ Most API routes pass through the same middleware stack before reaching a handler
 
 ## 4. Runner Launch Flow
 
-1. The runner stays connected to the dispatcher over a long-lived gRPC stream.
+1. A Docker runner or Kubernetes runner stays connected to the dispatcher over a long-lived gRPC stream.
 2. When a job arrives, the runner acknowledges it and increments its active-job count.
-3. It ensures the requested agent image exists locally, pulling it if needed.
-4. It creates a shared Docker volume for the run, normally `vol-<run_id>`.
-5. It starts an agent container with:
+3. A Docker runner ensures the requested agent image exists locally, pulling it if needed.
+4. A Docker runner creates a shared Docker volume for the run, normally `vol-<run_id>`.
+5. A Kubernetes runner starts an agent pod with a pod-owned workspace volume in its namespace.
+6. A Docker runner starts an agent container with:
    - the shared workspace mounted at `/workspace`
    - Docker socket access
    - the full runtime variable payload from `nopsai`
-6. It starts two background loops:
+7. A Kubernetes runner starts an agent pod with:
+   - `NOPSAI_RUNTIME=kubernetes`
+   - the shared workspace mounted at `/workspace`
+   - Kubernetes namespace, service account, storage, affinity, and runtime pool settings
+8. The runner starts two background loops:
    - log streaming back through `dispatcher.IngestLogs`
    - run-cancellation polling through `dispatcher.GetRunStatus`
-7. When the agent exits, the runner reports `completed` or `failed` back to the dispatcher.
+9. When the agent exits, the runner reports `completed` or `failed` back to the dispatcher.
 
 ## 5. Agent Startup And Preparation
 
@@ -90,9 +95,9 @@ Most API routes pass through the same middleware stack before reaching a handler
 2. It connects to the dispatcher over gRPC.
 3. It parses the pipeline definition from base64-encoded YAML.
 4. It initializes the embedded `LLMClient` for Gemini or LM Studio.
-5. It creates a Docker client.
+5. It creates a Docker client for Docker runtime, or a Kubernetes client for Kubernetes runtime.
 6. It starts background cancellation and signal handlers.
-7. It optionally starts asynchronous image pre-pulling for pipeline step images.
+7. Docker runtime optionally starts asynchronous image pre-pulling for pipeline step images.
 8. It initializes execution history, including inherited parent history for child pipelines.
 
 ## 6. Agent Execution Loop
@@ -111,20 +116,22 @@ The agent runs tasks in dependency order, not strictly line order.
 5. If the step has a `condition`, the agent asks the LLM for a boolean answer with the step's effective knowledge context before doing any work in that step.
 6. If the condition is false, all tasks in that step are marked `skipped`, except false conditions under an effective guardrail or policy context fail the current task.
 7. If the step is an included child pipeline, the agent fetches the child pipeline and triggers it through the dispatcher.
-8. If the step is a normal execution step, the agent creates or reuses one step container for that step.
+8. If the step is a normal execution step, the agent creates or reuses one step container or step pod for that step.
 9. It picks the execution image from `step.image` or the pipeline default `container_image`.
-10. It mounts the shared run volume plus any declared named volumes.
-11. It decides the action:
+10. Kubernetes runtime resolves `step.runtime_pool` or the pipeline default `runtime_pool` and applies the matching runtime pool to the step pod. Docker runtime ignores this directive.
+11. Kubernetes runtime resolves the pipeline-level `affinity_enabled` directive, falling back to the runner default, and uses it to decide whether step pods must stay on the agent pod's node. Docker runtime ignores this directive.
+12. Docker runtime mounts the shared run volume at the pipeline `working_directory` plus any declared named volumes. Kubernetes runtime mounts the agent-owned workspace PVC at the step pod's pipeline `working_directory` and maps declared volumes to PVCs in the runner namespace.
+13. It decides the action:
    - `script` task: execute the script directly
    - `goal` task: ask the LLM to return a structured action
-12. For goal tasks, the LLM prompt includes variables, effective knowledge context, optional workspace contents, MCP tools, execution history, and the current goal.
-13. If LLM content sharing is enabled, it scans the workspace and includes file contents in the prompt, excluding ignored paths.
-14. It executes the chosen action inside the step container.
-15. It masks secret values from output before logging or saving history.
-16. It updates task status through the dispatcher.
-17. It appends a normalized history entry that later tasks and child pipelines can use.
-18. If a task fails and `ignore_failure` is false, the pipeline stops with failure.
-19. If a task fails and `ignore_failure` is true, the task becomes `failure (ignored)` and the pipeline continues.
+14. For goal tasks, the LLM prompt includes variables, effective knowledge context, optional workspace contents, MCP tools, execution history, and the current goal.
+15. If LLM content sharing is enabled, it scans the workspace and includes file contents in the prompt, excluding ignored paths.
+16. It executes the chosen action inside the step container or pod.
+17. It masks secret values from output before logging or saving history.
+18. It updates task status through the dispatcher.
+19. It appends a normalized history entry that later tasks and child pipelines can use.
+20. If a task fails and `ignore_failure` is false, the pipeline stops with failure.
+21. If a task fails and `ignore_failure` is true, the task becomes `failure (ignored)` and the pipeline continues.
 
 ## 7. How Goal-Based Tasks Work
 
