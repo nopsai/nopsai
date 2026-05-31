@@ -351,6 +351,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 			LlmOutputSharing: pStep.GetLlmOutputSharing(),
 			LLMProfile:       pStep.GetLLMProfile(),
 			MCPProfiles:      pStep.GetMCPProfiles(),
+			RuntimePool:      pStep.GetRuntimePool(),
 			KnowledgeContext: pStep.GetKnowledgeContext(),
 			Tasks:            pStep.GetTasks(),
 		}

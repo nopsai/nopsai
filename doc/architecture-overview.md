@@ -68,12 +68,13 @@ The control plane lives mostly in `services/nopsai`, `services/aaa`, `services/g
 
 ### Data plane
 
-The data plane lives in `services/runner` and `services/agent`.
+The data plane lives in `services/runner`, `services/k8s-runner`, and `services/agent`.
 
-- A runner is long-lived and bound to a Docker runtime.
-- For each run, the runner starts one agent container.
-- The agent creates or reuses one step container per step and runs commands inside it.
-- Pipeline state is therefore durable in Postgres, while execution state is transient in containers and shared Docker volumes.
+- A Docker runner is long-lived and bound to a Docker runtime.
+- A Kubernetes runner is long-lived inside one namespace and starts agent pods with an agent-owned PVC workspace.
+- For each run, the runner starts one agent container or agent pod.
+- The agent creates or reuses one step container or step pod per step and runs commands inside it.
+- Pipeline state is therefore durable in Postgres, while execution state is transient in containers, pods, Docker volumes, or Kubernetes PVCs.
 
 ## Pipeline Execution Model
 
@@ -194,7 +195,7 @@ The dispatcher uses a few simple but important rules:
 - `git-bot`
 - `nopsai-ui`
 - `db`
-- build-only images for `agent`, `pipeline`, and `base`
+- build-only images for `agent`, `pipeline`, `k8s-runner`, and `base`
 
 The main operational assumption is that runners have Docker access and can start agent containers that themselves start step containers.
 

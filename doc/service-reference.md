@@ -178,6 +178,37 @@ Operational assumptions:
 - The runner has access to `/var/run/docker.sock`.
 - The runner can pull images that the pipeline or agent needs.
 
+## `services/k8s-runner`
+
+Primary role:
+
+- Long-lived execution daemon installed in a Kubernetes namespace.
+
+Responsibilities:
+
+- Connects to the dispatcher and registers as a `runtime=kubernetes` runner.
+- Starts an agent pod with Kubernetes runtime variables and a run workspace volume.
+- Streams agent pod logs back through the dispatcher.
+- Polls run status so a cancelled run deletes the active agent pod quickly.
+- Passes namespace, service account, storage, affinity, and runtime pool settings to the agent.
+
+Key files:
+
+- `services/k8s-runner/main.go`
+- `container/Dockerfile.k8s-runner`
+- `doc/kubernetes-runner.md`
+
+Outbound interfaces:
+
+- Kubernetes API for pods, pod logs, and PVCs
+- gRPC to the dispatcher
+
+Operational assumptions:
+
+- One runner is deployed per namespace.
+- PVC mode is used for full agent/step pod workspace compatibility.
+- The runner can be scheduled anywhere; node affinity, when enabled, keeps step pods on the agent pod's node.
+
 ## `services/agent`
 
 Primary role:

@@ -213,10 +213,14 @@ func TestBuildRunnerBootstrapCommandResponseUsesOneTimeToken(t *testing.T) {
 	}
 	rest := resp.BootstrapCommand[idx+len(marker):]
 	token := strings.Trim(rest[:strings.Index(rest, "'")], " ")
-	script, ok := app.consumeRunnerBootstrapToken(token)
+	entry, ok := app.consumeRunnerBootstrapToken(token)
 	if !ok {
 		t.Fatal("expected bootstrap token to be consumable")
 	}
+	if entry.ContentType != "text/x-shellscript; charset=utf-8" {
+		t.Fatalf("content type = %q, want shell script", entry.ContentType)
+	}
+	script := entry.Content
 	if !strings.Contains(script, "service-secret") || !strings.Contains(script, "tls-secret") {
 		t.Fatalf("bootstrap script should include runner secrets:\n%s", script)
 	}
@@ -225,6 +229,122 @@ func TestBuildRunnerBootstrapCommandResponseUsesOneTimeToken(t *testing.T) {
 	}
 	if !strings.Contains(script, "image_arch=$(docker image inspect") {
 		t.Fatalf("bootstrap script should check runner image architecture:\n%s", script)
+	}
+	if _, ok := app.consumeRunnerBootstrapToken(token); ok {
+		t.Fatal("bootstrap token should be single-use")
+	}
+}
+
+func TestBuildKubernetesRunnerManifestResponseIncludesRuntimeRBACAndPVCSettings(t *testing.T) {
+	app := App{}
+	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/system/dispatcher/kubernetes-runner-manifest?runner_id=k8s-runner-ams-1&runner_scopes=production,eu-west&runner_capacity=30&namespace=nopsai-runs&service_account=nopsai-runner&storage_class=fast-rwo", nil)
+	affinity := true
+	resp, err := app.buildKubernetesRunnerManifestResponse(config.Config{
+		AgentNopsaiAPIURL:       "http://nopsai:8080",
+		DispatcherAddress:       "dispatcher:9090",
+		DispatcherListenAddress: ":9090",
+		ServiceJWTSigningKey:    "service-secret",
+		ServiceJWTIssuer:        "issuer",
+		ServiceJWTAudience:      "audience",
+		RunnerServiceID:         "runner-service",
+		DispatcherTLSMode:       "mtls",
+		DispatcherTLSSecret:     "tls-secret",
+		DispatcherTLSServerName: "nopsai-dispatcher.example.com",
+		AgentImage:              "nopsai-agent:dev",
+		Kubernetes: config.KubernetesConfig{
+			DefaultWorkspaceSize:       "10Gi",
+			DefaultWorkspaceAccessMode: "ReadWriteOnce",
+			AffinityEnabled:            &affinity,
+		},
+		Limits: config.RunnerLimits{
+			MaxConcurrentRuns:        30,
+			MaxConcurrentTasks:       200,
+			MaxConcurrentTasksPerRun: 20,
+			MaxPendingTasks:          1000,
+		},
+		RuntimePools: map[string]config.RuntimePool{
+			"default": {
+				NodeSelector: map[string]string{"workload": "nopsai"},
+			},
+		},
+	}, req)
+	if err != nil {
+		t.Fatalf("buildKubernetesRunnerManifestResponse() error = %v", err)
+	}
+	if resp.Namespace != "nopsai-runs" || resp.ServiceAccount != "nopsai-runner" {
+		t.Fatalf("namespace/service account = %q/%q", resp.Namespace, resp.ServiceAccount)
+	}
+	for _, want := range []string{
+		"kind: Deployment",
+		"kind: Role",
+		"resources:",
+		"- pods/exec",
+		"RUNNER_ID: k8s-runner-ams-1",
+		"RUNNER_CAPACITY: \"30\"",
+		"KUBERNETES_NAMESPACE: nopsai-runs",
+		"KUBERNETES_STORAGE_CLASS: fast-rwo",
+		"KUBERNETES_AFFINITY_ENABLED: \"true\"",
+		"LIMITS_MAX_CONCURRENT_TASKS: \"200\"",
+		"SERVICE_JWT_SIGNING_KEY: service-secret",
+		"DISPATCHER_TLS_SECRET: tls-secret",
+	} {
+		if !strings.Contains(resp.Manifest, want) {
+			t.Fatalf("manifest missing %q:\n%s", want, resp.Manifest)
+		}
+	}
+	if resp.DispatcherAddress != "nopsai.example.com:9090" {
+		t.Fatalf("dispatcher address = %q, want adapted host", resp.DispatcherAddress)
+	}
+}
+
+func TestBuildKubernetesRunnerBootstrapCommandResponseUsesOneTimeManifestToken(t *testing.T) {
+	app := App{}
+	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/system/dispatcher/kubernetes-runner-bootstrap-command?runner_id=k8s-runner-ams-1&runner_scopes=production,eu-west&runner_capacity=30&namespace=nopsai-runs&service_account=nopsai-runner&storage_class=fast-rwo", nil)
+	resp, err := app.buildKubernetesRunnerBootstrapCommandResponse(config.Config{
+		AgentNopsaiAPIURL:       "http://nopsai:8080",
+		DispatcherAddress:       "dispatcher:9090",
+		DispatcherListenAddress: ":9090",
+		ServiceJWTSigningKey:    "service-secret",
+		ServiceJWTIssuer:        "issuer",
+		ServiceJWTAudience:      "audience",
+		RunnerServiceID:         "runner-service",
+		DispatcherTLSMode:       "mtls",
+		DispatcherTLSSecret:     "tls-secret",
+		DispatcherTLSServerName: "nopsai-dispatcher.example.com",
+		AgentImage:              "nopsai-agent:dev",
+	}, req)
+	if err != nil {
+		t.Fatalf("buildKubernetesRunnerBootstrapCommandResponse() error = %v", err)
+	}
+	if strings.Contains(resp.BootstrapCommand, "service-secret") || strings.Contains(resp.BootstrapCommand, "tls-secret") {
+		t.Fatalf("bootstrap command should not expose long-lived secrets: %s", resp.BootstrapCommand)
+	}
+	if !strings.Contains(resp.BootstrapCommand, "kubectl apply -f") {
+		t.Fatalf("bootstrap command should apply the manifest with kubectl: %s", resp.BootstrapCommand)
+	}
+	if resp.Namespace != "nopsai-runs" || resp.ServiceAccount != "nopsai-runner" {
+		t.Fatalf("namespace/service account = %q/%q", resp.Namespace, resp.ServiceAccount)
+	}
+	const marker = "token="
+	idx := strings.Index(resp.BootstrapCommand, marker)
+	if idx < 0 {
+		t.Fatalf("bootstrap command missing token: %s", resp.BootstrapCommand)
+	}
+	rest := resp.BootstrapCommand[idx+len(marker):]
+	end := strings.Index(rest, "'")
+	if end < 0 {
+		t.Fatalf("bootstrap command token is not single-quoted: %s", resp.BootstrapCommand)
+	}
+	token := strings.TrimSpace(rest[:end])
+	entry, ok := app.consumeRunnerBootstrapToken(token)
+	if !ok {
+		t.Fatal("expected bootstrap token to be consumable")
+	}
+	if entry.ContentType != "application/x-yaml; charset=utf-8" {
+		t.Fatalf("content type = %q, want Kubernetes YAML", entry.ContentType)
+	}
+	if !strings.Contains(entry.Content, "kind: Deployment") || !strings.Contains(entry.Content, "SERVICE_JWT_SIGNING_KEY: service-secret") {
+		t.Fatalf("bootstrap manifest should include runner resources and secrets:\n%s", entry.Content)
 	}
 	if _, ok := app.consumeRunnerBootstrapToken(token); ok {
 		t.Fatal("bootstrap token should be single-use")

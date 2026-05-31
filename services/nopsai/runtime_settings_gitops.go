@@ -28,19 +28,23 @@ type gitOpsRuntimeSettingsPlan struct {
 }
 
 type runtimeSettingsGitOpsFile struct {
-	AgentNopsaiAPIURL         *string             `json:"agent_nopsai_api_url" yaml:"agent_nopsai_api_url,omitempty"`
-	GitBotNopsaiAPIURL        *string             `json:"git_bot_nopsai_api_url" yaml:"git_bot_nopsai_api_url,omitempty"`
-	NopsaiGitBotAPIURL        *string             `json:"nopsai_git_bot_api_url" yaml:"nopsai_git_bot_api_url,omitempty"`
-	DispatcherAddress         *string             `json:"dispatcher_address" yaml:"dispatcher_address,omitempty"`
-	AgentImage                *string             `json:"agent_image" yaml:"agent_image,omitempty"`
-	DockerNetworkName         *string             `json:"docker_network_name" yaml:"docker_network_name,omitempty"`
-	AutoRemovalAgentContainer *bool               `json:"auto_removal_agent_container" yaml:"auto_removal_agent_container,omitempty"`
-	DefaultPipelineTimeout    *string             `json:"default_pipeline_timeout" yaml:"default_pipeline_timeout,omitempty"`
-	LLMAgentTimeout           *string             `json:"llm_agent_timeout" yaml:"llm_agent_timeout,omitempty"`
-	DispatcherRouting         map[string][]string `json:"dispatcher_routing" yaml:"dispatcher_routing,omitempty"`
-	RunnerID                  *string             `json:"runner_id" yaml:"runner_id,omitempty"`
-	RunnerScopes              *string             `json:"runner_scopes" yaml:"runner_scopes,omitempty"`
-	RunnerCapacity            *int                `json:"runner_capacity" yaml:"runner_capacity,omitempty"`
+	AgentNopsaiAPIURL         *string                       `json:"agent_nopsai_api_url" yaml:"agent_nopsai_api_url,omitempty"`
+	GitBotNopsaiAPIURL        *string                       `json:"git_bot_nopsai_api_url" yaml:"git_bot_nopsai_api_url,omitempty"`
+	NopsaiGitBotAPIURL        *string                       `json:"nopsai_git_bot_api_url" yaml:"nopsai_git_bot_api_url,omitempty"`
+	DispatcherAddress         *string                       `json:"dispatcher_address" yaml:"dispatcher_address,omitempty"`
+	AgentImage                *string                       `json:"agent_image" yaml:"agent_image,omitempty"`
+	DockerNetworkName         *string                       `json:"docker_network_name" yaml:"docker_network_name,omitempty"`
+	AutoRemovalAgentContainer *bool                         `json:"auto_removal_agent_container" yaml:"auto_removal_agent_container,omitempty"`
+	DefaultPipelineTimeout    *string                       `json:"default_pipeline_timeout" yaml:"default_pipeline_timeout,omitempty"`
+	LLMAgentTimeout           *string                       `json:"llm_agent_timeout" yaml:"llm_agent_timeout,omitempty"`
+	DispatcherRouting         map[string][]string           `json:"dispatcher_routing" yaml:"dispatcher_routing,omitempty"`
+	RunnerID                  *string                       `json:"runner_id" yaml:"runner_id,omitempty"`
+	RunnerScopes              *string                       `json:"runner_scopes" yaml:"runner_scopes,omitempty"`
+	RunnerCapacity            *int                          `json:"runner_capacity" yaml:"runner_capacity,omitempty"`
+	Runtime                   *string                       `json:"runtime" yaml:"runtime,omitempty"`
+	Kubernetes                *config.KubernetesConfig      `json:"kubernetes" yaml:"kubernetes,omitempty"`
+	Limits                    *config.RunnerLimits          `json:"limits" yaml:"limits,omitempty"`
+	RuntimePools              map[string]config.RuntimePool `json:"runtime_pools" yaml:"runtime_pools,omitempty"`
 }
 
 func parseGitOpsRuntimeSettingsPlan(binding models.ConfigRepository, directories ...gitOpsRuntimeSettingsDirectory) (*gitOpsRuntimeSettingsPlan, error) {
@@ -101,9 +105,18 @@ func parseGitOpsRuntimeSettingsFile(content, sourcePath string) (*gitOpsRuntimeS
 		RunnerID:                  file.RunnerID,
 		RunnerScopes:              file.RunnerScopes,
 		RunnerCapacity:            file.RunnerCapacity,
+		Runtime:                   file.Runtime,
+		Kubernetes:                file.Kubernetes,
+		Limits:                    file.Limits,
+		RuntimePools:              file.RuntimePools,
 	}
 	if payload.RunnerCapacity != nil && *payload.RunnerCapacity <= 0 {
 		return nil, fmt.Errorf("runtime settings GitOps file '%s' has invalid runner_capacity", sourcePath)
+	}
+	if payload.Limits != nil {
+		if err := validateRunnerLimits(*payload.Limits); err != nil {
+			return nil, fmt.Errorf("runtime settings GitOps file '%s' has invalid limits: %w", sourcePath, err)
+		}
 	}
 	return &gitOpsRuntimeSettingsPlan{payload: payload, sourcePath: sourcePath}, nil
 }
@@ -127,6 +140,10 @@ func buildRuntimeSettingsGitOpsFile(cfg config.Config) runtimeSettingsGitOpsFile
 		RunnerID:                  stringPtr(cfg.RunnerID),
 		RunnerScopes:              stringPtr(cfg.RunnerScopes),
 		RunnerCapacity:            intPtr(runnerCapacity),
+		Runtime:                   stringPtr(config.NormalizeRuntime(cfg.Runtime)),
+		Kubernetes:                kubernetesConfigPtr(config.NormalizeKubernetesConfig(cfg.Kubernetes)),
+		Limits:                    runnerLimitsPtr(cfg.Limits),
+		RuntimePools:              config.NormalizeRuntimePools(cfg.RuntimePools),
 	}
 }
 
@@ -139,5 +156,13 @@ func boolPtr(value bool) *bool {
 }
 
 func intPtr(value int) *int {
+	return &value
+}
+
+func kubernetesConfigPtr(value config.KubernetesConfig) *config.KubernetesConfig {
+	return &value
+}
+
+func runnerLimitsPtr(value config.RunnerLimits) *config.RunnerLimits {
 	return &value
 }

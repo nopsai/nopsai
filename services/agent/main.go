@@ -932,12 +932,23 @@ func run() int {
 		agentLog(runID, pipeline.Name).Info().Msg("LLM is disabled for this pipeline; LLM profile registry will not be loaded")
 	}
 
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		agentLog(runID, pipeline.Name).Error().Err(err).Msg("Failed to create Docker client")
-		return 1
+	runtimeMode := appconfig.NormalizeRuntime(os.Getenv("NOPSAI_RUNTIME"))
+	var cli *client.Client
+	var k8sRuntime *kubernetesAgentRuntime
+	if runtimeMode == kubernetesRuntimeName {
+		k8sRuntime, err = newKubernetesAgentRuntimeFromEnv(runID, pipeline.Name, sharedVolumeName, pipeline.AffinityEnabled)
+		if err != nil {
+			agentLog(runID, pipeline.Name).Error().Err(err).Msg("Failed to initialize Kubernetes runtime")
+			return 1
+		}
+	} else {
+		cli, err = client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+		if err != nil {
+			agentLog(runID, pipeline.Name).Error().Err(err).Msg("Failed to create Docker client")
+			return 1
+		}
+		defer cli.Close()
 	}
-	defer cli.Close()
 
 	sessionContainers := make(map[string]string)
 	sessionMutex := &sync.Mutex{}
@@ -952,7 +963,11 @@ func run() int {
 		sessionMutex.Unlock()
 		for sessionName, containerID := range containers {
 			agentLog(runID, pipeline.Name).Info().Str("session", sessionName).Str("reason", reason).Msg("Cleaning up session container")
-			cleanup(cli, containerID, pipeline.Name, runID)
+			if k8sRuntime != nil {
+				k8sRuntime.cleanupPod(context.Background(), containerID)
+			} else {
+				cleanup(cli, containerID, pipeline.Name, runID)
+			}
 		}
 	}
 
@@ -1057,7 +1072,9 @@ func run() int {
 	if timeoutCtx != nil {
 		prePullCtx = timeoutCtx
 	}
-	startImagePrePull(prePullCtx, cli, &pipeline, runID, totalTasks)
+	if cli != nil {
+		startImagePrePull(prePullCtx, cli, &pipeline, runID, totalTasks)
+	}
 
 	history := new(strings.Builder)
 	if parentHistoryBase64 != "" {
@@ -1268,87 +1285,114 @@ func run() int {
 				sessionMutex.Lock()
 				containerID, ok := sessionContainers[stepName]
 				if !ok {
-					taskLogger.Info().Str("image", imageName).Msg("Creating new container for step")
-					if err := ensureImageExists(context.Background(), taskLogger, cli, imageName); err != nil {
-						taskLogger.Error().Err(err).Msg("Failed to ensure step image exists. Shutting down")
-						finalizeTask(stepName, task.Name, "failure", 1, llmDurationMs)
-						sessionMutex.Unlock()
-						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
-						return
-					}
+					if k8sRuntime != nil {
+						taskLogger.Info().Str("image", imageName).Msg("Creating new Kubernetes pod for step")
+						podName, err := k8sRuntime.createStepPod(context.Background(), kubernetesStepPodRequest{
+							RunID:            runID,
+							PipelineName:     pipelineName,
+							StepName:         stepName,
+							Image:            imageName,
+							WorkingDirectory: workingDirectory,
+							Env:              stepRuntimeVars,
+							Volumes:          step.GetVolumes(),
+							RuntimePool:      firstNonEmpty(step.GetRuntimePool(), pipeline.RuntimePool),
+						})
+						if err != nil {
+							taskLogger.Error().Err(err).Msg("Failed to create step pod")
+							finalizeTask(stepName, task.Name, "failure", 1, llmDurationMs)
+							sessionMutex.Unlock()
+							results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+							return
+						}
+						sessionContainers[stepName] = podName
+						stepContainerID = podName
+					} else {
+						taskLogger.Info().Str("image", imageName).Msg("Creating new container for step")
+						if err := ensureImageExists(context.Background(), taskLogger, cli, imageName); err != nil {
+							taskLogger.Error().Err(err).Msg("Failed to ensure step image exists. Shutting down")
+							finalizeTask(stepName, task.Name, "failure", 1, llmDurationMs)
+							sessionMutex.Unlock()
+							results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+							return
+						}
 
-					binds := []string{fmt.Sprintf("%s:%s", sharedVolumeName, workingDirectory)}
-					if stepVolumes := step.GetVolumes(); len(stepVolumes) > 0 {
-						for _, vol := range stepVolumes {
-							parts := strings.Split(vol, ":")
-							if len(parts) != 2 {
-								taskLogger.Error().Str("volume", vol).Msg("Invalid volume format. Must be 'volume-name:mount-path'. Skipping")
-								continue
-							}
-							volumeName := parts[0]
-							_, err := cli.VolumeInspect(context.Background(), volumeName, client.VolumeInspectOptions{})
-							if err != nil {
-								if cerrdefs.IsNotFound(err) {
-									taskLogger.Info().Str("volume", volumeName).Msg("Volume not found, creating it now")
-									_, createErr := cli.VolumeCreate(context.Background(), client.VolumeCreateOptions{Name: volumeName})
-									if createErr != nil {
-										taskLogger.Error().Err(createErr).Str("volume", volumeName).Msg("Failed to create volume")
-										continue
-									}
-								} else {
-									taskLogger.Error().Err(err).Str("volume", volumeName).Msg("Failed to inspect volume")
+						binds := []string{fmt.Sprintf("%s:%s", sharedVolumeName, workingDirectory)}
+						if stepVolumes := step.GetVolumes(); len(stepVolumes) > 0 {
+							for _, vol := range stepVolumes {
+								parts := strings.Split(vol, ":")
+								if len(parts) != 2 {
+									taskLogger.Error().Str("volume", vol).Msg("Invalid volume format. Must be 'volume-name:mount-path'. Skipping")
 									continue
 								}
+								volumeName := parts[0]
+								_, err := cli.VolumeInspect(context.Background(), volumeName, client.VolumeInspectOptions{})
+								if err != nil {
+									if cerrdefs.IsNotFound(err) {
+										taskLogger.Info().Str("volume", volumeName).Msg("Volume not found, creating it now")
+										_, createErr := cli.VolumeCreate(context.Background(), client.VolumeCreateOptions{Name: volumeName})
+										if createErr != nil {
+											taskLogger.Error().Err(createErr).Str("volume", volumeName).Msg("Failed to create volume")
+											continue
+										}
+									} else {
+										taskLogger.Error().Err(err).Str("volume", volumeName).Msg("Failed to inspect volume")
+										continue
+									}
+								}
+								binds = append(binds, vol)
 							}
-							binds = append(binds, vol)
 						}
-					}
 
-					repoName := os.Getenv("GIT_REPO_NAME")
-					sanitizedPipelineName := sanitizeInput(pipelineName)
-					sanitizedStepName := sanitizeInput(stepName)
-					shortRunID := runID[:8]
+						repoName := os.Getenv("GIT_REPO_NAME")
+						sanitizedPipelineName := sanitizeInput(pipelineName)
+						sanitizedStepName := sanitizeInput(stepName)
+						shortRunID := runID[:8]
 
-					var stepContainerName string
-					if repoName != "" {
-						sanitizedRepoName := sanitizeInput(repoName)
-						stepContainerName = fmt.Sprintf("%s-%s-%s-%s", sanitizedRepoName, sanitizedPipelineName, sanitizedStepName, shortRunID)
-					} else {
-						stepContainerName = fmt.Sprintf("%s-%s-%s", sanitizedPipelineName, sanitizedStepName, shortRunID)
-					}
+						var stepContainerName string
+						if repoName != "" {
+							sanitizedRepoName := sanitizeInput(repoName)
+							stepContainerName = fmt.Sprintf("%s-%s-%s-%s", sanitizedRepoName, sanitizedPipelineName, sanitizedStepName, shortRunID)
+						} else {
+							stepContainerName = fmt.Sprintf("%s-%s-%s", sanitizedPipelineName, sanitizedStepName, shortRunID)
+						}
 
-					cont, err := cli.ContainerCreate(context.Background(), client.ContainerCreateOptions{
-						Config: &container.Config{
-							Image:      imageName,
-							WorkingDir: workingDirectory,
-							Entrypoint: []string{"tail", "-f", "/dev/null"},
-							Env:        stepRuntimeVars,
-							Tty:        false,
-						},
-						HostConfig: &container.HostConfig{
-							Binds:       binds,
-							NetworkMode: container.NetworkMode(dockerNetworkName),
-						},
-						Name: stepContainerName,
-					})
-					if err != nil {
-						taskLogger.Error().Err(err).Msg("Failed to create step container")
-						finalizeTask(stepName, task.Name, "failure", 1, llmDurationMs)
-						sessionMutex.Unlock()
-						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
-						return
+						cont, err := cli.ContainerCreate(context.Background(), client.ContainerCreateOptions{
+							Config: &container.Config{
+								Image:      imageName,
+								WorkingDir: workingDirectory,
+								Entrypoint: []string{"tail", "-f", "/dev/null"},
+								Env:        stepRuntimeVars,
+								Tty:        false,
+							},
+							HostConfig: &container.HostConfig{
+								Binds:       binds,
+								NetworkMode: container.NetworkMode(dockerNetworkName),
+							},
+							Name: stepContainerName,
+						})
+						if err != nil {
+							taskLogger.Error().Err(err).Msg("Failed to create step container")
+							finalizeTask(stepName, task.Name, "failure", 1, llmDurationMs)
+							sessionMutex.Unlock()
+							results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+							return
+						}
+						if _, err := cli.ContainerStart(context.Background(), cont.ID, client.ContainerStartOptions{}); err != nil {
+							taskLogger.Error().Err(err).Msg("Failed to start step container")
+							finalizeTask(stepName, task.Name, "failure", 1, llmDurationMs)
+							sessionMutex.Unlock()
+							results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+							return
+						}
+						sessionContainers[stepName] = cont.ID
+						stepContainerID = cont.ID
 					}
-					if _, err := cli.ContainerStart(context.Background(), cont.ID, client.ContainerStartOptions{}); err != nil {
-						taskLogger.Error().Err(err).Msg("Failed to start step container")
-						finalizeTask(stepName, task.Name, "failure", 1, llmDurationMs)
-						sessionMutex.Unlock()
-						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
-						return
-					}
-					sessionContainers[stepName] = cont.ID
-					stepContainerID = cont.ID
 				} else {
-					taskLogger.Info().Msg("Reusing existing step container")
+					if k8sRuntime != nil {
+						taskLogger.Info().Msg("Reusing existing step pod")
+					} else {
+						taskLogger.Info().Msg("Reusing existing step container")
+					}
 					stepContainerID = containerID
 				}
 				sessionMutex.Unlock()
@@ -1545,7 +1589,11 @@ func run() int {
 
 				// Retry logic for potential race conditions (e.g. filesystem locks)
 				for attempt := 0; attempt < 10; attempt++ {
-					stdout, stderr, exitCode = executeAction(cli, stepContainerID, action, taskRuntimeVars, workingDirectory)
+					if k8sRuntime != nil {
+						stdout, stderr, exitCode = k8sRuntime.executeAction(context.Background(), stepContainerID, action, taskRuntimeVars, workingDirectory)
+					} else {
+						stdout, stderr, exitCode = executeAction(cli, stepContainerID, action, taskRuntimeVars, workingDirectory)
+					}
 					if exitCode == 0 {
 						break
 					}

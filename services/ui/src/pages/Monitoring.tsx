@@ -72,8 +72,12 @@ type MonitoringActiveRun = {
 };
 
 type MonitoringRunner = {
+  runnerId: string;
   label: string;
   status: RunnerStatusValue;
+  runtime: string;
+  namespace: string;
+  node: string;
   capacity: number;
   activeJobs: number;
   inflightJobs: number;
@@ -88,6 +92,8 @@ type RunnerSummary = {
   stale: number;
   disabled: number;
   unknown: number;
+  docker: number;
+  kubernetes: number;
   capacity: number;
   activeJobs: number;
   inflightJobs: number;
@@ -164,6 +170,8 @@ const emptyRunnerSummary: RunnerSummary = {
   stale: 0,
   disabled: 0,
   unknown: 0,
+  docker: 0,
+  kubernetes: 0,
   capacity: 0,
   activeJobs: 0,
   inflightJobs: 0,
@@ -688,6 +696,8 @@ function RunnerStatusGrid({
       <div className="grid grid-cols-2 gap-3">
         <RuntimeMini label="Total" value={formatNumber(summary.total)} />
         <RuntimeMini label="Online" value={formatNumber(summary.online)} />
+        <RuntimeMini label="K8s" value={formatNumber(summary.kubernetes)} />
+        <RuntimeMini label="Docker" value={formatNumber(summary.docker)} />
         <RuntimeMini label="Capacity" value={formatNumber(summary.capacity)} />
         <RuntimeMini label="Active" value={formatNumber(summary.activeJobs)} />
       </div>
@@ -718,6 +728,13 @@ function RunnerStatusItem({ runner }: { runner: MonitoringRunner }) {
           <p className="mt-1 text-xs text-[var(--text-secondary)]">
             {formatRunnerHeartbeat(runner.lastHeartbeatUnix)}
           </p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <span className={`rounded-md border px-2 py-0.5 text-[11px] font-semibold ${runner.runtime === 'kubernetes' ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300' : 'border-slate-500/30 bg-slate-500/10 text-slate-600 dark:text-slate-300'}`}>
+              {runner.runtime === 'kubernetes' ? 'Kubernetes' : 'Docker'}
+            </span>
+            {runner.namespace ? <span className="rounded-md border border-[var(--border-primary)] px-2 py-0.5 text-[11px] text-[var(--text-secondary)]">ns {runner.namespace}</span> : null}
+            {runner.node ? <span className="rounded-md border border-[var(--border-primary)] px-2 py-0.5 text-[11px] text-[var(--text-secondary)]">node {runner.node}</span> : null}
+          </div>
         </div>
         <span className={`shrink-0 rounded-md border px-2 py-1 text-xs font-semibold ${runnerStatusPillClass(runner.status)}`}>
           {formatRunnerStatusLabel(runner.status)}
@@ -1105,9 +1122,14 @@ function normalizeServiceStatusValue(value: unknown): ServiceStatusValue {
 
 function normalizeMonitoringRunner(value: unknown): MonitoringRunner {
   const record = asRecord(value) || {};
+  const runtime = readString(record.runtime).trim().toLowerCase();
   return {
+    runnerId: readString(record.runner_id ?? record.runnerId).trim(),
     label: readString(record.label).trim(),
     status: normalizeRunnerStatusValue(record.status),
+    runtime: runtime === 'k8s' ? 'kubernetes' : runtime || 'docker',
+    namespace: readString(record.namespace).trim(),
+    node: readString(record.node).trim(),
     capacity: normalizeNumber(record.capacity),
     activeJobs: normalizeNumber(record.active_jobs ?? record.activeJobs),
     inflightJobs: normalizeNumber(record.inflight_jobs ?? record.inflightJobs),
@@ -1160,6 +1182,8 @@ function normalizeRunnerSummary(value: unknown, runners: MonitoringRunner[]): Ru
       stale: normalizeNumber(record.stale),
       disabled: normalizeNumber(record.disabled),
       unknown: normalizeNumber(record.unknown),
+      docker: normalizeNumber(record.docker),
+      kubernetes: normalizeNumber(record.kubernetes),
       capacity: normalizeNumber(record.capacity),
       activeJobs: normalizeNumber(record.active_jobs ?? record.activeJobs),
       inflightJobs: normalizeNumber(record.inflight_jobs ?? record.inflightJobs),
@@ -1177,6 +1201,8 @@ function normalizeRunnerSummary(value: unknown, runners: MonitoringRunner[]): Ru
       else if (runner.status === 'stale') summary.stale += 1;
       else if (runner.status === 'disabled') summary.disabled += 1;
       else summary.unknown += 1;
+      if (runner.runtime === 'kubernetes') summary.kubernetes += 1;
+      else summary.docker += 1;
       return summary;
     },
     { ...emptyRunnerSummary }

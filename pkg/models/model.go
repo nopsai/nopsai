@@ -59,6 +59,7 @@ type Step interface {
 	GetLlmOutputSharing() *bool
 	GetLLMProfile() string
 	GetMCPProfiles() []string
+	GetRuntimePool() string
 	GetVariables() map[string]string
 	GetKnowledgeContext() []KnowledgeContextRef
 
@@ -81,6 +82,7 @@ type BaseStep struct {
 	LlmOutputSharing *bool                 `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
 	LLMProfile       string                `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
 	MCPProfiles      []string              `yaml:"mcp_profiles,omitempty" json:"mcp_profiles,omitempty"`
+	RuntimePool      string                `yaml:"runtime_pool,omitempty" json:"runtime_pool,omitempty"`
 	Variables        map[string]string     `yaml:"variables,omitempty" json:"variables,omitempty"`
 	KnowledgeContext []KnowledgeContextRef `yaml:"knowledge_context,omitempty" json:"knowledge_context,omitempty"`
 }
@@ -114,6 +116,9 @@ func (s *BaseStep) GetLLMProfile() string { return s.LLMProfile }
 
 // GetMCPProfiles returns the step's MCP profile defaults.
 func (s *BaseStep) GetMCPProfiles() []string { return s.MCPProfiles }
+
+// GetRuntimePool returns the step's Kubernetes runtime pool override.
+func (s *BaseStep) GetRuntimePool() string { return s.RuntimePool }
 
 // GetVariables returns the step's inline variables.
 func (s *BaseStep) GetVariables() map[string]string { return s.Variables }
@@ -413,6 +418,13 @@ func (ps PipelineStep) GetMCPProfiles() []string {
 	return ps.Step.GetMCPProfiles()
 }
 
+func (ps PipelineStep) GetRuntimePool() string {
+	if ps.Step == nil {
+		return ""
+	}
+	return ps.Step.GetRuntimePool()
+}
+
 func (ps PipelineStep) GetInclude() string {
 	if include, ok := ps.AsIncludeStep(); ok {
 		return include.Include
@@ -617,6 +629,8 @@ type Pipeline struct {
 	LLMEnabled        *bool                 `yaml:"llm_enabled,omitempty" json:"llm_enabled,omitempty"`
 	LLMProfile        string                `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
 	MCPProfiles       []string              `yaml:"mcp_profiles,omitempty" json:"mcp_profiles,omitempty"`
+	RuntimePool       string                `yaml:"runtime_pool,omitempty" json:"runtime_pool,omitempty"`
+	AffinityEnabled   *bool                 `yaml:"affinity_enabled,omitempty" json:"affinity_enabled,omitempty"`
 	KnowledgeContext  []KnowledgeContextRef `yaml:"knowledge_context,omitempty" json:"knowledge_context,omitempty"`
 	LlmContentSharing *bool                 `yaml:"llm_content_sharing,omitempty" json:"llm_content_sharing,omitempty"`
 	LlmOutputSharing  *bool                 `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`

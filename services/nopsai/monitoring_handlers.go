@@ -28,8 +28,12 @@ type monitoringActiveRun struct {
 }
 
 type monitoringRunnerStatus struct {
+	RunnerID          string                `json:"runner_id"`
 	Label             string                `json:"label"`
 	Status            string                `json:"status"`
+	Runtime           string                `json:"runtime,omitempty"`
+	Namespace         string                `json:"namespace,omitempty"`
+	Node              string                `json:"node,omitempty"`
 	Capacity          int32                 `json:"capacity"`
 	ActiveJobs        int32                 `json:"active_jobs"`
 	InflightJobs      int32                 `json:"inflight_jobs"`
@@ -44,6 +48,8 @@ type monitoringRunnerSummary struct {
 	Stale        int   `json:"stale"`
 	Disabled     int   `json:"disabled"`
 	Unknown      int   `json:"unknown"`
+	Docker       int   `json:"docker"`
+	Kubernetes   int   `json:"kubernetes"`
 	Capacity     int32 `json:"capacity"`
 	ActiveJobs   int32 `json:"active_jobs"`
 	InflightJobs int32 `json:"inflight_jobs"`
@@ -134,15 +140,21 @@ func monitoringRunnersFromDispatcherStatus(status *proto.DispatcherStatus, allow
 	now := time.Now()
 	items := make([]monitoringRunnerStatus, 0, len(runners))
 	for index, runner := range runners {
+		metadata := runner.GetMetadata()
+		runtime := runnerRuntime(metadata)
 		item := monitoringRunnerStatus{
-			Label:             "Runner " + strconv.Itoa(index+1),
+			RunnerID:          runner.GetRunnerId(),
+			Label:             firstMonitoringText(runner.GetRunnerId(), "Runner "+strconv.Itoa(index+1)),
 			Status:            monitoringRunnerState(runner, now),
+			Runtime:           runtime,
+			Namespace:         firstMonitoringText(metadata["kubernetes_namespace"], metadata["namespace"]),
+			Node:              firstMonitoringText(metadata["kubernetes_node"], metadata["node"], metadata["hostname"]),
 			Capacity:          runner.GetCapacity(),
 			ActiveJobs:        runner.GetActiveJobs(),
 			InflightJobs:      runner.GetInflightJobs(),
 			LastHeartbeatUnix: runner.GetLastHeartbeatUnix(),
 			AllowDispatch:     runner.GetAllowDispatch(),
-			ActiveRuns:        authorizedMonitoringActiveRuns(runner.GetMetadata(), allowedRunSet),
+			ActiveRuns:        authorizedMonitoringActiveRuns(metadata, allowedRunSet),
 		}
 		items = append(items, item)
 
@@ -150,6 +162,11 @@ func monitoringRunnersFromDispatcherStatus(status *proto.DispatcherStatus, allow
 		summary.Capacity += item.Capacity
 		summary.ActiveJobs += item.ActiveJobs
 		summary.InflightJobs += item.InflightJobs
+		if runtime == "kubernetes" {
+			summary.Kubernetes++
+		} else {
+			summary.Docker++
+		}
 		switch item.Status {
 		case "online":
 			summary.Online++
@@ -162,6 +179,18 @@ func monitoringRunnersFromDispatcherStatus(status *proto.DispatcherStatus, allow
 		}
 	}
 	return items, summary
+}
+
+func runnerRuntime(metadata map[string]string) string {
+	runtime := strings.ToLower(strings.TrimSpace(metadata["runtime"]))
+	switch runtime {
+	case "k8s", "kubernetes":
+		return "kubernetes"
+	case "docker", "":
+		return "docker"
+	default:
+		return runtime
+	}
 }
 
 func authorizedMonitoringActiveRuns(metadata map[string]string, allowedRunSet map[string]struct{}) []monitoringActiveRun {

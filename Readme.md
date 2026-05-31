@@ -43,7 +43,7 @@ around that balance:
 | Enterprise access control | Local auth, JWTs, refresh tokens, personal access tokens, predefined product roles, inherited folder grants, AAA checks, deny-before-allow evaluation, and audit logs. |
 | Secrets and scopes | Encrypted secrets, plaintext scoped variables, strict scope isolation, repository-specific overrides, cross-scope references, and runtime authorization checks. |
 | Knowledge context | Managed or repo-local markdown context for architecture docs, guardrails, policies, ADRs, runbooks, references, examples, and guidelines injected into LLM tasks. |
-| Runner-based execution | Dispatcher-managed runners, Docker-backed agent containers, per-step containers, affinity, scope routing, capacity controls, cancellation, and durable logs. |
+| Runner-based execution | Dispatcher-managed Docker and Kubernetes runners, per-run agents, per-step containers or pods, scope routing, affinity, capacity controls, cancellation, and durable logs. |
 | First-install bootstrap | UI wizard for empty databases, generated runtime configuration, GitHub App guidance, starter repository groups, starter templates, user bootstrap, and setup guardrails. |
 | MCP integration | System-managed MCP server and profile registry with optional profile examples and scope-aware enablement. |
 
@@ -114,7 +114,7 @@ See [doc/architecture-overview.md](doc/architecture-overview.md) and
 5. A durable run record is created in Postgres.
 6. The dispatcher selects an eligible runner by scope, capacity, affinity, and
    dispatch state.
-7. The runner starts a per-run agent container.
+7. The runner starts a per-run agent container or Kubernetes agent pod.
 8. The agent executes script tasks or asks the configured LLM profile to resolve
    goal-based tasks into executable work.
 9. Logs, task status, step status, final status, and GitHub check updates flow
@@ -419,6 +419,13 @@ Run the same checks through Docker Compose:
 ```bash
 docker compose --profile test run --rm backend-test
 docker compose --profile test run --rm ui-test
+```
+
+Build and push the Kubernetes runner image:
+
+```bash
+docker compose build base k8s-runner
+docker compose --profile images push k8s-runner
 ```
 
 Build the UI:

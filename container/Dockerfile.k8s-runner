@@ -1,0 +1,9 @@
+ARG BASE_IMAGE=hoseindocker/nopsai-base:latest
+FROM ${BASE_IMAGE} AS base
+FROM alpine:latest
+
+WORKDIR /app
+COPY --from=base /nopsai-k8s-runner /usr/local/bin/nopsai-k8s-runner
+COPY --from=base /app/config.yml .
+
+ENTRYPOINT ["nopsai-k8s-runner"]

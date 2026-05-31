@@ -18,7 +18,8 @@ RUN go build -ldflags="-s -w" -o /out/nopsai-agent ./services/agent && \
   go build -ldflags="-s -w" -o /out/nopsai-git-bot ./services/git-bot && \
   go build -ldflags="-s -w" -o /out/nopsai ./services/nopsai && \
   go build -ldflags="-s -w" -o /out/nopsai-dispatcher ./services/dispatcher && \
-  go build -ldflags="-s -w" -o /out/nopsai-runner ./services/runner
+  go build -ldflags="-s -w" -o /out/nopsai-runner ./services/runner && \
+  go build -ldflags="-s -w" -o /out/nopsai-k8s-runner ./services/k8s-runner
 
 FROM alpine:3.20
 
@@ -31,6 +32,7 @@ COPY --from=builder /out/nopsai-git-bot /nopsai-git-bot
 COPY --from=builder /out/nopsai /nopsai
 COPY --from=builder /out/nopsai-dispatcher /nopsai-dispatcher
 COPY --from=builder /out/nopsai-runner /nopsai-runner
+COPY --from=builder /out/nopsai-k8s-runner /nopsai-k8s-runner
 COPY --from=builder /src/config.yml /app/config.yml
 
 USER nopsai
