@@ -752,19 +752,23 @@ func validatePipeline(pipeline *models.Pipeline) error {
 }
 
 type systemConfigPayload struct {
-	AgentNopsaiAPIURL         *string             `json:"agent_nopsai_api_url"`
-	GitBotNopsaiAPIURL        *string             `json:"git_bot_nopsai_api_url"`
-	NopsaiGitBotAPIURL        *string             `json:"nopsai_git_bot_api_url"`
-	DispatcherAddress         *string             `json:"dispatcher_address"`
-	AgentImage                *string             `json:"agent_image"`
-	DockerNetworkName         *string             `json:"docker_network_name"`
-	AutoRemovalAgentContainer *bool               `json:"auto_removal_agent_container"`
-	DefaultPipelineTimeout    *string             `json:"default_pipeline_timeout"`
-	LLMAgentTimeout           *string             `json:"llm_agent_timeout"`
-	DispatcherRouting         map[string][]string `json:"dispatcher_routing"`
-	RunnerID                  *string             `json:"runner_id"`
-	RunnerScopes              *string             `json:"runner_scopes"`
-	RunnerCapacity            *int                `json:"runner_capacity"`
+	AgentNopsaiAPIURL         *string                       `json:"agent_nopsai_api_url"`
+	GitBotNopsaiAPIURL        *string                       `json:"git_bot_nopsai_api_url"`
+	NopsaiGitBotAPIURL        *string                       `json:"nopsai_git_bot_api_url"`
+	DispatcherAddress         *string                       `json:"dispatcher_address"`
+	AgentImage                *string                       `json:"agent_image"`
+	DockerNetworkName         *string                       `json:"docker_network_name"`
+	AutoRemovalAgentContainer *bool                         `json:"auto_removal_agent_container"`
+	DefaultPipelineTimeout    *string                       `json:"default_pipeline_timeout"`
+	LLMAgentTimeout           *string                       `json:"llm_agent_timeout"`
+	DispatcherRouting         map[string][]string           `json:"dispatcher_routing"`
+	RunnerID                  *string                       `json:"runner_id"`
+	RunnerScopes              *string                       `json:"runner_scopes"`
+	RunnerCapacity            *int                          `json:"runner_capacity"`
+	Runtime                   *string                       `json:"runtime"`
+	Kubernetes                *config.KubernetesConfig      `json:"kubernetes"`
+	Limits                    *config.RunnerLimits          `json:"limits"`
+	RuntimePools              map[string]config.RuntimePool `json:"runtime_pools"`
 }
 
 type runnerComposeResponse struct {
@@ -791,9 +795,36 @@ type runnerBootstrapCommandResponse struct {
 	Warnings          []string  `json:"warnings,omitempty"`
 }
 
+type kubernetesRunnerManifestResponse struct {
+	RunnerID          string   `json:"runner_id"`
+	RunnerScopes      string   `json:"runner_scopes"`
+	RunnerCapacity    int      `json:"runner_capacity"`
+	Namespace         string   `json:"namespace"`
+	ServiceAccount    string   `json:"service_account"`
+	DispatcherAddress string   `json:"dispatcher_address"`
+	RunnerImage       string   `json:"runner_image"`
+	Manifest          string   `json:"manifest"`
+	Command           string   `json:"command"`
+	Warnings          []string `json:"warnings,omitempty"`
+}
+
+type kubernetesRunnerBootstrapCommandResponse struct {
+	RunnerID          string    `json:"runner_id"`
+	RunnerScopes      string    `json:"runner_scopes"`
+	RunnerCapacity    int       `json:"runner_capacity"`
+	Namespace         string    `json:"namespace"`
+	ServiceAccount    string    `json:"service_account"`
+	DispatcherAddress string    `json:"dispatcher_address"`
+	RunnerImage       string    `json:"runner_image"`
+	BootstrapCommand  string    `json:"bootstrap_command"`
+	ExpiresAt         time.Time `json:"expires_at"`
+	Warnings          []string  `json:"warnings,omitempty"`
+}
+
 type runnerBootstrapToken struct {
-	Script    string
-	ExpiresAt time.Time
+	Content     string
+	ContentType string
+	ExpiresAt   time.Time
 }
 
 type runnerInstallEnv struct {
@@ -819,6 +850,7 @@ const (
 	runnerNetworkModeBridge = "bridge"
 	runnerNetworkModeHost   = "host"
 	defaultRunnerImage      = "hoseindocker/nopsai-runner:latest"
+	defaultK8sRunnerImage   = "hoseindocker/nopsai-k8s-runner:latest"
 )
 
 func (a *App) buildSystemConfigResponse(cfg config.Config) map[string]interface{} {
@@ -836,6 +868,10 @@ func (a *App) buildSystemConfigResponse(cfg config.Config) map[string]interface{
 		"runner_id":                    cfg.RunnerID,
 		"runner_scopes":                cfg.RunnerScopes,
 		"runner_capacity":              cfg.RunnerCapacity,
+		"runtime":                      config.NormalizeRuntime(cfg.Runtime),
+		"kubernetes":                   config.NormalizeKubernetesConfig(cfg.Kubernetes),
+		"limits":                       cfg.Limits,
+		"runtime_pools":                config.NormalizeRuntimePools(cfg.RuntimePools),
 		"env_file_path":                a.envFilePath,
 	}
 }
@@ -1016,7 +1052,7 @@ func (a *App) buildRunnerBootstrapCommandResponse(cfg config.Config, r *http.Req
 		return runnerBootstrapCommandResponse{}, err
 	}
 	script := buildRunnerDockerRunScript(spec)
-	token, expiresAt, err := a.createRunnerBootstrapToken(script, 10*time.Minute)
+	token, expiresAt, err := a.createRunnerBootstrapToken(script, 10*time.Minute, "text/x-shellscript; charset=utf-8")
 	if err != nil {
 		return runnerBootstrapCommandResponse{}, err
 	}
@@ -1033,6 +1069,157 @@ func (a *App) buildRunnerBootstrapCommandResponse(cfg config.Config, r *http.Req
 		Warnings: append([]string{
 			"This one-time install command expires in 10 minutes and is consumed by the first successful download.",
 		}, spec.Warnings...),
+	}, nil
+}
+
+func (a *App) buildKubernetesRunnerBootstrapCommandResponse(cfg config.Config, r *http.Request) (kubernetesRunnerBootstrapCommandResponse, error) {
+	manifestResp, err := a.buildKubernetesRunnerManifestResponse(cfg, r)
+	if err != nil {
+		return kubernetesRunnerBootstrapCommandResponse{}, err
+	}
+	token, expiresAt, err := a.createRunnerBootstrapToken(manifestResp.Manifest, 10*time.Minute, "application/x-yaml; charset=utf-8")
+	if err != nil {
+		return kubernetesRunnerBootstrapCommandResponse{}, err
+	}
+	bootstrapURL := strings.TrimRight(requestExternalBaseURL(r), "/") + "/v1/system/dispatcher/runner-bootstrap?token=" + url.QueryEscape(token)
+	return kubernetesRunnerBootstrapCommandResponse{
+		RunnerID:          manifestResp.RunnerID,
+		RunnerScopes:      manifestResp.RunnerScopes,
+		RunnerCapacity:    manifestResp.RunnerCapacity,
+		Namespace:         manifestResp.Namespace,
+		ServiceAccount:    manifestResp.ServiceAccount,
+		DispatcherAddress: manifestResp.DispatcherAddress,
+		RunnerImage:       manifestResp.RunnerImage,
+		BootstrapCommand:  fmt.Sprintf("tmp=$(mktemp) && curl -fsSL %s -o \"$tmp\" && kubectl apply -f \"$tmp\"; rc=$?; rm -f \"$tmp\"; exit $rc", shellQuote(bootstrapURL)),
+		ExpiresAt:         expiresAt,
+		Warnings: append([]string{
+			"This one-time Kubernetes install command expires in 10 minutes and is consumed by the first successful download.",
+			"Run this command from a machine where kubectl targets the destination cluster.",
+		}, manifestResp.Warnings...),
+	}, nil
+}
+
+func (a *App) buildKubernetesRunnerManifestResponse(cfg config.Config, r *http.Request) (kubernetesRunnerManifestResponse, error) {
+	query := r.URL.Query()
+	runnerID := strings.TrimSpace(query.Get("runner_id"))
+	if runnerID == "" {
+		runnerID = firstNonEmptyString(strings.TrimSpace(cfg.RunnerID), "k8s-runner-1")
+	}
+	runnerScopes := strings.TrimSpace(query.Get("runner_scopes"))
+	if runnerScopes == "" {
+		runnerScopes = strings.TrimSpace(cfg.RunnerScopes)
+	}
+	runnerCapacity := cfg.RunnerCapacity
+	if runnerCapacity <= 0 {
+		runnerCapacity = 1
+	}
+	if rawCapacity := strings.TrimSpace(query.Get("runner_capacity")); rawCapacity != "" {
+		parsed, err := strconv.Atoi(rawCapacity)
+		if err != nil || parsed <= 0 {
+			return kubernetesRunnerManifestResponse{}, fmt.Errorf("runner_capacity must be a positive integer")
+		}
+		runnerCapacity = parsed
+	}
+
+	kcfg := config.NormalizeKubernetesConfig(cfg.Kubernetes)
+	namespace := firstNonEmptyString(strings.TrimSpace(query.Get("namespace")), kcfg.Namespace, "nopsai-runs")
+	serviceAccount := firstNonEmptyString(strings.TrimSpace(query.Get("service_account")), kcfg.ServiceAccount, "nopsai-runner")
+	runnerImage := firstNonEmptyString(strings.TrimSpace(query.Get("runner_image")), defaultK8sRunnerImage)
+	agentImage := firstNonEmptyString(strings.TrimSpace(query.Get("agent_image")), strings.TrimSpace(cfg.AgentImage), "nopsai-agent:latest")
+	imagePullPolicy := firstNonEmptyString(strings.TrimSpace(query.Get("image_pull_policy")), kcfg.DefaultImagePullPolicy, "IfNotPresent")
+	workspaceSize := firstNonEmptyString(strings.TrimSpace(query.Get("workspace_size")), kcfg.DefaultWorkspaceSize, "5Gi")
+	workspaceAccessMode := firstNonEmptyString(strings.TrimSpace(query.Get("workspace_access_mode")), kcfg.DefaultWorkspaceAccessMode, "ReadWriteOnce")
+	taskTimeout := firstNonEmptyString(strings.TrimSpace(query.Get("task_timeout")), kcfg.DefaultTaskTimeout, "30m")
+	runTimeout := firstNonEmptyString(strings.TrimSpace(query.Get("run_timeout")), kcfg.DefaultRunTimeout, "2h")
+	storageClass := firstNonEmptyString(strings.TrimSpace(query.Get("storage_class")), kcfg.StorageClass)
+	workspaceMode := firstNonEmptyString(strings.TrimSpace(query.Get("workspace_volume_mode")), kcfg.WorkspaceVolumeMode, "pvc")
+	affinityEnabled := boolPtrValue(kcfg.AffinityEnabled, true)
+	if rawAffinity := strings.TrimSpace(query.Get("affinity_enabled")); rawAffinity != "" {
+		parsed, err := strconv.ParseBool(rawAffinity)
+		if err != nil {
+			return kubernetesRunnerManifestResponse{}, fmt.Errorf("affinity_enabled must be true or false")
+		}
+		affinityEnabled = parsed
+	}
+
+	serviceJWTSigningKey := cfg.EffectiveServiceJWTSigningKey()
+	if strings.TrimSpace(serviceJWTSigningKey) == "" {
+		return kubernetesRunnerManifestResponse{}, fmt.Errorf("SERVICE_JWT_SIGNING_KEY is not configured")
+	}
+	dispatcherAddress, adapted, warnings := externalDispatcherAddress(cfg, r)
+	if adapted {
+		warnings = append(warnings, "The configured dispatcher address is local to the NopsAI stack, so this manifest uses the current request host and dispatcher port. Confirm that endpoint is reachable from the Kubernetes cluster.")
+	}
+	tlsSecret := cfg.EffectiveDispatcherTLSSecret()
+	tlsMode := cfg.EffectiveDispatcherTLSMode()
+	if servicetls.Enabled(tlsMode) && strings.TrimSpace(tlsSecret) == "" {
+		return kubernetesRunnerManifestResponse{}, fmt.Errorf("DISPATCHER_TLS_SECRET is not configured")
+	}
+	if strings.EqualFold(workspaceMode, "emptyDir") {
+		warnings = append(warnings, "emptyDir is not emitted because NopsAI Kubernetes execution uses separate agent and step pods; use PVC mode for a shared agent/step workspace.")
+		workspaceMode = "pvc"
+	}
+
+	env := map[string]string{
+		"RUNTIME":                                  "kubernetes",
+		"RUNNER_ID":                                runnerID,
+		"RUNNER_SCOPES":                            runnerScopes,
+		"RUNNER_CAPACITY":                          strconv.Itoa(runnerCapacity),
+		"RUNNER_SERVICE_ID":                        cfg.EffectiveRunnerServiceID(),
+		"AGENT_IMAGE":                              agentImage,
+		"DISPATCHER_ADDRESS":                       dispatcherAddress,
+		serviceauth.EnvIssuer:                      cfg.EffectiveServiceJWTIssuer(),
+		serviceauth.EnvAudience:                    cfg.EffectiveServiceJWTAudience(),
+		servicetls.EnvMode:                         tlsMode,
+		servicetls.EnvServerName:                   cfg.EffectiveDispatcherTLSServerName(),
+		"KUBERNETES_NAMESPACE":                     namespace,
+		"KUBERNETES_SERVICE_ACCOUNT":               serviceAccount,
+		"KUBERNETES_DEFAULT_IMAGE_PULL_POLICY":     imagePullPolicy,
+		"KUBERNETES_DEFAULT_WORKSPACE_SIZE":        workspaceSize,
+		"KUBERNETES_DEFAULT_WORKSPACE_ACCESS_MODE": workspaceAccessMode,
+		"KUBERNETES_DEFAULT_TASK_TIMEOUT":          taskTimeout,
+		"KUBERNETES_DEFAULT_RUN_TIMEOUT":           runTimeout,
+		"KUBERNETES_WORKSPACE_VOLUME_MODE":         workspaceMode,
+		"KUBERNETES_AFFINITY_ENABLED":              strconv.FormatBool(affinityEnabled),
+		"KUBERNETES_CLEANUP_FINISHED_PODS":         "true",
+	}
+	if storageClass != "" {
+		env["KUBERNETES_STORAGE_CLASS"] = storageClass
+	}
+	if runtimePools := config.NormalizeRuntimePools(cfg.RuntimePools); len(runtimePools) > 0 {
+		if data, err := yaml.Marshal(runtimePools); err == nil {
+			env["KUBERNETES_RUNTIME_POOLS"] = string(data)
+		}
+	}
+	if cfg.Limits.MaxConcurrentRuns > 0 {
+		env["LIMITS_MAX_CONCURRENT_RUNS"] = strconv.Itoa(cfg.Limits.MaxConcurrentRuns)
+	}
+	if cfg.Limits.MaxConcurrentTasks > 0 {
+		env["LIMITS_MAX_CONCURRENT_TASKS"] = strconv.Itoa(cfg.Limits.MaxConcurrentTasks)
+	}
+	if cfg.Limits.MaxConcurrentTasksPerRun > 0 {
+		env["LIMITS_MAX_CONCURRENT_TASKS_PER_RUN"] = strconv.Itoa(cfg.Limits.MaxConcurrentTasksPerRun)
+	}
+	if cfg.Limits.MaxPendingTasks > 0 {
+		env["LIMITS_MAX_PENDING_TASKS"] = strconv.Itoa(cfg.Limits.MaxPendingTasks)
+	}
+
+	secretEnv := map[string]string{
+		serviceauth.EnvSigningKey: serviceJWTSigningKey,
+		servicetls.EnvSecret:      tlsSecret,
+	}
+	manifest := buildKubernetesRunnerManifest(namespace, serviceAccount, runnerID, runnerImage, env, secretEnv)
+	return kubernetesRunnerManifestResponse{
+		RunnerID:          runnerID,
+		RunnerScopes:      runnerScopes,
+		RunnerCapacity:    runnerCapacity,
+		Namespace:         namespace,
+		ServiceAccount:    serviceAccount,
+		DispatcherAddress: dispatcherAddress,
+		RunnerImage:       runnerImage,
+		Manifest:          manifest,
+		Command:           "kubectl apply -f nopsai-k8s-runner.yaml",
+		Warnings:          warnings,
 	}, nil
 }
 
@@ -1141,6 +1328,182 @@ func buildRunnerDockerRunScript(spec runnerInstallSpec) string {
 	return builder.String()
 }
 
+func buildKubernetesRunnerManifest(namespace, serviceAccount, runnerID, runnerImage string, env, secretEnv map[string]string) string {
+	appName := kubernetesManifestName("nopsai-k8s-runner", runnerID)
+	configMapName := kubernetesManifestName(appName, "config")
+	secretName := kubernetesManifestName(appName, "secret")
+	labels := map[string]string{
+		"app.kubernetes.io/name":      "nopsai-k8s-runner",
+		"app.kubernetes.io/component": "runner",
+		"nopsai.io/runner-id":         kubernetesManifestLabelValue(runnerID),
+	}
+	podLabels := cloneStringMap(labels)
+	podLabels["app.kubernetes.io/instance"] = appName
+
+	docs := []interface{}{
+		map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "Namespace",
+			"metadata": map[string]interface{}{
+				"name": namespace,
+				"labels": map[string]string{
+					"app.kubernetes.io/name": "nopsai",
+				},
+			},
+		},
+		map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "ServiceAccount",
+			"metadata": map[string]interface{}{
+				"name":      serviceAccount,
+				"namespace": namespace,
+				"labels":    labels,
+			},
+		},
+		map[string]interface{}{
+			"apiVersion": "rbac.authorization.k8s.io/v1",
+			"kind":       "Role",
+			"metadata": map[string]interface{}{
+				"name":      appName,
+				"namespace": namespace,
+				"labels":    labels,
+			},
+			"rules": []map[string]interface{}{
+				{"apiGroups": []string{""}, "resources": []string{"pods"}, "verbs": []string{"get", "list", "watch", "create", "delete"}},
+				{"apiGroups": []string{""}, "resources": []string{"pods/log"}, "verbs": []string{"get", "list", "watch"}},
+				{"apiGroups": []string{""}, "resources": []string{"pods/exec"}, "verbs": []string{"get", "create"}},
+				{"apiGroups": []string{""}, "resources": []string{"persistentvolumeclaims"}, "verbs": []string{"get", "list", "watch", "create", "delete"}},
+				{"apiGroups": []string{""}, "resources": []string{"events"}, "verbs": []string{"get", "list", "watch"}},
+			},
+		},
+		map[string]interface{}{
+			"apiVersion": "rbac.authorization.k8s.io/v1",
+			"kind":       "RoleBinding",
+			"metadata": map[string]interface{}{
+				"name":      appName,
+				"namespace": namespace,
+				"labels":    labels,
+			},
+			"subjects": []map[string]string{{
+				"kind":      "ServiceAccount",
+				"name":      serviceAccount,
+				"namespace": namespace,
+			}},
+			"roleRef": map[string]string{
+				"apiGroup": "rbac.authorization.k8s.io",
+				"kind":     "Role",
+				"name":     appName,
+			},
+		},
+		map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "Secret",
+			"type":       "Opaque",
+			"metadata": map[string]interface{}{
+				"name":      secretName,
+				"namespace": namespace,
+				"labels":    labels,
+			},
+			"stringData": secretEnv,
+		},
+		map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]interface{}{
+				"name":      configMapName,
+				"namespace": namespace,
+				"labels":    labels,
+			},
+			"data": env,
+		},
+		map[string]interface{}{
+			"apiVersion": "apps/v1",
+			"kind":       "Deployment",
+			"metadata": map[string]interface{}{
+				"name":      appName,
+				"namespace": namespace,
+				"labels":    labels,
+			},
+			"spec": map[string]interface{}{
+				"replicas": 1,
+				"selector": map[string]interface{}{
+					"matchLabels": podLabels,
+				},
+				"template": map[string]interface{}{
+					"metadata": map[string]interface{}{
+						"labels": podLabels,
+					},
+					"spec": map[string]interface{}{
+						"serviceAccountName": serviceAccount,
+						"containers": []map[string]interface{}{{
+							"name":            "runner",
+							"image":           runnerImage,
+							"imagePullPolicy": firstNonEmptyString(env["KUBERNETES_DEFAULT_IMAGE_PULL_POLICY"], "IfNotPresent"),
+							"envFrom": []map[string]interface{}{
+								{"configMapRef": map[string]string{"name": configMapName}},
+								{"secretRef": map[string]string{"name": secretName}},
+							},
+						}},
+					},
+				},
+			},
+		},
+	}
+
+	var builder strings.Builder
+	for i, doc := range docs {
+		if i > 0 {
+			builder.WriteString("---\n")
+		}
+		data, err := yaml.Marshal(doc)
+		if err != nil {
+			continue
+		}
+		builder.Write(data)
+	}
+	return builder.String()
+}
+
+func kubernetesManifestName(parts ...string) string {
+	name := strings.ToLower(strings.Join(parts, "-"))
+	name = regexp.MustCompile(`[^a-z0-9-]+`).ReplaceAllString(name, "-")
+	name = strings.Trim(name, "-")
+	if name == "" {
+		name = "nopsai"
+	}
+	if len(name) <= 63 {
+		return name
+	}
+	sum := sha256.Sum256([]byte(name))
+	return strings.Trim(name[:52], "-") + "-" + fmt.Sprintf("%x", sum[:5])
+}
+
+func kubernetesManifestLabelValue(value string) string {
+	label := kubernetesManifestName(value)
+	if len(label) <= 63 {
+		return label
+	}
+	return label[:63]
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return map[string]string{}
+	}
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
+}
+
+func boolPtrValue(value *bool, fallback bool) bool {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
 func composeServiceName(runnerID string) string {
 	name := strings.ToLower(strings.TrimSpace(runnerID))
 	name = nonAlphanumericRegex.ReplaceAllString(name, "-")
@@ -1188,12 +1551,16 @@ func requestExternalBaseURL(r *http.Request) string {
 	return proto + "://" + host
 }
 
-func (a *App) createRunnerBootstrapToken(script string, ttl time.Duration) (string, time.Time, error) {
-	if strings.TrimSpace(script) == "" {
-		return "", time.Time{}, fmt.Errorf("runner bootstrap script is empty")
+func (a *App) createRunnerBootstrapToken(content string, ttl time.Duration, contentType string) (string, time.Time, error) {
+	if strings.TrimSpace(content) == "" {
+		return "", time.Time{}, fmt.Errorf("runner bootstrap content is empty")
 	}
 	if ttl <= 0 {
 		ttl = 10 * time.Minute
+	}
+	contentType = strings.TrimSpace(contentType)
+	if contentType == "" {
+		contentType = "text/plain; charset=utf-8"
 	}
 	buf := make([]byte, 32)
 	if _, err := crand.Read(buf); err != nil {
@@ -1214,31 +1581,35 @@ func (a *App) createRunnerBootstrapToken(script string, ttl time.Duration) (stri
 		}
 	}
 	a.runnerBootstrapTokens[token] = runnerBootstrapToken{
-		Script:    script,
-		ExpiresAt: expiresAt,
+		Content:     content,
+		ContentType: contentType,
+		ExpiresAt:   expiresAt,
 	}
 	return token, expiresAt, nil
 }
 
-func (a *App) consumeRunnerBootstrapToken(token string) (string, bool) {
+func (a *App) consumeRunnerBootstrapToken(token string) (runnerBootstrapToken, bool) {
 	token = strings.TrimSpace(token)
 	if token == "" {
-		return "", false
+		return runnerBootstrapToken{}, false
 	}
 	a.runnerBootstrapMu.Lock()
 	defer a.runnerBootstrapMu.Unlock()
 	if a.runnerBootstrapTokens == nil {
-		return "", false
+		return runnerBootstrapToken{}, false
 	}
 	entry, ok := a.runnerBootstrapTokens[token]
 	if !ok {
-		return "", false
+		return runnerBootstrapToken{}, false
 	}
 	delete(a.runnerBootstrapTokens, token)
 	if time.Now().After(entry.ExpiresAt) {
-		return "", false
+		return runnerBootstrapToken{}, false
 	}
-	return entry.Script, true
+	if strings.TrimSpace(entry.ContentType) == "" {
+		entry.ContentType = "text/plain; charset=utf-8"
+	}
+	return entry, true
 }
 
 func externalDispatcherAddress(cfg config.Config, r *http.Request) (string, bool, []string) {
@@ -1351,6 +1722,11 @@ func (a *App) applySystemConfig(payload systemConfigPayload) (config.Config, err
 	if payload.RunnerCapacity != nil && *payload.RunnerCapacity <= 0 {
 		return config.Config{}, fmt.Errorf("runner_capacity must be a positive integer")
 	}
+	if payload.Limits != nil {
+		if err := validateRunnerLimits(*payload.Limits); err != nil {
+			return config.Config{}, err
+		}
+	}
 	routing := normalizeDispatcherRoutingConfig(payload.DispatcherRouting)
 
 	a.cfgMu.Lock()
@@ -1395,8 +1771,30 @@ func (a *App) applySystemConfig(payload systemConfigPayload) (config.Config, err
 	if payload.RunnerCapacity != nil {
 		a.cfg.RunnerCapacity = *payload.RunnerCapacity
 	}
+	if payload.Runtime != nil {
+		a.cfg.Runtime = config.NormalizeRuntime(*payload.Runtime)
+	}
+	if payload.Kubernetes != nil {
+		a.cfg.Kubernetes = config.NormalizeKubernetesConfig(*payload.Kubernetes)
+	}
+	if payload.Limits != nil {
+		a.cfg.Limits = *payload.Limits
+	}
+	if payload.RuntimePools != nil {
+		a.cfg.RuntimePools = config.NormalizeRuntimePools(payload.RuntimePools)
+	}
 
 	return *a.cfg, nil
+}
+
+func validateRunnerLimits(limits config.RunnerLimits) error {
+	if limits.MaxConcurrentRuns < 0 ||
+		limits.MaxConcurrentTasks < 0 ||
+		limits.MaxConcurrentTasksPerRun < 0 ||
+		limits.MaxPendingTasks < 0 {
+		return fmt.Errorf("runner limits cannot be negative")
+	}
+	return nil
 }
 
 func (a *App) persistSystemConfig(cfg config.Config, payload systemConfigPayload) error {
@@ -1453,6 +1851,18 @@ func (a *App) persistSystemConfig(cfg config.Config, payload systemConfigPayload
 	}
 	if payload.RunnerCapacity != nil {
 		existing["runner_capacity"] = cfg.RunnerCapacity
+	}
+	if payload.Runtime != nil {
+		existing["runtime"] = config.NormalizeRuntime(cfg.Runtime)
+	}
+	if payload.Kubernetes != nil {
+		existing["kubernetes"] = config.NormalizeKubernetesConfig(cfg.Kubernetes)
+	}
+	if payload.Limits != nil {
+		existing["limits"] = cfg.Limits
+	}
+	if payload.RuntimePools != nil {
+		existing["runtime_pools"] = config.NormalizeRuntimePools(cfg.RuntimePools)
 	}
 
 	contents, err := yaml.Marshal(existing)
@@ -1511,12 +1921,57 @@ func (a *App) persistEnvOverrides(cfg config.Config, payload systemConfigPayload
 	if payload.RunnerCapacity != nil {
 		updates["RUNNER_CAPACITY"] = strconv.Itoa(cfg.RunnerCapacity)
 	}
+	if payload.Runtime != nil {
+		updates["RUNTIME"] = config.NormalizeRuntime(cfg.Runtime)
+	}
+	if payload.Kubernetes != nil {
+		k := config.NormalizeKubernetesConfig(cfg.Kubernetes)
+		updates["KUBERNETES_NAMESPACE"] = k.Namespace
+		updates["KUBERNETES_SERVICE_ACCOUNT"] = k.ServiceAccount
+		updates["KUBERNETES_DEFAULT_IMAGE_PULL_POLICY"] = k.DefaultImagePullPolicy
+		updates["KUBERNETES_DEFAULT_WORKSPACE_SIZE"] = k.DefaultWorkspaceSize
+		updates["KUBERNETES_DEFAULT_WORKSPACE_ACCESS_MODE"] = k.DefaultWorkspaceAccessMode
+		updates["KUBERNETES_DEFAULT_TASK_TIMEOUT"] = k.DefaultTaskTimeout
+		updates["KUBERNETES_DEFAULT_RUN_TIMEOUT"] = k.DefaultRunTimeout
+		updates["KUBERNETES_WORKSPACE_VOLUME_MODE"] = k.WorkspaceVolumeMode
+		updates["KUBERNETES_EXISTING_WORKSPACE_PVC"] = k.ExistingWorkspacePVC
+		updates["KUBERNETES_STORAGE_CLASS"] = k.StorageClass
+		if k.AffinityEnabled != nil {
+			updates["KUBERNETES_AFFINITY_ENABLED"] = strconv.FormatBool(*k.AffinityEnabled)
+		}
+		if k.CleanupFinishedPods != nil {
+			updates["KUBERNETES_CLEANUP_FINISHED_PODS"] = strconv.FormatBool(*k.CleanupFinishedPods)
+		}
+		if len(k.PodLabels) > 0 {
+			updates["KUBERNETES_POD_LABELS"] = encodeEnvJSON(k.PodLabels)
+		}
+		if len(k.PodAnnotations) > 0 {
+			updates["KUBERNETES_POD_ANNOTATIONS"] = encodeEnvJSON(k.PodAnnotations)
+		}
+	}
+	if payload.Limits != nil {
+		updates["LIMITS_MAX_CONCURRENT_RUNS"] = strconv.Itoa(cfg.Limits.MaxConcurrentRuns)
+		updates["LIMITS_MAX_CONCURRENT_TASKS"] = strconv.Itoa(cfg.Limits.MaxConcurrentTasks)
+		updates["LIMITS_MAX_CONCURRENT_TASKS_PER_RUN"] = strconv.Itoa(cfg.Limits.MaxConcurrentTasksPerRun)
+		updates["LIMITS_MAX_PENDING_TASKS"] = strconv.Itoa(cfg.Limits.MaxPendingTasks)
+	}
+	if payload.RuntimePools != nil {
+		updates["RUNTIME_POOLS"] = encodeEnvJSON(config.NormalizeRuntimePools(cfg.RuntimePools))
+	}
 
 	if len(updates) == 0 {
 		return nil
 	}
 
 	return writeEnvFile(a.envFilePath, updates)
+}
+
+func encodeEnvJSON(value interface{}) string {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 func (a *App) applyRuntimeSettingsGitOpsPlan(plan *gitOpsRuntimeSettingsPlan) error {
@@ -1705,15 +2160,45 @@ func (a *App) handleGenerateRunnerBootstrapCommand(w http.ResponseWriter, r *htt
 	}
 }
 
+func (a *App) handleGenerateKubernetesRunnerManifest(w http.ResponseWriter, r *http.Request) {
+	cfg := a.getConfigSnapshot()
+	resp, err := a.buildKubernetesRunnerManifestResponse(cfg, r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Warn().Err(err).Msg("Failed to encode kubernetes runner manifest response")
+	}
+}
+
+func (a *App) handleGenerateKubernetesRunnerBootstrapCommand(w http.ResponseWriter, r *http.Request) {
+	cfg := a.getConfigSnapshot()
+	resp, err := a.buildKubernetesRunnerBootstrapCommandResponse(cfg, r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Warn().Err(err).Msg("Failed to encode kubernetes runner bootstrap command response")
+	}
+}
+
 func (a *App) handleRunnerBootstrap(w http.ResponseWriter, r *http.Request) {
-	script, ok := a.consumeRunnerBootstrapToken(r.URL.Query().Get("token"))
+	entry, ok := a.consumeRunnerBootstrapToken(r.URL.Query().Get("token"))
 	if !ok {
 		http.Error(w, "runner bootstrap token not found or expired", http.StatusNotFound)
 		return
 	}
-	w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
+	w.Header().Set("Content-Type", entry.ContentType)
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = w.Write([]byte(script))
+	_, _ = w.Write([]byte(entry.Content))
 }
 
 func (a *App) handleUpdateSystemConfig(w http.ResponseWriter, r *http.Request) {

@@ -86,6 +86,8 @@ func (a *App) registerSystemRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/system/dispatcher/scopes", a.handleListRuntimeScopes)
 	mux.HandleFunc("GET /v1/system/dispatcher/runner-compose", a.handleGenerateRunnerCompose)
 	mux.HandleFunc("GET /v1/system/dispatcher/runner-bootstrap-command", a.handleGenerateRunnerBootstrapCommand)
+	mux.HandleFunc("GET /v1/system/dispatcher/kubernetes-runner-bootstrap-command", a.handleGenerateKubernetesRunnerBootstrapCommand)
+	mux.HandleFunc("GET /v1/system/dispatcher/kubernetes-runner-manifest", a.handleGenerateKubernetesRunnerManifest)
 	mux.HandleFunc("GET /v1/system/dispatcher/runner-bootstrap", a.handleRunnerBootstrap)
 	mux.HandleFunc("POST /v1/system/dispatcher/runners/{runnerID}/dispatch", a.handleUpdateRunnerDispatch)
 }

@@ -133,3 +133,58 @@ func TestEffectiveServiceJWTConfig(t *testing.T) {
 		t.Fatalf("EffectiveDispatcherTLSSecret() = %q, want explicit tls key", got)
 	}
 }
+
+func TestNormalizeKubernetesRuntimeConfig(t *testing.T) {
+	affinity := false
+	cfg := NormalizeKubernetesConfig(KubernetesConfig{
+		Namespace:                  " nopsai-runs ",
+		ServiceAccount:             " nopsai-runner ",
+		DefaultImagePullPolicy:     "if-not-present",
+		DefaultWorkspaceSize:       " 5Gi ",
+		DefaultWorkspaceAccessMode: "rwo",
+		WorkspaceVolumeMode:        "existing-pvc",
+		ExistingWorkspacePVC:       " shared-workspace ",
+		StorageClass:               " fast-rwo ",
+		AffinityEnabled:            &affinity,
+		PodLabels:                  map[string]string{" team ": " platform "},
+	})
+
+	if cfg.Namespace != "nopsai-runs" || cfg.ServiceAccount != "nopsai-runner" {
+		t.Fatalf("namespace/service account not normalized: %#v", cfg)
+	}
+	if cfg.DefaultImagePullPolicy != "IfNotPresent" || cfg.DefaultWorkspaceAccessMode != "ReadWriteOnce" {
+		t.Fatalf("policy/access mode not normalized: %#v", cfg)
+	}
+	if cfg.WorkspaceVolumeMode != "existing" || cfg.ExistingWorkspacePVC != "shared-workspace" || cfg.StorageClass != "fast-rwo" {
+		t.Fatalf("workspace settings not normalized: %#v", cfg)
+	}
+	if cfg.AffinityEnabled == nil || *cfg.AffinityEnabled {
+		t.Fatalf("affinity pointer not preserved: %#v", cfg.AffinityEnabled)
+	}
+	if cfg.PodLabels["team"] != "platform" {
+		t.Fatalf("pod labels not normalized: %#v", cfg.PodLabels)
+	}
+}
+
+func TestNormalizeRuntimePools(t *testing.T) {
+	pools := NormalizeRuntimePools(map[string]RuntimePool{
+		" high-memory ": {
+			NodeSelector: map[string]string{" workload ": " nopsai "},
+			Resources: RuntimePoolResources{
+				Requests: map[string]string{" memory ": " 4Gi "},
+				Limits:   map[string]string{" memory ": " 16Gi "},
+			},
+		},
+		"": {},
+	})
+
+	pool, ok := pools["high-memory"]
+	if !ok {
+		t.Fatalf("normalized pool missing: %#v", pools)
+	}
+	if pool.NodeSelector["workload"] != "nopsai" ||
+		pool.Resources.Requests["memory"] != "4Gi" ||
+		pool.Resources.Limits["memory"] != "16Gi" {
+		t.Fatalf("pool not normalized: %#v", pool)
+	}
+}

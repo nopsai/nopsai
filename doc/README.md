@@ -7,6 +7,7 @@ Start here when you want to understand the system from different angles:
 - [architecture-overview.md](./architecture-overview.md): The big picture, main components, core data model, and deployment shape.
 - [service-reference.md](./service-reference.md): What each service owns, how it talks to the others, and the main source files to read.
 - [runtime-flows.md](./runtime-flows.md): Step-by-step execution flows for request authorization, webhooks, manual runs, dispatching, agent execution, child pipelines, cancellation, and config sync.
+- [kubernetes-runner.md](./kubernetes-runner.md): Kubernetes runner runtime, namespace deployment, agent-owned PVC workspace behavior, node affinity, GitOps settings, one-time install commands, and GitOps manifests.
 - [feature-reference.md](./feature-reference.md): Functional capabilities exposed by the codebase and UI.
 - [first-install-wizard.md](./first-install-wizard.md): UI bootstrap flow for an empty database, starter profiles, secret generation, GitOps seeding, GitHub App guidance, repository groups, and production guardrails.
 - [decision-architecture.md](./decision-architecture.md): The main architectural decisions, why they exist, and the tradeoffs they introduce.

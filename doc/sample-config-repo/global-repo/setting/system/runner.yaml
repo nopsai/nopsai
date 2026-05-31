@@ -4,6 +4,7 @@ dispatcher_address: dispatcher:9090
 runner_id: runner-general
 runner_scopes: dev,prod
 runner_capacity: 2
+runtime: docker
 
 # Optional hard routing by scope to runner IDs
 dispatcher_routing:
@@ -14,3 +15,39 @@ dispatcher_routing:
     - runner-dev-1
   "*":
     - runner-general
+
+# Kubernetes runner example. Use one runner per namespace and a unique runner_id.
+# runtime: kubernetes
+# runner_id: k8s-runner-ams-1
+# runner_scopes: production,eu-west
+# runner_capacity: 30
+# kubernetes:
+#   namespace: nopsai-runs
+#   service_account: nopsai-runner
+#   default_image_pull_policy: IfNotPresent
+#   default_workspace_size: 5Gi
+#   default_workspace_access_mode: ReadWriteOnce
+#   default_task_timeout: 30m
+#   default_run_timeout: 2h
+#   workspace_volume_mode: pvc
+#   existing_workspace_pvc: ""
+#   storage_class: fast-rwo
+#   affinity_enabled: true
+# limits:
+#   max_concurrent_runs: 30
+#   max_concurrent_tasks: 200
+#   max_concurrent_tasks_per_run: 20
+#   max_pending_tasks: 1000
+# runtime_pools:
+#   default:
+#     node_selector:
+#       workload: nopsai
+#   high-memory:
+#     node_selector:
+#       workload: nopsai
+#       node-class: memory
+#     resources:
+#       requests:
+#         memory: 4Gi
+#       limits:
+#         memory: 16Gi

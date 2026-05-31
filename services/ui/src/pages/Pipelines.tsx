@@ -33,6 +33,8 @@ const PIPELINE_DIRECTIVES = [
   'llm_enabled',
   'llm_profile',
   'mcp_profiles',
+  'runtime_pool',
+  'affinity_enabled',
   'knowledge_context',
   'llm_output_sharing',
   'llm_content_sharing',
@@ -57,6 +59,7 @@ const STEP_DIRECTIVES = [
   'ignore_failure',
   'llm_profile',
   'mcp_profiles',
+  'runtime_pool',
   'knowledge_context',
   'llm_output_sharing',
 ];

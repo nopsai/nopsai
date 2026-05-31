@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type Dispatch, type FormEvent, type ReactNode, type SetStateAction } from 'react';
-import { Copy, Edit3, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
+import { Activity, Boxes, Clock3, Copy, Edit3, GitBranch, PauseCircle, PlayCircle, Plus, RefreshCw, Route, Search, Server, Trash2, X } from 'lucide-react';
 import { buildApiUrl } from '../lib/api';
 import { ConfigRepositoryDriftModal } from '../components/ConfigRepositoryDriftModal';
 import {
@@ -81,6 +81,10 @@ type RunnerMeta = {
   connectionId: string;
   hostname: string;
   network: string;
+  runtime: string;
+  namespace: string;
+  node: string;
+  serviceAccount: string;
   activeRuns: RunnerActiveRun[];
 };
 
@@ -97,6 +101,23 @@ type RunnerComposeTemplate = {
   expiresAt: string;
   warnings: string[];
 };
+
+type KubernetesRunnerManifestTemplate = {
+  runnerId: string;
+  runnerScopes: string;
+  runnerCapacity: number;
+  namespace: string;
+  serviceAccount: string;
+  dispatcherAddress: string;
+  runnerImage: string;
+  manifest: string;
+  command: string;
+  bootstrapCommand: string;
+  expiresAt: string;
+  warnings: string[];
+};
+
+type RunnerInstallRuntime = 'docker' | 'kubernetes';
 
 type DispatcherStatusState = {
   queuedJobs: number;
@@ -6108,48 +6129,59 @@ function DispatcherPanel({
   const runnerCount = runners.length;
   const queuedJobs = status?.queuedJobs ?? 0;
   const activeSum = runners.reduce((sum, r) => sum + (r.activeJobs || 0), 0);
+  const kubernetesRunnerCount = runners.filter(runner => getRunnerMeta(runner).runtime === 'kubernetes').length;
+  const dockerRunnerCount = Math.max(0, runnerCount - kubernetesRunnerCount);
+  const pausedRunnerCount = runners.filter(runner => !runner.allowDispatch).length;
   const updatedLabel = status?.fetchedAt ? `Updated ${new Date(status.fetchedAt).toLocaleTimeString()}` : 'Not loaded yet';
   const nowMs = status?.fetchedAt ?? 0;
 
   return (
-    <div id="system-dispatcher-section" className="space-y-6">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard label="Queued" value={queuedJobs} id="dispatcher-queue-count" />
-        <StatCard label="Runners" value={runnerCount} id="dispatcher-runner-count" />
-        <StatCard label="Active" value={activeSum} id="dispatcher-active-count" />
-      </div>
-
-      <div className="flex flex-col gap-3 rounded-xl border border-[var(--border-primary)] bg-[var(--bg-tertiary)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+    <div id="system-dispatcher-section" className="dispatcher-workspace">
+      <div className="dispatcher-header">
         <div>
-          <p className="text-sm font-semibold text-[var(--text-primary)]">Need another runner?</p>
-          <p className="mt-1 text-sm text-[var(--text-secondary)]">Open the deployment guide for Docker runners and the Kubernetes status.</p>
+          <p className="dispatcher-eyebrow">System Dispatcher</p>
+          <h3 className="dispatcher-title">Runner Control Plane</h3>
+          <p className="dispatcher-subtitle">Queue, capacity, routing, and runner installs in one view.</p>
         </div>
-        <Link
-          to={`/system/dispatcher?${RUNNER_DEPLOYMENT_GUIDE_QUERY}=${RUNNER_DEPLOYMENT_GUIDE_VALUE}`}
-          className="glass-button-primary self-start whitespace-nowrap sm:self-center"
-          onClick={scrollRunnerDeploymentGuide}
-        >
-          <Plus className="h-4 w-4" />
-          New runner guide
-        </Link>
+        <div className="dispatcher-header__actions">
+          <span id="dispatcher-updated" className="dispatcher-updated">
+            <Clock3 className="h-4 w-4" />
+            {updatedLabel}
+          </span>
+          <button className="glass-button-ghost" type="button" onClick={onRefresh} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+          <Link
+            to={`/system/dispatcher?${RUNNER_DEPLOYMENT_GUIDE_QUERY}=${RUNNER_DEPLOYMENT_GUIDE_VALUE}`}
+            className="glass-button-primary whitespace-nowrap"
+            onClick={scrollRunnerDeploymentGuide}
+          >
+            <Plus className="h-4 w-4" />
+            Add runner
+          </Link>
+        </div>
       </div>
 
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold">Runners</h3>
-          <div className="flex items-center gap-2">
-            <span id="dispatcher-updated" className="text-sm text-[var(--text-secondary)]">
-              {updatedLabel}
-            </span>
-            <button className="glass-button-ghost" type="button" onClick={onRefresh} disabled={loading}>
-              Refresh
-            </button>
+      <div className="dispatcher-summary-grid">
+        <StatCard label="Queued" value={queuedJobs} id="dispatcher-queue-count" icon={<GitBranch className="h-4 w-4" />} />
+        <StatCard label="Runners" value={runnerCount} id="dispatcher-runner-count" icon={<Server className="h-4 w-4" />} hint={pausedRunnerCount > 0 ? `${pausedRunnerCount} paused` : 'dispatch ready'} />
+        <StatCard label="Kubernetes" value={kubernetesRunnerCount} id="dispatcher-kubernetes-runner-count" icon={<Boxes className="h-4 w-4" />} hint={dockerRunnerCount > 0 ? `${dockerRunnerCount} docker` : 'cluster only'} />
+        <StatCard label="Active" value={activeSum} id="dispatcher-active-count" icon={<Activity className="h-4 w-4" />} />
+      </div>
+
+      {error && <p className="dispatcher-error">Failed to load dispatcher status: {error}</p>}
+      {status?.dispatcherError && <p className="dispatcher-error">Runner data is unavailable while dispatcher status cannot be loaded.</p>}
+
+      <section className="dispatcher-section-card">
+        <div className="dispatcher-section-header">
+          <div>
+            <h3>Runners</h3>
+            <p>{runnerCount ? `${runnerCount} connected runner${runnerCount === 1 ? '' : 's'}` : 'No connected runners'}</p>
           </div>
+          {loading && <span className="dispatcher-loading">Loading…</span>}
         </div>
-        {error && <p className="text-sm text-red-500">Failed to load dispatcher status: {error}</p>}
-        {status?.dispatcherError && <p className="text-sm text-red-500">Runner data is unavailable while dispatcher status cannot be loaded.</p>}
-        {loading && <p className="text-sm text-[var(--text-secondary)]">Loading runner status…</p>}
-        <div id="dispatcher-runner-list" className="grid gap-4 md:grid-cols-2">
+        <div id="dispatcher-runner-list" className="dispatcher-runner-grid">
           {runners.map(runner => (
             <RunnerCard
               key={runnerActionKey(runner.runnerId, getRunnerMeta(runner).connectionId) || runner.runnerId}
@@ -6162,19 +6194,22 @@ function DispatcherPanel({
           ))}
         </div>
         {runners.length === 0 && (
-          <div id="dispatcher-empty" className="text-sm text-[var(--text-secondary)]">
+          <div id="dispatcher-empty" className="dispatcher-empty">
             No runners registered.
           </div>
         )}
-      </div>
+      </section>
 
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold">Routing</h3>
-          <span className="text-sm text-[var(--text-secondary)]">Scope to runner mapping</span>
+      <section className="dispatcher-section-card">
+        <div className="dispatcher-section-header">
+          <div>
+            <h3>Routing</h3>
+            <p>Scope to runner mapping</p>
+          </div>
+          <Route className="h-4 w-4 text-[var(--text-secondary)]" />
         </div>
         <RoutingMap routing={status?.routing ?? {}} runners={runners} />
-      </div>
+      </section>
 
       <RunnerDeploymentGuide canManageDispatcher={canManageDispatcher} runnerDefaults={runnerDefaults} />
     </div>
@@ -6182,16 +6217,26 @@ function DispatcherPanel({
 }
 
 function RunnerDeploymentGuide({ canManageDispatcher, runnerDefaults }: { canManageDispatcher: boolean; runnerDefaults: ConfigFormState }) {
+  const [installRuntime, setInstallRuntime] = useState<RunnerInstallRuntime>('docker');
   const [runnerId, setRunnerId] = useState(runnerDefaults.runner_id || 'runner-prod-1');
   const [runnerScopes, setRunnerScopes] = useState(runnerDefaults.runner_scopes || 'prod');
   const [runnerCapacity, setRunnerCapacity] = useState(runnerDefaults.runner_capacity || '2');
   const [runnerNetworkMode, setRunnerNetworkMode] = useState('host');
   const [runnerImage, setRunnerImage] = useState('hoseindocker/nopsai-runner:latest');
+  const [kubernetesNamespace, setKubernetesNamespace] = useState('nopsai-runs');
+  const [kubernetesServiceAccount, setKubernetesServiceAccount] = useState('nopsai-runner');
+  const [kubernetesRunnerImage, setKubernetesRunnerImage] = useState('hoseindocker/nopsai-k8s-runner:latest');
+  const [kubernetesStorageClass, setKubernetesStorageClass] = useState('');
+  const [kubernetesAffinityEnabled, setKubernetesAffinityEnabled] = useState(true);
   const [scopeOptions, setScopeOptions] = useState<string[]>([]);
   const [template, setTemplate] = useState<RunnerComposeTemplate | null>(null);
+  const [kubernetesTemplate, setKubernetesTemplate] = useState<KubernetesRunnerManifestTemplate | null>(null);
   const [loadingTemplate, setLoadingTemplate] = useState(false);
+  const [loadingKubernetesTemplate, setLoadingKubernetesTemplate] = useState(false);
   const [templateError, setTemplateError] = useState<string | null>(null);
+  const [kubernetesTemplateError, setKubernetesTemplateError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedKubernetes, setCopiedKubernetes] = useState(false);
 
   useEffect(() => {
     if (!canManageDispatcher) return;
@@ -6254,6 +6299,37 @@ function RunnerDeploymentGuide({ canManageDispatcher, runnerDefaults }: { canMan
     }
   }, [canManageDispatcher, runnerCapacity, runnerId, runnerImage, runnerNetworkMode, runnerScopes]);
 
+  const loadKubernetesTemplate = useCallback(async () => {
+    if (!canManageDispatcher) return;
+    const capacity = Number.parseInt(runnerCapacity, 10);
+    if (!Number.isFinite(capacity) || capacity <= 0) {
+      setKubernetesTemplateError('Capacity must be a positive number.');
+      return;
+    }
+    const params = new URLSearchParams({
+      runner_id: runnerId.trim() || 'k8s-runner-prod-1',
+      runner_scopes: runnerScopes.trim(),
+      runner_capacity: String(capacity),
+      namespace: kubernetesNamespace.trim() || 'nopsai-runs',
+      service_account: kubernetesServiceAccount.trim() || 'nopsai-runner',
+      runner_image: kubernetesRunnerImage.trim() || 'hoseindocker/nopsai-k8s-runner:latest',
+      affinity_enabled: String(kubernetesAffinityEnabled),
+    });
+    if (kubernetesStorageClass.trim()) params.set('storage_class', kubernetesStorageClass.trim());
+    setLoadingKubernetesTemplate(true);
+    setKubernetesTemplateError(null);
+    try {
+      const response = await fetch(buildApiUrl(`/v1/system/dispatcher/kubernetes-runner-bootstrap-command?${params.toString()}`), { cache: 'no-store' });
+      if (!response.ok) throw new Error(await response.text() || `Unable to generate Kubernetes install command (${response.status})`);
+      setKubernetesTemplate(normalizeKubernetesRunnerManifestTemplate(await response.json()));
+    } catch (error) {
+      setKubernetesTemplate(null);
+      setKubernetesTemplateError(error instanceof Error ? error.message : 'Unable to generate Kubernetes install command.');
+    } finally {
+      setLoadingKubernetesTemplate(false);
+    }
+  }, [canManageDispatcher, kubernetesAffinityEnabled, kubernetesNamespace, kubernetesRunnerImage, kubernetesServiceAccount, kubernetesStorageClass, runnerCapacity, runnerId, runnerScopes]);
+
   const handleCopyTemplate = async () => {
     if (!template?.bootstrapCommand) return;
     try {
@@ -6266,161 +6342,215 @@ function RunnerDeploymentGuide({ canManageDispatcher, runnerDefaults }: { canMan
     }
   };
 
+  const handleCopyKubernetesInstallCommand = async () => {
+    if (!kubernetesTemplate?.bootstrapCommand) return;
+    try {
+      await navigator.clipboard.writeText(kubernetesTemplate.bootstrapCommand);
+      setCopiedKubernetes(true);
+      window.setTimeout(() => setCopiedKubernetes(false), 1600);
+    } catch (error) {
+      console.error('Failed to copy Kubernetes runner install command', error);
+      setKubernetesTemplateError('Unable to copy Kubernetes install command.');
+    }
+  };
+
+  const isKubernetesInstall = installRuntime === 'kubernetes';
+  const activeTemplate = isKubernetesInstall ? kubernetesTemplate : template;
+  const activeLoading = isKubernetesInstall ? loadingKubernetesTemplate : loadingTemplate;
+  const activeError = isKubernetesInstall ? kubernetesTemplateError : templateError;
+  const activeWarnings = activeTemplate?.warnings || [];
+  const activeCommand = activeTemplate?.bootstrapCommand || '';
+  const activeExpiresAt = activeTemplate?.expiresAt || '';
+  const activeDispatcherAddress = activeTemplate?.dispatcherAddress || '';
+  const activeRunnerImage = activeTemplate?.runnerImage || '';
+
   return (
-    <section id={RUNNER_DEPLOYMENT_GUIDE_ID} className="scroll-mt-6 space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <section id={RUNNER_DEPLOYMENT_GUIDE_ID} className="dispatcher-install scroll-mt-6">
+      <div className="dispatcher-section-header">
         <div>
-          <h3 className="text-lg font-semibold">Runner Deployment Guide</h3>
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-[var(--text-secondary)]">
-            Use this when the dispatcher needs more capacity, a scoped runner, or a runner on a host with specific tools.
-          </p>
+          <h3>Runner Installs</h3>
+          <p>Generate one runtime at a time with the same runner identity, scope, and capacity controls.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <span className="runner-pill runner-pill--ok">Docker ready</span>
-          <span className="runner-pill runner-pill--muted">K8s under construction</span>
+        <div className="dispatcher-runtime-switch" role="tablist" aria-label="Runner install runtime">
+          {(['docker', 'kubernetes'] as const).map(runtime => (
+            <button
+              key={runtime}
+              type="button"
+              className={installRuntime === runtime ? 'is-active' : ''}
+              aria-pressed={installRuntime === runtime}
+              onClick={() => setInstallRuntime(runtime)}
+            >
+              {runtime === 'docker' ? <Server className="h-4 w-4" /> : <Boxes className="h-4 w-4" />}
+              <span>{runtime === 'docker' ? 'Docker' : 'Kubernetes'}</span>
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.8fr)]">
-        <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-tertiary)] p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h4 className="text-sm font-semibold">Docker runner</h4>
-            <span className="runner-pill runner-pill--ok">Available</span>
+      <div className="dispatcher-install-card dispatcher-install-card--focused">
+        <div className="dispatcher-install-card__head">
+          <div>
+            <h4>{isKubernetesInstall ? 'Kubernetes runner' : 'Docker runner'}</h4>
+            <p>
+              {isKubernetesInstall
+                ? 'Install an in-cluster namespace runner with RBAC, service auth, and runtime defaults.'
+                : 'Install a host runner with dispatcher, TLS, service auth, image, scope, and capacity prefilled.'}
+            </p>
           </div>
-          <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm leading-6 text-[var(--text-secondary)]">
-            <li>Add a runner service with a unique `RUNNER_ID`.</li>
-            <li>Set `RUNNER_SCOPES` for the work it may receive, or leave it empty for all scopes.</li>
-            <li>Set `RUNNER_CAPACITY` to the number of concurrent jobs this host can run.</li>
-            <li>Generate a one-time install command so dispatcher address, service JWT, and TLS secrets match this live setup.</li>
-            <li>Mount `/var/run/docker.sock` so the runner can start agent and step containers.</li>
-            <li>Start the service, then refresh this dispatcher page to confirm the runner registered.</li>
-          </ol>
-          {canManageDispatcher ? (
-            <div className="mt-5 space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-12">
-                <label className="space-y-1.5 text-sm xl:col-span-3">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Runner name</span>
-                  <input className="pipelines-input w-full" value={runnerId} onChange={event => setRunnerId(event.target.value)} />
-                </label>
-                <div className="space-y-1.5 text-sm xl:col-span-4">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Scopes</span>
-                  <div className="flex min-h-[46px] flex-wrap gap-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-2">
-                    <label className={`runner-pill cursor-pointer ${selectedRunnerScopes.length === 0 ? 'runner-pill--ok' : 'runner-pill--muted'}`}>
+          <span className="runner-pill runner-pill--muted">{isKubernetesInstall ? 'Namespace runtime' : 'Host runtime'}</span>
+        </div>
+
+        {canManageDispatcher ? (
+          <div className="dispatcher-install-card__body">
+            <div className="dispatcher-install-grid">
+              <label className="space-y-1.5 text-sm">
+                <span className="dispatcher-field-label">Runner name</span>
+                <input className="pipelines-input w-full" value={runnerId} onChange={event => setRunnerId(event.target.value)} />
+              </label>
+              <label className="space-y-1.5 text-sm">
+                <span className="dispatcher-field-label">Capacity</span>
+                <input className="pipelines-input w-full" type="number" min="1" value={runnerCapacity} onChange={event => setRunnerCapacity(event.target.value)} />
+              </label>
+              <div className="space-y-1.5 text-sm dispatcher-install-grid__wide">
+                <span className="dispatcher-field-label">Scopes</span>
+                <div className="dispatcher-scope-picker">
+                  <label className={`runner-pill cursor-pointer ${selectedRunnerScopes.length === 0 ? 'runner-pill--ok' : 'runner-pill--muted'}`}>
+                    <input
+                      type="checkbox"
+                      className="sr-only"
+                      checked={selectedRunnerScopes.length === 0}
+                      onChange={() => setRunnerScopes('')}
+                    />
+                    All scopes
+                  </label>
+                  {runnerScopeChoices.map(scope => (
+                    <label key={scope} className={`runner-pill cursor-pointer ${selectedRunnerScopeSet.has(scope) ? 'runner-pill--ok' : 'runner-pill--muted'}`}>
                       <input
                         type="checkbox"
                         className="sr-only"
-                        checked={selectedRunnerScopes.length === 0}
-                        onChange={() => setRunnerScopes('')}
+                        checked={selectedRunnerScopeSet.has(scope)}
+                        onChange={event => toggleRunnerScope(scope, event.target.checked)}
                       />
-                      All
+                      {scope}
                     </label>
-                    {runnerScopeChoices.map(scope => (
-                      <label key={scope} className={`runner-pill cursor-pointer ${selectedRunnerScopeSet.has(scope) ? 'runner-pill--ok' : 'runner-pill--muted'}`}>
-                        <input
-                          type="checkbox"
-                          className="sr-only"
-                          checked={selectedRunnerScopeSet.has(scope)}
-                          onChange={event => toggleRunnerScope(scope, event.target.checked)}
-                        />
-                        {scope}
-                      </label>
-                    ))}
-                  </div>
+                  ))}
                 </div>
-                <label className="space-y-1.5 text-sm xl:col-span-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Capacity</span>
-                  <input className="pipelines-input w-full" type="number" min="1" value={runnerCapacity} onChange={event => setRunnerCapacity(event.target.value)} />
-                </label>
-                <div className="space-y-1.5 text-sm xl:col-span-3">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Network mode</span>
-                  <div className="grid h-[46px] grid-cols-2 rounded-[18px] border border-[var(--border-primary)] bg-[var(--bg-primary)] p-1">
-                    {(['host', 'bridge'] as const).map(mode => (
-                      <button
-                        key={mode}
-                        type="button"
-                        className={`rounded-[14px] px-3 text-sm font-semibold transition-colors ${
-                          runnerNetworkMode === mode
-                            ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)] shadow-sm'
-                            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                        }`}
-                        aria-pressed={runnerNetworkMode === mode}
-                        onClick={() => setRunnerNetworkMode(mode)}
-                      >
-                        {mode === 'host' ? 'Host' : 'Bridge'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <label className="space-y-1.5 text-sm sm:col-span-2 xl:col-span-12">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Runner image</span>
-                  <input className="pipelines-input w-full font-mono text-xs sm:text-sm" value={runnerImage} onChange={event => setRunnerImage(event.target.value)} />
-                </label>
               </div>
-              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-                <button type="button" className="glass-button-subtle" onClick={() => void loadTemplate()} disabled={loadingTemplate}>
-                  <RefreshCw className={`h-4 w-4 ${loadingTemplate ? 'animate-spin' : ''}`} />
-                  {loadingTemplate ? 'Generating…' : template ? 'Regenerate one-time command' : 'Generate one-time command'}
-                </button>
-                <button type="button" className="glass-button-primary" onClick={() => void handleCopyTemplate()} disabled={!template?.bootstrapCommand || loadingTemplate}>
-                  <Copy className="h-4 w-4" />
-                  {copied ? 'Copied' : 'Copy install command'}
-                </button>
-              </div>
-              {templateError && <p className="text-sm text-red-500">{templateError}</p>}
-              {(template?.dispatcherAddress || template?.expiresAt || template?.networkMode || template?.runnerImage) && (
-                <div className="grid gap-x-4 gap-y-1 text-xs leading-5 text-[var(--text-secondary)] sm:grid-cols-2">
-                  {template?.dispatcherAddress && (
-                    <p>
-                      Dispatcher: <span className="font-mono text-[var(--text-primary)]">{template.dispatcherAddress}</span>
-                    </p>
-                  )}
-                  {template?.networkMode && (
-                    <p>
-                      Network: <span className="font-mono text-[var(--text-primary)]">{template.networkMode}</span>
-                    </p>
-                  )}
-                  {template?.expiresAt && (
-                    <p>
-                      Token expires: <span className="font-mono text-[var(--text-primary)]">{formatTimestamp(template.expiresAt)}</span>
-                    </p>
-                  )}
-                  {template?.runnerImage && (
-                    <p className="min-w-0 truncate" title={template.runnerImage}>
-                      Image: <span className="font-mono text-[var(--text-primary)]">{template.runnerImage}</span>
-                    </p>
-                  )}
-                </div>
-              )}
-              <pre className="max-h-96 overflow-auto rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-3 text-xs leading-5 text-[var(--text-primary)]">
-                <code>{template?.bootstrapCommand || 'Generate a one-time install command, then run it on the Docker host.'}</code>
-              </pre>
-              {template?.warnings.map(warning => (
-                <div key={warning} className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-5 text-amber-700 dark:text-amber-300">
-                  {warning}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="mt-4 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-3 text-sm leading-6 text-[var(--text-secondary)]">
-              Dispatcher management access is required to generate a one-time runner install command.
-            </div>
-          )}
-        </div>
 
-        <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-tertiary)] p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h4 className="text-sm font-semibold">Kubernetes runner</h4>
-            <span className="runner-pill runner-pill--muted">Under construction</span>
+              {isKubernetesInstall ? (
+                <>
+                  <label className="space-y-1.5 text-sm">
+                    <span className="dispatcher-field-label">Namespace</span>
+                    <input className="pipelines-input w-full" value={kubernetesNamespace} onChange={event => setKubernetesNamespace(event.target.value)} />
+                  </label>
+                  <label className="space-y-1.5 text-sm">
+                    <span className="dispatcher-field-label">Service account</span>
+                    <input className="pipelines-input w-full" value={kubernetesServiceAccount} onChange={event => setKubernetesServiceAccount(event.target.value)} />
+                  </label>
+                  <label className="space-y-1.5 text-sm">
+                    <span className="dispatcher-field-label">Storage class</span>
+                    <input className="pipelines-input w-full" value={kubernetesStorageClass} onChange={event => setKubernetesStorageClass(event.target.value)} placeholder="cluster default" />
+                  </label>
+                  <label className="dispatcher-toggle">
+                    <input type="checkbox" checked={kubernetesAffinityEnabled} onChange={event => setKubernetesAffinityEnabled(event.target.checked)} />
+                    <span className="dispatcher-toggle__control" aria-hidden="true">
+                      <span />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="dispatcher-toggle__label">Default step affinity</span>
+                      <span className="dispatcher-toggle__hint">Pipeline affinity_enabled can override it.</span>
+                    </span>
+                  </label>
+                  <label className="space-y-1.5 text-sm dispatcher-install-grid__wide">
+                    <span className="dispatcher-field-label">Runner image</span>
+                    <input className="pipelines-input w-full font-mono text-xs sm:text-sm" value={kubernetesRunnerImage} onChange={event => setKubernetesRunnerImage(event.target.value)} />
+                  </label>
+                </>
+              ) : (
+                <>
+                  <div className="space-y-1.5 text-sm">
+                    <span className="dispatcher-field-label">Network mode</span>
+                    <div className="dispatcher-choice-group">
+                      {(['host', 'bridge'] as const).map(mode => (
+                        <button
+                          key={mode}
+                          type="button"
+                          className={runnerNetworkMode === mode ? 'is-active' : ''}
+                          aria-pressed={runnerNetworkMode === mode}
+                          onClick={() => setRunnerNetworkMode(mode)}
+                        >
+                          {mode === 'host' ? 'Host' : 'Bridge'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <label className="space-y-1.5 text-sm dispatcher-install-grid__wide">
+                    <span className="dispatcher-field-label">Runner image</span>
+                    <input className="pipelines-input w-full font-mono text-xs sm:text-sm" value={runnerImage} onChange={event => setRunnerImage(event.target.value)} />
+                  </label>
+                </>
+              )}
+            </div>
+
+            <div className="dispatcher-install-actions">
+              <button
+                type="button"
+                className="glass-button-subtle"
+                onClick={() => void (isKubernetesInstall ? loadKubernetesTemplate() : loadTemplate())}
+                disabled={activeLoading}
+              >
+                <RefreshCw className={`h-4 w-4 ${activeLoading ? 'animate-spin' : ''}`} />
+                {activeLoading ? 'Generating…' : activeCommand ? 'Regenerate command' : 'Generate command'}
+              </button>
+              <button
+                type="button"
+                className="glass-button-primary"
+                onClick={() => void (isKubernetesInstall ? handleCopyKubernetesInstallCommand() : handleCopyTemplate())}
+                disabled={!activeCommand || activeLoading}
+              >
+                <Copy className="h-4 w-4" />
+                {isKubernetesInstall ? (copiedKubernetes ? 'Copied' : 'Copy command') : (copied ? 'Copied' : 'Copy command')}
+              </button>
+            </div>
+
+            {activeError && <p className="text-sm text-red-500">{activeError}</p>}
+
+            {(activeDispatcherAddress || activeExpiresAt || activeRunnerImage || (!isKubernetesInstall && template?.networkMode) || (isKubernetesInstall && kubernetesTemplate?.namespace)) && (
+              <div className="dispatcher-install-meta">
+                {activeDispatcherAddress && <RunnerFact label="Dispatcher" value={activeDispatcherAddress} mono />}
+                {!isKubernetesInstall && template?.networkMode && <RunnerFact label="Network mode" value={template.networkMode} />}
+                {isKubernetesInstall && kubernetesTemplate?.namespace && <RunnerFact label="Namespace" value={kubernetesTemplate.namespace} mono />}
+                {activeExpiresAt && <RunnerFact label="Token expires" value={formatTimestamp(activeExpiresAt)} />}
+                {activeRunnerImage && <RunnerFact label="Image" value={activeRunnerImage} mono />}
+              </div>
+            )}
+
+            <pre className="dispatcher-install-command">
+              <code>{activeCommand || `Generate a one-time ${isKubernetesInstall ? 'Kubernetes' : 'Docker'} install command first.`}</code>
+            </pre>
+
+            {activeWarnings.map(warning => (
+              <div key={warning} className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-5 text-amber-700 dark:text-amber-300">
+                {warning}
+              </div>
+            ))}
           </div>
-          <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">
-            Kubernetes support is not ready to deploy from this UI yet. The expected path is a runner Deployment with NopsAI service secrets, `DISPATCHER_ADDRESS`, `RUNNER_ID`, `RUNNER_SCOPES`, and `RUNNER_CAPACITY`, plus a container runtime strategy for agent and step execution.
-          </p>
-          <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm leading-6 text-amber-700 dark:text-amber-300">
-            Keep using Docker runners for active workloads until the Kubernetes manifests and runtime wiring are completed.
+        ) : (
+          <div className="mt-4 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-3 text-sm leading-6 text-[var(--text-secondary)]">
+            Dispatcher management access is required to generate runner install commands.
           </div>
-        </div>
+        )}
       </div>
     </section>
+  );
+}
+
+function RunnerFact({ label, value, mono }: { label: string; value: string | number; mono?: boolean }) {
+  return (
+    <span className="runner-fact">
+      <span className="runner-fact__label">{label}</span>
+      <span className={`runner-fact__value ${mono ? 'runner-fact__value--mono' : ''}`}>{value}</span>
+    </span>
   );
 }
 
@@ -6439,31 +6569,33 @@ function RunnerCard({
 }) {
   const stale = isStale(nowMs, runner.lastHeartbeatUnix);
   const paused = !runner.allowDispatch;
-  const statusClass = stale ? 'runner-dot--error' : 'runner-dot--ok';
-  const badgeLabel = stale ? 'Stale' : 'Healthy';
-  const badgeClass = stale ? 'runner-pill--error' : 'runner-pill--ok';
+  const statusClass = paused ? 'runner-dot--warning' : stale ? 'runner-dot--error' : 'runner-dot--ok';
+  const statusLabel = paused ? 'Dispatch paused' : stale ? 'Heartbeat stale' : 'Online';
+  const statusTone = paused ? 'runner-pill--warning' : stale ? 'runner-pill--error' : 'runner-pill--ok';
 
   const meta = getRunnerMeta(runner);
+  const runtimeLabel = meta.runtime === 'kubernetes' ? 'Kubernetes' : 'Docker';
+  const runtimeTone = meta.runtime === 'kubernetes' ? 'runner-pill--ok' : 'runner-pill--muted';
   const connectionLabel = formatConnection(meta.connectionId);
   const pendingKey = runnerActionKey(runner.runnerId, meta.connectionId);
   const pending = Boolean(pendingKey && pendingActions.has(pendingKey));
 
-  const toggleLabel = paused ? 'Resume' : 'Pause';
+  const toggleLabel = paused ? 'Resume dispatch' : 'Pause dispatch';
   const toggleTone = paused ? 'glass-button-primary' : 'glass-button-danger';
-  const actionLabel = pending ? (paused ? 'Enabling…' : 'Pausing…') : toggleLabel;
+  const actionLabel = pending ? (paused ? 'Resuming…' : 'Pausing…') : toggleLabel;
+  const scopesLabel = runner.scopes.length ? runner.scopes.join(', ') : 'All scopes';
+  const activeRunCount = meta.activeRuns.length;
 
   return (
-    <div className={`runner-card glass-card p-5 space-y-4 ${paused ? 'runner-card--paused' : ''}`}>
+    <div className={`runner-card p-5 ${paused ? 'runner-card--paused' : stale ? 'runner-card--stale' : ''}`}>
       <div className="runner-card__header">
         <div className="runner-card__title">
-          <span className={`runner-dot ${statusClass}`}></span>
+          <span className={`runner-dot ${statusClass}`} aria-hidden="true"></span>
           <div className="runner-card__title-stack">
-            <div className={`runner-name ${paused ? 'runner-name--paused' : ''}`}>
-              {runner.runnerId}
-              {paused && <span className="runner-paused-label">Paused</span>}
-            </div>
-            <div className="runner-card__health-row">
-              <span className={`runner-pill ${badgeClass}`}>{badgeLabel}</span>
+            <div className={`runner-name ${paused ? 'runner-name--paused' : ''}`}>{runner.runnerId}</div>
+            <div className="runner-card__badges">
+              <span className={`runner-pill ${statusTone}`}>{statusLabel}</span>
+              <span className={`runner-pill ${runtimeTone}`}>{runtimeLabel}</span>
             </div>
           </div>
         </div>
@@ -6474,64 +6606,84 @@ function RunnerCard({
             disabled={!canManageDispatcher || pending}
             onClick={() => void onToggleDispatch(runner)}
           >
+            {paused ? <PlayCircle className="h-4 w-4" /> : <PauseCircle className="h-4 w-4" />}
             {actionLabel}
           </button>
         </div>
       </div>
-      <div className="grid grid-cols-3 gap-2 runner-card__stat-grid text-xs">
-        <div className="runner-stat">
-          <span className="runner-stat__label">Active</span>
-          <span className="runner-stat__value">{runner.activeJobs}</span>
-        </div>
-        <div className="runner-stat">
-          <span className="runner-stat__label">Inflight</span>
-          <span className="runner-stat__value">{runner.inflightJobs}</span>
-        </div>
-        <div className="runner-stat">
-          <span className="runner-stat__label">Load</span>
-          <span className="runner-stat__value">{runner.activeJobs}/{runner.capacity}</span>
-        </div>
+
+      <div className="runner-card__metrics">
+        <RunnerMetric label="Running" value={runner.activeJobs} />
+        <RunnerMetric label="Assigned" value={runner.inflightJobs} />
+        <RunnerMetric label="Capacity" value={`${runner.activeJobs}/${runner.capacity}`} />
       </div>
-      <div className="runner-card__meta-row text-xs text-[var(--text-secondary)]">
-        <div className="flex flex-wrap gap-2">
-          <span className="runner-pill runner-pill--muted">{runner.scopes.length ? runner.scopes.join(', ') : 'All scopes'}</span>
-          {meta.hostname && <span className="runner-pill runner-pill--muted">{meta.hostname}</span>}
-          {meta.network && <span className="runner-pill runner-pill--muted">{meta.network}</span>}
-          <span className="runner-pill runner-pill--muted">Cap {runner.capacity}</span>
-          {connectionLabel && <span className="runner-pill runner-pill--muted">{connectionLabel}</span>}
-          <span className="runner-pill runner-pill--muted">Seen {formatSince(nowMs, runner.lastHeartbeatUnix)}</span>
-        </div>
+
+      <div className="runner-card__facts">
+        <RunnerFact label="Scopes" value={scopesLabel} />
+        <RunnerFact label="Last heartbeat" value={formatSince(nowMs, runner.lastHeartbeatUnix)} />
+        {connectionLabel && <RunnerFact label="Connection" value={connectionLabel} mono />}
+        {meta.runtime === 'kubernetes' ? (
+          <>
+            {meta.namespace && <RunnerFact label="Namespace" value={meta.namespace} mono />}
+            {meta.node && <RunnerFact label="Node" value={meta.node} mono />}
+            {meta.serviceAccount && <RunnerFact label="Service account" value={meta.serviceAccount} mono />}
+          </>
+        ) : (
+          <>
+            {meta.hostname && <RunnerFact label="Host" value={meta.hostname} mono />}
+            {meta.network && <RunnerFact label="Docker network" value={meta.network} mono />}
+          </>
+        )}
       </div>
-      {meta.activeRuns.length > 0 ? (
-        <div className="runner-run-list">
-          {meta.activeRuns.slice(0, MAX_VISIBLE_ACTIVE_RUNS).map(run => {
-            const runIdLabel = truncateId(run.runId, 6);
-            const triggerLabel = truncateId(run.triggerId || 'manual', 6);
-            const display = `${run.pipeline || 'Run'}-${triggerLabel}-${runIdLabel}`;
-            const title = `${run.pipeline || 'Run'} • Trigger ${run.triggerId || 'manual'} • Run ${run.runId}`;
-            const to = `/pipelineruns/recent?run_id=${encodeURIComponent(run.runId)}`;
-            return (
-              <Link key={run.runId} to={to} className="runner-pill runner-pill--link" title={title}>
-                {display}
-              </Link>
-            );
-          })}
-          {meta.activeRuns.length > MAX_VISIBLE_ACTIVE_RUNS && (
-            <span className="runner-pill runner-pill--muted">+{meta.activeRuns.length - MAX_VISIBLE_ACTIVE_RUNS}</span>
-          )}
+
+      <div className="runner-card__runs">
+        <div className="runner-card__runs-header">
+          <span>Active runs</span>
+          {activeRunCount > 0 && <span>{activeRunCount}</span>}
         </div>
-      ) : (
-        <p className="text-xs text-[var(--text-secondary)]">No active runs</p>
-      )}
+        {activeRunCount > 0 ? (
+          <div className="runner-run-list">
+            {meta.activeRuns.slice(0, MAX_VISIBLE_ACTIVE_RUNS).map(run => {
+              const runIdLabel = truncateId(run.runId, 8);
+              const display = `${run.pipeline || 'Run'} run ${runIdLabel}`;
+              const title = `${run.pipeline || 'Run'} | Trigger ${run.triggerId || 'manual'} | Run ${run.runId}`;
+              const to = `/pipelineruns/recent?run_id=${encodeURIComponent(run.runId)}`;
+              return (
+                <Link key={run.runId} to={to} className="runner-pill runner-pill--link" title={title}>
+                  {display}
+                </Link>
+              );
+            })}
+            {activeRunCount > MAX_VISIBLE_ACTIVE_RUNS && (
+              <span className="runner-pill runner-pill--muted">+{activeRunCount - MAX_VISIBLE_ACTIVE_RUNS} more</span>
+            )}
+          </div>
+        ) : (
+          <p>No active runs</p>
+        )}
+      </div>
     </div>
   );
 }
 
-function StatCard({ label, value, id }: { label: string; value: number; id?: string }) {
+function RunnerMetric({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="glass-card p-4 border border-[var(--border-primary)] rounded-xl" id={id}>
-      <p className="text-xs text-[var(--text-secondary)]">{label}</p>
-      <p className="text-2xl font-semibold">{value}</p>
+    <div className="runner-metric">
+      <span className="runner-metric__label">{label}</span>
+      <span className="runner-metric__value">{value}</span>
+    </div>
+  );
+}
+
+function StatCard({ label, value, id, icon, hint }: { label: string; value: number; id?: string; icon?: ReactNode; hint?: string }) {
+  return (
+    <div className="dispatcher-stat-card" id={id}>
+      <div className="dispatcher-stat-card__top">
+        <p>{label}</p>
+        {icon && <span>{icon}</span>}
+      </div>
+      <div className="dispatcher-stat-card__value">{value}</div>
+      {hint && <div className="dispatcher-stat-card__hint">{hint}</div>}
     </div>
   );
 }
@@ -6854,6 +7006,24 @@ function normalizeRunnerComposeTemplate(value: unknown): RunnerComposeTemplate {
   };
 }
 
+function normalizeKubernetesRunnerManifestTemplate(value: unknown): KubernetesRunnerManifestTemplate {
+  const record = asRecord(value) || {};
+  return {
+    runnerId: readString(record.runner_id ?? record.runnerId),
+    runnerScopes: readString(record.runner_scopes ?? record.runnerScopes),
+    runnerCapacity: normalizeNumber(record.runner_capacity ?? record.runnerCapacity),
+    namespace: readString(record.namespace),
+    serviceAccount: readString(record.service_account ?? record.serviceAccount),
+    dispatcherAddress: readString(record.dispatcher_address ?? record.dispatcherAddress),
+    runnerImage: readString(record.runner_image ?? record.runnerImage),
+    manifest: readString(record.manifest),
+    command: readString(record.command),
+    bootstrapCommand: readString(record.bootstrap_command ?? record.bootstrapCommand),
+    expiresAt: readString(record.expires_at ?? record.expiresAt),
+    warnings: normalizeStringArray(record.warnings),
+  };
+}
+
 function normalizeRunner(value: unknown): Runner {
   const record = asRecord(value) || {};
   return {
@@ -6870,10 +7040,15 @@ function normalizeRunner(value: unknown): Runner {
 
 function getRunnerMeta(runner: Runner): RunnerMeta {
   const meta = runner.metadata || {};
+  const runtime = readString(meta.runtime || meta.runner_runtime).toLowerCase();
   return {
     connectionId: readString(meta.connection_id || meta.instance_id),
     hostname: readString(meta.hostname || meta.host || meta.runner_host),
     network: readString(meta.docker_network || meta.docker_network_name || meta.docker_networkname),
+    runtime: runtime === 'k8s' ? 'kubernetes' : runtime || 'docker',
+    namespace: readString(meta.kubernetes_namespace || meta.namespace),
+    node: readString(meta.kubernetes_node || meta.node),
+    serviceAccount: readString(meta.kubernetes_service_account || meta.service_account),
     activeRuns: parseActiveRuns(meta),
   };
 }

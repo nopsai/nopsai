@@ -170,11 +170,20 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 # Generate a one-time runner install command
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
   "http://localhost:8080/v1/system/dispatcher/runner-bootstrap-command?runner_id=runner-prod-1&runner_scopes=prod,dev&runner_capacity=2"
+
+# Generate a one-time Kubernetes runner install command
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  "http://localhost:8080/v1/system/dispatcher/kubernetes-runner-bootstrap-command?runner_id=k8s-runner-prod-1&runner_scopes=prod&runner_capacity=10&namespace=nopsai-runs"
+
+# Generate raw Kubernetes runner YAML for GitOps automation
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  "http://localhost:8080/v1/system/dispatcher/kubernetes-runner-manifest?runner_id=k8s-runner-prod-1&runner_scopes=prod&runner_capacity=10&namespace=nopsai-runs"
 ```
 
 - `GET /v1/monitoring/dispatcher` is authenticated. It returns dispatcher-backed service status, runner totals, sanitized runner rows, queue depth, and active runs. Active run entries are filtered with `pipeline_run.list`, so users only see runs they can list through their group/repository access.
 - `GET /v1/system/dispatcher/scopes` returns existing scope names from runner defaults, dispatcher routing, variables, secrets, and run history. It is used by the runner install UI for multi-select scope choices.
-- Runner install command generation and runner dispatch pause/resume remain under `System > Dispatcher` and require dispatcher runner management access.
+- Runner install command generation, Kubernetes manifest generation, and runner dispatch pause/resume remain under `System > Dispatcher` and require dispatcher runner management access.
+- Docker and Kubernetes install commands use single-use download tokens. Docker tokens download shell scripts; Kubernetes tokens download YAML consumed by `kubectl apply`.
 
 ---
 

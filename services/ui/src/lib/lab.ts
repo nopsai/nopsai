@@ -26,6 +26,8 @@ export const PIPELINE_DIRECTIVES: LabDirective[] = [
   { key: 'llm_enabled', hint: 'Enable or disable LLM for this pipeline' },
   { key: 'llm_profile', hint: 'Select LLM profile' },
   { key: 'mcp_profiles', hint: 'Select MCP profiles for goal tasks' },
+  { key: 'runtime_pool', hint: 'Kubernetes runtime pool for steps' },
+  { key: 'affinity_enabled', hint: 'Keep Kubernetes step pods on the agent node' },
   { key: 'knowledge_context', hint: 'Knowledge documents for goals' },
   { key: 'llm_output_sharing', hint: 'Share LLM outputs across steps' },
   { key: 'llm_content_sharing', hint: 'Share LLM prompts across steps' },
@@ -50,6 +52,7 @@ export const STEP_DIRECTIVES: LabDirective[] = [
   { key: 'ignore_failure', hint: 'Ignore failures' },
   { key: 'llm_profile', hint: 'Select LLM profile' },
   { key: 'mcp_profiles', hint: 'MCP profiles for goal tasks' },
+  { key: 'runtime_pool', hint: 'Kubernetes runtime pool override' },
   { key: 'knowledge_context', hint: 'Knowledge documents for this step' },
   { key: 'llm_output_sharing', hint: 'Share step LLM output' },
 ];
@@ -70,6 +73,7 @@ export const DIRECTIVE_VALUE_METADATA: Record<string, { values: string[]; title:
   llm_output_sharing: { values: ['true', 'false'], title: 'Boolean value' },
   llm_content_sharing: { values: ['true', 'false'], title: 'Boolean value' },
   llm_enabled: { values: ['true', 'false'], title: 'Boolean value' },
+  affinity_enabled: { values: ['true', 'false'], title: 'Boolean value' },
   ignore_failure: { values: ['true', 'false'], title: 'Boolean value' },
   sync: { values: ['true', 'false'], title: 'Boolean value' },
 };
@@ -223,6 +227,8 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'llm_enabled',
     'llm_profile',
     'mcp_profiles',
+    'runtime_pool',
+    'affinity_enabled',
     'knowledge_context',
     'llm_content_sharing',
     'llm_output_sharing',
@@ -246,6 +252,7 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'ignore_failure',
     'llm_profile',
     'mcp_profiles',
+    'runtime_pool',
     'knowledge_context',
     'llm_output_sharing',
   ]);

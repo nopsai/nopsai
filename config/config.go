@@ -37,6 +37,40 @@ type LLMProfile struct {
 	Thinking      *bool    `yaml:"thinking,omitempty" json:"thinking,omitempty"`
 }
 
+type KubernetesConfig struct {
+	Namespace                  string            `yaml:"namespace" json:"namespace,omitempty"`
+	ServiceAccount             string            `yaml:"service_account" json:"service_account,omitempty"`
+	DefaultImagePullPolicy     string            `yaml:"default_image_pull_policy" json:"default_image_pull_policy,omitempty"`
+	DefaultWorkspaceSize       string            `yaml:"default_workspace_size" json:"default_workspace_size,omitempty"`
+	DefaultWorkspaceAccessMode string            `yaml:"default_workspace_access_mode" json:"default_workspace_access_mode,omitempty"`
+	DefaultTaskTimeout         string            `yaml:"default_task_timeout" json:"default_task_timeout,omitempty"`
+	DefaultRunTimeout          string            `yaml:"default_run_timeout" json:"default_run_timeout,omitempty"`
+	WorkspaceVolumeMode        string            `yaml:"workspace_volume_mode" json:"workspace_volume_mode,omitempty"`
+	ExistingWorkspacePVC       string            `yaml:"existing_workspace_pvc" json:"existing_workspace_pvc,omitempty"`
+	StorageClass               string            `yaml:"storage_class" json:"storage_class,omitempty"`
+	AffinityEnabled            *bool             `yaml:"affinity_enabled" json:"affinity_enabled,omitempty"`
+	CleanupFinishedPods        *bool             `yaml:"cleanup_finished_pods" json:"cleanup_finished_pods,omitempty"`
+	PodLabels                  map[string]string `yaml:"pod_labels" json:"pod_labels,omitempty"`
+	PodAnnotations             map[string]string `yaml:"pod_annotations" json:"pod_annotations,omitempty"`
+}
+
+type RunnerLimits struct {
+	MaxConcurrentRuns        int `yaml:"max_concurrent_runs" json:"max_concurrent_runs,omitempty"`
+	MaxConcurrentTasks       int `yaml:"max_concurrent_tasks" json:"max_concurrent_tasks,omitempty"`
+	MaxConcurrentTasksPerRun int `yaml:"max_concurrent_tasks_per_run" json:"max_concurrent_tasks_per_run,omitempty"`
+	MaxPendingTasks          int `yaml:"max_pending_tasks" json:"max_pending_tasks,omitempty"`
+}
+
+type RuntimePool struct {
+	NodeSelector map[string]string    `yaml:"node_selector" json:"node_selector,omitempty"`
+	Resources    RuntimePoolResources `yaml:"resources" json:"resources,omitempty"`
+}
+
+type RuntimePoolResources struct {
+	Requests map[string]string `yaml:"requests" json:"requests,omitempty"`
+	Limits   map[string]string `yaml:"limits" json:"limits,omitempty"`
+}
+
 // Config holds all configuration for the application.
 type Config struct {
 	DatabaseURL string `yaml:"database_url" env:"DATABASE_URL"`
@@ -100,10 +134,14 @@ type Config struct {
 	AgentImage                string `yaml:"agent_image" env:"AGENT_IMAGE"`
 	LLMAgentTimeout           string `yaml:"llm_agent_timeout" env:"LLM_AGENT_TIMEOUT"`
 
-	DispatcherRouting map[string][]string `yaml:"dispatcher_routing" env:"DISPATCHER_ROUTING"`
-	RunnerID          string              `yaml:"runner_id" env:"RUNNER_ID"`
-	RunnerScopes      string              `yaml:"runner_scopes" env:"RUNNER_SCOPES"`
-	RunnerCapacity    int                 `yaml:"runner_capacity" env:"RUNNER_CAPACITY"`
+	Runtime           string                 `yaml:"runtime" env:"RUNTIME"`
+	Kubernetes        KubernetesConfig       `yaml:"kubernetes" env:"-"`
+	Limits            RunnerLimits           `yaml:"limits" env:"-"`
+	RuntimePools      map[string]RuntimePool `yaml:"runtime_pools" env:"RUNTIME_POOLS"`
+	DispatcherRouting map[string][]string    `yaml:"dispatcher_routing" env:"DISPATCHER_ROUTING"`
+	RunnerID          string                 `yaml:"runner_id" env:"RUNNER_ID"`
+	RunnerScopes      string                 `yaml:"runner_scopes" env:"RUNNER_SCOPES"`
+	RunnerCapacity    int                    `yaml:"runner_capacity" env:"RUNNER_CAPACITY"`
 }
 
 func LoadConfig(path string) (*Config, error) {
@@ -157,8 +195,171 @@ func LoadConfig(path string) (*Config, error) {
 	config.LLMProfiles = NormalizeLLMProfiles(config.LLMProfiles)
 	config.MCPServers = models.NormalizeMCPServers(config.MCPServers)
 	config.MCPProfiles = models.NormalizeMCPProfiles(config.MCPProfiles)
+	applyNestedEnvOverrides(config)
+	config.Runtime = NormalizeRuntime(config.Runtime)
+	config.Kubernetes = NormalizeKubernetesConfig(config.Kubernetes)
+	config.RuntimePools = NormalizeRuntimePools(config.RuntimePools)
 
 	return config, nil
+}
+
+func applyNestedEnvOverrides(config *Config) {
+	if config == nil {
+		return
+	}
+	setStringEnv := func(name string, target *string) {
+		if value, ok := os.LookupEnv(name); ok {
+			*target = value
+		}
+	}
+	setIntEnv := func(name string, target *int) {
+		if value, ok := os.LookupEnv(name); ok {
+			if parsed, err := strconv.Atoi(strings.TrimSpace(value)); err == nil {
+				*target = parsed
+			}
+		}
+	}
+	setBoolPtrEnv := func(name string, target **bool) {
+		if value, ok := os.LookupEnv(name); ok {
+			if parsed, err := strconv.ParseBool(strings.TrimSpace(value)); err == nil {
+				*target = &parsed
+			}
+		}
+	}
+	setStringMapEnv := func(name string, target *map[string]string) {
+		if value, ok := os.LookupEnv(name); ok {
+			next := map[string]string{}
+			if err := yaml.Unmarshal([]byte(value), &next); err == nil {
+				*target = next
+			}
+		}
+	}
+
+	setStringEnv("KUBERNETES_NAMESPACE", &config.Kubernetes.Namespace)
+	setStringEnv("KUBERNETES_SERVICE_ACCOUNT", &config.Kubernetes.ServiceAccount)
+	setStringEnv("KUBERNETES_DEFAULT_IMAGE_PULL_POLICY", &config.Kubernetes.DefaultImagePullPolicy)
+	setStringEnv("KUBERNETES_DEFAULT_WORKSPACE_SIZE", &config.Kubernetes.DefaultWorkspaceSize)
+	setStringEnv("KUBERNETES_DEFAULT_WORKSPACE_ACCESS_MODE", &config.Kubernetes.DefaultWorkspaceAccessMode)
+	setStringEnv("KUBERNETES_DEFAULT_TASK_TIMEOUT", &config.Kubernetes.DefaultTaskTimeout)
+	setStringEnv("KUBERNETES_DEFAULT_RUN_TIMEOUT", &config.Kubernetes.DefaultRunTimeout)
+	setStringEnv("KUBERNETES_WORKSPACE_VOLUME_MODE", &config.Kubernetes.WorkspaceVolumeMode)
+	setStringEnv("KUBERNETES_EXISTING_WORKSPACE_PVC", &config.Kubernetes.ExistingWorkspacePVC)
+	setStringEnv("KUBERNETES_STORAGE_CLASS", &config.Kubernetes.StorageClass)
+	setBoolPtrEnv("KUBERNETES_AFFINITY_ENABLED", &config.Kubernetes.AffinityEnabled)
+	setBoolPtrEnv("KUBERNETES_CLEANUP_FINISHED_PODS", &config.Kubernetes.CleanupFinishedPods)
+	setStringMapEnv("KUBERNETES_POD_LABELS", &config.Kubernetes.PodLabels)
+	setStringMapEnv("KUBERNETES_POD_ANNOTATIONS", &config.Kubernetes.PodAnnotations)
+
+	setIntEnv("LIMITS_MAX_CONCURRENT_RUNS", &config.Limits.MaxConcurrentRuns)
+	setIntEnv("LIMITS_MAX_CONCURRENT_TASKS", &config.Limits.MaxConcurrentTasks)
+	setIntEnv("LIMITS_MAX_CONCURRENT_TASKS_PER_RUN", &config.Limits.MaxConcurrentTasksPerRun)
+	setIntEnv("LIMITS_MAX_PENDING_TASKS", &config.Limits.MaxPendingTasks)
+}
+
+func NormalizeRuntime(raw string) string {
+	normalized := strings.ToLower(strings.TrimSpace(raw))
+	switch normalized {
+	case "", "docker", "container", "containers":
+		return "docker"
+	case "k8s", "kubernetes":
+		return "kubernetes"
+	default:
+		return normalized
+	}
+}
+
+func NormalizeKubernetesConfig(k KubernetesConfig) KubernetesConfig {
+	k.Namespace = strings.TrimSpace(k.Namespace)
+	k.ServiceAccount = strings.TrimSpace(k.ServiceAccount)
+	k.DefaultImagePullPolicy = normalizeImagePullPolicy(k.DefaultImagePullPolicy)
+	k.DefaultWorkspaceSize = strings.TrimSpace(k.DefaultWorkspaceSize)
+	k.DefaultWorkspaceAccessMode = normalizePVCAccessMode(k.DefaultWorkspaceAccessMode)
+	k.DefaultTaskTimeout = strings.TrimSpace(k.DefaultTaskTimeout)
+	k.DefaultRunTimeout = strings.TrimSpace(k.DefaultRunTimeout)
+	k.WorkspaceVolumeMode = normalizeWorkspaceVolumeMode(k.WorkspaceVolumeMode)
+	k.ExistingWorkspacePVC = strings.TrimSpace(k.ExistingWorkspacePVC)
+	k.StorageClass = strings.TrimSpace(k.StorageClass)
+	k.PodLabels = normalizeStringMap(k.PodLabels)
+	k.PodAnnotations = normalizeStringMap(k.PodAnnotations)
+	return k
+}
+
+func NormalizeRuntimePools(pools map[string]RuntimePool) map[string]RuntimePool {
+	if len(pools) == 0 {
+		return nil
+	}
+	normalized := make(map[string]RuntimePool, len(pools))
+	for name, pool := range pools {
+		poolName := strings.TrimSpace(name)
+		if poolName == "" {
+			continue
+		}
+		pool.NodeSelector = normalizeStringMap(pool.NodeSelector)
+		pool.Resources.Requests = normalizeStringMap(pool.Resources.Requests)
+		pool.Resources.Limits = normalizeStringMap(pool.Resources.Limits)
+		normalized[poolName] = pool
+	}
+	return normalized
+}
+
+func normalizeImagePullPolicy(raw string) string {
+	normalized := strings.TrimSpace(raw)
+	switch strings.ToLower(normalized) {
+	case "", "ifnotpresent", "if-not-present":
+		return "IfNotPresent"
+	case "always":
+		return "Always"
+	case "never":
+		return "Never"
+	default:
+		return normalized
+	}
+}
+
+func normalizePVCAccessMode(raw string) string {
+	normalized := strings.TrimSpace(raw)
+	switch strings.ToLower(normalized) {
+	case "", "readwriteonce", "rwo":
+		return "ReadWriteOnce"
+	case "readwritemany", "rwx":
+		return "ReadWriteMany"
+	case "readonlymany", "rox":
+		return "ReadOnlyMany"
+	default:
+		return normalized
+	}
+}
+
+func normalizeWorkspaceVolumeMode(raw string) string {
+	normalized := strings.ToLower(strings.TrimSpace(raw))
+	switch normalized {
+	case "", "pvc", "dynamic", "create":
+		return "pvc"
+	case "existing", "existing_pvc", "existing-pvc":
+		return "existing"
+	case "emptydir", "empty_dir", "empty-dir":
+		return "emptyDir"
+	default:
+		return normalized
+	}
+}
+
+func normalizeStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	normalized := make(map[string]string, len(values))
+	for key, value := range values {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		normalized[key] = strings.TrimSpace(value)
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
 }
 
 func NormalizeLLMProvider(raw string) string {
