@@ -2282,6 +2282,25 @@ func (a *App) handleDispatcherStatus(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (a *App) handleInternalDispatcherRouting(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.ClaimsFromContext(r.Context())
+	if !ok || !isDispatcherInternalClaims(claims) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	cfg := a.getConfigSnapshot()
+	resp := map[string]interface{}{
+		"dispatcher_routing": cloneDispatcherRouting(cfg.DispatcherRouting),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Warn().Err(err).Msg("Failed to encode internal dispatcher routing response")
+	}
+}
+
 func (a *App) handleUpdateRunnerDispatch(w http.ResponseWriter, r *http.Request) {
 	runnerID := strings.TrimSpace(r.PathValue("runnerID"))
 	if runnerID == "" {

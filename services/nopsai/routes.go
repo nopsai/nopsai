@@ -82,6 +82,7 @@ func (a *App) registerSystemRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/system/config-repos", a.handleListConfigRepositories)
 	mux.HandleFunc("POST /v1/system/config-repos/sync", a.handleSyncAllConfigRepositories)
 	mux.HandleFunc("POST /v1/internal/config/sync", a.handleConfigSync)
+	mux.HandleFunc("GET /v1/internal/dispatcher/routing", a.handleInternalDispatcherRouting)
 	mux.HandleFunc("GET /v1/system/dispatcher", a.handleDispatcherStatus)
 	mux.HandleFunc("GET /v1/system/dispatcher/scopes", a.handleListRuntimeScopes)
 	mux.HandleFunc("GET /v1/system/dispatcher/runner-compose", a.handleGenerateRunnerCompose)

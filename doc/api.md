@@ -182,6 +182,7 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 
 - `GET /v1/monitoring/dispatcher` is authenticated. It returns dispatcher-backed service status, runner totals, sanitized runner rows, queue depth, and active runs. Active run entries are filtered with `pipeline_run.list`, so users only see runs they can list through their group/repository access.
 - `GET /v1/system/dispatcher/scopes` returns existing scope names from runner defaults, dispatcher routing, variables, secrets, and run history. It is used by the runner install UI for multi-select scope choices.
+- `GET /v1/internal/dispatcher/routing` is dispatcher-internal. The live dispatcher polls it with an internally minted JWT and updates its in-memory routing table without a restart.
 - Runner install command generation, Kubernetes manifest generation, and runner dispatch pause/resume remain under `System > Dispatcher` and require dispatcher runner management access.
 - Docker and Kubernetes install commands use single-use download tokens. Docker tokens download shell scripts; Kubernetes tokens download YAML consumed by `kubectl apply`.
 
@@ -622,7 +623,7 @@ curl -X POST -H "Content-Type: application/json" \
 - The global repo uses `scope_type=system` and `scope_id=global`.
 - System- and group-scoped repos may define group repo bindings under `config-repositories/groups/<group>.yaml`.
 - System- and group-scoped repos may define managed knowledge context markdown under `knowledge/`.
-- The system/global repo may define runtime runner defaults and dispatcher routing under `setting/system/runner.yaml`; dispatcher routing changes require a dispatcher restart or redeploy before they affect scheduling.
+- The system/global repo may define runtime runner defaults and dispatcher routing under `setting/system/runner.yaml`; dispatcher routing changes are synced into `nopsai` and applied by the live dispatcher.
 - A binding file contains `repo_url`, optional `branch`, optional `base_path`, optional `enabled`, optional `write_enabled`, and optional `write_branch`.
 - `branch` remains the read/sync source. When `write_enabled` is true, Nopsai can push generated GitOps changes to `write_branch` so they can be reviewed in GitHub before merging back to the sync branch. The GitHub App needs `contents: read and write`.
 - Group repositories use the same drift and write endpoint shape at `GET /v1/groups/<group-path>/config-repo/drift` and `POST /v1/groups/<group-path>/config-repo/write`. File paths are relative to the configured `base_path`.
