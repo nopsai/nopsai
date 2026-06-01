@@ -29,6 +29,7 @@ const (
 	grantResourceTeam             = "team"
 	grantResourcePipeline         = "pipeline"
 	grantResourceRun              = "pipeline_run"
+	grantResourceSchedule         = "pipeline_schedule"
 	grantResourceTrigger          = "trigger"
 	grantResourceSecret           = "secret"
 	grantResourceVariable         = "variable"
@@ -164,7 +165,7 @@ type execRunner interface {
 
 var productRoleDefinitions = map[string]productRoleDefinition{
 	productRoleViewer: {
-		Description: "Read-only access to folders, pipelines, runs, triggers, steps, scope metadata, repositories, secrets, and variables.",
+		Description: "Read-only access to folders, pipelines, runs, schedules, triggers, steps, scope metadata, repositories, secrets, and variables.",
 		Actions: []string{
 			"folder.list",
 			"folder.read",
@@ -173,6 +174,8 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"pipeline_run.list",
 			"pipeline_run.read",
 			"pipeline_run.read_logs",
+			"pipeline_schedule.list",
+			"pipeline_schedule.read",
 			"trigger.read",
 			"secret.list_metadata",
 			"variable.list_metadata",
@@ -207,6 +210,9 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"pipeline.use",
 			"pipeline_run.rerun",
 			"pipeline_run.cancel",
+			"pipeline_schedule.create",
+			"pipeline_schedule.update",
+			"pipeline_schedule.execute",
 			"trigger.update",
 			"secret.use",
 			"secret.write_value",
@@ -279,6 +285,8 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"pipeline.delete",
 			"pipeline.manage_acl",
 			"pipeline_run.delete",
+			"pipeline_schedule.delete",
+			"pipeline_schedule.manage_acl",
 			"trigger.delete",
 			"trigger.manage_acl",
 			"secret.delete",
@@ -948,6 +956,8 @@ func actionAppliesToGrantResource(action, resourceType string) bool {
 		return strings.HasPrefix(action, "pipeline.") || strings.HasPrefix(action, "pipeline_run.")
 	case grantResourceRun:
 		return strings.HasPrefix(action, "pipeline_run.")
+	case grantResourceSchedule:
+		return strings.HasPrefix(action, "pipeline_schedule.")
 	case grantResourceRepo:
 		return strings.HasPrefix(action, "repository.") ||
 			strings.HasPrefix(action, "trigger.") ||
@@ -1013,6 +1023,8 @@ func normalizeAccessGrantResourceType(raw string) (string, error) {
 		return grantResourcePipeline, nil
 	case grantResourceRun:
 		return grantResourceRun, nil
+	case grantResourceSchedule:
+		return grantResourceSchedule, nil
 	case grantResourceTrigger:
 		return grantResourceTrigger, nil
 	case grantResourceSecret:
@@ -1220,6 +1232,8 @@ func resolveAccessGrantResource(ctx context.Context, runner queryRunner, rawType
 			}
 		}
 		return accessGrantResource{Type: grantResourceRun, ID: rawID, Display: rawID}, nil
+	case grantResourceSchedule:
+		return resolveScheduleGrantResource(ctx, runner, rawID, requireExists)
 	case grantResourceStep:
 		return resolvePipelineOrStepGrantResource(ctx, runner, grantResourceStep, rawID, requireExists, "steps")
 	case grantResourceTrigger:
@@ -1572,6 +1586,8 @@ func managementActionForGrantResource(resource accessGrantResource) (string, mod
 		return "folder.manage_acl", model.ResourceRef{Type: grantResourceFolder, ID: resource.ID}, nil
 	case grantResourcePipeline:
 		return "pipeline.manage_acl", model.ResourceRef{Type: grantResourcePipeline, ID: resource.ID}, nil
+	case grantResourceSchedule:
+		return "pipeline_schedule.manage_acl", model.ResourceRef{Type: grantResourceSchedule, ID: resource.ID}, nil
 	case grantResourceTrigger:
 		return "trigger.manage_acl", model.ResourceRef{Type: grantResourceTrigger, ID: resource.ID}, nil
 	case grantResourceSecret:

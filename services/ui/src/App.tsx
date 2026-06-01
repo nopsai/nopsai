@@ -8,6 +8,7 @@ import { STEP_DRAFTS_CHANGED_EVENT, getStepDraftStorageKey, loadStepDrafts } fro
 
 const PipelineRunsPage = lazy(() => import('./pages/PipelineRuns'));
 const PipelinesPage = lazy(() => import('./pages/Pipelines'));
+const SchedulesPage = lazy(() => import('./pages/Schedules'));
 const TriggersPage = lazy(() => import('./pages/Triggers'));
 const ScopesPage = lazy(() => import('./pages/Scopes'));
 const LabPage = lazy(() => import('./pages/Lab'));
@@ -101,6 +102,7 @@ type CurrentUser = {
   roles?: string[];
   capabilities?: {
     pipelines?: ResourceCapabilities;
+    schedules?: ReadCapabilities;
     steps?: ResourceCapabilities;
     triggers?: ReadCapabilities;
     scopes?: ReadCapabilities;
@@ -170,6 +172,11 @@ const baseNavItems: NavItem[] = [
     icon: <IconFlow />, 
   },
   {
+    label: 'Schedules',
+    path: '/schedules',
+    icon: <IconCalendarSchedule />,
+  },
+  {
     label: 'Triggers',
     path: '/triggers',
     icon: <IconBell />, 
@@ -214,6 +221,7 @@ const titleMap: Record<string, string> = {
   pipelineruns: 'Pipeline runs',
   monitoring: 'Monitoring',
   pipelines: 'Pipelines',
+  schedules: 'Schedules',
   triggers: 'Triggers',
   scopes: 'Scopes',
   lab: 'Lab',
@@ -363,6 +371,14 @@ function AppShell() {
                         delete: Boolean(data.capabilities.steps.delete),
                       }
                     : undefined,
+                schedules:
+                  data.capabilities.schedules && typeof data.capabilities.schedules === 'object'
+                    ? {
+                        read: Boolean(data.capabilities.schedules.read),
+                        write: Boolean(data.capabilities.schedules.write),
+                        delete: Boolean(data.capabilities.schedules.delete),
+                      }
+                    : undefined,
                 triggers:
                   data.capabilities.triggers && typeof data.capabilities.triggers === 'object'
                     ? {
@@ -455,6 +471,9 @@ function AppShell() {
 
   const canWritePipelines = Boolean(currentUser?.capabilities?.pipelines?.write);
   const canDeletePipelines = Boolean(currentUser?.capabilities?.pipelines?.delete);
+  const canViewSchedules = Boolean(currentUser?.capabilities?.schedules?.read);
+  const canWriteSchedules = Boolean(currentUser?.capabilities?.schedules?.write);
+  const canDeleteSchedules = Boolean(currentUser?.capabilities?.schedules?.delete);
   const canWriteSteps = Boolean(currentUser?.capabilities?.steps?.write);
   const canDeleteSteps = Boolean(currentUser?.capabilities?.steps?.delete);
   const canViewTriggers = Boolean(currentUser?.capabilities?.triggers?.read);
@@ -502,12 +521,13 @@ function AppShell() {
       .map(item => (item.path.startsWith('/system') ? { ...item, path: preferredSystemPath } : item))
       .filter(item => {
         if (item.path.startsWith('/system')) return canViewAnySystem;
+        if (item.path === '/schedules') return canViewSchedules;
         if (item.path === '/triggers') return canViewTriggers;
         if (item.path === '/scopes') return canViewScopes;
         if (item.path === '/knowledge-context') return canViewKnowledge;
         return true;
       });
-  }, [canViewAnySystem, canViewKnowledge, canViewScopes, canViewTriggers, preferredSystemPath]);
+  }, [canViewAnySystem, canViewKnowledge, canViewSchedules, canViewScopes, canViewTriggers, preferredSystemPath]);
   const systemSubNav = useMemo(
     () =>
       baseSystemSubNav.filter(item => {
@@ -1161,6 +1181,13 @@ function AppShell() {
                     <Route
                       path="/pipelines/*"
                       element={<PipelinesPage draftScope={draftScope} canDeletePipelines={canDeletePipelines} />}
+                    />
+                    <Route
+                      path="/schedules/*"
+                      element={renderAccessControlledPage(
+                        canViewSchedules,
+                        <SchedulesPage canWriteSchedules={canWriteSchedules} canDeleteSchedules={canDeleteSchedules} />
+                      )}
                     />
                     <Route
                       path="/triggers/*"
@@ -2804,6 +2831,15 @@ function IconBell() {
   return (
     <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+    </svg>
+  );
+}
+
+function IconCalendarSchedule() {
+  return (
+    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M7 3v3m10-3v3M4 9h16M5 5h14a1 1 0 011 1v13a2 2 0 01-2 2H6a2 2 0 01-2-2V6a1 1 0 011-1z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M12 13v3l2 1" />
     </svg>
   );
 }

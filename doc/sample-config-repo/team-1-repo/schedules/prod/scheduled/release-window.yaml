@@ -1,0 +1,8 @@
+name: release-window
+description: One-time production release window.
+pipeline: services/api/deploy
+schedule_kind: once
+run_at: "2030-03-15T09:45"
+timezone: Europe/Amsterdam
+enabled: false
+scope: prod

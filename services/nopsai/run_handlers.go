@@ -35,11 +35,13 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	setNoStoreHeaders(w)
 	query := `
 		SELECT
-		    run_id, pipeline_name, pipeline_path, pipeline_version, status, COALESCE(git_commit_sha, ''),
-		    COALESCE(git_repo_owner, ''), COALESCE(git_repo_name, ''), started_at, finished_at, parent_run_id,
-		    COALESCE(git_pusher_name, ''), COALESCE(git_ref, ''), COALESCE(git_target_ref, ''),
-			COALESCE(pipeline_source, ''), COALESCE(trigger_event_id, ''), COALESCE(failure_reason, '')
-    	FROM pipeline_runs
+		    pr.run_id, pr.pipeline_name, pr.pipeline_path, pr.pipeline_version, pr.status, COALESCE(pr.git_commit_sha, ''),
+		    COALESCE(pr.git_repo_owner, ''), COALESCE(pr.git_repo_name, ''), pr.started_at, pr.finished_at, pr.parent_run_id,
+		    COALESCE(pr.git_pusher_name, ''), COALESCE(pr.git_ref, ''), COALESCE(pr.git_target_ref, ''),
+			COALESCE(pr.pipeline_source, ''), COALESCE(pr.trigger_event_id, ''), COALESCE(pr.failure_reason, ''),
+			COALESCE(pr.trigger_source, ''), COALESCE(pr.schedule_id::text, ''), COALESCE(ps.name, ''), COALESCE(ps.path, '')
+			FROM pipeline_runs pr
+		LEFT JOIN pipeline_schedules ps ON ps.id = pr.schedule_id
 	`
 	args := []interface{}{}
 	var conditions []string
@@ -69,20 +71,20 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	if groupIDStr := r.URL.Query().Get("groupId"); groupIDStr != "" {
 		groupID, err := strconv.Atoi(groupIDStr)
 		if err == nil {
-			conditions = append(conditions, fmt.Sprintf("group_id = $%d", len(args)+1))
+			conditions = append(conditions, fmt.Sprintf("pr.group_id = $%d", len(args)+1))
 			args = append(args, groupID)
 		}
 	}
 
 	if branchName := r.URL.Query().Get("branch"); branchName != "" {
-		conditions = append(conditions, fmt.Sprintf("git_ref = $%d", len(args)+1))
+		conditions = append(conditions, fmt.Sprintf("pr.git_ref = $%d", len(args)+1))
 		args = append(args, "refs/heads/"+branchName)
 	}
 
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT %d OFFSET %d", limit, offset)
+	query += fmt.Sprintf(" ORDER BY pr.created_at DESC LIMIT %d OFFSET %d", limit, offset)
 
 	rows, err := a.db.Query(context.Background(), query, args...)
 	if err != nil {
@@ -97,10 +99,11 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var run RunListItem
 		var startedAt, finishedAt sql.NullTime
-		var commitSHA, repoOwner, repoName, pusherName, gitRef, gitTargetRef, pipelineSource, pipelineVersion, pipelinePath, triggerEventID, failureReason sql.NullString
+		var commitSHA, repoOwner, repoName, pusherName, gitRef, gitTargetRef, pipelineSource, pipelineVersion, pipelinePath, triggerEventID, failureReason, triggerSource, scheduleID, scheduleName, schedulePath sql.NullString
 		err := rows.Scan(
 			&run.RunID, &run.PipelineName, &pipelinePath, &pipelineVersion, &run.Status, &commitSHA,
 			&repoOwner, &repoName, &startedAt, &finishedAt, &run.ParentRunID, &pusherName, &gitRef, &gitTargetRef, &pipelineSource, &triggerEventID, &failureReason,
+			&triggerSource, &scheduleID, &scheduleName, &schedulePath,
 		)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to scan run row")
@@ -117,6 +120,10 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		run.PipelineSource = pipelineSource.String
 		run.TriggerEventID = triggerEventID.String
 		run.FailureReason = failureReason.String
+		run.TriggerSource = triggerSource.String
+		run.ScheduleID = scheduleID.String
+		run.ScheduleName = scheduleName.String
+		run.SchedulePath = schedulePath.String
 		if startedAt.Valid {
 			run.StartedAt = startedAt.Time
 			if finishedAt.Valid {
@@ -175,21 +182,24 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	var run RunListItem
 	var pipelineDefinition string
 	var startedAt, finishedAt sql.NullTime
-	var commitSHA, repoOwner, repoName, pusherName, gitRef, gitTargetRef, failureReason, pipelineSource, pipelineVersion, pipelinePath, triggerEventID sql.NullString
+	var commitSHA, repoOwner, repoName, pusherName, gitRef, gitTargetRef, failureReason, pipelineSource, pipelineVersion, pipelinePath, triggerEventID, triggerSource, scheduleID, scheduleName, schedulePath sql.NullString
 	err := a.db.QueryRow(context.Background(), `
 		SELECT
-			run_id, pipeline_name, pipeline_path, pipeline_version, status, COALESCE(git_commit_sha, ''),
-			COALESCE(git_repo_owner, ''), COALESCE(git_repo_name, ''),
-			started_at, finished_at, parent_run_id,
-			COALESCE(git_pusher_name, ''), pipeline_definition, COALESCE(git_ref, ''), COALESCE(git_target_ref, ''),
-			failure_reason, COALESCE(pipeline_source, ''), COALESCE(trigger_event_id, '')
-		FROM pipeline_runs
-		WHERE run_id = $1
+			pr.run_id, pr.pipeline_name, pr.pipeline_path, pr.pipeline_version, pr.status, COALESCE(pr.git_commit_sha, ''),
+			COALESCE(pr.git_repo_owner, ''), COALESCE(pr.git_repo_name, ''),
+			pr.started_at, pr.finished_at, pr.parent_run_id,
+			COALESCE(pr.git_pusher_name, ''), pr.pipeline_definition, COALESCE(pr.git_ref, ''), COALESCE(pr.git_target_ref, ''),
+			pr.failure_reason, COALESCE(pr.pipeline_source, ''), COALESCE(pr.trigger_event_id, ''),
+			COALESCE(pr.trigger_source, ''), COALESCE(pr.schedule_id::text, ''), COALESCE(ps.name, ''), COALESCE(ps.path, '')
+		FROM pipeline_runs pr
+		LEFT JOIN pipeline_schedules ps ON ps.id = pr.schedule_id
+		WHERE pr.run_id = $1
 	`, runID).Scan(
 		&run.RunID, &run.PipelineName, &pipelinePath, &pipelineVersion, &run.Status, &commitSHA,
 		&repoOwner, &repoName, &startedAt, &finishedAt,
 		&run.ParentRunID, &pusherName, &pipelineDefinition, &gitRef, &gitTargetRef,
 		&failureReason, &pipelineSource, &triggerEventID,
+		&triggerSource, &scheduleID, &scheduleName, &schedulePath,
 	)
 
 	if err != nil {
@@ -208,6 +218,10 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	run.PipelineSource = pipelineSource.String
 	run.PipelineVersion = normalizePipelineVersion(pipelineVersion.String)
 	run.TriggerEventID = triggerEventID.String
+	run.TriggerSource = triggerSource.String
+	run.ScheduleID = scheduleID.String
+	run.ScheduleName = scheduleName.String
+	run.SchedulePath = schedulePath.String
 	if startedAt.Valid {
 		run.StartedAt = startedAt.Time
 		if finishedAt.Valid {
@@ -1147,7 +1161,13 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		gitContext["trigger_event_id"] = id
 	}
 
-	groupID, err := a.resolveGroupIDForRepo(gitContext["repo_owner"], gitContext["repo_name"])
+	groupPathForRun := strings.Trim(strings.TrimSpace(r.Header.Get("X-Nopsai-Group-Path")), "/")
+	var groupID sql.NullInt32
+	if groupPathForRun != "" {
+		groupID, err = a.resolveGroupIDForPath(r.Context(), groupPathForRun)
+	} else {
+		groupID, err = a.resolveGroupIDForRepo(gitContext["repo_owner"], gitContext["repo_name"])
+	}
 	if err != nil {
 		repoOwner := strings.TrimSpace(gitContext["repo_owner"])
 		repoName := strings.TrimSpace(gitContext["repo_name"])
@@ -1155,7 +1175,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		if repoOwner != "" {
 			repoFullName = fmt.Sprintf("%s/%s", repoOwner, repoName)
 		}
-		log.Error().Err(err).Str("repo", repoFullName).Msg("Failed to find or create group for repository")
+		log.Error().Err(err).Str("repo", repoFullName).Str("group_path", groupPathForRun).Msg("Failed to resolve group for run")
 	}
 
 	checkRunIDSQL := nullableGitCheckRunID(gitContext)
@@ -1322,6 +1342,15 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 
 	a.launchAndRunPipeline(runID, parentRunID, parentRunnerID, *resolvedPipeline, resolvedPipelineDef, timeoutDuration, gitContext, parentHistory, scope, overrideVars)
 
+	if strings.Contains(strings.ToLower(r.Header.Get("Accept")), "application/json") {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]string{
+			"run_id":           runID.String(),
+			"trigger_event_id": gitContext["trigger_event_id"],
+		})
+		return
+	}
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte("Pipeline run created successfully with ID: " + runID.String()))
 }

@@ -28,6 +28,10 @@ type RunListItem struct {
 	IsComplete      bool      `json:"is_complete"`
 	ParentRunID     *string   `json:"parent_run_id"`
 	TriggerEventID  string    `json:"trigger_event_id,omitempty"`
+	TriggerSource   string    `json:"trigger_source,omitempty"`
+	ScheduleID      string    `json:"schedule_id,omitempty"`
+	ScheduleName    string    `json:"schedule_name,omitempty"`
+	SchedulePath    string    `json:"schedule_path,omitempty"`
 	GitPusherName   string    `json:"git_pusher_name"`
 	ParentStepName  string    `json:"parent_step_name,omitempty"`
 	FailureReason   string    `json:"failure_reason,omitempty"`

@@ -143,6 +143,7 @@ type authLoginResponse struct {
 type authCapabilitiesResponse struct {
 	Pipelines authResourceCapabilities `json:"pipelines"`
 	Steps     authResourceCapabilities `json:"steps"`
+	Schedules authReadCapabilities     `json:"schedules"`
 	Triggers  authReadCapabilities     `json:"triggers"`
 	Scopes    authReadCapabilities     `json:"scopes"`
 	Knowledge authReadCapabilities     `json:"knowledge_contexts"`
@@ -2553,6 +2554,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		"general_vars_synced":         0,
 		"repo_vars_synced":            0,
 		"triggers_synced":             0,
+		"schedules_synced":            0,
 		"secrets_synced":              0,
 		"config_repositories_synced":  0,
 		"run_groups_created":          0,
@@ -2598,6 +2600,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	pipelineDir := configRepoJoinPath(basePath, "pipelines")
 	stepDir := configRepoJoinPath(basePath, "steps")
 	triggerDir := configRepoJoinPath(basePath, "triggers")
+	scheduleDir := configRepoJoinPath(basePath, "schedules")
 	scopeDir := configRepoJoinPath(basePath, "scopes")
 	pipelineRunDir := configRepoJoinPath(basePath, "pipelineruns")
 	configRepositoryDir := configRepoJoinPath(basePath, "config-repositories")
@@ -2617,6 +2620,10 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	triggerFiles, err := a.requestGitBotDirectory(owner, repo, branch, triggerDir)
 	if err != nil {
 		return nil, commitSHA, fmt.Errorf("failed to fetch trigger manifests: %w", err)
+	}
+	scheduleFiles, err := a.requestGitBotDirectory(owner, repo, branch, scheduleDir)
+	if err != nil {
+		return nil, commitSHA, fmt.Errorf("failed to fetch schedule manifests: %w", err)
 	}
 	scopeFiles, err := a.requestGitBotDirectory(owner, repo, branch, scopeDir)
 	if err != nil {
@@ -2789,6 +2796,10 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		gitOpsRuntimeSettingsDirectory{root: settingDir, files: settingFiles},
 		gitOpsRuntimeSettingsDirectory{root: settingsDir, files: settingsFiles},
 	)
+	if err != nil {
+		return nil, commitSHA, err
+	}
+	schedules, err := parseGitOpsSchedules(scheduleFiles, scheduleDir, binding, boundFolder)
 	if err != nil {
 		return nil, commitSHA, err
 	}
@@ -3007,7 +3018,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	if err != nil {
 		return nil, commitSHA, err
 	}
-	filterDelegatedConfigResources(binding, overrideScopes, pipelines, steps, knowledgeContexts, generalScopeVars, repoScopeVars, generalScopeSecrets, repoScopeSecrets, triggers)
+	filterDelegatedConfigResources(binding, overrideScopes, pipelines, steps, schedules, knowledgeContexts, generalScopeVars, repoScopeVars, generalScopeSecrets, repoScopeSecrets, triggers)
 	filterDelegatedAccessResources(accessPlan, binding, overrideScopes)
 	effectivePipelineRunStructure, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, pipelineRunStructure, configRepositoryPipelineRunStructure, overrideScopes)
 	if err != nil {
@@ -3039,6 +3050,35 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
 			managed_by_config_repo = TRUE,
 			updated_at = NOW()`
+	const scheduleUpsert = `INSERT INTO pipeline_schedules (
+			path, name, description, pipeline_path, pipeline_name, pipeline_version,
+			schedule_kind, cron_expression, run_at, timezone, enabled, scope, variables, next_run_at, source,
+			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6,
+			$7, $8, $9, $10, $11, $12, $13::jsonb, $14, 'git',
+			$15, $16, $17, TRUE, NOW()
+		)
+		ON CONFLICT (path, name) DO UPDATE SET
+			description = EXCLUDED.description,
+			pipeline_path = EXCLUDED.pipeline_path,
+			pipeline_name = EXCLUDED.pipeline_name,
+			pipeline_version = EXCLUDED.pipeline_version,
+			schedule_kind = EXCLUDED.schedule_kind,
+			cron_expression = EXCLUDED.cron_expression,
+			run_at = EXCLUDED.run_at,
+			timezone = EXCLUDED.timezone,
+			enabled = EXCLUDED.enabled,
+			scope = EXCLUDED.scope,
+			variables = EXCLUDED.variables,
+			next_run_at = EXCLUDED.next_run_at,
+			source = 'git',
+			config_repo_id = EXCLUDED.config_repo_id,
+			config_source_path = EXCLUDED.config_source_path,
+			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
+			managed_by_config_repo = TRUE,
+			updated_at = NOW()
+		RETURNING id::text`
 	const knowledgeContextUpsert = `INSERT INTO knowledge_contexts (
 			kind, group_path, name, description, content,
 			source, config_repo_id, config_source_path, config_source_commit_sha,
@@ -3152,7 +3192,52 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		details["steps_synced"]++
 	}
 
-	// D. Upsert Knowledge Contexts
+	// D. Upsert Schedules
+	for key, stored := range schedules {
+		writable, err := ensureConfigResourceWritable(ctx, tx, "pipeline_schedules", "schedule", key, binding, stored.input.Path, "path = $1 AND name = $2", stored.input.Path, stored.input.Name)
+		if err != nil {
+			return nil, commitSHA, err
+		}
+		if !writable {
+			continue
+		}
+		variablesJSON, err := json.Marshal(stored.input.Variables)
+		if err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to marshal schedule variables '%s': %w", key, err)
+		}
+		var scheduleID string
+		if err := tx.QueryRow(ctx, scheduleUpsert,
+			stored.input.Path,
+			stored.input.Name,
+			stored.input.Description,
+			stored.input.PipelinePath,
+			stored.input.PipelineName,
+			stored.input.PipelineVersion,
+			stored.input.ScheduleKind,
+			stored.input.CronExpression,
+			stored.input.RunAt,
+			stored.input.Timezone,
+			stored.input.Enabled,
+			stored.input.Scope,
+			string(variablesJSON),
+			stored.input.NextRunAt,
+			binding.ID,
+			stored.sourcePath,
+			commitSHA,
+		).Scan(&scheduleID); err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to upsert schedule '%s': %w", key, err)
+		}
+		pipeline, err := loadSchedulePipelineFromSync(ctx, tx, stored.input, pipelines)
+		if err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to prepare schedule execution access '%s': %w", key, err)
+		}
+		if err := ensureScheduleExecutionACLs(ctx, tx, scheduleID, stored.input, pipeline); err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to sync schedule execution access '%s': %w", key, err)
+		}
+		details["schedules_synced"]++
+	}
+
+	// E. Upsert Knowledge Contexts
 	for key, stored := range knowledgeContexts {
 		writable, err := ensureConfigResourceWritable(ctx, tx, "knowledge_contexts", "knowledge context", key, binding, stored.group, "kind = $1 AND group_path = $2 AND name = $3", stored.kind, stored.group, stored.name)
 		if err != nil {
@@ -3167,7 +3252,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		details["knowledge_contexts_synced"]++
 	}
 
-	// E. Upsert General Scope Vars
+	// F. Upsert General Scope Vars
 	for key, stored := range generalScopeVars {
 		scopeParam := runtimeScopeForStorage(key.scopePath)
 		resourceID := fmt.Sprintf("scope=%s name=%s", runtimeScopeForDisplay(key.scopePath), key.name)
@@ -3184,7 +3269,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		details["general_vars_synced"]++
 	}
 
-	// F. Upsert Repo Scope Vars
+	// G. Upsert Repo Scope Vars
 	for key, stored := range repoScopeVars {
 		scopeParam := runtimeScopeForStorage(key.scopePath)
 		resourceID := fmt.Sprintf("repo=%s scope=%s name=%s", key.repo, runtimeScopeForDisplay(key.scopePath), key.name)
@@ -3201,7 +3286,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		details["repo_vars_synced"]++
 	}
 
-	// G. Upsert Scope Secrets
+	// H. Upsert Scope Secrets
 	for key, stored := range generalScopeSecrets {
 		scopeParam := runtimeScopeForStorage(key.scopePath)
 		resourceID := fmt.Sprintf("scope=%s name=%s", runtimeScopeForDisplay(key.scopePath), key.name)
@@ -3241,7 +3326,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		details["secrets_synced"]++
 	}
 
-	// H. Upsert Triggers
+	// I. Upsert Triggers
 	for repoName, stored := range triggers {
 		writable, err := ensureConfigResourceWritable(ctx, tx, "triggers", "trigger", repoName, binding, repoName, "repository_name = $1", repoName)
 		if err != nil {
@@ -3312,7 +3397,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 			rows.Close()
 		}
 		if len(prunedRepoIDs) > 0 {
-			for _, tableName := range []string{"config_repositories", "pipelines", "steps", "triggers", "variables", "secrets", "knowledge_contexts"} {
+			for _, tableName := range []string{"config_repositories", "pipelines", "steps", "pipeline_schedules", "triggers", "variables", "secrets", "knowledge_contexts"} {
 				if _, err := tx.Exec(ctx, fmt.Sprintf(`
 					UPDATE %s
 					SET config_repo_id = NULL,
@@ -3380,7 +3465,32 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		}
 	}
 
-	// 3. Prune Knowledge Contexts
+	// 3. Prune Schedules
+	{
+		var paths, names []string
+		for _, s := range schedules {
+			paths = append(paths, s.input.Path)
+			names = append(names, s.input.Name)
+		}
+		if len(paths) == 0 {
+			if _, err := tx.Exec(ctx, "DELETE FROM pipeline_schedules WHERE managed_by_config_repo = TRUE AND config_repo_id = $1", binding.ID); err != nil {
+				return nil, commitSHA, fmt.Errorf("failed to prune schedules: %w", err)
+			}
+		} else {
+			if _, err := tx.Exec(ctx, `
+				DELETE FROM pipeline_schedules
+				WHERE managed_by_config_repo = TRUE
+				AND config_repo_id = $3
+				AND NOT EXISTS (
+					SELECT 1 FROM unnest($1::text[], $2::text[]) AS t(p, n)
+					WHERE pipeline_schedules.path = t.p AND pipeline_schedules.name = t.n
+				)`, paths, names, binding.ID); err != nil {
+				return nil, commitSHA, fmt.Errorf("failed to prune schedules: %w", err)
+			}
+		}
+	}
+
+	// 4. Prune Knowledge Contexts
 	{
 		var kinds, groups, names []string
 		for _, knowledge := range knowledgeContexts {
@@ -3408,7 +3518,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		}
 	}
 
-	// 4. Prune Triggers
+	// 5. Prune Triggers
 	{
 		var repos []string
 		for repo := range triggers {
@@ -3425,7 +3535,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		}
 	}
 
-	// 5. Prune Variables (Scope Variables)
+	// 6. Prune Variables (Scope Variables)
 	{
 		var names []string
 		var repos []*string
@@ -3467,7 +3577,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		}
 	}
 
-	// 6. Prune Secrets (Scope Secrets)
+	// 7. Prune Secrets (Scope Secrets)
 	{
 		var names []string
 		var repos []*string
@@ -4210,6 +4320,7 @@ func filterDelegatedConfigResources(
 	overrideScopes []string,
 	pipelines map[string]storedPipeline,
 	steps map[string]storedStep,
+	schedules map[string]storedSchedule,
 	knowledgeContexts map[string]storedKnowledgeContext,
 	generalScopeVars map[generalScopeVarKey]storedScopeVar,
 	repoScopeVars map[repoScopeVarKey]storedScopeVar,
@@ -4229,6 +4340,15 @@ func filterDelegatedConfigResources(
 	for key := range steps {
 		if configResourceUnderAnyScope(key, overrideScopes) {
 			delete(steps, key)
+		}
+	}
+	for key, schedule := range schedules {
+		scope := schedule.input.Path
+		if scope == "" {
+			scope = key
+		}
+		if configResourceUnderAnyScope(scope, overrideScopes) {
+			delete(schedules, key)
 		}
 	}
 	for key, knowledge := range knowledgeContexts {
@@ -5617,6 +5737,9 @@ func main() {
 	if err := ensureResourceAuthorizationSchema(context.Background(), dbpool); err != nil {
 		log.Fatal().Err(err).Msg("Failed to ensure resource authorization schema")
 	}
+	if err := ensureScheduleSchema(context.Background(), dbpool); err != nil {
+		log.Fatal().Err(err).Msg("Failed to ensure schedule schema")
+	}
 	if err := ensureLLMProfileSchema(context.Background(), dbpool); err != nil {
 		log.Fatal().Err(err).Msg("Failed to ensure LLM profile schema")
 	}
@@ -5711,6 +5834,9 @@ func main() {
 	if err := app.loadOrSeedMCPRegistryConfig(context.Background()); err != nil {
 		log.Fatal().Err(err).Msg("Failed to load MCP registry")
 	}
+	scheduleWorkerCtx, stopScheduleWorker := context.WithCancel(context.Background())
+	defer stopScheduleWorker()
+	go app.runScheduleWorker(scheduleWorkerCtx)
 
 	handler := app.buildHTTPHandler()
 

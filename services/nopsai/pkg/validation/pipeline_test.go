@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"nopsai/pkg/models"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestValidatePipeline_Valid(t *testing.T) {
@@ -48,6 +50,38 @@ func TestValidatePipelineAllowsScriptOnlyWhenLLMDisabled(t *testing.T) {
 
 	if err := ValidatePipeline(p); err != nil {
 		t.Fatalf("expected LLM-disabled script pipeline to validate, got %v", err)
+	}
+}
+
+func TestValidatePipelineAllowsTaskVariablesFromYAML(t *testing.T) {
+	const raw = `
+name: main-pipeline
+description: A sample pipeline.
+container_image: "hoseindocker/pipeline-image:latest"
+variables:
+  - DOCKER_HOST
+  - API_VERSION
+  - default:FROM_OTHER
+  - data-team/dev:DEVVAR
+steps:
+  - name: preparation
+    tasks:
+      - name: list-envs-containers
+        variables:
+          API_VERSION: "inside task overwrite"
+        script: |
+          env
+`
+	var pipeline models.Pipeline
+	if err := yaml.Unmarshal([]byte(raw), &pipeline); err != nil {
+		t.Fatalf("yaml.Unmarshal() error = %v", err)
+	}
+	if err := ValidatePipeline(&pipeline); err != nil {
+		t.Fatalf("ValidatePipeline() error = %v", err)
+	}
+	tasks := pipeline.Steps[0].GetTasks()
+	if got := tasks[0].Variables["API_VERSION"]; got != "inside task overwrite" {
+		t.Fatalf("task variable API_VERSION = %q, want inside task overwrite", got)
 	}
 }
 
