@@ -66,6 +66,7 @@ Under the configured `base_path`, Nopsai scans:
 ```text
 pipelines/             Pipeline definitions
 steps/                 Reusable step definitions
+schedules/             One-time and recurring pipeline schedules
 triggers/              Trigger override manifests
 scopes/                Scope variable and secret key files
 knowledge/             Managed knowledge context markdown documents
@@ -202,6 +203,12 @@ team-1-repo/pipelines/build-and-test.yaml
 team-1-repo/pipelines/services/api/deploy.yaml
   -> pipeline team-1/services/api/deploy
 
+team-1-repo/schedules/prod/scheduled/nightly-api-deploy.yaml
+  -> schedule team-1/prod/scheduled/nightly-api-deploy, targeting team-1/services/api/deploy
+
+team-1-repo/schedules/prod/scheduled/release-window.yaml
+  -> one-time schedule team-1/prod/scheduled/release-window, targeting team-1/services/api/deploy
+
 team-1-repo/steps/shared/checkout.yaml
   -> reusable step team-1/shared/checkout
 
@@ -219,7 +226,10 @@ team-1-repo/access/*.yaml
 ```
 
 Pipeline and step file names must match their `name` fields. Group repo trigger
-manifests and includes should reference the final group-prefixed IDs.
+manifests, schedules, and includes should reference the final group-prefixed IDs
+or repo-relative IDs that sync can normalize under the bound group. A
+`prod/scheduled` schedule folder is useful for presentation, while the schedule
+resource remains the source of truth.
 
 Nopsai reads every `.yaml` and `.yml` file under `access/`; file names such as
 `all.yaml` or `grants.yaml` are only examples, so teams can split manifests by

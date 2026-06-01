@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"nopsai/pkg/models"
 
@@ -89,7 +91,7 @@ func (a *App) loadConfigRepositoryGitFiles(repo models.ConfigRepository) (map[st
 		return nil, err
 	}
 	result := map[string]string{}
-	for _, directory := range []string{"pipelines", "steps", "triggers", "scopes", "knowledge", "setting", "settings"} {
+	for _, directory := range []string{"pipelines", "steps", "triggers", "schedules", "scopes", "knowledge", "setting", "settings"} {
 		directoryPath := filepath.ToSlash(filepath.Join(strings.Trim(strings.TrimSpace(repo.BasePath), "/"), directory))
 		files, err := a.requestGitBotDirectory(owner, name, repo.Branch, directoryPath)
 		if err != nil {
@@ -237,6 +239,9 @@ func (a *App) exportConfigRepositoryFiles(ctx context.Context, repo models.Confi
 		return nil, err
 	}
 	if err := a.exportConfigRepositoryTriggers(ctx, repo, delegatedScopes, files); err != nil {
+		return nil, err
+	}
+	if err := a.exportConfigRepositorySchedules(ctx, repo, delegatedScopes, files); err != nil {
 		return nil, err
 	}
 	if err := a.exportConfigRepositoryScopes(ctx, repo, delegatedScopes, files); err != nil {
@@ -389,6 +394,82 @@ func (a *App) exportConfigRepositoryTriggers(ctx context.Context, repo models.Co
 			continue
 		}
 		files[filePath] = definition
+	}
+	return rows.Err()
+}
+
+type configRepositoryScheduleDocument struct {
+	Name           string            `yaml:"name"`
+	Description    string            `yaml:"description,omitempty"`
+	Pipeline       string            `yaml:"pipeline"`
+	ScheduleKind   string            `yaml:"schedule_kind,omitempty"`
+	CronExpression string            `yaml:"cron_expression,omitempty"`
+	RunAt          string            `yaml:"run_at,omitempty"`
+	Timezone       string            `yaml:"timezone,omitempty"`
+	Enabled        bool              `yaml:"enabled"`
+	Scope          string            `yaml:"scope,omitempty"`
+	Variables      map[string]string `yaml:"variables,omitempty"`
+}
+
+func (a *App) exportConfigRepositorySchedules(ctx context.Context, repo models.ConfigRepository, delegatedScopes []string, files map[string]string) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT path, name, description, pipeline_path, pipeline_name,
+		       COALESCE(schedule_kind, 'cron'), cron_expression, run_at, timezone, enabled, scope, variables::text,
+		       COALESCE(source, 'database'), config_repo_id, managed_by_config_repo, config_source_path
+		FROM pipeline_schedules
+		ORDER BY path ASC, name ASC
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var pathPart, name, description, pipelinePath, pipelineName, scheduleKind, cronExpression, timezone, scope, variablesRaw, source, sourcePath string
+		var runAt sql.NullTime
+		var enabled bool
+		var configRepoID sql.NullInt64
+		var managed bool
+		if err := rows.Scan(&pathPart, &name, &description, &pipelinePath, &pipelineName, &scheduleKind, &cronExpression, &runAt, &timezone, &enabled, &scope, &variablesRaw, &source, &configRepoID, &managed, &sourcePath); err != nil {
+			return err
+		}
+		identifier := buildPipelineIdentifier(pathPart, name)
+		if !configRepositoryIncludesResource(repo, identifier, source, configRepoID, managed, delegatedScopes) {
+			continue
+		}
+		filePath, ok := configRepositoryExportPath(repo, identifier, sourcePath, "schedules", ".yaml", managed, configRepoID)
+		if !ok {
+			continue
+		}
+		var variables map[string]string
+		if strings.TrimSpace(variablesRaw) != "" {
+			_ = json.Unmarshal([]byte(variablesRaw), &variables)
+		}
+		if len(variables) == 0 {
+			variables = nil
+		}
+		doc := configRepositoryScheduleDocument{
+			Name:        name,
+			Description: strings.TrimSpace(description),
+			Pipeline:    buildPipelineIdentifier(pipelinePath, pipelineName),
+			Timezone:    timezone,
+			Enabled:     enabled,
+			Scope:       scope,
+			Variables:   variables,
+		}
+		if normalizeScheduleKindValue(scheduleKind) == scheduleKindOnce {
+			doc.ScheduleKind = scheduleKindOnce
+			if runAt.Valid {
+				doc.RunAt = runAt.Time.UTC().Format(time.RFC3339)
+			}
+		} else {
+			doc.CronExpression = cronExpression
+		}
+		content, err := yaml.Marshal(doc)
+		if err != nil {
+			return err
+		}
+		files[filePath] = string(content)
 	}
 	return rows.Err()
 }
@@ -705,7 +786,7 @@ func configRepositoryRelativeGitPath(basePath, filePath string) (string, bool) {
 
 func isConfigRepositoryDriftPath(filePath string) bool {
 	filePath = strings.Trim(strings.TrimSpace(filepath.ToSlash(filePath)), "/")
-	for _, prefix := range []string{"pipelines/", "steps/", "triggers/", "scopes/", "knowledge/"} {
+	for _, prefix := range []string{"pipelines/", "steps/", "triggers/", "schedules/", "scopes/", "knowledge/"} {
 		if strings.HasPrefix(filePath, prefix) {
 			return true
 		}

@@ -26,20 +26,23 @@ func NewPGStore(db *pgxpool.Pool) *PGStore {
 func (s *PGStore) GetRunListItem(ctx context.Context, runID string) (*models.RunListItem, error) {
 	var run models.RunListItem
 	var startedAt, finishedAt sql.NullTime
-	var commitSHA, repoOwner, repoName, pusherName, gitRef, gitTargetRef, pipelineSource, pipelineVersion, pipelinePath, triggerEventID sql.NullString
+	var commitSHA, repoOwner, repoName, pusherName, gitRef, gitTargetRef, pipelineSource, pipelineVersion, pipelinePath, triggerEventID, triggerSource, scheduleID, scheduleName, schedulePath sql.NullString
 
 	query := `
         SELECT
-		    run_id, pipeline_name, pipeline_path, pipeline_version, status, COALESCE(git_commit_sha, ''),
-            COALESCE(git_repo_owner, ''), COALESCE(git_repo_name, ''), started_at, finished_at,
-			parent_run_id, COALESCE(git_pusher_name, ''), COALESCE(git_ref, ''), COALESCE(git_target_ref, ''),
-			COALESCE(pipeline_source, ''), COALESCE(trigger_event_id, '')
-        FROM pipeline_runs
-        WHERE run_id = $1
+		    pr.run_id, pr.pipeline_name, pr.pipeline_path, pr.pipeline_version, pr.status, COALESCE(pr.git_commit_sha, ''),
+            COALESCE(pr.git_repo_owner, ''), COALESCE(pr.git_repo_name, ''), pr.started_at, pr.finished_at,
+			pr.parent_run_id, COALESCE(pr.git_pusher_name, ''), COALESCE(pr.git_ref, ''), COALESCE(pr.git_target_ref, ''),
+			COALESCE(pr.pipeline_source, ''), COALESCE(pr.trigger_event_id, ''),
+			COALESCE(pr.trigger_source, ''), COALESCE(pr.schedule_id::text, ''), COALESCE(ps.name, ''), COALESCE(ps.path, '')
+        FROM pipeline_runs pr
+		LEFT JOIN pipeline_schedules ps ON ps.id = pr.schedule_id
+        WHERE pr.run_id = $1
     `
 	err := s.db.QueryRow(ctx, query, runID).Scan(
 		&run.RunID, &run.PipelineName, &pipelinePath, &pipelineVersion, &run.Status, &commitSHA,
 		&repoOwner, &repoName, &startedAt, &finishedAt, &run.ParentRunID, &pusherName, &gitRef, &gitTargetRef, &pipelineSource, &triggerEventID,
+		&triggerSource, &scheduleID, &scheduleName, &schedulePath,
 	)
 
 	if err != nil {
@@ -56,6 +59,10 @@ func (s *PGStore) GetRunListItem(ctx context.Context, runID string) (*models.Run
 	run.GitTargetRef = gitTargetRef.String
 	run.PipelineSource = pipelineSource.String
 	run.TriggerEventID = triggerEventID.String
+	run.TriggerSource = triggerSource.String
+	run.ScheduleID = scheduleID.String
+	run.ScheduleName = scheduleName.String
+	run.SchedulePath = schedulePath.String
 
 	if startedAt.Valid {
 		run.StartedAt = startedAt.Time
@@ -259,7 +266,7 @@ func (s *PGStore) UpdateConfigRepositorySyncStatus(ctx context.Context, id int64
 	return nil
 }
 
-var configManagedResourceTables = []string{"config_repositories", "pipelines", "steps", "triggers", "variables", "secrets", "knowledge_contexts"}
+var configManagedResourceTables = []string{"config_repositories", "pipelines", "steps", "pipeline_schedules", "triggers", "variables", "secrets", "knowledge_contexts"}
 
 type configRepositoryScanner interface {
 	Scan(dest ...any) error

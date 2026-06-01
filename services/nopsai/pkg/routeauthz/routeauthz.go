@@ -118,6 +118,12 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		}
 	case path == "/v1/pipelines" && r.Method == http.MethodGet:
 		return "pipeline.list", model.ResourceRef{Type: "pipeline", ID: "*"}, true, nil
+	case path == "/v1/schedules" && r.Method == http.MethodGet:
+		return "pipeline_schedule.list", model.ResourceRef{Type: "pipeline_schedule", ID: "*"}, true, nil
+	case path == "/v1/schedules" && r.Method == http.MethodPost:
+		return "", model.ResourceRef{}, false, nil
+	case strings.HasPrefix(path, "/v1/schedules/"):
+		return "", model.ResourceRef{}, false, nil
 	case strings.HasPrefix(path, "/v1/pipelines/"):
 		pipelineID := normalizePathIdentifier(pathValueOrTail(r, "pipelineName", "/v1/pipelines/"))
 		switch r.Method {

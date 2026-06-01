@@ -22,6 +22,19 @@ The Kubernetes runner is a separate in-cluster service:
 This preserves the current pipeline behavior while moving the execution
 substrate from Docker containers to Kubernetes pods.
 
+## Log Delivery
+
+The Kubernetes runner follows the agent pod's `pods/log` stream and forwards
+logs to the dispatcher in batches. After the agent pod reaches `Succeeded` or
+`Failed`, the runner waits briefly for the pod log stream to drain before
+cleaning up the pod, so the final task and agent lines are persisted with the
+run. Very large log entries are split into transport-safe chunks before they are
+sent to NopsAI.
+
+The generated Role includes `get`, `list`, and `watch` on `pods/log`. Keep those
+permissions in custom manifests; without them the run may complete but the UI
+will not receive complete Kubernetes runner logs.
+
 ## Runner Per Namespace
 
 Run one Kubernetes runner per namespace. Give every runner a unique

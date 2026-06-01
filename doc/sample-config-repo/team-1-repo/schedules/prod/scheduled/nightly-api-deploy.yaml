@@ -1,0 +1,10 @@
+name: nightly-api-deploy
+description: Nightly API deployment into the team production scope.
+pipeline: services/api/deploy
+schedule_kind: cron
+cron_expression: "0 2 * * *"
+timezone: UTC
+enabled: false
+scope: prod
+variables:
+  RELEASE_CHANNEL: nightly

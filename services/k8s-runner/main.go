@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"nopsai/config"
+	"nopsai/pkg/logforward"
 	"nopsai/pkg/proto"
 	"nopsai/pkg/serviceauth"
 	"nopsai/pkg/servicetls"
@@ -52,6 +52,8 @@ const (
 	kubernetesWorkspaceVolumePVC   = "pvc"
 	kubernetesWorkspaceExistingPVC = "existing"
 	kubernetesWorkspaceEmptyDir    = "emptyDir"
+	kubernetesPodLogDrainTimeout   = 15 * time.Second
+	kubernetesPodLogStopTimeout    = 2 * time.Second
 )
 
 var nameInvalidChars = regexp.MustCompile(`[^a-z0-9-]+`)
@@ -387,16 +389,26 @@ func (r *kubernetesRunner) handleJob(ctx context.Context, dispatcher proto.Dispa
 
 		log.Info().Str("run_id", job.RunId).Str("pod", pod.Name).Str("workspace_pvc", workspacePVC).Msg("started agent pod")
 
-		runCtx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		runCtx, cancelRun := context.WithCancel(context.Background())
+		defer cancelRun()
 		go r.monitorRunCancellation(runCtx, dispatcher, job.RunId, podName)
-		go r.streamPodLogs(runCtx, dispatcher, job.RunId, podName)
+
+		logCtx, cancelLogs := context.WithCancel(context.Background())
+		defer cancelLogs()
+		logDone := make(chan struct{})
+		go func() {
+			defer close(logDone)
+			r.streamPodLogs(logCtx, dispatcher, job.RunId, podName)
+		}()
 
 		phase, err := r.waitForPodCompletion(context.Background(), podName)
+		cancelRun()
 		if err != nil {
+			stopPodLogForwarder(logDone, cancelLogs, job.RunId, podName)
 			sendJobResult(sendCh, job.RunId, "failed", err.Error())
 			return
 		}
+		waitForPodLogDrain(logDone, cancelLogs, job.RunId, podName)
 		if phase != corev1.PodSucceeded {
 			sendJobResult(sendCh, job.RunId, "failed", fmt.Sprintf("agent pod completed with phase %s", phase))
 			return
@@ -635,43 +647,43 @@ func (r *kubernetesRunner) streamPodLogs(ctx context.Context, dispatcher proto.D
 	}
 	defer reader.Close()
 
-	logChan := make(chan string, 100)
-	go func() {
-		defer close(logChan)
-		scanner := bufio.NewScanner(reader)
-		for scanner.Scan() {
-			logChan <- scanner.Text()
-		}
-		if err := scanner.Err(); err != nil {
+	logforward.Forward(ctx, reader, func(sendCtx context.Context, lines []string) {
+		r.flushLogs(sendCtx, dispatcher, runID, lines)
+	}, logforward.Options{
+		OnScannerError: func(err error) {
 			log.Error().Err(err).Str("run_id", runID).Msg("pod log scanner error")
-		}
-	}()
+		},
+	})
+}
 
-	const batchSize = 50
-	const batchTimeout = 500 * time.Millisecond
-	var batchLines []string
-	ticker := time.NewTicker(batchTimeout)
-	defer ticker.Stop()
-	for {
+func waitForPodLogDrain(done <-chan struct{}, cancel context.CancelFunc, runID, podName string) {
+	select {
+	case <-done:
+		return
+	case <-time.After(kubernetesPodLogDrainTimeout):
+		log.Warn().
+			Str("run_id", runID).
+			Str("pod", podName).
+			Dur("timeout", kubernetesPodLogDrainTimeout).
+			Msg("timed out waiting for pod logs to drain")
+		cancel()
 		select {
-		case line, ok := <-logChan:
-			if !ok {
-				r.flushLogs(ctx, dispatcher, runID, batchLines)
-				return
-			}
-			batchLines = append(batchLines, line)
-			if len(batchLines) >= batchSize {
-				r.flushLogs(ctx, dispatcher, runID, batchLines)
-				batchLines = nil
-			}
-		case <-ticker.C:
-			if len(batchLines) > 0 {
-				r.flushLogs(ctx, dispatcher, runID, batchLines)
-				batchLines = nil
-			}
-		case <-ctx.Done():
-			return
+		case <-done:
+		case <-time.After(kubernetesPodLogStopTimeout):
 		}
+	}
+}
+
+func stopPodLogForwarder(done <-chan struct{}, cancel context.CancelFunc, runID, podName string) {
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(kubernetesPodLogStopTimeout):
+		log.Warn().
+			Str("run_id", runID).
+			Str("pod", podName).
+			Dur("timeout", kubernetesPodLogStopTimeout).
+			Msg("timed out stopping pod log forwarder")
 	}
 }
 

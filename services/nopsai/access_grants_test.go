@@ -115,6 +115,9 @@ func TestProductRolePermissions(t *testing.T) {
 	t.Run("viewer", func(t *testing.T) {
 		actions := actionSet(applicableProductRoleActions(productRoleViewer, grantResourceFolder))
 		assertAction(t, actions, "pipeline.read", true)
+		assertAction(t, actions, "pipeline_schedule.list", true)
+		assertAction(t, actions, "pipeline_schedule.read", true)
+		assertAction(t, actions, "pipeline_schedule.execute", false)
 		assertAction(t, actions, "pipeline.update", false)
 		assertAction(t, actions, "pipeline.execute", false)
 		assertAction(t, actions, "pipeline.use", false)
@@ -127,6 +130,9 @@ func TestProductRolePermissions(t *testing.T) {
 	t.Run("developer", func(t *testing.T) {
 		actions := actionSet(applicableProductRoleActions(productRoleDeveloper, grantResourceFolder))
 		assertAction(t, actions, "pipeline.read", true)
+		assertAction(t, actions, "pipeline_schedule.create", true)
+		assertAction(t, actions, "pipeline_schedule.update", true)
+		assertAction(t, actions, "pipeline_schedule.execute", true)
 		assertAction(t, actions, "pipeline.update", true)
 		assertAction(t, actions, "pipeline.execute", true)
 		assertAction(t, actions, "pipeline.use", true)
@@ -153,6 +159,8 @@ func TestProductRolePermissions(t *testing.T) {
 		actions := actionSet(applicableProductRoleActions(productRoleOwner, grantResourceFolder))
 		assertAction(t, actions, "folder.delete", true)
 		assertAction(t, actions, "pipeline.delete", true)
+		assertAction(t, actions, "pipeline_schedule.delete", true)
+		assertAction(t, actions, "pipeline_schedule.manage_acl", true)
 		assertAction(t, actions, "pipeline_run.delete", true)
 		assertAction(t, actions, "pipeline_run.finalize", true)
 		assertAction(t, actions, "pipeline_run.write_logs", true)
@@ -214,6 +222,16 @@ func TestNormalizeAccessGrantResourceTypeSupportsPipelineRun(t *testing.T) {
 	}
 	if got != grantResourceRun {
 		t.Fatalf("normalizeAccessGrantResourceType() = %q, want %q", got, grantResourceRun)
+	}
+}
+
+func TestNormalizeAccessGrantResourceTypeSupportsPipelineSchedule(t *testing.T) {
+	got, err := normalizeAccessGrantResourceType("pipeline_schedule")
+	if err != nil {
+		t.Fatalf("normalizeAccessGrantResourceType() error = %v", err)
+	}
+	if got != grantResourceSchedule {
+		t.Fatalf("normalizeAccessGrantResourceType() = %q, want %q", got, grantResourceSchedule)
 	}
 }
 

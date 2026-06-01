@@ -70,7 +70,7 @@ curl -X DELETE -H "Authorization: Bearer $NOPSAI_TOKEN" \
 ## Quick Start
 
 ```bash
-# Refresh config repositories, pipelines, reusable steps, scopes, triggers, knowledge contexts, and system settings from Git
+# Refresh config repositories, pipelines, reusable steps, schedules, scopes, triggers, knowledge contexts, and system settings from Git
 curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
   http://localhost:8080/v1/internal/config/sync
 ```
@@ -194,15 +194,15 @@ NopsAI calls the internal AAA service for authorization decisions and layers pro
 
 Predefined product roles:
 
-- `viewer`: read-only access to group metadata, pipelines, runs, logs, triggers, repository metadata, step metadata, knowledge context metadata/content, config repository metadata, secret metadata, and variable metadata
-- `developer`: viewer permissions plus pipeline create/update/execute, runtime `*.use` permissions, rerun/cancel, trigger updates, secret value writes, variable writes, repository updates, scope updates, reusable step usage, knowledge context usage, runner usage, and config repository usage
+- `viewer`: read-only access to group metadata, pipelines, schedules, runs, logs, triggers, repository metadata, step metadata, knowledge context metadata/content, config repository metadata, secret metadata, and variable metadata
+- `developer`: viewer permissions plus pipeline create/update/execute, schedule create/update/execute, runtime `*.use` permissions, rerun/cancel, trigger updates, secret value writes, variable writes, repository updates, scope updates, reusable step usage, knowledge context usage, runner usage, and config repository usage
 - `owner`: developer and viewer permissions plus all scoped non-admin actions, delete operations, secret and variable value reads, and permission management inside the owned scope
 - `admin`: platform-wide access through the normal AAA `Check` path, with sensitive actions still audited
 
 Important behavior:
 
 - Product roles are expanded to low-level AAA permissions when the grant is created.
-- Group grants inherit to child groups, pipelines, runs, repository-associated runs, triggers, repositories, scoped secrets, scoped variables, reusable steps, and knowledge contexts under that group path.
+- Group grants inherit to child groups, pipelines, schedules, runs, repository-associated runs, triggers, repositories, scoped secrets, scoped variables, reusable steps, and knowledge contexts under that group path.
 - Runtime resource use is checked with the original caller identity: manual runs use the user, Git-triggered runs use the repository, and internal dispatcher calls do not inherit pipeline-owner permissions.
 - `developer` can write secret values but cannot read them.
 - `developer` and `viewer` cannot manage ACLs.
@@ -255,7 +255,7 @@ Grant request fields:
 - `subject_type`: `user`, `auth_group`, `repository`, `trigger`, `service_account`, or `internal_service`
 - `subject_id`: user subject/email/UUID, auth group id/name, repository `owner/repo`, trigger id, service-account id, or service id
 - `role`: `viewer`, `developer`, `owner`, or `admin`
-- `resource_type`: `folder` for groups, `pipeline`, `trigger`, `secret`, `variable`, `scope`, `repository`, `step`, `knowledge_context`, `runner`, `config_repo`, or `platform`
+- `resource_type`: `folder` for groups, `pipeline`, `pipeline_schedule`, `trigger`, `secret`, `variable`, `scope`, `repository`, `step`, `knowledge_context`, `runner`, `config_repo`, or `platform`
 - `resource_id`: group path such as `/payments`, pipeline id such as `team-1/dev/build`, repository id such as `owner/repo`, or `platform`
 - `inherit`: required for group subtree grants; group grants should normally use `true`
 
@@ -558,6 +558,124 @@ curl -X DELETE http://localhost:8080/v1/pipelines/team-1/dev/main-pipeline
 
 ---
 
+## Pipeline Schedules
+
+Schedules are first-class resources that run stored pipelines on one-time
+timestamps or recurring cron expressions without requiring a Git repository
+event. They are grouped by `path`, protected by `pipeline_schedule.*` actions,
+and execute through a
+schedule-owned service account that receives only the pipeline, scope, reusable
+step, and child-pipeline permissions needed for that schedule.
+
+```bash
+# List schedules visible to the caller
+curl http://localhost:8080/v1/schedules
+
+# List schedules for one pipeline
+curl "http://localhost:8080/v1/schedules?pipeline=team-1/services/api/deploy"
+
+# Create a disabled nightly deployment schedule
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name":"nightly-api-deploy",
+    "pipeline":"team-1/services/api/deploy",
+    "schedule_kind":"cron",
+    "cron_expression":"0 2 * * *",
+    "timezone":"UTC",
+    "enabled":false,
+    "scope":"team-1/prod",
+    "variables":{"RELEASE_CHANNEL":"nightly"}
+  }' \
+  http://localhost:8080/v1/schedules
+
+# Create a one-time release schedule at a specific date, hour, and minute
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name":"release-window",
+    "pipeline":"team-1/services/api/deploy",
+    "schedule_kind":"once",
+    "run_at":"2030-03-15T09:45",
+    "timezone":"Europe/Amsterdam",
+    "scope":"team-1/prod"
+  }' \
+  http://localhost:8080/v1/schedules
+
+# Enable, disable, run now, inspect, update, or delete
+curl -X POST http://localhost:8080/v1/schedules/<schedule-id>/enable
+curl -X POST http://localhost:8080/v1/schedules/<schedule-id>/disable
+curl -X POST http://localhost:8080/v1/schedules/<schedule-id>/run
+curl http://localhost:8080/v1/schedules/<schedule-id>
+curl -X PUT -H "Content-Type: application/json" -d @schedule.json http://localhost:8080/v1/schedules/<schedule-id>
+curl -X DELETE http://localhost:8080/v1/schedules/<schedule-id>
+```
+
+Schedule payload fields:
+
+- `path`: optional schedule group path. If omitted, the schedule uses the target
+  pipeline path. The UI uses this default; API and GitOps flows can still use
+  paths such as `prod/scheduled` when an operational subgroup is useful.
+- `name`: schedule name, unique within `path`.
+- `pipeline` or `pipeline_path` plus `pipeline_name`: target stored pipeline.
+- `schedule_kind`: `cron` for recurring schedules or `once` for a specific
+  date/time. If omitted, `run_at` implies `once`; otherwise the schedule is
+  treated as `cron`.
+- `run_at`: required for `schedule_kind: once`. Use RFC3339
+  (`2030-03-15T08:45:00Z`) or local date-time (`2030-03-15T09:45`) interpreted
+  in the schedule `timezone`.
+- `cron_expression`: standard five-field cron expression for recurring
+  schedules. `cron` is accepted as an alias. The UI provides specific date,
+  interval, hourly, daily, weekday, multi-day weekly, multi-day monthly,
+  yearly, and custom cron controls.
+- `timezone`: IANA timezone such as `UTC` or `Europe/Amsterdam`.
+- `enabled`: whether the schedule is active.
+- `scope`: optional run scope. `default` is stored as the default/unscoped run.
+- `variables`: optional run variable overrides.
+
+Responses include `next_run_at`, `last_run_at`, `last_run_id`, `last_status`,
+and `latest_run`. Timestamps are stored in UTC and should be displayed in the
+schedule `timezone` when presenting the schedule. Pipeline run list/detail
+responses include `trigger_source`, `schedule_id`, `schedule_name`, and
+`schedule_path`, so the UI can badge scheduled runs and deep-link to the latest
+run details.
+
+GitOps schedules live under `schedules/`:
+
+```yaml
+name: nightly-api-deploy
+description: Nightly API deployment into prod.
+pipeline: services/api/deploy
+schedule_kind: cron
+cron_expression: "0 2 * * *"
+timezone: UTC
+enabled: false
+scope: prod
+variables:
+  RELEASE_CHANNEL: nightly
+```
+
+One-time GitOps schedule:
+
+```yaml
+name: release-window
+description: One-time production release window.
+pipeline: services/api/deploy
+schedule_kind: once
+run_at: "2030-03-15T09:45"
+timezone: Europe/Amsterdam
+enabled: true
+scope: prod
+```
+
+In a group-scoped config repository, schedule file paths and runtime references
+are normalized under the bound group. For example,
+`schedules/prod/scheduled/nightly-api-deploy.yaml` in the `team-1` repo becomes
+schedule `team-1/prod/scheduled/nightly-api-deploy`, and `pipeline:
+services/api/deploy` becomes `team-1/services/api/deploy`.
+
+---
+
 ## Pipeline Run Structure
 
 - The GitOps config repository can define the group and repository hierarchy for the Pipeline Runs UI via `config-repositories/groups/structure.yaml`, scoped files such as `config-repositories/groups/team-1/structure.yaml`, or the legacy `pipelineruns/structure.yaml`.
@@ -622,6 +740,7 @@ curl -X POST -H "Content-Type: application/json" \
 
 - The global repo uses `scope_type=system` and `scope_id=global`.
 - System- and group-scoped repos may define group repo bindings under `config-repositories/groups/<group>.yaml`.
+- System- and group-scoped repos may define pipeline schedules under `schedules/`.
 - System- and group-scoped repos may define managed knowledge context markdown under `knowledge/`.
 - The system/global repo may define runtime runner defaults and dispatcher routing under `setting/system/runner.yaml`; dispatcher routing changes are synced into `nopsai` and applied by the live dispatcher.
 - A binding file contains `repo_url`, optional `branch`, optional `base_path`, optional `enabled`, optional `write_enabled`, and optional `write_branch`.
@@ -629,6 +748,7 @@ curl -X POST -H "Content-Type: application/json" \
 - Group repositories use the same drift and write endpoint shape at `GET /v1/groups/<group-path>/config-repo/drift` and `POST /v1/groups/<group-path>/config-repo/write`. File paths are relative to the configured `base_path`.
 - Nested groups are represented by nested paths, for example `config-repositories/groups/team-2/platform.yaml` creates a binding for `team-2/platform`.
 - Group bindings also create matching group shells used by the Pipelines, Steps, Triggers, Scopes, and Pipeline Runs views.
+- Schedule paths can use those same group shells; a conventional path such as `prod/scheduled` keeps scheduled automation visible under the production group without making it a separate source of truth.
 - Once a group repo is assigned and synced, it is authoritative for resources under that group path. Parent or global repos skip and prune their own managed resources inside delegated groups.
 - Only owners of the target group, including inherited parent owners, can sync that group repo.
 - Complete examples live under `doc/sample-config-repo`.
@@ -708,6 +828,7 @@ curl -X DELETE \
 
 - Step/task status updates are posted by the agent to `/v1/runs/{runID}/steps/{step}/tasks/{task}` (payload includes status, exit code, and LLM timing).
 - Run listings return summary metadata used by the UI cards and periodic refreshes.
+- Scheduled runs set `trigger_source: "schedule"` and include schedule metadata when the run came from a pipeline schedule.
 - Run log access is authorized separately from run-detail access in the low-level AAA layer.
 - Branch cleanup removes historical runs for the specified branch while leaving the repository intact.
 
