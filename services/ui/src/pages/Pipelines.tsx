@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { CalendarClock } from 'lucide-react';
 import yaml from 'js-yaml';
 import { buildApiUrl } from '../lib/api';
 import {
@@ -1782,12 +1783,18 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                   <span>Source: <span className="text-[var(--text-primary)]" id="pipeline-detail-source">{source}</span></span>
                 </div>
               </div>
-              <button id="pipelines-back-btn" className="glass-button-ghost" onClick={handleBackToList}>
-                <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
-                </svg>
-                <span>Back to list</span>
-              </button>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <button className="glass-button-ghost" onClick={() => navigate(`/schedules?pipeline=${encodeURIComponent(detail.id)}`)}>
+                  <CalendarClock className="h-4 w-4" />
+                  <span>Schedules</span>
+                </button>
+                <button id="pipelines-back-btn" className="glass-button-ghost" onClick={handleBackToList}>
+                  <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
+                  </svg>
+                  <span>Back to list</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -2188,7 +2195,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                         const shortRunId = runId ? runId.slice(0, 8) : '—';
                         const triggerId = typeof run.trigger_event_id === 'string' ? run.trigger_event_id : '';
                         const shortTriggerId = triggerId ? triggerId.slice(0, 8) : '—';
-                        const runPath = runId ? `/pipelineruns/recent?run_id=${encodeURIComponent(runId)}` : '/pipelineruns/recent';
+                        const runPath = runId ? `/pipelineruns/recent?run=${encodeURIComponent(runId)}` : '/pipelineruns/recent';
                         return (
                           <li key={runId || `${run.pipeline_name}-${run.started_at}`} className="triggers-pipeline-item">
                             <button

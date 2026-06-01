@@ -130,6 +130,18 @@ func (a *App) registerPipelineRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /v1/overrides/{repoOwner}/{repoName}", a.handleDeleteTriggerOverride)
 }
 
+func (a *App) registerScheduleRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /v1/schedules", a.handleListSchedules)
+	mux.HandleFunc("POST /v1/schedules", a.handleCreateSchedule)
+	mux.HandleFunc("GET /v1/schedules/{scheduleID}", a.handleGetSchedule)
+	mux.HandleFunc("PUT /v1/schedules/{scheduleID}", a.handleUpdateSchedule)
+	mux.HandleFunc("PATCH /v1/schedules/{scheduleID}", a.handleUpdateSchedule)
+	mux.HandleFunc("DELETE /v1/schedules/{scheduleID}", a.handleDeleteSchedule)
+	mux.HandleFunc("POST /v1/schedules/{scheduleID}/enable", a.handleEnableSchedule)
+	mux.HandleFunc("POST /v1/schedules/{scheduleID}/disable", a.handleDisableSchedule)
+	mux.HandleFunc("POST /v1/schedules/{scheduleID}/run", a.handleRunScheduleNow)
+}
+
 func (a *App) registerKnowledgeContextRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/knowledge-contexts", a.handleListKnowledgeContexts)
 	mux.HandleFunc("GET /v1/knowledge-contexts/{knowledgeID...}", a.handleGetKnowledgeContext)
@@ -186,6 +198,7 @@ func (a *App) buildHTTPHandler() http.Handler {
 	a.registerMonitoringRoutes(mux)
 	a.registerFolderConfigRepositoryRoutes(mux)
 	a.registerPipelineRoutes(mux)
+	a.registerScheduleRoutes(mux)
 	a.registerKnowledgeContextRoutes(mux)
 	a.registerSecretVariableRoutes(mux)
 	a.registerRunRoutes(mux)

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, FormEvent, SetStateAction } from 'react';
 import { Link, NavLink, useParams, useSearchParams } from 'react-router-dom';
+import { CalendarClock } from 'lucide-react';
 import yaml from 'js-yaml';
 import { buildApiUrl } from '../lib/api';
 import { ConfigRepositoryDriftModal } from '../components/ConfigRepositoryDriftModal';
@@ -38,6 +39,10 @@ type RunListItem = {
   duration?: string;
   is_complete?: boolean;
   parent_run_id?: string | null;
+  trigger_source?: string;
+  schedule_id?: string;
+  schedule_name?: string;
+  schedule_path?: string;
   trigger_event_id?: string;
   parent_step_name?: string;
   failure_reason?: string;
@@ -2532,6 +2537,16 @@ function RunSelectToggle({ selected, onToggle }: { selected: boolean; onToggle: 
 
 function PipelineBadges({ run }: { run: RunListItem }) {
   const badges: React.ReactNode[] = [];
+  const scheduled = run.trigger_source === 'schedule' || Boolean(run.schedule_id);
+  if (scheduled) {
+    const label = run.schedule_name ? `Scheduled: ${run.schedule_name}` : 'Scheduled';
+    badges.push(
+      <span key="scheduled" className="text-xs font-semibold text-[var(--text-link)] inline-flex items-center gap-1" title={label}>
+        <CalendarClock className="h-4 w-4" />
+        Scheduled
+      </span>
+    );
+  }
   if (run.pipeline_source === 'database override') {
     badges.push(
       <span key="override" className="text-xs font-semibold text-[var(--text-link)] inline-flex items-center gap-1">
@@ -5804,6 +5819,10 @@ function runMatchesSearch(run: RunListItem, term: string): boolean {
     run.pipeline_path,
     run.pipeline_version,
     run.pipeline_source,
+    run.trigger_source,
+    run.schedule_id,
+    run.schedule_name,
+    run.schedule_path,
     run.git_repo_name,
     run.git_repo_owner,
     run.git_ref,

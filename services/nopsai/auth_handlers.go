@@ -237,6 +237,10 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 	triggerRead := a.checkCapabilityOrScopedGrant(ctx, subject, "trigger.read", model.ResourceRef{Type: "trigger", ID: "*"})
 	triggerWrite := a.checkCapabilityOrScopedGrant(ctx, subject, "trigger.update", model.ResourceRef{Type: "trigger", ID: "*"})
 	triggerDelete := a.checkCapabilityOrScopedGrant(ctx, subject, "trigger.delete", model.ResourceRef{Type: "trigger", ID: "*"})
+	scheduleRead := a.checkCapabilityOrScopedGrant(ctx, subject, "pipeline_schedule.read", model.ResourceRef{Type: grantResourceSchedule, ID: "*"})
+	scheduleWrite := a.checkCapabilityOrScopedGrant(ctx, subject, "pipeline_schedule.update", model.ResourceRef{Type: grantResourceSchedule, ID: "*"}) ||
+		a.checkCapabilityOrScopedGrant(ctx, subject, "pipeline_schedule.create", model.ResourceRef{Type: grantResourceSchedule, ID: "*"})
+	scheduleDelete := a.checkCapabilityOrScopedGrant(ctx, subject, "pipeline_schedule.delete", model.ResourceRef{Type: grantResourceSchedule, ID: "*"})
 	scopeRead := a.checkCapabilityOrScopedGrant(ctx, subject, "secret.list_metadata", model.ResourceRef{Type: "secret", ID: "*"}) ||
 		a.checkCapabilityOrScopedGrant(ctx, subject, "variable.list_metadata", model.ResourceRef{Type: "variable", ID: "*"}) ||
 		a.hasScopedProductGrantCapability(ctx, subject, "scope.read")
@@ -260,6 +264,11 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 			Write: a.checkCapabilityOrScopedGrant(ctx, subject, "step.update", model.ResourceRef{Type: "step", ID: "*"}) ||
 				a.checkCapabilityOrScopedGrant(ctx, subject, "step.create", model.ResourceRef{Type: "step", ID: "*"}),
 			Delete: a.checkCapabilityOrScopedGrant(ctx, subject, "step.delete", model.ResourceRef{Type: "step", ID: "*"}),
+		},
+		Schedules: authReadCapabilities{
+			Read:   scheduleRead,
+			Write:  scheduleWrite,
+			Delete: scheduleDelete,
 		},
 		Triggers: authReadCapabilities{
 			Read:   triggerRead,

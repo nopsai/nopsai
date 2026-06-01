@@ -78,6 +78,33 @@ The runtime supports:
 - task-level secret masking in output/history
 - pre-dispatch knowledge context resolution and run snapshots
 
+## Pipeline Scheduling
+
+Pipeline schedules are first-class resources for time-based automation:
+
+- schedules target stored pipelines and do not require a Git repository event
+- each schedule has a group path, schedule kind, cron expression or one-time
+  timestamp, timezone, enabled state, optional scope, and optional variable
+  overrides
+- the schedule page lists visible schedules with next run time, latest run
+  status, GitOps source, and links to the latest pipeline run
+- UI-created schedules derive their path from the selected pipeline; API and
+  GitOps schedules may still set explicit organizational paths
+- the schedule form uses existing pipelines and scopes as dropdown choices and
+  offers friendly specific-date, interval, hourly, daily, weekday, weekly,
+  monthly, yearly, or custom timing controls; weekly and monthly modes support
+  multiple selected days
+- schedules can be enabled, disabled, run immediately, edited, or deleted when
+  the caller has the matching `pipeline_schedule.*` action
+- scheduled runs are tagged with `trigger_source: schedule`, linked to
+  `schedule_id`, and badged in Pipeline runs
+- execution uses a schedule-owned service account with explicit pipeline,
+  scope, reusable-step, and child-pipeline grants
+
+Schedule grouping is organizational. A path such as `prod/scheduled` is a good
+way to make production automation visible under the production group; it should
+not become a separate source of truth from the schedule resource itself.
+
 ## Knowledge Context
 
 Knowledge Context lets pipelines attach project knowledge to LLM-backed work.
@@ -152,6 +179,7 @@ GitOps-style configuration sync supports:
 
 - `pipelines/` -> pipeline definitions
 - `steps/` -> reusable step definitions
+- `schedules/` -> one-time and recurring pipeline schedules
 - `triggers/` -> trigger overrides
 - `scopes/` -> scoped variables declared under `variables:` and GitOps secret
   keys declared under `secrets:`
@@ -198,6 +226,7 @@ Core run-management capabilities:
 Configuration management capabilities:
 
 - CRUD pipelines
+- CRUD pipeline schedules, enable/disable schedules, and run schedules on demand
 - CRUD reusable steps
 - CRUD trigger overrides
 - CRUD scopes, variables, and secrets
@@ -225,6 +254,7 @@ Current auth/access features:
 - route-level action/resource mapping for protected REST endpoints
 - predefined product roles: `viewer`, `developer`, `owner`, `admin`
 - access-grant management API for subject -> role -> resource bindings
+- schedule resources with `pipeline_schedule.list/read/create/update/execute/delete/manage_acl`
 - per-resource Access controls for pipeline, reusable step, scope, and knowledge context usage
 - caller-based runtime use checks for manual, Git-triggered, and child-pipeline runs
 - resource visibility modes: group, restricted, and UI-labeled Public
@@ -251,6 +281,7 @@ Pages present in the current UI:
 
 - `Pipeline runs`: run list, grouped views, recent runs, event grouping, details, logs, rerun, cancel, branch cleanup
 - `Pipelines`: pipeline browser/editor, drafts, validation, dependency graphing
+- `Schedules`: schedule browser, pipeline-filtered schedule view, enable/disable, run now, latest-run link, and GitOps markers
 - `Triggers`: trigger override browser/editor
 - `Scopes`: variable and secret management by scope and repository, including scope use-access controls
 - `Lab`: ad-hoc YAML editing and direct run execution

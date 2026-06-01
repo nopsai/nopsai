@@ -39,7 +39,7 @@ around that balance:
 | --- | --- |
 | AI-assisted pipelines | YAML pipelines with scripts, natural language goals, reusable steps, child pipelines, dependency ordering, conditions, timeouts, volumes, and failure tolerance. |
 | GitHub automation | GitHub App webhooks, signed webhook validation, repository file access, trigger manifests, check-run creation, check-run updates, reruns, and stale-check cancellation. |
-| GitOps configuration | Sync pipelines, reusable steps, triggers, scopes, access rules, knowledge documents, LLM profiles, MCP settings, runtime runner/dispatcher settings, and group config repository bindings from Git. |
+| GitOps configuration | Sync pipelines, reusable steps, schedules, triggers, scopes, access rules, knowledge documents, LLM profiles, MCP settings, runtime runner/dispatcher settings, and group config repository bindings from Git. |
 | Enterprise access control | Local auth, JWTs, refresh tokens, personal access tokens, predefined product roles, inherited folder grants, AAA checks, deny-before-allow evaluation, and audit logs. |
 | Secrets and scopes | Encrypted secrets, plaintext scoped variables, strict scope isolation, repository-specific overrides, cross-scope references, and runtime authorization checks. |
 | Knowledge context | Managed or repo-local markdown context for architecture docs, guardrails, policies, ADRs, runbooks, references, examples, and guidelines injected into LLM tasks. |
@@ -104,10 +104,10 @@ See [doc/architecture-overview.md](doc/architecture-overview.md) and
 
 ## How A Run Works
 
-1. A user starts a run from the UI/API, or GitHub sends an event to `git-bot`.
+1. A user starts a run from the UI/API, a pipeline schedule becomes due, or GitHub sends an event to `git-bot`.
 2. `nopsai` authenticates the request and maps the route to an authorization
    decision.
-3. Pipeline definitions, reusable steps, trigger rules, variables, secrets, and
+3. Pipeline definitions, reusable steps, schedules, trigger rules, variables, secrets, and
    knowledge context are resolved from the database or Git-backed sources.
 4. Runtime access checks verify that the caller can use referenced pipelines,
    steps, scopes, variables, secrets, and knowledge documents.
@@ -218,6 +218,7 @@ GitOps sync can import:
 
 - `pipelines/`: pipeline definitions
 - `steps/`: reusable step definitions
+- `schedules/`: one-time and recurring pipeline schedules
 - `triggers/`: repository trigger overrides
 - `scopes/`: scoped variables and GitOps secret keys
 - `knowledge/`: managed knowledge documents

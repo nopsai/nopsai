@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"nopsai/config"
+	"nopsai/pkg/logforward"
 	"nopsai/pkg/proto"
 	"nopsai/pkg/serviceauth"
 	"nopsai/pkg/servicetls"
@@ -445,6 +445,7 @@ func (r *runner) streamLogs(ctx context.Context, dispatcher proto.DispatcherServ
 	defer logReader.Close()
 
 	rPipe, wPipe := io.Pipe()
+	defer rPipe.Close()
 	go func() {
 		defer wPipe.Close()
 		_, err := stdcopy.StdCopy(wPipe, wPipe, logReader)
@@ -453,46 +454,13 @@ func (r *runner) streamLogs(ctx context.Context, dispatcher proto.DispatcherServ
 		}
 	}()
 
-	logChan := make(chan string, 100)
-	go func() {
-		defer close(logChan)
-		scanner := bufio.NewScanner(rPipe)
-		for scanner.Scan() {
-			logChan <- scanner.Text()
-		}
-		if err := scanner.Err(); err != nil {
+	logforward.Forward(ctx, rPipe, func(sendCtx context.Context, lines []string) {
+		r.flushLogs(sendCtx, dispatcher, job.RunId, lines)
+	}, logforward.Options{
+		OnScannerError: func(err error) {
 			log.Error().Err(err).Str("run_id", job.RunId).Msg("log scanner error")
-		}
-	}()
-
-	const batchSize = 50
-	const batchTimeout = 500 * time.Millisecond
-
-	var batchLines []string
-	ticker := time.NewTicker(batchTimeout)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case line, ok := <-logChan:
-			if !ok {
-				r.flushLogs(ctx, dispatcher, job.RunId, batchLines)
-				return
-			}
-			batchLines = append(batchLines, line)
-			if len(batchLines) >= batchSize {
-				r.flushLogs(ctx, dispatcher, job.RunId, batchLines)
-				batchLines = nil
-			}
-		case <-ticker.C:
-			if len(batchLines) > 0 {
-				r.flushLogs(ctx, dispatcher, job.RunId, batchLines)
-				batchLines = nil
-			}
-		case <-ctx.Done():
-			return
-		}
-	}
+		},
+	})
 }
 
 func (r *runner) flushLogs(ctx context.Context, dispatcher proto.DispatcherServiceClient, runID string, lines []string) {

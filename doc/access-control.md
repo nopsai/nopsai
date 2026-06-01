@@ -46,8 +46,8 @@ Internal endpoints require the `X-Internal-Token` header, configured with `AAA_S
 
 The product roles are templates seeded by `nopsai` startup:
 
-- `viewer`: read/list access for groups, pipelines, runs, logs, triggers, repositories, steps, scopes, knowledge contexts, secret metadata, variable metadata, and config repository metadata.
-- `developer`: includes all viewer access plus non-destructive creation, updates, pipeline execution, `*.use` runtime permissions, rerun/cancel, trigger updates, secret writes, variable writes, repository updates, scope updates, reusable step usage, knowledge context usage, runner usage, and config repository usage.
+- `viewer`: read/list access for groups, pipelines, schedules, runs, logs, triggers, repositories, steps, scopes, knowledge contexts, secret metadata, variable metadata, and config repository metadata.
+- `developer`: includes all viewer access plus non-destructive creation, updates, pipeline and schedule execution, `*.use` runtime permissions, rerun/cancel, trigger updates, secret writes, variable writes, repository updates, scope updates, reusable step usage, knowledge context usage, runner usage, and config repository usage.
 - `owner`: includes all developer and viewer access plus all scoped non-admin actions, deletes, secret and variable value reads, ownership, and ACL management inside the owned scope.
 - `admin`: platform-wide access through the normal AAA `Check` path.
 
@@ -68,6 +68,7 @@ Supported grant resources:
 
 - `folder` (the internal resource type for UI groups)
 - `pipeline`
+- `pipeline_schedule`
 - `pipeline_run`
 - `trigger`
 - `secret`
@@ -85,6 +86,12 @@ Group grant requests use the internal `folder` resource type and may use paths w
 Named secret and variable resources use query-style internal IDs built from repository, scope, and name. The public grant API accepts the same logical IDs shown in the UI.
 
 Runtime resource-sharing grants use a separate `group` subject type for existing resource groups/folders. That `group` subject is only used by the resource Access UI/API to share a resource with a group path; it is not the same as an AAA `auth_group`.
+
+Pipeline schedules use `pipeline_schedule` as the resource type. `viewer`
+grants include `pipeline_schedule.list` and `pipeline_schedule.read`;
+`developer` grants add `pipeline_schedule.create`, `pipeline_schedule.update`,
+and `pipeline_schedule.execute`; `owner` grants add
+`pipeline_schedule.delete` and `pipeline_schedule.manage_acl`.
 
 ## Grant Lifecycle
 
@@ -112,7 +119,8 @@ Pipeline execution uses a second authorization pass for resources that a run wan
 
 - manual Lab/API runs use the authenticated `user`
 - Git-triggered runs use `repository:<owner>/<repo>`
-- scheduled or automation runs should use the trigger or service-account identity
+- scheduled runs use `service_account:schedule:<schedule-id>` with explicit runtime grants derived from the schedule target pipeline
+- other automation runs should use the trigger or service-account identity
 - dispatcher/internal calls only execute after the original caller has already been authorized
 
 Supported low-level use actions include:
@@ -254,6 +262,7 @@ The evaluator resolves parent resources before checking ACLs. A group grant can 
 
 - child groups
 - pipelines and runs under the group path
+- pipeline schedules under the group path
 - repositories assigned under the group path
 - runs associated with repositories under the group path
 - triggers for inherited repositories

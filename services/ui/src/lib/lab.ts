@@ -65,6 +65,7 @@ export const TASK_DIRECTIVES: LabDirective[] = [
   { key: 'ignore_failure', hint: 'Ignore task errors' },
   { key: 'llm_profile', hint: 'Select LLM profile' },
   { key: 'mcp_profiles', hint: 'MCP profiles for this goal task' },
+  { key: 'variables', hint: 'Task variable overrides' },
   { key: 'knowledge_context', hint: 'Knowledge documents for this task' },
   { key: 'llm_output_sharing', hint: 'Share task LLM output' },
 ];
@@ -264,6 +265,7 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'ignore_failure',
     'llm_profile',
     'mcp_profiles',
+    'variables',
     'knowledge_context',
     'llm_output_sharing',
   ]);

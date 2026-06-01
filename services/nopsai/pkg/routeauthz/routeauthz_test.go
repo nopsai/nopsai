@@ -167,6 +167,15 @@ func TestMapRequestUsesUpdatedLowLevelActions(t *testing.T) {
 			wantFilter: true,
 		},
 		{
+			name:       "schedule list uses filter",
+			method:     http.MethodGet,
+			path:       "/v1/schedules",
+			wantAction: "pipeline_schedule.list",
+			wantType:   "pipeline_schedule",
+			wantID:     "*",
+			wantFilter: true,
+		},
+		{
 			name:       "step detail trims usage suffix",
 			method:     http.MethodGet,
 			path:       "/v1/steps/shared/util/archive/usage",

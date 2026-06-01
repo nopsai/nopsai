@@ -576,6 +576,24 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 			return generalFolderAncestors(), nil
 		}
 		return s.containingFolderAncestors(ctx, pipelinePath)
+	case "pipeline_schedule":
+		var schedulePath string
+		err := s.db.QueryRow(ctx, `
+			SELECT COALESCE(path, '')
+			FROM pipeline_schedules
+			WHERE id::text = $1 OR CONCAT(NULLIF(path, ''), CASE WHEN path = '' THEN '' ELSE '/' END, name) = $1
+			LIMIT 1
+		`, strings.Trim(strings.TrimSpace(resource.ID), "/")).Scan(&schedulePath)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, ErrResourceNotFound
+			}
+			return nil, err
+		}
+		if strings.TrimSpace(schedulePath) == "" {
+			return generalFolderAncestors(), nil
+		}
+		return s.containingFolderAncestors(ctx, schedulePath)
 	case "folder":
 		if strings.TrimSpace(resource.ID) == model.FolderGeneralID {
 			return nil, nil
