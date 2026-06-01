@@ -27,7 +27,8 @@ substrate from Docker containers to Kubernetes pods.
 Run one Kubernetes runner per namespace. Give every runner a unique
 `runner_id`, scope list, and capacity. Scope routing still happens in the
 dispatcher, so a namespace runner can be dedicated to production, a region, a
-team, or a workload class.
+team, or a workload class. Routing updates from the UI or the system GitOps repo
+are applied to the live dispatcher for new scheduling decisions.
 
 ## Workspace PVCs And Node Locality
 

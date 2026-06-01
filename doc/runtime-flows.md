@@ -247,9 +247,10 @@ files to the review branch. The sync branch is not updated directly. The drift
 endpoint exports the current Nopsai config and compares it with the sync branch
 so the UI can show the exact file changes before pushing.
 Runtime settings sync persists supported operational defaults back to the local
-runtime config files. `dispatcher_routing` is read by the dispatcher at startup,
-so changing it through GitOps requires a dispatcher restart or redeploy before
-new scheduling decisions use it.
+runtime config files. `dispatcher_routing` is exposed through an authenticated
+internal NopsAI endpoint; the dispatcher polls that endpoint and swaps its
+in-memory routing table while it is running, so new scheduling decisions use the
+updated table without a dispatcher restart.
 10. It prunes rows managed by the same config repository that disappeared from the repo.
 11. Legacy global `pipelineruns/structure.yaml` is ignored for groups delegated via `config-repositories/groups`; colocated group structure under `config-repositories/groups` is still applied.
 12. It does not prune user-created groups, even when syncing the run-group structure.

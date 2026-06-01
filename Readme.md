@@ -232,8 +232,9 @@ Runtime settings GitOps is limited to operational defaults such as runner ID,
 runner scopes, runner capacity, dispatcher address, agent image/network defaults,
 timeouts, and `dispatcher_routing`. Keep database URLs, master keys, service JWT
 keys, webhook secrets, and other sensitive values in local runtime configuration
-or a secret manager. Dispatcher routing changes require a dispatcher restart or
-redeploy before they affect scheduling.
+or a secret manager. Dispatcher routing changes made from the UI or synced from
+GitOps are published through `nopsai` and picked up by the live dispatcher
+without a restart.
 
 Scope files keep variables and secrets in separate sections. Define every
 plaintext scoped variable under `variables:`; flat top-level variable entries are

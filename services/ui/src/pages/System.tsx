@@ -20,9 +20,16 @@ type ConfigFormState = {
   git_bot_nopsai_api_url: string;
   nopsai_git_bot_api_url: string;
   dispatcher_address: string;
+  dispatcher_routing: Record<string, string[]>;
   runner_id: string;
   runner_scopes: string;
   runner_capacity: string;
+};
+
+type RoutingDraftRow = {
+  localId: string;
+  scope: string;
+  runners: string;
 };
 
 type ConfigRepository = {
@@ -137,6 +144,7 @@ const initialConfig: ConfigFormState = {
   git_bot_nopsai_api_url: '',
   nopsai_git_bot_api_url: '',
   dispatcher_address: '',
+  dispatcher_routing: {},
   runner_id: '',
   runner_scopes: '',
   runner_capacity: '1',
@@ -379,9 +387,10 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
       git_bot_nopsai_api_url: readString(record.git_bot_nopsai_api_url),
       nopsai_git_bot_api_url: readString(record.nopsai_git_bot_api_url),
       dispatcher_address: readString(record.dispatcher_address),
+      dispatcher_routing: normalizeRouting(record.dispatcher_routing),
       runner_id: readString(record.runner_id),
       runner_scopes: readString(record.runner_scopes),
-      runner_capacity: readString(record.runner_capacity || '1'),
+      runner_capacity: String(record.runner_capacity ?? '1'),
     };
     setConfig(nextConfig);
     setEnvFilePath(readString(record.env_file_path));
@@ -1099,6 +1108,7 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
           git_bot_nopsai_api_url: config.git_bot_nopsai_api_url.trim(),
           nopsai_git_bot_api_url: config.nopsai_git_bot_api_url.trim(),
           dispatcher_address: config.dispatcher_address.trim(),
+          dispatcher_routing: config.dispatcher_routing,
           runner_id: config.runner_id.trim(),
           runner_scopes: config.runner_scopes.trim(),
           runner_capacity: Number.parseInt(config.runner_capacity, 10) || 1,
@@ -5740,10 +5750,61 @@ function SystemConfig({
   const globalRepoSyncDisabled = !globalConfigRepo || !canManageGlobalConfigRepo || globalConfigRepoSyncing || globalConfigRepoSaving || globalRepoRunning;
   const globalRepoDriftDisabled = !globalConfigRepo || globalConfigRepoDriftLoading || globalConfigRepoSaving || globalConfigRepoSyncing || globalRepoRunning;
   const globalRepoPushDisabled = globalRepoDriftDisabled || globalConfigRepoPushing || !canManageGlobalConfigRepo || !globalConfigRepo?.write_enabled || !globalConfigRepo?.write_branch;
+  const routingRowSeq = useRef(0);
+  const [routingRows, setRoutingRows] = useState<RoutingDraftRow[]>([]);
 
   const handleChange = (key: keyof ConfigFormState) => (event: ChangeEvent<HTMLInputElement>) => {
     const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
     onChange({ ...config, [key]: value } as ConfigFormState);
+  };
+
+  const normalizeRoutingScopeInput = (value: string) => {
+    const trimmed = value.trim();
+    return trimmed || '*';
+  };
+
+  useEffect(() => {
+    setRoutingRows(prev => {
+      const currentRouting = routingRowsToConfig(prev);
+      if (routingConfigSignature(currentRouting) === routingConfigSignature(config.dispatcher_routing || {})) {
+        return prev;
+      }
+      return Object.entries(config.dispatcher_routing || {})
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([scope, runners], index) => ({
+          localId: prev[index]?.localId || `routing-${routingRowSeq.current++}`,
+          scope,
+          runners: (runners || []).join(', '),
+        }));
+    });
+  }, [config.dispatcher_routing]);
+
+  const commitRoutingRows = (nextRows: RoutingDraftRow[]) => {
+    setRoutingRows(nextRows);
+    onChange({ ...config, dispatcher_routing: routingRowsToConfig(nextRows) });
+  };
+
+  const updateRoutingScope = (localId: string, rawScope: string) => {
+    commitRoutingRows(routingRows.map(row => (row.localId === localId ? { ...row, scope: rawScope } : row)));
+  };
+
+  const updateRoutingRunners = (localId: string, rawRunners: string) => {
+    commitRoutingRows(routingRows.map(row => (row.localId === localId ? { ...row, runners: rawRunners } : row)));
+  };
+
+  const addRoutingRow = () => {
+    const existingScopes = new Set(routingRows.map(row => normalizeRoutingScopeInput(row.scope)));
+    let scope = '*';
+    let suffix = 1;
+    while (existingScopes.has(scope)) {
+      scope = `scope-${suffix}`;
+      suffix += 1;
+    }
+    commitRoutingRows([...routingRows, { localId: `routing-${routingRowSeq.current++}`, scope, runners: '' }]);
+  };
+
+  const removeRoutingRow = (localId: string) => {
+    commitRoutingRows(routingRows.filter(row => row.localId !== localId));
   };
 
   const handleGlobalRepoChange = (key: keyof ConfigRepositoryFormState) => (event: ChangeEvent<HTMLInputElement>) => {
@@ -5919,6 +5980,65 @@ function SystemConfig({
               />
             </label>
           </div>
+        </div>
+
+        <div className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs text-[var(--text-secondary)]">Dispatcher</p>
+              <h3 className="text-lg font-semibold text-[var(--text-primary)]">Routing</h3>
+            </div>
+            {canManageRuntimeConfig && (
+              <button className="glass-button-subtle" type="button" onClick={addRoutingRow} disabled={configLoading || saving}>
+                <Plus className="h-4 w-4" />
+                Add route
+              </button>
+            )}
+          </div>
+          {routingRows.length > 0 ? (
+            <div className="space-y-3">
+              {routingRows.map(row => (
+                <div key={row.localId} className="grid grid-cols-1 md:grid-cols-[minmax(0,180px)_1fr_auto] gap-3 items-end">
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span>Scope</span>
+                    <input
+                      type="text"
+                      className="pipelines-input"
+                      value={row.scope}
+                      onChange={event => updateRoutingScope(row.localId, event.target.value)}
+                      placeholder="prod"
+                      disabled={!canManageRuntimeConfig || configLoading || saving}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span>Runner IDs</span>
+                    <input
+                      type="text"
+                      className="pipelines-input"
+                      value={row.runners}
+                      onChange={event => updateRoutingRunners(row.localId, event.target.value)}
+                      placeholder="runner-prod-1, runner-prod-2"
+                      disabled={!canManageRuntimeConfig || configLoading || saving}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="glass-button-danger md:mb-0"
+                    onClick={() => removeRoutingRow(row.localId)}
+                    disabled={!canManageRuntimeConfig || configLoading || saving}
+                    aria-label={`Remove route ${normalizeRoutingScopeInput(row.scope)}`}
+                    title={`Remove route ${normalizeRoutingScopeInput(row.scope)}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-[var(--border-primary)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+              No dispatcher routing configured.
+            </div>
+          )}
         </div>
 
         {envPath && <p className="text-xs text-[var(--text-secondary)]">Env file: {envPath}</p>}
@@ -7188,6 +7308,34 @@ function normalizeRouting(value: unknown): Record<string, string[]> {
     }
   });
   return normalized;
+}
+
+function normalizeRoutingScope(value: string) {
+  const trimmed = value.trim();
+  return trimmed || '*';
+}
+
+function routingRowsToConfig(rows: RoutingDraftRow[]): Record<string, string[]> {
+  const routing: Record<string, string[]> = {};
+  rows.forEach(row => {
+    const runners = row.runners
+      .split(/[\n,]/)
+      .map(item => item.trim())
+      .filter(Boolean);
+    routing[normalizeRoutingScope(row.scope)] = runners;
+  });
+  return routing;
+}
+
+function routingConfigSignature(routing: Record<string, string[]>): string {
+  return JSON.stringify(
+    Object.entries(routing || {})
+      .map(([scope, runners]) => [
+        normalizeRoutingScope(scope),
+        Array.isArray(runners) ? runners.map(item => String(item || '').trim()).filter(Boolean) : [],
+      ])
+      .sort(([left], [right]) => String(left).localeCompare(String(right)))
+  );
 }
 
 function normalizeAccessGrantRecord(value: unknown): AccessGrantRecord | null {

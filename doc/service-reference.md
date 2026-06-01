@@ -116,6 +116,7 @@ Responsibilities:
 - Maintains long-lived gRPC streams from runners.
 - Tracks connected runners, capacity, scopes, metadata, heartbeat freshness, and inflight jobs.
 - Selects a runner based on scope, routing config, runner affinity, preferred runner ID, and current load.
+- Polls `nopsai` for the current dispatcher routing snapshot and updates its in-memory routing table without restart.
 - Queues jobs when no runner is available.
 - Requeues inflight jobs if a runner disconnects.
 - Exposes status and runner dispatch controls for the system UI.

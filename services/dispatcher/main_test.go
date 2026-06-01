@@ -252,6 +252,68 @@ func TestPickRunnerFallsBackWhenAffinityRunnerAtCapacity(t *testing.T) {
 	}
 }
 
+func TestApplyRoutingNormalizesAndClearsAssignments(t *testing.T) {
+	d := newDispatcherServer(map[string][]string{"prod": {"runner-old"}}, "http://example")
+	d.triggerAssignments["event-1"] = "runner-old"
+
+	changed := d.applyRouting(map[string][]string{
+		" prod ": {" runner-prod ", ""},
+		"":       {" runner-default "},
+	})
+	if !changed {
+		t.Fatal("applyRouting() changed = false, want true")
+	}
+	if got := d.routing["prod"]; len(got) != 1 || got[0] != "runner-prod" {
+		t.Fatalf("prod routing = %#v, want runner-prod", d.routing)
+	}
+	if got := d.routing["*"]; len(got) != 1 || got[0] != "runner-default" {
+		t.Fatalf("default routing = %#v, want runner-default", d.routing)
+	}
+	if len(d.triggerAssignments) != 0 {
+		t.Fatalf("trigger assignments were not cleared: %#v", d.triggerAssignments)
+	}
+
+	changed = d.applyRouting(map[string][]string{
+		"prod": {"runner-prod"},
+		"*":    {"runner-default"},
+	})
+	if changed {
+		t.Fatal("applyRouting() changed = true for identical routing")
+	}
+}
+
+func TestSyncRoutingFromNopsaiUsesInternalEndpoint(t *testing.T) {
+	tokenSeen := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/internal/dispatcher/routing" {
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+		if strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+			tokenSeen = true
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]map[string][]string{
+			"dispatcher_routing": {
+				"prod": {"runner-prod"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	d := newDispatcherServer(nil, server.URL, newTestJWTSigner())
+	d.httpClient = server.Client()
+
+	if err := d.syncRoutingFromNopsai(context.Background()); err != nil {
+		t.Fatalf("syncRoutingFromNopsai() error = %v", err)
+	}
+	if !tokenSeen {
+		t.Fatal("expected dispatcher internal bearer token")
+	}
+	if got := d.routing["prod"]; len(got) != 1 || got[0] != "runner-prod" {
+		t.Fatalf("routing = %#v, want prod runner", d.routing)
+	}
+}
+
 func newTestRunnerConn(id string, scopes ...string) *runnerConn {
 	scopeSet := make(map[string]struct{}, len(scopes))
 	for _, scope := range scopes {

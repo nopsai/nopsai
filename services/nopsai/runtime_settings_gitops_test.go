@@ -1,6 +1,9 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +11,7 @@ import (
 
 	"nopsai/config"
 	"nopsai/pkg/models"
+	"nopsai/services/nopsai/pkg/auth"
 
 	"gopkg.in/yaml.v3"
 )
@@ -272,6 +276,42 @@ func TestBuildRuntimeSettingsGitOpsFileClonesAndNormalizesRouting(t *testing.T) 
 	}
 	if got := doc.DispatcherRouting["*"]; len(got) != 1 || got[0] != "runner-default" {
 		t.Fatalf("default routing = %#v, want normalized wildcard", doc.DispatcherRouting)
+	}
+}
+
+func TestHandleInternalDispatcherRoutingRequiresDispatcherClaims(t *testing.T) {
+	app := App{cfg: &config.Config{
+		DispatcherRouting: map[string][]string{
+			"prod": {"runner-prod"},
+		},
+	}}
+
+	unauthorizedReq := httptest.NewRequest(http.MethodGet, "/v1/internal/dispatcher/routing", nil)
+	unauthorizedRec := httptest.NewRecorder()
+	app.handleInternalDispatcherRouting(unauthorizedRec, unauthorizedReq)
+	if unauthorizedRec.Code != http.StatusForbidden {
+		t.Fatalf("unauthorized status = %d, want %d", unauthorizedRec.Code, http.StatusForbidden)
+	}
+
+	authorizedReq := httptest.NewRequest(http.MethodGet, "/v1/internal/dispatcher/routing", nil)
+	authorizedReq = authorizedReq.WithContext(auth.WithClaims(authorizedReq.Context(), &auth.Claims{
+		Sub:      "dispatcher",
+		Provider: "internal-service",
+	}))
+	authorizedRec := httptest.NewRecorder()
+	app.handleInternalDispatcherRouting(authorizedRec, authorizedReq)
+	if authorizedRec.Code != http.StatusOK {
+		t.Fatalf("authorized status = %d, want %d: %s", authorizedRec.Code, http.StatusOK, authorizedRec.Body.String())
+	}
+
+	var resp struct {
+		DispatcherRouting map[string][]string `json:"dispatcher_routing"`
+	}
+	if err := json.Unmarshal(authorizedRec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got := resp.DispatcherRouting["prod"]; len(got) != 1 || got[0] != "runner-prod" {
+		t.Fatalf("dispatcher routing = %#v, want prod runner", resp.DispatcherRouting)
 	}
 }
 
