@@ -62,21 +62,13 @@ type dispatcherServer struct {
 }
 
 func newDispatcherServer(routing map[string][]string, nopsaiBase string, internalTokenSigner ...*nopsaiAuth.LocalJWTService) *dispatcherServer {
-	clean := make(map[string][]string, len(routing))
-	for scope, ids := range routing {
-		scopeKey := strings.TrimSpace(scope)
-		for i := range ids {
-			ids[i] = strings.TrimSpace(ids[i])
-		}
-		clean[scopeKey] = ids
-	}
 	var signer *nopsaiAuth.LocalJWTService
 	if len(internalTokenSigner) > 0 {
 		signer = internalTokenSigner[0]
 	}
 	return &dispatcherServer{
 		runners:             make(map[string]*runnerConn),
-		routing:             clean,
+		routing:             normalizeDispatcherRouting(routing),
 		triggerAssignments:  make(map[string]string),
 		nopsaiBase:          strings.TrimRight(strings.TrimSpace(nopsaiBase), "/"),
 		httpClient:          &http.Client{Timeout: 15 * time.Second},
@@ -989,6 +981,7 @@ func (d *dispatcherServer) allowedRunnerIDs(scope string) []string {
 	if len(d.routing) == 0 {
 		return nil
 	}
+	scope = strings.TrimSpace(scope)
 	var ids []string
 	if runners, ok := d.routing[scope]; ok {
 		ids = append(ids, runners...)
@@ -997,6 +990,75 @@ func (d *dispatcherServer) allowedRunnerIDs(scope string) []string {
 		ids = append(ids, runners...)
 	}
 	return ids
+}
+
+func normalizeDispatcherRouting(routing map[string][]string) map[string][]string {
+	if len(routing) == 0 {
+		return map[string][]string{}
+	}
+	clean := make(map[string][]string, len(routing))
+	for scope, ids := range routing {
+		scopeKey := strings.TrimSpace(scope)
+		if scopeKey == "" {
+			scopeKey = "*"
+		}
+		next := make([]string, 0, len(ids))
+		for _, id := range ids {
+			id = strings.TrimSpace(id)
+			if id == "" {
+				continue
+			}
+			next = append(next, id)
+		}
+		if len(next) > 0 {
+			clean[scopeKey] = next
+		}
+	}
+	return clean
+}
+
+func dispatcherRoutingEqual(a, b map[string][]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for scope, left := range a {
+		right, ok := b[scope]
+		if !ok || len(left) != len(right) {
+			return false
+		}
+		for i := range left {
+			if left[i] != right[i] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func (d *dispatcherServer) applyRouting(routing map[string][]string) bool {
+	normalized := normalizeDispatcherRouting(routing)
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if dispatcherRoutingEqual(d.routing, normalized) {
+		return false
+	}
+	d.routing = normalized
+	d.triggerAssignments = make(map[string]string)
+	return true
+}
+
+func (d *dispatcherServer) updateRouting(routing map[string][]string) bool {
+	if !d.applyRouting(routing) {
+		return false
+	}
+
+	log.Info().
+		Int("scopes", len(routing)).
+		Msg("dispatcher routing updated")
+	go d.pumpQueue()
+	return true
 }
 
 // runnerByIDLocked returns the runner connection matching the given runner ID.
@@ -1287,6 +1349,70 @@ func (d *dispatcherServer) fetchRunStatusValue(ctx context.Context, runID string
 	return statusResp["status"], nil
 }
 
+type dispatcherRoutingResponse struct {
+	DispatcherRouting map[string][]string `json:"dispatcher_routing"`
+}
+
+func (d *dispatcherServer) syncRoutingFromNopsai(ctx context.Context) error {
+	if err := d.requireNopsaiBase(); err != nil {
+		return err
+	}
+
+	target := d.nopsaiBase + "/v1/internal/dispatcher/routing"
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return status.Errorf(codes.Internal, "build dispatcher routing request: %v", err)
+	}
+	if err := d.authorizeInternalRequest(ctx, httpReq); err != nil {
+		return status.Errorf(codes.Internal, "authorize dispatcher routing request: %v", err)
+	}
+
+	resp, err := d.httpClient.Do(httpReq)
+	if err != nil {
+		return status.Errorf(codes.Unavailable, "fetch dispatcher routing: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return status.Errorf(codes.FailedPrecondition, "nopsai dispatcher routing returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var payload dispatcherRoutingResponse
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return status.Errorf(codes.Internal, "decode dispatcher routing response: %v", err)
+	}
+	d.updateRouting(payload.DispatcherRouting)
+	return nil
+}
+
+func (d *dispatcherServer) syncRoutingLoop(interval time.Duration, stop <-chan struct{}) {
+	if interval <= 0 {
+		return
+	}
+
+	syncOnce := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := d.syncRoutingFromNopsai(ctx); err != nil {
+			log.Debug().Err(err).Msg("dispatcher routing sync skipped")
+		}
+	}
+
+	syncOnce()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			syncOnce()
+		}
+	}
+}
+
 func (d *dispatcherServer) prepareJobForRunner(job *proto.JobRequest, runner *runnerConn) *proto.JobRequest {
 	if job == nil {
 		return nil
@@ -1470,6 +1596,7 @@ func main() {
 
 	stop := make(chan struct{})
 	go dispatcher.reapStaleRunners(10*time.Second, 30*time.Second, stop)
+	go dispatcher.syncRoutingLoop(5*time.Second, stop)
 
 	log.Info().
 		Str("addr", listenAddr).

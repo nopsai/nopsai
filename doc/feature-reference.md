@@ -176,7 +176,7 @@ Sync behavior:
 - config repository bindings can enable Git push to a review branch with `write_enabled` and `write_branch`
 - `config-repositories/groups/structure.yaml` and `config-repositories/groups/<group>/structure.yaml` can place repositories under group shells and include inline `config:` blocks for group repo bindings
 - global legacy `pipelineruns/structure.yaml` does not apply delegated group subtrees; those groups are created from `config-repositories/groups` and owned by their group repos
-- runtime settings GitOps is system/global only; `dispatcher_routing` changes are persisted, but the dispatcher must restart or redeploy before scheduling uses the new table
+- runtime settings GitOps is system/global only; `dispatcher_routing` changes are persisted and applied by the live dispatcher through the control-plane sync path
 
 ## API And Run Management
 
