@@ -144,13 +144,14 @@ type authLoginResponse struct {
 }
 
 type authCapabilitiesResponse struct {
-	Pipelines authResourceCapabilities `json:"pipelines"`
-	Steps     authResourceCapabilities `json:"steps"`
-	Schedules authReadCapabilities     `json:"schedules"`
-	Triggers  authReadCapabilities     `json:"triggers"`
-	Scopes    authReadCapabilities     `json:"scopes"`
-	Knowledge authReadCapabilities     `json:"knowledge_contexts"`
-	System    authSystemCapabilities   `json:"system"`
+	Pipelines        authResourceCapabilities `json:"pipelines"`
+	Steps            authResourceCapabilities `json:"steps"`
+	Schedules        authReadCapabilities     `json:"schedules"`
+	Triggers         authReadCapabilities     `json:"triggers"`
+	ExternalTriggers authReadCapabilities     `json:"external_triggers"`
+	Scopes           authReadCapabilities     `json:"scopes"`
+	Knowledge        authReadCapabilities     `json:"knowledge_contexts"`
+	System           authSystemCapabilities   `json:"system"`
 }
 
 type authResourceCapabilities struct {
@@ -2203,6 +2204,8 @@ func (a *App) listRuntimeScopes(ctx context.Context) ([]string, error) {
 			UNION
 			SELECT scope FROM secrets
 			UNION
+			SELECT scope FROM external_triggers
+			UNION
 			SELECT COALESCE(scope, '') FROM pipeline_runs
 		`)
 		if err != nil {
@@ -2645,6 +2648,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		"general_vars_synced":            0,
 		"repo_vars_synced":               0,
 		"triggers_synced":                0,
+		"external_triggers_synced":       0,
 		"schedules_synced":               0,
 		"secrets_synced":                 0,
 		"config_repositories_synced":     0,
@@ -2692,6 +2696,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	pipelineDir := configRepoJoinPath(basePath, "pipelines")
 	stepDir := configRepoJoinPath(basePath, "steps")
 	triggerDir := configRepoJoinPath(basePath, "triggers")
+	externalTriggerDir := configRepoJoinPath(basePath, externalTriggersGitOpsDirectory)
 	scheduleDir := configRepoJoinPath(basePath, "schedules")
 	scopeDir := configRepoJoinPath(basePath, "scopes")
 	pipelineRunDir := configRepoJoinPath(basePath, "pipelineruns")
@@ -2712,6 +2717,10 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	triggerFiles, err := a.requestGitBotDirectory(owner, repo, branch, triggerDir)
 	if err != nil {
 		return nil, commitSHA, fmt.Errorf("failed to fetch trigger manifests: %w", err)
+	}
+	externalTriggerFiles, err := a.requestGitBotDirectory(owner, repo, branch, externalTriggerDir)
+	if err != nil {
+		return nil, commitSHA, fmt.Errorf("failed to fetch external trigger manifests: %w", err)
 	}
 	scheduleFiles, err := a.requestGitBotDirectory(owner, repo, branch, scheduleDir)
 	if err != nil {
@@ -2892,6 +2901,10 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		return nil, commitSHA, err
 	}
 	schedules, err := parseGitOpsSchedules(scheduleFiles, scheduleDir, binding, boundFolder)
+	if err != nil {
+		return nil, commitSHA, err
+	}
+	externalTriggers, err := parseGitOpsExternalTriggers(externalTriggerFiles, externalTriggerDir, binding, boundFolder)
 	if err != nil {
 		return nil, commitSHA, err
 	}
@@ -3110,7 +3123,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	if err != nil {
 		return nil, commitSHA, err
 	}
-	filterDelegatedConfigResources(binding, overrideScopes, pipelines, steps, schedules, knowledgeContexts, generalScopeVars, repoScopeVars, generalScopeSecrets, repoScopeSecrets, triggers)
+	filterDelegatedConfigResources(binding, overrideScopes, pipelines, steps, schedules, externalTriggers, knowledgeContexts, generalScopeVars, repoScopeVars, generalScopeSecrets, repoScopeSecrets, triggers)
 	filterDelegatedAccessResources(accessPlan, binding, overrideScopes)
 	effectivePipelineRunStructure, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, pipelineRunStructure, configRepositoryPipelineRunStructure, overrideScopes)
 	if err != nil {
@@ -3220,6 +3233,31 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 			config_source_path = EXCLUDED.config_source_path,
 			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
 			managed_by_config_repo = TRUE`
+	const externalTriggerUpsert = `INSERT INTO external_triggers (
+			id, name, description, enabled, pipeline, scope, allowed_callers, variable_mapping,
+			payload_schema, rate_limit, created_by, source,
+			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb,
+			$9::jsonb, $10::jsonb, 'config-repo', 'git',
+			$11, $12, $13, TRUE, NOW()
+		)
+		ON CONFLICT (id) DO UPDATE SET
+			name = EXCLUDED.name,
+			description = EXCLUDED.description,
+			enabled = EXCLUDED.enabled,
+			pipeline = EXCLUDED.pipeline,
+			scope = EXCLUDED.scope,
+			allowed_callers = EXCLUDED.allowed_callers,
+			variable_mapping = EXCLUDED.variable_mapping,
+			payload_schema = EXCLUDED.payload_schema,
+			rate_limit = EXCLUDED.rate_limit,
+			source = 'git',
+			config_repo_id = EXCLUDED.config_repo_id,
+			config_source_path = EXCLUDED.config_source_path,
+			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
+			managed_by_config_repo = TRUE,
+			updated_at = NOW()`
 	const configRepositoryUpsert = `INSERT INTO config_repositories (
 			scope_type, scope_id, repo_url, branch, base_path, enabled, write_enabled, write_branch,
 			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo,
@@ -3433,6 +3471,63 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		details["triggers_synced"]++
 	}
 
+	// J. Upsert External Triggers
+	for key, stored := range externalTriggers {
+		resourceScope := externalTriggerConfigScope(stored.input)
+		writable, err := ensureConfigResourceWritable(ctx, tx, "external_triggers", "external trigger", key, binding, resourceScope, "id = $1", key)
+		if err != nil {
+			return nil, commitSHA, err
+		}
+		if !writable {
+			continue
+		}
+		pipelinePath, pipelineName, _, err := splitPipelineIdentifier(stored.input.Pipeline)
+		if err != nil {
+			return nil, commitSHA, fmt.Errorf("invalid external trigger pipeline '%s': %w", key, err)
+		}
+		var exists int
+		if err := tx.QueryRow(ctx, `SELECT 1 FROM pipelines WHERE path = $1 AND name = $2 LIMIT 1`, pipelinePath, pipelineName).Scan(&exists); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+				return nil, commitSHA, fmt.Errorf("external trigger '%s' references missing pipeline '%s'", key, stored.input.Pipeline)
+			}
+			return nil, commitSHA, fmt.Errorf("failed to validate external trigger pipeline '%s': %w", key, err)
+		}
+		allowedJSON, err := json.Marshal(stored.input.AllowedCallers)
+		if err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to marshal external trigger callers '%s': %w", key, err)
+		}
+		mappingJSON, err := json.Marshal(stored.input.VariableMapping)
+		if err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to marshal external trigger variable mapping '%s': %w", key, err)
+		}
+		schemaJSON, err := json.Marshal(stored.input.PayloadSchema)
+		if err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to marshal external trigger payload schema '%s': %w", key, err)
+		}
+		rateLimitJSON, err := json.Marshal(stored.input.RateLimit)
+		if err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to marshal external trigger rate limit '%s': %w", key, err)
+		}
+		if _, err := tx.Exec(ctx, externalTriggerUpsert,
+			stored.input.ID,
+			stored.input.Name,
+			stored.input.Description,
+			stored.input.Enabled,
+			stored.input.Pipeline,
+			stored.input.Scope,
+			string(allowedJSON),
+			string(mappingJSON),
+			string(schemaJSON),
+			string(rateLimitJSON),
+			binding.ID,
+			stored.sourcePath,
+			commitSHA,
+		); err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to upsert external trigger '%s': %w", key, err)
+		}
+		details["external_triggers_synced"]++
+	}
+
 	// --- PRUNING PHASE: Remove items that exist in DB as source='git' but were not in the Git payload ---
 
 	// 0. Prune Config Repository Bindings
@@ -3489,7 +3584,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 			rows.Close()
 		}
 		if len(prunedRepoIDs) > 0 {
-			for _, tableName := range []string{"config_repositories", "pipelines", "steps", "pipeline_schedules", "triggers", "variables", "secrets", "knowledge_contexts"} {
+			for _, tableName := range []string{"config_repositories", "pipelines", "steps", "pipeline_schedules", "triggers", "external_triggers", "variables", "secrets", "knowledge_contexts"} {
 				if _, err := tx.Exec(ctx, fmt.Sprintf(`
 					UPDATE %s
 					SET config_repo_id = NULL,
@@ -3627,7 +3722,24 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		}
 	}
 
-	// 6. Prune Variables (Scope Variables)
+	// 6. Prune External Triggers
+	{
+		var ids []string
+		for id := range externalTriggers {
+			ids = append(ids, id)
+		}
+		if len(ids) == 0 {
+			if _, err := tx.Exec(ctx, "DELETE FROM external_triggers WHERE managed_by_config_repo = TRUE AND config_repo_id = $1", binding.ID); err != nil {
+				return nil, commitSHA, fmt.Errorf("failed to prune external triggers: %w", err)
+			}
+		} else {
+			if _, err := tx.Exec(ctx, "DELETE FROM external_triggers WHERE managed_by_config_repo = TRUE AND config_repo_id = $2 AND id != ALL($1)", ids, binding.ID); err != nil {
+				return nil, commitSHA, fmt.Errorf("failed to prune external triggers: %w", err)
+			}
+		}
+	}
+
+	// 7. Prune Variables (Scope Variables)
 	{
 		var names []string
 		var repos []*string
@@ -3669,7 +3781,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		}
 	}
 
-	// 7. Prune Secrets (Scope Secrets)
+	// 8. Prune Secrets (Scope Secrets)
 	{
 		var names []string
 		var repos []*string
@@ -3760,6 +3872,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		Int("repo_vars_synced", details["repo_vars_synced"]).
 		Int("secrets_synced", details["secrets_synced"]).
 		Int("triggers_synced", details["triggers_synced"]).
+		Int("external_triggers_synced", details["external_triggers_synced"]).
 		Int("config_repositories_synced", details["config_repositories_synced"]).
 		Int("run_groups_created", details["run_groups_created"]).
 		Int("run_groups_updated", details["run_groups_updated"]).
@@ -4418,6 +4531,7 @@ func filterDelegatedConfigResources(
 	pipelines map[string]storedPipeline,
 	steps map[string]storedStep,
 	schedules map[string]storedSchedule,
+	externalTriggers map[string]storedExternalTrigger,
 	knowledgeContexts map[string]storedKnowledgeContext,
 	generalScopeVars map[generalScopeVarKey]storedScopeVar,
 	repoScopeVars map[repoScopeVarKey]storedScopeVar,
@@ -4446,6 +4560,11 @@ func filterDelegatedConfigResources(
 		}
 		if configResourceUnderAnyScope(scope, overrideScopes) {
 			delete(schedules, key)
+		}
+	}
+	for key, trigger := range externalTriggers {
+		if configResourceUnderAnyScope(externalTriggerConfigScope(trigger.input), overrideScopes) {
+			delete(externalTriggers, key)
 		}
 	}
 	for key, knowledge := range knowledgeContexts {
@@ -6212,6 +6331,9 @@ func main() {
 	}
 	if err := ensureResourceAuthorizationSchema(context.Background(), dbpool); err != nil {
 		log.Fatal().Err(err).Msg("Failed to ensure resource authorization schema")
+	}
+	if err := ensureExternalTriggerSchema(context.Background(), dbpool); err != nil {
+		log.Fatal().Err(err).Msg("Failed to ensure external trigger schema")
 	}
 	if err := ensureScheduleSchema(context.Background(), dbpool); err != nil {
 		log.Fatal().Err(err).Msg("Failed to ensure schedule schema")

@@ -237,6 +237,10 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 	triggerRead := a.checkCapabilityOrScopedGrant(ctx, subject, "trigger.read", model.ResourceRef{Type: "trigger", ID: "*"})
 	triggerWrite := a.checkCapabilityOrScopedGrant(ctx, subject, "trigger.update", model.ResourceRef{Type: "trigger", ID: "*"})
 	triggerDelete := a.checkCapabilityOrScopedGrant(ctx, subject, "trigger.delete", model.ResourceRef{Type: "trigger", ID: "*"})
+	externalTriggerRead := a.checkCapabilityOrScopedGrant(ctx, subject, "external_trigger.read", model.ResourceRef{Type: grantResourceExternalTrigger, ID: "*"})
+	externalTriggerWrite := a.checkCapabilityOrScopedGrant(ctx, subject, "external_trigger.update", model.ResourceRef{Type: grantResourceExternalTrigger, ID: "*"}) ||
+		a.checkCapabilityOrScopedGrant(ctx, subject, "external_trigger.create", model.ResourceRef{Type: grantResourceExternalTrigger, ID: "*"})
+	externalTriggerDelete := a.checkCapabilityOrScopedGrant(ctx, subject, "external_trigger.delete", model.ResourceRef{Type: grantResourceExternalTrigger, ID: "*"})
 	scheduleRead := a.checkCapabilityOrScopedGrant(ctx, subject, "pipeline_schedule.read", model.ResourceRef{Type: grantResourceSchedule, ID: "*"})
 	scheduleWrite := a.checkCapabilityOrScopedGrant(ctx, subject, "pipeline_schedule.update", model.ResourceRef{Type: grantResourceSchedule, ID: "*"}) ||
 		a.checkCapabilityOrScopedGrant(ctx, subject, "pipeline_schedule.create", model.ResourceRef{Type: grantResourceSchedule, ID: "*"})
@@ -274,6 +278,11 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 			Read:   triggerRead,
 			Write:  triggerWrite,
 			Delete: triggerDelete,
+		},
+		ExternalTriggers: authReadCapabilities{
+			Read:   externalTriggerRead,
+			Write:  externalTriggerWrite,
+			Delete: externalTriggerDelete,
 		},
 		Scopes: authReadCapabilities{
 			Read:   scopeRead,

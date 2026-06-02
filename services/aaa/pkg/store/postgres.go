@@ -634,6 +634,16 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 			return nil, err
 		}
 		return append(out, folderAncestors...), nil
+	case "external_trigger":
+		triggerID := strings.Trim(strings.TrimSpace(resource.ID), "/")
+		if triggerID == "" {
+			return nil, nil
+		}
+		triggerPath, _ := model.SplitPipelineID(triggerID)
+		if strings.TrimSpace(triggerPath) == "" {
+			return generalFolderAncestors(), nil
+		}
+		return s.containingFolderAncestors(ctx, triggerPath)
 	case "knowledge_context":
 		parts := strings.Split(strings.Trim(strings.TrimSpace(resource.ID), "/"), "/")
 		if len(parts) < 3 {
