@@ -10,6 +10,7 @@ const PipelineRunsPage = lazy(() => import('./pages/PipelineRuns'));
 const PipelinesPage = lazy(() => import('./pages/Pipelines'));
 const SchedulesPage = lazy(() => import('./pages/Schedules'));
 const TriggersPage = lazy(() => import('./pages/Triggers'));
+const ExternalTriggersPage = lazy(() => import('./pages/ExternalTriggers'));
 const ScopesPage = lazy(() => import('./pages/Scopes'));
 const LabPage = lazy(() => import('./pages/Lab'));
 const StepsPage = lazy(() => import('./pages/Steps'));
@@ -105,6 +106,7 @@ type CurrentUser = {
     schedules?: ReadCapabilities;
     steps?: ResourceCapabilities;
     triggers?: ReadCapabilities;
+    external_triggers?: ReadCapabilities;
     scopes?: ReadCapabilities;
     knowledge_contexts?: ReadCapabilities;
     system?: SystemCapabilities;
@@ -185,6 +187,11 @@ const baseNavItems: NavItem[] = [
     icon: <IconBell />, 
   },
   {
+    label: 'External Triggers',
+    path: '/external-triggers',
+    icon: <IconZap />,
+  },
+  {
     label: 'Scopes',
     path: '/scopes',
     icon: <IconScope />, 
@@ -226,6 +233,7 @@ const titleMap: Record<string, string> = {
   pipelines: 'Pipelines',
   schedules: 'Schedules',
   triggers: 'Triggers',
+  'external-triggers': 'External Triggers',
   scopes: 'Scopes',
   lab: 'Lab',
   steps: 'Steps',
@@ -390,6 +398,14 @@ function AppShell() {
                         delete: Boolean(data.capabilities.triggers.delete),
                       }
                     : undefined,
+                external_triggers:
+                  data.capabilities.external_triggers && typeof data.capabilities.external_triggers === 'object'
+                    ? {
+                        read: Boolean(data.capabilities.external_triggers.read),
+                        write: Boolean(data.capabilities.external_triggers.write),
+                        delete: Boolean(data.capabilities.external_triggers.delete),
+                      }
+                    : undefined,
                 scopes:
                   data.capabilities.scopes && typeof data.capabilities.scopes === 'object'
                     ? {
@@ -481,6 +497,9 @@ function AppShell() {
   const canDeleteSteps = Boolean(currentUser?.capabilities?.steps?.delete);
   const canViewTriggers = Boolean(currentUser?.capabilities?.triggers?.read);
   const canDeleteTriggers = Boolean(currentUser?.capabilities?.triggers?.delete);
+  const canViewExternalTriggers = Boolean(currentUser?.capabilities?.external_triggers?.read);
+  const canWriteExternalTriggers = Boolean(currentUser?.capabilities?.external_triggers?.write);
+  const canDeleteExternalTriggers = Boolean(currentUser?.capabilities?.external_triggers?.delete);
   const canViewScopes = Boolean(currentUser?.capabilities?.scopes?.read);
   const canDeleteScopes = Boolean(currentUser?.capabilities?.scopes?.delete);
   const canViewKnowledge = Boolean(currentUser?.capabilities?.knowledge_contexts?.read);
@@ -526,11 +545,12 @@ function AppShell() {
         if (item.path.startsWith('/system')) return canViewAnySystem;
         if (item.path === '/schedules') return canViewSchedules;
         if (item.path === '/triggers') return canViewTriggers;
+        if (item.path === '/external-triggers') return canViewExternalTriggers;
         if (item.path === '/scopes') return canViewScopes;
         if (item.path === '/knowledge-context') return canViewKnowledge;
         return true;
       });
-  }, [canViewAnySystem, canViewKnowledge, canViewSchedules, canViewScopes, canViewTriggers, preferredSystemPath]);
+  }, [canViewAnySystem, canViewExternalTriggers, canViewKnowledge, canViewSchedules, canViewScopes, canViewTriggers, preferredSystemPath]);
   const systemSubNav = useMemo(
     () =>
       baseSystemSubNav.filter(item => {
@@ -1197,6 +1217,16 @@ function AppShell() {
                       element={renderAccessControlledPage(
                         canViewTriggers,
                         <TriggersPage canDeleteTriggers={canDeleteTriggers} />
+                      )}
+                    />
+                    <Route
+                      path="/external-triggers/*"
+                      element={renderAccessControlledPage(
+                        canViewExternalTriggers,
+                        <ExternalTriggersPage
+                          canWriteExternalTriggers={canWriteExternalTriggers}
+                          canDeleteExternalTriggers={canDeleteExternalTriggers}
+                        />
                       )}
                     />
                     <Route
@@ -2891,6 +2921,14 @@ function IconBell() {
   return (
     <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+    </svg>
+  );
+}
+
+function IconZap() {
+  return (
+    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 2L4 14h8l-1 8 9-12h-8l1-8z" />
     </svg>
   );
 }

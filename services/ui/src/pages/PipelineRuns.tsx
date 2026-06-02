@@ -47,6 +47,12 @@ type RunListItem = {
   schedule_name?: string;
   schedule_path?: string;
   trigger_event_id?: string;
+  external_trigger_id?: string;
+  external_trigger_name?: string;
+  external_trigger_event_type?: string;
+  external_trigger_caller_type?: string;
+  external_trigger_caller_id?: string;
+  external_trigger_idempotency_key?: string;
   parent_step_name?: string;
   failure_reason?: string;
 };
@@ -2752,6 +2758,11 @@ function RunDetailView({
   const startedLabel = run.started_at ? timeAgo(run.started_at) : '—';
   const branchLabel = formatBranchDisplay(run.git_ref, run.git_target_ref);
   const repoLabel = formatRepoLabel(run);
+  const isExternalTriggerRun = run.trigger_source === 'external_trigger' || Boolean(run.external_trigger_id);
+  const externalCaller =
+    run.external_trigger_caller_type && run.external_trigger_caller_id
+      ? `${run.external_trigger_caller_type}:${run.external_trigger_caller_id}`
+      : '—';
 
   const detailLines = [
     {
@@ -2974,6 +2985,28 @@ function RunDetailView({
                   </div>
                 ))}
               </div>
+              {isExternalTriggerRun && (
+                <div className="grid gap-3 md:grid-cols-2 text-sm text-[var(--text-primary)]">
+                  <div className="rounded-2xl border border-[var(--border-primary)] bg-white px-4 py-3 dark:bg-white/5 dark:border-white/10">
+                    <div className="text-[11px] uppercase tracking-wide text-[var(--text-secondary)] font-semibold">Triggered by</div>
+                    <div className="mt-2 font-semibold text-[var(--text-primary)] dark:text-white">External trigger</div>
+                    <div className="mt-1 font-mono text-xs text-[var(--text-secondary)] break-words">{run.external_trigger_name || run.external_trigger_id || '—'}</div>
+                  </div>
+                  <div className="rounded-2xl border border-[var(--border-primary)] bg-white px-4 py-3 dark:bg-white/5 dark:border-white/10">
+                    <div className="text-[11px] uppercase tracking-wide text-[var(--text-secondary)] font-semibold">Caller</div>
+                    <div className="mt-2 font-mono text-sm text-[var(--text-primary)] dark:text-white break-words">{externalCaller}</div>
+                    <div className="mt-1 text-xs text-[var(--text-secondary)] break-words">
+                      {run.external_trigger_event_type ? `Event: ${run.external_trigger_event_type}` : 'Event: —'}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-[var(--border-primary)] bg-white px-4 py-3 dark:bg-white/5 dark:border-white/10 md:col-span-2">
+                    <div className="text-[11px] uppercase tracking-wide text-[var(--text-secondary)] font-semibold">Idempotency key</div>
+                    <div className="mt-2 font-mono text-sm text-[var(--text-primary)] dark:text-white break-words">
+                      {run.external_trigger_idempotency_key || '—'}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

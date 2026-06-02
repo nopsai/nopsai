@@ -46,6 +46,25 @@ Most API routes pass through the same middleware stack before reaching a handler
 10. Knowledge context, secrets, and variables are resolved and snapshotted where applicable.
 11. The run is submitted to the dispatcher the same way a GitHub-triggered run is.
 
+## External Trigger Invoke
+
+External triggers can be created through the API/UI or managed by GitOps in
+`external-triggers/*.yaml`. Config sync imports those manifests; config
+repository drift/push exports database-created triggers back to the same
+directory.
+
+1. An external system calls `POST /v1/external-triggers/{id}/invoke` with a user bearer token or service-account token.
+2. The normal authentication middleware validates the token. Service-account tokens authorize as AAA `service_account` subjects.
+3. `nopsai` loads the external trigger, creates an invocation record, and rejects disabled triggers.
+4. The caller must match the trigger's `allowed_callers` list and pass `external_trigger.invoke` on that trigger resource, for example `external_trigger:deploy-prod`. The list supports direct users, service accounts, and auth groups.
+5. If an idempotency key is present, `nopsai` checks prior active invocations for the same trigger and caller. A queued duplicate returns the original run response; an in-flight duplicate returns `409`. Failed pre-run attempts remain in the audit log but do not reserve the key forever.
+6. Rate limits and the trigger payload schema are evaluated before a run is started.
+7. Request variables are merged with `variable_mapping` values derived from `payload`, `variables`, or `event_type`.
+8. `nopsai` starts the configured pipeline through the existing JSON run path with `trigger_source=external_trigger`.
+9. The existing run path checks `pipeline.execute`, `pipeline.use`, `scope.use`, reusable `step.use`, child `pipeline.use`, managed `knowledge_context.use`, and runtime resources with the original caller identity.
+10. The `pipeline_runs.trigger_event_id` is set to the invocation id, so the run detail can show the trigger name, caller, event type, and idempotency key.
+11. The invocation record is updated with the queued run id or a failure status and error text.
+
 ## 3. Dispatch And Runner Selection
 
 1. `nopsai` calls `dispatcher.SubmitJob` with a `JobRequest`.

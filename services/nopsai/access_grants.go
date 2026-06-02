@@ -32,6 +32,7 @@ const (
 	grantResourceRun              = "pipeline_run"
 	grantResourceSchedule         = "pipeline_schedule"
 	grantResourceTrigger          = "trigger"
+	grantResourceExternalTrigger  = "external_trigger"
 	grantResourceSecret           = "secret"
 	grantResourceVariable         = "variable"
 	grantResourceScope            = "scope"
@@ -181,6 +182,7 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"pipeline_schedule.list",
 			"pipeline_schedule.read",
 			"trigger.read",
+			"external_trigger.read",
 			"secret.list_metadata",
 			"variable.list_metadata",
 			"scope.read",
@@ -219,6 +221,9 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"pipeline_schedule.update",
 			"pipeline_schedule.execute",
 			"trigger.update",
+			"external_trigger.create",
+			"external_trigger.update",
+			"external_trigger.invoke",
 			"secret.use",
 			"secret.write_value",
 			"variable.use",
@@ -263,6 +268,9 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"pipeline_run.write_logs",
 			"pipeline_run.task_update",
 			"trigger.update",
+			"external_trigger.create",
+			"external_trigger.update",
+			"external_trigger.invoke",
 			"secret.use",
 			"secret.write_value",
 			"variable.read_value",
@@ -295,6 +303,8 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"pipeline_schedule.manage_acl",
 			"trigger.delete",
 			"trigger.manage_acl",
+			"external_trigger.delete",
+			"external_trigger.manage_acl",
 			"secret.delete",
 			"secret.read_value",
 			"secret.manage_acl",
@@ -981,6 +991,8 @@ func actionAppliesToGrantResource(action, resourceType string) bool {
 		return strings.HasPrefix(action, "variable.")
 	case grantResourceTrigger:
 		return strings.HasPrefix(action, "trigger.")
+	case grantResourceExternalTrigger:
+		return strings.HasPrefix(action, "external_trigger.")
 	case grantResourceStep:
 		return strings.HasPrefix(action, "step.")
 	case grantResourceRunner:
@@ -1033,6 +1045,8 @@ func normalizeAccessGrantResourceType(raw string) (string, error) {
 		return grantResourceSchedule, nil
 	case grantResourceTrigger:
 		return grantResourceTrigger, nil
+	case grantResourceExternalTrigger:
+		return grantResourceExternalTrigger, nil
 	case grantResourceSecret:
 		return grantResourceSecret, nil
 	case grantResourceVariable:
@@ -1303,6 +1317,21 @@ func resolveAccessGrantResource(ctx context.Context, runner queryRunner, rawType
 			}
 		}
 		return accessGrantResource{Type: grantResourceTrigger, ID: rawID, Display: rawID}, nil
+	case grantResourceExternalTrigger:
+		if rawID == "" {
+			return accessGrantResource{}, fmt.Errorf("resource_id is required")
+		}
+		if requireExists && rawID != "*" {
+			var exists int
+			err := runner.QueryRow(ctx, `SELECT 1 FROM external_triggers WHERE id = $1 LIMIT 1`, rawID).Scan(&exists)
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+					return accessGrantResource{}, fmt.Errorf("resource not found")
+				}
+				return accessGrantResource{}, err
+			}
+		}
+		return accessGrantResource{Type: grantResourceExternalTrigger, ID: rawID, Display: rawID}, nil
 	case grantResourceScope:
 		scopeID, scopeLookup, scopeDisplay := normalizeScopeGrantResourceID(rawID)
 		if scopeDisplay == "" {
@@ -1644,6 +1673,8 @@ func managementActionForGrantResource(resource accessGrantResource) (string, mod
 		return "pipeline_schedule.manage_acl", model.ResourceRef{Type: grantResourceSchedule, ID: resource.ID}, nil
 	case grantResourceTrigger:
 		return "trigger.manage_acl", model.ResourceRef{Type: grantResourceTrigger, ID: resource.ID}, nil
+	case grantResourceExternalTrigger:
+		return "external_trigger.manage_acl", model.ResourceRef{Type: grantResourceExternalTrigger, ID: resource.ID}, nil
 	case grantResourceSecret:
 		return "secret.manage_acl", model.ResourceRef{Type: grantResourceSecret, ID: resource.ID}, nil
 	case grantResourceVariable:

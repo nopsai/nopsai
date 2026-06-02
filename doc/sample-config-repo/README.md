@@ -82,6 +82,7 @@ pipelines/             Pipeline definitions
 steps/                 Reusable step definitions
 schedules/             One-time and recurring pipeline schedules
 triggers/              Trigger override manifests
+external-triggers/     Authenticated external trigger endpoints
 scopes/                Scope variable and secret key files
 knowledge/             Managed knowledge context markdown documents
 pipelineruns/          Run group structure
@@ -99,10 +100,11 @@ keys with no value.
 
 Pipeline, reusable step, scope, and knowledge context files may also include an
 `access:` block. That block maps to the same resource Access UI controls:
-`visibility` controls Only this group / selected groups or repositories /
-Public, and `use_access` lists the groups or repositories that can use a
-restricted resource. When Access is changed in the UI, config repository drift
-exports the current Access state back into these same embedded blocks.
+`visibility` controls Only this group / selected subjects /
+Public, and `use_access` lists the groups, repositories, or service accounts
+that can use a restricted resource. When Access is changed in the UI, config
+repository drift exports the current Access state back into these same embedded
+blocks.
 
 ## Global repo file map
 
@@ -122,8 +124,14 @@ global-repo/triggers/acme/service-api.yaml
 global-repo/triggers/acme/deploy-webhook.yaml
   -> trigger override acme/deploy-webhook for the webhook-deployer service account sample
 
+global-repo/external-triggers/deploy-prod.yaml
+  -> authenticated external trigger for ServiceNow-style production deploy approvals
+
 global-repo/scopes/dev/scope.yaml
   -> variables and secret key placeholders in scope dev
+
+global-repo/scopes/prod/scope.yaml
+  -> variables, secret key placeholders, and restricted scope use access for servicenow-prod
 
 global-repo/knowledge/guardrail/security/repo-check.md
   -> knowledge context guardrail/security/repo-check
@@ -150,7 +158,7 @@ global-repo/access/*.yaml
   -> global users, service accounts, advanced roles, policies, advanced role bindings, and basic role grants
 
 global-repo/access/service-accounts.yaml
-  -> service account identity webhook-deployer and scoped grants for pipeline, scope, and trigger access
+  -> service account identities webhook-deployer and servicenow-prod, plus scoped webhook grants and a least-privilege external trigger runner role
 
 global-repo/setting/system/llm_profile.yaml
   -> system LLM profile registry
@@ -162,12 +170,16 @@ global-repo/setting/system/runner.yaml
   -> runner install defaults and dispatcher runtime routing
 ```
 
-The `webhook-deployer` service account is intentionally tokenless in Git. After
-sync, create or rotate its `nopsat_` token from System Access or
+The `webhook-deployer` and `servicenow-prod` service accounts are intentionally
+tokenless in Git. After sync, create or rotate their `nopsat_` tokens from System Access or
 `POST /v1/admin/service-accounts/{id}/tokens`, then use that token for
 integration API calls such as starting `platform-maintenance` in scope `dev`.
 The paired `triggers/acme/deploy-webhook.yaml` file shows the GitHub webhook
 trigger that maps `acme/deploy-webhook` events to the same pipeline and scope.
+The paired `external-triggers/deploy-prod.yaml` file shows the enterprise path:
+`servicenow-prod` has an advanced role that can invoke `deploy-prod`, execute
+and use `platform-maintenance`; `scopes/prod/scope.yaml` shares restricted
+`scope.use` access with that service account.
 If a service account is first created in the UI or API, config repository drift
 can export the identity and service-account product grants back to
 `access/service-accounts.yaml` for review-branch push. Token values remain local

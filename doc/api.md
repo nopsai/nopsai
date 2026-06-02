@@ -278,6 +278,108 @@ Service account administration endpoints require `iam.admin`:
 
 ---
 
+## External Triggers
+
+External triggers are authenticated pipeline entrypoints for integrations. They
+accept normal user bearer tokens and service-account tokens; production
+integrations should use service accounts.
+
+```bash
+# Create an authenticated trigger endpoint
+curl -X POST \
+  -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id":"deploy-prod",
+    "name":"Deploy production",
+    "description":"ServiceNow-approved production deploy",
+    "enabled":true,
+    "pipeline":"platform-maintenance",
+    "scope":"prod",
+    "allowed_callers":[{"type":"service_account","id":"servicenow-prod"}],
+    "variable_mapping":{"VERSION":"payload.version"},
+    "payload_schema":{
+      "type":"object",
+      "required":["version"],
+      "properties":{"version":{"type":"string"}}
+    },
+    "rate_limit":{"per_minute":30}
+  }' \
+  http://localhost:8080/v1/external-triggers
+
+# Invoke it with a service account token
+curl -X POST \
+  -H "Authorization: Bearer nopsat_<secret>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_type":"servicenow.change.approved",
+    "idempotency_key":"servicenow.change.approved:<SOURCE_EVENT_ID>",
+    "variables":{"VERSION":"1.2.3"},
+    "payload":{"version":"1.2.3"}
+  }' \
+  http://localhost:8080/v1/external-triggers/deploy-prod/invoke
+```
+
+CRUD endpoints:
+
+- `GET /v1/external-triggers`
+- `POST /v1/external-triggers`
+- `GET /v1/external-triggers/{id}`
+- `PUT|PATCH /v1/external-triggers/{id}`
+- `DELETE /v1/external-triggers/{id}`
+- `GET /v1/external-triggers/{id}/invocations`
+- `POST /v1/external-triggers/{id}/invoke`
+
+GitOps:
+
+- External trigger manifests live under `external-triggers/*.yaml`.
+- Config sync imports, updates, and prunes GitOps-managed external triggers.
+- Config repository drift/push exports UI-created database triggers back to `external-triggers/`.
+- GitOps-managed external triggers are read-only through direct CRUD APIs; change them in the config repository.
+
+Example manifest:
+
+```yaml
+id: deploy-prod
+name: Deploy prod from ServiceNow
+enabled: true
+pipeline: platform-maintenance
+scope: prod
+allowed_callers:
+  - type: service_account
+    id: servicenow-prod
+variable_mapping:
+  VERSION: payload.version
+payload_schema:
+  type: object
+  required:
+    - version
+rate_limit:
+  per_minute: 10
+```
+
+Invoke responses return:
+
+```json
+{
+  "run_id": "9e40b9b1-9f67-41f5-9c7e-6d7e3ef6a991",
+  "trigger_event_id": "6a14372d-4bb7-4634-9c2c-cc53b1f62e70",
+  "status": "queued"
+}
+```
+
+Authorization and controls:
+
+- Management uses `external_trigger.read`, `external_trigger.create`, `external_trigger.update`, and `external_trigger.delete`.
+- Invocation requires a valid bearer token, a matching `allowed_callers` entry, `external_trigger.invoke` on the trigger, `pipeline.execute` for the selected pipeline, and runtime `*.use` checks for the selected pipeline, scope, reusable steps, child pipelines, knowledge contexts, secrets, variables, and runners.
+- `allowed_callers` supports `user`, `auth_group`, and `service_account`; use service accounts for external systems.
+- Idempotency keys are scoped to trigger, caller type, and caller id. A repeated successful key returns the original run response; an in-flight key returns `409`.
+- `payload_schema` supports object schemas with `required` and simple `properties.<name>.type` validation.
+- `variable_mapping` maps invoke payload fields into run variables. For example, `"VERSION":"payload.version"` reads `{ "payload": { "version": "1.2.3" } }`.
+- Invocation records store caller, status, run id, idempotency key, event type, source IP, timestamp, and error text.
+
+---
+
 ## Access Grants
 
 Use these endpoints to assign product roles to subjects on resources.
@@ -308,7 +410,7 @@ Grant request fields:
 - `subject_type`: `user`, `auth_group`, `repository`, `trigger`, `service_account`, or `internal_service`
 - `subject_id`: user subject/email/UUID, auth group id/name, repository `owner/repo`, trigger id, service-account id, or service id
 - `role`: `viewer`, `developer`, `owner`, or `admin`
-- `resource_type`: `folder` for groups, `pipeline`, `pipeline_schedule`, `trigger`, `secret`, `variable`, `scope`, `repository`, `step`, `knowledge_context`, `runner`, `config_repo`, or `platform`
+- `resource_type`: `folder` for groups, `pipeline`, `pipeline_schedule`, `trigger`, `external_trigger`, `secret`, `variable`, `scope`, `repository`, `step`, `knowledge_context`, `runner`, `config_repo`, or `platform`
 - `resource_id`: group path such as `/payments`, pipeline id such as `team-1/dev/build`, repository id such as `owner/repo`, or `platform`
 - `inherit`: required for group subtree grants; group grants should normally use `true`
 
@@ -343,7 +445,7 @@ Pipeline, reusable step, scope, and knowledge context pages expose an `Access` d
 Visibility modes:
 
 - `group`: only callers in the same group boundary can use the resource, and only when they already have the required use action
-- `restricted`: same-group use still works, and selected groups or repositories can also be granted use access
+- `restricted`: same-group use still works, and selected groups, repositories, or service accounts can also be granted use access
 - `workspace`: shown as `Public` in the UI; authorized callers across the workspace can use the resource, but related scopes, secrets, variables, and runners are still checked separately
 
 Resource access endpoints:

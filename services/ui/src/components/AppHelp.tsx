@@ -157,7 +157,7 @@ const HELP_TOPICS: Record<string, HelpTopic> = {
         body: 'Browse step libraries, create drafts, clone read-only Git steps, edit YAML, copy or download definitions, and see which pipelines include each step.',
         items: [
           'A step can contain a script, a goal, tasks, variables, secrets, MCP profiles, and failure behavior.',
-          'Access controls decide which groups or repositories can reuse a step.',
+          'Access controls decide which groups, repositories, or service accounts can reuse a step.',
           'Used in Pipelines shows the blast radius before editing or deleting a reusable step.',
         ],
         example: 'name: shared/checkout\ndescription: Checkout repository\nscript: |\n  git fetch --all\n  git checkout "$GIT_REF"',
@@ -174,7 +174,7 @@ const HELP_TOPICS: Record<string, HelpTopic> = {
         body: 'Browse by kind and group, create documents, edit descriptions and content, copy or download markdown, manage access, and see which pipelines reference each document.',
         items: [
           'Kinds include architecture, guardrail, policy, ADR, guideline, runbook, reference, and example.',
-          'Access controls keep sensitive operational knowledge limited to the right groups or repositories.',
+          'Access controls keep sensitive operational knowledge limited to the right groups, repositories, or service accounts.',
           'Used in Pipelines helps you understand which automations depend on a document.',
         ],
         example: '---\nname: release-evidence\nkind: policy\n---\n# Release Evidence\nEvery production deploy must attach test results and rollout notes.',

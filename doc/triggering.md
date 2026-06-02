@@ -67,3 +67,55 @@ curl -X POST \
 - **No UI updates**: Refresh the Pipeline runs page and verify authenticated `/v1/runs` requests are succeeding.
 
 When integrating with GitHub cloud, expose the git-bot via a tunnelling service (ngrok, Cloudflare Tunnel, etc.) and point the GitHub App webhook URL to that public address.
+
+---
+
+## Authenticated External Triggers
+
+For enterprise integrations that are not GitHub webhooks, create an External
+Trigger and invoke it with a user token or, preferably, a service-account token.
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer nopsat_<service-account-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_type":"servicenow.change.approved",
+    "idempotency_key":"servicenow.change.approved:<SOURCE_EVENT_ID>",
+    "variables":{"VERSION":"1.2.3"},
+    "payload":{"version":"1.2.3"}
+  }' \
+  http://localhost:8080/v1/external-triggers/deploy-prod/invoke
+```
+
+External triggers are not anonymous webhooks. The caller must be listed in the
+trigger's allowed callers, have `external_trigger.invoke` on the trigger, and
+must still be allowed to execute the selected pipeline and use the selected
+scope/resources.
+
+These are separate checks. A caller in `allowed_callers` still needs an AAA
+policy such as `external_trigger.invoke` on `external_trigger:deploy-prod`
+or, for intentionally broad integrations, `external_trigger:*`. Folder-scoped
+pipeline access does not automatically grant permission to invoke a standalone
+external trigger.
+
+The selected run scope is also checked through runtime resource access. For a
+service account that deploys to a restricted scope, share the scope with that
+account in the scope file or the Scope Access dialog:
+
+```yaml
+access:
+  visibility: restricted
+  use_access:
+    grants:
+      - service_account: servicenow-prod
+```
+
+`idempotency_key` is optional, but recommended for production integrations.
+Use a stable source-system event ID: reuse the same key for retries of the same
+event, and use a new key for a new change, ticket, deployment, or approval.
+Manual tests can omit it or use a fresh test key.
+
+GitOps-managed external triggers live in `external-triggers/*.yaml`. Config sync
+imports them, direct UI/API edits are blocked while GitOps owns them, and config
+repository drift can push database-created triggers back into that directory.

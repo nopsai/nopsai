@@ -266,7 +266,7 @@ func (s *PGStore) UpdateConfigRepositorySyncStatus(ctx context.Context, id int64
 	return nil
 }
 
-var configManagedResourceTables = []string{"config_repositories", "pipelines", "steps", "pipeline_schedules", "triggers", "variables", "secrets", "knowledge_contexts"}
+var configManagedResourceTables = []string{"config_repositories", "pipelines", "steps", "pipeline_schedules", "triggers", "external_triggers", "variables", "secrets", "knowledge_contexts"}
 
 type configRepositoryScanner interface {
 	Scan(dest ...any) error
