@@ -69,7 +69,7 @@ func TestSetupStarterTemplatesUseSelectedRepositoryGroups(t *testing.T) {
 		IncludeMCP: false,
 	})
 	structure := files["config-repositories/groups/structure.yaml"]
-	for _, want := range []string{"platform:", "- acme/service-api", "apps:", "- acme/web"} {
+	for _, want := range []string{"platform:", "name: service-api", "repo_url: https://github.com/acme/service-api", "apps:", "name: web", "repo_url: https://github.com/acme/web"} {
 		if !strings.Contains(structure, want) {
 			t.Fatalf("structure missing %q:\n%s", want, structure)
 		}

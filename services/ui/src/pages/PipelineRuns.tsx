@@ -16,8 +16,11 @@ type TabKey = 'main' | 'recent' | 'events';
 type Group = {
   id: number;
   name: string;
+  kind?: 'group' | 'app' | string;
   parent_id?: number | null;
   description?: string;
+  repo_url?: string;
+  repository_full_name?: string;
   last_run_at?: string;
 };
 
@@ -190,6 +193,13 @@ type ConfigRepositoryFormState = {
   enabled: boolean;
   write_enabled: boolean;
   write_branch: string;
+};
+
+type NewFolderPayload = {
+  kind: 'group' | 'app';
+  name: string;
+  description: string;
+  repoURL: string;
 };
 
 const tabs = [
@@ -996,11 +1006,16 @@ function PipelineRunsPage() {
   }, []);
 
   const submitNewFolder = useCallback(
-    async (name: string, description: string) => {
+    async ({ kind, name, description, repoURL }: NewFolderPayload) => {
       const trimmedName = name.trim();
       const trimmedDescription = description.trim();
+      const trimmedRepoURL = repoURL.trim();
       if (!trimmedName) {
-        setNewFolderError('Group name is required.');
+        setNewFolderError(kind === 'app' ? 'App name is required.' : 'Group name is required.');
+        return;
+      }
+      if (kind === 'app' && !trimmedRepoURL) {
+        setNewFolderError('Repository URL is required for apps.');
         return;
       }
       setNewFolderPending(true);
@@ -1009,7 +1024,13 @@ function PipelineRunsPage() {
         await fetchJson('/v1/groups', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: trimmedName, description: trimmedDescription || undefined, parent_id: activeGroupId }),
+          body: JSON.stringify({
+            kind,
+            name: trimmedName,
+            description: kind === 'group' ? trimmedDescription || undefined : undefined,
+            repo_url: kind === 'app' ? trimmedRepoURL : undefined,
+            parent_id: activeGroupId,
+          }),
         });
         setNewFolderOpen(false);
         setNewFolderPending(false);
@@ -1327,9 +1348,9 @@ function PipelineRunsPage() {
                     type="button"
                     className="pipelines-icon-only"
                     onClick={handleNewFolder}
-                    aria-label="New Group"
+                    aria-label="New group or app"
                     disabled={Boolean(trimmedSearch)}
-                    title={trimmedSearch ? 'Clear search to create a group' : 'New Group'}
+                    title={trimmedSearch ? 'Clear search to create an item' : 'New group or app'}
                   >
                     <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v14M5 12h14" />
@@ -1594,11 +1615,17 @@ function Dashboard({
   const visibleGroups = useMemo(() => {
     if (activeTab !== 'main') return [] as Group[];
     if (!term) return childGroups;
-    return childGroups.filter(group => group.name.toLowerCase().includes(term));
+    return childGroups.filter(group =>
+      [group.name, group.repository_full_name, group.repo_url]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(term)
+    );
   }, [activeTab, childGroups, term]);
 
-  const repoGroups = useMemo(() => visibleGroups.filter(group => group.name.includes('/')), [visibleGroups]);
-  const folderGroups = useMemo(() => visibleGroups.filter(group => !group.name.includes('/')), [visibleGroups]);
+  const repoGroups = useMemo(() => visibleGroups.filter(group => isAppGroup(group)), [visibleGroups]);
+  const folderGroups = useMemo(() => visibleGroups.filter(group => !isAppGroup(group)), [visibleGroups]);
 
   const filteredRunsByBranch = useMemo(() => {
     if (activeTab !== 'main') return runsByBranch;
@@ -1613,7 +1640,7 @@ function Dashboard({
   useEffect(() => {
     if (activeTab !== 'main') return;
     visibleGroups.forEach(group => {
-      if (group.name.includes('/') && !repoSummaries.has(group.id)) {
+      if (isAppGroup(group) && !repoSummaries.has(group.id)) {
         void fetchRepoSummary(group.id);
       }
     });
@@ -1657,7 +1684,7 @@ function Dashboard({
                 </div>
               ))}
             </div>
-            {activeFolder && !activeFolder.name.includes('/') && (
+            {activeFolder && !isAppGroup(activeFolder) && (
               <button
                 type="button"
                 className="glass-button-subtle"
@@ -1786,13 +1813,15 @@ function GroupGrid({
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
       {groups.map(group => {
-        const isRepo = group.name.includes('/');
+        const isRepo = isAppGroup(group);
         const description = (group.description || '').trim();
         const isActive = activeGroupId === group.id;
         const summary = repoSummaries.get(group.id);
-        const applications = allGroups.filter(child => (child.parent_id ?? null) === group.id && child.name.includes('/')).length;
-        const subfolders = allGroups.filter(child => (child.parent_id ?? null) === group.id && !child.name.includes('/')).length;
-        const displayName = isRepo ? group.name.split('/')[1] : group.name;
+        const applications = allGroups.filter(child => (child.parent_id ?? null) === group.id && isAppGroup(child)).length;
+        const subfolders = allGroups.filter(child => (child.parent_id ?? null) === group.id && !isAppGroup(child)).length;
+        const displayName = groupDisplayName(group);
+        const repoURL = groupRepositoryURL(group);
+        const repoLabel = groupRepositoryLabel(group);
         if (isRepo) {
           return (
             <div
@@ -1829,6 +1858,22 @@ function GroupGrid({
                   {displayName}
                 </span>
               </div>
+              {repoURL && (
+                <a
+                  href={repoURL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-3 inline-flex min-w-0 items-center gap-1.5 text-xs font-medium text-[var(--text-accent)] hover:underline"
+                  title={repoURL}
+                  onClick={event => event.stopPropagation()}
+                >
+                  <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M7 17L17 7" />
+                    <path d="M8 7h9v9" />
+                  </svg>
+                  <span className="truncate">{repoLabel || repoURL}</span>
+                </a>
+              )}
               {summary ? (
                 <div className="mt-4 pt-3 border-t border-[var(--border-primary)] text-xs text-[var(--text-secondary)] font-mono space-y-1.5">
                   <div className="flex items-center justify-between">
@@ -5419,17 +5464,21 @@ function NewFolderModal({
   error: string | null;
   pending: boolean;
   onClose: () => void;
-  onSubmit: (name: string, description: string) => Promise<void>;
+  onSubmit: (payload: NewFolderPayload) => Promise<void>;
 }) {
+  const [kind, setKind] = useState<'group' | 'app'>('group');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [repoURL, setRepoURL] = useState('');
   const nameInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (open) {
       const handle = window.setTimeout(() => {
+        setKind('group');
         setName('');
         setDescription('');
+        setRepoURL('');
         requestAnimationFrame(() => nameInputRef.current?.focus());
       }, 0);
       return () => window.clearTimeout(handle);
@@ -5441,7 +5490,7 @@ function NewFolderModal({
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    await onSubmit(name, description);
+    await onSubmit({ kind, name, description, repoURL });
   };
 
   return (
@@ -5449,7 +5498,7 @@ function NewFolderModal({
       <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-[var(--border-primary)] overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-primary)]">
           <div>
-            <h3 className="text-lg font-semibold text-[var(--text-primary)]">Create New Group</h3>
+            <h3 className="text-lg font-semibold text-[var(--text-primary)]">Create New Item</h3>
             <p className="text-xs text-[var(--text-secondary)]">Parent: {parentLabel || 'Root'}</p>
           </div>
           <button type="button" className="pipelines-icon-only" aria-label="Close" onClick={onClose}>
@@ -5460,9 +5509,25 @@ function NewFolderModal({
           </button>
         </div>
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          <div className="inline-flex rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-1">
+            {(['group', 'app'] as const).map(option => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => setKind(option)}
+                className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                  kind === option
+                    ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-sm'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                {option === 'group' ? 'Group' : 'App'}
+              </button>
+            ))}
+          </div>
           <div className="space-y-2">
             <label htmlFor="new-folder-name" className="text-sm font-medium text-[var(--text-primary)]">
-              Group Name
+              {kind === 'app' ? 'App Name' : 'Group Name'}
             </label>
             <input
               ref={nameInputRef}
@@ -5473,23 +5538,41 @@ function NewFolderModal({
               value={name}
               onChange={event => setName(event.target.value)}
               className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)]"
-              placeholder="Enter group name"
+              placeholder={kind === 'app' ? 'service-api' : 'platform'}
             />
           </div>
-          <div className="space-y-2">
-            <label htmlFor="new-folder-description" className="text-sm font-medium text-[var(--text-primary)]">
-              Description <span className="text-[var(--text-secondary)]">(optional)</span>
-            </label>
-            <textarea
-              id="new-folder-description"
-              name="new-folder-description"
-              value={description}
-              onChange={event => setDescription(event.target.value)}
-              rows={3}
-              className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)]"
-              placeholder="Add a short summary for this group"
-            />
-          </div>
+          {kind === 'app' ? (
+            <div className="space-y-2">
+              <label htmlFor="new-folder-repo-url" className="text-sm font-medium text-[var(--text-primary)]">
+                Repository URL
+              </label>
+              <input
+                id="new-folder-repo-url"
+                name="new-folder-repo-url"
+                type="text"
+                required
+                value={repoURL}
+                onChange={event => setRepoURL(event.target.value)}
+                className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)]"
+                placeholder="https://github.com/acme/service-api"
+              />
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <label htmlFor="new-folder-description" className="text-sm font-medium text-[var(--text-primary)]">
+                Description <span className="text-[var(--text-secondary)]">(optional)</span>
+              </label>
+              <textarea
+                id="new-folder-description"
+                name="new-folder-description"
+                value={description}
+                onChange={event => setDescription(event.target.value)}
+                rows={3}
+                className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)]"
+                placeholder="Add a short summary for this group"
+              />
+            </div>
+          )}
           {error && <div className="text-sm text-red-600">{error}</div>}
           <div className="flex items-center justify-end gap-3 pt-2">
             <button type="button" className="glass-button-subtle" onClick={onClose} disabled={pending}>
@@ -5745,6 +5828,39 @@ function formatConfigRepoTimestamp(value?: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
+}
+
+function isAppGroup(group: Pick<Group, 'kind' | 'name' | 'repo_url' | 'repository_full_name'>) {
+  return group.kind === 'app' || Boolean(group.repo_url || group.repository_full_name) || group.name.includes('/');
+}
+
+function groupDisplayName(group: Pick<Group, 'kind' | 'name' | 'repo_url' | 'repository_full_name'>) {
+  if (!isAppGroup(group)) return group.name;
+  if (group.kind === 'app' && group.name && !group.name.includes('/')) return group.name;
+  const fullName = group.repository_full_name || group.name;
+  return fullName.split('/').filter(Boolean).pop() || group.name;
+}
+
+function groupRepositoryURL(group: Pick<Group, 'name' | 'repo_url' | 'repository_full_name'>) {
+  const fullName = (group.repository_full_name || group.name).trim().replace(/^\/+|\/+$/g, '');
+  if (group.repo_url) return repositoryBrowserURL(group.repo_url, fullName);
+  return fullName.includes('/') ? `https://github.com/${fullName}` : '';
+}
+
+function groupRepositoryLabel(group: Pick<Group, 'name' | 'repo_url' | 'repository_full_name'>) {
+  return (group.repository_full_name || group.name).trim().replace(/^\/+|\/+$/g, '');
+}
+
+function repositoryBrowserURL(rawURL: string, fallbackFullName: string) {
+  const trimmed = rawURL.trim();
+  if (!trimmed) return fallbackFullName.includes('/') ? `https://github.com/${fallbackFullName}` : '';
+  if (trimmed.startsWith('git@github.com:')) {
+    const path = trimmed.slice('git@github.com:'.length).replace(/\.git$/, '').replace(/^\/+|\/+$/g, '');
+    return path ? `https://github.com/${path}` : '';
+  }
+  if (trimmed.startsWith('github.com/')) return `https://${trimmed.replace(/\.git$/, '')}`;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed.replace(/\.git$/, '');
+  return fallbackFullName.includes('/') ? `https://github.com/${fallbackFullName}` : trimmed;
 }
 
 function buildGroupPath(groupId: number | null, groups: Group[]): Group[] {

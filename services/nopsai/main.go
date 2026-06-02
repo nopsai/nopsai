@@ -4255,6 +4255,9 @@ func mergePipelineRunStructureNode(target *pipelineRunStructureNode, source *pip
 	if len(source.Repos) > 0 {
 		target.Repos = append([]string{}, source.Repos...)
 	}
+	if len(source.Apps) > 0 {
+		target.Apps = append([]pipelineRunStructureApp{}, source.Apps...)
+	}
 	for childName, childSource := range source.Children {
 		childTarget, ok := target.Children[childName]
 		if !ok {
@@ -4294,6 +4297,7 @@ func filterPipelineRunStructureByScopes(structure map[string]*pipelineRunStructu
 		if node != nil {
 			filtered.Description = node.Description
 			filtered.Repos = append([]string{}, node.Repos...)
+			filtered.Apps = append([]pipelineRunStructureApp{}, node.Apps...)
 			filtered.Config = copyConfigRepositoryBindingFile(node.Config)
 			for childName, childNode := range node.Children {
 				child := filterNode(append(append([]string{}, path...), childName), childNode)
@@ -4616,14 +4620,30 @@ func hasPathSegmentPrefix(path, prefix []string) bool {
 type pipelineRunStructureNode struct {
 	Description string
 	Repos       []string
+	Apps        []pipelineRunStructureApp
 	Children    map[string]*pipelineRunStructureNode
 	Config      *configRepositoryBindingFile
 }
 
+type pipelineRunStructureApp struct {
+	Name               string
+	RepoURL            string
+	RepositoryFullName string
+}
+
 type groupRecord struct {
-	ID          int
-	ParentID    *int
-	Description string
+	ID                 int
+	Name               string
+	Kind               string
+	ParentID           *int
+	Description        string
+	RepoURL            string
+	RepositoryFullName string
+}
+
+type groupRecordSet struct {
+	byName map[string]*groupRecord
+	byRepo map[string]*groupRecord
 }
 
 func parsePipelineRunStructure(content string) (map[string]*pipelineRunStructureNode, error) {
@@ -4762,6 +4782,7 @@ func normalizePipelineRunStructureForFolder(boundFolder string, structure map[st
 				target.Config = copyConfigRepositoryBindingFile(node.Config)
 			}
 			target.Repos = append(target.Repos, node.Repos...)
+			target.Apps = append(target.Apps, node.Apps...)
 			for childName, childNode := range node.Children {
 				childSegments, err := cleanConfigPathSegments(childName, false)
 				if err != nil {
@@ -4812,11 +4833,19 @@ func decodePipelineRunStructureMap(node *pipelineRunStructureNode, childMap map[
 	for key, raw := range childMap {
 		switch key {
 		case "repos":
-			repos, err := parseStructureRepoList(raw)
+			apps, err := parseStructureRepoList(raw)
 			if err != nil {
 				return nil, err
 			}
-			node.Repos = repos
+			node.Repos = structureRepoNames(apps)
+			node.Apps = append(node.Apps, apps...)
+		case "apps":
+			apps, err := parseStructureAppList(raw)
+			if err != nil {
+				return nil, err
+			}
+			node.Repos = append(node.Repos, structureRepoNames(apps)...)
+			node.Apps = append(node.Apps, apps...)
 		case "description":
 			if raw == nil {
 				node.Description = ""
@@ -4883,7 +4912,7 @@ func copyConfigRepositoryBindingFile(file *configRepositoryBindingFile) *configR
 	return &copied
 }
 
-func parseStructureRepoList(value interface{}) ([]string, error) {
+func parseStructureRepoList(value interface{}) ([]pipelineRunStructureApp, error) {
 	if value == nil {
 		return nil, nil
 	}
@@ -4891,7 +4920,7 @@ func parseStructureRepoList(value interface{}) ([]string, error) {
 	if !ok {
 		return nil, fmt.Errorf("repos must be defined as a list, got %T", value)
 	}
-	var repos []string
+	var apps []pipelineRunStructureApp
 	for idx, raw := range items {
 		if raw == nil {
 			continue
@@ -4904,9 +4933,94 @@ func parseStructureRepoList(value interface{}) ([]string, error) {
 		if repo == "" {
 			continue
 		}
-		repos = append(repos, repo)
+		fullName, err := repositoryFullNameFromURL(repo)
+		if err != nil {
+			return nil, fmt.Errorf("repos entry %d: %w", idx, err)
+		}
+		apps = append(apps, pipelineRunStructureApp{
+			Name:               fullName,
+			RepoURL:            canonicalRepositoryURL(fullName),
+			RepositoryFullName: fullName,
+		})
 	}
-	return repos, nil
+	return apps, nil
+}
+
+func parseStructureAppList(value interface{}) ([]pipelineRunStructureApp, error) {
+	if value == nil {
+		return nil, nil
+	}
+	items, ok := value.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("apps must be defined as a list, got %T", value)
+	}
+	var apps []pipelineRunStructureApp
+	for idx, raw := range items {
+		if raw == nil {
+			continue
+		}
+		switch typed := raw.(type) {
+		case string:
+			fullName, err := repositoryFullNameFromURL(typed)
+			if err != nil {
+				return nil, fmt.Errorf("apps entry %d: %w", idx, err)
+			}
+			apps = append(apps, pipelineRunStructureApp{
+				Name:               repositoryDisplayNameFromFullName(fullName),
+				RepoURL:            canonicalRepositoryURL(fullName),
+				RepositoryFullName: fullName,
+			})
+		case map[string]interface{}:
+			name := strings.TrimSpace(stringMapValue(typed, "name"))
+			repoURL := strings.TrimSpace(firstStringMapValue(typed, "repo_url", "repository_url", "url", "repo"))
+			if repoURL == "" {
+				return nil, fmt.Errorf("apps entry %d is missing repo_url", idx)
+			}
+			fullName, err := repositoryFullNameFromURL(repoURL)
+			if err != nil {
+				return nil, fmt.Errorf("apps entry %d: %w", idx, err)
+			}
+			if name == "" {
+				name = repositoryDisplayNameFromFullName(fullName)
+			}
+			apps = append(apps, pipelineRunStructureApp{
+				Name:               name,
+				RepoURL:            repoURL,
+				RepositoryFullName: fullName,
+			})
+		default:
+			return nil, fmt.Errorf("apps entry %d must be a string or mapping, got %T", idx, raw)
+		}
+	}
+	return apps, nil
+}
+
+func stringMapValue(values map[string]interface{}, key string) string {
+	if raw, ok := values[key]; ok {
+		if text, ok := raw.(string); ok {
+			return text
+		}
+	}
+	return ""
+}
+
+func firstStringMapValue(values map[string]interface{}, keys ...string) string {
+	for _, key := range keys {
+		if value := stringMapValue(values, key); strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func structureRepoNames(apps []pipelineRunStructureApp) []string {
+	repos := make([]string, 0, len(apps))
+	for _, app := range apps {
+		if app.RepositoryFullName != "" {
+			repos = append(repos, app.RepositoryFullName)
+		}
+	}
+	return repos
 }
 
 func normalizeStructureName(name string) (string, error) {
@@ -4917,39 +5031,49 @@ func normalizeStructureName(name string) (string, error) {
 	return trimmed, nil
 }
 
-func loadExistingGroupRecords(ctx context.Context, tx pgx.Tx) (map[string]*groupRecord, error) {
-	rows, err := tx.Query(ctx, "SELECT id, name, parent_id, description FROM groups")
+func loadExistingGroupRecords(ctx context.Context, tx pgx.Tx) (groupRecordSet, error) {
+	rows, err := tx.Query(ctx, "SELECT id, name, COALESCE(kind, 'group'), parent_id, description, COALESCE(repo_url, ''), COALESCE(repository_full_name, '') FROM groups")
 	if err != nil {
-		return nil, err
+		return groupRecordSet{}, err
 	}
 	defer rows.Close()
 
-	result := make(map[string]*groupRecord)
+	result := groupRecordSet{
+		byName: make(map[string]*groupRecord),
+		byRepo: make(map[string]*groupRecord),
+	}
 	for rows.Next() {
 		var (
-			id          int
-			name        string
+			record      groupRecord
 			parentID    sql.NullInt32
 			description sql.NullString
 		)
-		if err := rows.Scan(&id, &name, &parentID, &description); err != nil {
-			return nil, err
+		if err := rows.Scan(&record.ID, &record.Name, &record.Kind, &parentID, &description, &record.RepoURL, &record.RepositoryFullName); err != nil {
+			return groupRecordSet{}, err
 		}
-		key, err := normalizeStructureName(name)
+		key, err := normalizeStructureName(record.Name)
 		if err != nil {
-			return nil, err
+			return groupRecordSet{}, err
 		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("duplicate group name '%s' detected in database", key)
+		if _, exists := result.byName[key]; exists {
+			return groupRecordSet{}, fmt.Errorf("duplicate group name '%s' detected in database", key)
 		}
-		result[key] = &groupRecord{
-			ID:          id,
-			ParentID:    pointerFromNullInt(parentID),
-			Description: strings.TrimSpace(description.String),
+		record.Name = key
+		record.ParentID = pointerFromNullInt(parentID)
+		record.Description = strings.TrimSpace(description.String)
+		record.RepoURL = strings.TrimSpace(record.RepoURL)
+		record.RepositoryFullName = strings.Trim(strings.TrimSpace(record.RepositoryFullName), "/")
+		result.byName[key] = &record
+		if record.RepositoryFullName != "" {
+			repoKey := strings.ToLower(record.RepositoryFullName)
+			if _, exists := result.byRepo[repoKey]; exists {
+				return groupRecordSet{}, fmt.Errorf("duplicate repository app '%s' detected in database", record.RepositoryFullName)
+			}
+			result.byRepo[repoKey] = &record
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return groupRecordSet{}, err
 	}
 
 	return result, nil
@@ -4982,6 +5106,37 @@ func parentPointersEqual(a, b *int) bool {
 	}
 }
 
+func normalizePipelineRunStructureApp(app pipelineRunStructureApp) (pipelineRunStructureApp, error) {
+	repoURL := strings.TrimSpace(app.RepoURL)
+	fullName := strings.Trim(strings.TrimSpace(app.RepositoryFullName), "/")
+	var err error
+	if fullName == "" {
+		if repoURL == "" {
+			repoURL = strings.TrimSpace(app.Name)
+		}
+		fullName, err = repositoryFullNameFromURL(repoURL)
+		if err != nil {
+			return pipelineRunStructureApp{}, err
+		}
+	}
+	if repoURL == "" {
+		repoURL = canonicalRepositoryURL(fullName)
+	}
+	name := strings.TrimSpace(app.Name)
+	if name == "" || strings.EqualFold(name, repoURL) {
+		name = repositoryDisplayNameFromFullName(fullName)
+	}
+	name, err = normalizeStructureName(name)
+	if err != nil {
+		return pipelineRunStructureApp{}, err
+	}
+	return pipelineRunStructureApp{
+		Name:               name,
+		RepoURL:            repoURL,
+		RepositoryFullName: fullName,
+	}, nil
+}
+
 func (a *App) syncPipelineRunGroups(ctx context.Context, tx pgx.Tx, structure map[string]*pipelineRunStructureNode, details map[string]int) error {
 	if len(structure) == 0 {
 		return nil
@@ -4992,29 +5147,47 @@ func (a *App) syncPipelineRunGroups(ctx context.Context, tx pgx.Tx, structure ma
 		return fmt.Errorf("failed to load existing pipeline run folders: %w", err)
 	}
 
-	var ensureGroup func(name string, parentID *int, description string) (int, error)
-	ensureGroup = func(name string, parentID *int, description string) (int, error) {
+	registerGroupRecord := func(record *groupRecord) {
+		if record == nil {
+			return
+		}
+		existingGroups.byName[record.Name] = record
+		if record.RepositoryFullName != "" {
+			existingGroups.byRepo[strings.ToLower(record.RepositoryFullName)] = record
+		}
+	}
+
+	var ensureFolder func(name string, parentID *int, description string) (int, error)
+	ensureFolder = func(name string, parentID *int, description string) (int, error) {
 		normalized, err := normalizeStructureName(name)
 		if err != nil {
 			return 0, err
 		}
 		description = strings.TrimSpace(description)
-		if record, ok := existingGroups[normalized]; ok {
+		if record, ok := existingGroups.byName[normalized]; ok {
+			if record.Kind == "app" || record.RepositoryFullName != "" {
+				return 0, fmt.Errorf("folder '%s' conflicts with an existing app", normalized)
+			}
 			parentChanged := !parentPointersEqual(record.ParentID, parentID)
 			descChanged := strings.TrimSpace(record.Description) != description
-			if parentChanged || descChanged {
-				if _, err := tx.Exec(ctx, "UPDATE groups SET parent_id = $1, description = $2, updated_at = NOW() WHERE id = $3", parentID, description, record.ID); err != nil {
+			kindChanged := record.Kind != "group" || record.RepoURL != "" || record.RepositoryFullName != ""
+			if parentChanged || descChanged || kindChanged {
+				if _, err := tx.Exec(ctx, "UPDATE groups SET kind = 'group', parent_id = $1, description = $2, repo_url = '', repository_full_name = '', updated_at = NOW() WHERE id = $3", parentID, description, record.ID); err != nil {
 					return 0, fmt.Errorf("failed to update folder '%s': %w", normalized, err)
 				}
+				delete(existingGroups.byRepo, strings.ToLower(record.RepositoryFullName))
+				record.Kind = "group"
 				record.ParentID = copyIntPointer(parentID)
 				record.Description = description
+				record.RepoURL = ""
+				record.RepositoryFullName = ""
 				details["run_groups_updated"]++
 			}
 			return record.ID, nil
 		}
 
 		var newID int
-		if err := tx.QueryRow(ctx, "INSERT INTO groups (name, parent_id, description) VALUES ($1, $2, $3) RETURNING id", normalized, parentID, description).Scan(&newID); err != nil {
+		if err := tx.QueryRow(ctx, "INSERT INTO groups (name, kind, parent_id, description) VALUES ($1, 'group', $2, $3) RETURNING id", normalized, parentID, description).Scan(&newID); err != nil {
 			var pgErr *pgconn.PgError
 			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 				refreshed, loadErr := loadExistingGroupRecords(ctx, tx)
@@ -5022,25 +5195,96 @@ func (a *App) syncPipelineRunGroups(ctx context.Context, tx pgx.Tx, structure ma
 					return 0, fmt.Errorf("failed to reload folders after conflict: %w", loadErr)
 				}
 				existingGroups = refreshed
-				if _, ok := existingGroups[normalized]; ok {
-					return ensureGroup(normalized, parentID, description)
+				if _, ok := existingGroups.byName[normalized]; ok {
+					return ensureFolder(normalized, parentID, description)
 				}
 			}
 			return 0, fmt.Errorf("failed to create folder '%s': %w", normalized, err)
 		}
-		existingGroups[normalized] = &groupRecord{ID: newID, ParentID: copyIntPointer(parentID), Description: description}
+		registerGroupRecord(&groupRecord{ID: newID, Name: normalized, Kind: "group", ParentID: copyIntPointer(parentID), Description: description})
+		details["run_groups_created"]++
+		return newID, nil
+	}
+
+	var ensureApp func(app pipelineRunStructureApp, parentID *int) (int, error)
+	ensureApp = func(app pipelineRunStructureApp, parentID *int) (int, error) {
+		normalizedApp, err := normalizePipelineRunStructureApp(app)
+		if err != nil {
+			return 0, err
+		}
+		name := normalizedApp.Name
+		repoURL := normalizedApp.RepoURL
+		fullName := normalizedApp.RepositoryFullName
+		repoKey := strings.ToLower(fullName)
+
+		record := existingGroups.byRepo[repoKey]
+		if record == nil {
+			if existingByName, ok := existingGroups.byName[name]; ok {
+				if existingByName.Kind != "app" && existingByName.RepositoryFullName == "" {
+					return 0, fmt.Errorf("app '%s' conflicts with an existing folder", name)
+				}
+				if existingByName.RepositoryFullName != "" && !strings.EqualFold(existingByName.RepositoryFullName, fullName) {
+					return 0, fmt.Errorf("app '%s' conflicts with repository '%s'", name, existingByName.RepositoryFullName)
+				}
+				record = existingByName
+			}
+		}
+		if record != nil {
+			parentChanged := !parentPointersEqual(record.ParentID, parentID)
+			nameChanged := record.Name != name
+			kindChanged := record.Kind != "app"
+			descChanged := strings.TrimSpace(record.Description) != ""
+			repoChanged := strings.TrimSpace(record.RepoURL) != repoURL || !strings.EqualFold(record.RepositoryFullName, fullName)
+			if parentChanged || nameChanged || kindChanged || descChanged || repoChanged {
+				if _, err := tx.Exec(ctx, "UPDATE groups SET name = $1, kind = 'app', parent_id = $2, description = '', repo_url = $3, repository_full_name = $4, updated_at = NOW() WHERE id = $5", name, parentID, repoURL, fullName, record.ID); err != nil {
+					return 0, fmt.Errorf("failed to update app '%s': %w", name, err)
+				}
+				delete(existingGroups.byName, record.Name)
+				delete(existingGroups.byRepo, strings.ToLower(record.RepositoryFullName))
+				record.Name = name
+				record.Kind = "app"
+				record.ParentID = copyIntPointer(parentID)
+				record.Description = ""
+				record.RepoURL = repoURL
+				record.RepositoryFullName = fullName
+				registerGroupRecord(record)
+				details["run_groups_updated"]++
+			}
+			return record.ID, nil
+		}
+
+		var newID int
+		if err := tx.QueryRow(ctx, "INSERT INTO groups (name, kind, parent_id, description, repo_url, repository_full_name) VALUES ($1, 'app', $2, '', $3, $4) RETURNING id", name, parentID, repoURL, fullName).Scan(&newID); err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+				refreshed, loadErr := loadExistingGroupRecords(ctx, tx)
+				if loadErr != nil {
+					return 0, fmt.Errorf("failed to reload apps after conflict: %w", loadErr)
+				}
+				existingGroups = refreshed
+				return ensureApp(normalizedApp, parentID)
+			}
+			return 0, fmt.Errorf("failed to create app '%s': %w", name, err)
+		}
+		registerGroupRecord(&groupRecord{ID: newID, Name: name, Kind: "app", ParentID: copyIntPointer(parentID), RepoURL: repoURL, RepositoryFullName: fullName})
 		details["run_groups_created"]++
 		return newID, nil
 	}
 
 	var applyNode func(name string, node *pipelineRunStructureNode, parentID *int) error
 	applyNode = func(name string, node *pipelineRunStructureNode, parentID *int) error {
-		groupID, err := ensureGroup(name, parentID, node.Description)
+		groupID, err := ensureFolder(name, parentID, node.Description)
 		if err != nil {
 			return err
 		}
-		for _, repoName := range node.Repos {
-			if _, err := ensureGroup(repoName, &groupID, ""); err != nil {
+		apps := node.Apps
+		if len(apps) == 0 {
+			for _, repoName := range node.Repos {
+				apps = append(apps, pipelineRunStructureApp{Name: repoName, RepoURL: repoName})
+			}
+		}
+		for _, app := range apps {
+			if _, err := ensureApp(app, &groupID); err != nil {
 				return err
 			}
 		}
@@ -5242,9 +5486,13 @@ func parseScopeFilePath(rel string) (string, bool, error) {
 }
 
 func parseGitHubRepoURL(raw string) (string, string, error) {
+	return parseRepositoryIdentifier(raw, "config repository URL")
+}
+
+func parseRepositoryIdentifier(raw, label string) (string, string, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		return "", "", fmt.Errorf("config repository URL is empty")
+		return "", "", fmt.Errorf("%s is empty", label)
 	}
 
 	trimmed = strings.TrimSuffix(trimmed, ".git")
@@ -5252,31 +5500,118 @@ func parseGitHubRepoURL(raw string) (string, string, error) {
 	if strings.HasPrefix(trimmed, "git@") {
 		parts := strings.SplitN(trimmed, ":", 2)
 		if len(parts) != 2 {
-			return "", "", fmt.Errorf("invalid config repository URL: %s", raw)
+			return "", "", fmt.Errorf("invalid %s: %s", label, raw)
 		}
 		trimmed = parts[1]
 	}
 
+	var owner, repo string
 	if strings.Contains(trimmed, "://") {
 		u, err := url.Parse(trimmed)
 		if err != nil {
-			return "", "", fmt.Errorf("invalid config repository URL: %w", err)
+			return "", "", fmt.Errorf("invalid %s: %w", label, err)
 		}
 		path := strings.Trim(u.Path, "/")
 		parts := strings.Split(path, "/")
 		if len(parts) < 2 {
-			return "", "", fmt.Errorf("invalid config repository URL: %s", raw)
+			return "", "", fmt.Errorf("invalid %s: %s", label, raw)
 		}
-		return parts[len(parts)-2], parts[len(parts)-1], nil
+		if strings.EqualFold(u.Host, "github.com") || strings.HasSuffix(strings.ToLower(u.Host), ".github.com") {
+			owner, repo = parts[0], parts[1]
+		} else {
+			owner, repo = parts[len(parts)-2], parts[len(parts)-1]
+		}
+	} else {
+		trimmed = strings.Trim(trimmed, "/")
+		parts := strings.Split(trimmed, "/")
+		if len(parts) < 2 {
+			return "", "", fmt.Errorf("invalid %s: %s", label, raw)
+		}
+		owner, repo = parts[len(parts)-2], parts[len(parts)-1]
 	}
 
-	trimmed = strings.Trim(trimmed, "/")
-	parts := strings.Split(trimmed, "/")
-	if len(parts) < 2 {
-		return "", "", fmt.Errorf("invalid config repository URL: %s", raw)
+	owner = strings.Trim(strings.TrimSpace(owner), "/")
+	repo = strings.Trim(strings.TrimSpace(repo), "/")
+	repo = strings.TrimSuffix(repo, ".git")
+	if owner == "" || repo == "" || strings.Contains(owner, "..") || strings.Contains(repo, "..") {
+		return "", "", fmt.Errorf("invalid %s: %s", label, raw)
 	}
 
-	return parts[len(parts)-2], parts[len(parts)-1], nil
+	return owner, repo, nil
+}
+
+func repositoryFullNameFromURL(raw string) (string, error) {
+	owner, repo, err := parseRepositoryIdentifier(raw, "repository URL")
+	if err != nil {
+		return "", err
+	}
+	fullName := repositoryFullName(owner, repo)
+	if fullName == "" {
+		return "", fmt.Errorf("invalid repository URL: %s", raw)
+	}
+	return fullName, nil
+}
+
+func canonicalRepositoryURL(fullName string) string {
+	fullName = strings.Trim(strings.TrimSpace(fullName), "/")
+	if fullName == "" {
+		return ""
+	}
+	return "https://github.com/" + fullName
+}
+
+func repositoryDisplayNameFromFullName(fullName string) string {
+	_, repo := splitRepositoryID(fullName)
+	repo = strings.TrimSpace(repo)
+	if repo != "" {
+		return repo
+	}
+	return strings.Trim(strings.TrimSpace(fullName), "/")
+}
+
+func normalizeGroupForWrite(group *Group) error {
+	group.Name = strings.TrimSpace(group.Name)
+	group.Description = strings.TrimSpace(group.Description)
+	group.Kind = strings.TrimSpace(strings.ToLower(group.Kind))
+	group.RepoURL = strings.TrimSpace(group.RepoURL)
+	group.RepositoryFullName = strings.Trim(strings.TrimSpace(group.RepositoryFullName), "/")
+	if group.Kind == "" {
+		if group.RepoURL != "" || group.RepositoryFullName != "" {
+			group.Kind = "app"
+		} else {
+			group.Kind = "group"
+		}
+	}
+	switch group.Kind {
+	case "group":
+		if group.Name == "" {
+			return fmt.Errorf("group name is required")
+		}
+		group.RepoURL = ""
+		group.RepositoryFullName = ""
+	case "app":
+		if group.RepoURL == "" && group.RepositoryFullName != "" {
+			group.RepoURL = canonicalRepositoryURL(group.RepositoryFullName)
+		}
+		if group.RepoURL == "" {
+			return fmt.Errorf("repository URL is required")
+		}
+		fullName, err := repositoryFullNameFromURL(group.RepoURL)
+		if err != nil {
+			return err
+		}
+		group.RepositoryFullName = fullName
+		if group.Name == "" {
+			group.Name = repositoryDisplayNameFromFullName(fullName)
+		}
+		if _, err := normalizeStructureName(group.Name); err != nil {
+			return err
+		}
+		group.Description = ""
+	default:
+		return fmt.Errorf("kind must be group or app")
+	}
+	return nil
 }
 
 func (a *App) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
@@ -5286,7 +5621,10 @@ func (a *App) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	group.Description = strings.TrimSpace(group.Description)
+	if err := normalizeGroupForWrite(&group); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	if group.ParentID != nil {
 		parentResource, err := a.folderGrantResourceByGroupID(r.Context(), *group.ParentID)
@@ -5305,11 +5643,11 @@ func (a *App) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := `INSERT INTO groups (name, parent_id, description) VALUES ($1, $2, $3) RETURNING id`
-	err := a.db.QueryRow(context.Background(), query, group.Name, group.ParentID, group.Description).Scan(&group.ID)
+	query := `INSERT INTO groups (name, kind, parent_id, description, repo_url, repository_full_name) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`
+	err := a.db.QueryRow(context.Background(), query, group.Name, group.Kind, group.ParentID, group.Description, group.RepoURL, group.RepositoryFullName).Scan(&group.ID)
 	if err != nil {
 		if strings.Contains(err.Error(), "unique constraint") {
-			http.Error(w, "A folder or repository with this name already exists.", http.StatusConflict)
+			http.Error(w, "A group or app with this name or repository already exists.", http.StatusConflict)
 			return
 		}
 		log.Error().Err(err).Msg("Failed to create group")
@@ -5323,7 +5661,7 @@ func (a *App) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleGetGroups(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(context.Background(), "SELECT id, name, parent_id, description FROM groups")
+	rows, err := a.db.Query(context.Background(), "SELECT id, name, COALESCE(kind, 'group'), parent_id, description, COALESCE(repo_url, ''), COALESCE(repository_full_name, '') FROM groups")
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query groups from database")
 		http.Error(w, "Failed to retrieve groups", http.StatusInternalServerError)
@@ -5338,7 +5676,7 @@ func (a *App) handleGetGroups(w http.ResponseWriter, r *http.Request) {
 		var g Group
 		var parentID sql.NullInt32
 		var description sql.NullString
-		if err := rows.Scan(&g.ID, &g.Name, &parentID, &description); err != nil {
+		if err := rows.Scan(&g.ID, &g.Name, &g.Kind, &parentID, &description, &g.RepoURL, &g.RepositoryFullName); err != nil {
 			log.Error().Err(err).Msg("Failed to scan group row")
 			http.Error(w, "Error processing groups", http.StatusInternalServerError)
 			return
@@ -5349,6 +5687,22 @@ func (a *App) handleGetGroups(w http.ResponseWriter, r *http.Request) {
 		}
 		if description.Valid {
 			g.Description = description.String
+		}
+		if g.Kind == "" {
+			g.Kind = "group"
+		}
+		if g.Kind == "group" && (g.RepoURL != "" || g.RepositoryFullName != "" || strings.Contains(strings.Trim(g.Name, "/"), "/")) {
+			g.Kind = "app"
+		}
+		if g.Kind == "app" && g.RepositoryFullName == "" {
+			if fullName, err := repositoryFullNameFromURL(g.RepoURL); err == nil {
+				g.RepositoryFullName = fullName
+			} else if strings.Contains(g.Name, "/") {
+				g.RepositoryFullName = strings.Trim(g.Name, "/")
+			}
+		}
+		if g.Kind == "app" && g.RepoURL == "" && g.RepositoryFullName != "" {
+			g.RepoURL = canonicalRepositoryURL(g.RepositoryFullName)
 		}
 		allGroups = append(allGroups, g)
 	}
@@ -5439,7 +5793,10 @@ func (a *App) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	group.Description = strings.TrimSpace(group.Description)
+	if err := normalizeGroupForWrite(&group); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	resource, err := a.folderGrantResourceByGroupID(r.Context(), groupID)
 	if err != nil {
@@ -5454,11 +5811,11 @@ func (a *App) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := `UPDATE groups SET name = $1, parent_id = $2, description = $3, updated_at = NOW() WHERE id = $4`
-	_, err = a.db.Exec(context.Background(), query, group.Name, group.ParentID, group.Description, groupID)
+	query := `UPDATE groups SET name = $1, kind = $2, parent_id = $3, description = $4, repo_url = $5, repository_full_name = $6, updated_at = NOW() WHERE id = $7`
+	_, err = a.db.Exec(context.Background(), query, group.Name, group.Kind, group.ParentID, group.Description, group.RepoURL, group.RepositoryFullName, groupID)
 	if err != nil {
 		if strings.Contains(err.Error(), "unique constraint") {
-			http.Error(w, "A folder or repository with this name already exists.", http.StatusConflict)
+			http.Error(w, "A group or app with this name or repository already exists.", http.StatusConflict)
 			return
 		}
 		log.Error().Err(err).Msg("Failed to update group")
@@ -5589,8 +5946,8 @@ func (a *App) groupDeleteAuthorizationTarget(ctx context.Context, groupID int) (
 		return "", model.ResourceRef{}, fmt.Errorf("database unavailable")
 	}
 
-	var groupName string
-	if err := a.db.QueryRow(ctx, `SELECT name FROM groups WHERE id = $1`, groupID).Scan(&groupName); err != nil {
+	var groupName, kind, repositoryFullName string
+	if err := a.db.QueryRow(ctx, `SELECT name, COALESCE(kind, 'group'), COALESCE(repository_full_name, '') FROM groups WHERE id = $1`, groupID).Scan(&groupName, &kind, &repositoryFullName); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
 			return "", model.ResourceRef{}, fmt.Errorf("resource not found")
 		}
@@ -5601,13 +5958,16 @@ func (a *App) groupDeleteAuthorizationTarget(ctx context.Context, groupID int) (
 	if err != nil {
 		return "", model.ResourceRef{}, err
 	}
-	action, resourceRef := groupDeleteAuthorizationTargetFromName(groupName, resource)
+	action, resourceRef := groupDeleteAuthorizationTargetFromName(groupName, kind, repositoryFullName, resource)
 	return action, resourceRef, nil
 }
 
-func groupDeleteAuthorizationTargetFromName(groupName string, folderResource accessGrantResource) (string, model.ResourceRef) {
-	repositoryID := strings.Trim(strings.TrimSpace(groupName), "/")
-	if strings.Contains(repositoryID, "/") {
+func groupDeleteAuthorizationTargetFromName(groupName, kind, repositoryFullName string, folderResource accessGrantResource) (string, model.ResourceRef) {
+	repositoryID := strings.Trim(strings.TrimSpace(repositoryFullName), "/")
+	if repositoryID == "" {
+		repositoryID = strings.Trim(strings.TrimSpace(groupName), "/")
+	}
+	if kind == "app" || strings.Contains(repositoryID, "/") {
 		return "repository.delete", model.ResourceRef{Type: grantResourceRepo, ID: repositoryID}
 	}
 	return "folder.delete", model.ResourceRef{Type: grantResourceFolder, ID: folderResource.ID}
@@ -5724,6 +6084,9 @@ func main() {
 	}
 	if err := ensureAuthSchema(context.Background(), dbpool); err != nil {
 		log.Fatal().Err(err).Msg("Failed to ensure auth schema")
+	}
+	if err := ensureGroupSchema(context.Background(), dbpool); err != nil {
+		log.Fatal().Err(err).Msg("Failed to ensure group schema")
 	}
 	if err := ensureProductAccessBootstrap(context.Background(), dbpool); err != nil {
 		log.Fatal().Err(err).Msg("Failed to ensure product access roles")

@@ -50,6 +50,12 @@ you push:
 curl http://localhost:8080/v1/system/config-repo/drift
 ```
 
+Drift is bidirectional for syncable resources: Git-only changes appear as files
+to import or delete, and UI-side changes appear as generated GitOps updates.
+For pipeline, reusable step, scope, and knowledge context Access dialog changes,
+the generated diff updates the embedded `access:` block in that resource file so
+the change can be pushed to the configured review branch.
+
 The write endpoint accepts GitOps file paths relative to `base_path`:
 
 ```bash
@@ -87,7 +93,8 @@ Pipeline, reusable step, scope, and knowledge context files may also include an
 `access:` block. That block maps to the same resource Access UI controls:
 `visibility` controls Only this group / selected groups or repositories /
 Public, and `use_access` lists the groups or repositories that can use a
-restricted resource.
+restricted resource. When Access is changed in the UI, config repository drift
+exports the current Access state back into these same embedded blocks.
 
 ## Global repo file map
 
@@ -126,7 +133,7 @@ global-repo/config-repositories/groups/team-2/platform.yaml
   -> config repo binding and group shell for group team-2/platform
 
 global-repo/config-repositories/groups/structure.yaml
-  -> Pipeline Runs group structure, repositories under group shells, and inline group config repo binding for team-1
+  -> Pipeline Runs group structure, apps with repository URLs under group shells, and inline group config repo binding for team-1
 
 global-repo/access/*.yaml
   -> global users, advanced roles, policies, advanced role bindings, and basic role grants
@@ -186,10 +193,12 @@ master keys, service JWT signing keys, and webhook secrets stay in local runtime
 configuration or a secret manager.
 
 When the global repo defines group bindings under `config-repositories/groups`,
-those bindings create the group shells. Put repository placement next to those
-bindings in `config-repositories/groups/structure.yaml` or in a scoped file such
-as `config-repositories/groups/team-1/structure.yaml`. A group node can include
-`config:` with the same fields as a standalone binding file.
+those bindings create the group shells. Put app placement next to those bindings
+in `config-repositories/groups/structure.yaml` or in a scoped file such as
+`config-repositories/groups/team-1/structure.yaml`. A group node can include
+`apps:` entries with `name` and `repo_url`, plus `config:` with the same fields
+as a standalone binding file. Legacy `repos:` entries are still readable for
+migration.
 
 ## Group Repo File Map
 
