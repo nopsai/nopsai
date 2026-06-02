@@ -51,10 +51,18 @@ curl http://localhost:8080/v1/system/config-repo/drift
 ```
 
 Drift is bidirectional for syncable resources: Git-only changes appear as files
-to import or delete, and UI-side changes appear as generated GitOps updates.
-For pipeline, reusable step, scope, and knowledge context Access dialog changes,
-the generated diff updates the embedded `access:` block in that resource file so
-the change can be pushed to the configured review branch.
+to import or delete, and UI-side changes appear as generated GitOps updates. The
+check covers pipelines, reusable steps, schedules, trigger manifests, scopes,
+knowledge contexts, run group/config-repository structure, access manifests,
+LLM profiles, MCP registry files, and runtime settings. Pipeline run records
+themselves are runtime audit state, so they are not exported as Git-owned
+objects. For pipeline, reusable step, scope, and knowledge context Access dialog
+changes, the generated diff updates the embedded `access:` block in that
+resource file so the change can be pushed to the configured review branch.
+After the pushed files are merged into the sync branch, config sync may adopt
+matching database-owned resources inside the repo scope and flip them to GitOps
+ownership. This keeps the handoff from UI-created config to Git-owned config
+validated by the repository contents first.
 
 The write endpoint accepts GitOps file paths relative to `base_path`:
 
@@ -78,7 +86,7 @@ scopes/                Scope variable and secret key files
 knowledge/             Managed knowledge context markdown documents
 pipelineruns/          Run group structure
 config-repositories/   Group config repo bindings
-access/                Users, advanced roles, policies, and basic role grants
+access/                Users, service accounts, advanced roles, policies, and basic role grants
 setting/               System settings such as LLM, MCP, and runtime settings
 ```
 
@@ -111,6 +119,9 @@ global-repo/steps/shared/announce.yaml
 global-repo/triggers/acme/service-api.yaml
   -> trigger override acme/service-api
 
+global-repo/triggers/acme/deploy-webhook.yaml
+  -> trigger override acme/deploy-webhook for the webhook-deployer service account sample
+
 global-repo/scopes/dev/scope.yaml
   -> variables and secret key placeholders in scope dev
 
@@ -136,7 +147,10 @@ global-repo/config-repositories/groups/structure.yaml
   -> Pipeline Runs group structure, apps with repository URLs under group shells, and inline group config repo binding for team-1
 
 global-repo/access/*.yaml
-  -> global users, advanced roles, policies, advanced role bindings, and basic role grants
+  -> global users, service accounts, advanced roles, policies, advanced role bindings, and basic role grants
+
+global-repo/access/service-accounts.yaml
+  -> service account identity webhook-deployer and scoped grants for pipeline, scope, and trigger access
 
 global-repo/setting/system/llm_profile.yaml
   -> system LLM profile registry
@@ -147,6 +161,17 @@ global-repo/setting/system/mcp.yaml
 global-repo/setting/system/runner.yaml
   -> runner install defaults and dispatcher runtime routing
 ```
+
+The `webhook-deployer` service account is intentionally tokenless in Git. After
+sync, create or rotate its `nopsat_` token from System Access or
+`POST /v1/admin/service-accounts/{id}/tokens`, then use that token for
+integration API calls such as starting `platform-maintenance` in scope `dev`.
+The paired `triggers/acme/deploy-webhook.yaml` file shows the GitHub webhook
+trigger that maps `acme/deploy-webhook` events to the same pipeline and scope.
+If a service account is first created in the UI or API, config repository drift
+can export the identity and service-account product grants back to
+`access/service-accounts.yaml` for review-branch push. Token values remain local
+runtime secrets and are not exported.
 
 ## Runtime settings
 
@@ -182,15 +207,15 @@ the runner can accept every scope.
 runner only when the runner's declared scopes include the run scope and, when a
 matching routing entry exists, that runner ID is listed. The `*` entry applies
 alongside every scope-specific route and also covers scopes without an explicit
-entry. Changes to `dispatcher_routing` are written to runtime config, but the
-dispatcher service must be restarted or redeployed to use the new routing table
-for scheduling.
+entry. Changes to `dispatcher_routing` are written to runtime config and exposed
+through the protected internal control-plane endpoint that the dispatcher polls,
+so new scheduling decisions can use the updated table without a restart.
 
 Keep sensitive runtime values out of GitOps. This file intentionally supports
 only operational defaults such as service URLs, agent image/network defaults,
 timeouts, runner defaults, and dispatcher routing; secrets such as database URLs,
-master keys, service JWT signing keys, and webhook secrets stay in local runtime
-configuration or a secret manager.
+master keys, service JWT signing keys, webhook secrets, and service account
+tokens stay in local runtime configuration or a secret manager.
 
 When the global repo defines group bindings under `config-repositories/groups`,
 those bindings create the group shells. Put app placement next to those bindings
@@ -254,7 +279,14 @@ resource IDs are prefixed with the bound group automatically, so
 User `advanced_roles` are global access-role assignments and may reference
 custom roles or protected built-in bundles such as `viewer`, `developer`,
 `owner`, and `admin`. Use `basic_roles` when those same product role names
-should be scoped to a folder/group target.
+should be scoped to a folder/group target. Prefer `user: alice` and
+`service_account: webhook-deployer` in `basic_roles`; drift exports those
+shorthands and sync resolves them to the canonical runtime subject IDs. GitOps
+basic roles may point at pipelines, triggers, or scopes that are created later
+by a delegated group repo during the same sync-all run. Global drift still
+exports product `basic_roles` for delegated folders from `access/all.yaml` or
+`access/service-accounts.yaml`; embedded resource access is exported with the
+repo that owns the resource file.
 
 ## Embedded resource access
 

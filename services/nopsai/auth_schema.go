@@ -29,6 +29,19 @@ var authSchemaStatements = []string{
 	`ALTER TABLE personal_access_tokens ALTER COLUMN expires_at DROP NOT NULL`,
 	`CREATE INDEX IF NOT EXISTS idx_personal_access_tokens_user ON personal_access_tokens(user_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_personal_access_tokens_expiry ON personal_access_tokens(expires_at)`,
+	`CREATE TABLE IF NOT EXISTS service_account_tokens (
+		id UUID PRIMARY KEY,
+		service_account_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		name TEXT NOT NULL,
+		token_hash TEXT UNIQUE NOT NULL,
+		token_suffix TEXT NOT NULL DEFAULT '',
+		expires_at TIMESTAMPTZ,
+		last_used_at TIMESTAMPTZ,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		revoked_at TIMESTAMPTZ
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_service_account_tokens_account ON service_account_tokens(service_account_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_service_account_tokens_expiry ON service_account_tokens(expires_at)`,
 }
 
 func ensureAuthSchema(ctx context.Context, db *pgxpool.Pool) error {

@@ -84,6 +84,11 @@ func (s *Service) AuthenticateToken(ctx context.Context, raw string) (*Claims, e
 			return claims, nil
 		}
 	}
+	if strings.HasPrefix(raw, ServiceAccountTokenPrefix) {
+		if claims, err := s.authenticateServiceAccountToken(ctx, raw); err == nil {
+			return claims, nil
+		}
+	}
 
 	return nil, fmt.Errorf("token could not be verified")
 }
@@ -130,6 +135,57 @@ func (s *Service) authenticatePersonalAccessToken(ctx context.Context, raw strin
 		Sub:      sub,
 		Email:    email.String,
 		Provider: ProviderPersonalAccessToken,
+		Roles:    roles,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject: sub,
+			Issuer:  s.cfg.JWTIssuer,
+		},
+	}, nil
+}
+
+func (s *Service) authenticateServiceAccountToken(ctx context.Context, raw string) (*Claims, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("token store is not configured")
+	}
+	hash := HashToken(raw)
+	var (
+		tokenID uuid.UUID
+		userID  uuid.UUID
+		sub     string
+		email   sql.NullString
+		status  string
+	)
+	row := s.db.QueryRow(ctx, `
+		SELECT sat.id, sat.service_account_id, u.sub, u.email, u.status
+		FROM service_account_tokens sat
+		JOIN users u ON u.id = sat.service_account_id
+		WHERE sat.token_hash = $1
+		  AND sat.revoked_at IS NULL
+		  AND (sat.expires_at IS NULL OR sat.expires_at > NOW())
+		  AND u.provider = $2
+	`, hash, ProviderServiceAccount)
+	if err := row.Scan(&tokenID, &userID, &sub, &email, &status); err != nil {
+		return nil, err
+	}
+	if status != "active" {
+		return nil, fmt.Errorf("account disabled")
+	}
+
+	roles, err := s.fetchServiceAccountRoles(ctx, sub)
+	if err != nil {
+		return nil, err
+	}
+	_, _ = s.db.Exec(ctx, `
+		UPDATE service_account_tokens
+		SET last_used_at = NOW()
+		WHERE id = $1
+		  AND (last_used_at IS NULL OR last_used_at < NOW() - INTERVAL '1 minute')
+	`, tokenID)
+
+	return &Claims{
+		Sub:      sub,
+		Email:    email.String,
+		Provider: ProviderServiceAccountToken,
 		Roles:    roles,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: sub,
@@ -368,6 +424,32 @@ func (s *Service) lookupLoginUser(
 
 func (s *Service) fetchRoles(ctx context.Context, userID uuid.UUID) ([]string, error) {
 	rows, err := s.db.Query(ctx, `SELECT role FROM user_roles WHERE user_id = $1`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var roles []string
+	seen := make(map[string]struct{})
+	for rows.Next() {
+		var role string
+		if err := rows.Scan(&role); err != nil {
+			return nil, err
+		}
+		if _, ok := seen[role]; ok {
+			continue
+		}
+		seen[role] = struct{}{}
+		roles = append(roles, role)
+	}
+	return roles, nil
+}
+
+func (s *Service) fetchServiceAccountRoles(ctx context.Context, serviceAccountID string) ([]string, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT role_name
+		FROM auth_role_bindings
+		WHERE subject_type = 'service_account' AND subject_id = $1
+	`, serviceAccountID)
 	if err != nil {
 		return nil, err
 	}

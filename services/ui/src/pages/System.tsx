@@ -198,8 +198,30 @@ type UserSummary = {
   id: string;
   sub: string;
   email: string;
+  provider?: string;
   status: string;
   last_login?: string;
+  roles?: UserRole[];
+};
+
+type ServiceAccountToken = {
+  id: string;
+  name: string;
+  token?: string;
+  token_suffix: string;
+  created_at: string;
+  expires_at?: string;
+  last_used_at?: string;
+};
+
+type ServiceAccountSummary = {
+  id: string;
+  sub: string;
+  email: string;
+  provider?: string;
+  status: string;
+  token_count: number;
+  last_used_at?: string;
   roles?: UserRole[];
 };
 
@@ -327,6 +349,9 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
   const [users, setUsers] = useState<UserSummary[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState<string | null>(null);
+  const [serviceAccounts, setServiceAccounts] = useState<ServiceAccountSummary[]>([]);
+  const [serviceAccountsLoading, setServiceAccountsLoading] = useState(false);
+  const [serviceAccountsError, setServiceAccountsError] = useState<string | null>(null);
   const [accessGrants, setAccessGrants] = useState<AccessGrantRecord[]>([]);
   const [accessGrantsLoading, setAccessGrantsLoading] = useState(false);
   const [accessGrantsError, setAccessGrantsError] = useState<string | null>(null);
@@ -335,6 +360,7 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
   const [policiesLoading, setPoliciesLoading] = useState(false);
   const [policiesError, setPoliciesError] = useState<string | null>(null);
   const [newUser, setNewUser] = useState({ sub: '', email: '', password: '', roles: [] as string[] });
+  const [newServiceAccount, setNewServiceAccount] = useState({ sub: '', email: '', tokenName: 'default', roles: [] as string[] });
   const [newPermission, setNewPermission] = useState({ name: '', obj: 'pipeline:*', act: 'pipeline.read' });
 
   useEffect(() => {
@@ -521,6 +547,24 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     }
   }, [fetchJson]);
 
+  const loadServiceAccounts = useCallback(async () => {
+    setServiceAccountsLoading(true);
+    setServiceAccountsError(null);
+    try {
+      const payload = await fetchJson('/v1/admin/service-accounts');
+      const records = normalizeListPayload(payload, ['service_accounts', 'items', 'data', 'records', 'results']);
+      if (!records) {
+        setServiceAccountsError('Unexpected response');
+        return;
+      }
+      setServiceAccounts(records as ServiceAccountSummary[]);
+    } catch (error) {
+      setServiceAccountsError(error instanceof Error ? error.message : 'Unable to load service accounts');
+    } finally {
+      setServiceAccountsLoading(false);
+    }
+  }, [fetchJson]);
+
   const loadAccessGrants = useCallback(async () => {
     setAccessGrantsLoading(true);
     setAccessGrantsError(null);
@@ -675,6 +719,100 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     [addToast, fetchJson, loadAccessGrants, loadUsers, newUser.email, newUser.password, newUser.roles, newUser.sub]
   );
 
+  const createServiceAccount = useCallback(
+    async (e: FormEvent<HTMLFormElement>, options?: { basicGrants?: BasicGrantInput[] }): Promise<ServiceAccountToken | null> => {
+      e.preventDefault();
+      const roleAssignments = (newServiceAccount.roles || [])
+        .map(role => role.trim())
+        .filter(Boolean)
+        .filter((role, index, roles) => roles.indexOf(role) === index);
+      const basicGrants = normalizeBasicGrantInputs(options?.basicGrants || []);
+      if (roleAssignments.length === 0 && basicGrants.length === 0) {
+        addToast('Add at least one access role or basic role before creating a service account.', 'error');
+        return null;
+      }
+      try {
+        const sub = newServiceAccount.sub.trim();
+        const email = newServiceAccount.email.trim();
+        const primaryRole = roleAssignments[0] || '';
+        const created = await fetchJson('/v1/admin/service-accounts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sub,
+            email,
+            role: primaryRole,
+            token_name: newServiceAccount.tokenName.trim() || 'default',
+          }),
+        });
+        const createdRecord = asRecord(created);
+        const createdAccountRecord = asRecord(createdRecord?.service_account);
+        const serviceAccountId = readString(createdAccountRecord?.id);
+        const serviceAccountSub = readString(createdAccountRecord?.sub) || sub;
+        const token = asRecord(createdRecord?.token) as ServiceAccountToken | null;
+
+        if (!serviceAccountId || !serviceAccountSub) {
+          addToast('Service account created but ID not found; roles not assigned.', 'error');
+          await loadServiceAccounts();
+          return token;
+        }
+
+        for (const role of roleAssignments.slice(1)) {
+          try {
+            await fetchJson('/v1/admin/service-account-roles', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                service_account_id: serviceAccountId,
+                role,
+              }),
+            });
+          } catch (error) {
+            console.error('Failed to assign service account role', role, error);
+          }
+        }
+
+        for (const grant of basicGrants) {
+          try {
+            await fetchJson('/v1/access/grants', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                subject_type: 'service_account',
+                subject_id: serviceAccountSub,
+                role: grant.role,
+                resource_type: grant.resourceType,
+                resource_id: grant.resourceID,
+                inherit: grant.inherit,
+              }),
+            });
+          } catch (error) {
+            if (error instanceof Error && error.message.toLowerCase().includes('already exists')) {
+              continue;
+            }
+            throw error;
+          }
+        }
+
+        const savedParts = [
+          roleAssignments.length ? `${roleAssignments.length} access role(s)` : '',
+          basicGrants.length ? `${basicGrants.length} basic role(s)` : '',
+        ].filter(Boolean);
+        addToast(`Service account ${serviceAccountSub} saved with ${savedParts.join(' and ')}`, 'success');
+        setNewServiceAccount({ sub: '', email: '', tokenName: 'default', roles: [] });
+        await loadServiceAccounts();
+        if (basicGrants.length > 0) {
+          await loadAccessGrants();
+        }
+        return token;
+      } catch (error) {
+        addToast(error instanceof Error ? error.message : 'Failed to create service account', 'error');
+        return null;
+      }
+    },
+    [addToast, fetchJson, loadAccessGrants, loadServiceAccounts, newServiceAccount.email, newServiceAccount.roles, newServiceAccount.sub, newServiceAccount.tokenName]
+  );
+
   const createPermission = useCallback(
     async (e: FormEvent<HTMLFormElement>) => {
       e.preventDefault();
@@ -719,6 +857,20 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     [addToast, fetchJson, loadUsers]
   );
 
+  const deleteServiceAccount = useCallback(
+    async (serviceAccountId: string) => {
+      try {
+        await fetchJson(`/v1/admin/service-accounts/${encodeURIComponent(serviceAccountId)}`, { method: 'DELETE' });
+        addToast('Service account deleted', 'success');
+        await loadServiceAccounts();
+        await loadAccessGrants();
+      } catch (error) {
+        addToast(error instanceof Error ? error.message : 'Failed to delete service account', 'error');
+      }
+    },
+    [addToast, fetchJson, loadAccessGrants, loadServiceAccounts]
+  );
+
   const createAccessGrant = useCallback(
     async (input: { userID: string; role: string; resourceType: string; resourceID: string; inherit?: boolean }) => {
       const role = input.role.trim().toLowerCase();
@@ -730,6 +882,29 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
         body: JSON.stringify({
           subject_type: 'user',
           subject_id: input.userID,
+          role,
+          resource_type: resourceType,
+          resource_id: resourceID,
+          inherit: input.inherit,
+        }),
+      });
+      addToast('Basic role saved', 'success');
+      await loadAccessGrants();
+    },
+    [addToast, fetchJson, loadAccessGrants]
+  );
+
+  const createServiceAccountAccessGrant = useCallback(
+    async (input: { serviceAccountSub: string; role: string; resourceType: string; resourceID: string; inherit?: boolean }) => {
+      const role = input.role.trim().toLowerCase();
+      const resourceType = input.resourceType.trim();
+      const resourceID = input.resourceID.trim();
+      await fetchJson('/v1/access/grants', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject_type: 'service_account',
+          subject_id: input.serviceAccountSub,
           role,
           resource_type: resourceType,
           resource_id: resourceID,
@@ -782,9 +957,11 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
         addToast('Default roles cannot be deleted.', 'error');
         return;
       }
-      const inUse = users.some(user => (user.roles || []).some(r => r.role === role.role));
+      const inUse =
+        users.some(user => (user.roles || []).some(r => r.role === role.role)) ||
+        serviceAccounts.some(account => (account.roles || []).some(r => r.role === role.role));
       if (inUse) {
-        addToast('Cannot delete a role that is still assigned to users. Remove assignments first.', 'error');
+        addToast('Cannot delete a role that is still assigned. Remove assignments first.', 'error');
         return;
       }
       try {
@@ -805,7 +982,7 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
         addToast(error instanceof Error ? error.message : 'Failed to remove role', 'error');
       }
     },
-    [addToast, fetchJson, loadPolicies, users]
+    [addToast, fetchJson, loadPolicies, serviceAccounts, users]
   );
 
   const saveRoleDefinition = useCallback(
@@ -1090,6 +1267,108 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     [addToast, fetchJson, loadUsers]
   );
 
+  const updateServiceAccountRoles = useCallback(
+    async (serviceAccountId: string, nextRoles: string[], previousRoles: string[]) => {
+      const cleanedPrev = previousRoles.map(role => role.trim()).filter(Boolean);
+      const cleanedNext = nextRoles
+        .map(role => role.trim())
+        .filter(Boolean)
+        .filter((role, index, roles) => roles.indexOf(role) === index);
+      const prevKeys = new Set(cleanedPrev);
+      const nextKeys = new Set(cleanedNext);
+      const toRemove = cleanedPrev.filter(role => !nextKeys.has(role));
+      const toAdd = cleanedNext.filter(role => !prevKeys.has(role));
+      try {
+        for (const role of toRemove) {
+          await fetchJson('/v1/admin/service-account-roles', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              service_account_id: serviceAccountId,
+              role,
+            }),
+          });
+        }
+        for (const role of toAdd) {
+          await fetchJson('/v1/admin/service-account-roles', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              service_account_id: serviceAccountId,
+              role,
+            }),
+          });
+        }
+        if (toAdd.length === 0 && toRemove.length === 0) {
+          addToast('No changes to save for this service account.', 'info');
+        } else {
+          addToast('Service account access updated', 'success');
+        }
+        await loadServiceAccounts();
+      } catch (error) {
+        addToast(error instanceof Error ? error.message : 'Failed to update service account roles', 'error');
+        throw error;
+      }
+    },
+    [addToast, fetchJson, loadServiceAccounts]
+  );
+
+  const updateServiceAccount = useCallback(
+    async (serviceAccountId: string, input: { email?: string; status?: string }) => {
+      const payload: Record<string, string> = {};
+      if (input.email) payload.email = input.email.trim();
+      if (input.status) payload.status = input.status.trim();
+      if (Object.keys(payload).length === 0) return;
+      try {
+        await fetchJson(`/v1/admin/service-accounts/${encodeURIComponent(serviceAccountId)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        addToast('Service account updated', 'success');
+        await loadServiceAccounts();
+      } catch (error) {
+        addToast(error instanceof Error ? error.message : 'Failed to update service account', 'error');
+        throw error;
+      }
+    },
+    [addToast, fetchJson, loadServiceAccounts]
+  );
+
+  const loadServiceAccountTokens = useCallback(
+    async (serviceAccountId: string): Promise<ServiceAccountToken[]> => {
+      const payload = await fetchJson(`/v1/admin/service-accounts/${encodeURIComponent(serviceAccountId)}/tokens`);
+      const records = normalizeListPayload(payload, ['tokens', 'items', 'data', 'records', 'results']);
+      return records ? (records as ServiceAccountToken[]) : [];
+    },
+    [fetchJson]
+  );
+
+  const createServiceAccountToken = useCallback(
+    async (serviceAccountId: string, name: string): Promise<ServiceAccountToken> => {
+      const token = (await fetchJson(`/v1/admin/service-accounts/${encodeURIComponent(serviceAccountId)}/tokens`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim() }),
+      })) as ServiceAccountToken;
+      addToast('Service account token created', 'success');
+      await loadServiceAccounts();
+      return token;
+    },
+    [addToast, fetchJson, loadServiceAccounts]
+  );
+
+  const revokeServiceAccountToken = useCallback(
+    async (serviceAccountId: string, tokenId: string) => {
+      await fetchJson(`/v1/admin/service-accounts/${encodeURIComponent(serviceAccountId)}/tokens/${encodeURIComponent(tokenId)}`, {
+        method: 'DELETE',
+      });
+      addToast('Service account token revoked', 'success');
+      await loadServiceAccounts();
+    },
+    [addToast, fetchJson, loadServiceAccounts]
+  );
+
   const saveConfig = useCallback(async () => {
     if (saving) return;
     setSaving(true);
@@ -1348,10 +1627,11 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
   useEffect(() => {
     if (permissions.canViewAccess && visibleTab === 'access') {
       void loadUsers();
+      void loadServiceAccounts();
       void loadAccessGrants();
       void loadPolicies();
     }
-  }, [loadAccessGrants, loadPolicies, loadUsers, permissions.canViewAccess, visibleTab]);
+  }, [loadAccessGrants, loadPolicies, loadServiceAccounts, loadUsers, permissions.canViewAccess, visibleTab]);
 
   useEffect(() => {
     const handle = window.setInterval(() => {
@@ -1427,6 +1707,9 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
           users={users}
           loading={usersLoading}
           error={usersError}
+          serviceAccounts={serviceAccounts}
+          serviceAccountsLoading={serviceAccountsLoading}
+          serviceAccountsError={serviceAccountsError}
           accessGrants={accessGrants}
           accessGrantsLoading={accessGrantsLoading}
           accessGrantsError={accessGrantsError}
@@ -1434,24 +1717,35 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
           policiesLoading={policiesLoading}
           policiesError={policiesError}
           newUser={newUser}
+          newServiceAccount={newServiceAccount}
           policyTemplates={policyTemplates}
           onChangeUser={setNewUser}
           onCreateUser={createUser}
+          onChangeServiceAccount={setNewServiceAccount}
+          onCreateServiceAccount={createServiceAccount}
           onReloadUsers={loadUsers}
+          onReloadServiceAccounts={loadServiceAccounts}
           onReloadPolicies={loadPolicies}
           onCreatePermission={createPermission}
           newPermission={newPermission}
           onChangePermission={setNewPermission}
           onDeleteUser={deleteUser}
+          onDeleteServiceAccount={deleteServiceAccount}
           onDeletePolicy={deletePolicy}
           onDeleteRoleDefinition={deleteRoleDefinition}
           onSaveRoleDefinition={saveRoleDefinition}
           onEditPolicy={editPolicy}
           onUpdateUserRoles={updateUserRoles}
+          onUpdateServiceAccountRoles={updateServiceAccountRoles}
           onCreateAccessGrant={createAccessGrant}
+          onCreateServiceAccountAccessGrant={createServiceAccountAccessGrant}
           onDeleteAccessGrant={deleteAccessGrant}
           onReloadAccessGrants={loadAccessGrants}
           onUpdateUser={updateUser}
+          onUpdateServiceAccount={updateServiceAccount}
+          onLoadServiceAccountTokens={loadServiceAccountTokens}
+          onCreateServiceAccountToken={createServiceAccountToken}
+          onRevokeServiceAccountToken={revokeServiceAccountToken}
         />
       )}
 
@@ -1532,7 +1826,7 @@ const ACCESS_ROLE_PRESETS: Array<{
 ];
 
 const ACCESS_SECTION_CONTENT: Record<
-  'users' | 'roles' | 'policies',
+  'users' | 'service-accounts' | 'roles' | 'policies',
   { title: string; description: string; searchPlaceholder: string; resultsLabel: string }
 > = {
   users: {
@@ -1540,6 +1834,12 @@ const ACCESS_SECTION_CONTENT: Record<
     description: 'See who can sign in, what they can do, and which accounts still need access assigned.',
     searchPlaceholder: 'Search by username, email, or role',
     resultsLabel: 'people',
+  },
+  'service-accounts': {
+    title: 'Service accounts',
+    description: 'Manage token-only identities for integrations, automation, and service-to-service access.',
+    searchPlaceholder: 'Search by service account, contact, token, or role',
+    resultsLabel: 'service accounts',
   },
   roles: {
     title: 'Reusable role bundles',
@@ -1681,6 +1981,13 @@ const accessGrantMatchesUser = (grant: AccessGrantRecord, user: UserSummary) => 
   const subjectID = (grant.subjectID || '').trim();
   if (subjectType !== 'user' || !subjectID) return false;
   return subjectID === user.id || subjectID === user.sub || subjectID === user.email;
+};
+
+const accessGrantMatchesServiceAccount = (grant: AccessGrantRecord, account: ServiceAccountSummary) => {
+  const subjectType = (grant.subjectType || '').trim();
+  const subjectID = (grant.subjectID || '').trim();
+  if (subjectType !== 'service_account' || !subjectID) return false;
+  return subjectID === account.sub || subjectID === account.id;
 };
 
 const matchesAccessSearch = (query: string, ...values: Array<string | undefined>) => {
@@ -2686,6 +2993,9 @@ function AccessPanel({
   users,
   loading,
   error,
+  serviceAccounts,
+  serviceAccountsLoading,
+  serviceAccountsError,
   accessGrants,
   accessGrantsLoading,
   accessGrantsError,
@@ -2693,28 +3003,42 @@ function AccessPanel({
   policiesLoading,
   policiesError,
   newUser,
+  newServiceAccount,
   policyTemplates,
   onChangeUser,
   onCreateUser,
+  onChangeServiceAccount,
+  onCreateServiceAccount,
   onReloadUsers,
+  onReloadServiceAccounts,
   onCreatePermission,
   newPermission,
   onChangePermission,
   onDeleteUser,
+  onDeleteServiceAccount,
   onDeletePolicy,
   onDeleteRoleDefinition,
   onSaveRoleDefinition,
   onEditPolicy,
   onUpdateUserRoles,
+  onUpdateServiceAccountRoles,
   onCreateAccessGrant,
+  onCreateServiceAccountAccessGrant,
   onDeleteAccessGrant,
   onReloadAccessGrants,
   onReloadPolicies,
   onUpdateUser,
+  onUpdateServiceAccount,
+  onLoadServiceAccountTokens,
+  onCreateServiceAccountToken,
+  onRevokeServiceAccountToken,
 }: {
   users: UserSummary[];
   loading: boolean;
   error: string | null;
+  serviceAccounts: ServiceAccountSummary[];
+  serviceAccountsLoading: boolean;
+  serviceAccountsError: string | null;
   accessGrants: AccessGrantRecord[];
   accessGrantsLoading: boolean;
   accessGrantsError: string | null;
@@ -2722,28 +3046,40 @@ function AccessPanel({
   policiesLoading: boolean;
   policiesError: string | null;
   newUser: { sub: string; email: string; password: string; roles: string[] };
+  newServiceAccount: { sub: string; email: string; tokenName: string; roles: string[] };
   policyTemplates: RolePermission[];
   onChangeUser: (next: { sub: string; email: string; password: string; roles: string[] }) => void;
   onCreateUser: (e: FormEvent<HTMLFormElement>, options?: { basicGrants?: BasicGrantInput[] }) => Promise<boolean>;
+  onChangeServiceAccount: (next: { sub: string; email: string; tokenName: string; roles: string[] }) => void;
+  onCreateServiceAccount: (e: FormEvent<HTMLFormElement>, options?: { basicGrants?: BasicGrantInput[] }) => Promise<ServiceAccountToken | null>;
   onReloadUsers: () => void;
+  onReloadServiceAccounts: () => void;
   onCreatePermission: (e: FormEvent<HTMLFormElement>) => Promise<void>;
   newPermission: { name: string; obj: string; act: string };
   onChangePermission: (next: { name: string; obj: string; act: string }) => void;
   onDeleteUser: (userId: string) => Promise<void>;
+  onDeleteServiceAccount: (serviceAccountId: string) => Promise<void>;
   onDeletePolicy: (policy: RolePermission) => Promise<void>;
   onDeleteRoleDefinition: (role: RoleDefinition) => Promise<void>;
   onSaveRoleDefinition: (input: { role: string; policies: RolePolicyDraft[]; original?: RolePermission[] }) => Promise<void>;
   onEditPolicy: (current: RolePermission, next: { role: string; name: string; obj: string; act: string }) => Promise<void>;
   onUpdateUserRoles: (userId: string, nextRoles: string[], previousRoles: string[]) => Promise<void>;
+  onUpdateServiceAccountRoles: (serviceAccountId: string, nextRoles: string[], previousRoles: string[]) => Promise<void>;
   onCreateAccessGrant: (input: { userID: string; role: string; resourceType: string; resourceID: string; inherit?: boolean }) => Promise<void>;
+  onCreateServiceAccountAccessGrant: (input: { serviceAccountSub: string; role: string; resourceType: string; resourceID: string; inherit?: boolean }) => Promise<void>;
   onDeleteAccessGrant: (grantID: string) => Promise<void>;
   onReloadAccessGrants: () => void;
   onReloadPolicies: () => void;
   onUpdateUser: (userId: string, input: { email?: string; status?: string; password?: string }) => Promise<void>;
+  onUpdateServiceAccount: (serviceAccountId: string, input: { email?: string; status?: string }) => Promise<void>;
+  onLoadServiceAccountTokens: (serviceAccountId: string) => Promise<ServiceAccountToken[]>;
+  onCreateServiceAccountToken: (serviceAccountId: string, name: string) => Promise<ServiceAccountToken>;
+  onRevokeServiceAccountToken: (serviceAccountId: string, tokenId: string) => Promise<void>;
 }) {
   const [accessMode, setAccessMode] = useState<'basic' | 'advanced'>('basic');
-  const [activeSection, setActiveSection] = useState<'users' | 'roles' | 'policies'>('users');
+  const [activeSection, setActiveSection] = useState<'users' | 'service-accounts' | 'roles' | 'policies'>('users');
   const [showUserModal, setShowUserModal] = useState(false);
+  const [showServiceAccountModal, setShowServiceAccountModal] = useState(false);
   const [showPolicyModal, setShowPolicyModal] = useState(false);
   const [roleEditor, setRoleEditor] = useState<{
     mode: 'create' | 'edit';
@@ -2768,12 +3104,28 @@ function AccessPanel({
     status: string;
     password: string;
   } | null>(null);
+  const [serviceAccountEditor, setServiceAccountEditor] = useState<{
+    account: ServiceAccountSummary;
+    entries: string[];
+    original: string[];
+    email: string;
+    status: string;
+    tokenName: string;
+    tokens: ServiceAccountToken[];
+    tokensLoading: boolean;
+    tokensError: string | null;
+  } | null>(null);
+  const [createdServiceAccountToken, setCreatedServiceAccountToken] = useState<ServiceAccountToken | null>(null);
+  const [copyServiceAccountTokenLabel, setCopyServiceAccountTokenLabel] = useState('Copy');
   const [savingRoleEditor, setSavingRoleEditor] = useState(false);
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [savingUserAccess, setSavingUserAccess] = useState(false);
+  const [savingServiceAccountAccess, setSavingServiceAccountAccess] = useState(false);
   const [creatingUserInline, setCreatingUserInline] = useState(false);
+  const [creatingServiceAccountInline, setCreatingServiceAccountInline] = useState(false);
   const [creatingPolicyInline, setCreatingPolicyInline] = useState(false);
   const [awaitingUserCreateReset, setAwaitingUserCreateReset] = useState(false);
+  const [awaitingServiceAccountCreateReset, setAwaitingServiceAccountCreateReset] = useState(false);
   const [awaitingPolicyCreateReset, setAwaitingPolicyCreateReset] = useState(false);
   const [basicGrantDraft, setBasicGrantDraft] = useState({ role: '', scope: GENERAL_ACCESS_SCOPE });
   const [basicGrantEntries, setBasicGrantEntries] = useState<EditableAccessGrant[]>([]);
@@ -2802,8 +3154,8 @@ function AccessPanel({
 
   const roleAssignments = useMemo(
     () =>
-      users
-        .flatMap(user =>
+      [
+        ...users.flatMap(user =>
           (user.roles || []).map(role => ({
             id: `${user.id}-${role.role}`,
             role: role.role,
@@ -2811,10 +3163,22 @@ function AccessPanel({
             userId: user.id,
             email: user.email,
             status: user.status,
+            kind: 'user',
           }))
-        )
-        .sort((a, b) => a.role.localeCompare(b.role) || a.user.localeCompare(b.user)),
-    [users]
+        ),
+        ...serviceAccounts.flatMap(account =>
+          (account.roles || []).map(role => ({
+            id: `${account.id}-${role.role}`,
+            role: role.role,
+            user: account.sub,
+            userId: account.id,
+            email: account.email,
+            status: account.status,
+            kind: 'service-account',
+          }))
+        ),
+      ].sort((a, b) => a.role.localeCompare(b.role) || a.user.localeCompare(b.user)),
+    [serviceAccounts, users]
   );
 
   const roleDefinitions = useMemo(() => {
@@ -2836,10 +3200,10 @@ function AccessPanel({
   }, [roleDefinitions]);
 
   const roleUserMap = useMemo(() => {
-    const map = new Map<string, { user: string; userId: string; email: string }[]>();
+    const map = new Map<string, { user: string; userId: string; email: string; kind: string }[]>();
     roleAssignments.forEach(item => {
       const existing = map.get(item.role) || [];
-      existing.push({ user: item.user, userId: item.userId, email: item.email });
+      existing.push({ user: item.user, userId: item.userId, email: item.email, kind: item.kind });
       map.set(item.role, existing);
     });
     return map;
@@ -2847,6 +3211,7 @@ function AccessPanel({
 
   const tabItems = [
     { id: 'users', label: 'Users', count: users.length },
+    { id: 'service-accounts', label: 'Service accounts', count: serviceAccounts.length },
     { id: 'roles', label: 'Roles', count: roleDefinitions.length },
     { id: 'policies', label: 'Policies', count: policyTemplates.length },
   ] as const;
@@ -2864,10 +3229,25 @@ function AccessPanel({
     setNextUserRole('');
     setAwaitingUserCreateReset(false);
     setUserAccessEditor(null);
+    setServiceAccountEditor(null);
     setBasicGrantError(null);
     setBasicGrantDraft({ role: '', scope: GENERAL_ACCESS_SCOPE });
     setBasicGrantEntries([]);
+    setShowServiceAccountModal(false);
     setShowUserModal(true);
+  }, []);
+
+  const openCreateServiceAccountEditor = useCallback(() => {
+    setNextUserRole('');
+    setAwaitingServiceAccountCreateReset(false);
+    setUserAccessEditor(null);
+    setServiceAccountEditor(null);
+    setCreatedServiceAccountToken(null);
+    setBasicGrantError(null);
+    setBasicGrantDraft({ role: '', scope: GENERAL_ACCESS_SCOPE });
+    setBasicGrantEntries([]);
+    setShowUserModal(false);
+    setShowServiceAccountModal(true);
   }, []);
 
   const openCreatePolicyEditor = useCallback(() => {
@@ -2903,6 +3283,8 @@ function AccessPanel({
   const openUserAccessModal = (user: UserSummary) => {
     setAwaitingUserCreateReset(false);
     setShowUserModal(false);
+    setShowServiceAccountModal(false);
+    setServiceAccountEditor(null);
     setBasicGrantError(null);
     setBasicGrantDraft({ role: '', scope: GENERAL_ACCESS_SCOPE });
     setBasicGrantEntries((basicUserGrantMap.get(user.id) || []).map(editableAccessGrantFromRecord));
@@ -2916,6 +3298,40 @@ function AccessPanel({
       status: user.status || 'active',
       password: '',
     });
+  };
+
+  const openServiceAccountAccessModal = (account: ServiceAccountSummary) => {
+    setAwaitingServiceAccountCreateReset(false);
+    setShowServiceAccountModal(false);
+    setShowUserModal(false);
+    setUserAccessEditor(null);
+    setCreatedServiceAccountToken(null);
+    setBasicGrantError(null);
+    setBasicGrantDraft({ role: '', scope: GENERAL_ACCESS_SCOPE });
+    setBasicGrantEntries((basicServiceAccountGrantMap.get(account.sub) || []).map(editableAccessGrantFromRecord));
+    const entries = (account.roles || []).map(role => role.role);
+    setServiceAccountEditor({
+      account,
+      entries,
+      original: entries,
+      email: account.email || '',
+      status: account.status || 'active',
+      tokenName: 'rotation',
+      tokens: [],
+      tokensLoading: true,
+      tokensError: null,
+    });
+    void onLoadServiceAccountTokens(account.id)
+      .then(tokens => {
+        setServiceAccountEditor(prev => (prev?.account.id === account.id ? { ...prev, tokens, tokensLoading: false, tokensError: null } : prev));
+      })
+      .catch(error => {
+        setServiceAccountEditor(prev => (
+          prev?.account.id === account.id
+            ? { ...prev, tokensLoading: false, tokensError: error instanceof Error ? error.message : 'Unable to load tokens' }
+            : prev
+        ));
+      });
   };
 
   const removeRolePolicyDraft = (index: number) => {
@@ -3016,6 +3432,39 @@ function AccessPanel({
     }
   };
 
+  const handleSaveServiceAccountAccess = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!serviceAccountEditor) return;
+    const deduped = serviceAccountEditor.entries
+      .map(role => role.trim())
+      .filter(Boolean)
+      .filter((role, index, roles) => roles.indexOf(role) === index);
+    setSavingServiceAccountAccess(true);
+    try {
+      const updatePayload: { email?: string; status?: string } = {};
+      const emailTrimmed = serviceAccountEditor.email.trim();
+      if (emailTrimmed && emailTrimmed !== serviceAccountEditor.account.email) {
+        updatePayload.email = emailTrimmed;
+      }
+      const statusTrimmed = serviceAccountEditor.status.trim();
+      if (statusTrimmed && statusTrimmed !== serviceAccountEditor.account.status) {
+        updatePayload.status = statusTrimmed;
+      }
+      if (Object.keys(updatePayload).length > 0) {
+        await onUpdateServiceAccount(serviceAccountEditor.account.id, updatePayload);
+      }
+      await onUpdateServiceAccountRoles(serviceAccountEditor.account.id, deduped, serviceAccountEditor.original);
+      if (basicGrantDirty) {
+        await saveBasicGrantsForServiceAccount(serviceAccountEditor.account);
+      }
+      setServiceAccountEditor(null);
+    } catch (error) {
+      console.error('Failed to update service account access', error);
+    } finally {
+      setSavingServiceAccountAccess(false);
+    }
+  };
+
   const addUserAccessEntry = () => {
     setUserAccessEditor(prev => {
       if (!prev) return prev;
@@ -3032,6 +3481,25 @@ function AccessPanel({
     setUserAccessEditor(prev => {
       if (!prev) return prev;
       if (isDefaultAdminUser(prev.user)) return prev;
+      const next = prev.entries.filter((_, i) => i !== index);
+      return { ...prev, entries: next };
+    });
+  };
+
+  const addServiceAccountAccessEntry = () => {
+    setServiceAccountEditor(prev => {
+      if (!prev) return prev;
+      const roleName = nextAccessRole.trim();
+      if (!roleName) return prev;
+      if (prev.entries.some(entry => assignmentKey(entry) === assignmentKey(roleName))) return prev;
+      return { ...prev, entries: [...prev.entries, roleName] };
+    });
+    setNextAccessRole('');
+  };
+
+  const removeServiceAccountAccessEntry = (index: number) => {
+    setServiceAccountEditor(prev => {
+      if (!prev) return prev;
       const next = prev.entries.filter((_, i) => i !== index);
       return { ...prev, entries: next };
     });
@@ -3057,6 +3525,29 @@ function AccessPanel({
       return;
     }
     onChangeUser({ ...newUser, roles: [...(newUser.roles || []), roleName] });
+    setNextUserRole('');
+  };
+
+  const updateNewServiceAccountRoleEntry = (index: number, value: string) => {
+    const next = [...(newServiceAccount.roles || [])];
+    next[index] = value;
+    onChangeServiceAccount({ ...newServiceAccount, roles: next });
+  };
+
+  const removeNewServiceAccountRoleEntry = (index: number) => {
+    const next = (newServiceAccount.roles || []).filter((_, i) => i !== index);
+    onChangeServiceAccount({ ...newServiceAccount, roles: next });
+  };
+
+  const appendServiceAccountRoleFromPicker = () => {
+    const roleName = nextUserRole.trim();
+    if (!roleName) return;
+    const existing = (newServiceAccount.roles || []).some(entry => entry.trim().toLowerCase() === roleName.toLowerCase());
+    if (existing) {
+      setNextUserRole('');
+      return;
+    }
+    onChangeServiceAccount({ ...newServiceAccount, roles: [...(newServiceAccount.roles || []), roleName] });
     setNextUserRole('');
   };
 
@@ -3115,6 +3606,26 @@ function AccessPanel({
     return map;
   }, [basicAccessGrants, users]);
 
+  const basicServiceAccountGrantMap = useMemo(() => {
+    const map = new Map<string, AccessGrantRecord[]>();
+    basicAccessGrants.forEach(grant => {
+      const account = serviceAccounts.find(entry => accessGrantMatchesServiceAccount(grant, entry));
+      const key = account?.sub || grant.subjectID;
+      if (!key) return;
+      const entries = map.get(key) || [];
+      entries.push(grant);
+      map.set(key, entries);
+    });
+    map.forEach(entries => {
+      entries.sort(
+        (a, b) =>
+          accessGrantSortLabel(a).localeCompare(accessGrantSortLabel(b), undefined, { sensitivity: 'base' }) ||
+          a.role.localeCompare(b.role, undefined, { sensitivity: 'base' })
+      );
+    });
+    return map;
+  }, [basicAccessGrants, serviceAccounts]);
+
   const sectionContent = ACCESS_SECTION_CONTENT[activeSection];
   const filteredUsers = useMemo(() => {
     if (!searchQuery) return users;
@@ -3130,6 +3641,22 @@ function AccessPanel({
       );
     });
   }, [basicUserGrantMap, searchQuery, users]);
+
+  const filteredServiceAccounts = useMemo(() => {
+    if (!searchQuery) return serviceAccounts;
+    return serviceAccounts.filter(account => {
+      const grants = basicServiceAccountGrantMap.get(account.sub) || [];
+      return matchesAccessSearch(
+        searchQuery,
+        account.sub,
+        account.email,
+        account.status,
+        String(account.token_count || 0),
+        (account.roles || []).map(role => role.role).join(' '),
+        grants.map(grant => basicAccessGrantLabel(grant)).join(' ')
+      );
+    });
+  }, [basicServiceAccountGrantMap, searchQuery, serviceAccounts]);
 
   const filteredRoleDefinitions = useMemo(() => {
     if (!searchQuery) return roleDefinitions;
@@ -3169,21 +3696,35 @@ function AccessPanel({
     !newUser.password &&
     (newUser.roles || []).length === 0 &&
     basicGrantEntries.length === 0;
+  const isNewServiceAccountPristine =
+    !newServiceAccount.sub.trim() &&
+    !newServiceAccount.email.trim() &&
+    (newServiceAccount.tokenName.trim() === '' || newServiceAccount.tokenName.trim() === 'default') &&
+    (newServiceAccount.roles || []).length === 0 &&
+    basicGrantEntries.length === 0 &&
+    !createdServiceAccountToken;
   const isNewPolicyPristine =
     !newPermission.name.trim() && newPermission.obj.trim() === 'pipeline:*' && newPermission.act.trim() === 'pipeline.read';
   const selectedBasicUserID = userAccessEditor?.user.id || '';
   const selectedBasicUser = userAccessEditor?.user ?? null;
+  const selectedBasicServiceAccountSub = serviceAccountEditor?.account.sub || '';
+  const selectedBasicServiceAccount = serviceAccountEditor?.account ?? null;
   const userRoleAssignmentsLocked = isDefaultAdminUser(userAccessEditor?.user);
   const selectedBasicUserGrants = useMemo(
     () => (selectedBasicUserID ? basicUserGrantMap.get(selectedBasicUserID) || [] : []),
     [basicUserGrantMap, selectedBasicUserID]
   );
+  const selectedBasicServiceAccountGrants = useMemo(
+    () => (selectedBasicServiceAccountSub ? basicServiceAccountGrantMap.get(selectedBasicServiceAccountSub) || [] : []),
+    [basicServiceAccountGrantMap, selectedBasicServiceAccountSub]
+  );
+  const selectedBasicGrants = selectedBasicServiceAccount ? selectedBasicServiceAccountGrants : selectedBasicUserGrants;
   const basicGrantDirty = useMemo(() => {
-    const originalKeys = new Set(selectedBasicUserGrants.map(grant => accessGrantEditKey(grant)));
+    const originalKeys = new Set(selectedBasicGrants.map(grant => accessGrantEditKey(grant)));
     const draftKeys = new Set(basicGrantEntries.map(grant => accessGrantEditKey(grant)));
     if (originalKeys.size !== draftKeys.size) return true;
     return Array.from(originalKeys).some(key => !draftKeys.has(key));
-  }, [basicGrantEntries, selectedBasicUserGrants]);
+  }, [basicGrantEntries, selectedBasicGrants]);
   const basicGrantDraftDuplicate = useMemo(() => {
     const role = basicGrantDraft.role.trim().toLowerCase();
     if (!role) return false;
@@ -3304,6 +3845,12 @@ function AccessPanel({
   }, [awaitingUserCreateReset, isNewUserPristine, showUserModal]);
 
   useEffect(() => {
+    if (!showServiceAccountModal || !awaitingServiceAccountCreateReset || !isNewServiceAccountPristine) return;
+    setShowServiceAccountModal(false);
+    setAwaitingServiceAccountCreateReset(false);
+  }, [awaitingServiceAccountCreateReset, isNewServiceAccountPristine, showServiceAccountModal]);
+
+  useEffect(() => {
     if (!showPolicyModal || !awaitingPolicyCreateReset || !isNewPolicyPristine) return;
     setShowPolicyModal(false);
     setAwaitingPolicyCreateReset(false);
@@ -3324,6 +3871,23 @@ function AccessPanel({
     }
   };
 
+  const handleCreateServiceAccountInline = async (e: FormEvent<HTMLFormElement>) => {
+    setCreatingServiceAccountInline(true);
+    setAwaitingServiceAccountCreateReset(true);
+    try {
+      const token = await onCreateServiceAccount(e, { basicGrants: normalizeEditableBasicGrants(basicGrantEntries) });
+      if (token) {
+        setCreatedServiceAccountToken(token);
+        setCopyServiceAccountTokenLabel('Copy');
+        setBasicGrantError(null);
+        setBasicGrantDraft({ role: '', scope: GENERAL_ACCESS_SCOPE });
+        setBasicGrantEntries([]);
+      }
+    } finally {
+      setCreatingServiceAccountInline(false);
+    }
+  };
+
   const handleCreatePolicyInline = async (e: FormEvent<HTMLFormElement>) => {
     setCreatingPolicyInline(true);
     setAwaitingPolicyCreateReset(true);
@@ -3340,6 +3904,10 @@ function AccessPanel({
 
   const confirmDeleteUser = (userId: string) => {
     openConfirmDialog('Delete this user? This cannot be undone.', () => onDeleteUser(userId));
+  };
+
+  const confirmDeleteServiceAccount = (serviceAccountId: string) => {
+    openConfirmDialog('Delete this service account and revoke its tokens? This cannot be undone.', () => onDeleteServiceAccount(serviceAccountId));
   };
 
   const confirmDeleteRoleDefinition = (role: RoleDefinition) => {
@@ -3374,21 +3942,28 @@ function AccessPanel({
       void onReloadAccessGrants();
       return;
     }
+    if (activeSection === 'service-accounts') {
+      void onReloadServiceAccounts();
+      void onReloadAccessGrants();
+      return;
+    }
     if (activeSection === 'policies') {
       void onReloadPolicies();
       return;
     }
     void onReloadUsers();
+    void onReloadServiceAccounts();
     if (activeSection === 'roles') {
       void onReloadPolicies();
     }
-  }, [accessMode, activeSection, onReloadAccessGrants, onReloadPolicies, onReloadUsers]);
+  }, [accessMode, activeSection, onReloadAccessGrants, onReloadPolicies, onReloadServiceAccounts, onReloadUsers]);
 
   const handleStageBasicGrant = (e?: FormEvent<HTMLFormElement>) => {
     e?.preventDefault();
     const creatingUser = showUserModal && !userAccessEditor;
-    if (!selectedBasicUser && !creatingUser) {
-      setBasicGrantError('Select a user first.');
+    const creatingServiceAccount = showServiceAccountModal && !serviceAccountEditor;
+    if (!selectedBasicUser && !selectedBasicServiceAccount && !creatingUser && !creatingServiceAccount) {
+      setBasicGrantError('Select an account first.');
       return;
     }
     if (selectedBasicUser && isDefaultAdminUser(selectedBasicUser)) {
@@ -3450,7 +4025,7 @@ function AccessPanel({
 
   const resetBasicGrantDrafts = () => {
     if (isDefaultAdminUser(selectedBasicUser)) return;
-    setBasicGrantEntries(selectedBasicUserGrants.map(editableAccessGrantFromRecord));
+    setBasicGrantEntries(selectedBasicGrants.map(editableAccessGrantFromRecord));
     setBasicGrantError(null);
   };
 
@@ -3493,6 +4068,92 @@ function AccessPanel({
     } finally {
       setBasicGrantSaving(false);
     }
+  };
+
+  const saveBasicGrantsForServiceAccount = async (account: ServiceAccountSummary) => {
+    if (!selectedBasicServiceAccount) {
+      setBasicGrantError('Select a service account first.');
+      return;
+    }
+    if (!basicGrantDirty) return;
+    const normalizedDraftEntries = Array.from(
+      basicGrantEntries.reduce((entries, grant) => entries.set(accessGrantTargetKey(grant), grant), new Map<string, EditableAccessGrant>()).values()
+    );
+    const draftKeys = new Set(normalizedDraftEntries.map(grant => accessGrantEditKey(grant)));
+    const originalByKey = new Map(selectedBasicServiceAccountGrants.map(grant => [accessGrantEditKey(grant), grant]));
+    const grantsToDelete = selectedBasicServiceAccountGrants.filter(grant => !draftKeys.has(accessGrantEditKey(grant)));
+    const grantsToAdd = normalizedDraftEntries.filter(grant => !originalByKey.has(accessGrantEditKey(grant)));
+
+    setBasicGrantSaving(true);
+    setBasicGrantError(null);
+    try {
+      for (const grant of grantsToDelete) {
+        await onDeleteAccessGrant(grant.id);
+      }
+      for (const grant of grantsToAdd) {
+        await onCreateServiceAccountAccessGrant({
+          serviceAccountSub: account.sub,
+          role: grant.role,
+          resourceType: grant.resourceType,
+          resourceID: grant.resourceID,
+          inherit: grant.inherit,
+        });
+      }
+    } catch (error) {
+      setBasicGrantError(error instanceof Error ? error.message : 'Failed to save basic roles');
+      throw error;
+    } finally {
+      setBasicGrantSaving(false);
+    }
+  };
+
+  const handleCreateServiceAccountToken = async () => {
+    if (!serviceAccountEditor) return;
+    const name = serviceAccountEditor.tokenName.trim();
+    if (!name) {
+      setServiceAccountEditor(prev => (prev ? { ...prev, tokensError: 'Token name is required.' } : prev));
+      return;
+    }
+    setServiceAccountEditor(prev => (prev ? { ...prev, tokensLoading: true, tokensError: null } : prev));
+    try {
+      const token = await onCreateServiceAccountToken(serviceAccountEditor.account.id, name);
+      const tokens = await onLoadServiceAccountTokens(serviceAccountEditor.account.id);
+      setCreatedServiceAccountToken(token);
+      setCopyServiceAccountTokenLabel('Copy');
+      setServiceAccountEditor(prev => (
+        prev?.account.id === serviceAccountEditor.account.id
+          ? { ...prev, tokenName: 'rotation', tokens, tokensLoading: false, tokensError: null }
+          : prev
+      ));
+    } catch (error) {
+      setServiceAccountEditor(prev => (
+        prev ? { ...prev, tokensLoading: false, tokensError: error instanceof Error ? error.message : 'Failed to create token' } : prev
+      ));
+    }
+  };
+
+  const handleRevokeServiceAccountToken = async (tokenID: string) => {
+    if (!serviceAccountEditor) return;
+    setServiceAccountEditor(prev => (prev ? { ...prev, tokensLoading: true, tokensError: null } : prev));
+    try {
+      await onRevokeServiceAccountToken(serviceAccountEditor.account.id, tokenID);
+      const tokens = await onLoadServiceAccountTokens(serviceAccountEditor.account.id);
+      setServiceAccountEditor(prev => (
+        prev?.account.id === serviceAccountEditor.account.id ? { ...prev, tokens, tokensLoading: false, tokensError: null } : prev
+      ));
+    } catch (error) {
+      setServiceAccountEditor(prev => (
+        prev ? { ...prev, tokensLoading: false, tokensError: error instanceof Error ? error.message : 'Failed to revoke token' } : prev
+      ));
+    }
+  };
+
+  const copyCreatedServiceAccountToken = async () => {
+    const token = createdServiceAccountToken?.token;
+    if (!token || !navigator.clipboard) return;
+    await navigator.clipboard.writeText(token);
+    setCopyServiceAccountTokenLabel('Copied');
+    window.setTimeout(() => setCopyServiceAccountTokenLabel('Copy'), 1800);
   };
 
   const availablePoliciesForRoleEditor = roleEditor ? policyOptions : [];
@@ -3687,6 +4348,216 @@ function AccessPanel({
           </button>
         </div>
       </form>
+    </div>
+  );
+
+  const serviceAccountTokenReveal = createdServiceAccountToken?.token ? (
+    <div className="access-token-reveal">
+      <div className="min-w-0">
+        <p className="access-card__label">One-time token</p>
+        <code>{createdServiceAccountToken.token}</code>
+        <p className="text-[11px] text-[var(--text-secondary)] mt-2">Store this value now. It will not be shown again.</p>
+      </div>
+      <button type="button" className="access-inline-btn access-inline-btn--pill" onClick={copyCreatedServiceAccountToken}>
+        <Copy className="h-4 w-4" />
+        <span>{copyServiceAccountTokenLabel}</span>
+      </button>
+    </div>
+  ) : null;
+
+  const createServiceAccountEditor = (
+    <div className="access-editor-surface">
+      <div className="access-editor-header">
+        <div>
+          <p className="access-editor-kicker">Create service account</p>
+          <h5 className="access-editor-title">New integration identity</h5>
+          <p className="access-editor-text">Create an account that authenticates only with service account tokens.</p>
+        </div>
+        <button
+          type="button"
+          className="access-inline-btn access-inline-btn--pill"
+          onClick={() => {
+            setAwaitingServiceAccountCreateReset(false);
+            setShowServiceAccountModal(false);
+            setCreatedServiceAccountToken(null);
+            setBasicGrantError(null);
+            setBasicGrantDraft({ role: '', scope: GENERAL_ACCESS_SCOPE });
+            setBasicGrantEntries([]);
+          }}
+        >
+          Close
+        </button>
+      </div>
+      {serviceAccountTokenReveal}
+      {!createdServiceAccountToken && (
+        <form className="access-editor-form" onSubmit={handleCreateServiceAccountInline}>
+          <div className="access-editor-grid">
+            <label className="access-minimal-label">
+              <span>Service account ID</span>
+              <input
+                className="pipelines-input"
+                value={newServiceAccount.sub}
+                onChange={e => onChangeServiceAccount({ ...newServiceAccount, sub: e.target.value })}
+                placeholder="deploy-bot"
+                required
+              />
+            </label>
+            <label className="access-minimal-label">
+              <span>Contact email</span>
+              <input
+                className="pipelines-input"
+                type="email"
+                value={newServiceAccount.email}
+                onChange={e => onChangeServiceAccount({ ...newServiceAccount, email: e.target.value })}
+                placeholder="platform@example.com"
+              />
+            </label>
+          </div>
+          <label className="access-minimal-label">
+            <span>Initial token name</span>
+            <input
+              className="pipelines-input"
+              value={newServiceAccount.tokenName}
+              onChange={e => onChangeServiceAccount({ ...newServiceAccount, tokenName: e.target.value })}
+              placeholder="default"
+              required
+            />
+          </label>
+          <div className="access-editor-section">
+            <div className="access-minimal-section__header">
+              <p className="text-sm font-medium text-[var(--text-primary)]">Access roles</p>
+              <span className="text-[11px] text-[var(--text-secondary)]">Optional with basic roles</span>
+            </div>
+            <div className="space-y-2">
+              {newServiceAccount.roles.length === 0 && <p className="text-[11px] text-[var(--text-secondary)]">Add access roles here or use basic roles below.</p>}
+              {newServiceAccount.roles.map((entry, idx) => (
+                <div key={`new-service-account-role-${idx}`} className="access-minimal-row">
+                  <select
+                    className="pipelines-input flex-1"
+                    value={entry}
+                    onChange={e => updateNewServiceAccountRoleEntry(idx, e.target.value)}
+                    required
+                    disabled={allRoleOptions.length === 0}
+                  >
+                    <option value="" disabled>
+                      {allRoleOptions.length === 0 ? 'No roles available' : 'Pick a role'}
+                    </option>
+                    {allRoleOptions.map(role => (
+                      <option key={`service-role-opt-${role}`} value={role}>
+                        {role}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" className="access-inline-btn access-inline-btn--danger" onClick={() => removeNewServiceAccountRoleEntry(idx)} title="Remove role">
+                    <TrashIcon />
+                  </button>
+                </div>
+              ))}
+              <div className="access-editor-inline-add">
+                <select
+                  className="pipelines-input flex-1"
+                  value={nextUserRole}
+                  onChange={e => setNextUserRole(e.target.value)}
+                  disabled={allRoleOptions.length === 0}
+                >
+                  <option value="">{allRoleOptions.length === 0 ? 'No roles available' : 'Pick a role'}</option>
+                  {allRoleOptions.map(role => (
+                    <option key={`new-service-role-opt-${role}`} value={role}>
+                      {role}
+                    </option>
+                  ))}
+                </select>
+                <button type="button" className="glass-button-subtle" onClick={appendServiceAccountRoleFromPicker} disabled={allRoleOptions.length === 0}>
+                  Add access role
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="access-editor-section">
+            <div className="access-minimal-section__header">
+              <p className="text-sm font-medium text-[var(--text-primary)]">Basic roles</p>
+              <span className="text-[11px] text-[var(--text-secondary)]">{basicGrantEntries.length} listed</span>
+            </div>
+            <div className="access-editor-grid">
+              <label className="access-minimal-label">
+                <span>Access level</span>
+                <select
+                  className="pipelines-input"
+                  value={basicGrantDraft.role}
+                  onChange={e => {
+                    const role = e.target.value;
+                    setBasicGrantDraft(prev => ({
+                      ...prev,
+                      role,
+                      scope: role === BASIC_ROLE_ADMIN ? prev.scope : prev.scope || GENERAL_ACCESS_SCOPE,
+                    }));
+                  }}
+                >
+                  <option value="">Select role</option>
+                  <option value={BASIC_ROLE_VIEWER}>Viewer</option>
+                  <option value={BASIC_ROLE_DEVELOPER}>Developer</option>
+                  <option value={BASIC_ROLE_OWNER}>Owner</option>
+                  <option value={BASIC_ROLE_ADMIN}>Admin</option>
+                </select>
+              </label>
+              <label className="access-minimal-label">
+                <span>Group target</span>
+                <select
+                  className="pipelines-input"
+                  value={basicGrantDraft.role === BASIC_ROLE_ADMIN ? 'platform' : basicGrantDraft.scope}
+                  onChange={e => setBasicGrantDraft(prev => ({ ...prev, scope: e.target.value }))}
+                  disabled={basicGrantDraft.role === BASIC_ROLE_ADMIN}
+                >
+                  {basicGrantDraft.role === BASIC_ROLE_ADMIN ? (
+                    <option value="platform">Platform wide</option>
+                  ) : (
+                    basicGrantOptions.map(option => (
+                      <option key={`new-service-basic-${option.value}`} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+            </div>
+            <div className="access-editor-footer access-editor-footer--inline">
+              <button type="button" className="glass-button-subtle" onClick={() => handleStageBasicGrant()} disabled={creatingServiceAccountInline || !basicGrantDraft.role || basicGrantDraftDuplicate}>
+                Add basic role
+              </button>
+            </div>
+            {basicGrantError && <div className="access-error-banner">{basicGrantError}</div>}
+            <div className="space-y-2">
+              {basicGrantEntries.length === 0 ? (
+                <p className="text-[12px] text-[var(--text-secondary)]">No basic roles listed.</p>
+              ) : (
+                basicGrantEntries.map(grant => (
+                  <div key={grant.localID} className="access-minimal-row access-minimal-row--stack">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`access-chip ${accessPresetToneClass(grant.role)}`}>{grant.role}</span>
+                        <span className="access-chip access-chip--muted">{accessGrantResourceSummary(grant)}</span>
+                        {grant.inherit && grant.resourceType === 'folder' && grant.resourceID !== 'general' && (
+                          <span className="access-chip access-chip--muted">Includes children</span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-[var(--text-secondary)] mt-2">{basicAccessGrantDescription(grant)}</p>
+                    </div>
+                    <button type="button" className="access-inline-btn access-inline-btn--danger" onClick={() => removeBasicGrantDraft(grant.localID)} disabled={creatingServiceAccountInline}>
+                      <TrashIcon />
+                      <span>Remove</span>
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+          <div className="access-editor-footer">
+            <button type="submit" className="glass-button-primary" disabled={creatingServiceAccountInline}>
+              {creatingServiceAccountInline ? 'Saving…' : 'Save service account'}
+            </button>
+          </div>
+        </form>
+      )}
     </div>
   );
   const accessSearchPlaceholder = accessMode === 'basic' ? 'Search by username, email, role, or group' : sectionContent.searchPlaceholder;
@@ -4031,6 +4902,331 @@ function AccessPanel({
     </div>
   );
 
+  const serviceAccountsWorkspace = (
+    <div className="access-workspace">
+      <div className="space-y-4 access-workspace__list">
+        {(serviceAccountsError || accessGrantsError) && (
+          <div className="access-error-banner">
+            {serviceAccountsError ? `Failed to load service accounts: ${serviceAccountsError}` : `Failed to load basic roles: ${accessGrantsError}`}
+          </div>
+        )}
+        {serviceAccountsLoading || accessGrantsLoading ? (
+          <div className="access-empty-card">
+            <p className="font-medium text-[var(--text-primary)]">Loading service accounts…</p>
+            <p className="text-sm text-[var(--text-secondary)]">Fetching integration identities, tokens, and role assignments.</p>
+          </div>
+        ) : serviceAccounts.length === 0 ? (
+          <div className="access-empty-card">
+            <p className="font-medium text-[var(--text-primary)]">No service accounts yet</p>
+            <p className="text-sm text-[var(--text-secondary)]">Create a token-only account for integrations and automation.</p>
+          </div>
+        ) : filteredServiceAccounts.length === 0 ? (
+          <div className="access-empty-card">
+            <p className="font-medium text-[var(--text-primary)]">No service accounts match this search</p>
+            <p className="text-sm text-[var(--text-secondary)]">Try a service account ID, contact email, role, or group path.</p>
+          </div>
+        ) : (
+          <div className="access-entity-grid access-entity-grid--users">
+            {filteredServiceAccounts.map(account => {
+              const accountRoles = account.roles || [];
+              const grants = basicServiceAccountGrantMap.get(account.sub) || [];
+              const isSelected = serviceAccountEditor?.account.id === account.id;
+              return (
+                <article key={account.id} className={`access-card access-card--user ${isSelected ? 'access-card--selected' : ''}`}>
+                  <div className="access-card__header">
+                    <div className="min-w-0 flex items-center gap-3">
+                      <div className="access-avatar">
+                        <Server className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="access-card__title">{account.sub}</p>
+                          <span className={`access-status access-status--${statusKey(account.status)}`}>{account.status || 'unknown'}</span>
+                        </div>
+                        <p className="access-card__subtitle">{account.email || 'No contact email'}</p>
+                        <p className="access-card__meta-line">
+                          {account.last_used_at ? `Last token use ${formatTimestamp(account.last_used_at)}` : 'No token activity yet'} · {formatAccessCount(account.token_count || 0, 'token')}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="access-card__actions">
+                      <button
+                        type="button"
+                        className="access-card-action"
+                        title="Edit service account"
+                        aria-label={`Edit ${account.sub || 'service account'}`}
+                        onClick={() => openServiceAccountAccessModal(account)}
+                      >
+                        <EditIcon />
+                      </button>
+                      <button
+                        type="button"
+                        className="access-card-action access-card-action--danger"
+                        title="Delete service account"
+                        aria-label={`Delete ${account.sub || 'service account'}`}
+                        onClick={() => confirmDeleteServiceAccount(account.id)}
+                        disabled={serviceAccountsLoading}
+                      >
+                        <TrashIcon />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="access-card__label">Access roles</p>
+                    <div className="flex flex-wrap gap-2">
+                      {accountRoles.length > 0 ? (
+                        accountRoles.map(role => (
+                          <span key={`${account.id}-${role.role}`} className={`access-chip ${accessPresetToneClass(role.role)}`}>
+                            {role.role}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-sm text-[var(--text-secondary)]">No roles assigned yet</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="access-card__label">Basic roles</p>
+                    <div className="flex flex-wrap gap-2">
+                      {grants.length > 0 ? (
+                        grants.slice(0, 4).map(grant => (
+                          <span key={grant.id} className={`access-chip ${accessPresetToneClass(grant.role)}`}>
+                            {basicAccessGrantLabel(grant)}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-sm text-[var(--text-secondary)]">No basic roles yet</span>
+                      )}
+                      {grants.length > 4 && <span className="access-chip access-chip--muted">+ {grants.length - 4} more</span>}
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      <aside className="access-editor-pane">
+        {serviceAccountEditor ? (
+          <div className="access-editor-surface access-editor-surface--minimal">
+            <div className="access-editor-header">
+              <div>
+                <p className="access-editor-kicker">Edit service account</p>
+                <h5 className="access-editor-title">{serviceAccountEditor.account.sub}</h5>
+                <p className="access-editor-text">Manage token-only integration access and scoped basic roles.</p>
+              </div>
+              <button type="button" className="access-inline-btn access-inline-btn--pill" onClick={() => setServiceAccountEditor(null)}>
+                Close
+              </button>
+            </div>
+            {serviceAccountTokenReveal}
+            <form className="access-editor-form access-editor-form--compact" onSubmit={handleSaveServiceAccountAccess}>
+              <div className="access-editor-grid">
+                <label className="access-minimal-label">
+                  <span>Contact email</span>
+                  <input
+                    className="pipelines-input"
+                    type="email"
+                    value={serviceAccountEditor.email}
+                    onChange={e => setServiceAccountEditor(prev => (prev ? { ...prev, email: e.target.value } : prev))}
+                    placeholder="platform@example.com"
+                  />
+                </label>
+                <label className="access-minimal-label">
+                  <span>Status</span>
+                  <select
+                    className="pipelines-input"
+                    value={serviceAccountEditor.status}
+                    onChange={e => setServiceAccountEditor(prev => (prev ? { ...prev, status: e.target.value } : prev))}
+                  >
+                    <option value="active">Active</option>
+                    <option value="disabled">Disabled</option>
+                  </select>
+                </label>
+              </div>
+              <div className="access-editor-section access-editor-section--plain">
+                <div className="access-minimal-section__header">
+                  <p className="text-sm font-medium text-[var(--text-primary)]">Tokens</p>
+                  <span className="text-[11px] text-[var(--text-secondary)]">{serviceAccountEditor.tokens.length} active</span>
+                </div>
+                <div className="access-editor-inline-add">
+                  <input
+                    className="pipelines-input flex-1"
+                    value={serviceAccountEditor.tokenName}
+                    onChange={e => setServiceAccountEditor(prev => (prev ? { ...prev, tokenName: e.target.value } : prev))}
+                    placeholder="rotation"
+                  />
+                  <button type="button" className="glass-button-subtle" onClick={handleCreateServiceAccountToken} disabled={serviceAccountEditor.tokensLoading || !serviceAccountEditor.tokenName.trim()}>
+                    Create token
+                  </button>
+                </div>
+                {serviceAccountEditor.tokensError && <div className="access-error-banner">{serviceAccountEditor.tokensError}</div>}
+                <div className="space-y-2">
+                  {serviceAccountEditor.tokensLoading ? (
+                    <p className="text-[12px] text-[var(--text-secondary)]">Loading tokens…</p>
+                  ) : serviceAccountEditor.tokens.length === 0 ? (
+                    <p className="text-[12px] text-[var(--text-secondary)]">No active tokens.</p>
+                  ) : (
+                    serviceAccountEditor.tokens.map(token => (
+                      <div key={token.id} className="access-minimal-row access-minimal-row--stack">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="access-chip access-chip--muted">{token.name}</span>
+                            <span className="access-chip access-chip--muted">••••{token.token_suffix}</span>
+                          </div>
+                          <p className="text-[11px] text-[var(--text-secondary)] mt-2">
+                            Created {formatTimestamp(token.created_at)}
+                            {token.expires_at ? ` · Expires ${formatTimestamp(token.expires_at)}` : ' · Never expires'}
+                            {token.last_used_at ? ` · Last used ${formatTimestamp(token.last_used_at)}` : ''}
+                          </p>
+                        </div>
+                        <button type="button" className="access-inline-btn access-inline-btn--danger" onClick={() => handleRevokeServiceAccountToken(token.id)} disabled={serviceAccountEditor.tokensLoading}>
+                          <TrashIcon />
+                          <span>Revoke</span>
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+              <div className="access-editor-section access-editor-section--plain">
+                <div className="access-minimal-section__header">
+                  <p className="text-sm font-medium text-[var(--text-primary)]">Access roles</p>
+                  <span className="text-[11px] text-[var(--text-secondary)]">{serviceAccountEditor.entries.length} assigned</span>
+                </div>
+                <div className="space-y-2">
+                  {serviceAccountEditor.entries.length === 0 && <p className="text-[12px] text-[var(--text-secondary)]">No roles assigned yet.</p>}
+                  {serviceAccountEditor.entries.map((entry, idx) => (
+                    <div key={`service-account-role-${idx}`} className="access-minimal-row justify-between">
+                      <span className={`access-chip ${accessPresetToneClass(entry)}`}>{entry || 'Role'}</span>
+                      <button
+                        type="button"
+                        className="access-inline-btn access-inline-btn--danger access-role-remove"
+                        onClick={() => removeServiceAccountAccessEntry(idx)}
+                        title="Remove assignment"
+                        aria-label="Remove assignment"
+                      >
+                        <TrashIcon />
+                      </button>
+                    </div>
+                  ))}
+                  <div className="access-editor-inline-add">
+                    <select className="pipelines-input w-full" value={nextAccessRole} onChange={e => setNextAccessRole(e.target.value)}>
+                      <option value="">{allRoleOptions.length === 0 ? 'No roles available' : 'Select a role'}</option>
+                      {allRoleOptions.map(role => (
+                        <option key={`service-access-role-${role}`} value={role}>
+                          {role}
+                        </option>
+                      ))}
+                    </select>
+                    <button type="button" className="glass-button-subtle" onClick={addServiceAccountAccessEntry} disabled={!nextAccessRole || allRoleOptions.length === 0}>
+                      Add
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="access-editor-section access-editor-section--plain">
+                <div className="access-minimal-section__header">
+                  <p className="text-sm font-medium text-[var(--text-primary)]">Basic roles</p>
+                  <span className="text-[11px] text-[var(--text-secondary)]">{basicGrantEntries.length} listed</span>
+                </div>
+                <div className="access-editor-grid">
+                  <label className="access-minimal-label">
+                    <span>Access level</span>
+                    <select
+                      className="pipelines-input"
+                      value={basicGrantDraft.role}
+                      onChange={e => {
+                        const role = e.target.value;
+                        setBasicGrantDraft(prev => ({
+                          ...prev,
+                          role,
+                          scope: role === BASIC_ROLE_ADMIN ? prev.scope : prev.scope || GENERAL_ACCESS_SCOPE,
+                        }));
+                      }}
+                    >
+                      <option value="">Select role</option>
+                      <option value={BASIC_ROLE_VIEWER}>Viewer</option>
+                      <option value={BASIC_ROLE_DEVELOPER}>Developer</option>
+                      <option value={BASIC_ROLE_OWNER}>Owner</option>
+                      <option value={BASIC_ROLE_ADMIN}>Admin</option>
+                    </select>
+                  </label>
+                  <label className="access-minimal-label">
+                    <span>Group target</span>
+                    <select
+                      className="pipelines-input"
+                      value={basicGrantDraft.role === BASIC_ROLE_ADMIN ? 'platform' : basicGrantDraft.scope}
+                      onChange={e => setBasicGrantDraft(prev => ({ ...prev, scope: e.target.value }))}
+                      disabled={basicGrantDraft.role === BASIC_ROLE_ADMIN}
+                    >
+                      {basicGrantDraft.role === BASIC_ROLE_ADMIN ? (
+                        <option value="platform">Platform wide</option>
+                      ) : (
+                        basicGrantOptions.map(option => (
+                          <option key={`service-editor-basic-${option.value}`} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </label>
+                </div>
+                <div className="access-editor-footer access-editor-footer--inline">
+                  <button type="button" className="glass-button-subtle" onClick={() => handleStageBasicGrant()} disabled={basicGrantSaving || !basicGrantDraft.role || basicGrantDraftDuplicate}>
+                    Add
+                  </button>
+                </div>
+                {basicGrantError && <div className="access-error-banner">{basicGrantError}</div>}
+                <div className="space-y-2">
+                  {basicGrantEntries.length === 0 ? (
+                    <p className="text-[12px] text-[var(--text-secondary)]">No basic roles listed.</p>
+                  ) : (
+                    basicGrantEntries.map(grant => (
+                      <div key={grant.localID} className="access-minimal-row access-minimal-row--stack">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`access-chip ${accessPresetToneClass(grant.role)}`}>{grant.role}</span>
+                            <span className="access-chip access-chip--muted">{accessGrantResourceSummary(grant)}</span>
+                            {grant.inherit && grant.resourceType === 'folder' && grant.resourceID !== 'general' && (
+                              <span className="access-chip access-chip--muted">Includes children</span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-[var(--text-secondary)] mt-2">
+                            {basicAccessGrantDescription(grant)}
+                            {grant.grantedBy ? ` Granted by ${grant.grantedBy}.` : ''}
+                          </p>
+                        </div>
+                        <button type="button" className="access-inline-btn access-inline-btn--danger" onClick={() => removeBasicGrantDraft(grant.localID)} disabled={basicGrantSaving}>
+                          <TrashIcon />
+                          <span>Remove</span>
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+              <div className="access-editor-footer gap-2">
+                {basicGrantDirty && (
+                  <button type="button" className="access-inline-btn access-inline-btn--pill" onClick={resetBasicGrantDrafts} disabled={basicGrantSaving || savingServiceAccountAccess}>
+                    Reset basic roles
+                  </button>
+                )}
+                <button type="submit" className="glass-button-primary" disabled={savingServiceAccountAccess || basicGrantSaving}>
+                  {savingServiceAccountAccess || basicGrantSaving ? 'Saving…' : 'Save changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        ) : showServiceAccountModal ? (
+          createServiceAccountEditor
+        ) : (
+          <AccessEditorEmptyState sectionLabel="Service account details" hint="Select a service account to edit access and tokens." />
+        )}
+      </aside>
+    </div>
+  );
+
   return (
     <div className="access-layout pb-24" data-access-build={ACCESS_UI_BUILD_ID}>
       <div className="access-shell">
@@ -4063,7 +5259,7 @@ function AccessPanel({
               className="glass-button-ghost access-toolbar-btn"
               type="button"
               onClick={handleRefresh}
-              disabled={loading || accessGrantsLoading || policiesLoading}
+              disabled={loading || serviceAccountsLoading || accessGrantsLoading || policiesLoading}
             >
               <RefreshIcon />
               <span>Refresh</span>
@@ -4119,6 +5315,12 @@ function AccessPanel({
                     <span>Add user</span>
                   </button>
                 )}
+                {activeSection === 'service-accounts' && (
+                  <button type="button" className="glass-button-primary access-section-action" onClick={openCreateServiceAccountEditor}>
+                    <PlusIcon />
+                    <span>Add service account</span>
+                  </button>
+                )}
                 {activeSection === 'roles' && (
                   <button type="button" className="glass-button-primary access-section-action" onClick={openCreateRoleEditor}>
                     <PlusIcon />
@@ -4135,6 +5337,8 @@ function AccessPanel({
             </div>
 
           {activeSection === 'users' && usersWorkspace}
+
+          {activeSection === 'service-accounts' && serviceAccountsWorkspace}
 
           {activeSection === 'roles' && (
             <div className="access-workspace">
@@ -4153,7 +5357,7 @@ function AccessPanel({
                 ) : filteredRoleDefinitions.length === 0 ? (
                   <div className="access-empty-card">
                     <p className="font-medium text-[var(--text-primary)]">No roles match this search</p>
-                    <p className="text-sm text-[var(--text-secondary)]">Try a role name, policy label, or one of the assigned people.</p>
+                    <p className="text-sm text-[var(--text-secondary)]">Try a role name, policy label, or one of the assigned accounts.</p>
                   </div>
                 ) : (
                   <div className="access-entity-grid access-entity-grid--roles">
@@ -4176,7 +5380,7 @@ function AccessPanel({
                                 {preset?.description || 'Reusable role bundle for assigning multiple low-level AAA policies together.'}
                               </p>
                               <p className="access-card__meta-line">
-                                {formatAccessCount(role.policies.length, 'policy', 'policies')} · {formatAccessCount(assignedUsers.length, 'person', 'people')}
+                                {formatAccessCount(role.policies.length, 'policy', 'policies')} · {formatAccessCount(assignedUsers.length, 'assignee')}
                               </p>
                             </div>
                             <div className="access-card__actions">

@@ -58,18 +58,19 @@ type accessConfigDocument struct {
 }
 
 type accessConfigPayload struct {
-	Users                []accessUserFile        `yaml:"users" json:"users"`
-	Groups               *yaml.Node              `yaml:"groups" json:"groups"`
-	AuthGroups           *yaml.Node              `yaml:"auth_groups" json:"auth_groups"`
-	Roles                *yaml.Node              `yaml:"roles" json:"roles"`
-	AdvancedRoles        []accessRoleFile        `yaml:"advanced_roles" json:"advanced_roles"`
-	Policies             []accessPolicyFile      `yaml:"policies" json:"policies"`
-	RoleBindings         *yaml.Node              `yaml:"role_bindings" json:"role_bindings"`
-	Bindings             *yaml.Node              `yaml:"bindings" json:"bindings"`
-	AdvancedRoleBindings []accessRoleBindingFile `yaml:"advanced_role_bindings" json:"advanced_role_bindings"`
-	Grants               *yaml.Node              `yaml:"grants" json:"grants"`
-	AccessGrants         *yaml.Node              `yaml:"access_grants" json:"access_grants"`
-	BasicRoles           []accessGrantFile       `yaml:"basic_roles" json:"basic_roles"`
+	Users                []accessUserFile           `yaml:"users" json:"users"`
+	ServiceAccounts      []accessServiceAccountFile `yaml:"service_accounts" json:"service_accounts"`
+	Groups               *yaml.Node                 `yaml:"groups" json:"groups"`
+	AuthGroups           *yaml.Node                 `yaml:"auth_groups" json:"auth_groups"`
+	Roles                *yaml.Node                 `yaml:"roles" json:"roles"`
+	AdvancedRoles        []accessRoleFile           `yaml:"advanced_roles" json:"advanced_roles"`
+	Policies             []accessPolicyFile         `yaml:"policies" json:"policies"`
+	RoleBindings         *yaml.Node                 `yaml:"role_bindings" json:"role_bindings"`
+	Bindings             *yaml.Node                 `yaml:"bindings" json:"bindings"`
+	AdvancedRoleBindings []accessRoleBindingFile    `yaml:"advanced_role_bindings" json:"advanced_role_bindings"`
+	Grants               *yaml.Node                 `yaml:"grants" json:"grants"`
+	AccessGrants         *yaml.Node                 `yaml:"access_grants" json:"access_grants"`
+	BasicRoles           []accessGrantFile          `yaml:"basic_roles" json:"basic_roles"`
 }
 
 func (d accessConfigDocument) effectivePayload() accessConfigPayload {
@@ -78,6 +79,7 @@ func (d accessConfigDocument) effectivePayload() accessConfigPayload {
 		return payload
 	}
 	payload.Users = append(payload.Users, d.Access.Users...)
+	payload.ServiceAccounts = append(payload.ServiceAccounts, d.Access.ServiceAccounts...)
 	if payload.Groups == nil {
 		payload.Groups = d.Access.Groups
 	}
@@ -120,6 +122,17 @@ type accessUserFile struct {
 	AdvancedRoles stringList `yaml:"advanced_roles" json:"advanced_roles"`
 }
 
+type accessServiceAccountFile struct {
+	ID            string     `yaml:"id" json:"id"`
+	Sub           string     `yaml:"sub" json:"sub"`
+	Email         string     `yaml:"email" json:"email"`
+	Status        string     `yaml:"status" json:"status"`
+	Role          *yaml.Node `yaml:"role" json:"role"`
+	Roles         *yaml.Node `yaml:"roles" json:"roles"`
+	AdvancedRole  string     `yaml:"advanced_role" json:"advanced_role"`
+	AdvancedRoles stringList `yaml:"advanced_roles" json:"advanced_roles"`
+}
+
 type accessRoleFile struct {
 	Name        string                  `yaml:"name" json:"name"`
 	Role        string                  `yaml:"role" json:"role"`
@@ -142,33 +155,36 @@ type accessPolicyFile struct {
 }
 
 type accessSubjectFile struct {
-	Type    string `yaml:"type" json:"type"`
-	ID      string `yaml:"id" json:"id"`
-	User    string `yaml:"user" json:"user"`
-	Group   string `yaml:"group" json:"group"`
-	Service string `yaml:"service" json:"service"`
+	Type           string `yaml:"type" json:"type"`
+	ID             string `yaml:"id" json:"id"`
+	User           string `yaml:"user" json:"user"`
+	Group          string `yaml:"group" json:"group"`
+	Service        string `yaml:"service" json:"service"`
+	ServiceAccount string `yaml:"service_account" json:"service_account"`
 }
 
 type accessRoleBindingFile struct {
-	Role        string `yaml:"role" json:"role"`
-	SubjectType string `yaml:"subject_type" json:"subject_type"`
-	SubjectID   string `yaml:"subject_id" json:"subject_id"`
-	User        string `yaml:"user" json:"user"`
-	Group       string `yaml:"group" json:"group"`
-	Service     string `yaml:"service" json:"service"`
+	Role           string `yaml:"role" json:"role"`
+	SubjectType    string `yaml:"subject_type" json:"subject_type"`
+	SubjectID      string `yaml:"subject_id" json:"subject_id"`
+	User           string `yaml:"user" json:"user"`
+	Group          string `yaml:"group" json:"group"`
+	Service        string `yaml:"service" json:"service"`
+	ServiceAccount string `yaml:"service_account" json:"service_account"`
 }
 
 type accessGrantFile struct {
-	SubjectType  string `yaml:"subject_type" json:"subject_type"`
-	SubjectID    string `yaml:"subject_id" json:"subject_id"`
-	User         string `yaml:"user" json:"user"`
-	Group        string `yaml:"group" json:"group"`
-	Service      string `yaml:"service" json:"service"`
-	Role         string `yaml:"role" json:"role"`
-	Resource     string `yaml:"resource" json:"resource"`
-	ResourceType string `yaml:"resource_type" json:"resource_type"`
-	ResourceID   string `yaml:"resource_id" json:"resource_id"`
-	Inherit      *bool  `yaml:"inherit" json:"inherit"`
+	SubjectType    string `yaml:"subject_type" json:"subject_type"`
+	SubjectID      string `yaml:"subject_id" json:"subject_id"`
+	User           string `yaml:"user" json:"user"`
+	Group          string `yaml:"group" json:"group"`
+	Service        string `yaml:"service" json:"service"`
+	ServiceAccount string `yaml:"service_account" json:"service_account"`
+	Role           string `yaml:"role" json:"role"`
+	Resource       string `yaml:"resource" json:"resource"`
+	ResourceType   string `yaml:"resource_type" json:"resource_type"`
+	ResourceID     string `yaml:"resource_id" json:"resource_id"`
+	Inherit        *bool  `yaml:"inherit" json:"inherit"`
 }
 
 type embeddedResourceAccessDocument struct {
@@ -205,12 +221,13 @@ type embeddedResourceUseGrantFile struct {
 }
 
 type accessSyncPlan struct {
-	users          map[string]storedAccessUser
-	roles          map[string]storedAccessRole
-	policies       map[accessRolePolicyKey]storedAccessPolicy
-	roleBindings   map[accessRoleBindingKey]storedAccessRoleBinding
-	grants         map[accessGrantPlanKey]storedAccessGrant
-	resourceAccess map[resourceAccessPlanKey]storedResourceAccess
+	users           map[string]storedAccessUser
+	serviceAccounts map[string]storedAccessServiceAccount
+	roles           map[string]storedAccessRole
+	policies        map[accessRolePolicyKey]storedAccessPolicy
+	roleBindings    map[accessRoleBindingKey]storedAccessRoleBinding
+	grants          map[accessGrantPlanKey]storedAccessGrant
+	resourceAccess  map[resourceAccessPlanKey]storedResourceAccess
 }
 
 type storedAccessUser struct {
@@ -222,6 +239,14 @@ type storedAccessUser struct {
 	password     string
 	passwordHash string
 	sourcePath   string
+}
+
+type storedAccessServiceAccount struct {
+	id         string
+	sub        string
+	email      string
+	status     string
+	sourcePath string
 }
 
 type storedAccessRole struct {
@@ -301,12 +326,13 @@ type resolvedAccessGrantKey struct {
 
 func newAccessSyncPlan() accessSyncPlan {
 	return accessSyncPlan{
-		users:          map[string]storedAccessUser{},
-		roles:          map[string]storedAccessRole{},
-		policies:       map[accessRolePolicyKey]storedAccessPolicy{},
-		roleBindings:   map[accessRoleBindingKey]storedAccessRoleBinding{},
-		grants:         map[accessGrantPlanKey]storedAccessGrant{},
-		resourceAccess: map[resourceAccessPlanKey]storedResourceAccess{},
+		users:           map[string]storedAccessUser{},
+		serviceAccounts: map[string]storedAccessServiceAccount{},
+		roles:           map[string]storedAccessRole{},
+		policies:        map[accessRolePolicyKey]storedAccessPolicy{},
+		roleBindings:    map[accessRoleBindingKey]storedAccessRoleBinding{},
+		grants:          map[accessGrantPlanKey]storedAccessGrant{},
+		resourceAccess:  map[resourceAccessPlanKey]storedResourceAccess{},
 	}
 }
 
@@ -370,6 +396,38 @@ func (p accessSyncPlan) addPayload(payload accessConfigPayload, binding models.C
 				role:        strings.TrimSpace(role),
 				subjectType: model.SubjectTypeUser,
 				subjectID:   user.sub,
+				sourcePath:  sourcePath,
+			}
+			if err := p.addRoleBinding(binding); err != nil {
+				return err
+			}
+		}
+	}
+
+	for _, raw := range payload.ServiceAccounts {
+		if raw.Role != nil || raw.Roles != nil {
+			return fmt.Errorf("service account %q uses ambiguous roles; use advanced_roles for advanced role assignments", strings.TrimSpace(raw.Sub))
+		}
+		serviceAccount, err := normalizeAccessServiceAccount(raw, sourcePath)
+		if err != nil {
+			return err
+		}
+		if _, exists := p.serviceAccounts[serviceAccount.sub]; exists {
+			return fmt.Errorf("duplicate service account %q", serviceAccount.sub)
+		}
+		if _, exists := p.users[serviceAccount.sub]; exists {
+			return fmt.Errorf("service account %q conflicts with a managed user", serviceAccount.sub)
+		}
+		p.serviceAccounts[serviceAccount.sub] = serviceAccount
+		roles := raw.AdvancedRoles.values()
+		if role := strings.TrimSpace(raw.AdvancedRole); role != "" {
+			roles = append(roles, role)
+		}
+		for _, role := range roles {
+			binding := storedAccessRoleBinding{
+				role:        strings.TrimSpace(role),
+				subjectType: model.SubjectTypeServiceAccount,
+				subjectID:   serviceAccount.sub,
 				sourcePath:  sourcePath,
 			}
 			if err := p.addRoleBinding(binding); err != nil {
@@ -560,6 +618,38 @@ func normalizeAccessUser(raw accessUserFile, sourcePath string) (storedAccessUse
 	}, nil
 }
 
+func normalizeAccessServiceAccount(raw accessServiceAccountFile, sourcePath string) (storedAccessServiceAccount, error) {
+	sub, err := validateServiceAccountSub(raw.Sub)
+	if err != nil {
+		return storedAccessServiceAccount{}, fmt.Errorf("service account %q has invalid sub: %w", strings.TrimSpace(raw.Sub), err)
+	}
+	email, err := normalizeOptionalEmail(raw.Email)
+	if err != nil {
+		return storedAccessServiceAccount{}, err
+	}
+	status := strings.ToLower(strings.TrimSpace(raw.Status))
+	if status == "" {
+		status = "active"
+	}
+	switch status {
+	case "active", "disabled":
+	default:
+		return storedAccessServiceAccount{}, fmt.Errorf("service account %q has invalid status %q", sub, raw.Status)
+	}
+	if raw.ID != "" {
+		if _, err := uuid.Parse(strings.TrimSpace(raw.ID)); err != nil {
+			return storedAccessServiceAccount{}, fmt.Errorf("service account %q has invalid id", sub)
+		}
+	}
+	return storedAccessServiceAccount{
+		id:         strings.TrimSpace(raw.ID),
+		sub:        sub,
+		email:      email,
+		status:     status,
+		sourcePath: sourcePath,
+	}, nil
+}
+
 func normalizeAccessRole(name, description, sourcePath string) (storedAccessRole, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -604,7 +694,7 @@ func normalizeAccessPolicy(raw accessPolicyFile, sourcePath string) (storedAcces
 }
 
 func normalizeAccessRoleBinding(raw accessRoleBindingFile, sourcePath string) (storedAccessRoleBinding, error) {
-	subjectType, subjectID, err := normalizeAccessSubject(raw.SubjectType, raw.SubjectID, raw.User, raw.Group, raw.Service)
+	subjectType, subjectID, err := normalizeAccessSubject(raw.SubjectType, raw.SubjectID, raw.User, raw.Group, raw.Service, raw.ServiceAccount)
 	if err != nil {
 		return storedAccessRoleBinding{}, err
 	}
@@ -616,7 +706,7 @@ func normalizeAccessRoleBinding(raw accessRoleBindingFile, sourcePath string) (s
 	}, nil
 }
 
-func normalizeAccessSubject(subjectType, subjectID, userID, groupID, serviceID string) (string, string, error) {
+func normalizeAccessSubject(subjectType, subjectID, userID, groupID, serviceID, serviceAccountID string) (string, string, error) {
 	subjectType = strings.TrimSpace(subjectType)
 	subjectID = strings.TrimSpace(subjectID)
 	switch {
@@ -625,6 +715,9 @@ func normalizeAccessSubject(subjectType, subjectID, userID, groupID, serviceID s
 		subjectID = strings.TrimSpace(userID)
 	case strings.TrimSpace(groupID) != "":
 		return "", "", fmt.Errorf("auth group subjects are not supported in access manifests; use user or service subjects and target folders with resource_type: folder")
+	case strings.TrimSpace(serviceAccountID) != "":
+		subjectType = model.SubjectTypeServiceAccount
+		subjectID = strings.TrimSpace(serviceAccountID)
 	case strings.TrimSpace(serviceID) != "":
 		subjectType = model.SubjectTypeInternalService
 		subjectID = strings.TrimSpace(serviceID)
@@ -643,7 +736,7 @@ func normalizeAccessSubject(subjectType, subjectID, userID, groupID, serviceID s
 }
 
 func normalizeAccessGrant(raw accessGrantFile, binding models.ConfigRepository, boundFolder, sourcePath string) (storedAccessGrant, error) {
-	subjectType, subjectID, err := normalizeAccessSubject(raw.SubjectType, raw.SubjectID, raw.User, raw.Group, raw.Service)
+	subjectType, subjectID, err := normalizeAccessSubject(raw.SubjectType, raw.SubjectID, raw.User, raw.Group, raw.Service, raw.ServiceAccount)
 	if err != nil {
 		return storedAccessGrant{}, err
 	}
@@ -917,6 +1010,9 @@ func validateAccessPlanForBinding(plan accessSyncPlan, binding models.ConfigRepo
 	if len(plan.users) > 0 {
 		return fmt.Errorf("group-scoped config repositories cannot manage users")
 	}
+	if len(plan.serviceAccounts) > 0 {
+		return fmt.Errorf("group-scoped config repositories cannot manage service accounts")
+	}
 	if len(plan.roles) > 0 || len(plan.policies) > 0 || len(plan.roleBindings) > 0 {
 		return fmt.Errorf("group-scoped config repositories cannot manage global roles, policies, or role bindings")
 	}
@@ -1017,6 +1113,12 @@ func (a *App) syncAccessConfiguration(ctx context.Context, tx pgx.Tx, binding mo
 	if err := pruneStaleAccessGrantsForManagedUsers(ctx, tx, plan.users); err != nil {
 		return err
 	}
+	for _, serviceAccount := range plan.serviceAccounts {
+		if err := upsertAccessServiceAccount(ctx, tx, binding, serviceAccount, commitSHA); err != nil {
+			return err
+		}
+		details["access_service_accounts_synced"]++
+	}
 	for _, role := range plan.roles {
 		if err := upsertAccessRole(ctx, tx, binding, role, commitSHA); err != nil {
 			return err
@@ -1108,6 +1210,59 @@ func upsertAccessUser(ctx context.Context, tx pgx.Tx, binding models.ConfigRepos
 		return fmt.Errorf("failed to upsert user %q: %w", user.sub, err)
 	}
 	return nil
+}
+
+func upsertAccessServiceAccount(ctx context.Context, tx pgx.Tx, binding models.ConfigRepository, serviceAccount storedAccessServiceAccount, commitSHA string) error {
+	if err := ensureGlobalConfigObjectWritable(ctx, tx, binding, "users", "service account", serviceAccount.sub, "sub = $1", serviceAccount.sub); err != nil {
+		return err
+	}
+	if err := ensureServiceAccountSubWritable(ctx, tx, serviceAccount.sub); err != nil {
+		return err
+	}
+	serviceAccountID := uuid.New()
+	if serviceAccount.id != "" {
+		parsedID, err := uuid.Parse(serviceAccount.id)
+		if err != nil {
+			return fmt.Errorf("service account %q has invalid id: %w", serviceAccount.sub, err)
+		}
+		serviceAccountID = parsedID
+	}
+	_, err := tx.Exec(ctx, `
+		INSERT INTO users (
+			id, sub, email, provider, password_hash, status, must_change_password,
+			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo
+		)
+		VALUES ($1, $2, $3, $4, NULL, $5, FALSE, $6, $7, $8, TRUE)
+		ON CONFLICT (sub) DO UPDATE SET
+			email = EXCLUDED.email,
+			provider = EXCLUDED.provider,
+			password_hash = NULL,
+			status = EXCLUDED.status,
+			must_change_password = FALSE,
+			config_repo_id = EXCLUDED.config_repo_id,
+			config_source_path = EXCLUDED.config_source_path,
+			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
+			managed_by_config_repo = TRUE
+	`, serviceAccountID, serviceAccount.sub, serviceAccount.email, auth.ProviderServiceAccount, serviceAccount.status, binding.ID, serviceAccount.sourcePath, commitSHA)
+	if err != nil {
+		return fmt.Errorf("failed to upsert service account %q: %w", serviceAccount.sub, err)
+	}
+	return nil
+}
+
+func ensureServiceAccountSubWritable(ctx context.Context, tx pgx.Tx, sub string) error {
+	var provider string
+	err := tx.QueryRow(ctx, `SELECT provider FROM users WHERE sub = $1 LIMIT 1`, sub).Scan(&provider)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows), errors.Is(err, sql.ErrNoRows):
+		return nil
+	case err != nil:
+		return err
+	case provider == auth.ProviderServiceAccount:
+		return nil
+	default:
+		return fmt.Errorf("service account sub %q is already used by a %q user", sub, provider)
+	}
 }
 
 func upsertAccessRole(ctx context.Context, tx pgx.Tx, binding models.ConfigRepository, role storedAccessRole, commitSHA string) error {
@@ -1289,12 +1444,16 @@ func (a *App) syncAccessGrants(ctx context.Context, tx pgx.Tx, binding models.Co
 	return keep, nil
 }
 
+func resolveConfigSyncGrantResource(ctx context.Context, runner queryRunner, resourceType, resourceID string) (accessGrantResource, error) {
+	return resolveAccessGrantResource(ctx, runner, resourceType, resourceID, false)
+}
+
 func syncResourceVisibilities(ctx context.Context, tx pgx.Tx, plan accessSyncPlan, details map[string]int) error {
 	for _, access := range plan.resourceAccess {
 		if !access.visibilitySet {
 			continue
 		}
-		resource, err := resolveAccessGrantResource(ctx, tx, access.resourceType, access.resourceID, true)
+		resource, err := resolveConfigSyncGrantResource(ctx, tx, access.resourceType, access.resourceID)
 		if err != nil {
 			return fmt.Errorf("failed to resolve resource access target %s:%s: %w", access.resourceType, access.resourceID, err)
 		}
@@ -1323,7 +1482,7 @@ func (a *App) upsertManagedProductRoleGrant(ctx context.Context, tx pgx.Tx, bind
 	} else if locked {
 		return resolvedAccessGrantKey{}, fmt.Errorf("cannot modify default admin role assignments")
 	}
-	resource, err := resolveAccessGrantResource(ctx, tx, grant.resourceType, grant.resourceID, true)
+	resource, err := resolveConfigSyncGrantResource(ctx, tx, grant.resourceType, grant.resourceID)
 	if err != nil {
 		return resolvedAccessGrantKey{}, fmt.Errorf("failed to resolve grant resource %s:%s: %w", grant.resourceType, grant.resourceID, err)
 	}
@@ -1463,7 +1622,7 @@ func (a *App) upsertManagedResourceUseGrant(ctx context.Context, tx pgx.Tx, bind
 	} else if locked {
 		return resolvedAccessGrantKey{}, fmt.Errorf("cannot modify default admin role assignments")
 	}
-	resource, err := resolveAccessGrantResource(ctx, tx, grant.resourceType, grant.resourceID, true)
+	resource, err := resolveConfigSyncGrantResource(ctx, tx, grant.resourceType, grant.resourceID)
 	if err != nil {
 		return resolvedAccessGrantKey{}, fmt.Errorf("failed to resolve resource access target %s:%s: %w", grant.resourceType, grant.resourceID, err)
 	}
@@ -1613,6 +1772,9 @@ func pruneManagedAccessConfiguration(ctx context.Context, tx pgx.Tx, binding mod
 		return err
 	}
 	if err := pruneManagedUsers(ctx, tx, binding.ID, plan.users); err != nil {
+		return err
+	}
+	if err := pruneManagedServiceAccounts(ctx, tx, binding.ID, plan.serviceAccounts); err != nil {
 		return err
 	}
 	if err := pruneManagedRoles(ctx, tx, binding.ID, plan); err != nil {
@@ -1793,14 +1955,15 @@ func pruneManagedUsers(ctx context.Context, tx pgx.Tx, configRepoID int64, users
 		FROM users
 		WHERE managed_by_config_repo = TRUE
 		  AND config_repo_id = $1
+		  AND provider <> $2
 	`
-	args := []any{configRepoID}
+	args := []any{configRepoID, auth.ProviderServiceAccount}
 	if len(users) > 0 {
 		subs := make([]string, 0, len(users))
 		for sub := range users {
 			subs = append(subs, sub)
 		}
-		query += ` AND sub != ALL($2)`
+		query += ` AND sub != ALL($3)`
 		args = append(args, subs)
 	}
 
@@ -1830,7 +1993,12 @@ func pruneManagedUsers(ctx context.Context, tx pgx.Tx, configRepoID int64, users
 	}
 
 	if len(users) == 0 {
-		_, err := tx.Exec(ctx, `DELETE FROM users WHERE managed_by_config_repo = TRUE AND config_repo_id = $1`, configRepoID)
+		_, err := tx.Exec(ctx, `
+			DELETE FROM users
+			WHERE managed_by_config_repo = TRUE
+			  AND config_repo_id = $1
+			  AND provider <> $2
+		`, configRepoID, auth.ProviderServiceAccount)
 		return err
 	}
 	subs := make([]string, 0, len(users))
@@ -1841,8 +2009,75 @@ func pruneManagedUsers(ctx context.Context, tx pgx.Tx, configRepoID int64, users
 		DELETE FROM users
 		WHERE managed_by_config_repo = TRUE
 		  AND config_repo_id = $1
-		  AND sub != ALL($2)
-	`, configRepoID, subs)
+		  AND provider <> $2
+		  AND sub != ALL($3)
+	`, configRepoID, auth.ProviderServiceAccount, subs)
+	return err
+}
+
+func pruneManagedServiceAccounts(ctx context.Context, tx pgx.Tx, configRepoID int64, serviceAccounts map[string]storedAccessServiceAccount) error {
+	query := `
+		SELECT sub
+		FROM users
+		WHERE managed_by_config_repo = TRUE
+		  AND config_repo_id = $1
+		  AND provider = $2
+	`
+	args := []any{configRepoID, auth.ProviderServiceAccount}
+	if len(serviceAccounts) > 0 {
+		subs := make([]string, 0, len(serviceAccounts))
+		for sub := range serviceAccounts {
+			subs = append(subs, sub)
+		}
+		query += ` AND sub != ALL($3)`
+		args = append(args, subs)
+	}
+
+	rows, err := tx.Query(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	var prunedServiceAccountSubs []string
+	for rows.Next() {
+		var sub string
+		if err := rows.Scan(&sub); err != nil {
+			rows.Close()
+			return err
+		}
+		prunedServiceAccountSubs = append(prunedServiceAccountSubs, sub)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	for _, sub := range prunedServiceAccountSubs {
+		if err := deleteServiceAccountAccessArtifacts(ctx, tx, sub); err != nil {
+			return err
+		}
+	}
+
+	if len(serviceAccounts) == 0 {
+		_, err := tx.Exec(ctx, `
+			DELETE FROM users
+			WHERE managed_by_config_repo = TRUE
+			  AND config_repo_id = $1
+			  AND provider = $2
+		`, configRepoID, auth.ProviderServiceAccount)
+		return err
+	}
+	subs := make([]string, 0, len(serviceAccounts))
+	for sub := range serviceAccounts {
+		subs = append(subs, sub)
+	}
+	_, err = tx.Exec(ctx, `
+		DELETE FROM users
+		WHERE managed_by_config_repo = TRUE
+		  AND config_repo_id = $1
+		  AND provider = $2
+		  AND sub != ALL($3)
+	`, configRepoID, auth.ProviderServiceAccount, subs)
 	return err
 }
 

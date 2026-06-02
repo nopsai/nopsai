@@ -25,10 +25,11 @@ Related source files:
 | --- | --- | --- | --- | --- |
 | User/API access JWT | browser UI, API clients | HTTP `Authorization: Bearer ...` | `JWT_SIGNING_KEY` | Authenticate REST API callers |
 | Personal access token | API clients and automation | HTTP `Authorization: Bearer nopat_...` | Not signed; stored by hash in Postgres | Long-lived user-owned API credential |
+| Service account token | integrations and automation | HTTP `Authorization: Bearer nopsat_...` | Not signed; stored by hash in Postgres | Long-lived token-only integration credential |
 | Internal REST service JWT | dispatcher, agent | HTTP `Authorization: Bearer ...` | `SERVICE_JWT_SIGNING_KEY`, falling back to `JWT_SIGNING_KEY` | Let trusted services call selected Nopsai REST endpoints |
 | Dispatcher gRPC service JWT | nopsai, runner, agent | gRPC metadata `authorization: Bearer ...` | `SERVICE_JWT_SIGNING_KEY`, falling back to `JWT_SIGNING_KEY` | Authenticate and authorize dispatcher gRPC clients |
 
-Refresh tokens and personal access tokens are not JWTs. They are opaque random strings stored only as hashes in Postgres.
+Refresh tokens, personal access tokens, and service account tokens are not JWTs. They are opaque random strings stored only as hashes in Postgres.
 
 ---
 
@@ -134,6 +135,18 @@ Personal access tokens:
 6. The token can use `expires_in_days`, an exact `expires_at` date/timestamp within 365 days, or explicit `never_expires: true`.
 7. Users can list their token metadata with `GET /v1/auth/personal-tokens` and revoke tokens with `DELETE /v1/auth/personal-tokens/{tokenID}`.
 
+Service account tokens:
+
+1. An IAM administrator creates a service account with `POST /v1/admin/service-accounts`,
+   or a system/global config repository declares it with the `service_accounts`
+   key in `access/*.yaml`.
+2. Service accounts are stored as user-like identities with `provider = service-account`, no password hash, and no local login path.
+3. GitOps may declare the service-account identity and grants, but it never stores the raw bearer token.
+4. Nopsai generates a `nopsat_` opaque token for the service account through the System Access page or token API. Only the hash, suffix, owner, name, timestamps, and expiry are stored in `service_account_tokens`.
+5. The raw token is returned once when a token is created and is never returned by list APIs.
+6. Service account tokens authenticate as AAA `service_account` subjects, so integrations can receive roles and resource grants without borrowing a human user's personal token.
+7. IAM administrators can list, rotate, and revoke service account tokens from the System Access page or the `/v1/admin/service-accounts/{serviceAccountID}/tokens` endpoints.
+
 Request authentication:
 
 1. Most REST endpoints require `Authorization: Bearer <access-token>`.
@@ -141,9 +154,10 @@ Request authentication:
 3. `authMiddleware` first attempts service-token validation. If that succeeds, the request is normalized as `provider = internal-service` with the service `role`.
 4. If service-token validation fails, Nopsai validates the bearer token as a user/API HS256 JWT with signature, expiration, issuer, and audience checks.
 5. If JWT validation fails and the token starts with `nopat_`, Nopsai hashes the value and looks for a non-revoked, non-expired personal access token.
-6. Personal tokens authenticate as the owning active user with `provider = personal-token` and current roles loaded from the database.
-7. If idle timeout is enabled, Nopsai tracks last-seen session access tokens in process memory and rejects idle session tokens. Personal tokens rely on expiry and revocation instead.
-8. `authzMiddleware` maps claims to an AAA subject and performs route authorization.
+6. If the token starts with `nopsat_`, Nopsai hashes the value and looks for a non-revoked, non-expired service account token.
+7. Personal tokens authenticate as the owning active user with `provider = personal-token`; service account tokens authenticate with `provider = service-account-token`.
+8. If idle timeout is enabled, Nopsai tracks last-seen session access tokens in process memory and rejects idle session tokens. Personal and service account tokens rely on expiry and revocation instead.
+9. `authzMiddleware` maps claims to an AAA subject and performs route authorization.
 
 ---
 
@@ -165,6 +179,8 @@ Authorization: Bearer <access-token>
 When an authenticated request gets `401`, the UI calls `/v1/auth/refresh` once, persists the new tokens, and retries the original request. If refresh fails, it clears the local session.
 
 The Profile page manages personal access tokens. It lists token metadata, creates tokens with 30-day, 90-day, or 1-year expiry, displays the raw token only immediately after creation, and can revoke existing tokens.
+
+The System Access page manages service accounts. IAM administrators can create token-only integration identities, assign access roles and basic scoped roles, rotate tokens, and revoke tokens without involving a human user's profile.
 
 ---
 

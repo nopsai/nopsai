@@ -704,8 +704,9 @@ func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
 				) roles
 			), '[]'::json) AS roles
 		FROM users u
+		WHERE u.provider <> $1
 		ORDER BY u.sub
-	`)
+	`, auth.ProviderServiceAccount)
 	if err != nil {
 		http.Error(w, "failed to list users", http.StatusInternalServerError)
 		return
