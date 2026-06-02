@@ -281,11 +281,11 @@ Important behavior:
 Pages present in the current UI:
 
 - `Pipeline runs`: run list, grouped views, recent runs, event grouping, details, logs, rerun, cancel, branch cleanup
-- `Pipelines`: pipeline browser/editor, drafts, validation, dependency graphing
+- `Pipelines`: pipeline browser/editor, drafts, validation, dependency graphing, and Execute handoff to Lab
 - `Schedules`: schedule browser, pipeline-filtered schedule view, enable/disable, run now, latest-run link, and GitOps markers
 - `Triggers`: trigger override browser/editor
 - `Scopes`: variable and secret management by scope and repository, including scope use-access controls
-- `Lab`: ad-hoc YAML editing and direct run execution
+- `Lab`: ad-hoc YAML editing, preselected pipeline handoff, and direct run execution
 - `Steps`: reusable step library, usage inspection, and step use-access controls
 - `Knowledge Context`: kind/group/document browser, markdown editor/preview, source metadata, access settings, and usage inspection
 - `System`: config, dispatcher, runner controls, user/role/access management
