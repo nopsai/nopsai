@@ -32,6 +32,25 @@ func TestGeneratePersonalAccessTokenUsesOpaquePrefixedSecret(t *testing.T) {
 	}
 }
 
+func TestGenerateServiceAccountTokenUsesDistinctOpaquePrefix(t *testing.T) {
+	token, err := GenerateServiceAccountToken()
+	if err != nil {
+		t.Fatalf("GenerateServiceAccountToken() error = %v", err)
+	}
+	if !strings.HasPrefix(token, ServiceAccountTokenPrefix) {
+		t.Fatalf("token prefix = %q, want %q", token[:len(ServiceAccountTokenPrefix)], ServiceAccountTokenPrefix)
+	}
+	if strings.HasPrefix(token, PersonalAccessTokenPrefix) {
+		t.Fatalf("service account token should not use personal token prefix %q", PersonalAccessTokenPrefix)
+	}
+	if len(strings.TrimPrefix(token, ServiceAccountTokenPrefix)) < 40 {
+		t.Fatalf("token secret length = %d, want at least 40", len(strings.TrimPrefix(token, ServiceAccountTokenPrefix)))
+	}
+	if PersonalAccessTokenSuffix(token) != token[len(token)-8:] {
+		t.Fatalf("PersonalAccessTokenSuffix() = %q, want last 8 chars", PersonalAccessTokenSuffix(token))
+	}
+}
+
 func TestLocalJWTRejectsWrongIssuerAudience(t *testing.T) {
 	localJWT := NewLocalJWTService([]byte("shared-key"), "local-issuer", "local-audience", time.Minute)
 	serviceJWT := NewLocalJWTService([]byte("shared-key"), "service-issuer", "service-audience", time.Minute)

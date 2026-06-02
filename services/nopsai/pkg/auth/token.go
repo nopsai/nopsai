@@ -7,17 +7,28 @@ import (
 
 const (
 	ProviderPersonalAccessToken = "personal-token"
+	ProviderServiceAccount      = "service-account"
+	ProviderServiceAccountToken = "service-account-token"
 	PersonalAccessTokenPrefix   = "nopat_"
+	ServiceAccountTokenPrefix   = "nopsat_"
 	personalAccessTokenBytes    = 32
 	personalAccessTokenSuffix   = 8
 )
 
 func GeneratePersonalAccessToken() (string, error) {
+	return generateOpaqueToken(PersonalAccessTokenPrefix)
+}
+
+func GenerateServiceAccountToken() (string, error) {
+	return generateOpaqueToken(ServiceAccountTokenPrefix)
+}
+
+func generateOpaqueToken(prefix string) (string, error) {
 	buf := make([]byte, personalAccessTokenBytes)
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
 	}
-	return PersonalAccessTokenPrefix + base64.RawURLEncoding.EncodeToString(buf), nil
+	return prefix + base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
 func PersonalAccessTokenSuffix(token string) string {

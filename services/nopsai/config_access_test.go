@@ -63,6 +63,105 @@ basic_roles:
 	}
 }
 
+func TestParseAccessSyncPlanGlobalServiceAccounts(t *testing.T) {
+	files := map[string]string{
+		"access/service-accounts.yaml": `
+service_accounts:
+  - sub: webhook-deployer
+    email: webhook-deployer@example.com
+    advanced_roles:
+      - webhook-runner
+
+advanced_roles:
+  - name: webhook-runner
+    policies:
+      - resource: trigger:acme/deploy-webhook
+        action: trigger.read
+`,
+	}
+
+	plan, err := parseAccessSyncPlan(files, "access", models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeSystem,
+		ScopeID:   models.ConfigRepositorySystemGlobalID,
+	}, "")
+	if err != nil {
+		t.Fatalf("parseAccessSyncPlan() error = %v", err)
+	}
+
+	if account, ok := plan.serviceAccounts["webhook-deployer"]; !ok {
+		t.Fatal("expected webhook-deployer service account")
+	} else if account.email != "webhook-deployer@example.com" || account.status != "active" {
+		t.Fatalf("service account = %#v, want normalized email and active status", account)
+	}
+	key := accessRoleBindingKey{
+		role:        "webhook-runner",
+		subjectType: model.SubjectTypeServiceAccount,
+		subjectID:   "webhook-deployer",
+	}
+	if _, ok := plan.roleBindings[key]; !ok {
+		t.Fatalf("expected service account role binding %#v, got %#v", key, plan.roleBindings)
+	}
+}
+
+func TestParseAccessSyncPlanSupportsServiceAccountGrantShortcut(t *testing.T) {
+	files := map[string]string{
+		"access/grants.yaml": `
+basic_roles:
+  - service_account: webhook-deployer
+    role: developer
+    resource: trigger:acme/deploy-webhook
+`,
+	}
+
+	plan, err := parseAccessSyncPlan(files, "access", models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeSystem,
+		ScopeID:   models.ConfigRepositorySystemGlobalID,
+	}, "")
+	if err != nil {
+		t.Fatalf("parseAccessSyncPlan() error = %v", err)
+	}
+
+	key := accessGrantPlanKey{
+		subjectType:  model.SubjectTypeServiceAccount,
+		subjectID:    "webhook-deployer",
+		resourceType: grantResourceTrigger,
+		resourceID:   "acme/deploy-webhook",
+	}
+	if _, ok := plan.grants[key]; !ok {
+		t.Fatalf("expected service account grant key %#v, got %#v", key, plan.grants)
+	}
+}
+
+func TestParseAccessSyncPlanSupportsCanonicalServiceAccountGrant(t *testing.T) {
+	files := map[string]string{
+		"access/grants.yaml": `
+basic_roles:
+  - subject_type: service_account
+    subject_id: webhook-deployer
+    role: developer
+    resource: trigger:acme/deploy-webhook
+`,
+	}
+
+	plan, err := parseAccessSyncPlan(files, "access", models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeSystem,
+		ScopeID:   models.ConfigRepositorySystemGlobalID,
+	}, "")
+	if err != nil {
+		t.Fatalf("parseAccessSyncPlan() error = %v", err)
+	}
+
+	key := accessGrantPlanKey{
+		subjectType:  model.SubjectTypeServiceAccount,
+		subjectID:    "webhook-deployer",
+		resourceType: grantResourceTrigger,
+		resourceID:   "acme/deploy-webhook",
+	}
+	if _, ok := plan.grants[key]; !ok {
+		t.Fatalf("expected service account grant key %#v, got %#v", key, plan.grants)
+	}
+}
+
 func TestParseAccessSyncPlanRejectsAuthGroupDefinitions(t *testing.T) {
 	files := map[string]string{
 		"access/groups.yaml": `
@@ -206,6 +305,23 @@ advanced_roles:
 	}, "team-1")
 	if err == nil {
 		t.Fatal("expected group-scoped repo to reject global role management")
+	}
+}
+
+func TestParseAccessSyncPlanGroupRepoRejectsServiceAccounts(t *testing.T) {
+	files := map[string]string{
+		"access/service-accounts.yaml": `
+service_accounts:
+  - sub: webhook-deployer
+`,
+	}
+
+	_, err := parseAccessSyncPlan(files, "access", models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeFolder,
+		ScopeID:   "team-1",
+	}, "team-1")
+	if err == nil {
+		t.Fatal("expected group-scoped repo to reject service account management")
 	}
 }
 

@@ -532,6 +532,24 @@ func TestConfigRepositoryPrecedence(t *testing.T) {
 	}
 }
 
+func TestConfigRepositoryAdoptsOnlyInScopeDatabaseResources(t *testing.T) {
+	systemRepo := models.ConfigRepository{ID: 1, ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID}
+	folderRepo := models.ConfigRepository{ID: 2, ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"}
+
+	if !canConfigRepositoryAdoptUnmanagedResource(systemRepo, "platform/deploy") {
+		t.Fatal("system config repo should be able to adopt database resources")
+	}
+	if !canConfigRepositoryAdoptUnmanagedResource(folderRepo, "team-1/deploy") {
+		t.Fatal("group config repo should be able to adopt database resources inside its group")
+	}
+	if !canConfigRepositoryAdoptUnmanagedResource(folderRepo, "team-1/dev/deploy") {
+		t.Fatal("group config repo should be able to adopt database resources inside child groups")
+	}
+	if canConfigRepositoryAdoptUnmanagedResource(folderRepo, "team-2/deploy") {
+		t.Fatal("group config repo should not adopt database resources outside its group")
+	}
+}
+
 func TestEffectivePipelineRunStructureForSystemUsesConfigRepositoryGroups(t *testing.T) {
 	binding := models.ConfigRepository{ID: 1, ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID}
 	configRepositories := map[string]storedConfigRepository{

@@ -61,7 +61,7 @@ Supported grant subjects:
 - `auth_group`
 - `repository`
 - `trigger`
-- `service_account`
+- `service_account` for scheduled-run identities and administrator-created integration accounts
 - `internal_service`
 
 Supported grant resources:
@@ -120,7 +120,7 @@ Pipeline execution uses a second authorization pass for resources that a run wan
 - manual Lab/API runs use the authenticated `user`
 - Git-triggered runs use `repository:<owner>/<repo>`
 - scheduled runs use `service_account:schedule:<schedule-id>` with explicit runtime grants derived from the schedule target pipeline
-- other automation runs should use the trigger or service-account identity
+- other automation runs should use the trigger identity or an administrator-created service account token
 - dispatcher/internal calls only execute after the original caller has already been authorized
 
 Pipeline runs inherit from their pipeline path, scope path, repository metadata, and, when present, the app/group selected by `pipeline_runs.group_id`. This lets an owner of `folder:team-1` see runs placed under `team-1/test-app`, including runs whose Git metadata resolves through the app's `repository_full_name`.
@@ -172,8 +172,11 @@ Resource-use grant requests accept `subject_type: "repository"` with `subject_id
 
 Config repositories can manage access records from YAML under `access/`.
 Every `*.yaml` or `*.yml` file under that directory is read; `all.yaml` is only
-a sample name. Manifests may use top-level `users`, `advanced_roles`,
-`policies`, `advanced_role_bindings`, and `basic_roles` keys.
+a sample name. Manifests may use top-level `users`, `service_accounts`,
+`advanced_roles`, `policies`, `advanced_role_bindings`, and `basic_roles` keys.
+GitOps creates service-account identities and grants, but it does not store raw
+service-account tokens. IAM administrators create or rotate those runtime tokens
+through the System Access page or service-account token API after sync.
 
 Example global manifest:
 
@@ -186,6 +189,10 @@ users:
     email: bob@example.com
     advanced_roles: [viewer]
 
+service_accounts:
+  - sub: webhook-deployer
+    email: webhook-deployer@example.com
+
 advanced_roles:
   - name: release-manager
     policies:
@@ -196,27 +203,54 @@ basic_roles:
   - user: alice
     role: owner
     resource: folder:team-1
+  - subject_type: service_account
+    subject_id: webhook-deployer
+    role: developer
+    resource: pipeline:platform-maintenance
 ```
 
-Global config repositories can manage users, advanced role definitions,
-policies, advanced role bindings, and basic role grants, including grants that
-target delegated groups/folders. Group-scoped config repositories can manage
-`basic_roles` only for their own group subtree; user, advanced-role, policy,
-and direct advanced-role-binding management remains global.
+Global config repositories can manage users, service accounts, advanced role
+definitions, policies, advanced role bindings, and basic role grants, including
+grants that target delegated groups/folders. Group-scoped config repositories
+can manage `basic_roles` only for their own group subtree; user,
+service-account, advanced-role, policy, and direct advanced-role-binding
+management remains global.
 In a group repo, grant resource IDs are normalized under the bound group, so a
 grant with `resource_type: folder` in the `team-1` repo targets `folder:team-1`.
 
-User-level `advanced_roles` assignments can reference custom roles from the
-manifest or protected built-in role bundles such as `viewer`, `developer`,
-`owner`, and `admin`. These assignments are global access-role bindings. Use
-`basic_roles` when the same product role name should be scoped to a
-folder/group target.
+User- and service-account-level `advanced_roles` assignments can reference
+custom roles from the manifest or protected built-in role bundles such as
+`viewer`, `developer`, `owner`, and `admin`. These assignments are global
+access-role bindings. Use `basic_roles` when the same product role name should
+be scoped to a folder/group target.
 
 GitOps `basic_roles` use the same product roles as the API: `viewer`,
 `developer`, `owner`, and `admin`. The group/folder is the grant target, not a
 separate subject type. Non-admin basic roles are expanded into `resource_acl`;
 owner grants also write `resource_ownership`. `admin` grants remain
 platform-only and are rejected in group-scoped config repositories.
+Use the shorthand subject fields `user:`, `service_account:`, or `service:` for
+editable GitOps manifests. The canonical `subject_type` plus `subject_id` form
+is still accepted for compatibility. Sync resolves users and service accounts to
+their canonical runtime IDs before writing grants; drift exports users by `sub`
+and service accounts by `sub`.
+GitOps access sync accepts resource IDs declared by the repository even when the
+target pipeline, trigger, or scope is created later in the same sync-all run by
+a delegated group repository. Direct UI/API grant creation still requires the
+target resource to exist. Global drift keeps exporting product `basic_roles`
+for users and service accounts even when the target folder also has a delegated
+config repository; embedded resource access remains owned by the repository that
+owns the resource file.
+
+Config repository drift can export existing users, service-account identities,
+advanced roles, policies, advanced role bindings, and basic product grants back
+into access manifests so they can be pushed to the review branch. Service
+account identities and service-account basic grants are written to
+`access/service-accounts.yaml`;
+other global IAM records are written to `access/all.yaml`, and group-scoped
+repos write scoped grants to `access/grants.yaml`. Exported files include
+identity metadata and roles only; passwords and `nopsat_` token values are never
+exported.
 
 ## GitOps Resource Access
 
@@ -245,14 +279,18 @@ as pipelines, reusable steps, and knowledge contexts; scopes remain sensitive
 and can only be `group` or `restricted`. If a resource declares grants without a
 visibility, sync treats it as `restricted`.
 
-The grant subjects match the Access UI. Use `subject_type: repository` with a
-canonical repository ID, or `subject_type: group` with a resource group path.
-The shorthand form below is equivalent:
+The grant subjects match the Access UI. Use `repository:` with a canonical
+repository ID, `service_account:` with a service-account sub, or `group:` with a
+resource group path. The canonical `subject_type` plus `subject_id` form is
+also accepted.
 
 ```yaml
 access:
   groups: [data-team]
   repositories: [hosein-yousefii/test-app]
+  use_access:
+    grants:
+      - service_account: webhook-deployer
 ```
 
 Inline access grants are stored in the same `access_grants` table as UI-created

@@ -53,6 +53,9 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 # Use the returned personal token for API calls
 curl -H "Authorization: Bearer nopat_<secret>" http://localhost:8080/v1/runs
 
+# Use a service account token for integration calls
+curl -H "Authorization: Bearer nopsat_<secret>" http://localhost:8080/v1/runs
+
 # List and revoke personal tokens
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" http://localhost:8080/v1/auth/personal-tokens
 curl -X DELETE -H "Authorization: Bearer $NOPSAI_TOKEN" \
@@ -223,6 +226,55 @@ Supported access-grant subject types:
 - `internal_service`
 
 Group grants use the internal `folder` resource type and target group paths, not numeric `group_id` values. Example: `/payments/backend`.
+
+---
+
+## Service Accounts
+
+Service accounts are token-only identities for integrations and automation.
+They are stored alongside users for lifecycle and status management, but they
+cannot use password login and do not have password hashes. Their bearer tokens
+use the `nopsat_` prefix and authorize as AAA `service_account` subjects.
+System/global GitOps repositories can declare service-account identities and
+grants with the `service_accounts` key in `access/*.yaml`; token material is
+still created, rotated, and revoked through these runtime admin APIs or the
+System Access page.
+
+```bash
+# Create a service account and receive the initial token once
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sub":"deploy-bot",
+    "email":"platform@example.com",
+    "role":"nopsai-deployer",
+    "token_name":"github-actions"
+  }' \
+  http://localhost:8080/v1/admin/service-accounts
+
+# List service accounts
+curl http://localhost:8080/v1/admin/service-accounts
+
+# Rotate a token
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"name":"june-rotation","expires_in_days":90}' \
+  http://localhost:8080/v1/admin/service-accounts/{serviceAccountID}/tokens
+
+# Revoke a token
+curl -X DELETE \
+  http://localhost:8080/v1/admin/service-accounts/{serviceAccountID}/tokens/{tokenID}
+```
+
+Service account administration endpoints require `iam.admin`:
+
+- `GET /v1/admin/service-accounts`
+- `POST /v1/admin/service-accounts`
+- `PUT|PATCH /v1/admin/service-accounts/{serviceAccountID}`
+- `DELETE /v1/admin/service-accounts/{serviceAccountID}`
+- `GET|POST /v1/admin/service-accounts/{serviceAccountID}/tokens`
+- `DELETE /v1/admin/service-accounts/{serviceAccountID}/tokens/{tokenID}`
+- `POST|DELETE /v1/admin/service-account-roles`
 
 ---
 
@@ -750,7 +802,8 @@ curl -X POST -H "Content-Type: application/json" \
 - The system/global repo may define runtime runner defaults and dispatcher routing under `setting/system/runner.yaml`; dispatcher routing changes are synced into `nopsai` and applied by the live dispatcher.
 - A binding file contains `repo_url`, optional `branch`, optional `base_path`, optional `enabled`, optional `write_enabled`, and optional `write_branch`.
 - `branch` remains the read/sync source. When `write_enabled` is true, Nopsai can push generated GitOps changes to `write_branch` so they can be reviewed in GitHub before merging back to the sync branch. The GitHub App needs `contents: read and write`.
-- Drift compares the sync branch with Nopsai's current database state. UI-side resource Access changes for pipelines, reusable steps, scopes, and knowledge contexts are exported as embedded `access:` updates in the affected GitOps files.
+- Drift compares the sync branch with Nopsai's current declarative state for pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, run group/config-repository structure, access manifests, LLM profiles, MCP registry files, and runtime settings. UI-side resource Access changes for pipelines, reusable steps, scopes, and knowledge contexts are exported as embedded `access:` updates in the affected GitOps files. Pipeline run rows remain runtime/audit records rather than Git-owned resources.
+- After generated files are merged into the sync branch, config sync can adopt matching database-owned resources inside the repository scope and mark them as GitOps-managed. Resources already owned by an unrelated config repo remain protected by config-repo precedence.
 - Group repositories use the same drift and write endpoint shape at `GET /v1/groups/<group-path>/config-repo/drift` and `POST /v1/groups/<group-path>/config-repo/write`. File paths are relative to the configured `base_path`.
 - Nested groups are represented by nested paths, for example `config-repositories/groups/team-2/platform.yaml` creates a binding for `team-2/platform`.
 - Group bindings also create matching group shells used by the Pipelines, Steps, Triggers, Scopes, and Pipeline Runs views.

@@ -11,7 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"nopsai/config"
 	"nopsai/pkg/models"
+	"nopsai/services/aaa/pkg/model"
+	"nopsai/services/nopsai/pkg/auth"
 
 	"gopkg.in/yaml.v3"
 )
@@ -56,14 +59,15 @@ type configRepositoryEmbeddedUseAccessFile struct {
 }
 
 type configRepositoryEmbeddedUseGrantFile struct {
-	SubjectType string   `yaml:"subject_type,omitempty"`
-	SubjectID   string   `yaml:"subject_id,omitempty"`
-	Group       string   `yaml:"group,omitempty"`
-	Repository  string   `yaml:"repository,omitempty"`
-	User        string   `yaml:"user,omitempty"`
-	Trigger     string   `yaml:"trigger,omitempty"`
-	Service     string   `yaml:"service,omitempty"`
-	Actions     []string `yaml:"actions,omitempty"`
+	SubjectType    string   `yaml:"subject_type,omitempty"`
+	SubjectID      string   `yaml:"subject_id,omitempty"`
+	Group          string   `yaml:"group,omitempty"`
+	Repository     string   `yaml:"repository,omitempty"`
+	User           string   `yaml:"user,omitempty"`
+	Trigger        string   `yaml:"trigger,omitempty"`
+	ServiceAccount string   `yaml:"service_account,omitempty"`
+	Service        string   `yaml:"service,omitempty"`
+	Actions        []string `yaml:"actions,omitempty"`
 }
 
 func (a *App) handleGetGlobalConfigRepositoryDrift(w http.ResponseWriter, r *http.Request) {
@@ -124,7 +128,7 @@ func (a *App) loadConfigRepositoryGitFiles(repo models.ConfigRepository) (map[st
 		return nil, err
 	}
 	result := map[string]string{}
-	for _, directory := range []string{"pipelines", "steps", "triggers", "schedules", "scopes", "knowledge", "setting", "settings"} {
+	for _, directory := range []string{"pipelines", "steps", "triggers", "schedules", "scopes", "knowledge", "pipelineruns", "config-repositories", "access", "setting", "settings"} {
 		directoryPath := filepath.ToSlash(filepath.Join(strings.Trim(strings.TrimSpace(repo.BasePath), "/"), directory))
 		files, err := a.requestGitBotDirectory(owner, name, repo.Branch, directoryPath)
 		if err != nil {
@@ -288,6 +292,18 @@ func (a *App) exportConfigRepositoryFiles(ctx context.Context, repo models.Confi
 		return nil, err
 	}
 	if err := a.exportConfigRepositoryKnowledge(ctx, repo, delegatedScopes, resourceAccess, files); err != nil {
+		return nil, err
+	}
+	if err := a.exportConfigRepositoryGroupStructure(ctx, repo, files); err != nil {
+		return nil, err
+	}
+	if err := a.exportConfigRepositoryAccess(ctx, repo, delegatedScopes, files); err != nil {
+		return nil, err
+	}
+	if err := a.exportConfigRepositoryLLMProfiles(ctx, repo, files); err != nil {
+		return nil, err
+	}
+	if err := a.exportConfigRepositoryMCPRegistry(ctx, repo, files); err != nil {
 		return nil, err
 	}
 	if err := a.exportConfigRepositoryRuntimeSettings(repo, files); err != nil {
@@ -559,6 +575,14 @@ func configRepositoryIncludesAccessResource(repo models.ConfigRepository, resour
 	return accessGrantResourceInConfigBindingScope(resourceType, resourceID, repo)
 }
 
+func configRepositoryIncludesBasicRoleGrant(repo models.ConfigRepository, resourceType, resourceID string, delegatedScopes []string) bool {
+	if repo.ScopeType == models.ConfigRepositoryScopeFolder &&
+		accessGrantResourceIntersectsAnyScope(resourceType, resourceID, delegatedScopes) {
+		return false
+	}
+	return accessGrantResourceInConfigBindingScope(resourceType, resourceID, repo)
+}
+
 func isConfigRepositoryEmbeddedAccessResourceType(resourceType string) bool {
 	switch strings.TrimSpace(resourceType) {
 	case grantResourcePipeline, grantResourceStep, grantResourceScope, grantResourceKnowledgeContext:
@@ -619,6 +643,8 @@ func (state configRepositoryResourceAccessState) exportFile() *configRepositoryE
 			exportGrant.User = subjectID
 		case grantSubjectTrigger:
 			exportGrant.Trigger = subjectID
+		case grantSubjectServiceAccount:
+			exportGrant.ServiceAccount = subjectID
 		case grantSubjectService, "internal_service":
 			exportGrant.Service = subjectID
 		default:
@@ -1149,6 +1175,811 @@ func (a *App) exportConfigRepositoryKnowledge(ctx context.Context, repo models.C
 	return rows.Err()
 }
 
+type configRepositoryGroupStructureExportNode struct {
+	Description string
+	Config      *configRepositoryBindingExport
+	Apps        []configRepositoryGroupStructureAppExport
+	Children    map[string]*configRepositoryGroupStructureExportNode
+}
+
+type configRepositoryGroupStructureAppExport struct {
+	Name    string `yaml:"name"`
+	RepoURL string `yaml:"repo_url"`
+}
+
+type configRepositoryBindingExport struct {
+	RepoURL      string `yaml:"repo_url"`
+	Branch       string `yaml:"branch,omitempty"`
+	BasePath     string `yaml:"base_path,omitempty"`
+	Enabled      *bool  `yaml:"enabled,omitempty"`
+	WriteEnabled *bool  `yaml:"write_enabled,omitempty"`
+	WriteBranch  string `yaml:"write_branch,omitempty"`
+}
+
+func (a *App) exportConfigRepositoryGroupStructure(ctx context.Context, repo models.ConfigRepository, files map[string]string) error {
+	records, err := loadGroupPathRecords(ctx, a.db)
+	if err != nil {
+		return err
+	}
+	structure := map[string]*configRepositoryGroupStructureExportNode{}
+	for _, record := range records {
+		path := strings.Trim(strings.TrimSpace(record.Path), "/")
+		if path == "" || !configRepositoryGroupStructureIncludesPath(repo, path) {
+			continue
+		}
+		if record.Kind == "app" || record.RepositoryFullName != "" {
+			parentPath := groupItemParentPath(path)
+			if parentPath == "" || !configRepositoryGroupStructureIncludesPath(repo, parentPath) {
+				continue
+			}
+			parent := ensureConfigRepositoryGroupStructureExportPath(structure, parentPath)
+			app := configRepositoryGroupStructureAppExport{
+				Name:    strings.TrimSpace(record.Name),
+				RepoURL: strings.TrimSpace(record.RepoURL),
+			}
+			if app.Name == "" {
+				app.Name = repositoryDisplayNameFromFullName(record.RepositoryFullName)
+			}
+			if app.RepoURL == "" && strings.TrimSpace(record.RepositoryFullName) != "" {
+				app.RepoURL = canonicalRepositoryURL(record.RepositoryFullName)
+			}
+			if app.Name != "" && app.RepoURL != "" {
+				parent.Apps = append(parent.Apps, app)
+			}
+			continue
+		}
+		node := ensureConfigRepositoryGroupStructureExportPath(structure, path)
+		node.Description = strings.TrimSpace(record.Description)
+	}
+
+	rows, err := a.db.Query(ctx, `
+		SELECT scope_id, repo_url, branch, base_path, enabled, write_enabled, write_branch,
+		       config_repo_id, managed_by_config_repo
+		FROM config_repositories
+		WHERE scope_type = $1
+		  AND id <> $2
+		ORDER BY scope_id ASC
+	`, models.ConfigRepositoryScopeFolder, repo.ID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var scopeID, repoURL, branch, basePath, writeBranch string
+		var enabled, writeEnabled, managed bool
+		var configRepoID sql.NullInt64
+		if err := rows.Scan(&scopeID, &repoURL, &branch, &basePath, &enabled, &writeEnabled, &writeBranch, &configRepoID, &managed); err != nil {
+			return err
+		}
+		scopeID = strings.Trim(strings.TrimSpace(scopeID), "/")
+		if scopeID == "" || !configRepositoryGroupStructureIncludesPath(repo, scopeID) {
+			continue
+		}
+		if managed && (!configRepoID.Valid || configRepoID.Int64 != repo.ID) {
+			continue
+		}
+		if !managed && repo.ScopeType != models.ConfigRepositoryScopeSystem && !configResourceUnderScope(scopeID, repo.ScopeID) {
+			continue
+		}
+		enabledValue := enabled
+		writeEnabledValue := writeEnabled
+		node := ensureConfigRepositoryGroupStructureExportPath(structure, scopeID)
+		node.Config = &configRepositoryBindingExport{
+			RepoURL:      strings.TrimSpace(repoURL),
+			Branch:       strings.TrimSpace(branch),
+			BasePath:     strings.TrimSpace(basePath),
+			Enabled:      &enabledValue,
+			WriteEnabled: &writeEnabledValue,
+			WriteBranch:  strings.TrimSpace(writeBranch),
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(structure) == 0 {
+		return nil
+	}
+	content, err := yaml.Marshal(configRepositoryGroupStructureExportMap(structure))
+	if err != nil {
+		return err
+	}
+	files[configRepositoryGroupStructurePath] = string(content)
+	return nil
+}
+
+func configRepositoryGroupStructureIncludesPath(repo models.ConfigRepository, path string) bool {
+	path = strings.Trim(strings.TrimSpace(path), "/")
+	if path == "" {
+		return false
+	}
+	if repo.ScopeType == models.ConfigRepositoryScopeSystem {
+		return true
+	}
+	return configResourceUnderScope(path, repo.ScopeID)
+}
+
+func ensureConfigRepositoryGroupStructureExportPath(structure map[string]*configRepositoryGroupStructureExportNode, path string) *configRepositoryGroupStructureExportNode {
+	parts := strings.Split(strings.Trim(strings.TrimSpace(path), "/"), "/")
+	children := structure
+	var current *configRepositoryGroupStructureExportNode
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		current = children[part]
+		if current == nil {
+			current = &configRepositoryGroupStructureExportNode{Children: map[string]*configRepositoryGroupStructureExportNode{}}
+			children[part] = current
+		}
+		if current.Children == nil {
+			current.Children = map[string]*configRepositoryGroupStructureExportNode{}
+		}
+		children = current.Children
+	}
+	return current
+}
+
+func configRepositoryGroupStructureExportMap(structure map[string]*configRepositoryGroupStructureExportNode) map[string]any {
+	out := map[string]any{}
+	names := make([]string, 0, len(structure))
+	for name := range structure {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		out[name] = configRepositoryGroupStructureNodeExportMap(structure[name])
+	}
+	return out
+}
+
+func configRepositoryGroupStructureNodeExportMap(node *configRepositoryGroupStructureExportNode) map[string]any {
+	out := map[string]any{}
+	if node == nil {
+		return out
+	}
+	if strings.TrimSpace(node.Description) != "" {
+		out["description"] = strings.TrimSpace(node.Description)
+	}
+	if node.Config != nil {
+		out["config"] = node.Config
+	}
+	if len(node.Apps) > 0 {
+		sort.Slice(node.Apps, func(i, j int) bool {
+			return node.Apps[i].Name < node.Apps[j].Name
+		})
+		out["apps"] = node.Apps
+	}
+	for name, child := range configRepositoryGroupStructureExportMap(node.Children) {
+		out[name] = child
+	}
+	return out
+}
+
+const (
+	configRepositoryAccessAllPath             = "access/all.yaml"
+	configRepositoryAccessGrantsPath          = "access/grants.yaml"
+	configRepositoryServiceAccountsAccessPath = "access/service-accounts.yaml"
+	configRepositoryGroupStructurePath        = "config-repositories/groups/structure.yaml"
+	configRepositoryLLMProfilesPath           = "setting/system/llm_profile.yaml"
+	configRepositoryMCPRegistryPath           = "setting/system/mcp.yaml"
+)
+
+type configRepositoryAccessExportDocument struct {
+	Users                []configRepositoryUserExport                `yaml:"users,omitempty"`
+	ServiceAccounts      []configRepositoryServiceAccountExport      `yaml:"service_accounts,omitempty"`
+	AdvancedRoles        []configRepositoryAdvancedRoleExport        `yaml:"advanced_roles,omitempty"`
+	Policies             []configRepositoryAccessPolicyExport        `yaml:"policies,omitempty"`
+	AdvancedRoleBindings []configRepositoryAdvancedRoleBindingExport `yaml:"advanced_role_bindings,omitempty"`
+	BasicRoles           []configRepositoryBasicRoleExport           `yaml:"basic_roles,omitempty"`
+}
+
+type configRepositoryUserExport struct {
+	Sub           string   `yaml:"sub"`
+	Email         string   `yaml:"email,omitempty"`
+	Provider      string   `yaml:"provider,omitempty"`
+	Status        string   `yaml:"status"`
+	AdvancedRoles []string `yaml:"advanced_roles,omitempty"`
+}
+
+type configRepositoryServiceAccountExport struct {
+	Sub           string   `yaml:"sub"`
+	Email         string   `yaml:"email,omitempty"`
+	Status        string   `yaml:"status"`
+	AdvancedRoles []string `yaml:"advanced_roles,omitempty"`
+}
+
+type configRepositoryBasicRoleExport struct {
+	User           string `yaml:"user,omitempty"`
+	ServiceAccount string `yaml:"service_account,omitempty"`
+	SubjectType    string `yaml:"subject_type,omitempty"`
+	SubjectID      string `yaml:"subject_id,omitempty"`
+	Role           string `yaml:"role"`
+	Resource       string `yaml:"resource"`
+	Inherit        *bool  `yaml:"inherit,omitempty"`
+}
+
+type configRepositoryAdvancedRoleExport struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description,omitempty"`
+}
+
+type configRepositoryAccessPolicyExport struct {
+	Role     string `yaml:"role"`
+	Name     string `yaml:"name,omitempty"`
+	Resource string `yaml:"resource"`
+	Action   string `yaml:"action"`
+	Effect   string `yaml:"effect,omitempty"`
+}
+
+type configRepositoryAdvancedRoleBindingExport struct {
+	Role        string `yaml:"role"`
+	SubjectType string `yaml:"subject_type"`
+	SubjectID   string `yaml:"subject_id"`
+}
+
+func (a *App) exportConfigRepositoryAccess(ctx context.Context, repo models.ConfigRepository, delegatedScopes []string, files map[string]string) error {
+	if repo.ScopeType == models.ConfigRepositoryScopeSystem {
+		allDoc := configRepositoryAccessExportDocument{}
+		users, err := a.configRepositoryUserExports(ctx, repo)
+		if err != nil {
+			return err
+		}
+		allDoc.Users = users
+		roles, err := a.configRepositoryAdvancedRoleExports(ctx, repo)
+		if err != nil {
+			return err
+		}
+		allDoc.AdvancedRoles = roles
+		policies, err := a.configRepositoryAccessPolicyExports(ctx, repo)
+		if err != nil {
+			return err
+		}
+		allDoc.Policies = policies
+		roleBindings, err := a.configRepositoryAdvancedRoleBindingExports(ctx, repo)
+		if err != nil {
+			return err
+		}
+		allDoc.AdvancedRoleBindings = roleBindings
+		grants, err := a.configRepositoryBasicRoleGrantExports(ctx, repo, delegatedScopes, func(subjectType string) bool {
+			return subjectType != grantSubjectServiceAccount
+		})
+		if err != nil {
+			return err
+		}
+		allDoc.BasicRoles = grants
+		if !allDoc.empty() {
+			content, err := yaml.Marshal(allDoc)
+			if err != nil {
+				return err
+			}
+			files[configRepositoryAccessAllPath] = string(content)
+		}
+
+		serviceDoc := configRepositoryAccessExportDocument{}
+		serviceAccounts, err := a.configRepositoryServiceAccountExports(ctx, repo)
+		if err != nil {
+			return err
+		}
+		serviceDoc.ServiceAccounts = serviceAccounts
+		serviceGrants, err := a.configRepositoryBasicRoleGrantExports(ctx, repo, delegatedScopes, func(subjectType string) bool {
+			return subjectType == grantSubjectServiceAccount
+		})
+		if err != nil {
+			return err
+		}
+		serviceDoc.BasicRoles = serviceGrants
+		if !serviceDoc.empty() {
+			content, err := yaml.Marshal(serviceDoc)
+			if err != nil {
+				return err
+			}
+			files[configRepositoryServiceAccountsAccessPath] = string(content)
+		}
+		return nil
+	}
+
+	grants, err := a.configRepositoryBasicRoleGrantExports(ctx, repo, delegatedScopes, func(subjectType string) bool {
+		return true
+	})
+	if err != nil {
+		return err
+	}
+	if len(grants) == 0 {
+		return nil
+	}
+	doc := configRepositoryAccessExportDocument{BasicRoles: grants}
+	content, err := yaml.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	files[configRepositoryAccessGrantsPath] = string(content)
+	return nil
+}
+
+func (doc configRepositoryAccessExportDocument) empty() bool {
+	return len(doc.Users) == 0 &&
+		len(doc.ServiceAccounts) == 0 &&
+		len(doc.AdvancedRoles) == 0 &&
+		len(doc.Policies) == 0 &&
+		len(doc.AdvancedRoleBindings) == 0 &&
+		len(doc.BasicRoles) == 0
+}
+
+func (a *App) configRepositoryUserExports(ctx context.Context, repo models.ConfigRepository) ([]configRepositoryUserExport, error) {
+	rows, err := a.db.Query(ctx, `
+		SELECT sub, COALESCE(email, ''), provider, status
+		FROM users
+		WHERE provider <> $1
+		  AND sub <> $2
+		  AND (managed_by_config_repo = FALSE OR config_repo_id = $3)
+		ORDER BY sub ASC
+	`, auth.ProviderServiceAccount, defaultAdminSub, repo.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	users := []configRepositoryUserExport{}
+	userIndex := map[string]int{}
+	for rows.Next() {
+		var user configRepositoryUserExport
+		if err := rows.Scan(&user.Sub, &user.Email, &user.Provider, &user.Status); err != nil {
+			return nil, err
+		}
+		user.Sub = strings.TrimSpace(user.Sub)
+		user.Email = strings.TrimSpace(user.Email)
+		user.Provider = strings.TrimSpace(user.Provider)
+		user.Status = strings.TrimSpace(user.Status)
+		if user.Sub == "" {
+			continue
+		}
+		if user.Status == "" {
+			user.Status = "active"
+		}
+		if user.Provider == "" || user.Provider == "local" {
+			user.Provider = ""
+		}
+		userIndex[user.Sub] = len(users)
+		users = append(users, user)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	roleRows, err := a.db.Query(ctx, `
+		SELECT subject_id, role_name
+		FROM auth_role_bindings
+		WHERE subject_type = $1
+		  AND (managed_by_config_repo = FALSE OR config_repo_id = $2)
+		ORDER BY subject_id ASC, role_name ASC
+	`, grantSubjectUser, repo.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer roleRows.Close()
+	for roleRows.Next() {
+		var subjectID, roleName string
+		if err := roleRows.Scan(&subjectID, &roleName); err != nil {
+			return nil, err
+		}
+		idx, ok := userIndex[strings.TrimSpace(subjectID)]
+		if !ok {
+			continue
+		}
+		roleName = strings.TrimSpace(roleName)
+		if roleName == "" {
+			continue
+		}
+		users[idx].AdvancedRoles = append(users[idx].AdvancedRoles, roleName)
+	}
+	if err := roleRows.Err(); err != nil {
+		return nil, err
+	}
+	for idx := range users {
+		users[idx].AdvancedRoles = uniqueSortedStrings(users[idx].AdvancedRoles)
+	}
+	return users, nil
+}
+
+func (a *App) configRepositoryServiceAccountExports(ctx context.Context, repo models.ConfigRepository) ([]configRepositoryServiceAccountExport, error) {
+	rows, err := a.db.Query(ctx, `
+		SELECT sub, COALESCE(email, ''), status
+		FROM users
+		WHERE provider = $1
+		  AND (managed_by_config_repo = FALSE OR config_repo_id = $2)
+		ORDER BY sub ASC
+	`, auth.ProviderServiceAccount, repo.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	accounts := []configRepositoryServiceAccountExport{}
+	accountIndex := map[string]int{}
+	for rows.Next() {
+		var account configRepositoryServiceAccountExport
+		if err := rows.Scan(&account.Sub, &account.Email, &account.Status); err != nil {
+			return nil, err
+		}
+		account.Sub = strings.TrimSpace(account.Sub)
+		account.Email = strings.TrimSpace(account.Email)
+		account.Status = strings.TrimSpace(account.Status)
+		if account.Sub == "" {
+			continue
+		}
+		if account.Status == "" {
+			account.Status = "active"
+		}
+		accountIndex[account.Sub] = len(accounts)
+		accounts = append(accounts, account)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	roleRows, err := a.db.Query(ctx, `
+		SELECT subject_id, role_name
+		FROM auth_role_bindings arb
+		WHERE subject_type = $1
+		  AND (managed_by_config_repo = FALSE OR config_repo_id = $2)
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM access_grants ag
+			WHERE ag.subject_type = arb.subject_type
+			  AND ag.subject_id = arb.subject_id
+			  AND ag.role_name = arb.role_name
+			  AND ag.role_name = $3
+		  )
+		ORDER BY subject_id ASC, role_name ASC
+	`, grantSubjectServiceAccount, repo.ID, productRoleAdmin)
+	if err != nil {
+		return nil, err
+	}
+	defer roleRows.Close()
+
+	for roleRows.Next() {
+		var subjectID, roleName string
+		if err := roleRows.Scan(&subjectID, &roleName); err != nil {
+			return nil, err
+		}
+		idx, ok := accountIndex[strings.TrimSpace(subjectID)]
+		if !ok {
+			continue
+		}
+		roleName = strings.TrimSpace(roleName)
+		if roleName == "" {
+			continue
+		}
+		accounts[idx].AdvancedRoles = append(accounts[idx].AdvancedRoles, roleName)
+	}
+	if err := roleRows.Err(); err != nil {
+		return nil, err
+	}
+	for idx := range accounts {
+		accounts[idx].AdvancedRoles = uniqueSortedStrings(accounts[idx].AdvancedRoles)
+	}
+	return accounts, nil
+}
+
+func (a *App) configRepositoryAdvancedRoleExports(ctx context.Context, repo models.ConfigRepository) ([]configRepositoryAdvancedRoleExport, error) {
+	rows, err := a.db.Query(ctx, `
+		SELECT name, COALESCE(description, '')
+		FROM auth_roles
+		WHERE managed_by_config_repo = FALSE OR config_repo_id = $1
+		ORDER BY name ASC
+	`, repo.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	roles := []configRepositoryAdvancedRoleExport{}
+	for rows.Next() {
+		var role configRepositoryAdvancedRoleExport
+		if err := rows.Scan(&role.Name, &role.Description); err != nil {
+			return nil, err
+		}
+		role.Name = strings.TrimSpace(role.Name)
+		role.Description = strings.TrimSpace(role.Description)
+		if role.Name == "" || isProtectedAdminRoleName(role.Name) {
+			continue
+		}
+		roles = append(roles, role)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return roles, nil
+}
+
+func (a *App) configRepositoryAccessPolicyExports(ctx context.Context, repo models.ConfigRepository) ([]configRepositoryAccessPolicyExport, error) {
+	rows, err := a.db.Query(ctx, `
+		SELECT role_name, resource_type, resource_id, action, effect
+		FROM auth_role_permissions
+		WHERE managed_by_config_repo = FALSE OR config_repo_id = $1
+		ORDER BY role_name ASC, resource_type ASC, resource_id ASC, action ASC, effect ASC
+	`, repo.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	policies := []configRepositoryAccessPolicyExport{}
+	for rows.Next() {
+		var policy configRepositoryAccessPolicyExport
+		var resourceType, resourceID, effect string
+		if err := rows.Scan(&policy.Role, &resourceType, &resourceID, &policy.Action, &effect); err != nil {
+			return nil, err
+		}
+		policy.Role = strings.TrimSpace(policy.Role)
+		resourceType = strings.TrimSpace(resourceType)
+		resourceID = strings.TrimSpace(resourceID)
+		policy.Action = strings.TrimSpace(policy.Action)
+		effect = strings.TrimSpace(effect)
+		if policy.Role == "" || isProtectedAdminRoleName(policy.Role) || resourceType == "" || policy.Action == "" {
+			continue
+		}
+		policy.Resource = resourceType + ":" + resourceID
+		if effect != "" && effect != "allow" {
+			policy.Effect = effect
+		}
+		policies = append(policies, policy)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return policies, nil
+}
+
+func (a *App) configRepositoryAdvancedRoleBindingExports(ctx context.Context, repo models.ConfigRepository) ([]configRepositoryAdvancedRoleBindingExport, error) {
+	rows, err := a.db.Query(ctx, `
+		SELECT role_name, subject_type, subject_id
+		FROM auth_role_bindings
+		WHERE subject_type = ANY($1)
+		  AND (managed_by_config_repo = FALSE OR config_repo_id = $2)
+		ORDER BY role_name ASC, subject_type ASC, subject_id ASC
+	`, []string{model.SubjectTypeRepository, model.SubjectTypeTrigger, model.SubjectTypeInternalService}, repo.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	bindings := []configRepositoryAdvancedRoleBindingExport{}
+	for rows.Next() {
+		var binding configRepositoryAdvancedRoleBindingExport
+		if err := rows.Scan(&binding.Role, &binding.SubjectType, &binding.SubjectID); err != nil {
+			return nil, err
+		}
+		binding.Role = strings.TrimSpace(binding.Role)
+		binding.SubjectType = exportAccessSubjectType(binding.SubjectType)
+		binding.SubjectID = strings.Trim(strings.TrimSpace(binding.SubjectID), "/")
+		if binding.Role == "" || isProtectedAdminRoleName(binding.Role) || binding.SubjectType == "" || binding.SubjectID == "" {
+			continue
+		}
+		bindings = append(bindings, binding)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return bindings, nil
+}
+
+func (a *App) configRepositoryBasicRoleGrantExports(ctx context.Context, repo models.ConfigRepository, delegatedScopes []string, includeSubject func(string) bool) ([]configRepositoryBasicRoleExport, error) {
+	rows, err := a.db.Query(ctx, `
+		SELECT
+			ag.subject_type,
+			CASE
+				WHEN ag.subject_type = $2 THEN COALESCE(NULLIF(u.sub, ''), ag.subject_id)
+				WHEN ag.subject_type = $4 THEN COALESCE(NULLIF(sa.sub, ''), ag.subject_id)
+				ELSE ag.subject_id
+			END AS subject_id,
+			ag.role_name,
+			ag.resource_type,
+			ag.resource_id,
+			ag.inherit,
+			ag.config_repo_id,
+			ag.managed_by_config_repo
+		FROM access_grants ag
+		LEFT JOIN users u
+		  ON ag.subject_type = $2
+		 AND (ag.subject_id = u.id::text OR ag.subject_id = u.sub)
+		 AND u.provider <> $3
+		LEFT JOIN users sa
+		  ON ag.subject_type = $4
+		 AND (ag.subject_id = sa.sub OR ag.subject_id = sa.id::text)
+		 AND sa.provider = $3
+		WHERE ag.role_name <> $1
+		ORDER BY ag.subject_type ASC, subject_id ASC, ag.resource_type ASC, ag.resource_id ASC, ag.role_name ASC
+	`, customUseGrantRole, model.SubjectTypeUser, auth.ProviderServiceAccount, model.SubjectTypeServiceAccount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	grants := []configRepositoryBasicRoleExport{}
+	for rows.Next() {
+		var subjectType, subjectID, roleName, resourceType, resourceID string
+		var inherit, managed bool
+		var configRepoID sql.NullInt64
+		if err := rows.Scan(&subjectType, &subjectID, &roleName, &resourceType, &resourceID, &inherit, &configRepoID, &managed); err != nil {
+			return nil, err
+		}
+		subjectType = exportAccessSubjectType(subjectType)
+		subjectID = strings.Trim(strings.TrimSpace(subjectID), "/")
+		roleName = strings.TrimSpace(roleName)
+		resourceType = strings.TrimSpace(resourceType)
+		resourceID = strings.Trim(strings.TrimSpace(resourceID), "/")
+		if subjectType == "" || subjectID == "" || roleName == "" || resourceType == "" {
+			continue
+		}
+		if includeSubject != nil && !includeSubject(subjectType) {
+			continue
+		}
+		if _, ok := productRoleDefinitions[roleName]; !ok {
+			continue
+		}
+		if managed {
+			if !configRepoID.Valid || configRepoID.Int64 != repo.ID {
+				continue
+			}
+		}
+		if !configRepositoryIncludesBasicRoleGrant(repo, resourceType, resourceID, delegatedScopes) {
+			continue
+		}
+		grant := configRepositoryBasicRoleExport{
+			Role:     roleName,
+			Resource: configRepositoryBasicRoleResourceExport(resourceType, resourceID),
+		}
+		if !setConfigRepositoryBasicRoleSubjectExport(&grant, subjectType, subjectID) {
+			continue
+		}
+		defaultInherit := resourceType == grantResourceFolder
+		if inherit != defaultInherit {
+			next := inherit
+			grant.Inherit = &next
+		}
+		grants = append(grants, grant)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return grants, nil
+}
+
+func setConfigRepositoryBasicRoleSubjectExport(grant *configRepositoryBasicRoleExport, subjectType, subjectID string) bool {
+	if grant == nil {
+		return false
+	}
+	subjectID = strings.Trim(strings.TrimSpace(subjectID), "/")
+	if subjectID == "" {
+		return false
+	}
+	switch strings.TrimSpace(subjectType) {
+	case grantSubjectUser:
+		grant.User = subjectID
+	case grantSubjectServiceAccount:
+		grant.ServiceAccount = subjectID
+	default:
+		grant.SubjectType = strings.TrimSpace(subjectType)
+		grant.SubjectID = subjectID
+	}
+	return grant.User != "" || grant.ServiceAccount != "" || (grant.SubjectType != "" && grant.SubjectID != "")
+}
+
+func configRepositoryBasicRoleResourceExport(resourceType, resourceID string) string {
+	resourceType = strings.TrimSpace(resourceType)
+	resourceID = strings.Trim(strings.TrimSpace(resourceID), "/")
+	if resourceType == grantResourceFolder && resourceID == generalGrantID {
+		resourceID = "general"
+	}
+	return resourceType + ":" + resourceID
+}
+
+func exportAccessSubjectType(subjectType string) string {
+	switch strings.TrimSpace(subjectType) {
+	case model.SubjectTypeUser:
+		return grantSubjectUser
+	case model.SubjectTypeRepository:
+		return grantSubjectRepository
+	case model.SubjectTypeTrigger:
+		return grantSubjectTrigger
+	case model.SubjectTypeServiceAccount:
+		return grantSubjectServiceAccount
+	case model.SubjectTypeInternalService, grantSubjectService:
+		return model.SubjectTypeInternalService
+	default:
+		return ""
+	}
+}
+
+type configRepositoryLLMProfilesExportDocument struct {
+	DefaultProfile string           `yaml:"default_profile"`
+	Profiles       []llmProfileForm `yaml:"profiles"`
+}
+
+func (a *App) exportConfigRepositoryLLMProfiles(ctx context.Context, repo models.ConfigRepository, files map[string]string) error {
+	if repo.ScopeType != models.ConfigRepositoryScopeSystem {
+		return nil
+	}
+
+	defaultProfile, profiles, found, err := a.loadLLMProfilesFromDB(ctx)
+	if err != nil {
+		return err
+	}
+	if !found {
+		cfg := a.getConfigSnapshot()
+		defaultProfile = cfg.EffectiveLLMDefaultProfile()
+		profiles = cfg.EffectiveLLMProfiles()
+	}
+	profiles = config.NormalizeLLMProfiles(profiles)
+	if len(profiles) == 0 {
+		return nil
+	}
+	defaultProfile = config.NormalizeLLMProfileName(defaultProfile)
+	if defaultProfile == "" {
+		defaultProfile = config.DefaultLLMProfileName
+	}
+
+	names := make([]string, 0, len(profiles))
+	for name := range profiles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	doc := configRepositoryLLMProfilesExportDocument{DefaultProfile: defaultProfile}
+	for _, name := range names {
+		doc.Profiles = append(doc.Profiles, profileFormFromConfig(name, profiles[name]))
+	}
+	content, err := yaml.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	files[configRepositoryLLMProfilesPath] = string(content)
+	return nil
+}
+
+func (a *App) exportConfigRepositoryMCPRegistry(ctx context.Context, repo models.ConfigRepository, files map[string]string) error {
+	if repo.ScopeType != models.ConfigRepositoryScopeSystem {
+		return nil
+	}
+
+	servers, profiles, found, err := a.loadMCPRegistryFromDB(ctx)
+	if err != nil {
+		return err
+	}
+	if !found {
+		cfg := a.getConfigSnapshot()
+		servers = cfg.EffectiveMCPServers()
+		profiles = cfg.EffectiveMCPProfiles()
+	}
+	servers = models.NormalizeMCPServers(servers)
+	profiles = models.NormalizeMCPProfiles(profiles)
+	if len(servers) == 0 && len(profiles) == 0 {
+		return nil
+	}
+
+	exportServers := map[string]models.MCPServer{}
+	for name, server := range servers {
+		server.Name = ""
+		exportServers[name] = server
+	}
+	exportProfiles := map[string]models.MCPProfile{}
+	for name, profile := range profiles {
+		profile.Name = ""
+		exportProfiles[name] = profile
+	}
+
+	content, err := yaml.Marshal(mcpRegistryRequest{
+		MCPServers:  exportServers,
+		MCPProfiles: exportProfiles,
+	})
+	if err != nil {
+		return err
+	}
+	files[configRepositoryMCPRegistryPath] = string(content)
+	return nil
+}
+
 func (a *App) exportConfigRepositoryRuntimeSettings(repo models.ConfigRepository, files map[string]string) error {
 	if repo.ScopeType != models.ConfigRepositoryScopeSystem {
 		return nil
@@ -1296,10 +2127,13 @@ func configRepositoryRelativeGitPath(basePath, filePath string) (string, bool) {
 
 func isConfigRepositoryDriftPath(filePath string) bool {
 	filePath = strings.Trim(strings.TrimSpace(filepath.ToSlash(filePath)), "/")
-	for _, prefix := range []string{"pipelines/", "steps/", "triggers/", "schedules/", "scopes/", "knowledge/"} {
+	for _, prefix := range []string{"pipelines/", "steps/", "triggers/", "schedules/", "scopes/", "knowledge/", "pipelineruns/", "config-repositories/"} {
 		if strings.HasPrefix(filePath, prefix) {
 			return true
 		}
+	}
+	if strings.HasPrefix(filePath, "access/") && isYAMLFile(filePath) {
+		return true
 	}
 	if rel, ok := strings.CutPrefix(filePath, "settings/"); ok {
 		return isConfigRepositorySettingsDriftPath(rel)
@@ -1311,7 +2145,9 @@ func isConfigRepositoryDriftPath(filePath string) bool {
 }
 
 func isConfigRepositorySettingsDriftPath(rel string) bool {
-	return isGitOpsRuntimeSettingsRelativePath(rel)
+	return isGitOpsRuntimeSettingsRelativePath(rel) ||
+		isGitOpsLLMProfileRelativePath(rel) ||
+		isGitOpsMCPRegistryRelativePath(rel)
 }
 
 func normalizeConfigRepositoryFileContent(content string) string {

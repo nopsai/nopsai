@@ -164,7 +164,7 @@ func (a *App) loadInteractiveAuthenticatedUser(w http.ResponseWriter, r *http.Re
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return authenticatedUserRecord{}, false
 	}
-	if strings.EqualFold(strings.TrimSpace(claims.Provider), auth.ProviderPersonalAccessToken) {
+	if !strings.EqualFold(strings.TrimSpace(claims.Provider), "local") {
 		http.Error(w, "personal token management requires an interactive session", http.StatusForbidden)
 		return authenticatedUserRecord{}, false
 	}
