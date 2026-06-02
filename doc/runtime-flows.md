@@ -35,15 +35,16 @@ Most API routes pass through the same middleware stack before reaching a handler
 ## 2. Manual API Run
 
 1. A user or UI calls `POST /v1/run` or `POST /v1/run/{pipeline}`.
-2. `nopsai` authorizes the user for `pipeline.execute`, then accepts either a pipeline identifier, raw YAML, or a JSON payload with `pipeline`, `definition`, `scope`, and variable overrides.
-3. The user remains the caller for runtime resource-use checks.
-4. The pipeline is parsed and normalized.
-5. `nopsai` checks `pipeline.use`, selected `scope.use`, reusable `step.use`, child `pipeline.use`, managed `knowledge_context.use`, and other referenced runtime resources with the user identity.
-6. `nopsai` creates the initial `pipeline_runs` record in `pending` and stores the authorization snapshot.
-7. `step:` includes are expanded from the reusable `steps` table.
-8. The pipeline is validated and task rows are created.
-9. Knowledge context, secrets, and variables are resolved and snapshotted where applicable.
-10. The run is submitted to the dispatcher the same way a GitHub-triggered run is.
+2. From the UI, the Pipeline detail Execute action redirects to Lab with the selected pipeline preloaded for review and execution.
+3. `nopsai` authorizes the user for `pipeline.execute`, then accepts either a pipeline identifier, raw YAML, or a JSON payload with `pipeline`, `definition`, `scope`, and variable overrides.
+4. The user remains the caller for runtime resource-use checks.
+5. The pipeline is parsed and normalized.
+6. `nopsai` checks `pipeline.use`, selected `scope.use`, reusable `step.use`, child `pipeline.use`, managed `knowledge_context.use`, and other referenced runtime resources with the user identity.
+7. `nopsai` creates the initial `pipeline_runs` record in `pending` and stores the authorization snapshot.
+8. `step:` includes are expanded from the reusable `steps` table.
+9. The pipeline is validated and task rows are created.
+10. Knowledge context, secrets, and variables are resolved and snapshotted where applicable.
+11. The run is submitted to the dispatcher the same way a GitHub-triggered run is.
 
 ## 3. Dispatch And Runner Selection
 

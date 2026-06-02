@@ -177,6 +177,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   const selectedIdRef = useRef<string | null>(null);
   const [folderCreateAllowed, setFolderCreateAllowed] = useState(false);
   const [selectedUpdateAllowed, setSelectedUpdateAllowed] = useState(false);
+  const [selectedExecuteAllowed, setSelectedExecuteAllowed] = useState(false);
 
   const [detail, setDetail] = useState<PipelineDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -1234,6 +1235,29 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     };
   }, [checkPipelinePermission, selectedId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedId) {
+      setSelectedExecuteAllowed(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setSelectedExecuteAllowed(false);
+    void checkPipelinePermission('pipeline.execute', selectedId)
+      .then(allowed => {
+        if (!cancelled) setSelectedExecuteAllowed(allowed);
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedExecuteAllowed(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [checkPipelinePermission, selectedId]);
+
   const canCreatePipelineHere = folderCreateAllowed;
   const canUpdateSelectedPipeline = selectedUpdateAllowed;
   const canUsePipelineDrafts = canCreatePipelineHere || canUpdateSelectedPipeline;
@@ -1470,6 +1494,24 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  };
+
+  const handleExecute = () => {
+    if (!detail) return;
+    const source = normalizeSource(detail.source);
+    if (source === 'draft') {
+      addToast('Save this draft before executing it in Lab.', 'info');
+      return;
+    }
+    if (isEditing) {
+      addToast('Save or discard edits before executing this pipeline.', 'info');
+      return;
+    }
+    if (!selectedExecuteAllowed) {
+      addToast('You do not have permission to execute this pipeline.', 'info');
+      return;
+    }
+    navigate(`/lab?pipeline=${encodeURIComponent(detail.id)}`);
   };
 
   const handleSave = async () => {
@@ -1763,6 +1805,14 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     }
     const source = normalizeSource(detail.source);
     const isGitSource = source === 'git';
+    const executeDisabled = isEditing || source === 'draft' || !selectedExecuteAllowed;
+    const executeTitle = source === 'draft'
+      ? 'Save the draft before executing'
+      : isEditing
+        ? 'Save or discard edits before executing'
+        : selectedExecuteAllowed
+          ? 'Execute in Lab'
+          : 'You do not have permission to execute this pipeline';
     const editorLines = editorValue.split('\n');
     return (
       <div id="pipelines-detail-view" className="pipelines-view">
@@ -1783,6 +1833,19 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                 </div>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
+                <button
+                  id="pipelines-execute-btn"
+                  type="button"
+                  className="glass-button-primary"
+                  onClick={handleExecute}
+                  disabled={executeDisabled}
+                  title={executeTitle}
+                >
+                  <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                  <span>Execute</span>
+                </button>
                 <button id="pipelines-back-btn" className="glass-button-ghost" onClick={handleBackToList}>
                   <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
