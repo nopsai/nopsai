@@ -37,11 +37,15 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		SELECT
 		    pr.run_id, pr.pipeline_name, pr.pipeline_path, pr.pipeline_version, pr.status, COALESCE(pr.git_commit_sha, ''),
 		    COALESCE(pr.git_repo_owner, ''), COALESCE(pr.git_repo_name, ''), pr.started_at, pr.finished_at, pr.parent_run_id,
-		    COALESCE(pr.git_pusher_name, ''), COALESCE(pr.git_ref, ''), COALESCE(pr.git_target_ref, ''),
+			COALESCE(pr.git_pusher_name, ''), COALESCE(pr.git_ref, ''), COALESCE(pr.git_target_ref, ''),
 			COALESCE(pr.pipeline_source, ''), COALESCE(pr.trigger_event_id, ''), COALESCE(pr.failure_reason, ''),
-			COALESCE(pr.trigger_source, ''), COALESCE(pr.schedule_id::text, ''), COALESCE(ps.name, ''), COALESCE(ps.path, '')
+			COALESCE(pr.trigger_source, ''), COALESCE(pr.schedule_id::text, ''), COALESCE(ps.name, ''), COALESCE(ps.path, ''),
+			COALESCE(eti.trigger_id, ''), COALESCE(et.name, ''), COALESCE(eti.event_type, ''), COALESCE(eti.caller_type, ''),
+			COALESCE(eti.caller_id, ''), COALESCE(eti.idempotency_key, '')
 			FROM pipeline_runs pr
 		LEFT JOIN pipeline_schedules ps ON ps.id = pr.schedule_id
+		LEFT JOIN external_trigger_invocations eti ON eti.id::text = pr.trigger_event_id
+		LEFT JOIN external_triggers et ON et.id = eti.trigger_id
 	`
 	args := []interface{}{}
 	var conditions []string
@@ -100,10 +104,12 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		var run RunListItem
 		var startedAt, finishedAt sql.NullTime
 		var commitSHA, repoOwner, repoName, pusherName, gitRef, gitTargetRef, pipelineSource, pipelineVersion, pipelinePath, triggerEventID, failureReason, triggerSource, scheduleID, scheduleName, schedulePath sql.NullString
+		var externalTriggerID, externalTriggerName, externalTriggerEventType, externalTriggerCallerType, externalTriggerCallerID, externalTriggerIdempotency sql.NullString
 		err := rows.Scan(
 			&run.RunID, &run.PipelineName, &pipelinePath, &pipelineVersion, &run.Status, &commitSHA,
 			&repoOwner, &repoName, &startedAt, &finishedAt, &run.ParentRunID, &pusherName, &gitRef, &gitTargetRef, &pipelineSource, &triggerEventID, &failureReason,
-			&triggerSource, &scheduleID, &scheduleName, &schedulePath,
+			&triggerSource, &scheduleID, &scheduleName, &schedulePath, &externalTriggerID, &externalTriggerName, &externalTriggerEventType,
+			&externalTriggerCallerType, &externalTriggerCallerID, &externalTriggerIdempotency,
 		)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to scan run row")
@@ -124,6 +130,12 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		run.ScheduleID = scheduleID.String
 		run.ScheduleName = scheduleName.String
 		run.SchedulePath = schedulePath.String
+		run.ExternalTriggerID = externalTriggerID.String
+		run.ExternalTriggerName = externalTriggerName.String
+		run.ExternalTriggerEventType = externalTriggerEventType.String
+		run.ExternalTriggerCallerType = externalTriggerCallerType.String
+		run.ExternalTriggerCallerID = externalTriggerCallerID.String
+		run.ExternalTriggerIdempotency = externalTriggerIdempotency.String
 		if startedAt.Valid {
 			run.StartedAt = startedAt.Time
 			if finishedAt.Valid {
@@ -191,6 +203,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	var pipelineDefinition string
 	var startedAt, finishedAt sql.NullTime
 	var commitSHA, repoOwner, repoName, pusherName, gitRef, gitTargetRef, failureReason, pipelineSource, pipelineVersion, pipelinePath, triggerEventID, triggerSource, scheduleID, scheduleName, schedulePath sql.NullString
+	var externalTriggerID, externalTriggerName, externalTriggerEventType, externalTriggerCallerType, externalTriggerCallerID, externalTriggerIdempotency sql.NullString
 	err := a.db.QueryRow(context.Background(), `
 		SELECT
 			pr.run_id, pr.pipeline_name, pr.pipeline_path, pr.pipeline_version, pr.status, COALESCE(pr.git_commit_sha, ''),
@@ -198,16 +211,21 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 			pr.started_at, pr.finished_at, pr.parent_run_id,
 			COALESCE(pr.git_pusher_name, ''), pr.pipeline_definition, COALESCE(pr.git_ref, ''), COALESCE(pr.git_target_ref, ''),
 			pr.failure_reason, COALESCE(pr.pipeline_source, ''), COALESCE(pr.trigger_event_id, ''),
-			COALESCE(pr.trigger_source, ''), COALESCE(pr.schedule_id::text, ''), COALESCE(ps.name, ''), COALESCE(ps.path, '')
+			COALESCE(pr.trigger_source, ''), COALESCE(pr.schedule_id::text, ''), COALESCE(ps.name, ''), COALESCE(ps.path, ''),
+			COALESCE(eti.trigger_id, ''), COALESCE(et.name, ''), COALESCE(eti.event_type, ''),
+			COALESCE(eti.caller_type, ''), COALESCE(eti.caller_id, ''), COALESCE(eti.idempotency_key, '')
 		FROM pipeline_runs pr
 		LEFT JOIN pipeline_schedules ps ON ps.id = pr.schedule_id
+		LEFT JOIN external_trigger_invocations eti ON eti.id::text = pr.trigger_event_id
+		LEFT JOIN external_triggers et ON et.id = eti.trigger_id
 		WHERE pr.run_id = $1
 	`, runID).Scan(
 		&run.RunID, &run.PipelineName, &pipelinePath, &pipelineVersion, &run.Status, &commitSHA,
 		&repoOwner, &repoName, &startedAt, &finishedAt,
 		&run.ParentRunID, &pusherName, &pipelineDefinition, &gitRef, &gitTargetRef,
 		&failureReason, &pipelineSource, &triggerEventID,
-		&triggerSource, &scheduleID, &scheduleName, &schedulePath,
+		&triggerSource, &scheduleID, &scheduleName, &schedulePath, &externalTriggerID, &externalTriggerName,
+		&externalTriggerEventType, &externalTriggerCallerType, &externalTriggerCallerID, &externalTriggerIdempotency,
 	)
 
 	if err != nil {
@@ -230,6 +248,12 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	run.ScheduleID = scheduleID.String
 	run.ScheduleName = scheduleName.String
 	run.SchedulePath = schedulePath.String
+	run.ExternalTriggerID = externalTriggerID.String
+	run.ExternalTriggerName = externalTriggerName.String
+	run.ExternalTriggerEventType = externalTriggerEventType.String
+	run.ExternalTriggerCallerType = externalTriggerCallerType.String
+	run.ExternalTriggerCallerID = externalTriggerCallerID.String
+	run.ExternalTriggerIdempotency = externalTriggerIdempotency.String
 	if startedAt.Valid {
 		run.StartedAt = startedAt.Time
 		if finishedAt.Valid {

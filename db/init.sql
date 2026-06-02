@@ -413,6 +413,55 @@ CREATE TABLE audit_logs (
 
 CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
 
+CREATE TABLE external_triggers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    pipeline TEXT NOT NULL,
+    scope TEXT NOT NULL DEFAULT '',
+    allowed_callers JSONB NOT NULL DEFAULT '[]'::jsonb,
+    variable_mapping JSONB NOT NULL DEFAULT '{}'::jsonb,
+    payload_schema JSONB NOT NULL DEFAULT '{}'::jsonb,
+    rate_limit JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_used_at TIMESTAMPTZ,
+    source TEXT NOT NULL DEFAULT 'database',
+    config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
+    config_source_path TEXT NOT NULL DEFAULT '',
+    config_source_commit_sha TEXT NOT NULL DEFAULT '',
+    managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE INDEX idx_external_triggers_pipeline ON external_triggers(pipeline);
+CREATE INDEX idx_external_triggers_enabled ON external_triggers(enabled);
+CREATE INDEX idx_external_triggers_last_used_at ON external_triggers(last_used_at DESC);
+CREATE INDEX idx_external_triggers_config_repo ON external_triggers(config_repo_id);
+
+CREATE TABLE external_trigger_invocations (
+    id UUID PRIMARY KEY,
+    trigger_id TEXT NOT NULL REFERENCES external_triggers(id) ON DELETE CASCADE,
+    caller_type TEXT NOT NULL,
+    caller_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    run_id UUID REFERENCES pipeline_runs(run_id) ON DELETE SET NULL,
+    idempotency_key TEXT NOT NULL DEFAULT '',
+    event_type TEXT NOT NULL DEFAULT '',
+    source_ip TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    error TEXT NOT NULL DEFAULT ''
+);
+
+CREATE UNIQUE INDEX idx_external_trigger_invocations_active_idempotency
+    ON external_trigger_invocations(trigger_id, caller_type, caller_id, idempotency_key)
+    WHERE idempotency_key <> '' AND status IN ('pending', 'queued');
+CREATE INDEX idx_external_trigger_invocations_trigger_created
+    ON external_trigger_invocations(trigger_id, created_at DESC);
+CREATE INDEX idx_external_trigger_invocations_run
+    ON external_trigger_invocations(run_id);
+
 CREATE TABLE refresh_tokens (
     id UUID PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

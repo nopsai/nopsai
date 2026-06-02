@@ -126,6 +126,24 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		return "", model.ResourceRef{}, false, nil
 	case strings.HasPrefix(path, "/v1/schedules/"):
 		return "", model.ResourceRef{}, false, nil
+	case path == "/v1/external-triggers" && r.Method == http.MethodGet:
+		return "external_trigger.read", model.ResourceRef{Type: "external_trigger", ID: "*"}, true, nil
+	case path == "/v1/external-triggers" && r.Method == http.MethodPost:
+		return "", model.ResourceRef{}, false, nil
+	case strings.HasPrefix(path, "/v1/external-triggers/") && strings.HasSuffix(path, "/invoke"):
+		return "", model.ResourceRef{}, false, nil
+	case strings.HasPrefix(path, "/v1/external-triggers/") && strings.HasSuffix(path, "/invocations"):
+		return "external_trigger.read", model.ResourceRef{Type: "external_trigger", ID: externalTriggerIDFromRequest(r)}, false, nil
+	case strings.HasPrefix(path, "/v1/external-triggers/"):
+		resource = model.ResourceRef{Type: "external_trigger", ID: externalTriggerIDFromRequest(r)}
+		switch r.Method {
+		case http.MethodGet:
+			return "external_trigger.read", resource, false, nil
+		case http.MethodPut, http.MethodPatch:
+			return "external_trigger.update", resource, false, nil
+		case http.MethodDelete:
+			return "external_trigger.delete", resource, false, nil
+		}
 	case strings.HasPrefix(path, "/v1/pipelines/"):
 		pipelineID := normalizePathIdentifier(pathValueOrTail(r, "pipelineName", "/v1/pipelines/"))
 		switch r.Method {
@@ -313,6 +331,13 @@ func BuildTriggerResource(repoOwner, repoName string) model.ResourceRef {
 	}
 }
 
+func ExternalTriggerResource(id string) model.ResourceRef {
+	return model.ResourceRef{
+		Type: "external_trigger",
+		ID:   normalizePathIdentifier(id),
+	}
+}
+
 func StepResource(identifier string) model.ResourceRef {
 	return model.ResourceRef{
 		Type: "step",
@@ -372,6 +397,19 @@ func triggerIDFromOverrideRequest(r *http.Request) string {
 		return buildRepositoryID(owner, r.PathValue("repoName"))
 	}
 	return normalizePathIdentifier(pathTail(r.URL.Path, "/v1/overrides/"))
+}
+
+func externalTriggerIDFromRequest(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	if value := strings.TrimSpace(r.PathValue("id")); value != "" {
+		return normalizePathIdentifier(value)
+	}
+	value := pathTail(r.URL.Path, "/v1/external-triggers/")
+	value = strings.TrimSuffix(value, "/invoke")
+	value = strings.TrimSuffix(value, "/invocations")
+	return normalizePathIdentifier(value)
 }
 
 func pathSegment(path string, index int) string {

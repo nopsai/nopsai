@@ -143,13 +143,13 @@ Approval visibility is intentionally narrower than normal run ownership. A pendi
 Resource visibility values:
 
 - `group`: default; usable inside the same group boundary
-- `restricted`: same group still works, and selected groups or repositories can also be granted use access
+- `restricted`: same group still works, and selected groups, repositories, or service accounts can also be granted use access
 - `workspace`: shown in the UI as `Public`; usable by authorized callers outside the group, but still does not grant access to scopes, secrets, variables, or runners
 
 Current resource Access UI behavior:
 
 - Pipeline, step, scope, and knowledge context pages show an `Access` button next to the normal action buttons.
-- The Access dialog offers `Only this group`, `This group and selected groups or repositories`, and, for non-sensitive resources, `Public`.
+- The Access dialog offers `Only this group`, `This group and selected subjects`, and, for non-sensitive resources, `Public`.
 - Group sharing uses existing resource groups from `GET /v1/groups`.
 - Repository sharing accepts canonical repository IDs such as `hosein-yousefii/test-app`.
 - Sensitive resources such as scopes do not expose `Public`.

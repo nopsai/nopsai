@@ -274,6 +274,24 @@ steps:
 	if !strings.Contains(got, "visibility: restricted") || !strings.Contains(got, "repository: hosein-yousefii/test-app") {
 		t.Fatalf("updated access block missing from %q", got)
 	}
+	for _, badIndent := range []string{
+		"\n    visibility:",
+		"\n    use_access:",
+		"\n        grants:",
+		"\n            - repository:",
+	} {
+		if strings.Contains(got, badIndent) {
+			t.Fatalf("access block used 4-space indentation %q in:\n%s", badIndent, got)
+		}
+	}
+	for _, wantIndent := range []string{
+		"\naccess:\n  visibility: restricted\n  use_access:\n    grants:\n      - repository: hosein-yousefii/test-app",
+		"\nsteps:\n  - name: run\n    script: echo ok",
+	} {
+		if !strings.Contains("\n"+got, wantIndent) {
+			t.Fatalf("rendered YAML missing 2-space indentation %q in:\n%s", wantIndent, got)
+		}
+	}
 
 	got, err = syncConfigRepositoryYAMLAccessBlock(got, nil)
 	if err != nil {

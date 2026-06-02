@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -70,6 +71,20 @@ type configRepositoryEmbeddedUseGrantFile struct {
 	Actions        []string `yaml:"actions,omitempty"`
 }
 
+func marshalConfigRepositoryYAML(value any) ([]byte, error) {
+	var buf bytes.Buffer
+	encoder := yaml.NewEncoder(&buf)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(value); err != nil {
+		_ = encoder.Close()
+		return nil, err
+	}
+	if err := encoder.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
 func (a *App) handleGetGlobalConfigRepositoryDrift(w http.ResponseWriter, r *http.Request) {
 	repo, err := a.store.GetConfigRepositoryByScope(r.Context(), models.ConfigRepositoryScopeSystem, models.ConfigRepositorySystemGlobalID)
 	if err != nil {
@@ -128,7 +143,7 @@ func (a *App) loadConfigRepositoryGitFiles(repo models.ConfigRepository) (map[st
 		return nil, err
 	}
 	result := map[string]string{}
-	for _, directory := range []string{"pipelines", "steps", "triggers", "schedules", "scopes", "knowledge", "pipelineruns", "config-repositories", "access", "setting", "settings"} {
+	for _, directory := range []string{"pipelines", "steps", "triggers", externalTriggersGitOpsDirectory, "schedules", "scopes", "knowledge", "pipelineruns", "config-repositories", "access", "setting", "settings"} {
 		directoryPath := filepath.ToSlash(filepath.Join(strings.Trim(strings.TrimSpace(repo.BasePath), "/"), directory))
 		files, err := a.requestGitBotDirectory(owner, name, repo.Branch, directoryPath)
 		if err != nil {
@@ -283,6 +298,9 @@ func (a *App) exportConfigRepositoryFiles(ctx context.Context, repo models.Confi
 		return nil, err
 	}
 	if err := a.exportConfigRepositoryTriggers(ctx, repo, delegatedScopes, files); err != nil {
+		return nil, err
+	}
+	if err := a.exportConfigRepositoryExternalTriggers(ctx, repo, delegatedScopes, files); err != nil {
 		return nil, err
 	}
 	if err := a.exportConfigRepositorySchedules(ctx, repo, delegatedScopes, files); err != nil {
@@ -703,7 +721,7 @@ func syncConfigRepositoryYAMLAccessBlock(content string, access *configRepositor
 	removeTopLevelYAMLKey(doc, "access")
 	if access != nil {
 		var accessRoot yaml.Node
-		encoded, err := yaml.Marshal(access)
+		encoded, err := marshalConfigRepositoryYAML(access)
 		if err != nil {
 			return "", err
 		}
@@ -717,7 +735,7 @@ func syncConfigRepositoryYAMLAccessBlock(content string, access *configRepositor
 			)
 		}
 	}
-	encoded, err := yaml.Marshal(&root)
+	encoded, err := marshalConfigRepositoryYAML(&root)
 	if err != nil {
 		return "", err
 	}
@@ -783,7 +801,7 @@ func canonicalConfigRepositoryAccessString(access *embeddedResourceAccessFile) s
 	if export == nil {
 		return ""
 	}
-	encoded, err := yaml.Marshal(export)
+	encoded, err := marshalConfigRepositoryYAML(export)
 	if err != nil {
 		return ""
 	}
@@ -894,6 +912,104 @@ func (a *App) exportConfigRepositoryTriggers(ctx context.Context, repo models.Co
 	return rows.Err()
 }
 
+func (a *App) exportConfigRepositoryExternalTriggers(ctx context.Context, repo models.ConfigRepository, delegatedScopes []string, files map[string]string) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT id, name, description, enabled, pipeline, scope, allowed_callers, variable_mapping,
+		       payload_schema, rate_limit, COALESCE(source, 'database'), config_repo_id,
+		       managed_by_config_repo, COALESCE(config_source_path, '')
+		FROM external_triggers
+		ORDER BY id ASC
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var trigger externalTriggerRecord
+		var allowedJSON, mappingJSON, schemaJSON, rateLimitJSON []byte
+		var source, sourcePath string
+		var configRepoID sql.NullInt64
+		var managed bool
+		if err := rows.Scan(
+			&trigger.ID,
+			&trigger.Name,
+			&trigger.Description,
+			&trigger.Enabled,
+			&trigger.Pipeline,
+			&trigger.Scope,
+			&allowedJSON,
+			&mappingJSON,
+			&schemaJSON,
+			&rateLimitJSON,
+			&source,
+			&configRepoID,
+			&managed,
+			&sourcePath,
+		); err != nil {
+			return err
+		}
+		_ = decodeJSONWithDefault(allowedJSON, &trigger.AllowedCallers, []externalTriggerAllowedCaller{})
+		_ = decodeJSONWithDefault(mappingJSON, &trigger.VariableMapping, map[string]string{})
+		_ = decodeJSONWithDefault(schemaJSON, &trigger.PayloadSchema, map[string]any{})
+		_ = decodeJSONWithDefault(rateLimitJSON, &trigger.RateLimit, map[string]any{})
+		if !configRepositoryIncludesExternalTrigger(repo, trigger, source, configRepoID, managed, delegatedScopes) {
+			continue
+		}
+		filePath, ok := externalTriggerExportPath(repo, trigger, sourcePath, managed, configRepoID.Valid, configRepoID.Int64)
+		if !ok {
+			continue
+		}
+		enabled := trigger.Enabled
+		doc := externalTriggerGitOpsDocument{
+			ID:              trigger.ID,
+			Name:            trigger.Name,
+			Description:     strings.TrimSpace(trigger.Description),
+			Enabled:         &enabled,
+			Pipeline:        trigger.Pipeline,
+			Scope:           trigger.Scope,
+			AllowedCallers:  trigger.AllowedCallers,
+			VariableMapping: nilIfEmptyStringMap(trigger.VariableMapping),
+			PayloadSchema:   nilIfEmptyAnyMap(trigger.PayloadSchema),
+			RateLimit:       nilIfEmptyAnyMap(trigger.RateLimit),
+		}
+		content, err := marshalConfigRepositoryYAML(doc)
+		if err != nil {
+			return err
+		}
+		files[filePath] = string(content)
+	}
+	return rows.Err()
+}
+
+func configRepositoryIncludesExternalTrigger(repo models.ConfigRepository, trigger externalTriggerRecord, source string, configRepoID sql.NullInt64, managed bool, delegatedScopes []string) bool {
+	resourceScope := externalTriggerConfigScope(trigger)
+	if configResourceUnderAnyScope(resourceScope, delegatedScopes) {
+		return false
+	}
+	if managed && configRepoID.Valid {
+		return configRepoID.Int64 == repo.ID
+	}
+	if !strings.EqualFold(strings.TrimSpace(source), "database") {
+		return false
+	}
+	return configResourceUnderBindingScope(resourceScope, repo)
+}
+
+func nilIfEmptyStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	return values
+}
+
+func nilIfEmptyAnyMap(values map[string]any) map[string]any {
+	if len(values) == 0 {
+		return nil
+	}
+	return values
+}
+
 type configRepositoryScheduleDocument struct {
 	Name           string            `yaml:"name"`
 	Description    string            `yaml:"description,omitempty"`
@@ -961,7 +1077,7 @@ func (a *App) exportConfigRepositorySchedules(ctx context.Context, repo models.C
 		} else {
 			doc.CronExpression = cronExpression
 		}
-		content, err := yaml.Marshal(doc)
+		content, err := marshalConfigRepositoryYAML(doc)
 		if err != nil {
 			return err
 		}
@@ -1035,7 +1151,7 @@ func (a *App) exportConfigRepositoryScopes(ctx context.Context, repo models.Conf
 		if len(payload.Secrets) > 0 {
 			doc.Secrets = payload.Secrets
 		}
-		content, err := yaml.Marshal(doc)
+		content, err := marshalConfigRepositoryYAML(doc)
 		if err != nil {
 			return err
 		}
@@ -1279,7 +1395,7 @@ func (a *App) exportConfigRepositoryGroupStructure(ctx context.Context, repo mod
 	if len(structure) == 0 {
 		return nil
 	}
-	content, err := yaml.Marshal(configRepositoryGroupStructureExportMap(structure))
+	content, err := marshalConfigRepositoryYAML(configRepositoryGroupStructureExportMap(structure))
 	if err != nil {
 		return err
 	}
@@ -1449,7 +1565,7 @@ func (a *App) exportConfigRepositoryAccess(ctx context.Context, repo models.Conf
 		}
 		allDoc.BasicRoles = grants
 		if !allDoc.empty() {
-			content, err := yaml.Marshal(allDoc)
+			content, err := marshalConfigRepositoryYAML(allDoc)
 			if err != nil {
 				return err
 			}
@@ -1470,7 +1586,7 @@ func (a *App) exportConfigRepositoryAccess(ctx context.Context, repo models.Conf
 		}
 		serviceDoc.BasicRoles = serviceGrants
 		if !serviceDoc.empty() {
-			content, err := yaml.Marshal(serviceDoc)
+			content, err := marshalConfigRepositoryYAML(serviceDoc)
 			if err != nil {
 				return err
 			}
@@ -1489,7 +1605,7 @@ func (a *App) exportConfigRepositoryAccess(ctx context.Context, repo models.Conf
 		return nil
 	}
 	doc := configRepositoryAccessExportDocument{BasicRoles: grants}
-	content, err := yaml.Marshal(doc)
+	content, err := marshalConfigRepositoryYAML(doc)
 	if err != nil {
 		return err
 	}
@@ -1930,7 +2046,7 @@ func (a *App) exportConfigRepositoryLLMProfiles(ctx context.Context, repo models
 	for _, name := range names {
 		doc.Profiles = append(doc.Profiles, profileFormFromConfig(name, profiles[name]))
 	}
-	content, err := yaml.Marshal(doc)
+	content, err := marshalConfigRepositoryYAML(doc)
 	if err != nil {
 		return err
 	}
@@ -1969,7 +2085,7 @@ func (a *App) exportConfigRepositoryMCPRegistry(ctx context.Context, repo models
 		exportProfiles[name] = profile
 	}
 
-	content, err := yaml.Marshal(mcpRegistryRequest{
+	content, err := marshalConfigRepositoryYAML(mcpRegistryRequest{
 		MCPServers:  exportServers,
 		MCPProfiles: exportProfiles,
 	})
@@ -1985,7 +2101,7 @@ func (a *App) exportConfigRepositoryRuntimeSettings(repo models.ConfigRepository
 		return nil
 	}
 	doc := buildRuntimeSettingsGitOpsFile(a.getConfigSnapshot())
-	content, err := yaml.Marshal(doc)
+	content, err := marshalConfigRepositoryYAML(doc)
 	if err != nil {
 		return err
 	}
@@ -2012,7 +2128,7 @@ func renderKnowledgeContextGitOpsDocument(kind, name, description, content, fall
 	if strings.TrimSpace(doc.Name) == "" {
 		doc.Name = fallbackName
 	}
-	encoded, err := yaml.Marshal(doc)
+	encoded, err := marshalConfigRepositoryYAML(doc)
 	if err != nil {
 		return fmt.Sprintf("---\nname: %s\nkind: %s\ncontent: |\n%s\n---\n", name, kind, indentConfigRepositoryBlock(content))
 	}
@@ -2127,7 +2243,7 @@ func configRepositoryRelativeGitPath(basePath, filePath string) (string, bool) {
 
 func isConfigRepositoryDriftPath(filePath string) bool {
 	filePath = strings.Trim(strings.TrimSpace(filepath.ToSlash(filePath)), "/")
-	for _, prefix := range []string{"pipelines/", "steps/", "triggers/", "schedules/", "scopes/", "knowledge/", "pipelineruns/", "config-repositories/"} {
+	for _, prefix := range []string{"pipelines/", "steps/", "triggers/", externalTriggersGitOpsDirectory + "/", "schedules/", "scopes/", "knowledge/", "pipelineruns/", "config-repositories/"} {
 		if strings.HasPrefix(filePath, prefix) {
 			return true
 		}

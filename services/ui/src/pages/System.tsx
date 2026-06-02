@@ -273,6 +273,11 @@ type ResourceGroup = {
   parent_id?: number | null;
 };
 
+type ExternalTriggerSummary = {
+  id?: string;
+  name?: string;
+};
+
 type SystemPagePermissions = {
   canViewConfig: boolean;
   canViewSetup: boolean;
@@ -2059,7 +2064,9 @@ type AAAOptionGroup = {
 type AAAResourceCatalog = {
   folderOptions: AAAOption[];
   pipelineOptions: AAAOption[];
+  scopeOptions: AAAOption[];
   triggerOptions: AAAOption[];
+  externalTriggerOptions: AAAOption[];
   repositoryOptions: AAAOption[];
   secretScopeOptions: AAAOption[];
   variableScopeOptions: AAAOption[];
@@ -2169,6 +2176,15 @@ const AAA_RESOURCE_TYPE_CONFIGS: AAAResourceTypeConfig[] = [
     customPlaceholder: 'run-123',
   },
   {
+    value: 'scope',
+    label: 'Scope',
+    targetLabel: 'Scope',
+    allowAll: true,
+    allLabel: 'All scopes',
+    dynamicSource: 'scopeOptions',
+    customPlaceholder: 'prod',
+  },
+  {
     value: 'trigger',
     label: 'Trigger',
     targetLabel: 'Repository',
@@ -2176,6 +2192,15 @@ const AAA_RESOURCE_TYPE_CONFIGS: AAAResourceTypeConfig[] = [
     allLabel: 'All triggers',
     dynamicSource: 'triggerOptions',
     customPlaceholder: 'owner/repo',
+  },
+  {
+    value: 'external_trigger',
+    label: 'External trigger',
+    targetLabel: 'External trigger',
+    allowAll: true,
+    allLabel: 'All external triggers',
+    dynamicSource: 'externalTriggerOptions',
+    customPlaceholder: 'deploy-prod',
   },
   {
     value: 'repository',
@@ -2245,6 +2270,7 @@ const AAA_ALL_ACTION_OPTION_GROUPS: AAAOptionGroup[] = [
       { value: 'pipeline.update', label: 'update' },
       { value: 'pipeline.delete', label: 'delete' },
       { value: 'pipeline.execute', label: 'execute' },
+      { value: 'pipeline.use', label: 'use' },
     ],
   },
   {
@@ -2261,11 +2287,32 @@ const AAA_ALL_ACTION_OPTION_GROUPS: AAAOptionGroup[] = [
     ],
   },
   {
+    label: 'Scopes',
+    options: [
+      { value: 'scope.read', label: 'read' },
+      { value: 'scope.use', label: 'use' },
+      { value: 'scope.update', label: 'update' },
+      { value: 'scope.delete', label: 'delete' },
+      { value: 'scope.manage_acl', label: 'manage ACL' },
+    ],
+  },
+  {
     label: 'Triggers',
     options: [
       { value: 'trigger.read', label: 'read' },
       { value: 'trigger.update', label: 'update' },
       { value: 'trigger.delete', label: 'delete' },
+    ],
+  },
+  {
+    label: 'External Triggers',
+    options: [
+      { value: 'external_trigger.read', label: 'read' },
+      { value: 'external_trigger.create', label: 'create' },
+      { value: 'external_trigger.update', label: 'update' },
+      { value: 'external_trigger.invoke', label: 'invoke' },
+      { value: 'external_trigger.delete', label: 'delete' },
+      { value: 'external_trigger.manage_acl', label: 'manage ACL' },
     ],
   },
   {
@@ -2306,7 +2353,9 @@ const AAA_ACTION_OPTION_GROUPS_BY_RESOURCE_TYPE: Record<string, AAAOptionGroup[]
   folder: [{ label: 'Group actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Groups')?.options || [] }],
   pipeline: [{ label: 'Pipeline actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Pipelines')?.options || [] }],
   pipeline_run: [{ label: 'Pipeline run actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Pipeline Runs')?.options || [] }],
+  scope: [{ label: 'Scope actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Scopes')?.options || [] }],
   trigger: [{ label: 'Trigger actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Triggers')?.options || [] }],
+  external_trigger: [{ label: 'External trigger actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'External Triggers')?.options || [] }],
   secret: [{ label: 'Secret actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Secrets')?.options || [] }],
   variable: [{ label: 'Variable actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Variables')?.options || [] }],
   system: [{ label: 'System actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'System')?.options || [] }],
@@ -2567,8 +2616,14 @@ const buildAAAResourceTargetOptionGroups = (config: AAAResourceTypeConfig, catal
       case 'pipelineOptions':
         groups.push(...buildAAAParentPathOptionGroups(dynamicOptions, { root: 'Top-level pipelines', parentPrefix: 'Group /' }));
         break;
+      case 'scopeOptions':
+        groups.push(...buildAAAParentPathOptionGroups(dynamicOptions, { root: 'Top-level scopes', parentPrefix: 'Group /' }));
+        break;
       case 'triggerOptions':
         groups.push(...buildAAARepositoryOptionGroups(dynamicOptions, { root: 'Ungrouped triggers', ownerPrefix: 'Owner ' }));
+        break;
+      case 'externalTriggerOptions':
+        groups.push(...buildAAAParentPathOptionGroups(dynamicOptions, { root: 'External triggers', parentPrefix: 'Group /' }));
         break;
       case 'repositoryOptions':
         groups.push(...buildAAARepositoryOptionGroups(dynamicOptions, { root: 'Ungrouped repositories', ownerPrefix: 'Owner ' }));
@@ -2800,7 +2855,11 @@ function AAAPolicyRuleFields({
                 {option.label}
               </option>
             ))}
-            <option value={AAA_CUSTOM_VALUE}>Custom selector…</option>
+            {selectedResourceType === AAA_CUSTOM_VALUE && (
+              <option value={AAA_CUSTOM_VALUE} disabled>
+                Unsupported selector
+              </option>
+            )}
           </select>
         </label>
         {selectedResourceType === AAA_CUSTOM_VALUE ? (
@@ -3134,7 +3193,9 @@ function AccessPanel({
   const [resourceCatalog, setResourceCatalog] = useState<AAAResourceCatalog>({
     folderOptions: [],
     pipelineOptions: [],
+    scopeOptions: [],
     triggerOptions: [],
+    externalTriggerOptions: [],
     repositoryOptions: [],
     secretScopeOptions: [],
     variableScopeOptions: [],
@@ -3749,10 +3810,11 @@ function AccessPanel({
     };
 
     void (async () => {
-      const [groupsResult, pipelinesResult, triggersResult, secretScopesResult, variableScopesResult] = await Promise.allSettled([
+      const [groupsResult, pipelinesResult, triggersResult, externalTriggersResult, secretScopesResult, variableScopesResult] = await Promise.allSettled([
         readJson<ResourceGroup[]>('/v1/groups'),
         readJson<string[]>('/v1/pipelines'),
         readJson<string[]>('/v1/overrides'),
+        readJson<ExternalTriggerSummary[]>('/v1/external-triggers'),
         readJson<AAASecretScopeSummary[]>('/v1/secrets/scopes'),
         readJson<AAAScopeResponse[]>('/v1/variables/scopes'),
       ]);
@@ -3762,6 +3824,15 @@ function AccessPanel({
       const groups = groupsResult.status === 'fulfilled' && Array.isArray(groupsResult.value) ? groupsResult.value : [];
       const pipelines = pipelinesResult.status === 'fulfilled' && Array.isArray(pipelinesResult.value) ? pipelinesResult.value : [];
       const triggers = triggersResult.status === 'fulfilled' && Array.isArray(triggersResult.value) ? triggersResult.value : [];
+      const externalTriggers =
+        externalTriggersResult.status === 'fulfilled' && Array.isArray(externalTriggersResult.value)
+          ? externalTriggersResult.value
+              .map(entry => {
+                const record = asRecord(entry);
+                return record ? readString(record.id || record.name).trim() : '';
+              })
+              .filter(Boolean)
+          : [];
       const secretScopes =
         secretScopesResult.status === 'fulfilled' && Array.isArray(secretScopesResult.value)
           ? secretScopesResult.value.map(entry => (typeof entry?.scope === 'string' ? entry.scope : ''))
@@ -3780,6 +3851,9 @@ function AccessPanel({
       if (triggersResult.status === 'rejected') {
         console.error('Failed to load AAA triggers', triggersResult.reason);
       }
+      if (externalTriggersResult.status === 'rejected') {
+        console.error('Failed to load AAA external triggers', externalTriggersResult.reason);
+      }
       if (secretScopesResult.status === 'rejected') {
         console.error('Failed to load AAA secret scopes', secretScopesResult.reason);
       }
@@ -3790,10 +3864,13 @@ function AccessPanel({
       const folderOptions = buildAAAGroupOptions(groups);
       const triggerOptions = buildAAAStringOptions(triggers);
       const scopeOptions = buildAAAScopeOptions([...secretScopes, ...variableScopes]);
+      const scopeResourceOptions = buildAAAStringOptions([...secretScopes, ...variableScopes]);
       setResourceCatalog({
         folderOptions,
         pipelineOptions: buildAAAStringOptions(pipelines),
+        scopeOptions: scopeResourceOptions,
         triggerOptions,
+        externalTriggerOptions: buildAAAStringOptions(externalTriggers),
         repositoryOptions: triggerOptions,
         secretScopeOptions: scopeOptions,
         variableScopeOptions: scopeOptions,

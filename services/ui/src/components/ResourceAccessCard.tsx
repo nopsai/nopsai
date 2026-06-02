@@ -47,9 +47,18 @@ type GroupOption = {
   name: string;
 };
 
+type ServiceAccountOption = {
+  id: string;
+  sub: string;
+  email?: string;
+  status?: string;
+};
+
+type GrantSubjectType = 'repository' | 'group' | 'service_account';
+
 const visibilityOptions = [
   { value: 'group', label: 'Only this group', description: 'Use stays inside the resource group unless specific grants exist.' },
-  { value: 'restricted', label: 'This group and selected groups or repositories', description: 'Keep same-group use and add explicit sharing.' },
+  { value: 'restricted', label: 'This group and selected subjects', description: 'Keep same-group use and add explicit sharing.' },
   { value: 'workspace', label: 'Public', description: 'Any authorized user can use it.' },
 ] as const;
 
@@ -88,6 +97,24 @@ function grantSourceLabel(grant: AccessGrant) {
   return [role, inherited, source].filter(Boolean).join(' · ');
 }
 
+function normalizeServiceAccountOptions(payload: unknown): ServiceAccountOption[] {
+  const records = Array.isArray(payload) ? payload : [];
+  return records
+    .map(record => {
+      if (!record || typeof record !== 'object') return null;
+      const entry = record as Record<string, unknown>;
+      const sub = typeof entry.sub === 'string' ? entry.sub.trim() : '';
+      if (!sub) return null;
+      return {
+        id: typeof entry.id === 'string' ? entry.id : sub,
+        sub,
+        email: typeof entry.email === 'string' ? entry.email : '',
+        status: typeof entry.status === 'string' ? entry.status : '',
+      };
+    })
+    .filter(Boolean) as ServiceAccountOption[];
+}
+
 async function readResponseError(response: Response, fallback: string) {
   const text = await response.text();
   return text.trim() || fallback;
@@ -99,10 +126,12 @@ export default function ResourceAccessCard({ resourceType, resourceID, label, se
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [subjectType, setSubjectType] = useState<'repository' | 'group'>('repository');
+  const [subjectType, setSubjectType] = useState<GrantSubjectType>('repository');
   const [subjectID, setSubjectID] = useState('');
   const [groups, setGroups] = useState<GroupOption[]>([]);
   const [groupsLoading, setGroupsLoading] = useState(false);
+  const [serviceAccounts, setServiceAccounts] = useState<ServiceAccountOption[]>([]);
+  const [serviceAccountsLoading, setServiceAccountsLoading] = useState(false);
 
   const endpoint = useMemo(() => encodeResourcePath(resourceType, resourceID), [resourceType, resourceID]);
   const grants = access?.use_access?.grants || [];
@@ -149,11 +178,27 @@ export default function ResourceAccessCard({ resourceType, resourceID, label, se
     }
   }, []);
 
+  const loadServiceAccounts = useCallback(async () => {
+    setServiceAccountsLoading(true);
+    try {
+      const response = await fetch(buildApiUrl('/v1/admin/service-accounts'), { cache: 'no-store' });
+      if (!response.ok) {
+        setServiceAccounts([]);
+        return;
+      }
+      const payload = await response.json();
+      setServiceAccounts(normalizeServiceAccountOptions(payload));
+    } finally {
+      setServiceAccountsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     void loadAccess();
     void loadGroups();
-  }, [loadAccess, loadGroups, open]);
+    void loadServiceAccounts();
+  }, [loadAccess, loadGroups, loadServiceAccounts, open]);
 
   useEffect(() => {
     if (subjectType !== 'group') return;
@@ -306,7 +351,7 @@ export default function ResourceAccessCard({ resourceType, resourceID, label, se
                 {showGrantControls ? (
                   <div className="space-y-3">
                     <div>
-                      <p className="text-sm font-semibold text-[var(--text-primary)]">Groups and repositories</p>
+                      <p className="text-sm font-semibold text-[var(--text-primary)]">Groups, repositories, and service accounts</p>
                       <p className="text-xs text-[var(--text-secondary)] mt-1">Use access only. Manage access stays with owners.</p>
                     </div>
 
@@ -335,7 +380,7 @@ export default function ResourceAccessCard({ resourceType, resourceID, label, se
                       </ul>
                     ) : (
                       <div className="rounded-md border border-dashed border-[var(--border-primary)] p-3 text-sm text-[var(--text-secondary)]">
-                        No specific groups or repositories yet.
+                        No specific groups, repositories, or service accounts yet.
                       </div>
                     )}
 
@@ -344,7 +389,7 @@ export default function ResourceAccessCard({ resourceType, resourceID, label, se
                         className="pipelines-input px-3 py-2 text-sm"
                         value={subjectType}
                         onChange={event => {
-                          const nextType = event.target.value as 'repository' | 'group';
+                          const nextType = event.target.value as GrantSubjectType;
                           setSubjectType(nextType);
                           setSubjectID(nextType === 'group' ? groups[0]?.id || '' : '');
                         }}
@@ -352,6 +397,7 @@ export default function ResourceAccessCard({ resourceType, resourceID, label, se
                       >
                         <option value="repository">Repository</option>
                         <option value="group">Group</option>
+                        <option value="service_account">Service account</option>
                       </select>
                       {subjectType === 'group' ? (
                         <select
@@ -370,6 +416,24 @@ export default function ResourceAccessCard({ resourceType, resourceID, label, se
                             <option value="">{groupsLoading ? 'Loading groups...' : 'No groups available'}</option>
                           )}
                         </select>
+                      ) : subjectType === 'service_account' ? (
+                        <>
+                          <input
+                            className="pipelines-input px-3 py-2 text-sm"
+                            value={subjectID}
+                            onChange={event => setSubjectID(event.target.value)}
+                            placeholder={serviceAccountsLoading ? 'Loading service accounts...' : 'servicenow-prod'}
+                            list="resource-access-service-accounts"
+                            disabled={saving}
+                          />
+                          <datalist id="resource-access-service-accounts">
+                            {serviceAccounts.map(account => (
+                              <option key={account.id || account.sub} value={account.sub}>
+                                {account.email ? `${account.sub} (${account.email})` : account.sub}
+                              </option>
+                            ))}
+                          </datalist>
+                        </>
                       ) : (
                         <input
                           className="pipelines-input px-3 py-2 text-sm"

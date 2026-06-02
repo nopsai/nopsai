@@ -793,6 +793,10 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 		{repo: "hosein-yousefii/test-app", scopePath: "data-team/dev", name: "DEPLOY_TOKEN"}: {},
 		{repo: "hosein-yousefii/test-app", scopePath: "prod", name: "DEPLOY_TOKEN"}:          {},
 	}
+	externalTriggers := map[string]storedExternalTrigger{
+		"data-team-deploy": {input: externalTriggerRecord{ID: "data-team-deploy", Pipeline: "data-team/deploy", Scope: "data-team/dev"}},
+		"prod-deploy":      {input: externalTriggerRecord{ID: "prod-deploy", Pipeline: "platform/deploy", Scope: "prod"}},
+	}
 
 	filterDelegatedConfigResources(
 		binding,
@@ -800,6 +804,7 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 		map[string]storedPipeline{},
 		map[string]storedStep{},
 		map[string]storedSchedule{},
+		externalTriggers,
 		map[string]storedKnowledgeContext{},
 		generalScopeVars,
 		repoScopeVars,
@@ -831,6 +836,12 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 	}
 	if _, ok := repoScopeSecrets[repoScopeSecretKey{repo: "hosein-yousefii/test-app", scopePath: "prod", name: "DEPLOY_TOKEN"}]; !ok {
 		t.Fatal("expected unrelated repository scope secret to remain")
+	}
+	if _, ok := externalTriggers["data-team-deploy"]; ok {
+		t.Fatal("expected delegated external trigger to be filtered")
+	}
+	if _, ok := externalTriggers["prod-deploy"]; !ok {
+		t.Fatal("expected unrelated external trigger to remain")
 	}
 }
 

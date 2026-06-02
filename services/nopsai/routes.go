@@ -152,6 +152,17 @@ func (a *App) registerScheduleRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/schedules/{scheduleID}/run", a.handleRunScheduleNow)
 }
 
+func (a *App) registerExternalTriggerRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /v1/external-triggers", a.handleListExternalTriggers)
+	mux.HandleFunc("POST /v1/external-triggers", a.handleCreateExternalTrigger)
+	mux.HandleFunc("GET /v1/external-triggers/{id}", a.handleGetExternalTrigger)
+	mux.HandleFunc("PUT /v1/external-triggers/{id}", a.handleUpdateExternalTrigger)
+	mux.HandleFunc("PATCH /v1/external-triggers/{id}", a.handleUpdateExternalTrigger)
+	mux.HandleFunc("DELETE /v1/external-triggers/{id}", a.handleDeleteExternalTrigger)
+	mux.HandleFunc("GET /v1/external-triggers/{id}/invocations", a.handleListExternalTriggerInvocations)
+	mux.HandleFunc("POST /v1/external-triggers/{id}/invoke", a.handleInvokeExternalTrigger)
+}
+
 func (a *App) registerKnowledgeContextRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/knowledge-contexts", a.handleListKnowledgeContexts)
 	mux.HandleFunc("GET /v1/knowledge-contexts/{knowledgeID...}", a.handleGetKnowledgeContext)
@@ -214,6 +225,7 @@ func (a *App) buildHTTPHandler() http.Handler {
 	a.registerFolderConfigRepositoryRoutes(mux)
 	a.registerPipelineRoutes(mux)
 	a.registerScheduleRoutes(mux)
+	a.registerExternalTriggerRoutes(mux)
 	a.registerKnowledgeContextRoutes(mux)
 	a.registerSecretVariableRoutes(mux)
 	a.registerRunRoutes(mux)
