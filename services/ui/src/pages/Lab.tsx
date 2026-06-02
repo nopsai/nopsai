@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import yaml from 'js-yaml';
 import { buildApiUrl } from '../lib/api';
 import {
@@ -220,6 +220,8 @@ function buildInlineSuggestionPreview(item: LabSuggestionItem, contextInfo: LabS
 }
 
 function LabPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const initialSession = useMemo<LabSessionState | null>(() => {
     if (typeof window === 'undefined') return null;
     try {
@@ -260,6 +262,7 @@ function LabPage() {
     loading: boolean;
   }>({ secrets: [], variables: [], llmProfiles: [], mcpProfiles: [], reusableSteps: [], fetchedAt: 0, loading: false });
   const autocompleteFetchRef = useRef<{ fetchedAt: number; loadingPromise: Promise<void> | null }>({ fetchedAt: 0, loadingPromise: null });
+  const pipelineHandoffRef = useRef('');
 
   const [selectedPipelineId, setSelectedPipelineId] = useState(initialSession?.selectedPipelineId ?? '');
   const [yamlText, setYamlText] = useState(initialSession?.yaml ?? buildBlankYaml());
@@ -991,21 +994,24 @@ function LabPage() {
   }, [validation.errors.length, runValidationBlocked, runValidation.loading, overrides, yamlText, selectedPipelineId, scopeValue]);
 
   const handlePipelineChange = useCallback(
-    async (nextId: string) => {
-      if (nextId === selectedPipelineId) return;
+    async (nextId: string, options?: { reload?: boolean; resetOverrides?: boolean }) => {
+      if (nextId === selectedPipelineId && !options?.reload) return true;
       if (hasUnsavedChanges && !window.confirm('Discard your current Lab edits?')) {
-        return;
+        return false;
       }
 
       setFeedback(null);
       setYamlLoading(true);
       setSelectedPipelineId(nextId);
+      if (options?.resetOverrides) {
+        setOverrides([]);
+      }
       try {
         if (!nextId) {
           const blank = buildBlankYaml();
           setYamlText(blank);
           setOriginalYaml(blank);
-          return;
+          return true;
         }
 
         const response = await fetch(buildApiUrl(`/v1/pipelines/${encodeId(nextId)}`));
@@ -1016,15 +1022,33 @@ function LabPage() {
         const rawYaml = await response.text();
         setYamlText(rawYaml);
         setOriginalYaml(rawYaml);
+        return true;
       } catch (error) {
         console.error('Failed to load pipeline YAML', error);
         setFeedback({ tone: 'error', message: error instanceof Error ? error.message : 'Unable to load pipeline YAML' });
+        return false;
       } finally {
         setYamlLoading(false);
       }
     },
     [selectedPipelineId, hasUnsavedChanges]
   );
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const requestedPipelineId = (params.get('pipeline') || '').trim().replace(/^\/+|\/+$/g, '');
+    if (!requestedPipelineId) {
+      pipelineHandoffRef.current = '';
+      return;
+    }
+    if (pipelineHandoffRef.current === requestedPipelineId) return;
+    pipelineHandoffRef.current = requestedPipelineId;
+
+    void (async () => {
+      await handlePipelineChange(requestedPipelineId, { reload: true, resetOverrides: true });
+      navigate('/lab', { replace: true });
+    })();
+  }, [handlePipelineChange, location.search, navigate]);
 
   const handleOverlayHostRef = useCallback((node: HTMLDivElement | null) => {
     if (overlayHostNodeRef.current && overlayHostNodeRef.current !== node) {
