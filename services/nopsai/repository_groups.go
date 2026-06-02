@@ -7,8 +7,9 @@ import (
 )
 
 type repositoryGroupMatch struct {
-	ID   int
-	Path string
+	ID                 int
+	Path               string
+	RepositoryFullName string
 }
 
 func repositoryFullName(owner, repo string) string {
@@ -41,8 +42,13 @@ func (a *App) repositoryGroupMatches(ctx context.Context, owner, repo string) ([
 		if path == "" {
 			continue
 		}
+		recordRepo := strings.Trim(strings.TrimSpace(record.RepositoryFullName), "/")
+		if strings.EqualFold(recordRepo, fullName) {
+			matches = append(matches, repositoryGroupMatch{ID: record.ID, Path: path, RepositoryFullName: recordRepo})
+			continue
+		}
 		if path == fullName || strings.HasSuffix(path, suffix) {
-			matches = append(matches, repositoryGroupMatch{ID: record.ID, Path: path})
+			matches = append(matches, repositoryGroupMatch{ID: record.ID, Path: path, RepositoryFullName: fullName})
 		}
 	}
 
@@ -68,12 +74,30 @@ func repositoryTriggerOverrideKeys(owner, repo string, groupPaths []string) ([]s
 		if path == fullName || strings.HasSuffix(path, "/"+fullName) {
 			specific = appendUniqueString(specific, path)
 			ownerWide = appendUniqueString(ownerWide, groupedOwnerAllTriggerKey(path, owner, repo))
+			continue
+		}
+		parentPath := groupItemParentPath(path)
+		if parentPath != "" {
+			specific = appendUniqueString(specific, strings.Trim(parentPath+"/"+fullName, "/"))
+			ownerWide = appendUniqueString(ownerWide, strings.Trim(parentPath+"/"+repositoryFullName(owner, "all"), "/"))
 		}
 	}
 
 	specific = appendUniqueString(specific, fullName)
 	ownerWide = appendUniqueString(ownerWide, repositoryFullName(owner, "all"))
 	return specific, ownerWide
+}
+
+func groupItemParentPath(path string) string {
+	path = strings.Trim(strings.TrimSpace(path), "/")
+	if path == "" {
+		return ""
+	}
+	parts := strings.Split(path, "/")
+	if len(parts) <= 1 {
+		return ""
+	}
+	return strings.Join(parts[:len(parts)-1], "/")
 }
 
 func appendUniqueString(values []string, value string) []string {

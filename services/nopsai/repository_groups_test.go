@@ -32,3 +32,16 @@ func TestRepositoryTriggerOverrideKeysDeduplicateRootRepository(t *testing.T) {
 		t.Fatalf("owner-wide keys = %#v, want %#v", ownerWide, wantOwnerWide)
 	}
 }
+
+func TestRepositoryTriggerOverrideKeysUseExplicitAppParent(t *testing.T) {
+	specific, ownerWide := repositoryTriggerOverrideKeys("owner", "repo", []string{"platform/service-api"})
+
+	wantSpecific := []string{"platform/owner/repo", "owner/repo"}
+	if !reflect.DeepEqual(specific, wantSpecific) {
+		t.Fatalf("specific keys = %#v, want %#v", specific, wantSpecific)
+	}
+	wantOwnerWide := []string{"platform/owner/all", "owner/all"}
+	if !reflect.DeepEqual(ownerWide, wantOwnerWide) {
+		t.Fatalf("owner-wide keys = %#v, want %#v", ownerWide, wantOwnerWide)
+	}
+}

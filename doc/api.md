@@ -678,9 +678,9 @@ services/api/deploy` becomes `team-1/services/api/deploy`.
 
 ## Pipeline Run Structure
 
-- The GitOps config repository can define the group and repository hierarchy for the Pipeline Runs UI via `config-repositories/groups/structure.yaml`, scoped files such as `config-repositories/groups/team-1/structure.yaml`, or the legacy `pipelineruns/structure.yaml`.
-- Each top-level key is a group. Nest groups by adding child keys, assign repositories under a group with a `repos:` list, and optionally delegate a group with a `config:` block.
-- Repository entries should use the same `owner/repo` strings that appear in triggers and run metadata.
+- The GitOps config repository can define the group and app hierarchy for the Pipeline Runs UI via `config-repositories/groups/structure.yaml`, scoped files such as `config-repositories/groups/team-1/structure.yaml`, or the legacy `pipelineruns/structure.yaml`.
+- Each top-level key is a group. Nest groups by adding child keys, assign apps under a group with an `apps:` list, and optionally delegate a group with a `config:` block.
+- App entries require a `repo_url`; NopsAI normalizes that URL to the repository identity used by triggers and run metadata. Legacy `repos:` lists with `owner/repo` strings are still accepted during migration.
 - Group repo bindings under `config-repositories/groups/...` always create matching group shells, even when `pipelineruns/structure.yaml` does not mention them.
 - Structure files colocated under `config-repositories/groups` are merged into those group shells, so repository placement can live next to the group binding.
 - In the global repo, legacy `pipelineruns/structure.yaml` is still ignored for delegated group subtrees.
@@ -697,21 +697,25 @@ team-1:
     branch: main
     base_path: ""
     enabled: true
-  repos:
-    - hosein-yousefii/general-app
+  apps:
+    - name: general-app
+      repo_url: https://github.com/hosein-yousefii/general-app
   dev:
     description: This is new
-    repos:
-      - hosein-yousefii/test-app
-      - hosein-yousefii/t-app
+    apps:
+      - name: test-app
+        repo_url: https://github.com/hosein-yousefii/test-app
+      - name: t-app
+        repo_url: https://github.com/hosein-yousefii/t-app
 team-2:
   bank:
     description: Handles bank-facing apps
-    repos:
-      - hosein-yousefii/all-app
+    apps:
+      - name: all-app
+        repo_url: https://github.com/hosein-yousefii/all-app
 ```
 
-- Running config sync ingests this file, creating or updating groups in the `groups` table and assigning repositories to their Git-defined parents. Existing manual groups not referenced in the file are left untouched.
+- Running config sync ingests this file, creating or updating groups in the `groups` table and assigning apps to their Git-defined parents by normalized repository URL. Existing manual groups not referenced in the file are left untouched.
 
 ---
 
@@ -745,6 +749,7 @@ curl -X POST -H "Content-Type: application/json" \
 - The system/global repo may define runtime runner defaults and dispatcher routing under `setting/system/runner.yaml`; dispatcher routing changes are synced into `nopsai` and applied by the live dispatcher.
 - A binding file contains `repo_url`, optional `branch`, optional `base_path`, optional `enabled`, optional `write_enabled`, and optional `write_branch`.
 - `branch` remains the read/sync source. When `write_enabled` is true, Nopsai can push generated GitOps changes to `write_branch` so they can be reviewed in GitHub before merging back to the sync branch. The GitHub App needs `contents: read and write`.
+- Drift compares the sync branch with Nopsai's current database state. UI-side resource Access changes for pipelines, reusable steps, scopes, and knowledge contexts are exported as embedded `access:` updates in the affected GitOps files.
 - Group repositories use the same drift and write endpoint shape at `GET /v1/groups/<group-path>/config-repo/drift` and `POST /v1/groups/<group-path>/config-repo/write`. File paths are relative to the configured `base_path`.
 - Nested groups are represented by nested paths, for example `config-repositories/groups/team-2/platform.yaml` creates a binding for `team-2/platform`.
 - Group bindings also create matching group shells used by the Pipelines, Steps, Triggers, Scopes, and Pipeline Runs views.

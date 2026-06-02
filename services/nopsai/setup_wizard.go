@@ -1348,6 +1348,11 @@ func setupPipelineRunStructure(profile string, repositoryGroups []setupRepositor
 			if len(parts) != 2 {
 				continue
 			}
+			child.Apps = append(child.Apps, pipelineRunStructureApp{
+				Name:               repositoryDisplayNameFromFullName(repo),
+				RepoURL:            canonicalRepositoryURL(repo),
+				RepositoryFullName: repo,
+			})
 			child.Repos = append(child.Repos, repo)
 		}
 		node.Children[group.Name] = child
@@ -1635,12 +1640,13 @@ func setupConfigRepositoryStructureYAML(repositoryGroups []setupRepositoryGroupI
 		builder.WriteString(fmt.Sprintf("%s:\n", group.Name))
 		builder.WriteString("  description: Repository group\n")
 		if len(group.Repositories) == 0 {
-			builder.WriteString("  repos: []\n")
+			builder.WriteString("  apps: []\n")
 			continue
 		}
-		builder.WriteString("  repos:\n")
+		builder.WriteString("  apps:\n")
 		for _, repo := range group.Repositories {
-			builder.WriteString(fmt.Sprintf("    - %s\n", repo))
+			builder.WriteString(fmt.Sprintf("    - name: %s\n", repositoryDisplayNameFromFullName(repo)))
+			builder.WriteString(fmt.Sprintf("      repo_url: %s\n", canonicalRepositoryURL(repo)))
 		}
 	}
 	return builder.String()

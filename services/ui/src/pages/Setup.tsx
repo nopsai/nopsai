@@ -603,10 +603,14 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
       lines.push(`${group.name}:`);
       lines.push('  description: Repository group');
       if (group.repositories.length === 0) {
-        lines.push('  repos: []');
+        lines.push('  apps: []');
       } else {
-        lines.push('  repos:');
-        group.repositories.forEach(repo => lines.push(`    - ${repo}`));
+        lines.push('  apps:');
+        group.repositories.forEach(repo => {
+          const appName = repo.split('/').filter(Boolean).pop() || repo;
+          lines.push(`    - name: ${appName}`);
+          lines.push(`      repo_url: https://github.com/${repo}`);
+        });
       }
     });
     return lines.join('\n');
@@ -897,7 +901,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
         return (
           <div className="space-y-4">
             <StepIntro title="Create one or two repository groups" icon={<FolderTree className="h-4 w-4" />}>
-              This is an introduction, not a full migration. Create one or two folder groups and add repositories as GitHub `owner/repo` names, for example `acme/service-api`. NopsAI uses these groups for starter triggers, pipeline-run navigation, and user access assignments.
+              This is an introduction, not a full migration. Create one or two folder groups and add app repositories as GitHub `owner/repo` names, for example `acme/service-api`. NopsAI uses the repository URL identity for starter triggers, pipeline-run navigation, and user access assignments.
             </StepIntro>
             <label className="flex items-center gap-2 rounded-md border border-[var(--border-primary)] p-3 text-sm">
               <input type="checkbox" checked={repositoryEnabled} onChange={event => setRepositoryEnabled(event.target.checked)} disabled={!canManage} />
@@ -918,7 +922,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
                   <label className="space-y-1">
                     <span className="text-xs text-[var(--text-secondary)]">Repositories, one GitHub `owner/repo` per line</span>
                     <textarea className="min-h-32 w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 font-mono text-xs" value={group.repositoriesText} onChange={event => updateRepositoryGroup(group.id, { repositoriesText: event.target.value })} placeholder="acme/service-api&#10;acme/web-app" disabled={!canManage || !repositoryEnabled} />
-                    <span className="block text-[11px] leading-5 text-[var(--text-secondary)]">HTTPS and SSH GitHub URLs are accepted, but the generated structure stores them as `owner/repo`.</span>
+                    <span className="block text-[11px] leading-5 text-[var(--text-secondary)]">HTTPS and SSH GitHub URLs are accepted; generated structure stores apps with a repository URL.</span>
                   </label>
                 </div>
               ))}

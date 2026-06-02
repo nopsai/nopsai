@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { CalendarClock } from 'lucide-react';
 import yaml from 'js-yaml';
 import { buildApiUrl } from '../lib/api';
 import {
@@ -1784,10 +1783,6 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                 </div>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
-                <button className="glass-button-ghost" onClick={() => navigate(`/schedules?pipeline=${encodeURIComponent(detail.id)}`)}>
-                  <CalendarClock className="h-4 w-4" />
-                  <span>Schedules</span>
-                </button>
                 <button id="pipelines-back-btn" className="glass-button-ghost" onClick={handleBackToList}>
                   <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />

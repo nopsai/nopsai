@@ -709,7 +709,7 @@ func TestScopedProductGrantCapabilityUsesGrantRoleDefinition(t *testing.T) {
 }
 
 func TestGroupDeleteAuthorizationTargetFromName(t *testing.T) {
-	action, resource := groupDeleteAuthorizationTargetFromName("acme/widgets", accessGrantResource{
+	action, resource := groupDeleteAuthorizationTargetFromName("acme/widgets", "app", "acme/widgets", accessGrantResource{
 		Type: grantResourceFolder,
 		ID:   "platform/acme/widgets",
 	})
@@ -720,7 +720,7 @@ func TestGroupDeleteAuthorizationTargetFromName(t *testing.T) {
 		t.Fatalf("resource = %#v, want repository:acme/widgets", resource)
 	}
 
-	action, resource = groupDeleteAuthorizationTargetFromName("platform", accessGrantResource{
+	action, resource = groupDeleteAuthorizationTargetFromName("platform", "group", "", accessGrantResource{
 		Type: grantResourceFolder,
 		ID:   "platform",
 	})

@@ -256,6 +256,12 @@ resource-use grants and are reconciled on config sync. The `access/` directory
 remains for IAM-like records: users, advanced roles, policies, advanced role
 bindings, and scoped product role grants.
 
+Config repository drift exports the current resource Access state for pipelines,
+reusable steps, scopes, and knowledge contexts. If access is changed in the UI,
+the drift response marks the owning GitOps resource file as modified and the
+write endpoint can push the updated embedded `access:` block to the review
+branch.
+
 ## Inheritance
 
 The evaluator resolves parent resources before checking ACLs. A group grant can authorize:

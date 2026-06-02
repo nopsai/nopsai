@@ -202,7 +202,8 @@ Sync behavior:
 - sync system/global config repositories before group config repositories, so group bindings defined in Git can be picked up during the same sync-all run
 - group config repositories are authoritative for resources under their group path; parent repos prune their own managed resources in delegated groups
 - config repository bindings can enable Git push to a review branch with `write_enabled` and `write_branch`
-- `config-repositories/groups/structure.yaml` and `config-repositories/groups/<group>/structure.yaml` can place repositories under group shells and include inline `config:` blocks for group repo bindings
+- config repository drift compares both directions and exports UI-side Access dialog changes for pipelines, reusable steps, scopes, and knowledge contexts back into embedded GitOps `access:` blocks
+- `config-repositories/groups/structure.yaml` and `config-repositories/groups/<group>/structure.yaml` can place apps under group shells with `name` and `repo_url`, while legacy `repos:` lists remain accepted during migration; these files can also include inline `config:` blocks for group repo bindings
 - global legacy `pipelineruns/structure.yaml` does not apply delegated group subtrees; those groups are created from `config-repositories/groups` and owned by their group repos
 - runtime settings GitOps is system/global only; `dispatcher_routing` changes are persisted and applied by the live dispatcher through the control-plane sync path
 
