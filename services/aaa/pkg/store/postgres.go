@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/url"
@@ -518,16 +519,18 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 	switch strings.TrimSpace(resource.Type) {
 	case "pipeline_run":
 		var pipelinePath, pipelineName, repoOwner, repoName, scope string
+		var groupID sql.NullInt64
 		err := s.db.QueryRow(ctx, `
 			SELECT
 				COALESCE(pipeline_path, ''),
 				COALESCE(pipeline_name, ''),
 				COALESCE(git_repo_owner, ''),
 				COALESCE(git_repo_name, ''),
-				COALESCE(scope, '')
+				COALESCE(scope, ''),
+				group_id
 			FROM pipeline_runs
 			WHERE run_id::text = $1
-		`, resource.ID).Scan(&pipelinePath, &pipelineName, &repoOwner, &repoName, &scope)
+		`, resource.ID).Scan(&pipelinePath, &pipelineName, &repoOwner, &repoName, &scope, &groupID)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil, ErrResourceNotFound
@@ -540,6 +543,14 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 				Resource: model.ResourceRef{Type: "pipeline", ID: model.BuildPipelineID(pipelinePath, pipelineName)},
 				Reason:   "pipeline_inheritance",
 			})
+		}
+
+		if groupID.Valid {
+			groupAncestors, err := s.groupFolderAncestors(ctx, int(groupID.Int64))
+			if err != nil {
+				return nil, err
+			}
+			out = appendInheritedResources(out, groupAncestors)
 		}
 
 		if repoID := repositoryResourceID(repoOwner, repoName); repoID != "" {
@@ -827,13 +838,45 @@ func (s *PGStore) repositoryFolderAncestors(ctx context.Context, repoID string) 
 	if err := s.db.QueryRow(ctx, `
 		SELECT parent_id, name
 		FROM groups
-		WHERE name = $1
+		WHERE name = $1 OR LOWER(repository_full_name) = LOWER($1)
+		ORDER BY
+			CASE
+				WHEN LOWER(repository_full_name) = LOWER($1) THEN 0
+				WHEN name = $1 THEN 1
+				ELSE 2
+			END
+		LIMIT 1
 	`, repoID).Scan(&parentID, &name); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return repositoryIDFolderAncestors(repoID), nil
 		}
 		return nil, err
 	}
+	parentAncestors, err := s.groupParentFolderAncestors(ctx, parentID)
+	if err != nil {
+		return nil, err
+	}
+	return groupSelfAndParentFolderAncestors(name, parentAncestors), nil
+}
+
+func (s *PGStore) groupFolderAncestors(ctx context.Context, groupID int) ([]model.InheritedResource, error) {
+	if groupID <= 0 {
+		return nil, nil
+	}
+
+	var parentID *int
+	var name string
+	if err := s.db.QueryRow(ctx, `
+		SELECT parent_id, name
+		FROM groups
+		WHERE id = $1
+	`, groupID).Scan(&parentID, &name); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
 	parentAncestors, err := s.groupParentFolderAncestors(ctx, parentID)
 	if err != nil {
 		return nil, err

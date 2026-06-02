@@ -195,6 +195,65 @@ func TestValidatePipeline_MissingImage(t *testing.T) {
 	}
 }
 
+func TestValidatePipelineAllowsApprovalStepWithoutImage(t *testing.T) {
+	p := &models.Pipeline{
+		Name: "approval-pipeline",
+		Steps: []models.PipelineStep{
+			{
+				Step: &models.ApprovalStep{
+					BaseStep: models.BaseStep{Name: "prod-gate"},
+					Approval: models.ApprovalDefinition{
+						Type:   "production-deploy",
+						Groups: []string{"platform/prod"},
+					},
+				},
+			},
+		},
+	}
+
+	if err := ValidatePipeline(p); err != nil {
+		t.Fatalf("expected approval-only pipeline to validate without image, got %v", err)
+	}
+}
+
+func TestValidatePipelineRejectsInvalidApprovalDefinition(t *testing.T) {
+	tests := []struct {
+		name     string
+		approval models.ApprovalDefinition
+		want     string
+	}{
+		{name: "missing type", approval: models.ApprovalDefinition{Groups: []string{"platform/prod"}}, want: "must define approval.type"},
+		{name: "invalid type", approval: models.ApprovalDefinition{Type: "prod deploy", Groups: []string{"platform/prod"}}, want: "approval.type can only contain"},
+		{name: "missing groups", approval: models.ApprovalDefinition{Type: "prod-deploy"}, want: "must assign at least one approval group"},
+		{name: "absolute group", approval: models.ApprovalDefinition{Type: "prod-deploy", Groups: []string{"/platform/prod"}}, want: "must be a relative folder path"},
+		{name: "escaping group", approval: models.ApprovalDefinition{Type: "prod-deploy", Groups: []string{"../prod"}}, want: "contains invalid path segments"},
+		{name: "duplicate group", approval: models.ApprovalDefinition{Type: "prod-deploy", Groups: []string{"platform/prod", "platform/prod"}}, want: "repeats approval group"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &models.Pipeline{
+				Name: "approval-pipeline",
+				Steps: []models.PipelineStep{
+					{
+						Step: &models.ApprovalStep{
+							BaseStep: models.BaseStep{Name: "prod-gate"},
+							Approval: tt.approval,
+						},
+					},
+				},
+			}
+			err := ValidatePipeline(p)
+			if err == nil {
+				t.Fatal("expected validation error")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestValidatePipeline_DuplicateStep(t *testing.T) {
 	p := &models.Pipeline{
 		Name:           "valid-name",

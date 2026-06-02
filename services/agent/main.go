@@ -1,7 +1,9 @@
 package main
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -14,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -37,6 +40,42 @@ import (
 )
 
 const agentWorkspaceDir = models.DefaultPipelineWorkingDirectory
+
+const (
+	resumeCheckpointIDEnv                   = "RESUME_CHECKPOINT_ID"
+	approvalCheckpointMaxBytesEnv           = "NOPSAI_APPROVAL_CHECKPOINT_MAX_BYTES"
+	defaultApprovalCheckpointMaxBytes int64 = 50 * 1024 * 1024
+)
+
+type agentApprovalPauseRequest struct {
+	StepName               string            `json:"step_name"`
+	TaskName               string            `json:"task_name"`
+	ExecutionHistory       string            `json:"execution_history"`
+	CompletedTasks         []string          `json:"completed_tasks"`
+	PipelineDefinitionYAML string            `json:"pipeline_definition_yaml"`
+	Variables              map[string]string `json:"variables,omitempty"`
+	WorkspaceArchiveBase64 string            `json:"workspace_archive_base64"`
+	SharedVolumeName       string            `json:"shared_volume_name,omitempty"`
+	RunnerID               string            `json:"runner_id,omitempty"`
+}
+
+type agentApprovalPauseResponse struct {
+	ApprovalID   string `json:"approval_id"`
+	CheckpointID string `json:"checkpoint_id"`
+	Status       string `json:"status"`
+}
+
+type agentApprovalCheckpointResponse struct {
+	CheckpointID           string            `json:"checkpoint_id"`
+	RunID                  string            `json:"run_id"`
+	StepName               string            `json:"step_name"`
+	ExecutionHistory       string            `json:"execution_history"`
+	CompletedTasks         []string          `json:"completed_tasks"`
+	PipelineDefinitionYAML string            `json:"pipeline_definition_yaml"`
+	Variables              map[string]string `json:"variables,omitempty"`
+	WorkspaceArchiveBase64 string            `json:"workspace_archive_base64,omitempty"`
+	WorkspaceArchiveFormat string            `json:"workspace_archive_format,omitempty"`
+}
 
 func agentLog(runID, pipeline string) *zerolog.Logger {
 	logger := log.With().
@@ -188,6 +227,7 @@ type TaskResult struct {
 	Name      string
 	Success   bool
 	Skipped   bool
+	Paused    bool
 	Condition string
 }
 
@@ -474,6 +514,10 @@ func buildImagePullQueue(pipeline *models.Pipeline, totalTasks int) []string {
 		}
 
 		for _, r := range runnable {
+			if _, ok := r.Step.AsApprovalStep(); ok {
+				simulatedCompleted[r.GlobalKey] = true
+				continue
+			}
 			image := r.Step.GetImage()
 			if image == "" {
 				image = pipeline.ContainerImage
@@ -623,6 +667,306 @@ func startImagePrePull(ctx context.Context, cli *client.Client, pipeline *models
 	}()
 }
 
+func approvalCheckpointMaxBytesFromEnv() int64 {
+	raw := strings.TrimSpace(os.Getenv(approvalCheckpointMaxBytesEnv))
+	if raw == "" {
+		return defaultApprovalCheckpointMaxBytes
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || value <= 0 {
+		return defaultApprovalCheckpointMaxBytes
+	}
+	return value
+}
+
+type limitedBuffer struct {
+	buf bytes.Buffer
+	max int64
+}
+
+func (w *limitedBuffer) Write(p []byte) (int, error) {
+	if w == nil {
+		return 0, fmt.Errorf("checkpoint writer is not configured")
+	}
+	if w.max > 0 && int64(w.buf.Len()+len(p)) > w.max {
+		return 0, fmt.Errorf("workspace checkpoint exceeds %d bytes", w.max)
+	}
+	return w.buf.Write(p)
+}
+
+func (w *limitedBuffer) Bytes() []byte {
+	if w == nil {
+		return nil
+	}
+	return w.buf.Bytes()
+}
+
+func archiveWorkspace(root string, maxBytes int64) ([]byte, error) {
+	root = filepath.Clean(strings.TrimSpace(root))
+	if root == "" {
+		return nil, fmt.Errorf("workspace root is required")
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return nil, fmt.Errorf("create workspace root: %w", err)
+	}
+
+	limited := &limitedBuffer{max: maxBytes}
+	gzipWriter := gzip.NewWriter(limited)
+	tarWriter := tar.NewWriter(gzipWriter)
+	walkErr := filepath.Walk(root, func(entryPath string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if entryPath == root {
+			return nil
+		}
+		mode := info.Mode()
+		if !mode.IsRegular() && !info.IsDir() && mode&os.ModeSymlink == 0 {
+			return nil
+		}
+
+		rel, err := filepath.Rel(root, entryPath)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		linkName := ""
+		if mode&os.ModeSymlink != 0 {
+			linkName, err = os.Readlink(entryPath)
+			if err != nil {
+				return err
+			}
+		}
+		header, err := tar.FileInfoHeader(info, linkName)
+		if err != nil {
+			return err
+		}
+		header.Name = rel
+		if err := tarWriter.WriteHeader(header); err != nil {
+			return err
+		}
+		if !mode.IsRegular() {
+			return nil
+		}
+		file, err := os.Open(entryPath)
+		if err != nil {
+			return err
+		}
+		_, copyErr := io.Copy(tarWriter, file)
+		closeErr := file.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		return closeErr
+	})
+	closeErr := tarWriter.Close()
+	gzipErr := gzipWriter.Close()
+	if walkErr != nil {
+		return nil, fmt.Errorf("archive workspace: %w", walkErr)
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("finalize workspace archive: %w", closeErr)
+	}
+	if gzipErr != nil {
+		return nil, fmt.Errorf("compress workspace archive: %w", gzipErr)
+	}
+	return limited.Bytes(), nil
+}
+
+func restoreWorkspaceArchive(root string, archive []byte) error {
+	if len(archive) == 0 {
+		return nil
+	}
+	root = filepath.Clean(strings.TrimSpace(root))
+	if root == "" {
+		return fmt.Errorf("workspace root is required")
+	}
+	if err := clearWorkspaceContents(root); err != nil {
+		return err
+	}
+
+	gzipReader, err := gzip.NewReader(bytes.NewReader(archive))
+	if err != nil {
+		return fmt.Errorf("open workspace archive: %w", err)
+	}
+	defer gzipReader.Close()
+
+	tarReader := tar.NewReader(gzipReader)
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("read workspace archive: %w", err)
+		}
+
+		relPath, err := safeArchiveRelativePath(header.Name)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(root, relPath)
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, os.FileMode(header.Mode)&0o777); err != nil {
+				return err
+			}
+		case tar.TypeReg, tar.TypeRegA:
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return err
+			}
+			file, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(header.Mode)&0o777)
+			if err != nil {
+				return err
+			}
+			_, copyErr := io.Copy(file, tarReader)
+			closeErr := file.Close()
+			if copyErr != nil {
+				return copyErr
+			}
+			if closeErr != nil {
+				return closeErr
+			}
+		case tar.TypeSymlink:
+			if err := ensureSafeSymlinkTarget(relPath, header.Linkname); err != nil {
+				return err
+			}
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return err
+			}
+			if err := os.Symlink(header.Linkname, target); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func clearWorkspaceContents(root string) error {
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return fmt.Errorf("create workspace root: %w", err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return fmt.Errorf("read workspace root: %w", err)
+	}
+	for _, entry := range entries {
+		if err := os.RemoveAll(filepath.Join(root, entry.Name())); err != nil {
+			return fmt.Errorf("clear workspace entry %s: %w", entry.Name(), err)
+		}
+	}
+	return nil
+}
+
+func safeArchiveRelativePath(name string) (string, error) {
+	rel := filepath.Clean(filepath.FromSlash(strings.TrimSpace(name)))
+	if rel == "." || rel == "" || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("workspace archive contains unsafe path %q", name)
+	}
+	return rel, nil
+}
+
+func ensureSafeSymlinkTarget(relPath, linkName string) error {
+	linkName = strings.TrimSpace(linkName)
+	if linkName == "" || filepath.IsAbs(linkName) {
+		return fmt.Errorf("workspace archive contains unsafe symlink target")
+	}
+	target := filepath.Clean(filepath.Join(filepath.Dir(relPath), filepath.FromSlash(linkName)))
+	if target == ".." || strings.HasPrefix(target, ".."+string(os.PathSeparator)) {
+		return fmt.Errorf("workspace archive contains symlink escaping workspace")
+	}
+	return nil
+}
+
+func completedTaskKeysSnapshot(completedTasks map[string]bool) []string {
+	keys := make([]string, 0, len(completedTasks))
+	for key, done := range completedTasks {
+		if done {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func firstApprovalRunnable(runnableTasks []*RunnableTask) *RunnableTask {
+	for _, runnable := range runnableTasks {
+		if runnable == nil || runnable.Step == nil {
+			continue
+		}
+		if _, ok := runnable.Step.AsApprovalStep(); ok {
+			return runnable
+		}
+	}
+	return nil
+}
+
+func nopsaiAgentRequest(ctx context.Context, method, endpoint string, payload any, out any) error {
+	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("NOPSAI_API_URL")), "/")
+	if baseURL == "" {
+		return fmt.Errorf("NOPSAI_API_URL is not configured")
+	}
+	credentials, err := serviceauth.NewCredentials(serviceauth.Config{
+		SigningKey: os.Getenv(serviceauth.EnvSigningKey),
+		Issuer:     os.Getenv(serviceauth.EnvIssuer),
+		Audience:   os.Getenv(serviceauth.EnvAudience),
+		Role:       serviceauth.RoleAgent,
+		ServiceID:  os.Getenv(serviceauth.EnvServiceID),
+	})
+	if err != nil {
+		return err
+	}
+	token, err := credentials.MintToken(ctx)
+	if err != nil {
+		return err
+	}
+
+	var body io.Reader
+	if payload != nil {
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		body = bytes.NewReader(encoded)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, baseURL+"/"+strings.TrimLeft(endpoint, "/"), body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("nopsai api returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
+	}
+	if out == nil {
+		io.Copy(io.Discard, resp.Body)
+		return nil
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+func requestApprovalPause(ctx context.Context, runID string, req agentApprovalPauseRequest) (agentApprovalPauseResponse, error) {
+	var resp agentApprovalPauseResponse
+	err := nopsaiAgentRequest(ctx, http.MethodPost, fmt.Sprintf("/v1/internal/runs/%s/approvals/pause", runID), req, &resp)
+	return resp, err
+}
+
+func fetchApprovalCheckpoint(ctx context.Context, runID, checkpointID string) (agentApprovalCheckpointResponse, error) {
+	var resp agentApprovalCheckpointResponse
+	err := nopsaiAgentRequest(ctx, http.MethodGet, fmt.Sprintf("/v1/internal/runs/%s/checkpoints/%s", runID, checkpointID), nil, &resp)
+	return resp, err
+}
+
 func triggerPipeline(parentRunID, parentPipelineName, parentStepName, pipelineIdentifier string, pipelineDef []byte, history string) (string, error) {
 	if dispatcherClient == nil {
 		return "", fmt.Errorf("dispatcher client not initialized")
@@ -693,7 +1037,7 @@ func monitorPipeline(logger *zerolog.Logger, runID string) (string, error) {
 
 			status := resp.GetStatus()
 			childLogger.Info().Str("status", status).Msg("Polling child pipeline status")
-			if status == "success" || status == "failure" || status == "cancelled" {
+			if status == "success" || status == "failure" || status == "cancelled" || status == "timed_out" || status == "rejected" {
 				return status, nil
 			}
 		case <-ctx.Done():
@@ -775,6 +1119,7 @@ func run() int {
 	llmTimeoutStr := os.Getenv("LLM_AGENT_TIMEOUT")
 	secretsBase64 := os.Getenv("NOPSAI_SECRETS")
 	variablesBase64 := os.Getenv("NOPSAI_VARIABLES")
+	resumeCheckpointID := os.Getenv(resumeCheckpointIDEnv)
 	runScope := os.Getenv("SCOPE")
 
 	var secrets map[string]string
@@ -800,6 +1145,9 @@ func run() int {
 			}
 		}
 	}
+	if variables == nil {
+		variables = map[string]string{}
+	}
 
 	if llmTimeoutStr == "" {
 		llmTimeoutStr = "2m"
@@ -824,6 +1172,35 @@ func run() int {
 	if err := yaml.Unmarshal(pipelineDefBytes, &pipeline); err != nil {
 		agentLog(runID, pipelineName).Error().Err(err).Msg("Failed to unmarshal pipeline definition")
 		return 1
+	}
+
+	var resumeCheckpoint *agentApprovalCheckpointResponse
+	if strings.TrimSpace(resumeCheckpointID) != "" {
+		checkpoint, err := fetchApprovalCheckpoint(context.Background(), runID, strings.TrimSpace(resumeCheckpointID))
+		if err != nil {
+			agentLog(runID, pipeline.Name).Error().Err(err).Str("checkpoint_id", resumeCheckpointID).Msg("Failed to fetch approval checkpoint")
+			return 1
+		}
+		if checkpoint.WorkspaceArchiveBase64 != "" {
+			archiveBytes, err := base64.StdEncoding.DecodeString(checkpoint.WorkspaceArchiveBase64)
+			if err != nil {
+				agentLog(runID, pipeline.Name).Error().Err(err).Str("checkpoint_id", resumeCheckpointID).Msg("Failed to decode approval workspace archive")
+				return 1
+			}
+			if err := restoreWorkspaceArchive(agentWorkspaceDir, archiveBytes); err != nil {
+				agentLog(runID, pipeline.Name).Error().Err(err).Str("checkpoint_id", resumeCheckpointID).Msg("Failed to restore approval workspace checkpoint")
+				return 1
+			}
+		}
+		if checkpoint.Variables != nil {
+			variables = checkpoint.Variables
+		}
+		resumeCheckpoint = &checkpoint
+		agentLog(runID, pipeline.Name).Info().
+			Str("checkpoint_id", checkpoint.CheckpointID).
+			Str("step", checkpoint.StepName).
+			Int("completed_tasks", len(checkpoint.CompletedTasks)).
+			Msg("Restored approval checkpoint")
 	}
 	pipelineLLMEnabled := models.PipelineLLMEnabled(&pipeline)
 
@@ -1077,7 +1454,12 @@ func run() int {
 	}
 
 	history := new(strings.Builder)
-	if parentHistoryBase64 != "" {
+	if resumeCheckpoint != nil {
+		history.WriteString(resumeCheckpoint.ExecutionHistory)
+		if resumeCheckpoint.ExecutionHistory != "" && !strings.HasSuffix(resumeCheckpoint.ExecutionHistory, "\n") {
+			history.WriteString("\n")
+		}
+	} else if parentHistoryBase64 != "" {
 		decodedHistory, err := base64.StdEncoding.DecodeString(parentHistoryBase64)
 		if err != nil {
 			agentLog(runID, pipeline.Name).Error().Err(err).Msg("Failed to decode parent execution history")
@@ -1087,7 +1469,16 @@ func run() int {
 		}
 	}
 	completedTasks := make(map[string]bool)
+	if resumeCheckpoint != nil {
+		for _, key := range resumeCheckpoint.CompletedTasks {
+			key = strings.TrimSpace(key)
+			if key != "" {
+				completedTasks[key] = true
+			}
+		}
+	}
 	pipelineFailed := false
+	pipelinePaused := false
 	var syncWg sync.WaitGroup
 
 	for len(completedTasks) < totalTasks {
@@ -1104,6 +1495,9 @@ func run() int {
 				pipelineFailed = true
 			}
 			break
+		}
+		if approvalRunnable := firstApprovalRunnable(runnableTasks); approvalRunnable != nil {
+			runnableTasks = []*RunnableTask{approvalRunnable}
 		}
 
 		var wg sync.WaitGroup
@@ -1200,6 +1594,51 @@ func run() int {
 					taskLogger.Info().Msg("Condition evaluated to true. Proceeding with step.")
 				}
 				// --- CONDITION EVALUATION LOGIC END ---
+
+				if approvalStep, ok := step.AsApprovalStep(); ok {
+					setTaskRunning(stepName, task.Name)
+
+					historyMutex.Lock()
+					historySnapshot := history.String()
+					historyMutex.Unlock()
+					completedSnapshot := completedTaskKeysSnapshot(completedTasks)
+
+					workspaceArchive, err := archiveWorkspace(agentWorkspaceDir, approvalCheckpointMaxBytesFromEnv())
+					if err != nil {
+						taskLogger.Error().Err(err).Msg("Failed to archive workspace for approval checkpoint")
+						finalizeTask(stepName, task.Name, "failure", 1, llmDurationMs)
+						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+						return
+					}
+
+					pauseResp, err := requestApprovalPause(context.Background(), runID, agentApprovalPauseRequest{
+						StepName:               stepName,
+						TaskName:               task.Name,
+						ExecutionHistory:       historySnapshot,
+						CompletedTasks:         completedSnapshot,
+						PipelineDefinitionYAML: string(pipelineDefBytes),
+						Variables:              variables,
+						WorkspaceArchiveBase64: base64.StdEncoding.EncodeToString(workspaceArchive),
+						SharedVolumeName:       sharedVolumeName,
+						RunnerID:               os.Getenv("RUNNER_ID"),
+					})
+					if err != nil {
+						taskLogger.Error().Err(err).Msg("Failed to request approval pause")
+						finalizeTask(stepName, task.Name, "failure", 1, llmDurationMs)
+						results <- TaskResult{Name: runnable.GlobalKey, Success: false}
+						return
+					}
+
+					removeActiveTask(stepName, task.Name)
+					taskLogger.Info().
+						Str("approval_id", pauseResp.ApprovalID).
+						Str("checkpoint_id", pauseResp.CheckpointID).
+						Str("approval_type", approvalStep.Approval.Type).
+						Strs("groups", approvalStep.Approval.Groups).
+						Msg("Pipeline paused for approval")
+					results <- TaskResult{Name: runnable.GlobalKey, Success: true, Paused: true}
+					return
+				}
 
 				includeTarget := strings.TrimSpace(step.GetInclude())
 				if includeTarget != "" {
@@ -1657,6 +2096,10 @@ func run() int {
 		close(results)
 
 		for result := range results {
+			if result.Paused {
+				pipelinePaused = true
+				continue
+			}
 			if !result.Skipped {
 				if result.Success {
 					completedTasks[result.Name] = true
@@ -1673,12 +2116,21 @@ func run() int {
 			break
 		}
 
+		if pipelinePaused {
+			break
+		}
+
 		if pipelineFailed {
 			break
 		}
 	}
 
 	syncWg.Wait()
+
+	if pipelinePaused {
+		agentLog(runID, pipeline.Name).Info().Msg("Pipeline paused for approval")
+		return 0
+	}
 
 	finalStatus := "success"
 	if timeoutTriggered.Load() {

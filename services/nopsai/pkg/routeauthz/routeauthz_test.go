@@ -50,6 +50,35 @@ func TestMapRequestDefersRunByCheckAuthorizationToConcreteRun(t *testing.T) {
 	}
 }
 
+func TestMapRequestDefersApprovalAwareRunReadsToHandler(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "run detail", path: "/v1/runs/run-123"},
+		{name: "run approvals", path: "/v1/runs/run-123/approvals"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			action, resource, requiresFilter, err := MapRequest(req)
+			if err != nil {
+				t.Fatalf("MapRequest() error = %v", err)
+			}
+			if action != "" {
+				t.Fatalf("MapRequest() action = %q, want empty", action)
+			}
+			if requiresFilter {
+				t.Fatal("MapRequest() requiresFilter = true, want false")
+			}
+			if resource.Type != "pipeline_run" || resource.ID != "run-123" {
+				t.Fatalf("MapRequest() resource = %#v, want pipeline_run:run-123", resource)
+			}
+		})
+	}
+}
+
 func TestMapRequestTreatsPersonalTokenRoutesAsAuthenticatedOnly(t *testing.T) {
 	for _, tt := range []struct {
 		method string

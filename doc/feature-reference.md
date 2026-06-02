@@ -49,6 +49,7 @@ Supported pipeline features:
 - multi-task steps
 - single-task `goal` steps
 - single-task `script` steps
+- approval steps with `approval.type`, assigned `approval.groups`, and optional `approval.allow_self_approval`
 - reusable step inclusion with `step:<identifier>`
 - child pipeline inclusion with `pipeline:<identifier>`
 - conditional execution with `condition`
@@ -64,6 +65,21 @@ Example coverage:
 
 - `sample-pipeline/5-pipeline.yaml` demonstrates LLM goals, scripts, secret usage, volumes, conditions, child pipelines, reusable-step inclusion, and knowledge context.
 
+Approval step example:
+
+```yaml
+steps:
+  - name: deploy-gate
+    depends_on: [build]
+    approval:
+      type: production-deploy
+      groups:
+        - platform/prod
+      allow_self_approval: false
+```
+
+Approval group paths are relative folder paths. Any assigned group where the caller has `approval.approve` can approve or reject the pending gate. Pending approval runs are visible to assigned approvers even when the pipeline itself belongs to another folder, so approval queues do not depend on broad pipeline ownership.
+
 ## Execution Semantics
 
 The runtime supports:
@@ -74,6 +90,8 @@ The runtime supports:
 - one reusable container session per step
 - child pipeline triggering with inherited execution history
 - optional asynchronous child pipeline monitoring
+- approval checkpoints that pause a run without holding an agent or runner
+- approval resume from stored variables, execution history, completed task keys, and compressed workspace archive
 - pipeline-level timeout handling
 - task-level secret masking in output/history
 - pre-dispatch knowledge context resolution and run snapshots
@@ -215,6 +233,8 @@ Core run-management capabilities:
 - list runs
 - fetch run details
 - fetch run status
+- list run approvals
+- approve or reject pending run approvals
 - rerun completed runs
 - cancel active runs
 - delete runs
@@ -254,12 +274,13 @@ Current auth/access features:
 - in-process AAA fallback in `nopsai` for short service outages
 - route-level action/resource mapping for protected REST endpoints
 - predefined product roles: `viewer`, `developer`, `owner`, `admin`
+- `developer`, `owner`, and `admin` can approve assigned approval steps through `approval.approve`
 - access-grant management API for subject -> role -> resource bindings
 - schedule resources with `pipeline_schedule.list/read/create/update/execute/delete/manage_acl`
 - per-resource Access controls for pipeline, reusable step, scope, and knowledge context usage
 - caller-based runtime use checks for manual, Git-triggered, and child-pipeline runs
 - resource visibility modes: group, restricted, and UI-labeled Public
-- group-path inheritance for child pipelines, runs, repositories, triggers, secrets, variables, steps, and knowledge contexts
+- group-path inheritance for child pipelines, runs, repository-associated apps, triggers, secrets, variables, steps, and knowledge contexts
 - deny-before-allow evaluation
 - effective-permission introspection with human-readable reasons
 - legacy Casbin-backed RBAC metadata compatibility
@@ -268,7 +289,7 @@ Current auth/access features:
 
 Important behavior:
 
-- dispatcher-internal calls are trusted only when they carry an internally minted JWT with the expected claims
+- dispatcher-internal and agent-internal calls are trusted only when they carry a service-auth JWT with the expected service identity and role
 - UI fetches automatically retry once with refresh-token renewal on `401`
 - `developer` can write secret values but cannot read them
 - `viewer` and `developer` cannot manage ACLs
@@ -281,6 +302,7 @@ Important behavior:
 Pages present in the current UI:
 
 - `Pipeline runs`: run list, grouped views, recent runs, event grouping, details, logs, rerun, cancel, branch cleanup
+- `Pipeline runs`: pending approval records with assigned groups and approve/reject actions inside run details
 - `Pipelines`: pipeline browser/editor, drafts, validation, dependency graphing, and Execute handoff to Lab
 - `Schedules`: schedule browser, pipeline-filtered schedule view, enable/disable, run now, latest-run link, and GitOps markers
 - `Triggers`: trigger override browser/editor

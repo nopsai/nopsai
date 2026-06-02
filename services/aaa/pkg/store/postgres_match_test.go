@@ -163,6 +163,19 @@ func TestGroupSelfAndParentFolderAncestorsIncludesRepositoryLeaf(t *testing.T) {
 	}
 }
 
+func TestGroupSelfAndParentFolderAncestorsIncludesAppLeaf(t *testing.T) {
+	got := groupSelfAndParentFolderAncestors("test-app", []model.InheritedResource{
+		{Resource: model.ResourceRef{Type: "folder", ID: "team-1"}, Reason: "folder_inheritance"},
+	})
+	want := []model.InheritedResource{
+		{Resource: model.ResourceRef{Type: "folder", ID: "team-1/test-app"}, Reason: "folder_inheritance"},
+		{Resource: model.ResourceRef{Type: "folder", ID: "team-1"}, Reason: "folder_inheritance"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("groupSelfAndParentFolderAncestors() = %#v, want %#v", got, want)
+	}
+}
+
 func TestPrefixFolderAncestorsExcludesCurrentFolder(t *testing.T) {
 	got := prefixFolderAncestors([]string{"team-1", "dev"})
 	want := []model.InheritedResource{

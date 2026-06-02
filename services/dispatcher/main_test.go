@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,7 +12,6 @@ import (
 
 	"nopsai/pkg/proto"
 	"nopsai/pkg/serviceauth"
-	nopsaiAuth "nopsai/services/nopsai/pkg/auth"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -89,13 +89,84 @@ func TestRemoveRunnerCancelsConnection(t *testing.T) {
 	}
 }
 
+func TestRunnerJobFailureFinalizesRun(t *testing.T) {
+	type requestRecord struct {
+		path string
+		body string
+	}
+	seen := make(chan requestRecord, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "" {
+			t.Fatalf("missing Authorization header for %s", r.URL.Path)
+		}
+		body, _ := io.ReadAll(r.Body)
+		seen <- requestRecord{path: r.URL.Path, body: string(body)}
+		switch r.URL.Path {
+		case "/v1/runs/run-1/logs/ingest":
+			w.WriteHeader(http.StatusNoContent)
+		case "/v1/runs/run-1/finalize":
+			w.WriteHeader(http.StatusOK)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	d := newDispatcherServer(nil, server.URL, newTestDispatcherCredentials(t))
+	d.httpClient = server.Client()
+	rc := &runnerConn{
+		connectionID:  "conn-failed",
+		id:            "runner-failed",
+		scopes:        map[string]struct{}{},
+		capacity:      1,
+		active:        1,
+		lastHeartbeat: time.Now(),
+		inflight: map[string]*proto.JobRequest{
+			"run-1": {RunId: "run-1"},
+		},
+		sendCh:        make(chan *proto.DispatcherMessage, 1),
+		metadata:      map[string]string{},
+		allowDispatch: true,
+	}
+	d.addRunner(rc)
+
+	d.handleJobResult(rc.connectionID, &proto.JobResult{
+		RunId:  "run-1",
+		Status: "failed",
+		Error:  "container create: name conflict",
+	})
+
+	records := make(map[string]string)
+	for len(records) < 2 {
+		select {
+		case record := <-seen:
+			records[record.path] = record.body
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for nopsai failure reports; got %#v", records)
+		}
+	}
+	if body := records["/v1/runs/run-1/logs/ingest"]; !strings.Contains(body, "container create: name conflict") {
+		t.Fatalf("log body = %q, want failure detail", body)
+	}
+	finalizeBody := records["/v1/runs/run-1/finalize"]
+	if !strings.Contains(finalizeBody, `"status":"failure"`) || !strings.Contains(finalizeBody, "container create: name conflict") {
+		t.Fatalf("finalize body = %q, want failure status and detail", finalizeBody)
+	}
+	if _, ok := rc.inflight["run-1"]; ok {
+		t.Fatal("run remained inflight after failed start")
+	}
+	if rc.active != 0 {
+		t.Fatalf("runner active = %d, want 0", rc.active)
+	}
+}
+
 func TestSubmitJobRejectsTerminalRun(t *testing.T) {
 	server := newRunStatusServer(map[string]string{
 		"run-cancelled": "cancelled",
 	})
 	defer server.Close()
 
-	d := newDispatcherServer(nil, server.URL, newTestJWTSigner())
+	d := newDispatcherServer(nil, server.URL, newTestDispatcherCredentials(t))
 	d.httpClient = server.Client()
 
 	resp, err := d.SubmitJob(context.Background(), &proto.JobRequest{RunId: "run-cancelled"})
@@ -110,6 +181,29 @@ func TestSubmitJobRejectsTerminalRun(t *testing.T) {
 	}
 }
 
+func TestRunStatusAllowsDispatchUsesAllowList(t *testing.T) {
+	tests := []struct {
+		status string
+		want   bool
+	}{
+		{status: "", want: true},
+		{status: "pending", want: true},
+		{status: "running", want: true},
+		{status: "waiting_approval", want: false},
+		{status: "rejected", want: false},
+		{status: "success", want: false},
+		{status: "unknown", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.status, func(t *testing.T) {
+			if got := runStatusAllowsDispatch(tt.status); got != tt.want {
+				t.Fatalf("runStatusAllowsDispatch(%q) = %v, want %v", tt.status, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestPumpQueueDropsCancelledRunAndDispatchesRunnableJob(t *testing.T) {
 	server := newRunStatusServer(map[string]string{
 		"run-cancelled": "cancelled",
@@ -117,7 +211,7 @@ func TestPumpQueueDropsCancelledRunAndDispatchesRunnableJob(t *testing.T) {
 	})
 	defer server.Close()
 
-	d := newDispatcherServer(nil, server.URL, newTestJWTSigner())
+	d := newDispatcherServer(nil, server.URL, newTestDispatcherCredentials(t))
 	d.httpClient = server.Client()
 
 	rc := &runnerConn{
@@ -300,7 +394,7 @@ func TestSyncRoutingFromNopsaiUsesInternalEndpoint(t *testing.T) {
 	}))
 	defer server.Close()
 
-	d := newDispatcherServer(nil, server.URL, newTestJWTSigner())
+	d := newDispatcherServer(nil, server.URL, newTestDispatcherCredentials(t))
 	d.httpClient = server.Client()
 
 	if err := d.syncRoutingFromNopsai(context.Background()); err != nil {
@@ -353,7 +447,7 @@ func TestPumpQueueDoesNotHoldDispatcherLockWhileFetchingRunStatus(t *testing.T) 
 	}))
 	defer server.Close()
 
-	d := newDispatcherServer(nil, server.URL, newTestJWTSigner())
+	d := newDispatcherServer(nil, server.URL, newTestDispatcherCredentials(t))
 	d.httpClient = server.Client()
 	d.queue = []*proto.JobRequest{{RunId: "run-blocked"}}
 
@@ -471,8 +565,19 @@ func TestDispatcherAuthRejectsUnexpectedServiceID(t *testing.T) {
 	}
 }
 
-func newTestJWTSigner() *nopsaiAuth.LocalJWTService {
-	return nopsaiAuth.NewLocalJWTService([]byte("test-signing-key"), "test-issuer", "test-audience", time.Minute)
+func newTestDispatcherCredentials(t *testing.T) *serviceauth.Credentials {
+	t.Helper()
+	credentials, err := serviceauth.NewCredentials(serviceauth.Config{
+		SigningKey: "test-service-key",
+		Issuer:     serviceauth.DefaultIssuer,
+		Audience:   serviceauth.DefaultAudience,
+		Role:       serviceauth.RoleDispatcher,
+		ServiceID:  "dispatcher",
+	})
+	if err != nil {
+		t.Fatalf("NewCredentials() error = %v", err)
+	}
+	return credentials
 }
 
 func newTestDispatcherAuth(t *testing.T) *dispatcherAuth {

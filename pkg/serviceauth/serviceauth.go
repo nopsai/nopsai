@@ -14,9 +14,10 @@ import (
 const (
 	ProviderInternalService = "internal-service"
 
-	RoleNopsai = "nopsai"
-	RoleRunner = "runner"
-	RoleAgent  = "agent"
+	RoleNopsai     = "nopsai"
+	RoleRunner     = "runner"
+	RoleAgent      = "agent"
+	RoleDispatcher = "dispatcher"
 
 	EnvSigningKey = "SERVICE_JWT_SIGNING_KEY"
 	EnvIssuer     = "SERVICE_JWT_ISSUER"

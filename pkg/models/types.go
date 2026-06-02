@@ -41,6 +41,7 @@ type StepConfiguration struct {
 	Image            string                `json:"image,omitempty"`
 	Include          string                `json:"include,omitempty"`
 	Sync             bool                  `json:"sync"`
+	Approval         ApprovalDefinition    `json:"approval,omitempty"`
 	Secrets          []string              `json:"secrets,omitempty"`
 	Volumes          []string              `json:"volumes,omitempty"`
 	Variables        map[string]string     `json:"variables,omitempty"`
@@ -121,7 +122,8 @@ type TriggerOverrideRequest struct {
 }
 
 type FinalizeRequest struct {
-	Status string `json:"status"`
+	Status        string `json:"status"`
+	FailureReason string `json:"failure_reason,omitempty"`
 }
 
 type Group struct {

@@ -7,9 +7,9 @@ This document explains how the tool works step by step.
 Most API routes pass through the same middleware stack before reaching a handler.
 
 1. Public paths such as `/v1/auth/login`, `/v1/auth/refresh`, `/v1/auth/logout`, and `/v1/git/events` skip bearer-token authentication.
-2. Other requests must include a bearer token produced by the local auth service or a user-created personal access token.
-3. `nopsai` validates JWT bearer tokens by signature, or hashes opaque `nopat_` personal tokens and checks `personal_access_tokens`.
-4. Session JWTs enforce idle-session timeout when configured; personal tokens rely on expiry when configured and revocation. Valid credentials place claims in the request context.
+2. Other requests must include a bearer token produced by the local auth service, service-auth credentials, or a user-created personal access token.
+3. `nopsai` validates service tokens first, then user/API JWTs with signature, expiration, issuer, and audience checks, or hashes opaque `nopat_` personal tokens and checks `personal_access_tokens`.
+4. Session JWTs enforce idle-session timeout when configured; service tokens and personal tokens rely on expiry and revocation semantics. Valid credentials place claims in the request context.
 5. Authenticated-only profile routes (`/v1/auth/me`, `/v1/auth/password`, `/v1/auth/email`, `/v1/auth/personal-tokens`) stop here.
 6. Other protected routes are mapped by `routeauthz.MapRequest` to an action/resource pair.
 7. `nopsai` calls the AAA service for a `Check`, or defers to handler-level `Filter` for list endpoints.
@@ -49,7 +49,7 @@ Most API routes pass through the same middleware stack before reaching a handler
 ## 3. Dispatch And Runner Selection
 
 1. `nopsai` calls `dispatcher.SubmitJob` with a `JobRequest`.
-2. The dispatcher first checks the latest run status and rejects jobs for terminal runs.
+2. The dispatcher first checks the latest run status and only dispatches `pending` or `running` runs. Paused approval runs (`waiting_approval`), rejected runs, terminal runs, and unknown statuses are not dispatchable.
 3. The dispatcher tries to pick a runner with `pickRunnerForJobLocked`.
 4. It filters runners by:
    - `allow_dispatch`
@@ -93,13 +93,15 @@ Most API routes pass through the same middleware stack before reaching a handler
    - dispatcher address
    - LLM provider configuration
    - resolved knowledge context snapshot
+   - optional approval checkpoint ID for resumed runs
 2. It connects to the dispatcher over gRPC.
 3. It parses the pipeline definition from base64-encoded YAML.
-4. It initializes the embedded `LLMClient` for Gemini or LM Studio.
-5. It creates a Docker client for Docker runtime, or a Kubernetes client for Kubernetes runtime.
-6. It starts background cancellation and signal handlers.
-7. Docker runtime optionally starts asynchronous image pre-pulling for pipeline step images.
-8. It initializes execution history, including inherited parent history for child pipelines.
+4. If `RESUME_CHECKPOINT_ID` is present, it fetches the checkpoint from `nopsai`, restores the compressed workspace archive into `/workspace`, loads the saved execution history, and marks already completed task keys in memory.
+5. It initializes the embedded `LLMClient` for Gemini or LM Studio.
+6. It creates a Docker client for Docker runtime, or a Kubernetes client for Kubernetes runtime.
+7. It starts background cancellation and signal handlers.
+8. Docker runtime optionally starts asynchronous image pre-pulling for pipeline step images.
+9. It initializes execution history, including inherited parent history for child pipelines when the run is not resuming from an approval checkpoint.
 
 ## 6. Agent Execution Loop
 
@@ -116,23 +118,27 @@ The agent runs tasks in dependency order, not strictly line order.
    - task-level overrides
 5. If the step has a `condition`, the agent asks the LLM for a boolean answer with the step's effective knowledge context before doing any work in that step.
 6. If the condition is false, all tasks in that step are marked `skipped`, except false conditions under an effective guardrail or policy context fail the current task.
-7. If the step is an included child pipeline, the agent fetches the child pipeline and triggers it through the dispatcher.
-8. If the step is a normal execution step, the agent creates or reuses one step container or step pod for that step.
-9. It picks the execution image from `step.image` or the pipeline default `container_image`.
-10. Kubernetes runtime resolves `step.runtime_pool` or the pipeline default `runtime_pool` and applies the matching runtime pool to the step pod. Docker runtime ignores this directive.
-11. Kubernetes runtime resolves the pipeline-level `affinity_enabled` directive, falling back to the runner default, and uses it to decide whether step pods must stay on the agent pod's node. Docker runtime ignores this directive.
-12. Docker runtime mounts the shared run volume at the pipeline `working_directory` plus any declared named volumes. Kubernetes runtime mounts the agent-owned workspace PVC at the step pod's pipeline `working_directory` and maps declared volumes to PVCs in the runner namespace.
-13. It decides the action:
+7. If the step is an approval step, the agent treats it as a scheduling barrier, captures execution history, completed task keys, variables, pipeline definition, and a compressed workspace archive, then calls `nopsai` with an `agent` service token to create a pending approval and checkpoint.
+8. After the approval checkpoint is stored, `nopsai` marks the task and run `waiting_approval`, and the agent exits without finalizing the run. No runner stays occupied while the run waits.
+9. When an authorized user approves the pending approval, `nopsai` records the decision, marks the approval task successful, moves the run back to `pending`, and launches a fresh agent with the checkpoint ID. Each dispatch uses a unique agent container name so resumed runs do not collide with stopped containers retained for debugging.
+10. If the user rejects the approval, `nopsai` records the decision, marks the approval task failed, marks the run `rejected`, and sends final failure feedback.
+11. If the step is an included child pipeline, the agent fetches the child pipeline and triggers it through the dispatcher.
+12. If the step is a normal execution step, the agent creates or reuses one step container or step pod for that step.
+13. It picks the execution image from `step.image` or the pipeline default `container_image`.
+14. Kubernetes runtime resolves `step.runtime_pool` or the pipeline default `runtime_pool` and applies the matching runtime pool to the step pod. Docker runtime ignores this directive.
+15. Kubernetes runtime resolves the pipeline-level `affinity_enabled` directive, falling back to the runner default, and uses it to decide whether step pods must stay on the agent pod's node. Docker runtime ignores this directive.
+16. Docker runtime mounts the shared run volume at the pipeline `working_directory` plus any declared named volumes. Kubernetes runtime mounts the agent-owned workspace PVC at the step pod's pipeline `working_directory` and maps declared volumes to PVCs in the runner namespace.
+17. It decides the action:
    - `script` task: execute the script directly
    - `goal` task: ask the LLM to return a structured action
-14. For goal tasks, the LLM prompt includes variables, effective knowledge context, optional workspace contents, MCP tools, execution history, and the current goal.
-15. If LLM content sharing is enabled, it scans the workspace and includes file contents in the prompt, excluding ignored paths.
-16. It executes the chosen action inside the step container or pod.
-17. It masks secret values from output before logging or saving history.
-18. It updates task status through the dispatcher.
-19. It appends a normalized history entry that later tasks and child pipelines can use.
-20. If a task fails and `ignore_failure` is false, the pipeline stops with failure.
-21. If a task fails and `ignore_failure` is true, the task becomes `failure (ignored)` and the pipeline continues.
+18. For goal tasks, the LLM prompt includes variables, effective knowledge context, optional workspace contents, MCP tools, execution history, and the current goal.
+19. If LLM content sharing is enabled, it scans the workspace and includes file contents in the prompt, excluding ignored paths.
+20. It executes the chosen action inside the step container or pod.
+21. It masks secret values from output before logging or saving history.
+22. It updates task status through the dispatcher.
+23. It appends a normalized history entry that later tasks and child pipelines can use.
+24. If a task fails and `ignore_failure` is false, the pipeline stops with failure.
+25. If a task fails and `ignore_failure` is true, the task becomes `failure (ignored)` and the pipeline continues.
 
 ## 7. How Goal-Based Tasks Work
 
@@ -183,14 +189,15 @@ For a `step:<identifier>` include:
 
 1. The runner reads agent container logs and batches them.
 2. Logs go to `dispatcher.IngestLogs`.
-3. The dispatcher makes an authenticated internal call to `nopsai` at `/v1/runs/{runID}/logs/ingest`.
+3. The dispatcher makes an authenticated internal service call to `nopsai` at `/v1/runs/{runID}/logs/ingest`.
 4. The agent reports task status to `dispatcher.ReportTaskStatus`.
 5. The dispatcher forwards that to `nopsai` at `/v1/runs/{runID}/steps/{step}/tasks/{task}`.
 6. `nopsai` persists the update and asynchronously tells `git-bot` about the task status.
 7. `git-bot` updates its in-memory check-run state and renders the GitHub check output.
-8. When the agent finishes, it calls `dispatcher.FinalizeRun`.
-9. The dispatcher forwards that to `nopsai`, which finalizes the run and notifies `git-bot` of the final result.
-10. The UI refreshes run lists and details over REST polling, and log modals poll `/v1/runs/{runID}/logs?since_line=<id>` for incremental log lines.
+8. When the agent finishes, it calls `dispatcher.FinalizeRun`. An agent that has paused for approval exits without finalizing, and late finalization attempts are ignored while the run is `waiting_approval`.
+9. The dispatcher forwards final status to `nopsai`, which finalizes the run and notifies `git-bot` of the final result.
+10. If the runner reports a job failure, including an agent container startup failure or nonzero agent exit, the dispatcher writes the runner error into the run logs and finalizes the run as `failure` with the same failure reason.
+11. The UI refreshes run lists and details over REST polling, and log modals poll `/v1/runs/{runID}/logs?since_line=<id>` for incremental log lines.
 
 ## 11. Cancellation And Reruns
 
@@ -248,8 +255,8 @@ files to the review branch. The sync branch is not updated directly. The drift
 endpoint exports the current Nopsai config and compares it with the sync branch
 so the UI can show the exact file changes before pushing.
 Runtime settings sync persists supported operational defaults back to the local
-runtime config files. `dispatcher_routing` is exposed through an authenticated
-internal NopsAI endpoint; the dispatcher polls that endpoint and swaps its
+runtime config files. `dispatcher_routing` is exposed through a service-token
+protected internal NopsAI endpoint; the dispatcher polls that endpoint and swaps its
 in-memory routing table while it is running, so new scheduling decisions use the
 updated table without a dispatcher restart.
 10. It prunes rows managed by the same config repository that disappeared from the repo.

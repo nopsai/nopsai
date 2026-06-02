@@ -67,6 +67,42 @@ CREATE TABLE task_runs (
     UNIQUE(run_id, step_name, task_name)
 );
 
+CREATE TABLE pipeline_run_checkpoints (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id UUID NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
+    step_name TEXT NOT NULL,
+    execution_history TEXT NOT NULL DEFAULT '',
+    pipeline_definition TEXT NOT NULL DEFAULT '',
+    variables JSONB NOT NULL DEFAULT '{}'::jsonb,
+    workspace_archive BYTEA,
+    workspace_archive_format TEXT NOT NULL DEFAULT 'tar.gz',
+    shared_volume_name TEXT NOT NULL DEFAULT '',
+    runner_id TEXT NOT NULL DEFAULT '',
+    completed_tasks JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE pipeline_approvals (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id UUID NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
+    step_name TEXT NOT NULL,
+    task_name TEXT NOT NULL,
+    approval_type TEXT NOT NULL,
+    assigned_groups JSONB NOT NULL DEFAULT '[]'::jsonb,
+    allow_self_approval BOOLEAN NOT NULL DEFAULT FALSE,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    requested_by_type TEXT NOT NULL DEFAULT '',
+    requested_by_id TEXT NOT NULL DEFAULT '',
+    requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    decided_by_type TEXT NOT NULL DEFAULT '',
+    decided_by_id TEXT NOT NULL DEFAULT '',
+    decided_by_email TEXT NOT NULL DEFAULT '',
+    decided_at TIMESTAMPTZ,
+    decision_comment TEXT NOT NULL DEFAULT '',
+    checkpoint_id UUID REFERENCES pipeline_run_checkpoints(id) ON DELETE SET NULL,
+    UNIQUE(run_id, step_name)
+);
+
 CREATE TABLE step_runs (
     step_id UUID PRIMARY KEY,
     run_id UUID NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
@@ -528,6 +564,8 @@ CREATE INDEX idx_pipeline_schedules_config_repo_id ON pipeline_schedules(config_
 CREATE INDEX idx_pipeline_schedules_next_run ON pipeline_schedules(enabled, next_run_at);
 CREATE INDEX idx_pipeline_schedules_pipeline ON pipeline_schedules(pipeline_path, pipeline_name);
 CREATE INDEX idx_pipeline_runs_schedule_id ON pipeline_runs(schedule_id);
+CREATE INDEX idx_pipeline_run_checkpoints_run ON pipeline_run_checkpoints(run_id, created_at DESC);
+CREATE INDEX idx_pipeline_approvals_run ON pipeline_approvals(run_id, status, requested_at DESC);
 CREATE INDEX idx_steps_config_repo_id ON steps(config_repo_id);
 CREATE INDEX idx_triggers_config_repo_id ON triggers(config_repo_id);
 CREATE INDEX idx_variables_config_repo_id ON variables(config_repo_id);
