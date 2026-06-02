@@ -2,10 +2,11 @@
 
 Nopsai uses JWTs in two trust boundaries:
 
-- API and internal REST authentication in `services/nopsai`
+- user/API REST authentication in `services/nopsai`
+- internal REST service authentication into `services/nopsai`
 - dispatcher gRPC service authentication between `nopsai`, `runner`, `agent`, and `dispatcher`
 
-These are intentionally separate. The first protects the REST control plane. The second protects internal dispatcher gRPC calls and streams.
+These are intentionally separate. User/API JWTs protect the REST control plane. Service JWTs protect internal REST callbacks and dispatcher gRPC calls.
 
 Related source files:
 
@@ -24,7 +25,7 @@ Related source files:
 | --- | --- | --- | --- | --- |
 | User/API access JWT | browser UI, API clients | HTTP `Authorization: Bearer ...` | `JWT_SIGNING_KEY` | Authenticate REST API callers |
 | Personal access token | API clients and automation | HTTP `Authorization: Bearer nopat_...` | Not signed; stored by hash in Postgres | Long-lived user-owned API credential |
-| Dispatcher internal REST JWT | dispatcher | HTTP `Authorization: Bearer ...` | `JWT_SIGNING_KEY` | Let dispatcher call selected internal Nopsai REST endpoints |
+| Internal REST service JWT | dispatcher, agent | HTTP `Authorization: Bearer ...` | `SERVICE_JWT_SIGNING_KEY`, falling back to `JWT_SIGNING_KEY` | Let trusted services call selected Nopsai REST endpoints |
 | Dispatcher gRPC service JWT | nopsai, runner, agent | gRPC metadata `authorization: Bearer ...` | `SERVICE_JWT_SIGNING_KEY`, falling back to `JWT_SIGNING_KEY` | Authenticate and authorize dispatcher gRPC clients |
 
 Refresh tokens and personal access tokens are not JWTs. They are opaque random strings stored only as hashes in Postgres.
@@ -37,9 +38,9 @@ Main API JWT settings:
 
 | YAML | Env | Meaning |
 | --- | --- | --- |
-| `jwt_signing_key` | `JWT_SIGNING_KEY` | HS256 HMAC key for API access tokens and dispatcher internal REST JWTs |
-| `jwt_issuer` | `JWT_ISSUER` | Issuer written into API JWTs |
-| `jwt_audience` | `JWT_AUDIENCE` | Audience written into API JWTs when configured |
+| `jwt_signing_key` | `JWT_SIGNING_KEY` | HS256 HMAC key for API access tokens |
+| `jwt_issuer` | `JWT_ISSUER` | Issuer required for API JWTs |
+| `jwt_audience` | `JWT_AUDIENCE` | Audience required for API JWTs when configured |
 | `jwt_expiry_minutes` | `JWT_EXPIRY_MINUTES` | Access-token TTL, defaulted to `60` in `services/nopsai/main.go` |
 | `refresh_token_ttl_minutes` | `REFRESH_TOKEN_TTL_MINUTES` | Refresh-token lifetime; if `0`, login does not issue refresh tokens |
 | `idle_timeout_minutes` | `IDLE_TIMEOUT_MINUTES` | Optional in-memory idle timeout for presented access tokens |
@@ -48,13 +49,13 @@ Main API JWT settings:
 | `login_lockout_threshold` | `LOGIN_LOCKOUT_THRESHOLD` | Failed password attempts before lockout |
 | `login_lockout_window_minutes` | `LOGIN_LOCKOUT_WINDOW_MINUTES` | Lockout window |
 
-Dispatcher gRPC service JWT settings:
+Service JWT settings for internal REST and dispatcher gRPC:
 
 | YAML | Env | Meaning |
 | --- | --- | --- |
-| `service_jwt_signing_key` | `SERVICE_JWT_SIGNING_KEY` | HS256 HMAC key for dispatcher gRPC service tokens |
-| `service_jwt_issuer` | `SERVICE_JWT_ISSUER` | Issuer required by dispatcher gRPC auth; defaults to `nopsai.internal` |
-| `service_jwt_audience` | `SERVICE_JWT_AUDIENCE` | Audience required by dispatcher gRPC auth; defaults to `nopsai-dispatcher` |
+| `service_jwt_signing_key` | `SERVICE_JWT_SIGNING_KEY` | HS256 HMAC key for service tokens |
+| `service_jwt_issuer` | `SERVICE_JWT_ISSUER` | Issuer required by service-token auth; defaults to `nopsai.internal` |
+| `service_jwt_audience` | `SERVICE_JWT_AUDIENCE` | Audience required by service-token auth; defaults to `nopsai-dispatcher` |
 | `nopsai_service_id` | `NOPSAI_SERVICE_ID` | Expected `sub` for Nopsai dispatcher gRPC calls; defaults to `nopsai` |
 | `runner_service_id` | `RUNNER_SERVICE_ID` | Expected `sub` for runner dispatcher gRPC calls; defaults to `runner` |
 | `agent_service_id` | `AGENT_SERVICE_ID` | Expected `sub` for agent dispatcher gRPC calls; defaults to `agent` |
@@ -137,12 +138,12 @@ Request authentication:
 
 1. Most REST endpoints require `Authorization: Bearer <access-token>`.
 2. Public paths are `/v1/auth/login`, `/v1/auth/refresh`, `/v1/auth/logout`, and `/v1/git/events`.
-3. `authMiddleware` first attempts to validate the bearer token as an HS256 JWT. If that fails, it hashes the presented value and looks for a non-revoked, non-expired personal access token.
-4. Personal tokens authenticate as the owning active user with `provider = personal-token` and current roles loaded from the database.
-5. If idle timeout is enabled, Nopsai tracks last-seen session access tokens in process memory and rejects idle session tokens. Personal tokens rely on expiry and revocation instead.
-6. `authzMiddleware` maps claims to an AAA subject and performs route authorization.
-
-Current API JWT validation verifies the HMAC signature and registered claims. The issuer and audience are written into minted tokens, but the local API parser does not currently require exact issuer/audience values as separate parser options. Dispatcher gRPC service JWT validation does require issuer and audience.
+3. `authMiddleware` first attempts service-token validation. If that succeeds, the request is normalized as `provider = internal-service` with the service `role`.
+4. If service-token validation fails, Nopsai validates the bearer token as a user/API HS256 JWT with signature, expiration, issuer, and audience checks.
+5. If JWT validation fails and the token starts with `nopat_`, Nopsai hashes the value and looks for a non-revoked, non-expired personal access token.
+6. Personal tokens authenticate as the owning active user with `provider = personal-token` and current roles loaded from the database.
+7. If idle timeout is enabled, Nopsai tracks last-seen session access tokens in process memory and rejects idle session tokens. Personal tokens rely on expiry and revocation instead.
+8. `authzMiddleware` maps claims to an AAA subject and performs route authorization.
 
 ---
 
@@ -191,27 +192,28 @@ The AAA layer then checks actions and resources such as `pipeline.execute`, `pip
 
 ---
 
-## Dispatcher Internal REST JWT
+## Internal REST Service JWT
 
-The dispatcher sometimes calls Nopsai REST endpoints after receiving gRPC updates from agents or runners. Those calls use the existing API JWT signer, not the dispatcher gRPC service signer.
+The dispatcher sometimes calls Nopsai REST endpoints after receiving gRPC updates from agents or runners. Agents also call selected internal Nopsai endpoints directly for approval checkpoints. These calls use service-auth JWTs, not user/API JWTs.
 
-The dispatcher mints short-lived internal REST JWTs with:
+The dispatcher mints short-lived service JWTs with:
 
 ```json
 {
   "sub": "dispatcher",
   "provider": "internal-service",
-  "iss": "<JWT_ISSUER>",
-  "aud": ["<JWT_AUDIENCE>"],
+  "role": "dispatcher",
+  "iss": "<SERVICE_JWT_ISSUER>",
+  "aud": ["<SERVICE_JWT_AUDIENCE>"],
   "iat": 1710000000,
   "exp": 1710000300
 }
 ```
 
-These tokens are signed with `JWT_SIGNING_KEY` and sent to Nopsai REST endpoints as:
+Agent approval checkpoint calls use the same token family with `sub = agent` and `role = agent`. These tokens are signed with the effective service JWT signing key and sent to Nopsai REST endpoints as:
 
 ```http
-Authorization: Bearer <dispatcher-internal-jwt>
+Authorization: Bearer <service-jwt>
 ```
 
 The current dispatcher internal REST paths include:
@@ -225,11 +227,18 @@ The current dispatcher internal REST paths include:
 
 Nopsai recognizes these claims as `internal_service:dispatcher` for AAA subject construction.
 
+The current agent-only internal REST paths include:
+
+- `POST /v1/internal/runs/{runID}/approvals/pause`
+- `GET /v1/internal/runs/{runID}/checkpoints/{checkpointID}`
+
+Those endpoints require the service role `agent`.
+
 ---
 
 ## Dispatcher gRPC Service JWT
 
-Dispatcher gRPC auth lives in `pkg/serviceauth` and `services/dispatcher/main.go`.
+Dispatcher gRPC auth lives in `pkg/serviceauth` and `services/dispatcher/main.go`. It uses the same service-token format as internal REST service calls.
 
 Each client attaches gRPC metadata:
 
@@ -307,18 +316,17 @@ Recommended setup:
 - Development: set `JWT_SIGNING_KEY`; leave `SERVICE_JWT_SIGNING_KEY` blank if you want service JWTs to reuse it.
 - Production: set both `JWT_SIGNING_KEY` and a separate `SERVICE_JWT_SIGNING_KEY`.
 - Store keys in your deployment secret manager or `.env` outside source control.
-- Keep `SERVICE_JWT_ISSUER` and `SERVICE_JWT_AUDIENCE` identical for all dispatcher gRPC clients and the dispatcher.
+- Keep `SERVICE_JWT_ISSUER` and `SERVICE_JWT_AUDIENCE` identical for Nopsai, dispatcher, runners, and agents.
 - Keep `DISPATCHER_TLS_SECRET` identical for all dispatcher gRPC clients and the dispatcher if you set it explicitly.
 - Rotate keys with a coordinated deployment. The current implementation does not support multiple active signing keys or `kid`-based key selection.
 
 If `JWT_SIGNING_KEY` is missing:
 
 - local login cannot mint access tokens
-- dispatcher internal REST tokens cannot be minted correctly
 
 If both `SERVICE_JWT_SIGNING_KEY` and `JWT_SIGNING_KEY` are missing:
 
-- dispatcher gRPC authentication cannot start or clients cannot create credentials
+- internal REST service authentication and dispatcher gRPC authentication cannot start or clients cannot create credentials
 
 ---
 
@@ -345,7 +353,7 @@ If both `SERVICE_JWT_SIGNING_KEY` and `JWT_SIGNING_KEY` are missing:
 
 `invalid token`
 
-- The REST token is malformed, expired, signed with the wrong `JWT_SIGNING_KEY`, or the service lacks local JWT auth configuration.
+- The REST token is malformed, expired, signed with the wrong key, has the wrong issuer/audience, or the service lacks local/service JWT auth configuration.
 
 `session expired due to inactivity`
 

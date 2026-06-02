@@ -73,6 +73,7 @@ type TaskDefinition = {
 type StepConfiguration = {
   include?: string;
   sync?: boolean;
+  approval?: ApprovalDefinition;
   image?: string;
   secrets?: string[];
   volumes?: string[];
@@ -85,6 +86,12 @@ type StepConfiguration = {
   goal?: string;
   script?: string;
   tasks?: TaskDefinition[];
+};
+
+type ApprovalDefinition = {
+  type?: string;
+  groups?: string[];
+  allow_self_approval?: boolean;
 };
 
 type TaskDetail = {
@@ -121,6 +128,7 @@ type PipelineDefinition = {
     name: string;
     description?: string;
     depends_on?: string[];
+    approval?: ApprovalDefinition;
     tasks?: TaskDefinition[];
     goal?: string;
     script?: string;
@@ -140,6 +148,24 @@ type RunDetail = {
   pipeline_definition_yaml?: string;
   child_runs: RunListItem[];
   parent_run_info?: ParentRunInfo | null;
+  approvals?: PipelineApproval[];
+};
+
+type PipelineApproval = {
+  id: string;
+  run_id: string;
+  step_name: string;
+  task_name: string;
+  approval_type: string;
+  assigned_groups: string[];
+  allow_self_approval: boolean;
+  status: string;
+  requested_at: string;
+  requested_by_type?: string;
+  requested_by_id?: string;
+  decided_by_email?: string;
+  decided_at?: string;
+  decision_comment?: string;
 };
 
 type TriggerGroup = {
@@ -208,7 +234,7 @@ const tabs = [
   { id: 'events', label: 'Events' },
 ];
 
-const STATUS_PRIORITY = ['failure', 'failure (ignored)', 'cancelled', 'running', 'pending', 'skipped', 'success'];
+const STATUS_PRIORITY = ['failure', 'rejected', 'failure (ignored)', 'cancelled', 'waiting_approval', 'running', 'pending', 'skipped', 'success'];
 const RECENT_FETCH_SIZE = 60;
 const RECENT_INITIAL_BATCH = 30;
 const RECENT_BATCH_SIZE = 20;
@@ -257,6 +283,22 @@ const STATUS_META: Record<
     strokeClass: 'text-blue-500 animate-pulse',
     border: 'border-blue-500/60',
     bg: 'fill-blue-100 dark:fill-blue-900/50 stroke-blue-500',
+  },
+  waiting_approval: {
+    text: 'Waiting approval',
+    pillClass: 'bg-cyan-100 text-cyan-800 border-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-100 dark:border-cyan-700',
+    icon: 'M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11',
+    strokeClass: 'text-cyan-600',
+    border: 'border-cyan-500/60',
+    bg: 'fill-cyan-100 dark:fill-cyan-900/50 stroke-cyan-500',
+  },
+  rejected: {
+    text: 'Rejected',
+    pillClass: 'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-100 dark:border-rose-700',
+    icon: 'M18 6L6 18M6 6l12 12',
+    strokeClass: 'text-rose-500',
+    border: 'border-rose-500/60',
+    bg: 'fill-rose-100 dark:fill-rose-900/50 stroke-rose-500',
   },
   pending: {
     text: 'Pending',
@@ -347,6 +389,7 @@ function PipelineRunsPage() {
   const [runDetail, setRunDetail] = useState<RunDetail | null>(null);
   const [runDetailLoading, setRunDetailLoading] = useState(false);
   const [runDetailError, setRunDetailError] = useState<string | null>(null);
+  const [approvalDecisionPending, setApprovalDecisionPending] = useState<string | null>(null);
   const [selectedStep, setSelectedStep] = useState<string | null>(null);
   const [definitionOpen, setDefinitionOpen] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
@@ -648,8 +691,12 @@ function PipelineRunsPage() {
     setRunDetailLoading(true);
     setRunDetailError(null);
     try {
-      const detail = await fetchJson<RunDetail>(`/v1/runs/${encodeURIComponent(activeRunId)}`);
-      setRunDetail(detail);
+      const encodedRunID = encodeURIComponent(activeRunId);
+      const [detail, approvals] = await Promise.all([
+        fetchJson<RunDetail>(`/v1/runs/${encodedRunID}`),
+        fetchJson<PipelineApproval[]>(`/v1/runs/${encodedRunID}/approvals`),
+      ]);
+      setRunDetail({ ...detail, approvals: approvals || [] });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to load run details';
       setRunDetailError(message);
@@ -1225,6 +1272,30 @@ function PipelineRunsPage() {
     [fetchJson, loadRunDetail, loadRuns]
   );
 
+  const handleApprovalDecision = useCallback(
+    async (approval: PipelineApproval, decision: 'approve' | 'reject') => {
+      const runId = approval.run_id || runDetail?.run_info.run_id;
+      if (!runId || approvalDecisionPending) return;
+      const key = `${approval.id}:${decision}`;
+      setApprovalDecisionPending(key);
+      try {
+        await fetchJson(`/v1/runs/${encodeURIComponent(runId)}/approvals/${encodeURIComponent(approval.id)}/${decision}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        await loadRunDetail();
+        await loadRuns();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : `Unable to ${decision} approval`;
+        alert(message);
+      } finally {
+        setApprovalDecisionPending(null);
+      }
+    },
+    [approvalDecisionPending, fetchJson, loadRunDetail, loadRuns, runDetail?.run_info.run_id]
+  );
+
   const handleRerun = useCallback(
     async (runId: string) => {
       try {
@@ -1415,6 +1486,8 @@ function PipelineRunsPage() {
               }}
               onOpenRun={handleOpenRun}
               onShowDefinition={() => setDefinitionOpen(true)}
+              onApprovalDecision={handleApprovalDecision}
+              approvalDecisionPending={approvalDecisionPending}
             />
           ) : (
             <Dashboard
@@ -2523,9 +2596,9 @@ function BranchStatusIcon({ status, complete, className }: { status: string; com
   const rawStatus = (status || '').toLowerCase();
   const normalized = normalizeStatus(rawStatus, complete ?? Boolean(STATUS_META[rawStatus]));
   const tone = getBranchStatusTone(normalized);
-  const isFailure = normalized === 'failure' || normalized === 'failure (ignored)';
+  const isFailure = normalized === 'failure' || normalized === 'failure (ignored)' || normalized === 'rejected';
   const isCancelled = normalized === 'cancelled';
-  const isRunning = normalized === 'running';
+  const isRunning = normalized === 'running' || normalized === 'waiting_approval';
   const isSkipped = normalized === 'skipped';
   const isPending = normalized === 'pending';
   return (
@@ -2641,6 +2714,8 @@ function RunDetailView({
   onOpenStepDetail,
   onOpenRun,
   onShowDefinition,
+  onApprovalDecision,
+  approvalDecisionPending,
 }: {
   detail: RunDetail;
   loading: boolean;
@@ -2656,10 +2731,13 @@ function RunDetailView({
   onOpenStepDetail: (stepName: string) => void;
   onOpenRun: (id: string) => void;
   onShowDefinition: () => void;
+  onApprovalDecision: (approval: PipelineApproval, decision: 'approve' | 'reject') => void;
+  approvalDecisionPending: string | null;
 }) {
   const run = detail.run_info;
   const normalizedStatus = normalizeStatus(run.status, run.is_complete);
-  const isActiveRun = normalizedStatus === 'running' || normalizedStatus === 'pending';
+  const isActiveRun = normalizedStatus === 'running' || normalizedStatus === 'pending' || normalizedStatus === 'waiting_approval';
+  const approvals = detail.approvals || [];
   const pipelineLink = buildPipelineLink(run);
   const triggerLabel = formatTriggerId(run.trigger_event_id);
   const parentRun = detail.parent_run_info;
@@ -2719,6 +2797,28 @@ function RunDetailView({
             <path d="M12 2a10 10 0 0110 10" />
           </svg>
           Running
+        </span>
+      );
+    }
+    if (normalizedStatus === 'waiting_approval') {
+      return (
+        <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-800 dark:text-cyan-100 text-xs font-semibold">
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 11l3 3L22 4" />
+            <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
+          </svg>
+          Waiting approval
+        </span>
+      );
+    }
+    if (normalizedStatus === 'rejected') {
+      return (
+        <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-100 text-xs font-semibold">
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M18 6L6 18" />
+            <path d="M6 6l12 12" />
+          </svg>
+          Rejected
         </span>
       );
     }
@@ -2885,6 +2985,68 @@ function RunDetailView({
         <div className="bg-red-50 dark:bg-red-900/40 border border-red-200 dark:border-red-700 text-red-700 dark:text-red-200 px-4 py-3 rounded-lg text-sm">
           <div className="font-semibold">Failed to start</div>
           <div className="mt-2 font-mono text-xs whitespace-pre-wrap break-words">{run.failure_reason}</div>
+        </div>
+      )}
+
+      {approvals.length > 0 && (
+        <div className="border border-[var(--border-primary)] rounded-2xl bg-white dark:bg-slate-950 p-4 space-y-3 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="font-semibold text-[var(--text-primary)]">Approvals</h3>
+            <span className="text-xs text-[var(--text-secondary)]">
+              {approvals.filter(approval => approval.status === 'pending').length} pending
+            </span>
+          </div>
+          <div className="space-y-3">
+            {approvals.map(approval => {
+              const pending = approval.status === 'pending';
+              const approveKey = `${approval.id}:approve`;
+              const rejectKey = `${approval.id}:reject`;
+              return (
+                <div key={approval.id} className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-3 text-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <StatusBadge status={approval.status === 'rejected' ? 'rejected' : approval.status === 'approved' ? 'success' : 'waiting_approval'} complete={approval.status !== 'pending'} />
+                        <span className="font-semibold text-[var(--text-primary)] break-words">{approval.step_name}</span>
+                        <span className="runner-pill runner-pill--muted">{approval.approval_type}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {approval.assigned_groups.map(group => (
+                          <span key={group} className="runner-pill runner-pill--muted">
+                            {group}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="text-xs text-[var(--text-secondary)]">
+                        Requested {timeAgo(approval.requested_at)}
+                        {approval.decided_by_email ? ` · Decided by ${approval.decided_by_email}` : ''}
+                      </div>
+                    </div>
+                    {pending && (
+                      <div className="flex items-center gap-2">
+                        <button
+                          className={primaryAction}
+                          type="button"
+                          disabled={Boolean(approvalDecisionPending)}
+                          onClick={() => onApprovalDecision(approval, 'approve')}
+                        >
+                          {approvalDecisionPending === approveKey ? 'Approving' : 'Approve'}
+                        </button>
+                        <button
+                          className={dangerAction}
+                          type="button"
+                          disabled={Boolean(approvalDecisionPending)}
+                          onClick={() => onApprovalDecision(approval, 'reject')}
+                        >
+                          {approvalDecisionPending === rejectKey ? 'Rejecting' : 'Reject'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -3642,6 +3804,7 @@ function normalizeGraphStatus(status: string | undefined, complete?: boolean): G
   if (normalized === 'success') return 'success';
   if (normalized === 'cancelled') return 'cancelled';
   if (normalized === 'running') return 'running';
+  if (normalized === 'waiting_approval') return 'running';
   if (normalized === 'skipped') return 'skipped';
   if (normalized === 'pending') return 'pending';
   return 'failed';
@@ -5910,6 +6073,8 @@ function getBranchStatusTone(status: string) {
   const normalized = normalizeStatus(status, true);
   if (normalized === 'success') return 'text-green-400';
   if (normalized === 'failure' || normalized === 'failure (ignored)') return 'text-red-400';
+  if (normalized === 'rejected') return 'text-rose-400';
+  if (normalized === 'waiting_approval') return 'text-cyan-400';
   if (normalized === 'running') return 'text-blue-400';
   return 'text-slate-300';
 }

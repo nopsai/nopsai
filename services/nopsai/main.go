@@ -41,6 +41,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	grpcstatus "google.golang.org/grpc/status"
 	"gopkg.in/yaml.v3"
 
@@ -62,6 +63,7 @@ const (
 	defaultAdminRole         = "nopsai-admin"
 	defaultAdminPasswordHash = "$2a$10$ueFOcGRKCWDeOaTwy1hmQ.WjQ70Yu8JJLcl8ZvJprx7HPKArt8ESC" // password: admin
 	defaultAdminID           = "00000000-0000-0000-0000-00000000000a"
+	dockerContainerNameMax   = 255
 )
 
 // WebSocket Hub implementation
@@ -82,6 +84,7 @@ type App struct {
 	envFilePath      string
 
 	authService   *auth.Service
+	serviceAuth   *serviceauth.Authenticator
 	aaaClient     aaaAuthorizer
 	aaaLocal      aaaAuthorizer
 	aaaRemoteMu   sync.Mutex
@@ -585,7 +588,7 @@ func (a *App) authMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if a.authService == nil {
+		if a.authService == nil && a.serviceAuth == nil {
 			http.Error(w, "authentication not configured", http.StatusServiceUnavailable)
 			return
 		}
@@ -595,7 +598,20 @@ func (a *App) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		token := strings.TrimSpace(authzHeader[len("Bearer "):])
-		claims, err := a.authService.AuthenticateToken(r.Context(), token)
+		var claims *auth.Claims
+		var err error
+		if a.serviceAuth != nil {
+			if serviceClaims, serviceErr := a.authenticateServiceToken(r.Context(), token); serviceErr == nil {
+				claims = serviceClaims
+			}
+		}
+		if claims == nil {
+			if a.authService == nil {
+				http.Error(w, "authentication not configured", http.StatusServiceUnavailable)
+				return
+			}
+			claims, err = a.authService.AuthenticateToken(r.Context(), token)
+		}
 		if err != nil {
 			http.Error(w, "invalid token", http.StatusUnauthorized)
 			return
@@ -627,6 +643,22 @@ func (a *App) authMiddleware(next http.Handler) http.Handler {
 		ctx := auth.WithClaims(r.Context(), claims)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func (a *App) authenticateServiceToken(ctx context.Context, token string) (*auth.Claims, error) {
+	if a == nil || a.serviceAuth == nil {
+		return nil, fmt.Errorf("service authentication not configured")
+	}
+	md := metadata.Pairs("authorization", "Bearer "+strings.TrimSpace(token))
+	serviceClaims, err := a.serviceAuth.AuthenticateContext(metadata.NewIncomingContext(ctx, md))
+	if err != nil {
+		return nil, err
+	}
+	return &auth.Claims{
+		Sub:      serviceClaims.ServiceID(),
+		Provider: serviceauth.ProviderInternalService,
+		Roles:    []string{serviceClaims.ServiceRole()},
+	}, nil
 }
 
 func (a *App) passwordChangeRequired(ctx context.Context, claims *auth.Claims) (bool, error) {
@@ -5334,7 +5366,7 @@ func sanitizeInput(name string) string {
 
 func isTerminalRunStatus(status string) bool {
 	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "success", "failure", "cancelled", "timed_out", "failure (ignored)":
+	case "success", "failure", "cancelled", "timed_out", "failure (ignored)", "rejected":
 		return true
 	default:
 		return false
@@ -5343,7 +5375,7 @@ func isTerminalRunStatus(status string) bool {
 
 func isCompletedRunStatus(status string) bool {
 	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "success", "failure", "timed_out":
+	case "success", "failure", "timed_out", "rejected":
 		return true
 	default:
 		return false
@@ -5381,6 +5413,19 @@ func buildAgentContainerName(pipelineName, repoName, triggerEventID, runID strin
 	}
 
 	return fmt.Sprintf("agent-%s-%s-%s", sanitizedPipelineName, sanitizedTriggerID, shortRunID)
+}
+
+func buildLaunchAgentContainerName(pipelineName, repoName, triggerEventID, runID string) string {
+	baseName := buildAgentContainerName(pipelineName, repoName, triggerEventID, runID)
+	launchID := strings.ReplaceAll(uuid.NewString(), "-", "")
+	if len(launchID) > 8 {
+		launchID = launchID[:8]
+	}
+	suffix := "-" + launchID
+	if maxBaseLen := dockerContainerNameMax - len(suffix); len(baseName) > maxBaseLen {
+		baseName = baseName[:maxBaseLen]
+	}
+	return baseName + suffix
 }
 
 func normalizePipelineVersion(version string) string {
@@ -6112,6 +6157,9 @@ func main() {
 	if err := ensureSetupSchema(context.Background(), dbpool); err != nil {
 		log.Fatal().Err(err).Msg("Failed to ensure setup schema")
 	}
+	if err := ensureApprovalSchema(context.Background(), dbpool); err != nil {
+		log.Fatal().Err(err).Msg("Failed to ensure approval schema")
+	}
 
 	dispatcherAddr := strings.TrimSpace(cfg.DispatcherAddress)
 	if dispatcherAddr == "" {
@@ -6136,6 +6184,14 @@ func main() {
 	})
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to configure dispatcher transport security")
+	}
+	serviceAuthenticator, err := serviceauth.NewAuthenticator(serviceauth.Config{
+		SigningKey: cfg.EffectiveServiceJWTSigningKey(),
+		Issuer:     cfg.EffectiveServiceJWTIssuer(),
+		Audience:   cfg.EffectiveServiceJWTAudience(),
+	})
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to configure service HTTP authentication")
 	}
 	dispatcherConn, err := grpc.Dial(
 		dispatcherAddr,
@@ -6181,6 +6237,7 @@ func main() {
 		configPath:  configPath,
 		envFilePath: envFilePath,
 		authService: authService,
+		serviceAuth: serviceAuthenticator,
 		aaaClient:   aaaClient,
 		aaaLocal:    aaaLocal,
 		authz:       authzEnforcer,

@@ -45,7 +45,17 @@ func (s *LocalJWTService) MintAccessToken(ctx context.Context, baseClaims Claims
 }
 
 func (s *LocalJWTService) ParseAndValidate(raw string) (*Claims, error) {
-	parser := jwt.NewParser(jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
+	opts := []jwt.ParserOption{
+		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+		jwt.WithExpirationRequired(),
+	}
+	if s.issuer != "" {
+		opts = append(opts, jwt.WithIssuer(s.issuer))
+	}
+	if s.audience != "" {
+		opts = append(opts, jwt.WithAudience(s.audience))
+	}
+	parser := jwt.NewParser(opts...)
 	claims := &Claims{}
 	_, err := parser.ParseWithClaims(raw, claims, func(token *jwt.Token) (interface{}, error) {
 		return s.signingKey, nil

@@ -63,6 +63,8 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		return "system.update", model.ResourceRef{Type: "system", ID: "config-repos"}, false, nil
 	case path == "/v1/internal/config/sync":
 		return "system.update", model.ResourceRef{Type: "system", ID: "config-sync"}, false, nil
+	case strings.HasPrefix(path, "/v1/internal/runs/"):
+		return "", model.ResourceRef{}, false, nil
 	case strings.HasPrefix(path, "/v1/setup/"):
 		if r.Method == http.MethodGet {
 			return "system.read", model.ResourceRef{Type: "system", ID: "config"}, false, nil
@@ -140,6 +142,11 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		return "pipeline.execute", model.ResourceRef{Type: "pipeline", ID: normalizePathIdentifier(pathValueOrTail(r, "pipelineName", "/v1/run/"))}, false, nil
 	case path == "/v1/runs" && r.Method == http.MethodGet:
 		return "pipeline_run.list", model.ResourceRef{Type: "pipeline_run", ID: "*"}, true, nil
+	case strings.HasPrefix(path, "/v1/runs/") && strings.Contains(path, "/approvals/") &&
+		(strings.HasSuffix(path, "/approve") || strings.HasSuffix(path, "/reject")):
+		return "", model.ResourceRef{}, false, nil
+	case strings.HasPrefix(path, "/v1/runs/") && strings.HasSuffix(path, "/approvals"):
+		return "", model.ResourceRef{Type: "pipeline_run", ID: runIDFromRequest(r)}, false, nil
 	case strings.HasPrefix(path, "/v1/runs/") && strings.HasSuffix(path, "/rerun"):
 		return "pipeline_run.rerun", model.ResourceRef{Type: "pipeline_run", ID: runIDFromRequest(r)}, false, nil
 	case strings.HasPrefix(path, "/v1/runs/") && strings.HasSuffix(path, "/cancel"):
@@ -155,7 +162,7 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 	case strings.HasPrefix(path, "/v1/runs/") && strings.HasSuffix(path, "/logs"):
 		return "pipeline_run.read_logs", model.ResourceRef{Type: "pipeline_run", ID: runIDFromRequest(r)}, false, nil
 	case strings.HasPrefix(path, "/v1/runs/") && r.Method == http.MethodGet:
-		return "pipeline_run.read", model.ResourceRef{Type: "pipeline_run", ID: runIDFromRequest(r)}, false, nil
+		return "", model.ResourceRef{Type: "pipeline_run", ID: runIDFromRequest(r)}, false, nil
 	case strings.HasPrefix(path, "/v1/runs/") && r.Method == http.MethodDelete:
 		return "pipeline_run.delete", model.ResourceRef{Type: "pipeline_run", ID: runIDFromRequest(r)}, false, nil
 	case strings.HasPrefix(path, "/v1/runs-by-check/"):

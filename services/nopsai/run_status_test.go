@@ -37,14 +37,43 @@ func TestIsCompletedRunStatus(t *testing.T) {
 		{status: "success", want: true},
 		{status: "failure", want: true},
 		{status: "timed_out", want: true},
+		{status: "rejected", want: true},
 		{status: "cancelled", want: false},
 		{status: "running", want: false},
+		{status: "waiting_approval", want: false},
 	}
 
 	for _, tt := range tests {
 		if got := isCompletedRunStatus(tt.status); got != tt.want {
 			t.Fatalf("isCompletedRunStatus(%q) = %v, want %v", tt.status, got, tt.want)
 		}
+	}
+}
+
+func TestBuildLaunchAgentContainerNameAddsUniqueSuffix(t *testing.T) {
+	baseName := buildAgentContainerName("deploy-prod", "payments-api", "trigger-123456789", "run-abcdef123456")
+	first := buildLaunchAgentContainerName("deploy-prod", "payments-api", "trigger-123456789", "run-abcdef123456")
+	second := buildLaunchAgentContainerName("deploy-prod", "payments-api", "trigger-123456789", "run-abcdef123456")
+
+	if !strings.HasPrefix(first, baseName+"-") {
+		t.Fatalf("first launch name = %q, want prefix %q", first, baseName+"-")
+	}
+	if first == second {
+		t.Fatalf("expected unique launch names, got %q twice", first)
+	}
+	if len(first) > dockerContainerNameMax || len(second) > dockerContainerNameMax {
+		t.Fatalf("launch name exceeded docker max length: %d, %d", len(first), len(second))
+	}
+}
+
+func TestBuildLaunchAgentContainerNameCapsLongNames(t *testing.T) {
+	name := buildLaunchAgentContainerName(strings.Repeat("pipeline", 80), strings.Repeat("repo", 80), "trigger-123456789", "run-abcdef123456")
+
+	if len(name) != dockerContainerNameMax {
+		t.Fatalf("launch name length = %d, want %d", len(name), dockerContainerNameMax)
+	}
+	if lastDash := strings.LastIndex(name, "-"); lastDash != dockerContainerNameMax-9 {
+		t.Fatalf("launch suffix starts at %d, want %d in %q", lastDash, dockerContainerNameMax-9, name)
 	}
 }
 
@@ -90,7 +119,7 @@ func TestMarkRunRunningPromotesNonTerminalRun(t *testing.T) {
 	for _, want := range []string{
 		"SET status = 'running'",
 		"started_at = COALESCE(started_at, NOW())",
-		"status NOT IN ('success', 'failure', 'failure (ignored)', 'cancelled', 'timed_out')",
+		"status NOT IN ('success', 'failure', 'failure (ignored)', 'cancelled', 'timed_out', 'waiting_approval', 'rejected')",
 	} {
 		if !strings.Contains(statement, want) {
 			t.Fatalf("markRunRunning() SQL missing %q in %q", want, statement)

@@ -176,11 +176,11 @@ Tradeoffs:
 - Dispatcher becomes a critical path component
 - Extra hop for logs and status updates
 
-## 11. Use Internal JWTs For Trusted Dispatcher Calls
+## 11. Use Service JWTs For Trusted Internal Calls
 
 Decision:
 
-- Dispatcher mints short-lived internal JWTs when calling protected internal `nopsai` endpoints.
+- Dispatcher and agent mint short-lived service JWTs when calling protected internal `nopsai` endpoints.
 
 Why:
 
