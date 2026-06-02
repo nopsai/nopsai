@@ -3,7 +3,10 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE groups (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'group' CHECK (kind IN ('group', 'app')),
     description TEXT NOT NULL DEFAULT '',
+    repo_url TEXT NOT NULL DEFAULT '',
+    repository_full_name TEXT NOT NULL DEFAULT '',
     parent_id INTEGER REFERENCES groups(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -515,6 +518,9 @@ CREATE INDEX idx_resource_acl_resource_lookup ON resource_acl(resource_type, res
 CREATE INDEX idx_resource_acl_subject_lookup ON resource_acl(subject_type, subject_id);
 CREATE INDEX idx_authz_decision_logs_created_at ON authz_decision_logs(created_at);
 CREATE INDEX idx_authz_decision_logs_request_id ON authz_decision_logs(request_id);
+CREATE INDEX idx_groups_kind ON groups(kind);
+CREATE INDEX idx_groups_repository_full_name ON groups(repository_full_name) WHERE repository_full_name <> '';
+CREATE UNIQUE INDEX idx_groups_repository_full_name_unique ON groups(LOWER(repository_full_name)) WHERE repository_full_name <> '';
 CREATE INDEX idx_config_repositories_scope ON config_repositories(scope_type, scope_id);
 CREATE INDEX idx_config_repositories_config_repo_id ON config_repositories(config_repo_id);
 CREATE INDEX idx_pipelines_config_repo_id ON pipelines(config_repo_id);

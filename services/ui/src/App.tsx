@@ -124,8 +124,11 @@ type AuthSession = StoredSession;
 type RunGroup = {
   id: number;
   name: string;
+  kind?: 'group' | 'app' | string;
   parent_id?: number | null;
   description?: string;
+  repo_url?: string;
+  repository_full_name?: string;
 };
 
 type RunListItem = {
@@ -2002,13 +2005,13 @@ function PipelineRunsSidebarContent({
     const targetGroupIds = new Set<number>();
 
     const activeGroup = activeGroupIdRef.current !== null ? groupsById.get(activeGroupIdRef.current) : null;
-    if (activeGroup?.name.includes('/')) {
+    if (activeGroup && isRunAppGroup(activeGroup)) {
       targetGroupIds.add(activeGroup.id);
     }
 
     expandedGroupsRef.current.forEach(groupId => {
       const group = groupsById.get(groupId);
-      if (group?.name.includes('/')) {
+      if (group && isRunAppGroup(group)) {
         targetGroupIds.add(groupId);
       }
     });
@@ -2069,7 +2072,7 @@ function PipelineRunsSidebarContent({
     if (tab !== 'main') return;
     if (!activeGroupId) return;
     const group = groups.find(g => g.id === activeGroupId);
-    if (!group || !group.name.includes('/')) return;
+    if (!group || !isRunAppGroup(group)) return;
     void ensureRepoRuns(group.id, { force: true });
   }, [activeGroupId, ensureRepoRuns, groups, tab]);
 
@@ -2080,7 +2083,7 @@ function PipelineRunsSidebarContent({
       const info = detail?.run_info;
       if (!info) return;
       const repoName = info.git_repo_owner && info.git_repo_name ? `${info.git_repo_owner}/${info.git_repo_name}` : '';
-      const repoGroup = repoName ? groups.find(g => g.name === repoName) : null;
+      const repoGroup = repoName ? groups.find(g => runGroupMatchesRepository(g, repoName)) : null;
       if (!repoGroup) return;
       const path = buildGroupPath(repoGroup.id, groups);
       setExpandedGroups(prev => {
@@ -2131,7 +2134,7 @@ function PipelineRunsSidebarContent({
   }, [refreshRecentRuns, refreshVisibleRepoRuns, tab]);
 
   const toggleGroup = (group: RunGroup) => {
-    const isRepo = group.name.includes('/');
+    const isRepo = isRunAppGroup(group);
     setExpandedGroups(prev => {
       const next = new Set(prev);
       const willExpand = !next.has(group.id);
@@ -2243,10 +2246,11 @@ function PipelineRunsSidebarContent({
   };
 
   const renderGroupNode = (group: RunGroup) => {
-    const isRepo = group.name.includes('/');
+    const isRepo = isRunAppGroup(group);
     const expanded = expandedGroups.has(group.id);
     const children = groups.filter(child => (child.parent_id ?? null) === group.id);
-    const label = isRepo ? group.name.split('/')[1] || group.name : group.name;
+    const label = runGroupDisplayName(group);
+    const repoURL = runGroupRepositoryURL(group);
     const repoRuns = repoRunsCache.get(group.id);
     const isLoadingRepo = loadingRepos.has(group.id);
 
@@ -2297,6 +2301,21 @@ function PipelineRunsSidebarContent({
               {label}
             </span>
           </button>
+          {isRepo && repoURL && (
+            <a
+              href={repoURL}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+              title={`Open ${label} repository`}
+              aria-label={`Open ${label} repository`}
+            >
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M7 17L17 7" />
+                <path d="M8 7h9v9" />
+              </svg>
+            </a>
+          )}
         </div>
         {expanded && (
           <div className="pl-4 space-y-2">
@@ -2588,6 +2607,43 @@ function timeAgoShort(dateInput?: string) {
   if (hours < 48) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+}
+
+function isRunAppGroup(group: Pick<RunGroup, 'kind' | 'name' | 'repo_url' | 'repository_full_name'>) {
+  return group.kind === 'app' || Boolean(group.repo_url || group.repository_full_name) || group.name.includes('/');
+}
+
+function runGroupDisplayName(group: Pick<RunGroup, 'kind' | 'name' | 'repo_url' | 'repository_full_name'>) {
+  if (!isRunAppGroup(group)) return group.name;
+  if (group.kind === 'app' && group.name && !group.name.includes('/')) return group.name;
+  const fullName = group.repository_full_name || group.name;
+  return fullName.split('/').filter(Boolean).pop() || group.name;
+}
+
+function runGroupRepositoryURL(group: Pick<RunGroup, 'name' | 'repo_url' | 'repository_full_name'>) {
+  const fullName = (group.repository_full_name || group.name).trim().replace(/^\/+|\/+$/g, '');
+  if (group.repo_url) return repositoryBrowserURL(group.repo_url, fullName);
+  return fullName.includes('/') ? `https://github.com/${fullName}` : '';
+}
+
+function repositoryBrowserURL(rawURL: string, fallbackFullName: string) {
+  const trimmed = rawURL.trim();
+  if (!trimmed) return fallbackFullName.includes('/') ? `https://github.com/${fallbackFullName}` : '';
+  if (trimmed.startsWith('git@github.com:')) {
+    const path = trimmed.slice('git@github.com:'.length).replace(/\.git$/, '').replace(/^\/+|\/+$/g, '');
+    return path ? `https://github.com/${path}` : '';
+  }
+  if (trimmed.startsWith('github.com/')) return `https://${trimmed.replace(/\.git$/, '')}`;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed.replace(/\.git$/, '');
+  return fallbackFullName.includes('/') ? `https://github.com/${fallbackFullName}` : trimmed;
+}
+
+function runGroupMatchesRepository(group: RunGroup, repoName: string) {
+  const normalizedRepo = repoName.trim().replace(/^\/+|\/+$/g, '').toLowerCase();
+  if (!normalizedRepo) return false;
+  const fullName = (group.repository_full_name || '').trim().replace(/^\/+|\/+$/g, '').toLowerCase();
+  if (fullName && fullName === normalizedRepo) return true;
+  return group.name.trim().replace(/^\/+|\/+$/g, '').toLowerCase() === normalizedRepo;
 }
 
 function buildGroupPath(groupId: number | null, groups: RunGroup[]): RunGroup[] {

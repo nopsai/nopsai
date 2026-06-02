@@ -134,11 +134,14 @@ type effectivePermissionResponse struct {
 }
 
 type groupPathRecord struct {
-	ID          int
-	Name        string
-	ParentID    *int
-	Description string
-	Path        string
+	ID                 int
+	Name               string
+	Kind               string
+	ParentID           *int
+	Description        string
+	RepoURL            string
+	RepositoryFullName string
+	Path               string
 }
 
 type accessGrantSubject struct {
@@ -1481,7 +1484,7 @@ func namedResourceWhereArgs(resourceID string) []any {
 }
 
 func loadGroupPathRecords(ctx context.Context, runner queryRunner) (map[int]groupPathRecord, error) {
-	rows, err := runner.Query(ctx, `SELECT id, name, parent_id, COALESCE(description, '') FROM groups`)
+	rows, err := runner.Query(ctx, `SELECT id, name, COALESCE(kind, 'group'), parent_id, COALESCE(description, ''), COALESCE(repo_url, ''), COALESCE(repository_full_name, '') FROM groups`)
 	if err != nil {
 		return nil, err
 	}
@@ -1493,10 +1496,12 @@ func loadGroupPathRecords(ctx context.Context, runner queryRunner) (map[int]grou
 			record      groupPathRecord
 			parentIDSQL sql.NullInt32
 		)
-		if err := rows.Scan(&record.ID, &record.Name, &parentIDSQL, &record.Description); err != nil {
+		if err := rows.Scan(&record.ID, &record.Name, &record.Kind, &parentIDSQL, &record.Description, &record.RepoURL, &record.RepositoryFullName); err != nil {
 			return nil, err
 		}
 		record.Name = strings.Trim(strings.TrimSpace(record.Name), "/")
+		record.RepoURL = strings.TrimSpace(record.RepoURL)
+		record.RepositoryFullName = strings.Trim(strings.TrimSpace(record.RepositoryFullName), "/")
 		if parentIDSQL.Valid {
 			parent := int(parentIDSQL.Int32)
 			record.ParentID = &parent

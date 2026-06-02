@@ -231,7 +231,7 @@ Rerun:
    - knowledge markdown files are turned into `knowledge_contexts`
    - legacy `pipelineruns/structure.yaml` becomes the run-group tree for groups owned by that repo
    - `config-repositories/groups/<group>.yaml` becomes a group config repo binding and group shell
-   - `config-repositories/groups/structure.yaml` and `config-repositories/groups/<group>/structure.yaml` place repositories under group shells and can define inline group repo `config:` blocks
+   - `config-repositories/groups/structure.yaml` and `config-repositories/groups/<group>/structure.yaml` place apps under group shells with `name` and `repo_url`, keep legacy `repos:` lists readable, and can define inline group repo `config:` blocks
    - `setting/system/llm_profile.yaml` becomes the system LLM profile registry, only from a system/global config repo
    - `setting/system/mcp.yaml` becomes the system MCP server/profile registry, only from a system/global config repo
    - `setting/system/runner.yaml` becomes runner install defaults, runtime URLs, and dispatcher routing, only from a system/global config repo

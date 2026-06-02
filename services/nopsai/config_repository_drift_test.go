@@ -68,6 +68,71 @@ func TestDiffConfigRepositoryFilesDetectsKnowledgeContentChange(t *testing.T) {
 	}
 }
 
+func TestDiffConfigRepositoryFilesDetectsKnowledgeAccessChange(t *testing.T) {
+	gitContent := `---
+name: runtime-output-safety
+kind: guardrail
+access:
+  visibility: restricted
+  use_access:
+    grants:
+      - repository: hosein-yousefii/test-app
+content: Keep runtime values private.
+---
+`
+	desiredContent := `---
+name: runtime-output-safety
+kind: guardrail
+access:
+  visibility: workspace
+content: Keep runtime values private.
+---
+`
+	items := diffConfigRepositoryFiles(
+		map[string]string{"knowledge/guardrail/data-team/runtime-output-safety.yaml": normalizeConfigRepositoryFileContent(gitContent)},
+		map[string]string{"knowledge/guardrail/data-team/runtime-output-safety.yaml": normalizeConfigRepositoryFileContent(desiredContent)},
+	)
+	if got, want := len(items), 1; got != want {
+		t.Fatalf("len(items) = %d, want %d", got, want)
+	}
+	if items[0].Status != "modified" {
+		t.Fatalf("knowledge document status = %q, want modified", items[0].Status)
+	}
+}
+
+func TestDiffConfigRepositoryFilesIgnoresKnowledgeAccessFormatting(t *testing.T) {
+	gitContent := `---
+name: runtime-output-safety
+kind: guardrail
+access:
+  repositories:
+    - hosein-yousefii/test-app
+content: Keep runtime values private.
+---
+`
+	desiredContent := `---
+name: runtime-output-safety
+kind: guardrail
+access:
+  visibility: restricted
+  use_access:
+    grants:
+      - repository: hosein-yousefii/test-app
+content: Keep runtime values private.
+---
+`
+	items := diffConfigRepositoryFiles(
+		map[string]string{"knowledge/guardrail/data-team/runtime-output-safety.yaml": normalizeConfigRepositoryFileContent(gitContent)},
+		map[string]string{"knowledge/guardrail/data-team/runtime-output-safety.yaml": normalizeConfigRepositoryFileContent(desiredContent)},
+	)
+	if got, want := len(items), 1; got != want {
+		t.Fatalf("len(items) = %d, want %d", got, want)
+	}
+	if items[0].Status != "unchanged" {
+		t.Fatalf("knowledge document status = %q, want unchanged", items[0].Status)
+	}
+}
+
 func TestConfigRepositoryRelativeGitPath(t *testing.T) {
 	rel, ok := configRepositoryRelativeGitPath("nopsai", "nopsai/pipelines/deploy.yaml")
 	if !ok || rel != "pipelines/deploy.yaml" {
@@ -132,7 +197,7 @@ func TestConfigRepositoryIncludesResourceSkipsChildDelegatedScopesForFolderRepo(
 }
 
 func TestRenderKnowledgeContextGitOpsDocument(t *testing.T) {
-	got := renderKnowledgeContextGitOpsDocument("runbook", "deploy-api", "", "# Deploy\n\nRun it.\n", "runbook/team-1/deploy-api")
+	got := renderKnowledgeContextGitOpsDocument("runbook", "deploy-api", "", "# Deploy\n\nRun it.\n", "runbook/team-1/deploy-api", nil)
 	if want := "---\nname: deploy-api\nkind: runbook\ncontent: |\n"; len(got) < len(want) || got[:len(want)] != want {
 		t.Fatalf("knowledge document prefix = %q, want %q", got, want)
 	}
@@ -141,5 +206,37 @@ func TestRenderKnowledgeContextGitOpsDocument(t *testing.T) {
 	}
 	if contains := "description:"; strings.Contains(got, contains) {
 		t.Fatalf("knowledge document included empty %q: %s", contains, got)
+	}
+}
+
+func TestSyncConfigRepositoryYAMLAccessBlock(t *testing.T) {
+	got, err := syncConfigRepositoryYAMLAccessBlock(`name: deploy
+access:
+  visibility: workspace
+steps:
+  - name: run
+    script: echo ok
+`, &configRepositoryEmbeddedAccessFile{
+		Visibility: resourceVisibilityRestricted,
+		UseAccess: &configRepositoryEmbeddedUseAccessFile{
+			Grants: []configRepositoryEmbeddedUseGrantFile{{Repository: "hosein-yousefii/test-app"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("syncConfigRepositoryYAMLAccessBlock() error = %v", err)
+	}
+	if strings.Count("\n"+got, "\naccess:") != 1 {
+		t.Fatalf("access block count in %q, want 1", got)
+	}
+	if !strings.Contains(got, "visibility: restricted") || !strings.Contains(got, "repository: hosein-yousefii/test-app") {
+		t.Fatalf("updated access block missing from %q", got)
+	}
+
+	got, err = syncConfigRepositoryYAMLAccessBlock(got, nil)
+	if err != nil {
+		t.Fatalf("syncConfigRepositoryYAMLAccessBlock(remove) error = %v", err)
+	}
+	if strings.Contains("\n"+got, "\naccess:") {
+		t.Fatalf("access block was not removed: %q", got)
 	}
 }

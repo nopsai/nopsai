@@ -717,6 +717,46 @@ data-team:
 	}
 }
 
+func TestConfigRepositoryGroupStructureParsesAppsWithRepositoryURLs(t *testing.T) {
+	structure, ok, err := parseConfigRepositoryGroupPipelineRunStructure("groups/team-1/structure.yaml", `
+description: Team 1 apps
+apps:
+  - name: api
+    repo_url: https://github.com/acme/service-api.git
+  - name: worker
+    repo_url: git@github.com:acme/worker.git
+`)
+	if err != nil {
+		t.Fatalf("parseConfigRepositoryGroupPipelineRunStructure() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("expected groups/team-1/structure.yaml to be treated as a group structure file")
+	}
+	team1 := structure["team-1"]
+	if team1 == nil {
+		t.Fatal("expected team-1 structure")
+	}
+	if len(team1.Apps) != 2 {
+		t.Fatalf("apps = %#v, want 2 apps", team1.Apps)
+	}
+	if team1.Apps[0].Name != "api" || team1.Apps[0].RepositoryFullName != "acme/service-api" {
+		t.Fatalf("first app = %#v, want api -> acme/service-api", team1.Apps[0])
+	}
+	if team1.Apps[1].Name != "worker" || team1.Apps[1].RepositoryFullName != "acme/worker" {
+		t.Fatalf("second app = %#v, want worker -> acme/worker", team1.Apps[1])
+	}
+}
+
+func TestRepositoryFullNameFromURLUsesGitHubRepoRoot(t *testing.T) {
+	got, err := repositoryFullNameFromURL("https://github.com/acme/service-api/tree/main")
+	if err != nil {
+		t.Fatalf("repositoryFullNameFromURL() error = %v", err)
+	}
+	if got != "acme/service-api" {
+		t.Fatalf("repositoryFullNameFromURL() = %q, want acme/service-api", got)
+	}
+}
+
 func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T) {
 	binding := models.ConfigRepository{ID: 1, ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID}
 	generalScopeVars := map[generalScopeVarKey]storedScopeVar{

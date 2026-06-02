@@ -158,10 +158,11 @@ Required GitHub App permissions:
 - `pull_requests`: read
 - `checks`: read and write
 
-Repository groups are entered manually as GitHub `owner/repo` names. If a
-repository does not trigger later, verify the GitHub App ID, installation ID,
-private key, git-bot service URL, and which repositories are selected in the
-GitHub App installation.
+Repository groups are entered manually as GitHub `owner/repo` names or GitHub
+URLs. Starter GitOps structure stores each app with a `repo_url`, which NopsAI
+normalizes for trigger-to-app matching. If a repository does not trigger later,
+verify the GitHub App ID, installation ID, private key, git-bot service URL, and
+which repositories are selected in the GitHub App installation.
 
 ## Starter Templates
 

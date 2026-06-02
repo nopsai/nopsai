@@ -125,10 +125,13 @@ type FinalizeRequest struct {
 }
 
 type Group struct {
-	ID          int        `json:"id"`
-	Name        string     `json:"name"`
-	ParentID    *int       `json:"parent_id"`
-	Description string     `json:"description,omitempty"`
-	Children    []Group    `json:"children"`
-	LastRunAt   *time.Time `json:"last_run_at,omitempty"`
+	ID                 int        `json:"id"`
+	Name               string     `json:"name"`
+	Kind               string     `json:"kind,omitempty"`
+	ParentID           *int       `json:"parent_id"`
+	Description        string     `json:"description,omitempty"`
+	RepoURL            string     `json:"repo_url,omitempty"`
+	RepositoryFullName string     `json:"repository_full_name,omitempty"`
+	Children           []Group    `json:"children"`
+	LastRunAt          *time.Time `json:"last_run_at,omitempty"`
 }
