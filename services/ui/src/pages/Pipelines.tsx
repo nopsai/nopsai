@@ -47,6 +47,7 @@ const STEP_DIRECTIVES = [
   'name',
   'include',
   'sync',
+  'approval',
   'image',
   'secrets',
   'volumes',
@@ -264,9 +265,14 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
       const steps = Array.isArray(pipelineObject.steps) ? (pipelineObject.steps as Array<Record<string, unknown>>) : [];
       if (steps.length > 0) {
         const containerImage = typeof pipelineObject.container_image === 'string' ? pipelineObject.container_image.trim() : '';
-        const firstStep = steps[0] as Record<string, unknown> | undefined;
-        const firstStepImage = typeof firstStep?.image === 'string' ? (firstStep.image as string).trim() : '';
-        if (!containerImage && !firstStepImage) {
+        const executableStepWithoutImage = steps.some(step => {
+          if (!step || typeof step !== 'object') return false;
+          const stepRecord = step as Record<string, unknown>;
+          if (stepRecord.approval !== undefined) return false;
+          const stepImage = typeof stepRecord.image === 'string' ? stepRecord.image.trim() : '';
+          return !stepImage;
+        });
+        if (!containerImage && executableStepWithoutImage) {
           errors.push({
             message: "'container_image' is required when steps do not specify their own image.",
             line: findLineNumberForKey(rawYaml, 'container_image') ?? findLineNumberForKey(rawYaml, 'steps') ?? 1,
@@ -310,6 +316,15 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
       });
       return Object.keys(entries).length ? entries : undefined;
     };
+    const normalizeApproval = (value: unknown) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+      const record = value as Record<string, unknown>;
+      return {
+        type: typeof record.type === 'string' ? record.type : undefined,
+        groups: normalizeStringArray(record.groups),
+        allow_self_approval: typeof record.allow_self_approval === 'boolean' ? record.allow_self_approval : undefined,
+      };
+    };
 
     type NormalizedStep = {
       name: string;
@@ -317,6 +332,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
       depends_on: string[];
       include?: string;
       sync?: boolean;
+      approval?: ReturnType<typeof normalizeApproval>;
       image?: string;
       secrets?: string[];
       volumes?: string[];
@@ -364,6 +380,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
             depends_on: normalizeStringArray(step?.depends_on),
             include: typeof step?.include === 'string' ? step.include : undefined,
             sync: typeof step?.sync === 'boolean' ? step.sync : undefined,
+            approval: normalizeApproval(step?.approval),
             image: typeof step?.image === 'string' ? step.image : undefined,
             secrets: normalizeStringArray(step?.secrets),
             volumes: normalizeStringArray(step?.volumes),
@@ -388,6 +405,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                 name: step.name,
                 description: step.description,
                 depends_on: step.depends_on,
+                approval: step.approval,
                 tasks: step.tasks,
                 goal: step.goal,
                 script: step.script,
@@ -415,6 +433,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
           configuration: {
             include: step.include,
             sync: step.sync,
+            approval: step.approval,
             image: step.image,
             secrets: step.secrets,
             volumes: step.volumes,

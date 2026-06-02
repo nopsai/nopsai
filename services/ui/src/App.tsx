@@ -234,7 +234,7 @@ const titleMap: Record<string, string> = {
   profile: 'Profile',
 };
 
-const STATUS_PRIORITY = ['failure', 'failure (ignored)', 'cancelled', 'running', 'pending', 'skipped', 'success'];
+const STATUS_PRIORITY = ['failure', 'rejected', 'failure (ignored)', 'cancelled', 'waiting_approval', 'running', 'pending', 'skipped', 'success'];
 const SIDEBAR_MIN_WIDTH = 260;
 const SIDEBAR_MAX_WIDTH = 520;
 const SIDEBAR_DEFAULT_WIDTH = 320;
@@ -2479,9 +2479,9 @@ function RunSidebarRow({ run, active, onOpen }: { run: RunListItem; active: bool
 function SidebarStatusIcon({ status, complete }: { status: string; complete?: boolean }) {
   const normalized = normalizeRunStatus(status, complete);
   const tone = getSidebarStatusTone(normalized);
-  const isFailure = normalized === 'failure' || normalized === 'failure (ignored)';
+  const isFailure = normalized === 'failure' || normalized === 'failure (ignored)' || normalized === 'rejected';
   const isCancelled = normalized === 'cancelled';
-  const isRunning = normalized === 'running';
+  const isRunning = normalized === 'running' || normalized === 'waiting_approval';
   const isSkipped = normalized === 'skipped';
   const isPending = normalized === 'pending';
   return (
@@ -2521,6 +2521,8 @@ function getSidebarStatusTone(status: string) {
   const normalized = normalizeRunStatus(status, true);
   if (normalized === 'success') return 'text-green-400';
   if (normalized === 'failure' || normalized === 'failure (ignored)') return 'text-red-400';
+  if (normalized === 'rejected') return 'text-rose-400';
+  if (normalized === 'waiting_approval') return 'text-cyan-400';
   if (normalized === 'running') return 'text-blue-400';
   return 'text-slate-300';
 }
@@ -2534,6 +2536,8 @@ function getStatusDotClass(status: string | undefined, complete?: boolean) {
   if (normalized === 'success') return 'bg-emerald-400';
   if (normalized === 'failure') return 'bg-red-500';
   if (normalized === 'failure (ignored)') return 'bg-amber-500';
+  if (normalized === 'rejected') return 'bg-rose-500';
+  if (normalized === 'waiting_approval') return 'bg-cyan-400';
   if (normalized === 'running') return 'bg-blue-400';
   if (normalized === 'cancelled') return 'bg-orange-400';
   if (normalized === 'skipped') return 'bg-slate-400';
@@ -2542,8 +2546,8 @@ function getStatusDotClass(status: string | undefined, complete?: boolean) {
 
 function normalizeRunStatus(status: string | undefined, complete?: boolean): string {
   const raw = (status || '').toLowerCase();
-  if (!complete && raw !== 'success' && raw !== 'failure' && raw !== 'cancelled' && raw !== 'skipped') return 'running';
   if (STATUS_PRIORITY.includes(raw)) return raw;
+  if (!complete && raw !== 'success' && raw !== 'failure' && raw !== 'cancelled' && raw !== 'skipped') return 'running';
   return 'pending';
 }
 

@@ -21,7 +21,6 @@ import (
 	"nopsai/pkg/proto"
 	"nopsai/pkg/serviceauth"
 	"nopsai/pkg/servicetls"
-	nopsaiAuth "nopsai/services/nopsai/pkg/auth"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -58,13 +57,13 @@ type dispatcherServer struct {
 
 	nopsaiBase          string
 	httpClient          *http.Client
-	internalTokenSigner *nopsaiAuth.LocalJWTService
+	internalCredentials *serviceauth.Credentials
 }
 
-func newDispatcherServer(routing map[string][]string, nopsaiBase string, internalTokenSigner ...*nopsaiAuth.LocalJWTService) *dispatcherServer {
-	var signer *nopsaiAuth.LocalJWTService
-	if len(internalTokenSigner) > 0 {
-		signer = internalTokenSigner[0]
+func newDispatcherServer(routing map[string][]string, nopsaiBase string, internalCredentials ...*serviceauth.Credentials) *dispatcherServer {
+	var credentials *serviceauth.Credentials
+	if len(internalCredentials) > 0 {
+		credentials = internalCredentials[0]
 	}
 	return &dispatcherServer{
 		runners:             make(map[string]*runnerConn),
@@ -72,7 +71,7 @@ func newDispatcherServer(routing map[string][]string, nopsaiBase string, interna
 		triggerAssignments:  make(map[string]string),
 		nopsaiBase:          strings.TrimRight(strings.TrimSpace(nopsaiBase), "/"),
 		httpClient:          &http.Client{Timeout: 15 * time.Second},
-		internalTokenSigner: signer,
+		internalCredentials: credentials,
 	}
 }
 
@@ -189,14 +188,11 @@ func (d *dispatcherServer) authorizeInternalRequest(ctx context.Context, req *ht
 	if req == nil {
 		return fmt.Errorf("request is nil")
 	}
-	if d.internalTokenSigner == nil {
-		return fmt.Errorf("internal token signer is not configured")
+	if d.internalCredentials == nil {
+		return fmt.Errorf("internal service credentials are not configured")
 	}
 
-	token, _, err := d.internalTokenSigner.MintAccessToken(ctx, nopsaiAuth.Claims{
-		Sub:      "dispatcher",
-		Provider: "internal-service",
-	})
+	token, err := d.internalCredentials.MintToken(ctx)
 	if err != nil {
 		return fmt.Errorf("mint dispatcher token: %w", err)
 	}
@@ -226,8 +222,8 @@ func (d *dispatcherServer) SubmitJob(ctx context.Context, job *proto.JobRequest)
 		log.Warn().Err(err).Str("run_id", job.RunId).Msg("Failed to verify run status before dispatch")
 	} else if !runStatusAllowsDispatch(runStatus) {
 		resp.State = proto.JobState_JOB_STATE_REJECTED
-		resp.Message = fmt.Sprintf("run status %q is terminal", runStatus)
-		log.Info().Str("run_id", job.RunId).Str("status", runStatus).Msg("Rejecting job submission for terminal run")
+		resp.Message = fmt.Sprintf("run status %q is not dispatchable", runStatus)
+		log.Info().Str("run_id", job.RunId).Str("status", runStatus).Msg("Rejecting job submission for non-dispatchable run")
 		return resp, nil
 	}
 
@@ -744,7 +740,8 @@ func (d *dispatcherServer) handleJobResult(connectionID string, result *proto.Jo
 			go d.pumpQueue()
 		}
 	case "failed":
-		log.Warn().Str("run_id", result.RunId).Str("runner_id", runner.id).Str("error", result.Error).Msg("job failed to start on runner")
+		log.Warn().Str("run_id", result.RunId).Str("runner_id", runner.id).Str("error", result.Error).Msg("job failed on runner")
+		go d.reportRunnerJobFailure(result.RunId, result.Error)
 	case "completed":
 		log.Info().Str("run_id", result.RunId).Str("runner_id", runner.id).Msg("job completed")
 	case "accepted":
@@ -752,6 +749,60 @@ func (d *dispatcherServer) handleJobResult(connectionID string, result *proto.Jo
 	default:
 		log.Info().Str("run_id", result.RunId).Str("runner_id", runner.id).Str("status", statusText).Msg("received job update from runner")
 	}
+}
+
+func (d *dispatcherServer) reportRunnerJobFailure(runID, detail string) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return
+	}
+	reason := "Runner job failed"
+	if detail = strings.TrimSpace(detail); detail != "" {
+		reason += ": " + detail
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := d.postNopsaiJSON(ctx, fmt.Sprintf("/v1/runs/%s/logs/ingest", runID), map[string][]string{"lines": []string{reason}}, http.StatusNoContent); err != nil {
+		log.Warn().Err(err).Str("run_id", runID).Msg("failed to record runner job failure log")
+	}
+	if err := d.postNopsaiJSON(ctx, fmt.Sprintf("/v1/runs/%s/finalize", runID), map[string]string{
+		"status":         "failure",
+		"failure_reason": reason,
+	}, http.StatusOK); err != nil {
+		log.Warn().Err(err).Str("run_id", runID).Msg("failed to finalize runner job failure")
+	}
+}
+
+func (d *dispatcherServer) postNopsaiJSON(ctx context.Context, path string, payload any, expectedStatus int) error {
+	if err := d.requireNopsaiBase(); err != nil {
+		return err
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal nopsai request: %w", err)
+	}
+	target := strings.TrimRight(d.nopsaiBase, "/") + path
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build nopsai request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if err := d.authorizeInternalRequest(ctx, httpReq); err != nil {
+		return fmt.Errorf("authorize nopsai request: %w", err)
+	}
+
+	resp, err := d.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("send nopsai request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != expectedStatus {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("nopsai %s returned %d: %s", path, resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
+	}
+	return nil
 }
 
 func (d *dispatcherServer) addRunner(rc *runnerConn) {
@@ -1110,7 +1161,7 @@ func (d *dispatcherServer) pumpQueue() {
 		if err != nil {
 			log.Warn().Err(err).Str("run_id", job.RunId).Msg("Failed to verify queued run status before dispatch")
 		} else if !runStatusAllowsDispatch(runStatus) {
-			log.Info().Str("run_id", job.RunId).Str("status", runStatus).Msg("Dropping queued job for terminal run")
+			log.Info().Str("run_id", job.RunId).Str("status", runStatus).Msg("Dropping queued job for non-dispatchable run")
 			continue
 		}
 
@@ -1309,10 +1360,8 @@ func runStatusAllowsDispatch(statusText string) bool {
 	switch strings.ToLower(strings.TrimSpace(statusText)) {
 	case "", "pending", "running":
 		return true
-	case "success", "failure", "cancelled", "timed_out":
-		return false
 	default:
-		return true
+		return false
 	}
 }
 
@@ -1548,13 +1597,17 @@ func main() {
 		log.Fatal().Msg("Agent Nopsai API URL (agent_nopsai_api_url) must be configured for dispatcher")
 	}
 
-	internalTokenSigner := nopsaiAuth.NewLocalJWTService(
-		[]byte(strings.TrimSpace(cfg.JWTSigningKey)),
-		strings.TrimSpace(cfg.JWTIssuer),
-		strings.TrimSpace(cfg.JWTAudience),
-		5*time.Minute,
-	)
-	dispatcher := newDispatcherServer(cfg.DispatcherRouting, nopsaiBase, internalTokenSigner)
+	internalCredentials, err := serviceauth.NewCredentials(serviceauth.Config{
+		SigningKey: cfg.EffectiveServiceJWTSigningKey(),
+		Issuer:     cfg.EffectiveServiceJWTIssuer(),
+		Audience:   cfg.EffectiveServiceJWTAudience(),
+		Role:       serviceauth.RoleDispatcher,
+		ServiceID:  "dispatcher",
+	})
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to configure dispatcher internal HTTP authentication")
+	}
+	dispatcher := newDispatcherServer(cfg.DispatcherRouting, nopsaiBase, internalCredentials)
 	serviceAuthenticator, err := serviceauth.NewAuthenticator(serviceauth.Config{
 		SigningKey: cfg.EffectiveServiceJWTSigningKey(),
 		Issuer:     cfg.EffectiveServiceJWTIssuer(),

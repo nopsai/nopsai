@@ -43,6 +43,11 @@ dispatcher, so a namespace runner can be dedicated to production, a region, a
 team, or a workload class. Routing updates from the UI or the system GitOps repo
 are applied to the live dispatcher for new scheduling decisions.
 
+Agent pods must also receive an `agent_nopsai_api_url` that is reachable from
+inside the Kubernetes cluster. Docker Compose names such as `http://nopsai:8080`
+work for Docker runners, but Kubernetes runners usually need an externally
+resolvable service DNS name or ingress URL.
+
 ## Workspace PVCs And Node Locality
 
 By default the runner does not create a standalone PVC itself. It starts the

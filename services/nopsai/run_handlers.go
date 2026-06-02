@@ -149,11 +149,19 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
 		return
 	}
+	approvableSet, err := a.approvableRunSet(r, runResources)
+	if err != nil {
+		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
 
 	filteredRuns := make([]RunListItem, 0, len(allRuns))
 	for _, run := range allRuns {
-		if _, ok := allowedSet[resourceKey(routeauthz.RunResource(run.RunID))]; !ok {
-			continue
+		runKey := resourceKey(routeauthz.RunResource(run.RunID))
+		if _, ok := allowedSet[runKey]; !ok {
+			if _, ok := approvableSet[runKey]; !ok {
+				continue
+			}
 		}
 		filteredRuns = append(filteredRuns, run)
 	}
@@ -235,6 +243,16 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 	} else {
 		run.Duration = "0s"
 		run.IsComplete = isTerminalRunStatus(run.Status)
+	}
+
+	authorized, err := a.canReadRunOrApprove(r, runID)
+	if err != nil {
+		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if !authorized {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
 	}
 
 	var parentRunInfo *ParentRunInfo
@@ -358,6 +376,7 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 			Image:            pStep.GetImage(),
 			Include:          originalPStep.GetInclude(),
 			Sync:             pStep.GetSync(),
+			Approval:         pStep.GetApproval(),
 			Secrets:          pStep.GetSecrets(),
 			Volumes:          pStep.GetVolumes(),
 			Variables:        pStep.GetVariables(),
@@ -416,7 +435,7 @@ func markRunRunning(ctx context.Context, runner execRunner, runID string) error 
 		UPDATE pipeline_runs
 		SET status = 'running', started_at = COALESCE(started_at, NOW())
 		WHERE run_id = $1
-		  AND status NOT IN ('success', 'failure', 'failure (ignored)', 'cancelled', 'timed_out')`, runID)
+		  AND status NOT IN ('success', 'failure', 'failure (ignored)', 'cancelled', 'timed_out', 'waiting_approval', 'rejected')`, runID)
 	return err
 }
 
@@ -425,7 +444,7 @@ func normalizeRunDetailStatus(status string) string {
 	switch {
 	case raw == "":
 		return "pending"
-	case raw == "success" || raw == "running" || raw == "pending" || raw == "skipped" || raw == "cancelled":
+	case raw == "success" || raw == "running" || raw == "pending" || raw == "skipped" || raw == "cancelled" || raw == "waiting_approval" || raw == "rejected":
 		return raw
 	case raw == "failure" || strings.Contains(raw, "not_found") || strings.Contains(raw, "timeout"):
 		return "failure"
@@ -444,12 +463,14 @@ func summarizeRunDetailStatuses(statuses []string) string {
 	}
 	priority := map[string]int{
 		"failure":           0,
-		"failure (ignored)": 1,
-		"cancelled":         2,
-		"running":           3,
-		"pending":           4,
-		"skipped":           5,
-		"success":           6,
+		"rejected":          1,
+		"failure (ignored)": 2,
+		"cancelled":         3,
+		"waiting_approval":  4,
+		"running":           5,
+		"pending":           6,
+		"skipped":           7,
+		"success":           8,
 	}
 	best := "pending"
 	bestPriority := len(priority) + 1
@@ -509,6 +530,13 @@ func finalizeRunDetailStepStatus(stepStatus string, tasks []TaskDetail, runStatu
 			return normalizedRun
 		}
 		return "skipped"
+	case "rejected":
+		if normalizedStep == "waiting_approval" || normalizedStep == "running" || hasInFlightRunDetailTask(tasks) {
+			return "rejected"
+		}
+		return "skipped"
+	case "waiting_approval":
+		return normalizedStep
 	case "cancelled":
 		if normalizedStep == "running" || hasInFlightRunDetailTask(tasks) {
 			return "cancelled"
@@ -958,7 +986,7 @@ func (a *App) launchAndRunPipeline(
 		return
 	}
 
-	go a.launchAgent(runID.String(), parentRunID, parentRunnerID, pipeline, pipelineDef, timeoutDuration, gitContext, parentHistory, scope, overrides)
+	go a.launchAgent(runID.String(), parentRunID, parentRunnerID, pipeline, pipelineDef, timeoutDuration, gitContext, parentHistory, scope, overrides, "", nil)
 }
 
 type runRequestPayload struct {
@@ -1866,7 +1894,18 @@ func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if update.Status == "running" {
+	normalizedUpdateStatus := normalizeRunDetailStatus(update.Status)
+	if normalizedUpdateStatus == taskStatusWaitingApproval {
+		query := `
+			UPDATE task_runs
+			SET status = $1, started_at = COALESCE(started_at, NOW()), finished_at = NULL, exit_code = NULL
+			WHERE run_id = $2 AND step_name = $3 AND task_name = $4`
+		if _, err := a.db.Exec(context.Background(), query, taskStatusWaitingApproval, runID, stepName, taskName); err != nil {
+			log.Error().Err(err).Str("run_id", runID).Str("step", stepName).Str("task", taskName).Msg("Failed to update task waiting approval status")
+			http.Error(w, "Failed to update task status", http.StatusInternalServerError)
+			return
+		}
+	} else if update.Status == "running" {
 		tx, err := a.db.Begin(context.Background())
 		if err != nil {
 			log.Error().Err(err).Str("run_id", runID).Msg("Failed to start transaction for task update")
@@ -1929,8 +1968,8 @@ func (a *App) handleFinalizeRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	currentStatus = strings.ToLower(strings.TrimSpace(currentStatus))
-	if currentStatus == "cancelled" {
-		log.Info().Str("run_id", runID).Str("status", req.Status).Msg("Ignoring final status because run is already cancelled")
+	if currentStatus == "cancelled" || currentStatus == runStatusWaitingApproval {
+		log.Info().Str("run_id", runID).Str("status", req.Status).Str("current_status", currentStatus).Msg("Ignoring final status because run is not finalizable")
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -1971,14 +2010,30 @@ func (a *App) handleFinalizeRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	_, err = a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = $1, finished_at = COALESCE(finished_at, NOW()) WHERE run_id = $2 AND status != 'cancelled'", finalStatus, runID)
+	failureReason := ""
+	if finalStatus == "failure" {
+		failureReason = strings.TrimSpace(req.FailureReason)
+	}
+
+	_, err = a.db.Exec(context.Background(), `
+		UPDATE pipeline_runs
+		SET status = $1::varchar,
+		    finished_at = COALESCE(finished_at, NOW()),
+		    failure_reason = CASE
+		        WHEN $1::varchar = 'failure' THEN COALESCE(NULLIF($3::text, ''), failure_reason)
+		        ELSE NULL
+		    END
+		WHERE run_id = $2::uuid AND status != 'cancelled'
+	`, finalStatus, runID, failureReason)
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to update final run status in DB from agent notification")
+		http.Error(w, "Failed to update run status", http.StatusInternalServerError)
+		return
 	}
 
 	if gitContext["repo_owner"] != "" {
 		// Run git-bot notification in background to prevent agent hang
-		go a.notifyGitBotOfFinalStatus(finalStatus, failedStep, failedTask, "", gitContext)
+		go a.notifyGitBotOfFinalStatus(finalStatus, failedStep, failedTask, failureReason, gitContext)
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -2014,7 +2069,7 @@ func (a *App) handleGetRunByCheckID(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"run_id": runID})
 }
 
-func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID string, pipeline models.Pipeline, pipelineDef []byte, timeout time.Duration, gitContext map[string]string, parentHistory string, scope string, overrides map[string]string) {
+func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID string, pipeline models.Pipeline, pipelineDef []byte, timeout time.Duration, gitContext map[string]string, parentHistory string, scope string, overrides map[string]string, resumeCheckpointID string, resumeVariables map[string]string) {
 	ctx := context.Background()
 	cfg := a.getConfigSnapshot()
 
@@ -2023,8 +2078,9 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to load run before agent launch")
 		return
 	}
-	if isTerminalRunStatus(currentStatus) {
-		log.Info().Str("run_id", runID).Str("status", currentStatus).Msg("Skipping agent launch for terminal run")
+	normalizedCurrentStatus := strings.ToLower(strings.TrimSpace(currentStatus))
+	if isTerminalRunStatus(normalizedCurrentStatus) || normalizedCurrentStatus == runStatusWaitingApproval {
+		log.Info().Str("run_id", runID).Str("status", currentStatus).Msg("Skipping agent launch for non-dispatchable run")
 		return
 	}
 
@@ -2038,14 +2094,19 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 		return
 	}
 
-	finalVars, err := a.prepareVariablesForPipeline(runID, pipeline, gitContext, scope, overrides)
-	if err != nil {
-		log.Error().Err(err).Str("run_id", runID).Msg("Failed to prepare scope variables for pipeline")
-		a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", err.Error(), runID)
-		if gitContext["repo_owner"] != "" {
-			a.notifyGitBotOfFinalStatus("failure", "", "", err.Error(), gitContext)
+	var finalVars map[string]string
+	if resumeVariables != nil {
+		finalVars = resumeVariables
+	} else {
+		finalVars, err = a.prepareVariablesForPipeline(runID, pipeline, gitContext, scope, overrides)
+		if err != nil {
+			log.Error().Err(err).Str("run_id", runID).Msg("Failed to prepare scope variables for pipeline")
+			a.db.Exec(context.Background(), "UPDATE pipeline_runs SET status = 'failure', finished_at = NOW(), failure_reason = $1 WHERE run_id = $2", err.Error(), runID)
+			if gitContext["repo_owner"] != "" {
+				a.notifyGitBotOfFinalStatus("failure", "", "", err.Error(), gitContext)
+			}
+			return
 		}
-		return
 	}
 
 	if err := a.validatePipelineLLMProfiles(&pipeline, scope); err != nil {
@@ -2124,7 +2185,7 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 
 	repoName := gitContext["repo_name"]
 	triggerEventID := strings.TrimSpace(gitContext["trigger_event_id"])
-	agentContainerName := buildAgentContainerName(pipeline.Name, repoName, triggerEventID, runID)
+	agentContainerName := buildLaunchAgentContainerName(pipeline.Name, repoName, triggerEventID, runID)
 	preferredRunnerID := strings.TrimSpace(parentRunnerID)
 
 	secretsJSON, err := json.Marshal(secrets)
@@ -2171,6 +2232,9 @@ func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID strin
 	}
 	if preferredRunnerID != "" {
 		envVars = append(envVars, fmt.Sprintf("PARENT_RUNNER_ID=%s", preferredRunnerID))
+	}
+	if strings.TrimSpace(resumeCheckpointID) != "" {
+		envVars = append(envVars, fmt.Sprintf("RESUME_CHECKPOINT_ID=%s", strings.TrimSpace(resumeCheckpointID)))
 	}
 
 	variablesJSON, err := json.Marshal(finalVars)

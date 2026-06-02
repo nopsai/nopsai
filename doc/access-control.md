@@ -123,6 +123,8 @@ Pipeline execution uses a second authorization pass for resources that a run wan
 - other automation runs should use the trigger or service-account identity
 - dispatcher/internal calls only execute after the original caller has already been authorized
 
+Pipeline runs inherit from their pipeline path, scope path, repository metadata, and, when present, the app/group selected by `pipeline_runs.group_id`. This lets an owner of `folder:team-1` see runs placed under `team-1/test-app`, including runs whose Git metadata resolves through the app's `repository_full_name`.
+
 Supported low-level use actions include:
 
 - `pipeline.use`
@@ -135,6 +137,8 @@ Supported low-level use actions include:
 - `knowledge_context.use`
 
 The main rule is that same-group resources remain naturally available according to visibility. Cross-group use requires an explicit resource-use grant or public visibility.
+
+Approval visibility is intentionally narrower than normal run ownership. A pending approval run can appear for a user with `approval.approve` on at least one assigned approval group, subject to `allow_self_approval`, so approvers can make the decision without receiving unrelated pipeline or log permissions.
 
 Resource visibility values:
 

@@ -40,6 +40,7 @@ export const STEP_DIRECTIVES: LabDirective[] = [
   { key: 'name', hint: 'Step name' },
   { key: 'include', hint: 'Include reusable step' },
   { key: 'sync', hint: 'Run step synchronously' },
+  { key: 'approval', hint: 'Human approval checkpoint' },
   { key: 'image', hint: 'Override container image' },
   { key: 'secrets', hint: 'Step secrets' },
   { key: 'volumes', hint: 'Step volumes' },
@@ -241,6 +242,7 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'name',
     'include',
     'sync',
+    'approval',
     'image',
     'secrets',
     'volumes',
@@ -404,6 +406,9 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
       const scriptValue = hasScriptKey ? step.script : null;
       const hasScriptContent = typeof scriptValue === 'string' && scriptValue.trim().length > 0;
 
+      const hasApprovalKey = hasOwn(step, 'approval');
+      const approvalValue = hasApprovalKey ? step.approval : null;
+
       if (hasGoalKey && !hasGoalContent) {
         return { errors: [createError(`Validation Error: Step '${stepName}' has an empty 'goal'.`, [`${stepPath}.goal`, stepPath])] };
       }
@@ -432,24 +437,108 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
 
       const hasLegacyContent = hasGoalContent || hasScriptContent;
 
-      if (!isInclude && !hasTasks && !hasLegacyContent) {
+      if (hasApprovalKey) {
+        if (!isPlainObject(approvalValue)) {
+          return { errors: [createError(`Validation Error: Approval step '${stepName}' must define approval as an object.`, [`${stepPath}.approval`, stepPath])] };
+        }
+
+        const approval = approvalValue as Record<string, unknown>;
+        const approvalType = safeString(approval.type).trim();
+        if (!approvalType) {
+          return { errors: [createError(`Validation Error: Approval step '${stepName}' must define approval.type.`, [`${stepPath}.approval.type`, `${stepPath}.approval`, stepPath])] };
+        }
+        if (!allowed.test(approvalType)) {
+          return {
+            errors: [
+              createError(`Validation Error: Approval step '${stepName}' approval.type can only contain letters, numbers, underscores, dots, and hyphens.`, [
+                `${stepPath}.approval.type`,
+                `${stepPath}.approval`,
+                stepPath,
+              ]),
+            ],
+          };
+        }
+
+        const groups = Array.isArray(approval.groups) ? approval.groups : [];
+        if (groups.length === 0) {
+          return { errors: [createError(`Validation Error: Approval step '${stepName}' must assign at least one approval group.`, [`${stepPath}.approval.groups`, `${stepPath}.approval`, stepPath])] };
+        }
+        const seenGroups = new Set<string>();
+        for (const rawGroup of groups) {
+          const group = typeof rawGroup === 'string' ? rawGroup.trim() : '';
+          const normalizedGroup = group.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+          const segments = normalizedGroup.split('/');
+          if (!group || group.startsWith('/') || group.startsWith('~') || segments.some(segment => !segment || segment === '.' || segment === '..')) {
+            return {
+              errors: [
+                createError(`Validation Error: Approval step '${stepName}' approval group '${group || '<empty>'}' must be a relative folder path.`, [
+                  `${stepPath}.approval.groups`,
+                  `${stepPath}.approval`,
+                  stepPath,
+                ]),
+              ],
+            };
+          }
+          const groupKey = normalizedGroup.toLowerCase();
+          if (seenGroups.has(groupKey)) {
+            return {
+              errors: [
+                createError(`Validation Error: Approval step '${stepName}' repeats approval group '${group}'.`, [
+                  `${stepPath}.approval.groups`,
+                  `${stepPath}.approval`,
+                  stepPath,
+                ]),
+              ],
+            };
+          }
+          seenGroups.add(groupKey);
+        }
+        if (hasOwn(approval, 'allow_self_approval') && typeof approval.allow_self_approval !== 'boolean') {
+          return {
+            errors: [
+              createError(`Validation Error: Approval step '${stepName}' approval.allow_self_approval must be true or false.`, [
+                `${stepPath}.approval.allow_self_approval`,
+                `${stepPath}.approval`,
+                stepPath,
+              ]),
+            ],
+          };
+        }
+      }
+
+      if (!isInclude && !hasTasks && !hasLegacyContent && !hasApprovalKey) {
         return {
           errors: [
-            createError(`Validation Error: Step '${stepName}' must contain 'include', 'tasks', 'goal', or 'script'.`, [
+            createError(`Validation Error: Step '${stepName}' must contain 'include', 'tasks', 'goal', 'script', or 'approval'.`, [
               `${stepPath}.include`,
               `${stepPath}.tasks`,
               `${stepPath}.goal`,
               `${stepPath}.script`,
+              `${stepPath}.approval`,
               stepPath,
             ]),
           ],
         };
       }
-      if (isInclude && (hasTasksKey || hasGoalKey || hasScriptKey)) {
+      if (isInclude && (hasTasksKey || hasGoalKey || hasScriptKey || hasApprovalKey)) {
         return {
           errors: [
-            createError(`Validation Error: Step '${stepName}' is an include step and cannot also contain tasks, goal, or script.`, [
+            createError(`Validation Error: Step '${stepName}' is an include step and cannot also contain tasks, goal, script, or approval.`, [
               `${stepPath}.include`,
+              `${stepPath}.tasks`,
+              `${stepPath}.goal`,
+              `${stepPath}.script`,
+              `${stepPath}.approval`,
+              stepPath,
+            ]),
+          ],
+        };
+      }
+      if (hasApprovalKey && (hasTasksKey || hasGoalKey || hasScriptKey)) {
+        return {
+          errors: [
+            createError(`Validation Error: Approval step '${stepName}' cannot also contain tasks, goal, or script.`, [
+              `${stepPath}.approval`,
               `${stepPath}.tasks`,
               `${stepPath}.goal`,
               `${stepPath}.script`,

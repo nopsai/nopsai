@@ -56,8 +56,15 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 	} else if !regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`).MatchString(pipeline.Version) {
 		return fmt.Errorf("pipeline version can only contain alphanumeric characters, underscores, dots, and hyphens")
 	}
-	if pipeline.ContainerImage == "" && len(pipeline.Steps) > 0 && pipeline.Steps[0].GetImage() == "" {
-		return fmt.Errorf("'container_image' is a required field if steps don't have their own image")
+	if pipeline.ContainerImage == "" {
+		for _, step := range pipeline.Steps {
+			if _, ok := step.AsApprovalStep(); ok {
+				continue
+			}
+			if step.GetImage() == "" {
+				return fmt.Errorf("'container_image' is a required field if executable steps don't have their own image")
+			}
+		}
 	}
 	if _, err := models.NormalizePipelineWorkingDirectory(pipeline.WorkingDirectory); err != nil {
 		return err
@@ -91,10 +98,18 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 		tasks := step.GetTasks()
 		isTaskStep := len(tasks) > 0
 		isLegacyStep := strings.TrimSpace(step.GetGoal()) != "" || strings.TrimSpace(step.GetScript()) != ""
+		approvalStep, isApprovalStep := step.AsApprovalStep()
 
 		if isIncludeStep {
+			if isTaskStep || isLegacyStep || isApprovalStep {
+				return fmt.Errorf("step '%s' is an 'include' step and cannot also contain 'tasks', 'goal', 'script', or 'approval'", stepName)
+			}
+		} else if isApprovalStep {
 			if isTaskStep || isLegacyStep {
-				return fmt.Errorf("step '%s' is an 'include' step and cannot also contain 'tasks', 'goal', or 'script'", stepName)
+				return fmt.Errorf("step '%s' is an 'approval' step and cannot also contain 'tasks', 'goal', or 'script'", stepName)
+			}
+			if err := validateApprovalDefinition(approvalStep.Approval, stepName); err != nil {
+				return err
 			}
 		} else if isTaskStep {
 			if isLegacyStep {
@@ -122,7 +137,7 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 				}
 			}
 		} else if !isLegacyStep {
-			return fmt.Errorf("step '%s' must contain 'include', 'tasks', 'goal', or 'script'", stepName)
+			return fmt.Errorf("step '%s' must contain 'include', 'tasks', 'goal', 'script', or 'approval'", stepName)
 		}
 	}
 
@@ -149,6 +164,41 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 		}
 	}
 
+	return nil
+}
+
+func validateApprovalDefinition(approval models.ApprovalDefinition, stepName string) error {
+	approvalType := strings.TrimSpace(approval.Type)
+	if approvalType == "" {
+		return fmt.Errorf("approval step '%s' must define approval.type", stepName)
+	}
+	if !regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`).MatchString(approvalType) {
+		return fmt.Errorf("approval step '%s' approval.type can only contain alphanumeric characters, underscores, dots, and hyphens", stepName)
+	}
+	groups := trimmedStrings(approval.Groups)
+	if len(groups) == 0 {
+		return fmt.Errorf("approval step '%s' must assign at least one approval group", stepName)
+	}
+	seen := make(map[string]bool, len(groups))
+	for _, group := range groups {
+		normalized := strings.Trim(strings.ReplaceAll(group, "\\", "/"), "/")
+		if normalized == "" {
+			return fmt.Errorf("approval step '%s' contains an empty approval group", stepName)
+		}
+		if filepath.IsAbs(group) || strings.HasPrefix(strings.TrimSpace(group), "~") {
+			return fmt.Errorf("approval step '%s' approval group %q must be a relative folder path", stepName, group)
+		}
+		for _, segment := range strings.Split(normalized, "/") {
+			if segment == "" || segment == "." || segment == ".." {
+				return fmt.Errorf("approval step '%s' approval group %q contains invalid path segments", stepName, group)
+			}
+		}
+		key := strings.ToLower(normalized)
+		if seen[key] {
+			return fmt.Errorf("approval step '%s' repeats approval group %q", stepName, group)
+		}
+		seen[key] = true
+	}
 	return nil
 }
 

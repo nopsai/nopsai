@@ -182,7 +182,7 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 
 - `GET /v1/monitoring/dispatcher` is authenticated. It returns dispatcher-backed service status, runner totals, sanitized runner rows, queue depth, and active runs. Active run entries are filtered with `pipeline_run.list`, so users only see runs they can list through their group/repository access.
 - `GET /v1/system/dispatcher/scopes` returns existing scope names from runner defaults, dispatcher routing, variables, secrets, and run history. It is used by the runner install UI for multi-select scope choices.
-- `GET /v1/internal/dispatcher/routing` is dispatcher-internal. The live dispatcher polls it with an internally minted JWT and updates its in-memory routing table without a restart.
+- `GET /v1/internal/dispatcher/routing` is dispatcher-internal. The live dispatcher polls it with a service-auth JWT and updates its in-memory routing table without a restart.
 - Runner install command generation, Kubernetes manifest generation, and runner dispatch pause/resume remain under `System > Dispatcher` and require dispatcher runner management access.
 - Docker and Kubernetes install commands use single-use download tokens. Docker tokens download shell scripts; Kubernetes tokens download YAML consumed by `kubectl apply`.
 
@@ -195,15 +195,16 @@ NopsAI calls the internal AAA service for authorization decisions and layers pro
 Predefined product roles:
 
 - `viewer`: read-only access to group metadata, pipelines, schedules, runs, logs, triggers, repository metadata, step metadata, knowledge context metadata/content, config repository metadata, secret metadata, and variable metadata
-- `developer`: viewer permissions plus pipeline create/update/execute, schedule create/update/execute, runtime `*.use` permissions, rerun/cancel, trigger updates, secret value writes, variable writes, repository updates, scope updates, reusable step usage, knowledge context usage, runner usage, and config repository usage
+- `developer`: viewer permissions plus pipeline create/update/execute, schedule create/update/execute, runtime `*.use` permissions, run approval, rerun/cancel, trigger updates, secret value writes, variable writes, repository updates, scope updates, reusable step usage, knowledge context usage, runner usage, and config repository usage
 - `owner`: developer and viewer permissions plus all scoped non-admin actions, delete operations, secret and variable value reads, and permission management inside the owned scope
 - `admin`: platform-wide access through the normal AAA `Check` path, with sensitive actions still audited
 
 Important behavior:
 
 - Product roles are expanded to low-level AAA permissions when the grant is created.
-- Group grants inherit to child groups, pipelines, schedules, runs, repository-associated runs, triggers, repositories, scoped secrets, scoped variables, reusable steps, and knowledge contexts under that group path.
+- Group grants inherit to child groups, app folders, pipelines, schedules, runs, repository-associated runs, triggers, repositories, scoped secrets, scoped variables, reusable steps, and knowledge contexts under that group path. Repository-associated runs are resolved through app `repository_full_name` metadata and the run `group_id` when present.
 - Runtime resource use is checked with the original caller identity: manual runs use the user, Git-triggered runs use the repository, and internal dispatcher calls do not inherit pipeline-owner permissions.
+- Approval decisions check `approval.approve` against the folder groups assigned by the approval step. Pending approval runs are listable/readable by assigned approvers for decision-making without granting log read or unrelated pipeline ownership.
 - `developer` can write secret values but cannot read them.
 - `developer` and `viewer` cannot manage ACLs.
 - `owner` cannot grant `admin`.
@@ -818,6 +819,15 @@ curl http://localhost:8080/v1/runs/<run-id>/status
 curl http://localhost:8080/v1/runs/<run-id>/logs
 curl http://localhost:8080/v1/runs-by-check/<check-run-id>
 
+# List and decide approvals
+curl http://localhost:8080/v1/runs/<run-id>/approvals
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"comment":"Change window approved"}' \
+  http://localhost:8080/v1/runs/<run-id>/approvals/<approval-id>/approve
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"comment":"Deployment window closed"}' \
+  http://localhost:8080/v1/runs/<run-id>/approvals/<approval-id>/reject
+
 # Rerun, cancel, or finalise
 curl -X POST http://localhost:8080/v1/runs/<run-id>/rerun
 curl -X POST http://localhost:8080/v1/runs/<run-id>/cancel
@@ -832,6 +842,8 @@ curl -X DELETE \
 ```
 
 - Step/task status updates are posted by the agent to `/v1/runs/{runID}/steps/{step}/tasks/{task}` (payload includes status, exit code, and LLM timing).
+- Approval steps move runs to `waiting_approval`; approval resumes the stored checkpoint, while rejection marks the run `rejected`.
+- Internal approval checkpoint endpoints under `/v1/internal/runs/...` are service-token protected for agents and are not user API endpoints.
 - Run listings return summary metadata used by the UI cards and periodic refreshes.
 - Scheduled runs set `trigger_source: "schedule"` and include schedule metadata when the run came from a pipeline schedule.
 - Run log access is authorized separately from run-detail access in the low-level AAA layer.

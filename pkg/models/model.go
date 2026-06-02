@@ -68,6 +68,7 @@ type Step interface {
 	AsTaskStep() (*TaskStep, bool)
 	AsGoalStep() (*GoalStep, bool)
 	AsScriptStep() (*ScriptStep, bool)
+	AsApprovalStep() (*ApprovalStep, bool)
 }
 
 // BaseStep contains all common fields shared by all step types.
@@ -127,10 +128,11 @@ func (s *BaseStep) GetVariables() map[string]string { return s.Variables }
 func (s *BaseStep) GetKnowledgeContext() []KnowledgeContextRef { return s.KnowledgeContext }
 
 // Default type assertion implementations
-func (s *BaseStep) AsIncludeStep() (*IncludeStep, bool) { return nil, false }
-func (s *BaseStep) AsTaskStep() (*TaskStep, bool)       { return nil, false }
-func (s *BaseStep) AsGoalStep() (*GoalStep, bool)       { return nil, false }
-func (s *BaseStep) AsScriptStep() (*ScriptStep, bool)   { return nil, false }
+func (s *BaseStep) AsIncludeStep() (*IncludeStep, bool)   { return nil, false }
+func (s *BaseStep) AsTaskStep() (*TaskStep, bool)         { return nil, false }
+func (s *BaseStep) AsGoalStep() (*GoalStep, bool)         { return nil, false }
+func (s *BaseStep) AsScriptStep() (*ScriptStep, bool)     { return nil, false }
+func (s *BaseStep) AsApprovalStep() (*ApprovalStep, bool) { return nil, false }
 
 // IncludeStep defines a step that includes a reusable step or pipeline.
 type IncludeStep struct {
@@ -179,6 +181,21 @@ type ScriptStep struct {
 
 func (s *ScriptStep) AsScriptStep() (*ScriptStep, bool) { return s, true }
 
+// ApprovalDefinition configures a human approval checkpoint in a pipeline.
+type ApprovalDefinition struct {
+	Type              string   `yaml:"type,omitempty" json:"type,omitempty"`
+	Groups            []string `yaml:"groups" json:"groups"`
+	AllowSelfApproval bool     `yaml:"allow_self_approval,omitempty" json:"allow_self_approval,omitempty"`
+}
+
+// ApprovalStep defines a durable human approval checkpoint.
+type ApprovalStep struct {
+	BaseStep `yaml:",inline"`
+	Approval ApprovalDefinition `yaml:"approval" json:"approval"`
+}
+
+func (s *ApprovalStep) AsApprovalStep() (*ApprovalStep, bool) { return s, true }
+
 // PipelineStep is a wrapper struct that implements yaml.Unmarshaler
 // to parse the YAML/JSON into the correct concrete Step type.
 type PipelineStep struct {
@@ -199,6 +216,7 @@ func (ps *PipelineStep) UnmarshalYAML(value *yaml.Node) error {
 	hasTasks := raw["tasks"] != nil
 	hasGoal := raw["goal"] != nil
 	hasScript := raw["script"] != nil
+	hasApproval := raw["approval"] != nil
 
 	// 3. Enforce mutual exclusivity (Validation is now part of parsing)
 	modes := 0
@@ -214,6 +232,9 @@ func (ps *PipelineStep) UnmarshalYAML(value *yaml.Node) error {
 	if hasScript {
 		modes++
 	}
+	if hasApproval {
+		modes++
+	}
 
 	stepName := "unknown"
 	if name, ok := raw["name"].(string); ok {
@@ -221,10 +242,10 @@ func (ps *PipelineStep) UnmarshalYAML(value *yaml.Node) error {
 	}
 
 	if modes == 0 {
-		return fmt.Errorf("step '%s' must contain one of 'include', 'tasks', 'goal', or 'script'", stepName)
+		return fmt.Errorf("step '%s' must contain one of 'include', 'tasks', 'goal', 'script', or 'approval'", stepName)
 	}
 	if modes > 1 {
-		return fmt.Errorf("step '%s' cannot mix 'include', 'tasks', 'goal', or 'script'", stepName)
+		return fmt.Errorf("step '%s' cannot mix 'include', 'tasks', 'goal', 'script', or 'approval'", stepName)
 	}
 
 	// 4. Decode into the correct concrete struct based on the key
@@ -252,6 +273,12 @@ func (ps *PipelineStep) UnmarshalYAML(value *yaml.Node) error {
 			return err
 		}
 		ps.Step = &step
+	} else if hasApproval {
+		var step ApprovalStep
+		if err := value.Decode(&step); err != nil {
+			return err
+		}
+		ps.Step = &step
 	}
 
 	return nil
@@ -268,6 +295,7 @@ func (ps *PipelineStep) UnmarshalJSON(data []byte) error {
 	hasTasks := raw["tasks"] != nil
 	hasGoal := raw["goal"] != nil
 	hasScript := raw["script"] != nil
+	hasApproval := raw["approval"] != nil
 
 	modes := 0
 	if hasInclude {
@@ -282,6 +310,9 @@ func (ps *PipelineStep) UnmarshalJSON(data []byte) error {
 	if hasScript {
 		modes++
 	}
+	if hasApproval {
+		modes++
+	}
 
 	var stepName string
 	if rawName, ok := raw["name"]; ok {
@@ -292,10 +323,10 @@ func (ps *PipelineStep) UnmarshalJSON(data []byte) error {
 	}
 
 	if modes == 0 {
-		return fmt.Errorf("step '%s' must contain one of 'include', 'tasks', 'goal', or 'script'", stepName)
+		return fmt.Errorf("step '%s' must contain one of 'include', 'tasks', 'goal', 'script', or 'approval'", stepName)
 	}
 	if modes > 1 {
-		return fmt.Errorf("step '%s' cannot mix 'include', 'tasks', 'goal', or 'script'", stepName)
+		return fmt.Errorf("step '%s' cannot mix 'include', 'tasks', 'goal', 'script', or 'approval'", stepName)
 	}
 
 	switch {
@@ -319,6 +350,12 @@ func (ps *PipelineStep) UnmarshalJSON(data []byte) error {
 		ps.Step = &step
 	case hasScript:
 		var step ScriptStep
+		if err := json.Unmarshal(data, &step); err != nil {
+			return err
+		}
+		ps.Step = &step
+	case hasApproval:
+		var step ApprovalStep
 		if err := json.Unmarshal(data, &step); err != nil {
 			return err
 		}
@@ -474,6 +511,13 @@ func (ps PipelineStep) GetScript() string {
 	return ""
 }
 
+func (ps PipelineStep) GetApproval() ApprovalDefinition {
+	if approvalStep, ok := ps.AsApprovalStep(); ok {
+		return approvalStep.Approval
+	}
+	return ApprovalDefinition{}
+}
+
 func (ps PipelineStep) AsIncludeStep() (*IncludeStep, bool) {
 	if ps.Step == nil {
 		return nil, false
@@ -502,6 +546,13 @@ func (ps PipelineStep) AsScriptStep() (*ScriptStep, bool) {
 	return ps.Step.AsScriptStep()
 }
 
+func (ps PipelineStep) AsApprovalStep() (*ApprovalStep, bool) {
+	if ps.Step == nil {
+		return nil, false
+	}
+	return ps.Step.AsApprovalStep()
+}
+
 func (ps *PipelineStep) baseStep() *BaseStep {
 	if ps == nil || ps.Step == nil {
 		return nil
@@ -514,6 +565,8 @@ func (ps *PipelineStep) baseStep() *BaseStep {
 	case *GoalStep:
 		return &concrete.BaseStep
 	case *ScriptStep:
+		return &concrete.BaseStep
+	case *ApprovalStep:
 		return &concrete.BaseStep
 	default:
 		return nil
