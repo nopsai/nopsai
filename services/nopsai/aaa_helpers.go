@@ -47,6 +47,14 @@ func (a *App) buildAAASubject(claims *auth.Claims) model.Subject {
 			Sub:  strings.TrimSpace(claims.Sub),
 		}
 	}
+	if strings.EqualFold(strings.TrimSpace(claims.Provider), auth.ProviderServiceAccountToken) ||
+		strings.EqualFold(strings.TrimSpace(claims.Provider), auth.ProviderServiceAccount) {
+		return model.Subject{
+			Type: model.SubjectTypeServiceAccount,
+			ID:   strings.Trim(strings.TrimSpace(claims.Sub), "/"),
+			Sub:  strings.TrimSpace(claims.Sub),
+		}
+	}
 	return model.Subject{
 		Type:  model.SubjectTypeUser,
 		Sub:   strings.TrimSpace(claims.Sub),

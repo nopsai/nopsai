@@ -11,6 +11,7 @@ import (
 
 	aaaauthz "nopsai/services/aaa/pkg/authz"
 	"nopsai/services/aaa/pkg/model"
+	"nopsai/services/nopsai/pkg/auth"
 )
 
 type fakeGrantRolePolicy struct {
@@ -43,9 +44,51 @@ type recordingExecRunner struct {
 	statements []string
 }
 
+type fakeQueryRunner struct {
+	row     pgx.Row
+	queries []string
+	args    [][]any
+}
+
+type fakeScanRow struct {
+	values []string
+	err    error
+}
+
 func (r *recordingExecRunner) Exec(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
 	r.statements = append(r.statements, sql)
 	return pgconn.NewCommandTag("DELETE 1"), nil
+}
+
+func (r *fakeQueryRunner) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.NewCommandTag(""), fmt.Errorf("unexpected exec")
+}
+
+func (r *fakeQueryRunner) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	return nil, fmt.Errorf("unexpected query")
+}
+
+func (r *fakeQueryRunner) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
+	r.queries = append(r.queries, sql)
+	r.args = append(r.args, args)
+	return r.row
+}
+
+func (r fakeScanRow) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	for idx, value := range r.values {
+		if idx >= len(dest) {
+			break
+		}
+		ptr, ok := dest[idx].(*string)
+		if !ok {
+			return fmt.Errorf("unsupported scan destination %T", dest[idx])
+		}
+		*ptr = value
+	}
+	return nil
 }
 
 func (f *fakeGrantBackend) ResolveSubject(context.Context, model.Subject) (*model.ResolvedSubject, error) {
@@ -207,6 +250,54 @@ func TestProductRolePermissions(t *testing.T) {
 			t.Fatalf("admin actions = %#v, want wildcard", actions)
 		}
 	})
+}
+
+func TestResolveAccessGrantServiceAccountCanonicalizesSub(t *testing.T) {
+	runner := &fakeQueryRunner{
+		row: fakeScanRow{values: []string{"webhook-deployer", "webhook-deployer"}},
+	}
+
+	subject, err := resolveAccessGrantSubject(context.Background(), runner, grantSubjectServiceAccount, "92343f56-9b7c-4267-bf28-b1846fe07d1f")
+	if err != nil {
+		t.Fatalf("resolveAccessGrantSubject() error = %v", err)
+	}
+	if subject.Type != model.SubjectTypeServiceAccount {
+		t.Fatalf("subject type = %q, want service_account", subject.Type)
+	}
+	if subject.ID != "webhook-deployer" {
+		t.Fatalf("subject ID = %q, want service account sub", subject.ID)
+	}
+	if len(runner.args) != 1 || len(runner.args[0]) == 0 || runner.args[0][0] != auth.ProviderServiceAccount {
+		t.Fatalf("query args = %#v, want service account provider filter", runner.args)
+	}
+}
+
+func TestResolveConfigSyncGrantResourceAllowsFutureGitOpsTargets(t *testing.T) {
+	runner := &fakeQueryRunner{
+		row: fakeScanRow{err: pgx.ErrNoRows},
+	}
+
+	tests := []struct {
+		resourceType string
+		resourceID   string
+		wantID       string
+	}{
+		{resourceType: grantResourcePipeline, resourceID: "team-1/test", wantID: "team-1/test"},
+		{resourceType: grantResourceTrigger, resourceID: "team-1/service-api", wantID: "team-1/service-api"},
+		{resourceType: grantResourceScope, resourceID: "dev", wantID: "dev"},
+	}
+	for _, tt := range tests {
+		resource, err := resolveConfigSyncGrantResource(context.Background(), runner, tt.resourceType, tt.resourceID)
+		if err != nil {
+			t.Fatalf("resolveConfigSyncGrantResource(%s:%s) error = %v", tt.resourceType, tt.resourceID, err)
+		}
+		if resource.Type != tt.resourceType || resource.ID != tt.wantID {
+			t.Fatalf("resolveConfigSyncGrantResource(%s:%s) = %#v", tt.resourceType, tt.resourceID, resource)
+		}
+	}
+	if len(runner.queries) != 0 {
+		t.Fatalf("config sync grant resolution should not query for target existence, got %#v", runner.queries)
+	}
 }
 
 func TestProductRoleHierarchy(t *testing.T) {

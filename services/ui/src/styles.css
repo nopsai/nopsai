@@ -4024,6 +4024,32 @@ html.dark .access-chip--tone-admin {
     font-size: 0.88rem;
 }
 
+.access-token-reveal {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.8rem;
+    border: 1px solid rgba(59, 130, 246, 0.22);
+    border-radius: 8px;
+    background: rgba(59, 130, 246, 0.06);
+}
+
+.access-token-reveal code {
+    display: block;
+    max-width: 100%;
+    margin-top: 0.4rem;
+    padding: 0.5rem;
+    border-radius: 6px;
+    border: 1px solid var(--border-primary);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 0.75rem;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+    white-space: normal;
+}
+
 .access-policy-preview {
     display: flex;
     flex-direction: column;

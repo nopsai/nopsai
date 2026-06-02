@@ -166,3 +166,18 @@ func TestResolveAAARolesFallsBackToClaims(t *testing.T) {
 		t.Fatalf("roles = %#v, want claims fallback", roles)
 	}
 }
+
+func TestBuildAAASubjectMapsServiceAccountToken(t *testing.T) {
+	app := &App{}
+	subject := app.buildAAASubject(&auth.Claims{
+		Sub:      "deploy-bot",
+		Provider: auth.ProviderServiceAccountToken,
+	})
+
+	if subject.Type != model.SubjectTypeServiceAccount {
+		t.Fatalf("subject.Type = %q, want %q", subject.Type, model.SubjectTypeServiceAccount)
+	}
+	if subject.ID != "deploy-bot" {
+		t.Fatalf("subject.ID = %q, want deploy-bot", subject.ID)
+	}
+}

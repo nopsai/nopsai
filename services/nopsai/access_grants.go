@@ -17,6 +17,7 @@ import (
 
 	"nopsai/pkg/httpapi"
 	"nopsai/services/aaa/pkg/model"
+	"nopsai/services/nopsai/pkg/auth"
 )
 
 const (
@@ -1070,8 +1071,10 @@ func resolveAccessGrantSubject(ctx context.Context, runner queryRunner, rawType,
 		return resolveAccessGrantUser(ctx, runner, rawID)
 	case model.SubjectTypeAuthGroup:
 		return resolveAccessGrantAuthGroup(ctx, runner, rawID)
-	case model.SubjectTypeRepository, model.SubjectTypeTrigger, model.SubjectTypeServiceAccount:
+	case model.SubjectTypeRepository, model.SubjectTypeTrigger:
 		return resolveAccessGrantNamedSubject(subjectType, rawID)
+	case model.SubjectTypeServiceAccount:
+		return resolveAccessGrantServiceAccount(ctx, runner, rawID)
 	case model.SubjectTypeInternalService:
 		return resolveAccessGrantService(ctx, runner, rawID)
 	default:
@@ -1084,7 +1087,7 @@ func resolveAccessGrantUser(ctx context.Context, runner queryRunner, rawID strin
 	query := `
 		SELECT id::text, COALESCE(NULLIF(sub, ''), COALESCE(email, id::text))
 		FROM users
-		WHERE %s
+		WHERE provider <> $1 AND %s
 		LIMIT 1
 	`
 
@@ -1093,14 +1096,14 @@ func resolveAccessGrantUser(ctx context.Context, runner queryRunner, rawID strin
 		args   []any
 	)
 	if _, err := uuid.Parse(rawID); err == nil {
-		lookup = "id::text = $1"
-		args = []any{rawID}
+		lookup = "id::text = $2"
+		args = []any{auth.ProviderServiceAccount, rawID}
 	} else if strings.Contains(rawID, "@") {
-		lookup = "LOWER(email) = LOWER($1)"
-		args = []any{rawID}
+		lookup = "LOWER(email) = LOWER($2)"
+		args = []any{auth.ProviderServiceAccount, rawID}
 	} else {
-		lookup = "sub = $1"
-		args = []any{rawID}
+		lookup = "sub = $2"
+		args = []any{auth.ProviderServiceAccount, rawID}
 	}
 
 	err := runner.QueryRow(ctx, fmt.Sprintf(query, lookup), args...).Scan(&subject.ID, &subject.Display)
@@ -1111,6 +1114,50 @@ func resolveAccessGrantUser(ctx context.Context, runner queryRunner, rawID strin
 		return accessGrantSubject{}, err
 	}
 	subject.Type = model.SubjectTypeUser
+	return subject, nil
+}
+
+func resolveAccessGrantServiceAccount(ctx context.Context, runner queryRunner, rawID string) (accessGrantSubject, error) {
+	var subject accessGrantSubject
+	rawID = strings.TrimSpace(rawID)
+	if strings.HasPrefix(strings.ToLower(rawID), model.SubjectTypeServiceAccount+":") {
+		rawID = strings.TrimSpace(rawID[len(model.SubjectTypeServiceAccount)+1:])
+	}
+	query := `
+		SELECT sub, COALESCE(NULLIF(sub, ''), COALESCE(email, id::text))
+		FROM users
+		WHERE provider = $1 AND %s
+		LIMIT 1
+	`
+
+	var (
+		lookup string
+		args   []any
+	)
+	if _, err := uuid.Parse(rawID); err == nil {
+		lookup = "id::text = $2"
+		args = []any{auth.ProviderServiceAccount, rawID}
+	} else if strings.Contains(rawID, "@") {
+		lookup = "LOWER(email) = LOWER($2)"
+		args = []any{auth.ProviderServiceAccount, rawID}
+	} else {
+		lookup = "sub = $2"
+		args = []any{auth.ProviderServiceAccount, strings.Trim(strings.TrimSpace(rawID), "/")}
+	}
+
+	err := runner.QueryRow(ctx, fmt.Sprintf(query, lookup), args...).Scan(&subject.ID, &subject.Display)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+			return accessGrantSubject{}, fmt.Errorf("service account subject not found")
+		}
+		return accessGrantSubject{}, err
+	}
+	subject.Type = model.SubjectTypeServiceAccount
+	subject.ID = strings.TrimSpace(subject.ID)
+	subject.Display = strings.TrimSpace(firstNonEmptyString(subject.Display, subject.ID))
+	if subject.ID == "" {
+		return accessGrantSubject{}, fmt.Errorf("service account subject not found")
+	}
 	return subject, nil
 }
 

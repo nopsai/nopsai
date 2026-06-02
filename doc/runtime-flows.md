@@ -8,8 +8,8 @@ Most API routes pass through the same middleware stack before reaching a handler
 
 1. Public paths such as `/v1/auth/login`, `/v1/auth/refresh`, `/v1/auth/logout`, and `/v1/git/events` skip bearer-token authentication.
 2. Other requests must include a bearer token produced by the local auth service, service-auth credentials, or a user-created personal access token.
-3. `nopsai` validates service tokens first, then user/API JWTs with signature, expiration, issuer, and audience checks, or hashes opaque `nopat_` personal tokens and checks `personal_access_tokens`.
-4. Session JWTs enforce idle-session timeout when configured; service tokens and personal tokens rely on expiry and revocation semantics. Valid credentials place claims in the request context.
+3. `nopsai` validates service tokens first, then user/API JWTs with signature, expiration, issuer, and audience checks, or hashes opaque `nopat_` personal tokens and `nopsat_` service account tokens against their token tables.
+4. Session JWTs enforce idle-session timeout when configured; service tokens, personal tokens, and service account tokens rely on expiry and revocation semantics. Valid credentials place claims in the request context.
 5. Authenticated-only profile routes (`/v1/auth/me`, `/v1/auth/password`, `/v1/auth/email`, `/v1/auth/personal-tokens`) stop here.
 6. Other protected routes are mapped by `routeauthz.MapRequest` to an action/resource pair.
 7. `nopsai` calls the AAA service for a `Check`, or defers to handler-level `Filter` for list endpoints.
@@ -229,6 +229,7 @@ Rerun:
    - `knowledge/`
    - `pipelineruns/`
    - `config-repositories/`
+   - `access/`
    - `setting/` and `settings/`
 5. It parses and validates each file class:
    - pipelines must parse and pass pipeline validation
@@ -240,20 +241,26 @@ Rerun:
    - legacy `pipelineruns/structure.yaml` becomes the run-group tree for groups owned by that repo
    - `config-repositories/groups/<group>.yaml` becomes a group config repo binding and group shell
    - `config-repositories/groups/structure.yaml` and `config-repositories/groups/<group>/structure.yaml` place apps under group shells with `name` and `repo_url`, keep legacy `repos:` lists readable, and can define inline group repo `config:` blocks
+   - `access/*.yaml` declares GitOps-managed users, service accounts, advanced roles, policies, role bindings, and scoped product-role grants; service-account token material is created at runtime, not synced from Git
    - `setting/system/llm_profile.yaml` becomes the system LLM profile registry, only from a system/global config repo
    - `setting/system/mcp.yaml` becomes the system MCP server/profile registry, only from a system/global config repo
    - `setting/system/runner.yaml` becomes runner install defaults, runtime URLs, and dispatcher routing, only from a system/global config repo
 6. System/global repositories are synced before group repositories during sync-all, so newly defined group bindings can be used immediately.
 7. Group-scoped resources are normalized under the bound group before writing.
-8. It refuses to overwrite resources that are unmanaged or already managed by an unrelated config repository; delegated child group repos can override parent-managed resources in their group.
+8. It adopts matching database-owned resources that are inside the syncing repository scope, then marks them GitOps-managed; resources already managed by an unrelated config repository remain protected by config-repo precedence.
 9. It upserts rows with config-source metadata into Postgres.
 
 For Git push, `nopsai` loads the same system or group config repository binding,
 validates that `write_enabled` and `write_branch` are set, prefixes requested
 file paths with the binding `base_path`, and asks `git-bot` to commit those
 files to the review branch. The sync branch is not updated directly. The drift
-endpoint exports the current Nopsai config and compares it with the sync branch
-so the UI can show the exact file changes before pushing.
+endpoint exports the current declarative Nopsai config and compares it with the
+sync branch so the UI can show exact changes for pipelines, steps, schedules,
+triggers, scopes, knowledge contexts, run group/config-repository structure,
+access manifests, LLM profiles, MCP registry files, and runtime settings before
+pushing. After those files are merged into the sync branch, the next config sync
+can adopt the matching database-owned resources and switch their UI source to
+GitOps. Pipeline run rows remain runtime/audit records, not Git-owned resources.
 Runtime settings sync persists supported operational defaults back to the local
 runtime config files. `dispatcher_routing` is exposed through a service-token
 protected internal NopsAI endpoint; the dispatcher polls that endpoint and swaps its

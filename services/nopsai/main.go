@@ -204,6 +204,23 @@ type authPersonalTokenResponse struct {
 	LastUsedAt  *time.Time `json:"last_used_at,omitempty"`
 }
 
+type serviceAccountTokenRequest struct {
+	Name          string `json:"name"`
+	ExpiresInDays int    `json:"expires_in_days"`
+	ExpiresAt     string `json:"expires_at"`
+	NeverExpires  bool   `json:"never_expires"`
+}
+
+type serviceAccountTokenResponse struct {
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	Token       string     `json:"token,omitempty"`
+	TokenSuffix string     `json:"token_suffix"`
+	CreatedAt   time.Time  `json:"created_at"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	LastUsedAt  *time.Time `json:"last_used_at,omitempty"`
+}
+
 type userRoleBinding struct {
 	Role string `json:"role"`
 }
@@ -218,11 +235,37 @@ type userSummary struct {
 	Roles     []userRoleBinding `json:"roles,omitempty"`
 }
 
+type serviceAccountSummary struct {
+	ID         string            `json:"id"`
+	Sub        string            `json:"sub"`
+	Email      string            `json:"email"`
+	Provider   string            `json:"provider"`
+	Status     string            `json:"status"`
+	TokenCount int               `json:"token_count"`
+	LastUsedAt *time.Time        `json:"last_used_at,omitempty"`
+	Roles      []userRoleBinding `json:"roles,omitempty"`
+}
+
 type createUserRequest struct {
 	Sub      string `json:"sub"`
 	Email    string `json:"email"`
 	Password string `json:"password"`
 	Role     string `json:"role"`
+}
+
+type createServiceAccountRequest struct {
+	Sub           string `json:"sub"`
+	Email         string `json:"email"`
+	Role          string `json:"role"`
+	TokenName     string `json:"token_name"`
+	ExpiresInDays int    `json:"expires_in_days"`
+	ExpiresAt     string `json:"expires_at"`
+	NeverExpires  bool   `json:"never_expires"`
+}
+
+type createServiceAccountResponse struct {
+	ServiceAccount serviceAccountSummary       `json:"service_account"`
+	Token          serviceAccountTokenResponse `json:"token"`
 }
 
 type updateUserRequest struct {
@@ -231,9 +274,19 @@ type updateUserRequest struct {
 	Password string `json:"password"`
 }
 
+type updateServiceAccountRequest struct {
+	Email  string `json:"email"`
+	Status string `json:"status"`
+}
+
 type userRoleRequest struct {
 	UserID string `json:"user_id"`
 	Role   string `json:"role"`
+}
+
+type serviceAccountRoleRequest struct {
+	ServiceAccountID string `json:"service_account_id"`
+	Role             string `json:"role"`
 }
 
 type createRoleRequest struct {
@@ -512,6 +565,12 @@ func isDispatcherInternalClaims(claims *auth.Claims) bool {
 	return strings.TrimSpace(claims.Sub) == "dispatcher" && strings.TrimSpace(claims.Provider) == "internal-service"
 }
 
+func isLongLivedBearerProvider(provider string) bool {
+	provider = strings.TrimSpace(provider)
+	return strings.EqualFold(provider, auth.ProviderPersonalAccessToken) ||
+		strings.EqualFold(provider, auth.ProviderServiceAccountToken)
+}
+
 func isTrustedInternalDispatcherRequest(r *http.Request) bool {
 	if r == nil || !isDispatcherInternalPath(r.URL.Path) {
 		return false
@@ -617,7 +676,7 @@ func (a *App) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		if a.idleTimeout > 0 && !strings.EqualFold(strings.TrimSpace(claims.Provider), auth.ProviderPersonalAccessToken) {
+		if a.idleTimeout > 0 && !isLongLivedBearerProvider(claims.Provider) {
 			now := time.Now()
 			activityKey := auth.HashToken(token)
 			if lastRaw, ok := a.tokenActivity.Load(activityKey); ok {
@@ -2581,27 +2640,28 @@ func (a *App) syncConfigRepository(ctx context.Context, repo models.ConfigReposi
 
 func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.ConfigRepository) (map[string]int, string, error) {
 	details := map[string]int{
-		"pipelines_synced":            0,
-		"steps_synced":                0,
-		"general_vars_synced":         0,
-		"repo_vars_synced":            0,
-		"triggers_synced":             0,
-		"schedules_synced":            0,
-		"secrets_synced":              0,
-		"config_repositories_synced":  0,
-		"run_groups_created":          0,
-		"run_groups_updated":          0,
-		"access_users_synced":         0,
-		"access_roles_synced":         0,
-		"access_policies_synced":      0,
-		"access_role_bindings_synced": 0,
-		"access_grants_synced":        0,
-		"resource_access_synced":      0,
-		"llm_profiles_synced":         0,
-		"mcp_servers_synced":          0,
-		"mcp_profiles_synced":         0,
-		"knowledge_contexts_synced":   0,
-		"runtime_settings_synced":     0,
+		"pipelines_synced":               0,
+		"steps_synced":                   0,
+		"general_vars_synced":            0,
+		"repo_vars_synced":               0,
+		"triggers_synced":                0,
+		"schedules_synced":               0,
+		"secrets_synced":                 0,
+		"config_repositories_synced":     0,
+		"run_groups_created":             0,
+		"run_groups_updated":             0,
+		"access_users_synced":            0,
+		"access_service_accounts_synced": 0,
+		"access_roles_synced":            0,
+		"access_policies_synced":         0,
+		"access_role_bindings_synced":    0,
+		"access_grants_synced":           0,
+		"resource_access_synced":         0,
+		"llm_profiles_synced":            0,
+		"mcp_servers_synced":             0,
+		"mcp_profiles_synced":            0,
+		"knowledge_contexts_synced":      0,
+		"runtime_settings_synced":        0,
 	}
 
 	repoURL := strings.TrimSpace(binding.RepoURL)
@@ -3704,6 +3764,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		Int("run_groups_created", details["run_groups_created"]).
 		Int("run_groups_updated", details["run_groups_updated"]).
 		Int("access_users_synced", details["access_users_synced"]).
+		Int("access_service_accounts_synced", details["access_service_accounts_synced"]).
 		Int("access_roles_synced", details["access_roles_synced"]).
 		Int("access_policies_synced", details["access_policies_synced"]).
 		Int("access_role_bindings_synced", details["access_role_bindings_synced"]).
@@ -4459,6 +4520,10 @@ func canConfigRepositoryWriteOver(current, existing models.ConfigRepository, res
 	return false
 }
 
+func canConfigRepositoryAdoptUnmanagedResource(binding models.ConfigRepository, resourceScope string) bool {
+	return configResourceUnderBindingScope(resourceScope, binding)
+}
+
 func configRepositoryShadowsCurrent(existing, current models.ConfigRepository, resourceScope string) bool {
 	if existing.ID == 0 || existing.ID == current.ID {
 		return false
@@ -4512,7 +4577,10 @@ func ensureConfigResourceWritable(ctx context.Context, tx pgx.Tx, tableName, res
 		return false, err
 	}
 	if !managed {
-		return false, fmt.Errorf("%s %s is not managed by a config repository", resourceKind, resourceID)
+		if canConfigRepositoryAdoptUnmanagedResource(binding, resourceScope) {
+			return true, nil
+		}
+		return false, fmt.Errorf("%s %s is outside the config repository scope", resourceKind, resourceID)
 	}
 	if !existingRepoID.Valid {
 		return false, fmt.Errorf("%s %s is already managed by an unknown config repository", resourceKind, resourceID)

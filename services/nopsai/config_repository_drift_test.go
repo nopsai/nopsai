@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"nopsai/pkg/models"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestDiffConfigRepositoryFiles(t *testing.T) {
@@ -143,6 +145,28 @@ func TestConfigRepositoryRelativeGitPath(t *testing.T) {
 	}
 }
 
+func TestConfigRepositoryDriftPathIncludesSyncableResourceFamilies(t *testing.T) {
+	if !isConfigRepositoryDriftPath("access/service-accounts.yaml") {
+		t.Fatal("service account access export path should be included in drift")
+	}
+	for _, path := range []string{
+		"access/all.yaml",
+		"access/grants.yaml",
+		"config-repositories/groups/structure.yaml",
+		"pipelineruns/structure.yaml",
+		"setting/system/llm_profile.yaml",
+		"setting/system/mcp.yaml",
+		"settings/system/runner.yaml",
+	} {
+		if !isConfigRepositoryDriftPath(path) {
+			t.Fatalf("syncable path %q should be included in drift", path)
+		}
+	}
+	if isConfigRepositoryDriftPath("access/readme.md") {
+		t.Fatal("non-YAML access files should not be included in drift")
+	}
+}
+
 func TestConfigRepositoryExportPathForFolderScope(t *testing.T) {
 	repo := models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"}
 	got, ok := configRepositoryExportPath(repo, "team-1/services/api/deploy", "", "pipelines", ".yaml", false, sql.NullInt64{})
@@ -196,6 +220,25 @@ func TestConfigRepositoryIncludesResourceSkipsChildDelegatedScopesForFolderRepo(
 	}
 }
 
+func TestConfigRepositoryIncludesBasicRoleGrantKeepsSystemDelegatedScopeGrant(t *testing.T) {
+	systemRepo := models.ConfigRepository{ID: 1, ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID}
+	if !configRepositoryIncludesBasicRoleGrant(systemRepo, grantResourceFolder, "team-1", []string{"team-1"}) {
+		t.Fatal("system basic role grant should remain exportable even when the target folder has a delegated config repo")
+	}
+}
+
+func TestConfigRepositoryIncludesBasicRoleGrantSkipsChildDelegatedScopeForFolderRepo(t *testing.T) {
+	parentRepo := models.ConfigRepository{ID: 2, ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"}
+	delegatedScopes := []string{"team-1/dev"}
+
+	if !configRepositoryIncludesBasicRoleGrant(parentRepo, grantResourceFolder, "team-1", delegatedScopes) {
+		t.Fatal("parent folder basic role grant should remain exportable")
+	}
+	if configRepositoryIncludesBasicRoleGrant(parentRepo, grantResourceFolder, "team-1/dev", delegatedScopes) {
+		t.Fatal("child delegated folder basic role grant should not be exported by parent folder repo")
+	}
+}
+
 func TestRenderKnowledgeContextGitOpsDocument(t *testing.T) {
 	got := renderKnowledgeContextGitOpsDocument("runbook", "deploy-api", "", "# Deploy\n\nRun it.\n", "runbook/team-1/deploy-api", nil)
 	if want := "---\nname: deploy-api\nkind: runbook\ncontent: |\n"; len(got) < len(want) || got[:len(want)] != want {
@@ -238,5 +281,106 @@ steps:
 	}
 	if strings.Contains("\n"+got, "\naccess:") {
 		t.Fatalf("access block was not removed: %q", got)
+	}
+}
+
+func TestConfigRepositoryResourceAccessExportIncludesServiceAccountGrant(t *testing.T) {
+	access := configRepositoryResourceAccessState{
+		Visibility: resourceVisibilityRestricted,
+		Grants: []configRepositoryResourceUseGrant{
+			{
+				ResourceType: grantResourcePipeline,
+				SubjectType:  grantSubjectServiceAccount,
+				SubjectID:    "webhook-deployer",
+				Actions:      []string{"pipeline.use"},
+			},
+		},
+	}.exportFile()
+
+	if access == nil || access.UseAccess == nil || len(access.UseAccess.Grants) != 1 {
+		t.Fatalf("exported access = %#v, want one grant", access)
+	}
+	grant := access.UseAccess.Grants[0]
+	if grant.ServiceAccount != "webhook-deployer" {
+		t.Fatalf("service account grant = %#v, want webhook-deployer", grant)
+	}
+	if grant.SubjectType != "" || grant.SubjectID != "" {
+		t.Fatalf("service account grant should use shorthand fields, got %#v", grant)
+	}
+}
+
+func TestConfigRepositoryAccessExportDocumentRendersServiceAccounts(t *testing.T) {
+	doc := configRepositoryAccessExportDocument{
+		ServiceAccounts: []configRepositoryServiceAccountExport{
+			{
+				Sub:           "webhook-deployer",
+				Email:         "webhook-deployer@example.com",
+				Status:        "active",
+				AdvancedRoles: []string{"viewer"},
+			},
+		},
+		BasicRoles: []configRepositoryBasicRoleExport{
+			{
+				ServiceAccount: "webhook-deployer",
+				Role:           productRoleDeveloper,
+				Resource:       "pipeline:platform-maintenance",
+			},
+		},
+	}
+
+	content, err := yaml.Marshal(doc)
+	if err != nil {
+		t.Fatalf("yaml.Marshal() error = %v", err)
+	}
+	rendered := string(content)
+	for _, want := range []string{
+		"service_accounts:",
+		"sub: webhook-deployer",
+		"advanced_roles:",
+		"basic_roles:",
+		"service_account: webhook-deployer",
+		"resource: pipeline:platform-maintenance",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered access export missing %q:\n%s", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "nopsat_") {
+		t.Fatalf("rendered access export should not contain service account tokens:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "subject_type:") || strings.Contains(rendered, "subject_id:") {
+		t.Fatalf("service account basic role should use shorthand fields:\n%s", rendered)
+	}
+}
+
+func TestConfigRepositoryBasicRoleExportUsesSubjectShortcuts(t *testing.T) {
+	userGrant := configRepositoryBasicRoleExport{Role: productRoleOwner, Resource: configRepositoryBasicRoleResourceExport(grantResourceFolder, generalGrantID)}
+	if !setConfigRepositoryBasicRoleSubjectExport(&userGrant, grantSubjectUser, "alice") {
+		t.Fatal("expected user subject export to succeed")
+	}
+	serviceGrant := configRepositoryBasicRoleExport{Role: productRoleDeveloper, Resource: "pipeline:platform-maintenance"}
+	if !setConfigRepositoryBasicRoleSubjectExport(&serviceGrant, grantSubjectServiceAccount, "webhook-deployer") {
+		t.Fatal("expected service account subject export to succeed")
+	}
+
+	content, err := yaml.Marshal(configRepositoryAccessExportDocument{
+		BasicRoles: []configRepositoryBasicRoleExport{userGrant, serviceGrant},
+	})
+	if err != nil {
+		t.Fatalf("yaml.Marshal() error = %v", err)
+	}
+	rendered := string(content)
+	for _, want := range []string{
+		"user: alice",
+		"resource: folder:general",
+		"service_account: webhook-deployer",
+		"resource: pipeline:platform-maintenance",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered access export missing %q:\n%s", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "subject_type:") || strings.Contains(rendered, "subject_id:") {
+		t.Fatalf("basic role shortcuts should not include canonical subject fields:\n%s", rendered)
 	}
 }
