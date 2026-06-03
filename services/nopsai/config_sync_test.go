@@ -805,6 +805,7 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 		map[string]storedStep{},
 		map[string]storedSchedule{},
 		externalTriggers,
+		map[string]storedNotificationRoute{},
 		map[string]storedKnowledgeContext{},
 		generalScopeVars,
 		repoScopeVars,

@@ -10,7 +10,7 @@ Primary role:
 
 Responsibilities:
 
-- Exposes REST endpoints for auth, runs, pipelines, steps, triggers, knowledge contexts, secrets, variables, groups, and system operations.
+- Exposes REST endpoints for auth, runs, pipelines, steps, triggers, knowledge contexts, notifications, metrics, secrets, variables, groups, and system operations.
 - Exposes product access-management endpoints for role grants and effective-permission inspection.
 - Stores and reads all durable state from Postgres.
 - Validates pipelines and resolves reusable `step:` includes.
@@ -18,7 +18,8 @@ Responsibilities:
 - Creates run records, task records, and log records.
 - Starts config sync from the Git-backed config repo.
 - Applies system GitOps runtime settings for runner install defaults, supported
-  runtime URLs, agent defaults, and dispatcher routing.
+  runtime URLs, agent defaults, dispatcher routing, and mail notification
+  settings.
 - Seeds predefined product roles and expands role grants into low-level AAA ACLs.
 - Talks to the dispatcher as a gRPC client.
 - Talks to `git-bot` over HTTP for GitHub checks and repository content access.
@@ -31,6 +32,10 @@ Key files:
 - `services/nopsai/pipeline_handlers.go`
 - `services/nopsai/knowledge_context.go`
 - `services/nopsai/knowledge_context_schema.go`
+- `services/nopsai/metrics.go`
+- `services/nopsai/notification_mail.go`
+- `services/nopsai/notification_routes.go`
+- `services/nopsai/notification_schema.go`
 - `services/nopsai/secrets_variables_handlers.go`
 - `services/nopsai/github_integration.go`
 - `services/nopsai/auth_handlers.go`

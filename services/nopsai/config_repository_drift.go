@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -143,7 +144,7 @@ func (a *App) loadConfigRepositoryGitFiles(repo models.ConfigRepository) (map[st
 		return nil, err
 	}
 	result := map[string]string{}
-	for _, directory := range []string{"pipelines", "steps", "triggers", externalTriggersGitOpsDirectory, "schedules", "scopes", "knowledge", "pipelineruns", "config-repositories", "access", "setting", "settings"} {
+	for _, directory := range []string{"pipelines", "steps", "triggers", externalTriggersGitOpsDirectory, "schedules", "scopes", "knowledge", notificationGitOpsDirectory, "pipelineruns", "config-repositories", "access", "setting", "settings"} {
 		directoryPath := filepath.ToSlash(filepath.Join(strings.Trim(strings.TrimSpace(repo.BasePath), "/"), directory))
 		files, err := a.requestGitBotDirectory(owner, name, repo.Branch, directoryPath)
 		if err != nil {
@@ -155,6 +156,17 @@ func (a *App) loadConfigRepositoryGitFiles(repo models.ConfigRepository) (map[st
 				continue
 			}
 			result[rel] = normalizeConfigRepositoryFileContent(content)
+		}
+	}
+	if repo.ScopeType == models.ConfigRepositoryScopeFolder {
+		rootPath := filepath.ToSlash(filepath.Join(strings.Trim(strings.TrimSpace(repo.BasePath), "/"), "notifications.yaml"))
+		content, err := a.requestGitBotFile(owner, name, repo.Branch, rootPath, errNotificationGitOpsNotFound)
+		if err == nil {
+			if rel, ok := configRepositoryRelativeGitPath(repo.BasePath, rootPath); ok && isConfigRepositoryDriftPath(rel) {
+				result[rel] = normalizeConfigRepositoryFileContent(content)
+			}
+		} else if !errors.Is(err, errNotificationGitOpsNotFound) {
+			return nil, err
 		}
 	}
 	return result, nil
@@ -306,6 +318,9 @@ func (a *App) exportConfigRepositoryFiles(ctx context.Context, repo models.Confi
 	if err := a.exportConfigRepositorySchedules(ctx, repo, delegatedScopes, files); err != nil {
 		return nil, err
 	}
+	if err := a.exportConfigRepositoryNotificationRoutes(ctx, repo, delegatedScopes, files); err != nil {
+		return nil, err
+	}
 	if err := a.exportConfigRepositoryScopes(ctx, repo, delegatedScopes, resourceAccess, files); err != nil {
 		return nil, err
 	}
@@ -325,6 +340,9 @@ func (a *App) exportConfigRepositoryFiles(ctx context.Context, repo models.Confi
 		return nil, err
 	}
 	if err := a.exportConfigRepositoryRuntimeSettings(repo, files); err != nil {
+		return nil, err
+	}
+	if err := a.exportConfigRepositoryMailSettings(ctx, repo, files); err != nil {
 		return nil, err
 	}
 	for filePath, content := range files {
@@ -1078,6 +1096,50 @@ func (a *App) exportConfigRepositorySchedules(ctx context.Context, repo models.C
 			doc.CronExpression = cronExpression
 		}
 		content, err := marshalConfigRepositoryYAML(doc)
+		if err != nil {
+			return err
+		}
+		files[filePath] = string(content)
+	}
+	return rows.Err()
+}
+
+func (a *App) exportConfigRepositoryNotificationRoutes(ctx context.Context, repo models.ConfigRepository, delegatedScopes []string, files map[string]string) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT nr.definition::text, COALESCE(nr.source, 'database'), nr.config_repo_id,
+		       nr.managed_by_config_repo, COALESCE(nr.config_source_path, ''), g.name
+		FROM notification_routes nr
+		JOIN groups g ON g.id = nr.group_id
+		ORDER BY g.name ASC
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var definitionRaw, source, sourcePath, groupPath string
+		var configRepoID sql.NullInt64
+		var managed bool
+		if err := rows.Scan(&definitionRaw, &source, &configRepoID, &managed, &sourcePath, &groupPath); err != nil {
+			return err
+		}
+		if !configRepositoryIncludesResource(repo, groupPath, source, configRepoID, managed, delegatedScopes) {
+			continue
+		}
+		filePath, ok := configRepositoryNotificationRoutePath(repo, groupPath, sourcePath, managed, configRepoID)
+		if !ok {
+			continue
+		}
+		var definition notificationRouteDefinition
+		if err := json.Unmarshal([]byte(definitionRaw), &definition); err != nil {
+			return err
+		}
+		normalized, err := normalizeNotificationRouteDefinition(notificationRouteDefinitionFileFromDefinition(definition))
+		if err != nil {
+			return err
+		}
+		content, err := marshalConfigRepositoryYAML(normalized)
 		if err != nil {
 			return err
 		}
@@ -2109,6 +2171,28 @@ func (a *App) exportConfigRepositoryRuntimeSettings(repo models.ConfigRepository
 	return nil
 }
 
+func (a *App) exportConfigRepositoryMailSettings(ctx context.Context, repo models.ConfigRepository, files map[string]string) error {
+	if repo.ScopeType != models.ConfigRepositoryScopeSystem {
+		return nil
+	}
+	record, err := a.loadNotificationMailSettings(ctx)
+	if err != nil {
+		return err
+	}
+	filePath := "settings/system/mail.yaml"
+	if record.ManagedByConfigRepo && record.ConfigRepoID != nil && *record.ConfigRepoID == repo.ID && strings.TrimSpace(record.ConfigSourcePath) != "" {
+		if managedPath, ok := configRepositoryManagedSourcePath(repo, record.ConfigSourcePath); ok {
+			filePath = managedPath
+		}
+	}
+	content, err := marshalConfigRepositoryYAML(record.notificationMailSettingsFile)
+	if err != nil {
+		return err
+	}
+	files[filePath] = string(content)
+	return nil
+}
+
 type configRepositoryKnowledgeDocument struct {
 	Name        string                              `yaml:"name"`
 	Kind        string                              `yaml:"kind"`
@@ -2173,6 +2257,26 @@ func configRepositoryExportPath(repo models.ConfigRepository, identifier, source
 		return "", false
 	}
 	return filepath.ToSlash(filepath.Join(directory, relID+extension)), true
+}
+
+func configRepositoryNotificationRoutePath(repo models.ConfigRepository, groupPath, sourcePath string, managed bool, configRepoID sql.NullInt64) (string, bool) {
+	if managed && configRepoID.Valid && configRepoID.Int64 == repo.ID && strings.TrimSpace(sourcePath) != "" {
+		return configRepositoryManagedSourcePath(repo, sourcePath)
+	}
+	relID, ok := configRepositoryRelativeResourceIdentifier(repo, groupPath)
+	if !ok {
+		return "", false
+	}
+	if repo.ScopeType == models.ConfigRepositoryScopeFolder {
+		if relID == "" {
+			return "notifications.yaml", true
+		}
+		return filepath.ToSlash(filepath.Join(notificationGitOpsDirectory, relID+".yaml")), true
+	}
+	if relID == "" {
+		return "", false
+	}
+	return filepath.ToSlash(filepath.Join(notificationGitOpsDirectory, "groups", relID+".yaml")), true
 }
 
 func configRepositoryScopeFilePath(repo models.ConfigRepository, scope, sourcePath string, managed bool, configRepoID sql.NullInt64) (string, bool) {
@@ -2243,7 +2347,10 @@ func configRepositoryRelativeGitPath(basePath, filePath string) (string, bool) {
 
 func isConfigRepositoryDriftPath(filePath string) bool {
 	filePath = strings.Trim(strings.TrimSpace(filepath.ToSlash(filePath)), "/")
-	for _, prefix := range []string{"pipelines/", "steps/", "triggers/", externalTriggersGitOpsDirectory + "/", "schedules/", "scopes/", "knowledge/", "pipelineruns/", "config-repositories/"} {
+	if filePath == "notifications.yaml" {
+		return true
+	}
+	for _, prefix := range []string{"pipelines/", "steps/", "triggers/", externalTriggersGitOpsDirectory + "/", "schedules/", "scopes/", "knowledge/", notificationGitOpsDirectory + "/", "pipelineruns/", "config-repositories/"} {
 		if strings.HasPrefix(filePath, prefix) {
 			return true
 		}
@@ -2262,6 +2369,7 @@ func isConfigRepositoryDriftPath(filePath string) bool {
 
 func isConfigRepositorySettingsDriftPath(rel string) bool {
 	return isGitOpsRuntimeSettingsRelativePath(rel) ||
+		isGitOpsMailSettingsRelativePath(rel) ||
 		isGitOpsLLMProfileRelativePath(rel) ||
 		isGitOpsMCPRegistryRelativePath(rel)
 }

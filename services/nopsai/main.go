@@ -524,7 +524,7 @@ const (
 
 func isPublicPath(path string) bool {
 	switch path {
-	case "/v1/auth/login", "/v1/auth/refresh", "/v1/auth/logout", "/v1/git/events", "/v1/setup/preflight", "/v1/system/dispatcher/runner-bootstrap":
+	case "/metrics", "/v1/auth/login", "/v1/auth/refresh", "/v1/auth/logout", "/v1/git/events", "/v1/setup/preflight", "/v1/system/dispatcher/runner-bootstrap":
 		return true
 	default:
 		return false
@@ -2666,6 +2666,8 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		"mcp_profiles_synced":            0,
 		"knowledge_contexts_synced":      0,
 		"runtime_settings_synced":        0,
+		"mail_settings_synced":           0,
+		"notification_routes_synced":     0,
 	}
 
 	repoURL := strings.TrimSpace(binding.RepoURL)
@@ -2703,6 +2705,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	configRepositoryDir := configRepoJoinPath(basePath, "config-repositories")
 	accessDir := configRepoJoinPath(basePath, "access")
 	knowledgeDir := configRepoJoinPath(basePath, "knowledge")
+	notificationDir := configRepoJoinPath(basePath, notificationGitOpsDirectory)
 	settingDir := configRepoJoinPath(basePath, "setting")
 	settingsDir := configRepoJoinPath(basePath, "settings")
 
@@ -2748,6 +2751,19 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	knowledgeFiles, err := a.requestGitBotDirectory(owner, repo, branch, knowledgeDir)
 	if err != nil {
 		return nil, commitSHA, fmt.Errorf("failed to fetch knowledge contexts: %w", err)
+	}
+	notificationFiles, err := a.requestGitBotDirectory(owner, repo, branch, notificationDir)
+	if err != nil {
+		return nil, commitSHA, fmt.Errorf("failed to fetch notification routes: %w", err)
+	}
+	if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+		rootRoutePath := configRepoJoinPath(basePath, "notifications.yaml")
+		content, err := a.requestGitBotFile(owner, repo, branch, rootRoutePath, errNotificationGitOpsNotFound)
+		if err == nil {
+			notificationFiles[rootRoutePath] = content
+		} else if !errors.Is(err, errNotificationGitOpsNotFound) {
+			return nil, commitSHA, fmt.Errorf("failed to fetch notification route '%s': %w", rootRoutePath, err)
+		}
 	}
 	settingFiles, err := a.requestGitBotDirectory(owner, repo, branch, settingDir)
 	if err != nil {
@@ -2900,11 +2916,23 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	if err != nil {
 		return nil, commitSHA, err
 	}
+	mailSettingsPlan, err := parseGitOpsMailSettingsPlan(
+		binding,
+		gitOpsRuntimeSettingsDirectory{root: settingDir, files: settingFiles},
+		gitOpsRuntimeSettingsDirectory{root: settingsDir, files: settingsFiles},
+	)
+	if err != nil {
+		return nil, commitSHA, err
+	}
 	schedules, err := parseGitOpsSchedules(scheduleFiles, scheduleDir, binding, boundFolder)
 	if err != nil {
 		return nil, commitSHA, err
 	}
 	externalTriggers, err := parseGitOpsExternalTriggers(externalTriggerFiles, externalTriggerDir, binding, boundFolder)
+	if err != nil {
+		return nil, commitSHA, err
+	}
+	notificationRoutes, err := parseGitOpsNotificationRoutes(notificationFiles, notificationDir, basePath, binding, boundFolder)
 	if err != nil {
 		return nil, commitSHA, err
 	}
@@ -3123,7 +3151,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	if err != nil {
 		return nil, commitSHA, err
 	}
-	filterDelegatedConfigResources(binding, overrideScopes, pipelines, steps, schedules, externalTriggers, knowledgeContexts, generalScopeVars, repoScopeVars, generalScopeSecrets, repoScopeSecrets, triggers)
+	filterDelegatedConfigResources(binding, overrideScopes, pipelines, steps, schedules, externalTriggers, notificationRoutes, knowledgeContexts, generalScopeVars, repoScopeVars, generalScopeSecrets, repoScopeSecrets, triggers)
 	filterDelegatedAccessResources(accessPlan, binding, overrideScopes)
 	effectivePipelineRunStructure, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, pipelineRunStructure, configRepositoryPipelineRunStructure, overrideScopes)
 	if err != nil {
@@ -3257,6 +3285,24 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 			config_source_path = EXCLUDED.config_source_path,
 			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
 			managed_by_config_repo = TRUE,
+			updated_at = NOW()`
+	const notificationRouteUpsert = `INSERT INTO notification_routes (
+			group_id, definition, source,
+			config_repo_id, config_source_path, config_source_commit_sha,
+			managed_by_config_repo, updated_by, updated_at
+		) VALUES (
+			$1, $2::jsonb, 'git',
+			$3, $4, $5,
+			TRUE, 'config-repo', NOW()
+		)
+		ON CONFLICT (group_id) DO UPDATE SET
+			definition = EXCLUDED.definition,
+			source = 'git',
+			config_repo_id = EXCLUDED.config_repo_id,
+			config_source_path = EXCLUDED.config_source_path,
+			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
+			managed_by_config_repo = TRUE,
+			updated_by = EXCLUDED.updated_by,
 			updated_at = NOW()`
 	const configRepositoryUpsert = `INSERT INTO config_repositories (
 			scope_type, scope_id, repo_url, branch, base_path, enabled, write_enabled, write_branch,
@@ -3584,7 +3630,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 			rows.Close()
 		}
 		if len(prunedRepoIDs) > 0 {
-			for _, tableName := range []string{"config_repositories", "pipelines", "steps", "pipeline_schedules", "triggers", "external_triggers", "variables", "secrets", "knowledge_contexts"} {
+			for _, tableName := range []string{"config_repositories", "pipelines", "steps", "pipeline_schedules", "triggers", "external_triggers", "variables", "secrets", "knowledge_contexts", "notification_routes", "notification_mail_settings"} {
 				if _, err := tx.Exec(ctx, fmt.Sprintf(`
 					UPDATE %s
 					SET config_repo_id = NULL,
@@ -3829,6 +3875,62 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		}
 	}
 
+	for _, stored := range sortedNotificationRoutes(notificationRoutes) {
+		groupID, err := notificationRouteGroupIDForPath(ctx, tx, stored.groupPath)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+				return nil, commitSHA, fmt.Errorf("notification route '%s' references missing group '%s'", stored.sourcePath, stored.groupPath)
+			}
+			return nil, commitSHA, fmt.Errorf("failed to resolve notification route group '%s': %w", stored.groupPath, err)
+		}
+		definitionJSON, err := json.Marshal(stored.definition)
+		if err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to marshal notification route '%s': %w", stored.groupPath, err)
+		}
+		if _, err := tx.Exec(ctx, notificationRouteUpsert, groupID, string(definitionJSON), binding.ID, stored.sourcePath, commitSHA); err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to upsert notification route '%s': %w", stored.groupPath, err)
+		}
+		details["notification_routes_synced"]++
+	}
+	{
+		var groupIDs []int
+		for _, stored := range notificationRoutes {
+			groupID, err := notificationRouteGroupIDForPath(ctx, tx, stored.groupPath)
+			if err != nil {
+				return nil, commitSHA, fmt.Errorf("failed to resolve notification route group '%s' for pruning: %w", stored.groupPath, err)
+			}
+			groupIDs = append(groupIDs, groupID)
+		}
+		if len(groupIDs) == 0 {
+			if _, err := tx.Exec(ctx, "DELETE FROM notification_routes WHERE managed_by_config_repo = TRUE AND config_repo_id = $1", binding.ID); err != nil {
+				return nil, commitSHA, fmt.Errorf("failed to prune notification routes: %w", err)
+			}
+		} else {
+			if _, err := tx.Exec(ctx, "DELETE FROM notification_routes WHERE managed_by_config_repo = TRUE AND config_repo_id = $2 AND group_id != ALL($1)", groupIDs, binding.ID); err != nil {
+				return nil, commitSHA, fmt.Errorf("failed to prune notification routes: %w", err)
+			}
+		}
+	}
+	if mailSettingsPlan != nil {
+		if _, err := scanNotificationMailSettings(tx.QueryRow(ctx, notificationMailSettingsUpsertSQL,
+			mailSettingsPlan.settings.Enabled,
+			mailSettingsPlan.settings.From,
+			mailSettingsPlan.settings.SMTP.Host,
+			mailSettingsPlan.settings.SMTP.Port,
+			mailSettingsPlan.settings.SMTP.StartTLS,
+			mailSettingsPlan.settings.SMTP.Username,
+			mailSettingsPlan.settings.SMTP.PasswordSecretRef,
+			"git",
+			binding.ID,
+			mailSettingsPlan.sourcePath,
+			commitSHA,
+			true,
+		)); err != nil {
+			return nil, commitSHA, fmt.Errorf("failed to sync mail settings from '%s': %w", mailSettingsPlan.sourcePath, err)
+		}
+		details["mail_settings_synced"] = 1
+	}
+
 	if err := a.syncAccessConfiguration(ctx, tx, binding, accessPlan, commitSHA, details); err != nil {
 		return nil, commitSHA, err
 	}
@@ -3886,6 +3988,8 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		Int("llm_profiles_synced", details["llm_profiles_synced"]).
 		Int("mcp_servers_synced", details["mcp_servers_synced"]).
 		Int("mcp_profiles_synced", details["mcp_profiles_synced"]).
+		Int("mail_settings_synced", details["mail_settings_synced"]).
+		Int("notification_routes_synced", details["notification_routes_synced"]).
 		Msg("Configuration synchronization from Git completed")
 
 	return details, commitSHA, nil
@@ -4532,6 +4636,7 @@ func filterDelegatedConfigResources(
 	steps map[string]storedStep,
 	schedules map[string]storedSchedule,
 	externalTriggers map[string]storedExternalTrigger,
+	notificationRoutes map[string]storedNotificationRoute,
 	knowledgeContexts map[string]storedKnowledgeContext,
 	generalScopeVars map[generalScopeVarKey]storedScopeVar,
 	repoScopeVars map[repoScopeVarKey]storedScopeVar,
@@ -4565,6 +4670,11 @@ func filterDelegatedConfigResources(
 	for key, trigger := range externalTriggers {
 		if configResourceUnderAnyScope(externalTriggerConfigScope(trigger.input), overrideScopes) {
 			delete(externalTriggers, key)
+		}
+	}
+	for key, route := range notificationRoutes {
+		if configResourceUnderAnyScope(notificationRouteResourceScope(route), overrideScopes) {
+			delete(notificationRoutes, key)
 		}
 	}
 	for key, knowledge := range knowledgeContexts {
@@ -6349,6 +6459,9 @@ func main() {
 	}
 	if err := ensureApprovalSchema(context.Background(), dbpool); err != nil {
 		log.Fatal().Err(err).Msg("Failed to ensure approval schema")
+	}
+	if err := ensureNotificationSchema(context.Background(), dbpool); err != nil {
+		log.Fatal().Err(err).Msg("Failed to ensure notification schema")
 	}
 	if err := ensureDataManagementSchema(context.Background(), dbpool); err != nil {
 		log.Fatal().Err(err).Msg("Failed to ensure data management schema")

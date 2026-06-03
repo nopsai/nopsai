@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type Dispatch, type FormEvent, type ReactNode, type SetStateAction } from 'react';
-import { Activity, Boxes, Clock3, Copy, Edit3, GitBranch, PauseCircle, PlayCircle, Plus, RefreshCw, Route, Search, Server, Trash2, X } from 'lucide-react';
+import { Activity, Boxes, Clock3, Copy, Edit3, GitBranch, Mail, PauseCircle, PlayCircle, Plus, RefreshCw, Route, Save, Search, Send, Server, Trash2, X } from 'lucide-react';
 import { buildApiUrl } from '../lib/api';
 import { ConfigRepositoryDriftModal } from '../components/ConfigRepositoryDriftModal';
 import {
@@ -59,6 +59,35 @@ type ConfigRepositoryFormState = {
   enabled: boolean;
   write_enabled: boolean;
   write_branch: string;
+};
+
+type NotificationMailSMTPSettings = {
+  host: string;
+  port: number;
+  start_tls: boolean;
+  username: string;
+  password_secret_ref: string;
+};
+
+type NotificationMailSettingsRecord = {
+  enabled: boolean;
+  from: string;
+  smtp: NotificationMailSMTPSettings;
+  source?: string;
+  config_source_path?: string;
+  managed_by_config_repo?: boolean;
+  updated_at?: string;
+};
+
+type NotificationMailSettingsFormState = {
+  enabled: boolean;
+  from: string;
+  smtp_host: string;
+  smtp_port: string;
+  smtp_start_tls: boolean;
+  smtp_username: string;
+  smtp_password_secret_ref: string;
+  test_to: string;
 };
 
 type ToastMessage = {
@@ -158,6 +187,17 @@ const emptyConfigRepositoryForm: ConfigRepositoryFormState = {
   enabled: true,
   write_enabled: false,
   write_branch: 'nopsai/ui-changes',
+};
+
+const emptyNotificationMailSettingsForm: NotificationMailSettingsFormState = {
+  enabled: false,
+  from: '',
+  smtp_host: '',
+  smtp_port: '587',
+  smtp_start_tls: true,
+  smtp_username: '',
+  smtp_password_secret_ref: '',
+  test_to: '',
 };
 
 const POLL_INTERVAL_MS = 5000;
@@ -350,6 +390,12 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
   const [globalConfigRepoDriftError, setGlobalConfigRepoDriftError] = useState<string | null>(null);
   const [globalConfigRepoPushing, setGlobalConfigRepoPushing] = useState(false);
   const [globalConfigRepoPushResult, setGlobalConfigRepoPushResult] = useState<ConfigRepositoryCommitResponse | null>(null);
+  const [mailSettings, setMailSettings] = useState<NotificationMailSettingsRecord | null>(null);
+  const [mailSettingsForm, setMailSettingsForm] = useState<NotificationMailSettingsFormState>(emptyNotificationMailSettingsForm);
+  const [mailSettingsLoading, setMailSettingsLoading] = useState(false);
+  const [mailSettingsSaving, setMailSettingsSaving] = useState(false);
+  const [mailSettingsTesting, setMailSettingsTesting] = useState(false);
+  const [mailSettingsError, setMailSettingsError] = useState<string | null>(null);
 
   const [dispatcherLoading, setDispatcherLoading] = useState(false);
   const [dispatcherError, setDispatcherError] = useState<string | null>(null);
@@ -457,6 +503,10 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     };
   }, []);
 
+  const normalizeMailSettings = useCallback((payload: unknown): NotificationMailSettingsRecord => {
+    return normalizeNotificationMailSettings(payload);
+  }, []);
+
   const loadSystemConfig = useCallback(async () => {
     setConfigError(null);
     setConfigLoading(true);
@@ -473,6 +523,25 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
       }
     }
   }, [applySystemConfigResponse, fetchJson]);
+
+  const loadMailSettings = useCallback(async () => {
+    setMailSettingsLoading(true);
+    setMailSettingsError(null);
+    try {
+      const settings = normalizeMailSettings(await fetchJson('/v1/system/notifications/mail'));
+      if (!isMountedRef.current) return;
+      setMailSettings(settings);
+      setMailSettingsForm(mailSettingsFormFromRecord(settings));
+    } catch (error) {
+      console.error('Failed to load mail notification settings', error);
+      if (!isMountedRef.current) return;
+      setMailSettingsError(error instanceof Error ? error.message : 'Unable to load mail notification settings');
+    } finally {
+      if (isMountedRef.current) {
+        setMailSettingsLoading(false);
+      }
+    }
+  }, [fetchJson, normalizeMailSettings]);
 
   const loadGlobalConfigRepository = useCallback(
     async (opts?: { quiet?: boolean }) => {
@@ -1419,6 +1488,61 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     }
   }, [addToast, applySystemConfigResponse, config, fetchJson, saving]);
 
+  const saveMailSettings = useCallback(async () => {
+    if (mailSettingsSaving || !permissions.canManageRuntimeConfig || mailSettings?.managed_by_config_repo) return;
+    setMailSettingsSaving(true);
+    setMailSettingsError(null);
+    try {
+      const settings = normalizeMailSettings(await fetchJson('/v1/system/notifications/mail', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(mailSettingsPayloadFromForm(mailSettingsForm)),
+      }));
+      setMailSettings(settings);
+      setMailSettingsForm(mailSettingsFormFromRecord(settings, mailSettingsForm.test_to));
+      setGlobalConfigRepoDrift(null);
+      setGlobalConfigRepoPushResult(null);
+      addToast('Mail notification settings saved.', 'success');
+    } catch (error) {
+      console.error('Failed to save mail notification settings', error);
+      const message = error instanceof Error ? error.message : 'Unable to save mail notification settings';
+      setMailSettingsError(message);
+      addToast('Failed to save mail notification settings.', 'error');
+    } finally {
+      if (isMountedRef.current) {
+        setMailSettingsSaving(false);
+      }
+    }
+  }, [addToast, fetchJson, mailSettings?.managed_by_config_repo, mailSettingsForm, mailSettingsSaving, normalizeMailSettings, permissions.canManageRuntimeConfig]);
+
+  const testMailSettings = useCallback(async () => {
+    if (mailSettingsTesting || !permissions.canManageRuntimeConfig) return;
+    const to = mailSettingsForm.test_to.trim();
+    if (!to) {
+      setMailSettingsError('Test recipient is required.');
+      return;
+    }
+    setMailSettingsTesting(true);
+    setMailSettingsError(null);
+    try {
+      await fetchJson('/v1/system/notifications/mail/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to }),
+      });
+      addToast('Mail test sent.', 'success');
+    } catch (error) {
+      console.error('Failed to send mail notification test', error);
+      const message = error instanceof Error ? error.message : 'Unable to send mail test';
+      setMailSettingsError(message);
+      addToast('Failed to send mail test.', 'error');
+    } finally {
+      if (isMountedRef.current) {
+        setMailSettingsTesting(false);
+      }
+    }
+  }, [addToast, fetchJson, mailSettingsForm.test_to, mailSettingsTesting, permissions.canManageRuntimeConfig]);
+
   const saveGlobalConfigRepository = useCallback(async () => {
     if (globalConfigRepoSaving || !permissions.canManageGlobalConfigRepo) return;
     const repoURL = globalConfigRepoForm.repo_url.trim();
@@ -1614,13 +1738,14 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     if (!permissions.canViewConfig || visibleTab !== 'config') return;
     if (permissions.canViewRuntimeConfig) {
       void loadSystemConfig();
+      void loadMailSettings();
     } else {
       setConfigLoading(false);
     }
     if (permissions.canViewGlobalConfigRepo) {
       void loadGlobalConfigRepository();
     }
-  }, [loadGlobalConfigRepository, loadSystemConfig, permissions.canViewConfig, permissions.canViewGlobalConfigRepo, permissions.canViewRuntimeConfig, visibleTab]);
+  }, [loadGlobalConfigRepository, loadMailSettings, loadSystemConfig, permissions.canViewConfig, permissions.canViewGlobalConfigRepo, permissions.canViewRuntimeConfig, visibleTab]);
 
   useEffect(() => {
     if (permissions.canViewDispatcher && visibleTab === 'dispatcher') {
@@ -1661,6 +1786,11 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     return () => window.clearInterval(handle);
   }, [globalConfigRepo?.last_sync_status, loadGlobalConfigRepository, permissions.canViewGlobalConfigRepo, visibleTab]);
 
+  const reloadConfigTab = useCallback(async () => {
+    if (!permissions.canViewRuntimeConfig) return;
+    await Promise.all([loadSystemConfig(), loadMailSettings()]);
+  }, [loadMailSettings, loadSystemConfig, permissions.canViewRuntimeConfig]);
+
   return (
     <div data-page="system" className="active p-6 space-y-6">
       {visibleTab === 'config' && (
@@ -1676,9 +1806,18 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
           globalConfigRepoSaving={globalConfigRepoSaving}
           globalConfigRepoSyncing={globalConfigRepoSyncing}
           globalConfigRepoError={globalConfigRepoError}
+          mailSettings={mailSettings}
+          mailSettingsForm={mailSettingsForm}
+          mailSettingsLoading={mailSettingsLoading}
+          mailSettingsSaving={mailSettingsSaving}
+          mailSettingsTesting={mailSettingsTesting}
+          mailSettingsError={mailSettingsError}
           onChange={setConfig}
-          onReload={loadSystemConfig}
+          onReload={reloadConfigTab}
           onSave={saveConfig}
+          onMailSettingsChange={setMailSettingsForm}
+          onSaveMailSettings={saveMailSettings}
+          onTestMailSettings={testMailSettings}
           onGlobalConfigRepoChange={setGlobalConfigRepoForm}
           onSaveGlobalConfigRepo={saveGlobalConfigRepository}
           onDeleteGlobalConfigRepo={deleteGlobalConfigRepository}
@@ -6993,9 +7132,18 @@ function SystemConfig({
   globalConfigRepoSaving,
   globalConfigRepoSyncing,
   globalConfigRepoError,
+  mailSettings,
+  mailSettingsForm,
+  mailSettingsLoading,
+  mailSettingsSaving,
+  mailSettingsTesting,
+  mailSettingsError,
   onChange,
   onReload,
   onSave,
+  onMailSettingsChange,
+  onSaveMailSettings,
+  onTestMailSettings,
   onGlobalConfigRepoChange,
   onSaveGlobalConfigRepo,
   onDeleteGlobalConfigRepo,
@@ -7019,9 +7167,18 @@ function SystemConfig({
   globalConfigRepoSaving: boolean;
   globalConfigRepoSyncing: boolean;
   globalConfigRepoError: string | null;
+  mailSettings: NotificationMailSettingsRecord | null;
+  mailSettingsForm: NotificationMailSettingsFormState;
+  mailSettingsLoading: boolean;
+  mailSettingsSaving: boolean;
+  mailSettingsTesting: boolean;
+  mailSettingsError: string | null;
   onChange: (next: ConfigFormState) => void;
   onReload: () => Promise<void>;
   onSave: () => Promise<void>;
+  onMailSettingsChange: Dispatch<SetStateAction<NotificationMailSettingsFormState>>;
+  onSaveMailSettings: () => Promise<void>;
+  onTestMailSettings: () => Promise<void>;
   onGlobalConfigRepoChange: Dispatch<SetStateAction<ConfigRepositoryFormState>>;
   onSaveGlobalConfigRepo: () => Promise<void>;
   onDeleteGlobalConfigRepo: () => Promise<void>;
@@ -7040,12 +7197,25 @@ function SystemConfig({
   const globalRepoSyncDisabled = !globalConfigRepo || !canManageGlobalConfigRepo || globalConfigRepoSyncing || globalConfigRepoSaving || globalRepoRunning;
   const globalRepoDriftDisabled = !globalConfigRepo || globalConfigRepoDriftLoading || globalConfigRepoSaving || globalConfigRepoSyncing || globalRepoRunning;
   const globalRepoPushDisabled = globalRepoDriftDisabled || globalConfigRepoPushing || !canManageGlobalConfigRepo || !globalConfigRepo?.write_enabled || !globalConfigRepo?.write_branch;
+  const mailManaged = Boolean(mailSettings?.managed_by_config_repo);
+  const mailCanEdit = canManageRuntimeConfig && !mailSettingsLoading && !mailSettingsSaving && !mailManaged;
+  const mailSourceLabel = mailManaged ? 'GitOps' : mailSettings ? 'Database' : 'Default';
+  const mailSectionClass = 'rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4';
+  const mailFieldClass = 'flex flex-col gap-1 text-sm text-[var(--text-primary)]';
+  const mailToggleClass = 'flex min-h-[46px] items-center gap-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)]';
+  const mailInputClass = 'pipelines-input w-full';
+  const mailSectionTitleClass = 'text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]';
   const routingRowSeq = useRef(0);
   const [routingRows, setRoutingRows] = useState<RoutingDraftRow[]>([]);
 
   const handleChange = (key: keyof ConfigFormState) => (event: ChangeEvent<HTMLInputElement>) => {
     const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
     onChange({ ...config, [key]: value } as ConfigFormState);
+  };
+
+  const handleMailChange = (key: keyof NotificationMailSettingsFormState) => (event: ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
+    onMailSettingsChange(prev => ({ ...prev, [key]: value } as NotificationMailSettingsFormState));
   };
 
   const normalizeRoutingScopeInput = (value: string) => {
@@ -7328,6 +7498,169 @@ function SystemConfig({
             <div className="rounded-lg border border-dashed border-[var(--border-primary)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
               No dispatcher routing configured.
             </div>
+          )}
+        </div>
+
+        <div className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs text-[var(--text-secondary)]">Notifications</p>
+              <h3 className="text-lg font-semibold text-[var(--text-primary)]">Mail server</h3>
+              {mailSettings?.updated_at && <p className="text-xs text-[var(--text-secondary)]">Updated {formatTimestamp(mailSettings.updated_at)}</p>}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="runner-pill runner-pill--muted">{mailSourceLabel}</span>
+              {mailManaged && mailSettings?.config_source_path && (
+                <span className="runner-pill runner-pill--link" title={mailSettings.config_source_path}>
+                  {mailSettings.config_source_path}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {mailSettingsLoading ? (
+            <p className="text-sm text-[var(--text-secondary)]">Loading mail settings…</p>
+          ) : (
+            <>
+              {mailManaged && (
+                <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+                  Managed by GitOps.
+                </div>
+              )}
+
+              <div className={`${mailSectionClass} space-y-4`}>
+                <p className={mailSectionTitleClass}>Delivery identity</p>
+                <div className="grid grid-cols-1 md:grid-cols-[minmax(0,220px)_1fr] gap-4 items-end">
+                  <label className={mailToggleClass}>
+                    <input
+                      id="system-mail-enabled"
+                      type="checkbox"
+                      checked={mailSettingsForm.enabled}
+                      onChange={handleMailChange('enabled')}
+                      disabled={!mailCanEdit}
+                    />
+                    <span>Enabled</span>
+                  </label>
+                  <label className={mailFieldClass}>
+                    <span>From address</span>
+                    <input
+                      id="system-mail-from"
+                      type="email"
+                      className={mailInputClass}
+                      value={mailSettingsForm.from}
+                      onChange={handleMailChange('from')}
+                      placeholder="nopsai@example.com"
+                      disabled={!mailCanEdit}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div className={`${mailSectionClass} space-y-4`}>
+                <p className={mailSectionTitleClass}>SMTP connection</p>
+                <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(120px,160px)] gap-4">
+                  <label className={mailFieldClass}>
+                    <span>SMTP host</span>
+                    <input
+                      id="system-mail-smtp-host"
+                      type="text"
+                      className={mailInputClass}
+                      value={mailSettingsForm.smtp_host}
+                      onChange={handleMailChange('smtp_host')}
+                      placeholder="smtp.example.com"
+                      disabled={!mailCanEdit}
+                    />
+                  </label>
+                  <label className={mailFieldClass}>
+                    <span>SMTP port</span>
+                    <input
+                      id="system-mail-smtp-port"
+                      type="number"
+                      min="1"
+                      max="65535"
+                      className={mailInputClass}
+                      value={mailSettingsForm.smtp_port}
+                      onChange={handleMailChange('smtp_port')}
+                      placeholder="587"
+                      disabled={!mailCanEdit}
+                    />
+                  </label>
+                  <label className={mailFieldClass}>
+                    <span>SMTP username</span>
+                    <input
+                      id="system-mail-smtp-username"
+                      type="text"
+                      className={mailInputClass}
+                      value={mailSettingsForm.smtp_username}
+                      onChange={handleMailChange('smtp_username')}
+                      placeholder="nopsai@example.com"
+                      disabled={!mailCanEdit}
+                    />
+                  </label>
+                  <label className={mailFieldClass}>
+                    <span>Password secret ref</span>
+                    <input
+                      id="system-mail-smtp-secret"
+                      type="text"
+                      className={mailInputClass}
+                      value={mailSettingsForm.smtp_password_secret_ref}
+                      onChange={handleMailChange('smtp_password_secret_ref')}
+                      placeholder="NOPSAI_SMTP_PASSWORD"
+                      disabled={!mailCanEdit}
+                    />
+                  </label>
+                  <label className={`${mailToggleClass} md:col-span-2`}>
+                    <input
+                      id="system-mail-smtp-start-tls"
+                      type="checkbox"
+                      checked={mailSettingsForm.smtp_start_tls}
+                      onChange={handleMailChange('smtp_start_tls')}
+                      disabled={!mailCanEdit}
+                    />
+                    <span>StartTLS</span>
+                  </label>
+                </div>
+              </div>
+
+              <div className={`${mailSectionClass} space-y-4`}>
+                <p className={mailSectionTitleClass}>Test delivery</p>
+                <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-3 items-end">
+                  <label className={mailFieldClass}>
+                    <span>Test recipient</span>
+                    <input
+                      id="system-mail-test-to"
+                      type="email"
+                      className={mailInputClass}
+                      value={mailSettingsForm.test_to}
+                      onChange={handleMailChange('test_to')}
+                      placeholder="operator@example.com"
+                      disabled={!canManageRuntimeConfig || mailSettingsLoading || mailSettingsTesting}
+                    />
+                  </label>
+                  <button
+                    className="glass-button-subtle justify-center"
+                    type="button"
+                    onClick={() => void onTestMailSettings()}
+                    disabled={!canManageRuntimeConfig || mailSettingsTesting || mailSettingsLoading || !mailSettings?.enabled}
+                  >
+                    <Send className="h-4 w-4" />
+                    {mailSettingsTesting ? 'Sending…' : 'Send test'}
+                  </button>
+                  {canManageRuntimeConfig && (
+                    <button className="glass-button-primary justify-center" type="button" onClick={() => void onSaveMailSettings()} disabled={!mailCanEdit}>
+                      {mailSettingsSaving ? <Mail className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+                      {mailSettingsSaving ? 'Saving…' : 'Save mail'}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {mailSettingsError && (
+                <div className="rounded-lg border border-red-500/30 px-4 py-3 text-sm text-red-500">
+                  {mailSettingsError}
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -8223,6 +8556,55 @@ function formatSince(nowMs: number, unixSeconds: number) {
   if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.floor(minutes / 60);
   return `${hours}h ago`;
+}
+
+function normalizeNotificationMailSettings(value: unknown): NotificationMailSettingsRecord {
+  const record = asRecord(value);
+  const smtp = asRecord(record?.smtp);
+  const port = normalizeNumber(smtp?.port);
+  return {
+    enabled: Boolean(record?.enabled),
+    from: readString(record?.from),
+    smtp: {
+      host: readString(smtp?.host),
+      port: port > 0 ? port : 587,
+      start_tls: typeof smtp?.start_tls === 'boolean' ? smtp.start_tls : true,
+      username: readString(smtp?.username),
+      password_secret_ref: readString(smtp?.password_secret_ref),
+    },
+    source: readOptionalString(record?.source),
+    config_source_path: readOptionalString(record?.config_source_path),
+    managed_by_config_repo: Boolean(record?.managed_by_config_repo),
+    updated_at: readOptionalString(record?.updated_at),
+  };
+}
+
+function mailSettingsFormFromRecord(record: NotificationMailSettingsRecord, testTo = ''): NotificationMailSettingsFormState {
+  return {
+    enabled: record.enabled,
+    from: record.from,
+    smtp_host: record.smtp.host,
+    smtp_port: String(record.smtp.port || 587),
+    smtp_start_tls: record.smtp.start_tls,
+    smtp_username: record.smtp.username,
+    smtp_password_secret_ref: record.smtp.password_secret_ref,
+    test_to: testTo,
+  };
+}
+
+function mailSettingsPayloadFromForm(form: NotificationMailSettingsFormState) {
+  const port = Number.parseInt(form.smtp_port, 10);
+  return {
+    enabled: form.enabled,
+    from: form.from.trim(),
+    smtp: {
+      host: form.smtp_host.trim(),
+      port: Number.isFinite(port) && port > 0 ? port : 587,
+      start_tls: Boolean(form.smtp_start_tls),
+      username: form.smtp_username.trim(),
+      password_secret_ref: form.smtp_password_secret_ref.trim(),
+    },
+  };
 }
 
 function normalizeLLMProfilesPayload(value: unknown): LLMProfilesPayload {

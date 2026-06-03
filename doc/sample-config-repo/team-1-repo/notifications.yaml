@@ -1,0 +1,83 @@
+enabled: true
+routes:
+  - name: service failures
+    enabled: true
+    recipients:
+      include:
+        teams:
+          - same_group
+        groups:
+          - team-1/platform
+        users:
+          - team-1-release@example.com
+      exclude:
+        users:
+          - no-pipeline-mail@example.com
+    events:
+      failure: true
+      success: false
+      pending: false
+      running: false
+      waiting_approval: false
+      approval_requested: false
+      approval_approved: false
+      approval_rejected: true
+      cancelled: true
+      skipped: false
+    filters:
+      pipelines:
+        include:
+          - team-1/*
+      repos:
+        include:
+          - acme/service-api
+      branches:
+        include:
+          - main
+          - release/*
+    delivery:
+      channels:
+        - mail
+      throttle:
+        dedupe_window: 10m
+        max_per_run: 5
+
+  - name: production approvals
+    enabled: true
+    recipients:
+      include:
+        groups:
+          - team-1/platform
+        users:
+          - release-manager@example.com
+      exclude:
+        users:
+          - no-pipeline-mail@example.com
+    events:
+      failure: false
+      success: false
+      pending: false
+      running: false
+      waiting_approval: true
+      approval_requested: true
+      approval_approved: false
+      approval_rejected: true
+      cancelled: false
+      skipped: false
+    filters:
+      pipelines:
+        include:
+          - team-1/services/api/*
+      repos:
+        include:
+          - acme/service-api
+      branches:
+        include:
+          - main
+          - release/*
+    delivery:
+      channels:
+        - mail
+      throttle:
+        dedupe_window: 15m
+        max_per_run: 3

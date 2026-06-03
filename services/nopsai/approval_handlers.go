@@ -287,6 +287,7 @@ func (a *App) handlePauseRunForApproval(w http.ResponseWriter, r *http.Request) 
 	}
 
 	go a.notifyGitBotOfTaskStatus(runID, req.StepName, req.TaskName, taskStatusWaitingApproval)
+	go a.dispatchPipelineRunNotification(runID, "approval_requested")
 	_ = httpapi.WriteJSON(w, http.StatusOK, approvalPauseResponse{
 		ApprovalID:   approvalID.String(),
 		CheckpointID: checkpointID.String(),
@@ -522,10 +523,13 @@ func (a *App) handleApprovalDecision(w http.ResponseWriter, r *http.Request, app
 
 	go a.notifyGitBotOfTaskStatus(runID, record.StepName, record.TaskName, taskStatus)
 	if !approved {
+		go a.dispatchPipelineRunNotification(runID, "approval_rejected")
 		go a.notifyGitBotOfFinalStatus("failure", record.StepName, record.TaskName, failureReason, record.GitContext)
 		_ = httpapi.WriteJSON(w, http.StatusOK, map[string]string{"status": nextRunStatus})
 		return
 	}
+	go a.dispatchPipelineRunNotification(runID, "approval_approved")
+	go a.dispatchPipelineRunNotification(runID, "pending")
 
 	var pipeline models.Pipeline
 	if err := yaml.Unmarshal(record.PipelineDef, &pipeline); err != nil {

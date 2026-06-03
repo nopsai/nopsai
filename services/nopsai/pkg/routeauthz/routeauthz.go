@@ -28,6 +28,11 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 			return "system.read", model.ResourceRef{Type: "system", ID: "config"}, false, nil
 		}
 		return "system.update", model.ResourceRef{Type: "system", ID: "config"}, false, nil
+	case path == "/v1/system/notifications/mail" || path == "/v1/system/notifications/mail/test":
+		if r.Method == http.MethodGet {
+			return "system.read", model.ResourceRef{Type: "system", ID: "notifications"}, false, nil
+		}
+		return "system.update", model.ResourceRef{Type: "system", ID: "notifications"}, false, nil
 	case path == "/v1/system/llm-profiles" || strings.HasPrefix(path, "/v1/system/llm-profiles/"):
 		if r.Method == http.MethodGet {
 			return "system.read", model.ResourceRef{Type: "system", ID: "llm-profiles"}, false, nil
@@ -107,6 +112,12 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		case http.MethodPut, http.MethodPatch, http.MethodDelete:
 			return "config_repo.manage", resource, false, nil
 		}
+	case strings.HasPrefix(path, "/v1/groups/") && strings.HasSuffix(path, "/notifications"):
+		resource = model.ResourceRef{Type: "folder", ID: folderIDFromConfigRepoPath(path, "/notifications")}
+		if r.Method == http.MethodGet {
+			return "config_repo.read", resource, false, nil
+		}
+		return "config_repo.manage", resource, false, nil
 	case path == "/v1/groups":
 		switch r.Method {
 		case http.MethodGet:

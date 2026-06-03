@@ -249,6 +249,7 @@ Rerun:
    - `pipelineruns/`
    - `config-repositories/`
    - `access/`
+   - `notifications/`
    - `setting/` and `settings/`
 5. It parses and validates each file class:
    - pipelines must parse and pass pipeline validation
@@ -261,9 +262,11 @@ Rerun:
    - `config-repositories/groups/<group>.yaml` becomes a group config repo binding and group shell
    - `config-repositories/groups/structure.yaml` and `config-repositories/groups/<group>/structure.yaml` place apps under group shells with `name` and `repo_url`, keep legacy `repos:` lists readable, and can define inline group repo `config:` blocks
    - `access/*.yaml` declares GitOps-managed users, service accounts, advanced roles, policies, role bindings, and scoped product-role grants; service-account token material is created at runtime, not synced from Git
+   - `notifications/groups/<group>.yaml` in a system repo, or `notifications.yaml` in a group repo, becomes a pipeline notification policy with one or more named routes for that run group
    - `setting/system/llm_profile.yaml` becomes the system LLM profile registry, only from a system/global config repo
    - `setting/system/mcp.yaml` becomes the system MCP server/profile registry, only from a system/global config repo
    - `setting/system/runner.yaml` becomes runner install defaults, runtime URLs, and dispatcher routing, only from a system/global config repo
+   - `settings/system/mail.yaml` becomes SMTP mail notification settings, only from a system/global config repo, with password values referenced by secret name instead of stored in Git
 6. System/global repositories are synced before group repositories during sync-all, so newly defined group bindings can be used immediately.
 7. Group-scoped resources are normalized under the bound group before writing.
 8. It adopts matching database-owned resources that are inside the syncing repository scope, then marks them GitOps-managed; resources already managed by an unrelated config repository remain protected by config-repo precedence.
@@ -276,7 +279,7 @@ files to the review branch. The sync branch is not updated directly. The drift
 endpoint exports the current declarative Nopsai config and compares it with the
 sync branch so the UI can show exact changes for pipelines, steps, schedules,
 triggers, scopes, knowledge contexts, run group/config-repository structure,
-access manifests, LLM profiles, MCP registry files, and runtime settings before
+notification routes, access manifests, LLM profiles, MCP registry files, mail settings, and runtime settings before
 pushing. After those files are merged into the sync branch, the next config sync
 can adopt the matching database-owned resources and switch their UI source to
 GitOps. Pipeline run rows remain runtime/audit records, not Git-owned resources.

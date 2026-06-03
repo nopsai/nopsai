@@ -39,7 +39,7 @@ around that balance:
 | --- | --- |
 | AI-assisted pipelines | YAML pipelines with scripts, natural language goals, reusable steps, child pipelines, dependency ordering, conditions, timeouts, volumes, and failure tolerance. |
 | GitHub automation | GitHub App webhooks, signed webhook validation, repository file access, trigger manifests, check-run creation, check-run updates, reruns, and stale-check cancellation. |
-| GitOps configuration | Sync pipelines, reusable steps, schedules, triggers, scopes, access rules, knowledge documents, LLM profiles, MCP settings, runtime runner/dispatcher settings, and group config repository bindings from Git. |
+| GitOps configuration | Sync pipelines, reusable steps, schedules, triggers, scopes, access rules, knowledge documents, notification routes, LLM profiles, MCP settings, mail settings, runtime runner/dispatcher settings, and group config repository bindings from Git. |
 | Enterprise access control | Local auth, JWTs, refresh tokens, personal access tokens, predefined product roles, inherited folder grants, AAA checks, deny-before-allow evaluation, and audit logs. |
 | Secrets and scopes | Encrypted secrets, plaintext scoped variables, strict scope isolation, repository-specific overrides, cross-scope references, and runtime authorization checks. |
 | Knowledge context | Managed or repo-local markdown context for architecture docs, guardrails, policies, ADRs, runbooks, references, examples, and guidelines injected into LLM tasks. |
@@ -222,8 +222,10 @@ GitOps sync can import:
 - `triggers/`: repository trigger overrides
 - `scopes/`: scoped variables and GitOps secret keys
 - `knowledge/`: managed knowledge documents
+- `notifications/`: group-level notification routing
 - `access/`: users, roles, policies, bindings, and basic product role grants
 - `config-repositories/`: global and group config repository bindings
+- `settings/system/mail.yaml`: mail notification SMTP settings from the global config repo
 - `setting/system/llm_profile.yaml`: system LLM profile registry
 - `setting/system/mcp.yaml`: MCP server and profile registry
 - `setting/system/runner.yaml`: runner install defaults, runtime URLs, and dispatcher routing from the global config repo
@@ -236,6 +238,21 @@ keys, webhook secrets, and other sensitive values in local runtime configuration
 or a secret manager. Dispatcher routing changes made from the UI or synced from
 GitOps are published through `nopsai` and picked up by the live dispatcher
 without a restart.
+
+Mail notification settings live under **System > Config** and can be
+declared in the global config repository at `settings/system/mail.yaml`. GitOps
+stores only SMTP host, port, sender, username, TLS mode, and
+`password_secret_ref`; the actual SMTP password must stay in the referenced
+environment variable or secret manager entry.
+
+Group notification routing lives next to the group config repository controls.
+The global repo can define `notifications/groups/<group>.yaml`; a group repo can
+define `notifications.yaml` for its bound group. Each policy can contain one or
+more named routes that select recipients (`same_group`, explicit users, groups,
+and excludes), event types such as
+`failure`, `success`, `pending`, `waiting_approval`, approval decisions, and
+`cancelled`, plus optional pipeline/repo/branch filters and mail delivery
+throttling.
 
 Scope files keep variables and secrets in separate sections. Define every
 plaintext scoped variable under `variables:`; flat top-level variable entries are
