@@ -242,6 +242,9 @@ status/counts on `data_cleanup_schedules`.
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
   http://localhost:8080/v1/monitoring/dispatcher
 
+# Prometheus scrape endpoint
+curl http://localhost:8080/metrics
+
 # Scope choices for the runner install UI
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
   http://localhost:8080/v1/system/dispatcher/scopes
@@ -260,10 +263,124 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 ```
 
 - `GET /v1/monitoring/dispatcher` is authenticated. It returns dispatcher-backed service status, runner totals, sanitized runner rows, queue depth, and active runs. Active run entries are filtered with `pipeline_run.list`, so users only see runs they can list through their group/repository access.
+- `GET /metrics` emits Prometheus text format. Metrics are DB-backed and include pipeline run counters, duration histograms, active/pending/approval gauges, step/task counters, and notification delivery counters.
 - `GET /v1/system/dispatcher/scopes` returns existing scope names from runner defaults, dispatcher routing, variables, secrets, and run history. It is used by the runner install UI for multi-select scope choices.
 - `GET /v1/internal/dispatcher/routing` is dispatcher-internal. The live dispatcher polls it with a service-auth JWT and updates its in-memory routing table without a restart.
 - Runner install command generation, Kubernetes manifest generation, and runner dispatch pause/resume remain under `System > Dispatcher` and require dispatcher runner management access.
 - Docker and Kubernetes install commands use single-use download tokens. Docker tokens download shell scripts; Kubernetes tokens download YAML consumed by `kubectl apply`.
+
+---
+
+## Pipeline Notifications
+
+System mail settings:
+
+```bash
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  http://localhost:8080/v1/system/notifications/mail
+
+curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "enabled": true,
+    "from": "nopsai@example.com",
+    "smtp": {
+      "host": "smtp.example.com",
+      "port": 587,
+      "start_tls": true,
+      "username": "nopsai@example.com",
+      "password_secret_ref": "NOPSAI_SMTP_PASSWORD"
+    }
+  }' \
+  http://localhost:8080/v1/system/notifications/mail
+
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"to":"operator@example.com"}' \
+  http://localhost:8080/v1/system/notifications/mail/test
+```
+
+Group notification routes:
+
+```bash
+curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "enabled": true,
+    "routes": [
+      {
+        "name": "release failures",
+        "enabled": true,
+        "recipients": {
+          "include": {
+            "teams": ["same_group"],
+            "users": ["release@example.com"]
+          },
+          "exclude": {
+            "users": ["quiet@example.com"]
+          }
+        },
+        "events": {
+          "failure": true,
+          "success": false,
+          "pending": false,
+          "waiting_approval": false,
+          "approval_requested": false,
+          "approval_rejected": true,
+          "cancelled": true
+        },
+        "filters": {
+          "branches": {
+            "include": ["main", "release/*"],
+            "exclude": ["dependabot/*"]
+          }
+        },
+        "delivery": {
+          "channels": ["mail"],
+          "throttle": {
+            "dedupe_window": "10m",
+            "max_per_run": 5
+          }
+        }
+      },
+      {
+        "name": "approval requests",
+        "enabled": true,
+        "recipients": {
+          "include": {
+            "groups": ["team-1/release-approvers"]
+          }
+        },
+        "events": {
+          "waiting_approval": true,
+          "approval_requested": true,
+          "approval_rejected": true
+        },
+        "filters": {
+          "pipelines": {
+            "include": ["team-1/services/api/*"]
+          }
+        },
+        "delivery": {
+          "channels": ["mail"],
+          "throttle": {
+            "dedupe_window": "15m",
+            "max_per_run": 3
+          }
+        }
+      }
+    ]
+  }' \
+  http://localhost:8080/v1/groups/team-1/notifications
+```
+
+GitOps:
+
+- The global config repo may define `settings/system/mail.yaml`.
+- The global config repo may define group notification policies with one or more named routes at `notifications/groups/<group>.yaml`.
+- A group-scoped config repo may define `notifications.yaml` with one or more named routes for its bound group.
+- The legacy single-route top-level shape is still accepted; new files should use `routes: [...]`.
+- SMTP passwords are never stored in GitOps; only `smtp.password_secret_ref` is synced.
 
 ---
 
@@ -977,10 +1094,12 @@ curl -X POST -H "Content-Type: application/json" \
 - System- and group-scoped repos may define group repo bindings under `config-repositories/groups/<group>.yaml`.
 - System- and group-scoped repos may define pipeline schedules under `schedules/`.
 - System- and group-scoped repos may define managed knowledge context markdown under `knowledge/`.
+- System- and group-scoped repos may define group pipeline notification policies with named routes under `notifications/`; group repos can use root `notifications.yaml` for their bound group.
 - The system/global repo may define runtime runner defaults and dispatcher routing under `setting/system/runner.yaml`; dispatcher routing changes are synced into `nopsai` and applied by the live dispatcher.
+- The system/global repo may define SMTP mail notification settings under `settings/system/mail.yaml`; only `smtp.password_secret_ref` is synced for credentials.
 - A binding file contains `repo_url`, optional `branch`, optional `base_path`, optional `enabled`, optional `write_enabled`, and optional `write_branch`.
 - `branch` remains the read/sync source. When `write_enabled` is true, Nopsai can push generated GitOps changes to `write_branch` so they can be reviewed in GitHub before merging back to the sync branch. The GitHub App needs `contents: read and write`.
-- Drift compares the sync branch with Nopsai's current declarative state for pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, run group/config-repository structure, access manifests, LLM profiles, MCP registry files, and runtime settings. UI-side resource Access changes for pipelines, reusable steps, scopes, and knowledge contexts are exported as embedded `access:` updates in the affected GitOps files. Pipeline run rows remain runtime/audit records rather than Git-owned resources.
+- Drift compares the sync branch with Nopsai's current declarative state for pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, run group/config-repository structure, notification routes, access manifests, LLM profiles, MCP registry files, mail settings, and runtime settings. UI-side resource Access changes for pipelines, reusable steps, scopes, and knowledge contexts are exported as embedded `access:` updates in the affected GitOps files. Pipeline run rows remain runtime/audit records rather than Git-owned resources.
 - After generated files are merged into the sync branch, config sync can adopt matching database-owned resources inside the repository scope and mark them as GitOps-managed. Resources already owned by an unrelated config repo remain protected by config-repo precedence.
 - Group repositories use the same drift and write endpoint shape at `GET /v1/groups/<group-path>/config-repo/drift` and `POST /v1/groups/<group-path>/config-repo/write`. File paths are relative to the configured `base_path`.
 - Nested groups are represented by nested paths, for example `config-repositories/groups/team-2/platform.yaml` creates a binding for `team-2/platform`.

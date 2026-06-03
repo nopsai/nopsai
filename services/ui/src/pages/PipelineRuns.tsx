@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, FormEvent, SetStateAction } from 'react';
 import { Link, NavLink, useParams, useSearchParams } from 'react-router-dom';
-import { CalendarClock } from 'lucide-react';
+import { CalendarClock, Plus, Trash2 } from 'lucide-react';
 import yaml from 'js-yaml';
 import { buildApiUrl } from '../lib/api';
 import { ConfigRepositoryDriftModal } from '../components/ConfigRepositoryDriftModal';
@@ -227,6 +227,105 @@ type ConfigRepositoryFormState = {
   write_branch: string;
 };
 
+type NotificationEventKey =
+  | 'failure'
+  | 'success'
+  | 'pending'
+  | 'running'
+  | 'waiting_approval'
+  | 'approval_requested'
+  | 'approval_approved'
+  | 'approval_rejected'
+  | 'cancelled'
+  | 'skipped';
+
+type NotificationRecipientSet = {
+  teams?: string[];
+  users?: string[];
+  groups?: string[];
+};
+
+type NotificationRouteRule = {
+  name: string;
+  enabled: boolean;
+  recipients: {
+    include?: NotificationRecipientSet;
+    exclude?: NotificationRecipientSet;
+  };
+  events: Record<NotificationEventKey, boolean>;
+  filters: {
+    pipelines?: NotificationPatternFilter;
+    repos?: NotificationPatternFilter;
+    branches?: NotificationPatternFilter;
+  };
+  delivery: {
+    channels?: string[];
+    throttle?: {
+      dedupe_window?: string;
+      max_per_run?: number;
+    };
+  };
+};
+
+type NotificationRouteDefinition = {
+  enabled: boolean;
+  recipients: {
+    include?: NotificationRecipientSet;
+    exclude?: NotificationRecipientSet;
+  };
+  events: Record<NotificationEventKey, boolean>;
+  filters: {
+    pipelines?: NotificationPatternFilter;
+    repos?: NotificationPatternFilter;
+    branches?: NotificationPatternFilter;
+  };
+  delivery: {
+    channels?: string[];
+    throttle?: {
+      dedupe_window?: string;
+      max_per_run?: number;
+    };
+  };
+  routes?: NotificationRouteRule[];
+};
+
+type NotificationPatternFilter = {
+  include?: string[];
+  exclude?: string[];
+};
+
+type NotificationRouteRecord = {
+  id?: number;
+  group_id?: number;
+  group_path?: string;
+  definition: NotificationRouteDefinition;
+  source?: string;
+  config_source_path?: string;
+  managed_by_config_repo?: boolean;
+  updated_at?: string;
+};
+
+type NotificationRouteFormState = {
+  routeName: string;
+  selectedRouteIndex: number;
+  routes: NotificationRouteRule[];
+  enabled: boolean;
+  includeSameGroup: boolean;
+  includeUsers: string;
+  includeGroups: string;
+  excludeUsers: string;
+  excludeGroups: string;
+  events: Record<NotificationEventKey, boolean>;
+  pipelineInclude: string;
+  pipelineExclude: string;
+  repoInclude: string;
+  repoExclude: string;
+  branchInclude: string;
+  branchExclude: string;
+  dedupeWindow: string;
+  maxPerRun: string;
+};
+
 type NewFolderPayload = {
   kind: 'group' | 'app';
   name: string;
@@ -245,6 +344,19 @@ const RECENT_FETCH_SIZE = 60;
 const RECENT_INITIAL_BATCH = 30;
 const RECENT_BATCH_SIZE = 20;
 
+const NOTIFICATION_EVENTS: { key: NotificationEventKey; label: string }[] = [
+  { key: 'failure', label: 'Failure' },
+  { key: 'success', label: 'Success' },
+  { key: 'pending', label: 'Pending' },
+  { key: 'running', label: 'Running' },
+  { key: 'waiting_approval', label: 'Waiting approval' },
+  { key: 'approval_requested', label: 'Approval requested' },
+  { key: 'approval_approved', label: 'Approval approved' },
+  { key: 'approval_rejected', label: 'Approval rejected' },
+  { key: 'cancelled', label: 'Cancelled' },
+  { key: 'skipped', label: 'Skipped' },
+];
+
 const emptyConfigRepositoryForm: ConfigRepositoryFormState = {
   repo_url: '',
   branch: 'main',
@@ -252,6 +364,40 @@ const emptyConfigRepositoryForm: ConfigRepositoryFormState = {
   enabled: true,
   write_enabled: false,
   write_branch: 'nopsai/ui-changes',
+};
+
+const defaultNotificationEventState = (): Record<NotificationEventKey, boolean> => ({
+  failure: true,
+  success: false,
+  pending: false,
+  running: false,
+  waiting_approval: true,
+  approval_requested: true,
+  approval_approved: false,
+  approval_rejected: true,
+  cancelled: true,
+  skipped: false,
+});
+
+const emptyNotificationRouteForm: NotificationRouteFormState = {
+  routeName: 'default',
+  selectedRouteIndex: 0,
+  routes: [defaultNotificationRouteRule('default')],
+  enabled: true,
+  includeSameGroup: true,
+  includeUsers: '',
+  includeGroups: '',
+  excludeUsers: '',
+  excludeGroups: '',
+  events: defaultNotificationEventState(),
+  pipelineInclude: '*',
+  pipelineExclude: '',
+  repoInclude: '*',
+  repoExclude: '',
+  branchInclude: '*',
+  branchExclude: '',
+  dedupeWindow: '10m',
+  maxPerRun: '5',
 };
 
 const STATUS_META: Record<
@@ -389,6 +535,11 @@ function PipelineRunsPage() {
   const [configRepoPushResult, setConfigRepoPushResult] = useState<ConfigRepositoryCommitResponse | null>(null);
   const [configRepoManageAllowed, setConfigRepoManageAllowed] = useState(false);
   const [configRepoSyncAllowed, setConfigRepoSyncAllowed] = useState(false);
+  const [notificationRoute, setNotificationRoute] = useState<NotificationRouteRecord | null>(null);
+  const [notificationRouteForm, setNotificationRouteForm] = useState<NotificationRouteFormState>(emptyNotificationRouteForm);
+  const [notificationRouteLoading, setNotificationRouteLoading] = useState(false);
+  const [notificationRouteSaving, setNotificationRouteSaving] = useState(false);
+  const [notificationRouteError, setNotificationRouteError] = useState<string | null>(null);
   const [selectedRunIds, setSelectedRunIds] = useState<Set<string>>(new Set());
   const [repoSummaries, setRepoSummaries] = useState<Map<number, RepoSummary>>(new Map());
 
@@ -559,6 +710,10 @@ function PipelineRunsPage() {
     };
   }, []);
 
+  const normalizeNotificationRoute = useCallback((payload: unknown): NotificationRouteRecord => {
+    return normalizeNotificationRouteRecord(payload);
+  }, []);
+
   const loadFolderConfigRepository = useCallback(
     async (folderPath: string, opts?: { quiet?: boolean }) => {
       if (!opts?.quiet) {
@@ -597,6 +752,30 @@ function PipelineRunsPage() {
       }
     },
     [normalizeConfigRepository]
+  );
+
+  const loadFolderNotificationRoute = useCallback(
+    async (folderPath: string, opts?: { quiet?: boolean }) => {
+      if (!opts?.quiet) {
+        setNotificationRouteLoading(true);
+        setNotificationRouteError(null);
+      }
+      try {
+        const route = normalizeNotificationRoute(
+          await fetchJson<NotificationRouteRecord>(`/v1/groups/${encodeURIComponent(folderPath)}/notifications`)
+        );
+        setNotificationRoute(route);
+        setNotificationRouteForm(notificationRouteFormFromDefinition(route.definition));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unable to load notification policy';
+        setNotificationRouteError(message);
+      } finally {
+        if (!opts?.quiet) {
+          setNotificationRouteLoading(false);
+        }
+      }
+    },
+    [fetchJson, normalizeNotificationRoute]
   );
 
   useLayoutEffect(() => {
@@ -724,9 +903,10 @@ function PipelineRunsPage() {
 
     void Promise.all([
       loadFolderConfigRepository(configRepoFolder.folderPath),
+      loadFolderNotificationRoute(configRepoFolder.folderPath),
       checkAccessPermission('config_repo.manage', 'folder', configRepoFolder.folderPath),
       checkAccessPermission('config_repo.sync', 'folder', configRepoFolder.folderPath),
-    ]).then(([, manageAllowed, syncAllowed]) => {
+    ]).then(([, , manageAllowed, syncAllowed]) => {
       if (cancelled) return;
       setConfigRepoManageAllowed(manageAllowed);
       setConfigRepoSyncAllowed(syncAllowed);
@@ -735,7 +915,7 @@ function PipelineRunsPage() {
     return () => {
       cancelled = true;
     };
-  }, [checkAccessPermission, configRepoFolder, loadFolderConfigRepository]);
+  }, [checkAccessPermission, configRepoFolder, loadFolderConfigRepository, loadFolderNotificationRoute]);
 
   useEffect(() => {
     if (!configRepoFolder || configRepo?.last_sync_status !== 'running') return undefined;
@@ -1106,6 +1286,9 @@ function PipelineRunsPage() {
       setConfigRepo(null);
       setConfigRepoForm(emptyConfigRepositoryForm);
       setConfigRepoError(null);
+      setNotificationRoute(null);
+      setNotificationRouteForm(emptyNotificationRouteForm);
+      setNotificationRouteError(null);
       setConfigRepoDriftOpen(false);
       setConfigRepoDrift(null);
       setConfigRepoDriftError(null);
@@ -1121,6 +1304,9 @@ function PipelineRunsPage() {
     setConfigRepo(null);
     setConfigRepoForm(emptyConfigRepositoryForm);
     setConfigRepoError(null);
+    setNotificationRoute(null);
+    setNotificationRouteForm(emptyNotificationRouteForm);
+    setNotificationRouteError(null);
     setConfigRepoDriftOpen(false);
     setConfigRepoDrift(null);
     setConfigRepoDriftError(null);
@@ -1129,6 +1315,8 @@ function PipelineRunsPage() {
     setConfigRepoSyncing(false);
     setConfigRepoDriftLoading(false);
     setConfigRepoPushing(false);
+    setNotificationRouteSaving(false);
+    setNotificationRouteLoading(false);
   }, []);
 
   const saveFolderConfigRepository = useCallback(async () => {
@@ -1263,6 +1451,64 @@ function PipelineRunsPage() {
       setConfigRepoPushing(false);
     }
   }, [configRepoDrift, configRepoFolder, configRepoManageAllowed, configRepoPushing, fetchJson]);
+
+  const saveFolderNotificationRoute = useCallback(async () => {
+    if (!configRepoFolder || !configRepoManageAllowed || notificationRouteSaving || notificationRoute?.managed_by_config_repo) return;
+    setNotificationRouteSaving(true);
+    setNotificationRouteError(null);
+    try {
+      const route = normalizeNotificationRoute(
+        await fetchJson<NotificationRouteRecord>(`/v1/groups/${encodeURIComponent(configRepoFolder.folderPath)}/notifications`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(notificationRoutePayloadFromForm(notificationRouteForm)),
+        })
+      );
+      setNotificationRoute(route);
+      setNotificationRouteForm(notificationRouteFormFromDefinition(route.definition));
+      setConfigRepoDrift(null);
+      setConfigRepoPushResult(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to save notification policy';
+      setNotificationRouteError(message);
+    } finally {
+      setNotificationRouteSaving(false);
+    }
+  }, [
+    configRepoFolder,
+    configRepoManageAllowed,
+    fetchJson,
+    normalizeNotificationRoute,
+    notificationRoute?.managed_by_config_repo,
+    notificationRouteForm,
+    notificationRouteSaving,
+  ]);
+
+  const deleteFolderNotificationRoute = useCallback(async () => {
+    if (!configRepoFolder || !configRepoManageAllowed || notificationRouteSaving || notificationRoute?.managed_by_config_repo) return;
+    if (!notificationRoute?.id) return;
+    if (!window.confirm('Remove the notification policy from this group?')) return;
+    setNotificationRouteSaving(true);
+    setNotificationRouteError(null);
+    try {
+      await fetchJson<void>(`/v1/groups/${encodeURIComponent(configRepoFolder.folderPath)}/notifications`, { method: 'DELETE' });
+      const definition = defaultNotificationRouteDefinition();
+      setNotificationRoute({
+        group_path: configRepoFolder.folderPath,
+        definition,
+        source: 'database',
+        managed_by_config_repo: false,
+      });
+      setNotificationRouteForm(notificationRouteFormFromDefinition(definition));
+      setConfigRepoDrift(null);
+      setConfigRepoPushResult(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to remove notification policy';
+      setNotificationRouteError(message);
+    } finally {
+      setNotificationRouteSaving(false);
+    }
+  }, [configRepoFolder, configRepoManageAllowed, fetchJson, notificationRoute?.id, notificationRoute?.managed_by_config_repo, notificationRouteSaving]);
 
   const handleCancelRun = useCallback(
     async (runId: string) => {
@@ -1595,13 +1841,21 @@ function PipelineRunsPage() {
           error={configRepoError}
           driftLoading={configRepoDriftLoading}
           pushing={configRepoPushing}
+          notificationRoute={notificationRoute}
+          notificationForm={notificationRouteForm}
+          notificationLoading={notificationRouteLoading}
+          notificationSaving={notificationRouteSaving}
+          notificationError={notificationRouteError}
           canManage={configRepoManageAllowed}
           canSync={configRepoSyncAllowed}
           onChange={setConfigRepoForm}
+          onNotificationChange={setNotificationRouteForm}
           onSave={saveFolderConfigRepository}
           onDelete={deleteFolderConfigRepository}
           onSync={syncFolderConfigRepository}
           onCheckDrift={checkFolderConfigRepositoryDrift}
+          onSaveNotification={saveFolderNotificationRoute}
+          onDeleteNotification={deleteFolderNotificationRoute}
           onClose={closeFolderConfigRepository}
         />
       )}
@@ -5794,13 +6048,21 @@ function FolderConfigRepositoryModal({
   error,
   driftLoading,
   pushing,
+  notificationRoute,
+  notificationForm,
+  notificationLoading,
+  notificationSaving,
+  notificationError,
   canManage,
   canSync,
   onChange,
+  onNotificationChange,
   onSave,
   onDelete,
   onSync,
   onCheckDrift,
+  onSaveNotification,
+  onDeleteNotification,
   onClose,
 }: {
   folderLabel: string;
@@ -5812,34 +6074,61 @@ function FolderConfigRepositoryModal({
   error: string | null;
   driftLoading: boolean;
   pushing: boolean;
+  notificationRoute: NotificationRouteRecord | null;
+  notificationForm: NotificationRouteFormState;
+  notificationLoading: boolean;
+  notificationSaving: boolean;
+  notificationError: string | null;
   canManage: boolean;
   canSync: boolean;
   onChange: Dispatch<SetStateAction<ConfigRepositoryFormState>>;
+  onNotificationChange: Dispatch<SetStateAction<NotificationRouteFormState>>;
   onSave: () => Promise<void>;
   onDelete: () => Promise<void>;
   onSync: () => Promise<void>;
   onCheckDrift: () => Promise<void>;
+  onSaveNotification: () => Promise<void>;
+  onDeleteNotification: () => Promise<void>;
   onClose: () => void;
 }) {
-  const inputClass = 'w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)] disabled:cursor-not-allowed disabled:opacity-70';
+  const inputClass = 'pipelines-input w-full text-sm disabled:cursor-not-allowed disabled:opacity-70';
+  const textareaClass = `${inputClass} min-h-[104px] resize-y`;
+  const checkboxClass = 'h-4 w-4 rounded border-[var(--border-primary)] text-indigo-600 focus:ring-indigo-500';
+  const sectionClass = 'rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4';
+  const sectionTitleClass = 'text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]';
+  const fieldClass = 'flex flex-col gap-1 text-sm text-[var(--text-primary)]';
+  const toggleClass = 'flex min-h-[46px] items-center gap-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)]';
   const isRunning = repo?.last_sync_status === 'running';
   const canEdit = canManage && !loading && !saving;
   const syncDisabled = !repo || !canSync || syncing || saving || isRunning;
   const driftDisabled = !repo || driftLoading || saving || syncing || isRunning;
   const pushDisabled = driftDisabled || pushing || !canManage || !repo?.write_enabled || !repo?.write_branch;
+  const notificationManaged = Boolean(notificationRoute?.managed_by_config_repo);
+  const notificationCanEdit = canManage && !notificationLoading && !notificationSaving && !notificationManaged;
+  const notificationSourceLabel = notificationManaged ? 'GitOps' : notificationRoute?.id ? 'Database' : 'Default';
+  const notificationSaveDisabled = !notificationCanEdit;
+  const notificationDeleteDisabled = !notificationCanEdit || !notificationRoute?.id;
+  const [activeSettingsTab, setActiveSettingsTab] = useState<'sync' | 'notifications'>('sync');
+  const settingsTabClass = (tab: 'sync' | 'notifications') =>
+    `inline-flex min-h-[38px] items-center justify-center rounded-md px-4 py-2 text-sm font-semibold transition ${
+      activeSettingsTab === tab
+        ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-sm border border-[var(--border-primary)]'
+        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+    }`;
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
+    if (activeSettingsTab !== 'sync') return;
     await onSave();
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] px-4">
-      <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-[var(--border-primary)] overflow-hidden">
-        <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-[var(--border-primary)]">
+      <div className="w-full max-w-5xl max-h-[90vh] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-[var(--border-primary)] overflow-y-auto">
+        <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-[var(--border-primary)] bg-[var(--bg-secondary)]/70">
           <div>
             <p className="text-xs uppercase tracking-wide text-[var(--text-secondary)] font-semibold">Group Settings</p>
-            <h3 className="text-lg font-semibold text-[var(--text-primary)]">Config Repository</h3>
+            <h3 className="text-lg font-semibold text-[var(--text-primary)]">Config & Notifications</h3>
             <p className="text-xs text-[var(--text-secondary)] break-all">{folderLabel}</p>
           </div>
           <div className="flex items-center gap-2">
@@ -5853,11 +6142,34 @@ function FolderConfigRepositoryModal({
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-5 space-y-5">
-          {loading ? (
-            <div className="text-sm text-[var(--text-secondary)]">Loading config repository...</div>
-          ) : (
-            <>
+        <form onSubmit={handleSubmit} noValidate={activeSettingsTab !== 'sync'} className="p-5 space-y-5">
+          <div className="inline-flex rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-1" role="tablist" aria-label="Group settings sections">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeSettingsTab === 'sync'}
+              className={settingsTabClass('sync')}
+              onClick={() => setActiveSettingsTab('sync')}
+            >
+              Sync config
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeSettingsTab === 'notifications'}
+              className={settingsTabClass('notifications')}
+              onClick={() => setActiveSettingsTab('notifications')}
+            >
+              Notifications
+            </button>
+          </div>
+
+          {activeSettingsTab === 'sync' && (
+            <div className="space-y-5" role="tabpanel" aria-label="Sync config">
+              {loading ? (
+                <div className="text-sm text-[var(--text-secondary)]">Loading config repository...</div>
+              ) : (
+                <>
               {!repo && (
                 <div className="rounded-lg border border-dashed border-[var(--border-primary)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
                   No config repository connected.
@@ -5892,28 +6204,24 @@ function FolderConfigRepositoryModal({
                 </div>
               )}
 
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label htmlFor="folder-config-repo-url" className="text-sm font-medium text-[var(--text-primary)]">
-                    Repository URL
+              <div className={`${sectionClass} space-y-4`}>
+                <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(220px,260px)] gap-4 items-end">
+                  <label htmlFor="folder-config-repo-url" className={`${fieldClass} lg:col-span-2`}>
+                    <span>Repository URL</span>
+                    <input
+                      id="folder-config-repo-url"
+                      type="url"
+                      required={canManage}
+                      value={form.repo_url}
+                      onChange={event => onChange(prev => ({ ...prev, repo_url: event.target.value }))}
+                      disabled={!canEdit}
+                      className={inputClass}
+                      placeholder="https://github.com/org/config-repo"
+                    />
                   </label>
-                  <input
-                    id="folder-config-repo-url"
-                    type="url"
-                    required={canManage}
-                    value={form.repo_url}
-                    onChange={event => onChange(prev => ({ ...prev, repo_url: event.target.value }))}
-                    disabled={!canEdit}
-                    className={inputClass}
-                    placeholder="https://github.com/org/config-repo"
-                  />
-                </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label htmlFor="folder-config-repo-branch" className="text-sm font-medium text-[var(--text-primary)]">
-                      Branch
-                    </label>
+                  <label htmlFor="folder-config-repo-branch" className={fieldClass}>
+                    <span>Branch</span>
                     <input
                       id="folder-config-repo-branch"
                       value={form.branch}
@@ -5922,11 +6230,9 @@ function FolderConfigRepositoryModal({
                       className={inputClass}
                       placeholder="main"
                     />
-                  </div>
-                  <div className="space-y-2">
-                    <label htmlFor="folder-config-repo-base-path" className="text-sm font-medium text-[var(--text-primary)]">
-                      Base path
-                    </label>
+                  </label>
+                  <label htmlFor="folder-config-repo-base-path" className={fieldClass}>
+                    <span>Base path</span>
                     <input
                       id="folder-config-repo-base-path"
                       value={form.base_path}
@@ -5935,13 +6241,13 @@ function FolderConfigRepositoryModal({
                       className={inputClass}
                       placeholder="configs/team-1"
                     />
-                  </div>
+                  </label>
                 </div>
 
-                <label className="inline-flex items-center gap-2 text-sm text-[var(--text-primary)]">
+                <label className={toggleClass}>
                   <input
                     type="checkbox"
-                    className="h-4 w-4 rounded border-[var(--border-primary)] text-indigo-600 focus:ring-indigo-500"
+                    className={checkboxClass}
                     checked={form.enabled}
                     onChange={event => onChange(prev => ({ ...prev, enabled: event.target.checked }))}
                     disabled={!canEdit}
@@ -5950,22 +6256,20 @@ function FolderConfigRepositoryModal({
                 </label>
 
                 <div className="border-t border-[var(--border-primary)] pt-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <label className="inline-flex items-center gap-2 text-sm text-[var(--text-primary)]">
+                  <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,220px)_1fr] gap-4 items-end">
+                    <label className={toggleClass}>
                       <input
                         id="folder-config-repo-write-enabled"
                         type="checkbox"
-                        className="h-4 w-4 rounded border-[var(--border-primary)] text-indigo-600 focus:ring-indigo-500"
+                        className={checkboxClass}
                         checked={form.write_enabled}
                         onChange={event => onChange(prev => ({ ...prev, write_enabled: event.target.checked }))}
                         disabled={!canEdit}
                       />
                       Enable Git push
                     </label>
-                    <div className="space-y-2">
-                      <label htmlFor="folder-config-repo-write-branch" className="text-sm font-medium text-[var(--text-primary)]">
-                        Push branch
-                      </label>
+                    <label htmlFor="folder-config-repo-write-branch" className={fieldClass}>
+                      <span>Push branch</span>
                       <input
                         id="folder-config-repo-write-branch"
                         value={form.write_branch}
@@ -5974,49 +6278,666 @@ function FolderConfigRepositoryModal({
                         className={inputClass}
                         placeholder="nopsai/ui-changes"
                       />
-                    </div>
+                    </label>
                   </div>
                 </div>
               </div>
-            </>
+                </>
+              )}
+
+              {error && <div className="text-sm text-red-600 break-words">{error}</div>}
+
+              <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
+                {repo && canManage && (
+                  <button type="button" className="glass-button-danger mr-auto" onClick={onDelete} disabled={saving || syncing}>
+                    {saving ? 'Removing...' : 'Remove'}
+                  </button>
+                )}
+                {repo && canSync && (
+                  <button type="button" className="glass-button-subtle" onClick={onSync} disabled={syncDisabled}>
+                    {isRunning || syncing ? 'Syncing...' : 'Sync Now'}
+                  </button>
+                )}
+                {repo && (
+                  <button type="button" className="glass-button-subtle" onClick={() => void onCheckDrift()} disabled={driftDisabled}>
+                    {driftLoading ? 'Checking...' : 'Check drift'}
+                  </button>
+                )}
+                {repo && (
+                  <button type="button" className="glass-button-subtle" onClick={() => void onCheckDrift()} disabled={pushDisabled}>
+                    {pushing ? 'Pushing...' : 'Push to Git'}
+                  </button>
+                )}
+                <button type="button" className="glass-button-subtle" onClick={onClose} disabled={saving || syncing}>
+                  Close
+                </button>
+                {canManage && (
+                  <button type="submit" className="glass-button-primary" disabled={!canEdit}>
+                    {saving ? 'Saving...' : repo ? 'Save Repository' : 'Connect Repository'}
+                  </button>
+                )}
+              </div>
+            </div>
           )}
 
-          {error && <div className="text-sm text-red-600 break-words">{error}</div>}
+          {activeSettingsTab === 'notifications' && (
+            <div className="space-y-5" role="tabpanel" aria-label="Notifications">
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h4 className="text-sm font-semibold text-[var(--text-primary)]">Pipeline notifications</h4>
+                    <p className="text-xs text-[var(--text-secondary)]">{notificationRoute?.updated_at ? `Updated ${formatConfigRepoTimestamp(notificationRoute.updated_at)}` : 'No saved policy'}</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="runner-pill runner-pill--muted">{notificationSourceLabel}</span>
+                    {notificationManaged && notificationRoute?.config_source_path && (
+                      <span className="runner-pill runner-pill--link" title={notificationRoute.config_source_path}>
+                        {notificationRoute.config_source_path}
+                      </span>
+                    )}
+                  </div>
+                </div>
 
-          <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
-            {repo && canManage && (
-              <button type="button" className="glass-button-danger mr-auto" onClick={onDelete} disabled={saving || syncing}>
-                {saving ? 'Removing...' : 'Remove'}
-              </button>
-            )}
-            {repo && canSync && (
-              <button type="button" className="glass-button-subtle" onClick={onSync} disabled={syncDisabled}>
-                {isRunning || syncing ? 'Syncing...' : 'Sync Now'}
-              </button>
-            )}
-            {repo && (
-              <button type="button" className="glass-button-subtle" onClick={() => void onCheckDrift()} disabled={driftDisabled}>
-                {driftLoading ? 'Checking...' : 'Check drift'}
-              </button>
-            )}
-            {repo && (
-              <button type="button" className="glass-button-subtle" onClick={() => void onCheckDrift()} disabled={pushDisabled}>
-                {pushing ? 'Pushing...' : 'Push to Git'}
-              </button>
-            )}
-            <button type="button" className="glass-button-subtle" onClick={onClose} disabled={saving || syncing}>
-              Close
-            </button>
-            {canManage && (
-              <button type="submit" className="glass-button-primary" disabled={!canEdit}>
-                {saving ? 'Saving...' : repo ? 'Save Repository' : 'Connect Repository'}
-              </button>
-            )}
-          </div>
+                {notificationLoading ? (
+                  <div className="text-sm text-[var(--text-secondary)]">Loading notification policy...</div>
+                ) : (
+                  <>
+                    {notificationManaged && (
+                      <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+                        Managed by GitOps.
+                      </div>
+                    )}
+
+                    <div className={`${sectionClass} space-y-4`}>
+                      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(260px,320px)] gap-4">
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className={sectionTitleClass}>Routes</p>
+                            <div className="flex flex-wrap items-center gap-2">
+                              {notificationCanEdit && (
+                                <button type="button" className="glass-button-subtle" onClick={() => onNotificationChange(prev => notificationRouteFormAddRoute(prev))}>
+                                  <Plus className="h-4 w-4" />
+                                  Add route
+                                </button>
+                              )}
+                              {notificationCanEdit && notificationForm.routes.length > 1 && (
+                                <button type="button" className="glass-button-danger" onClick={() => onNotificationChange(prev => notificationRouteFormRemoveSelectedRoute(prev))}>
+                                  <Trash2 className="h-4 w-4" />
+                                  Remove selected
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex min-h-[44px] flex-wrap items-center gap-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2">
+                            {notificationForm.routes.map((route, index) => (
+                              <button
+                                key={`${route.name}-${index}`}
+                                type="button"
+                                className={`runner-pill ${notificationForm.selectedRouteIndex === index ? 'runner-pill--ok' : 'runner-pill--muted'}`}
+                                onClick={() => onNotificationChange(prev => notificationRouteFormSelectRoute(prev, index))}
+                                disabled={notificationSaving}
+                              >
+                                {(notificationForm.selectedRouteIndex === index ? notificationForm.routeName : route.name) || `route-${index + 1}`}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <label htmlFor="notification-route-name" className={fieldClass}>
+                          <span>Route name</span>
+                          <input
+                            id="notification-route-name"
+                            value={notificationForm.routeName}
+                            onChange={event => onNotificationChange(prev => ({ ...prev, routeName: event.target.value }))}
+                            disabled={!notificationCanEdit}
+                            className={inputClass}
+                            placeholder="release failures"
+                          />
+                        </label>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <label className={toggleClass}>
+                          <input
+                            type="checkbox"
+                            className={checkboxClass}
+                            checked={notificationForm.enabled}
+                            onChange={event => onNotificationChange(prev => ({ ...prev, enabled: event.target.checked }))}
+                            disabled={!notificationCanEdit}
+                          />
+                          Route enabled
+                        </label>
+                        <label className={toggleClass}>
+                          <input
+                            type="checkbox"
+                            className={checkboxClass}
+                            checked
+                            disabled
+                          />
+                          Mail
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className={`${sectionClass} space-y-4`}>
+                      <p className={sectionTitleClass}>Recipients</p>
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div className="space-y-3">
+                          <label className={toggleClass}>
+                            <input
+                              type="checkbox"
+                              className={checkboxClass}
+                              checked={notificationForm.includeSameGroup}
+                              onChange={event => onNotificationChange(prev => ({ ...prev, includeSameGroup: event.target.checked }))}
+                              disabled={!notificationCanEdit}
+                            />
+                            Same group
+                          </label>
+                          <label htmlFor="notification-include-users" className={fieldClass}>
+                            <span>People</span>
+                            <textarea
+                              id="notification-include-users"
+                              value={notificationForm.includeUsers}
+                              onChange={event => onNotificationChange(prev => ({ ...prev, includeUsers: event.target.value }))}
+                              disabled={!notificationCanEdit}
+                              className={textareaClass}
+                              placeholder="release@example.com"
+                            />
+                          </label>
+                          <label htmlFor="notification-include-groups" className={fieldClass}>
+                            <span>Groups</span>
+                            <textarea
+                              id="notification-include-groups"
+                              value={notificationForm.includeGroups}
+                              onChange={event => onNotificationChange(prev => ({ ...prev, includeGroups: event.target.value }))}
+                              disabled={!notificationCanEdit}
+                              className={textareaClass}
+                              placeholder="team-1/platform"
+                            />
+                          </label>
+                        </div>
+
+                        <div className="space-y-3">
+                          <div className="min-h-[46px] rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-secondary)]">
+                            Exclusions apply after all included recipients are resolved.
+                          </div>
+                          <label htmlFor="notification-exclude-users" className={fieldClass}>
+                            <span>Excluded people</span>
+                            <textarea
+                              id="notification-exclude-users"
+                              value={notificationForm.excludeUsers}
+                              onChange={event => onNotificationChange(prev => ({ ...prev, excludeUsers: event.target.value }))}
+                              disabled={!notificationCanEdit}
+                              className={textareaClass}
+                              placeholder="quiet@example.com"
+                            />
+                          </label>
+                          <label htmlFor="notification-exclude-groups" className={fieldClass}>
+                            <span>Excluded groups</span>
+                            <textarea
+                              id="notification-exclude-groups"
+                              value={notificationForm.excludeGroups}
+                              onChange={event => onNotificationChange(prev => ({ ...prev, excludeGroups: event.target.value }))}
+                              disabled={!notificationCanEdit}
+                              className={textareaClass}
+                              placeholder="team-1/noisy-workloads"
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className={`${sectionClass} space-y-3`}>
+                      <p className={sectionTitleClass}>Events</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+                        {NOTIFICATION_EVENTS.map(option => (
+                          <label key={option.key} className={toggleClass}>
+                            <input
+                              type="checkbox"
+                              className={checkboxClass}
+                              checked={notificationForm.events[option.key]}
+                              onChange={event =>
+                                onNotificationChange(prev => ({
+                                  ...prev,
+                                  events: { ...prev.events, [option.key]: event.target.checked },
+                                }))
+                              }
+                              disabled={!notificationCanEdit}
+                            />
+                            {option.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className={`${sectionClass} space-y-4`}>
+                      <p className={sectionTitleClass}>Filters</p>
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                        <NotificationPatternInputs
+                          label="Pipelines"
+                          includeID="notification-pipeline-include"
+                          excludeID="notification-pipeline-exclude"
+                          includeValue={notificationForm.pipelineInclude}
+                          excludeValue={notificationForm.pipelineExclude}
+                          disabled={!notificationCanEdit}
+                          inputClass={inputClass}
+                          fieldClass={fieldClass}
+                          onIncludeChange={value => onNotificationChange(prev => ({ ...prev, pipelineInclude: value }))}
+                          onExcludeChange={value => onNotificationChange(prev => ({ ...prev, pipelineExclude: value }))}
+                        />
+                        <NotificationPatternInputs
+                          label="Repositories"
+                          includeID="notification-repo-include"
+                          excludeID="notification-repo-exclude"
+                          includeValue={notificationForm.repoInclude}
+                          excludeValue={notificationForm.repoExclude}
+                          disabled={!notificationCanEdit}
+                          inputClass={inputClass}
+                          fieldClass={fieldClass}
+                          onIncludeChange={value => onNotificationChange(prev => ({ ...prev, repoInclude: value }))}
+                          onExcludeChange={value => onNotificationChange(prev => ({ ...prev, repoExclude: value }))}
+                        />
+                        <NotificationPatternInputs
+                          label="Branches"
+                          includeID="notification-branch-include"
+                          excludeID="notification-branch-exclude"
+                          includeValue={notificationForm.branchInclude}
+                          excludeValue={notificationForm.branchExclude}
+                          disabled={!notificationCanEdit}
+                          inputClass={inputClass}
+                          fieldClass={fieldClass}
+                          onIncludeChange={value => onNotificationChange(prev => ({ ...prev, branchInclude: value }))}
+                          onExcludeChange={value => onNotificationChange(prev => ({ ...prev, branchExclude: value }))}
+                        />
+                      </div>
+                    </div>
+
+                    <div className={`${sectionClass} space-y-4`}>
+                      <p className={sectionTitleClass}>Delivery limits</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <label htmlFor="notification-dedupe-window" className={fieldClass}>
+                          <span>Dedupe window</span>
+                          <input
+                            id="notification-dedupe-window"
+                            value={notificationForm.dedupeWindow}
+                            onChange={event => onNotificationChange(prev => ({ ...prev, dedupeWindow: event.target.value }))}
+                            disabled={!notificationCanEdit}
+                            className={inputClass}
+                            placeholder="10m"
+                          />
+                        </label>
+                        <label htmlFor="notification-max-per-run" className={fieldClass}>
+                          <span>Max per run</span>
+                          <input
+                            id="notification-max-per-run"
+                            type="number"
+                            min="1"
+                            value={notificationForm.maxPerRun}
+                            onChange={event => onNotificationChange(prev => ({ ...prev, maxPerRun: event.target.value }))}
+                            disabled={!notificationCanEdit}
+                            className={inputClass}
+                            placeholder="5"
+                          />
+                        </label>
+                      </div>
+                    </div>
+
+                    {notificationError && <div className="text-sm text-red-600 break-words">{notificationError}</div>}
+
+                    <div className="flex flex-wrap justify-end gap-3">
+                      {notificationRoute?.id && (
+                        <button type="button" className="glass-button-danger mr-auto" onClick={() => void onDeleteNotification()} disabled={notificationDeleteDisabled}>
+                          {notificationSaving ? 'Removing...' : 'Remove Policy'}
+                        </button>
+                      )}
+                      {canManage && (
+                        <button type="button" className="glass-button-primary" onClick={() => void onSaveNotification()} disabled={notificationSaveDisabled}>
+                          {notificationSaving ? 'Saving...' : 'Save Notifications'}
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
         </form>
       </div>
     </div>
   );
+}
+
+function NotificationPatternInputs({
+  label,
+  includeID,
+  excludeID,
+  includeValue,
+  excludeValue,
+  disabled,
+  inputClass,
+  fieldClass,
+  onIncludeChange,
+  onExcludeChange,
+}: {
+  label: string;
+  includeID: string;
+  excludeID: string;
+  includeValue: string;
+  excludeValue: string;
+  disabled: boolean;
+  inputClass: string;
+  fieldClass: string;
+  onIncludeChange: (value: string) => void;
+  onExcludeChange: (value: string) => void;
+}) {
+  return (
+    <div className="h-full space-y-3 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-3">
+      <p className="text-sm font-semibold text-[var(--text-primary)]">{label}</p>
+      <label htmlFor={includeID} className={fieldClass}>
+        <span>Include</span>
+        <input
+          id={includeID}
+          value={includeValue}
+          onChange={event => onIncludeChange(event.target.value)}
+          disabled={disabled}
+          className={inputClass}
+          placeholder="*"
+        />
+      </label>
+      <label htmlFor={excludeID} className={fieldClass}>
+        <span>Exclude</span>
+        <input
+          id={excludeID}
+          value={excludeValue}
+          onChange={event => onExcludeChange(event.target.value)}
+          disabled={disabled}
+          className={inputClass}
+          placeholder="dependabot/*"
+        />
+      </label>
+    </div>
+  );
+}
+
+function defaultNotificationRouteDefinition(): NotificationRouteDefinition {
+  const route = defaultNotificationRouteRule('default');
+  return {
+    enabled: true,
+    recipients: route.recipients,
+    events: route.events,
+    filters: route.filters,
+    delivery: route.delivery,
+    routes: [route],
+  };
+}
+
+function defaultNotificationRouteRule(name: string): NotificationRouteRule {
+  return {
+    name,
+    enabled: true,
+    recipients: {
+      include: { teams: ['same_group'], users: [], groups: [] },
+      exclude: { users: [], groups: [] },
+    },
+    events: defaultNotificationEventState(),
+    filters: {
+      pipelines: { include: ['*'], exclude: [] },
+      repos: { include: ['*'], exclude: [] },
+      branches: { include: ['*'], exclude: [] },
+    },
+    delivery: {
+      channels: ['mail'],
+      throttle: {
+        dedupe_window: '10m',
+        max_per_run: 5,
+      },
+    },
+  };
+}
+
+function normalizeNotificationRouteRecord(payload: unknown): NotificationRouteRecord {
+  if (!payload || typeof payload !== 'object') {
+    return { definition: defaultNotificationRouteDefinition(), source: 'database', managed_by_config_repo: false };
+  }
+  const record = payload as Record<string, unknown>;
+  const id = typeof record.id === 'number' ? record.id : Number(record.id);
+  const groupID = typeof record.group_id === 'number' ? record.group_id : Number(record.group_id);
+  return {
+    id: Number.isFinite(id) && id > 0 ? id : undefined,
+    group_id: Number.isFinite(groupID) && groupID > 0 ? groupID : undefined,
+    group_path: typeof record.group_path === 'string' ? record.group_path : undefined,
+    definition: normalizeNotificationRouteDefinition(record.definition),
+    source: typeof record.source === 'string' ? record.source : 'database',
+    config_source_path: typeof record.config_source_path === 'string' ? record.config_source_path : undefined,
+    managed_by_config_repo: Boolean(record.managed_by_config_repo),
+    updated_at: typeof record.updated_at === 'string' ? record.updated_at : undefined,
+  };
+}
+
+function normalizeNotificationRouteDefinition(payload: unknown): NotificationRouteDefinition {
+  const fallback = defaultNotificationRouteDefinition();
+  if (!payload || typeof payload !== 'object') return fallback;
+  const record = payload as Record<string, unknown>;
+  const legacyRoute = normalizeNotificationRouteRule(record, 'default');
+  const rawRoutes = Array.isArray(record.routes) ? record.routes : [];
+  const routes = rawRoutes.length > 0
+    ? rawRoutes.map((item, index) => normalizeNotificationRouteRule(item, `route-${index + 1}`))
+    : [legacyRoute];
+  const first = routes[0] || legacyRoute;
+  return {
+    enabled: typeof record.enabled === 'boolean' ? record.enabled : fallback.enabled,
+    recipients: first.recipients,
+    events: first.events,
+    filters: first.filters,
+    delivery: first.delivery,
+    routes,
+  };
+}
+
+function normalizeNotificationRouteRule(payload: unknown, fallbackName: string): NotificationRouteRule {
+  const record = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {};
+  const rawRecipients = record.recipients && typeof record.recipients === 'object' ? record.recipients as Record<string, unknown> : {};
+  const rawEvents = record.events && typeof record.events === 'object' ? record.events as Record<string, unknown> : {};
+  const rawFilters = record.filters && typeof record.filters === 'object' ? record.filters as Record<string, unknown> : {};
+  const rawDelivery = record.delivery && typeof record.delivery === 'object' ? record.delivery as Record<string, unknown> : {};
+  const rawThrottle = rawDelivery.throttle && typeof rawDelivery.throttle === 'object' ? rawDelivery.throttle as Record<string, unknown> : {};
+  const events = defaultNotificationEventState();
+  NOTIFICATION_EVENTS.forEach(option => {
+    if (typeof rawEvents[option.key] === 'boolean') {
+      events[option.key] = rawEvents[option.key] as boolean;
+    }
+  });
+  const channels = normalizeStringArray(rawDelivery.channels);
+  return {
+    name: typeof record.name === 'string' && record.name.trim() ? record.name.trim() : fallbackName,
+    enabled: typeof record.enabled === 'boolean' ? record.enabled : true,
+    recipients: {
+      include: normalizeNotificationRecipientSet(rawRecipients.include),
+      exclude: normalizeNotificationRecipientSet(rawRecipients.exclude),
+    },
+    events,
+    filters: {
+      pipelines: normalizeNotificationPatternFilter(rawFilters.pipelines),
+      repos: normalizeNotificationPatternFilter(rawFilters.repos),
+      branches: normalizeNotificationPatternFilter(rawFilters.branches),
+    },
+    delivery: {
+      channels: channels.length > 0 ? channels : ['mail'],
+      throttle: {
+        dedupe_window: typeof rawThrottle.dedupe_window === 'string' && rawThrottle.dedupe_window.trim() ? rawThrottle.dedupe_window : '10m',
+        max_per_run: typeof rawThrottle.max_per_run === 'number' && rawThrottle.max_per_run > 0 ? rawThrottle.max_per_run : 5,
+      },
+    },
+  };
+}
+
+function normalizeNotificationRecipientSet(payload: unknown): NotificationRecipientSet {
+  if (!payload || typeof payload !== 'object') return {};
+  const record = payload as Record<string, unknown>;
+  return {
+    teams: normalizeStringArray(record.teams),
+    users: normalizeStringArray(record.users),
+    groups: normalizeStringArray(record.groups),
+  };
+}
+
+function normalizeNotificationPatternFilter(payload: unknown): NotificationPatternFilter {
+  if (!payload || typeof payload !== 'object') return { include: ['*'], exclude: [] };
+  const record = payload as Record<string, unknown>;
+  const include = normalizeStringArray(record.include);
+  return {
+    include: include.length > 0 ? include : ['*'],
+    exclude: normalizeStringArray(record.exclude),
+  };
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string').map(item => item.trim()).filter(Boolean);
+}
+
+function notificationRouteFormFromDefinition(definition: NotificationRouteDefinition): NotificationRouteFormState {
+  const routes = (definition.routes && definition.routes.length > 0 ? definition.routes : [normalizeNotificationRouteRule(definition, 'default')])
+    .map((route, index) => normalizeNotificationRouteRule(route, route.name || `route-${index + 1}`));
+  return notificationRouteFormFromRule(routes, 0);
+}
+
+function notificationRouteFormFromRule(routes: NotificationRouteRule[], selectedRouteIndex: number): NotificationRouteFormState {
+  const safeIndex = Math.min(Math.max(selectedRouteIndex, 0), Math.max(routes.length - 1, 0));
+  const route = routes[safeIndex] || defaultNotificationRouteRule('default');
+  const include = route.recipients.include || {};
+  const exclude = route.recipients.exclude || {};
+  const events = defaultNotificationEventState();
+  NOTIFICATION_EVENTS.forEach(option => {
+    events[option.key] = Boolean(route.events?.[option.key]);
+  });
+  return {
+    routeName: route.name || `route-${safeIndex + 1}`,
+    selectedRouteIndex: safeIndex,
+    routes,
+    enabled: route.enabled,
+    includeSameGroup: (include.teams || []).includes('same_group'),
+    includeUsers: notificationListToText(include.users),
+    includeGroups: notificationListToText(include.groups),
+    excludeUsers: notificationListToText(exclude.users),
+    excludeGroups: notificationListToText(exclude.groups),
+    events,
+    pipelineInclude: notificationListToText(route.filters.pipelines?.include || ['*']),
+    pipelineExclude: notificationListToText(route.filters.pipelines?.exclude),
+    repoInclude: notificationListToText(route.filters.repos?.include || ['*']),
+    repoExclude: notificationListToText(route.filters.repos?.exclude),
+    branchInclude: notificationListToText(route.filters.branches?.include || ['*']),
+    branchExclude: notificationListToText(route.filters.branches?.exclude),
+    dedupeWindow: route.delivery.throttle?.dedupe_window || '10m',
+    maxPerRun: String(route.delivery.throttle?.max_per_run || 5),
+  };
+}
+
+function notificationRoutePayloadFromForm(form: NotificationRouteFormState): NotificationRouteDefinition {
+  const committed = notificationRouteFormCommitCurrentRoute(form);
+  const routes = committed.routes.length > 0 ? committed.routes : [defaultNotificationRouteRule('default')];
+  const first = routes[0];
+  return {
+    enabled: routes.some(route => route.enabled),
+    recipients: first.recipients,
+    events: first.events,
+    filters: first.filters,
+    delivery: first.delivery,
+    routes,
+  };
+}
+
+function notificationRouteFormCommitCurrentRoute(form: NotificationRouteFormState): NotificationRouteFormState {
+  const routes = form.routes.length > 0 ? [...form.routes] : [defaultNotificationRouteRule('default')];
+  const safeIndex = Math.min(Math.max(form.selectedRouteIndex, 0), routes.length - 1);
+  routes[safeIndex] = notificationRouteRuleFromForm(form);
+  return { ...form, routes, selectedRouteIndex: safeIndex };
+}
+
+function notificationRouteRuleFromForm(form: NotificationRouteFormState): NotificationRouteRule {
+  const maxPerRun = Number.parseInt(form.maxPerRun, 10);
+  const events = defaultNotificationEventState();
+  NOTIFICATION_EVENTS.forEach(option => {
+    events[option.key] = Boolean(form.events[option.key]);
+  });
+  return {
+    name: form.routeName.trim() || `route-${form.selectedRouteIndex + 1}`,
+    enabled: form.enabled,
+    recipients: {
+      include: {
+        teams: form.includeSameGroup ? ['same_group'] : [],
+        users: notificationTextToList(form.includeUsers),
+        groups: notificationTextToList(form.includeGroups),
+      },
+      exclude: {
+        users: notificationTextToList(form.excludeUsers),
+        groups: notificationTextToList(form.excludeGroups),
+      },
+    },
+    events,
+    filters: {
+      pipelines: notificationPatternPayload(form.pipelineInclude, form.pipelineExclude),
+      repos: notificationPatternPayload(form.repoInclude, form.repoExclude),
+      branches: notificationPatternPayload(form.branchInclude, form.branchExclude),
+    },
+    delivery: {
+      channels: ['mail'],
+      throttle: {
+        dedupe_window: form.dedupeWindow.trim() || '10m',
+        max_per_run: Number.isFinite(maxPerRun) && maxPerRun > 0 ? maxPerRun : 5,
+      },
+    },
+  };
+}
+
+function notificationRouteFormSelectRoute(form: NotificationRouteFormState, index: number): NotificationRouteFormState {
+  const committed = notificationRouteFormCommitCurrentRoute(form);
+  return notificationRouteFormFromRule(committed.routes, index);
+}
+
+function notificationRouteFormAddRoute(form: NotificationRouteFormState): NotificationRouteFormState {
+  const committed = notificationRouteFormCommitCurrentRoute(form);
+  let nextNumber = committed.routes.length + 1;
+  const existingNames = new Set(committed.routes.map(route => route.name.toLowerCase()));
+  let name = `route-${nextNumber}`;
+  while (existingNames.has(name.toLowerCase())) {
+    nextNumber += 1;
+    name = `route-${nextNumber}`;
+  }
+  const routes = [...committed.routes, defaultNotificationRouteRule(name)];
+  return notificationRouteFormFromRule(routes, routes.length - 1);
+}
+
+function notificationRouteFormRemoveSelectedRoute(form: NotificationRouteFormState): NotificationRouteFormState {
+  const committed = notificationRouteFormCommitCurrentRoute(form);
+  if (committed.routes.length <= 1) return committed;
+  const routes = committed.routes.filter((_, index) => index !== committed.selectedRouteIndex);
+  return notificationRouteFormFromRule(routes, Math.min(committed.selectedRouteIndex, routes.length - 1));
+}
+
+function notificationPatternPayload(includeText: string, excludeText: string): NotificationPatternFilter {
+  const include = notificationTextToList(includeText);
+  return {
+    include: include.length > 0 ? include : ['*'],
+    exclude: notificationTextToList(excludeText),
+  };
+}
+
+function notificationListToText(values?: string[]) {
+  return (values || []).join('\n');
+}
+
+function notificationTextToList(value: string) {
+  const seen = new Set<string>();
+  return value
+    .split(/[,\n]/)
+    .map(item => item.trim())
+    .filter(Boolean)
+    .filter(item => {
+      const key = item.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 }
 
 function formatConfigRepoTimestamp(value?: string) {

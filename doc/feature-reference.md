@@ -202,8 +202,10 @@ GitOps-style configuration sync supports:
 - `scopes/` -> scoped variables declared under `variables:` and GitOps secret
   keys declared under `secrets:`
 - `knowledge/` -> managed knowledge context markdown documents
+- `notifications/` -> group-level pipeline notification policies with named routes
 - `pipelineruns/structure.yaml` -> legacy UI group hierarchy for groups owned by the syncing repo
 - `config-repositories/` -> group config repo bindings, group shells, and colocated group structure files
+- `settings/system/mail.yaml` -> SMTP mail notification settings from a global config repo
 - `setting/system/llm_profile.yaml` -> system LLM profile registry from a global config repo
 - `setting/system/mcp.yaml` -> system MCP server and profile registry from a global config repo
 - `setting/system/runner.yaml` -> runner install defaults, runtime URLs, and dispatcher routing from a global config repo
@@ -220,11 +222,32 @@ Sync behavior:
 - sync system/global config repositories before group config repositories, so group bindings defined in Git can be picked up during the same sync-all run
 - group config repositories are authoritative for resources under their group path; parent repos prune their own managed resources in delegated groups
 - config repository bindings can enable Git push to a review branch with `write_enabled` and `write_branch`
-- config repository drift compares both directions across syncable declarative resources: pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, run group/config-repository structure, access manifests, LLM profiles, MCP registry files, and runtime settings. UI-side Access dialog changes for pipelines, reusable steps, scopes, and knowledge contexts are exported back into embedded GitOps `access:` blocks; pipeline run rows remain runtime/audit state.
+- config repository drift compares both directions across syncable declarative resources: pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, notification routes, run group/config-repository structure, access manifests, LLM profiles, MCP registry files, mail settings, and runtime settings. UI-side Access dialog changes for pipelines, reusable steps, scopes, and knowledge contexts are exported back into embedded GitOps `access:` blocks; pipeline run rows remain runtime/audit state.
 - config sync can adopt matching database-owned resources inside the syncing repo scope after the generated files are present in the sync branch, then mark them as GitOps-managed
 - `config-repositories/groups/structure.yaml` and `config-repositories/groups/<group>/structure.yaml` can place apps under group shells with `name` and `repo_url`, while legacy `repos:` lists remain accepted during migration; these files can also include inline `config:` blocks for group repo bindings
 - global legacy `pipelineruns/structure.yaml` does not apply delegated group subtrees; those groups are created from `config-repositories/groups` and owned by their group repos
 - runtime settings GitOps is system/global only; `dispatcher_routing` changes are persisted and applied by the live dispatcher through the control-plane sync path
+- mail settings GitOps is system/global only and stores `smtp.password_secret_ref` rather than the SMTP password value
+
+## Notifications And Metrics
+
+Pipeline notifications include:
+
+- Prometheus-friendly `GET /metrics` with DB-backed pipeline run, duration,
+  active/pending/approval, step, task, and notification delivery metrics
+- system-level mail settings under **System > Config** and
+  `GET|PUT /v1/system/notifications/mail`
+- `POST /v1/system/notifications/mail/test` for validating SMTP delivery
+- group-level notification routing under
+  `GET|PUT|DELETE /v1/groups/{group}/notifications`
+- GitOps support for global `notifications/groups/<group>.yaml` files and
+  group-repo `notifications.yaml` files
+- one or more named routes per group policy, each with same-group recipients,
+  explicit users/groups, excludes, event selection, pipeline/repository/branch
+  filters, mail channels, and dedupe/max-per-run throttling
+- asynchronous mail delivery for running, pending, success, failure, cancelled,
+  approval requested, approval approved, and approval rejected events when a
+  saved or GitOps-managed route exists for the run group
 
 ## API And Run Management
 

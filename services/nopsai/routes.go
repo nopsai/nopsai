@@ -62,6 +62,9 @@ func (a *App) registerGroupRoutes(mux *http.ServeMux) {
 func (a *App) registerSystemRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/system/config", a.handleGetSystemConfig)
 	mux.HandleFunc("PUT /v1/system/config", a.handleUpdateSystemConfig)
+	mux.HandleFunc("GET /v1/system/notifications/mail", a.handleGetNotificationMailSettings)
+	mux.HandleFunc("PUT /v1/system/notifications/mail", a.handleUpdateNotificationMailSettings)
+	mux.HandleFunc("POST /v1/system/notifications/mail/test", a.handleTestNotificationMailSettings)
 	mux.HandleFunc("GET /v1/system/llm-profiles", a.handleListLLMProfiles)
 	mux.HandleFunc("PUT /v1/system/llm-profiles", a.handleReplaceLLMProfiles)
 	mux.HandleFunc("PUT /v1/system/llm-profiles/{profileName}", a.handleUpsertLLMProfile)
@@ -118,6 +121,7 @@ func (a *App) registerSystemRoutes(mux *http.ServeMux) {
 }
 
 func (a *App) registerMonitoringRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /metrics", a.handleMetrics)
 	mux.HandleFunc("GET /v1/monitoring/dispatcher", a.handleMonitoringDispatcherStatus)
 }
 
@@ -137,6 +141,9 @@ func (a *App) registerFolderConfigRepositoryRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/groups/{folderID}/config-repo/sync", a.handleSyncFolderConfigRepository)
 	mux.HandleFunc("GET /v1/groups/{folderID}/config-repo/drift", a.handleGetFolderConfigRepositoryDrift)
 	mux.HandleFunc("POST /v1/groups/{folderID}/config-repo/write", a.handleWriteFolderConfigRepository)
+	mux.HandleFunc("GET /v1/groups/{folderID}/notifications", a.handleGetFolderNotificationRoute)
+	mux.HandleFunc("PUT /v1/groups/{folderID}/notifications", a.handleUpsertFolderNotificationRoute)
+	mux.HandleFunc("DELETE /v1/groups/{folderID}/notifications", a.handleDeleteFolderNotificationRoute)
 }
 
 func (a *App) registerPipelineRoutes(mux *http.ServeMux) {
