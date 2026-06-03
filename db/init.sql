@@ -608,6 +608,69 @@ CREATE TABLE setup_state (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE data_backups (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    backup_type TEXT NOT NULL CHECK (backup_type IN ('full', 'runs', 'logs')),
+    status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'success', 'failure')),
+    file_path TEXT NOT NULL DEFAULT '',
+    file_name TEXT NOT NULL DEFAULT '',
+    content_type TEXT NOT NULL DEFAULT 'application/gzip',
+    size_bytes BIGINT NOT NULL DEFAULT 0,
+    checksum_sha256 TEXT NOT NULL DEFAULT '',
+    requested_by TEXT NOT NULL DEFAULT '',
+    error TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ
+);
+
+CREATE TABLE data_cleanup_schedules (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    target TEXT NOT NULL CHECK (target IN ('runs', 'logs')),
+    mode TEXT NOT NULL CHECK (mode IN ('keep_last', 'older_than_days', 'all_terminal_runs', 'all_logs')),
+    keep_last INT NOT NULL DEFAULT 0,
+    older_than_days INT NOT NULL DEFAULT 0,
+    backup_before_cleanup BOOLEAN NOT NULL DEFAULT TRUE,
+    cron_expression TEXT NOT NULL DEFAULT '0 2 * * 0',
+    timezone TEXT NOT NULL DEFAULT 'UTC',
+    next_run_at TIMESTAMPTZ,
+    last_run_at TIMESTAMPTZ,
+    last_job_id UUID,
+    last_status TEXT NOT NULL DEFAULT '',
+    last_deleted_counts JSONB NOT NULL DEFAULT '{}'::jsonb,
+    last_error TEXT NOT NULL DEFAULT '',
+    created_by TEXT NOT NULL DEFAULT '',
+    updated_by TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE data_cleanup_jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    schedule_id UUID REFERENCES data_cleanup_schedules(id) ON DELETE SET NULL,
+    trigger_type TEXT NOT NULL DEFAULT 'manual' CHECK (trigger_type IN ('manual', 'scheduled')),
+    status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'success', 'failure')),
+    target TEXT NOT NULL CHECK (target IN ('runs', 'logs')),
+    mode TEXT NOT NULL CHECK (mode IN ('keep_last', 'older_than_days', 'all_terminal_runs', 'all_logs')),
+    keep_last INT NOT NULL DEFAULT 0,
+    older_than_days INT NOT NULL DEFAULT 0,
+    backup_before_cleanup BOOLEAN NOT NULL DEFAULT FALSE,
+    backup_id UUID REFERENCES data_backups(id) ON DELETE SET NULL,
+    requested_by TEXT NOT NULL DEFAULT '',
+    preview_counts JSONB NOT NULL DEFAULT '{}'::jsonb,
+    deleted_counts JSONB NOT NULL DEFAULT '{}'::jsonb,
+    error TEXT NOT NULL DEFAULT '',
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE data_cleanup_schedules
+    ADD CONSTRAINT data_cleanup_schedules_last_job_id_fkey
+    FOREIGN KEY (last_job_id) REFERENCES data_cleanup_jobs(id) ON DELETE SET NULL;
+
 CREATE INDEX idx_auth_group_members_subject ON auth_group_members(subject_type, subject_id);
 CREATE INDEX idx_auth_role_bindings_subject ON auth_role_bindings(subject_type, subject_id);
 CREATE INDEX idx_auth_role_permissions_role_name ON auth_role_permissions(role_name);
@@ -634,6 +697,11 @@ CREATE INDEX idx_steps_config_repo_id ON steps(config_repo_id);
 CREATE INDEX idx_triggers_config_repo_id ON triggers(config_repo_id);
 CREATE INDEX idx_variables_config_repo_id ON variables(config_repo_id);
 CREATE INDEX idx_secrets_config_repo_id ON secrets(config_repo_id);
+CREATE INDEX idx_data_backups_created_at ON data_backups(created_at DESC);
+CREATE INDEX idx_data_backups_status ON data_backups(status, created_at DESC);
+CREATE INDEX idx_data_cleanup_jobs_created_at ON data_cleanup_jobs(created_at DESC);
+CREATE INDEX idx_data_cleanup_jobs_schedule_id ON data_cleanup_jobs(schedule_id, created_at DESC);
+CREATE INDEX idx_data_cleanup_schedules_next_run ON data_cleanup_schedules(enabled, next_run_at);
 
 -- Seed default admin user with password 'admin' (change after first login).
 INSERT INTO users (id, sub, email, provider, password_hash, status, must_change_password)

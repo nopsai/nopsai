@@ -159,6 +159,82 @@ until an LLM profile is configured. For the full operator flow, see
 
 ---
 
+## System Data Management
+
+System data management is exposed in the UI at **System > Data Management**.
+The API requires `system.read` on `system:config` for list/download/preview
+operations and `system.update` on `system:config` for backup creation, deletion,
+cleanup execution, and schedule changes.
+
+```bash
+# List backup history
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  http://localhost:8080/v1/system/data/backups
+
+# Create a downloadable backup: full, runs, or logs
+curl -X POST \
+  -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"backup_type":"full"}' \
+  http://localhost:8080/v1/system/data/backups
+
+# Download or delete a backup
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  http://localhost:8080/v1/system/data/backups/<backup-id>/download
+curl -X DELETE -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  http://localhost:8080/v1/system/data/backups/<backup-id>
+
+# Preview and execute a cleanup
+curl -X POST \
+  -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"target":"runs","mode":"keep_last","keep_last":30,"backup_before_cleanup":true}' \
+  http://localhost:8080/v1/system/data/cleanup/preview
+
+curl -X POST \
+  -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"target":"runs","mode":"keep_last","keep_last":30,"backup_before_cleanup":true}' \
+  http://localhost:8080/v1/system/data/cleanup/run
+```
+
+Backup records are stored in `data_backups`; files are compressed JSONL exports
+written to `data_backup_dir` / `DATA_BACKUP_DIR`, defaulting to `/data/backups`.
+Supported backup scopes are `full`, `runs`, and `logs`. Each record stores
+status, file path/name, size, SHA-256 checksum, requester, timestamps, and error
+details.
+
+Cleanup supports:
+
+- `target: "runs"` with `mode: "keep_last"`, `older_than_days`, or `all_terminal_runs`
+- `target: "logs"` with `mode: "older_than_days"` or `all_logs`
+- run cleanup only deletes terminal runs; `pipeline_runs` cascade rules remove related tasks, steps, approvals, checkpoints, logs, and run knowledge snapshots
+- cleanup jobs store preview counts, deleted row counts, optional backup ID, status, requester, and errors in `data_cleanup_jobs`
+
+Scheduled cleanup rules are managed through:
+
+```bash
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  http://localhost:8080/v1/system/data/cleanup/schedules
+
+curl -X POST \
+  -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Weekly cleanup","target":"runs","mode":"keep_last","keep_last":30,"backup_before_cleanup":true,"cron_expression":"0 2 * * 0","timezone":"UTC","enabled":true}' \
+  http://localhost:8080/v1/system/data/cleanup/schedules
+
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  http://localhost:8080/v1/system/data/cleanup/schedules/<schedule-id>/run
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  http://localhost:8080/v1/system/data/cleanup/schedules/<schedule-id>/disable
+```
+
+The cleanup worker polls due schedules, claims them with `FOR UPDATE SKIP
+LOCKED`, advances `next_run_at`, executes the cleanup job, and stores the latest
+status/counts on `data_cleanup_schedules`.
+
+---
+
 ## Monitoring And Dispatcher Runtime
 
 ```bash

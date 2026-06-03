@@ -102,6 +102,7 @@ log_format: "json" # Options: "console", "json"
 # docker_network_name: "nopsai-net"
 # auto_removal_agent_container: false
 # default_pipeline_timeout: "30m" # A global default timeout for all pipelines
+# data_backup_dir: "/data/backups" # Directory where system data backups are written
 
 # # --- GitHub App Configuration for Git Bot ---
 # github_webhook_secret: "vsfdverguhuyi3287467324ujfbsaihufb"

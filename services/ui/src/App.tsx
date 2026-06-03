@@ -223,6 +223,7 @@ const baseSystemSubNav: NavItem[] = [
   { label: 'Setup', path: '/system/setup', icon: <IconShield /> },
   { label: 'LLM Profiles', path: '/system/llm-profiles', icon: <IconFlask /> },
   { label: 'MCP', path: '/system/mcp', icon: <IconFlask /> },
+  { label: 'Data Management', path: '/system/data-management', icon: <IconDatabase /> },
   { label: 'Dispatcher', path: '/system/dispatcher', icon: <IconDispatch /> },
   { label: 'Access', path: '/system/access', icon: <IconShield /> },
 ];
@@ -558,11 +559,12 @@ function AppShell() {
         if (item.path === '/system/setup') return canViewSystemSetup;
         if (item.path === '/system/llm-profiles') return canViewSystemLLMProfiles;
         if (item.path === '/system/mcp') return canViewSystemMCP;
+        if (item.path === '/system/data-management') return canViewSystemRuntimeConfig;
         if (item.path === '/system/dispatcher') return canViewSystemDispatcher;
         if (item.path === '/system/access') return canViewSystemAccess;
         return false;
       }),
-    [canViewSystemAccess, canViewSystemConfig, canViewSystemDispatcher, canViewSystemLLMProfiles, canViewSystemMCP, canViewSystemSetup]
+    [canViewSystemAccess, canViewSystemConfig, canViewSystemDispatcher, canViewSystemLLMProfiles, canViewSystemMCP, canViewSystemRuntimeConfig, canViewSystemSetup]
   );
 
   useEffect(() => {
@@ -1263,6 +1265,8 @@ function AppShell() {
                             canManageLLMProfiles: canManageSystemLLMProfiles,
                             canViewMCP: canViewSystemMCP,
                             canManageMCP: canManageSystemMCP,
+                            canViewDataManagement: canViewSystemRuntimeConfig,
+                            canManageDataManagement: canManageSystemRuntimeConfig,
                             canViewGlobalConfigRepo: canViewSystemConfigRepo,
                             canManageGlobalConfigRepo: canManageSystemConfigRepo,
                             canViewDispatcher: canViewSystemDispatcher,
@@ -2967,6 +2971,16 @@ function IconCog() {
     <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0a1.724 1.724 0 002.573 1.02c.842-.488 1.91.27 1.662 1.2a1.724 1.724 0 001.091 2.062c.9.3.9 1.603 0 1.902a1.724 1.724 0 00-1.09 2.062c.247.93-.82 1.688-1.663 1.2a1.724 1.724 0 00-2.572 1.02c-.3.921-1.603.921-1.902 0a1.724 1.724 0 00-2.573-1.02c-.842.488-1.91-.27-1.662-1.2a1.724 1.724 0 00-1.091-2.062c-.9-.3-.9-1.603 0-1.902a1.724 1.724 0 001.09-2.062c-.247-.93.82-1.688 1.663-1.2a1.724 1.724 0 002.572-1.02z" />
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
+  );
+}
+
+function IconDatabase() {
+  return (
+    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <ellipse cx="12" cy="5" rx="7" ry="3" strokeWidth="1.8" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M5 5v6c0 1.7 3.1 3 7 3s7-1.3 7-3V5" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M5 11v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6" />
     </svg>
   );
 }
