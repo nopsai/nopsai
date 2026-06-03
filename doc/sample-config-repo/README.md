@@ -53,8 +53,8 @@ curl http://localhost:8080/v1/system/config-repo/drift
 Drift is bidirectional for syncable resources: Git-only changes appear as files
 to import or delete, and UI-side changes appear as generated GitOps updates. The
 check covers pipelines, reusable steps, schedules, trigger manifests, scopes,
-knowledge contexts, run group/config-repository structure, access manifests,
-LLM profiles, MCP registry files, and runtime settings. Pipeline run records
+knowledge contexts, run group/config-repository structure, notification routes,
+access manifests, LLM profiles, MCP registry files, mail settings, and runtime settings. Pipeline run records
 themselves are runtime audit state, so they are not exported as Git-owned
 objects. For pipeline, reusable step, scope, and knowledge context Access dialog
 changes, the generated diff updates the embedded `access:` block in that
@@ -88,7 +88,9 @@ knowledge/             Managed knowledge context markdown documents
 pipelineruns/          Run group structure
 config-repositories/   Group config repo bindings
 access/                Users, service accounts, advanced roles, policies, and basic role grants
+notifications/         Group pipeline notification policies with named routes
 setting/               System settings such as LLM, MCP, and runtime settings
+settings/              System notification mail settings
 ```
 
 Scope files use separate `variables:` and `secrets:` sections. Variables must be
@@ -160,6 +162,9 @@ global-repo/access/*.yaml
 global-repo/access/service-accounts.yaml
   -> service account identities webhook-deployer and servicenow-prod, plus scoped webhook grants and a least-privilege external trigger runner role
 
+global-repo/notifications/groups/team-2.yaml
+  -> group notification policy with named routes for team-2 pipeline events
+
 global-repo/setting/system/llm_profile.yaml
   -> system LLM profile registry
 
@@ -168,6 +173,9 @@ global-repo/setting/system/mcp.yaml
 
 global-repo/setting/system/runner.yaml
   -> runner install defaults and dispatcher runtime routing
+
+global-repo/settings/system/mail.yaml
+  -> SMTP mail notification settings with a password secret reference
 ```
 
 The `webhook-deployer` and `servicenow-prod` service accounts are intentionally
@@ -229,6 +237,22 @@ timeouts, runner defaults, and dispatcher routing; secrets such as database URLs
 master keys, service JWT signing keys, webhook secrets, and service account
 tokens stay in local runtime configuration or a secret manager.
 
+System mail notification settings live in `settings/system/mail.yaml`. The SMTP
+password value is not stored in GitOps; `smtp.password_secret_ref` names an
+environment variable or runtime secret reference that the running service can
+resolve when it sends mail.
+
+```yaml
+enabled: true
+from: nopsai@example.com
+smtp:
+  host: smtp.example.com
+  port: 587
+  start_tls: true
+  username: nopsai@example.com
+  password_secret_ref: NOPSAI_SMTP_PASSWORD
+```
+
 When the global repo defines group bindings under `config-repositories/groups`,
 those bindings create the group shells. Put app placement next to those bindings
 in `config-repositories/groups/structure.yaml` or in a scoped file such as
@@ -261,6 +285,9 @@ team-1-repo/steps/shared/checkout.yaml
 team-1-repo/triggers/service-api.yaml
   -> trigger override team-1/service-api
 
+team-1-repo/notifications.yaml
+  -> notification policy with named routes for group team-1, owned by the delegated group repo
+
 team-1-repo/scopes/prod/scope.yaml
   -> variables and secret key placeholders in scope team-1/prod with restricted scope use access
 
@@ -276,6 +303,18 @@ manifests, schedules, and includes should reference the final group-prefixed IDs
 or repo-relative IDs that sync can normalize under the bound group. A
 `prod/scheduled` schedule folder is useful for presentation, while the schedule
 resource remains the source of truth.
+
+Group notification policies control who receives pipeline event notifications for
+a run group. A system/global repo can define policies at
+`notifications/groups/<group>.yaml`; a delegated group repo can define
+`notifications.yaml` for the group it owns. Each file can contain one or more
+named `routes`, so teams can split failure, approval, and success notifications
+without creating competing GitOps files for the same group. Recipients can
+include direct users, groups, and the reserved `same_group` team. Exclusions are
+applied after includes. Event keys support failure, success, pending, running,
+waiting_approval, approval_requested, approval_approved, approval_rejected,
+cancelled, and skipped. Branch, pipeline, and repository filters use glob-style
+patterns, and delivery currently supports the `mail` channel.
 
 Nopsai reads every `.yaml` and `.yml` file under `access/`; file names such as
 `all.yaml` or `grants.yaml` are only examples, so teams can split manifests by

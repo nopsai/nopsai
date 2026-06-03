@@ -1752,6 +1752,9 @@ func (a *App) markRunCancelled(ctx context.Context, runUUID uuid.UUID, reason st
 		}
 		a.notifyGitBotOfFinalStatus("cancelled", "", "", reason, gitContext)
 	}
+	if changed {
+		go a.dispatchPipelineRunNotification(runUUID.String(), "cancelled")
+	}
 
 	return changed, nil
 }
@@ -1957,6 +1960,7 @@ func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to update task status", http.StatusInternalServerError)
 			return
 		}
+		go a.dispatchPipelineRunNotification(runID, "running")
 	} else {
 		query := "UPDATE task_runs SET status = $1, exit_code = $2, finished_at = NOW() WHERE run_id = $3 AND step_name = $4 AND task_name = $5"
 		_, err := a.db.Exec(context.Background(), query, update.Status, update.ExitCode, runID, stepName, taskName)
@@ -2059,6 +2063,7 @@ func (a *App) handleFinalizeRun(w http.ResponseWriter, r *http.Request) {
 		// Run git-bot notification in background to prevent agent hang
 		go a.notifyGitBotOfFinalStatus(finalStatus, failedStep, failedTask, failureReason, gitContext)
 	}
+	go a.dispatchPipelineRunNotification(runID, finalStatus)
 
 	w.WriteHeader(http.StatusOK)
 }
