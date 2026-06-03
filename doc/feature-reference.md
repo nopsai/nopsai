@@ -311,7 +311,7 @@ Pages present in the current UI:
 - `Lab`: ad-hoc YAML editing, preselected pipeline handoff, and direct run execution
 - `Steps`: reusable step library, usage inspection, and step use-access controls
 - `Knowledge Context`: kind/group/document browser, markdown editor/preview, source metadata, access settings, and usage inspection
-- `System`: config, dispatcher, runner controls, user/role/access management
+- `System`: config, data management, dispatcher, runner controls, user/role/access management
 - `Profile`: email and password management
 - `Login`: local authentication entrypoint
 
@@ -326,6 +326,9 @@ Operational support already in the code:
 - dispatcher queue visibility
 - active runner metadata display
 - active-run inspection from runner metadata
+- data backups for full database, runs, or logs, stored as downloadable compressed JSONL files
+- manual data cleanup with dry-run preview for run retention and log deletion
+- scheduled cleanup rules with due-time polling, backup-before-cleanup support, job history, and deleted-row counts
 - log batching from runner to API
 - REST polling for run lists, details, and incremental log views
 - automatic image pre-pull in the agent

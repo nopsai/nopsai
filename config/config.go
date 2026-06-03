@@ -133,6 +133,7 @@ type Config struct {
 	DefaultPipelineTimeout    string `yaml:"default_pipeline_timeout" env:"DEFAULT_PIPELINE_TIMEOUT"`
 	AgentImage                string `yaml:"agent_image" env:"AGENT_IMAGE"`
 	LLMAgentTimeout           string `yaml:"llm_agent_timeout" env:"LLM_AGENT_TIMEOUT"`
+	DataBackupDir             string `yaml:"data_backup_dir" env:"DATA_BACKUP_DIR"`
 
 	Runtime           string                 `yaml:"runtime" env:"RUNTIME"`
 	Kubernetes        KubernetesConfig       `yaml:"kubernetes" env:"-"`

@@ -6350,6 +6350,9 @@ func main() {
 	if err := ensureApprovalSchema(context.Background(), dbpool); err != nil {
 		log.Fatal().Err(err).Msg("Failed to ensure approval schema")
 	}
+	if err := ensureDataManagementSchema(context.Background(), dbpool); err != nil {
+		log.Fatal().Err(err).Msg("Failed to ensure data management schema")
+	}
 
 	dispatcherAddr := strings.TrimSpace(cfg.DispatcherAddress)
 	if dispatcherAddr == "" {
@@ -6447,6 +6450,9 @@ func main() {
 	scheduleWorkerCtx, stopScheduleWorker := context.WithCancel(context.Background())
 	defer stopScheduleWorker()
 	go app.runScheduleWorker(scheduleWorkerCtx)
+	cleanupWorkerCtx, stopCleanupWorker := context.WithCancel(context.Background())
+	defer stopCleanupWorker()
+	go app.runDataCleanupScheduleWorker(cleanupWorkerCtx)
 
 	handler := app.buildHTTPHandler()
 
