@@ -296,7 +296,7 @@ Responsibilities:
 - Scope manager for secrets and variables
 - Reusable step library
 - Lab for ad-hoc YAML execution and quick runs
-- System pages for config sync, dispatcher status, runner controls, and access management
+- System pages for config sync, data backups/cleanup, dispatcher status, runner controls, and access management
 - Access-grant management for product roles and effective-permission inspection
 - Resource Access dialogs on pipelines, scopes, reusable steps, and knowledge contexts for use visibility and group/repository sharing
 - Profile page for email and password changes
@@ -324,7 +324,7 @@ Primary role:
 
 Responsibilities:
 
-- Stores runs, tasks, logs, configuration, knowledge context, groups, users, roles, refresh tokens, and audit logs.
+- Stores runs, tasks, logs, configuration, knowledge context, groups, users, roles, refresh tokens, audit logs, backup records, and cleanup job/schedule history.
 - Stores AAA subjects, role bindings, grant metadata, resource visibility, expanded ACLs, ownership metadata, run authorization snapshots, and authorization decision logs.
 - Keeps the execution record durable even though agents and step containers are ephemeral.
 

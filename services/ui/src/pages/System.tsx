@@ -8,6 +8,7 @@ import {
   type ConfigRepositoryCommitResponse,
   type ConfigRepositoryDriftResponse,
 } from '../lib/configRepositoryDrift';
+import DataManagementPage from './DataManagement';
 import SetupWizard from './Setup';
 
 type ConfigFormState = {
@@ -288,6 +289,8 @@ type SystemPagePermissions = {
   canManageLLMProfiles: boolean;
   canViewMCP: boolean;
   canManageMCP: boolean;
+  canViewDataManagement: boolean;
+  canManageDataManagement: boolean;
   canViewGlobalConfigRepo: boolean;
   canManageGlobalConfigRepo: boolean;
   canViewDispatcher: boolean;
@@ -310,17 +313,20 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
           ? 'llm-profiles'
           : params.tab === 'mcp'
             ? 'mcp'
-          : 'config';
+            : params.tab === 'data-management'
+              ? 'data-management'
+              : 'config';
   const allowedTabs = useMemo(() => {
-    const tabs: Array<'config' | 'setup' | 'llm-profiles' | 'mcp' | 'dispatcher' | 'access'> = [];
+    const tabs: Array<'config' | 'setup' | 'llm-profiles' | 'mcp' | 'data-management' | 'dispatcher' | 'access'> = [];
     if (permissions.canViewConfig) tabs.push('config');
     if (permissions.canViewSetup) tabs.push('setup');
     if (permissions.canViewLLMProfiles) tabs.push('llm-profiles');
     if (permissions.canViewMCP) tabs.push('mcp');
+    if (permissions.canViewDataManagement) tabs.push('data-management');
     if (permissions.canViewDispatcher) tabs.push('dispatcher');
     if (permissions.canViewAccess) tabs.push('access');
     return tabs;
-  }, [permissions.canViewAccess, permissions.canViewConfig, permissions.canViewDispatcher, permissions.canViewLLMProfiles, permissions.canViewMCP, permissions.canViewSetup]);
+  }, [permissions.canViewAccess, permissions.canViewConfig, permissions.canViewDataManagement, permissions.canViewDispatcher, permissions.canViewLLMProfiles, permissions.canViewMCP, permissions.canViewSetup]);
   const visibleTab = allowedTabs.includes(activeTab) ? activeTab : allowedTabs[0] ?? activeTab;
 
   const isMountedRef = useRef(true);
@@ -1694,6 +1700,9 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
       )}
       {visibleTab === 'mcp' && (
         <MCPPanel canManage={permissions.canManageMCP} />
+      )}
+      {visibleTab === 'data-management' && (
+        <DataManagementPage canManage={permissions.canManageDataManagement} />
       )}
       {visibleTab === 'dispatcher' && (
         <DispatcherPanel
