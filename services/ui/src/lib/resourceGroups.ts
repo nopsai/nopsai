@@ -3,8 +3,11 @@ import { buildApiUrl } from './api';
 export type ResourceGroup = {
   id: number;
   name: string;
+  kind?: 'group' | 'app' | string;
   parent_id?: number | null;
   description?: string;
+  repo_url?: string;
+  repository_full_name?: string;
 };
 
 export type TreeNodeLike<T> = {
@@ -20,7 +23,22 @@ export async function fetchResourceGroupPaths(): Promise<string[]> {
   return Array.isArray(payload) ? buildResourceGroupPaths(payload as ResourceGroup[]) : [];
 }
 
+export async function fetchPipelineRunGroupPaths(): Promise<string[]> {
+  const response = await fetch(buildApiUrl('/v1/groups'));
+  if (!response.ok) return [];
+  const payload = await response.json();
+  return Array.isArray(payload) ? buildPipelineRunGroupPaths(payload as ResourceGroup[]) : [];
+}
+
 export function buildResourceGroupPaths(groups: ResourceGroup[]): string[] {
+  return buildGroupPaths(groups);
+}
+
+export function buildPipelineRunGroupPaths(groups: ResourceGroup[]): string[] {
+  return ['root', ...buildGroupPaths(groups, group => !isPipelineRunAppGroup(group)).filter(path => path !== 'root')];
+}
+
+function buildGroupPaths(groups: ResourceGroup[], includeGroup: (group: ResourceGroup) => boolean = () => true): string[] {
   const byId = new Map<number, ResourceGroup>();
   groups.forEach(group => byId.set(group.id, group));
 
@@ -53,10 +71,15 @@ export function buildResourceGroupPaths(groups: ResourceGroup[]): string[] {
   return Array.from(
     new Set(
       groups
+        .filter(includeGroup)
         .map(group => resolvePath(group))
         .filter((path): path is string => Boolean(path))
     )
   ).sort((a, b) => a.localeCompare(b));
+}
+
+function isPipelineRunAppGroup(group: ResourceGroup) {
+  return group.kind === 'app' || Boolean(group.repo_url || group.repository_full_name) || String(group.name || '').includes('/');
 }
 
 export function insertGroupPath<T extends TreeNodeLike<T>>(

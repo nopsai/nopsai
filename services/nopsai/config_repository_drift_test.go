@@ -390,7 +390,7 @@ func TestConfigRepositoryBasicRoleExportUsesSubjectShortcuts(t *testing.T) {
 	rendered := string(content)
 	for _, want := range []string{
 		"user: alice",
-		"resource: folder:general",
+		"resource: folder:root",
 		"service_account: webhook-deployer",
 		"resource: pipeline:platform-maintenance",
 	} {

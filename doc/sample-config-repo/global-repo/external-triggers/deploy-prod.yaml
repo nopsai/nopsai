@@ -2,8 +2,9 @@ id: deploy-prod
 name: Deploy prod from ServiceNow
 description: Authenticated production deployment trigger for approved ServiceNow changes.
 enabled: true
-pipeline: platform-maintenance
+pipeline: platform/prod/platform-maintenance
 scope: prod
+run_group_path: platform/prod
 allowed_callers:
   - type: service_account
     id: servicenow-prod
@@ -16,4 +17,3 @@ payload_schema:
     - version
 rate_limit:
   per_minute: 10
-

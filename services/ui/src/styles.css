@@ -2889,6 +2889,68 @@ html.dark .recent-run-card {
     transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 
+.pipeline-dashboard-section,
+.pipeline-run-source-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    min-width: 0;
+}
+
+.pipeline-dashboard-section-header,
+.pipeline-run-source-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    min-height: 2.25rem;
+    border-bottom: 1px solid var(--border-primary);
+    padding-bottom: 0.55rem;
+}
+
+.pipeline-dashboard-section-title,
+.pipeline-run-source-title {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.55rem;
+}
+
+.pipeline-dashboard-section-title h2,
+.pipeline-run-source-title h3 {
+    margin: 0;
+    color: var(--text-primary);
+    font-weight: 700;
+    letter-spacing: 0;
+}
+
+.pipeline-dashboard-section-title h2 {
+    font-size: 0.95rem;
+}
+
+.pipeline-run-source-title h3 {
+    font-size: 0.86rem;
+}
+
+.pipeline-dashboard-section-icon,
+.pipeline-run-source-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+}
+
+.pipeline-dashboard-empty-state {
+    display: flex;
+    min-height: 5.5rem;
+    align-items: center;
+    justify-content: center;
+    border: 1px dashed var(--border-primary);
+    border-radius: 0.6rem;
+    color: var(--text-secondary);
+    font-size: 0.86rem;
+}
+
 .pipeline-folder-actions {
     display: flex;
     align-items: center;

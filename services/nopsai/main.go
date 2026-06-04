@@ -3186,11 +3186,11 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	const scheduleUpsert = `INSERT INTO pipeline_schedules (
 			path, name, description, pipeline_path, pipeline_name, pipeline_version,
 			schedule_kind, cron_expression, run_at, timezone, enabled, scope, variables, next_run_at, source,
-			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at
+			run_group_path, config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6,
 			$7, $8, $9, $10, $11, $12, $13::jsonb, $14, 'git',
-			$15, $16, $17, TRUE, NOW()
+			$15, $16, $17, $18, TRUE, NOW()
 		)
 		ON CONFLICT (path, name) DO UPDATE SET
 			description = EXCLUDED.description,
@@ -3205,6 +3205,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 			scope = EXCLUDED.scope,
 			variables = EXCLUDED.variables,
 			next_run_at = EXCLUDED.next_run_at,
+			run_group_path = EXCLUDED.run_group_path,
 			source = 'git',
 			config_repo_id = EXCLUDED.config_repo_id,
 			config_source_path = EXCLUDED.config_source_path,
@@ -3262,13 +3263,13 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
 			managed_by_config_repo = TRUE`
 	const externalTriggerUpsert = `INSERT INTO external_triggers (
-			id, name, description, enabled, pipeline, scope, allowed_callers, variable_mapping,
+			id, name, description, enabled, pipeline, scope, run_group_path, allowed_callers, variable_mapping,
 			payload_schema, rate_limit, created_by, source,
 			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb,
-			$9::jsonb, $10::jsonb, 'config-repo', 'git',
-			$11, $12, $13, TRUE, NOW()
+			$1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb,
+			$10::jsonb, $11::jsonb, 'config-repo', 'git',
+			$12, $13, $14, TRUE, NOW()
 		)
 		ON CONFLICT (id) DO UPDATE SET
 			name = EXCLUDED.name,
@@ -3276,6 +3277,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 			enabled = EXCLUDED.enabled,
 			pipeline = EXCLUDED.pipeline,
 			scope = EXCLUDED.scope,
+			run_group_path = EXCLUDED.run_group_path,
 			allowed_callers = EXCLUDED.allowed_callers,
 			variable_mapping = EXCLUDED.variable_mapping,
 			payload_schema = EXCLUDED.payload_schema,
@@ -3397,6 +3399,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 			stored.input.Scope,
 			string(variablesJSON),
 			stored.input.NextRunAt,
+			stored.input.RunGroupPath,
 			binding.ID,
 			stored.sourcePath,
 			commitSHA,
@@ -3561,6 +3564,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 			stored.input.Enabled,
 			stored.input.Pipeline,
 			stored.input.Scope,
+			stored.input.RunGroupPath,
 			string(allowedJSON),
 			string(mappingJSON),
 			string(schemaJSON),
@@ -4886,9 +4890,19 @@ func normalizeConfigPathForFolder(boundFolder string, repoRelativePath string) (
 	}
 	relative = stripConfigResourcePrefix(relative)
 	relative = strings.TrimSuffix(relative, filepath.Ext(relative))
+	rootQualified := false
+	if normalized, rootOnly := stripRootPathPrefix(relative); rootOnly {
+		return "", nil
+	} else if normalized != relative {
+		relative = normalized
+		rootQualified = true
+	}
 	relSegments, err := cleanConfigPathSegments(relative, true)
 	if err != nil {
 		return "", err
+	}
+	if rootQualified {
+		return strings.Join(relSegments, "/"), nil
 	}
 	if hasPathSegmentPrefix(relSegments, boundSegments) {
 		relSegments = relSegments[len(boundSegments):]
@@ -5357,7 +5371,15 @@ func normalizeStructureName(name string) (string, error) {
 	if trimmed == "" {
 		return "", fmt.Errorf("pipelinerun structure contains an empty folder or repository name")
 	}
+	if isReservedRootGroupName(trimmed) {
+		return "", fmt.Errorf("root is reserved and cannot be used as a group name")
+	}
 	return trimmed, nil
+}
+
+func isReservedRootGroupName(name string) bool {
+	normalized := strings.ToLower(strings.Trim(strings.TrimSpace(name), "/"))
+	return normalized == rootGrantID || normalized == strings.ToLower(generalGrantID)
 }
 
 func loadExistingGroupRecords(ctx context.Context, tx pgx.Tx) (groupRecordSet, error) {
@@ -5761,6 +5783,11 @@ func splitYAMLIdentifier(identifier string) (string, string, string, error) {
 	var path string
 	if len(parts) > 1 {
 		path = strings.Join(parts[:len(parts)-1], "/")
+		if normalizedPath, rootOnly := stripRootPathPrefix(path); rootOnly {
+			path = ""
+		} else {
+			path = normalizedPath
+		}
 	}
 	if strings.Contains(path, "..") {
 		return "", "", "", fmt.Errorf("identifier contains invalid path segments")
@@ -5771,6 +5798,37 @@ func splitYAMLIdentifier(identifier string) (string, string, string, error) {
 
 func splitPipelineIdentifier(identifier string) (string, string, string, error) {
 	return splitYAMLIdentifier(identifier)
+}
+
+func normalizePipelineIdentifierReference(identifier string) (string, bool, error) {
+	trimmed := strings.Trim(strings.TrimSpace(identifier), "/")
+	if trimmed == "" {
+		return "", false, fmt.Errorf("identifier cannot be empty")
+	}
+	rootQualified := yamlIdentifierPathHasRootPrefix(trimmed)
+	path, name, _, err := splitPipelineIdentifier(trimmed)
+	if err != nil {
+		return "", rootQualified, err
+	}
+	return buildPipelineIdentifier(path, name), rootQualified, nil
+}
+
+func yamlIdentifierPathHasRootPrefix(identifier string) bool {
+	normalized := filepath.ToSlash(strings.Trim(strings.TrimSpace(identifier), "/"))
+	lower := strings.ToLower(normalized)
+	switch {
+	case strings.HasSuffix(lower, ".yaml"):
+		normalized = normalized[:len(normalized)-len(".yaml")]
+	case strings.HasSuffix(lower, ".yml"):
+		normalized = normalized[:len(normalized)-len(".yml")]
+	}
+	parts := strings.Split(normalized, "/")
+	if len(parts) <= 1 {
+		return false
+	}
+	path := strings.Join(parts[:len(parts)-1], "/")
+	stripped, rootOnly := stripRootPathPrefix(path)
+	return rootOnly || stripped != path
 }
 
 func buildPipelineIdentifier(path, name string) string {
@@ -5811,6 +5869,13 @@ func parseScopeFilePath(rel string) (string, bool, error) {
 
 	scopePath := strings.TrimSuffix(rel[:len(rel)-len(base)], "/")
 	scopePath = strings.Trim(scopePath, "/")
+	if scopePath != "" {
+		if normalizedPath, rootOnly := stripRootPathPrefix(scopePath); rootOnly {
+			scopePath = ""
+		} else {
+			scopePath = normalizedPath
+		}
+	}
 	if scopePath != "" {
 		if strings.Contains(scopePath, "..") {
 			return "", false, fmt.Errorf("scope path contains invalid segments")
@@ -5928,6 +5993,9 @@ func normalizeGroupForWrite(group *Group) error {
 	case "group":
 		if group.Name == "" {
 			return fmt.Errorf("group name is required")
+		}
+		if isReservedRootGroupName(group.Name) {
+			return fmt.Errorf("root is reserved and cannot be used as a group name")
 		}
 		group.RepoURL = ""
 		group.RepositoryFullName = ""

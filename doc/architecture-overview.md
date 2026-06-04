@@ -126,6 +126,62 @@ Main tables from `db/init.sql`:
 - `resource_visibility`: Visibility settings for reusable resources, including knowledge contexts.
 - `access_grants`, `resource_acl`, `resource_ownership`, `authz_decision_logs`: Product-role grants, resource-use sharing grants, expanded ACLs, ownership metadata, and authorization decision audit logs.
 
+### Run Organization Model
+
+The canonical navigation model for enterprise pipeline activity is:
+
+```text
+Workspace
+  -> folder/team/product area
+      -> pipelines
+      -> schedules
+      -> external triggers
+      -> repositories
+      -> runs
+      -> scopes, secrets, variables, and access
+```
+
+In the current schema, `groups.kind = 'group'` represents folder/team/product
+area nodes and `groups.kind = 'app'` represents application or repository
+nodes. The stable product boundary is the folder/group path. Repositories are
+one possible source of code or events, and one possible runtime identity; they
+are not required parents for pipelines. A pipeline without a repository should
+still have a logical path such as `platform/prod/deploy-prod`, with
+`platform/prod` as the owning folder.
+
+`pipeline_runs.group_id` points at the best existing owner for the run. Run
+creation resolves that owner in this order:
+
+1. explicit `X-Nopsai-Group-Path`, used by schedules and other first-class
+   owners
+2. the pipeline path, so manual, schedule, external-trigger, and repo-less runs
+   still attach to a product folder
+3. repository metadata, for raw Git-sourced runs without a logical pipeline
+   path
+
+Selecting a folder in the run list includes runs attached to that folder and
+all descendants, so parent folders act as dashboards rather than empty
+navigation shells.
+
+`pipeline_runs.scope` is separate from this hierarchy. A scope is the runtime
+environment or context for a run, such as `dev`, `staging`, `prod`,
+`customer-a`, or `region-eu`; it should be exposed as a run attribute and
+filter, not as a folder under pipeline runs.
+
+Pipeline run rows are runtime/audit records and should not create the
+navigation structure. Config repositories, setup, or explicit UI/API actions
+define folders, apps, schedules, triggers, and pipeline paths; runs then
+reference that structure:
+
+- manual pipeline runs use the pipeline path/folder and the user subject
+- GitHub webhook runs use the owning folder plus repository metadata, with the
+  repository as runtime identity
+- schedule runs use the schedule group path and schedule service account
+- external-trigger runs use the target pipeline or trigger group path and the
+  allowed user/service account caller
+- runs with no path, repository, schedule, or trigger owner remain ungrouped
+  until the UI presents source-based buckets
+
 ## Authorization Model
 
 NopsAI now uses a two-layer authorization shape:

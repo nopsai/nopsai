@@ -33,23 +33,6 @@ import (
 
 func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	setNoStoreHeaders(w)
-	query := `
-		SELECT
-		    pr.run_id, pr.pipeline_name, pr.pipeline_path, pr.pipeline_version, pr.status, COALESCE(pr.git_commit_sha, ''),
-		    COALESCE(pr.git_repo_owner, ''), COALESCE(pr.git_repo_name, ''), pr.started_at, pr.finished_at, pr.parent_run_id,
-			COALESCE(pr.git_pusher_name, ''), COALESCE(pr.git_ref, ''), COALESCE(pr.git_target_ref, ''),
-			COALESCE(pr.pipeline_source, ''), COALESCE(pr.trigger_event_id, ''), COALESCE(pr.failure_reason, ''),
-			COALESCE(pr.trigger_source, ''), COALESCE(pr.schedule_id::text, ''), COALESCE(ps.name, ''), COALESCE(ps.path, ''),
-			COALESCE(eti.trigger_id, ''), COALESCE(et.name, ''), COALESCE(eti.event_type, ''), COALESCE(eti.caller_type, ''),
-			COALESCE(eti.caller_id, ''), COALESCE(eti.idempotency_key, '')
-			FROM pipeline_runs pr
-		LEFT JOIN pipeline_schedules ps ON ps.id = pr.schedule_id
-		LEFT JOIN external_trigger_invocations eti ON eti.id::text = pr.trigger_event_id
-		LEFT JOIN external_triggers et ON et.id = eti.trigger_id
-	`
-	args := []interface{}{}
-	var conditions []string
-
 	limit := 300
 	offset := 0
 
@@ -72,23 +55,22 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	var groupID *int
+	rootGroup := false
 	if groupIDStr := r.URL.Query().Get("groupId"); groupIDStr != "" {
-		groupID, err := strconv.Atoi(groupIDStr)
-		if err == nil {
-			conditions = append(conditions, fmt.Sprintf("pr.group_id = $%d", len(args)+1))
-			args = append(args, groupID)
+		if strings.EqualFold(groupIDStr, rootGrantID) {
+			rootGroup = true
+		} else {
+			parsedGroupID, err := strconv.Atoi(groupIDStr)
+			if err != nil {
+				http.Error(w, "Invalid group ID", http.StatusBadRequest)
+				return
+			}
+			groupID = &parsedGroupID
 		}
 	}
 
-	if branchName := r.URL.Query().Get("branch"); branchName != "" {
-		conditions = append(conditions, fmt.Sprintf("pr.git_ref = $%d", len(args)+1))
-		args = append(args, "refs/heads/"+branchName)
-	}
-
-	if len(conditions) > 0 {
-		query += " WHERE " + strings.Join(conditions, " AND ")
-	}
-	query += fmt.Sprintf(" ORDER BY pr.created_at DESC LIMIT %d OFFSET %d", limit, offset)
+	query, args := buildListRunsQuery(groupID, rootGroup, r.URL.Query().Get("branch"), limit, offset)
 
 	rows, err := a.db.Query(context.Background(), query, args...)
 	if err != nil {
@@ -178,7 +160,7 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		filteredRuns = append(filteredRuns, run)
 	}
 
-	if r.URL.Query().Get("groupId") != "" {
+	if groupID != nil || rootGroup {
 		for _, run := range filteredRuns {
 			branch := "Others"
 			if run.GitRef != "" {
@@ -193,6 +175,54 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(filteredRuns)
 	}
+}
+
+func buildListRunsQuery(groupID *int, rootGroup bool, branchName string, limit, offset int) (string, []interface{}) {
+	query := `
+		SELECT
+		    pr.run_id, pr.pipeline_name, pr.pipeline_path, pr.pipeline_version, pr.status, COALESCE(pr.git_commit_sha, ''),
+		    COALESCE(pr.git_repo_owner, ''), COALESCE(pr.git_repo_name, ''), pr.started_at, pr.finished_at, pr.parent_run_id,
+			COALESCE(pr.git_pusher_name, ''), COALESCE(pr.git_ref, ''), COALESCE(pr.git_target_ref, ''),
+			COALESCE(pr.pipeline_source, ''), COALESCE(pr.trigger_event_id, ''), COALESCE(pr.failure_reason, ''),
+			COALESCE(pr.trigger_source, ''), COALESCE(pr.schedule_id::text, ''), COALESCE(ps.name, ''), COALESCE(ps.path, ''),
+			COALESCE(eti.trigger_id, ''), COALESCE(et.name, ''), COALESCE(eti.event_type, ''), COALESCE(eti.caller_type, ''),
+			COALESCE(eti.caller_id, ''), COALESCE(eti.idempotency_key, '')
+			FROM pipeline_runs pr
+		LEFT JOIN pipeline_schedules ps ON ps.id = pr.schedule_id
+		LEFT JOIN external_trigger_invocations eti ON eti.id::text = pr.trigger_event_id
+		LEFT JOIN external_triggers et ON et.id = eti.trigger_id
+	`
+	args := []interface{}{}
+	var conditions []string
+	withClause := ""
+
+	if groupID != nil {
+		args = append(args, *groupID)
+		withClause = fmt.Sprintf(`
+			WITH RECURSIVE selected_groups AS (
+				SELECT id FROM groups WHERE id = $%d
+				UNION ALL
+				SELECT g.id
+				FROM groups g
+				JOIN selected_groups sg ON g.parent_id = sg.id
+			)
+		`, len(args))
+		conditions = append(conditions, "pr.group_id IN (SELECT id FROM selected_groups)")
+	} else if rootGroup {
+		conditions = append(conditions, "pr.group_id IS NULL")
+	}
+
+	if branchName != "" {
+		conditions = append(conditions, fmt.Sprintf("pr.git_ref = $%d", len(args)+1))
+		args = append(args, "refs/heads/"+branchName)
+	}
+
+	query = withClause + query
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	query += fmt.Sprintf(" ORDER BY pr.created_at DESC LIMIT %d OFFSET %d", limit, offset)
+	return query, args
 }
 
 func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
@@ -755,6 +785,68 @@ func (a *App) resolveGroupIDForRepo(repoOwner, repoName string) (sql.NullInt32, 
 	return groupID, nil
 }
 
+type runGroupResolutionCandidate struct {
+	kind     string
+	value    string
+	required bool
+}
+
+const (
+	runGroupResolutionPath = "path"
+	runGroupResolutionRepo = "repo"
+)
+
+func runGroupResolutionCandidates(explicitGroupPath, pipelinePath string, gitContext map[string]string) []runGroupResolutionCandidate {
+	explicitGroupPath = strings.Trim(strings.TrimSpace(explicitGroupPath), "/")
+	if explicitGroupPath != "" {
+		return []runGroupResolutionCandidate{{
+			kind:     runGroupResolutionPath,
+			value:    explicitGroupPath,
+			required: true,
+		}}
+	}
+
+	candidates := []runGroupResolutionCandidate{}
+	pipelinePath = strings.Trim(strings.TrimSpace(pipelinePath), "/")
+	if pipelinePath != "" {
+		candidates = append(candidates, runGroupResolutionCandidate{kind: runGroupResolutionPath, value: pipelinePath})
+	}
+
+	repoName := strings.TrimSpace(gitContext["repo_name"])
+	if repoName != "" {
+		candidates = append(candidates, runGroupResolutionCandidate{
+			kind:  runGroupResolutionRepo,
+			value: repositoryFullName(gitContext["repo_owner"], repoName),
+		})
+	}
+	return candidates
+}
+
+func (a *App) resolveGroupIDForRun(ctx context.Context, explicitGroupPath, pipelinePath string, gitContext map[string]string) (sql.NullInt32, error) {
+	for _, candidate := range runGroupResolutionCandidates(explicitGroupPath, pipelinePath, gitContext) {
+		switch candidate.kind {
+		case runGroupResolutionPath:
+			groupID, err := a.resolveGroupIDForPath(ctx, candidate.value)
+			if err != nil || groupID.Valid || candidate.required {
+				return groupID, err
+			}
+		case runGroupResolutionRepo:
+			repoOwner, repoName := splitRepositoryFullName(candidate.value)
+			return a.resolveGroupIDForRepo(repoOwner, repoName)
+		}
+	}
+	return sql.NullInt32{}, nil
+}
+
+func splitRepositoryFullName(fullName string) (string, string) {
+	fullName = strings.Trim(strings.TrimSpace(fullName), "/")
+	owner, repo, ok := strings.Cut(fullName, "/")
+	if !ok {
+		return "", fullName
+	}
+	return owner, repo
+}
+
 func nullableGitCheckRunID(gitContext map[string]string) sql.NullInt64 {
 	if gitContext == nil {
 		return sql.NullInt64{}
@@ -782,7 +874,7 @@ func (a *App) recordMissingPipelineRun(identifier string, pipelineVersion string
 		namePart = "missing-pipeline"
 	}
 
-	groupID, groupErr := a.resolveGroupIDForRepo(gitContext["repo_owner"], gitContext["repo_name"])
+	groupID, groupErr := a.resolveGroupIDForRun(context.Background(), "", pathPart, gitContext)
 	if groupErr != nil {
 		log.Error().Err(groupErr).Str("pipeline", identifier).Msg("Failed to resolve group for missing pipeline run")
 	}
@@ -866,7 +958,7 @@ func (a *App) recordAuthorizationDeniedPipelineRun(identifier string, pipelineVe
 		namePart = "authorization-denied"
 	}
 
-	groupID, groupErr := a.resolveGroupIDForRepo(gitContext["repo_owner"], gitContext["repo_name"])
+	groupID, groupErr := a.resolveGroupIDForRun(context.Background(), "", pathPart, gitContext)
 	if groupErr != nil {
 		log.Error().Err(groupErr).Str("pipeline", identifier).Msg("Failed to resolve group for authorization denied pipeline run")
 	}
@@ -1218,12 +1310,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	groupPathForRun := strings.Trim(strings.TrimSpace(r.Header.Get("X-Nopsai-Group-Path")), "/")
-	var groupID sql.NullInt32
-	if groupPathForRun != "" {
-		groupID, err = a.resolveGroupIDForPath(r.Context(), groupPathForRun)
-	} else {
-		groupID, err = a.resolveGroupIDForRepo(gitContext["repo_owner"], gitContext["repo_name"])
-	}
+	groupID, err := a.resolveGroupIDForRun(r.Context(), groupPathForRun, pipelinePathForRun, gitContext)
 	if err != nil {
 		repoOwner := strings.TrimSpace(gitContext["repo_owner"])
 		repoName := strings.TrimSpace(gitContext["repo_name"])
@@ -1545,7 +1632,7 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 
 	runID := uuid.New()
 
-	groupID, groupErr := a.resolveGroupIDForRepo(gitContext["repo_owner"], gitContext["repo_name"])
+	groupID, groupErr := a.resolveGroupIDForRun(r.Context(), "", pipelinePathDB.String, gitContext)
 	if groupErr != nil {
 		repoFullName := repositoryFullName(gitContext["repo_owner"], gitContext["repo_name"])
 		log.Error().Err(groupErr).Str("repo", repoFullName).Msg("Failed to find or create group for rerun repository")

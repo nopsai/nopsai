@@ -19,6 +19,7 @@ type externalTriggerGitOpsDocument struct {
 	Enabled         *bool                          `yaml:"enabled,omitempty"`
 	Pipeline        string                         `yaml:"pipeline"`
 	Scope           string                         `yaml:"scope,omitempty"`
+	RunGroupPath    string                         `yaml:"run_group_path,omitempty"`
 	AllowedCallers  []externalTriggerAllowedCaller `yaml:"allowed_callers,omitempty"`
 	VariableMapping map[string]string              `yaml:"variable_mapping,omitempty"`
 	PayloadSchema   map[string]any                 `yaml:"payload_schema,omitempty"`
@@ -51,13 +52,19 @@ func parseGitOpsExternalTriggers(files map[string]string, triggerDir string, bin
 		if err != nil {
 			return nil, fmt.Errorf("invalid external trigger path '%s': %w", normalized, err)
 		}
-		pipeline := normalizeExternalTriggerPipeline(doc.Pipeline)
+		pipeline, pipelineRootQualified := normalizeExternalTriggerPipelineReference(doc.Pipeline)
 		scope := strings.Trim(strings.TrimSpace(doc.Scope), "/")
+		runGroupPath := strings.Trim(strings.TrimSpace(doc.RunGroupPath), "/")
 		if strings.EqualFold(scope, defaultRuntimeScope) {
 			scope = ""
 		}
+		if normalizedScope, rootOnly := stripRootPathPrefix(scope); rootOnly {
+			scope = ""
+		} else {
+			scope = normalizedScope
+		}
 		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
-			if pipeline != "" {
+			if pipeline != "" && !pipelineRootQualified {
 				pipeline, err = normalizeConfigPathForFolder(boundFolder, pipeline)
 				if err != nil {
 					return nil, fmt.Errorf("invalid group-scoped external trigger pipeline '%s': %w", normalized, err)
@@ -69,6 +76,16 @@ func parseGitOpsExternalTriggers(files map[string]string, triggerDir string, bin
 					return nil, fmt.Errorf("invalid group-scoped external trigger scope '%s': %w", normalized, err)
 				}
 			}
+			if runGroupPath != "" {
+				if _, rootOnly := stripRootPathPrefix(runGroupPath); rootOnly {
+					runGroupPath = rootGrantID
+				} else {
+					runGroupPath, err = normalizeConfigPathForFolder(boundFolder, runGroupPath)
+					if err != nil {
+						return nil, fmt.Errorf("invalid group-scoped external trigger run_group_path '%s': %w", normalized, err)
+					}
+				}
+			}
 		}
 
 		trigger, err := normalizeExternalTriggerInput(externalTriggerInput{
@@ -78,6 +95,7 @@ func parseGitOpsExternalTriggers(files map[string]string, triggerDir string, bin
 			Enabled:         doc.Enabled,
 			Pipeline:        pipeline,
 			Scope:           scope,
+			RunGroupPath:    runGroupPath,
 			AllowedCallers:  doc.AllowedCallers,
 			VariableMapping: doc.VariableMapping,
 			PayloadSchema:   doc.PayloadSchema,
@@ -121,15 +139,11 @@ func externalTriggerGitOpsSlug(value string) string {
 }
 
 func externalTriggerConfigScope(trigger externalTriggerRecord) string {
-	scope := strings.Trim(strings.TrimSpace(trigger.Scope), "/")
-	if scope != "" {
-		return scope
+	runGroupPath := strings.Trim(strings.TrimSpace(trigger.RunGroupPath), "/")
+	if runGroupPath != "" {
+		return runGroupPath
 	}
-	pipeline := strings.Trim(strings.TrimSpace(trigger.Pipeline), "/")
-	if pipeline != "" {
-		return pipeline
-	}
-	return strings.Trim(strings.TrimSpace(trigger.ID), "/")
+	return rootGrantID
 }
 
 func externalTriggerExportPath(repo models.ConfigRepository, trigger externalTriggerRecord, sourcePath string, managed bool, configRepoIDValid bool, configRepoID int64) (string, bool) {

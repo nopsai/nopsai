@@ -51,6 +51,7 @@ type scheduleRequest struct {
 	Timezone        string            `json:"timezone" yaml:"timezone"`
 	Enabled         *bool             `json:"enabled" yaml:"enabled"`
 	Scope           string            `json:"scope" yaml:"scope"`
+	RunGroupPath    string            `json:"run_group_path" yaml:"run_group_path"`
 	Variables       map[string]string `json:"variables" yaml:"variables"`
 }
 
@@ -67,6 +68,7 @@ type scheduleInput struct {
 	Timezone        string
 	Enabled         bool
 	Scope           string
+	RunGroupPath    string
 	Variables       map[string]string
 	NextRunAt       *time.Time
 }
@@ -90,6 +92,7 @@ type scheduleRecord struct {
 	Timezone              string
 	Enabled               bool
 	Scope                 string
+	RunGroupPath          string
 	Variables             map[string]string
 	NextRunAt             *time.Time
 	LastRunAt             *time.Time
@@ -133,6 +136,7 @@ type scheduleResponse struct {
 	Timezone              string              `json:"timezone"`
 	Enabled               bool                `json:"enabled"`
 	Scope                 string              `json:"scope,omitempty"`
+	RunGroupPath          string              `json:"run_group_path,omitempty"`
 	Variables             map[string]string   `json:"variables,omitempty"`
 	NextRunAt             *time.Time          `json:"next_run_at,omitempty"`
 	LastRunAt             *time.Time          `json:"last_run_at,omitempty"`
@@ -186,6 +190,7 @@ func scheduleResponseFromRecord(record scheduleRecord) scheduleResponse {
 		Timezone:              record.Timezone,
 		Enabled:               record.Enabled,
 		Scope:                 record.Scope,
+		RunGroupPath:          record.RunGroupPath,
 		Variables:             record.Variables,
 		NextRunAt:             record.NextRunAt,
 		LastRunAt:             record.LastRunAt,
@@ -282,6 +287,10 @@ func normalizeScheduleInput(req scheduleRequest) (scheduleInput, error) {
 		nextRunAt = &next
 	}
 	scope := normalizeScheduleScope(req.Scope)
+	runGroupPath, err := normalizeRunGroupPath(req.RunGroupPath)
+	if err != nil {
+		return scheduleInput{}, fmt.Errorf("invalid run_group_path: %w", err)
+	}
 	variables, err := normalizeScheduleVariables(req.Variables)
 	if err != nil {
 		return scheduleInput{}, err
@@ -301,6 +310,7 @@ func normalizeScheduleInput(req scheduleRequest) (scheduleInput, error) {
 		Timezone:        timezone,
 		Enabled:         enabled,
 		Scope:           scope,
+		RunGroupPath:    runGroupPath,
 		Variables:       variables,
 		NextRunAt:       nextRunAt,
 	}, nil
@@ -365,16 +375,32 @@ func normalizeScheduleRuntimeRefsForFolder(boundFolder string, req *scheduleRequ
 		return nil
 	}
 	if strings.TrimSpace(req.Pipeline) != "" {
-		pipeline, err := normalizeConfigPathForFolder(boundFolder, req.Pipeline)
+		pipeline, rootQualified, err := normalizePipelineIdentifierReference(stripConfigResourcePrefix(req.Pipeline))
 		if err != nil {
-			return err
+			pipeline, err = normalizeConfigPathForFolder(boundFolder, req.Pipeline)
+			if err != nil {
+				return err
+			}
+		} else if !rootQualified {
+			pipeline, err = normalizeConfigPathForFolder(boundFolder, req.Pipeline)
+			if err != nil {
+				return err
+			}
 		}
 		req.Pipeline = pipeline
 	} else if strings.TrimSpace(req.PipelinePath) != "" || strings.TrimSpace(req.PipelineName) != "" {
 		pipelineID := buildPipelineIdentifier(req.PipelinePath, req.PipelineName)
-		pipeline, err := normalizeConfigPathForFolder(boundFolder, pipelineID)
+		pipeline, rootQualified, err := normalizePipelineIdentifierReference(pipelineID)
 		if err != nil {
-			return err
+			pipeline, err = normalizeConfigPathForFolder(boundFolder, pipelineID)
+			if err != nil {
+				return err
+			}
+		} else if !rootQualified {
+			pipeline, err = normalizeConfigPathForFolder(boundFolder, pipelineID)
+			if err != nil {
+				return err
+			}
 		}
 		pipelinePath, pipelineName, _, err := splitPipelineIdentifier(pipeline)
 		if err != nil {
@@ -384,17 +410,36 @@ func normalizeScheduleRuntimeRefsForFolder(boundFolder string, req *scheduleRequ
 		req.PipelineName = pipelineName
 	}
 	if scope := strings.Trim(strings.TrimSpace(req.Scope), "/"); scope != "" && !strings.EqualFold(scope, "default") {
-		normalized, err := normalizeConfigPathForFolder(boundFolder, scope)
+		if _, rootOnly := stripRootPathPrefix(scope); rootOnly {
+			req.Scope = ""
+		} else {
+			normalized, err := normalizeConfigPathForFolder(boundFolder, scope)
+			if err != nil {
+				return err
+			}
+			req.Scope = normalized
+		}
+	}
+	if groupPath := strings.Trim(strings.TrimSpace(req.RunGroupPath), "/"); groupPath != "" {
+		if _, rootOnly := stripRootPathPrefix(groupPath); rootOnly {
+			req.RunGroupPath = rootGrantID
+			return nil
+		}
+		normalized, err := normalizeConfigPathForFolder(boundFolder, groupPath)
 		if err != nil {
 			return err
 		}
-		req.Scope = normalized
+		req.RunGroupPath = normalized
 	}
 	return nil
 }
 
 func normalizeSchedulePath(raw string) (string, error) {
 	path := strings.Trim(strings.TrimSpace(raw), "/")
+	path, rootOnly := stripRootPathPrefix(path)
+	if rootOnly {
+		return "", nil
+	}
 	if path == "." {
 		return "", nil
 	}
@@ -418,10 +463,33 @@ func normalizeSchedulePath(raw string) (string, error) {
 
 func normalizeScheduleScope(raw string) string {
 	scope := strings.Trim(strings.TrimSpace(raw), "/")
+	scope, rootOnly := stripRootPathPrefix(scope)
+	if rootOnly {
+		return ""
+	}
 	if strings.EqualFold(scope, "default") {
 		return ""
 	}
 	return scope
+}
+
+func normalizeRunGroupPath(raw string) (string, error) {
+	path := strings.Trim(strings.TrimSpace(raw), "/")
+	if path == "" {
+		return rootGrantID, nil
+	}
+	path, rootOnly := stripRootPathPrefix(path)
+	if rootOnly {
+		return rootGrantID, nil
+	}
+	normalized, err := normalizeSchedulePath(path)
+	if err != nil {
+		return "", err
+	}
+	if normalized == "" {
+		return rootGrantID, nil
+	}
+	return normalized, nil
 }
 
 func normalizeScheduleKind(raw, runAt string) (string, error) {
@@ -841,18 +909,18 @@ func (a *App) createSchedule(ctx context.Context, input scheduleInput, pipeline 
 		INSERT INTO pipeline_schedules (
 			path, name, description, pipeline_path, pipeline_name, pipeline_version,
 			schedule_kind, cron_expression, run_at, timezone, enabled, scope, variables, next_run_at,
-			source, config_source_path, config_source_commit_sha, managed_by_config_repo,
+			run_group_path, source, config_source_path, config_source_commit_sha, managed_by_config_repo,
 			created_by, updated_by
 		) VALUES (
 			$1, $2, $3, $4, $5, $6,
 			$7, $8, $9, $10, $11, $12, $13::jsonb, $14,
-			$15, $16, $17, $18,
-			$19, $19
+			$15, $16, $17, $18, $19,
+			$20, $20
 		)
 		RETURNING id::text
 	`, input.Path, input.Name, input.Description, input.PipelinePath, input.PipelineName, input.PipelineVersion,
 		input.ScheduleKind, input.CronExpression, input.RunAt, input.Timezone, input.Enabled, input.Scope, string(variablesJSON), input.NextRunAt,
-		source, sourcePath, commitSHA, strings.EqualFold(source, "git"), actor).Scan(&scheduleID)
+		input.RunGroupPath, source, sourcePath, commitSHA, strings.EqualFold(source, "git"), actor).Scan(&scheduleID)
 	if err != nil {
 		return scheduleRecord{}, err
 	}
@@ -892,11 +960,12 @@ func (a *App) updateSchedule(ctx context.Context, scheduleID string, input sched
 			scope = $13,
 			variables = $14::jsonb,
 			next_run_at = $15,
-			updated_by = $16,
+			run_group_path = $16,
+			updated_by = $17,
 			updated_at = NOW()
 		WHERE id::text = $1
 	`, scheduleID, input.Path, input.Name, input.Description, input.PipelinePath, input.PipelineName, input.PipelineVersion,
-		input.ScheduleKind, input.CronExpression, input.RunAt, input.Timezone, input.Enabled, input.Scope, string(variablesJSON), input.NextRunAt, actor)
+		input.ScheduleKind, input.CronExpression, input.RunAt, input.Timezone, input.Enabled, input.Scope, string(variablesJSON), input.NextRunAt, input.RunGroupPath, actor)
 	if err != nil {
 		return scheduleRecord{}, err
 	}
@@ -1033,7 +1102,7 @@ func baseScheduleSelect() string {
 			s.id::text, s.path, s.name, s.description,
 			s.pipeline_path, s.pipeline_name, s.pipeline_version,
 			COALESCE(s.schedule_kind, 'cron'), s.cron_expression, s.run_at,
-			s.timezone, s.enabled, s.scope, s.variables::text,
+			s.timezone, s.enabled, s.scope, COALESCE(s.run_group_path, ''), s.variables::text,
 			s.next_run_at, s.last_run_at, COALESCE(s.last_run_id::text, ''),
 			COALESCE(s.last_status, ''), COALESCE(s.source, 'database'), COALESCE(s.visibility, 'group'),
 			s.config_repo_id, COALESCE(s.config_source_path, ''), COALESCE(s.config_source_commit_sha, ''),
@@ -1066,7 +1135,7 @@ func scanScheduleRecord(scanner scheduleScanner) (scheduleRecord, error) {
 		&record.ID, &record.Path, &record.Name, &record.Description,
 		&record.PipelinePath, &record.PipelineName, &record.PipelineVersion,
 		&record.ScheduleKind, &record.CronExpression, &runAt,
-		&record.Timezone, &record.Enabled, &record.Scope, &variablesRaw,
+		&record.Timezone, &record.Enabled, &record.Scope, &record.RunGroupPath, &variablesRaw,
 		&nextRunAt, &lastRunAt, &record.LastRunID, &record.LastStatus, &record.Source, &record.Visibility,
 		&record.ConfigRepoID, &record.ConfigSourcePath, &record.ConfigSourceCommitSHA,
 		&record.ManagedByConfigRepo, &record.CreatedBy, &record.UpdatedBy, &record.CreatedAt, &record.UpdatedAt,
@@ -1156,7 +1225,8 @@ func looksLikeUUID(value string) bool {
 func (a *App) resolveGroupIDForPath(ctx context.Context, groupPath string) (sql.NullInt32, error) {
 	var out sql.NullInt32
 	groupPath = strings.Trim(strings.TrimSpace(groupPath), "/")
-	if groupPath == "" || groupPath == generalGrantID {
+	groupPath, rootOnly := stripRootPathPrefix(groupPath)
+	if rootOnly || groupPath == "" {
 		return out, nil
 	}
 	records, err := loadGroupPathRecords(ctx, a.db)
@@ -1174,6 +1244,7 @@ func (a *App) resolveGroupIDForPath(ctx context.Context, groupPath string) (sql.
 }
 
 func (a *App) executeSchedule(ctx context.Context, record scheduleRecord) (string, error) {
+	runGroupPath := effectiveScheduleRunGroupPath(record)
 	payload := runRequestPayload{
 		Pipeline:  record.pipelineIdentifier(),
 		Scope:     record.Scope,
@@ -1194,8 +1265,8 @@ func (a *App) executeSchedule(ctx context.Context, record scheduleRecord) (strin
 	if strings.TrimSpace(record.Scope) != "" {
 		req.Header.Set("X-Nopsai-Scope", record.Scope)
 	}
-	if strings.TrimSpace(record.Path) != "" {
-		req.Header.Set("X-Nopsai-Group-Path", record.Path)
+	if strings.TrimSpace(runGroupPath) != "" {
+		req.Header.Set("X-Nopsai-Group-Path", runGroupPath)
 	}
 	req = req.WithContext(withAAASubject(req.Context(), aaamodel.Subject{
 		Type: aaamodel.SubjectTypeServiceAccount,
@@ -1229,9 +1300,9 @@ func (a *App) executeSchedule(ctx context.Context, record scheduleRecord) (strin
 		return "", fmt.Errorf("schedule execution did not return a run id")
 	}
 
-	groupID, groupErr := a.resolveGroupIDForPath(ctx, record.Path)
+	groupID, groupErr := a.resolveGroupIDForPath(ctx, runGroupPath)
 	if groupErr != nil {
-		log.Warn().Err(groupErr).Str("schedule_id", record.ID).Str("group_path", record.Path).Msg("Failed to resolve schedule run group")
+		log.Warn().Err(groupErr).Str("schedule_id", record.ID).Str("group_path", runGroupPath).Msg("Failed to resolve schedule run group")
 	}
 	if _, err := a.db.Exec(ctx, `
 		UPDATE pipeline_runs
@@ -1252,6 +1323,13 @@ func (a *App) executeSchedule(ctx context.Context, record scheduleRecord) (strin
 		return "", err
 	}
 	return response.RunID, nil
+}
+
+func effectiveScheduleRunGroupPath(record scheduleRecord) string {
+	if groupPath := strings.Trim(strings.TrimSpace(record.RunGroupPath), "/"); groupPath != "" {
+		return groupPath
+	}
+	return rootGrantID
 }
 
 func parseRunIDFromCreatedMessage(message string) string {

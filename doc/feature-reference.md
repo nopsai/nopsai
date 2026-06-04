@@ -101,9 +101,9 @@ The runtime supports:
 Pipeline schedules are first-class resources for time-based automation:
 
 - schedules target stored pipelines and do not require a Git repository event
-- each schedule has a group path, schedule kind, cron expression or one-time
-  timestamp, timezone, enabled state, optional scope, and optional variable
-  overrides
+- each schedule has a resource group path, optional run group path, schedule
+  kind, cron expression or one-time timestamp, timezone, enabled state,
+  optional scope, and optional variable overrides
 - the schedule page lists visible schedules with next run time, latest run
   status, GitOps source, and links to the latest pipeline run
 - UI-created schedules derive their path from the selected pipeline; API and
@@ -119,9 +119,10 @@ Pipeline schedules are first-class resources for time-based automation:
 - execution uses a schedule-owned service account with explicit pipeline,
   scope, reusable-step, and child-pipeline grants
 
-Schedule grouping is organizational. A path such as `prod/scheduled` is a good
-way to make production automation visible under the production group; it should
-not become a separate source of truth from the schedule resource itself.
+Schedule resource grouping is organizational. A path such as `prod/scheduled`
+is a good way to present production automation, while `run_group_path` controls
+where scheduled runs appear in Pipeline Runs and which group notification route
+receives their events.
 
 ## Knowledge Context
 
@@ -245,6 +246,9 @@ Pipeline notifications include:
 - one or more named routes per group policy, each with same-group recipients,
   explicit users/groups, excludes, event selection, pipeline/repository/branch
   filters, mail channels, and dedupe/max-per-run throttling
+- explicit schedule and external-trigger `run_group_path` selection so runtime
+  notifications can target the operational group even when the pipeline is
+  defined elsewhere; selectable groups come from the Pipeline Runs hierarchy
 - asynchronous mail delivery for running, pending, success, failure, cancelled,
   approval requested, approval approved, and approval rejected events when a
   saved or GitOps-managed route exists for the run group
@@ -255,6 +259,8 @@ Core run-management capabilities:
 
 - create run
 - list runs
+- list runs for a selected group/folder including descendant folders and apps
+- list root runs that are not assigned to any group
 - fetch run details
 - fetch run status
 - list run approvals
@@ -267,6 +273,19 @@ Core run-management capabilities:
 - update task status
 - finalize a run
 - find a run by GitHub check ID
+
+Run organization behavior:
+
+- folder/group path is the stable product boundary for pipelines, schedules,
+  external triggers, repositories, and runs
+- the Pipeline Runs root shows top-level groups, top-level applications, and
+  runs without a group assignment
+- pipeline path is used as the run owner when a run has no repository or
+  explicit group path
+- repository metadata remains a source/runtime identity for Git-triggered runs,
+  not a mandatory parent for every pipeline
+- scope remains a runtime environment/context attribute and filter; it is not a
+  navigation parent under pipeline runs
 
 Configuration management capabilities:
 
@@ -325,7 +344,7 @@ Important behavior:
 
 Pages present in the current UI:
 
-- `Pipeline runs`: run list, grouped views, recent runs, event grouping, details, logs, rerun, cancel, branch cleanup
+- `Pipeline runs`: subgroup/application/run panels, source-grouped runs, recent runs, event grouping, details, logs, rerun, cancel, branch cleanup
 - `Pipeline runs`: pending approval records with assigned groups and approve/reject actions inside run details
 - `Pipelines`: pipeline browser/editor, drafts, validation, dependency graphing, and Execute handoff to Lab
 - `Schedules`: schedule browser, pipeline-filtered schedule view, enable/disable, run now, latest-run link, and GitOps markers

@@ -60,6 +60,7 @@ func TestNormalizeScheduleInput(t *testing.T) {
 		Timezone:       "UTC",
 		Enabled:        &enabled,
 		Scope:          "default",
+		RunGroupPath:   "platform/prod",
 		Variables: map[string]string{
 			"RELEASE_CHANNEL": "nightly",
 		},
@@ -76,11 +77,51 @@ func TestNormalizeScheduleInput(t *testing.T) {
 	if got.Scope != "" {
 		t.Fatalf("scope = %q, want default scope stored as empty", got.Scope)
 	}
+	if got.RunGroupPath != "platform/prod" {
+		t.Fatalf("RunGroupPath = %q, want platform/prod", got.RunGroupPath)
+	}
 	if got.Enabled {
 		t.Fatal("enabled = true, want false")
 	}
 	if got.Variables["RELEASE_CHANNEL"] != "nightly" {
 		t.Fatalf("RELEASE_CHANNEL = %q, want nightly", got.Variables["RELEASE_CHANNEL"])
+	}
+}
+
+func TestNormalizeScheduleInputTreatsRootAsRootScope(t *testing.T) {
+	got, err := normalizeScheduleInput(scheduleRequest{
+		Path:           "root/scheduled",
+		Name:           "Root Deploy",
+		Pipeline:       "root/platform/deploy",
+		CronExpression: "0 2 * * *",
+		Timezone:       "UTC",
+		Scope:          "root/prod",
+		RunGroupPath:   "root",
+	})
+	if err != nil {
+		t.Fatalf("normalizeScheduleInput() error = %v", err)
+	}
+	if got.Path != "scheduled" {
+		t.Fatalf("Path = %q, want scheduled", got.Path)
+	}
+	if got.PipelinePath != "platform" || got.PipelineName != "deploy" {
+		t.Fatalf("pipeline = %q/%q, want platform/deploy", got.PipelinePath, got.PipelineName)
+	}
+	if got.Scope != "prod" {
+		t.Fatalf("Scope = %q, want prod", got.Scope)
+	}
+	if got.RunGroupPath != "root" {
+		t.Fatalf("RunGroupPath = %q, want root", got.RunGroupPath)
+	}
+}
+
+func TestNormalizeRunGroupPathDefaultsToRoot(t *testing.T) {
+	got, err := normalizeRunGroupPath("")
+	if err != nil {
+		t.Fatalf("normalizeRunGroupPath() error = %v", err)
+	}
+	if got != "root" {
+		t.Fatalf("normalizeRunGroupPath() = %q, want root", got)
 	}
 }
 
@@ -135,6 +176,7 @@ cron_expression: "0 2 * * *"
 timezone: UTC
 enabled: false
 scope: prod
+run_group_path: prod/scheduled
 `,
 	}
 	got, err := parseGitOpsSchedules(
@@ -155,6 +197,60 @@ scope: prod
 	}
 	if schedule.input.Scope != "team-1/prod" {
 		t.Fatalf("scope = %q, want team-1/prod", schedule.input.Scope)
+	}
+	if schedule.input.RunGroupPath != "team-1/prod/scheduled" {
+		t.Fatalf("RunGroupPath = %q, want team-1/prod/scheduled", schedule.input.RunGroupPath)
+	}
+}
+
+func TestParseGitOpsSchedulesKeepsRootRunGroupForFolderRepo(t *testing.T) {
+	files := map[string]string{
+		"config/schedules/scheduled/nightly.yaml": `
+pipeline: root/platform/deploy
+cron_expression: "0 2 * * *"
+timezone: UTC
+scope: root
+run_group_path: root
+`,
+	}
+	got, err := parseGitOpsSchedules(
+		files,
+		"config/schedules",
+		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeFolder},
+		"team-1",
+	)
+	if err != nil {
+		t.Fatalf("parseGitOpsSchedules() error = %v", err)
+	}
+	schedule, ok := got["team-1/scheduled/nightly"]
+	if !ok {
+		t.Fatalf("missing normalized schedule key, got %#v", got)
+	}
+	if schedule.input.Scope != "" {
+		t.Fatalf("scope = %q, want root/default scope", schedule.input.Scope)
+	}
+	if schedule.input.PipelinePath != "platform" || schedule.input.PipelineName != "deploy" {
+		t.Fatalf("pipeline = %q/%q, want platform/deploy", schedule.input.PipelinePath, schedule.input.PipelineName)
+	}
+	if schedule.input.RunGroupPath != "root" {
+		t.Fatalf("RunGroupPath = %q, want root", schedule.input.RunGroupPath)
+	}
+}
+
+func TestEffectiveScheduleRunGroupPathDefaultsToRoot(t *testing.T) {
+	got := effectiveScheduleRunGroupPath(scheduleRecord{
+		Path: "prod/scheduled",
+	})
+	if got != "root" {
+		t.Fatalf("effectiveScheduleRunGroupPath() = %q, want root", got)
+	}
+
+	got = effectiveScheduleRunGroupPath(scheduleRecord{
+		Path:         "prod/scheduled",
+		RunGroupPath: "platform/prod",
+	})
+	if got != "platform/prod" {
+		t.Fatalf("effectiveScheduleRunGroupPath() explicit = %q, want platform/prod", got)
 	}
 }
 
