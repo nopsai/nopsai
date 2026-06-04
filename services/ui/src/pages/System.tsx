@@ -210,7 +210,7 @@ const POLICY_TEMPLATE_ROLE = '__policy_template__';
 const DEFAULT_ADMIN_ROLE = 'nopsai-admin';
 const DEFAULT_ADMIN_POLICY_OBJ = '*:*';
 const DEFAULT_ADMIN_POLICY_ACT = '*';
-const GENERAL_ACCESS_SCOPE = '__general__';
+const ROOT_ACCESS_SCOPE = 'root';
 const BASIC_ROLE_VIEWER = 'viewer';
 const BASIC_ROLE_DEVELOPER = 'developer';
 const BASIC_ROLE_OWNER = 'owner';
@@ -2028,11 +2028,16 @@ const accessPresetToneClass = (roleName: string) => {
   return presetID ? `access-chip--tone-${presetID}` : 'access-chip--muted';
 };
 
+const isRootAccessScopeID = (value?: string) => {
+  const normalized = String(value || '').trim().replace(/^\/+|\/+$/g, '').toLowerCase();
+  return normalized === 'root';
+};
+
 const normalizeBasicGrantResourceLabel = (grant: Pick<AccessGrantRecord, 'resourceType' | 'resourceID'>) => {
   const resourceType = (grant.resourceType || '').trim();
   const resourceID = (grant.resourceID || '').trim().replace(/^\/+|\/+$/g, '');
   if (resourceType === 'platform') return 'Platform';
-  if (!resourceID || resourceID === 'general' || resourceID === GENERAL_ACCESS_SCOPE) return 'General';
+  if (isRootAccessScopeID(resourceID)) return 'Root';
   return `/${resourceID}`;
 };
 
@@ -2041,8 +2046,7 @@ const basicAccessGrantLabel = (grant: Pick<AccessGrantRecord, 'role' | 'resource
 
 const accessGrantResourceSummary = (grant: Pick<AccessGrantRecord, 'resourceType' | 'resourceID'>) => {
   if ((grant.resourceType || '').trim() === 'platform') return 'Platform wide';
-  const label = normalizeBasicGrantResourceLabel(grant);
-  return label === 'General' ? 'General (without group)' : label;
+  return normalizeBasicGrantResourceLabel(grant);
 };
 
 const basicAccessGrantDescription = (grant: Pick<AccessGrantRecord, 'role' | 'resourceType' | 'resourceID' | 'grantedBy'>) => {
@@ -2050,7 +2054,7 @@ const basicAccessGrantDescription = (grant: Pick<AccessGrantRecord, 'role' | 're
   if ((grant.resourceType || '').trim() === 'platform') {
     return 'This basic role gives platform-wide administrator access.';
   }
-  if (label === 'General (without group)') {
+  if (label === 'Root') {
     return `This ${grant.role} basic role applies to items that are not inside any group.`;
   }
   return `This ${grant.role} basic role applies to ${label} and anything nested below it.`;
@@ -2063,8 +2067,8 @@ const normalizedAccessGrantResourceKey = (grant: Pick<AccessGrantRecord, 'resour
   const resourceID = (grant.resourceID || '').trim();
   if (resourceType === 'folder') {
     const folderID = resourceID.replace(/^\/+|\/+$/g, '');
-    if (!folderID || folderID === 'general' || folderID === GENERAL_ACCESS_SCOPE) {
-      return { resourceType, resourceID: GENERAL_ACCESS_SCOPE };
+    if (isRootAccessScopeID(folderID)) {
+      return { resourceType, resourceID: ROOT_ACCESS_SCOPE };
     }
     return { resourceType, resourceID: folderID };
   }
@@ -3334,7 +3338,7 @@ function AccessPanel({
   const [awaitingUserCreateReset, setAwaitingUserCreateReset] = useState(false);
   const [awaitingServiceAccountCreateReset, setAwaitingServiceAccountCreateReset] = useState(false);
   const [awaitingPolicyCreateReset, setAwaitingPolicyCreateReset] = useState(false);
-  const [basicGrantDraft, setBasicGrantDraft] = useState({ role: '', scope: GENERAL_ACCESS_SCOPE });
+  const [basicGrantDraft, setBasicGrantDraft] = useState({ role: '', scope: ROOT_ACCESS_SCOPE });
   const [basicGrantEntries, setBasicGrantEntries] = useState<EditableAccessGrant[]>([]);
   const [basicGrantSaving, setBasicGrantSaving] = useState(false);
   const [basicGrantError, setBasicGrantError] = useState<string | null>(null);
@@ -3440,7 +3444,7 @@ function AccessPanel({
     setUserAccessEditor(null);
     setServiceAccountEditor(null);
     setBasicGrantError(null);
-    setBasicGrantDraft({ role: '', scope: GENERAL_ACCESS_SCOPE });
+    setBasicGrantDraft({ role: '', scope: ROOT_ACCESS_SCOPE });
     setBasicGrantEntries([]);
     setShowServiceAccountModal(false);
     setShowUserModal(true);
@@ -3453,7 +3457,7 @@ function AccessPanel({
     setServiceAccountEditor(null);
     setCreatedServiceAccountToken(null);
     setBasicGrantError(null);
-    setBasicGrantDraft({ role: '', scope: GENERAL_ACCESS_SCOPE });
+    setBasicGrantDraft({ role: '', scope: ROOT_ACCESS_SCOPE });
     setBasicGrantEntries([]);
     setShowUserModal(false);
     setShowServiceAccountModal(true);
@@ -3495,7 +3499,7 @@ function AccessPanel({
     setShowServiceAccountModal(false);
     setServiceAccountEditor(null);
     setBasicGrantError(null);
-    setBasicGrantDraft({ role: '', scope: GENERAL_ACCESS_SCOPE });
+    setBasicGrantDraft({ role: '', scope: ROOT_ACCESS_SCOPE });
     setBasicGrantEntries((basicUserGrantMap.get(user.id) || []).map(editableAccessGrantFromRecord));
     const entries = (user.roles || []).map(role => role.role);
     const nextEntries = entries.length > 0 ? entries : [];
@@ -3516,7 +3520,7 @@ function AccessPanel({
     setUserAccessEditor(null);
     setCreatedServiceAccountToken(null);
     setBasicGrantError(null);
-    setBasicGrantDraft({ role: '', scope: GENERAL_ACCESS_SCOPE });
+    setBasicGrantDraft({ role: '', scope: ROOT_ACCESS_SCOPE });
     setBasicGrantEntries((basicServiceAccountGrantMap.get(account.sub) || []).map(editableAccessGrantFromRecord));
     const entries = (account.roles || []).map(role => role.role);
     setServiceAccountEditor({
@@ -3793,7 +3797,7 @@ function AccessPanel({
   const searchQuery = searchTerm.trim().toLowerCase();
   const basicAccessGrants = useMemo(() => accessGrants.filter(isBasicAccessGrant), [accessGrants]);
   const basicGrantOptions = useMemo(
-    () => [{ value: GENERAL_ACCESS_SCOPE, label: 'General (without group)' }, ...resourceCatalog.folderOptions],
+    () => [{ value: ROOT_ACCESS_SCOPE, label: 'Root' }, ...resourceCatalog.folderOptions],
     [resourceCatalog.folderOptions]
   );
   const basicUserGrantMap = useMemo(() => {
@@ -3940,7 +3944,7 @@ function AccessPanel({
     const draftGrant = {
       role,
       resourceType: role === BASIC_ROLE_ADMIN ? 'platform' : 'folder',
-      resourceID: role === BASIC_ROLE_ADMIN ? 'platform' : basicGrantDraft.scope || GENERAL_ACCESS_SCOPE,
+      resourceID: role === BASIC_ROLE_ADMIN ? 'platform' : basicGrantDraft.scope || ROOT_ACCESS_SCOPE,
     };
     const draftKey = accessGrantEditKey(draftGrant);
     return basicGrantEntries.some(grant => accessGrantEditKey(grant) === draftKey);
@@ -4048,7 +4052,7 @@ function AccessPanel({
 
   useEffect(() => {
     setBasicGrantError(null);
-    setBasicGrantDraft({ role: '', scope: GENERAL_ACCESS_SCOPE });
+    setBasicGrantDraft({ role: '', scope: ROOT_ACCESS_SCOPE });
   }, [userAccessEditor?.user.id]);
 
   useEffect(() => {
@@ -4088,7 +4092,7 @@ function AccessPanel({
       const created = await onCreateUser(e, { basicGrants: normalizeEditableBasicGrants(basicGrantEntries) });
       if (created) {
         setBasicGrantError(null);
-        setBasicGrantDraft({ role: '', scope: GENERAL_ACCESS_SCOPE });
+        setBasicGrantDraft({ role: '', scope: ROOT_ACCESS_SCOPE });
         setBasicGrantEntries([]);
       }
     } finally {
@@ -4105,7 +4109,7 @@ function AccessPanel({
         setCreatedServiceAccountToken(token);
         setCopyServiceAccountTokenLabel('Copy');
         setBasicGrantError(null);
-        setBasicGrantDraft({ role: '', scope: GENERAL_ACCESS_SCOPE });
+        setBasicGrantDraft({ role: '', scope: ROOT_ACCESS_SCOPE });
         setBasicGrantEntries([]);
       }
     } finally {
@@ -4211,7 +4215,7 @@ function AccessPanel({
       localID: `draft-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       role: normalizedRole,
       resourceType: normalizedRole === BASIC_ROLE_ADMIN ? 'platform' : 'folder',
-      resourceID: normalizedRole === BASIC_ROLE_ADMIN ? 'platform' : basicGrantDraft.scope || GENERAL_ACCESS_SCOPE,
+      resourceID: normalizedRole === BASIC_ROLE_ADMIN ? 'platform' : basicGrantDraft.scope || ROOT_ACCESS_SCOPE,
       inherit: normalizedRole !== BASIC_ROLE_ADMIN,
     };
     const nextKey = accessGrantEditKey(nextGrant);
@@ -4398,7 +4402,7 @@ function AccessPanel({
             setAwaitingUserCreateReset(false);
             setShowUserModal(false);
             setBasicGrantError(null);
-            setBasicGrantDraft({ role: '', scope: GENERAL_ACCESS_SCOPE });
+            setBasicGrantDraft({ role: '', scope: ROOT_ACCESS_SCOPE });
             setBasicGrantEntries([]);
           }}
         >
@@ -4505,7 +4509,7 @@ function AccessPanel({
                   setBasicGrantDraft(prev => ({
                     ...prev,
                     role,
-                    scope: role === BASIC_ROLE_ADMIN ? prev.scope : prev.scope || GENERAL_ACCESS_SCOPE,
+                    scope: role === BASIC_ROLE_ADMIN ? prev.scope : prev.scope || ROOT_ACCESS_SCOPE,
                   }));
                 }}
               >
@@ -4552,7 +4556,7 @@ function AccessPanel({
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className={`access-chip ${accessPresetToneClass(grant.role)}`}>{grant.role}</span>
                       <span className="access-chip access-chip--muted">{accessGrantResourceSummary(grant)}</span>
-                      {grant.inherit && grant.resourceType === 'folder' && grant.resourceID !== 'general' && (
+                      {grant.inherit && grant.resourceType === 'folder' && !isRootAccessScopeID(grant.resourceID) && (
                         <span className="access-chip access-chip--muted">Includes children</span>
                       )}
                     </div>
@@ -4606,7 +4610,7 @@ function AccessPanel({
             setShowServiceAccountModal(false);
             setCreatedServiceAccountToken(null);
             setBasicGrantError(null);
-            setBasicGrantDraft({ role: '', scope: GENERAL_ACCESS_SCOPE });
+            setBasicGrantDraft({ role: '', scope: ROOT_ACCESS_SCOPE });
             setBasicGrantEntries([]);
           }}
         >
@@ -4714,7 +4718,7 @@ function AccessPanel({
                     setBasicGrantDraft(prev => ({
                       ...prev,
                       role,
-                      scope: role === BASIC_ROLE_ADMIN ? prev.scope : prev.scope || GENERAL_ACCESS_SCOPE,
+                      scope: role === BASIC_ROLE_ADMIN ? prev.scope : prev.scope || ROOT_ACCESS_SCOPE,
                     }));
                   }}
                 >
@@ -4761,7 +4765,7 @@ function AccessPanel({
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className={`access-chip ${accessPresetToneClass(grant.role)}`}>{grant.role}</span>
                         <span className="access-chip access-chip--muted">{accessGrantResourceSummary(grant)}</span>
-                        {grant.inherit && grant.resourceType === 'folder' && grant.resourceID !== 'general' && (
+                        {grant.inherit && grant.resourceType === 'folder' && !isRootAccessScopeID(grant.resourceID) && (
                           <span className="access-chip access-chip--muted">Includes children</span>
                         )}
                       </div>
@@ -5040,7 +5044,7 @@ function AccessPanel({
                         setBasicGrantDraft(prev => ({
                           ...prev,
                           role,
-                          scope: role === BASIC_ROLE_ADMIN ? prev.scope : prev.scope || GENERAL_ACCESS_SCOPE,
+                          scope: role === BASIC_ROLE_ADMIN ? prev.scope : prev.scope || ROOT_ACCESS_SCOPE,
                         }));
                       }}
                       disabled={userRoleAssignmentsLocked}
@@ -5088,7 +5092,7 @@ function AccessPanel({
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className={`access-chip ${accessPresetToneClass(grant.role)}`}>{grant.role}</span>
                             <span className="access-chip access-chip--muted">{accessGrantResourceSummary(grant)}</span>
-                            {grant.inherit && grant.resourceType === 'folder' && grant.resourceID !== 'general' && (
+                            {grant.inherit && grant.resourceType === 'folder' && !isRootAccessScopeID(grant.resourceID) && (
                               <span className="access-chip access-chip--muted">Includes children</span>
                             )}
                           </div>
@@ -5366,7 +5370,7 @@ function AccessPanel({
                         setBasicGrantDraft(prev => ({
                           ...prev,
                           role,
-                          scope: role === BASIC_ROLE_ADMIN ? prev.scope : prev.scope || GENERAL_ACCESS_SCOPE,
+                          scope: role === BASIC_ROLE_ADMIN ? prev.scope : prev.scope || ROOT_ACCESS_SCOPE,
                         }));
                       }}
                     >
@@ -5413,7 +5417,7 @@ function AccessPanel({
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className={`access-chip ${accessPresetToneClass(grant.role)}`}>{grant.role}</span>
                             <span className="access-chip access-chip--muted">{accessGrantResourceSummary(grant)}</span>
-                            {grant.inherit && grant.resourceType === 'folder' && grant.resourceID !== 'general' && (
+                            {grant.inherit && grant.resourceType === 'folder' && !isRootAccessScopeID(grant.resourceID) && (
                               <span className="access-chip access-chip--muted">Includes children</span>
                             )}
                           </div>

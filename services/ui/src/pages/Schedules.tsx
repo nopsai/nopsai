@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 
 import { buildApiUrl } from '../lib/api';
-import { fetchResourceGroupPaths } from '../lib/resourceGroups';
+import { fetchPipelineRunGroupPaths } from '../lib/resourceGroups';
 
 type PipelineListItem = {
   id: string;
@@ -51,6 +51,7 @@ type PipelineSchedule = {
   timezone: string;
   enabled: boolean;
   scope?: string;
+  run_group_path?: string;
   variables?: Record<string, string>;
   next_run_at?: string;
   last_run_at?: string;
@@ -84,6 +85,7 @@ type ScheduleFormState = {
   timezone: string;
   enabled: boolean;
   scope: string;
+  runGroupPath: string;
   variablesText: string;
 };
 
@@ -147,6 +149,19 @@ function normalizeIdentifier(value: unknown): string {
     .replace(/^\/+|\/+$/g, '');
 }
 
+function normalizeScopeOption(value: unknown): string {
+  const normalized = normalizeIdentifier(value);
+  return normalized.toLowerCase() === 'default' ? '' : normalized;
+}
+
+function uniqueRunGroupOptions(values: string[]): string[] {
+  return Array.from(new Set(['root', ...values.map(normalizeIdentifier).filter(Boolean)])).sort((a, b) => {
+    if (a === 'root') return -1;
+    if (b === 'root') return 1;
+    return a.localeCompare(b);
+  });
+}
+
 function splitIdentifier(identifier: string) {
   const parts = normalizeIdentifier(identifier).split('/').filter(Boolean);
   const name = parts.pop() || '';
@@ -201,8 +216,17 @@ function formatDateTime(value?: string, timeZone?: string) {
 }
 
 function formatScope(scope?: string) {
-  const normalized = normalizeIdentifier(scope);
+  const normalized = normalizeScopeOption(scope);
   return normalized || 'default';
+}
+
+function formatGroupPath(path?: string) {
+  const normalized = normalizeIdentifier(path);
+  return normalized === 'root' || !normalized ? 'Root' : normalized;
+}
+
+function effectiveScheduleRunGroupPath(schedule: PipelineSchedule) {
+  return normalizeIdentifier(schedule.run_group_path) || 'root';
 }
 
 function normalizeScheduleKind(kind?: string) {
@@ -514,7 +538,12 @@ function parseVariablesText(raw: string) {
   return variables;
 }
 
-function createEmptyForm(pipelineFilter: string): ScheduleFormState {
+function defaultRunGroupForPipeline(pipeline: string, runGroups: string[]) {
+  const parentPath = splitIdentifier(pipeline).path;
+  return parentPath && runGroups.includes(parentPath) ? parentPath : 'root';
+}
+
+function createEmptyForm(pipelineFilter: string, runGroups: string[] = []): ScheduleFormState {
   const pipeline = normalizeIdentifier(pipelineFilter);
   const cronFields = cronFormFromExpression(DEFAULT_CRON);
   const runAt = defaultRunAtFields();
@@ -529,6 +558,7 @@ function createEmptyForm(pipelineFilter: string): ScheduleFormState {
     timezone: DEFAULT_TIMEZONE,
     enabled: true,
     scope: '',
+    runGroupPath: defaultRunGroupForPipeline(pipeline, runGroups),
     variablesText: '',
   };
 }
@@ -552,6 +582,7 @@ function formFromSchedule(schedule: PipelineSchedule): ScheduleFormState {
     timezone: schedule.timezone || 'UTC',
     enabled: Boolean(schedule.enabled),
     scope: schedule.scope || '',
+    runGroupPath: effectiveScheduleRunGroupPath(schedule),
     variablesText: variablesToText(schedule.variables),
   };
 }
@@ -614,7 +645,7 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
       try {
         const [pipelinePayload, groupPayload, secretScopes, variableScopes] = await Promise.all([
           fetchJson<PipelineListItem[] | string[]>('/v1/pipelines').catch(() => []),
-          fetchResourceGroupPaths().catch(() => []),
+          fetchPipelineRunGroupPaths().catch(() => []),
           fetchJson<Array<string | { scope?: string; name?: string }>>('/v1/secrets/scopes').catch(() => []),
           fetchJson<Array<string | { scope?: string; name?: string }>>('/v1/variables/scopes').catch(() => []),
         ]);
@@ -640,7 +671,7 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
         variableScopes.forEach(collectScope);
         setPipelines(pipelineIDs);
         setGroups(groupPayload.map(normalizeIdentifier).filter(Boolean).sort((a, b) => a.localeCompare(b)));
-        setScopes(Array.from(scopeSet).sort((a, b) => a.localeCompare(b)));
+        setScopes(Array.from(scopeSet).map(normalizeScopeOption).sort((a, b) => a.localeCompare(b)));
       } catch {
         if (!cancelled) {
           setPipelines([]);
@@ -655,7 +686,7 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
     };
   }, []);
 
-  const groupOptions = useMemo(() => {
+  const scheduleGroupOptions = useMemo(() => {
     const values = new Set<string>(groups);
     schedules.forEach(schedule => {
       const path = normalizeIdentifier(schedule.path);
@@ -664,9 +695,11 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
     return Array.from(values).sort((a, b) => a.localeCompare(b));
   }, [groups, schedules]);
 
+  const runGroupOptions = useMemo(() => uniqueRunGroupOptions(groups), [groups]);
+
   const scopeOptions = useMemo(() => {
-    const values = new Set(scopes);
-    schedules.forEach(schedule => values.add(normalizeIdentifier(schedule.scope)));
+    const values = new Set(scopes.map(normalizeScopeOption));
+    schedules.forEach(schedule => values.add(normalizeScopeOption(schedule.scope)));
     return Array.from(values).sort((a, b) => a.localeCompare(b));
   }, [schedules, scopes]);
 
@@ -675,7 +708,13 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
     return schedules.filter(schedule => {
       if (!showDisabled && !schedule.enabled) return false;
       const path = normalizeIdentifier(schedule.path);
-      if (activeGroup !== 'all' && path !== activeGroup && !path.startsWith(`${activeGroup}/`)) return false;
+      if (activeGroup !== 'all') {
+        if (activeGroup === 'root') {
+          if (path) return false;
+        } else if (path !== activeGroup && !path.startsWith(`${activeGroup}/`)) {
+          return false;
+        }
+      }
       if (!term) return true;
       const haystack = [
         schedule.identifier,
@@ -721,10 +760,10 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
   }, [searchParams, setSearchParams]);
 
   const openCreate = useCallback(() => {
-    setForm(createEmptyForm(pipelineFilter));
+    setForm(createEmptyForm(pipelineFilter, runGroupOptions));
     setFormError(null);
     setModal({ mode: 'create' });
-  }, [pipelineFilter]);
+  }, [pipelineFilter, runGroupOptions]);
 
   const openEdit = useCallback((schedule: PipelineSchedule) => {
     setForm(formFromSchedule(schedule));
@@ -757,6 +796,7 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
         timezone: form.timezone.trim() || 'UTC',
         enabled: form.enabled,
         scope: normalizeIdentifier(form.scope),
+        run_group_path: normalizeIdentifier(form.runGroupPath) || 'root',
         variables: parseVariablesText(form.variablesText),
       };
       const editingSchedule = modal.mode === 'edit' ? modal.schedule : undefined;
@@ -897,9 +937,9 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
             aria-label="Filter by group"
           >
             <option value="all">All groups</option>
-            {groupOptions.map(group => (
+            {scheduleGroupOptions.map(group => (
               <option key={group} value={group}>
-                /{group}
+                {group === 'root' ? 'Root' : `/${group}`}
               </option>
             ))}
           </select>
@@ -953,6 +993,7 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
           formError={formError}
           saving={saving}
           pipelines={pipelines}
+          runGroups={runGroupOptions}
           scopes={scopeOptions}
           canSubmit={canWriteSchedules && !modal.schedule?.managed_by_config_repo}
           onChange={setForm}
@@ -1062,6 +1103,7 @@ function ScheduleCard({
       <div className="mt-4 grid gap-3 md:grid-cols-2">
         <ScheduleFact label="Pipeline" value={schedule.pipeline} mono />
         <ScheduleFact label="Scope" value={formatScope(schedule.scope)} mono />
+        <ScheduleFact label="Run group" value={formatGroupPath(effectiveScheduleRunGroupPath(schedule))} mono />
         <ScheduleFact label="Schedule" value={friendlyScheduleLabel(schedule)} />
         <ScheduleFact label="Timezone" value={schedule.timezone || 'UTC'} />
         <ScheduleFact label="Next run" value={formatDateTime(schedule.next_run_at, schedule.timezone)} />
@@ -1101,6 +1143,7 @@ function ScheduleFormModal({
   formError,
   saving,
   pipelines,
+  runGroups,
   scopes,
   canSubmit,
   onChange,
@@ -1112,6 +1155,7 @@ function ScheduleFormModal({
   formError: string | null;
   saving: boolean;
   pipelines: string[];
+  runGroups: string[];
   scopes: string[];
   canSubmit: boolean;
   onChange: (form: ScheduleFormState) => void;
@@ -1123,7 +1167,8 @@ function ScheduleFormModal({
   const pipelineOptions = Array.from(new Set([...pipelines, form.pipeline].map(normalizeIdentifier).filter(Boolean))).sort((a, b) =>
     a.localeCompare(b)
   );
-  const scopeOptions = Array.from(new Set(['', ...scopes, form.scope].map(normalizeIdentifier))).sort((a, b) => a.localeCompare(b));
+  const groupOptions = uniqueRunGroupOptions([...runGroups, form.runGroupPath]);
+  const scopeOptions = Array.from(new Set(['', ...scopes, form.scope].map(normalizeScopeOption))).sort((a, b) => a.localeCompare(b));
   const updateCron = (patch: Partial<CronFormFields>) => {
     const next = { ...form, ...patch };
     onChange({
@@ -1166,11 +1211,17 @@ function ScheduleFormModal({
               <span className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Pipeline</span>
               <select
                 className="pipelines-input w-full"
-                value={form.pipeline}
-                onChange={event => {
-                  const pipeline = normalizeIdentifier(event.target.value);
-                  update({ pipeline });
-                }}
+	                value={form.pipeline}
+	                onChange={event => {
+	                  const pipeline = normalizeIdentifier(event.target.value);
+	                  update({
+	                    pipeline,
+	                    runGroupPath:
+	                      form.runGroupPath && form.runGroupPath !== 'root'
+	                        ? form.runGroupPath
+	                        : defaultRunGroupForPipeline(pipeline, runGroups),
+	                  });
+	                }}
                 disabled={disabled}
               >
                 <option value="" disabled>
@@ -1179,6 +1230,21 @@ function ScheduleFormModal({
                 {pipelineOptions.map(pipeline => (
                   <option key={pipeline} value={pipeline}>
                     {pipeline}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Run group</span>
+              <select
+                className="pipelines-input w-full"
+                value={form.runGroupPath}
+                onChange={event => update({ runGroupPath: event.target.value })}
+                disabled={disabled}
+              >
+                {groupOptions.map(group => (
+                  <option key={group} value={group}>
+                    {group === 'root' ? 'Root' : group}
                   </option>
                 ))}
               </select>

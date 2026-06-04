@@ -487,8 +487,9 @@ curl -X POST \
     "name":"Deploy production",
     "description":"ServiceNow-approved production deploy",
     "enabled":true,
-    "pipeline":"platform-maintenance",
+    "pipeline":"platform/prod/platform-maintenance",
     "scope":"prod",
+    "run_group_path":"platform/prod",
     "allowed_callers":[{"type":"service_account","id":"servicenow-prod"}],
     "variable_mapping":{"VERSION":"payload.version"},
     "payload_schema":{
@@ -536,8 +537,9 @@ Example manifest:
 id: deploy-prod
 name: Deploy prod from ServiceNow
 enabled: true
-pipeline: platform-maintenance
+pipeline: platform/prod/platform-maintenance
 scope: prod
+run_group_path: platform/prod
 allowed_callers:
   - type: service_account
     id: servicenow-prod
@@ -566,6 +568,10 @@ Authorization and controls:
 - Management uses `external_trigger.read`, `external_trigger.create`, `external_trigger.update`, and `external_trigger.delete`.
 - Invocation requires a valid bearer token, a matching `allowed_callers` entry, `external_trigger.invoke` on the trigger, `pipeline.execute` for the selected pipeline, and runtime `*.use` checks for the selected pipeline, scope, reusable steps, child pipelines, knowledge contexts, secrets, variables, and runners.
 - `allowed_callers` supports `user`, `auth_group`, and `service_account`; use service accounts for external systems.
+- `run_group_path` selects the Pipeline Runs group for invoked runs so group
+  notification routes can deliver external-trigger run events. Use `root` for
+  root runs with no group assignment; omitted or empty values normalize to
+  `root`.
 - Idempotency keys are scoped to trigger, caller type, and caller id. A repeated successful key returns the original run response; an in-flight key returns `409`.
 - `payload_schema` supports object schemas with `required` and simple `properties.<name>.type` validation.
 - `variable_mapping` maps invoke payload fields into run variables. For example, `"VERSION":"payload.version"` reads `{ "payload": { "version": "1.2.3" } }`.
@@ -933,6 +939,7 @@ curl -X POST \
     "timezone":"UTC",
     "enabled":false,
     "scope":"team-1/prod",
+    "run_group_path":"team-1/prod",
     "variables":{"RELEASE_CHANNEL":"nightly"}
   }' \
   http://localhost:8080/v1/schedules
@@ -946,7 +953,8 @@ curl -X POST \
     "schedule_kind":"once",
     "run_at":"2030-03-15T09:45",
     "timezone":"Europe/Amsterdam",
-    "scope":"team-1/prod"
+    "scope":"team-1/prod",
+    "run_group_path":"team-1/prod"
   }' \
   http://localhost:8080/v1/schedules
 
@@ -961,9 +969,14 @@ curl -X DELETE http://localhost:8080/v1/schedules/<schedule-id>
 
 Schedule payload fields:
 
-- `path`: optional schedule group path. If omitted, the schedule uses the target
-  pipeline path. The UI uses this default; API and GitOps flows can still use
-  paths such as `prod/scheduled` when an operational subgroup is useful.
+- `path`: optional schedule resource path. If omitted, the schedule uses the
+  target pipeline path. The UI uses this default; API and GitOps flows can still
+  use paths such as `prod/scheduled` when an operational subgroup is useful.
+- `run_group_path`: optional Pipeline Runs group for runs started by the
+  schedule. Use `root` for root runs with no group assignment; omitted or empty
+  values normalize to `root`. Use a concrete group when the schedule should
+  notify or appear under an operational group that is different from the
+  pipeline definition path.
 - `name`: schedule name, unique within `path`.
 - `pipeline` or `pipeline_path` plus `pipeline_name`: target stored pipeline.
 - `schedule_kind`: `cron` for recurring schedules or `once` for a specific
@@ -999,6 +1012,7 @@ cron_expression: "0 2 * * *"
 timezone: UTC
 enabled: false
 scope: prod
+run_group_path: prod
 variables:
   RELEASE_CHANNEL: nightly
 ```
@@ -1014,13 +1028,19 @@ run_at: "2030-03-15T09:45"
 timezone: Europe/Amsterdam
 enabled: true
 scope: prod
+run_group_path: prod
 ```
 
 In a group-scoped config repository, schedule file paths and runtime references
 are normalized under the bound group. For example,
 `schedules/prod/scheduled/nightly-api-deploy.yaml` in the `team-1` repo becomes
 schedule `team-1/prod/scheduled/nightly-api-deploy`, and `pipeline:
-services/api/deploy` becomes `team-1/services/api/deploy`.
+services/api/deploy`, `scope: prod`, and `run_group_path: prod` become
+`team-1/services/api/deploy`, `team-1/prod`, and `team-1/prod`.
+Use `run_group_path: root` when the resulting scheduled run should stay at the
+Pipeline Runs root instead of being assigned to a group. A leading `root/`
+prefix on runtime references means the root hierarchy, not a group named
+`root`.
 
 ---
 
@@ -1028,6 +1048,9 @@ services/api/deploy` becomes `team-1/services/api/deploy`.
 
 - The GitOps config repository can define the group and app hierarchy for the Pipeline Runs UI via `config-repositories/groups/structure.yaml`, scoped files such as `config-repositories/groups/team-1/structure.yaml`, or the legacy `pipelineruns/structure.yaml`.
 - Each top-level key is a group. Nest groups by adding child keys, assign apps under a group with an `apps:` list, and optionally delegate a group with a `config:` block.
+- Schedule and external-trigger `run_group_path` values should reference groups
+  from this Pipeline Runs hierarchy, or `root` for ungrouped root runs; their UI
+  selectors are populated from Pipeline Runs groups.
 - App entries require a `repo_url`; NopsAI normalizes that URL to the repository identity used by triggers and run metadata. Legacy `repos:` lists with `owner/repo` strings are still accepted during migration.
 - Group repo bindings under `config-repositories/groups/...` always create matching group shells, even when `pipelineruns/structure.yaml` does not mention them.
 - Structure files colocated under `config-repositories/groups` are merged into those group shells, so repository placement can live next to the group binding.
@@ -1036,8 +1059,8 @@ services/api/deploy` becomes `team-1/services/api/deploy`.
 - Example:
 
 ```yaml
-general:
-  description: General workflows
+platform:
+  description: Shared platform workflows
 team-1:
   description: Description for team-1 group
   config:
@@ -1104,7 +1127,10 @@ curl -X POST -H "Content-Type: application/json" \
 - Group repositories use the same drift and write endpoint shape at `GET /v1/groups/<group-path>/config-repo/drift` and `POST /v1/groups/<group-path>/config-repo/write`. File paths are relative to the configured `base_path`.
 - Nested groups are represented by nested paths, for example `config-repositories/groups/team-2/platform.yaml` creates a binding for `team-2/platform`.
 - Group bindings also create matching group shells used by the Pipelines, Steps, Triggers, Scopes, and Pipeline Runs views.
-- Schedule paths can use those same group shells; a conventional path such as `prod/scheduled` keeps scheduled automation visible under the production group without making it a separate source of truth.
+- Schedule paths can use those same group shells; `run_group_path` controls the
+  Pipeline Runs group and notification route used by schedule and external
+  trigger executions when it should differ from the resource path or target
+  pipeline path.
 - Once a group repo is assigned and synced, it is authoritative for resources under that group path. Parent or global repos skip and prune their own managed resources inside delegated groups.
 - Only owners of the target group, including inherited parent owners, can sync that group repo.
 - Complete examples live under `doc/sample-config-repo`.
@@ -1164,6 +1190,7 @@ curl -X POST http://localhost:8080/v1/run/team-1/dev/main-pipeline
 
 # Fetch runs and details
 curl http://localhost:8080/v1/runs
+curl "http://localhost:8080/v1/runs?groupId=root"
 curl http://localhost:8080/v1/runs/<run-id>
 curl http://localhost:8080/v1/runs/<run-id>/status
 curl http://localhost:8080/v1/runs/<run-id>/logs
@@ -1195,6 +1222,9 @@ curl -X DELETE \
 - Approval steps move runs to `waiting_approval`; approval resumes the stored checkpoint, while rejection marks the run `rejected`.
 - Internal approval checkpoint endpoints under `/v1/internal/runs/...` are service-token protected for agents and are not user API endpoints.
 - Run listings return summary metadata used by the UI cards and periodic refreshes.
+- `GET /v1/runs?groupId=<id>` returns runs for a Pipeline Runs group and its
+  descendants, grouped by branch for the Main view. `groupId=root` returns runs
+  with no group assignment.
 - Scheduled runs set `trigger_source: "schedule"` and include schedule metadata when the run came from a pipeline schedule.
 - Run log access is authorized separately from run-detail access in the low-level AAA layer.
 - Branch cleanup removes historical runs for the specified branch while leaving the repository intact.

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 
 import { buildApiUrl } from '../lib/api';
+import { fetchPipelineRunGroupPaths } from '../lib/resourceGroups';
 
 type AllowedCaller = {
   type: 'user' | 'service_account' | 'auth_group';
@@ -28,6 +29,7 @@ type ExternalTrigger = {
   enabled: boolean;
   pipeline: string;
   scope?: string;
+  run_group_path?: string;
   allowed_callers?: AllowedCaller[];
   variable_mapping?: Record<string, string>;
   payload_schema?: Record<string, unknown>;
@@ -95,6 +97,7 @@ type ExternalTriggerForm = {
   description: string;
   pipeline: string;
   scope: string;
+  runGroupPath: string;
   enabled: boolean;
   allowedCallers: AllowedCaller[];
   variableMappingText: string;
@@ -118,6 +121,7 @@ const emptyForm: ExternalTriggerForm = {
   description: '',
   pipeline: '',
   scope: '',
+  runGroupPath: 'root',
   enabled: true,
   allowedCallers: [],
   variableMappingText: '{\n  "VERSION": "payload.version"\n}',
@@ -132,6 +136,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
   const [invocations, setInvocations] = useState<ExternalTriggerInvocation[]>([]);
   const [pipelines, setPipelines] = useState<string[]>([]);
   const [scopes, setScopes] = useState<string[]>([]);
+  const [runGroups, setRunGroups] = useState<string[]>([]);
   const [users, setUsers] = useState<UserListItem[]>([]);
   const [serviceAccounts, setServiceAccounts] = useState<ServiceAccountListItem[]>([]);
   const [groups, setGroups] = useState<GroupListItem[]>([]);
@@ -173,8 +178,13 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
   );
 
   const scopeOptions = useMemo(
-    () => uniqueSortedStrings(['', ...scopes, form.scope].map(normalizeIdentifier)),
+    () => uniqueSortedStrings(['', ...scopes, form.scope].map(normalizeScopeOption)),
     [form.scope, scopes]
+  );
+
+  const runGroupOptions = useMemo(
+    () => uniqueRunGroupOptions([...runGroups, form.runGroupPath]),
+    [form.runGroupPath, runGroups]
   );
 
   const callerOptions = useMemo<Record<AllowedCaller['type'], SelectOption[]>>(
@@ -226,11 +236,12 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
   }, [fetchJson]);
 
   const loadReferenceData = useCallback(async () => {
-    const [pipelineData, runtimeScopeData, secretScopeData, variableScopeData, userData, serviceAccountData, groupData] = await Promise.all([
+    const [pipelineData, runtimeScopeData, secretScopeData, variableScopeData, runGroupData, userData, serviceAccountData, groupData] = await Promise.all([
       fetchJson<Array<string | PipelineListItem>>('/v1/pipelines?include_source=true').catch(() => []),
       fetchJson<Array<string | ScopeListItem>>('/v1/system/dispatcher/scopes').catch(() => []),
       fetchJson<Array<string | ScopeListItem>>('/v1/secrets/scopes').catch(() => []),
       fetchJson<Array<string | ScopeListItem>>('/v1/variables/scopes').catch(() => []),
+      fetchPipelineRunGroupPaths().catch(() => []),
       fetchJson<UserListItem[]>('/v1/admin/users').catch(() => []),
       fetchJson<ServiceAccountListItem[]>('/v1/admin/service-accounts').catch(() => []),
       fetchJson<GroupListItem[]>('/v1/access/auth-groups').catch(() => []),
@@ -244,8 +255,9 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
 
     const scopeIDs = [...runtimeScopeData, ...secretScopeData, ...variableScopeData]
       .map(item => (typeof item === 'string' ? item : item.scope || item.name || ''))
-      .map(normalizeIdentifier);
+      .map(normalizeScopeOption);
     setScopes(uniqueSortedStrings(['', ...scopeIDs]));
+    setRunGroups(uniqueRunGroupOptions((Array.isArray(runGroupData) ? runGroupData : []).map(normalizeIdentifier)));
     setUsers(Array.isArray(userData) ? userData : []);
     setServiceAccounts(Array.isArray(serviceAccountData) ? serviceAccountData : []);
     setGroups(Array.isArray(groupData) ? groupData : []);
@@ -296,7 +308,10 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
   }, [loadInvocations, loadSelected, selectedID]);
 
   const openCreate = () => {
-    setForm({ ...emptyForm, pipeline: pipelines[0] || '' });
+    const pipeline = pipelines[0] || '';
+    const pipelineParent = parentPathFromIdentifier(pipeline);
+    const defaultRunGroup = pipelineParent && runGroups.includes(pipelineParent) ? pipelineParent : 'root';
+    setForm({ ...emptyForm, pipeline, runGroupPath: defaultRunGroup });
     setCallerDraft({ type: 'service_account', id: callerOptions.service_account[0]?.value || '' });
     setFormError('');
     setModal({ mode: 'create' });
@@ -308,7 +323,8 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
       name: trigger.name || trigger.id,
       description: trigger.description || '',
       pipeline: trigger.pipeline || '',
-      scope: trigger.scope || '',
+      scope: normalizeScopeOption(trigger.scope),
+      runGroupPath: normalizeIdentifier(trigger.run_group_path) || 'root',
       enabled: Boolean(trigger.enabled),
       allowedCallers: Array.isArray(trigger.allowed_callers) ? trigger.allowed_callers : [],
       variableMappingText: JSON.stringify(trigger.variable_mapping || {}, null, 2),
@@ -364,7 +380,8 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
       name: form.name.trim(),
       description: form.description.trim(),
       pipeline: normalizeIdentifier(form.pipeline),
-      scope: normalizeIdentifier(form.scope),
+      scope: normalizeScopeOption(form.scope),
+      run_group_path: normalizeIdentifier(form.runGroupPath) || 'root',
       enabled: form.enabled,
       allowed_callers: form.allowedCallers,
       variable_mapping: variableMapping,
@@ -406,7 +423,8 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
       name: trigger.name,
       description: trigger.description || '',
       pipeline: trigger.pipeline,
-      scope: trigger.scope || '',
+      scope: normalizeScopeOption(trigger.scope),
+      run_group_path: normalizeIdentifier(trigger.run_group_path) || 'root',
       enabled: trigger.enabled,
       allowed_callers: trigger.allowed_callers || [],
       variable_mapping: trigger.variable_mapping || {},
@@ -470,10 +488,11 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
 
         <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_440px] gap-5">
           <section className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-primary)] overflow-x-auto">
-            <div className="grid min-w-[900px] grid-cols-[1.3fr_1fr_0.7fr_0.7fr_0.8fr_0.8fr] gap-3 px-4 py-3 text-xs font-semibold uppercase text-[var(--text-secondary)] border-b border-[var(--border-primary)]">
+            <div className="grid min-w-[1040px] grid-cols-[1.2fr_1fr_0.7fr_0.8fr_0.7fr_0.8fr_0.8fr] gap-3 px-4 py-3 text-xs font-semibold uppercase text-[var(--text-secondary)] border-b border-[var(--border-primary)]">
               <span>Name</span>
               <span>Pipeline</span>
               <span>Scope</span>
+              <span>Run group</span>
               <span>Enabled</span>
               <span>Last used</span>
               <span>Caller type</span>
@@ -488,7 +507,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
                   <button
                     key={trigger.id}
                     type="button"
-                    className={`grid min-w-[900px] w-full grid-cols-[1.3fr_1fr_0.7fr_0.7fr_0.8fr_0.8fr] gap-3 px-4 py-3 text-left border-b border-[var(--border-primary)] hover:bg-[var(--bg-secondary)] transition ${
+                    className={`grid min-w-[1040px] w-full grid-cols-[1.2fr_1fr_0.7fr_0.8fr_0.7fr_0.8fr_0.8fr] gap-3 px-4 py-3 text-left border-b border-[var(--border-primary)] hover:bg-[var(--bg-secondary)] transition ${
                       active ? 'bg-[var(--bg-secondary)]' : 'bg-transparent'
                     }`}
                     onClick={() => setSelectedID(trigger.id)}
@@ -499,6 +518,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
                     </span>
                     <span className="text-sm text-[var(--text-primary)] truncate">{trigger.pipeline}</span>
                     <span className="text-sm text-[var(--text-secondary)] truncate">{formatScope(trigger.scope)}</span>
+                    <span className="text-sm text-[var(--text-secondary)] truncate">{formatGroupPath(trigger.run_group_path)}</span>
                     <span className={trigger.enabled ? 'runner-pill runner-pill--ok' : 'runner-pill runner-pill--muted'}>
                       {trigger.enabled ? 'Enabled' : 'Disabled'}
                     </span>
@@ -557,6 +577,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
                 <dl className="grid grid-cols-2 gap-3 text-sm">
                   <Meta label="Pipeline" value={selectedTrigger.pipeline} />
                   <Meta label="Scope" value={formatScope(selectedTrigger.scope)} />
+                  <Meta label="Run group" value={formatGroupPath(selectedTrigger.run_group_path)} />
                   <Meta label="Created by" value={selectedTrigger.created_by || '-'} />
                   <Meta label="Last used" value={formatDate(selectedTrigger.last_used_at)} />
                   <Meta label="Source" value={selectedTrigger.managed_by_config_repo ? `GitOps ${selectedTrigger.config_source_path || ''}`.trim() : selectedTrigger.source || 'database'} />
@@ -664,7 +685,21 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
                 </label>
                 <label className="flex flex-col gap-1 text-sm">
                   <span>Pipeline</span>
-                  <select className="pipelines-input" value={form.pipeline} onChange={event => setForm(prev => ({ ...prev, pipeline: event.target.value }))} required>
+                  <select
+                    className="pipelines-input"
+                    value={form.pipeline}
+	                    onChange={event => {
+	                      const pipeline = normalizeIdentifier(event.target.value);
+	                      const pipelineParent = parentPathFromIdentifier(pipeline);
+	                      const defaultRunGroup = pipelineParent && runGroups.includes(pipelineParent) ? pipelineParent : 'root';
+	                      setForm(prev => ({
+	                        ...prev,
+	                        pipeline,
+	                        runGroupPath: prev.runGroupPath && prev.runGroupPath !== 'root' ? prev.runGroupPath : defaultRunGroup,
+	                      }));
+	                    }}
+                    required
+                  >
                     <option value="" disabled>Select pipeline</option>
                     {pipelineOptions.map(pipeline => <option key={pipeline} value={pipeline}>{pipeline}</option>)}
                   </select>
@@ -673,6 +708,12 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
                   <span>Scope</span>
                   <select className="pipelines-input" value={form.scope} onChange={event => setForm(prev => ({ ...prev, scope: event.target.value }))}>
                     {scopeOptions.map(scope => <option key={scope || '__default__'} value={scope}>{scope || 'default'}</option>)}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span>Run group</span>
+                  <select className="pipelines-input" value={form.runGroupPath} onChange={event => setForm(prev => ({ ...prev, runGroupPath: event.target.value }))}>
+                    {runGroupOptions.map(group => <option key={group} value={group}>{group === 'root' ? 'Root' : group}</option>)}
                   </select>
                 </label>
               </div>
@@ -767,8 +808,28 @@ function normalizeIdentifier(value?: string) {
     .replace(/^\/+|\/+$/g, '');
 }
 
+function normalizeScopeOption(value?: string) {
+  const normalized = normalizeIdentifier(value);
+  return normalized.toLowerCase() === 'default' ? '' : normalized;
+}
+
+function uniqueRunGroupOptions(values: string[]) {
+  return uniqueSortedStrings(['root', ...values.map(normalizeIdentifier).filter(Boolean)]);
+}
+
 function formatScope(scope?: string) {
-  return normalizeIdentifier(scope) || 'default';
+  return normalizeScopeOption(scope) || 'default';
+}
+
+function formatGroupPath(path?: string) {
+  const normalized = normalizeIdentifier(path);
+  return normalized === 'root' || !normalized ? 'Root' : normalized;
+}
+
+function parentPathFromIdentifier(identifier?: string) {
+  const parts = normalizeIdentifier(identifier).split('/').filter(Boolean);
+  parts.pop();
+  return parts.join('/');
 }
 
 function formatDate(value?: string) {
@@ -805,6 +866,8 @@ function readPerMinute(rateLimit?: Record<string, unknown>) {
 function uniqueSortedStrings(values: string[]) {
   return Array.from(new Set(values.map(value => String(value || '').trim()).filter(value => value.length > 0 || value === '')))
     .sort((a, b) => {
+      if (a === 'root') return -1;
+      if (b === 'root') return 1;
       if (a === '') return -1;
       if (b === '') return 1;
       return a.localeCompare(b);

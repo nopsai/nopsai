@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { Dispatch, FormEvent, SetStateAction } from 'react';
+import type { Dispatch, FormEvent, ReactNode, SetStateAction } from 'react';
 import { Link, NavLink, useParams, useSearchParams } from 'react-router-dom';
-import { CalendarClock, Plus, Trash2 } from 'lucide-react';
+import { Activity, Boxes, CalendarClock, FolderTree, GitBranch, PlayCircle, Plus, Timer, Trash2, Webhook } from 'lucide-react';
 import yaml from 'js-yaml';
 import { buildApiUrl } from '../lib/api';
 import { ConfigRepositoryDriftModal } from '../components/ConfigRepositoryDriftModal';
@@ -181,6 +181,15 @@ type TriggerGroup = {
   latestRun?: RunListItem;
 };
 
+type RunSourceKind = 'repository' | 'external' | 'schedule' | 'manual';
+
+type RunSourceGroup = {
+  kind: RunSourceKind;
+  label: string;
+  runs: RunListItem[];
+  branches?: Record<string, RunListItem[]>;
+};
+
 type BranchEventGroup = {
   id: string;
   runs: RunListItem[];
@@ -338,6 +347,11 @@ const tabs = [
   { id: 'recent', label: 'Recent' },
   { id: 'events', label: 'Events' },
 ];
+
+function isReservedRootGroupName(name: string) {
+  const normalized = name.trim().replace(/^\/+|\/+$/g, '').toLowerCase();
+  return normalized === 'root' || normalized === '__general__';
+}
 
 const STATUS_PRIORITY = ['failure', 'rejected', 'failure (ignored)', 'cancelled', 'waiting_approval', 'running', 'pending', 'skipped', 'success'];
 const RECENT_FETCH_SIZE = 60;
@@ -854,7 +868,8 @@ function PipelineRunsPage() {
         setRunsByBranch({});
         await fetchRecentPage(0, { replace: true });
       } else if (activeTab === 'main') {
-        setRunsByBranch({});
+        const data = await fetchJson<Record<string, RunListItem[]>>('/v1/runs?groupId=root');
+        setRunsByBranch(data || {});
         setRecentRunsAll([]);
       } else {
         await fetchRecentPage(0, { replace: true });
@@ -1245,6 +1260,10 @@ function PipelineRunsPage() {
       const trimmedRepoURL = repoURL.trim();
       if (!trimmedName) {
         setNewFolderError(kind === 'app' ? 'App name is required.' : 'Group name is required.');
+        return;
+      }
+      if (kind === 'group' && isReservedRootGroupName(trimmedName)) {
+        setNewFolderError('Root is reserved and cannot be used as a group name.');
         return;
       }
       if (kind === 'app' && !trimmedRepoURL) {
@@ -1970,6 +1989,18 @@ function Dashboard({
     }, {});
   }, [activeTab, runsByBranch, term]);
 
+  const selectedRuns = useMemo(() => {
+    if (activeTab !== 'main') return [] as RunListItem[];
+    return Object.values(filteredRunsByBranch)
+      .flat()
+      .sort((a, b) => runTimestamp(b) - runTimestamp(a));
+  }, [activeTab, filteredRunsByBranch]);
+
+  const runSourceGroups = useMemo(
+    () => buildRunSourceGroups(filteredRunsByBranch),
+    [filteredRunsByBranch]
+  );
+
   useEffect(() => {
     if (activeTab !== 'main') return;
     visibleGroups.forEach(group => {
@@ -2034,45 +2065,58 @@ function Dashboard({
         ) : groupsLoading && !groups.length ? (
           <div className="text-sm text-[var(--text-secondary)]">Loading groups…</div>
         ) : (
-          <div className="space-y-4">
-            <GroupGrid
-              groups={repoGroups}
-              allGroups={groups}
-              activeGroupId={activeGroupId}
-              repoSummaries={repoSummaries}
-              onSelect={onSelectGroup}
-              onDelete={onDeleteFolder}
-              onOpenConfigRepository={onOpenConfigRepository}
-            />
-            <GroupGrid
-              groups={folderGroups}
-              allGroups={groups}
-              activeGroupId={activeGroupId}
-              repoSummaries={repoSummaries}
-              onSelect={onSelectGroup}
-              onDelete={onDeleteFolder}
-              onOpenConfigRepository={onOpenConfigRepository}
-            />
-          </div>
-        )}
+          <div className="space-y-7">
+            <DashboardPanel
+              title="Subgroups"
+              count={folderGroups.length}
+              icon={<FolderTree className="h-4 w-4" />}
+              emptyLabel="No subgroups."
+            >
+              <GroupGrid
+                groups={folderGroups}
+                allGroups={groups}
+                activeGroupId={activeGroupId}
+                repoSummaries={repoSummaries}
+                onSelect={onSelectGroup}
+                onDelete={onDeleteFolder}
+                onOpenConfigRepository={onOpenConfigRepository}
+              />
+            </DashboardPanel>
 
-        {Object.keys(filteredRunsByBranch).length > 0 && (
-          <div className="space-y-5">
-            {Object.entries(filteredRunsByBranch)
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([branch, runs]) => (
-                <BranchRunsSection
-                  key={branch}
-                  branch={branch}
-                  runs={runs}
-                  onOpenRun={onOpenRun}
-                  onSelectRun={onSelectRun}
-                  selectedRunIds={selectedRunIds}
-                  collapsed={collapsedBranches.has(branch)}
-                  onToggleBranch={() => onToggleBranch(branch, collapsedBranches.has(branch))}
-                  onDeleteBranch={() => onDeleteBranch(branch)}
-                />
-              ))}
+            <DashboardPanel
+              title="Applications"
+              count={repoGroups.length}
+              icon={<Boxes className="h-4 w-4" />}
+              emptyLabel="No applications."
+            >
+              <GroupGrid
+                groups={repoGroups}
+                allGroups={groups}
+                activeGroupId={activeGroupId}
+                repoSummaries={repoSummaries}
+                onSelect={onSelectGroup}
+                onDelete={onDeleteFolder}
+                onOpenConfigRepository={onOpenConfigRepository}
+              />
+            </DashboardPanel>
+
+            <DashboardPanel
+              title="Runs"
+              count={selectedRuns.length}
+              icon={<Activity className="h-4 w-4" />}
+              emptyLabel="No runs."
+            >
+              <RunSourcesView
+                groups={runSourceGroups}
+                viewMode={viewMode}
+                onOpenRun={onOpenRun}
+                onSelectRun={onSelectRun}
+                selectedRunIds={selectedRunIds}
+                collapsedBranches={collapsedBranches}
+                onToggleBranch={onToggleBranch}
+                onDeleteBranch={onDeleteBranch}
+              />
+            </DashboardPanel>
           </div>
         )}
       </div>
@@ -2122,6 +2166,135 @@ function Dashboard({
         selectedRunIds={selectedRunIds}
       />
     </div>
+  );
+}
+
+function DashboardPanel({
+  title,
+  count,
+  icon,
+  emptyLabel,
+  children,
+}: {
+  title: string;
+  count: number;
+  icon: ReactNode;
+  emptyLabel: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="pipeline-dashboard-section">
+      <header className="pipeline-dashboard-section-header">
+        <div className="pipeline-dashboard-section-title">
+          <span className="pipeline-dashboard-section-icon" aria-hidden="true">{icon}</span>
+          <h2>{title}</h2>
+        </div>
+        <span className="runner-pill runner-pill--muted">{count}</span>
+      </header>
+      {count > 0 ? children : <div className="pipeline-dashboard-empty-state">{emptyLabel}</div>}
+    </section>
+  );
+}
+
+function RunSourcesView({
+  groups,
+  viewMode,
+  onOpenRun,
+  onSelectRun,
+  selectedRunIds,
+  collapsedBranches,
+  onToggleBranch,
+  onDeleteBranch,
+}: {
+  groups: RunSourceGroup[];
+  viewMode: 'grid' | 'list';
+  onOpenRun: (id: string) => void;
+  onSelectRun: (id: string) => void;
+  selectedRunIds: Set<string>;
+  collapsedBranches: Set<string>;
+  onToggleBranch: (branch: string, scrollIntoView?: boolean) => void;
+  onDeleteBranch: (branch: string) => void;
+}) {
+  if (!groups.length) return null;
+  return (
+    <div className="space-y-5">
+      {groups.map(group => (
+        <RunSourceSection
+          key={group.kind}
+          group={group}
+          viewMode={viewMode}
+          onOpenRun={onOpenRun}
+          onSelectRun={onSelectRun}
+          selectedRunIds={selectedRunIds}
+          collapsedBranches={collapsedBranches}
+          onToggleBranch={onToggleBranch}
+          onDeleteBranch={onDeleteBranch}
+        />
+      ))}
+    </div>
+  );
+}
+
+function RunSourceSection({
+  group,
+  viewMode,
+  onOpenRun,
+  onSelectRun,
+  selectedRunIds,
+  collapsedBranches,
+  onToggleBranch,
+  onDeleteBranch,
+}: {
+  group: RunSourceGroup;
+  viewMode: 'grid' | 'list';
+  onOpenRun: (id: string) => void;
+  onSelectRun: (id: string) => void;
+  selectedRunIds: Set<string>;
+  collapsedBranches: Set<string>;
+  onToggleBranch: (branch: string, scrollIntoView?: boolean) => void;
+  onDeleteBranch: (branch: string) => void;
+}) {
+  const icon = runSourceIcon(group.kind);
+  const branches = group.branches || {};
+  const branchEntries = Object.entries(branches).sort(([a], [b]) => a.localeCompare(b));
+  const sortedRuns = useMemo(() => [...group.runs].sort((a, b) => runTimestamp(b) - runTimestamp(a)), [group.runs]);
+
+  return (
+    <section className="pipeline-run-source-section">
+      <header className="pipeline-run-source-header">
+        <div className="pipeline-run-source-title">
+          <span className="pipeline-run-source-icon" aria-hidden="true">{icon}</span>
+          <h3>{group.label}</h3>
+        </div>
+        <span className="runner-pill runner-pill--muted">{group.runs.length}</span>
+      </header>
+
+      {branchEntries.length > 0 ? (
+        <div className="space-y-4">
+          {branchEntries.map(([branch, runs]) => (
+            <BranchRunsSection
+              key={branch}
+              branch={branch}
+              runs={runs}
+              onOpenRun={onOpenRun}
+              onSelectRun={onSelectRun}
+              selectedRunIds={selectedRunIds}
+              collapsed={collapsedBranches.has(branch)}
+              onToggleBranch={() => onToggleBranch(branch, collapsedBranches.has(branch))}
+              onDeleteBranch={() => onDeleteBranch(branch)}
+            />
+          ))}
+        </div>
+      ) : (
+        <RunCollection
+          runs={sortedRuns}
+          viewMode={viewMode}
+          onOpenRun={onOpenRun}
+          onSelectRun={onSelectRun}
+          selectedRunIds={selectedRunIds}
+        />
+      )}
+    </section>
   );
 }
 
@@ -2701,7 +2874,7 @@ function RunCard({
               <path d="M10 7h4" />
               <path d="M8 9v6a4 4 0 004 4h4" />
             </svg>
-            <span className="truncate" title="Repository">{repoLabel}</span>
+            <span className="truncate" title="Source">{repoLabel}</span>
           </div>
           <div className="flex items-center">
             <BranchIcon className="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" />
@@ -2914,7 +3087,17 @@ function RunSelectToggle({ selected, onToggle }: { selected: boolean; onToggle: 
 }
 
 function PipelineBadges({ run }: { run: RunListItem }) {
-  const badges: React.ReactNode[] = [];
+  const badges: ReactNode[] = [];
+  const external = run.trigger_source === 'external_trigger' || Boolean(run.external_trigger_id);
+  if (external) {
+    const label = run.external_trigger_name ? `External trigger: ${run.external_trigger_name}` : 'External trigger';
+    badges.push(
+      <span key="external" className="text-xs font-semibold text-[var(--text-link)] inline-flex items-center gap-1" title={label}>
+        <Webhook className="h-4 w-4" />
+        External
+      </span>
+    );
+  }
   const scheduled = run.trigger_source === 'schedule' || Boolean(run.schedule_id);
   if (scheduled) {
     const label = run.schedule_name ? `Scheduled: ${run.schedule_name}` : 'Scheduled';
@@ -6980,6 +7163,79 @@ function repositoryBrowserURL(rawURL: string, fallbackFullName: string) {
   return fallbackFullName.includes('/') ? `https://github.com/${fallbackFullName}` : trimmed;
 }
 
+function buildRunSourceGroups(runsByBranch: Record<string, RunListItem[]>): RunSourceGroup[] {
+  const buckets = new Map<RunSourceKind, RunListItem[]>();
+  const repositoryBranches: Record<string, RunListItem[]> = {};
+
+  Object.entries(runsByBranch).forEach(([branch, runs]) => {
+    runs.forEach(run => {
+      const kind = getRunSourceKind(run);
+      const list = buckets.get(kind) || [];
+      list.push(run);
+      buckets.set(kind, list);
+
+      if (kind === 'repository') {
+        const branchRuns = repositoryBranches[branch] || [];
+        branchRuns.push(run);
+        repositoryBranches[branch] = branchRuns;
+      }
+    });
+  });
+
+  const order: RunSourceKind[] = ['repository', 'schedule', 'external', 'manual'];
+  const groups: RunSourceGroup[] = [];
+  order.forEach(kind => {
+    const runs = buckets.get(kind) || [];
+    if (!runs.length) return;
+    groups.push({
+      kind,
+      label: runSourceLabel(kind),
+      runs,
+      branches: kind === 'repository' ? repositoryBranches : undefined,
+    });
+  });
+  return groups;
+}
+
+function getRunSourceKind(run: RunListItem): RunSourceKind {
+  if (run.trigger_source === 'external_trigger' || Boolean(run.external_trigger_id)) return 'external';
+  if (run.trigger_source === 'schedule' || Boolean(run.schedule_id)) return 'schedule';
+  if (hasRepositoryContext(run) || (run.trigger_source || '').startsWith('github_')) return 'repository';
+  return 'manual';
+}
+
+function hasRepositoryContext(run: Pick<RunListItem, 'git_repo_owner' | 'git_repo_name'>) {
+  return Boolean((run.git_repo_owner || '').trim() || (run.git_repo_name || '').trim());
+}
+
+function runSourceLabel(kind: RunSourceKind) {
+  switch (kind) {
+    case 'repository':
+      return 'Git repositories';
+    case 'schedule':
+      return 'Scheduled runs';
+    case 'external':
+      return 'External triggers';
+    case 'manual':
+    default:
+      return 'Manual / Ungrouped';
+  }
+}
+
+function runSourceIcon(kind: RunSourceKind) {
+  switch (kind) {
+    case 'repository':
+      return <GitBranch className="h-4 w-4" />;
+    case 'schedule':
+      return <Timer className="h-4 w-4" />;
+    case 'external':
+      return <Webhook className="h-4 w-4" />;
+    case 'manual':
+    default:
+      return <PlayCircle className="h-4 w-4" />;
+  }
+}
+
 function buildGroupPath(groupId: number | null, groups: Group[]): Group[] {
   if (!groupId) return [];
   const map = new Map<number, Group>();
@@ -7066,6 +7322,11 @@ function runMatchesSearch(run: RunListItem, term: string): boolean {
     run.git_pusher_name,
     run.status,
     run.trigger_event_id,
+    run.external_trigger_id,
+    run.external_trigger_name,
+    run.external_trigger_event_type,
+    run.external_trigger_caller_type,
+    run.external_trigger_caller_id,
   ]
     .filter(Boolean)
     .join(' ')
@@ -7093,8 +7354,12 @@ function formatRepoLabel(run: RunListItem) {
   if (owner && name) return `${owner}/${name}`;
   if (name) return name;
   if (owner) return owner;
+  if (run.external_trigger_name || run.external_trigger_id) return run.external_trigger_name || run.external_trigger_id || 'External trigger';
+  if (run.schedule_name || run.schedule_path || run.schedule_id) return run.schedule_name || run.schedule_path || run.schedule_id || 'Scheduled run';
   const path = (run.pipeline_path || '').trim().replace(/^\/+|\/+$/g, '');
-  return path || 'Repository';
+  if (path) return path;
+  if ((run.trigger_source || '').trim()) return runSourceLabel(getRunSourceKind(run));
+  return 'Manual';
 }
 
 function getPipelineIdentifier(run?: Pick<RunListItem, 'pipeline_name' | 'pipeline_path'> | ParentRunInfo | null) {

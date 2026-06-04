@@ -521,15 +521,29 @@ func TestGeneralFolderGrantInheritance(t *testing.T) {
 	}
 }
 
-func TestResolveAccessGrantFolderGeneralAlias(t *testing.T) {
-	tests := []string{"general", "/general", "/", ".", model.FolderGeneralID}
+func TestResolveAccessGrantFolderRoot(t *testing.T) {
+	tests := []string{"root", "/root"}
 	for _, raw := range tests {
 		resource, err := resolveAccessGrantFolder(context.Background(), &noopQueryRunner{}, raw, false)
 		if err != nil {
 			t.Fatalf("resolveAccessGrantFolder(%q) error = %v", raw, err)
 		}
-		if resource.ID != model.FolderGeneralID || resource.Display != "general" {
-			t.Fatalf("resolveAccessGrantFolder(%q) = %#v, want general folder resource", raw, resource)
+		if resource.ID != model.FolderGeneralID || resource.Display != "root" {
+			t.Fatalf("resolveAccessGrantFolder(%q) = %#v, want root folder resource", raw, resource)
+		}
+	}
+}
+
+func TestResolveAccessGrantFolderDoesNotTreatLegacyAliasesAsRoot(t *testing.T) {
+	tests := []string{"general", "/general", ".", model.FolderGeneralID}
+	for _, raw := range tests {
+		resource, err := resolveAccessGrantFolder(context.Background(), &noopQueryRunner{}, raw, false)
+		if err != nil {
+			t.Fatalf("resolveAccessGrantFolder(%q) error = %v", raw, err)
+		}
+		normalized := strings.Trim(strings.TrimSpace(raw), "/")
+		if resource.ID != normalized || resource.Display != "/"+normalized {
+			t.Fatalf("resolveAccessGrantFolder(%q) = %#v, want concrete folder resource", raw, resource)
 		}
 	}
 }

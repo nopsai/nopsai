@@ -4,9 +4,9 @@ triggers:
       - main
     scope: dev
     pipelines:
-      - platform-maintenance
+      - platform/prod/platform-maintenance
 
   - on: pull_request
     scope: dev
     pipelines:
-      - platform-maintenance
+      - platform/prod/platform-maintenance

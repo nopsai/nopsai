@@ -81,7 +81,7 @@ Supported grant resources:
 - `config_repo`
 - `platform`
 
-Group grant requests use the internal `folder` resource type and may use paths with a leading slash, such as `/payments/backend`; the stored internal ID is normalized without the leading slash. The special group `general` maps to the internal general group resource.
+Group grant requests use the internal `folder` resource type and may use paths with a leading slash, such as `/payments/backend`; the stored internal ID is normalized without the leading slash. Use `root` for the root folder scope; new groups cannot be named `root`.
 
 Named secret and variable resources use query-style internal IDs built from repository, scope, and name. The public grant API accepts the same logical IDs shown in the UI.
 

@@ -252,7 +252,9 @@ more named routes that select recipients (`same_group`, explicit users, groups,
 and excludes), event types such as
 `failure`, `success`, `pending`, `waiting_approval`, approval decisions, and
 `cancelled`, plus optional pipeline/repo/branch filters and mail delivery
-throttling.
+throttling. Schedules and external triggers can set `run_group_path` from the
+Pipeline Runs hierarchy when the runtime notification group should differ from
+the target pipeline's group.
 
 Scope files keep variables and secrets in separate sections. Define every
 plaintext scoped variable under `variables:`; flat top-level variable entries are
