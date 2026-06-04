@@ -39,3 +39,7 @@ team-2:
       enabled: true
       write_enabled: true
       write_branch: nopsai/bank-team-ui
+platform:
+  description: Owns platform automation
+  prod:
+    description: Production platform automation

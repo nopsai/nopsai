@@ -155,6 +155,12 @@ type TreeNode = {
   pipelineIds: string[];
 };
 
+function normalizeRootPath(path: string) {
+  const parts = path.trim().replace(/\/+/g, '/').replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
+  if (parts[0]?.toLowerCase() === 'root') parts.shift();
+  return parts.join('/');
+}
+
 type PipelinesPageProps = {
   draftScope: string;
   canDeletePipelines: boolean;
@@ -1001,7 +1007,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
 
   const buildIdentifier = (path: string, name: string) => {
     const cleanedName = name.trim();
-    const cleanedPath = path.trim().replace(/^\/+|\/+$/g, '');
+    const cleanedPath = normalizeRootPath(path);
     if (!cleanedName) return '';
     return cleanedPath ? `${cleanedPath}/${cleanedName}` : cleanedName;
   };

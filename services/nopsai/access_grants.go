@@ -53,6 +53,7 @@ const (
 
 	platformGrantID = "default"
 	generalGrantID  = model.FolderGeneralID
+	rootGrantID     = "root"
 )
 
 var errEveryFolderMustRetainOwner = errors.New("every folder must retain at least one owner")
@@ -1458,11 +1459,11 @@ func normalizeScopeGrantResourceID(rawID string) (id, lookup, display string) {
 
 func resolveAccessGrantFolder(ctx context.Context, runner queryRunner, rawID string, requireExists bool) (accessGrantResource, error) {
 	rawID = strings.TrimSpace(rawID)
-	if isGeneralGrantResourceID(rawID) {
+	if isRootGrantResourceID(rawID) {
 		return accessGrantResource{
 			Type:    grantResourceFolder,
 			ID:      generalGrantID,
-			Display: "general",
+			Display: rootGrantID,
 		}, nil
 	}
 	if rawID == "" {
@@ -2069,7 +2070,7 @@ func accessGrantResponseFromRecord(record accessGrantRecord) accessGrantResponse
 
 func externalGrantResourceID(resourceType, display, internalID string) string {
 	if resourceType == grantResourceFolder && internalID == generalGrantID {
-		return "general"
+		return rootGrantID
 	}
 	if strings.TrimSpace(display) != "" {
 		return display
@@ -2125,9 +2126,9 @@ func formatResourceLabel(resourceType, resourceID string) string {
 		resourceID = "default"
 	}
 	if resourceType == grantResourceFolder && resourceID == generalGrantID {
-		resourceID = "general"
+		resourceID = rootGrantID
 	}
-	if resourceType == grantResourceFolder && resourceID != "" && resourceID != "general" && !strings.HasPrefix(resourceID, "/") {
+	if resourceType == grantResourceFolder && resourceID != "" && resourceID != rootGrantID && !strings.HasPrefix(resourceID, "/") {
 		resourceID = "/" + strings.Trim(resourceID, "/")
 	}
 	return resourceType + ":" + resourceID
@@ -2151,13 +2152,41 @@ func formatNamedResourceLabel(resourceType, resourceID string) string {
 	return strings.TrimSpace(resourceType) + ":" + strings.Join(parts, " ")
 }
 
-func isGeneralGrantResourceID(raw string) bool {
+func isRootGrantResourceID(raw string) bool {
 	switch strings.ToLower(strings.Trim(strings.TrimSpace(raw), "/")) {
-	case "", ".", "general", strings.ToLower(generalGrantID):
-		return strings.TrimSpace(raw) != ""
+	case rootGrantID:
+		return true
 	default:
 		return false
 	}
+}
+
+func isRootPathAlias(raw string) bool {
+	switch strings.ToLower(strings.Trim(strings.TrimSpace(raw), "/")) {
+	case rootGrantID:
+		return true
+	default:
+		return false
+	}
+}
+
+func stripRootPathPrefix(raw string) (string, bool) {
+	path := strings.Trim(strings.TrimSpace(raw), "/")
+	if isRootPathAlias(path) {
+		return "", true
+	}
+	parts := strings.Split(path, "/")
+	if len(parts) == 0 {
+		return "", true
+	}
+	if !isRootPathAlias(parts[0]) {
+		return path, false
+	}
+	parts = parts[1:]
+	if len(parts) == 0 {
+		return "", true
+	}
+	return strings.Join(parts, "/"), false
 }
 
 func firstNonEmptyString(values ...string) string {

@@ -80,6 +80,18 @@ func TestNormalizeConfigPathForFolder(t *testing.T) {
 			want:        "team-1/platform/deploy",
 		},
 		{
+			name:        "root prefix is absolute",
+			boundFolder: "team-1",
+			relPath:     "pipelines/root/platform/build.yaml",
+			want:        "platform/build",
+		},
+		{
+			name:        "root only is absolute root",
+			boundFolder: "team-1",
+			relPath:     "root",
+			want:        "",
+		},
+		{
 			name:        "dot dot path is rejected",
 			boundFolder: "team-1",
 			relPath:     "pipelines/../build.yaml",
@@ -572,7 +584,7 @@ func TestEffectivePipelineRunStructureForSystemUsesConfigRepositoryGroups(t *tes
 				"dev": {Description: "Should not be created", Children: map[string]*pipelineRunStructureNode{}},
 			},
 		},
-		"general": {Description: "Should not be created", Children: map[string]*pipelineRunStructureNode{}},
+		"shared": {Description: "Should not be created", Children: map[string]*pipelineRunStructureNode{}},
 	}
 
 	got, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, structure, nil, []string{"team-1", "team-2/platform"})
@@ -593,8 +605,8 @@ func TestEffectivePipelineRunStructureForSystemUsesConfigRepositoryGroups(t *tes
 	if _, ok := team2.Children["platform"]; !ok {
 		t.Fatal("expected team-2/platform shell from nested config repository binding")
 	}
-	if _, ok := got["general"]; ok {
-		t.Fatal("did not expect unbound general group from global structure")
+	if _, ok := got["shared"]; ok {
+		t.Fatal("did not expect unbound shared group from global structure")
 	}
 }
 
@@ -794,8 +806,8 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 		{repo: "hosein-yousefii/test-app", scopePath: "prod", name: "DEPLOY_TOKEN"}:          {},
 	}
 	externalTriggers := map[string]storedExternalTrigger{
-		"data-team-deploy": {input: externalTriggerRecord{ID: "data-team-deploy", Pipeline: "data-team/deploy", Scope: "data-team/dev"}},
-		"prod-deploy":      {input: externalTriggerRecord{ID: "prod-deploy", Pipeline: "platform/deploy", Scope: "prod"}},
+		"data-team-deploy": {input: externalTriggerRecord{ID: "data-team-deploy", Pipeline: "data-team/deploy", Scope: "data-team/dev", RunGroupPath: "data-team/dev"}},
+		"prod-deploy":      {input: externalTriggerRecord{ID: "prod-deploy", Pipeline: "platform/deploy", Scope: "prod", RunGroupPath: "root"}},
 	}
 
 	filterDelegatedConfigResources(

@@ -111,8 +111,8 @@ blocks.
 ## Global repo file map
 
 ```text
-global-repo/pipelines/platform-maintenance.yaml
-  -> pipeline platform-maintenance, public use access
+global-repo/pipelines/platform/prod/platform-maintenance.yaml
+  -> pipeline platform/prod/platform-maintenance, public use access
 
 global-repo/pipelines/knowledge-kind-comparison.yaml
   -> pipeline knowledge-kind-comparison, comparing guardrail, policy, and guideline prompt behavior
@@ -127,7 +127,8 @@ global-repo/triggers/acme/deploy-webhook.yaml
   -> trigger override acme/deploy-webhook for the webhook-deployer service account sample
 
 global-repo/external-triggers/deploy-prod.yaml
-  -> authenticated external trigger for ServiceNow-style production deploy approvals
+  -> authenticated external trigger for ServiceNow-style production deploy approvals,
+     with invoked runs grouped under platform/prod
 
 global-repo/scopes/dev/scope.yaml
   -> variables and secret key placeholders in scope dev
@@ -181,12 +182,12 @@ global-repo/settings/system/mail.yaml
 The `webhook-deployer` and `servicenow-prod` service accounts are intentionally
 tokenless in Git. After sync, create or rotate their `nopsat_` tokens from System Access or
 `POST /v1/admin/service-accounts/{id}/tokens`, then use that token for
-integration API calls such as starting `platform-maintenance` in scope `dev`.
+integration API calls such as starting `platform/prod/platform-maintenance` in scope `dev`.
 The paired `triggers/acme/deploy-webhook.yaml` file shows the GitHub webhook
 trigger that maps `acme/deploy-webhook` events to the same pipeline and scope.
 The paired `external-triggers/deploy-prod.yaml` file shows the enterprise path:
 `servicenow-prod` has an advanced role that can invoke `deploy-prod`, execute
-and use `platform-maintenance`; `scopes/prod/scope.yaml` shares restricted
+and use `platform/prod/platform-maintenance`; `scopes/prod/scope.yaml` shares restricted
 `scope.use` access with that service account.
 If a service account is first created in the UI or API, config repository drift
 can export the identity and service-account product grants back to
@@ -274,10 +275,12 @@ team-1-repo/pipelines/services/api/deploy.yaml
   -> pipeline team-1/services/api/deploy
 
 team-1-repo/schedules/prod/scheduled/nightly-api-deploy.yaml
-  -> schedule team-1/prod/scheduled/nightly-api-deploy, targeting team-1/services/api/deploy
+  -> schedule team-1/prod/scheduled/nightly-api-deploy, targeting team-1/services/api/deploy,
+     with runs grouped under team-1 for notification routing
 
 team-1-repo/schedules/prod/scheduled/release-window.yaml
-  -> one-time schedule team-1/prod/scheduled/release-window, targeting team-1/services/api/deploy
+  -> one-time schedule team-1/prod/scheduled/release-window, targeting team-1/services/api/deploy,
+     with runs grouped under team-1 for notification routing
 
 team-1-repo/steps/shared/checkout.yaml
   -> reusable step team-1/shared/checkout
@@ -301,8 +304,10 @@ team-1-repo/access/*.yaml
 Pipeline and step file names must match their `name` fields. Group repo trigger
 manifests, schedules, and includes should reference the final group-prefixed IDs
 or repo-relative IDs that sync can normalize under the bound group. A
-`prod/scheduled` schedule folder is useful for presentation, while the schedule
-resource remains the source of truth.
+`prod/scheduled` schedule folder is useful for presentation, while
+`run_group_path` controls where scheduled runs appear and which notification
+routes receive their events. Use `run_group_path: root` to keep runs at the
+Pipeline Runs root without assigning them to a group.
 
 Group notification policies control who receives pipeline event notifications for
 a run group. A system/global repo can define policies at
@@ -314,7 +319,11 @@ include direct users, groups, and the reserved `same_group` team. Exclusions are
 applied after includes. Event keys support failure, success, pending, running,
 waiting_approval, approval_requested, approval_approved, approval_rejected,
 cancelled, and skipped. Branch, pipeline, and repository filters use glob-style
-patterns, and delivery currently supports the `mail` channel.
+patterns, and delivery currently supports the `mail` channel. Schedules and
+external triggers can set `run_group_path` from the Pipeline Runs hierarchy
+when their run events should be routed to a notification group that differs
+from the target pipeline's group. The reserved `root` value always means the
+Pipeline Runs root, not a group named `root`.
 
 Nopsai reads every `.yaml` and `.yml` file under `access/`; file names such as
 `all.yaml` or `grants.yaml` are only examples, so teams can split manifests by

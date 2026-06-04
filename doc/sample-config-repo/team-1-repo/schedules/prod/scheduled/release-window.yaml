@@ -6,3 +6,4 @@ run_at: "2030-03-15T09:45"
 timezone: Europe/Amsterdam
 enabled: false
 scope: prod
+run_group_path: team-1

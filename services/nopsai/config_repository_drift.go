@@ -932,7 +932,7 @@ func (a *App) exportConfigRepositoryTriggers(ctx context.Context, repo models.Co
 
 func (a *App) exportConfigRepositoryExternalTriggers(ctx context.Context, repo models.ConfigRepository, delegatedScopes []string, files map[string]string) error {
 	rows, err := a.db.Query(ctx, `
-		SELECT id, name, description, enabled, pipeline, scope, allowed_callers, variable_mapping,
+		SELECT id, name, description, enabled, pipeline, scope, COALESCE(run_group_path, ''), allowed_callers, variable_mapping,
 		       payload_schema, rate_limit, COALESCE(source, 'database'), config_repo_id,
 		       managed_by_config_repo, COALESCE(config_source_path, '')
 		FROM external_triggers
@@ -956,6 +956,7 @@ func (a *App) exportConfigRepositoryExternalTriggers(ctx context.Context, repo m
 			&trigger.Enabled,
 			&trigger.Pipeline,
 			&trigger.Scope,
+			&trigger.RunGroupPath,
 			&allowedJSON,
 			&mappingJSON,
 			&schemaJSON,
@@ -986,6 +987,7 @@ func (a *App) exportConfigRepositoryExternalTriggers(ctx context.Context, repo m
 			Enabled:         &enabled,
 			Pipeline:        trigger.Pipeline,
 			Scope:           trigger.Scope,
+			RunGroupPath:    trigger.RunGroupPath,
 			AllowedCallers:  trigger.AllowedCallers,
 			VariableMapping: nilIfEmptyStringMap(trigger.VariableMapping),
 			PayloadSchema:   nilIfEmptyAnyMap(trigger.PayloadSchema),
@@ -1038,13 +1040,14 @@ type configRepositoryScheduleDocument struct {
 	Timezone       string            `yaml:"timezone,omitempty"`
 	Enabled        bool              `yaml:"enabled"`
 	Scope          string            `yaml:"scope,omitempty"`
+	RunGroupPath   string            `yaml:"run_group_path,omitempty"`
 	Variables      map[string]string `yaml:"variables,omitempty"`
 }
 
 func (a *App) exportConfigRepositorySchedules(ctx context.Context, repo models.ConfigRepository, delegatedScopes []string, files map[string]string) error {
 	rows, err := a.db.Query(ctx, `
 		SELECT path, name, description, pipeline_path, pipeline_name,
-		       COALESCE(schedule_kind, 'cron'), cron_expression, run_at, timezone, enabled, scope, variables::text,
+		       COALESCE(schedule_kind, 'cron'), cron_expression, run_at, timezone, enabled, scope, COALESCE(run_group_path, ''), variables::text,
 		       COALESCE(source, 'database'), config_repo_id, managed_by_config_repo, config_source_path
 		FROM pipeline_schedules
 		ORDER BY path ASC, name ASC
@@ -1055,12 +1058,12 @@ func (a *App) exportConfigRepositorySchedules(ctx context.Context, repo models.C
 	defer rows.Close()
 
 	for rows.Next() {
-		var pathPart, name, description, pipelinePath, pipelineName, scheduleKind, cronExpression, timezone, scope, variablesRaw, source, sourcePath string
+		var pathPart, name, description, pipelinePath, pipelineName, scheduleKind, cronExpression, timezone, scope, runGroupPath, variablesRaw, source, sourcePath string
 		var runAt sql.NullTime
 		var enabled bool
 		var configRepoID sql.NullInt64
 		var managed bool
-		if err := rows.Scan(&pathPart, &name, &description, &pipelinePath, &pipelineName, &scheduleKind, &cronExpression, &runAt, &timezone, &enabled, &scope, &variablesRaw, &source, &configRepoID, &managed, &sourcePath); err != nil {
+		if err := rows.Scan(&pathPart, &name, &description, &pipelinePath, &pipelineName, &scheduleKind, &cronExpression, &runAt, &timezone, &enabled, &scope, &runGroupPath, &variablesRaw, &source, &configRepoID, &managed, &sourcePath); err != nil {
 			return err
 		}
 		identifier := buildPipelineIdentifier(pathPart, name)
@@ -1079,13 +1082,14 @@ func (a *App) exportConfigRepositorySchedules(ctx context.Context, repo models.C
 			variables = nil
 		}
 		doc := configRepositoryScheduleDocument{
-			Name:        name,
-			Description: strings.TrimSpace(description),
-			Pipeline:    buildPipelineIdentifier(pipelinePath, pipelineName),
-			Timezone:    timezone,
-			Enabled:     enabled,
-			Scope:       scope,
-			Variables:   variables,
+			Name:         name,
+			Description:  strings.TrimSpace(description),
+			Pipeline:     buildPipelineIdentifier(pipelinePath, pipelineName),
+			Timezone:     timezone,
+			Enabled:      enabled,
+			Scope:        scope,
+			RunGroupPath: runGroupPath,
+			Variables:    variables,
 		}
 		if normalizeScheduleKindValue(scheduleKind) == scheduleKindOnce {
 			doc.ScheduleKind = scheduleKindOnce
@@ -2049,7 +2053,7 @@ func configRepositoryBasicRoleResourceExport(resourceType, resourceID string) st
 	resourceType = strings.TrimSpace(resourceType)
 	resourceID = strings.Trim(strings.TrimSpace(resourceID), "/")
 	if resourceType == grantResourceFolder && resourceID == generalGrantID {
-		resourceID = "general"
+		resourceID = rootGrantID
 	}
 	return resourceType + ":" + resourceID
 }

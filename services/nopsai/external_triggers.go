@@ -45,6 +45,7 @@ type externalTriggerRecord struct {
 	Enabled         bool                           `json:"enabled"`
 	Pipeline        string                         `json:"pipeline"`
 	Scope           string                         `json:"scope"`
+	RunGroupPath    string                         `json:"run_group_path,omitempty"`
 	AllowedCallers  []externalTriggerAllowedCaller `json:"allowed_callers"`
 	VariableMapping map[string]string              `json:"variable_mapping"`
 	PayloadSchema   map[string]any                 `json:"payload_schema"`
@@ -66,6 +67,7 @@ type externalTriggerInput struct {
 	Enabled         *bool                          `json:"enabled"`
 	Pipeline        string                         `json:"pipeline"`
 	Scope           string                         `json:"scope"`
+	RunGroupPath    string                         `json:"run_group_path"`
 	AllowedCallers  []externalTriggerAllowedCaller `json:"allowed_callers"`
 	VariableMapping map[string]string              `json:"variable_mapping"`
 	PayloadSchema   map[string]any                 `json:"payload_schema"`
@@ -105,7 +107,7 @@ func (a *App) handleListExternalTriggers(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	rows, err := a.db.Query(r.Context(), `
-		SELECT id, name, description, enabled, pipeline, scope, allowed_callers, variable_mapping,
+		SELECT id, name, description, enabled, pipeline, scope, COALESCE(run_group_path, ''), allowed_callers, variable_mapping,
 		       payload_schema, rate_limit, created_by, created_at, updated_at, last_used_at,
 		       COALESCE(source, 'database'), config_repo_id, COALESCE(config_source_path, ''), managed_by_config_repo
 		FROM external_triggers
@@ -183,11 +185,11 @@ func (a *App) handleCreateExternalTrigger(w http.ResponseWriter, r *http.Request
 
 	if _, err := a.db.Exec(r.Context(), `
 		INSERT INTO external_triggers
-			(id, name, description, enabled, pipeline, scope, allowed_callers, variable_mapping,
+			(id, name, description, enabled, pipeline, scope, run_group_path, allowed_callers, variable_mapping,
 			 payload_schema, rate_limit, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12)
 	`, trigger.ID, trigger.Name, trigger.Description, trigger.Enabled, trigger.Pipeline, trigger.Scope,
-		string(allowedJSON), string(mappingJSON), string(schemaJSON), string(rateLimitJSON), createdBy); err != nil {
+		trigger.RunGroupPath, string(allowedJSON), string(mappingJSON), string(schemaJSON), string(rateLimitJSON), createdBy); err != nil {
 		http.Error(w, "failed to create external trigger", http.StatusInternalServerError)
 		return
 	}
@@ -261,14 +263,15 @@ func (a *App) handleUpdateExternalTrigger(w http.ResponseWriter, r *http.Request
 		    enabled = $4,
 		    pipeline = $5,
 		    scope = $6,
-		    allowed_callers = $7::jsonb,
-		    variable_mapping = $8::jsonb,
-		    payload_schema = $9::jsonb,
-		    rate_limit = $10::jsonb,
+		    run_group_path = $7,
+		    allowed_callers = $8::jsonb,
+		    variable_mapping = $9::jsonb,
+		    payload_schema = $10::jsonb,
+		    rate_limit = $11::jsonb,
 		    updated_at = NOW()
 		WHERE id = $1
 	`, id, trigger.Name, trigger.Description, trigger.Enabled, trigger.Pipeline, trigger.Scope,
-		string(allowedJSON), string(mappingJSON), string(schemaJSON), string(rateLimitJSON))
+		trigger.RunGroupPath, string(allowedJSON), string(mappingJSON), string(schemaJSON), string(rateLimitJSON))
 	if err != nil {
 		http.Error(w, "failed to update external trigger", http.StatusInternalServerError)
 		return
@@ -498,6 +501,9 @@ func (a *App) startExternalTriggerRun(
 	if scope := strings.TrimSpace(trigger.Scope); scope != "" {
 		req.Header.Set("X-Nopsai-Scope", scope)
 	}
+	if groupPath := effectiveExternalTriggerRunGroupPath(trigger); groupPath != "" {
+		req.Header.Set("X-Nopsai-Group-Path", groupPath)
+	}
 	if event := strings.TrimSpace(eventType); event != "" {
 		req.Header.Set("X-Nopsai-External-Event-Type", event)
 	}
@@ -533,7 +539,7 @@ func scanExternalTrigger(scanner interface{ Scan(...any) error }) (externalTrigg
 	var lastUsed sql.NullTime
 	var configRepoID sql.NullInt64
 	if err := scanner.Scan(&trigger.ID, &trigger.Name, &trigger.Description, &trigger.Enabled, &trigger.Pipeline,
-		&trigger.Scope, &allowedJSON, &mappingJSON, &schemaJSON, &rateLimitJSON, &trigger.CreatedBy,
+		&trigger.Scope, &trigger.RunGroupPath, &allowedJSON, &mappingJSON, &schemaJSON, &rateLimitJSON, &trigger.CreatedBy,
 		&trigger.CreatedAt, &trigger.UpdatedAt, &lastUsed, &trigger.Source, &configRepoID, &trigger.ConfigSource,
 		&trigger.ManagedByGitOps); err != nil {
 		return trigger, err
@@ -566,7 +572,7 @@ func decodeJSONWithDefault[T any](raw []byte, target *T, fallback T) error {
 
 func (a *App) loadExternalTrigger(ctx context.Context, id string) (externalTriggerRecord, error) {
 	return scanExternalTrigger(a.db.QueryRow(ctx, `
-		SELECT id, name, description, enabled, pipeline, scope, allowed_callers, variable_mapping,
+		SELECT id, name, description, enabled, pipeline, scope, COALESCE(run_group_path, ''), allowed_callers, variable_mapping,
 		       payload_schema, rate_limit, created_by, created_at, updated_at, last_used_at,
 		       COALESCE(source, 'database'), config_repo_id, COALESCE(config_source_path, ''), managed_by_config_repo
 		FROM external_triggers
@@ -602,13 +608,24 @@ func normalizeExternalTriggerInput(req externalTriggerInput, pathID string) (ext
 	if err != nil {
 		return externalTriggerRecord{}, err
 	}
+	runGroupPath, err := normalizeRunGroupPath(req.RunGroupPath)
+	if err != nil {
+		return externalTriggerRecord{}, fmt.Errorf("invalid run_group_path: %w", err)
+	}
+	scope := strings.Trim(strings.TrimSpace(req.Scope), "/")
+	if normalizedScope, rootOnly := stripRootPathPrefix(scope); rootOnly {
+		scope = ""
+	} else {
+		scope = normalizedScope
+	}
 	return externalTriggerRecord{
 		ID:              id,
 		Name:            name,
 		Description:     strings.TrimSpace(req.Description),
 		Enabled:         enabled,
 		Pipeline:        pipeline,
-		Scope:           strings.Trim(strings.TrimSpace(req.Scope), "/"),
+		Scope:           scope,
+		RunGroupPath:    runGroupPath,
 		AllowedCallers:  allowed,
 		VariableMapping: mapping,
 		PayloadSchema:   normalizeObjectMap(req.PayloadSchema),
@@ -616,12 +633,32 @@ func normalizeExternalTriggerInput(req externalTriggerInput, pathID string) (ext
 	}, nil
 }
 
+func effectiveExternalTriggerRunGroupPath(trigger externalTriggerRecord) string {
+	if groupPath := strings.Trim(strings.TrimSpace(trigger.RunGroupPath), "/"); groupPath != "" {
+		return groupPath
+	}
+	return rootGrantID
+}
+
 func normalizeExternalTriggerPipeline(value string) string {
+	pipeline, _ := normalizeExternalTriggerPipelineReference(value)
+	return pipeline
+}
+
+func normalizeExternalTriggerPipelineReference(value string) (string, bool) {
 	value = strings.Trim(strings.TrimSpace(value), "/")
 	value = strings.TrimPrefix(value, ".nopsai/")
 	value = strings.TrimPrefix(value, "pipelines/")
 	value = strings.TrimSuffix(strings.TrimSuffix(value, ".yaml"), ".yml")
-	return strings.Trim(value, "/")
+	value = strings.Trim(value, "/")
+	if value == "" {
+		return "", false
+	}
+	pipeline, rootQualified, err := normalizePipelineIdentifierReference(value)
+	if err != nil {
+		return value, rootQualified
+	}
+	return pipeline, rootQualified
 }
 
 func slugifyExternalTriggerID(name string) string {

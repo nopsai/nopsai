@@ -997,7 +997,7 @@ func normalizeAccessGrantResourceIDForBinding(resourceType, resourceID string, b
 	if binding.ScopeType != models.ConfigRepositoryScopeFolder {
 		return resourceID, nil
 	}
-	if isGeneralGrantResourceID(resourceID) {
+	if isRootGrantResourceID(resourceID) {
 		return generalGrantID, nil
 	}
 	return normalizeConfigPathForFolder(boundFolder, resourceID)
