@@ -8,6 +8,7 @@ import (
 
 	"nopsai/config"
 	"nopsai/pkg/models"
+	"nopsai/services/nopsai/internal/systemconfig"
 
 	"gopkg.in/yaml.v3"
 )
@@ -114,7 +115,7 @@ func parseGitOpsRuntimeSettingsFile(content, sourcePath string) (*gitOpsRuntimeS
 		return nil, fmt.Errorf("runtime settings GitOps file '%s' has invalid runner_capacity", sourcePath)
 	}
 	if payload.Limits != nil {
-		if err := validateRunnerLimits(*payload.Limits); err != nil {
+		if err := systemconfig.ValidateRunnerLimits(*payload.Limits); err != nil {
 			return nil, fmt.Errorf("runtime settings GitOps file '%s' has invalid limits: %w", sourcePath, err)
 		}
 	}
@@ -136,7 +137,7 @@ func buildRuntimeSettingsGitOpsFile(cfg config.Config) runtimeSettingsGitOpsFile
 		AutoRemovalAgentContainer: boolPtr(cfg.AutoRemovalAgentContainer),
 		DefaultPipelineTimeout:    stringPtr(cfg.DefaultPipelineTimeout),
 		LLMAgentTimeout:           stringPtr(cfg.LLMAgentTimeout),
-		DispatcherRouting:         cloneDispatcherRouting(cfg.DispatcherRouting),
+		DispatcherRouting:         systemconfig.CloneDispatcherRouting(cfg.DispatcherRouting),
 		RunnerID:                  stringPtr(cfg.RunnerID),
 		RunnerScopes:              stringPtr(cfg.RunnerScopes),
 		RunnerCapacity:            intPtr(runnerCapacity),

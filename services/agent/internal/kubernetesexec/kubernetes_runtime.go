@@ -1,9 +1,8 @@
-package main
+package kubernetesexec
 
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -18,7 +17,9 @@ import (
 	appconfig "nopsai/config"
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
+	"nopsai/services/agent/internal/executor"
 
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
@@ -34,7 +35,7 @@ import (
 )
 
 const (
-	kubernetesRuntimeName             = "kubernetes"
+	RuntimeName                       = "kubernetes"
 	kubernetesDefaultNamespace        = "default"
 	kubernetesDefaultWorkspaceSize    = "5Gi"
 	kubernetesDefaultAccessMode       = corev1.ReadWriteOnce
@@ -48,7 +49,7 @@ const (
 
 var kubernetesNameInvalidChars = regexp.MustCompile(`[^a-z0-9-]+`)
 
-type kubernetesAgentRuntime struct {
+type Runtime struct {
 	client          kubernetes.Interface
 	restConfig      *rest.Config
 	namespace       string
@@ -68,7 +69,7 @@ type kubernetesAgentRuntime struct {
 	runtimePools    map[string]appconfig.RuntimePool
 }
 
-type kubernetesStepPodRequest struct {
+type StepPodRequest struct {
 	RunID            string
 	PipelineName     string
 	StepName         string
@@ -79,7 +80,7 @@ type kubernetesStepPodRequest struct {
 	RuntimePool      string
 }
 
-func newKubernetesAgentRuntimeFromEnv(runID, pipelineName, workspacePVC string, pipelineAffinityEnabled *bool) (*kubernetesAgentRuntime, error) {
+func NewFromEnv(workspacePVC string, pipelineAffinityEnabled *bool, logger *zerolog.Logger) (*Runtime, error) {
 	restConfig, err := kubernetesRESTConfig()
 	if err != nil {
 		return nil, err
@@ -99,7 +100,7 @@ func newKubernetesAgentRuntimeFromEnv(runID, pipelineName, workspacePVC string, 
 	}
 	affinityEnabled := resolveKubernetesAffinityEnabled(os.Getenv("KUBERNETES_AFFINITY_ENABLED"), pipelineAffinityEnabled)
 
-	runtime := &kubernetesAgentRuntime{
+	runtime := &Runtime{
 		client:          clientset,
 		restConfig:      restConfig,
 		namespace:       namespace,
@@ -124,13 +125,15 @@ func newKubernetesAgentRuntimeFromEnv(runID, pipelineName, workspacePVC string, 
 	if err := runtime.prepareWorkspacePVC(context.Background()); err != nil {
 		return nil, fmt.Errorf("prepare workspace pvc: %w", err)
 	}
-	agentLog(runID, pipelineName).Info().
-		Str("namespace", runtime.namespace).
-		Str("workspace_pvc", runtime.workspacePVC).
-		Str("workspace_mode", runtime.workspaceMode).
-		Str("node", runtime.nodeName).
-		Bool("affinity_enabled", runtime.affinityEnabled).
-		Msg("Kubernetes task runtime initialized")
+	if logger != nil {
+		logger.Info().
+			Str("namespace", runtime.namespace).
+			Str("workspace_pvc", runtime.workspacePVC).
+			Str("workspace_mode", runtime.workspaceMode).
+			Str("node", runtime.nodeName).
+			Bool("affinity_enabled", runtime.affinityEnabled).
+			Msg("Kubernetes task runtime initialized")
+	}
 	return runtime, nil
 }
 
@@ -155,7 +158,7 @@ func kubernetesRESTConfig() (*rest.Config, error) {
 	return cfg, nil
 }
 
-func (r *kubernetesAgentRuntime) createStepPod(ctx context.Context, req kubernetesStepPodRequest) (string, error) {
+func (r *Runtime) CreateStepPod(ctx context.Context, req StepPodRequest) (string, error) {
 	if r == nil {
 		return "", fmt.Errorf("kubernetes runtime is not initialized")
 	}
@@ -215,7 +218,7 @@ func (r *kubernetesAgentRuntime) createStepPod(ctx context.Context, req kubernet
 				Image:           image,
 				ImagePullPolicy: r.imagePullPolicy,
 				WorkingDir:      workingDirectory,
-				Command:         []string{"sh", "-c", fmt.Sprintf("mkdir -p %s && tail -f /dev/null", shellQuote(workingDirectory))},
+				Command:         []string{"sh", "-c", fmt.Sprintf("mkdir -p %s && tail -f /dev/null", executor.ShellQuote(workingDirectory))},
 				Env:             kubernetesEnv(req.Env),
 				VolumeMounts:    volumeMounts,
 				Resources:       resources,
@@ -248,35 +251,21 @@ func (r *kubernetesAgentRuntime) createStepPod(ctx context.Context, req kubernet
 	return podName, nil
 }
 
-func (r *kubernetesAgentRuntime) executeAction(ctx context.Context, podName string, action *proto.Action, runtimeVars []string, workingDirectory string) (string, string, int) {
+func (r *Runtime) ExecuteAction(ctx context.Context, podName string, action *proto.Action, runtimeVars []string, workingDirectory string) (string, string, int) {
 	workingDirectory, err := normalizeKubernetesWorkingDirectory(workingDirectory)
 	if err != nil {
 		return "", err.Error(), 1
 	}
 
-	var cmdStr string
-	switch action.Type {
-	case "EXECUTE_COMMAND":
-		cmdStr = action.GetCommandAction().Command
-	case "REPLACE_FILE":
-		content := action.GetFileAction().Content
-		encodedContent := base64Encode(content)
-		filePath, err := resolveActionFilePath(workingDirectory, action.GetFileAction().Path)
-		if err != nil {
-			return "", err.Error(), 1
-		}
-		cmdStr = fmt.Sprintf("printf %%s %s | base64 -d > %s", shellQuote(encodedContent), shellQuote(filePath))
-	case "RETURN_ANSWER":
-		ansAction := action.GetAnswerAction()
-		if ansAction == nil {
-			return "", "Invalid answer action payload", 1
-		}
-		return ansAction.Answer, "", 0
-	default:
-		return "", "Unknown action type", 1
+	prepared, err := executor.PrepareAction(action, workingDirectory)
+	if err != nil {
+		return "", err.Error(), 1
+	}
+	if prepared.ReturnOnly {
+		return prepared.Stdout, "", 0
 	}
 
-	command := []string{"sh", "-c", prefixRuntimeEnv(runtimeVars) + "cd " + shellQuote(workingDirectory) + " && " + cmdStr}
+	command := []string{"sh", "-c", prefixRuntimeEnv(runtimeVars) + "cd " + executor.ShellQuote(workingDirectory) + " && " + prepared.Command}
 	execReq := r.client.CoreV1().RESTClient().
 		Post().
 		Namespace(r.namespace).
@@ -320,7 +309,7 @@ func (r *kubernetesAgentRuntime) executeAction(ctx context.Context, podName stri
 	return strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()), exitCode
 }
 
-func (r *kubernetesAgentRuntime) cleanupPod(ctx context.Context, podName string) {
+func (r *Runtime) CleanupPod(ctx context.Context, podName string) {
 	if r == nil || strings.TrimSpace(podName) == "" || !r.cleanupPods {
 		return
 	}
@@ -337,7 +326,7 @@ func (r *kubernetesAgentRuntime) cleanupPod(ctx context.Context, podName string)
 	}
 }
 
-func (r *kubernetesAgentRuntime) kubernetesStepVolumes(ctx context.Context, volumeSpecs []string) ([]corev1.VolumeMount, []corev1.Volume, error) {
+func (r *Runtime) kubernetesStepVolumes(ctx context.Context, volumeSpecs []string) ([]corev1.VolumeMount, []corev1.Volume, error) {
 	if len(volumeSpecs) == 0 {
 		return nil, nil, nil
 	}
@@ -368,7 +357,7 @@ func (r *kubernetesAgentRuntime) kubernetesStepVolumes(ctx context.Context, volu
 	return mounts, volumes, nil
 }
 
-func (r *kubernetesAgentRuntime) prepareWorkspacePVC(ctx context.Context) error {
+func (r *Runtime) prepareWorkspacePVC(ctx context.Context) error {
 	switch r.workspaceMode {
 	case "emptyDir":
 		return fmt.Errorf("emptyDir workspace mode is not compatible with multi-pod pipeline execution")
@@ -387,7 +376,7 @@ func (r *kubernetesAgentRuntime) prepareWorkspacePVC(ctx context.Context) error 
 	}
 }
 
-func (r *kubernetesAgentRuntime) ensurePVC(ctx context.Context, name, size string, accessMode corev1.PersistentVolumeAccessMode) error {
+func (r *Runtime) ensurePVC(ctx context.Context, name, size string, accessMode corev1.PersistentVolumeAccessMode) error {
 	name = kubernetesPVCName(name)
 	if name == "" {
 		return fmt.Errorf("pvc name is required")
@@ -427,7 +416,7 @@ func (r *kubernetesAgentRuntime) ensurePVC(ctx context.Context, name, size strin
 	return nil
 }
 
-func (r *kubernetesAgentRuntime) waitForPodRunning(ctx context.Context, podName string) error {
+func (r *Runtime) waitForPodRunning(ctx context.Context, podName string) error {
 	waitCtx := ctx
 	if waitCtx == nil {
 		waitCtx = context.Background()
@@ -462,7 +451,7 @@ func (r *kubernetesAgentRuntime) waitForPodRunning(ctx context.Context, podName 
 	}
 }
 
-func (r *kubernetesAgentRuntime) runtimePoolScheduling(poolName string) (map[string]string, corev1.ResourceRequirements, error) {
+func (r *Runtime) runtimePoolScheduling(poolName string) (map[string]string, corev1.ResourceRequirements, error) {
 	resources := corev1.ResourceRequirements{}
 	if len(r.runtimePools) == 0 {
 		return nil, resources, nil
@@ -577,10 +566,22 @@ func prefixRuntimeEnv(entries []string) string {
 		builder.WriteString("export ")
 		builder.WriteString(key)
 		builder.WriteString("=")
-		builder.WriteString(shellQuote(value))
+		builder.WriteString(executor.ShellQuote(value))
 		builder.WriteString("; ")
 	}
 	return builder.String()
+}
+
+func splitRuntimeEntry(entry string) (string, string, bool) {
+	parts := strings.SplitN(entry, "=", 2)
+	if len(parts) != 2 {
+		return "", "", false
+	}
+	key := strings.TrimSpace(parts[0])
+	if key == "" {
+		return "", "", false
+	}
+	return key, parts[1], true
 }
 
 func parseRuntimePoolsEnv() map[string]appconfig.RuntimePool {
@@ -745,8 +746,4 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func base64Encode(value string) string {
-	return base64.StdEncoding.EncodeToString([]byte(value))
 }

@@ -1,4 +1,4 @@
-package main
+package resolver
 
 import (
 	"sort"
@@ -8,27 +8,27 @@ import (
 	"nopsai/pkg/proto"
 )
 
-type taskRuntimeSource string
+type runtimeSource string
 
 const (
-	taskRuntimeSourcePipelineVariable taskRuntimeSource = "pipeline_variable"
-	taskRuntimeSourceInherited        taskRuntimeSource = "inherited"
-	taskRuntimeSourceStepVariable     taskRuntimeSource = "step_variable"
-	taskRuntimeSourceTaskVariable     taskRuntimeSource = "task_variable"
-	taskRuntimeSourceSecret           taskRuntimeSource = "secret"
+	runtimeSourcePipelineVariable runtimeSource = "pipeline_variable"
+	runtimeSourceInherited        runtimeSource = "inherited"
+	runtimeSourceStepVariable     runtimeSource = "step_variable"
+	runtimeSourceTaskVariable     runtimeSource = "task_variable"
+	runtimeSourceSecret           runtimeSource = "secret"
 )
 
-type taskRuntimeValue struct {
+type runtimeValue struct {
 	Value     string
 	Sensitive bool
 }
 
-type taskExecutionContext struct {
-	values map[string]taskRuntimeValue
+type ExecutionContext struct {
+	values map[string]runtimeValue
 }
 
-func buildStepExecutionContext(pipeline *models.Pipeline, step *models.PipelineStep, inheritedVars []string, variables, secrets map[string]string) (taskExecutionContext, []string) {
-	context := newTaskExecutionContext()
+func BuildStepContext(pipeline *models.Pipeline, step *models.PipelineStep, inheritedVars []string, variables, secrets map[string]string) (ExecutionContext, []string) {
+	context := NewExecutionContext()
 	requiredRefs := make(map[string]models.ScopedRuntimeRef, len(pipeline.Variables))
 	requiredRuntimeNames := make(map[string]models.ScopedRuntimeRef, len(pipeline.Variables))
 	for _, key := range pipeline.Variables {
@@ -46,7 +46,7 @@ func buildStepExecutionContext(pipeline *models.Pipeline, step *models.PipelineS
 			continue
 		}
 		if requiredRef, ok := requiredRefs[ref.Key()]; ok {
-			context.set(requiredRef.Name, value, taskRuntimeSourcePipelineVariable)
+			context.set(requiredRef.Name, value, runtimeSourcePipelineVariable)
 		}
 	}
 
@@ -56,20 +56,20 @@ func buildStepExecutionContext(pipeline *models.Pipeline, step *models.PipelineS
 			continue
 		}
 		if requiredRef, isRequired := requiredRefs[key]; isRequired {
-			context.set(requiredRef.Name, value, taskRuntimeSourceInherited)
+			context.set(requiredRef.Name, value, runtimeSourceInherited)
 			continue
 		}
 		if requiredRef, isRequired := requiredRuntimeNames[key]; isRequired {
-			context.set(requiredRef.Name, value, taskRuntimeSourceInherited)
+			context.set(requiredRef.Name, value, runtimeSourceInherited)
 			continue
 		}
 		if strings.HasPrefix(key, "GIT_") || key == "SCOPE" {
-			context.set(key, value, taskRuntimeSourceInherited)
+			context.set(key, value, runtimeSourceInherited)
 		}
 	}
 
 	for key, value := range step.GetVariables() {
-		context.set(key, value, taskRuntimeSourceStepVariable)
+		context.set(key, value, runtimeSourceStepVariable)
 	}
 
 	missingSecrets := make([]string, 0)
@@ -83,21 +83,21 @@ func buildStepExecutionContext(pipeline *models.Pipeline, step *models.PipelineS
 			missingSecrets = append(missingSecrets, ref.Key())
 			continue
 		}
-		context.set(ref.Name, secretValue, taskRuntimeSourceSecret)
+		context.set(ref.Name, secretValue, runtimeSourceSecret)
 	}
 	sort.Strings(missingSecrets)
 
 	return context, missingSecrets
 }
 
-func newTaskExecutionContext() taskExecutionContext {
-	return taskExecutionContext{
-		values: make(map[string]taskRuntimeValue),
+func NewExecutionContext() ExecutionContext {
+	return ExecutionContext{
+		values: make(map[string]runtimeValue),
 	}
 }
 
-func (c taskExecutionContext) withTask(task *models.Task) taskExecutionContext {
-	cloned := newTaskExecutionContext()
+func (c ExecutionContext) WithTask(task *models.Task) ExecutionContext {
+	cloned := NewExecutionContext()
 	for key, value := range c.values {
 		cloned.values[key] = value
 	}
@@ -105,12 +105,12 @@ func (c taskExecutionContext) withTask(task *models.Task) taskExecutionContext {
 		return cloned
 	}
 	for key, value := range task.Variables {
-		cloned.set(key, value, taskRuntimeSourceTaskVariable)
+		cloned.set(key, value, runtimeSourceTaskVariable)
 	}
 	return cloned
 }
 
-func (c taskExecutionContext) containerVariables() []string {
+func (c ExecutionContext) ContainerVariables() []string {
 	if len(c.values) == 0 {
 		return nil
 	}
@@ -127,7 +127,7 @@ func (c taskExecutionContext) containerVariables() []string {
 	return runtimeVars
 }
 
-func (c taskExecutionContext) promptVariables() map[string]string {
+func (c ExecutionContext) PromptVariables() map[string]string {
 	if len(c.values) == 0 {
 		return map[string]string{}
 	}
@@ -142,31 +142,31 @@ func (c taskExecutionContext) promptVariables() map[string]string {
 	return variables
 }
 
-func (c taskExecutionContext) buildConditionRequest(goal, history, knowledgeContext string, secrets map[string]string) *proto.ConditionRequest {
+func (c ExecutionContext) BuildConditionRequest(goal, history, knowledgeContext string, secrets map[string]string) *proto.ConditionRequest {
 	return &proto.ConditionRequest{
 		Goal:             goal,
-		History:          c.maskText(history, secrets),
-		Variables:        c.promptVariables(),
-		KnowledgeContext: c.maskText(knowledgeContext, secrets),
+		History:          c.MaskText(history, secrets),
+		Variables:        c.PromptVariables(),
+		KnowledgeContext: c.MaskText(knowledgeContext, secrets),
 	}
 }
 
-func (c taskExecutionContext) buildActionRequest(goal, history string, directoryListing map[string]string, knowledgeContext string, secrets map[string]string) *proto.GetActionRequest {
+func (c ExecutionContext) BuildActionRequest(goal, history string, directoryListing map[string]string, knowledgeContext string, secrets map[string]string) *proto.GetActionRequest {
 	maskValues := c.promptMaskValues(secrets)
 	return &proto.GetActionRequest{
 		Goal:             goal,
 		History:          maskSensitiveValues(history, maskValues),
 		DirectoryListing: maskDirectoryListing(directoryListing, maskValues),
-		Variables:        c.promptVariables(),
+		Variables:        c.PromptVariables(),
 		KnowledgeContext: maskSensitiveValues(knowledgeContext, maskValues),
 	}
 }
 
-func (c taskExecutionContext) maskText(input string, secrets map[string]string) string {
+func (c ExecutionContext) MaskText(input string, secrets map[string]string) string {
 	return maskSensitiveValues(input, c.promptMaskValues(secrets))
 }
 
-func (c taskExecutionContext) promptMaskValues(secrets map[string]string) []string {
+func (c ExecutionContext) promptMaskValues(secrets map[string]string) []string {
 	values := make([]string, 0, len(c.values)+len(secrets))
 	for _, value := range c.values {
 		if value.Sensitive {
@@ -179,14 +179,25 @@ func (c taskExecutionContext) promptMaskValues(secrets map[string]string) []stri
 	return uniqueSensitiveValues(values)
 }
 
-func (c taskExecutionContext) set(name, value string, source taskRuntimeSource) {
+func (c *ExecutionContext) SetValue(name, value string, sensitive bool) {
+	source := runtimeSourceTaskVariable
+	if sensitive {
+		source = runtimeSourceSecret
+	}
+	c.set(name, value, source)
+}
+
+func (c *ExecutionContext) set(name, value string, source runtimeSource) {
 	trimmed := strings.TrimSpace(name)
 	if trimmed == "" {
 		return
 	}
-	c.values[trimmed] = taskRuntimeValue{
+	if c.values == nil {
+		c.values = make(map[string]runtimeValue)
+	}
+	c.values[trimmed] = runtimeValue{
 		Value:     value,
-		Sensitive: source == taskRuntimeSourceSecret || isSensitiveVariableName(trimmed),
+		Sensitive: source == runtimeSourceSecret || isSensitiveVariableName(trimmed),
 	}
 }
 
